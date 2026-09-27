@@ -117,6 +117,7 @@ table!(
         ordinal: i64,
         node_id: Option<Id>,
         cited_fact_id: Option<Id>,
+        attribute_id: Option<Id>,
         label: Option<String>,
         weight: Option<f64>,
     }
@@ -480,6 +481,8 @@ macro_rules! for_each_analysis_table {
     ($mac:ident) => {
         $mac!(
             $crate::findings::PublicPaths,
+            $crate::concept_attributes::ConceptAttributes,
+            $crate::concept_attributes::ConceptIncidences,
             $crate::behavior::ArgumentFlows,
             $crate::behavior::Guards,
             $crate::behavior::ParameterReads,
@@ -581,6 +584,7 @@ pub struct MemberKey {
     pub ordinal: i64,
     pub node: Option<Id>,
     pub cited_fact: Option<Id>,
+    pub attribute: Option<Id>,
     pub label: Option<String>,
 }
 
@@ -856,8 +860,12 @@ pub mod recipe {
                 h.i64(i64::from(m.role))
                     .i64(m.ordinal)
                     .opt_id(m.node)
-                    .opt_id(m.cited_fact)
-                    .opt_str(m.label.as_deref());
+                    .opt_id(m.cited_fact);
+                if let Some(attribute) = m.attribute {
+                    h.str("typed-attribute").id(attribute);
+                } else {
+                    h.opt_str(m.label.as_deref());
+                }
             }
             h.finish_id()
         }

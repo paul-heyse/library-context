@@ -102,11 +102,46 @@ class FindingWitness(BaseModel):
     end_byte: int
 
 
+class ConceptAttribute(BaseModel):
+    attribute_id: str
+    kind: str
+    symbol: str | None
+    parameter_kind: str | None
+    type_term_id: str | None
+    class_module: str | None
+    class_key: str | None
+    target_node_id: str | None
+    modality: str | None
+    phase: str | None
+    producer_modality: str | None
+    producer_phase: str | None
+    display: str
+
+
+class AttributeIncidence(BaseModel):
+    finding_id: str
+    incidence_id: str
+    attribute_id: str
+    object_node_id: str
+    source_fact_id: str
+    fact_table: str
+    fact_model_id: str
+    site_node_id: str | None
+    edge_id: str | None
+    other_site_node_id: str | None
+    other_edge_id: str | None
+    consumer_formal_id: str | None
+    other_fact_id: str | None
+    other_fact_table: str | None
+    other_fact_model_id: str | None
+
+
 class FindingMember(BaseModel):
     role: str
     ordinal: int
     node_id: str | None
     cited_fact_id: str | None
+    attribute_id: str | None
     fact_table: str | None
     fact_model_id: str | None
     label: str | None
@@ -127,6 +162,8 @@ class FindingSupport(BaseModel):
     witnesses_omitted: bool
     witnesses: list[FindingWitness]
     members: list[FindingMember]
+    attributes: list[ConceptAttribute]
+    attribute_incidences: list[AttributeIncidence]
     source_resolution: Literal["source_span", "fact_only", "unavailable"]
 
 
@@ -182,6 +219,8 @@ class Served:
     findings: dict[bytes, dict]
     witnesses: dict[bytes, list[dict]]
     finding_members: dict[bytes, list[dict]]
+    attributes: dict[bytes, dict]
+    attribute_incidences: dict[bytes, list[dict]]
     members: dict[bytes, list[str]]
     operations: ops.OperationIndex
 
@@ -214,17 +253,24 @@ def _finding(served: Served, finding_id: bytes) -> FindingSupport:
             ordinal=m["ordinal"],
             node_id=_hex(m["node_id"]),
             cited_fact_id=_hex(m["cited_fact_id"]),
+            attribute_id=_hex(m["attribute_id"]),
             fact_table=m["fact_table"],
             fact_model_id=m["fact_model_id"],
             label=m["label"],
         )
         for m in served.finding_members.get(finding_id, [])
     ]
+    def encode_ids(row: dict) -> dict:
+        return {k: v.hex() if isinstance(v, bytes) else v for k, v in row.items()}
+
+    attribute_ids = {m["attribute_id"] for m in served.finding_members.get(finding_id, []) if m["attribute_id"] is not None}
+    attributes = [ConceptAttribute(**encode_ids(served.attributes[a])) for a in sorted(attribute_ids)]
+    incidences = [AttributeIncidence(**encode_ids(r)) for r in served.attribute_incidences.get(finding_id, [])]
     resolution = (
         "source_span"
         if witnesses
         else "fact_only"
-        if any(m.cited_fact_id for m in members)
+        if incidences or any(m.cited_fact_id for m in members)
         else "unavailable"
     )
     return FindingSupport(
@@ -242,6 +288,8 @@ def _finding(served: Served, finding_id: bytes) -> FindingSupport:
         witnesses_omitted=row["witnesses_omitted"],
         witnesses=witnesses,
         members=members,
+        attributes=attributes,
+        attribute_incidences=incidences,
         source_resolution=resolution,
     )
 
@@ -261,6 +309,10 @@ def serve(generation: Generation, embedder: Embedder | None) -> Served:
     finding_members: dict[bytes, list[dict]] = {}
     for r in generation.tables["support_members"].to_pylist():
         finding_members.setdefault(r["finding_id"], []).append(r)
+    attributes = {r["attribute_id"]: r for r in generation.tables["support_attributes"].to_pylist()}
+    attribute_incidences: dict[bytes, list[dict]] = {}
+    for row in generation.tables["support_attribute_incidences"].to_pylist():
+        attribute_incidences.setdefault(row["finding_id"], []).append(row)
     # A brief is shown by its own public paths; the inherited ones only promote (FORMAT 2).
     members: dict[bytes, list[str]] = {}
     for r in generation.tables["brief_members"].to_pylist():
@@ -276,6 +328,8 @@ def serve(generation: Generation, embedder: Embedder | None) -> Served:
         findings=findings,
         witnesses=witnesses,
         finding_members=finding_members,
+        attributes=attributes,
+        attribute_incidences=attribute_incidences,
         members=members,
         operations=ops.OperationIndex(generation),
     )

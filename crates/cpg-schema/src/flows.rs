@@ -492,7 +492,7 @@ pub fn handoffs_sql() -> String {
            GROUP BY rr.binding_id), \
          targets AS ( \
            SELECT t.call_site_node_id AS site, t.target_node_id AS target, t.edge_id, \
-                  t.modality, t.receiver \
+                  t.modality, t.phase, t.receiver \
            FROM ({targets}) t JOIN declarations dt ON dt.node_id = t.target_node_id \
            JOIN source_files rel ON rel.module_node_id = dt.module_node_id \
              AND rel.role = {release}), \
@@ -545,7 +545,9 @@ pub fn handoffs_sql() -> String {
                 fm.node_id AS formal_node_id, fm.name AS formal_name, u.path, u.role, \
                 cs.start_byte AS consumer_start_byte, o.consumer_site AS consumer_site_node_id, \
                 o.producer_site AS producer_site_node_id, o.named, \
-                ct.modality AS consumer_modality \
+                ct.modality AS consumer_modality, ct.phase AS consumer_phase, \
+                pt.modality AS producer_modality, pt.phase AS producer_phase, \
+                ct.edge_id AS consumer_edge_id, pt.edge_id AS producer_edge_id \
          FROM occurrences o \
          JOIN targets pt ON pt.site = o.producer_site \
          JOIN targets ct ON ct.site = o.consumer_site \
@@ -651,6 +653,11 @@ pub mod schemas {
             id("producer_site_node_id", false),
             Field::new("named", DataType::Boolean, false),
             Field::new("consumer_modality", DataType::Int16, false),
+            Field::new("consumer_phase", DataType::Int16, false),
+            Field::new("producer_modality", DataType::Int16, false),
+            Field::new("producer_phase", DataType::Int16, false),
+            id("consumer_edge_id", false),
+            id("producer_edge_id", false),
         ]))
     }
 

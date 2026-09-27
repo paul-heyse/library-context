@@ -87,6 +87,19 @@ codebook!(
 );
 
 codebook!(
+    ConceptAttributeKind = "concept_attribute_kind" {
+        Parameter = 0 => "parameter",
+        ParameterType = 1 => "parameter_type",
+        Returns = 2 => "returns",
+        Raises = 3 => "raises",
+        Decorator = 4 => "decorator",
+        Calls = 5 => "calls",
+        HandsOff = 6 => "hands_off",
+        TakesFrom = 7 => "takes_from",
+    }
+);
+
+codebook!(
     Modality = "modality" {
         Definite = 0 => "definite",
         Candidate = 1 => "candidate",
@@ -1067,6 +1080,8 @@ codebook!(
         Conclusion = 14 => "conclusion",
         /// A passage's heading (or its document's path), as a doc link or community label shows it.
         Label = 15 => "label",
+        /// A paired official-usage relation; its evidence is incidence, never a call-chain path.
+        HandoffAttribute = 16 => "handoff_attribute",
     }
 );
 
@@ -1785,6 +1800,7 @@ pub fn registry() -> Vec<CodebookEntry> {
         CodebookEntry::of::<ExactRuntimeException>(),
         CodebookEntry::of::<SummaryChannel>(),
         CodebookEntry::of::<SummarySubjectKind>(),
+        CodebookEntry::of::<ConceptAttributeKind>(),
     ]
 }
 

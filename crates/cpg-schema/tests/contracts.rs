@@ -180,6 +180,7 @@ fn a_finding_id_follows_every_identity_column() {
         ordinal: 0,
         node: Some(Id([3; 16])),
         cited_fact: None,
+                attribute: None,
         label: Some("pkg.S".to_owned()),
     };
     let paths = vec![vec![step]];

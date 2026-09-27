@@ -57,7 +57,7 @@ use crate::{CoreError, sql};
 /// cite the exact mention that anchors them as `scope` evidence (R1 F1). 18: a brief's members
 /// are every public path of its seed, own and inherited, with `own` (the holistic assessment's A1).
 /// 19: an unfollowed transfer is an explicit unproved alternative, including alongside a witness.
-pub const TEMPLATE_VERSION: i64 = 19;
+pub const TEMPLATE_VERSION: i64 = 20;
 
 /// The §11.1 cap on a brief document: 2,048 tokens. The embedder counts tokens with the served
 /// model's tokenizer (slice 1.6); here a declared proxy of four bytes per token. An over-cap
@@ -347,65 +347,8 @@ fn listed(items: &[String]) -> String {
 /// directly in its body, is decorated (§9.6's attribute forms, `cpg_schema::concepts`); and, in
 /// the `+rca` variant, calls a subsystem function, or has its result passed on or takes another's
 /// in official usage (`lctx_analytics::concepts::RCA_POLICY`).
-fn attributes_text(attributes: &[String]) -> String {
-    let (mut params, mut types, mut returns, mut raises, mut decorators) =
-        (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
-    let (mut calls, mut hands, mut takes) = (Vec::new(), Vec::new(), Vec::new());
-    for a in attributes {
-        if let Some(x) = a.strip_prefix("calls ") {
-            calls.push(format!("`{x}`"));
-        } else if let Some(x) = a.strip_prefix("hands off to ") {
-            hands.push(format!("`{x}`"));
-        } else if let Some(x) = a.strip_prefix("takes from ") {
-            takes.push(format!("`{x}`"));
-        } else if let Some(t) = a.strip_prefix("parameter type ") {
-            types.push(format!("a parameter typed `{t}`"));
-        } else if let Some(n) = a.strip_prefix("parameter ") {
-            params.push(format!("`{n}`"));
-        } else if let Some(t) = a.strip_prefix("returns ") {
-            returns.push(format!("`{t}`"));
-        } else if let Some(e) = a.strip_prefix("raises ") {
-            raises.push(format!("`{e}`"));
-        } else if let Some(d) = a.strip_prefix("decorator ") {
-            decorators.push(format!("`@{d}`"));
-        }
-    }
-    let mut declared = Vec::new();
-    match params.len() {
-        0 => {}
-        1 => declared.push(format!("the parameter {}", params[0])),
-        _ => declared.push(format!("the parameters {}", listed(&params))),
-    }
-    declared.extend(types);
-    for t in returns {
-        declared.push(format!("the return type {t}"));
-    }
-    let mut parts = Vec::new();
-    if !declared.is_empty() {
-        parts.push(format!("declares {}", listed(&declared)));
-    }
-    if !raises.is_empty() {
-        parts.push(format!("raises {} directly in its body", listed(&raises)));
-    }
-    if !decorators.is_empty() {
-        parts.push(format!("is decorated with {}", listed(&decorators)));
-    }
-    if !calls.is_empty() {
-        parts.push(format!("calls {}", listed(&calls)));
-    }
-    if !hands.is_empty() {
-        parts.push(format!(
-            "has its result passed to {} in official usage",
-            listed(&hands)
-        ));
-    }
-    if !takes.is_empty() {
-        parts.push(format!(
-            "takes the result of {} in official usage",
-            listed(&takes)
-        ));
-    }
-    listed(&parts)
+fn attributes_text(attributes: &[Id], catalog:&BTreeMap<Id,&cpg_schema::concept_attributes::ConceptAttributesRow>) -> String {
+    listed(&attributes.iter().map(|id| catalog[id].render().expect("validated typed attribute")).collect::<Vec<_>>())
 }
 
 // Stage F's relations (the holistic assessment's A4, B2): each declared once, its values bound as
@@ -907,19 +850,6 @@ pub async fn run(
         }
     }
 
-    // Pass C and §10.5: each seed's handoffs, the formals they name, and its usage pattern.
-    let handoff_formals: BTreeSet<Id> = found
-        .members
-        .iter()
-        .filter(|m| m.role == MemberRole::Formal)
-        .filter_map(|m| m.node_id)
-        .collect();
-    let mut formal_function: BTreeMap<Id, Id> = BTreeMap::new();
-    for r in over::<FormalRow>(ctx, formals_relation(), handoff_formals.iter().copied()).await? {
-        formal_function
-            .entry(r.node_id)
-            .or_insert(r.function_node_id);
-    }
     // Each seed's handoff occurrences as (producer site, consumer site): a pattern that shows one
     // whole is preferred within its role (slice 2.2 review F3).
     let mut preferred: BTreeMap<Id, Vec<(Id, Id)>> = BTreeMap::new();
@@ -951,6 +881,7 @@ pub async fn run(
     // Each seed's FCA attributes, as Stage E's context held them (RCA's included), for the
     // implications it meets.
     let seed_attributes = &found.seed_attributes;
+    let attribute_catalog:BTreeMap<_,_>=found.concept_attributes.iter().map(|r|(r.attribute_id,r)).collect();
 
     let mut evidence: BTreeMap<Id, EvidenceRow> = BTreeMap::new();
     let mut add_evidence = |row: EvidenceRow| -> Id {
@@ -1636,9 +1567,9 @@ pub async fn run(
                     others.truncate(choices.shared_signature_names);
                     others.push(format!("{} more", count - choices.shared_signature_names));
                 }
-                let intent: Vec<String> = concept_rows(f, MemberRole::IntentAttribute)
+                let intent: Vec<Id> = concept_rows(f, MemberRole::IntentAttribute)
                     .iter()
-                    .filter_map(|m| m.label.clone())
+                    .filter_map(|m| m.attribute_id)
                     .collect();
                 drafts.push(
                     Draft::new(
@@ -1648,7 +1579,7 @@ pub async fn run(
                              {}.",
                             listed(&others),
                             count + 1,
-                            attributes_text(&intent)
+                            attributes_text(&intent,&attribute_catalog)
                         ),
                     )
                     .citing(f),
@@ -1657,20 +1588,20 @@ pub async fn run(
             // Implications of the seed's scope it satisfies: its attributes hold every premise
             // attribute, so it has the conclusion's too. The best supported few.
             if let Some(own) = seed_attributes.get(&seed) {
-                let mut met: Vec<(&FindingsRow, Vec<String>, Vec<String>)> = found
+                let mut met: Vec<(&FindingsRow, Vec<Id>, Vec<Id>)> = found
                     .findings
                     .iter()
                     .filter(|f| {
                         f.finding_kind == FindingKind::Implication && f.subject_node_id == *scope
                     })
                     .filter_map(|f| {
-                        let premise: Vec<String> = concept_rows(f, MemberRole::Premise)
+                        let premise: Vec<Id> = concept_rows(f, MemberRole::Premise)
                             .iter()
-                            .filter_map(|m| m.label.clone())
+                            .filter_map(|m| m.attribute_id)
                             .collect();
-                        let conclusion: Vec<String> = concept_rows(f, MemberRole::Conclusion)
+                        let conclusion: Vec<Id> = concept_rows(f, MemberRole::Conclusion)
                             .iter()
-                            .filter_map(|m| m.label.clone())
+                            .filter_map(|m| m.attribute_id)
                             .collect();
                         (!premise.is_empty()
                             && !conclusion.is_empty()
@@ -1692,8 +1623,8 @@ pub async fn run(
                             format!(
                                 "Among the public APIs of `{scope_label}`, every one that {} also \
                                  {} ({} APIs).",
-                                attributes_text(&premise),
-                                attributes_text(&conclusion),
+                                attributes_text(&premise,&attribute_catalog),
+                                attributes_text(&conclusion,&attribute_catalog),
                                 f.score.unwrap_or_default() as i64
                             ),
                         )
@@ -1877,17 +1808,10 @@ pub async fn run(
                 })
         });
         for f in handoffs.into_iter().take(3) {
-            let Some(other) = f.related_node_id.map(label) else {
-                continue;
-            };
             let formal = found
                 .members
                 .iter()
                 .find(|m| m.finding_id == f.finding_id && m.role == MemberRole::Formal);
-            let consumes = formal
-                .and_then(|m| m.node_id)
-                .and_then(|n| formal_function.get(&n))
-                == Some(&seed);
             let formal_name = formal.and_then(|m| m.label.clone()).unwrap_or_default();
             let example = found
                 .members
@@ -1900,21 +1824,9 @@ pub async fn run(
                 "{n} occurrence{}, e.g. in `{example}`",
                 if n == 1 { "" } else { "s" }
             );
-            let text = if consumes {
-                let what = match other.strip_suffix(".__init__") {
-                    Some(class) => format!("a `{class}` instance"),
-                    None => format!("what `{other}` returns"),
-                };
-                format!(
-                    "Official usage passes {what} straight to `{seed_label}` as `{formal_name}` \
-                     ({occurrences})."
-                )
-            } else {
-                format!(
-                    "Official usage passes what `{seed_label}` returns straight to `{other}` as \
-                     `{formal_name}` ({occurrences})."
-                )
-            };
+            let Some(attribute)=found.members.iter().find(|m|m.finding_id==f.finding_id && m.role==MemberRole::HandoffAttribute)
+                .and_then(|m|m.attribute_id).and_then(|id|attribute_catalog.get(&id)) else {continue};
+            let text=format!("`{seed_label}` {} as `{formal_name}` ({occurrences}).",attribute.render().expect("validated handoff attribute"));
             drafts.push(Draft::new(AssertionKind::Handoff, text).citing(f));
         }
 

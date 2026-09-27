@@ -96,11 +96,17 @@ entries and doc links. **It may never state a control, a limit or a behavioral c
 - **Validator.** `semantic:assertion-policy` checks the kind policy.
   `semantic:assertion-status-derived` recomputes the derivation in SQL and requires equality: a
   floor and a ceiling.
-- **Support closure (FORMAT 8, [ADR-0049](../../adr/0049-served-support-closure.md)).** The
+- **Support closure (FORMAT 9, [ADR-0049](../../adr/0049-served-support-closure.md)).** The
   generation carries only cited findings, with invocation/model, ordered witness source spans and
   member fact identities. Startup refuses absent support edges or witness spans. Structured and
   Markdown renderings use the same hydrated support object. A member without a generic source
   span is marked `fact_only` or `unavailable`, not silently treated as a resolved citation.
+  **Implemented (2026-09-27):** typed attributes and their source incidences accompany cited
+  FCA/RCA and handoff findings. FCA evidence is restricted to the finding's supporter objects;
+  handoff evidence to its retained pairs/formal, with both endpoint fact/model references.
+  Publication and startup reject missing or foreign support, malformed pair members and incomplete
+  incidence shapes. A handoff pair is not a delegation-chain witness. Labels are rendered from
+  typed attributes by the schema-owned renderer (template version 20).
 
 **Assertion kinds**
 

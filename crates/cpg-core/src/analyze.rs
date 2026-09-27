@@ -223,10 +223,12 @@ pub struct AnalysisRows {
     /// only that scope's concepts and implications for the seed.
     pub seed_scopes: BTreeMap<Id, (Id, String)>,
     /// Each seed's FCA attributes, as the context held them (RCA's included).
-    pub seed_attributes: BTreeMap<Id, std::collections::BTreeSet<String>>,
+    pub seed_attributes: BTreeMap<Id, std::collections::BTreeSet<Id>>,
+    pub concept_attributes: Vec<cpg_schema::concept_attributes::ConceptAttributesRow>,
+    pub concept_incidences: Vec<cpg_schema::concept_attributes::ConceptIncidencesRow>,
 }
 
-async fn collect(
+pub(crate) async fn collect(
     ctx: &SessionContext,
     query: &str,
     schema: &SchemaRef,
@@ -435,11 +437,12 @@ cpg_schema::relations! {
         sql = "SELECT module_name, module_node_id FROM source_files \
                WHERE array_has($names, module_name) ORDER BY module_name, module_node_id"
             .to_owned();
-    /// Declarations' qualified names.
+    /// Source-derived target labels: preferred public path, else declaration's qualified name.
     qualified_names_relation = "stage_e_qualified_names",
-        deps = ["declarations"],
-        sql = "SELECT node_id, qualified_name FROM declarations \
-               WHERE array_has($ids, node_id) ORDER BY node_id"
+        deps = ["declarations","public_paths"],
+        sql = "SELECT d.node_id, COALESCE(p.access_path,d.qualified_name) AS qualified_name FROM declarations d \
+               LEFT JOIN public_paths p ON p.node_id=d.node_id AND p.preferred \
+               WHERE array_has($ids, d.node_id) ORDER BY d.node_id"
             .to_owned();
 }
 
@@ -498,13 +501,19 @@ pub(crate) async fn seed_parameters(
     Ok(out)
 }
 
+/// One source-derived public/qualified target label policy, shared with publication validation.
+pub(crate) async fn concept_names(ctx:&SessionContext,ids:&[Id])->Result<BTreeMap<Id,String>,CoreError> {
+    Ok(sql::fetch::<QualifiedRow>(ctx,&qualified_names_relation(),sql::Params::new().ids("ids",ids.iter().copied()))
+        .await?.into_iter().map(|r|(r.node_id,r.qualified_name)).collect())
+}
+
 /// Each callable's FCA attributes (`cpg_schema::concepts::attributes_sql`, their one
 /// authority), as `(node, attribute)` pairs: the behavior model's facets read them (Stage 1).
 pub(crate) async fn collect_attributes(
     ctx: &SessionContext,
     callables: &[Id],
-) -> Result<Vec<(Id, String)>, CoreError> {
-    let by = concepts::attributes_of(
+) -> Result<Vec<(Id, cpg_schema::concept_attributes::ConceptAttributesRow)>, CoreError> {
+    let by = concepts::attributes_of(Id::ZERO,
         &collect(
             ctx,
             &cpg_schema::concepts::attributes_sql(callables),
@@ -513,10 +522,7 @@ pub(crate) async fn collect_attributes(
         .await?,
     )
     .map_err(|e| CoreError::Analysis(e.to_string()))?;
-    Ok(by
-        .into_iter()
-        .flat_map(|(n, set)| set.into_iter().map(move |a| (n, a)))
-        .collect())
+    Ok(by.by_object.iter().flat_map(|(n,set)|set.iter().map(|id|(*n,by.catalog[id].clone()))).collect())
 }
 
 /// Build a declared projection from the session.
@@ -1402,7 +1408,7 @@ pub async fn run(
         .collect::<std::collections::BTreeSet<_>>()
         .into_iter()
         .collect();
-    let mut attributes = concepts::attributes_of(
+    let mut attributes = concepts::attributes_of(snapshot_id,
         &collect(
             ctx,
             &cpg_schema::concepts::attributes_sql(&all),
@@ -1417,7 +1423,7 @@ pub async fn run(
     // official usage shows, as attributes of the same FCA.
     if techniques.rca {
         let wanted: std::collections::BTreeSet<Id> = all.iter().copied().collect();
-        let calls: Vec<(Id, Id)> = p
+        let calls: Vec<concepts::CallAttributeObservation> = p
             .arcs
             .iter()
             .filter(|a| {
@@ -1426,41 +1432,13 @@ pub async fn run(
                     && p.kinds[a.dst as usize] == NodeKind::Function
                     && subsystem.contains(a.dst as usize)
             })
-            .map(|a| (p.ids[a.src as usize], p.ids[a.dst as usize]))
+            .filter_map(|a| Some(concepts::CallAttributeObservation {caller:p.ids[a.src as usize],target:p.ids[a.dst as usize],
+                site:a.call_site,edge:a.edge_id,modality:a.modality,phase:a.phase?}))
             .collect();
-        let passed: Vec<(Id, Id)> = handoffs
-            .rows
-            .iter()
-            .map(|h| (h.producer, h.consumer))
-            .collect();
-        let partners: std::collections::BTreeSet<Id> = calls
-            .iter()
-            .map(|c| c.1)
-            .chain(passed.iter().flat_map(|(a, b)| [*a, *b]))
-            .collect();
-        let mut names: BTreeMap<Id, String> = partners
-            .iter()
-            .filter_map(|n| preferred.get(n).map(|path| (*n, path.clone())))
-            .collect();
-        let unnamed: Vec<Id> = partners
-            .iter()
-            .copied()
-            .filter(|n| !names.contains_key(n))
-            .collect();
-        if !unnamed.is_empty() {
-            for r in sql::fetch::<QualifiedRow>(
-                ctx,
-                &qualified_names_relation(),
-                sql::Params::new().ids("ids", unnamed.iter().copied()),
-            )
-            .await?
-            {
-                names.insert(r.node_id, r.qualified_name);
-            }
-        }
-        for (node, extra) in concepts::relational(&all, &calls, &passed, &names) {
-            attributes.entry(node).or_default().extend(extra);
-        }
+        let partners: std::collections::BTreeSet<Id> = calls.iter().map(|c|c.target)
+            .chain(handoffs.rows.iter().flat_map(|h|[h.producer,h.consumer])).collect();
+        let names=concept_names(ctx,&partners.into_iter().collect::<Vec<_>>()).await?;
+        concepts::relational(snapshot_id,&mut attributes,&all,&calls,&handoffs.rows,&names);
         fca_digest = cpg_schema::id::IdHasher::new("concept-attributes-rca")
             .digest_field(fca_digest)
             .str(concepts::RCA_POLICY)
@@ -1468,11 +1446,20 @@ pub async fn run(
     }
     if techniques.fca {
         for (_, seed) in &rows.seeds {
-            if let Some(own) = attributes.get(seed) {
+            if let Some(own) = attributes.by_object.get(seed) {
                 rows.seed_attributes.insert(*seed, own.clone());
             }
         }
     }
+    // Pass C needs the same typed handoff evidence even when RCA scaling is disabled.
+    let mut handoff_support=concepts::Attributes::default();
+    let partners=handoffs.rows.iter().flat_map(|h|[h.producer,h.consumer]).collect::<std::collections::BTreeSet<_>>().into_iter().collect::<Vec<_>>();
+    let names=concept_names(ctx,&partners).await?;
+    concepts::relational(snapshot_id,&mut handoff_support,&rows.seeds.iter().map(|(_,id)|*id).collect::<Vec<_>>(),&[],&handoffs.rows,&names);
+    let mut catalog=attributes.catalog.clone(); catalog.extend(handoff_support.catalog);
+    let mut incidences=attributes.incidences.clone(); incidences.extend(handoff_support.incidences);
+    rows.concept_attributes=catalog.into_values().collect();
+    rows.concept_incidences=incidences.into_values().collect();
     for scope in scopes.iter().filter(|_| techniques.fca) {
         let parameters = serde_json::to_string(&ConceptParameters {
             fca: &fca_params,

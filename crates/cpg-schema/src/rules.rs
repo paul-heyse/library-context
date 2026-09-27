@@ -86,6 +86,19 @@ pub const REFERENCES: &[Reference] = &[
     ),
     r("finding_members", "node_id", NODE),
     r("finding_members", "cited_fact_id", FACT),
+    r("finding_members", "attribute_id", &[("concept_attributes","attribute_id")]),
+    r("concept_attributes", "type_term_id", &[("type_terms","node_id")]),
+    r("concept_attributes", "target_node_id", NODE),
+    r("concept_incidences", "consumer_formal_id", &[("parameter_syntax","node_id")]),
+    r("concept_incidences", "attribute_id", &[("concept_attributes","attribute_id")]),
+    r("concept_incidences", "object_node_id", NODE),
+    r("concept_incidences", "source_fact_id", FACT),
+    r("concept_incidences", "site_node_id", NODE),
+    r("concept_incidences", "other_site_node_id", NODE),
+    r("concept_incidences", "edge_id", &[("edges","edge_id")]),
+    r("concept_incidences", "other_edge_id", &[("edges","edge_id")]),
+    r("handoffs", "consumer_edge_id", &[("edges","edge_id")]),
+    r("handoffs", "producer_edge_id", &[("edges","edge_id")]),
     r("witnesses", "finding_id", &[("findings", "finding_id")]),
     r("witnesses", "caller_node_id", NODE),
     r("witnesses", "call_site_node_id", NODE),
@@ -1850,18 +1863,72 @@ fn semantic() -> Vec<Rule> {
             ),
         ),
         (
-            // The increment-2 review's F2: no concept or implication is about a type the analysis
-            // could not determine (`Unknown`). A tripwire over labels: the attribute relation
-            // drops such terms by their structure.
+            // Semantic category and structural type identity, never a label tripwire.
             "semantic:concept-attribute-known",
             format!(
-                "SELECT m.finding_id, m.label FROM finding_members m \
-                 WHERE m.role IN ({intent}, {premise}, {conclusion}) \
-                   AND m.label ~ '\\bUnknown\\b'",
-                intent = crate::codebook::MemberRole::IntentAttribute.code(),
-                premise = crate::codebook::MemberRole::Premise.code(),
-                conclusion = crate::codebook::MemberRole::Conclusion.code(),
+                "WITH RECURSIVE unknown(node_id) AS (SELECT node_id FROM type_terms \
+                 WHERE kind={any} AND detail IN ('error','implicit') UNION \
+                 SELECT a.parent_node_id FROM type_term_args a JOIN unknown u ON u.node_id=a.child_node_id) \
+                 SELECT a.attribute_id FROM concept_attributes a JOIN unknown u ON u.node_id=a.type_term_id",
+                any=crate::codebook::TypeTermKind::Any.code(),
             ),
+        ),
+        (
+            "semantic:concept-member-kind",
+            format!("SELECT finding_id FROM finding_members WHERE \
+                (role IN ({intent},{premise},{conclusion},{handoff})) <> (attribute_id IS NOT NULL)",
+                intent=crate::codebook::MemberRole::IntentAttribute.code(),
+                premise=crate::codebook::MemberRole::Premise.code(),
+                conclusion=crate::codebook::MemberRole::Conclusion.code(),
+                handoff=crate::codebook::MemberRole::HandoffAttribute.code()),
+        ),
+        (
+            "semantic:concept-attribute-incidence",
+            "SELECT a.attribute_id FROM concept_attributes a LEFT ANTI JOIN concept_incidences i \
+             ON i.attribute_id=a.attribute_id".to_owned(),
+        ),
+        (
+            "semantic:concept-extent-incidence",
+            format!("SELECT m.finding_id,m.attribute_id,g.node_id FROM finding_members m \
+                JOIN finding_members g ON g.finding_id=m.finding_id AND g.role={extent} \
+                LEFT ANTI JOIN concept_incidences i ON i.attribute_id=m.attribute_id AND i.object_node_id=g.node_id \
+                WHERE m.attribute_id IS NOT NULL",extent=crate::codebook::MemberRole::ExtentMember.code()),
+        ),
+        (
+            "semantic:handoff-attribute-support",
+            format!("WITH links AS ({links}) SELECT f.finding_id FROM findings f \
+                LEFT JOIN finding_members m ON m.finding_id=f.finding_id AND m.role={role} \
+                LEFT JOIN concept_attributes a ON a.attribute_id=m.attribute_id \
+                WHERE f.finding_kind={kind} GROUP BY f.finding_id,f.related_node_id \
+                HAVING count(m.attribute_id)<>1 OR min(a.kind) NOT IN ({hands},{takes}) \
+                  OR min(a.target_node_id)<>f.related_node_id \
+                UNION SELECT m.finding_id FROM finding_members m LEFT ANTI JOIN links l ON l.finding_id=m.finding_id \
+                WHERE m.role={role}",links=crate::concept_attributes::finding_incidence_keys_sql(),
+                role=crate::codebook::MemberRole::HandoffAttribute.code(),kind=crate::codebook::FindingKind::Handoff.code(),
+                hands=crate::codebook::ConceptAttributeKind::HandsOff.code(),takes=crate::codebook::ConceptAttributeKind::TakesFrom.code()),
+        ),
+        (
+            "semantic:handoff-member-shape",
+            format!("WITH h AS (SELECT f.finding_id,count(m.ordinal) AS n,count(DISTINCT m.ordinal) AS distinct_n, \
+                min(m.ordinal) AS lo,max(m.ordinal) AS hi FROM findings f \
+                LEFT JOIN finding_members m ON m.finding_id=f.finding_id WHERE f.finding_kind={kind} GROUP BY f.finding_id) \
+                SELECT finding_id FROM h WHERE n<4 OR (n % 2)<>0 OR distinct_n<>n OR lo<>0 OR hi<>n-1 \
+                UNION SELECT m.finding_id FROM h JOIN finding_members m ON m.finding_id=h.finding_id \
+                WHERE m.role<>CASE WHEN m.ordinal=0 THEN {formal} WHEN m.ordinal=h.n-1 THEN {attribute} \
+                    WHEN (m.ordinal % 2)=1 THEN {producer} ELSE {consumer} END \
+                  OR (m.role<>{attribute} AND m.node_id IS NULL)",
+                kind=crate::codebook::FindingKind::Handoff.code(),formal=crate::codebook::MemberRole::Formal.code(),
+                attribute=crate::codebook::MemberRole::HandoffAttribute.code(),producer=crate::codebook::MemberRole::ProducerSite.code(),
+                consumer=crate::codebook::MemberRole::ConsumerSite.code()),
+        ),
+        (
+            "semantic:handoff-pair-incidence",
+            format!("SELECT r.finding_id,r.attribute_id,r.site_node_id,r.other_site_node_id \
+                FROM ({required}) r LEFT ANTI JOIN concept_incidences i \
+                ON i.attribute_id=r.attribute_id AND i.object_node_id=r.object_node_id \
+                  AND i.site_node_id=r.site_node_id AND i.other_site_node_id=r.other_site_node_id \
+                  AND i.consumer_formal_id=r.consumer_formal_id",
+                required=crate::concept_attributes::handoff_support_requirements_sql()),
         ),
         (
             // ADR-0019 review F6: every analysis invocation is the compiler's.

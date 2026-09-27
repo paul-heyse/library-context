@@ -994,6 +994,8 @@ table!(
         producer_site_node_id,
         producer_node_id,
         formal_node_id,
+        consumer_edge_id,
+        producer_edge_id,
     ],
     checks = [],
     {
@@ -1009,6 +1011,11 @@ table!(
         producer_site_node_id: Id,
         named: bool,
         consumer_modality: Modality,
+        consumer_phase: InvocationPhase,
+        producer_modality: Modality,
+        producer_phase: InvocationPhase,
+        consumer_edge_id: Id,
+        producer_edge_id: Id,
     }
 );
 

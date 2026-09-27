@@ -111,7 +111,8 @@ pub struct Published {
 /// 85: typed static/runtime/unresolved validation schema contracts and catalog format 3.
 /// 86: condition-safe transfer alternatives and typed behavior transfer/scope in FORMAT 9.
 /// 87: occurrence-specific source parameter identity independent of provider reach approximation.
-pub const COMPILER_OUTPUT_VERSION: u32 = 87;
+/// 88: typed current FCA/RCA attributes, incidence evidence and presentation-only labels.
+pub const COMPILER_OUTPUT_VERSION: u32 = 88;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -882,6 +883,8 @@ async fn finish(
         &mut written,
     )
     .await?;
+    write_analysis::<cpg_schema::concept_attributes::ConceptAttributes>(&ctx,root,snapshot_id,&found.concept_attributes,&mut written).await?;
+    write_analysis::<cpg_schema::concept_attributes::ConceptIncidences>(&ctx,root,snapshot_id,&found.concept_incidences,&mut written).await?;
     write_analysis::<Findings>(&ctx, root, snapshot_id, &found.findings, &mut written).await?;
     write_analysis::<FindingMembers>(&ctx, root, snapshot_id, &found.members, &mut written).await?;
     write_analysis::<Witnesses>(&ctx, root, snapshot_id, &found.witnesses, &mut written).await?;

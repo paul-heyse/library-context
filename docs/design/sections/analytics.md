@@ -269,9 +269,11 @@ whole-surface behavior scan (§9).
   `x = producer(...); consumer(x, ...)` and direct nesting, in straight-line regions only.
 - **Rejected as a handoff:** reassignment; additional consumers; escapes; resource boundaries.
   Type compatibility alone is a `candidate`, never a published pattern.
-- **Output.** A `handoff` finding per (other callable, consumer formal), with its status, its
-  occurrence count as score, and its first occurrences' producer and consumer sites (the region
-  and binding are the sites' statements).
+- **Output.** A `handoff` finding per (other callable, consumer formal, producer modality/phase,
+  consumer modality/phase), with its status, occurrence count and first occurrences' producer
+  and consumer sites. The source relation retains both edge identities, so parallel observations
+  remain distinct. A typed attribute supplies one shared renderer; candidate endpoints stay
+  candidate handoff pairings, never unconditional execution claims.
 
 **Implementation.**
 - **Relation.** `cpg_schema::flows::handoffs_sql`. Producer and consumer are both callables the
@@ -288,7 +290,7 @@ whole-surface behavior scan (§9).
 - **Paths.** A doc block is named by its document and fence number (`docs/x.mdx, code block 3`),
   never by the module the compiler materialized it as (`flows::usage_files_sql`, checked by
   `semantic:no-materialized-block-path`).
-- **Kernel.** `lctx_analytics::pass_c` groups occurrences per `(other callable, formal)` into one
+- **Kernel.** `lctx_analytics::pass_c` groups occurrences by the typed output key above into one
   `handoff` finding. Its score is the count. Its members are the formal and three occurrences:
   examples first, then doc blocks, then tests. Like Pass B, its builder does not yet refuse
   unsorted input (W14, §9.2).
@@ -296,6 +298,11 @@ whole-surface behavior scan (§9).
   receiver use and a nested one (counted), and two consumers, a reassignment, a usage-defined
   helper, a chained assignment and a passed-on attribute (not counted);
   `pass_c_and_usage_patterns_are_identical_across_location_and_module_order`.
+- **Evidence (Implemented, 2026-09-27).** The retained pairs and formal select source incidences
+  with both sites/edges and fact provenance. Pairs are not delegation-chain witnesses. Shared
+  publication rules require ordered complete member pairs and support for every retained pair;
+  serving checks the same projected closure. `typed_handoff_pair_support_survives_serving_without_becoming_a_call_chain`
+  exercises source → Delta → serving and missing member/edge/fact/pair refusals.
 
 
 ### §9.4 Community detection
@@ -486,28 +493,28 @@ facets is the Stage 4 target consumer (**Proposed**; plan Stage 4 item 7).
   that is, or holds anywhere in its structure (a recursive walk of `type_term_args`; §9's note on
   recursive walks), an `Any` of style `error` or `implicit`. A raised class is one attribute
   whether raised as the class or an instance; only class-typed raises count. The rule
-  `semantic:concept-attribute-known` is a tripwire over labels.
+  `semantic:concept-attribute-known` checks structural type identity, never display labels.
 - **RCA** (`+rca`, requires `+fca`). One relational-scaling step: for each object of a scope,
   `calls X` for each call arc (definite or candidate) into a subsystem function, and
   `hands off to X` / `takes from X` for each handoff the Pass C relation holds, where X is the
   partner's preferred path, else its qualified name. The pairs come from the in-memory projection
   and Pass C's relation; `RCA_POLICY` joins the FCA invocations' parameters and relation digest.
-- **Known gap: attributes are presentation labels.** The intended contract is typed attribute
-  keys carrying endpoint identity, modality and evidence, mapped to bit positions and rendered
-  only after analysis. Today attributes are English strings: RCA admits candidate call arcs but
-  labels them `calls X` like definite ones, Stage F recovers meaning by parsing label prefixes
-  and ignores unknown forms, and a concept-set oracle over the flattened context cannot see the
-  lost modality. Candidate-derived `+rca` output is therefore not a behavioral claim, and FCA/RCA
-  are not extended before this is fixed
-  ([plan W10](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
-- **Accepted target; Proposed implementation (2026-09-26).** Stage 3 replaces presentation
-  labels as attribute identity with typed relation, endpoint, modality and evidence. One renderer
-  produces labels after analysis; Stage F consumes the typed attributes and rejects unsupported
-  forms explicitly. This repairs the current FCA/RCA consumers. New behavioral attributes and
-  the Stage 4 registry remain deferred (ADR-0058).
+- **Typed attribute contract (Implemented, 2026-09-27; ADR-0058).** `concept_attributes`
+  owns meaning: parameter spelling/kind, structural type identity, normalized raised class,
+  decorator syntax, or relation target/modality/phase. `concept_incidences` owns object membership
+  and each source occurrence, including parallel call edges and both handoff endpoints. Consumer
+  formals belong to incidences, so a shared TakesFrom attribute is not split by each object's
+  formal identity. Attribute and finding identities exclude display labels; source reconstruction
+  still checks labels because declared operation facets expose them.
+- **Composition.** Analytics maps sorted typed IDs to bit positions. Stage F and Pass C use the
+  schema-owned renderer; facets use typed variants. Label-prefix parsers are removed. Unknown
+  variants fail explicitly. Source validation rebuilds attributed observations and checks the
+  retained subset, without rerunning FCA or asserting lattice completeness. Existing FCA/RCA
+  fidelity is repaired; new behavioral attributes, registry membership and technique retention
+  remain Stage 4 ([plan W10](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
 - **Findings.** Each frequent concept with a non-empty intent is an `applicable_case` finding
   (`extent_member` APIs, `intent_attribute`s; score = extent size); each basis implication an
-  `implication` finding (`premise`, `conclusion`; score = support). The subject is the scope. Both
+  `implication` finding (`premise`, `conclusion`, and premise-extent supporters; score = support). The subject is the scope. Both
   are `structurally_observed`: they are exact over the extracted attributes, with the scope
   stated. (The kind name `applicable_case` is historical: a brief states the concept as a shared
   signature under Related, not as the Applicable case.)
@@ -517,8 +524,8 @@ facets is the Stage 4 target consumer (**Proposed**; plan Stage 4 item 7).
   `A`, `B` and `C` (4 public APIs of `S` in all), `X` declares … and raises `E` directly in its
   body." Up to three `implication` assertions (section Important controls) are the
   best-supported implications of its own scope whose premise the seed meets. The scope is named
-  in the text, and neither enters the brief document's header. With `+rca` the templates say
-  "calls `X`" and "has its result passed to `X` in official usage". The Applicable-case slot stays
+  in the text, and neither enters the brief document's header. RCA text retains target
+  modality and invocation phase; handoff text retains both endpoints' modalities and phases. The Applicable-case slot stays
   **absent** until an input-or-mode source exists, so the [§B11](../DESIGN.md#section-b11) gap
   metric sees it. The floor, caps and counts are `selection::Params`, frozen.
 - **Tests** (`concepts::tests`): a hand-computed context (seven concepts; the basis `b → a`,

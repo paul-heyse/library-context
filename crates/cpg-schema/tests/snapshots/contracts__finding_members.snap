@@ -14,5 +14,6 @@ role: Int16 NOT NULL [lctx.codebook=member_role]
 ordinal: Int64 NOT NULL
 node_id: FixedSizeBinary(16) NULL
 cited_fact_id: FixedSizeBinary(16) NULL
+attribute_id: FixedSizeBinary(16) NULL
 label: Utf8 NULL
 weight: Float64 NULL

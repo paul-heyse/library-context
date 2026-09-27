@@ -128,11 +128,18 @@ pub async fn validate_costed(
     violations.extend(validate_modeled_assignment_return_paths(&cache).await?);
     violations.extend(validate_summary_flows(&cache).await?);
     violations.extend(validate_summary_components(&cache).await?);
+    violations.extend(validate_concept_attributes(&cache).await?);
     Ok((violations, costs))
 }
 
 cpg_schema::relations! {
     inventory exit_relations;
+    concept_call_sources = "validate_concept_call_sources", deps=["nodes","edges","pysa_calls","facts","resolutions","syntax_nodes"],
+        sql=format!("SELECT a.src_node_id AS caller,a.dst_node_id AS target,a.call_site_node_id AS site,a.edge_id AS edge,a.modality,a.phase \
+            FROM ({arcs}) a JOIN nodes n ON n.node_id=a.dst_node_id WHERE a.arc_kind={call} AND n.node_kind={function} AND a.phase IS NOT NULL",
+            arcs=cpg_schema::projection::invocation().arcs_sql,call=cpg_schema::codebook::ArcKind::Call.code(),function=cpg_schema::codebook::NodeKind::Function.code());
+    stored_concept_attributes = "validate_concept_attributes", deps=["concept_attributes"], sql="SELECT * FROM concept_attributes".to_owned();
+    stored_concept_incidences = "validate_concept_incidences", deps=["concept_incidences"], sql="SELECT * FROM concept_incidences".to_owned();
     stored_exit_sites = "validate_stored_exit_sites", deps = ["exit_sites"],
         sql = "SELECT * FROM exit_sites".to_owned();
     stored_return_exit_steps = "validate_stored_return_exit_steps", deps = ["return_exit_steps"], sql = "SELECT * FROM return_exit_steps".to_owned();
@@ -451,6 +458,45 @@ async fn validate_summary_components(ctx: &SessionContext) -> Result<Vec<Violati
             ),
         }])
     }
+}
+
+cpg_schema::query_row! {
+    pub struct ConceptCallSource {
+        caller: Id, target: Id, site: Id, edge: Id,
+        modality: cpg_schema::codebook::Modality,
+        phase: cpg_schema::codebook::InvocationPhase,
+    }
+}
+
+/// Check each attributed incidence against the shared source relation. This validates source
+/// support, not completeness of an FCA scope or correctness of the enumerated lattice.
+async fn validate_concept_attributes(ctx:&SessionContext)->Result<Vec<Violation>,CoreError> {
+    use cpg_schema::concept_attributes::{ConceptAttributesRow,ConceptIncidencesRow};
+    use lctx_analytics::concepts::{self,CallAttributeObservation};
+    let attributes:Vec<ConceptAttributesRow>=sql::fetch(ctx,&stored_concept_attributes(),sql::Params::new()).await?;
+    let incidences:Vec<ConceptIncidencesRow>=sql::fetch(ctx,&stored_concept_incidences(),sql::Params::new()).await?;
+    if attributes.is_empty() && incidences.is_empty() {return Ok(Vec::new());}
+    let snapshot=attributes.first().map(|a|a.snapshot_id).or_else(||incidences.first().map(|i|i.snapshot_id)).unwrap();
+    let objects:Vec<_>=incidences.iter().map(|i|i.object_node_id).collect::<std::collections::BTreeSet<_>>().into_iter().collect();
+    let mut expected=concepts::attributes_of(snapshot,&crate::analyze::collect(ctx,
+        &cpg_schema::concepts::attributes_sql(&objects),&cpg_schema::concepts::schemas::attributes()).await?)
+        .map_err(|e|CoreError::Analysis(e.to_string()))?;
+    let calls:Vec<ConceptCallSource>=sql::fetch(ctx,&concept_call_sources(),sql::Params::new()).await?;
+    let calls:Vec<_>=calls.into_iter().map(|a|CallAttributeObservation {caller:a.caller,target:a.target,
+        site:a.site,edge:a.edge,modality:a.modality,phase:a.phase}).collect();
+    let handoffs=lctx_analytics::pass_c::Handoffs::build(&crate::analyze::collect(ctx,
+        &cpg_schema::flows::handoffs_sql(),&cpg_schema::flows::schemas::handoffs()).await?)
+        .map_err(|e|CoreError::Analysis(e.to_string()))?;
+    let names=calls.iter().map(|c|c.target).chain(handoffs.rows.iter().flat_map(|h|[h.producer,h.consumer]))
+        .collect::<std::collections::BTreeSet<_>>().into_iter().collect::<Vec<_>>();
+    let names=crate::analyze::concept_names(ctx,&names).await?;
+    concepts::relational(snapshot,&mut expected,&objects,&calls,&handoffs.rows,&names);
+    let invalid_attributes=attributes.iter().filter(|a|a.key().is_none() || expected.catalog.get(&a.attribute_id)!=Some(*a)).count();
+    let invalid_incidences=incidences.iter().filter(|i|expected.incidences.get(&i.incidence_id)!=Some(i)).count();
+    if invalid_attributes+invalid_incidences==0 {Ok(Vec::new())} else {Ok(vec![Violation {
+        rule:"concept-attribute-source".into(),rows:invalid_attributes+invalid_incidences,
+        sample:"typed attribute or object incidence disagrees with its source observation".into(),
+    }])}
 }
 
 /// Rebuild every finite flow with the same bounded condition kernel used at write.

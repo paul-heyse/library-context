@@ -13,7 +13,10 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use arrow_array::{Array, FixedSizeBinaryArray, RecordBatch, StringArray};
+use arrow_array::RecordBatch;
+use cpg_schema::concept_attributes::{AttributeKey, ConceptAttributesRow, ConceptIncidencesRow};
+use cpg_schema::query::QueryRow;
+use cpg_schema::codebook::{ConceptAttributeKind, InvocationPhase, Modality};
 use cpg_schema::codebook::{Codebook, CoverageStatus, FindingKind, MemberRole, StopReason};
 use cpg_schema::findings::{
     FINDING_STATUS, FindingMembersRow, FindingsRow, MemberKey, recipe::FindingKey,
@@ -238,62 +241,78 @@ pub struct Outcome {
     pub members: Vec<FindingMembersRow>,
 }
 
-/// Each function's attributes from `cpg_schema::concepts::attributes_sql`'s rows.
-/// RCA's relational scaling (DESIGN §9.6; slice 3.2, the `+rca` variant): one ∃-scaling step, as
-/// attributes of the same FCA.
-pub const RCA_POLICY: &str = "rca: one existential-scaling step over each object's relations: \
-                              'calls X' for each call arc (definite or candidate) to a subsystem \
-                              function X; 'hands off to X' and 'takes from X' for each handoff \
-                              the official usage code shows (the Pass C relation); X named by \
-                              its preferred public path, else its qualified name";
-
-/// The relational attributes of `objects` ([`RCA_POLICY`]): `calls` are `(caller, callee)`
-/// pairs, `handoffs` `(producer, consumer)` pairs; a partner `names` lacks gives none.
-pub fn relational(
-    objects: &[Id],
-    calls: &[(Id, Id)],
-    handoffs: &[(Id, Id)],
-    names: &BTreeMap<Id, String>,
-) -> BTreeMap<Id, BTreeSet<String>> {
-    let wanted: BTreeSet<&Id> = objects.iter().collect();
-    let mut out: BTreeMap<Id, BTreeSet<String>> = BTreeMap::new();
-    let mut add = |object: Id, relation: &str, partner: Id| {
-        if wanted.contains(&object)
-            && object != partner
-            && let Some(name) = names.get(&partner)
-        {
-            out.entry(object)
-                .or_default()
-                .insert(format!("{relation} {name}"));
-        }
-    };
-    for &(caller, callee) in calls {
-        add(caller, "calls", callee);
-    }
-    for &(producer, consumer) in handoffs {
-        add(producer, "hands off to", consumer);
-        add(consumer, "takes from", producer);
-    }
-    out
+/// Meaning, object incidence and source occurrences are independent from presentation.
+#[derive(Debug, Default)]
+pub struct Attributes {
+    pub catalog: BTreeMap<Id, ConceptAttributesRow>,
+    pub by_object: BTreeMap<Id, BTreeSet<Id>>,
+    pub incidences: BTreeMap<Id, ConceptIncidencesRow>,
 }
 
-pub fn attributes_of(
-    batches: &[RecordBatch],
-) -> Result<BTreeMap<Id, BTreeSet<String>>, AnalyticsError> {
-    let mut out: BTreeMap<Id, BTreeSet<String>> = BTreeMap::new();
-    for b in batches {
-        let node = b
-            .column_by_name("function_node_id")
-            .and_then(|c| c.as_any().downcast_ref::<FixedSizeBinaryArray>())
-            .ok_or_else(|| AnalyticsError::Column("function_node_id".to_owned()))?;
-        let attribute = b
-            .column_by_name("attribute")
-            .and_then(|c| c.as_any().downcast_ref::<StringArray>())
-            .ok_or_else(|| AnalyticsError::Column("attribute".to_owned()))?;
-        for i in 0..b.num_rows() {
-            out.entry(Id(<[u8; 16]>::try_from(node.value(i)).expect("16 bytes")))
-                .or_default()
-                .insert(attribute.value(i).to_owned());
+impl Attributes {
+    pub fn add(&mut self, attribute: ConceptAttributesRow, mut incidence: ConceptIncidencesRow) {
+        let id=attribute.attribute_id;
+        incidence.attribute_id=id;
+        incidence.incidence_id=incidence.identity();
+        self.by_object.entry(incidence.object_node_id).or_default().insert(id);
+        self.incidences.insert(incidence.incidence_id,incidence);
+        // Different producer displays cannot alter membership or make input order observable.
+        self.catalog.entry(id).and_modify(|old| {
+            if attribute.display < old.display {old.display=attribute.display.clone();}
+        }).or_insert(attribute);
+    }
+}
+
+pub const RCA_POLICY: &str = "rca: one existential-scaling step over typed call targets and official-usage handoffs; target, endpoint modality and invocation phase define attributes; consumer formal is occurrence evidence; every site/edge pair remains an attributed incidence; labels are presentation";
+
+#[derive(Debug, Clone)]
+pub struct CallAttributeObservation {
+    pub caller: Id, pub target: Id, pub site: Id, pub edge: Id,
+    pub modality: Modality, pub phase: InvocationPhase,
+}
+
+pub fn relational(snapshot:Id, attributes:&mut Attributes, objects:&[Id],
+    calls:&[CallAttributeObservation], handoffs:&[crate::pass_c::Handoff], names:&BTreeMap<Id,String>) {
+    let wanted:BTreeSet<_>=objects.iter().copied().collect();
+    for call in calls {
+        if !wanted.contains(&call.caller) || call.caller==call.target {continue;}
+        let Some(display)=names.get(&call.target) else {continue};
+        let row=AttributeKey::Calls {target:call.target,modality:call.modality,phase:call.phase}.row(snapshot,display.clone());
+        attributes.add(row,ConceptIncidencesRow {snapshot_id:snapshot,incidence_id:Id::ZERO,
+            object_node_id:call.caller,attribute_id:Id::ZERO,source_fact_id:None,
+            site_node_id:Some(call.site),edge_id:Some(call.edge),other_site_node_id:None,other_edge_id:None,consumer_formal_id:None});
+    }
+    for h in handoffs {
+        for (object,target,takes) in [(h.producer,h.consumer,false),(h.consumer,h.producer,true)] {
+            if !wanted.contains(&object) || object==target {continue;}
+            let Some(display)=names.get(&target) else {continue};
+            let row=AttributeKey::Handoff {takes,target,consumer_modality:h.consumer_modality,
+                consumer_phase:h.consumer_phase,producer_modality:h.producer_modality,producer_phase:h.producer_phase}.row(snapshot,display.clone());
+            attributes.add(row,ConceptIncidencesRow {snapshot_id:snapshot,incidence_id:Id::ZERO,
+                object_node_id:object,attribute_id:Id::ZERO,source_fact_id:None,
+                site_node_id:Some(h.producer_site),edge_id:Some(h.producer_edge),
+                other_site_node_id:Some(h.consumer_site),other_edge_id:Some(h.consumer_edge),consumer_formal_id:Some(h.formal)});
+        }
+    }
+}
+
+pub fn attributes_of(snapshot:Id,batches:&[RecordBatch])->Result<Attributes,AnalyticsError> {
+    let mut out=Attributes::default();
+    for batch in batches {
+        for row in cpg_schema::concepts::AttributeObservation::read_batch(batch)
+            .map_err(|e|AnalyticsError::Column(e.to_string()))? {
+            let invalid=||AnalyticsError::Column("invalid typed attribute observation".to_owned());
+            let key=match row.kind {
+                ConceptAttributeKind::Parameter=>AttributeKey::Parameter {name:row.symbol.ok_or_else(invalid)?,kind:row.parameter_kind.ok_or_else(invalid)?},
+                ConceptAttributeKind::ParameterType=>AttributeKey::ParameterType(row.type_term_id.ok_or_else(invalid)?),
+                ConceptAttributeKind::Returns=>AttributeKey::Returns(row.type_term_id.ok_or_else(invalid)?),
+                ConceptAttributeKind::Raises=>AttributeKey::Raises {module:row.class_module.ok_or_else(invalid)?,key:row.class_key.ok_or_else(invalid)?},
+                ConceptAttributeKind::Decorator=>AttributeKey::Decorator(row.symbol.ok_or_else(invalid)?),
+                _=>return Err(invalid()),
+            };
+            out.add(key.row(snapshot,row.display),ConceptIncidencesRow {snapshot_id:snapshot,incidence_id:Id::ZERO,
+                object_node_id:row.function_node_id,attribute_id:Id::ZERO,source_fact_id:Some(row.source_fact_id),
+                site_node_id:None,edge_id:None,other_site_node_id:None,other_edge_id:None,consumer_formal_id:None});
         }
     }
     Ok(out)
@@ -304,26 +323,27 @@ pub fn attributes_of(
 /// implication of the basis an `implication` finding. The findings cite `invocation_id`.
 pub fn run(
     scope: &Scope,
-    attributes: &BTreeMap<Id, BTreeSet<String>>,
+    attributes: &Attributes,
     params: &Params,
     snapshot_id: Id,
     invocation_id: Id,
 ) -> Result<Outcome, AnalyticsError> {
-    let names: Vec<&String> = scope
-        .objects
+    let mut objects=scope.objects.clone();
+    objects.sort_by_key(|(id,_)|*id);
+    let names: Vec<Id> = objects
         .iter()
-        .flat_map(|(id, _)| attributes.get(id).into_iter().flatten())
+        .flat_map(|(id, _)| attributes.by_object.get(id).into_iter().flatten().copied())
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect();
-    let index: BTreeMap<&String, usize> = names.iter().enumerate().map(|(i, n)| (*n, i)).collect();
+    let index: BTreeMap<Id, usize> = names.iter().enumerate().map(|(i, n)| (*n, i)).collect();
     let mut incidence = Vec::new();
-    for (g, (id, _)) in scope.objects.iter().enumerate() {
-        for a in attributes.get(id).into_iter().flatten() {
-            incidence.push((g, index[a]));
+    for (g, (id, _)) in objects.iter().enumerate() {
+        for a in attributes.by_object.get(id).into_iter().flatten().copied() {
+            incidence.push((g, index[&a]));
         }
     }
-    let context = Context::new(scope.objects.len(), names.len(), &incidence);
+    let context = Context::new(objects.len(), names.len(), &incidence);
     let lattice = analyse(&context, params.min_support, params.budget);
     let status = |kind: FindingKind| {
         FINDING_STATUS
@@ -335,19 +355,20 @@ pub fn run(
     let mut findings = Vec::new();
     let mut members = Vec::new();
     let mut emit = |kind: FindingKind,
-                    rows: Vec<(MemberRole, Option<Id>, String)>,
+                    rows: Vec<(MemberRole, Option<Id>, Option<Id>, String)>,
                     score: usize|
      -> Result<(), AnalyticsError> {
         let status = status(kind)?;
         let keys: Vec<MemberKey> = rows
             .iter()
             .enumerate()
-            .map(|(ordinal, (role, node, label))| MemberKey {
+            .map(|(ordinal, (role, node, attribute, _label))| MemberKey {
                 role: role.code(),
                 ordinal: ordinal as i64,
                 node: *node,
                 cited_fact: None,
-                label: Some(label.clone()),
+                attribute: *attribute,
+                label: None,
             })
             .collect();
         let finding_id = FindingKey {
@@ -363,7 +384,7 @@ pub fn run(
             members: &keys,
         }
         .id();
-        for (ordinal, (role, node, label)) in rows.into_iter().enumerate() {
+        for (ordinal, (role, node, attribute, label)) in rows.into_iter().enumerate() {
             members.push(FindingMembersRow {
                 snapshot_id,
                 finding_id,
@@ -371,6 +392,7 @@ pub fn run(
                 ordinal: ordinal as i64,
                 node_id: node,
                 cited_fact_id: None,
+                attribute_id: attribute,
                 label: Some(label),
                 weight: None,
             });
@@ -391,19 +413,19 @@ pub fn run(
         });
         Ok(())
     };
-    let label = |role: MemberRole, set: &FixedBitSet| -> Vec<(MemberRole, Option<Id>, String)> {
-        set.ones().map(|m| (role, None, names[m].clone())).collect()
+    let label = |role: MemberRole, set: &FixedBitSet| -> Vec<(MemberRole, Option<Id>, Option<Id>, String)> {
+        set.ones().map(|m| (role, None, Some(names[m]), attributes.catalog[&names[m]].render().expect("validated attribute"))).collect()
     };
     let mut concepts = 0usize;
     for (extent, intent) in &lattice.concepts {
         if intent.count_ones(..) == 0 {
             continue;
         }
-        let mut rows: Vec<(MemberRole, Option<Id>, String)> = extent
+        let mut rows: Vec<(MemberRole, Option<Id>, Option<Id>, String)> = extent
             .ones()
             .map(|g| {
-                let (id, path) = &scope.objects[g];
-                (MemberRole::ExtentMember, Some(*id), path.clone())
+                let (id, path) = &objects[g];
+                (MemberRole::ExtentMember, Some(*id), None, path.clone())
             })
             .collect();
         rows.extend(label(MemberRole::IntentAttribute, intent));
@@ -411,12 +433,15 @@ pub fn run(
         concepts += 1;
     }
     for i in &lattice.implications {
-        let mut rows = label(MemberRole::Premise, &i.premise);
+        let mut rows:Vec<_>=context.extent(&i.premise).ones().map(|g| {
+            let (id,path)=&objects[g];(MemberRole::ExtentMember,Some(*id),None,path.clone())
+        }).collect();
+        rows.extend(label(MemberRole::Premise, &i.premise));
         rows.extend(label(MemberRole::Conclusion, &i.conclusion));
         emit(FindingKind::Implication, rows, i.support)?;
     }
     let diagnostics = serde_json::to_string(&Diagnostics {
-        objects: scope.objects.len(),
+        objects: objects.len(),
         attributes: names.len(),
         concepts,
         implications: lattice.implications.len(),
@@ -425,7 +450,7 @@ pub fn run(
     })
     .expect("diagnostics serialize");
     Ok(Outcome {
-        objects: scope.objects.len(),
+        objects: objects.len(),
         attributes: names.len(),
         examined: lattice.examined,
         completion: if lattice.budget_reached {
@@ -693,47 +718,60 @@ mod tests {
         }
     }
 
-    /// RCA's scaling (slice 3.2): calls and both ends of a handoff become attributes of the
-    /// objects in scope only, named by the partner's name; a nameless partner or a self-call gives
-    /// none.
     #[test]
-    fn relations_become_attributes_of_the_objects_in_scope() {
-        let id = |k: u8| Id([k; 16]);
-        let names: BTreeMap<Id, String> =
-            [(id(2), "pkg.b".to_owned()), (id(3), "pkg.c".to_owned())]
-                .into_iter()
-                .collect();
-        let got = relational(
-            &[id(1), id(2)],
-            &[
-                (id(1), id(2)),
-                (id(1), id(3)),
-                (id(1), id(9)),
-                (id(2), id(2)),
-                (id(3), id(2)),
-            ],
-            &[(id(3), id(1)), (id(2), id(3))],
-            &names,
-        );
-        let expected: BTreeMap<Id, BTreeSet<String>> = [
-            (
-                id(1),
-                ["calls pkg.b", "calls pkg.c", "takes from pkg.c"]
-                    .map(str::to_owned)
-                    .into_iter()
-                    .collect(),
-            ),
-            (
-                id(2),
-                ["hands off to pkg.c"]
-                    .map(str::to_owned)
-                    .into_iter()
-                    .collect(),
-            ),
-        ]
-        .into_iter()
-        .collect();
-        assert_eq!(got, expected);
+    fn typed_relations_keep_modality_phase_parallel_evidence_and_stable_identity() {
+        let id=|k:u8|Id([k;16]);
+        let names=BTreeMap::from([(id(2),"same display".to_owned())]);
+        let mut calls=vec![
+            CallAttributeObservation {caller:id(1),target:id(2),site:id(10),edge:id(20),modality:Modality::Definite,phase:InvocationPhase::Call},
+            CallAttributeObservation {caller:id(1),target:id(2),site:id(11),edge:id(21),modality:Modality::Definite,phase:InvocationPhase::Call},
+            CallAttributeObservation {caller:id(1),target:id(2),site:id(12),edge:id(22),modality:Modality::Candidate,phase:InvocationPhase::Call},
+            CallAttributeObservation {caller:id(1),target:id(2),site:id(13),edge:id(23),modality:Modality::Definite,phase:InvocationPhase::Init},
+        ];
+        let mut attrs=Attributes::default();
+        relational(id(99),&mut attrs,&[id(1)],&calls,&[],&names);
+        assert_eq!(attrs.by_object[&id(1)].len(),3);
+        assert_eq!(attrs.incidences.len(),4);
+        assert!(attrs.catalog.values().any(|a|a.render().unwrap().contains("candidate")));
+        calls.reverse();
+        let mut reversed=Attributes::default();
+        relational(id(99),&mut reversed,&[id(1)],&calls,&[],&names);
+        assert_eq!(attrs.catalog,reversed.catalog);
+        assert_eq!(attrs.incidences,reversed.incidences);
+        let scope=Scope {node:id(90),label:"scope".into(),objects:vec![(id(1),"one".into())]};
+        let params=Params {min_support:1,budget:100};
+        let before=run(&scope,&attrs,&params,id(99),id(98)).unwrap();
+        for attr in attrs.catalog.values_mut() {attr.display="renamed".into();}
+        let after=run(&scope,&attrs,&params,id(99),id(98)).unwrap();
+        assert_eq!(before.findings,after.findings);
+        assert_ne!(before.members,after.members);
+        let a=AttributeKey::ParameterType(id(40)).row(id(99),"T".into());
+        let b=AttributeKey::ParameterType(id(41)).row(id(99),"T".into());
+        assert_ne!(a.attribute_id,b.attribute_id);
+    }
+
+    #[test]
+    fn consumer_owned_formals_do_not_split_shared_handoff_attributes() {
+        use crate::pass_c::{Handoff,Handoffs};
+        use cpg_schema::codebook::SourceRole;
+        let id=|k:u8|Id([k;16]);
+        let first=Handoff {consumer:id(1),producer:id(3),formal:id(11),formal_name:"value".into(),
+            path:"usage.py".into(),role:SourceRole::Example,consumer_start:50,consumer_site:id(31),producer_site:id(30),named:true,
+            consumer_modality:Modality::Definite,consumer_phase:InvocationPhase::Call,
+            producer_modality:Modality::Candidate,producer_phase:InvocationPhase::Call,
+            consumer_edge:id(51),producer_edge:id(50)};
+        let second=Handoff {consumer:id(2),formal:id(12),consumer_site:id(32),consumer_edge:id(52),..first.clone()};
+        let mut attrs=Attributes::default();
+        relational(id(99),&mut attrs,&[id(1),id(2)],&[],&[first.clone(),second],&BTreeMap::from([(id(3),"producer".into())]));
+        assert_eq!(attrs.by_object[&id(1)],attrs.by_object[&id(2)]);
+        assert_eq!(attrs.incidences.len(),2);
+        let attribute=attrs.catalog.values().next().unwrap();
+        assert!(attribute.render().unwrap().contains("candidate handoff pairing"));
+        let definite=Handoff {producer_modality:Modality::Definite,..first.clone()};
+        let passed=crate::pass_c::run(&Handoffs {rows:vec![first,definite]},id(1),3,id(99),id(98)).unwrap();
+        assert_eq!(passed.findings.len(),2,"candidate and definite endpoint pairings stay separate");
+        let ids: BTreeSet<_>=passed.members.iter().filter_map(|m|m.attribute_id).collect();
+        assert_eq!(ids.len(),2);
     }
 
     #[test]

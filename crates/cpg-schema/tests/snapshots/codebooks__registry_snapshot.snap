@@ -556,6 +556,7 @@ member_role
   13 premise
   14 conclusion
   15 label
+  16 handoff_attribute
 assertion_kind
   0 outcome
   1 public_access
@@ -848,3 +849,12 @@ summary_channel
 summary_subject_kind
   0 value_origin
   1 execution_site
+concept_attribute_kind
+  0 parameter
+  1 parameter_type
+  2 returns
+  3 raises
+  4 decorator
+  5 calls
+  6 hands_off
+  7 takes_from

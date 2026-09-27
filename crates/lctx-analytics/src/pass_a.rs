@@ -310,6 +310,7 @@ pub fn run(
                 ordinal: ordinal as i64,
                 node: Some(*node),
                 cited_fact: None,
+                attribute: None,
                 label: Some(label.clone()),
             })
             .collect();
@@ -339,6 +340,7 @@ pub fn run(
                 ordinal: ordinal as i64,
                 node_id: Some(*node),
                 cited_fact_id: None,
+                attribute_id: None,
                 label: Some(label.clone()),
                 weight: None,
             });

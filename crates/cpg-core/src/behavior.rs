@@ -1465,21 +1465,7 @@ pub async fn run(
     let attributes = crate::analyze::collect_attributes(ctx, &callables).await?;
     let mut declared: BTreeMap<Id, Vec<(OperationFacet, String)>> = BTreeMap::new();
     for (node, attribute) in attributes {
-        let (facet, value) = if let Some(v) = attribute.strip_prefix("parameter type ") {
-            (OperationFacet::ParameterType, v)
-        } else if let Some(v) = attribute.strip_prefix("parameter ") {
-            (OperationFacet::Parameter, v)
-        } else if let Some(v) = attribute.strip_prefix("returns ") {
-            (OperationFacet::Returns, v)
-        } else if let Some(v) = attribute.strip_prefix("raises ") {
-            (OperationFacet::Raises, v)
-        } else if let Some(v) = attribute.strip_prefix("decorator ") {
-            (OperationFacet::Decorator, v)
-        } else {
-            return Err(CoreError::Analysis(format!(
-                "an FCA attribute of no known form: {attribute}"
-            )));
-        };
+        let (facet,value)=attribute.facet().ok_or_else(||CoreError::Analysis("invalid declared attribute".into()))?;
         put(node, facet, value.to_owned(), Verdict::Established);
         declared
             .entry(node)

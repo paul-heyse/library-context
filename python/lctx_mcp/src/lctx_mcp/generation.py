@@ -134,11 +134,23 @@ def expected_schemas(dimensions: int) -> dict[str, pa.Schema]:
                 _int("ordinal"),
                 _id("node_id", True),
                 _id("cited_fact_id", True),
+                _id("attribute_id", True),
                 _utf8("fact_table", True),
                 _utf8("fact_model_id", True),
                 _utf8("label", True),
             ]
         ),
+        "support_attributes": pa.schema([
+            _id("attribute_id"),_utf8("kind"),_utf8("symbol",True),_utf8("parameter_kind",True),
+            _id("type_term_id",True),_utf8("class_module",True),_utf8("class_key",True),_id("target_node_id",True),
+            _utf8("modality",True),_utf8("phase",True),_utf8("producer_modality",True),_utf8("producer_phase",True),_utf8("display"),
+        ]),
+        "support_attribute_incidences": pa.schema([
+            _id("finding_id"),_id("incidence_id"),_id("attribute_id"),_id("object_node_id"),
+            _id("source_fact_id"),_utf8("fact_table"),_utf8("fact_model_id"),_id("site_node_id",True),_id("edge_id",True),
+            _id("other_site_node_id",True),_id("other_edge_id",True),_id("consumer_formal_id",True),
+            _id("other_fact_id",True),_utf8("other_fact_table",True),_utf8("other_fact_model_id",True),
+        ]),
         "evidence": pa.schema(
             [
                 _id("evidence_id"),
@@ -478,7 +490,7 @@ def _read(
 
 def _validate_support_closure(tables: dict[str, pa.Table]) -> None:
     """Refuse a generation whose served support edges cannot resolve in its own projection."""
-    for name in ("support_findings", "support_witnesses", "support_members"):
+    for name in ("support_findings", "support_witnesses", "support_members", "support_attributes", "support_attribute_incidences"):
         if tables[name].num_rows > 100_000:
             raise GenerationError(f"{name} exceeds the support projection row limit")
     findings = {row["finding_id"]: row for row in tables["support_findings"].to_pylist()}
@@ -508,6 +520,94 @@ def _validate_support_closure(tables: dict[str, pa.Table]) -> None:
             raise GenerationError("member has no served finding")
         if member["cited_fact_id"] is not None and member["fact_table"] is None:
             raise GenerationError("member cited fact is unavailable")
+
+    attributes = {r["attribute_id"]: r for r in tables["support_attributes"].to_pylist()}
+    if len(attributes) != tables["support_attributes"].num_rows:
+        raise GenerationError("duplicate support attribute")
+    referenced = set()
+    members_by_finding: dict[bytes, list[dict]] = {}
+    required = set()
+    for member in tables["support_members"].to_pylist():
+        members_by_finding.setdefault(member["finding_id"], []).append(member)
+        attribute = member["attribute_id"]
+        if attribute is not None:
+            referenced.add(attribute)
+            if attribute not in attributes:
+                raise GenerationError("member attribute is unavailable")
+    if referenced != attributes.keys():
+        raise GenerationError("attribute closure differs from served members")
+    handoff_pairs = {}
+    handoff_formals = {}
+    for finding, members in members_by_finding.items():
+        if findings[finding]["finding_kind"] == "handoff":
+            by_ordinal = {m["ordinal"]: m for m in members}
+            count = len(members)
+            if count < 4 or count % 2 or set(by_ordinal) != set(range(count)):
+                raise GenerationError("handoff members have an invalid order")
+            for ordinal, member in by_ordinal.items():
+                role = ("formal" if ordinal == 0 else "handoff_attribute" if ordinal == count - 1
+                        else "producer_site" if ordinal % 2 else "consumer_site")
+                if member["role"] != role or (role == "handoff_attribute") != (member["attribute_id"] is not None):
+                    raise GenerationError("handoff members have an invalid role")
+                if role != "handoff_attribute" and member["node_id"] is None:
+                    raise GenerationError("handoff member has no source node")
+        objects = {m["node_id"] for m in members if m["role"] == "extent_member"}
+        attrs = {m["attribute_id"] for m in members if m["attribute_id"] is not None and m["role"] != "handoff_attribute"}
+        if len(required) + len(objects) * len(attrs) > 100_000:
+            raise GenerationError("attribute supporter closure exceeds the support budget")
+        required.update((finding, obj, attr) for obj in objects for attr in attrs)
+        for member in members:
+            if member["role"] == "handoff_attribute":
+                required.add((finding, findings[finding]["subject_node_id"], member["attribute_id"]))
+        consumers = {m["ordinal"]: m["node_id"] for m in members if m["role"] == "consumer_site"}
+        pairs = {(m["node_id"], consumers[m["ordinal"] + 1]) for m in members
+                 if m["role"] == "producer_site" and m["ordinal"] + 1 in consumers}
+        if any(m["role"] == "handoff_attribute" for m in members):
+            if not pairs:
+                raise GenerationError("handoff attribute has no retained pair")
+            handoff_pairs[finding] = pairs
+            handoff_formals[finding] = {m["node_id"] for m in members if m["role"] == "formal"}
+    observed = set()
+    incidence_keys = set()
+    observed_pairs = {}
+    for row in tables["support_attribute_incidences"].to_pylist():
+        key = (row["finding_id"], row["incidence_id"])
+        if key in incidence_keys:
+            raise GenerationError("duplicate attribute incidence")
+        incidence_keys.add(key)
+        scope = (row["finding_id"], row["object_node_id"], row["attribute_id"])
+        if scope not in required:
+            raise GenerationError("foreign attribute incidence")
+        observed.add(scope)
+        if any(row[n] is None for n in ("source_fact_id", "fact_table", "fact_model_id")):
+            raise GenerationError("attribute source evidence is unavailable")
+        kind = attributes[row["attribute_id"]]["kind"]
+        call_fields = ("site_node_id", "edge_id")
+        pair_fields = ("other_site_node_id", "other_edge_id", "consumer_formal_id",
+                       "other_fact_id", "other_fact_table", "other_fact_model_id")
+        if kind in ("hands_off", "takes_from"):
+            if any(row[n] is None for n in (*call_fields, *pair_fields)):
+                raise GenerationError("paired attribute evidence is unavailable")
+        elif kind == "calls":
+            if any(row[n] is None for n in call_fields) or any(row[n] is not None for n in pair_fields):
+                raise GenerationError("call attribute evidence has an invalid shape")
+        elif kind in ("parameter", "parameter_type", "returns", "raises", "decorator"):
+            if any(row[n] is not None for n in (*call_fields, *pair_fields)):
+                raise GenerationError("structural attribute evidence has an invalid shape")
+        else:
+            raise GenerationError("unknown attribute kind")
+        finding = row["finding_id"]
+        if finding in handoff_pairs:
+            pair = (row["site_node_id"], row["other_site_node_id"])
+            if pair not in handoff_pairs[finding] or row["consumer_formal_id"] not in handoff_formals[finding]:
+                raise GenerationError("attribute incidence does not support retained handoff")
+            observed_pairs.setdefault(finding, set()).add(pair)
+    if {key for key, row in findings.items() if row["finding_kind"] == "handoff"} != handoff_pairs.keys():
+        raise GenerationError("handoff has no complete retained pair")
+    if observed_pairs != handoff_pairs:
+        raise GenerationError("missing attribute incidence for retained handoff pair")
+    if observed != required:
+        raise GenerationError("missing attribute incidence for finding supporter")
 
 
 def load(root: Path, client_spec: Spec | None) -> Generation:

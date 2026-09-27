@@ -1774,3 +1774,79 @@ async fn all_techniques_guard() {
     const GUARD: &str = "fd5363958e64a6e89f865a42f075ac0f3f8b10ea17dd65f3ea99aa912f0b7f91";
     assert_eq!(digest, GUARD, "the all-techniques guard moved");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn typed_handoff_pair_support_survives_serving_without_becoming_a_call_chain() {
+    let (ctx,dir)=docs_shapes_analyzed("typed_handoff",false).await;
+    let generation=cpg_core::bundle::build(&ctx,&dir.path().join("generations")).await.unwrap();
+    let script=r#"
+import sys
+from pathlib import Path
+import pyarrow as pa
+from lctx_mcp.generation import load, _validate_support_closure, GenerationError
+from lctx_mcp.server import serve, _finding
+
+generation = load(Path(sys.argv[1]), None)
+served = serve(generation, None)
+handoffs = [key for key, row in served.findings.items() if row['finding_kind'] == 'handoff']
+assert handoffs
+for key in handoffs:
+    result = _finding(served, key)
+    assert not result.witnesses, 'a handoff pair is not a delegation chain'
+    assert len(result.attributes) == 1
+    attribute = result.attributes[0]
+    assert attribute.kind in ('hands_off', 'takes_from')
+    assert attribute.modality and attribute.phase and attribute.producer_modality and attribute.producer_phase
+    assert result.attribute_incidences
+    for row in result.attribute_incidences:
+        assert row.object_node_id == result.subject_node_id
+        assert row.site_node_id and row.edge_id and row.other_site_node_id and row.other_edge_id and row.consumer_formal_id
+        assert row.source_fact_id and row.other_fact_id
+    assert result.source_resolution == 'fact_only'
+members = generation.tables['support_members'].to_pylist()
+consumer = next(m for m in members if m['finding_id'] == handoffs[0] and m['role'] == 'consumer_site')
+changed = dict(generation.tables)
+changed['support_members'] = pa.Table.from_pylist([m for m in members if m is not consumer],
+    schema=generation.tables['support_members'].schema)
+try:
+    _validate_support_closure(changed)
+except GenerationError:
+    pass
+else:
+    raise AssertionError('orphan handoff member admitted')
+rows = generation.tables['support_attribute_incidences'].to_pylist()
+for fields in (('other_fact_id',), ('other_edge_id', 'other_fact_id', 'other_fact_table', 'other_fact_model_id'),
+               ('edge_id',), ('source_fact_id',), ('fact_table',), ('fact_model_id',)):
+    changed = dict(generation.tables)
+    changed['support_attribute_incidences'] = pa.Table.from_pylist(
+        [dict(r, **{name: None for name in fields}) if r['finding_id'] == handoffs[0] else r for r in rows],
+        schema=generation.tables['support_attribute_incidences'].schema)
+    try:
+        _validate_support_closure(changed)
+    except GenerationError:
+        pass
+    else:
+        raise AssertionError(('missing handoff evidence admitted', fields))
+"#;
+    let output=std::process::Command::new("uv").args(["run","--no-sync","python","-c",script,generation.dir.to_str().unwrap()])
+        .current_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")).output().unwrap();
+    assert!(output.status.success(),"{}",String::from_utf8_lossy(&output.stderr));
+    // An orphan member cannot silently remove a retained pair's evidence obligation.
+    let members=sql::query(&ctx,"SELECT * FROM finding_members").await.unwrap().into_view();
+    let forged=sql::query(&ctx,&format!("SELECT * FROM finding_members WHERE NOT (role={} AND ordinal=2)",cpg_schema::codebook::MemberRole::ConsumerSite.code())).await.unwrap().into_view();
+    ctx.deregister_table("finding_members").unwrap();ctx.register_table("finding_members",forged).unwrap();
+    let violations=cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(violations.iter().any(|v|v.rule=="semantic:handoff-member-shape"),"{violations:?}");
+    ctx.deregister_table("finding_members").unwrap();ctx.register_table("finding_members",members).unwrap();
+    // Removing one retained pair must fail publication even when its other pairs survive.
+    let required=cpg_schema::concept_attributes::handoff_support_requirements_sql();
+    let chosen=format!("WITH required AS ({required}), multiple AS (SELECT finding_id FROM required \
+        GROUP BY finding_id HAVING count(*)>1) SELECT r.site_node_id,r.other_site_node_id \
+        FROM required r JOIN multiple m ON m.finding_id=r.finding_id ORDER BY r.site_node_id,r.other_site_node_id LIMIT 1");
+    assert_eq!(batches(&ctx,&chosen).await.iter().map(RecordBatch::num_rows).sum::<usize>(),1);
+    let view=sql::query(&ctx,&format!("SELECT i.* FROM concept_incidences i LEFT ANTI JOIN ({chosen}) r \
+        ON i.site_node_id=r.site_node_id AND i.other_site_node_id=r.other_site_node_id")).await.unwrap().into_view();
+    ctx.deregister_table("concept_incidences").unwrap();ctx.register_table("concept_incidences",view).unwrap();
+    let violations=cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(violations.iter().any(|v|v.rule=="semantic:handoff-pair-incidence"),"{violations:?}");
+}

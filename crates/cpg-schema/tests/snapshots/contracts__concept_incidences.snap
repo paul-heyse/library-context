@@ -1,0 +1,19 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table concept_incidences
+family findings
+key snapshot_id, incidence_id
+@lctx.family=findings
+@lctx.table=concept_incidences
+snapshot_id: FixedSizeBinary(16) NOT NULL
+incidence_id: FixedSizeBinary(16) NOT NULL
+object_node_id: FixedSizeBinary(16) NOT NULL
+attribute_id: FixedSizeBinary(16) NOT NULL
+source_fact_id: FixedSizeBinary(16) NULL
+site_node_id: FixedSizeBinary(16) NULL
+edge_id: FixedSizeBinary(16) NULL
+other_site_node_id: FixedSizeBinary(16) NULL
+other_edge_id: FixedSizeBinary(16) NULL
+consumer_formal_id: FixedSizeBinary(16) NULL

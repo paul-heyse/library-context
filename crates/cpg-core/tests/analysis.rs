@@ -697,7 +697,7 @@ async fn concepts_come_from_each_seeds_structural_scope() {
         "SELECT DISTINCT label FROM finding_members WHERE role IN (12, 13, 14) ORDER BY label",
     )
     .await;
-    assert!(labels.contains("raises KeyError"), "{labels}");
+    assert!(labels.contains("direct raise of `KeyError`"), "{labels}");
     assert!(
         !labels.contains("Unknown") && !labels.contains("type[KeyError]"),
         "{labels}"
@@ -717,7 +717,7 @@ async fn concepts_come_from_each_seeds_structural_scope() {
             &ctx,
             "SELECT f.finding_kind, CAST(f.score AS BIGINT) AS score, \
                     (SELECT string_agg(m.label, ', ' ORDER BY m.ordinal) FROM finding_members m \
-                     WHERE m.finding_id = f.finding_id AND m.role IN (11, 13)) AS objects_or_premise, \
+                     WHERE m.finding_id = f.finding_id AND m.role=CASE WHEN f.finding_kind=13 THEN 11 ELSE 13 END) AS objects_or_premise, \
                     (SELECT string_agg(m.label, ', ' ORDER BY m.ordinal) FROM finding_members m \
                      WHERE m.finding_id = f.finding_id AND m.role IN (12, 14)) AS intent_or_conclusion \
              FROM findings f WHERE f.finding_kind IN (13, 14) \
@@ -859,9 +859,7 @@ async fn variants_add_relational_attributes_and_layers() {
     );
     let relational = text(
         &b,
-        "SELECT DISTINCT label FROM finding_members WHERE role IN (12, 13, 14) \
-           AND (starts_with(label, 'calls ') OR starts_with(label, 'hands off to ') \
-                OR starts_with(label, 'takes from ')) ORDER BY label",
+        "SELECT DISTINCT a.kind,a.modality,a.phase,a.producer_modality,a.producer_phase,a.display FROM finding_members m JOIN concept_attributes a ON a.attribute_id=m.attribute_id WHERE m.role IN (12,13,14) AND a.kind IN (5,6,7) ORDER BY a.kind,a.modality,a.phase,a.producer_modality,a.producer_phase,a.display",
     )
     .await;
     insta::assert_snapshot!("rca_attributes", relational);
@@ -1951,4 +1949,61 @@ async fn behaviors_cover_public_callables_outside_the_subsystem() {
     ] {
         assert!(facets.contains(want), "{want} in {facets}");
     }
+}
+
+/// S5: source-attributed typed attributes survive the real store and served finding support.
+#[tokio::test(flavor = "multi_thread")]
+async fn typed_attributes_keep_source_evidence_through_serving() {
+    let (result,dir)=compile_variant("typed",CONFIG,"linux",Techniques::parse("+fca,+rca").unwrap()).await;
+    result.unwrap();
+    let (_,ctx)=published(&dir.path().join("store"),Id([7;16])).await.unwrap().unwrap();
+    let generation=cpg_core::bundle::build(&ctx,&dir.path().join("generations")).await.unwrap();
+    let script=r#"
+import sys
+from pathlib import Path
+import pyarrow as pa
+from lctx_mcp.generation import load, _validate_support_closure, GenerationError
+from lctx_mcp.server import serve, _finding
+
+generation = load(Path(sys.argv[1]), None)
+served = serve(generation, None)
+assert served.attributes and served.attribute_incidences
+for finding_id in served.attribute_incidences:
+    result = _finding(served, finding_id)
+    assert result.attributes and result.attribute_incidences
+    assert result.source_resolution in ('fact_only', 'source_span')
+    assert all(row.source_fact_id and row.fact_table and row.fact_model_id for row in result.attribute_incidences)
+rows = generation.tables['support_attribute_incidences'].to_pylist()
+first = rows[0]
+for mutation in ('missing', 'foreign', 'source_fact_id', 'fact_table', 'fact_model_id'):
+    changed = dict(generation.tables)
+    if mutation == 'missing':
+        data = [r for r in rows if (r['finding_id'],r['object_node_id'],r['attribute_id']) !=
+                (first['finding_id'],first['object_node_id'],first['attribute_id'])]
+    elif mutation == 'foreign':
+        data = [dict(r, object_node_id=bytes(16)) if r is first else r for r in rows]
+    else:
+        data = [dict(r, **{mutation: None}) if r is first else r for r in rows]
+    changed['support_attribute_incidences'] = pa.Table.from_pylist(data, schema=generation.tables['support_attribute_incidences'].schema)
+    try:
+        _validate_support_closure(changed)
+    except GenerationError:
+        pass
+    else:
+        raise AssertionError((mutation, 'attribute support admitted'))
+"#;
+    let output=std::process::Command::new("uv").args(["run","--no-sync","python","-c",script,generation.dir.to_str().unwrap()])
+        .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")).output().unwrap();
+    assert!(output.status.success(),"{}",String::from_utf8_lossy(&output.stderr));
+    // A hash-consistent key still cannot borrow an unrelated presentation label.
+    let original=sql::query(&ctx,"SELECT * FROM concept_attributes").await.unwrap().into_view();
+    use cpg_schema::Table;
+    let fields=cpg_schema::concept_attributes::ConceptAttributes::schema().fields().iter()
+        .map(|f|if f.name()=="display" {"'unrelated label' AS display".to_owned()} else {f.name().clone()})
+        .collect::<Vec<_>>().join(", ");
+    let forged=sql::query(&ctx,&format!("SELECT {fields} FROM concept_attributes")).await.unwrap().into_view();
+    ctx.deregister_table("concept_attributes").unwrap();ctx.register_table("concept_attributes",forged).unwrap();
+    let violations=cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(violations.iter().any(|v|v.rule=="concept-attribute-source"),"{violations:?}");
+    ctx.deregister_table("concept_attributes").unwrap();ctx.register_table("concept_attributes",original).unwrap();
 }

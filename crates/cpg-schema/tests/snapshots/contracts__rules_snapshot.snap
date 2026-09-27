@@ -158,6 +158,10 @@ key:edge_kinds
   SELECT snapshot_id, edge_kind, count(*) AS n FROM edge_kinds GROUP BY snapshot_id, edge_kind HAVING count(*) > 1
 key:public_paths
   SELECT snapshot_id, node_id, access_path, count(*) AS n FROM public_paths GROUP BY snapshot_id, node_id, access_path HAVING count(*) > 1
+key:concept_attributes
+  SELECT snapshot_id, attribute_id, count(*) AS n FROM concept_attributes GROUP BY snapshot_id, attribute_id HAVING count(*) > 1
+key:concept_incidences
+  SELECT snapshot_id, incidence_id, count(*) AS n FROM concept_incidences GROUP BY snapshot_id, incidence_id HAVING count(*) > 1
 key:argument_flows
   SELECT snapshot_id, edge_id, argument_node_id, formal_node_id, count(*) AS n FROM argument_flows GROUP BY snapshot_id, edge_id, argument_node_id, formal_node_id HAVING count(*) > 1
 key:guards
@@ -165,7 +169,7 @@ key:guards
 key:parameter_reads
   SELECT snapshot_id, edge_id, argument_node_id, parameter_node_id, count(*) AS n FROM parameter_reads GROUP BY snapshot_id, edge_id, argument_node_id, parameter_node_id HAVING count(*) > 1
 key:handoffs
-  SELECT snapshot_id, consumer_site_node_id, consumer_node_id, producer_site_node_id, producer_node_id, formal_node_id, count(*) AS n FROM handoffs GROUP BY snapshot_id, consumer_site_node_id, consumer_node_id, producer_site_node_id, producer_node_id, formal_node_id HAVING count(*) > 1
+  SELECT snapshot_id, consumer_site_node_id, consumer_node_id, producer_site_node_id, producer_node_id, formal_node_id, consumer_edge_id, producer_edge_id, count(*) AS n FROM handoffs GROUP BY snapshot_id, consumer_site_node_id, consumer_node_id, producer_site_node_id, producer_node_id, formal_node_id, consumer_edge_id, producer_edge_id HAVING count(*) > 1
 key:delegations
   SELECT snapshot_id, caller_node_id, edge_id, count(*) AS n FROM delegations GROUP BY snapshot_id, caller_node_id, edge_id HAVING count(*) > 1
 key:operations
@@ -366,6 +370,32 @@ ref:finding_members.node_id->nodes
   SELECT f.node_id AS value FROM finding_members f LEFT ANTI JOIN (SELECT node_id AS k FROM nodes) r ON f.node_id = r.k WHERE f.node_id IS NOT NULL
 ref:finding_members.cited_fact_id->facts
   SELECT f.cited_fact_id AS value FROM finding_members f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.cited_fact_id = r.k WHERE f.cited_fact_id IS NOT NULL
+ref:finding_members.attribute_id->concept_attributes
+  SELECT f.attribute_id AS value FROM finding_members f LEFT ANTI JOIN (SELECT attribute_id AS k FROM concept_attributes) r ON f.attribute_id = r.k WHERE f.attribute_id IS NOT NULL
+ref:concept_attributes.type_term_id->type_terms
+  SELECT f.type_term_id AS value FROM concept_attributes f LEFT ANTI JOIN (SELECT node_id AS k FROM type_terms) r ON f.type_term_id = r.k WHERE f.type_term_id IS NOT NULL
+ref:concept_attributes.target_node_id->nodes
+  SELECT f.target_node_id AS value FROM concept_attributes f LEFT ANTI JOIN (SELECT node_id AS k FROM nodes) r ON f.target_node_id = r.k WHERE f.target_node_id IS NOT NULL
+ref:concept_incidences.consumer_formal_id->parameter_syntax
+  SELECT f.consumer_formal_id AS value FROM concept_incidences f LEFT ANTI JOIN (SELECT node_id AS k FROM parameter_syntax) r ON f.consumer_formal_id = r.k WHERE f.consumer_formal_id IS NOT NULL
+ref:concept_incidences.attribute_id->concept_attributes
+  SELECT f.attribute_id AS value FROM concept_incidences f LEFT ANTI JOIN (SELECT attribute_id AS k FROM concept_attributes) r ON f.attribute_id = r.k WHERE f.attribute_id IS NOT NULL
+ref:concept_incidences.object_node_id->nodes
+  SELECT f.object_node_id AS value FROM concept_incidences f LEFT ANTI JOIN (SELECT node_id AS k FROM nodes) r ON f.object_node_id = r.k WHERE f.object_node_id IS NOT NULL
+ref:concept_incidences.source_fact_id->facts
+  SELECT f.source_fact_id AS value FROM concept_incidences f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.source_fact_id = r.k WHERE f.source_fact_id IS NOT NULL
+ref:concept_incidences.site_node_id->nodes
+  SELECT f.site_node_id AS value FROM concept_incidences f LEFT ANTI JOIN (SELECT node_id AS k FROM nodes) r ON f.site_node_id = r.k WHERE f.site_node_id IS NOT NULL
+ref:concept_incidences.other_site_node_id->nodes
+  SELECT f.other_site_node_id AS value FROM concept_incidences f LEFT ANTI JOIN (SELECT node_id AS k FROM nodes) r ON f.other_site_node_id = r.k WHERE f.other_site_node_id IS NOT NULL
+ref:concept_incidences.edge_id->edges
+  SELECT f.edge_id AS value FROM concept_incidences f LEFT ANTI JOIN (SELECT edge_id AS k FROM edges) r ON f.edge_id = r.k WHERE f.edge_id IS NOT NULL
+ref:concept_incidences.other_edge_id->edges
+  SELECT f.other_edge_id AS value FROM concept_incidences f LEFT ANTI JOIN (SELECT edge_id AS k FROM edges) r ON f.other_edge_id = r.k WHERE f.other_edge_id IS NOT NULL
+ref:handoffs.consumer_edge_id->edges
+  SELECT f.consumer_edge_id AS value FROM handoffs f LEFT ANTI JOIN (SELECT edge_id AS k FROM edges) r ON f.consumer_edge_id = r.k WHERE f.consumer_edge_id IS NOT NULL
+ref:handoffs.producer_edge_id->edges
+  SELECT f.producer_edge_id AS value FROM handoffs f LEFT ANTI JOIN (SELECT edge_id AS k FROM edges) r ON f.producer_edge_id = r.k WHERE f.producer_edge_id IS NOT NULL
 ref:witnesses.finding_id->findings
   SELECT f.finding_id AS value FROM witnesses f LEFT ANTI JOIN (SELECT finding_id AS k FROM findings) r ON f.finding_id = r.k WHERE f.finding_id IS NOT NULL
 ref:witnesses.caller_node_id->nodes
@@ -1422,6 +1452,18 @@ codebook:edge_kinds.derivation
   SELECT derivation FROM edge_kinds WHERE derivation IS NOT NULL AND derivation NOT IN (0, 1, 2, 3)
 codebook:public_paths.kind
   SELECT kind FROM public_paths WHERE kind IS NOT NULL AND kind NOT IN (0, 1, 2)
+codebook:concept_attributes.kind
+  SELECT kind FROM concept_attributes WHERE kind IS NOT NULL AND kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7)
+codebook:concept_attributes.parameter_kind
+  SELECT parameter_kind FROM concept_attributes WHERE parameter_kind IS NOT NULL AND parameter_kind NOT IN (0, 1, 2, 3, 4)
+codebook:concept_attributes.modality
+  SELECT modality FROM concept_attributes WHERE modality IS NOT NULL AND modality NOT IN (0, 1, 2)
+codebook:concept_attributes.phase
+  SELECT phase FROM concept_attributes WHERE phase IS NOT NULL AND phase NOT IN (0, 1, 2, 3, 4, 5)
+codebook:concept_attributes.producer_modality
+  SELECT producer_modality FROM concept_attributes WHERE producer_modality IS NOT NULL AND producer_modality NOT IN (0, 1, 2)
+codebook:concept_attributes.producer_phase
+  SELECT producer_phase FROM concept_attributes WHERE producer_phase IS NOT NULL AND producer_phase NOT IN (0, 1, 2, 3, 4, 5)
 codebook:argument_flows.modality
   SELECT modality FROM argument_flows WHERE modality IS NOT NULL AND modality NOT IN (0, 1, 2)
 codebook:argument_flows.phase
@@ -1436,6 +1478,12 @@ codebook:handoffs.role
   SELECT role FROM handoffs WHERE role IS NOT NULL AND role NOT IN (0, 1, 2, 3)
 codebook:handoffs.consumer_modality
   SELECT consumer_modality FROM handoffs WHERE consumer_modality IS NOT NULL AND consumer_modality NOT IN (0, 1, 2)
+codebook:handoffs.consumer_phase
+  SELECT consumer_phase FROM handoffs WHERE consumer_phase IS NOT NULL AND consumer_phase NOT IN (0, 1, 2, 3, 4, 5)
+codebook:handoffs.producer_modality
+  SELECT producer_modality FROM handoffs WHERE producer_modality IS NOT NULL AND producer_modality NOT IN (0, 1, 2)
+codebook:handoffs.producer_phase
+  SELECT producer_phase FROM handoffs WHERE producer_phase IS NOT NULL AND producer_phase NOT IN (0, 1, 2, 3, 4, 5)
 codebook:delegations.modality
   SELECT modality FROM delegations WHERE modality IS NOT NULL AND modality NOT IN (0, 1, 2)
 codebook:delegations.phase
@@ -1745,7 +1793,7 @@ codebook:findings.evidence_status
 codebook:findings.stop_reason
   SELECT stop_reason FROM findings WHERE stop_reason IS NOT NULL AND stop_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8)
 codebook:finding_members.role
-  SELECT role FROM finding_members WHERE role IS NOT NULL AND role NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15)
+  SELECT role FROM finding_members WHERE role IS NOT NULL AND role NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)
 codebook:witnesses.modality
   SELECT modality FROM witnesses WHERE modality IS NOT NULL AND modality NOT IN (0, 1, 2)
 codebook:witnesses.arc_kind
@@ -1869,7 +1917,19 @@ semantic:finding-status-policy
 semantic:finding-kind-by-method
   SELECT f.finding_id FROM findings f JOIN analysis_invocations i ON i.invocation_id = f.invocation_id LEFT ANTI JOIN (VALUES (0, 0), (1, 0), (2, 0), (3, 0), (4, 0), (5, 0), (6, 1), (7, 1), (8, 1), (10, 1), (9, 2), (11, 4), (12, 5), (13, 6), (14, 6), (15, 8), (16, 8), (17, 9)) AS p(kind, method) ON p.kind = f.finding_kind AND p.method = i.method
 semantic:concept-attribute-known
-  SELECT m.finding_id, m.label FROM finding_members m WHERE m.role IN (12, 13, 14) AND m.label ~ '\bUnknown\b'
+  WITH RECURSIVE unknown(node_id) AS (SELECT node_id FROM type_terms WHERE kind=16 AND detail IN ('error','implicit') UNION SELECT a.parent_node_id FROM type_term_args a JOIN unknown u ON u.node_id=a.child_node_id) SELECT a.attribute_id FROM concept_attributes a JOIN unknown u ON u.node_id=a.type_term_id
+semantic:concept-member-kind
+  SELECT finding_id FROM finding_members WHERE (role IN (12,13,14,16)) <> (attribute_id IS NOT NULL)
+semantic:concept-attribute-incidence
+  SELECT a.attribute_id FROM concept_attributes a LEFT ANTI JOIN concept_incidences i ON i.attribute_id=a.attribute_id
+semantic:concept-extent-incidence
+  SELECT m.finding_id,m.attribute_id,g.node_id FROM finding_members m JOIN finding_members g ON g.finding_id=m.finding_id AND g.role=11 LEFT ANTI JOIN concept_incidences i ON i.attribute_id=m.attribute_id AND i.object_node_id=g.node_id WHERE m.attribute_id IS NOT NULL
+semantic:handoff-attribute-support
+  WITH links AS (SELECT DISTINCT m.finding_id,i.incidence_id FROM finding_members m JOIN finding_members g ON g.finding_id=m.finding_id AND g.role=11 JOIN concept_incidences i ON i.attribute_id=m.attribute_id AND i.object_node_id=g.node_id WHERE m.role IN (12,13,14) UNION SELECT DISTINCT r.finding_id,i.incidence_id FROM (SELECT DISTINCT m.finding_id,m.attribute_id,f.subject_node_id AS object_node_id, p.node_id AS site_node_id,c.node_id AS other_site_node_id,fm.node_id AS consumer_formal_id FROM finding_members m JOIN findings f ON f.finding_id=m.finding_id JOIN finding_members p ON p.finding_id=m.finding_id AND p.role=5 JOIN finding_members c ON c.finding_id=m.finding_id AND c.role=6 AND c.ordinal=p.ordinal+1 JOIN finding_members fm ON fm.finding_id=m.finding_id AND fm.role=4 WHERE m.role=16) r JOIN concept_incidences i ON i.attribute_id=r.attribute_id AND i.object_node_id=r.object_node_id AND i.site_node_id=r.site_node_id AND i.other_site_node_id=r.other_site_node_id AND i.consumer_formal_id=r.consumer_formal_id) SELECT f.finding_id FROM findings f LEFT JOIN finding_members m ON m.finding_id=f.finding_id AND m.role=16 LEFT JOIN concept_attributes a ON a.attribute_id=m.attribute_id WHERE f.finding_kind=9 GROUP BY f.finding_id,f.related_node_id HAVING count(m.attribute_id)<>1 OR min(a.kind) NOT IN (6,7) OR min(a.target_node_id)<>f.related_node_id UNION SELECT m.finding_id FROM finding_members m LEFT ANTI JOIN links l ON l.finding_id=m.finding_id WHERE m.role=16
+semantic:handoff-member-shape
+  WITH h AS (SELECT f.finding_id,count(m.ordinal) AS n,count(DISTINCT m.ordinal) AS distinct_n, min(m.ordinal) AS lo,max(m.ordinal) AS hi FROM findings f LEFT JOIN finding_members m ON m.finding_id=f.finding_id WHERE f.finding_kind=9 GROUP BY f.finding_id) SELECT finding_id FROM h WHERE n<4 OR (n % 2)<>0 OR distinct_n<>n OR lo<>0 OR hi<>n-1 UNION SELECT m.finding_id FROM h JOIN finding_members m ON m.finding_id=h.finding_id WHERE m.role<>CASE WHEN m.ordinal=0 THEN 4 WHEN m.ordinal=h.n-1 THEN 16 WHEN (m.ordinal % 2)=1 THEN 5 ELSE 6 END OR (m.role<>16 AND m.node_id IS NULL)
+semantic:handoff-pair-incidence
+  SELECT r.finding_id,r.attribute_id,r.site_node_id,r.other_site_node_id FROM (SELECT DISTINCT m.finding_id,m.attribute_id,f.subject_node_id AS object_node_id, p.node_id AS site_node_id,c.node_id AS other_site_node_id,fm.node_id AS consumer_formal_id FROM finding_members m JOIN findings f ON f.finding_id=m.finding_id JOIN finding_members p ON p.finding_id=m.finding_id AND p.role=5 JOIN finding_members c ON c.finding_id=m.finding_id AND c.role=6 AND c.ordinal=p.ordinal+1 JOIN finding_members fm ON fm.finding_id=m.finding_id AND fm.role=4 WHERE m.role=16) r LEFT ANTI JOIN concept_incidences i ON i.attribute_id=r.attribute_id AND i.object_node_id=r.object_node_id AND i.site_node_id=r.site_node_id AND i.other_site_node_id=r.other_site_node_id AND i.consumer_formal_id=r.consumer_formal_id
 semantic:invocation-run-is-compiler
   SELECT i.invocation_id FROM analysis_invocations i JOIN runs r ON r.run_id = i.run_id JOIN producers p ON p.producer_id = r.producer_id WHERE p.tool <> 'lctx-compiler'
 semantic:document-key-whole

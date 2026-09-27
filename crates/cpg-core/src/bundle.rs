@@ -178,7 +178,7 @@ fn query(name: &str) -> Option<String> {
             "WITH cited AS (SELECT DISTINCT s.finding_id FROM assertion_support s \
                 JOIN brief_assertions ba ON ba.assertion_id = s.assertion_id \
                 WHERE s.finding_id IS NOT NULL) \
-             SELECT m.finding_id, {role} AS role, m.ordinal, m.node_id, m.cited_fact_id, \
+             SELECT m.finding_id, {role} AS role, m.ordinal, m.node_id, m.cited_fact_id, m.attribute_id, \
                     f.table_name AS fact_table, f.model_id AS fact_model_id, m.label \
              FROM cited c JOIN finding_members m ON m.finding_id = c.finding_id \
              LEFT JOIN facts f ON f.fact_id = m.cited_fact_id \
@@ -186,6 +186,28 @@ fn query(name: &str) -> Option<String> {
             role = text_of::<MemberRole>("m.role"),
             limit = MAX_SUPPORT_ROWS + 1,
         ),
+        "support_attributes"=>format!(
+            "SELECT DISTINCT a.attribute_id,{kind} AS kind,a.symbol,{parameter} AS parameter_kind,a.type_term_id, \
+                a.class_module,a.class_key,a.target_node_id,{modality} AS modality,{phase} AS phase, \
+                {producer_modality} AS producer_modality,{producer_phase} AS producer_phase,a.display \
+             FROM assertion_support s JOIN brief_assertions ba ON ba.assertion_id=s.assertion_id \
+             JOIN finding_members m ON m.finding_id=s.finding_id JOIN concept_attributes a ON a.attribute_id=m.attribute_id \
+             ORDER BY a.attribute_id LIMIT {limit}",
+            kind=text_of::<cpg_schema::codebook::ConceptAttributeKind>("a.kind"),parameter=text_of::<cpg_schema::codebook::ParameterKind>("a.parameter_kind"),
+            modality=text_of::<Modality>("a.modality"),phase=text_of::<InvocationPhase>("a.phase"),
+            producer_modality=text_of::<Modality>("a.producer_modality"),producer_phase=text_of::<InvocationPhase>("a.producer_phase"),limit=MAX_SUPPORT_ROWS+1),
+        "support_attribute_incidences"=>format!(
+            "WITH cited AS (SELECT DISTINCT s.finding_id FROM assertion_support s \
+                JOIN brief_assertions ba ON ba.assertion_id=s.assertion_id WHERE s.finding_id IS NOT NULL), \
+             links AS ({links}) \
+             SELECT k.finding_id,i.incidence_id,i.attribute_id,i.object_node_id, \
+                COALESCE(i.source_fact_id,e.evidence_fact_id) AS source_fact_id,f.table_name AS fact_table,f.model_id AS fact_model_id, \
+                i.site_node_id,i.edge_id,i.other_site_node_id,i.other_edge_id,i.consumer_formal_id, \
+                other.evidence_fact_id AS other_fact_id,of.table_name AS other_fact_table,of.model_id AS other_fact_model_id \
+             FROM cited c JOIN links k ON k.finding_id=c.finding_id JOIN concept_incidences i ON i.incidence_id=k.incidence_id \
+             LEFT JOIN edges e ON e.edge_id=i.edge_id LEFT JOIN facts f ON f.fact_id=COALESCE(i.source_fact_id,e.evidence_fact_id) \
+             LEFT JOIN edges other ON other.edge_id=i.other_edge_id LEFT JOIN facts of ON of.fact_id=other.evidence_fact_id \
+             ORDER BY k.finding_id,i.incidence_id LIMIT {limit}",links=cpg_schema::concept_attributes::finding_incidence_keys_sql(),limit=MAX_SUPPORT_ROWS+1),
         "evidence" => format!(
             "SELECT e.evidence_id, {kind} AS kind, e.node_id, COALESCE(sf.path, d.path) AS path, \
                     e.start_byte, e.end_byte, e.text \

@@ -756,3 +756,83 @@ The initial 43-case command retains its failed outcome; the targeted rerun resol
 failure without a cap increase. F08 is corrected at source-inspection strength with this focused
 fixture evidence. Full S1/S2/S6, all-channel summaries, RCA repair, clean-wheel qualification,
 full gates/pilot and integrated Stage 3 acceptance remain open.
+
+## 19. Bounded implementation follow-up: typed current FCA/RCA and handoff support
+
+**2026-09-27 · change/conformance · source inspection with attributed focused receipts.**
+This review covers the compiler-88/template-20 repair of existing §9.3/§9.6 consumers under
+ADR-0058: typed attributes, attributed object incidences, Pass C, synthesis, declared facets,
+publication validation and the FORMAT 9 support projection. It does not introduce behavioral
+FCA features, registry membership or Stage 5 execution. The
+[forward plan §6](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)
+owns W10's current disposition; this section supplies bounded review evidence.
+
+**Implemented, source-inspected:** [the schema contract](../../../crates/cpg-schema/src/concept_attributes.rs)
+owns typed identity, rendering and retained-support selectors. Analytics maps sorted attribute
+IDs into the existing FCA kernel; core reconstructs observations; Python checks projected
+closure. The FCA algorithm and limits remain unchanged. This is domain-contract repair using
+existing relational/FCA capabilities, with no new generic framework.
+
+<a id="F09"></a>**F09 — Shared attribute meaning must not depend on presentation or its object.**
+An initial consumer-formal key split shared TakesFrom attributes by object; unchecked display
+could alter facets, and implications lacked supporter objects. The correction keeps formals
+in incidence evidence, reconstructs display from source, and records premise-extent supporters.
+Attribute/finding IDs exclude display; incidence IDs retain object, fact, sites, edges and
+formal. Stage F, Pass C and facets consume typed variants; English-prefix classifiers are
+deleted. Focused controls distinguish modality/phase and structural type identity, preserve
+label invariance, and reject forged source display.
+
+<a id="F10"></a>**F10 — Retained handoff pairs need their own evidence contract.**
+Sibling usage calls cannot be delegation-chain `Witnesses`. Pass C now uses a typed
+`HandoffAttribute`, complete ordered site pairs and one formal. Its independent support does
+not enter an RCA-disabled FCA context. Shared requirements/selectors constrain incidence to
+retained pairs/formals or FCA extent objects. Publication and serving reject orphan members
+and missing pair support; serving validates evidence shape by attribute kind, including
+combined edge/fact deletion at either endpoint. Both facts retain provenance with truthful
+`fact_only` resolution. Candidate endpoints render as candidate handoff pairings.
+
+Source reconstruction validates retained attributed support, not lattice/context completeness.
+Support projections retain the 100,000-row refusal boundary; selection does not become an
+exhaustive behavioral claim.
+
+| Judgment/gate | Bounded verdict | Evidence and limit |
+|---|---|---|
+| A1 — Localize change | satisfied at source-inspection strength | Schema owns meaning/selectors; analytics owns context/grouping; core owns acquisition/publication; Python owns protocol checks |
+| A2 — Encode meaning structurally | satisfied after F09/F10 corrections | Typed keys, incidence-local occurrences, source-checked display and complete retained pair shape replace implicit label/path meaning |
+| A3 — Extend through composition | satisfied for current consumers | The same catalog feeds FCA, independent Pass C support, facets and rendering; ordinary observations do not add semantic classifiers |
+| G1/G2/G3/G6; CI-G1/CI-G2 | no remaining blocker established in this slice | Shared source reconstruction and selectors, typed endpoint fidelity and explicit malformed-evidence refusals; full source-span/native semantic-query closure remains separate S6 work |
+| G4/G5/G7/G8; CI-G3 | scoped, no new blocker established | Pure analytics and pinned projections retained; bounded support, attributed receipts, no new evaluation-input path or generic engine; no performance or whole-product claim |
+
+**Attributed focused receipt, 2026-09-27:** the author ran the following command. This reviewer
+inspected its source coverage and `/tmp/lctx-stage3-typed-attributes-final.log`, and ran no tests.
+The target-directory override reuses this checkout's established cache, as explained in STATUS.
+
+```sh
+CARGO_TARGET_DIR=/home/paul/library-context/target \
+LCTX_PY_FIXTURE=/home/paul/library-context/build/py-fixture \
+INSTA_UPDATE=no RUST_MIN_STACK=16777216 cargo nextest run --release \
+  -p lctx-analytics -p cpg-schema -p cpg-core --lib \
+  --test contracts --test codebooks --test analysis --test bundle --test syntax \
+  -E 'test(concepts::) | binary(contracts) | binary(codebooks) | test(concepts_come_from_each_seeds_structural_scope) | test(fca_scopes_are_nodes_and_state_only_their_own_apis) | test(variants_add_relational_attributes_and_layers) | test(typed_attributes_keep_source_evidence_through_serving) | test(typed_handoff_pair_support_survives_serving_without_becoming_a_call_chain) | test(handoffs_and_usage_patterns_come_from_official_code) | test(pass_c_and_usage_patterns_are_identical_across_location_and_module_order) | test(serving_schema_digests_are_the_shared_known_answers) | test(writes_the_python_fixture_generation)' \
+  --status-level fail --final-status-level fail
+```
+
+Outcome **passed: 29 cases, 181 skipped** (9.786 seconds), covering FCA controls, typed identity,
+reversed input, real source→Delta→bundle→Python output and the F09/F10 refusal cases.
+Intermediate commands remain **failed**: SQL errors, including unavailable `mod()`, were
+corrected; schema/codebook/rendering snapshot differences were read and accepted before this
+final no-update run.
+
+The author's `uv run --no-sync pytest python/lctx_mcp/tests/test_server.py
+python/lctx_mcp/tests/test_digest.py` is **passed: 15 cases** (1.17 seconds), recorded in
+`/tmp/lctx-stage3-typed-attributes-python.log`. The separate `test_digest.py -k expected_schemas`
+check is reported **passed**. `uv run --no-sync pyrefly check
+python/lctx_mcp/src/lctx_mcp/generation.py python/lctx_mcp/src/lctx_mcp/server.py` is **passed:
+0 errors, 1 warning**, confirmed by `/tmp/lctx-stage3-typed-attributes-pyrefly.log`.
+
+**Bounded decision: Accept the current typed FCA/RCA and Pass C repair at source-inspection
+strength, supported by the attributed focused receipts above.** F09/F10 are corrected within
+this slice. This accepts neither all S5 coverage/discharge nor enclosing Stage 3. Synchronous
+context completion, remaining model activation and channel composition, full S6 semantics and
+evidence, independent S7 challenges and S8 qualification remain open. Full `just test-all`,
+fresh `just pilot`, clean-wheel and all-techniques/cost qualification were **not_run** here.

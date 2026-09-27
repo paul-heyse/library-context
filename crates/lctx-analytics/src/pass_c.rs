@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 use arrow_array::{
     Array, BooleanArray, FixedSizeBinaryArray, Int16Array, Int64Array, RecordBatch, StringArray,
 };
-use cpg_schema::codebook::{Codebook, CoverageStatus, FindingKind, MemberRole, SourceRole};
+use cpg_schema::codebook::{Codebook, CoverageStatus, FindingKind, MemberRole, SourceRole, Modality, InvocationPhase};
 use cpg_schema::findings::{
     FINDING_STATUS, FindingMembersRow, FindingsRow, MemberKey, recipe::FindingKey,
 };
@@ -34,6 +34,12 @@ pub struct Handoff {
     pub consumer_site: Id,
     pub producer_site: Id,
     pub named: bool,
+    pub consumer_modality: Modality,
+    pub consumer_phase: InvocationPhase,
+    pub producer_modality: Modality,
+    pub producer_phase: InvocationPhase,
+    pub consumer_edge: Id,
+    pub producer_edge: Id,
 }
 
 /// The relation's rows, in their total order.
@@ -74,6 +80,12 @@ impl Handoffs {
             let role = col::<Int16Array>(b, "role")?;
             let start = col::<Int64Array>(b, "consumer_start_byte")?;
             let named = col::<BooleanArray>(b, "named")?;
+            let cm=col::<Int16Array>(b,"consumer_modality")?;
+            let cp=col::<Int16Array>(b,"consumer_phase")?;
+            let pm=col::<Int16Array>(b,"producer_modality")?;
+            let pp=col::<Int16Array>(b,"producer_phase")?;
+            let ce=ids("consumer_edge_id")?;
+            let pe=ids("producer_edge_id")?;
             for i in 0..b.num_rows() {
                 rows.push(Handoff {
                     consumer: id_at(consumer, i)?,
@@ -87,6 +99,12 @@ impl Handoffs {
                     consumer_site: id_at(csite, i)?,
                     producer_site: id_at(psite, i)?,
                     named: named.value(i),
+                    consumer_modality: Modality::from_code(cm.value(i)).ok_or_else(||AnalyticsError::Graph("invalid consumer modality".into()))?,
+                    consumer_phase: InvocationPhase::from_code(cp.value(i)).ok_or_else(||AnalyticsError::Graph("invalid consumer phase".into()))?,
+                    producer_modality: Modality::from_code(pm.value(i)).ok_or_else(||AnalyticsError::Graph("invalid producer modality".into()))?,
+                    producer_phase: InvocationPhase::from_code(pp.value(i)).ok_or_else(||AnalyticsError::Graph("invalid producer phase".into()))?,
+                    consumer_edge: id_at(ce,i)?,
+                    producer_edge: id_at(pe,i)?,
                 });
             }
         }
@@ -122,7 +140,7 @@ pub fn run(
     invocation_id: Id,
 ) -> Result<PassCResult, AnalyticsError> {
     // (other callable, formal) → occurrences, the seed as consumer or as producer.
-    let mut groups: BTreeMap<(Id, Id), Vec<&Handoff>> = BTreeMap::new();
+    let mut groups: BTreeMap<(Id, Id, Modality, InvocationPhase, Modality, InvocationPhase), Vec<&Handoff>> = BTreeMap::new();
     let mut occurrences = 0i64;
     for h in &handoffs.rows {
         let other = if h.consumer == seed {
@@ -136,7 +154,7 @@ pub fn run(
             continue;
         }
         occurrences += 1;
-        groups.entry((other, h.formal)).or_default().push(h);
+        groups.entry((other, h.formal,h.producer_modality,h.producer_phase,h.consumer_modality,h.consumer_phase)).or_default().push(h);
     }
     let status = FINDING_STATUS
         .iter()
@@ -145,7 +163,7 @@ pub fn run(
         .ok_or_else(|| AnalyticsError::Graph("no status policy for handoff".to_owned()))?;
     let mut findings = Vec::new();
     let mut members = Vec::new();
-    for ((other, formal), mut group) in groups {
+    for ((other, formal,_,_,_,_), mut group) in groups {
         group.sort_by(|a, b| {
             (
                 role_rank(a.role),
@@ -153,6 +171,7 @@ pub fn run(
                 a.consumer_start,
                 a.consumer_site,
                 a.producer_site,
+                a.producer_edge,a.consumer_edge,
             )
                 .cmp(&(
                     role_rank(b.role),
@@ -160,6 +179,7 @@ pub fn run(
                     b.consumer_start,
                     b.consumer_site,
                     b.producer_site,
+                    b.producer_edge,b.consumer_edge,
                 ))
         });
         let kept: Vec<&&Handoff> = group.iter().take(max_occurrences.max(1)).collect();
@@ -172,15 +192,22 @@ pub fn run(
         let keys: Vec<MemberKey> = rows
             .iter()
             .enumerate()
-            .map(|(ordinal, (role, node, label))| MemberKey {
+            .map(|(ordinal, (role, node, _label))| MemberKey {
                 role: role.code(),
                 ordinal: ordinal as i64,
                 node: Some(*node),
                 cited_fact: None,
-                label: Some(label.clone()),
+                attribute: None,
+                label: None,
             })
             .collect();
         let omitted = group.len() > kept.len();
+        let attribute=cpg_schema::concept_attributes::AttributeKey::Handoff {takes:group[0].consumer==seed,
+            target:other,consumer_modality:group[0].consumer_modality,consumer_phase:group[0].consumer_phase,
+            producer_modality:group[0].producer_modality,producer_phase:group[0].producer_phase}.row(snapshot_id,String::new()).attribute_id;
+        let mut keys=keys;
+        keys.push(MemberKey {role:MemberRole::HandoffAttribute.code(),ordinal:rows.len() as i64,
+            node:None,cited_fact:None,attribute:Some(attribute),label:None});
         let finding_id = FindingKey {
             finding_kind: FindingKind::Handoff.code(),
             subject: seed,
@@ -194,6 +221,8 @@ pub fn run(
             members: &keys,
         }
         .id();
+        members.push(FindingMembersRow {snapshot_id,finding_id,role:MemberRole::HandoffAttribute,
+            ordinal:rows.len() as i64,node_id:None,cited_fact_id:None,attribute_id:Some(attribute),label:None,weight:None});
         for (ordinal, (role, node, label)) in rows.into_iter().enumerate() {
             members.push(FindingMembersRow {
                 snapshot_id,
@@ -202,6 +231,7 @@ pub fn run(
                 ordinal: ordinal as i64,
                 node_id: Some(node),
                 cited_fact_id: None,
+                attribute_id: None,
                 label: Some(label),
                 weight: None,
             });

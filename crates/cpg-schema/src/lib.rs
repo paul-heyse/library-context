@@ -9,6 +9,7 @@ pub mod codebook;
 pub mod column;
 pub mod communities;
 pub mod concepts;
+pub mod concept_attributes;
 pub mod condition;
 pub mod condition_kernel;
 pub mod derived;
