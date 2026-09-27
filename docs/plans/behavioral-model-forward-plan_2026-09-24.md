@@ -100,12 +100,14 @@ operator-approved detailed execution queue. Orders 1–10 below retain their sem
 §6 retains finding disposition. The [composition review](../design_review/reviews/design_review_stage3-composition_2026-09-26.md)
 F01–F04 remain applicable. Accepted targets do not certify their implementation.
 
-**Current implementation checkpoint.** Compiler output 82 adds typed value-origin and execution-site
+**Current implementation checkpoint.** Compiler output 83 includes typed value-origin and execution-site
 coverage, including complete empty escaping-exception domains under statement entry. Async and
 generator scopes remain excluded. Fresh nested definition-header completion is reconciled with
 source/Delta controls; source-default invocation remains open. Shared callee proof admission replaces
 the independent native adjacency policy and preserves typed proof-limit refusals. FORMAT 8 remains
-current. These are partial S1/S2 changes, not an assembled Stage 3 receipt. STATUS owns the latest
+current. Catalog format 2 requires authored model phases with independent identities and exact
+provider-phase matching. Extraction-only compilations leave behavioral coverage unexamined when
+its published premise catalog is absent. These are partial S1/S2 changes, not an assembled Stage 3 receipt. STATUS owns the latest
 focused command/outcome; the [bounded review](../design_review/reviews/design_review_stage3-channel-contracts_2026-09-26.md)
 keeps target acceptance separate from implementation scope and corrected findings F01–F03.
 

@@ -66,6 +66,11 @@ A model is committed, typed data about a callable we do not analyze from source.
 - **Channel coverage.** Each target declares transfer, effect, callback, resource and exception
   coverage independently as complete, partial or unspecified. Only complete coverage can support a
   negative summary conclusion.
+- **Phase applicability (Implemented, 2026-09-26).** Catalog format 2 requires an authored phase
+  per model. The same target may have distinct models and channel coverage for different phases;
+  target/phase pairs are unique and phase participates in model identity. `model_targets.phase`
+  is reconstructed from the catalog. A provider observation activates a model only on exact phase
+  equality; it cannot widen applicability. The existing declarations explicitly select `call`.
 - **Total normal completion** is a separate, optional assertion (`normal_return`, default false =
   unknown): the target itself returns normally once its arguments are evaluated, under the pinned
   model. It is accepted only for a function target with complete exception coverage and no
@@ -115,7 +120,7 @@ every row; the shared validator reconstructs each relation and rejects forged st
   `resolutions`' candidate-set completeness, unresolved remainder and target count, and the
   target's `normal_return` assertion. Neither completeness nor the assertion alone means the call
   returns. Higher-order argument targets and annotation-only calls cannot pose as direct
-  invocation; a shadowed builtin has no application.
+  invocation; a shadowed builtin or a mismatched authored invocation phase has no application.
 - **`model_argument_bindings`** binds a model formal to the call's explicit argument only if every
   pinned Pysa signature selects the same argument ordinal (positional or exact keyword name). For a
   direct Ruff attribute callee whose Pysa target says the receiver is an implicit **object**
@@ -436,6 +441,8 @@ A positive finite call path does not close its callee's alternatives: every call
 remains open until S4/S5 compose coverage. Raw or retained-summary approximation also leaves it
 open. Complete direct-origin coverage is neither operation-wide completeness nor a negative
 claim about another channel. Core publishes and reconstructs the pure producer's full rows.
+Extraction-only runs without the behavioral condition catalog emit no such coverage: the absent
+entry premise is unexamined, rather than an invented condition reference.
 See the [bounded review](../../design_review/reviews/design_review_stage3-origin-coverage_2026-09-26.md).
 
 **Default binding (Implemented and focused Tested, 2026-09-26).** The shared binder separates

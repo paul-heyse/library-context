@@ -106,7 +106,8 @@ pub struct Published {
 /// 80: exact completion exceptions and origin/channel coverage.
 /// 81: default-availability admission and semantic/witness-separated value fixed point.
 /// 82: definition-time header completion, typed site/origin coverage and shared callee proof admission.
-pub const COMPILER_OUTPUT_VERSION: u32 = 82;
+/// 83: independently authored model phases and catalog format 2.
+pub const COMPILER_OUTPUT_VERSION: u32 = 83;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).

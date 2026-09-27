@@ -1,7 +1,8 @@
-version = 1
+version = 2
 
 # `typing.cast` returns its value unchanged at runtime. The annotated type is not a value source.
 [[models]]
+phase = "call"
 revision = 1
 target = { scope = "stdlib", python = "3.14.7", module = "typing", callable = "cast" }
 coverage = { transfers = "complete", effects = "complete", callbacks = "complete", resources = "complete", exceptions = "complete" }
@@ -17,6 +18,7 @@ modality = "definite"
 # Python 3.14 typing.assert_type is a static checker directive. At runtime it performs no
 # check and returns val unchanged (CPython Doc/library/typing.rst, pinned context binding).
 [[models]]
+phase = "call"
 revision = 1
 target = { scope = "stdlib", python = "3.14.7", module = "typing", callable = "assert_type" }
 coverage = { transfers = "complete", effects = "complete", callbacks = "complete", resources = "complete", exceptions = "complete" }
@@ -32,6 +34,7 @@ modality = "definite"
 # Python 3.14 print() writes text to a stream (sys.stdout by default, or file.write).
 # The stream identity is call-dependent, so this model claims the I/O effect without a subject.
 [[models]]
+phase = "call"
 revision = 1
 target = { scope = "stdlib", python = "3.14.7", module = "builtins", callable = "print" }
 coverage = { transfers = "unspecified", effects = "partial", callbacks = "unspecified", resources = "unspecified", exceptions = "unspecified" }
@@ -44,6 +47,7 @@ modality = "potential"
 # json.dumps serializes obj to a str. A custom encoder/default can add other effects, so
 # effect and callback coverage stay open. The output's dependence on obj is potential.
 [[models]]
+phase = "call"
 revision = 1
 target = { scope = "stdlib", python = "3.14.7", module = "json", callable = "dumps" }
 coverage = { transfers = "partial", effects = "partial", callbacks = "unspecified", resources = "unspecified", exceptions = "unspecified" }
@@ -64,6 +68,7 @@ modality = "potential"
 # json.dump writes serialized text to fp; it neither owns nor closes the passed stream.
 # A custom encoder/default leaves the rest of its effects open.
 [[models]]
+phase = "call"
 revision = 1
 target = { scope = "stdlib", python = "3.14.7", module = "json", callable = "dump" }
 coverage = { transfers = "unspecified", effects = "partial", callbacks = "unspecified", resources = "unspecified", exceptions = "unspecified" }
@@ -83,6 +88,7 @@ modality = "potential"
 # json.loads can decode str/bytes/bytearray. Decoder classes and parse/object hooks are
 # caller-supplied, so this is a potential data dependence, not a total/pure result model.
 [[models]]
+phase = "call"
 revision = 1
 target = { scope = "stdlib", python = "3.14.7", module = "json", callable = "loads" }
 coverage = { transfers = "partial", effects = "unspecified", callbacks = "unspecified", resources = "unspecified", exceptions = "unspecified" }
@@ -97,6 +103,7 @@ modality = "potential"
 # gzip.compress returns compressed bytes from data on a normal path. Type, level and memory
 # failures leave normal completion open; this effect is tied to the source data, not file I/O.
 [[models]]
+phase = "call"
 revision = 1
 target = { scope = "stdlib", python = "3.14.7", module = "gzip", callable = "compress" }
 coverage = { transfers = "partial", effects = "partial", callbacks = "unspecified", resources = "unspecified", exceptions = "unspecified" }
@@ -116,6 +123,7 @@ modality = "potential"
 
 # gzip.decompress has a potential decoded output; malformed input can raise before return.
 [[models]]
+phase = "call"
 revision = 1
 target = { scope = "stdlib", python = "3.14.7", module = "gzip", callable = "decompress" }
 coverage = { transfers = "partial", effects = "unspecified", callbacks = "unspecified", resources = "unspecified", exceptions = "unspecified" }
@@ -130,6 +138,7 @@ modality = "potential"
 # A configured Logger may suppress this level entirely or dispatch to user-defined handlers;
 # the message is still an exact source argument when a warning is emitted.
 [[models]]
+phase = "call"
 revision = 1
 target = { scope = "stdlib", python = "3.14.7", module = "logging", callable = "Logger.warning" }
 coverage = { transfers = "unspecified", effects = "partial", callbacks = "unspecified", resources = "unspecified", exceptions = "unspecified" }
@@ -143,6 +152,7 @@ modality = "potential"
 # A successful open returns a newly acquired file object. Mode-dependent read/write behavior is
 # deliberately not asserted. The returned resource needs an independent close/with witness.
 [[models]]
+phase = "call"
 revision = 1
 target = { scope = "stdlib", python = "3.14.7", module = "builtins", callable = "open" }
 coverage = { transfers = "unspecified", effects = "unspecified", callbacks = "unspecified", resources = "partial", exceptions = "partial" }
@@ -163,6 +173,7 @@ modality = "potential"
 # Registration stores a callback for interpreter shutdown and returns that same callable.
 # It is not an invocation at the registration call site.
 [[models]]
+phase = "call"
 revision = 1
 target = { scope = "stdlib", python = "3.14.7", module = "atexit", callable = "register" }
 coverage = { transfers = "complete", effects = "unspecified", callbacks = "partial", resources = "unspecified", exceptions = "unspecified" }
@@ -186,6 +197,7 @@ modality = "definite"
 # validate(schema) channel requires a named schema, so this model withholds that effect rather
 # than mislabeling the dynamic schema as TypeAdapter itself.
 [[models]]
+phase = "call"
 revision = 1
 target = { scope = "dependency", distribution = "pydantic", version = "2.13.5", module = "pydantic.type_adapter", callable = "TypeAdapter.validate_python" }
 coverage = { transfers = "partial", effects = "unspecified", callbacks = "unspecified", resources = "unspecified", exceptions = "unspecified" }

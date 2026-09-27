@@ -8,7 +8,8 @@ _Updated 2026-09-26 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
 - **Current S1/S2 slice:** typed value-origin and execution-site coverage; complete empty escaping-exception domains under statement entry; shared callee proof admission in source composition and native loading; fresh nested definition-header completion without evaluating its body.
 - Site coverage excludes async/generator scopes, proves neither reachability nor generic raise/catch/suppression activity, and uses no fabricated parameter identity. Call-origin coverage remains open; source-default invocation is still refused without availability/stability.
 - Shared proof admission preserves `summary_proof_limit`; source reconstruction still owns binding/evaluation. The independent native adjacency classifier is deleted.
-- **Migration:** compiler output **82**, extractor output 31; fresh stores/generations under ADR-0048. FORMAT **8** remains implemented; FORMAT 9 is S6.
+- **Model phases:** catalog format 2 requires authored applicability independent of provider observations, including separate identities/coverage for phases of one target. Source applications require exact phase equality. Extraction-only compilation emits no behavioral coverage against an absent analysis catalog.
+- **Migration:** compiler output **83**, extractor output 31; fresh stores/generations under ADR-0048. FORMAT **8** remains implemented; FORMAT 9 is S6.
 - The [bounded review](docs/design_review/reviews/design_review_stage3-channel-contracts_2026-09-26.md) accepts the target and this implementation subset at source-inspection strength after F01–F03 corrections. This does not certify assembled Stage 3. No remote push requested.
 
 ## Last verified (2026-09-26)
@@ -22,11 +23,13 @@ Cargo commands below use `CARGO_TARGET_DIR=/home/paul/library-context/target`: t
 | `INSTA_UPDATE=no RUST_MIN_STACK=16777216 cargo nextest run --release -p cpg-core --test bundle -E 'test(finite_depth_and_unsupported_refusals_reach_the_native_response)' --status-level fail --final-status-level fail` | `passed`: fresh source→Delta→generation with the rebuilt native reader; one end-to-end fixture case. Fake embedding qualifies the fixture only. |
 | `uv run --no-sync pytest python/lctx_mcp/tests/test_native_semantics.py -k missing_proof_steps` | `passed`: current native rejects missing/orphan controls and mismatched callee conditions; existing fixture generation, not fresh integrated pilot evidence. |
 | `just adr index`; `just adr lint` | `passed`: 30 records; ADR-0058 associated with §B5/§B6/§9.6/§9.9/§11.3. |
+| `INSTA_UPDATE=no cargo nextest run --release -p cpg-schema --lib --test contracts -E 'test(models::tests) \| binary(contracts)' --status-level fail --final-status-level fail` | `passed`: 18 model/schema cases, including distinct model identity and channel coverage per phase, required phase declarations and reviewed schema/rule snapshots. |
+| `INSTA_UPDATE=no RUST_MIN_STACK=16777216 cargo nextest run --release -p cpg-core --test compile -E 'test(pinned_identity_models_require_and_publish_their_real_formals) \| test(model_target_requires_its_cited_pinned_definition)' --status-level fail --final-status-level fail` | `passed`: 2 source/Delta model and extraction-only controls after fixing the missing-catalog regression exposed by this check. |
 | `just fmt`; `just test-all`; fresh `just pilot`; structured Q01/Q03/Q05/Q09; clean wheel; live W9; all-techniques/cost; `just docs-check` | `not_run`: formatting and integrated qualification await assembled S1–S7 functionality. |
 
 ## Next work and boundaries
 
-- Finish S1 model phase/dynamic-schema and remaining channel contracts; S2 default availability/binding/value/stability, then supported synchronous context entry/exit and suppression with initial S3 models.
+- Finish S1 dynamic-schema and remaining channel contracts; S2 default availability/binding/value/stability, then supported synchronous context entry/exit and suppression with initial S3 models.
 - S4/S5 retain stable multi-control/residual conjunction, all-channel SCC semantics and witness separation, actual callee/model coverage, condition-safe transfer projection and current typed RCA repairs. No finite witness closes all alternatives.
 - S6/S7 retain FORMAT 9 semantic queries/evidence, actual default-cap producer→Delta→native traces and independent compiler/oracle challenges. Stage 5 deferred execution remains outside this scope.
 - Full scope and integrated acceptance remain open; no current full-suite receipt exists. Prior runtime probes and earlier focused results remain evidence only for their stated scope.

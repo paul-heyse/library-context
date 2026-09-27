@@ -14,6 +14,7 @@ target_module_fact_id: FixedSizeBinary(16) NOT NULL
 target_definition_fact_id: FixedSizeBinary(16) NOT NULL
 target_key: Utf8 NOT NULL
 revision: Int64 NOT NULL
+phase: Int16 NOT NULL [lctx.codebook=invocation_phase]
 transfer_coverage: Int16 NOT NULL [lctx.codebook=model_channel_coverage]
 effect_coverage: Int16 NOT NULL [lctx.codebook=model_channel_coverage]
 callback_coverage: Int16 NOT NULL [lctx.codebook=model_channel_coverage]

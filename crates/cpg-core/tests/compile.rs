@@ -1972,6 +1972,8 @@ async fn model_target_requires_its_cited_pinned_definition() {
         .await
         .unwrap();
     let (_, ctx) = published(root.path(), snapshot).await.unwrap().unwrap();
+    assert_eq!(count(&ctx,"SELECT count(*) FROM summary_origin_coverage").await,0,
+        "extraction-only compilation does not request behavioral coverage");
     assert!(cpg_core::validate::validate(&ctx).await.unwrap().is_empty());
     let forged = ModelTargets::to_batch(&[ModelTargetsRow {
         snapshot_id: snapshot,
@@ -1981,6 +1983,7 @@ async fn model_target_requires_its_cited_pinned_definition() {
         target_definition_fact_id: Id([4; 16]),
         target_key: "stdlib:3.14.7:typing.cast".into(),
         revision: 1,
+        phase: cpg_schema::codebook::InvocationPhase::Call,
         transfer_coverage: ModelChannelCoverage::Complete,
         effect_coverage: ModelChannelCoverage::Complete,
         callback_coverage: ModelChannelCoverage::Complete,
@@ -2222,6 +2225,20 @@ budget = 1
         .await
         .unwrap()
         .into_view();
+    let before:Vec<cpg_schema::behavior::ModelApplicationsRow>=sql::fetch(&ctx,
+        &cpg_schema::behavior::model_applications(),sql::Params::new()).await.unwrap();
+    assert!(!before.is_empty());
+    let wrong_phase=sql::query(&ctx,"SELECT * EXCLUDE (phase), CAST(2 AS SMALLINT) AS phase FROM model_targets")
+        .await.unwrap().into_view();
+    ctx.deregister_table("model_targets").unwrap();
+    ctx.register_table("model_targets",wrong_phase).unwrap();
+    let after:Vec<cpg_schema::behavior::ModelApplicationsRow>=sql::fetch(&ctx,
+        &cpg_schema::behavior::model_applications(),sql::Params::new()).await.unwrap();
+    assert!(after.is_empty(),"observed Call cannot activate authored Init coverage");
+    let violations=cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(violations.iter().any(|v|v.rule=="model-catalog-target-equality"));
+    ctx.deregister_table("model_targets").unwrap();
+    ctx.register_table("model_targets",original_model_targets.clone()).unwrap();
     let forged_completion = sql::query(
         &ctx,
         "SELECT * EXCLUDE (normal_return), false AS normal_return FROM model_targets",

@@ -698,6 +698,8 @@ table!(
         target_definition_fact_id: Id,
         target_key: String,
         revision: i64,
+        /// Authored phase applicability; provider phase observations cannot widen it.
+        phase: InvocationPhase,
         transfer_coverage: ModelChannelCoverage,
         effect_coverage: ModelChannelCoverage,
         callback_coverage: ModelChannelCoverage,
@@ -1990,8 +1992,7 @@ crate::relations! {
     /// higher-order argument target is not the call's callee; it is excluded here.
     model_applications = "behavior:model_applications",
         deps = ["call_targets", "call_syntax", "pysa_calls", "facts", "resolutions", "model_targets"],
-        sql = format!(
-            "SELECT c.snapshot_id, c.node_id AS call_site_node_id, c.module_node_id, \
+        sql = "SELECT c.snapshot_id, c.node_id AS call_site_node_id, c.module_node_id, \
                     c.owner_node_id AS function_node_id, c.fact_id AS call_fact_id, \
                     t.pysa_fact_id, t.target_node_id, m.model_id, \
                     m.target_module_fact_id, m.target_definition_fact_id, m.revision, \
@@ -2006,11 +2007,8 @@ crate::relations! {
              JOIN facts f ON f.fact_id = p.fact_id \
              JOIN resolutions r ON r.call_site_node_id = c.node_id \
              WHERE t.reason IS NULL AND t.argument_node_id IS NULL \
-               AND p.higher_order_index IS NULL AND p.phase IN ({call}, {init}) \
-               AND NOT c.in_annotation",
-            call = InvocationPhase::Call.code(),
-            init = InvocationPhase::Init.code(),
-        );
+               AND p.higher_order_index IS NULL AND p.phase = m.phase \
+               AND NOT c.in_annotation".to_owned();
 
     /// Bind a modeled formal only when each pinned signature selects the same explicit
     /// argument. A Pysa object receiver on a direct Ruff attribute call shifts positional

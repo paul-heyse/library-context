@@ -16,12 +16,12 @@ use crate::behavior::{
 use crate::codebook::{
     DefinitionKind, Modality, ModelCallbackAction, ModelChannelCoverage, ModelEffectKind,
     ModelExceptionAction, ModelExit, ModelPathKind, ModelPathRole, ModelResourceAction,
-    ModelTransferKind, ModuleOrigin, Origin, SignatureForm,
+    ModelTransferKind, ModuleOrigin, Origin, SignatureForm, InvocationPhase, Codebook,
 };
 use crate::id::{Digest, Id, IdHasher};
 use crate::tables::{ContextDefinitionsRow, ContextModulesRow, ContextParametersRow, ContextsRow};
 
-pub const FORMAT: u32 = 1;
+pub const FORMAT: u32 = 2;
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -35,12 +35,29 @@ pub struct CatalogFile {
 pub struct Model {
     pub revision: u32,
     pub target: Target,
+    /// Authored applicability, independently checked against a provider's observed phase.
+    /// Different phases of the same callable may have different channel contracts.
+    pub phase: Phase,
     pub coverage: Channels,
     /// Authored assertion that the pinned callable itself always completes normally after
     /// argument evaluation. This is separate from transfer modality and call-site dispatch.
     #[serde(default)]
     pub normal_return: bool,
     pub rules: Vec<Rule>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub enum Phase { Call, New, Init, Decorator, PropertyGet, PropertySet }
+
+impl Phase {
+    fn codebook(self) -> InvocationPhase {
+        match self {
+            Self::Call=>InvocationPhase::Call,Self::New=>InvocationPhase::New,
+            Self::Init=>InvocationPhase::Init,Self::Decorator=>InvocationPhase::Decorator,
+            Self::PropertyGet=>InvocationPhase::PropertyGet,Self::PropertySet=>InvocationPhase::PropertySet,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -618,18 +635,19 @@ impl Catalog {
                 ));
             }
             let key = model.target.key();
-            if !seen.insert(key.clone()) {
-                return Err(format!("{source_name}: duplicate model target {key}"));
+            if !seen.insert((key.clone(),model.phase)) {
+                return Err(format!("{source_name}: duplicate model target and phase {key}"));
             }
             let model_id = IdHasher::new("behavior-model")
                 .str(source_name)
                 .bytes(source.as_bytes())
                 .str(&key)
                 .i64(i64::from(model.revision))
+                .i64(i64::from(model.phase.codebook().code()))
                 .finish_id();
             models.push(CompiledModel { model_id, model });
         }
-        models.sort_by_key(|row| row.model.target.key());
+        models.sort_by_key(|row| (row.model.target.key(),row.model.phase));
         Ok(Self {
             digest: IdHasher::new("behavior-model-catalog")
                 .str(source_name)
@@ -734,6 +752,7 @@ impl Catalog {
                         target_definition_fact_id: definition.fact_id,
                         target_key: target.key(),
                         revision: i64::from(compiled.model.revision),
+                        phase: compiled.model.phase.codebook(),
                         transfer_coverage: compiled.model.coverage.transfers.codebook(),
                         effect_coverage: compiled.model.coverage.effects.codebook(),
                         callback_coverage: compiled.model.coverage.callbacks.codebook(),
@@ -1083,6 +1102,7 @@ mod tests {
         assert_eq!(bound[0].target_node_id, definition.symbol_node_id);
         assert_eq!(bound[0].target_definition_fact_id, definition.fact_id);
         assert!(bound[0].normal_return);
+        assert_eq!(bound[0].phase,InvocationPhase::Call);
         assert_eq!(bound[0].origin, Origin::SyntheticModel);
         let class_definition = ContextDefinitionsRow {
             kind: DefinitionKind::Class,
@@ -1320,8 +1340,9 @@ mod tests {
 
     #[test]
     fn conversion_needs_a_target_and_resource_cannot_be_a_raise_path() {
-        let header = r#"version = 1
+        let header = r#"version = 2
 [[models]]
+phase = "call"
 revision = 1
 target = { scope = "stdlib", python = "3.14.7", module = "builtins", callable = "open" }
 coverage = { transfers = "unspecified", effects = "unspecified", callbacks = "unspecified", resources = "partial", exceptions = "partial" }
@@ -1349,8 +1370,9 @@ coverage = { transfers = "unspecified", effects = "unspecified", callbacks = "un
 
     #[test]
     fn normal_return_requires_complete_exception_coverage_without_exception_rules() {
-        let header = r#"version = 1
+        let header = r#"version = 2
 [[models]]
+phase = "call"
 revision = 1
 target = { scope = "stdlib", python = "3.14.7", module = "typing", callable = "cast" }
 normal_return = true
@@ -1388,7 +1410,7 @@ modality = "definite"
             )
             .is_err()
         );
-        let second = valid.trim_start_matches("version = 1").trim();
+        let second = valid.trim_start_matches("version = 2").trim();
         assert!(Catalog::parse("bad.toml", &format!("{valid}\n{second}\n")).is_err());
     }
 
@@ -1400,5 +1422,24 @@ modality = "definite"
         let after = Catalog::parse("external.toml", &revised).unwrap();
         assert_ne!(before.digest, after.digest);
         assert_ne!(before.models[0].model_id, after.models[0].model_id);
+    }
+
+    #[test]
+    fn phase_is_mandatory_and_same_target_can_have_distinct_phase_contracts() {
+        let original=include_str!("../models/external.toml");
+        assert!(Catalog::parse("missing.toml",&original.replace("phase = \"call\"\n","")).is_err());
+        assert!(Catalog::parse("unknown.toml",&original.replace("phase = \"call\"","phase = \"later\"")).is_err());
+        let first=original.split("# Python 3.14 typing.assert_type").next().unwrap();
+        let init=first.trim_start_matches("version = 2").replace("phase = \"call\"","phase = \"init\"")
+            .replace("normal_return = true","normal_return = false")
+            .replace("exceptions = \"complete\"","exceptions = \"partial\"");
+        let catalog=Catalog::parse("phases.toml",&format!("{first}\n{init}")).unwrap();
+        assert_eq!(catalog.models.len(),2);
+        assert_eq!(catalog.models[0].model.phase,Phase::Call);
+        assert_eq!(catalog.models[1].model.phase,Phase::Init);
+        assert!(catalog.models[0].model.normal_return);
+        assert!(!catalog.models[1].model.normal_return);
+        assert_ne!(catalog.models[0].model_id,catalog.models[1].model_id);
+        assert!(Catalog::parse("duplicate.toml",&format!("{first}\n{}",first.trim_start_matches("version = 2"))).is_err());
     }
 }

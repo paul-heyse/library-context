@@ -39,10 +39,13 @@ cpg_schema::relations! {
     completion_parameters = "summary_completion_parameters", deps = ["parameter_syntax"], sql = "SELECT * FROM parameter_syntax".to_owned();
     completion_expressions = "summary_completion_expressions", deps = ["expression_evaluations"], sql = "SELECT * FROM expression_evaluations".to_owned();
     completion_expression_steps = "summary_completion_expression_steps", deps = ["expression_evaluation_steps"], sql = "SELECT * FROM expression_evaluation_steps".to_owned();
-    completion_outcomes = "summary_completion_outcomes", deps = ["statement_completions", "declarations", "syntax_nodes"],
+    completion_outcomes = "summary_completion_outcomes", deps = ["statement_completions", "declarations", "syntax_nodes", "analysis_conditions"],
         sql = format!("SELECT s.* FROM statement_completions s JOIN declarations d \
             ON d.snapshot_id=s.snapshot_id AND d.node_id=s.function_node_id AND d.kind={} \
-            WHERE NOT EXISTS (SELECT 1 FROM syntax_nodes n WHERE n.snapshot_id=d.snapshot_id \
+            WHERE EXISTS (SELECT 1 FROM analysis_conditions premise WHERE premise.snapshot_id=s.snapshot_id \
+                AND array_has($entry_condition,premise.condition_id) AND premise.root_id IS NOT NULL \
+                AND premise.boundary_reason IS NULL) \
+            AND NOT EXISTS (SELECT 1 FROM syntax_nodes n WHERE n.snapshot_id=d.snapshot_id \
                 AND n.owner_node_id=d.node_id AND n.kind IN ({},{}))",
             cpg_schema::codebook::DeclarationKind::Function.code(),
             cpg_schema::codebook::SyntaxKind::ExprYield.code(),cpg_schema::codebook::SyntaxKind::ExprYieldFrom.code());
@@ -250,7 +253,9 @@ pub async fn finite_flows(
         direct_seeds, modeled_seeds, chain_arguments, evaluations, assignment_seeds, local_seeds,
         local_arguments, local_value_links, boundary_candidates,
     });
-    let statements=sql::fetch(ctx,&completion_outcomes(),sql::Params::new()).await?;
+    // Require the published premise, not a root available only in raw provider conditions.
+    let statements=sql::fetch(ctx,&completion_outcomes(),
+        sql::Params::new().ids("entry_condition",[Diagram::always().id()])).await?;
     result.coverage.extend(lctx_analytics::completion::coverage(&statements));
     Ok(result)
 }
