@@ -276,6 +276,10 @@ witness.
   add 100 independent CPython/Hypothesis observations. The
   [bounded handler review](../../design_review/reviews/design_review_stage3-typed-handler-completion_2026-09-26.md)
   records the public-API correction and limits; eleven focused pure/source/Delta/native tests pass.
+  **Implemented and focused Tested (2026-09-27):** entering a named handler refuses with
+  `handler_name_cleanup`, retaining the unproved name binding and implicit deletion boundary
+  through statement/return completion and native summary inspection. A skipped handler does
+  not introduce that boundary. This is a specific refusal, not a cleanup proof.
 - **Target** (Proposed; plan order 2): nested `try`/`finally` and `with` frame order, normal and
   exceptional completion, suppression and handler propagation; callbacks stored, invoked,
   forwarded or registered, and resource acquire/release, each only with an execution and exit

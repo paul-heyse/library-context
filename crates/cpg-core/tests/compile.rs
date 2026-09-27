@@ -5306,6 +5306,12 @@ budget = 1
         assert_eq!(count(&ctx,&format!("SELECT count(*) FROM return_entry_statuses e \
             JOIN declarations d ON d.node_id=e.function_node_id WHERE d.name='{name}' AND e.reason IS NULL")).await,0,"{name}");
     }
+    assert_eq!(count(&ctx,&format!("SELECT count(*) FROM return_entry_statuses e \
+        JOIN declarations d ON d.node_id=e.function_node_id WHERE d.name='named_handler_entry' AND e.reason={}",
+        BoundaryReason::HandlerNameCleanup.code())).await,1);
+    assert!(count(&ctx,&format!("SELECT count(*) FROM return_exit_statuses e \
+        JOIN declarations d ON d.node_id=e.function_node_id WHERE d.name='named_exception_finalizer' AND e.reason={}",
+        BoundaryReason::HandlerNameCleanup.code())).await>0);
     assert!(count(&ctx,"SELECT count(*) FROM statement_completions WHERE kind=2 AND exception=0").await>0);
     assert!(count(&ctx,"SELECT count(*) FROM summary_origin_coverage WHERE complete").await>0);
     assert!(count(&ctx,"SELECT count(*) FROM summary_origin_coverage WHERE NOT complete").await>0);

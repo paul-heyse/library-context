@@ -24,7 +24,7 @@ integrated qualification is outstanding.**
 | L7 serving | **Partially implemented.** FORMAT 9 has internal callable-formal support, checked native IPC decoding and bounded cited-finding support closure; a finalizer and a finding-only coordinates claim round-trip in focused tests. `inspect_value_paths` remains path-local and exposes source fact/origin IDs on both positive paths and open boundaries; operation facet values retain verdicts | Typed operation-wide compatibility/effect/role filters, full proof spans beyond the cited witness projection, clean-wheel query |
 | Integrated acceptance | **Not established.** A 2026-09-25 `just test-all` attempt passed 313/313 release Rust tests and 110/112 Python tests (two stale tool-list expectations, since corrected: `test_server.py` 12/12 passed). The rerun was stopped at operator direction; the operator's expectation of a pass is an assumption, not an outcome | `just test-all`, fresh `just pilot`, Q01/Q03/Q05/Q09, structured evaluation, clean-wheel query and the increment-end review are `not_run` |
 
-**Accepted schema migrations at this checkpoint:** extractor output 33; compiler output 90.
+**Accepted schema migrations at this checkpoint:** extractor output 33; compiler output 91.
 The current contracts include `expression_evaluations` and ordered operand proofs, statement/frame
 completion, condition-keyed return entry, native MRO completeness, a persisted exact exception
 codebook and `summary_origin_coverage`. Snapshots are reviewed migrations; a fresh store rebuild
@@ -187,6 +187,14 @@ survive proof admission. The original 64-step budget remains fixed; fixture fina
 for the now-explicit exit anchor. Fourteen isolated CPython lifecycle cases independently challenge
 the focused source/Delta/native paths ([evidence](../design_review/evidence/2026-09-27_sync-contexts/README.md)).
 Full S2b/S3a, S6 and integrated S8 acceptance remain outstanding.
+
+**Named-handler boundary (2026-09-27; Implemented and focused Tested).** Entering a named
+handler emits append-only `handler_name_cleanup` (code 33), including a selected handler before
+a later return and a named handler in a finalizer. The specific refusal survives Delta/native;
+an unselected named handler does not create it. This satisfies S2b/S3a's proof-or-specific-boundary
+obligation; general binding/deletion completion remains unsupported. The focused six-case selection
+passed five cases, then its SQL assertion typo was corrected and the affected source case passed
+on replay. This does not close resource/callback or assembled-stage obligations.
 
 ### 3.1 Contract repairs before extension
 

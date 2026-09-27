@@ -114,7 +114,8 @@ pub struct Published {
 /// 88: typed current FCA/RCA attributes, incidence evidence and presentation-only labels.
 /// 89: independently bound synchronous class protocols and mandatory return obligations (catalog format 4).
 /// 90: separate context entry-value identity and mandatory base value witnesses.
-pub const COMPILER_OUTPUT_VERSION: u32 = 90;
+/// 91: named-handler binding/implicit-deletion boundary retained through serving.
+pub const COMPILER_OUTPUT_VERSION: u32 = 91;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).

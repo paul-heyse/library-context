@@ -1029,6 +1029,22 @@ def handler_entry_cleanup(value):
         return value
 
 
+def handler_predecessor_cleanup(value):
+    try:
+        raise None
+    except TypeError as caught:
+        pass
+    return value
+
+
+def handler_cleanup_unselected(value):
+    try:
+        pass
+    except TypeError as caught:
+        return None
+    return value
+
+
 def optional_unused_base(value, unused=True):
     return value
 

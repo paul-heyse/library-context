@@ -703,6 +703,12 @@ for mutation in ("missing", "foreign", "removed_step", "duplicate_step"):
 for operation in ("capspkg.handler_entry_nonmatch", "capspkg.handler_entry_cleanup"):
     paths, boundaries, total, truncated, work = inspect(operation, "value")
     assert not paths and boundaries and not truncated, (operation, paths, boundaries)
+for operation in ("capspkg.handler_entry_cleanup", "capspkg.handler_predecessor_cleanup"):
+    paths, boundaries, total, truncated, work = inspect(operation, "value")
+    assert not paths and not truncated and any(b[3] == "handler_name_cleanup" for b in boundaries), (operation, paths, boundaries)
+paths, boundaries, total, truncated, work = inspect("capspkg.handler_cleanup_unselected", "value")
+assert paths and not truncated, (paths, boundaries)
+assert not any(b[3] == "handler_name_cleanup" for b in boundaries), boundaries
 for operation, expected in (
     ("capspkg.f9", "summary_depth_limit"),
     ("capspkg.condition_atom_cap", "condition_atom_limit"),

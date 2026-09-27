@@ -430,7 +430,7 @@ impl<'ctx> Kernel<'ctx> {
         -> std::result::Result<(),BoundaryReason> {
         // Binding and implicit deletion of a handler name can execute user cleanup.
         if handler.detail.as_deref().is_some_and(|name|!name.is_empty()) {
-            return Err(BoundaryReason::UnsupportedControlFlow);
+            return Err(BoundaryReason::HandlerNameCleanup);
         }
         self.proof.push((K::CompletionStatement,handler.fact_id));
         self.active_exception=Some(exception);
@@ -943,8 +943,8 @@ mod tests {
         assert_eq!(out.statements.iter().find(|s|s.source_fact_id==id(11)).unwrap().exception,Some(ExactRuntimeException::TypeError));
         nodes[4].detail=Some("caught".to_owned());
         let out=run(&nodes,&[exit(14),exit(16)]);
-        assert_eq!(reason(&out,14),Some(BoundaryReason::UnsupportedControlFlow));
-        assert_eq!(reason(&out,16),Some(BoundaryReason::UnsupportedControlFlow));
+        assert_eq!(reason(&out,14),Some(BoundaryReason::HandlerNameCleanup));
+        assert_eq!(reason(&out,16),Some(BoundaryReason::HandlerNameCleanup));
         nodes[4].detail=Some(String::new());
         nodes[2].kind=S::StmtPass;
         nodes.remove(3);

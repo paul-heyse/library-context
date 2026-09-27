@@ -222,6 +222,9 @@ codebook!(
         SummaryProofLimit = 30 => "summary_proof_limit",
         DefaultUnavailable = 31 => "default_unavailable",
         DefaultStabilityUnknown = 32 => "default_stability_unknown",
+        /// Entering a named exception handler binds and later deletes its name. The
+        /// associated lifetime/finalization actions have no admitted completion proof.
+        HandlerNameCleanup = 33 => "handler_name_cleanup",
     }
 );
 

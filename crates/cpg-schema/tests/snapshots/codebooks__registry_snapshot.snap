@@ -86,6 +86,7 @@ boundary_reason
   30 summary_proof_limit
   31 default_unavailable
   32 default_stability_unknown
+  33 handler_name_cleanup
 pysa_unresolved_reason
   0 LambdaArgument
   1 UnexpectedPyreflyTarget
