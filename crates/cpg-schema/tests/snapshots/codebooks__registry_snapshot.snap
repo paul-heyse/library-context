@@ -825,6 +825,7 @@ summary_flow_step_kind
   30 context_exception_evidence
   31 context_entry_value_identity
   32 model_invocation
+  33 source_modeled_identity
 modeled_argument_evaluation_status
   0 source_operand
   1 literal_normal

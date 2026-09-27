@@ -116,7 +116,8 @@ pub struct Published {
 /// 90: separate context entry-value identity and mandatory base value witnesses.
 /// 91: named-handler binding/implicit-deletion boundary retained through serving.
 /// 92: invocation prefixes and source call execution independent of callee completion.
-pub const COMPILER_OUTPUT_VERSION: u32 = 92;
+/// 93: independent lexical input/model identity for direct modeled returns.
+pub const COMPILER_OUTPUT_VERSION: u32 = 93;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -846,6 +847,8 @@ async fn finish(
         write_analysis::<SummaryComponents>(&ctx, root, snapshot_id, &summary_components, w)
             .await?;
         let summaries = crate::summaries::finite_flows(&ctx).await?;
+        write_analysis::<cpg_schema::modeled_identity::SourceModeledIdentities>(
+            &ctx,root,snapshot_id,&summaries.modeled_identities,w).await?;
         write_analysis::<cpg_schema::parameter_identity::SourceParameterIdentities>(
             &ctx, root, snapshot_id, &summaries.identities, w).await?;
         write_analysis::<cpg_schema::context_value::SourceContextValueIdentities>(

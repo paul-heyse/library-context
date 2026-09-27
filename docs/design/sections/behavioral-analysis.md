@@ -357,6 +357,17 @@ the dependency order and deletions.
   region. An earlier same-function call before that return also needs the ordered
   normal-completion witness used by direct parameter returns; an opaque compatible earlier call
   withholds the modeled positive.
+  **Implemented and focused Tested, 2026-09-27:** a direct single-model return in an approximate
+  provider region can instead cite `source_modeled_identities`. The shared immutable lexical
+  read owner proves the actual selected argument denotes its parameter; the existing source
+  adapter binds that raw occurrence to the exact call/model/rule and return. The certificate
+  commits the existing ordered model-call proof, replacing its raw value basis while preserving
+  provider flags. Completion remains independent, and coverage remains open. Schema/native
+  admission follows declared path depth; it rejects even deletion of the entire modeled group
+  and certificate while admitting a context-value return with an unrelated modeled predecessor.
+  Chains and assignment-mediated approximated paths need their own complete source proof.
+  [Independent controls](../../design_review/evidence/2026-09-27_modeled-identity/README.md)
+  challenge object identity through pass finalizers, rebinding, deletion and override.
 - **Nested modeled identity chain:** an ordered raw `flow_value_calls` path through two or more
   source arguments may compose when every step uniquely binds to a Ruff call and explicit
   argument, a sole closed definite pinned identity target asserts normal return, and each sibling

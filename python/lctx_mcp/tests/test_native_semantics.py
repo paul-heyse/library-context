@@ -45,10 +45,11 @@ def test_private_callable_formals_are_support_only_and_have_one_owner() -> None:
         index.inspect_value_paths("pkg.private", "control", "none", "", True, 0, 20)
     with pytest.raises(ValueError, match="unknown operation formal"):
         index.inspect_value_paths("pkg.public", "control", "none", "", True, 0, 20)
-    for parameters in (
+    invalid_parameters: tuple[list[tuple[str, str, str]], ...] = (
         [(private, formal, "control"), (public, formal, "other")],
         [(private, formal, "control"), (private, "66" * 16, "control")],
-    ):
+    )
+    for parameters in invalid_parameters:
         with pytest.raises(ValueError, match="duplicate callable formal or owner"):
             executor(parameters)
 

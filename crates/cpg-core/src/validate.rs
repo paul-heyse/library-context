@@ -209,6 +209,8 @@ cpg_schema::relations! {
     stored_context_arguments = "validate_context_arguments", deps = ["source_context_arguments"], sql = "SELECT * FROM source_context_arguments".to_owned();
     stored_context_value_identities = "validate_stored_context_value_identities", deps = ["source_context_value_identities"],
         sql = "SELECT * FROM source_context_value_identities".to_owned();
+    stored_modeled_identities = "validate_stored_modeled_identities", deps = ["source_modeled_identities"],
+        sql = "SELECT * FROM source_modeled_identities".to_owned();
     stored_parameter_identities = "validate_stored_parameter_identities", deps = ["source_parameter_identities"],
         sql = "SELECT * FROM source_parameter_identities".to_owned();
     stored_summary_origin_coverage = "validate_stored_summary_origin_coverage", deps = ["summary_origin_coverage"],
@@ -534,6 +536,12 @@ async fn validate_summary_flows(ctx: &SessionContext) -> Result<Vec<Violation>, 
     actual_context.sort_by_key(|r|r.identity_id);expected_context.sort_by_key(|r|r.identity_id);
     if actual_context!=expected_context {violations.push(Violation {rule:"source-context-value-identity-equality".into(),rows:1,
         sample:"context entry value certificates differ from source reconstruction".into()});}
+    let mut actual_modeled:Vec<cpg_schema::modeled_identity::SourceModeledIdentitiesRow>=
+        sql::fetch(ctx,&stored_modeled_identities(),sql::Params::new()).await?;
+    let mut expected_modeled=summary.modeled_identities;
+    actual_modeled.sort_by_key(|r|r.identity_id);expected_modeled.sort_by_key(|r|r.identity_id);
+    if actual_modeled!=expected_modeled {violations.push(Violation {rule:"source-modeled-identity-equality".into(),rows:1,
+        sample:"modeled value certificates differ from source reconstruction".into()});}
     let mut expected_identities = summary.identities;
     actual_identities.sort_by_key(|r| r.identity_id);
     expected_identities.sort_by_key(|r| r.identity_id);
@@ -1965,7 +1973,11 @@ async fn validate_expression_evaluations(ctx: &SessionContext) -> Result<Vec<Vio
 async fn validate_source_contexts(ctx:&SessionContext)->Result<Vec<Violation>,CoreError> {
     let mut sites:Vec<cpg_schema::context_protocol::SourceContextSitesRow>=sql::fetch(ctx,&stored_context_sites(),sql::Params::new()).await?;
     let mut arguments:Vec<cpg_schema::context_protocol::SourceContextArgumentsRow>=sql::fetch(ctx,&stored_context_arguments(),sql::Params::new()).await?;
-    let expected=crate::summaries::source_contexts(ctx).await?;
+    let expected=match crate::summaries::source_contexts(ctx).await {
+        Ok(expected)=>expected,
+        Err(error)=>return Ok(vec![Violation {rule:"context-site-source-equality".into(),rows:1,
+            sample:format!("context reconstruction refused invalid inputs: {error}")}]),
+    };
     sites.sort_by_key(|s|(s.snapshot_id,s.site_id));arguments.sort_by_key(|a|(a.snapshot_id,a.site_id,a.ordinal));
     Ok(if sites==expected.sites && arguments==expected.arguments {Vec::new()} else {vec![Violation {
         rule:"context-site-source-equality".into(),rows:1,sample:"context binding or ordered argument evidence differs from source".into(),

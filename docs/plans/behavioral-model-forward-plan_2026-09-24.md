@@ -24,7 +24,7 @@ integrated qualification is outstanding.**
 | L7 serving | **Partially implemented.** FORMAT 9 has internal callable-formal support, checked native IPC decoding and bounded cited-finding support closure; a finalizer and a finding-only coordinates claim round-trip in focused tests. `inspect_value_paths` remains path-local and exposes source fact/origin IDs on both positive paths and open boundaries; operation facet values retain verdicts | Typed operation-wide compatibility/effect/role filters, full proof spans beyond the cited witness projection, clean-wheel query |
 | Integrated acceptance | **Not established.** A 2026-09-25 `just test-all` attempt passed 313/313 release Rust tests and 110/112 Python tests (two stale tool-list expectations, since corrected: `test_server.py` 12/12 passed). The rerun was stopped at operator direction; the operator's expectation of a pass is an assumption, not an outcome | `just test-all`, fresh `just pilot`, Q01/Q03/Q05/Q09, structured evaluation, clean-wheel query and the increment-end review are `not_run` |
 
-**Accepted schema migrations at this checkpoint:** extractor output 33; compiler output 92.
+**Accepted schema migrations at this checkpoint:** extractor output 33; compiler output 93.
 The current contracts include `expression_evaluations` and ordered operand proofs, statement/frame
 completion, condition-keyed return entry, native MRO completeness, a persisted exact exception
 codebook and `summary_origin_coverage`. Snapshots are reviewed migrations; a fresh store rebuild
@@ -206,14 +206,19 @@ reconstructs both groups. Thirty-four focused cases and 13 isolated generated CP
 passed ([evidence](../design_review/evidence/2026-09-27_call-entry/README.md)). Native export,
 action timing/identity and active context frontiers remain open.
 
-**Encountered S5 positive regression (2026-09-27; failed):**
-`pinned_identity_models_require_and_publish_their_real_formals` currently withholds
-`framed_modeled_identity` (`try: return cast(object, value); finally: pass`) as
-`outside_provider_model`. Raw provider approximation is correctly retained, but the modeled
-path lacks an independent source identity certificate. The analytics/source contract must
-discharge only that proved lexical input and modeled path, retaining completion obligations and
-negative controls. Do not remove the positive expectation or erase raw flags. This failure is
-separate from the reached-call focused pass and must pass before S5/S8 acceptance.
+**S5 modeled identity correction (2026-09-27; Implemented and focused Tested).** Compiler 93
+restores `framed_modeled_identity` and nested-pass-finalizer positives through an independent
+lexical input certificate composed with the existing exact model-call proof. Raw provider flags
+remain unchanged. The shared lexical checker serves direct and modeled returns; the source
+adapter owns raw-use/call-argument association. A value basis is mandatory independently of
+completion, including after deletion of the whole model group. FORMAT 9 admits the same
+commitment and rejects missing/foreign/duplicate/reordered support. An adjacent context-entry
+value after a total call remains valid. Thirty-nine cases passed in the 40-case selection; an
+accidental fixture-import edit was corrected, the fixture parsed, and its affected native case
+passed on replay. Seven independent generated object-identity controls and 16 Python
+schema/native cases passed ([evidence](../design_review/evidence/2026-09-27_modeled-identity/README.md)).
+The original modeled-return test now passes unchanged; complete source/model/callee coverage,
+approximate chains/assignment paths and full S6 raw-fact semantics remain open.
 
 ### 3.1 Contract repairs before extension
 
@@ -467,7 +472,14 @@ The [channel review §23](../design_review/reviews/design_review_stage3-channel-
 **F14 is corrected within the call-input slice (2026-09-27, focused Tested)**: schema and
 analytics preserve the actual oversized count on refused calls and apply the cap to positive
 proofs only. The 34-case selection includes the 130-argument source and shared admission control.
-The separately encountered modeled-finalizer positive regression remains scheduled in §3.0/S5.
+The separately encountered modeled-finalizer positive regression is corrected by the §3.0/S5
+source/model identity checkpoint.
+The [channel review §24](../design_review/reviews/design_review_stage3-channel-contracts_2026-09-26.md#24-bounded-implementation-follow-up-modeled-return-identity)
+**F15 is corrected within that slice (2026-09-27, focused Tested)**: schema/analytics/native
+require the value basis from declared path depth, independent of retained proof kinds. The
+current-native replay rejects complete model-group/certificate omission and admits a context
+value with a modeled predecessor. Source equality preserves raw approximation; the original
+modeled-finalizer positive and independent runtime identity controls pass. Complete S5/S6 remain open.
 
 | Item | Component | Consequence and intended correction | Disposition · dependency | Closure check |
 |---|---|---|---|---|

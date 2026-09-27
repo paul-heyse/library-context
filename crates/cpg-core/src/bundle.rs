@@ -191,6 +191,7 @@ fn query(name: &str) -> Option<String> {
             limit=MAX_SUPPORT_ROWS+1),
         "source_context_value_identities" => format!(
             "SELECT identity_id, function_node_id, parameter_node_id, parameter_name, source_flow_fact_id, source_origin_id, condition_id, return_site_fact_id, return_region_fact_id, return_condition_id, return_start_byte, context_site_id, argument_fact_id, argument_expression_fact_id, argument_reference_fact_id, argument_resolution_fact_id, parameter_binding_fact_id, parameter_fact_id, target_binding_fact_id, expression_fact_id, reference_fact_id, resolution_fact_id, scope_fact_id, module_node_id, start_byte, end_byte FROM source_context_value_identities ORDER BY identity_id LIMIT {}",MAX_SUPPORT_ROWS+1),
+        "source_modeled_identities" => format!("SELECT identity_id, function_node_id, parameter_node_id, source_flow_fact_id, source_origin_id, condition_id, return_site_fact_id, call_fact_id, call_expression_fact_id, source_argument_fact_id, pysa_fact_id, model_id, rule_id, callee_resolution_fact_id, expression_fact_id, reference_fact_id, resolution_fact_id, binding_fact_id, parameter_fact_id, scope_fact_id, module_node_id, start_byte, end_byte, model_proof_count, model_proof_digest FROM source_modeled_identities ORDER BY identity_id LIMIT {}", MAX_SUPPORT_ROWS+1),
         "source_parameter_identities" => format!(
             "SELECT identity_id, function_node_id, parameter_node_id, source_flow_fact_id, \
              source_origin_id, condition_id, return_site_fact_id, expression_fact_id, reference_fact_id, \
@@ -854,7 +855,7 @@ pub async fn build(ctx: &SessionContext, out: &Path) -> Result<Generation, CoreE
         };
         let bounded_support = file.name.starts_with("support_") || matches!(file.name,
             "return_completion_certificates" | "model_context_protocols" | "source_context_sites"
-            | "source_context_arguments" | "source_context_value_identities" | "source_parameter_identities");
+            | "source_context_arguments" | "source_context_value_identities" | "source_parameter_identities" | "source_modeled_identities");
         if bounded_support && batch.num_rows() > MAX_SUPPORT_ROWS {
             return Err(bad(format!("{} exceeds the support projection row limit", file.name)));
         }

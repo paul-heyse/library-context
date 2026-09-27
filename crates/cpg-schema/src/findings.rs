@@ -508,6 +508,7 @@ macro_rules! for_each_analysis_table {
             $crate::behavior::ModeledAssignmentReturnPaths,
             $crate::behavior::SummaryComponents,
             $crate::parameter_identity::SourceParameterIdentities,
+            $crate::modeled_identity::SourceModeledIdentities,
             $crate::behavior::SummaryFlows,
             $crate::behavior::SummaryFlowSteps,
             $crate::behavior::SummaryBoundaries,

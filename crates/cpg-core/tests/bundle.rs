@@ -659,6 +659,64 @@ for name in ("fresh_default_false", "fresh_missing_default", "fresh_removed_defa
              "fresh_effectful_argument"):
     paths, boundaries, total, truncated, work = inspect("capspkg." + name, "value")
     assert not paths and boundaries and not truncated, (name, paths, boundaries)
+# Independently generated programs, never compiler fixtures, challenge value identity.
+import json
+import subprocess
+oracle = subprocess.run([sys.executable, "docs/design_review/evidence/2026-09-27_modeled-identity/runtime_oracle.py"],
+                        capture_output=True, text=True, check=True, timeout=45)
+observed = json.loads(oracle.stdout)["cases"]
+for name in ("framed", "nested_frames", "keyword", "rebound", "deleted", "overridden", "nested_mutation"):
+    paths, boundaries, total, truncated, work = inspect("capspkg.modeled_" + name, "value")
+    assert bool(paths) == observed[name]["same_identity"], (name, paths, boundaries)
+    if paths:
+        assert all(any(step[0] == "source_modeled_identity" for step in path[3]) for path in paths), paths
+paths, boundaries, total, truncated, work = inspect("capspkg.context_value_after_model", "value")
+assert paths and all(any(s[0] == "context_entry_value_identity" for s in p[3]) for p in paths), (paths, boundaries)
+assert any(any(s[0] == "model_rule" for s in p[3]) for p in paths), paths
+paths, boundaries, total, truncated, work = inspect("capspkg.modeled_framed", "value")
+modeled_rows = generation.tables["source_modeled_identities"].to_pylist()
+own = next(r for r in modeled_rows if r["source_origin_id"].hex() == paths[0][9])
+foreign = next(r for r in modeled_rows if r["function_node_id"] != own["function_node_id"])
+summary = next(r for r in generation.tables["summary_flows"].to_pylist() if r["source_origin_id"] == own["source_origin_id"])
+steps = [r for r in generation.tables["summary_flow_steps"].to_pylist() if r["summary_id"] == summary["summary_id"]]
+start = next(r["ordinal"] for r in steps if r["kind"] == "callee_resolution" and r["evidence_id"] == own["callee_resolution_fact_id"])
+for mutation in ("missing", "foreign", "removed_step", "duplicate_step", "reordered", "entire_group"):
+    files = []
+    for name in NATIVE_IPC_FILES:
+        table = generation.tables[name]
+        rows = table.to_pylist()
+        if name == "source_modeled_identities" and mutation in ("missing", "entire_group"):
+            rows = [r for r in rows if r["identity_id"] != own["identity_id"]]
+        if name == "summary_flow_steps":
+            changed = []
+            ordinals = {}
+            for row in rows:
+                selected = row["summary_id"] == summary["summary_id"]
+                own_step = selected and row["kind"] == "source_modeled_identity"
+                if own_step and mutation == "foreign": row = dict(row, evidence_id=foreign["identity_id"])
+                if selected and mutation == "reordered" and row["ordinal"] in (start, start + 1):
+                    other = next(s for s in steps if s["ordinal"] == start + 1 - (row["ordinal"] - start))
+                    row = dict(other, ordinal=row["ordinal"])
+                remove = (own_step and mutation == "removed_step") or (selected and mutation == "entire_group"
+                    and start <= row["ordinal"] < start + own["model_proof_count"])
+                copies = 0 if remove else 2 if own_step and mutation == "duplicate_step" else 1
+                for _ in range(copies):
+                    ordinal = ordinals.get(row["summary_id"], 0)
+                    changed.append(dict(row, ordinal=ordinal))
+                    ordinals[row["summary_id"]] = ordinal + 1
+            rows = changed
+        table = pa.Table.from_pylist(rows, schema=table.schema)
+        sink = pa.BufferOutputStream()
+        with ipc.new_file(sink, table.schema) as writer: writer.write_table(table)
+        files.append((name, sink.getvalue().to_pybytes()))
+    try:
+        SemanticExecutor.from_ipc(kernel_format(), generation.snapshot_id,
+                                  generation.manifest["entry_value_effect_digest"], files)
+    except ValueError as error:
+        assert "modeled" in str(error), (mutation, str(error))
+        if mutation == "entire_group": assert "requires a value basis" in str(error), str(error)
+    else:
+        raise AssertionError((mutation, "invalid modeled identity admitted"))
 paths, boundaries, total, truncated, work = inspect("capspkg.handler_entry_identity", "value")
 assert paths and not boundaries and not truncated, (paths, boundaries)
 assert any(any(step[0] == "handler_class_evidence" for step in path[3]) for path in paths), paths
@@ -1180,6 +1238,7 @@ async fn a_generation_rebuilds_to_the_same_bytes() {
             "source_context_arguments",
             "source_context_sites",
             "source_context_value_identities",
+            "source_modeled_identities",
             "source_parameter_identities",
             "summary_boundaries",
             "summary_flow_steps",

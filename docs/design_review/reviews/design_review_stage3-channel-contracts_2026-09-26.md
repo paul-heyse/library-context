@@ -1162,3 +1162,102 @@ coverage, the named modeled-identity regression and integrated Stage 3 remain op
 rebuild does not certify a new call-execution consumer. Full `just test-all`, fresh `just pilot`,
 clean-wheel and all-techniques/cost qualification were **not_run**. Only this review artifact
 was changed by the reviewer.
+
+## 24. Bounded implementation follow-up: modeled return identity
+
+**2026-09-27 · change/conformance · source inspection with attributed focused receipts.**
+Compiler 93 repairs §23's encountered modeled-finalizer positive regression for a direct,
+single identity-model call returned from the current function. A separate lexical source
+certificate discharges that occurrence's approximation obligation; it does not reinterpret
+normal argument evaluation as value identity or modify raw provider flags.
+
+[`lexical_identity.rs`](../../../crates/lctx-analytics/src/lexical_identity.rs) extracts the
+existing immutable parameter-read checker for reuse by direct-return and modeled-return
+producers. Unique same-scope binding, exact source name/range, undecorated synchronous owner,
+and deletion/nonlocal/generator hazards remain enforced. The existing modeled seed adapter
+owns the raw origin's one-call/argument association. Analytics' new
+[`modeled_identity.rs`](../../../crates/lctx-analytics/src/modeled_identity.rs) independently
+proves that exact selected argument is a bare current-parameter read and the call is the whole
+return expression, then commits the existing `modeled_return_proof` rather than classifying
+models again. Schema's corresponding contract binds the function, parameter, origin, source
+flow, condition, return, call/model/rule and lexical evidence to that ordered group.
+
+Finite admission replaces the group's raw marker with `SourceModeledIdentity` only for a
+matching certified approximate occurrence. Mandatory entry/exit completion remains independent;
+publication reconstructs the certificate, and the FORMAT 9/native reader shares its hash,
+scope, group and cited-set checks. Missing, foreign, duplicate, reordered or uncited support
+refuses. General approximate modeled chains and assignments remain withheld; complete-origin
+coverage is unchanged. Full semantic verification of cited raw facts remains S6 work.
+
+<a id="F15"></a>**F15 — Required value evidence cannot depend on which evidence survives.**
+The first admission helper inferred a modeled obligation from any `ModelRule` in the whole
+proof. This both rejected a valid context-entry-value return with a modeled predecessor and
+allowed omission of the complete modeled group. Shared admission now follows `path_depth`:
+depth zero retains the independent base-value owner and prohibits modeled certificates;
+callee-based paths retain their separate callee proof; a positive-depth path without a callee
+requires model rules and exactly one raw/modeled value basis. Removing the entire modeled
+group and certificate therefore cannot leave completion alone as a value proof. The real
+context-value/predecessor control and native complete-group deletion control passed.
+**Corrected within this slice.** The [forward plan §3.0](../../plans/behavioral-model-forward-plan_2026-09-24.md#30-consolidated-execution)
+owns current scheduled disposition and the remaining S5/S6 obligations.
+
+| Judgment/gate | Bounded verdict | Basis and limit |
+|---|---|---|
+| A1 — Localize change | satisfied at source-inspection strength | One lexical-read checker serves two occurrence-specific producers; source acquisition/publication and immutable native loading retain their existing roles |
+| A2 — Encode meaning structurally | satisfied after F15 correction | Lexical identity, model transfer, raw fidelity and return completion have separate premises; value obligations survive evidence omission |
+| A3 — Extend through composition | satisfied for direct single-call returns | Existing model/binding and completion proofs compose with the new source certificate; no general alias or second model interpreter is introduced |
+| G1/G2/G3/G5/G6; CI-G1 | pass for this slice at source-inspection strength | Shared admission and source reconstruction preserve occurrence scope, bounded proofs and typed fidelity; adjacent context/default controls pass |
+| G4/G7/G8; CI-G3 | pass for this slice at source-inspection strength | Pure owners are reused, runtime challenges are independent and finite, and broader capability claims remain explicitly open |
+| CI-G2 | pass for certificate closure in this slice; full raw-fact semantics unresolved | Native checks exact certificate/group references and omission; it does not independently reconstruct Python lexical or model semantics |
+
+**Attributed focused receipts:** the author ran the commands below; this reviewer inspected
+their logs, source, fixture correction and retained runtime evidence, and ran no tests. The
+native module was first rebuilt with `CARGO_TARGET_DIR=/home/paul/library-context/target uv sync
+--frozen --reinstall-package lctx-semantics` (**passed**, `/tmp/lctx-stage3-modeled-identity-sync.log`).
+
+```sh
+CARGO_TARGET_DIR=/home/paul/library-context/target \
+INSTA_UPDATE=no RUST_MIN_STACK=16777216 cargo nextest run --release \
+  -p cpg-schema -p cpg-core -p lctx-analytics --lib \
+  --test contracts --test codebooks --test compile --test bundle \
+  -E 'binary(contracts) | binary(codebooks) | test(summaries::finite::) | test(pinned_identity_models_require_and_publish_their_real_formals) | test(context_protocols_bind_class_and_constructor_roles_independently) | test(finite_depth_and_unsupported_refusals_reach_the_native_response)' \
+  --status-level fail --final-status-level fail
+```
+
+Outcome **failed: 39 passed, 1 failed, 167 skipped** (26.035 seconds),
+`/tmp/lctx-stage3-modeled-identity-tests2.log`. The original modeled-finalizer positive test,
+source certificate-removal/condition-root controls, context/native and finite/schema cases
+passed. The remaining bundle test exposed accidental import edits in the expanded fixture,
+which broke an existing function's indentation and altered a guarded import. Those edits were
+restored; the final fixture diff contains only the intended top-level import and new functions.
+The author then reran the affected case against the rebuilt native module:
+
+```sh
+CARGO_TARGET_DIR=/home/paul/library-context/target \
+INSTA_UPDATE=no RUST_MIN_STACK=16777216 cargo nextest run --release \
+  -p cpg-core --test bundle \
+  -E 'test(finite_depth_and_unsupported_refusals_reach_the_native_response)' \
+  --status-level fail --final-status-level fail
+```
+
+Outcome **passed: 1 case, 6 skipped** (12.377 seconds),
+`/tmp/lctx-stage3-modeled-identity-tests4.log`. This replay includes old fresh-default positives,
+the context-value/model-predecessor case, six native certificate/group mutations, and seven
+independent generated CPython 3.14.7 opaque-object identity challenges. Rebinding, deletion,
+overriding finalizers and invoked nonlocal mutation remain negative controls. The standalone
+`uv run --no-sync python docs/design_review/evidence/2026-09-27_modeled-identity/runtime_oracle.py`
+also **passed**; [retained evidence](../evidence/2026-09-27_modeled-identity/README.md) records
+the source/harness/pinned-library digests. No analyzer fixture was executed. After fixture
+generation, `uv run --no-sync pytest python/lctx_mcp/tests/test_digest.py python/lctx_mcp/tests/test_native_semantics.py -q`
+**passed: 16 cases** (`/tmp/lctx-stage3-modeled-identity-python3.log`). The three earlier expected
+schema/codebook migrations were read and accepted before the no-update selection; earlier
+failed selections remain failed receipts, not an aggregate all-green run.
+
+**Bounded decision: Accept this occurrence-specific modeled identity implementation at
+source-inspection strength, supported by the focused receipts.** F15 is corrected, and the
+named direct/nested-finalizer regression from §23 is repaired without weakening its positive
+expectation. Approximate modeled chains/assignments, broader source/model obligations,
+call-action timing, resource/callback fates, all-channel summaries/coverage, complete S6 support
+and integrated Stage 3 remain open. Full `just test-all`, fresh `just pilot`, clean-wheel and
+all-techniques/cost qualification were **not_run**. Only this review artifact was changed by
+the reviewer.

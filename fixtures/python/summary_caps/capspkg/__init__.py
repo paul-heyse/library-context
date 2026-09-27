@@ -1,5 +1,6 @@
 """Finite summary cap and independent normal-completion control."""
 
+from contextlib import nullcontext
 from typing import cast
 
 
@@ -1143,3 +1144,67 @@ def fresh_effectful_argument(value):
     def inner(item, unused=True):
         return item
     return inner(cast(object, value))
+
+
+def modeled_framed(value):
+    try:
+        return cast(object, value)
+    finally:
+        pass
+
+
+def modeled_nested_frames(value):
+    try:
+        try:
+            return cast(object, value)
+        finally:
+            pass
+    finally:
+        pass
+
+
+def modeled_keyword(value):
+    try:
+        return cast(typ=object, val=value)
+    finally:
+        pass
+
+
+def modeled_rebound(value):
+    value = 7
+    try:
+        return cast(object, value)
+    finally:
+        pass
+
+
+def modeled_deleted(value):
+    del value
+    try:
+        return cast(object, value)
+    finally:
+        pass
+
+
+def modeled_overridden(value):
+    try:
+        return cast(object, value)
+    finally:
+        return 7
+
+
+def modeled_nested_mutation(value):
+    def mutate():
+        nonlocal value
+        value = 7
+    mutate()
+    try:
+        return cast(object, value)
+    finally:
+        pass
+
+
+def context_value_after_model(value):
+    cast(object, 1)
+    with nullcontext(value) as chosen:
+        return chosen

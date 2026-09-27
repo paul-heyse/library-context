@@ -263,12 +263,12 @@ pub async fn finite_flows(
     let local_value_links: Vec<LocalCallValueLink> = sql::fetch(ctx, &cpg_schema::behavior::local_call_value_links(), sql::Params::new()).await?;
     let boundary_candidates: Vec<SummaryBoundaryCandidate> = sql::fetch(ctx, &cpg_schema::behavior::summary_boundary_candidates(), sql::Params::new()).await?;
     let local_bindings=source_call_bindings(ctx,&local_seeds,&local_arguments).await?;
-    let (identities,context_identities) = source_value_identities(ctx).await?;
+    let (identities,context_identities,modeled_identities) = source_value_identities(ctx,&modeled_seeds,&evaluations).await?;
     let context_arguments=sql::fetch(ctx,&context_arguments(),sql::Params::new()).await?;
     let context_sites=sql::fetch(ctx,&context_sites(),sql::Params::new()).await?;
     let return_certificates=sql::fetch(ctx,&return_certificates(),sql::Params::new()).await?;
     let mut result=lctx_analytics::summaries::finite::finite_flows(FiniteSummaryInputs {
-        diagrams, boundaries, pass_steps, entries, entry_steps, components, context_sites, return_certificates,context_identities,context_arguments,
+        modeled_identities,diagrams, boundaries, pass_steps, entries, entry_steps, components, context_sites, return_certificates,context_identities,context_arguments,
         direct_seeds, modeled_seeds, chain_arguments, evaluations, assignment_seeds, local_seeds,
         local_arguments, local_value_links, local_bindings, boundary_candidates, identities,
     });
@@ -280,10 +280,10 @@ pub async fn finite_flows(
 }
 
 /// Mechanical acquisition for the independent source identity proof.
-async fn source_value_identities(ctx: &SessionContext)
-    -> Result<(Vec<cpg_schema::parameter_identity::SourceParameterIdentitiesRow>,Vec<cpg_schema::context_value::SourceContextValueIdentitiesRow>), CoreError> {
+async fn source_value_identities(ctx: &SessionContext,seeds:&[ModeledSummaryFlowSeed],evaluations:&[cpg_schema::behavior::ModeledArgumentEvaluationsRow])
+    -> Result<(Vec<cpg_schema::parameter_identity::SourceParameterIdentitiesRow>,Vec<cpg_schema::context_value::SourceContextValueIdentitiesRow>,Vec<cpg_schema::modeled_identity::SourceModeledIdentitiesRow>), CoreError> {
     let contributions = sql::fetch(ctx, &identity_contributions(), sql::Params::new()).await?;
-    if contributions.is_empty() { return Ok((Vec::new(),Vec::new())); }
+    if contributions.is_empty() { return Ok((Vec::new(),Vec::new(),Vec::new())); }
     let declarations = sql::fetch(ctx, &completion_declarations(), sql::Params::new()).await?;
     let parameters = sql::fetch(ctx, &completion_parameters(), sql::Params::new()).await?;
     let syntax = sql::fetch(ctx, &expression_syntax(), sql::Params::new()).await?;
@@ -306,7 +306,14 @@ async fn source_value_identities(ctx: &SessionContext)
         bindings: &bindings, scopes: &scopes, references: &references, resolutions: &resolutions,
         values: &values, contributions: &contributions, exits: &exits,
     });
-    Ok((identities,context_identities))
+    let calls=sql::fetch(ctx,&context_calls(),sql::Params::new()).await?;
+    let call_arguments=sql::fetch(ctx,&expression_call_arguments(),sql::Params::new()).await?;
+    let modeled_identities=lctx_analytics::modeled_identity::prove(lctx_analytics::modeled_identity::Inputs {
+        declarations:&declarations,parameters:&parameters,syntax:&syntax,bindings:&bindings,scopes:&scopes,
+        references:&references,resolutions:&resolutions,values:&values,exits:&exits,calls:&calls,
+        arguments:&call_arguments,seeds,evaluations,
+    });
+    Ok((identities,context_identities,modeled_identities))
 }
 
 async fn source_call_bindings(ctx:&SessionContext,seeds:&[LocalCallSummaryFlowSeed],mappings:&[LocalCallArgument])

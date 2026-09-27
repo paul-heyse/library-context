@@ -23,7 +23,7 @@ const NAMES: &[&str] = &[
     "public_paths",
     "callable_parameters",
     "summary_flows",
-    "source_parameter_identities", "source_context_value_identities",
+    "source_parameter_identities", "source_context_value_identities", "source_modeled_identities",
     "model_context_protocols", "source_context_sites", "source_context_arguments", "return_completion_certificates",
     "summary_flow_steps",
     "summary_boundaries",
@@ -40,6 +40,7 @@ pub(super) struct Inputs {
 
     pub context_value_identities: Vec<cpg_schema::context_value::SourceContextValueIdentitiesRow>,
     pub identities: Vec<SourceParameterIdentitiesRow>,
+    pub modeled_identities:Vec<cpg_schema::modeled_identity::SourceModeledIdentitiesRow>,
     pub return_sites: HashMap<Id, Id>,
     pub conditions: Vec<(String, Option<String>, Option<String>)>,
     pub nodes: Vec<(String, String, String, String)>,
@@ -260,6 +261,37 @@ pub(super) fn decode(files: Vec<(String, Vec<u8>)>) -> PyResult<Inputs> {
             end_byte: table.integer("end_byte", row)?,
         })
     }).collect::<PyResult<_>>()?;
+    let table=batch(&batches,"source_modeled_identities");
+    let modeled_identities=(0..table.len()).map(|row| {
+        let key=|name|super::id(&table.id(name,row)?);
+        Ok(cpg_schema::modeled_identity::SourceModeledIdentitiesRow {snapshot_id:Id::ZERO,
+            identity_id:key("identity_id")?,
+            function_node_id:key("function_node_id")?,
+            parameter_node_id:key("parameter_node_id")?,
+            source_flow_fact_id:key("source_flow_fact_id")?,
+            source_origin_id:key("source_origin_id")?,
+            condition_id:key("condition_id")?,
+            return_site_fact_id:key("return_site_fact_id")?,
+            call_fact_id:key("call_fact_id")?,
+            call_expression_fact_id:key("call_expression_fact_id")?,
+            source_argument_fact_id:key("source_argument_fact_id")?,
+            pysa_fact_id:key("pysa_fact_id")?,
+            model_id:key("model_id")?,
+            rule_id:key("rule_id")?,
+            callee_resolution_fact_id:key("callee_resolution_fact_id")?,
+            expression_fact_id:key("expression_fact_id")?,
+            reference_fact_id:key("reference_fact_id")?,
+            resolution_fact_id:key("resolution_fact_id")?,
+            binding_fact_id:key("binding_fact_id")?,
+            parameter_fact_id:key("parameter_fact_id")?,
+            scope_fact_id:key("scope_fact_id")?,
+            module_node_id:key("module_node_id")?,
+            start_byte:table.integer("start_byte",row)?,
+            end_byte:table.integer("end_byte",row)?,
+            model_proof_count:table.integer("model_proof_count",row)?,
+            model_proof_digest:super::digest(&table.digest("model_proof_digest",row)?)?,
+        })
+    }).collect::<PyResult<_>>()?;
     let table = batch(&batches, "source_parameter_identities");
     let identities = (0..table.len()).map(|row| {
         let key = |name| super::id(&table.id(name, row)?);
@@ -349,7 +381,7 @@ pub(super) fn decode(files: Vec<(String, Vec<u8>)>) -> PyResult<Inputs> {
         })
     }).collect::<PyResult<_>>()?;
     Ok(Inputs {
-        context_value_identities,
+        modeled_identities,        context_value_identities,
         return_certificates,
         model_context_protocols,
         source_context_sites,

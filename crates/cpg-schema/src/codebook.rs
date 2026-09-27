@@ -1463,6 +1463,7 @@ codebook!(
         ContextExceptionEvidence = 30 => "context_exception_evidence",
         ContextEntryValueIdentity = 31 => "context_entry_value_identity",
         ModelInvocation = 32 => "model_invocation",
+    SourceModeledIdentity = 33 => "source_modeled_identity",
     }
 );
 

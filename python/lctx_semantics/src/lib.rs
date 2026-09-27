@@ -245,6 +245,7 @@ impl SemanticExecutor {
         leaves: Vec<LeafInput>,
         links: Vec<LinkInput>,
         identities: Vec<cpg_schema::parameter_identity::SourceParameterIdentitiesRow>,
+        modeled_identities:Vec<cpg_schema::modeled_identity::SourceModeledIdentitiesRow>,
         return_sites: HashMap<Id, Id>,
         mut contexts: ContextProofs,
     ) -> PyResult<Self> {
@@ -258,6 +259,7 @@ impl SemanticExecutor {
             || links.len() > MAX_SUMMARY_ROWS
             || contexts.returns.len()>MAX_SUMMARY_ROWS || contexts.protocols.len()>MAX_SUMMARY_ROWS || contexts.sites.len()>MAX_SUMMARY_ROWS
             || contexts.arguments.len()>MAX_SUMMARY_ROWS || contexts.values.len()>MAX_SUMMARY_ROWS
+            || modeled_identities.len()>MAX_SUMMARY_ROWS
             || identities.len() > MAX_SUMMARY_ROWS
         {
             return Err(PyValueError::new_err("semantic index exceeds load limits"));
@@ -587,6 +589,11 @@ impl SemanticExecutor {
             }
             completion_by_return.entry((certificate.function_node_id,certificate.return_site_fact_id)).or_default().push(certificate);
         }
+        let mut modeled_by_id=HashMap::new();
+        for row in modeled_identities {
+            if modeled_by_id.insert(row.identity_id,row).is_some() {return Err(PyValueError::new_err("duplicate modeled identity"));}
+        }
+        let mut cited_modeled=HashSet::new();
         let mut cited_completions=HashSet::new();
         let mut cited_contexts=HashSet::new();
         let mut cited_identities = HashSet::new();
@@ -643,6 +650,20 @@ impl SemanticExecutor {
                 }
                 cited_context_values.insert(certificate.identity_id);
             }
+            if !cpg_schema::modeled_identity::admit_value_basis(summary.path_depth,&steps) {
+                return Err(PyValueError::new_err("modeled return requires a value basis"));
+            }
+            for step in steps.iter().filter(|s|s.kind==SummaryFlowStepKind::SourceModeledIdentity) {
+                let certificate=modeled_by_id.get(&step.evidence_id)
+                    .ok_or_else(||PyValueError::new_err("missing modeled value identity"))?;
+                let return_site=summary.return_site_fact_id.ok_or_else(||PyValueError::new_err("missing modeled return site"))?;
+                if summary.path_depth!=1 || !cpg_schema::modeled_identity::admits(certificate,
+                    summary.function_node_id,summary.parameter_node_id,summary.source_flow_fact_id,
+                    summary.source_origin_id,summary.condition_id,return_site,&steps) {
+                    return Err(PyValueError::new_err("modeled value identity does not prove this origin"));
+                }
+                cited_modeled.insert(certificate.identity_id);
+            }
             let identity_steps: Vec<_> = steps.iter().filter(|s| s.kind == SummaryFlowStepKind::SourceParameterIdentity).collect();
             if identity_steps.len() > 1 {
                 return Err(PyValueError::new_err("duplicate source parameter identity step"));
@@ -661,6 +682,7 @@ impl SemanticExecutor {
                 cited_identities.insert(step.evidence_id);
             }
         }
+        if cited_modeled.len()!=modeled_by_id.len() {return Err(PyValueError::new_err("uncited modeled value identity"));}
         if cited_context_values.len()!=context_value_by_id.len() {return Err(PyValueError::new_err("uncited context value identity"));}
         if cited_completions!=certificate_ids {return Err(PyValueError::new_err("uncited return completion certificate"));}
         if cited_contexts.len()!=context_by_id.len() {return Err(PyValueError::new_err("uncited context source certificate"));}
@@ -710,6 +732,7 @@ impl SemanticExecutor {
             input.leaves,
             input.links,
             input.identities,
+            input.modeled_identities,
             input.return_sites,
             ContextProofs {values:input.context_value_identities,returns:input.return_certificates,protocols:input.model_context_protocols,sites:input.source_context_sites,arguments:input.source_context_arguments},
         )
@@ -735,7 +758,7 @@ impl SemanticExecutor {
         leaves: Vec<LeafInput>,
         links: Vec<LinkInput>,
     ) -> PyResult<Self> {
-        Self::load(kernel_format, snapshot_id, effect_model_digest, conditions, nodes, operations, public_paths, parameters, flows, steps, boundaries, leaves, links, Vec::new(), HashMap::new(), ContextProofs::default())
+        Self::load(kernel_format, snapshot_id, effect_model_digest, conditions, nodes, operations, public_paths, parameters, flows, steps, boundaries, leaves, links, Vec::new(), Vec::new(), HashMap::new(), ContextProofs::default())
     }
 
     #[getter]

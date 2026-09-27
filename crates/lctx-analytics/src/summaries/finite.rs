@@ -194,6 +194,7 @@ impl SummaryRefusal {
 }
 
 pub struct FiniteSummaryOutcome {
+    pub modeled_identities: Vec<cpg_schema::modeled_identity::SourceModeledIdentitiesRow>,
     pub context_identities: Vec<cpg_schema::context_value::SourceContextValueIdentitiesRow>,
     pub identities: Vec<SourceParameterIdentitiesRow>,
     pub flows: Vec<SummaryFlowsRow>,
@@ -310,7 +311,7 @@ struct CallEvidence {
     condition_id: Id,
 }
 
-type ArgumentIndex = HashMap<(Id, Id, Id, Id, Id), Vec<ModeledArgumentEvaluationsRow>>;
+pub(crate) type ArgumentIndex = HashMap<(Id, Id, Id, Id, Id), Vec<ModeledArgumentEvaluationsRow>>;
 
 struct FinitePath {
     snapshot_id: Id,
@@ -527,6 +528,7 @@ type ReturnPassIndex = HashMap<Id, Vec<ReturnPassStep>>;
 
 #[derive(Clone)]
 pub struct FiniteSummaryInputs {
+    pub modeled_identities: Vec<cpg_schema::modeled_identity::SourceModeledIdentitiesRow>,
     pub context_identities: Vec<cpg_schema::context_value::SourceContextValueIdentitiesRow>,
     pub context_arguments: Vec<cpg_schema::context_protocol::SourceContextArgumentsRow>,
     pub return_certificates: Vec<cpg_schema::completion_proof::ReturnCompletionCertificatesRow>,
@@ -744,6 +746,17 @@ fn direct_flows(
         );
     }
     (flows, steps)
+}
+
+pub(crate) fn modeled_return_proof(seed:&ModeledSummaryFlowSeed,index:&ArgumentIndex)
+    ->Option<Vec<recipe::SummaryFlowProofStep>> {
+    modeled_call_proof(&CallEvidence {
+        flow_fact_id:seed.source_flow_fact_id,parameter_node_id:seed.parameter_node_id,
+        source_argument_fact_id:seed.source_argument_fact_id,call_fact_id:seed.call_fact_id,
+        pysa_fact_id:seed.pysa_fact_id,model_id:seed.model_id,rule_id:seed.rule_id,
+        callee_resolution_fact_id:seed.callee_resolution_fact_id,argument_count:seed.argument_count,
+        condition_id:seed.condition_id,
+    },index)
 }
 
 /// One completed candidate call path, shared by direct returns and the first assignment hop.
@@ -1071,7 +1084,7 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
     -> FiniteSummaryOutcome
 {
     let FiniteSummaryInputs {
-        identities, context_identities, context_arguments,
+        modeled_identities, identities, context_identities, context_arguments,
         diagrams, boundaries, mut pass_steps, entries, entry_steps, components, context_sites, return_certificates,
         mut direct_seeds, modeled_seeds, chain_arguments, evaluations, assignment_seeds, local_seeds,
         local_arguments, local_value_links, local_bindings, boundary_candidates,
@@ -1150,30 +1163,31 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
                 continue;
             }
         };
-        let Some(model_proof) = modeled_call_proof(
-            &CallEvidence {
-                flow_fact_id: seed.source_flow_fact_id,
-                parameter_node_id: seed.parameter_node_id,
-                source_argument_fact_id: seed.source_argument_fact_id,
-                call_fact_id: seed.call_fact_id,
-                pysa_fact_id: seed.pysa_fact_id,
-                model_id: seed.model_id,
-                rule_id: seed.rule_id,
-                callee_resolution_fact_id: seed.callee_resolution_fact_id,
-                argument_count: seed.argument_count,
-                condition_id: seed.condition_id,
-            },
-            &by_candidate,
-        ) else {
+        let Some(mut model_proof) = modeled_return_proof(&seed,&by_candidate) else {
             refuse(&mut refusals, key, BoundaryReason::MissingEvidence);
             continue;
         };
+        let identity:Vec<_>=modeled_identities.iter().filter(|r|r.snapshot_id==seed.snapshot_id
+            && r.source_origin_id==seed.source_origin_id && r.call_fact_id==seed.call_fact_id
+            && r.rule_id==seed.rule_id).collect();
+        let certificate=if seed.approximated {match identity.as_slice() {[r]=>Some(*r),_=>None}} else {None};
+        if let Some(certificate)=certificate {
+            for step in &mut model_proof {
+                if step.kind==SummaryFlowStepKind::RawIdentity {
+                    step.kind=SummaryFlowStepKind::SourceModeledIdentity;step.evidence_id=certificate.identity_id;
+                }
+            }
+        }
         proof.extend(model_proof);
         proof.push(recipe::SummaryFlowProofStep {
             kind: SummaryFlowStepKind::ReturnExit,
             evidence_id: seed.return_site_fact_id,
             condition_id: seed.return_condition_id,
         });
+        let certified=certificate.is_some_and(|r|cpg_schema::modeled_identity::admits(r,
+            seed.function_node_id,seed.parameter_node_id,seed.source_flow_fact_id,seed.source_origin_id,
+            seed.condition_id,seed.return_site_fact_id,&proof));
+        if certificate.is_some() && !certified {refuse(&mut refusals,key,BoundaryReason::MissingEvidence);continue;}
         push_finite_path(
             &mut flows,
             &mut steps,
@@ -1190,7 +1204,7 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
                 condition_is_true: condition.is_true(),
                 return_site_fact_id: seed.return_site_fact_id,
                 return_region_fact_id: seed.return_region_fact_id,
-                approximated: seed.approximated,
+                approximated: seed.approximated && !certified,
                 path_depth: 1,
                 proof,
             },
@@ -1671,6 +1685,7 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
         let exact:Vec<_>=all.iter().copied().filter(|c|c.entry_condition_id==flow.condition_id).collect();
         let candidates=if exact.is_empty() {all} else {exact};
         let completion = (|| {
+            if !cpg_schema::modeled_identity::admit_value_basis(flow.path_depth,&proof) {return Err(BoundaryReason::MissingEvidence);}
             if flow.path_depth==0 {cpg_schema::summary_contract::admit_base_value(flow.source_flow_fact_id,flow.condition_id,&proof)
                 .map_err(|error|error.reason)?;}
             let [certificate] = candidates.as_slice() else { return Err(BoundaryReason::MissingEvidence); };
@@ -1719,7 +1734,10 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
     let cited:HashSet<_>=steps.iter().filter(|s|s.kind==SummaryFlowStepKind::ContextEntryValueIdentity)
         .map(|s|s.evidence_id).collect();
     let context_identities=context_identities.into_iter().filter(|r|cited.contains(&r.identity_id)).collect();
-    FiniteSummaryOutcome { context_identities, identities, flows, steps, refusals, boundaries, coverage }
+    let cited:HashSet<_>=steps.iter().filter(|s|s.kind==SummaryFlowStepKind::SourceModeledIdentity)
+        .map(|s|s.evidence_id).collect();
+    let modeled_identities=modeled_identities.into_iter().filter(|r|cited.contains(&r.identity_id)).collect();
+    FiniteSummaryOutcome { modeled_identities,context_identities, identities, flows, steps, refusals, boundaries, coverage }
 }
 
 /// Coverage deliberately reads refusals even where a positive path means there is no
@@ -1860,6 +1878,7 @@ mod tests {
             entry_steps: Vec::new(),
             components: Vec::new(),
             direct_seeds: vec![direct_seed()],
+            modeled_identities:Vec::new(),
             modeled_seeds: Vec::new(),
             chain_arguments: Vec::new(),
             evaluations: Vec::new(),

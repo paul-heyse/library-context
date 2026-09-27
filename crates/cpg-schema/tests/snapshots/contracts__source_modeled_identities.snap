@@ -1,0 +1,37 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table source_modeled_identities
+family findings
+key snapshot_id, identity_id
+check span_order: start_byte >= 0 AND end_byte > start_byte
+check proof_count: model_proof_count > 0 AND model_proof_count <= 64
+@lctx.family=findings
+@lctx.table=source_modeled_identities
+snapshot_id: FixedSizeBinary(16) NOT NULL
+identity_id: FixedSizeBinary(16) NOT NULL
+function_node_id: FixedSizeBinary(16) NOT NULL
+parameter_node_id: FixedSizeBinary(16) NOT NULL
+source_flow_fact_id: FixedSizeBinary(16) NOT NULL
+source_origin_id: FixedSizeBinary(16) NOT NULL
+condition_id: FixedSizeBinary(16) NOT NULL
+return_site_fact_id: FixedSizeBinary(16) NOT NULL
+call_fact_id: FixedSizeBinary(16) NOT NULL
+call_expression_fact_id: FixedSizeBinary(16) NOT NULL
+source_argument_fact_id: FixedSizeBinary(16) NOT NULL
+pysa_fact_id: FixedSizeBinary(16) NOT NULL
+model_id: FixedSizeBinary(16) NOT NULL
+rule_id: FixedSizeBinary(16) NOT NULL
+callee_resolution_fact_id: FixedSizeBinary(16) NOT NULL
+expression_fact_id: FixedSizeBinary(16) NOT NULL
+reference_fact_id: FixedSizeBinary(16) NOT NULL
+resolution_fact_id: FixedSizeBinary(16) NOT NULL
+binding_fact_id: FixedSizeBinary(16) NOT NULL
+parameter_fact_id: FixedSizeBinary(16) NOT NULL
+scope_fact_id: FixedSizeBinary(16) NOT NULL
+module_node_id: FixedSizeBinary(16) NOT NULL
+start_byte: Int64 NOT NULL
+end_byte: Int64 NOT NULL
+model_proof_count: Int64 NOT NULL
+model_proof_digest: FixedSizeBinary(32) NOT NULL

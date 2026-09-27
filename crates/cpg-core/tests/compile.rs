@@ -3994,6 +3994,15 @@ budget = 1
     )
     .unwrap();
 
+    assert_eq!(count(&ctx,"SELECT count(*) FROM source_modeled_identities i JOIN declarations d ON d.node_id=i.function_node_id JOIN value_flow_contributions c ON c.origin_id=i.source_origin_id WHERE d.name IN ('framed_modeled_identity','nested_framed_modeled_identity') AND c.approximated").await,2,
+        "modeled source certificates preserve raw approximation");
+    let original_modeled=sql::query(&ctx,"SELECT * FROM source_modeled_identities").await.unwrap().into_view();
+    let missing_modeled=sql::query(&ctx,"SELECT * FROM source_modeled_identities WHERE false").await.unwrap().into_view();
+    ctx.deregister_table("source_modeled_identities").unwrap();ctx.register_table("source_modeled_identities",missing_modeled).unwrap();
+    let violations=cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(violations.iter().any(|v|v.rule=="source-modeled-identity-equality"),"{violations:?}");
+    ctx.deregister_table("source_modeled_identities").unwrap();ctx.register_table("source_modeled_identities",original_modeled).unwrap();
+
     let original_analysis_conditions = sql::query(&ctx, "SELECT * FROM analysis_conditions")
         .await
         .unwrap()
