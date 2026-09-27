@@ -24,7 +24,7 @@ integrated qualification is outstanding.**
 | L7 serving | **Partially implemented.** FORMAT 9 has internal callable-formal support, checked native IPC decoding and bounded cited-finding support closure; a finalizer and a finding-only coordinates claim round-trip in focused tests. `inspect_value_paths` remains path-local and exposes source fact/origin IDs on both positive paths and open boundaries; operation facet values retain verdicts | Typed operation-wide compatibility/effect/role filters, full proof spans beyond the cited witness projection, clean-wheel query |
 | Integrated acceptance | **Not established.** A 2026-09-25 `just test-all` attempt passed 313/313 release Rust tests and 110/112 Python tests (two stale tool-list expectations, since corrected: `test_server.py` 12/12 passed). The rerun was stopped at operator direction; the operator's expectation of a pass is an assumption, not an outcome | `just test-all`, fresh `just pilot`, Q01/Q03/Q05/Q09, structured evaluation, clean-wheel query and the increment-end review are `not_run` |
 
-**Accepted schema migrations at this checkpoint:** extractor output 33; compiler output 91.
+**Accepted schema migrations at this checkpoint:** extractor output 33; compiler output 92.
 The current contracts include `expression_evaluations` and ordered operand proofs, statement/frame
 completion, condition-keyed return entry, native MRO completeness, a persisted exact exception
 codebook and `summary_origin_coverage`. Snapshots are reviewed migrations; a fresh store rebuild
@@ -195,6 +195,25 @@ an unselected named handler does not create it. This satisfies S2b/S3a's proof-o
 obligation; general binding/deletion completion remains unsupported. The focused six-case selection
 passed five cases, then its SQL assertion typo was corrected and the affected source case passed
 on replay. This does not close resource/callback or assembled-stage obligations.
+
+**Reached-call input checkpoint (2026-09-27; Implemented and focused Tested).** Compiler 92
+persists independent statement-prefix and invocation groups for a sole pinned bare imported
+call. The shared binder/evaluator serves normal-return and invocation proofs; callee entry never
+asserts callee return, effects or callback execution. Exact requiredness is mandatory except that
+variadic formals cannot be required. Positive calls retain the 128-argument/64-step bounds;
+oversized refusals retain their actual count and `invocation_argument_limit`. Publication
+reconstructs both groups. Thirty-four focused cases and 13 isolated generated CPython programs
+passed ([evidence](../design_review/evidence/2026-09-27_call-entry/README.md)). Native export,
+action timing/identity and active context frontiers remain open.
+
+**Encountered S5 positive regression (2026-09-27; failed):**
+`pinned_identity_models_require_and_publish_their_real_formals` currently withholds
+`framed_modeled_identity` (`try: return cast(object, value); finally: pass`) as
+`outside_provider_model`. Raw provider approximation is correctly retained, but the modeled
+path lacks an independent source identity certificate. The analytics/source contract must
+discharge only that proved lexical input and modeled path, retaining completion obligations and
+negative controls. Do not remove the positive expectation or erase raw flags. This failure is
+separate from the reached-call focused pass and must pass before S5/S8 acceptance.
 
 ### 3.1 Contract repairs before extension
 
@@ -443,6 +462,12 @@ The [channel review §22](../design_review/reviews/design_review_stage3-channel-
 owners require a value basis independently of completion and preserve source/model versus raw
 identity. The 45-case selection and rebuilt-native replay close that correction; complete raw-fact
 semantics remain S6. Broader entry domains and enclosing Stage 3 remain open.
+
+The [channel review §23](../design_review/reviews/design_review_stage3-channel-contracts_2026-09-26.md#23-bounded-implementation-follow-up-reached-call-inputs)
+**F14 is corrected within the call-input slice (2026-09-27, focused Tested)**: schema and
+analytics preserve the actual oversized count on refused calls and apply the cap to positive
+proofs only. The 34-case selection includes the 130-argument source and shared admission control.
+The separately encountered modeled-finalizer positive regression remains scheduled in §3.0/S5.
 
 | Item | Component | Consequence and intended correction | Disposition · dependency | Closure check |
 |---|---|---|---|---|

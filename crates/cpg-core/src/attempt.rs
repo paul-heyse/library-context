@@ -115,7 +115,8 @@ pub struct Published {
 /// 89: independently bound synchronous class protocols and mandatory return obligations (catalog format 4).
 /// 90: separate context entry-value identity and mandatory base value witnesses.
 /// 91: named-handler binding/implicit-deletion boundary retained through serving.
-pub const COMPILER_OUTPUT_VERSION: u32 = 91;
+/// 92: invocation prefixes and source call execution independent of callee completion.
+pub const COMPILER_OUTPUT_VERSION: u32 = 92;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -821,6 +822,8 @@ async fn finish(
         write_analysis::<cpg_schema::context_protocol::SourceContextSites>(&ctx,root,snapshot_id,&contexts.sites,w).await?;
         write_analysis::<cpg_schema::context_protocol::SourceContextArguments>(&ctx,root,snapshot_id,&contexts.arguments,w).await?;
         let completions = crate::summaries::completions(&ctx).await?;
+        write_analysis::<cpg_schema::call_execution::CallExecutions>(&ctx,root,snapshot_id,&completions.calls,w).await?;
+        write_analysis::<cpg_schema::call_execution::CallExecutionSteps>(&ctx,root,snapshot_id,&completions.call_steps,w).await?;
         write_analysis::<cpg_schema::completion_proof::ReturnCompletionCertificates>(&ctx,root,snapshot_id,&completions.certificates,w).await?;
         write_analysis::<StatementCompletions>(&ctx, root, snapshot_id, &completions.statements, w).await?;
         write_analysis::<StatementCompletionSteps>(&ctx, root, snapshot_id, &completions.statement_steps, w).await?;

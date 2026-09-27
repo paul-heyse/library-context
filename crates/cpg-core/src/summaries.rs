@@ -37,9 +37,9 @@ cpg_schema::relations! {
     expression_reads = "summary_expression_reads", deps = ["syntax_nodes", "references", "reference_resolutions",
         "bindings", "scopes", "flow_uses", "flow_reaching", "flow_definitions", "analysis_conditions"],
         sql = cpg_schema::behavior::expression_reads_sql();
-    normal_call_targets = "summary_normal_call_targets", deps = ["model_applications", "call_syntax", "context_definitions",
+    pinned_call_targets = "summary_pinned_call_targets", deps = ["model_applications", "call_syntax", "context_definitions",
         "syntax_nodes", "references", "reference_resolutions", "bindings", "scopes", "declarations", "flow_regions"],
-        sql = cpg_schema::behavior::normal_call_targets_sql();
+        sql = cpg_schema::behavior::pinned_call_targets_sql();
     expression_call_arguments = "summary_expression_arguments", deps = ["arguments"], sql = "SELECT * FROM arguments".to_owned();
     expression_parameters = "summary_expression_parameters", deps = ["context_parameters"], sql = "SELECT * FROM context_parameters".to_owned();
     expression_transfers = "summary_expression_transfers", deps = ["modeled_transfer_sites"], sql = "SELECT * FROM modeled_transfer_sites".to_owned();
@@ -403,7 +403,7 @@ pub async fn expression_evaluations(ctx: &SessionContext)
     -> Result<lctx_analytics::evaluation::EvaluationOutcome, CoreError> {
     let nodes = sql::fetch(ctx, &expression_syntax(), sql::Params::new()).await?;
     let reads = sql::fetch(ctx, &expression_reads(), sql::Params::new()).await?;
-    let targets = sql::fetch(ctx, &normal_call_targets(), sql::Params::new()).await?;
+    let targets = sql::fetch(ctx, &pinned_call_targets(), sql::Params::new()).await?;
     let call_arguments = sql::fetch(ctx, &expression_call_arguments(), sql::Params::new()).await?;
     let parameters = sql::fetch(ctx, &expression_parameters(), sql::Params::new()).await?;
     let transfers = sql::fetch(ctx, &expression_transfers(), sql::Params::new()).await?;
@@ -417,6 +417,7 @@ pub async fn expression_evaluations(ctx: &SessionContext)
 
 /// Mechanical acquisition for statement and frame completion.
 pub async fn completions(ctx: &SessionContext) -> Result<lctx_analytics::completion::Outcome, CoreError> {
+    let invocations=expression_evaluations(ctx).await?.invocations;
     let context_protocols=sql::fetch(ctx,&context_protocols(),sql::Params::new()).await?;
     let context_sites=sql::fetch(ctx,&context_sites(),sql::Params::new()).await?;
     let context_arguments=sql::fetch(ctx,&context_arguments(),sql::Params::new()).await?;
@@ -437,6 +438,7 @@ pub async fn completions(ctx: &SessionContext) -> Result<lctx_analytics::complet
     let requests:Vec<EntryCondition> = sql::fetch(ctx,&completion_entry_conditions(),sql::Params::new()).await?;
     let entry_conditions:Vec<_>=requests.iter().map(|r|(r.snapshot_id,r.return_site_fact_id,r.condition_id)).collect();
     Ok(lctx_analytics::completion::complete(lctx_analytics::completion::Inputs {
+        invocations:&invocations,
         context_protocols:&context_protocols,context_sites:&context_sites,context_arguments:&context_arguments,
         declarations: &declarations, parameters: &parameters,
         syntax: &syntax, expressions: &expressions, expression_steps: &expression_steps, bindings: &bindings, scopes: &scopes, exits: &exits,

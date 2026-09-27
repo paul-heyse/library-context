@@ -225,6 +225,8 @@ codebook!(
         /// Entering a named exception handler binds and later deletes its name. The
         /// associated lifetime/finalization actions have no admitted completion proof.
         HandlerNameCleanup = 33 => "handler_name_cleanup",
+        /// More than 128 explicit arguments in a reached-invocation proof request.
+        InvocationArgumentLimit = 34 => "invocation_argument_limit",
     }
 );
 
@@ -1460,6 +1462,7 @@ codebook!(
         ContextExit = 29 => "context_exit",
         ContextExceptionEvidence = 30 => "context_exception_evidence",
         ContextEntryValueIdentity = 31 => "context_entry_value_identity",
+        ModelInvocation = 32 => "model_invocation",
     }
 );
 
@@ -1482,6 +1485,9 @@ codebook!(
         /// Ordered composition of source-admitted operands, including normal name reads.
         ComposedExpressionNormal = 8 => "composed_expression_normal",
         PinnedCallNormal = 9 => "pinned_call_normal",
+        /// A resolved callee and its explicit arguments evaluated normally before invocation.
+        /// The invoked callable's completion remains a separate assertion.
+        CalleeEntryNormal = 10 => "callee_entry_normal",
     }
 );
 

@@ -35,15 +35,10 @@ pub fn initializer_signatures(
         }
         let mut names = std::collections::BTreeSet::new();
         let signature = signature.into_iter().skip(1).enumerate().map(|(i,p)| {
-            let kind = p.kind.ok_or("initializer parameter has no kind")?;
-            let name = p.name.as_ref().filter(|s| !s.is_empty()).ok_or("initializer parameter has no name")?;
-            if !names.insert(name.clone()) { return Err("duplicate initializer parameter"); }
-            let required = match kind {
-                P::VarPositional | P::VarKeyword if p.required.is_none() => false,
-                _ => p.required.ok_or("initializer parameter has no requiredness")?,
-            };
-            Ok(SignatureParameter { evidence_id:p.fact_id, ordinal:i as i64,
-                name:name.clone(), kind, required })
+            let mut parameter=SignatureParameter::from_context(p).map_err(|_|"incomplete initializer parameter")?;
+            if !names.insert(parameter.name.clone()) { return Err("duplicate initializer parameter"); }
+            parameter.ordinal=i as i64;
+            Ok(parameter)
         }).collect::<Result<Vec<_>,_>>()?;
         signatures.push(signature);
     }

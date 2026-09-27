@@ -203,6 +203,8 @@ cpg_schema::relations! {
     stored_summary_flows = "validate_stored_summary_flows", deps = ["summary_flows"],
         sql = "SELECT * FROM summary_flows".to_owned();
     stored_return_certificates = "validate_return_certificates", deps = ["return_completion_certificates"], sql = "SELECT * FROM return_completion_certificates".to_owned();
+    stored_call_executions = "validate_call_executions", deps = ["call_executions"], sql = "SELECT * FROM call_executions".to_owned();
+    stored_call_execution_steps = "validate_call_execution_steps", deps = ["call_execution_steps"], sql = "SELECT * FROM call_execution_steps".to_owned();
     stored_context_sites = "validate_context_sites", deps = ["source_context_sites"], sql = "SELECT * FROM source_context_sites".to_owned();
     stored_context_arguments = "validate_context_arguments", deps = ["source_context_arguments"], sql = "SELECT * FROM source_context_arguments".to_owned();
     stored_context_value_identities = "validate_stored_context_value_identities", deps = ["source_context_value_identities"],
@@ -763,6 +765,13 @@ async fn validate_exit_sites(ctx: &SessionContext) -> Result<Vec<Violation>, Cor
             sample:format!("completion reconstruction refused invalid inputs: {error}")});return Ok(violations); },
     };
     let mut certificates:Vec<cpg_schema::completion_proof::ReturnCompletionCertificatesRow>=sql::fetch(ctx,&stored_return_certificates(),sql::Params::new()).await?;
+    let mut calls:Vec<cpg_schema::call_execution::CallExecutionsRow>=sql::fetch(ctx,&stored_call_executions(),sql::Params::new()).await?;
+    let mut call_steps:Vec<cpg_schema::call_execution::CallExecutionStepsRow>=sql::fetch(ctx,&stored_call_execution_steps(),sql::Params::new()).await?;
+    calls.sort_by_key(|r|(r.snapshot_id,r.execution_id));call_steps.sort_by_key(|r|(r.snapshot_id,r.execution_id,r.ordinal));
+    if calls!=expected.calls || call_steps!=expected.call_steps {violations.push(Violation {
+        rule:"call-execution-source-equality".into(),rows:1,
+        sample:"call invocation or ordered reach evidence differs from source reconstruction".into(),
+    });}
     certificates.sort_by_key(|r|(r.snapshot_id,r.certificate_id));
     if certificates!=expected.certificates {violations.push(Violation {rule:"completion-certificate-source-equality".into(),rows:1,
         sample:"return evidence commitment differs from independently reconstructed entry and exit obligations".into()});}

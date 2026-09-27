@@ -309,6 +309,23 @@ pub struct SignatureParameter {
     pub required: bool,
 }
 
+impl SignatureParameter {
+    /// Pinned provider metadata omits requiredness for variadic slots: an empty collection
+    /// needs no argument. Missing requiredness for an ordinary formal remains unknown.
+    pub fn from_context(p:&crate::tables::ContextParametersRow)->Result<Self,BoundaryReason> {
+        use crate::codebook::{ParameterKind as P,SignatureForm};
+        let absent=BoundaryReason::MissingEvidence;
+        if p.form!=SignatureForm::List {return Err(BoundaryReason::OutsideProviderModel);}
+        let kind=p.kind.ok_or(absent)?;
+        let required=match kind {
+            P::VarPositional|P::VarKeyword if p.required.is_none()=>false,
+            _=>p.required.ok_or(absent)?,
+        };
+        Ok(Self {evidence_id:p.fact_id,ordinal:p.ordinal.ok_or(absent)?,
+            name:p.name.as_ref().filter(|n|!n.is_empty()).ok_or(absent)?.clone(),kind,required})
+    }
+}
+
 /// One local proof budget, shared by the producer and native generation admission.
 /// Recursive callee support is bounded independently by the summary path-depth limit.
 pub const MAX_SUMMARY_PROOF_STEPS: usize = 64;
@@ -421,14 +438,16 @@ mod binding_tests {
 }
 
 crate::query_row! {
-    /// A sole pinned total target with an independently resolved module-import callee.
+    /// A sole pinned target with an independently resolved module-import callee.
+    /// Invocation and total normal completion are separate promises.
     /// The expression kernel still checks the signature and every evaluated argument.
-    pub struct NormalCallTarget {
+    pub struct PinnedCallTarget {
         snapshot_id: Id,
         call_node_id: Id,
         call_fact_id: Id,
         target_node_id: Id,
         signature_count: i64,
+        normal_return: bool,
         pysa_fact_id: Id,
         model_id: Id,
         resolution_fact_id: Id,

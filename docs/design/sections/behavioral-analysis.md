@@ -611,6 +611,18 @@ Model rules/coverage declare phase applicability; dynamic validation schema iden
 from a named static schema. Effects before a raise use reached-prefix evidence. Analytics remains
 pure; core acquires and publishes, and native serving admits the same proofs.
 
+**Implemented and focused Tested, 2026-09-27:** `call_executions` and its ordered steps prove
+reached eager call inputs separately from normal expression completion. Schema owns shared
+structural admission; the pure evaluation/binding and completion owners reconstruct invocation
+and statement-prefix groups; core persists and validates exact source equality. A sole pinned
+bare imported target, fixed binding, ordered explicit arguments and available defaults are
+required. The invocation ends at its own model/target/site tuple, not a return or modeled
+action. Refused oversized calls retain their actual argument count; positive proofs keep the
+128-argument and 64-step bounds. Nonconstant guards, context frontiers and broader expression
+placement remain unknown. Native export and action consumers remain S3/S6 work. An isolated
+13-program CPython CALL-event challenge distinguishes reached calls from callee return
+([evidence](../../design_review/evidence/2026-09-27_call-entry/README.md)).
+
 The [active execution queue](../../plans/behavioral-model-forward-plan_2026-09-24.md#30-consolidated-execution)
 owns implementation. Transfer projections preserve kind/condition alternatives and the current
 RCA projection retains typed modality and evidence. No Stage 5 lifecycle execution is pulled forward.

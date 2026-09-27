@@ -2520,7 +2520,12 @@ budget = 1
         )
         .await,
         1,
-        "a modeled return cites its finalizer before the completed exit"
+        "a modeled return cites its finalizer before the completed exit: {} / {}",
+        sql::render(&ctx,"SELECT s.ordinal,s.kind,s.evidence_id FROM summary_flow_steps s JOIN summary_flows f \
+            ON f.summary_id=s.summary_id JOIN declarations d ON d.node_id=f.function_node_id \
+            WHERE d.name='framed_modeled_identity' ORDER BY s.ordinal").await.unwrap(),
+        sql::render(&ctx,"SELECT b.reason FROM summary_boundaries b JOIN declarations d ON d.node_id=b.function_node_id \
+            WHERE d.name='framed_modeled_identity'").await.unwrap()
     );
     assert_eq!(
         count(&ctx, &format!("SELECT count(*) FROM modeled_argument_evaluations a \
@@ -5379,6 +5384,101 @@ budget = 1
         ctx.deregister_table(table).unwrap();
         ctx.register_table(table, original).unwrap();
     }
+}
+
+#[tokio::test(flavor="multi_thread")]
+async fn call_execution_proves_reached_inputs_without_inventing_callee_completion() {
+    use cpg_schema::call_execution::{CallExecutions,CallExecutionsRow,CallExecutionSteps,CallExecutionStepsRow};
+    let root=tempfile::tempdir().unwrap();let snapshot=Id([97;16]);
+    let analysis=Analysis {config:AnalyticsConfig::parse(r#"
+version = 1
+[subsystem]
+module_prefixes = ["invocations"]
+public_roots = ["invocations"]
+[seeds]
+primary = ["invocations.before_raise"]
+distractors = []
+[pass_a]
+max_depth = 2
+max_vertices = 128
+max_edges = 512
+max_witnesses = 3
+[briefs]
+budget = 1
+"#).unwrap(),embedder:Some(Arc::new(cpg_core::embed::FakeEmbedder::new())),techniques:Techniques::default()};
+    compile_analyzed(root.path(),snapshot,&raw_version("invocation_shapes",snapshot,(3,14,7)),Some(&analysis)).await.unwrap();
+    let(_,ctx)=published(root.path(),snapshot).await.unwrap().unwrap();
+    for(name,target)in [("before_raise","compress"),("selected","compress"),("assigned","decompress"),
+        ("returned","decompress"),("register_only","register"),("after_total","decompress"),("after_fallible","decompress")] {
+        assert_eq!(count(&ctx,&format!("SELECT count(*) FROM call_executions e \
+            JOIN declarations d ON d.node_id=e.function_node_id JOIN context_definitions t ON t.symbol_node_id=e.target_node_id \
+            WHERE d.name='{name}' AND t.qualified_name='{target}' AND e.reason IS NULL")).await,1,
+            "{name}: {}",sql::render(&ctx,"SELECT d.name,t.qualified_name,e.reason,e.prefix_count,e.invocation_count \
+            FROM call_executions e JOIN declarations d ON d.node_id=e.function_node_id \
+            JOIN context_definitions t ON t.symbol_node_id=e.target_node_id").await.unwrap());
+    }
+    for name in ["after_raise","after_opaque","raising_argument","missing_defaults","skipped","nested_argument","inner","deferred","generator"] {
+        assert_eq!(count(&ctx,&format!("SELECT count(*) FROM call_executions e JOIN declarations d \
+            ON d.node_id=e.function_node_id WHERE d.name='{name}' AND e.reason IS NULL")).await,0,"{name}");
+    }
+    assert_eq!(count(&ctx,&format!("SELECT count(*) FROM context_parameters p JOIN context_definitions d \
+        ON d.symbol_node_id=p.symbol_node_id WHERE d.module_name='atexit' AND d.qualified_name='register' \
+        AND p.form={} AND p.required IS NULL AND p.kind IN ({},{})",cpg_schema::codebook::SignatureForm::List.code(),
+        cpg_schema::codebook::ParameterKind::VarPositional.code(),cpg_schema::codebook::ParameterKind::VarKeyword.code())).await,2,
+        "empty variadic slots are not missing required ordinary arguments");
+    assert_eq!(count(&ctx,"SELECT count(*) FROM modeled_callback_sites s JOIN declarations d \
+        ON d.node_id=s.function_node_id WHERE d.name='register_only'").await,1);
+    assert_eq!(count(&ctx,&format!("SELECT count(*) FROM call_executions e JOIN declarations d ON d.node_id=e.function_node_id \
+        WHERE d.name='missing_defaults' AND e.reason={}",BoundaryReason::DefaultUnavailable.code())).await,1);
+    assert_eq!(count(&ctx,&format!("SELECT count(*) FROM call_executions e JOIN declarations d ON d.node_id=e.function_node_id \
+        WHERE d.name='oversized_arguments' AND e.argument_count=130 AND e.reason={}",BoundaryReason::InvocationArgumentLimit.code())).await,1);
+    assert_eq!(count(&ctx,"SELECT count(*) FROM call_executions e JOIN declarations d ON d.node_id=e.function_node_id \
+        JOIN context_definitions t ON t.symbol_node_id=e.target_node_id WHERE d.name='after_fallible' \
+        AND t.qualified_name='compress' AND e.reason IS NULL").await,0);
+    assert_eq!(count(&ctx,"SELECT count(*) FROM call_executions e JOIN expression_evaluations v \
+        ON v.syntax_fact_id=e.syntax_fact_id JOIN declarations d ON d.node_id=e.function_node_id \
+        WHERE d.name IN ('before_raise','assigned','returned','register_only') AND v.normal").await,0,
+        "a reached invocation is not a normally completed expression");
+    assert_eq!(count(&ctx,"SELECT count(*) FROM summary_flows s JOIN declarations d ON d.node_id=s.function_node_id \
+        WHERE d.name IN ('before_raise','assigned','returned','register_only')").await,0);
+    let batches=sql::query(&ctx,"SELECT * FROM call_executions").await.unwrap().collect().await.unwrap();
+    let rows:Vec<CallExecutionsRow>=batches.iter().flat_map(|batch|<CallExecutionsRow as cpg_schema::query::QueryRow>::read_batch(
+        &cpg_core::delta::to_schema(batch,&CallExecutions::schema()).unwrap()).unwrap()).collect();
+    let batches=sql::query(&ctx,"SELECT * FROM call_execution_steps ORDER BY execution_id,ordinal").await.unwrap().collect().await.unwrap();
+    let steps:Vec<CallExecutionStepsRow>=batches.iter().flat_map(|batch|<CallExecutionStepsRow as cpg_schema::query::QueryRow>::read_batch(
+        &cpg_core::delta::to_schema(batch,&CallExecutionSteps::schema()).unwrap()).unwrap()).collect();
+    for row in &rows {
+        let proof:Vec<_>=steps.iter().filter(|s|s.execution_id==row.execution_id).map(|s|cpg_schema::id::recipe::SummaryFlowProofStep {
+            kind:s.kind,evidence_id:s.evidence_id,condition_id:s.condition_id}).collect();
+        cpg_schema::call_execution::admit(row,&proof).unwrap();
+        if row.reason.is_none() {
+            let mut missing=proof.clone();missing.pop();assert!(cpg_schema::call_execution::admit(row,&missing).is_err());
+            let mut foreign=proof.clone();foreign.last_mut().unwrap().evidence_id=Id::ZERO;
+            assert!(cpg_schema::call_execution::admit(row,&foreign).is_err());
+            let mut reordered=proof.clone();reordered.swap(0,1);assert!(cpg_schema::call_execution::admit(row,&reordered).is_err());
+        }
+    }
+    let repo=Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let runtime=std::process::Command::new("uv").args(["run","--no-sync","python",
+        "docs/design_review/evidence/2026-09-27_call-entry/runtime_oracle.py"]).current_dir(&repo).output().unwrap();
+    assert!(runtime.status.success(),"{}",String::from_utf8_lossy(&runtime.stderr));
+    let runtime:serde_json::Value=serde_json::from_slice(&runtime.stdout).unwrap();
+    assert_eq!(runtime["outcome"],"passed");
+    for(name,target)in [("before_raise","compress"),("selected","compress"),("assigned","decompress"),
+        ("returned","decompress"),("register_only","register"),("after_total","decompress"),("after_fallible","decompress")] {
+        assert!(runtime["cases"][name]["events"].as_array().unwrap().iter().any(|event|event==target),"{name}");
+    }
+    for name in ["after_raise","after_opaque","raising_argument","skipped"] {
+        assert!(runtime["cases"][name]["events"].as_array().unwrap().is_empty(),"{name}");
+    }
+    assert_eq!(runtime["cases"]["assigned"]["outcome"],"BadGzipFile");
+    assert_eq!(runtime["cases"]["register_only"]["callback_invoked"],false);
+    let original=sql::query(&ctx,"SELECT * FROM call_execution_steps").await.unwrap().into_view();
+    let missing=sql::query(&ctx,"SELECT * FROM call_execution_steps WHERE false").await.unwrap().into_view();
+    ctx.deregister_table("call_execution_steps").unwrap();ctx.register_table("call_execution_steps",missing).unwrap();
+    let violations=cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(violations.iter().any(|v|v.rule=="call-execution-source-equality"),"{violations:?}");
+    ctx.deregister_table("call_execution_steps").unwrap();ctx.register_table("call_execution_steps",original).unwrap();
 }
 
 /// Contract probe over typed candidate inputs. These are not authored production models or

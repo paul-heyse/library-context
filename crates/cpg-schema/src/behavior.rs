@@ -1992,10 +1992,10 @@ fn normal_call_candidates_sql() -> String {
         module_scope = crate::codebook::LexicalScopeKind::Module.code())
 }
 
-pub fn normal_call_targets_sql() -> String {
+pub fn pinned_call_targets_sql() -> String {
     format!("WITH {candidates} \
       SELECT a.snapshot_id, c.node_id AS call_node_id, a.call_fact_id, a.target_node_id, \
-        d.signature_count, a.pysa_fact_id, a.model_id, cc.resolution_fact_id, \
+        d.signature_count, a.target_normal_return AS normal_return, a.pysa_fact_id, a.model_id, cc.resolution_fact_id, \
         mi.import_binding_fact_id, mi.import_region_fact_id, mi.import_condition_id, \
         c.positional_count + c.keyword_count AS argument_count \
       FROM counted a JOIN call_syntax c ON c.node_id = a.call_site_node_id \
@@ -2003,7 +2003,7 @@ pub fn normal_call_targets_sql() -> String {
       JOIN callee_candidates cc ON cc.call_node_id = c.node_id AND cc.candidate_count = 1 \
       JOIN module_imports mi ON mi.call_node_id = c.node_id AND mi.resolution_fact_id = cc.resolution_fact_id \
         AND mi.pick = 1 AND NOT mi.import_approximated \
-      WHERE a.application_count = 1 AND a.target_normal_return \
+      WHERE a.application_count = 1 \
         AND a.target_modality = {definite} AND a.phase = {call_phase} \
         AND a.target_count = 1 AND a.candidate_set_complete_under_model \
         AND NOT a.has_unresolved_remainder AND d.signature_count BETWEEN 1 AND 128",

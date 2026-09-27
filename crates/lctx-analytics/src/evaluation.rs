@@ -6,7 +6,7 @@
 use std::collections::{HashMap, BTreeSet};
 
 use cpg_schema::behavior::{ExpressionEvaluationsRow, ExpressionEvaluationStepsRow};
-use cpg_schema::summary_contract::{ExpressionRead, NormalCallTarget, SignatureParameter, BoundArgument, bind_arguments};
+use cpg_schema::summary_contract::{ExpressionRead, PinnedCallTarget, SignatureParameter, BoundArgument, bind_arguments};
 use cpg_schema::codebook::{BoundaryReason, ModeledArgumentEvaluationStatus as Status, SyntaxField, SyntaxKind, Codebook, SummaryFlowStepKind as Step, SignatureForm, Modality, ModelTransferKind, ModelTransferEndpointStatus};
 use cpg_schema::id::Id;
 use cpg_schema::tables::{SyntaxNodesRow, ArgumentsRow, ContextParametersRow};
@@ -55,6 +55,43 @@ struct Evaluator<'a> {
 }
 
 impl Evaluator<'_> {
+    /// Evaluate only the callee and its ordered arguments. A successful prefix is independent
+    /// of the invoked callable's outcome; whole-expression evaluation checks normality later.
+    fn invoke(&mut self,node:&SyntaxNodesRow,depth:usize)->Result<Value,Refusal> {
+        self.remaining=self.remaining.checked_sub(1).ok_or(Refusal::ExpressionWorkLimit)?;
+        if depth>self.depth_limit {return Err(Refusal::ExpressionDepthLimit);}
+        let call=self.calls.get(&(node.snapshot_id,node.node_id)).and_then(|c|c.clone()).ok_or(UNSUPPORTED)?;
+        if !call.defaults_available {return Err(Refusal::DefaultUnavailable);}
+        let children=self.children.get(&(node.snapshot_id,node.module_node_id,node.node_id)).cloned().unwrap_or_default();
+        self.remaining=self.remaining.checked_sub(children.len()).ok_or(Refusal::ExpressionWorkLimit)?;
+        if node.kind!=SyntaxKind::ExprCall || children.len()!=call.arguments.len()+1
+            || children.iter().any(|c|c.owner_node_id!=node.owner_node_id || c.start_byte<node.start_byte || c.end_byte>node.end_byte)
+            || children.iter().filter(|c|c.field==SyntaxField::Callee && c.kind==SyntaxKind::ExprName).count()!=1 {
+            return Err(UNSUPPORTED);
+        }
+        // These tags describe the successfully evaluated prefix, never the call's return.
+        for(kind,evidence)in [(Step::ModuleImportBinding,call.target.import_binding_fact_id),
+            (Step::ModuleImportRegion,call.target.import_region_fact_id),(Step::CalleeResolution,call.target.resolution_fact_id)] {
+            self.proof.push((node.fact_id,evidence,Status::CalleeEntryNormal,kind));
+        }
+        let mut returned=Value::Literal;
+        for(index,argument)in call.arguments.iter().enumerate() {
+            let operands:Vec<_>=children.iter().filter(|c|c.field==SyntaxField::Argument
+                && c.ordinal==argument.ordinal && c.start_byte==argument.value_start_byte && c.end_byte==argument.value_end_byte).collect();
+            let [operand]=operands.as_slice() else {return Err(UNSUPPORTED);};
+            let value=self.eval(operand,depth+1)?;
+            self.remaining=self.remaining.checked_sub(call.parameter_evidence[index].len()).ok_or(Refusal::ExpressionWorkLimit)?;
+            for &evidence in &call.parameter_evidence[index] {
+                self.proof.push((operand.fact_id,evidence,Status::CalleeEntryNormal,Step::ParameterBinding));
+            }
+            if call.identity.is_some_and(|(source,_)|source==argument.fact_id) {returned=value;}
+        }
+        for(kind,evidence)in [(Step::CallSite,call.target.call_fact_id),(Step::CallTarget,call.target.pysa_fact_id)] {
+            self.proof.push((node.fact_id,evidence,Status::CalleeEntryNormal,kind));
+        }
+        Ok(returned)
+    }
+
     fn eval(&mut self, node: &SyntaxNodesRow, depth: usize) -> Result<Value, Refusal> {
         let value = self.eval_inner(node, depth)?;
         let (evidence, status) = if node.kind == SyntaxKind::ExprName {
@@ -99,34 +136,11 @@ impl Evaluator<'_> {
             SyntaxKind::ExprCall => {
                 let call = self.calls.get(&(node.snapshot_id, node.node_id))
                     .and_then(|call| call.clone()).ok_or(UNSUPPORTED)?;
-                if children.len() != call.arguments.len() + 1 || one(SyntaxField::Callee)?.kind != SyntaxKind::ExprName {
-                    return Err(UNSUPPORTED);
-                }
-                for (kind, evidence) in [(Step::ModuleImportBinding, call.target.import_binding_fact_id),
-                    (Step::ModuleImportRegion, call.target.import_region_fact_id),
-                    (Step::CalleeResolution, call.target.resolution_fact_id)] {
-                    self.proof.push((node.fact_id, evidence, Status::PinnedCallNormal, kind));
-                }
-                let mut returned = Value::Literal;
-                for (index, (argument, _binding)) in call.arguments.iter().zip(&call.bindings).enumerate() {
-                    let mut operands = children.iter().filter(|child| child.field == SyntaxField::Argument
-                        && child.ordinal == argument.ordinal && child.start_byte == argument.value_start_byte
-                        && child.end_byte == argument.value_end_byte);
-                    let operand = operands.next().ok_or(UNSUPPORTED)?;
-                    if operands.next().is_some() { return Err(UNSUPPORTED); }
-                    let value = self.eval(operand, depth + 1)?;
-                    self.remaining = self.remaining.checked_sub(call.parameter_evidence[index].len())
-                        .ok_or(Refusal::ExpressionWorkLimit)?;
-                    for &evidence in &call.parameter_evidence[index] {
-                        self.proof.push((operand.fact_id, evidence, Status::PinnedCallNormal, Step::ParameterBinding));
-                    }
-                    if call.identity.is_some_and(|(source, _)| source == argument.fact_id) { returned = value; }
-                }
-                for (kind, evidence) in [(Step::CallSite, call.target.call_fact_id),
-                    (Step::CallTarget, call.target.pysa_fact_id),
-                    (Step::PrecedingCallNormal, call.target.model_id)] {
-                    self.proof.push((node.fact_id, evidence, Status::PinnedCallNormal, kind));
-                }
+                // Charge this node/children once, through the common invocation owner.
+                self.remaining+=1+children.len();
+                let returned=self.invoke(node,depth)?;
+                if !call.target.normal_return {return Err(UNSUPPORTED);}
+                self.proof.push((node.fact_id,call.target.model_id,Status::PinnedCallNormal,Step::PrecedingCallNormal));
                 if let Some((_, rule)) = call.identity {
                     self.proof.push((node.fact_id, rule, Status::PinnedCallNormal, Step::ModelRule));
                 }
@@ -230,22 +244,33 @@ fn number(text: &str) -> Value {
 pub struct EvaluationOutcome {
     pub evaluations: Vec<ExpressionEvaluationsRow>,
     pub steps: Vec<ExpressionEvaluationStepsRow>,
+    pub invocations: Vec<CallInvocation>,
+}
+
+/// Pure invocation prefix, under entry to this expression. Completion must still prove the
+/// enclosing function reaches it; a normal callee return is not implied.
+#[derive(Clone)]
+pub struct CallInvocation {
+    pub snapshot_id:Id,pub function_node_id:Id,pub call_node_id:Id,pub call_fact_id:Id,
+    pub syntax_fact_id:Id,pub target_node_id:Id,pub pysa_fact_id:Id,pub model_id:Id,
+    pub argument_count:i64,pub reason:Option<BoundaryReason>,pub work:i64,
+    pub proof:Vec<(Step,Id)>,
 }
 
 #[derive(Clone)]
 struct PreparedCall<'a> {
-    target: &'a NormalCallTarget,
+    target: &'a PinnedCallTarget,
     arguments: Vec<&'a ArgumentsRow>,
-    bindings: Vec<BoundArgument>,
     parameter_evidence: Vec<Vec<Id>>,
     identity: Option<(Id, Id)>,
+    defaults_available:bool,
 }
 
 #[derive(Default)]
 pub struct EvaluationInputs<'a> {
     pub syntax: &'a [SyntaxNodesRow],
     pub reads: &'a [ExpressionRead],
-    pub targets: &'a [NormalCallTarget],
+    pub targets: &'a [PinnedCallTarget],
     pub call_arguments: &'a [ArgumentsRow],
     pub parameters: &'a [ContextParametersRow],
     pub transfers: &'a [ModeledTransferSitesRow],
@@ -280,18 +305,19 @@ fn prepare_calls<'a>(inputs: &EvaluationInputs<'a>) -> HashMap<(Id, Id), Option<
         let owned_arguments: Vec<_> = arguments.iter().map(|a| (*a).clone()).collect();
         let mut bindings: Option<Vec<BoundArgument>> = None;
         let mut parameter_evidence = vec![Vec::new(); arguments.len()];
+        let mut defaults_available=true;
         let mut valid = parameters.iter().all(|p| (0..target.signature_count).contains(&p.signature_index));
         for index in 0..target.signature_count {
             let signature: Option<Vec<_>> = parameters.iter().filter(|p| p.signature_index == index).map(|parameter| {
                 if parameter.form != SignatureForm::List { return None; }
-                Some(SignatureParameter { evidence_id: parameter.fact_id, ordinal: parameter.ordinal?,
-                    name: parameter.name.clone()?, kind: parameter.kind?, required: parameter.required? })
+                SignatureParameter::from_context(parameter).ok()
             }).collect();
             let Some(signature) = signature else { valid = false; break; };
             if signature.is_empty() { valid = false; break; }
             let Ok(bound) = bind_arguments(&signature, &owned_arguments) else { valid = false; break; };
-            // NormalCallTarget comes only from a pinned total model. Its signature defaults
-            // are part of that assertion; source-call defaults require separate certificates.
+            // Only a total model currently promises default availability. Other pinned calls
+            // retain a specific refusal until every omitted default has an owned premise.
+            defaults_available &= target.normal_return || bound.defaults.is_empty();
             let bound = bound.explicit;
             if bindings.as_ref().is_some_and(|previous| previous.iter().zip(&bound).any(|(a,b)|
                 a.argument_fact_id != b.argument_fact_id || a.parameter_name != b.parameter_name)) {
@@ -301,7 +327,7 @@ fn prepare_calls<'a>(inputs: &EvaluationInputs<'a>) -> HashMap<(Id, Id), Option<
             bindings = Some(bound);
         }
         if !valid { continue; }
-        let Some(bindings) = bindings else { continue; };
+        if bindings.is_none() { continue; }
         let mut identity = None;
         for transfer in transfers.get(&key).into_iter().flatten() {
             if transfer.model_id == target.model_id && transfer.pysa_fact_id == target.pysa_fact_id
@@ -317,7 +343,7 @@ fn prepare_calls<'a>(inputs: &EvaluationInputs<'a>) -> HashMap<(Id, Id), Option<
                 }
             }
         }
-        out.insert(key, Some(PreparedCall { target, arguments, bindings, parameter_evidence, identity }));
+        out.insert(key, Some(PreparedCall { target, arguments, parameter_evidence, identity,defaults_available }));
     }
     out
 }
@@ -330,6 +356,8 @@ fn evaluate_with_limits(inputs: EvaluationInputs<'_>, depth: usize, work: usize)
     let nodes = inputs.syntax;
     let reads = inputs.reads;
     let calls = prepare_calls(&inputs);
+    let mut targets_by_call:HashMap<_,Vec<_>>=HashMap::new();
+    for target in inputs.targets {targets_by_call.entry((target.snapshot_id,target.call_node_id)).or_default().push(target);}
     let mut children: HashMap<_, Vec<_>> = HashMap::new();
     for node in nodes {
         children.entry((node.snapshot_id, node.module_node_id, node.parent_node_id)).or_default().push(node);
@@ -362,9 +390,23 @@ fn evaluate_with_limits(inputs: EvaluationInputs<'_>, depth: usize, work: usize)
             status, evidence_id,
             reason: result.err(), work: work.saturating_sub(evaluator.remaining).max(1) as i64,
         });
+        if node.kind==SyntaxKind::ExprCall && let Some(function)=node.owner_node_id {
+            if let Some(targets)=targets_by_call.get(&(node.snapshot_id,node.node_id)) && let [target]=targets.as_slice() {
+                evaluator.remaining=work;evaluator.proof.clear();
+                let reason=if target.argument_count>128 {Some(Refusal::InvocationArgumentLimit)}
+                    else {evaluator.invoke(node,0).err()};
+                let mut proof=if reason.is_none() {evaluator.proof.iter().map(|&(_,id,_,kind)|(kind,id)).collect()} else {Vec::new()};
+                if reason.is_none() {proof.push((Step::ModelInvocation,target.model_id));}
+                out.invocations.push(CallInvocation {snapshot_id:node.snapshot_id,function_node_id:function,
+                    call_node_id:node.node_id,call_fact_id:target.call_fact_id,syntax_fact_id:node.fact_id,
+                    target_node_id:target.target_node_id,pysa_fact_id:target.pysa_fact_id,model_id:target.model_id,
+                    argument_count:target.argument_count,reason,work:work.saturating_sub(evaluator.remaining).max(1) as i64,proof});
+            }
+        }
     }
     out.evaluations.sort_by_key(|row| (row.snapshot_id, row.syntax_fact_id));
     out.steps.sort_by_key(|row| (row.snapshot_id, row.syntax_fact_id, row.ordinal));
+    out.invocations.sort_by_key(|row|(row.snapshot_id,row.call_fact_id));
     out
 }
 

@@ -87,6 +87,7 @@ boundary_reason
   31 default_unavailable
   32 default_stability_unknown
   33 handler_name_cleanup
+  34 invocation_argument_limit
 pysa_unresolved_reason
   0 LambdaArgument
   1 UnexpectedPyreflyTarget
@@ -823,6 +824,7 @@ summary_flow_step_kind
   29 context_exit
   30 context_exception_evidence
   31 context_entry_value_identity
+  32 model_invocation
 modeled_argument_evaluation_status
   0 source_operand
   1 literal_normal
@@ -834,6 +836,7 @@ modeled_argument_evaluation_status
   7 closed_expression_normal
   8 composed_expression_normal
   9 pinned_call_normal
+  10 callee_entry_normal
 completion_kind
   0 normal
   1 return

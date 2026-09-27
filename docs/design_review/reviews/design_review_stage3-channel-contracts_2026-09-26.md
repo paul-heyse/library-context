@@ -1060,3 +1060,105 @@ entry/alias domains, general failing entry, resource/callback fates, named clean
 composition and coverage, complete S6 support and integrated Stage 3 remain open. Full
 `just test-all`, fresh `just pilot`, clean-wheel and all-techniques/cost qualification were
 **not_run**. Only this review artifact was changed by the reviewer.
+
+## 23. Bounded implementation follow-up: reached call inputs
+
+**2026-09-27 · change/conformance · source inspection with attributed focused receipts.**
+Compiler 92 adds source/Delta certificates for reaching a sole pinned bare `from`-import call
+under entry to its synchronous, undecorated, nongenerator owner. The call must be the whole
+expression, return value or assignment value. This is the initial invocation boundary in
+[§9.9](../../design/sections/behavioral-analysis.md); action timing, callee outcomes and
+resource/callback identity remain separate obligations under ADR-0057/0058/0059.
+
+[`evaluation.rs`](../../../crates/lctx-analytics/src/evaluation.rs) owns the common prepared
+call and source-ordered callee/argument evaluation. Normal-expression evaluation additionally
+requires the pinned `normal_return` promise and retains `PrecedingCallNormal`; invocation
+ends in `ModelInvocation` without that promise. Completion's existing entry walker proves
+the independent preceding-statement group. Schema
+[`call_execution.rs`](../../../crates/cpg-schema/src/call_execution.rs) owns both ordered
+commitments and structural admission; core acquires, persists and reconstructs the exact
+rows/steps at publication. A reached call before a later raise therefore remains represented,
+while its return, effects and callback invocation are not invented. These are conditional
+source/model claims, not runtime observations or complete coverage of all calls.
+
+`SignatureParameter::from_context` now provides one normalization for ordinary calls and
+context initializers: absent requiredness means an empty variadic slot only for a `List`
+signature's `VarPositional`/`VarKeyword`. A fixed formal with absent requiredness still refuses.
+The shared binder does not acquire general variadic collection support. Non-total calls with
+omitted ordinary defaults retain `DefaultUnavailable`.
+
+<a id="F14"></a>**F14 — Oversized refusal rows must remain admissible.** The initial schema
+checked the positive 128-argument cap before its refusal branch; completion retained the actual
+oversized count when clearing the proof, producing a refusal that admission still rejected.
+The schema now applies the cap only to positive entries. Analytics records append-only
+`InvocationArgumentLimit` (code 34), and refused entries preserve the actual source count with
+empty proof groups. Shared and real source/Delta controls admit the 130-argument refusal and
+reject its conversion to a positive entry. **Corrected within this slice.** The forward plan's
+[§3.0 checkpoint](../../plans/behavioral-model-forward-plan_2026-09-24.md#30-consolidated-execution)
+owns current scheduled disposition.
+
+| Judgment/gate | Bounded verdict | Basis and limit |
+|---|---|---|
+| A1 — Localize change | satisfied at source-inspection strength | Binder/evaluator, entry semantics, schema admission and persistence retain distinct existing owners; signature normalization is shared |
+| A2 — Encode meaning structurally | satisfied after F14 correction | Invocation, normal return, ordered obligations and typed refusal remain distinct; raw provider facts are unchanged |
+| A3 — Extend through composition | satisfied for this boundary | Whole-call reach composes the existing expression and statement kernels; future actions must add their own trigger/outcome/identity premises |
+| G1/G2/G3/G5; CI-G1 | pass for this slice at source-inspection strength | Source reconstruction and exact commitments reject incomplete support; positive caps do not invalidate refusal records |
+| G4/G8; CI-G3 | pass for this slice at source-inspection strength | Pure semantic owners are reused; generated runtime challenges remain evaluation inputs only; no generic replacement framework is introduced |
+| G6/G7 | pass for the changed invocation boundary; enclosing summary conformance unresolved | Normal-expression completion still requires its separate promise; the encountered modeled-identity regression below remains open |
+| CI-G2 | not applicable to new served claims yet | These tables have no native export/action consumer in this slice; full tuple and evidence closure must precede serving |
+
+**Attributed focused receipt:** the author ran the following command; this reviewer inspected
+the source and `/tmp/lctx-stage3-call-entry-tests5.log` and ran no tests.
+
+```sh
+CARGO_TARGET_DIR=/home/paul/library-context/target \
+INSTA_UPDATE=no RUST_MIN_STACK=16777216 cargo nextest run --release \
+  -p cpg-schema -p cpg-core -p lctx-analytics --lib \
+  --test contracts --test codebooks --test compile \
+  -E 'binary(contracts) | binary(codebooks) | test(call_execution::) | test(evaluation::) | test(completion::) | test(context_protocol::) | test(call_execution_proves_reached_inputs_without_inventing_callee_completion)' \
+  --status-level fail --final-status-level fail
+```
+
+Outcome **passed: 34 cases, 166 skipped** (4.949 seconds). Controls cover source argument and
+statement order, fallible call entry without normal return, omitted defaults, skipped/deferred/
+nested cases, proof deletion/substitution/reordering, and Delta publication rejection of missing
+steps. Expected schema/codebook migrations were read and accepted by the author before this
+no-update run. The source test invokes the independent 13-program CPython 3.14.7 monitoring
+challenge; `uv run --no-sync python docs/design_review/evidence/2026-09-27_call-entry/runtime_oracle.py`
+also **passed**, recorded in `/tmp/lctx-stage3-call-entry-runtime.json` and the
+[retained evidence](../evidence/2026-09-27_call-entry/README.md). Generated workers execute no
+analyzer fixture and distinguish a reached fallible call from its failed return and callback
+registration from callback invocation. Fake embeddings serve fixture storage only.
+
+**Encountered adjacent regression remains open.** The author rebuilt the editable native
+module with `CARGO_TARGET_DIR=/home/paul/library-context/target uv sync --frozen
+--reinstall-package lctx-semantics` (**passed**, `/tmp/lctx-stage3-call-entry-sync.log`) and ran:
+
+```sh
+CARGO_TARGET_DIR=/home/paul/library-context/target \
+INSTA_UPDATE=no RUST_MIN_STACK=16777216 cargo nextest run --release \
+  -p cpg-core --test compile --test bundle \
+  -E 'test(pinned_identity_models_require_and_publish_their_real_formals) | test(finite_depth_and_unsupported_refusals_reach_the_native_response)' \
+  --status-level fail --final-status-level fail
+```
+
+Outcome **failed: 1 passed, 1 failed, 37 skipped** (11.402 seconds), inspected in
+`/tmp/lctx-stage3-call-entry-native-regression.log`. The existing finite-depth/native boundary
+case passed; `pinned_identity_models_require_and_publish_their_real_formals` failed because
+`framed_modeled_identity` has no positive modeled finalizer path (`OutsideProviderModel`,
+code 10). The 34-case selection omits that test and does not supersede this failure. Inspection
+confirms that `summaries::finite::push_finite_path`'s blanket approximation refusal already
+exists in the preceding commit, but no clean baseline run establishes when the regression
+began. The forward plan's §3.0 retains the S5 repair: an occurrence-specific independent
+source/model identity proof, with raw approximation flags and the positive expectation
+preserved. Normal argument evaluation alone cannot discharge value identity.
+
+**Bounded decision: Accept the source/Delta call-input certificate implementation at
+source-inspection strength, supported by the focused receipt.** F14 is corrected. Dynamic
+guards, nested expression reach, active contexts and calls after completed context prefixes
+remain withheld; the current condition is unconditional under owner entry. Native export and
+full evidence closure, action/outcome timing, resource/callback fates, all-channel summaries and
+coverage, the named modeled-identity regression and integrated Stage 3 remain open. The native
+rebuild does not certify a new call-execution consumer. Full `just test-all`, fresh `just pilot`,
+clean-wheel and all-techniques/cost qualification were **not_run**. Only this review artifact
+was changed by the reviewer.
