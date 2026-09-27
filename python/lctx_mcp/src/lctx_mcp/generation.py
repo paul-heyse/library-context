@@ -28,10 +28,33 @@ MAX_SUMMARY_ROWS = 100_000
 MAX_SUPPORT_FILE_BYTES = 64 * 1024 * 1024
 NATIVE_IPC_FILES = frozenset(
     {
-        "conditions", "condition_nodes", "analysis_conditions", "analysis_condition_nodes",
-        "operations", "public_paths", "callable_parameters", "summary_flows",
-        "summary_flow_steps", "summary_boundaries", "flow_test_leaves", "source_parameter_identities", "source_context_value_identities", "source_modeled_identities", "model_frame_exits", "model_frame_exit_arguments", "model_frame_exit_steps",
-        "flow_test_value_links", "model_context_protocols", "source_context_sites", "source_context_arguments", "return_completion_certificates",
+        "conditions",
+        "condition_nodes",
+        "analysis_conditions",
+        "analysis_condition_nodes",
+        "operations",
+        "public_paths",
+        "callable_parameters",
+        "summary_flows",
+        "summary_flow_steps",
+        "summary_boundaries",
+        "flow_test_leaves",
+        "source_parameter_identities",
+        "source_context_value_identities",
+        "source_modeled_identities",
+        "model_frame_exits",
+        "model_frame_exit_arguments",
+        "model_frame_exit_steps",
+        "source_body_completions",
+        "source_body_steps",
+        "source_body_release_inputs",
+        "source_call_normals",
+        "source_call_header_steps",
+        "flow_test_value_links",
+        "model_context_protocols",
+        "source_context_sites",
+        "source_context_arguments",
+        "return_completion_certificates",
     }
 )
 
@@ -140,17 +163,42 @@ def expected_schemas(dimensions: int) -> dict[str, pa.Schema]:
                 _utf8("label", True),
             ]
         ),
-        "support_attributes": pa.schema([
-            _id("attribute_id"),_utf8("kind"),_utf8("symbol",True),_utf8("parameter_kind",True),
-            _id("type_term_id",True),_utf8("class_module",True),_utf8("class_key",True),_id("target_node_id",True),
-            _utf8("modality",True),_utf8("phase",True),_utf8("producer_modality",True),_utf8("producer_phase",True),_utf8("display"),
-        ]),
-        "support_attribute_incidences": pa.schema([
-            _id("finding_id"),_id("incidence_id"),_id("attribute_id"),_id("object_node_id"),
-            _id("source_fact_id"),_utf8("fact_table"),_utf8("fact_model_id"),_id("site_node_id",True),_id("edge_id",True),
-            _id("other_site_node_id",True),_id("other_edge_id",True),_id("consumer_formal_id",True),
-            _id("other_fact_id",True),_utf8("other_fact_table",True),_utf8("other_fact_model_id",True),
-        ]),
+        "support_attributes": pa.schema(
+            [
+                _id("attribute_id"),
+                _utf8("kind"),
+                _utf8("symbol", True),
+                _utf8("parameter_kind", True),
+                _id("type_term_id", True),
+                _utf8("class_module", True),
+                _utf8("class_key", True),
+                _id("target_node_id", True),
+                _utf8("modality", True),
+                _utf8("phase", True),
+                _utf8("producer_modality", True),
+                _utf8("producer_phase", True),
+                _utf8("display"),
+            ]
+        ),
+        "support_attribute_incidences": pa.schema(
+            [
+                _id("finding_id"),
+                _id("incidence_id"),
+                _id("attribute_id"),
+                _id("object_node_id"),
+                _id("source_fact_id"),
+                _utf8("fact_table"),
+                _utf8("fact_model_id"),
+                _id("site_node_id", True),
+                _id("edge_id", True),
+                _id("other_site_node_id", True),
+                _id("other_edge_id", True),
+                _id("consumer_formal_id", True),
+                _id("other_fact_id", True),
+                _utf8("other_fact_table", True),
+                _utf8("other_fact_model_id", True),
+            ]
+        ),
         "evidence": pa.schema(
             [
                 _id("evidence_id"),
@@ -279,109 +327,209 @@ def expected_schemas(dimensions: int) -> dict[str, pa.Schema]:
                 _int("path_depth"),
             ]
         ),
-        "source_context_value_identities": pa.schema([
-            _id("identity_id"),
-            _id("function_node_id"),
-            _id("parameter_node_id"),
-            _utf8("parameter_name"),
-            _id("source_flow_fact_id"),
-            _id("source_origin_id"),
-            _id("condition_id"),
-            _id("return_site_fact_id"),
-            _id("return_region_fact_id"),
-            _id("return_condition_id"),
-            _int("return_start_byte"),
-            _id("context_site_id"),
-            _id("argument_fact_id"),
-            _id("argument_expression_fact_id"),
-            _id("argument_reference_fact_id"),
-            _id("argument_resolution_fact_id"),
-            _id("parameter_binding_fact_id"),
-            _id("parameter_fact_id"),
-            _id("target_binding_fact_id"),
-            _id("expression_fact_id"),
-            _id("reference_fact_id"),
-            _id("resolution_fact_id"),
-            _id("scope_fact_id"),
-            _id("module_node_id"),
-            _int("start_byte"),
-            _int("end_byte"),
-        ]),
-        "model_frame_exits": pa.schema([
-            _id("frame_exit_id"),
-            _id("function_node_id"),
-            _id("call_node_id"),
-            _id("call_fact_id"),
-            _id("syntax_fact_id"),
-            _id("target_node_id"),
-            _id("pysa_fact_id"),
-            _id("model_id"),
-            _utf8("return_parameter"),
-            _id("return_argument_fact_id"),
-            _int("argument_count"),
-            _int("signature_count"),
-            pa.field("arguments_digest",pa.binary(32),nullable=False),
-            _int("invocation_count"),
-            pa.field("invocation_digest",pa.binary(32),nullable=False),
-        ]),
-        "model_frame_exit_arguments": pa.schema([
-            _id("frame_exit_id"),
-            _int("ordinal"),
-            _id("argument_fact_id"),
-            _id("expression_fact_id"),
-            _utf8("safety"),
-            _utf8("parameter_name"),
-            _int("expression_offset"),
-            _int("expression_count"),
-            pa.field("expression_digest",pa.binary(32),nullable=False),
-            pa.field("parameters_digest",pa.binary(32),nullable=False),
-        ]),
-        "model_frame_exit_steps": pa.schema([
-            _id("frame_exit_id"),
-            _int("ordinal"),
-            _id("operand_fact_id"),
-            _id("evidence_id"),
-            _utf8("status"),
-            _utf8("kind"),
-        ]),
-        "source_modeled_identities": pa.schema([
-            _id("identity_id"),
-            _id("function_node_id"),
-            _id("parameter_node_id"),
-            _id("source_flow_fact_id"),
-            _id("source_origin_id"),
-            _id("condition_id"),
-            _id("return_site_fact_id"),
-            _id("call_fact_id"),
-            _id("call_expression_fact_id"),
-            _id("source_argument_fact_id"),
-            _id("pysa_fact_id"),
-            _id("model_id"),
-            _id("rule_id"),
-            _id("callee_resolution_fact_id"),
-            _id("expression_fact_id"),
-            _id("reference_fact_id"),
-            _id("resolution_fact_id"),
-            _id("binding_fact_id"),
-            _id("parameter_fact_id"),
-            _id("scope_fact_id"),
-            _id("module_node_id"),
-            _int("start_byte"),
-            _int("end_byte"),
-            _int("model_proof_count"),
-            pa.field("model_proof_digest", pa.binary(32), nullable=False),
-        ]),
+        "source_context_value_identities": pa.schema(
+            [
+                _id("identity_id"),
+                _id("function_node_id"),
+                _id("parameter_node_id"),
+                _utf8("parameter_name"),
+                _id("source_flow_fact_id"),
+                _id("source_origin_id"),
+                _id("condition_id"),
+                _id("return_site_fact_id"),
+                _id("return_region_fact_id"),
+                _id("return_condition_id"),
+                _int("return_start_byte"),
+                _id("context_site_id"),
+                _id("argument_fact_id"),
+                _id("argument_expression_fact_id"),
+                _id("argument_reference_fact_id"),
+                _id("argument_resolution_fact_id"),
+                _id("parameter_binding_fact_id"),
+                _id("parameter_fact_id"),
+                _id("target_binding_fact_id"),
+                _id("expression_fact_id"),
+                _id("reference_fact_id"),
+                _id("resolution_fact_id"),
+                _id("scope_fact_id"),
+                _id("module_node_id"),
+                _int("start_byte"),
+                _int("end_byte"),
+            ]
+        ),
+        "source_body_completions": pa.schema(
+            [
+                _id("body_id"),
+                _id("function_node_id"),
+                _id("declaration_fact_id"),
+                _id("syntax_fact_id"),
+                _utf8("kind"),
+                _id("terminal_fact_id", True),
+                _utf8("exception", True),
+                _utf8("reason", True),
+                _utf8("release_reason", True),
+                pa.field("function_retainer_required", pa.bool_(), nullable=False),
+                _int("runtime_statement_count"),
+                _int("step_count"),
+                pa.field("steps_digest", pa.binary(32), nullable=False),
+                _int("release_count"),
+                pa.field("releases_digest", pa.binary(32), nullable=False),
+                _int("work"),
+            ]
+        ),
+        "source_body_steps": pa.schema(
+            [
+                _id("body_id"),
+                _int("ordinal"),
+                _utf8("kind"),
+                _id("evidence_id"),
+            ]
+        ),
+        "source_body_release_inputs": pa.schema(
+            [
+                _id("body_id"),
+                _int("ordinal"),
+                _id("syntax_fact_id"),
+                _utf8("safety"),
+                _int("proof_offset"),
+                _int("proof_count"),
+                pa.field("proof_digest", pa.binary(32), nullable=False),
+                _id("evaluation_evidence_id"),
+            ]
+        ),
+        "source_call_normals": pa.schema(
+            [
+                _id("certificate_id"),
+                _id("function_node_id"),
+                _id("call_node_id"),
+                _id("call_fact_id"),
+                _id("syntax_fact_id"),
+                _id("callee_node_id"),
+                _id("pysa_fact_id"),
+                _id("signature_fact_id"),
+                _id("body_id"),
+                _id("header_fact_id"),
+                _id("statement_fact_id"),
+                _id("binding_fact_id"),
+                _id("reference_fact_id"),
+                _id("resolution_fact_id"),
+                _int("header_count"),
+                pa.field("header_digest", pa.binary(32), nullable=False),
+                _int("body_count"),
+                _utf8("body_kind"),
+            ]
+        ),
+        "source_call_header_steps": pa.schema(
+            [
+                _id("certificate_id"),
+                _int("ordinal"),
+                _utf8("kind"),
+                _id("evidence_id"),
+            ]
+        ),
+        "model_frame_exits": pa.schema(
+            [
+                _id("frame_exit_id"),
+                _id("function_node_id"),
+                _id("call_node_id"),
+                _id("call_fact_id"),
+                _id("syntax_fact_id"),
+                _id("target_node_id"),
+                _id("pysa_fact_id"),
+                _id("model_id"),
+                _utf8("return_parameter"),
+                _id("return_argument_fact_id"),
+                _int("argument_count"),
+                _int("signature_count"),
+                pa.field("arguments_digest", pa.binary(32), nullable=False),
+                _int("invocation_count"),
+                pa.field("invocation_digest", pa.binary(32), nullable=False),
+            ]
+        ),
+        "model_frame_exit_arguments": pa.schema(
+            [
+                _id("frame_exit_id"),
+                _int("ordinal"),
+                _id("argument_fact_id"),
+                _id("expression_fact_id"),
+                _utf8("safety"),
+                _utf8("parameter_name"),
+                _int("expression_offset"),
+                _int("expression_count"),
+                pa.field("expression_digest", pa.binary(32), nullable=False),
+                pa.field("parameters_digest", pa.binary(32), nullable=False),
+            ]
+        ),
+        "model_frame_exit_steps": pa.schema(
+            [
+                _id("frame_exit_id"),
+                _int("ordinal"),
+                _id("operand_fact_id"),
+                _id("evidence_id"),
+                _utf8("status"),
+                _utf8("kind"),
+            ]
+        ),
+        "source_modeled_identities": pa.schema(
+            [
+                _id("identity_id"),
+                _id("function_node_id"),
+                _id("parameter_node_id"),
+                _id("source_flow_fact_id"),
+                _id("source_origin_id"),
+                _id("condition_id"),
+                _id("return_site_fact_id"),
+                _id("call_fact_id"),
+                _id("call_expression_fact_id"),
+                _id("source_argument_fact_id"),
+                _id("pysa_fact_id"),
+                _id("model_id"),
+                _id("rule_id"),
+                _id("callee_resolution_fact_id"),
+                _id("expression_fact_id"),
+                _id("reference_fact_id"),
+                _id("resolution_fact_id"),
+                _id("binding_fact_id"),
+                _id("parameter_fact_id"),
+                _id("scope_fact_id"),
+                _id("module_node_id"),
+                _int("start_byte"),
+                _int("end_byte"),
+                _int("model_proof_count"),
+                pa.field("model_proof_digest", pa.binary(32), nullable=False),
+            ]
+        ),
         "source_parameter_identities": pa.schema(
-            [_id("identity_id"), _id("function_node_id"), _id("parameter_node_id"),
-             _id("source_flow_fact_id"), _id("source_origin_id"), _id("condition_id"),
-             _id("return_site_fact_id"), _id("expression_fact_id"), _id("reference_fact_id"),
-             _id("resolution_fact_id"), _id("binding_fact_id"), _id("parameter_fact_id"),
-             _id("module_node_id"), _int("start_byte"), _int("end_byte")]
+            [
+                _id("identity_id"),
+                _id("function_node_id"),
+                _id("parameter_node_id"),
+                _id("source_flow_fact_id"),
+                _id("source_origin_id"),
+                _id("condition_id"),
+                _id("return_site_fact_id"),
+                _id("expression_fact_id"),
+                _id("reference_fact_id"),
+                _id("resolution_fact_id"),
+                _id("binding_fact_id"),
+                _id("parameter_fact_id"),
+                _id("module_node_id"),
+                _int("start_byte"),
+                _int("end_byte"),
+            ]
         ),
         "return_completion_certificates": pa.schema(
-            [_id("certificate_id"),_id("function_node_id"),_id("return_site_fact_id"),
-             _id("entry_condition_id"),_id("exit_condition_id"),_int("entry_count"),_int("exit_count"),
-             pa.field("entry_digest",pa.binary(32),nullable=False),pa.field("exit_digest",pa.binary(32),nullable=False)]
+            [
+                _id("certificate_id"),
+                _id("function_node_id"),
+                _id("return_site_fact_id"),
+                _id("entry_condition_id"),
+                _id("exit_condition_id"),
+                _int("entry_count"),
+                _int("exit_count"),
+                pa.field("entry_digest", pa.binary(32), nullable=False),
+                pa.field("exit_digest", pa.binary(32), nullable=False),
+            ]
         ),
         "model_context_protocols": pa.schema(
             [
@@ -617,8 +765,21 @@ def _read(
             "analysis_conditions",
             "analysis_condition_nodes",
             "summary_flows",
-            "source_parameter_identities", "source_context_value_identities", "source_modeled_identities", "model_frame_exits", "model_frame_exit_arguments", "model_frame_exit_steps",
-            "model_context_protocols", "source_context_sites", "source_context_arguments", "return_completion_certificates",
+            "source_parameter_identities",
+            "source_context_value_identities",
+            "source_modeled_identities",
+            "model_frame_exits",
+            "model_frame_exit_arguments",
+            "model_frame_exit_steps",
+            "source_body_completions",
+            "source_body_steps",
+            "source_body_release_inputs",
+            "source_call_normals",
+            "source_call_header_steps",
+            "model_context_protocols",
+            "source_context_sites",
+            "source_context_arguments",
+            "return_completion_certificates",
             "summary_flow_steps",
             "summary_boundaries",
             "flow_test_leaves",
@@ -649,7 +810,13 @@ def _read(
 
 def _validate_support_closure(tables: dict[str, pa.Table]) -> None:
     """Refuse a generation whose served support edges cannot resolve in its own projection."""
-    for name in ("support_findings", "support_witnesses", "support_members", "support_attributes", "support_attribute_incidences"):
+    for name in (
+        "support_findings",
+        "support_witnesses",
+        "support_members",
+        "support_attributes",
+        "support_attribute_incidences",
+    ):
         if tables[name].num_rows > 100_000:
             raise GenerationError(f"{name} exceeds the support projection row limit")
     findings = {row["finding_id"]: row for row in tables["support_findings"].to_pylist()}
@@ -704,23 +871,41 @@ def _validate_support_closure(tables: dict[str, pa.Table]) -> None:
             if count < 4 or count % 2 or set(by_ordinal) != set(range(count)):
                 raise GenerationError("handoff members have an invalid order")
             for ordinal, member in by_ordinal.items():
-                role = ("formal" if ordinal == 0 else "handoff_attribute" if ordinal == count - 1
-                        else "producer_site" if ordinal % 2 else "consumer_site")
-                if member["role"] != role or (role == "handoff_attribute") != (member["attribute_id"] is not None):
+                role = (
+                    "formal"
+                    if ordinal == 0
+                    else "handoff_attribute"
+                    if ordinal == count - 1
+                    else "producer_site"
+                    if ordinal % 2
+                    else "consumer_site"
+                )
+                if member["role"] != role or (role == "handoff_attribute") != (
+                    member["attribute_id"] is not None
+                ):
                     raise GenerationError("handoff members have an invalid role")
                 if role != "handoff_attribute" and member["node_id"] is None:
                     raise GenerationError("handoff member has no source node")
         objects = {m["node_id"] for m in members if m["role"] == "extent_member"}
-        attrs = {m["attribute_id"] for m in members if m["attribute_id"] is not None and m["role"] != "handoff_attribute"}
+        attrs = {
+            m["attribute_id"]
+            for m in members
+            if m["attribute_id"] is not None and m["role"] != "handoff_attribute"
+        }
         if len(required) + len(objects) * len(attrs) > 100_000:
             raise GenerationError("attribute supporter closure exceeds the support budget")
         required.update((finding, obj, attr) for obj in objects for attr in attrs)
         for member in members:
             if member["role"] == "handoff_attribute":
-                required.add((finding, findings[finding]["subject_node_id"], member["attribute_id"]))
+                required.add(
+                    (finding, findings[finding]["subject_node_id"], member["attribute_id"])
+                )
         consumers = {m["ordinal"]: m["node_id"] for m in members if m["role"] == "consumer_site"}
-        pairs = {(m["node_id"], consumers[m["ordinal"] + 1]) for m in members
-                 if m["role"] == "producer_site" and m["ordinal"] + 1 in consumers}
+        pairs = {
+            (m["node_id"], consumers[m["ordinal"] + 1])
+            for m in members
+            if m["role"] == "producer_site" and m["ordinal"] + 1 in consumers
+        }
         if any(m["role"] == "handoff_attribute" for m in members):
             if not pairs:
                 raise GenerationError("handoff attribute has no retained pair")
@@ -742,13 +927,21 @@ def _validate_support_closure(tables: dict[str, pa.Table]) -> None:
             raise GenerationError("attribute source evidence is unavailable")
         kind = attributes[row["attribute_id"]]["kind"]
         call_fields = ("site_node_id", "edge_id")
-        pair_fields = ("other_site_node_id", "other_edge_id", "consumer_formal_id",
-                       "other_fact_id", "other_fact_table", "other_fact_model_id")
+        pair_fields = (
+            "other_site_node_id",
+            "other_edge_id",
+            "consumer_formal_id",
+            "other_fact_id",
+            "other_fact_table",
+            "other_fact_model_id",
+        )
         if kind in ("hands_off", "takes_from"):
             if any(row[n] is None for n in (*call_fields, *pair_fields)):
                 raise GenerationError("paired attribute evidence is unavailable")
         elif kind == "calls":
-            if any(row[n] is None for n in call_fields) or any(row[n] is not None for n in pair_fields):
+            if any(row[n] is None for n in call_fields) or any(
+                row[n] is not None for n in pair_fields
+            ):
                 raise GenerationError("call attribute evidence has an invalid shape")
         elif kind in ("parameter", "parameter_type", "returns", "raises", "decorator"):
             if any(row[n] is not None for n in (*call_fields, *pair_fields)):
@@ -758,10 +951,15 @@ def _validate_support_closure(tables: dict[str, pa.Table]) -> None:
         finding = row["finding_id"]
         if finding in handoff_pairs:
             pair = (row["site_node_id"], row["other_site_node_id"])
-            if pair not in handoff_pairs[finding] or row["consumer_formal_id"] not in handoff_formals[finding]:
+            if (
+                pair not in handoff_pairs[finding]
+                or row["consumer_formal_id"] not in handoff_formals[finding]
+            ):
                 raise GenerationError("attribute incidence does not support retained handoff")
             observed_pairs.setdefault(finding, set()).add(pair)
-    if {key for key, row in findings.items() if row["finding_kind"] == "handoff"} != handoff_pairs.keys():
+    if {
+        key for key, row in findings.items() if row["finding_kind"] == "handoff"
+    } != handoff_pairs.keys():
         raise GenerationError("handoff has no complete retained pair")
     if observed_pairs != handoff_pairs:
         raise GenerationError("missing attribute incidence for retained handoff pair")
@@ -802,8 +1000,7 @@ def load(root: Path, client_spec: Spec | None) -> Generation:
     schemas = expected_schemas(dimensions)
     native_ipc: dict[str, bytes] = {}
     tables = {
-        name: _read(root, manifest, name, schema, native_ipc)
-        for name, schema in schemas.items()
+        name: _read(root, manifest, name, schema, native_ipc) for name, schema in schemas.items()
     }
     _validate_support_closure(tables)
     max_conditions, max_nodes, _max_retained_nodes = catalog_limits()
@@ -815,8 +1012,21 @@ def load(root: Path, client_spec: Spec | None) -> Generation:
         raise GenerationError("condition catalog exceeds native load limits")
     for name in (
         "summary_flows",
-        "source_parameter_identities", "source_context_value_identities", "source_modeled_identities", "model_frame_exits", "model_frame_exit_arguments", "model_frame_exit_steps",
-        "model_context_protocols", "source_context_sites", "source_context_arguments", "return_completion_certificates",
+        "source_parameter_identities",
+        "source_context_value_identities",
+        "source_modeled_identities",
+        "model_frame_exits",
+        "model_frame_exit_arguments",
+        "model_frame_exit_steps",
+        "source_body_completions",
+        "source_body_steps",
+        "source_body_release_inputs",
+        "source_call_normals",
+        "source_call_header_steps",
+        "model_context_protocols",
+        "source_context_sites",
+        "source_context_arguments",
+        "return_completion_certificates",
         "summary_flow_steps",
         "summary_boundaries",
         "flow_test_leaves",

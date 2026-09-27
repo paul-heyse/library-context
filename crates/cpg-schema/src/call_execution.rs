@@ -136,6 +136,22 @@ pub fn admit(r:&CallExecutionsRow,steps:&[SummaryFlowProofStep])->Result<(),Proo
     Ok(())
 }
 
+/// Complete every predecessor and evaluated operand, while leaving this root's invoked body
+/// unresolved. This is shared by the producer and action consumers, including compact source
+/// call references whose expanded support still counts against the original cap.
+pub fn admit_with_calls<'a>(r:&CallExecutionsRow,steps:&[SummaryFlowProofStep],
+    frames:impl Fn(Id)->Option<&'a crate::frame_exit::ModelFrameExitsRow>,
+    source:impl Fn(Id)->Option<&'a crate::source_call::SourceCallNormalsRow>)->Result<(),ProofAdmissionError> {
+    admit(r,steps)?;
+    if r.reason.is_some() {return Ok(());}
+    if crate::source_call::expanded_len(steps.iter().map(|s|(s.kind,s.evidence_id)),&source)?>MAX_SUMMARY_PROOF_STEPS {
+        return Err(ProofAdmissionError {reason:BoundaryReason::SummaryProofLimit,
+            message:"call execution exceeds its expanded proof limit"});
+    }
+    // admit() checked the exact final root CallSite/CallTarget/ModelInvocation triple.
+    crate::frame_exit::admit_proof(r.function_node_id,&steps[..steps.len()-3],frames,source)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

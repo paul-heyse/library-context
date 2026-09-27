@@ -187,6 +187,7 @@ fn v2_flows(
     value_flows: &[cpg_schema::behavior::ValueFlowsRow],
     stated: &dyn Fn(Id, Id) -> Option<String>,
     exact_condition: &dyn Fn(Id) -> bool,
+    feasible_call: &dyn Fn(Id) -> bool,
 ) -> (Vec<ArgumentFlowsRow>, Vec<ParameterReadsRow>, HopConditions) {
     let mut sources: BTreeMap<Id, Vec<(Id, &cpg_schema::behavior::ValueFlowsRow)>> =
         BTreeMap::new();
@@ -198,6 +199,9 @@ fn v2_flows(
     let mut rows = Vec::new();
     let mut conditions = HopConditions::new();
     for r in stage1 {
+        if !feasible_call(r.call_site_node_id) {
+            continue;
+        }
         let Some(found) = sources.get(&r.argument_node_id) else {
             rows.push(r.clone());
             continue;
@@ -235,6 +239,7 @@ fn v2_flows(
         .collect();
     let reads = reads
         .iter()
+        .filter(|r| feasible_call(r.call_site_node_id))
         .filter(|r| !attributed.contains(&(r.argument_node_id, r.parameter_node_id)))
         .cloned()
         .collect();
@@ -315,12 +320,18 @@ pub async fn run(
     let exact_condition = |id: Id| flow.condition_models.get(&id)
         .is_some_and(|condition| condition.diagram().is_ok() && !condition.approximated()
             && !condition.is_never());
+    // Raw provider call/read rows remain evidence. Only an exact false runtime condition
+    // excludes a derived claim; missing and bounded conditions remain open alternatives.
+    let feasible_call = |site: Id| !flow.call_condition_ids.get(&site)
+        .and_then(|id| flow.condition_models.get(id))
+        .is_some_and(ModelCondition::is_never);
     let (flow_rows, read_rows, hop_conditions) = v2_flows(
         &out.argument_flows,
         &out.parameter_reads,
         &flow.value_flows,
         &stated,
         &exact_condition,
+        &feasible_call,
     );
     let flows = Flows::build(
         &[ArgumentFlows::to_sorted_batch(&flow_rows)?],
@@ -648,6 +659,9 @@ pub async fn run(
     // Delegations: one row per (operation, callee, modality), its first call site the witness.
     let mut delegated: BTreeMap<(Id, Id, Modality), (Id, i64)> = BTreeMap::new();
     for d in &out.delegations {
+        if !feasible_call(d.call_site_node_id) {
+            continue;
+        }
         let e = delegated
             .entry((d.caller_node_id, d.target_node_id, d.modality))
             .or_insert((d.call_site_node_id, 0));
@@ -1193,6 +1207,9 @@ pub async fn run(
     }
     for (_, (mut row, condition, scope)) in stage2 {
         let condition = normal_path_model(&guards, scope, &condition, row.site_start_byte);
+        if condition.is_never() {
+            continue;
+        }
         match condition.diagram() {
             Ok(_) if condition.is_always() => {}
             Err(_) => {

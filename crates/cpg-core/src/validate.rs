@@ -118,14 +118,18 @@ pub async fn validate_costed(
     violations.extend(validate_entry_proofs(&cache).await?);
     violations.extend(validate_models(&cache).await?);
     violations.extend(validate_source_contexts(&cache).await?);
-    violations.extend(validate_exit_sites(&cache).await?);
+    let (expressions, completions) = match crate::summaries::execution(&cache).await {
+        Ok(prepared) => (Ok(prepared.expressions), Ok(prepared.completions)),
+        Err(error) => (Err(error.to_string()), Err(error.to_string())),
+    };
+    violations.extend(validate_exit_sites(&cache, completions).await?);
     violations.extend(validate_actions(&cache).await?);
     violations.extend(validate_handlers(&cache).await?);
     violations.extend(validate_value_flow_contributions(&cache).await?);
     violations.extend(validate_value_flow_predecessor_candidates(&cache).await?);
     violations.extend(validate_value_flow_predecessor_compatibility(&cache).await?);
     violations.extend(validate_modeled_exact_value_transfers(&cache).await?);
-    violations.extend(validate_expression_evaluations(&cache).await?);
+    violations.extend(validate_expression_evaluations(&cache, expressions).await?);
     violations.extend(validate_modeled_argument_evaluations(&cache).await?);
     violations.extend(validate_modeled_assignment_return_paths(&cache).await?);
     violations.extend(validate_summary_flows(&cache).await?);
@@ -206,6 +210,8 @@ cpg_schema::relations! {
         sql = "SELECT * FROM modeled_assignment_return_paths".to_owned();
     stored_summary_flows = "validate_stored_summary_flows", deps = ["summary_flows"],
         sql = "SELECT * FROM summary_flows".to_owned();
+    stored_source_call_normals = "validate_source_call_normals", deps = ["source_call_normals"], sql = "SELECT * FROM source_call_normals".to_owned();
+    stored_source_call_headers = "validate_source_call_headers", deps = ["source_call_header_steps"], sql = "SELECT * FROM source_call_header_steps".to_owned();
     stored_source_bodies = "validate_source_bodies", deps = ["source_body_completions"], sql = "SELECT * FROM source_body_completions".to_owned();
     stored_source_body_steps = "validate_source_body_steps", deps = ["source_body_steps"], sql = "SELECT * FROM source_body_steps".to_owned();
     stored_source_body_releases = "validate_source_body_releases", deps = ["source_body_release_inputs"], sql = "SELECT * FROM source_body_release_inputs".to_owned();
@@ -758,7 +764,9 @@ async fn validate_value_flow_contributions(
 
 /// Publication and consumers use the same derivation as the compiler. Equality also rejects a
 /// missing structural site, an altered condition and a mismatched source/region citation.
-async fn validate_exit_sites(ctx: &SessionContext) -> Result<Vec<Violation>, CoreError> {
+async fn validate_exit_sites(ctx: &SessionContext,
+    prepared: Result<lctx_analytics::completion::Outcome, String>,
+) -> Result<Vec<Violation>, CoreError> {
     let mut actual: Vec<ExitSitesRow> =
         sql::fetch(ctx, &stored_exit_sites(), sql::Params::new()).await?;
     let mut expected: Vec<ExitSitesRow> =
@@ -776,7 +784,7 @@ async fn validate_exit_sites(ctx: &SessionContext) -> Result<Vec<Violation>, Cor
     }
     let mut actual_statuses: Vec<ReturnExitStatusesRow> =
         sql::fetch(ctx, &stored_return_exit_statuses(), sql::Params::new()).await?;
-    let expected = match crate::summaries::completions(ctx).await {
+    let expected = match prepared {
         Ok(expected)=>expected,
         Err(error)=>{ violations.push(Violation {rule:"completion-source-equality".to_owned(),rows:1,
             sample:format!("completion reconstruction refused invalid inputs: {error}")});return Ok(violations); },
@@ -792,6 +800,12 @@ async fn validate_exit_sites(ctx: &SessionContext) -> Result<Vec<Violation>, Cor
     certificates.sort_by_key(|r|(r.snapshot_id,r.certificate_id));
     if certificates!=expected.certificates {violations.push(Violation {rule:"completion-certificate-source-equality".into(),rows:1,
         sample:"return evidence commitment differs from independently reconstructed entry and exit obligations".into()});}
+    let mut source_calls:Vec<cpg_schema::source_call::SourceCallNormalsRow>=sql::fetch(ctx,&stored_source_call_normals(),sql::Params::new()).await?;
+    let mut source_headers:Vec<cpg_schema::source_call::SourceCallHeaderStepsRow>=sql::fetch(ctx,&stored_source_call_headers(),sql::Params::new()).await?;
+    source_calls.sort_by_key(|r|(r.snapshot_id,r.certificate_id));source_headers.sort_by_key(|r|(r.snapshot_id,r.certificate_id,r.ordinal));
+    if source_calls!=expected.source_calls || source_headers!=expected.source_call_headers {violations.push(Violation {
+        rule:"source-call-source-equality".into(),rows:1,sample:"fresh call binding, body or retention differs from base source preparation".into(),
+    });}
     let mut bodies:Vec<cpg_schema::source_body::SourceBodyCompletionsRow>=sql::fetch(ctx,&stored_source_bodies(),sql::Params::new()).await?;
     let mut body_steps:Vec<cpg_schema::source_body::SourceBodyStepsRow>=sql::fetch(ctx,&stored_source_body_steps(),sql::Params::new()).await?;
     let mut body_releases:Vec<cpg_schema::source_body::SourceBodyReleaseInputsRow>=sql::fetch(ctx,&stored_source_body_releases(),sql::Params::new()).await?;
@@ -1964,10 +1978,12 @@ fn visit(plan: &Arc<dyn ExecutionPlan>, f: &mut impl FnMut(&dyn ExecutionPlan)) 
 }
 
 /// Reject both extra and missing completion rows, including forged exact values and budgets.
-async fn validate_expression_evaluations(ctx: &SessionContext) -> Result<Vec<Violation>, CoreError> {
+async fn validate_expression_evaluations(ctx: &SessionContext,
+    outcome: Result<lctx_analytics::evaluation::EvaluationOutcome, String>,
+) -> Result<Vec<Violation>, CoreError> {
     let mut actual: Vec<cpg_schema::behavior::ExpressionEvaluationsRow> =
         sql::fetch(ctx, &stored_expression_evaluations(), sql::Params::new()).await?;
-    let outcome = match crate::summaries::expression_evaluations(ctx).await {
+    let outcome = match outcome {
         Ok(outcome) => outcome,
         Err(error) => return Ok(vec![Violation {
             rule: "expression-source-equality".to_owned(),

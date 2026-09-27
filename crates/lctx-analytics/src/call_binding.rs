@@ -53,18 +53,86 @@ fn one<'a,T>(rows:Option<&Vec<&'a T>>)->Result<&'a T,R> {
     match rows.map(Vec::as_slice) {Some([row])=>Ok(*row),_=>Err(R::MissingEvidence)}
 }
 
+
+/// Shared exact fresh-definition window. Default availability and source-call normality add
+/// their own obligations to these same source premises; neither implies the other.
+pub struct FreshDefinition<'a> {
+    pub header:&'a SyntaxNodesRow,pub call:&'a SyntaxNodesRow,pub statement:&'a SyntaxNodesRow,
+    pub binding:&'a BindingsRow,pub reference:&'a ReferencesRow,pub resolution:&'a ReferenceResolutionsRow,
+    pub header_steps:Vec<&'a StatementCompletionStepsRow>,
+}
+pub struct FreshDefinitionIndex<'a> {
+    nodes:Groups<'a,SyntaxNodesRow>,
+    owned:Groups<'a,SyntaxNodesRow>,
+    declarations:Groups<'a,DeclarationsRow>,
+    bindings:Groups<'a,BindingsRow>,
+    references:Groups<'a,ReferencesRow>,
+    resolutions:Groups<'a,ReferenceResolutionsRow>,
+    statements:Groups<'a,StatementCompletionsRow>,
+    steps:Groups<'a,StatementCompletionStepsRow>,
+}
+impl<'a> FreshDefinitionIndex<'a> {
+    pub fn new(inputs:&Inputs<'a>)->Self {
+        Self {
+            nodes:grouped(inputs.syntax,|r|(r.snapshot_id,r.node_id)),
+            owned:grouped(inputs.syntax,|r|(r.snapshot_id,r.owner_node_id.unwrap_or(r.module_node_id))),
+            declarations:grouped(inputs.declarations,|r|(r.snapshot_id,r.node_id)),
+            bindings:grouped(inputs.bindings,|r|(r.snapshot_id,r.site_node_id)),
+            references:grouped(inputs.references,|r|(r.snapshot_id,r.node_id)),
+            resolutions:grouped(inputs.resolutions,|r|(r.snapshot_id,r.binding_id.unwrap_or(r.reference_id))),
+            statements:grouped(inputs.statements,|r|(r.snapshot_id,r.source_fact_id)),
+            steps:grouped(inputs.statement_steps,|r|(r.snapshot_id,r.source_fact_id)),
+        }
+    }
+    pub fn admit(&self,req:Request)->Result<FreshDefinition<'a>,R> {
+        // An immediate sole direct call to a fresh nested function is the initial closed
+        // stability domain. Module functions, aliases, decorators, recursion and intervening
+        // actions do not acquire a default promise from their source signature.
+        let declaration=one(self.declarations.get(&(req.snapshot,req.callee)))?;
+        if declaration.kind!=DeclarationKind::Function || declaration.parent_node_id!=Some(req.caller)
+            || !declaration.decorators.is_empty() {return Err(R::DefaultStabilityUnknown);}
+        let header=one(self.nodes.get(&(req.snapshot,req.callee)))?;
+        let call=one(self.nodes.get(&(req.snapshot,req.call_node)))?;
+        let returned=one(self.nodes.get(&(req.snapshot,call.parent_node_id)))?;
+        if header.kind!=S::StmtFunctionDef || header.parent_node_id!=req.caller || header.field!=F::Body
+            || header.owner_node_id!=Some(req.caller) || !matches!(returned.kind,S::StmtReturn|S::StmtExpr)
+            || returned.parent_node_id!=req.caller || returned.field!=F::Body
+            || returned.ordinal!=header.ordinal+1 || call.field!=F::Value
+            || call.owner_node_id!=Some(req.caller) || call.kind!=S::ExprCall {
+            return Err(R::DefaultStabilityUnknown);
+        }
+        let binding=one(self.bindings.get(&(req.snapshot,req.callee)))?;
+        if binding.kind!=BindingKind::FunctionDef {return Err(R::DefaultStabilityUnknown);}
+        let resolution=one(self.resolutions.get(&(req.snapshot,binding.node_id)))
+            .map_err(|_|R::DefaultStabilityUnknown)?;
+        let reference=one(self.references.get(&(req.snapshot,resolution.reference_id)))?;
+        if resolution.reason.is_some() || reference.parent_node_id!=req.call_node || reference.field!=F::Callee {
+            return Err(R::DefaultStabilityUnknown);
+        }
+        // Normal expression evaluation alone does not imply no effects. Refuse any nested
+        // call or assignment in the immediate invocation's arguments, even a total call.
+        if self.owned.get(&(req.snapshot,req.caller)).into_iter().flatten().any(|n|
+            n.start_byte>=call.start_byte && n.end_byte<=call.end_byte && n.node_id!=call.node_id
+                && matches!(n.kind,S::ExprCall|S::ExprNamed)) {return Err(R::DefaultStabilityUnknown);}
+        let completed=one(self.statements.get(&(req.snapshot,header.fact_id)))?;
+        if completed.kind!=CompletionKind::Normal || completed.reason.is_some() {
+            return Err(completed.reason.filter(|r|matches!(r,R::ExpressionDepthLimit|R::ExpressionWorkLimit
+                |R::CompletionDepthLimit|R::CompletionWorkLimit)).unwrap_or(R::DefaultUnavailable));
+        }
+        let mut header_steps=self.steps.get(&(req.snapshot,header.fact_id)).cloned().ok_or(R::MissingEvidence)?;
+        header_steps.sort_by_key(|s|s.ordinal);
+        if header_steps.is_empty() || header_steps.iter().enumerate().any(|(i,s)|s.ordinal!=i as i64) {
+            return Err(R::MissingEvidence);
+        }
+        Ok(FreshDefinition {header,call,statement:returned,binding,reference,resolution,header_steps})
+    }
+}
+
 pub fn bind(inputs:Inputs<'_>)->Vec<SourceCallBinding> {
-    let nodes=grouped(inputs.syntax,|r|(r.snapshot_id,r.node_id));
+    let fresh=FreshDefinitionIndex::new(&inputs);
     let children=grouped(inputs.syntax,|r|(r.snapshot_id,r.parent_node_id));
-    let owned=grouped(inputs.syntax,|r|(r.snapshot_id,r.owner_node_id.unwrap_or(r.module_node_id)));
-    let declarations=grouped(inputs.declarations,|r|(r.snapshot_id,r.node_id));
     let parameters=grouped(inputs.parameters,|r|(r.snapshot_id,r.function_node_id));
     let arguments=grouped(inputs.arguments,|r|(r.snapshot_id,r.call_node_id));
-    let bindings=grouped(inputs.bindings,|r|(r.snapshot_id,r.site_node_id));
-    let references=grouped(inputs.references,|r|(r.snapshot_id,r.node_id));
-    let resolutions=grouped(inputs.resolutions,|r|(r.snapshot_id,r.binding_id.unwrap_or(r.reference_id)));
-    let statements=grouped(inputs.statements,|r|(r.snapshot_id,r.source_fact_id));
-    let steps=grouped(inputs.statement_steps,|r|(r.snapshot_id,r.source_fact_id));
     let expressions=grouped(inputs.expressions,|r|(r.snapshot_id,r.syntax_fact_id));
     let mappings=grouped(inputs.mappings,|r|(r.call_fact_id,r.callee_node_id));
     let mut requests:BTreeMap<_,Vec<_>>=BTreeMap::new();
@@ -91,45 +159,8 @@ pub fn bind(inputs:Inputs<'_>)->Vec<SourceCallBinding> {
                 out.proof.push((K::ParameterBinding,formal.fact_id));
             }
             if bound.defaults.is_empty() {return Ok(out);}
-            // An immediate sole direct call to a fresh nested function is the initial closed
-            // stability domain. Module functions, aliases, decorators, recursion and intervening
-            // actions do not acquire a default promise from their source signature.
-            let declaration=one(declarations.get(&(req.snapshot,req.callee)))?;
-            if declaration.kind!=DeclarationKind::Function || declaration.parent_node_id!=Some(req.caller)
-                || !declaration.decorators.is_empty() {return Err(R::DefaultStabilityUnknown);}
-            let header=one(nodes.get(&(req.snapshot,req.callee)))?;
-            let call=one(nodes.get(&(req.snapshot,req.call_node)))?;
-            let returned=one(nodes.get(&(req.snapshot,call.parent_node_id)))?;
-            if header.kind!=S::StmtFunctionDef || header.parent_node_id!=req.caller || header.field!=F::Body
-                || header.owner_node_id!=Some(req.caller) || returned.kind!=S::StmtReturn
-                || returned.parent_node_id!=req.caller || returned.field!=F::Body
-                || returned.ordinal!=header.ordinal+1 || call.field!=F::Value
-                || call.owner_node_id!=Some(req.caller) || call.kind!=S::ExprCall {
-                return Err(R::DefaultStabilityUnknown);
-            }
-            let binding=one(bindings.get(&(req.snapshot,req.callee)))?;
-            if binding.kind!=BindingKind::FunctionDef {return Err(R::DefaultStabilityUnknown);}
-            let resolution=one(resolutions.get(&(req.snapshot,binding.node_id)))
-                .map_err(|_|R::DefaultStabilityUnknown)?;
-            let reference=one(references.get(&(req.snapshot,resolution.reference_id)))?;
-            if resolution.reason.is_some() || reference.parent_node_id!=req.call_node || reference.field!=F::Callee {
-                return Err(R::DefaultStabilityUnknown);
-            }
-            // Normal expression evaluation alone does not imply no effects. Refuse any nested
-            // call or assignment in the immediate invocation's arguments, even a total call.
-            if owned.get(&(req.snapshot,req.caller)).into_iter().flatten().any(|n|
-                n.start_byte>=call.start_byte && n.end_byte<=call.end_byte && n.node_id!=call.node_id
-                    && matches!(n.kind,S::ExprCall|S::ExprNamed)) {return Err(R::DefaultStabilityUnknown);}
-            let completed=one(statements.get(&(req.snapshot,header.fact_id)))?;
-            if completed.kind!=CompletionKind::Normal || completed.reason.is_some() {
-                return Err(completed.reason.filter(|r|matches!(r,R::ExpressionDepthLimit|R::ExpressionWorkLimit
-                    |R::CompletionDepthLimit|R::CompletionWorkLimit)).unwrap_or(R::DefaultUnavailable));
-            }
-            let mut header_steps=steps.get(&(req.snapshot,header.fact_id)).cloned().ok_or(R::MissingEvidence)?;
-            header_steps.sort_by_key(|s|s.ordinal);
-            if header_steps.is_empty() || header_steps.iter().enumerate().any(|(i,s)|s.ordinal!=i as i64) {
-                return Err(R::MissingEvidence);
-            }
+            let fresh=fresh.admit(req)?;
+            let FreshDefinition {header,call,statement:returned,binding,reference,resolution,header_steps}=fresh;
             // Reuse evidence of creation as availability, never as another invocation-time
             // expression evaluation. Ordered evaluation already belongs to the entry proof.
             out.proof.extend(header_steps.iter().map(|s|(K::DefaultAvailabilityEvidence,s.evidence_id)));

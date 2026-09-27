@@ -1470,6 +1470,7 @@ codebook!(
         ModelDefaultsAvailable = 34 => "model_defaults_available",
         ModelDefaultFormal = 35 => "model_default_formal",
         ModelFrameExit = 36 => "model_frame_exit",
+        SourceCallNormal = 37 => "source_call_normal",
     }
 );
 
@@ -1495,6 +1496,7 @@ codebook!(
         /// A resolved callee and its explicit arguments evaluated normally before invocation.
         /// The invoked callable's completion remains a separate assertion.
         CalleeEntryNormal = 10 => "callee_entry_normal",
+        SourceCallNormal = 11 => "source_call_normal",
     }
 );
 

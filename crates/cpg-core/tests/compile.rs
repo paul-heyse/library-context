@@ -5816,7 +5816,7 @@ budget = 1
     let unasserted=sql::query(&ctx,"SELECT * EXCLUDE (target_call_defaults_available), false AS target_call_defaults_available \
         FROM model_applications").await.unwrap().into_view();
     ctx.deregister_table("model_applications").unwrap();ctx.register_table("model_applications",unasserted).unwrap();
-    let without_promise=cpg_core::summaries::expression_evaluations(&ctx).await.unwrap();
+    let without_promise=cpg_core::summaries::execution(&ctx).await.unwrap().expressions;
     assert_eq!(without_promise.invocations.iter().filter(|call|call.reason==Some(BoundaryReason::DefaultUnavailable)).count(),4,
         "all four otherwise bound omitted-default calls require their independent model premise");
     for call in without_promise.invocations.iter().filter(|call|call.reason==Some(BoundaryReason::DefaultUnavailable)) {
@@ -5969,6 +5969,77 @@ budget = 1
         ctx.deregister_table(table).unwrap();ctx.register_table(table,changed).unwrap();
         let violations=cpg_core::validate::validate(&ctx).await.unwrap();
         assert!(violations.iter().any(|v|v.rule=="source-body-source-equality"),"{table}: {violations:?}");
+        ctx.deregister_table(table).unwrap();ctx.register_table(table,original).unwrap();
+    }
+}
+
+#[tokio::test]
+async fn fresh_source_calls_require_body_binding_and_release() {
+    let root=tempfile::tempdir().unwrap();
+    let snapshot=Id([85;16]);
+    let analysis=Analysis {config:AnalyticsConfig::parse(r#"
+version = 1
+[subsystem]
+module_prefixes = ["bodypkg"]
+public_roots = ["bodypkg"]
+[seeds]
+primary = ["bodypkg.explicit_return"]
+distractors = []
+[pass_a]
+max_depth = 2
+max_vertices = 128
+max_edges = 512
+max_witnesses = 3
+[briefs]
+budget = 1
+"#).unwrap(),embedder:Some(Arc::new(cpg_core::embed::FakeEmbedder::new())),techniques:Techniques::default()};
+    compile_analyzed(root.path(),snapshot,&raw_version("source_body_shapes",snapshot,(3,14,7)),Some(&analysis)).await.unwrap();
+    let (_,ctx)=published(root.path(),snapshot).await.unwrap().unwrap();
+
+    for name in ["call_literal","call_fallthrough","call_return_finally","call_modeled"] {
+        let diagnostic=sql::query(&ctx,&format!("SELECT d.name, s.kind, e.normal, e.reason, e.status FROM expression_evaluations e \
+            JOIN syntax_nodes s ON s.fact_id=e.syntax_fact_id JOIN declarations d ON d.node_id=s.owner_node_id \
+            WHERE d.name='{name}'")).await.unwrap().collect().await.unwrap();
+        assert_eq!(count(&ctx,&format!("SELECT count(*) FROM source_call_normals c JOIN declarations d \
+            ON d.node_id=c.function_node_id WHERE d.name='{name}'")).await,1,"{name}: {}",pretty_format_batches(&diagnostic).unwrap());
+        assert!(count(&ctx,&format!("SELECT count(*) FROM summary_flows s JOIN declarations d \
+            ON d.node_id=s.function_node_id WHERE d.name='{name}'")).await>0,"{name}");
+        assert!(count(&ctx,&format!("SELECT count(*) FROM summary_flow_steps p JOIN summary_flows s \
+            ON s.summary_id=p.summary_id JOIN declarations d ON d.node_id=s.function_node_id \
+            WHERE d.name='{name}' AND p.kind={}",cpg_schema::codebook::SummaryFlowStepKind::SourceCallNormal.code())).await>0,"{name}");
+    }
+    for name in ["call_raises","call_local_read","call_default","call_captured","call_intervening","call_alias"] {
+        assert_eq!(count(&ctx,&format!("SELECT count(*) FROM source_call_normals c JOIN declarations d \
+            ON d.node_id=c.function_node_id WHERE d.name='{name}'")).await,0,"{name}");
+        assert_eq!(count(&ctx,&format!("SELECT count(*) FROM summary_flows s JOIN declarations d \
+            ON d.node_id=s.function_node_id WHERE d.name='{name}'")).await,0,"{name}");
+    }
+    // Normality under entry to an expression never asserts the caller reached it.
+    assert_eq!(count(&ctx,"SELECT count(*) FROM source_call_normals c JOIN declarations d \
+        ON d.node_id=c.function_node_id WHERE d.name='call_unreachable'").await,1);
+    assert_eq!(count(&ctx,"SELECT count(*) FROM summary_flows s JOIN declarations d \
+        ON d.node_id=s.function_node_id WHERE d.name='call_unreachable'").await,0);
+    assert_eq!(count(&ctx,"SELECT count(*) FROM call_executions c JOIN declarations d ON d.node_id=c.function_node_id \
+        WHERE d.name='call_prefix_small' AND c.reason IS NULL").await,1);
+    assert_eq!(count(&ctx,&format!("SELECT count(*) FROM call_executions c JOIN declarations d ON d.node_id=c.function_node_id \
+        WHERE d.name='call_prefix_over_limit' AND c.reason={}",BoundaryReason::SummaryProofLimit.code())).await,1);
+    assert_eq!(count(&ctx,"SELECT count(*) FROM modeled_action_assessments a JOIN declarations d ON d.node_id=a.function_node_id \
+        WHERE d.name='call_prefix_over_limit' AND a.reason IS NULL").await,0);
+    assert_eq!(count(&ctx,"SELECT count(*) FROM value_flows WHERE condition='false'").await,0);
+    assert_eq!(count(&ctx,"SELECT count(*) FROM behaviors WHERE condition='false'").await,0);
+    assert_eq!(count(&ctx,&format!("SELECT count(*) FROM behaviors b JOIN declarations d ON d.node_id=b.operation_node_id \
+        WHERE d.name='call_unreachable' AND b.kind={}",cpg_schema::codebook::BehaviorKind::Delegates.code())).await,0);
+    let generation=cpg_core::bundle::build(&ctx,&root.path().join("generations")).await.unwrap();
+    let output=std::process::Command::new("uv").args(["run","--no-sync","python",
+        "docs/design_review/evidence/2026-09-27_frame-exit/native_source_call.py",generation.dir.to_str().unwrap()])
+        .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")).output().unwrap();
+    assert!(output.status.success(),"{}",String::from_utf8_lossy(&output.stderr));
+    for table in ["source_call_normals","source_call_header_steps"] {
+        let original=sql::query(&ctx,&format!("SELECT * FROM {table}")).await.unwrap().into_view();
+        let changed=sql::query(&ctx,&format!("SELECT * FROM {table} WHERE false")).await.unwrap().into_view();
+        ctx.deregister_table(table).unwrap();ctx.register_table(table,changed).unwrap();
+        let violations=cpg_core::validate::validate(&ctx).await.unwrap();
+        assert!(violations.iter().any(|v|v.rule=="source-call-source-equality"),"{table}: {violations:?}");
         ctx.deregister_table(table).unwrap();ctx.register_table(table,original).unwrap();
     }
 }

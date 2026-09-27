@@ -939,6 +939,10 @@ impl Model {
             let selected = self.condition(c);
             let (sources, _) = self.reach(u, &mut Vec::new());
             for ((o, t2), s) in sources.iter() {
+                let condition=selected.and(&s.condition);
+                // Raw provider rows remain available. A derived feasible contribution cannot
+                // exist under exact false; bounded/unknown conditions are retained.
+                if condition.is_never() {continue;}
                 out.push(SourceContribution {
                     flow_value_fact_id: fact,
                     use_id: u,
@@ -949,7 +953,7 @@ impl Model {
                         transfer: transfer.max(*t2),
                         captured: s.captured,
                         approximated: s.approximated || self.approximate_values.contains(&fact),
-                        condition: selected.and(&s.condition),
+                        condition,
                     },
                 });
             }
@@ -2620,6 +2624,21 @@ mod reach_fixed_point_tests {
             approximate_values: HashSet::new(),
             keep_receivers: false,
         }
+    }
+
+    #[test]
+    fn unreachable_sink_contributions_are_absent_but_unknown_is_retained() {
+        let mut model=model(false);
+        model.conditions.insert(id(40),ModelCondition::never());
+        model.conditions.insert(id(41),ModelCondition::unknown(KernelBoundary::SourceOverBudget));
+        let key=(id(0),FlowSink::Return,100,101);
+        model.values.insert(key,vec![(id(50),id(3),Transfer::Identity,id(40)),
+            (id(51),id(3),Transfer::Identity,id(41))]);
+        let contributions=model.sink_contributions(key);
+        assert_eq!(contributions.len(),1);
+        assert_eq!(contributions[0].flow_value_fact_id,id(51));
+        assert!(!contributions[0].source.condition.is_never());
+        assert_eq!(model.sink(key).len(),1);
     }
 
     #[test]

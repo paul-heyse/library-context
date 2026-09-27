@@ -532,6 +532,7 @@ type ReturnPassIndex = HashMap<Id, Vec<ReturnPassStep>>;
 
 #[derive(Clone)]
 pub struct FiniteSummaryInputs {
+    pub source_calls:Vec<cpg_schema::source_call::SourceCallNormalsRow>,
     pub model_frames:Vec<cpg_schema::frame_exit::ModelFrameExitsRow>,
     pub modeled_identities: Vec<cpg_schema::modeled_identity::SourceModeledIdentitiesRow>,
     pub context_identities: Vec<cpg_schema::context_value::SourceContextValueIdentitiesRow>,
@@ -1093,7 +1094,7 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
     -> FiniteSummaryOutcome
 {
     let FiniteSummaryInputs {
-        model_frames, modeled_identities, identities, context_identities, context_arguments,
+        source_calls, model_frames, modeled_identities, identities, context_identities, context_arguments,
         diagrams, boundaries, mut pass_steps, entries, entry_steps, components, context_sites, return_certificates,
         mut direct_seeds, modeled_seeds, chain_arguments, evaluations, assignment_seeds, local_seeds,
         local_arguments, local_value_links, local_bindings, boundary_candidates,
@@ -1678,6 +1679,8 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
     }
     // Source and native consumers share lifecycle admission. Check complete witnesses after
     // finalizer insertion, in dependency order, and refuse callers of a rejected witness.
+    let mut source_call_index=HashMap::new();
+    for r in &source_calls {source_call_index.entry((r.snapshot_id,r.certificate_id)).and_modify(|r|*r=None).or_insert(Some(r));}
     let mut frame_index=HashMap::new();
     for frame in &model_frames {
         frame_index.entry((frame.snapshot_id,frame.frame_exit_id)).and_modify(|prior|*prior=None).or_insert(Some(frame));
@@ -1709,7 +1712,8 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
                 get(flow.condition_id)?,get(certificate.entry_condition_id)?,get(certificate.exit_condition_id)?,&proof)
                 .map_err(|error|error.reason)?;
             cpg_schema::frame_exit::admit_proof(flow.function_node_id,&proof,
-                |id|frame_index.get(&(flow.snapshot_id,id)).copied().flatten()).map_err(|error|error.reason)?;
+                |id|frame_index.get(&(flow.snapshot_id,id)).copied().flatten(),
+                |id|source_call_index.get(&(flow.snapshot_id,id)).copied().flatten()).map_err(|error|error.reason)?;
             cpg_schema::context_protocol::admit_proof(flow.function_node_id,&proof,
                 |id|context_index.get(&id).copied().flatten()).map_err(|_|BoundaryReason::MissingEvidence)?;
             if !proof.iter().filter(|s|s.kind==SummaryFlowStepKind::CalleeSummary)
@@ -1901,7 +1905,7 @@ mod tests {
     fn inputs() -> FiniteSummaryInputs {
         let always = Diagram::always();
         FiniteSummaryInputs {
-            model_frames:Vec::new(),
+            source_calls:Vec::new(),model_frames:Vec::new(),
             identities: Vec::new(),
             diagrams: HashMap::from([(always.id(), always)]),
             boundaries: HashMap::new(),

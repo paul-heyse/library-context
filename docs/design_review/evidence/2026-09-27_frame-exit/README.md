@@ -84,3 +84,58 @@ ordering, exact TypeError, docstring-only fallthrough, and a temporary zero-argu
 whose attribute finalizer delays caller continuation. A retained function resumes normally.
 No analyzer fixture is executed; finite observations and a worker timeout are not universal
 proofs. Call-site discharge, full native evidence closure and integrated Stage 3 remain open.
+
+## Fresh source-call consumption
+
+**Focused Tested, 2026-09-27; compiler99.** A separate fresh-call certificate proves exact
+zero-argument binding, successful immediate definition creation and callable retention before
+consuming a base body with closed release/result provenance. Normality under entry does not assert
+that the caller reached the call. Literal return, docstring-only fallthrough, return override in
+`finally` and a nested pinned call reach the real source→Delta→bundle→native route. Raising bodies,
+unknown local releases, formal defaults, captures, aliases and intervening statements withhold.
+An unreachable caller produces no feasible derived behavior or value path; unknown is preserved.
+
+`CARGO_TARGET_DIR=/home/paul/library-context/target INSTA_UPDATE=no RUST_MIN_STACK=16777216
+cargo nextest run --release -p cpg-schema -p lctx-analytics -p cpg-core --lib --test contracts
+--test codebooks --test compile --test bundle -E 'binary(contracts) | binary(codebooks) |
+test(completion::) | test(source_body::) | test(source_call::) | test(evaluation::) |
+test(actions::) | test(reach_fixed_point_tests::) |
+test(source_body_outcomes_do_not_invent_value_flows_or_caller_continuation) |
+test(fresh_source_calls_require_body_binding_and_release) |
+test(serving_schema_digests_are_the_shared_known_answers)' --status-level fail --final-status-level fail`
+**passed**, 54 cases, 173 skipped, 9.074 s (`/tmp/lctx-stage3-source-call-tests8.log`).
+The integrated fixture invokes [20 native controls](native_source_call.py), including removal
+of entire support tables and source-call occurrence groups, plus substitution of another caller's
+valid certificate. Shared Rust admission additionally rejects resealed valid foreign bodies and
+removed/replaced declaration or binding header evidence. The action control admits a 63-step
+expanded invocation while refusing its 65-step Normal/Finally proof; no bound was increased.
+Two source-call tables, codebook additions, rules and five served schemas are reviewed migrations.
+
+Earlier focused runs exposed the expected migrations, exact-false derived projections, a
+completion-result variable shadow and a syntax-node/lexical-reference identity mismatch. Source
+tracing corrected the adapter to use the reference's explicit `name_node_id`; no admission
+premise was relaxed. The 53-case intermediate run passed 52 cases before that positive-path fix.
+
+`uv run --no-sync python docs/design_review/evidence/2026-09-27_frame-exit/source_call_oracle.py`
+**passed**, ten independently generated CPython 3.14.7 controls, with a
+[hashed receipt](raw/source_call_receipt.json). Programs never read analyzer fixture files or
+compiled results. Supported continuations and conservative withholding cases are distinct.
+The corresponding oracle/native-script Ruff checks and `generation.py` Ruff/Pyrefly checks
+**passed**. Full raw-source serving closure and integrated Stage 3 acceptance remain open.
+
+The final native rebuild,
+`CARGO_TARGET_DIR=/home/paul/library-context/target uv sync --frozen --reinstall-package lctx-semantics`,
+**passed**, 32.67 s. Then
+`CARGO_TARGET_DIR=/home/paul/library-context/target RUST_MIN_STACK=16777216
+target/release/deps/compile-258cb583674e070e --exact fresh_source_calls_require_body_binding_and_release`
+**passed**, one case, 34 filtered out, 7.65 s (`/tmp/lctx-stage3-source-call-native-replay.log`).
+This reruns all 20 native controls against the current shared guard.
+
+The adjacent finite/default/action/native regression selection recorded in review §34 **passed
+29 of 30 cases** initially; the remaining case expected the old generic control-flow boundary
+for source calls outside the fresh nested domain. Source admission now preserves the more
+specific `scope_boundary`, with zero positive paths unchanged. After updating the exact SQL/native
+expectations, the affected nextest replay **passed**, one case, 226 skipped, 12.881 s
+(`/tmp/lctx-stage3-source-call-regressions3.log`). The full 30-case selection was not repeated.
+The selection also rebuilt the Python fixture with the new required support files;
+`uv run --no-sync pytest python/lctx_mcp/tests/test_native_semantics.py -q` **passed**, 13 cases.

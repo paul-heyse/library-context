@@ -2139,3 +2139,123 @@ release domain, and preserve nested frame evidence. Ignored-call results also ne
 Its source-call conclusion must remain mandatory even when transfer markers are absent. None
 of those future call premises is discharged merely by this new body row; F17's wider disposition
 and enclosing Stage 3 work remain with forward-plan §6.
+
+## 34. Bounded implementation follow-up: fresh source-call completion
+
+**2026-09-27 · change/conformance · Implemented; focused Tested as attributed below.**
+Compiler 99 consumes the §33 source-body foundation under ADR-0063. The reviewer inspected
+source, source/Delta/native test wiring and the reported receipts, ran no product tests, and
+edited only this review. This accepts the initial fresh zero-argument adapter, not general
+source invocation, recursive completion or full S6 semantic closure.
+
+Schema-owned `source_call::admit` connects a qualified base body to the exact callee/header,
+declaration and binding evidence. The shared fresh-definition index proves a sole bare call
+immediately after its nested definition, with exact reference resolution, source/provider target
+agreement, one zero-formal signature and successful header creation. The adapter compares the
+callee syntax node to `references.name_node_id`; the lexical reference role has a different
+identity and remains separate evidence. Normal/Return plus closed local/result release and the
+live definition binding discharge this bounded callable-retention obligation. Defaults, captures,
+aliases, intervening actions, raising bodies and unresolved local release remain withheld.
+
+`execution::prepare` makes the dependency explicit: pinned-only evaluation/completion produces
+base bodies, the adapter derives fresh-call certificates, then one enriched evaluation/completion
+pass consumes them. Published base bodies remain from the first pass; persisted certificates
+are never reconstruction inputs. There is no new interpreter or implicit two-iteration fixed
+point. Normality under entry to a call remains distinct from a prefix proving that it is reached.
+No parameter identity or returned-value flow is inferred from a closed opaque result.
+
+Shared proof admission requires the retained CallSite/CallTarget/SourceCallNormal occurrence,
+its caller, target and condition. Referenced header/body support contributes to the existing
+64-step limit, including completed invocation operands, final statement/entry/exit boundaries
+and Normal/Finally action proofs. The action control admits an expanded 63-step invocation and
+refuses the corresponding 65-step outcome proof. Missing support and foreign callers remain
+refusals. Native admits each base body's nested pinned frames under the callee owner, refuses
+source-call dependencies in that base proof, and checks source-call support before summaries.
+It exports only referenced bodies and rejects orphan/duplicate support. These are shared
+structural/catalog checks; raw signature, lexical-reference and source-semantic reconstruction
+remain source-publication responsibilities until the full S6 evidence work lands.
+
+The adjacent exact-false correction removes only proved-never derived flow contributions,
+Stage 2 claims, v2 argument/read fallback and delegation groups. Unknown conditions and raw
+provider observations remain. Source validation prepares execution once for the expression and
+completion comparisons; the redundant acquisition wrappers are removed.
+
+| Judgment/gate | Bounded verdict | Basis and boundary |
+|---|---|---|
+| A1 — Localize change | satisfied | Schema owns identity/admission, the existing binder and completion/evaluation owners supply premises, and core acquires/publishes/reconstructs. |
+| A2 — Encode meaning structurally | satisfied | Source target, body outcome, callable retainer, reference identity and actual reach stay distinct; compact evidence still pays its expanded proof cost. |
+| A3 — Extend through composition | satisfied | One acyclic preparation and shared native admission consume existing body and pinned-frame contracts; no parallel evaluator or scheduler is introduced. |
+| G1–G8 | pass within the slice | Shared contracts, bounded deterministic composition, explicit scope refusals and focused source/native controls support this narrow domain. General calls and recursive completion are not assessed. |
+| CI-G1 | pass within the admitted domain | Provider target observations are retained as observations; entered-call normality is not relabelled actual reach or value identity. |
+| CI-G2 | pass for bounded structural closure | Source reconstruction, support-table omission, occurrence removal and valid foreign-certificate controls pass. This is not full raw-fact semantic closure. |
+| CI-G3 | pass for the named qualification | Real extracted source reaches Delta/bundle/native; separately generated CPython programs challenge continuation without executing analyzer fixtures. |
+
+**Attributed receipts, inspected 2026-09-27.** The final focused command was:
+
+```sh
+CARGO_TARGET_DIR=/home/paul/library-context/target INSTA_UPDATE=no RUST_MIN_STACK=16777216 cargo nextest run --release -p cpg-schema -p lctx-analytics -p cpg-core --lib --test contracts --test codebooks --test compile --test bundle -E 'binary(contracts) | binary(codebooks) | test(completion::) | test(source_body::) | test(source_call::) | test(evaluation::) | test(actions::) | test(reach_fixed_point_tests::) | test(source_body_outcomes_do_not_invent_value_flows_or_caller_continuation) | test(fresh_source_calls_require_body_binding_and_release) | test(serving_schema_digests_are_the_shared_known_answers)' --status-level fail --final-status-level fail
+```
+
+`/tmp/lctx-stage3-source-call-tests8.log` records **passed: 54, 173 skipped, 9.074 s**.
+The source fixture runs [twenty native controls](../evidence/2026-09-27_frame-exit/native_source_call.py):
+four positive continuations, seven withholding cases, six whole-support-table deletions, two
+summary occurrence omissions and another caller's valid certificate substitution. Shared Rust
+tests additionally reseal a valid foreign body and removed/replaced declaration/binding header
+evidence. Simple native deletion controls are omission checks; the separately resealed controls
+establish the cited structural association checks.
+
+`CARGO_TARGET_DIR=/home/paul/library-context/target uv sync --frozen --reinstall-package lctx-semantics`
+**passed** in 32.67 s (`/tmp/lctx-stage3-source-call-native-sync2.log`). The subsequent cached
+replay against that rebuilt native was:
+
+```sh
+CARGO_TARGET_DIR=/home/paul/library-context/target RUST_MIN_STACK=16777216 target/release/deps/compile-258cb583674e070e --exact fresh_source_calls_require_body_binding_and_release
+```
+
+It **passed: one, 34 filtered out, 7.65 s** (`/tmp/lctx-stage3-source-call-native-replay.log`).
+Earlier runs exposed expected schema migrations, the exact-false projections, a local variable
+shadow and the syntax/reference identity mismatch; the 53-case intermediate run had **52 passed,
+one failed** before the association fix. No admission premise or proof cap was relaxed. Two new
+source-call tables, append-only codebooks, rules and five served schemas were read and accepted
+by the author as migrations.
+
+**Adjacent refusal review.** For a sole resolved source target outside the fresh adapter's
+domain, `scope_boundary` is more precise than the old generic `unsupported_control_flow`.
+The source refusal applies only when no pinned-call preparation exists. Module predecessors,
+recursion, aliases, intervening actions and nonzero formals do not become normal calls; the
+zero-positive-path assertions remain. Actual fresh-body/frame reasons and expression work/depth
+checks retain their own paths. Raising, unbound and unresolved conditional controls retain their
+previous refusals. The adjacent assertion failure therefore reflects the intentionally more
+specific reason, not an admitted semantic false positive or a relaxed producer.
+
+The author ran the adjacent selection:
+
+```sh
+CARGO_TARGET_DIR=/home/paul/library-context/target INSTA_UPDATE=no RUST_MIN_STACK=16777216 LCTX_PY_FIXTURE=/home/paul/library-context/build/py-fixture cargo nextest run --release -p cpg-schema -p lctx-analytics -p cpg-core --lib --test contracts --test codebooks --test compile --test bundle -E 'test(summaries::finite::) | test(pinned_identity_models_require_and_publish_their_real_formals) | test(action_triggers_preserve_partial_io_and_withhold_unproved_outcomes) | test(composed_argument_reads_keep_ordered_source_evidence) | test(finite_depth_and_unsupported_refusals_reach_the_native_response) | test(finalizer_proof_round_trips_through_the_native_generation_reader) | test(writes_the_python_fixture_generation)' --status-level fail --final-status-level fail
+```
+
+`/tmp/lctx-stage3-source-call-regressions.log` records **29 passed, one failed, 27.659 s**;
+the failure was the old boundary expectation described above. After updating the SQL/native
+expectations, the affected test was replayed with:
+
+```sh
+CARGO_TARGET_DIR=/home/paul/library-context/target INSTA_UPDATE=no RUST_MIN_STACK=16777216 cargo nextest run --release -p cpg-schema -p lctx-analytics -p cpg-core --lib --test contracts --test codebooks --test compile --test bundle -E 'test(finite_depth_and_unsupported_refusals_reach_the_native_response)' --status-level fail --final-status-level fail
+```
+
+`/tmp/lctx-stage3-source-call-regressions3.log` records **passed: one, 226 skipped, 12.881 s**.
+This is the corrected affected-test replay, not a rerun of all thirty cases. Fresh Python fixture
+generation passed in the adjacent selection;
+`uv run --no-sync pytest python/lctx_mcp/tests/test_native_semantics.py -q` then **passed: 13**
+(`/tmp/lctx-stage3-source-call-python.log`).
+
+The author reports **passed** for
+`uv run --no-sync python docs/design_review/evidence/2026-09-27_frame-exit/source_call_oracle.py`
+(ten independently generated controls), corresponding oracle/native-script Ruff checks and
+`generation.py` Ruff/Pyrefly checks. The [evidence receipt](../evidence/2026-09-27_frame-exit/raw/source_call_receipt.json)
+retains generated program hashes. Fixtures were parsed, never executed. Full `just test-all`,
+`just pilot`, assembled Stage 3 review and full S6 semantic closure remain **not_run** or open.
+
+**Decision: Accept scoped.** This closes the inspected fresh-call consumption gap from §33.
+F17's broader lifetime/source domains, target-neutral source invocation, channel composition,
+coverage/discharge, action serving and integrated Stage 3 qualification remain open in the
+forward plan. The next channel design review is separate from this implementation acceptance.

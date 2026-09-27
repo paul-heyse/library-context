@@ -233,3 +233,146 @@ def proof_over_limit():
 
 def docstring_only():
     """Only definition-time metadata."""
+
+
+def call_literal(value):
+    """Keep a value after a fresh literal-returning call completes."""
+    def inner():
+        return (1, "closed")
+    inner()
+    return value
+
+
+def call_fallthrough(value):
+    def inner():
+        """Definition metadata only."""
+    inner()
+    return value
+
+
+def call_return_finally(value):
+    def inner():
+        try:
+            return 2
+        finally:
+            return 3
+    inner()
+    return value
+
+
+def call_raises(value):
+    def inner():
+        raise None
+    inner()
+    return value
+
+
+def call_local_read(value):
+    def inner():
+        local = 4
+        return local
+    inner()
+    return value
+
+
+def call_default(value):
+    def inner(unused=5):
+        return 6
+    inner()
+    return value
+
+
+def call_captured(value):
+    def inner():
+        if False:
+            return value
+        return 7
+    inner()
+    return value
+
+
+def call_intervening(value):
+    def inner():
+        return 8
+    pass
+    inner()
+    return value
+
+
+def call_alias(value):
+    def inner():
+        return 9
+    alias = inner
+    alias()
+    return value
+
+
+from typing import cast
+
+
+def call_modeled(value):
+    def inner():
+        return cast(int, 10)
+    inner()
+    return value
+
+
+def call_unreachable(value):
+    raise None
+    def inner():
+        return 11
+    inner()
+    return value
+
+
+from json import dump
+
+
+def call_prefix_small(value):
+    def inner():
+        return 12
+    inner()
+    pass
+    dump(value, value)
+    return value
+
+
+def call_prefix_over_limit(value):
+    def inner():
+        return 12
+    inner()
+    pass
+    pass
+    pass
+    pass
+    pass
+    pass
+    pass
+    pass
+    pass
+    pass
+    pass
+    pass
+    pass
+    pass
+    pass
+    pass
+    pass
+    pass
+    pass
+    pass
+    pass
+    pass
+    pass
+    pass
+    pass
+    pass
+    pass
+    pass
+    pass
+    pass
+    pass
+    pass
+    pass
+    dump(value, value)
+    return value

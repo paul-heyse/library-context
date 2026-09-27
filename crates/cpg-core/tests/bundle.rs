@@ -190,7 +190,7 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
         .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
     assert_eq!(counts.value(0), 1,
         "one raw returned use keeps a proved value and an unproved call origin");
-    for (name, reason) in [("f9", 21), ("unsupported", 4),
+    for (name, reason) in [("f9", 21), ("unsupported", BoundaryReason::ScopeBoundary.code()),
         ("condition_atom_cap", 24), ("summary_proof_cap", 30)] {
         let rows = sql::query(&ctx, &format!("SELECT count(*) AS n FROM summary_boundaries b \
             JOIN declarations d ON d.node_id = b.function_node_id \
@@ -198,7 +198,9 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
             .await.unwrap().collect().await.unwrap();
         let counts = rows[0].column(0)
             .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
-        assert_eq!(counts.value(0), 1, "{name} must retain its typed boundary");
+        assert_eq!(counts.value(0), 1, "{name} must retain its typed boundary: {}",
+            sql::render(&ctx,&format!("SELECT b.reason FROM summary_boundaries b JOIN declarations d \
+                ON d.node_id=b.function_node_id WHERE d.name='{name}'")).await.unwrap());
     }
     let rows = sql::query(&ctx, "SELECT count(*) AS n FROM summary_flows f \
         JOIN declarations d ON d.node_id = f.function_node_id \
@@ -309,7 +311,7 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
     assert_eq!(counts.value(0), 0, "opaque predecessor cannot certify modeled return");
     let rows = sql::query(&ctx, "SELECT count(*) AS n FROM summary_boundaries b \
         JOIN declarations d ON d.node_id = b.function_node_id \
-        WHERE d.name = 'modeled_after_opaque' AND b.reason = 4")
+        WHERE d.name = 'modeled_after_opaque' AND b.reason = 5")
         .await.unwrap().collect().await.unwrap();
     let counts = rows[0].column(0)
         .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
@@ -323,7 +325,7 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
     assert_eq!(counts.value(0), 0, "opaque call cannot certify assignment result");
     let rows = sql::query(&ctx, "SELECT count(*) AS n FROM summary_boundaries b \
         JOIN declarations d ON d.node_id = b.function_node_id \
-        WHERE d.name = 'assigned_modeled_after_opaque' AND b.reason = 4")
+        WHERE d.name = 'assigned_modeled_after_opaque' AND b.reason = 5")
         .await.unwrap().collect().await.unwrap();
     let counts = rows[0].column(0)
         .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
@@ -337,7 +339,7 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
     assert_eq!(counts.value(0), 0, "opaque predecessor cannot certify local wrapper");
     let rows = sql::query(&ctx, "SELECT count(*) AS n FROM summary_boundaries b \
         JOIN declarations d ON d.node_id = b.function_node_id \
-        WHERE d.name = 'local_after_opaque' AND b.reason = 4")
+        WHERE d.name = 'local_after_opaque' AND b.reason = 5")
         .await.unwrap().collect().await.unwrap();
     let counts = rows[0].column(0)
         .as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
@@ -815,7 +817,7 @@ assert not any(b[3] == "handler_name_cleanup" for b in boundaries), boundaries
 for operation, expected in (
     ("capspkg.f9", "summary_depth_limit"),
     ("capspkg.condition_atom_cap", "condition_atom_limit"),
-    ("capspkg.unsupported", "unsupported_control_flow"),
+    ("capspkg.unsupported", "scope_boundary"),
     ("capspkg.raising_predecessor", "unsupported_control_flow"),
     ("capspkg.raising_unary_predecessor", "unsupported_control_flow"),
     ("capspkg.raising_not_predecessor", "unsupported_control_flow"),
@@ -827,10 +829,10 @@ for operation, expected in (
     ("capspkg.possibly_unbound_local_argument", "unsupported_control_flow"),
     ("capspkg.conditional_callee", "unsupported_control_flow"),
     ("capspkg.guarded_module_callee", "unsupported_control_flow"),
-    ("capspkg.unconditional_self_call", "unsupported_control_flow"),
-    ("capspkg.modeled_after_opaque", "unsupported_control_flow"),
-    ("capspkg.assigned_modeled_after_opaque", "unsupported_control_flow"),
-    ("capspkg.local_after_opaque", "unsupported_control_flow"),
+    ("capspkg.unconditional_self_call", "scope_boundary"),
+    ("capspkg.modeled_after_opaque", "scope_boundary"),
+    ("capspkg.assigned_modeled_after_opaque", "scope_boundary"),
+    ("capspkg.local_after_opaque", "scope_boundary"),
 ):
     paths, boundaries, total, truncated, work = inspect(operation, "value")
     assert not truncated, (operation, paths, boundaries)
@@ -982,7 +984,7 @@ async def check_mcp():
 asyncio.run(check_mcp())
 paths, boundaries, total, truncated, work = inspect("capspkg.terminating_branch_before_recursion", "value")
 assert not truncated and paths, (paths, boundaries)
-assert any(boundary[3] == "unsupported_control_flow" for boundary in boundaries), boundaries
+assert any(boundary[3] == "scope_boundary" for boundary in boundaries), boundaries
 paths, boundaries, total, truncated, work = index.inspect_value_paths(
     "capspkg.recursive_literal_return", "value", "none", "", True, 0, 20
 )

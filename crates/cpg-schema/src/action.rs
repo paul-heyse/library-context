@@ -228,6 +228,7 @@ pub fn identity(r:&ModeledActionAssessmentsRow)->Id {
 }
 
 pub struct Support<'a> {
+    pub source_calls:&'a [crate::source_call::SourceCallNormalsRow],
     pub bindings:&'a [ModelArgumentBindingsRow],
     pub arguments:&'a [crate::tables::ArgumentsRow],
     pub application:Option<&'a ModelApplicationsRow>,
@@ -311,7 +312,10 @@ pub fn admit(r:&ModeledActionAssessmentsRow,candidate:Candidate<'_>,support:&Sup
                 || tail.iter().any(|s|s.operand_fact_id!=e.syntax_fact_id || s.status!=E::PinnedCallNormal) {
                 return Err("normal proof lacks this callee outcome".into());
             }
-            if e.prefix_count as usize+steps.len()>MAX_SUMMARY_PROOF_STEPS {
+            let full=support.invocation_steps[..e.prefix_count as usize].iter().map(|s|(s.kind,s.evidence_id))
+                .chain(steps.iter().map(|s|(s.kind,s.evidence_id)));
+            if crate::source_call::expanded_len(full,|id|support.source_calls.iter()
+                .find(|r|r.snapshot_id==e.snapshot_id && r.certificate_id==id))?>MAX_SUMMARY_PROOF_STEPS {
                 return Err(ProofAdmissionError {reason:B::SummaryProofLimit,message:"action proof limit"});
             }
         },
@@ -358,7 +362,11 @@ fn admit_invocation<'a>(candidate:Candidate<'_>,support:&Support<'a>,meaning:Sub
         return Err("action execution scope mismatch".into());
     }
     if let Some(reason)=e.reason {return Err(ProofAdmissionError {reason,message:"action invocation unresolved"});}
-    crate::call_execution::admit(e,support.invocation_steps)?;
+    let frame=|id| {let mut rows=support.frames.iter().filter(|r|r.snapshot_id==e.snapshot_id && r.frame_exit_id==id);
+        let first=rows.next();if rows.next().is_some() {None} else {first}};
+    let source=|id| {let mut rows=support.source_calls.iter().filter(|r|r.snapshot_id==e.snapshot_id && r.certificate_id==id);
+        let first=rows.next();if rows.next().is_some() {None} else {first}};
+    crate::call_execution::admit_with_calls(e,support.invocation_steps,frame,source)?;
     if e.default_formal_count.is_some_and(|n|n>0) && !app.target_call_defaults_available {
         return Err("action lacks an authored pinned-default availability promise".into());
     }

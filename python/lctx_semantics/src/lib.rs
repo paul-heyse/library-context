@@ -221,6 +221,12 @@ struct SemanticExecutor {
 
 #[derive(Default)]
 struct ContextProofs {
+    source_body_completions:Vec<cpg_schema::source_body::SourceBodyCompletionsRow>,
+    source_body_steps:Vec<cpg_schema::source_body::SourceBodyStepsRow>,
+    source_body_release_inputs:Vec<cpg_schema::source_body::SourceBodyReleaseInputsRow>,
+    source_call_normals:Vec<cpg_schema::source_call::SourceCallNormalsRow>,
+    source_call_header_steps:Vec<cpg_schema::source_call::SourceCallHeaderStepsRow>,
+
     frames:Vec<cpg_schema::frame_exit::ModelFrameExitsRow>,
     frame_arguments:Vec<cpg_schema::frame_exit::ModelFrameExitArgumentsRow>,
     frame_steps:Vec<cpg_schema::frame_exit::ModelFrameExitStepsRow>,
@@ -616,13 +622,44 @@ impl SemanticExecutor {
         if !frame_arguments.is_empty() || frame_steps.keys().any(|id|!frames.contains_key(id)) {
             return Err(PyValueError::new_err("orphan frame release support"));
         }
+        let mut body_steps:HashMap<_,Vec<_>>=HashMap::new();
+        let mut body_releases:HashMap<_,Vec<_>>=HashMap::new();
+        let mut source_headers:HashMap<_,Vec<_>>=HashMap::new();
+        for mut r in contexts.source_body_steps {r.snapshot_id=snapshot_id;body_steps.entry(r.body_id).or_default().push(r);}
+        for mut r in contexts.source_body_release_inputs {r.snapshot_id=snapshot_id;body_releases.entry(r.body_id).or_default().push(r);}
+        for mut r in contexts.source_call_header_steps {r.snapshot_id=snapshot_id;source_headers.entry(r.certificate_id).or_default().push(r);}
+        let mut bodies=HashMap::new();
+        for mut r in contexts.source_body_completions {
+            r.snapshot_id=snapshot_id;
+            let mut steps=body_steps.remove(&r.body_id).unwrap_or_default();steps.sort_by_key(|s|s.ordinal);
+            let mut releases=body_releases.remove(&r.body_id).unwrap_or_default();releases.sort_by_key(|s|s.ordinal);
+            cpg_schema::source_body::admit(&r,&steps,&releases).map_err(|e|PyValueError::new_err(e.message))?;
+            let proof:Vec<_>=steps.iter().map(|s|cpg_schema::id::recipe::SummaryFlowProofStep {
+                kind:s.kind,evidence_id:s.evidence_id,condition_id:Id::ZERO}).collect();
+            // Base bodies can retain pinned frame obligations, but never depend on this
+            // source-call stage. Ownership is the callee's, independently of its later caller.
+            cpg_schema::frame_exit::admit_proof(r.function_node_id,&proof,|id|frames.get(&id),|_|None)
+                .map_err(|e|PyValueError::new_err(e.message))?;
+            if bodies.insert(r.body_id,(r,steps,releases)).is_some() {return Err(PyValueError::new_err("duplicate source body"));}
+        }
+        if !body_steps.is_empty() || !body_releases.is_empty() {return Err(PyValueError::new_err("orphan source body evidence"));}
+        let mut source_calls=HashMap::new();let mut used_bodies=HashSet::new();
+        for mut r in contexts.source_call_normals {
+            r.snapshot_id=snapshot_id;
+            let mut header=source_headers.remove(&r.certificate_id).unwrap_or_default();header.sort_by_key(|s|s.ordinal);
+            let (body,steps,releases)=bodies.get(&r.body_id).ok_or_else(||PyValueError::new_err("missing source call body"))?;
+            cpg_schema::source_call::admit(&r,&header,body,steps,releases).map_err(|e|PyValueError::new_err(e.message))?;
+            used_bodies.insert(r.body_id);
+            if source_calls.insert(r.certificate_id,r).is_some() {return Err(PyValueError::new_err("duplicate source call completion"));}
+        }
+        if !source_headers.is_empty() || used_bodies.len()!=bodies.len() {return Err(PyValueError::new_err("orphan source call evidence"));}
         for r in frames.values() {
             let mut steps=frame_steps.remove(&r.frame_exit_id).unwrap_or_default();steps.sort_by_key(|s|s.ordinal);
             let proof:Vec<_>=steps.iter().map(|s|cpg_schema::id::recipe::SummaryFlowProofStep {
                 kind:s.kind,evidence_id:s.evidence_id,condition_id:Id::ZERO}).collect();
             // admit() has checked the final root CallSite/CallTarget as invocation only.
             // Nested operands, unlike that root, must already have completed.
-            cpg_schema::frame_exit::admit_proof(r.function_node_id,&proof[..proof.len()-2],|id|frames.get(&id))
+            cpg_schema::frame_exit::admit_proof(r.function_node_id,&proof[..proof.len()-2],|id|frames.get(&id),|id|source_calls.get(&id))
                 .map_err(|e|PyValueError::new_err(e.message))?;
             for s in steps.iter().filter(|s|s.kind==SummaryFlowStepKind::ModelFrameExit) {
                 let inner=&frames[&s.evidence_id];
@@ -644,7 +681,7 @@ impl SemanticExecutor {
                     kind:*SummaryFlowStepKind::all().iter().find(|k|k.text()==kind)
                         .expect("step kind admitted above"),evidence_id:*evidence_id,condition_id:*condition_id,
                 }).collect();
-            cpg_schema::frame_exit::admit_proof(summary.function_node_id,&steps,|id|frames.get(&id))
+            cpg_schema::frame_exit::admit_proof(summary.function_node_id,&steps,|id|frames.get(&id),|id|source_calls.get(&id))
                 .map_err(|e|PyValueError::new_err(e.message))?;
             // Unknown roots cannot support a positive callee application. Their raw proofs
             // still pass structural admission using an inert root; no controls can be fixed.
@@ -777,7 +814,7 @@ impl SemanticExecutor {
             input.identities,
             input.modeled_identities,
             input.return_sites,
-            ContextProofs {frames:input.model_frame_exits,frame_arguments:input.model_frame_exit_arguments,frame_steps:input.model_frame_exit_steps,values:input.context_value_identities,returns:input.return_certificates,protocols:input.model_context_protocols,sites:input.source_context_sites,arguments:input.source_context_arguments},
+            ContextProofs {source_body_completions:input.source_body_completions,source_body_steps:input.source_body_steps,source_body_release_inputs:input.source_body_release_inputs,source_call_normals:input.source_call_normals,source_call_header_steps:input.source_call_header_steps,frames:input.model_frame_exits,frame_arguments:input.model_frame_exit_arguments,frame_steps:input.model_frame_exit_steps,values:input.context_value_identities,returns:input.return_certificates,protocols:input.model_context_protocols,sites:input.source_context_sites,arguments:input.source_context_arguments},
         )
     }
 

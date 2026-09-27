@@ -68,6 +68,10 @@ pub fn admit(r:&ModelFrameExitsRow,args:&[ModelFrameExitArgumentsRow],steps:&[cr
     }
     let mut at=3;
     for (i,s) in steps.iter().enumerate() {
+        if s.kind==K::ExpressionSyntax && s.status==E::SourceCallNormal
+            && (i==0 || steps[i-1].kind!=K::SourceCallNormal || steps[i-1].operand_fact_id!=s.operand_fact_id) {
+            return Err("source operand omitted its call completion".into());
+        }
         if s.kind!=K::ExpressionSyntax || s.status!=E::PinnedCallNormal {continue;}
         let normal=if i>0 && steps[i-1].kind==K::ModelRule {i-2} else {i.saturating_sub(1)};
         if normal==0 || steps[normal].kind!=K::PrecedingCallNormal || steps[normal-1].kind!=K::ModelFrameExit
@@ -100,8 +104,13 @@ pub fn admit(r:&ModelFrameExitsRow,args:&[ModelFrameExitArgumentsRow],steps:&[cr
 /// certificate to belong to the immediately surrounding call occurrence. Source reconstruction
 /// owns semantic retention; this check is shared by persisted summary and native consumers.
 pub fn admit_proof<'a>(function:Id,proof:&[crate::id::recipe::SummaryFlowProofStep],
-    resolve:impl Fn(Id)->Option<&'a ModelFrameExitsRow>)->Result<(),ProofAdmissionError> {
+    resolve:impl Fn(Id)->Option<&'a ModelFrameExitsRow>,
+    source:impl Fn(Id)->Option<&'a crate::source_call::SourceCallNormalsRow>)->Result<(),ProofAdmissionError> {
     use crate::codebook::SummaryFlowStepKind as K;
+    if crate::source_call::expanded_len(proof.iter().map(|s|(s.kind,s.evidence_id)),&source)?>64 {
+        return Err(ProofAdmissionError {reason:crate::codebook::BoundaryReason::SummaryProofLimit,
+            message:"expanded source call proof exceeds its original cap".into()});
+    }
     for (i,s) in proof.iter().enumerate() {
         if s.kind==K::CallSite && (i+1>=proof.len() || proof[i+1].kind!=K::CallTarget) {
             return Err("call occurrence omitted its exact target".into());
@@ -113,7 +122,7 @@ pub fn admit_proof<'a>(function:Id,proof:&[crate::id::recipe::SummaryFlowProofSt
             // its controls, callee identity and decreasing depth have separate shared admission.
             let local=tail.iter().skip_while(|p|matches!(p.kind,K::CallerConditionLink|K::CalleeConditionLink))
                 .next().is_some_and(|p|p.kind==K::CalleeSummary);
-            if !local && tail.first().is_none_or(|p|p.kind!=K::ModelFrameExit) {
+            if !local && tail.first().is_none_or(|p|!matches!(p.kind,K::ModelFrameExit|K::SourceCallNormal)) {
                 return Err("modeled call omitted its normal frame completion".into());
             }
         }
@@ -122,6 +131,9 @@ pub fn admit_proof<'a>(function:Id,proof:&[crate::id::recipe::SummaryFlowProofSt
         }
         if s.kind==K::PrecedingCallNormal && (i==0 || proof[i-1].kind!=K::ModelFrameExit) {
             return Err("normal call omitted its frame release obligation".into());
+        }
+        if s.kind==K::SourceCallNormal {
+            crate::source_call::admit_occurrence(function,proof,i,source(s.evidence_id).ok_or("missing source call completion")?)?;
         }
         if s.kind!=K::ModelFrameExit {continue;}
         let r=resolve(s.evidence_id).ok_or("missing model frame release")?;

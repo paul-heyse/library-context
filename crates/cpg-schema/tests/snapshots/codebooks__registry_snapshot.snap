@@ -833,6 +833,7 @@ summary_flow_step_kind
   34 model_defaults_available
   35 model_default_formal
   36 model_frame_exit
+  37 source_call_normal
 modeled_argument_evaluation_status
   0 source_operand
   1 literal_normal
@@ -845,6 +846,7 @@ modeled_argument_evaluation_status
   8 composed_expression_normal
   9 pinned_call_normal
   10 callee_entry_normal
+  11 source_call_normal
 release_safety
   0 closed
   1 caller_retained

@@ -166,8 +166,9 @@ A model is committed, typed data about a callable we do not analyze from source.
   a refused frame outcome. Source bodies must reuse the completion kernel with separate release
   evidence; definition-header completion and a body-return event prove no caller continuation.
   Compiler97 persists ordered bound-argument and invocation commitments; source publication
-  reconstructs them and native serving checks shared structural admission. General source-body
-  completion and full native raw-signature/read closure remain open.
+  reconstructs them and native serving checks shared structural admission. The bounded fresh
+  source-call domain below composes body completion; general source-body completion and full
+  native raw-signature/read closure remain open.
   The [independent controls](../../design_review/evidence/2026-09-27_frame-exit/README.md)
   observe finalization before continuation; they are not compiler false-positive reproductions.
 
@@ -183,12 +184,27 @@ therefore cannot establish caller continuation alone: its consumer must prove th
 object remains held, initially through an immediate fresh nested definition's live binding and
 an effect-free body. Source publication reconstructs both domains; call composition and serving
 must preserve this independent retainer obligation.
-Compiler98 persists `source_body_completions`, `source_body_steps` and ordered
+Compiler99 persists `source_body_completions`, `source_body_steps` and ordered
 `source_body_release_inputs`. Terminal anchors and release-root segments are shared structural
 obligations; publication independently reconstructs their source meaning. Leading docstrings
 remain definition metadata; a docstring-only body has zero runtime statements and no invented
 proof. Indexed preparation preserves the existing suite, work and 64-step proof bounds. The
-fresh-call consumer and native export are still **Proposed**, not implemented by these tables.
+fresh-call consumer also requires a sole exact zero-argument source target, successful fresh
+header creation, the immediately following bare call and the live lexical function binding.
+`source_call_normals` and its header steps commit those premises separately from the body.
+Lexical reference identity and syntax name identity are joined explicitly, never interchanged.
+
+**Fresh source-call consumption (Implemented and focused Tested, 2026-09-27).** Preparation has
+an explicit acyclic order: pinned expressions and base bodies, fresh-call admission, then enriched
+caller expressions/completion. Base bodies cannot depend on source-call certificates. Publication
+reconstructs both outputs once from source; persisted results are not their own premises.
+Normality under expression entry does not establish reached invocation. Closed ignored results
+can be discarded, while unknown local-read release, defaults, captures, aliases and intervening
+statements remain withheld. Nested pinned calls retain their independent callee-owned frame
+proofs. Consumers charge expanded header/body evidence against the original 64-step bound,
+including invocation prefixes and Normal/Finally actions. FORMAT 9 exports referenced bodies and
+call certificates with shared admission and row/byte limits; missing groups and foreign-caller
+substitution refuse. Full raw-signature/read reconstruction and other S6 obligations remain open.
 
 > Decision: ADR-0063
 
@@ -692,6 +708,10 @@ result is **path-local inspection, never an operation-wide verdict**. **Implemen
 focused cases (2026-09-26)** through a real same-fact sibling-origin Delta/native generation.
 The former duplicate native proof-kind whitelist and positional Python production decoder are
 closed under [plan W1](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition).
+**Implemented and focused Tested (2026-09-27):** fresh source-call support carries its base body,
+ordered release inputs and header certificate. Native admission validates the same separate
+callee-frame and caller-retention obligations, including foreign-caller substitution and missing
+support groups. This structural closure does not establish the still-open full raw-source closure.
 Serve-time semantic selection remains a proposed ADR-0025 target
 ([§11.3](synthesis-and-serving.md#section-11-3)).
 - **Target** (Proposed; plan order 9): typed operation-wide compatibility, effect and role
