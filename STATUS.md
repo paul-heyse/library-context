@@ -41,7 +41,7 @@ _Updated 2026-09-27 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
 | `INSTA_UPDATE=no cargo nextest run --release --workspace` | **passed:** 434 tests after the P1.2 manifest-list update |
 | `cargo fmt --all --check`; `cargo clippy --release --workspace --all-targets -- -D warnings` | **passed** |
 | `just py-fixture`; `uv sync --frozen --reinstall-package lctx-semantics`; `uv run pytest` | **passed:** includes native discharge admission and the extended CPython harness |
-| `just docs-check`; `just adr lint` | **passed:** 138 pages; 36 records |
+| `just docs-check` (PostgreSQL assessment) | **passed:** 140 pages; 36 records; product checks above were not rerun for this assessment |
 | `just test-all`, `just pilot` | **not_run:** end-of-scope acceptance (P7), apart from one diagnostic pilot after P5 |
 
 ## Known issues and decisions
@@ -50,6 +50,8 @@ _Updated 2026-09-27 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
   `semantic:documentation-only-has-outcome` (fail-closed). Seen only with generated packages;
   unscheduled.
 - Target review F08–F11 bind P3/P4 (plan §3.0 rows).
+- [PostgreSQL assessment](docs/design_review/reviews/design_review_postgresql-storage_2026-09-27.md): Proposed cache/operational scope alongside Delta;
+  adoption findings F01–F04 remain in that review. No database or product change; PostgreSQL integration **not_run**.
 
 ## Next
 
