@@ -175,7 +175,7 @@ key:operation_facets
 key:operation_facet_status
   SELECT snapshot_id, node_id, facet, count(*) AS n FROM operation_facet_status GROUP BY snapshot_id, node_id, facet HAVING count(*) > 1
 key:value_flows
-  SELECT snapshot_id, module_node_id, sink_start_byte, sink_end_byte, source_key, identity, count(*) AS n FROM value_flows GROUP BY snapshot_id, module_node_id, sink_start_byte, sink_end_byte, source_key, identity HAVING count(*) > 1
+  SELECT snapshot_id, module_node_id, sink, sink_start_byte, sink_end_byte, source_key, identity, through_call, count(*) AS n FROM value_flows GROUP BY snapshot_id, module_node_id, sink, sink_start_byte, sink_end_byte, source_key, identity, through_call HAVING count(*) > 1
 key:flow_reach_boundaries
   SELECT snapshot_id, use_id, count(*) AS n FROM flow_reach_boundaries GROUP BY snapshot_id, use_id HAVING count(*) > 1
 key:value_flow_contributions
@@ -185,11 +185,11 @@ key:analysis_conditions
 key:analysis_condition_nodes
   SELECT snapshot_id, node_id, count(*) AS n FROM analysis_condition_nodes GROUP BY snapshot_id, node_id HAVING count(*) > 1
 key:value_flow_predecessor_candidates
-  SELECT snapshot_id, successor_fact_id, predecessor_fact_id, source_key, reaching_fact_id, count(*) AS n FROM value_flow_predecessor_candidates GROUP BY snapshot_id, successor_fact_id, predecessor_fact_id, source_key, reaching_fact_id HAVING count(*) > 1
+  SELECT snapshot_id, successor_source_origin_id, predecessor_source_origin_id, reaching_fact_id, count(*) AS n FROM value_flow_predecessor_candidates GROUP BY snapshot_id, successor_source_origin_id, predecessor_source_origin_id, reaching_fact_id HAVING count(*) > 1
 key:value_flow_predecessor_compatibility
-  SELECT snapshot_id, successor_fact_id, predecessor_fact_id, source_key, reaching_fact_id, count(*) AS n FROM value_flow_predecessor_compatibility GROUP BY snapshot_id, successor_fact_id, predecessor_fact_id, source_key, reaching_fact_id HAVING count(*) > 1
+  SELECT snapshot_id, successor_source_origin_id, predecessor_source_origin_id, reaching_fact_id, count(*) AS n FROM value_flow_predecessor_compatibility GROUP BY snapshot_id, successor_source_origin_id, predecessor_source_origin_id, reaching_fact_id HAVING count(*) > 1
 key:modeled_assignment_return_paths
-  SELECT snapshot_id, successor_fact_id, predecessor_fact_id, source_key, reaching_fact_id, parameter_node_id, pysa_fact_id, model_id, rule_id, count(*) AS n FROM modeled_assignment_return_paths GROUP BY snapshot_id, successor_fact_id, predecessor_fact_id, source_key, reaching_fact_id, parameter_node_id, pysa_fact_id, model_id, rule_id HAVING count(*) > 1
+  SELECT snapshot_id, successor_source_origin_id, predecessor_source_origin_id, reaching_fact_id, pysa_fact_id, model_id, rule_id, count(*) AS n FROM modeled_assignment_return_paths GROUP BY snapshot_id, successor_source_origin_id, predecessor_source_origin_id, reaching_fact_id, pysa_fact_id, model_id, rule_id HAVING count(*) > 1
 key:summary_components
   SELECT snapshot_id, function_node_id, count(*) AS n FROM summary_components GROUP BY snapshot_id, function_node_id HAVING count(*) > 1
 key:summary_flows
@@ -338,6 +338,18 @@ ref:analysis_invocations.run_id->runs
   SELECT f.run_id AS value FROM analysis_invocations f LEFT ANTI JOIN (SELECT run_id AS k FROM runs) r ON f.run_id = r.k WHERE f.run_id IS NOT NULL
 ref:analysis_invocations.subject_node_id->nodes
   SELECT f.subject_node_id AS value FROM analysis_invocations f LEFT ANTI JOIN (SELECT node_id AS k FROM nodes) r ON f.subject_node_id = r.k WHERE f.subject_node_id IS NOT NULL
+ref:behaviors.condition_scope_node_id->declarations
+  SELECT f.condition_scope_node_id AS value FROM behaviors f LEFT ANTI JOIN (SELECT node_id AS k FROM declarations) r ON f.condition_scope_node_id = r.k WHERE f.condition_scope_node_id IS NOT NULL
+ref:value_flow_predecessor_candidates.successor_source_origin_id->value_flow_contributions
+  SELECT f.successor_source_origin_id AS value FROM value_flow_predecessor_candidates f LEFT ANTI JOIN (SELECT origin_id AS k FROM value_flow_contributions) r ON f.successor_source_origin_id = r.k WHERE f.successor_source_origin_id IS NOT NULL
+ref:value_flow_predecessor_candidates.predecessor_source_origin_id->value_flow_contributions
+  SELECT f.predecessor_source_origin_id AS value FROM value_flow_predecessor_candidates f LEFT ANTI JOIN (SELECT origin_id AS k FROM value_flow_contributions) r ON f.predecessor_source_origin_id = r.k WHERE f.predecessor_source_origin_id IS NOT NULL
+ref:value_flow_predecessor_compatibility.successor_source_origin_id->value_flow_contributions
+  SELECT f.successor_source_origin_id AS value FROM value_flow_predecessor_compatibility f LEFT ANTI JOIN (SELECT origin_id AS k FROM value_flow_contributions) r ON f.successor_source_origin_id = r.k WHERE f.successor_source_origin_id IS NOT NULL
+ref:value_flow_predecessor_compatibility.predecessor_source_origin_id->value_flow_contributions
+  SELECT f.predecessor_source_origin_id AS value FROM value_flow_predecessor_compatibility f LEFT ANTI JOIN (SELECT origin_id AS k FROM value_flow_contributions) r ON f.predecessor_source_origin_id = r.k WHERE f.predecessor_source_origin_id IS NOT NULL
+ref:modeled_assignment_return_paths.successor_source_origin_id->value_flow_contributions
+  SELECT f.successor_source_origin_id AS value FROM modeled_assignment_return_paths f LEFT ANTI JOIN (SELECT origin_id AS k FROM value_flow_contributions) r ON f.successor_source_origin_id = r.k WHERE f.successor_source_origin_id IS NOT NULL
 ref:findings.invocation_id->analysis_invocations
   SELECT f.invocation_id AS value FROM findings f LEFT ANTI JOIN (SELECT invocation_id AS k FROM analysis_invocations) r ON f.invocation_id = r.k WHERE f.invocation_id IS NOT NULL
 ref:findings.subject_node_id->nodes
@@ -1680,6 +1692,8 @@ codebook:negative_premises.boundary_reason
   SELECT boundary_reason FROM negative_premises WHERE boundary_reason IS NOT NULL AND boundary_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32)
 codebook:behaviors.kind
   SELECT kind FROM behaviors WHERE kind IS NOT NULL AND kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
+codebook:behaviors.transfer
+  SELECT transfer FROM behaviors WHERE transfer IS NOT NULL AND transfer NOT IN (0, 1, 2)
 codebook:behaviors.verdict
   SELECT verdict FROM behaviors WHERE verdict IS NOT NULL AND verdict NOT IN (0, 1, 2, 3, 4)
 codebook:behaviors.boundary_reason
@@ -1874,6 +1888,8 @@ semantic:behavior-covers-public
   SELECT p.node_id FROM (SELECT DISTINCT node_id FROM public_paths) p LEFT JOIN operations o ON o.node_id = p.node_id WHERE o.node_id IS NULL OR (o.kind = 2) <> (o.behavior_status = 4)
 semantic:behavior-of-an-operation
   SELECT b.operation_node_id AS node_id FROM behaviors b LEFT ANTI JOIN operations o ON o.node_id = b.operation_node_id UNION ALL SELECT f.node_id FROM operation_facets f LEFT ANTI JOIN operations o ON o.node_id = f.node_id
+semantic:call-transfer-never-established
+  SELECT behavior_id FROM behaviors WHERE transfer = 2 AND verdict <> 3
 semantic:established-needs-definite-path
   SELECT DISTINCT b.behavior_id FROM behaviors b JOIN behavior_steps s ON s.behavior_id = b.behavior_id WHERE b.verdict IN (0, 1) AND s.modality <> 0
 semantic:facet-status-covers-operations

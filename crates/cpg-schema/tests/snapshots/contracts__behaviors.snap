@@ -12,6 +12,8 @@ snapshot_id: FixedSizeBinary(16) NOT NULL
 behavior_id: FixedSizeBinary(16) NOT NULL
 operation_node_id: FixedSizeBinary(16) NOT NULL
 kind: Int16 NOT NULL [lctx.codebook=behavior_kind]
+transfer: Int16 NULL [lctx.codebook=flow_transfer]
+condition_scope_node_id: FixedSizeBinary(16) NOT NULL
 parameter_node_id: FixedSizeBinary(16) NULL
 parameter_name: Utf8 NULL
 callee_node_id: FixedSizeBinary(16) NULL

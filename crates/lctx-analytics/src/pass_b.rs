@@ -74,12 +74,17 @@ pub struct Read {
     pub rebound: bool,
     pub bare: bool,
     pub unpacked: bool,
+    /// An explicitly projected nonidentity/open alternative, independent of a positive
+    /// identity flow for the same argument and parameter.
+    pub open_alternative: bool,
 }
 
 impl Read {
     /// Why the worklist does not follow this read.
     pub fn reason(&self) -> UnfollowedReason {
-        if self.rebound {
+        if self.open_alternative {
+            UnfollowedReason::OpenTransfer
+        } else if self.rebound {
             UnfollowedReason::Rebound
         } else if self.bare || self.unpacked {
             UnfollowedReason::Unmapped
@@ -251,6 +256,7 @@ impl Flows {
                     rebound: rebound.value(i),
                     bare: bare.value(i),
                     unpacked: unpacked.value(i),
+                    open_alternative: false,
                 });
             }
         }
@@ -260,6 +266,14 @@ impl Flows {
                 && matches!(f.value_class, value_class::PARAMETER | value_class::ALIAS)
             {
                 out.followed.insert((f.argument, source));
+            }
+            if f.value_class == value_class::OTHER && let Some(parameter) = f.source_parameter {
+                out.reads.push(Read {
+                    caller: f.caller, call_site: f.call_site, target: f.target,
+                    edge_id: f.edge_id, modality: f.modality, phase: f.phase,
+                    argument: f.argument, parameter,
+                    rebound: false, bare: false, unpacked: false, open_alternative: true,
+                });
             }
         }
         for (i, r) in out.reads.iter().enumerate() {
@@ -498,7 +512,8 @@ pub fn run(
             .unwrap_or_default()
         {
             let read = &flows.reads[r];
-            if !inside(read.target) || flows.followed.contains(&(read.argument, formal)) {
+            if !inside(read.target) || (!read.open_alternative
+                && flows.followed.contains(&(read.argument, formal))) {
                 continue;
             }
             let reason = read.reason();

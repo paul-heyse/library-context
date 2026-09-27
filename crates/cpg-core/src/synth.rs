@@ -56,7 +56,8 @@ use crate::{CoreError, sql};
 /// parameter's description when the docstring gives none (the holistic assessment's A3). 17: both
 /// cite the exact mention that anchors them as `scope` evidence (R1 F1). 18: a brief's members
 /// are every public path of its seed, own and inherited, with `own` (the holistic assessment's A1).
-pub const TEMPLATE_VERSION: i64 = 18;
+/// 19: an unfollowed transfer is an explicit unproved alternative, including alongside a witness.
+pub const TEMPLATE_VERSION: i64 = 19;
 
 /// The §11.1 cap on a brief document: 2,048 tokens. The embedder counts tokens with the served
 /// model's tokenizer (slice 1.6); here a declared proxy of four bytes per token. An over-cap
@@ -1554,6 +1555,7 @@ pub async fn run(
                         "unpacked, or where no single parameter takes it"
                     }
                     Some(UnfollowedReason::Computed) => "inside an expression",
+                    Some(UnfollowedReason::OpenTransfer) => "with an unproved transfer alternative",
                     None => {
                         return Err(CoreError::Analysis(format!(
                             "an unfollowed argument with no known reason ({reason:?})"
@@ -1568,7 +1570,7 @@ pub async fn run(
             let mut draft = Draft::new(
                 AssertionKind::UnfollowedControl,
                 format!(
-                    "`{p}` also reaches {}; the analysis does not follow it there.",
+                    "The analysis cannot trace every read of `{p}` associated with {}.",
                     items.join("; ")
                 ),
             );

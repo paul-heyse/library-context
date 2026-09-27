@@ -109,7 +109,8 @@ pub struct Published {
 /// 83: independently authored model phases and catalog format 2.
 /// 84: source binding and call-specific fresh default availability/value/stability evidence.
 /// 85: typed static/runtime/unresolved validation schema contracts and catalog format 3.
-pub const COMPILER_OUTPUT_VERSION: u32 = 85;
+/// 86: condition-safe transfer alternatives and typed behavior transfer/scope in FORMAT 9.
+pub const COMPILER_OUTPUT_VERSION: u32 = 86;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).

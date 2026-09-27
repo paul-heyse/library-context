@@ -4,12 +4,14 @@ expression: text
 ---
 table value_flow_predecessor_candidates
 family findings
-key snapshot_id, successor_fact_id, predecessor_fact_id, source_key, reaching_fact_id
+key snapshot_id, successor_source_origin_id, predecessor_source_origin_id, reaching_fact_id
 @lctx.family=findings
 @lctx.table=value_flow_predecessor_candidates
 snapshot_id: FixedSizeBinary(16) NOT NULL
 successor_fact_id: FixedSizeBinary(16) NOT NULL
 predecessor_fact_id: FixedSizeBinary(16) NOT NULL
+successor_source_origin_id: FixedSizeBinary(16) NOT NULL
+predecessor_source_origin_id: FixedSizeBinary(16) NOT NULL
 source_key: Utf8 NOT NULL
 parameter_node_id: FixedSizeBinary(16) NOT NULL
 function_node_id: FixedSizeBinary(16) NOT NULL

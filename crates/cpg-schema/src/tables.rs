@@ -896,6 +896,7 @@ table!(
         identity: bool,
         through_call: bool,
         condition_id: Id,
+        /// Provider condition approximation, independent of the explicit call-transfer obligation.
         approximated: bool,
     }
 );

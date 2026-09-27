@@ -210,6 +210,8 @@ def expected_schemas(dimensions: int) -> dict[str, pa.Schema]:
                 _id("behavior_id"),
                 _id("operation_node_id"),
                 _utf8("kind"),
+                _utf8("transfer", True),
+                _id("condition_scope_node_id"),
                 _utf8("parameter_name", True),
                 _id("callee_node_id", True),
                 _utf8("callee", True),

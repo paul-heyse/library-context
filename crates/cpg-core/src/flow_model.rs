@@ -74,6 +74,7 @@ cpg_schema::query_row! {
         definition_id: Option<Id>,
         condition_id: Id,
         loop_carried: bool,
+        approximated: bool,
     }
 }
 
@@ -88,6 +89,7 @@ cpg_schema::query_row! {
         identity: bool,
         through_call: bool,
         condition_id: Id,
+        approximated: bool,
     }
 }
 
@@ -115,6 +117,7 @@ cpg_schema::query_row! {
         start_byte: i64,
         end_byte: i64,
         condition_id: Id,
+        approximated: bool,
         function_node_id: Option<Id>,
     }
 }
@@ -329,13 +332,13 @@ cpg_schema::relations! {
         );
     reaching = "flow_model_reaching",
         deps = ["flow_reaching"],
-        sql = "SELECT use_id, definition_id, condition_id, loop_carried FROM flow_reaching \
+        sql = "SELECT use_id, definition_id, condition_id, loop_carried, approximated FROM flow_reaching \
                ORDER BY use_id, definition_id, condition_id, loop_carried"
             .to_owned();
     values = "flow_model_values",
         deps = ["flow_values"],
         sql = "SELECT fact_id, module_node_id, sink, sink_start_byte, sink_end_byte, use_id, identity, \
-                      through_call, condition_id FROM flow_values \
+                      through_call, condition_id, approximated FROM flow_values \
                ORDER BY module_node_id, sink_start_byte, sink_end_byte, use_id, condition_id"
             .to_owned();
     conditions = "flow_model_conditions",
@@ -349,7 +352,7 @@ cpg_schema::relations! {
     regions = "flow_model_regions",
         deps = ["flow_regions", "declarations"],
         sql = format!(
-            "SELECT r.module_node_id, r.start_byte, r.end_byte, r.condition_id, \
+            "SELECT r.module_node_id, r.start_byte, r.end_byte, r.condition_id, r.approximated, \
                     sd.node_id AS function_node_id \
              FROM flow_regions r {join} \
              ORDER BY r.module_node_id, r.start_byte, r.end_byte",
@@ -571,6 +574,9 @@ pub struct FlowModelRows {
     /// Declarations the runtime view cannot reach (their region, or an enclosing one's, is
     /// `false`).
     pub unreachable: BTreeSet<Id>,
+    /// A decorator may replace the callable; body observations do not establish the public
+    /// binding's behavior without an identity-preserving decorator model.
+    pub decorated: BTreeSet<Id>,
     /// Compile-local exact conditions for derived rows; display text is never parsed back into
     /// the semantic authority by the behavior scan.
     pub condition_models: HashMap<Id, ModelCondition>,
@@ -630,28 +636,14 @@ enum Origin {
 /// How a value reaches a use or sink: unchanged, computed from it, or only inside a call (whose
 /// result may not carry it: a summary's question, Stage 3's). A path is as weak as its weakest
 /// step.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-enum Transfer {
-    Identity,
-    Derived,
-    Call,
-}
-
-impl Transfer {
-    fn of(identity: bool, through_call: bool) -> Self {
-        match (identity, through_call) {
-            (_, true) => Transfer::Call,
-            (true, false) => Transfer::Identity,
-            (false, false) => Transfer::Derived,
-        }
-    }
-}
+use cpg_schema::codebook::FlowTransfer as Transfer;
 
 /// One origin reaching a use.
 #[derive(Clone, Debug)]
 struct Source {
     transfer: Transfer,
     captured: bool,
+    approximated: bool,
     condition: ModelCondition,
 }
 
@@ -678,6 +670,7 @@ fn merge(into: &mut Sources, origin: Origin, s: Source) {
         Some(e) => {
             e.condition = e.condition.or(&s.condition);
             e.captured |= s.captured;
+            e.approximated |= s.approximated;
         }
         None => {
             into.insert(key, s);
@@ -690,6 +683,7 @@ const MAX_REACH_WORK: usize = 1_000_000;
 fn same_sources(left: &Sources, right: &Sources) -> bool {
     left.len() == right.len() && left.iter().all(|(key, source)| {
         right.get(key).is_some_and(|other| source.captured == other.captured
+            && source.approximated == other.approximated
             && source.condition.id() == other.condition.id())
     })
 }
@@ -717,6 +711,9 @@ struct Model {
     fields: HashMap<Id, (Id, String)>,
     memo: HashMap<(Id, bool), Rc<Sources>>,
     incomplete: HashSet<(Id, bool)>,
+    /// Fidelity belongs to source rows, independently of their shared diagram identities.
+    approximate_reaching: HashSet<(Id, Option<Id>, Id)>,
+    approximate_values: HashSet<Id>,
     /// Receivers count as origins (the dynamic-access check reads through local copies of
     /// `self`).
     keep_receivers: bool,
@@ -746,6 +743,7 @@ impl Model {
             *work += 1;
             if *work > max_work { return None; }
             let at = self.condition(condition_id);
+            let approximated = self.approximate_reaching.contains(&(u, def, condition_id));
             let Some(def) = def else {
                 // A receiver's field with no local definition: the field is the origin.
                 if !self.keep_receivers
@@ -757,6 +755,7 @@ impl Model {
                         Source {
                             transfer: Transfer::Identity,
                             captured: false,
+                            approximated,
                             condition: at,
                         },
                     );
@@ -782,6 +781,7 @@ impl Model {
                             Source {
                                 transfer: Transfer::Identity,
                                 captured: true,
+                                approximated,
                                 condition: ModelCondition::always(),
                             },
                         );
@@ -800,6 +800,7 @@ impl Model {
                         Source {
                             transfer: Transfer::Identity,
                             captured: false,
+                            approximated,
                             condition: at,
                         },
                     );
@@ -820,7 +821,7 @@ impl Model {
             } else {
                 Transfer::Derived
             };
-            for (_, u2, transfer, c2) in inner {
+            for (fact, u2, transfer, c2) in inner {
                 *work += 1;
                 if *work > max_work { return None; }
                 let Some(sources) = states.get(&u2) else { continue; };
@@ -841,6 +842,8 @@ impl Model {
                         Source {
                             transfer: transfer.max(*t3).max(bound),
                             captured: s.captured,
+                            approximated: approximated || carried || s.approximated
+                                || self.approximate_values.contains(&fact),
                             condition,
                         },
                     );
@@ -945,6 +948,7 @@ impl Model {
                     source: Source {
                         transfer: transfer.max(*t2),
                         captured: s.captured,
+                        approximated: s.approximated || self.approximate_values.contains(&fact),
                         condition: selected.and(&s.condition),
                     },
                 });
@@ -959,18 +963,68 @@ impl Model {
         for contribution in self.sink_contributions(key) {
             merge(&mut out, contribution.origin, contribution.source);
         }
-        // A weaker row adds nothing where the same origin reaches the sink by a stronger
-        // transfer: unchanged over derived, derived over through a call.
-        let mut strongest: BTreeMap<Origin, Transfer> = BTreeMap::new();
-        for (o, t) in out.keys() {
-            strongest
-                .entry(o.clone())
-                .and_modify(|e| *e = (*e).min(*t))
-                .or_insert(*t);
-        }
-        out.retain(|(o, t), _| strongest.get(o) == Some(t));
         out
     }
+
+    /// A narrow completeness proof for receiver aliases. The source lattice intentionally
+    /// omits untracked values, so its positive entries cannot establish exclusivity by themselves.
+    /// Follow only one unconditional, non-loop-carried, plain binding at each step.
+    fn receiver_use_is_own(&self, mut use_id: Id, own: Option<Id>) -> bool {
+        let Some(own) = own else { return false };
+        let mut visited = HashSet::new();
+        for _ in 0..MAX_REACH_WORK {
+            if !visited.insert(use_id) || self.incomplete.contains(&(use_id, true)) {
+                return false;
+            }
+            let Some(rows) = self.reaching.get(&use_id) else { return false };
+            let [(Some(definition), condition, false)] = rows.as_slice() else { return false };
+            if self.approximate_reaching.contains(&(use_id, Some(*definition), *condition)) {
+                return false;
+            }
+            let condition = self.condition(*condition);
+            if !condition.is_always() || condition.approximated() { return false }
+            let Some(definition) = self.defs.get(definition) else { return false };
+            if definition.kind == BindingKind::Parameter {
+                return definition.parameter_node_id == Some(own);
+            }
+            if !matches!(definition.kind, BindingKind::Assignment | BindingKind::Walrus) {
+                return false;
+            }
+            let (Some(start), Some(end)) = (definition.value_start_byte, definition.value_end_byte)
+                else { return false };
+            let Some(values) = self.values.get(&(definition.module_node_id, FlowSink::Definition, start, end))
+                else { return false };
+            let [(fact, next, Transfer::Identity, condition)] = values.as_slice() else { return false };
+            if self.approximate_values.contains(fact) { return false }
+            let condition = self.condition(*condition);
+            if !condition.is_always() || condition.approximated() { return false }
+            use_id = *next;
+        }
+        false
+    }
+
+    fn receiver_sink_is_own(&self, key: SinkKey, own: Option<Id>) -> bool {
+        let Some(values) = self.values.get(&key) else { return false };
+        let [(fact, use_id, Transfer::Identity, condition)] = values.as_slice() else { return false };
+        if self.approximate_values.contains(fact) { return false }
+        let condition = self.condition(*condition);
+        condition.is_always() && !condition.approximated()
+            && self.receiver_use_is_own(*use_id, own)
+    }
+}
+
+/// A positive source is not a complete receiver classification. Require exactly the own
+/// receiver, unchanged on every path, with no captured or approximate contribution.
+fn exclusive_receiver(sources: &Sources, own: Option<Id>) -> bool {
+    let Some(own) = own else { return false };
+    sources.len() == 1 && sources.get(&(Origin::Parameter(own), Transfer::Identity))
+        .is_some_and(|source| !source.captured && !source.approximated && !source.condition.approximated()
+            && source.condition.is_always())
+}
+
+fn receiver_access(kind: DynamicKind) -> bool {
+    matches!(kind, DynamicKind::Getattr | DynamicKind::Setattr | DynamicKind::Hasattr
+        | DynamicKind::Delattr | DynamicKind::Vars | DynamicKind::Dict)
 }
 
 /// A sink: its module, kind and span.
@@ -1012,16 +1066,23 @@ pub(crate) fn normal_path_model(
 type ValueSources = HashMap<SinkKey, Vec<(Id, Id, Transfer, Id)>>;
 
 /// A module's statement regions, for the innermost region around a span.
-struct Regions(HashMap<Id, Vec<(i64, i64, Id)>>);
+struct Regions(HashMap<Id, Vec<(i64, i64, Id, bool)>>);
 
 impl Regions {
     fn at(&self, module: Id, start: i64, end: i64) -> Option<Id> {
         self.0
             .get(&module)?
             .iter()
-            .filter(|(s, e, _)| *s <= start && end <= *e)
-            .min_by_key(|(s, e, _)| e - s)
-            .map(|(_, _, c)| *c)
+            .filter(|(s, e, _, _)| *s <= start && end <= *e)
+            .min_by_key(|(s, e, _, _)| e - s)
+            .map(|(_, _, c, _)| *c)
+    }
+
+    fn exact_at(&self, module: Id, start: i64, end: i64) -> Option<Id> {
+        self.0.get(&module)?.iter()
+            .filter(|(s, e, _, _)| *s <= start && end <= *e)
+            .min_by_key(|(s, e, _, _)| e - s)
+            .and_then(|(_, _, condition, approximated)| (!approximated).then_some(*condition))
     }
 }
 
@@ -1155,6 +1216,10 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
             )));
         }
     }
+    let approximate_reaching = reaching_rows.iter().filter(|row| row.approximated)
+        .map(|row| (row.use_id, row.definition_id, row.condition_id)).collect();
+    let approximate_values = value_rows.iter().filter(|row| row.approximated)
+        .map(|row| row.fact_id).collect();
     let mut reaching_map: HashMap<Id, Vec<(Option<Id>, Id, bool)>> = HashMap::new();
     for r in reaching_rows {
         reaching_map.entry(r.use_id).or_default().push((
@@ -1218,6 +1283,8 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
         defs: defs.iter().map(|d| (d.definition_id, d.clone())).collect(),
         reaching: reaching_map,
         values: values_map,
+        approximate_reaching,
+        approximate_values,
         conditions,
         captured: captured_map,
         receivers: receiver_set,
@@ -1226,12 +1293,13 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
         incomplete: HashSet::new(),
         keep_receivers: false,
     };
-    let mut region_map: HashMap<Id, Vec<(i64, i64, Id)>> = HashMap::new();
+    let mut region_map: HashMap<Id, Vec<(i64, i64, Id, bool)>> = HashMap::new();
     for r in region_rows {
         region_map.entry(r.module_node_id).or_default().push((
             r.start_byte,
             r.end_byte,
             r.condition_id,
+            r.approximated,
         ));
     }
     let regions = Regions(region_map);
@@ -1370,6 +1438,10 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
             return Some((BoundaryReason::AbstractBody, "a body that only raises"));
         }
         let rows = body_of.get(&f)?;
+        if rows.iter().any(|row| row.field == SyntaxField::Decorator) {
+            return Some((BoundaryReason::OutsideProviderModel,
+                "a decorator may replace the callable binding"));
+        }
         let text = |r: &BodyRow| text_of(&texts, r.module_node_id, r.start_byte, r.end_byte);
         let body: Vec<&BodyRow> = rows
             .iter()
@@ -1440,6 +1512,8 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
     // Value flows.
     let mut out = FlowModelRows {
         unreachable: unreachable.clone(),
+        decorated: body_rows.iter().filter(|row| row.field == SyntaxField::Decorator)
+            .map(|row| row.function_node_id).collect(),
         ..FlowModelRows::default()
     };
     let mut sinks: BTreeSet<(Id, FlowSink, i64, i64)> = BTreeSet::new();
@@ -1517,6 +1591,7 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
                     upstream_identity,
                     upstream_through_call,
                     captured: contribution.source.captured,
+                    approximated: contribution.source.approximated,
                     condition_id,
                     condition,
                 });
@@ -1583,6 +1658,7 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
                 identity: transfer == Transfer::Identity,
                 through_call: transfer == Transfer::Call,
                 captured: s.captured,
+                approximated: s.approximated,
                 condition_id,
                 condition,
                 argument_node_id: argument.map(|a| a.argument_node_id),
@@ -1730,6 +1806,9 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
         .iter()
         .filter(|d| {
             d.scope_kind == LexicalScopeKind::Module
+                // ty records a submodule import's package installation separately from an
+                // ordinary user binding. It exposes the submodule rather than shadowing it.
+                && d.kind != BindingKind::ImportFromSubmodule
                 && !d.place.contains('.')
                 && !d.place.contains('[')
         })
@@ -1784,7 +1863,7 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
         }
     };
     // Module-level bindings, for following a global re-exported from another module.
-    let mut exported: HashMap<(String, String), Root> = HashMap::new();
+    let mut exported: HashMap<(String, String), Option<Root>> = HashMap::new();
     for r in &root_rows {
         if r.binding_scope_kind == LexicalScopeKind::Module
             && matches!(
@@ -1793,24 +1872,29 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
             )
             && let (Some(m), Some(root)) = (module_name.get(&r.binding_module_node_id), root_of(r))
         {
-            exported.insert((m.to_string(), r.binding_name.clone()), root);
+            exported.entry((m.to_string(), r.binding_name.clone()))
+                .and_modify(|old| { if old.as_ref() != Some(&root) { *old = None; } })
+                .or_insert(Some(root));
         }
     }
-    let follow = |mut g: Root| -> Root {
+    let follow = |mut g: Root| -> Option<Root> {
         for _ in 0..8 {
-            let Root::Global(m, n) = &g else { break };
+            let Root::Global(m, n) = &g else { return Some(g) };
             match exported.get(&(m.clone(), n.clone())) {
-                Some(next) if next != &g => g = next.clone(),
-                _ => break,
+                Some(Some(next)) if next != &g => g = next.clone(),
+                Some(None) => return None,
+                _ => return Some(g),
             }
         }
-        g
+        None
     };
     // Classes by qualified name, and singletons: a module-level `N = C(...)`.
-    let class_named: HashMap<&str, Id> = function_rows
-        .iter()
-        .filter(|f| f.kind == DeclarationKind::Class)
-        .map(|f| (f.qualified_name.as_str(), f.node_id))
+    let mut class_candidates: HashMap<&str, BTreeSet<Id>> = HashMap::new();
+    for class in function_rows.iter().filter(|f| f.kind == DeclarationKind::Class) {
+        class_candidates.entry(class.qualified_name.as_str()).or_default().insert(class.node_id);
+    }
+    let class_named: HashMap<_, _> = class_candidates.into_iter()
+        .filter_map(|(name, ids)| (ids.len() == 1).then(|| (name, *ids.first().expect("one class"))))
         .collect();
     let calls_at: HashMap<(Id, i64, i64), &CallRow> = call_rows
         .iter()
@@ -1820,20 +1904,31 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
     let resolve_dotted = |module: Id, start: i64, text: &str| -> Option<(Root, Vec<String>)> {
         let segments: Vec<&str> = text.split('.').map(str::trim).collect();
         let root_end = start + segments.first()?.len() as i64;
-        let r = root_at.get(&(module, start, root_end))?.first()?;
-        let root = root_of(r)?;
+        let roots = root_at.get(&(module, start, root_end))?;
+        let root = root_of(roots.first()?)?;
+        // Duplicate evidence is harmless; every binding alternative must resolve identically.
+        if roots.iter().any(|r| root_of(r).as_ref() != Some(&root)) { return None; }
         let (at, used) = resolve(root, &segments[1..], &module_names, &module_globals);
         let rest = segments[1 + used..]
             .iter()
             .map(|s| (*s).to_owned())
             .collect();
-        Some((follow(at), rest))
+        Some((follow(at)?, rest))
     };
+    let mut global_def_counts = HashMap::new();
+    for definition in defs.iter().filter(|d| d.scope_kind == LexicalScopeKind::Module) {
+        *global_def_counts.entry((definition.module_node_id, definition.place.as_str())).or_insert(0) += 1;
+    }
     let mut singletons: HashMap<(String, String), Id> = HashMap::new();
     for d in defs
         .iter()
         .filter(|d| d.scope_kind == LexicalScopeKind::Module && d.kind == BindingKind::Assignment)
     {
+        if global_def_counts.get(&(d.module_node_id, d.place.as_str())) != Some(&1)
+            || !regions.exact_at(d.module_node_id, d.start_byte, d.end_byte)
+                .is_some_and(|id| model.condition(id).is_always()) {
+            continue;
+        }
         let (Some(vs), Some(ve)) = (d.value_start_byte, d.value_end_byte) else {
             continue;
         };
@@ -2195,13 +2290,9 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
             model.keep_receivers = true;
             let sources = model.sink(key);
             model.keep_receivers = false;
-            if own.is_some_and(|r| {
-                sources
-                    .keys()
-                    .any(|(o, t)| *o == Origin::Parameter(r) && *t == Transfer::Identity)
-            }) {
+            if exclusive_receiver(&sources, own) && model.receiver_sink_is_own(key, own) {
                 reaches_class = class_of(func);
-            } else if let Some(t) = text_of(
+            } else if sources.is_empty() && let Some(t) = text_of(
                 &texts,
                 receiver.module_node_id,
                 receiver.start_byte,
@@ -2237,19 +2328,17 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
         let func = u.function_node_id;
         let own = func.and_then(|f| receiver_of.get(&f).copied());
         let mut reaches_class = None;
+        let mut no_sources = true;
         if let Some(receiver_use) = use_at.get(&(u.module_node_id, u.start_byte, prefix)) {
             model.keep_receivers = true;
             let (sources, _) = model.reach(*receiver_use, &mut Vec::new());
             model.keep_receivers = false;
-            if own.is_some_and(|r| {
-                sources
-                    .keys()
-                    .any(|(o, t)| *o == Origin::Parameter(r) && *t == Transfer::Identity)
-            }) {
+            no_sources = sources.is_empty();
+            if exclusive_receiver(&sources, own) && model.receiver_use_is_own(*receiver_use, own) {
                 reaches_class = class_of(func);
             }
         }
-        if reaches_class.is_none()
+        if reaches_class.is_none() && no_sources
             && let Some((Root::Global(m, n), rest)) =
                 resolve_dotted(u.module_node_id, u.start_byte, prefix)
             && rest.is_empty()
@@ -2293,6 +2382,8 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
         .filter_map(|d| d.reaches_class_node_id)
         .collect();
     let reaches_all = out.dynamic_accesses.iter().any(|d| d.reaches_all);
+    let reaches_any_class = out.dynamic_accesses.iter()
+        .any(|d| receiver_access(d.kind) && d.reaches_class_node_id.is_none());
     let all_complete = module_rows
         .iter()
         .all(|m| complete.contains(&m.module_node_id));
@@ -2393,7 +2484,7 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
                 Some(BoundaryReason::MissingEvidence),
                 Some("a release module has no complete flow IR".to_owned()),
             )
-        } else if reaches_all || related(*class) {
+        } else if reaches_all || reaches_any_class || related(*class) {
             (
                 false,
                 Some(BoundaryReason::DynamicAccess),
@@ -2447,7 +2538,7 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
                     Some(BoundaryReason::MissingEvidence),
                     Some("a release module has no complete flow IR".to_owned()),
                 )
-            } else if reaches_all || related(*c) {
+            } else if reaches_all || reaches_any_class || related(*c) {
                 (
                     false,
                     Some(BoundaryReason::DynamicAccess),
@@ -2525,8 +2616,65 @@ mod reach_fixed_point_tests {
             fields: HashMap::new(),
             memo: HashMap::new(),
             incomplete: HashSet::new(),
+            approximate_reaching: HashSet::new(),
+            approximate_values: HashSet::new(),
             keep_receivers: false,
         }
+    }
+
+    #[test]
+    fn sink_retains_condition_distinct_transfer_alternatives() {
+        let mut model = model(false);
+        let condition = ModelCondition::atom(cpg_schema::condition::Atom::Truthy {
+            place: "flag".to_owned(),
+        });
+        model.conditions.insert(id(40), condition.clone());
+        model.conditions.insert(id(41), condition.not());
+        let key = (id(0), FlowSink::Return, 100, 101);
+        model.values.insert(key, vec![
+            (id(50), id(3), Transfer::Identity, id(40)),
+            (id(51), id(3), Transfer::Derived, id(41)),
+            (id(52), id(3), Transfer::Call, id(41)),
+        ]);
+        let sources = model.sink(key);
+        assert_eq!(sources.len(), 3);
+        let origin = Origin::Parameter(id(9));
+        assert_eq!(sources[&(origin.clone(), Transfer::Identity)].condition.id(), condition.id());
+        assert_eq!(sources[&(origin.clone(), Transfer::Derived)].condition.id(), condition.not().id());
+        assert_eq!(sources[&(origin, Transfer::Call)].condition.id(), condition.not().id());
+        model.values.get_mut(&key).unwrap().reverse();
+        assert!(same_sources(&sources, &model.sink(key)));
+    }
+
+    #[test]
+    fn receiver_requires_exclusive_complete_identity() {
+        let source = |condition| Source { transfer: Transfer::Identity, captured: false, approximated: false, condition };
+        let key = (Origin::Parameter(id(9)), Transfer::Identity);
+        let mut sources = Sources::from([(key.clone(), source(ModelCondition::always()))]);
+        assert!(exclusive_receiver(&sources, Some(id(9))));
+        assert!(!exclusive_receiver(&sources, Some(id(8))));
+        sources.get_mut(&key).unwrap().condition = ModelCondition::always().with_approximation();
+        assert!(!exclusive_receiver(&sources, Some(id(9))));
+        sources.get_mut(&key).unwrap().condition = ModelCondition::atom(
+            cpg_schema::condition::Atom::Truthy { place: "flag".to_owned() });
+        assert!(!exclusive_receiver(&sources, Some(id(9))));
+        sources.get_mut(&key).unwrap().condition = ModelCondition::always();
+        sources.insert((Origin::Parameter(id(9)), Transfer::Call), Source {
+            transfer: Transfer::Call, captured: false, approximated: false, condition: ModelCondition::always(),
+        });
+        assert!(!exclusive_receiver(&sources, Some(id(9))));
+        assert!(!exclusive_receiver(&Sources::new(), Some(id(9))));
+        let mut model = model(false);
+        assert!(model.receiver_use_is_own(id(3), Some(id(9))));
+        assert!(!model.receiver_use_is_own(id(2), Some(id(9))));
+        model.reaching.get_mut(&id(3)).unwrap().push((None, id(1), false));
+        assert!(!model.receiver_use_is_own(id(3), Some(id(9))));
+        model.reaching.get_mut(&id(3)).unwrap().pop();
+        model.reaching.get_mut(&id(3)).unwrap()[0].2 = true;
+        assert!(!model.receiver_use_is_own(id(3), Some(id(9))));
+        model.reaching.get_mut(&id(3)).unwrap()[0].2 = false;
+        model.defs.remove(&id(10));
+        assert!(!model.receiver_use_is_own(id(3), Some(id(9))));
     }
 
     #[test]

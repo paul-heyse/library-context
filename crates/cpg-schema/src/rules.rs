@@ -65,6 +65,12 @@ pub const REFERENCES: &[Reference] = &[
     // Analysis results (ADR-0019): provenance in-row, citing runs, nodes, edges and facts.
     r("analysis_invocations", "run_id", &[("runs", "run_id")]),
     r("analysis_invocations", "subject_node_id", NODE),
+    r("behaviors", "condition_scope_node_id", &[("declarations", "node_id")]),
+    r("value_flow_predecessor_candidates", "successor_source_origin_id", &[("value_flow_contributions", "origin_id")]),
+    r("value_flow_predecessor_candidates", "predecessor_source_origin_id", &[("value_flow_contributions", "origin_id")]),
+    r("value_flow_predecessor_compatibility", "successor_source_origin_id", &[("value_flow_contributions", "origin_id")]),
+    r("value_flow_predecessor_compatibility", "predecessor_source_origin_id", &[("value_flow_contributions", "origin_id")]),
+    r("modeled_assignment_return_paths", "successor_source_origin_id", &[("value_flow_contributions", "origin_id")]),
     r(
         "findings",
         "invocation_id",
@@ -2215,6 +2221,15 @@ fn semantic() -> Vec<Rule> {
              SELECT f.node_id FROM operation_facets f \
              LEFT ANTI JOIN operations o ON o.node_id = f.node_id"
                 .to_owned(),
+        ),
+        (
+            "semantic:call-transfer-never-established",
+            format!(
+                "SELECT behavior_id FROM behaviors WHERE transfer = {call} \
+                 AND verdict <> {unknown}",
+                call = crate::codebook::FlowTransfer::Call.code(),
+                unknown = Verdict::Unknown.code(),
+            ),
         ),
         (
             // Increment 3's deep review, F1: a behavior whose path crosses a non-definite arc

@@ -153,8 +153,11 @@ async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
             ON d.node_id=f.function_node_id WHERE d.name='{name}'")).await.unwrap().collect().await.unwrap();
         let counts=rows[0].column(0).as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
         assert_eq!(counts.value(0),expected,"{name} fresh default admission: {}",
-            sql::render(&ctx,&format!("SELECT d.qualified_name,b.reason FROM summary_boundaries b \
-                JOIN declarations d ON d.node_id=b.function_node_id WHERE d.qualified_name LIKE '%{name}%'"))
+            sql::render(&ctx,&format!("SELECT d.qualified_name,b.reason,v.approximated AS raw_approx, \
+                c.approximated AS contribution_approx, c.condition_id, v.identity, v.through_call \
+                FROM summary_boundaries b JOIN declarations d ON d.node_id=b.function_node_id \
+                JOIN value_flow_contributions c ON c.origin_id=b.source_origin_id \
+                JOIN flow_values v ON v.fact_id=c.flow_value_fact_id WHERE d.qualified_name LIKE '%{name}%'"))
                 .await.unwrap());
     }
     let rows = sql::query(&ctx, &format!("SELECT count(*) FROM ( \

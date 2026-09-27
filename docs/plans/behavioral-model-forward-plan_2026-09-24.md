@@ -24,7 +24,7 @@ integrated qualification is outstanding.**
 | L7 serving | **Partially implemented.** FORMAT 9 has internal callable-formal support, checked native IPC decoding and bounded cited-finding support closure; a finalizer and a finding-only coordinates claim round-trip in focused tests. `inspect_value_paths` remains path-local and exposes source fact/origin IDs on both positive paths and open boundaries; operation facet values retain verdicts | Typed operation-wide compatibility/effect/role filters, full proof spans beyond the cited witness projection, clean-wheel query |
 | Integrated acceptance | **Not established.** A 2026-09-25 `just test-all` attempt passed 313/313 release Rust tests and 110/112 Python tests (two stale tool-list expectations, since corrected: `test_server.py` 12/12 passed). The rerun was stopped at operator direction; the operator's expectation of a pass is an assumption, not an outcome | `just test-all`, fresh `just pilot`, Q01/Q03/Q05/Q09, structured evaluation, clean-wheel query and the increment-end review are `not_run` |
 
-**Accepted schema migrations at this checkpoint:** extractor output 31; compiler output 85.
+**Accepted schema migrations at this checkpoint:** extractor output 32; compiler output 86.
 The current contracts include `expression_evaluations` and ordered operand proofs, statement/frame
 completion, condition-keyed return entry, native MRO completeness, a persisted exact exception
 codebook and `summary_origin_coverage`. Snapshots are reviewed migrations; a fresh store rebuild
@@ -100,7 +100,7 @@ operator-approved detailed execution queue. Orders 1–10 below retain their sem
 §6 retains finding disposition. The [composition review](../design_review/reviews/design_review_stage3-composition_2026-09-26.md)
 F01–F04 remain applicable. Accepted targets do not certify their implementation.
 
-**Current implementation checkpoint.** Compiler output 85 includes typed value-origin and execution-site
+**Current implementation checkpoint.** Compiler output 86 includes typed value-origin and execution-site
 coverage, including complete empty escaping-exception domains under statement entry. Async and
 generator scopes remain excluded. Fresh nested definition-header completion is reconciled with
 source/Delta controls; immediate fresh nested calls now use availability/value/stability certificates. Shared callee proof admission replaces
@@ -110,9 +110,14 @@ provider-phase matching, and typed static/runtime/unresolved validation schema a
 from the effect subject. Runtime schema candidates retain a separate source binding or an explicit
 reason; no production validation effect is activated. Extraction-only compilations leave behavioral
 coverage unexamined when its published premise catalog is absent and reconstruct no entry links
-against that absent catalog. These are partial S1/S2/S6 changes, not an assembled Stage 3 receipt. STATUS owns the latest
+against that absent catalog. S5 now preserves transfer alternatives, origin-specific predecessor joins, provider approximation,
+exclusive receiver admission and typed transfer/scope through serving. Extractor output 32 separates
+provider approximation from the explicit call-transfer obligation. A newly exposed S1/S2 gap remains:
+`handler_entry_identity` has exact entry/exit proofs but an approximated reaching value; it stays
+unknown pending an occurrence-specific source parameter-identity certificate. These are partial
+S1/S2/S5/S6 changes, not an assembled Stage 3 receipt. STATUS owns the latest
 focused command/outcome; the [bounded review](../design_review/reviews/design_review_stage3-channel-contracts_2026-09-26.md)
-keeps target acceptance separate from implementation scope and corrected findings F01–F03.
+keeps target acceptance separate from implementation scope and corrected findings F01–F07; the handler value-identity qualification gap stays open.
 
 | Step | Work, owner and deletion obligation | Acceptance / current state |
 |---|---|---|
@@ -123,7 +128,7 @@ keeps target acceptance separate from implementation scope and corrected finding
 | S3b | Activate every §3.3 family's supported exact source targets by channel and phase; unsupported phase/binding and no-consumer targets remain explicit candidates. Typed runtime schema precedes validation effects. Source-backed total return is independent of transfer and effects | Per-target positive/withholding pairs, exact pins/signatures, catalog equality and independent pure-model challenge. Open |
 | S4 | Call-specific stable controls, simultaneous bounded substitution and residual caller/callee conjunction. Extend semantic fixed-point state to all channels; preserve origins, modality, phase, parallel calls and per-alternative refusal recovery; effects before raises use prefix evidence | Finite/base-free/self/mutual recursion, shuffled bytes, swapped/captured formals, later predicates and original typed caps. Existing value frontier retained; remaining channels open |
 | S4 engine | Compare current worklist, Ascent and datafrog on the actual shared semantic/refusal/witness contract. Keep ADR-0053 unless another conforming engine removes total machinery; measure build/preparation/run/memory after parity, record an ADR before replacement, delete superseded production path | No timeout treated as deterministic budget; no dual production engines. Comparison open |
-| S5 | Compose claim-specific source/model/callee/handler/exit coverage and discharge only matching origins. Remove unconditional strongest-transfer pruning; preserve kind/condition alternatives through value flows and receiver consumers. Move existing RCA attributes to typed meaning/modality/evidence and one renderer; reject unknown forms | behavior_shapes part 2, positive/open siblings, empty complete channels, transfer/lambda/decorator controls, candidate/definite RCA and relabeling invariance. Open |
+| S5 | Compose claim-specific source/model/callee/handler/exit coverage and discharge only matching origins. Remove unconditional strongest-transfer pruning; preserve kind/condition alternatives through value flows and receiver consumers. Move existing RCA attributes to typed meaning/modality/evidence and one renderer; reject unknown forms | behavior_shapes part 2, positive/open siblings, empty complete channels, transfer/lambda/decorator controls, candidate/definite RCA and relabeling invariance. Transfer repair implemented with focused source/Delta/native controls; handler value-identity qualification, coverage and RCA remain open |
 | S6 | FORMAT 9 structural proofs/coverage/support; typed effect, role and exact-entry-input conjunctions on existing operation queries. Rust canonicalizes and evaluates; Python adapts. Conditions/scopes of conjoined witnesses must be compatible. Partition matched/excluded/source-open/unexamined; preserve path-local inspection. Delete FORMAT 8/native adjacency interpretation | Delta/native/MCP empty/open/cap/cursor/closure/strict primitive cases; full bounded cited spans. Open |
 | S7 | Extend isolated CPython/Hypothesis comparisons to actual compiler completion, summaries, coverage and served results; use release binaries. CrossHair distinguishes exhaustive/bounded/counterexample; Pysa TITO uses real rules and pinned Pyrefly on identical source. Close original W5 work/node, W7 reach-work and W12 pair-work default-cap producer→Delta→native traces | Independent challenges accompany S2–S6. Original default-cap traces are separate from injected limits. Open |
 | S8 | After S1–S7: fmt, test-all including all-techniques digest, fresh-store pilot, structured Stage 3 packet with semantic queries, clean-wheel query, controlled live W9/W16 replay/conformance, cost measurements, assembled target review, docs-check and handoff | All not_run; frozen exit rule unchanged |

@@ -81,6 +81,8 @@ class Fate(BaseModel):
     """What one behavior row states, with its verdict and where it is shown."""
 
     kind: str
+    transfer: Literal["identity", "derived", "call"] | None
+    condition_scope_id: str
     parameter: str | None
     callee: str | None
     target: str | None
@@ -91,7 +93,7 @@ class Fate(BaseModel):
     # Why the verdict is `unknown`: `override_dispatch`, `ambiguous_binding`,
     # `outside_provider_model`, `dynamic_access`; none when established or conditional.
     boundary_reason: str | None
-    # The condition it holds under, in the operation's own places (none: always).
+    # The condition in condition_scope_id's places (none: always).
     condition: str | None
     # A callee outside the release, as written.
     callee_text: str | None
@@ -238,6 +240,8 @@ def _ref(gen: Generation, node: bytes) -> OperationRef:
 def _fate(r: dict) -> Fate:
     return Fate(
         kind=r["kind"],
+        transfer=r["transfer"],
+        condition_scope_id=r["condition_scope_node_id"].hex(),
         parameter=r["parameter_name"],
         callee=r["callee"],
         target=r["target_name"],

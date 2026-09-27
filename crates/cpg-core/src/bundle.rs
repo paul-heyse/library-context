@@ -236,7 +236,8 @@ fn query(name: &str) -> Option<String> {
             verdict = text_of::<Verdict>("operation_facet_status.verdict"),
         ),
         "behaviors" => format!(
-            "SELECT b.behavior_id, b.operation_node_id, {kind} AS kind, b.parameter_name, \
+            "SELECT b.behavior_id, b.operation_node_id, {kind} AS kind, \
+                    {transfer} AS transfer, b.condition_scope_node_id, b.parameter_name, \
                     b.callee_node_id, COALESCE(o.access_path, d.qualified_name) AS callee, \
                     b.target_name, b.value, b.depth, b.conditional, {verdict} AS verdict, \
                     {reason} AS boundary_reason, b.condition, b.callee_text, {phase} AS phase, \
@@ -249,6 +250,7 @@ fn query(name: &str) -> Option<String> {
                         GROUP BY module_node_id) df ON df.module_node_id = b.site_module_node_id \
              ORDER BY b.behavior_id",
             kind = text_of::<BehaviorKind>("b.kind"),
+            transfer = text_of::<cpg_schema::codebook::FlowTransfer>("b.transfer"),
             verdict = text_of::<Verdict>("b.verdict"),
             reason = text_of::<BoundaryReason>("b.boundary_reason"),
             phase = text_of::<cpg_schema::codebook::ReadPhase>("b.phase"),

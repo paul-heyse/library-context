@@ -1205,6 +1205,9 @@ codebook!(
         Computed = 1 => "computed",
         /// The value is unpacked, or no single formal takes it.
         Unmapped = 2 => "unmapped",
+        /// An attributed alternative has no admitted unchanged transfer proof. It may be
+        /// derived, call-dependent, captured or condition-bounded; do not relabel it computed.
+        OpenTransfer = 3 => "open_transfer",
     }
 );
 
@@ -1341,6 +1344,26 @@ codebook!(
         TypeIs = 7 => "type_is",
     }
 );
+
+codebook!(
+    /// How a source value reaches a sink. A call contribution does not establish that the
+    /// result carries the value; it remains a summary obligation.
+    FlowTransfer = "flow_transfer" {
+        Identity = 0 => "identity",
+        Derived = 1 => "derived",
+        Call = 2 => "call",
+    }
+);
+
+impl FlowTransfer {
+    pub fn of(identity: bool, through_call: bool) -> Self {
+        match (identity, through_call) {
+            (_, true) => Self::Call,
+            (true, false) => Self::Identity,
+            (false, false) => Self::Derived,
+        }
+    }
+}
 
 codebook!(
     /// How an authored model maps an input value to an output place (DESIGN §9.9).
@@ -1731,6 +1754,7 @@ pub fn registry() -> Vec<CodebookEntry> {
         CodebookEntry::of::<EmbeddingView>(),
         CodebookEntry::of::<ConditionAtom>(),
         CodebookEntry::of::<ModelTransferKind>(),
+        CodebookEntry::of::<FlowTransfer>(),
         CodebookEntry::of::<FlowSink>(),
         CodebookEntry::of::<FlowCallOperandRole>(),
         CodebookEntry::of::<FlowCallLinkStatus>(),

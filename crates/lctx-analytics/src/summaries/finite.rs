@@ -639,6 +639,12 @@ fn direct_flows(
                 seed.source_flow_fact_id, seed.condition_id, seed.source_origin_id), BoundaryReason::SummaryProofLimit);
             continue;
         }
+        if seed.approximated {
+            refuse(refusals, (seed.snapshot_id, seed.function_node_id, seed.parameter_node_id,
+                seed.source_flow_fact_id, seed.condition_id, seed.source_origin_id),
+                BoundaryReason::OutsideProviderModel);
+            continue;
+        }
         let summary_id = recipe::summary_flow(&recipe::SummaryFlowIdentity {
             function: seed.function_node_id,
             parameter: seed.parameter_node_id,
@@ -913,6 +919,12 @@ fn push_finite_path(
     refusals: &mut Vec<SummaryRefusal>,
     path: FinitePath,
 ) -> bool {
+    if path.approximated {
+        refuse(refusals, (path.snapshot_id, path.function_node_id, path.parameter_node_id,
+            path.source_flow_fact_id, path.condition_id, path.source_origin_id),
+            BoundaryReason::OutsideProviderModel);
+        return false;
+    }
     let input_path = InputPath::Parameter {
         name: path.parameter_name,
     }

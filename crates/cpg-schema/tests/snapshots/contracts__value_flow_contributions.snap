@@ -27,5 +27,6 @@ local_through_call: Boolean NOT NULL
 upstream_identity: Boolean NOT NULL
 upstream_through_call: Boolean NOT NULL
 captured: Boolean NOT NULL
+approximated: Boolean NOT NULL
 condition_id: FixedSizeBinary(16) NOT NULL
 condition: Utf8 NOT NULL

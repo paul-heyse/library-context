@@ -395,7 +395,9 @@ pub(crate) fn run(
                     identity: v.identity,
                     through_call: v.through_call,
                     condition_id,
-                    approximated: v.condition.approximated() || v.through_call,
+                    // Call transfer is a separate obligation, discharged by a source/model
+                    // proof. Provider approximation cannot be discharged by that proof.
+                    approximated: v.condition.approximated(),
                 }
             );
             for (step, frame) in v.call_path.iter().enumerate() {

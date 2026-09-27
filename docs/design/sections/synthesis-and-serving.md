@@ -578,7 +578,9 @@ behavior.
 **Accepted consolidation target (Proposed implementation, 2026-09-26).** The expanded contract
 uses FORMAT 9 through a current-store/generation rebuild (ADR-0048). The callable-support
 subset is **Implemented (2026-09-27)**: private/nested formals validate callee controls without
-entering public lookup. The remaining expanded semantics are still proposed implementation.
+entering public lookup. Flow fates also carry typed transfer and the scope that owns their condition;
+Python preserves these fields instead of inferring transfer from presentation text. The remaining
+expanded semantics are still proposed implementation.
 Typed effect/role terms and conjunctions of exact entry-formal primitive bindings are interpreted
 and canonicalized by Rust. Python remains a protocol/rendering adapter. Shared typed proof
 admission replaces shape-specific native rules, with full bounded source support. Coverage,

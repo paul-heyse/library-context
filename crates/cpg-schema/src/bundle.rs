@@ -258,6 +258,8 @@ pub fn files(dimensions: i32) -> Vec<ServingFile> {
                 id("behavior_id", false),
                 id("operation_node_id", false),
                 utf8("kind", false),
+                utf8("transfer", true),
+                id("condition_scope_node_id", false),
                 utf8("parameter_name", true),
                 id("callee_node_id", true),
                 utf8("callee", true),

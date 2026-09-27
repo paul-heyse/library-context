@@ -242,9 +242,8 @@ async fn validate_value_flow_predecessor_compatibility(
     };
     let key = |r: &ValueFlowPredecessorCompatibilityRow| {
         (
-            r.successor_fact_id,
-            r.predecessor_fact_id,
-            r.source_key.clone(),
+            r.successor_source_origin_id,
+            r.predecessor_source_origin_id,
             r.reaching_fact_id,
         )
     };
@@ -283,9 +282,8 @@ async fn validate_value_flow_predecessor_candidates(
     .await?;
     let key = |r: &ValueFlowPredecessorCandidatesRow| {
         (
-            r.successor_fact_id,
-            r.predecessor_fact_id,
-            r.source_key.clone(),
+            r.successor_source_origin_id,
+            r.predecessor_source_origin_id,
             r.reaching_fact_id,
         )
     };
@@ -409,8 +407,8 @@ async fn validate_modeled_assignment_return_paths(
     .await?;
     let key = |r: &ModeledAssignmentReturnPathsRow| {
         (
-            r.successor_fact_id,
-            r.predecessor_fact_id,
+            r.successor_source_origin_id,
+            r.predecessor_source_origin_id,
             r.reaching_fact_id,
             r.parameter_node_id,
             r.pysa_fact_id,

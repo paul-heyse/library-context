@@ -109,6 +109,162 @@ async fn count(ctx: &SessionContext, statement: &str) -> i64 {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn transfer_alternatives_keep_conditions_verdicts_and_receiver_boundaries() {
+    let snapshot = Id([103; 16]);
+    let mut inputs = raw("transfer_alternatives", snapshot);
+    let analysis = Analysis {
+        config: AnalyticsConfig::parse(
+            "version = 1\n[subsystem]\nmodule_prefixes = [\"transferpkg\"]\n\
+             public_roots = [\"transferpkg\"]\n[seeds]\nprimary = [\"transferpkg.mixed\"]\n\
+             distractors = []\n[pass_a]\nmax_depth = 2\nmax_vertices = 128\n\
+             max_edges = 512\nmax_witnesses = 3\n[briefs]\nbudget = 1\n",
+        ).unwrap(),
+        embedder: Some(Arc::new(cpg_core::embed::FakeEmbedder::new())),
+        techniques: Techniques::default(),
+    };
+    let first = tempfile::tempdir().unwrap();
+    compile_analyzed(first.path(), snapshot, &inputs, Some(&analysis)).await.unwrap();
+    let (_, ctx) = published(first.path(), snapshot).await.unwrap().unwrap();
+    assert_eq!(count(&ctx, "SELECT count(*) FROM value_flows v \
+        JOIN declarations d ON d.node_id = v.function_node_id \
+        WHERE d.qualified_name = 'transferpkg.mixed' AND v.source_name = 'value' \
+          AND v.sink = 2").await, 3);
+    let alternatives = text(&ctx, "SELECT b.transfer, b.verdict, b.boundary_reason, b.condition \
+        FROM behaviors b JOIN operations o ON o.node_id = b.operation_node_id \
+        WHERE o.access_path = 'transferpkg.mixed' AND b.parameter_name = 'value' \
+          AND b.kind = 11 ORDER BY b.transfer").await;
+    assert!(alternatives.contains("| 0        | 1"), "{alternatives}");
+    assert!(alternatives.contains("| 1        | 1"), "{alternatives}");
+    assert!(alternatives.contains("| 2        | 3       | 19"), "{alternatives}");
+    assert_eq!(count(&ctx, "SELECT count(*) FROM behaviors b \
+        JOIN operations o ON o.node_id = b.operation_node_id \
+        WHERE o.access_path = 'transferpkg.Holder.__init__' AND b.depth = 2 \
+          AND b.kind = 11 AND b.parameter_name = 'value' \
+          AND b.condition_scope_node_id <> b.operation_node_id").await, 3);
+    assert_eq!(count(&ctx, "SELECT count(*) FROM behaviors b JOIN operations o \
+        ON o.node_id = b.operation_node_id WHERE o.access_path = 'transferpkg.ConditionalHolder.__init__' \
+        AND b.depth = 2 AND b.verdict IN (0, 1)").await, 0);
+    assert_eq!(count(&ctx, "SELECT count(*) FROM behaviors b JOIN operations o \
+        ON o.node_id = b.operation_node_id WHERE o.access_path = 'transferpkg.captured' \
+        AND b.parameter_name = 'value' AND b.verdict IN (0, 1)").await, 0);
+    assert!(count(&ctx, "SELECT count(*) FROM behaviors b JOIN operations o \
+        ON o.node_id = b.operation_node_id WHERE o.access_path = 'transferpkg.captured' \
+        AND b.parameter_name = 'value' AND b.boundary_reason = 5").await > 0);
+    assert_eq!(count(&ctx, "SELECT count(*) FROM behaviors b JOIN operations o \
+        ON o.node_id = b.operation_node_id WHERE o.access_path = 'transferpkg.decorated' \
+        AND b.verdict <> 3").await, 0);
+    assert_eq!(count(&ctx, "SELECT count(*) FROM operations \
+        WHERE access_path = 'transferpkg.decorated_empty' \
+          AND behavior_status = 3 AND boundary_reason = 10").await, 1);
+    assert_eq!(count(&ctx, "SELECT count(*) FROM behaviors b JOIN operations o \
+        ON o.node_id = b.operation_node_id WHERE o.access_path = 'transferpkg.through_decorated' \
+        AND b.kind IN (0, 4) AND b.verdict IN (0, 1)").await, 0);
+    assert!(count(&ctx, "SELECT count(*) FROM behaviors b JOIN operations o \
+        ON o.node_id = b.operation_node_id WHERE o.access_path = 'transferpkg.outer' \
+        AND b.kind = 0 AND b.parameter_name = 'value' AND b.verdict IN (0, 1)").await > 0);
+    assert!(count(&ctx, "SELECT count(*) FROM behaviors b JOIN operations o \
+        ON o.node_id = b.operation_node_id WHERE o.access_path = 'transferpkg.outer' \
+        AND b.kind = 3 AND b.parameter_name = 'value' AND b.verdict = 3").await > 0);
+    assert_eq!(count(&ctx, "SELECT count(*) FROM dynamic_accesses a \
+        JOIN declarations d ON d.node_id = a.function_node_id \
+        WHERE d.qualified_name LIKE 'transferpkg.Stable.%' \
+          AND a.reaches_class_node_id IS NOT NULL").await, 2);
+    assert_eq!(count(&ctx, "SELECT count(*) FROM dynamic_accesses a \
+        JOIN declarations d ON d.node_id = a.function_node_id \
+        WHERE d.qualified_name LIKE 'transferpkg.MixedReceiver.%' \
+          AND a.reaches_class_node_id IS NULL AND NOT a.reaches_all").await, 3);
+    assert_eq!(count(&ctx, "SELECT count(*) FROM negative_premises \
+        WHERE place_key = 'Field[transferpkg.Unrelated.unread]' \
+          AND NOT holds AND boundary_reason = 16").await, 1);
+    assert_eq!(count(&ctx, "SELECT count(*) FROM negative_premises p \
+        JOIN parameter_syntax s ON s.node_id = p.subject_node_id \
+        JOIN declarations d ON d.node_id = s.function_node_id \
+        WHERE d.qualified_name = 'transferpkg.unused' AND s.name = 'ignored' AND p.holds").await, 1);
+    assert_eq!(count(&ctx, "SELECT count(*) FROM singletons \
+        WHERE global IN ('transferpkg.global_choice', 'transferpkg.rebound', 'transferpkg.selected_instance')").await, 0);
+    assert_eq!(count(&ctx, "SELECT count(*) FROM singletons WHERE global = 'transferpkg.fixed'").await, 1);
+    assert_eq!(count(&ctx, "SELECT count(*) FROM dynamic_accesses a JOIN declarations d \
+        ON d.node_id = a.function_node_id WHERE d.qualified_name IN \
+        ('transferpkg.read_global_choice', 'transferpkg.read_rebound', 'transferpkg.read_selected') \
+        AND a.reaches_class_node_id IS NULL").await, 3);
+    let flow_claims: Vec<cpg_schema::behavior::BehaviorsRow> = sql::fetch(&ctx, &Relation {
+        name: "test_finalized_transfer_claim_ids",
+        deps: &["behaviors"],
+        sql: "SELECT * FROM behaviors WHERE transfer IS NOT NULL".to_owned(),
+    }, sql::Params::new()).await.unwrap();
+    assert!(!flow_claims.is_empty());
+    for row in &flow_claims {
+        assert_eq!(row.behavior_id, cpg_schema::behavior::flow_behavior_id(row),
+            "published identity must follow the typed transfer and scope");
+        let mut regraded = row.clone();
+        regraded.verdict = Verdict::Unknown;
+        regraded.boundary_reason = Some(BoundaryReason::MissingEvidence);
+        assert_eq!(row.behavior_id, cpg_schema::behavior::flow_behavior_id(&regraded),
+            "grading does not change claim identity");
+    }
+    let generation = cpg_core::bundle::bundle(first.path(), snapshot, &first.path().join("generations"))
+        .await.unwrap();
+    let output = std::process::Command::new("uv")
+        .args(["run", "--no-sync", "python", "-c", r#"
+import sys
+from pathlib import Path
+from lctx_mcp.generation import load
+from lctx_mcp.operations import get_operation
+generation = load(Path(sys.argv[1]), None)
+mixed = get_operation(generation, generation.snapshot_id, 'transferpkg.mixed')
+fates = [f for p in mixed.parameters if p.name == 'value' for f in p.fates if f.kind == 'returns']
+assert {f.transfer: f.verdict for f in fates} == {'identity': 'conditional', 'derived': 'conditional', 'call': 'unknown'}
+assert all(f.condition_scope_id == mixed.operation_id for f in fates)
+holder = get_operation(generation, generation.snapshot_id, 'transferpkg.Holder.__init__')
+fates = [f for p in holder.parameters if p.name == 'value' for f in p.fates if f.kind == 'returns']
+assert len(fates) == 3 and all(f.condition_scope_id != holder.operation_id for f in fates)
+assert {f.transfer for f in fates} == {'identity', 'derived', 'call'}
+assert all(f.verdict == 'unknown' for f in fates if f.transfer == 'call')
+"#]).arg(&generation.dir)
+        .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+        .output().unwrap();
+    assert!(output.status.success(), "{}\n{}", String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr));
+    for (name, batch) in &mut inputs {
+        if matches!(*name, "flow_reaching" | "flow_values") && batch.num_rows() > 1 {
+            let indices = UInt32Array::from((0..batch.num_rows() as u32).rev().collect::<Vec<_>>());
+            let columns = batch.columns().iter().map(|column|
+                arrow_select::take::take(column.as_ref(), &indices, None).unwrap()).collect();
+            *batch = RecordBatch::try_new(batch.schema(), columns).unwrap();
+        }
+    }
+    let second = tempfile::tempdir().unwrap();
+    compile_analyzed(second.path(), snapshot, &inputs, Some(&analysis)).await.unwrap();
+    let (_, reordered) = published(second.path(), snapshot).await.unwrap().unwrap();
+    for (table, order) in [("value_flows", "function_node_id, sink, sink_start_byte, source_key, identity, through_call"),
+        ("behaviors", "behavior_id"), ("dynamic_accesses", "call_site_node_id"),
+        ("negative_premises", "place_key")] {
+        let query = format!("SELECT * FROM {table} ORDER BY {order}");
+        assert_eq!(text(&ctx, &query).await, text(&reordered, &query).await, "{table}");
+    }
+    // Inject provider approximation without changing any condition identity. Its row-local
+    // fidelity must survive acquisition, propagation, publication and Pass B admission.
+    for (name, batch) in &mut inputs {
+        if matches!(*name, "flow_reaching" | "flow_values") {
+            let index = batch.schema().index_of("approximated").unwrap();
+            let mut columns = batch.columns().to_vec();
+            columns[index] = Arc::new(arrow_array::BooleanArray::from(vec![true; batch.num_rows()]));
+            *batch = RecordBatch::try_new(batch.schema(), columns).unwrap();
+        }
+    }
+    let approximate = tempfile::tempdir().unwrap();
+    compile_analyzed(approximate.path(), snapshot, &inputs, Some(&analysis)).await.unwrap();
+    let (_, approximate_ctx) = published(approximate.path(), snapshot).await.unwrap().unwrap();
+    assert!(count(&approximate_ctx, "SELECT count(*) FROM value_flows WHERE approximated").await > 0);
+    assert_eq!(count(&approximate_ctx, "SELECT count(*) FROM summary_flows").await, 0);
+    assert_eq!(count(&approximate_ctx, "SELECT count(*) FROM behaviors WHERE transfer IS NOT NULL \
+        AND verdict IN (0, 1)").await, 0);
+    assert_eq!(count(&approximate_ctx, "SELECT count(*) FROM dynamic_accesses a JOIN declarations d \
+        ON d.node_id = a.function_node_id WHERE d.qualified_name LIKE 'transferpkg.Stable.%' \
+        AND a.reaches_class_node_id IS NOT NULL").await, 0);
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn real_flow_input_row_order_keeps_published_contribution_bytes() {
     let snapshot = Id([94; 16]);
     let ordered = raw("return_completion_shapes", snapshot);

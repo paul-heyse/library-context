@@ -302,6 +302,19 @@ reasoning, and every step is cited.
 
 ## Value flows and call transfers
 
+- **Transfer fidelity (Implemented, 2026-09-27; ADR-0058).** Sinks retain each
+  identity/derived/call alternative under its own condition. Both merged flows and unmerged
+  contributions retain provider approximation separately from condition identity; assignment
+  predecessor joins name both source origins. A positive identity witness never discharges an
+  open sibling. Pass B publishes that sibling as an unproved transfer, including after a followed
+  call, rather than calling it computed or silently dropping it.
+  Flow behaviors carry typed transfer and condition-owner scope through FORMAT 9 and Python.
+  Captured values, decorated owners and decorated intermediary calls stay unknown. Only an exact,
+  unconditional identity store composes with later field reads; a guarded store retains its direct
+  claim. Receiver narrowing requires an exclusive exact identity chain. Unknown receiver scope
+  blocks field/singleton negatives, and a rebound or conditional global construction is not a
+  uniquely resolved singleton. General alias, decorator and deferred-execution interpretation is
+  still outside the implemented model.
 - **A value inside a call is a transfer, not a flow.** A use inside a call within a value (callee,
   receiver or argument) reaches the value only if the callee's result carries it, which is a
   summary's question. The flow IR marks such a use `through_call`; a path is as weak as its

@@ -260,7 +260,13 @@ async fn the_flow_ir_follows_fallbacks_settings_and_fields() {
     );
     // One setting, two spellings, one resolved key.
     let debug = behaviors_of(&ctx, "bpkg.debug_enabled").await;
-    assert!(debug.contains("bpkg.config.settings.debug"), "{debug}");
+    assert!(debug.contains("bpkg.config.settings.debug"), "{debug}\n{}", table(&ctx,
+        "SELECT DISTINCT s.module_name, b.name, b.kind, e.imported_module, e.resolved_module, e.imported_name \
+         FROM references r JOIN reference_resolutions rr ON rr.reference_id = r.node_id \
+         JOIN bindings b ON b.node_id = rr.binding_id \
+         JOIN source_files s ON s.module_node_id = b.module_node_id \
+         LEFT JOIN export_syntax e ON e.node_id = b.site_node_id \
+         WHERE b.name IN ('bpkg', 'config', 'settings') ORDER BY 1, 2").await);
     let reads = table(
         &ctx,
         "SELECT field, phase FROM ambient_reads WHERE global = 'bpkg.config.settings' ORDER BY 1",

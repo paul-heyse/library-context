@@ -1115,6 +1115,11 @@ table!(
         behavior_id: Id,
         operation_node_id: Id,
         kind: BehaviorKind,
+        /// Source transfer meaning, independent of the rendered value and verdict.
+        transfer: Option<crate::codebook::FlowTransfer>,
+        /// The callable whose places the condition names; may differ from the operation
+        /// for a field read in another method.
+        condition_scope_node_id: Id,
         /// The operation's parameter the row is about (`forwards`, `raises_when`, `unfollowed`).
         parameter_node_id: Option<Id>,
         parameter_name: Option<String>,
@@ -1198,7 +1203,7 @@ table!(
 
 table!(
     /// One source origin contributing to one raw `flow_values` fact before the presentation
-    /// view merges origins and keeps only the strongest transfer. L3 must join its parent fact
+    /// view merges paths within one origin/transfer kind. L3 must join its parent fact
     /// to `flow_value_call_links`; a sink span or `through_call` flag is not a call identity.
     ValueFlowContributions, ValueFlowContributionsRow = "value_flow_contributions",
     family = Findings,
@@ -1236,6 +1241,7 @@ table!(
         upstream_identity: bool,
         upstream_through_call: bool,
         captured: bool,
+        approximated: bool,
         condition_id: Id,
         condition: String,
     }
@@ -1277,12 +1283,13 @@ table!(
     /// through the flow IR's reaching definitions and value sources, **identity** (unchanged),
     /// derived, or only through a call (`through_call`: the callee's result may not carry it),
     /// under the condition it does so (a path condition in the function's own places). Per sink and
-    /// source, the strongest transfer is kept.
+    /// source and transfer kind, the selecting conditions are joined. A stronger alternative
+    /// never deletes a weaker one, even where their conditions overlap.
     /// A read of an enclosing function's parameter inside a lambda or comprehension is followed
     /// through our resolution, flow-insensitively (`captured`).
     ValueFlows, ValueFlowsRow = "value_flows",
     family = Findings,
-    key = [snapshot_id, module_node_id, sink_start_byte, sink_end_byte, source_key, identity],
+    key = [snapshot_id, module_node_id, sink, sink_start_byte, sink_end_byte, source_key, identity, through_call],
     checks = [
         ("sink_span_order", "sink_end_byte >= sink_start_byte"),
         ("identity_not_through_call", "NOT (identity AND through_call)"),
@@ -1305,6 +1312,7 @@ table!(
         identity: bool,
         through_call: bool,
         captured: bool,
+        approximated: bool,
         condition_id: Id,
         condition: String,
         /// For an argument: its node and call site; for a stored value: the place written.
@@ -1320,12 +1328,14 @@ table!(
     /// expression; condition compatibility and complete path selection remain for L3.
     ValueFlowPredecessorCandidates, ValueFlowPredecessorCandidatesRow = "value_flow_predecessor_candidates",
     family = Findings,
-    key = [snapshot_id, successor_fact_id, predecessor_fact_id, source_key, reaching_fact_id],
+    key = [snapshot_id, successor_source_origin_id, predecessor_source_origin_id, reaching_fact_id],
     checks = [],
     {
         snapshot_id: Id,
         successor_fact_id: Id,
         predecessor_fact_id: Id,
+        successor_source_origin_id: Id,
+        predecessor_source_origin_id: Id,
         source_key: String,
         parameter_node_id: Id,
         function_node_id: Id,
@@ -1352,12 +1362,14 @@ table!(
     /// candidate. `true` admits only a may-path; it does not prove value transfer or completion.
     ValueFlowPredecessorCompatibility, ValueFlowPredecessorCompatibilityRow = "value_flow_predecessor_compatibility",
     family = Findings,
-    key = [snapshot_id, successor_fact_id, predecessor_fact_id, source_key, reaching_fact_id],
+    key = [snapshot_id, successor_source_origin_id, predecessor_source_origin_id, reaching_fact_id],
     checks = [("decision_or_boundary", "(compatible_under_atoms IS NULL AND boundary_reason IS NOT NULL) OR (compatible_under_atoms IS NOT NULL AND boundary_reason IS NULL)")],
     {
         snapshot_id: Id,
         successor_fact_id: Id,
         predecessor_fact_id: Id,
+        successor_source_origin_id: Id,
+        predecessor_source_origin_id: Id,
         source_key: String,
         reaching_fact_id: Id,
         predecessor_condition_id: Id,
@@ -1374,7 +1386,7 @@ table!(
     /// completion, target closure and any enclosing exit actions remain unresolved here.
     ModeledAssignmentReturnPaths, ModeledAssignmentReturnPathsRow = "modeled_assignment_return_paths",
     family = Findings,
-    key = [snapshot_id, successor_fact_id, predecessor_fact_id, source_key, reaching_fact_id, parameter_node_id, pysa_fact_id, model_id, rule_id],
+    key = [snapshot_id, successor_source_origin_id, predecessor_source_origin_id, reaching_fact_id, pysa_fact_id, model_id, rule_id],
     checks = [("decision_or_boundary", "(compatible_under_atoms IS NULL AND boundary_reason IS NOT NULL) OR (compatible_under_atoms IS NOT NULL AND boundary_reason IS NULL)")],
     {
         snapshot_id: Id,
@@ -1382,6 +1394,7 @@ table!(
         predecessor_fact_id: Id,
         source_key: String,
         successor_use_id: Id,
+        successor_source_origin_id: Id,
         predecessor_source_origin_id: Id,
         reaching_fact_id: Id,
         function_node_id: Id,
@@ -1654,10 +1667,10 @@ table!(
 table!(
     /// Name- or string-driven accesses (ADR-0022 §Verdicts, `dynamic_access`) and what they
     /// reach under the stated model: a class through a receiver whose reaching definitions,
-    /// through local copies, include a method's own receiver or a global bound to an instance;
+    /// through local copies, exclusively identify a method's own receiver or a global bound to an instance;
     /// modules for `import_module`/`__import__` with a computed name; every place for `exec`
-    /// and `eval`. `reaches_class_node_id` and `reaches_all` are both unset when the receiver is
-    /// outside the model (named in every negative answer).
+    /// and `eval`. A receiver access without `reaches_class_node_id` has unbounded class reach:
+    /// it withholds field/singleton negative premises, without implying access to local parameters.
     DynamicAccesses, DynamicAccessesRow = "dynamic_accesses",
     family = Findings,
     key = [snapshot_id, call_site_node_id],
@@ -1784,6 +1797,18 @@ pub fn behavior_id(
         .opt_id(target)
         .opt_str(value)
         .opt_id(site)
+        .finish_id()
+}
+
+/// A flow-derived claim retains transfer meaning and condition vocabulary. Verdict and
+/// boundary grade the claim and remain outside its identity, like other behavior rows.
+/// Different alternatives are never merged because they happen to render the same text.
+pub fn flow_behavior_id(row: &BehaviorsRow) -> Id {
+    IdHasher::new("flow-behavior")
+        .id(behavior_id(row.operation_node_id, row.kind, row.parameter_node_id,
+            row.callee_node_id, row.target_node_id, row.value.as_deref(), row.site_node_id))
+        .i64(row.transfer.map_or(-1, |kind| i64::from(kind.code())))
+        .id(row.condition_scope_node_id)
         .finish_id()
 }
 
@@ -2263,7 +2288,7 @@ crate::relations! {
                     l.argument_node_id, l.argument_fact_id, v.sink_function_node_id AS function_node_id, \
                     v.parameter_node_id, v.use_id, f.sink, f.sink_start_byte, f.sink_end_byte, \
                     v.condition_id, v.condition, \
-                    f.approximated AS raw_flow_approximated, m.pysa_fact_id, m.target_node_id, \
+                    (f.approximated OR v.approximated) AS raw_flow_approximated, m.pysa_fact_id, m.target_node_id, \
                     m.model_id, m.rule_id, m.target_definition_fact_id, m.transfer, \
                     m.target_modality, m.model_modality, m.candidate_set_complete_under_model, \
                     m.has_unresolved_remainder, m.origin \
@@ -2341,7 +2366,9 @@ crate::relations! {
         deps = ["value_flow_contributions", "flow_values", "flow_reaching", "flow_definitions"],
         sql = format!(
             "SELECT c.snapshot_id, c.flow_value_fact_id AS successor_fact_id, \
-                    p.flow_value_fact_id AS predecessor_fact_id, c.source_key, \
+                    p.flow_value_fact_id AS predecessor_fact_id, \
+                    c.origin_id AS successor_source_origin_id, \
+                    p.origin_id AS predecessor_source_origin_id, c.source_key, \
                     c.parameter_node_id, c.sink_function_node_id AS function_node_id, \
                     c.use_id AS successor_use_id, p.use_id AS predecessor_use_id, \
                     r.fact_id AS reaching_fact_id, r.condition_id AS reaching_condition_id, \
@@ -2349,8 +2376,8 @@ crate::relations! {
                     d.definition_id, d.fact_id AS definition_fact_id, \
                     c.condition_id AS successor_condition_id, \
                     p.condition_id AS predecessor_condition_id, \
-                    sf.approximated AS successor_raw_approximated, \
-                    pf.approximated AS predecessor_raw_approximated, \
+                    (sf.approximated OR c.approximated) AS successor_raw_approximated, \
+                    (pf.approximated OR p.approximated) AS predecessor_raw_approximated, \
                     p.local_through_call AS predecessor_local_through_call, \
                     p.upstream_through_call AS predecessor_upstream_through_call \
              FROM value_flow_contributions c \
@@ -2382,6 +2409,7 @@ crate::relations! {
         sql = format!(
             "SELECT p.snapshot_id, p.successor_fact_id, p.predecessor_fact_id, \
                     p.source_key, p.successor_use_id, \
+                    p.successor_source_origin_id, \
                     m.source_origin_id AS predecessor_source_origin_id, \
                     p.reaching_fact_id, p.function_node_id, p.parameter_node_id, \
                     m.call_site_node_id, m.call_fact_id, m.pysa_fact_id, m.model_id, m.rule_id, \
@@ -2397,11 +2425,14 @@ crate::relations! {
                ON c.snapshot_id = p.snapshot_id \
               AND c.successor_fact_id = p.successor_fact_id \
               AND c.predecessor_fact_id = p.predecessor_fact_id \
+              AND c.successor_source_origin_id = p.successor_source_origin_id \
+              AND c.predecessor_source_origin_id = p.predecessor_source_origin_id \
               AND c.source_key = p.source_key \
               AND c.reaching_fact_id = p.reaching_fact_id \
              JOIN modeled_exact_value_transfers m \
                ON m.snapshot_id = p.snapshot_id \
               AND m.flow_value_fact_id = p.predecessor_fact_id \
+              AND m.source_origin_id = p.predecessor_source_origin_id \
               AND m.parameter_node_id = p.parameter_node_id \
               AND m.function_node_id = p.function_node_id \
               AND m.use_id = p.predecessor_use_id \
@@ -2432,7 +2463,7 @@ crate::relations! {
                     e.source_fact_id AS return_site_fact_id, \
                     e.region_fact_id AS return_region_fact_id, \
                     r.start_byte AS return_start_byte, \
-                    (f.approximated OR e.approximated) AS approximated \
+                    (f.approximated OR v.approximated OR e.approximated) AS approximated \
              FROM value_flow_contributions v \
              JOIN flow_values f ON f.fact_id = v.flow_value_fact_id \
              JOIN parameter_syntax p ON p.node_id = v.parameter_node_id \
@@ -2483,7 +2514,7 @@ crate::relations! {
                     e.region_fact_id AS return_region_fact_id, \
                     e.condition_id AS return_condition_id, \
                     r.start_byte AS return_start_byte, \
-                    (f.approximated OR e.approximated) AS approximated \
+                    (m.raw_flow_approximated OR e.approximated) AS approximated \
              FROM modeled_exact_value_transfers m \
              JOIN model_applications a ON a.call_site_node_id = m.call_site_node_id \
                AND a.pysa_fact_id = m.pysa_fact_id AND a.model_id = m.model_id \
@@ -2563,7 +2594,7 @@ crate::relations! {
                     e.source_fact_id AS return_site_fact_id, \
                     e.region_fact_id AS return_region_fact_id, \
                     e.condition_id AS return_condition_id, ret.start_byte AS return_start_byte, \
-                    (f.approximated OR e.approximated) AS approximated \
+                    (f.approximated OR v.approximated OR e.approximated) AS approximated \
              FROM value_flow_contributions v \
              JOIN flow_values f ON f.fact_id = v.flow_value_fact_id AND f.sink = {return_sink} \
              JOIN raw_steps rs ON rs.flow_value_fact_id = f.fact_id \
@@ -2663,6 +2694,7 @@ crate::relations! {
              FROM modeled_assignment_return_paths q \
              JOIN value_flow_contributions v ON v.snapshot_id = q.snapshot_id \
                AND v.flow_value_fact_id = q.successor_fact_id \
+               AND v.origin_id = q.successor_source_origin_id \
                AND v.use_id = q.successor_use_id \
                AND v.parameter_node_id = q.parameter_node_id \
                AND v.source_key = q.source_key \
@@ -2757,7 +2789,7 @@ crate::relations! {
                     e.region_fact_id AS return_region_fact_id, \
                     e.condition_id AS return_condition_id, \
                     ret.start_byte AS return_start_byte, \
-                    (f.approximated OR e.approximated) AS approximated, \
+                    (f.approximated OR v.approximated OR e.approximated) AS approximated, \
                     arg.ordinal AS source_argument_ordinal, \
                     c.positional_count + c.keyword_count AS argument_count \
              FROM value_flow_contributions v \
@@ -2891,7 +2923,7 @@ crate::relations! {
                     v.condition_id, v.use_id, v.source_key, v.through_call, \
                     v.local_through_call, v.upstream_through_call, \
                     f.through_call AS raw_through_call, \
-                    f.approximated AS raw_approximated, \
+                    (f.approximated OR v.approximated) AS raw_approximated, \
                     (b.use_id IS NOT NULL) AS reach_budget \
              FROM value_flow_contributions v \
              JOIN flow_values f ON f.fact_id = v.flow_value_fact_id \

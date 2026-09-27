@@ -612,6 +612,7 @@ unfollowed_reason
   0 rebound
   1 computed
   2 unmapped
+  3 open_transfer
 value_class
   0 parameter
   1 alias
@@ -666,6 +667,10 @@ condition_atom
 model_transfer_kind
   0 identity
   1 transform
+flow_transfer
+  0 identity
+  1 derived
+  2 call
 flow_sink
   0 definition
   1 argument

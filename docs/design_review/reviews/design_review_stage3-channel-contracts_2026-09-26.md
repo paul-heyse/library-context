@@ -491,8 +491,8 @@ an opaque path ID or its display spelling does not supply it.
 | G7 | scoped | Owners/checkpoint must describe the supported contract and fail-closed acquisition limits, separately from validation-model activation |
 | G8; CI-G3 | no new defect found in inspected scope | No dependency change, runtime execution, evaluation-data input or performance claim |
 
-**Bounded decision: Accept scoped at source-inspection strength.** Focused acceptance remains
-uncredited here: parse old-string/invalid-variant rejection; missing/ambiguous static class;
+**Bounded decision: Accept scoped at source-inspection strength.** Focused acceptance shapes are:
+parse old-string/invalid-variant rejection; missing/ambiguous static class;
 same versus distinct subject/schema formals; runtime exact/missing/unpacked/overload-disagree
 binding; field/global/implicit receiver boundaries; forged class/source/variant reconstruction;
 and nonvalidation/resource regressions. Reviewed schema/codebook snapshots and a real
@@ -501,3 +501,168 @@ negative later requires schema-qualified coverage; a bound source or complete ge
 catalog alone cannot supply it. Model activation, multi-channel propagation, native schema
 selection, full S1/S3/S6 and integrated Stage 3 remain unfinished. Full gates and pilot are
 `not_run` in this review.
+
+**Author-recorded focused receipt, 2026-09-27:** STATUS and
+`/tmp/lctx-stage3-schema-kind-final.log` record compiler 85's command below as `passed` (25 cases,
+100 skipped). This reviewer inspected the receipt, not a new execution. Cargo used
+`CARGO_TARGET_DIR=/home/paul/library-context/target`.
+
+`INSTA_UPDATE=no RUST_MIN_STACK=16777216 cargo nextest run --release -p cpg-schema -p cpg-core --lib --test contracts --test codebooks --test compile --test bundle -E 'test(models::tests) | binary(contracts) | binary(codebooks) | test(validation_schema_candidates_keep_attribution_separate_from_subjects) | test(pinned_identity_models_require_and_publish_their_real_formals) | test(model_target_requires_its_cited_pinned_definition) | test(finite_depth_and_unsupported_refusals_reach_the_native_response)' --status-level fail --final-status-level fail`
+
+The author reports catalog rejection, candidate schema attribution/missing binding, forged
+evidence-pair controls, reviewed schema/codebook/rule migrations and the extraction-only regression.
+The validator now reconstructs entry links only when the snapshot has the required published
+analysis-condition catalog; the analyzed private/default bundle regression passed in the same
+focused run. The design owner and checkpoint distinguish the **Tested** candidate-attribution
+contract from **Proposed** production-model activation. This adds no active validation-model,
+full S1 or integrated Stage 3 acceptance.
+
+## 17. Bounded implementation follow-up: transfer alternatives and adjacent consumers
+
+**2026-09-27 · change/conformance · dirty compiler-86 slice · source inspection.** Reviewed
+`flow_model::Model::sink`, value-flow/predecessor contracts, `behavior::v2_flows` and field
+composition, Pass B's consumers, dynamic receiver/negative-premise admission, and FORMAT 9/Python
+Fate projection. This is current S5 transfer repair, not all-channel summary or current RCA
+acceptance. No production edits or tests were performed by this reviewer.
+
+**Implemented, inspected:** the global minimum-transfer pruning is deleted. Conditions merge
+within one origin/transfer kind, while Identity, Derived and Call alternatives survive together.
+The value-flow key now includes sink and `through_call`. The author-discovered predecessor-key
+collision is addressed by retaining successor/predecessor source-origin IDs through candidate,
+compatibility and modeled assignment-return contracts, exact joins and equality reconstruction.
+The completion-entry projection deliberately enumerates return-site conditions and remains a
+different domain from a chosen origin's transfer proof. No DISTINCT-based alternative collapse
+is introduced to repair these keys.
+
+Typed FlowTransfer and condition-scope IDs reach the behavior contract, serving projection and
+Python Fate. Known identity forwards from Pass B are typed as Identity. A raw Call transfer
+remains Unknown under a shared publication rule. Captured contributions remain ScopeBoundary;
+their lambda/deferred bodies do not become active Stage 5 behavior. An unknown dynamic receiver
+withholds field/singleton negatives while leaving unrelated unused-parameter premises independent.
+These are appropriate ownership changes, subject to the consumer findings below.
+
+<a id="F04"></a>**F04 — Preserve the store's own condition before composing a field read.**
+The original draft selected an Established store before its separate condition tuple was
+finalized, then replaced that condition with the reading method's condition. A guarded identity
+store could consequently support an unconditional composed read. **Correction inspected:**
+`behavior::run` now requires the stored identity's actual condition to be unconditional and
+nonapproximate, and its callable undecorated; conditional direct stores remain their own claims.
+This closes the bounded source-inspection finding without asserting a cross-invocation condition
+substitution capability. Acceptance control: guarded store versus unconditional store followed
+by the same field reader. Owner/disposition: behavior composition, forward-plan S5.
+
+<a id="F05"></a>**F05 — Receiver exclusivity needs a complete source proof, including raw fidelity.**
+The source lattice intentionally omits untracked values; one retained own-receiver entry is not
+a complete alternative set. **Correction inspected:** the bounded receiver walk requires one
+unconditional non-loop reaching definition/value at each step and rejects missing alternatives,
+cycles and raw approximation. `flow_reaching.approximated` and `flow_values.approximated` are
+acquired independently of the hydrated condition ID. Approximation propagates through Source,
+merge/fixed-point equality, value flows and source contributions; direct behavior, Pass B and
+summary seed/source obligations consume it. It is not attached globally to a shared BDD ID.
+
+The adjacent global-receiver fallback originally selected one singleton class by overwriting a
+map entry and taking a reference's first root. It now requires all root evidence to resolve to
+one meaning, an unambiguous bounded
+re-export chain, one module definition and an exact unconditional construction region. Competing
+conditional/rebound globals therefore cannot narrow an unknown receiver to the selected class.
+This is the existing module-construction model, not proof of arbitrary runtime global stability.
+Controls are present for straight-line self aliases, competing/untracked alternatives, loop
+replacement, stable/conditional/rebound globals and provider approximation injected into real
+extracted tables without changing condition IDs. The combined flag injection does not isolate
+each provider flag independently. Owner/disposition: flow model and negative-premise admission,
+forward-plan S5; corrected by inspection, with attributed focused evidence below.
+
+The qualified-import regression exposed an adjacent provider-kind distinction: ty's
+`ImportFromSubmodule` (code 21) marks an implicit package-submodule binding, not an ordinary
+global that shadows that submodule. The module-global shadow set now excludes that marker while
+retaining real shadowing bindings. The existing `behavior_shapes` control again resolves both
+`bpkg.config.settings.debug` and the directly imported `settings.host` to their singleton keys.
+
+<a id="F06"></a>**F06 — Decorator uncertainty applies to empty operations and intermediate bodies.**
+Downgrading only rows whose public operation is decorated missed an empty decorated operation,
+a decorated callee along a Pass B path, and a decorated field-reader body. **Correction
+inspected:** every decorated public callable now receives its operation boundary independently
+of behavior rows; row admission checks the operation, condition scope and every recorded hop's
+caller/callee. This is withholding until an identity-preserving decorator model exists, not
+decorator execution. Focused controls must exercise all three routes, including the empty
+callable. Owner/disposition: behavior admission, forward-plan S5.
+
+<a id="F07"></a>**F07 — Pass B must retain the alternatives it cannot follow.**
+The initial `v2_flows` adapter removed attributed ParameterReads after projecting
+derived/call/captured contributions to Other, which Pass B ignored. Merely retaining the old
+read was insufficient: the `(argument, formal)` followed set suppressed it when a sibling
+identity witness existed. **Correction inspected:** source-bearing Other flows now materialize
+explicit open-alternative reads, and sibling identity following cannot suppress them. The
+append-only `UnfollowedReason::OpenTransfer` states that unchanged transfer lacks proof; it does
+not relabel captured or bounded identity as Computed. Synthesis retains this open wording.
+
+The adapter follows only uncaptured, nonapproximate identity with an admitted, nonempty exact
+diagram. Missing/refused/approximate conditions retain an open alternative; direct Stage 2
+fallback also downgrades approximation. Pass B's projection deliberately groups Other kinds
+while the full typed alternatives remain in value flows and direct behavior claims. Controls
+are present for the mixed argument and an outer caller, reordered raw inputs and approximation
+injection. Owner/disposition: behavior projection and its Pass B consumer, forward-plan S5;
+corrected by inspection, with attributed focused evidence below. This does not close
+all-channel compositional summary obligations.
+
+The final identity recipe preserves the architecture's claim/grade separation: flow-claim IDs
+add transfer kind and condition-scope identity to the existing claim identity. Verdict and
+boundary reason grade that claim and remain outside identity, including after normal-path,
+decorator and unreachable admission. The interim admission-cause hash and final rehash are
+removed. Nonflow hop ownership retains its existing identity route.
+The focused source→Delta→bundle→Python fixture checks the expanded Fate transfer/scope fields;
+this is fixture qualification, not a complete native or clean-wheel receipt.
+
+**Provider obligations, inspected:** extractor output 32 separates `through_call` from provider
+approximation. A source/model proof may discharge a call transfer; its existence does not erase
+an approximated value or reaching fact. The finite producer now refuses approximate value
+paths, preserving their origin-specific unknown boundaries.
+
+**Attributed focused receipt, 2026-09-27:** the author ran the following command, using this
+checkout's established target directory because the inherited shell targeted another workspace.
+The inspected log is `/tmp/lctx-stage3-transfer-final-acceptance.log`:
+
+```sh
+CARGO_TARGET_DIR=/home/paul/library-context/target \
+INSTA_UPDATE=no RUST_MIN_STACK=16777216 cargo nextest run --release \
+  -p cpg-core -p cpg-schema -p lctx-analytics --lib \
+  --test contracts --test codebooks --test compile --test behavior --test bundle \
+  -E 'test(reach_fixed_point_tests) | test(summaries::) | test(pass_b::tests) | binary(contracts) | binary(codebooks) | test(transfer_alternatives_keep_conditions_verdicts_and_receiver_boundaries) | test(a_negative_claim_is_refuted_only_where_its_premise_holds) | test(serving_schema_digests_are_the_shared_known_answers) | test(finite_depth_and_unsupported_refusals_reach_the_native_response) | binary(behavior)' \
+  --status-level fail --final-status-level fail
+```
+
+Outcome **failed: 57 cases run, 56 passed, 1 failed, 151 skipped** (12.330 seconds test time).
+The passing transfer fixture covers source→Delta→bundle→Python typed Fate output, positive/open
+forwarding siblings, reversed raw input, guarded field stores, captured/decorated callables,
+receiver/global narrowing controls and combined provider-approximation injection. The injection
+also verifies that no finite summary is admitted. The existing `behavior_shapes` checks, schema
+and codebook contracts, and serving schema digests passed in this run. This reviewer inspected
+source and the receipt but did not execute it; no mocked-provider result is credited as source
+behavior evidence.
+
+The sole failed test, `finite_depth_and_unsupported_refusals_reach_the_native_response`, still
+expects a positive native path for `handler_entry_identity`. Its diagnostic separates
+`raw_value=false`, `propagated=true` and `exit_region=true`: the return has exact source
+entry/exit evidence, including typed handler-class evidence, but its reaching value remains
+approximated. The current `outside_provider_model` result is the conservative boundary, not a
+missing flag to clear. Dropping only exit-region approximation would not discharge the value
+obligation. The next S1/S2 work is an occurrence-specific source parameter-identity certificate
+with cited binding/reference/syntax evidence and matching-origin discharge, retaining raw flags
+and all uncertified alternatives. The [forward plan](../../plans/behavioral-model-forward-plan_2026-09-24.md)
+and [STATUS](../../../STATUS.md) own this incomplete qualification boundary.
+
+| Judgment/gate | Current bounded verdict | Basis |
+|---|---|---|
+| A1 | satisfied for the chosen repair | Typed meaning stays with schema; source composition, admission and serving retain their owners |
+| A2 | satisfied for the bounded repair | Typed transfer/scope and exact source-origin keys preserve meaning; row-local fidelity survives receiver and transfer admission |
+| A3 | satisfied for the bounded repair | Explicit open alternatives survive adapter/consumer composition independently of sibling positive identity paths |
+| G1/G3/G4/G5 | no new blocker established outside listed findings | Shared reconstruction, explicit projections and fresh-generation migration retained |
+| G2/G6; CI-G1 | no remaining soundness blocker established in this slice | Conservative receiver proof and explicit refusal propagation address F05/F07; the handler-value qualification gap remains explicitly unknown |
+| G7/G8; CI-G2/CI-G3 | scoped | Attributed fixture receipts only, no performance claim or new library/oracle-input path; complete native and integrated serving qualification remain open |
+
+**Bounded decision: Accept the conservative transfer checkpoint at source-inspection strength
+after F04–F07 corrections, with the attributed partial focused result above.** Flow identity
+preserves claim/grade separation. The native handler positive control is still failed; there is
+no clean 57-case compiler-86 receipt. Initial target acceptance and earlier S1/S2/FORMAT 9 slices
+remain separate. Full gates, pilot, complete S5/RCA repair and integrated Stage 3 acceptance
+remain `not_run` in this review.
