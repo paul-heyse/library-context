@@ -13,6 +13,9 @@
 //! lctx bundle --store DIR --snapshot HEX [--out DIR]             the snapshot's serving generation
 //!                                                                (DESIGN §6.4); compile builds it
 //!                                                                after publishing
+//! lctx compile-fixture DIR --package P --seed OP --store DIR      a dependency-free generated tree,
+//!                                                                for runtime challenges (never a
+//!                                                                library or analyzed release)
 //! ```
 //! Common options: `--libraries DIR` (default `libraries`), `--envs DIR` (default `build/envs`),
 //! `--sources DIR` (default `build/sources`).
@@ -135,6 +138,25 @@ enum Cmd {
         #[arg(long)]
         unpublished: bool,
         sql: String,
+    },
+    /// Compile a small dependency-free release tree (a generated program for a runtime
+    /// challenge) into a store and build its generation. Development only: no uv project,
+    /// Stage A or corpus; a minimal analytics config seeds `--seed`.
+    CompileFixture {
+        /// The directory holding the top-level package.
+        dir: PathBuf,
+        /// The top-level package (the analytics subsystem and public root).
+        #[arg(long)]
+        package: String,
+        /// A public operation seeding the analysis.
+        #[arg(long)]
+        seed: String,
+        /// The Delta store.
+        #[arg(long)]
+        store: PathBuf,
+        /// Where the serving generation is built.
+        #[arg(long, default_value = "build/generations")]
+        generations: PathBuf,
     },
     /// Inspect one generated Python file's flow facts as JSON (runtime oracle input).
     Flow {
@@ -528,6 +550,69 @@ fn compile(
     Ok(())
 }
 
+/// Extract, compile and bundle a dependency-free generated tree (the runtime challenge's input),
+/// printing the snapshot and generation. The empty environment sits beside the store.
+fn compile_fixture(
+    dir: &Path,
+    package: &str,
+    seed: &str,
+    store: &Path,
+    generations: &Path,
+) -> anyhow::Result<()> {
+    if !package
+        .chars()
+        .all(|c| c == '_' || c.is_ascii_alphanumeric())
+    {
+        return Err(anyhow::anyhow!(
+            "package must be a Python identifier: {package:?}"
+        ));
+    }
+    let venv = store.with_extension("venv");
+    let site = venv.join("site-packages");
+    fs_err::create_dir_all(&site)?;
+    let snapshot = random_id()?;
+    let input = cpg_extract::ExtractInput {
+        release: cpg_extract::Release::from_tree(fs_err::canonicalize(dir)?, package)?,
+        venv_root: fs_err::canonicalize(&venv)?,
+        site_packages: vec![fs_err::canonicalize(&site)?],
+        python_version: (3, 14, 7),
+        python_platform: "linux".to_owned(),
+        snapshot_id: snapshot,
+        corpus: None,
+        keep_pysa_json: false,
+        test_hooks: cpg_extract::TestHooks::default(),
+    };
+    let mut output = extract(&input)?;
+    let config = lctx_analytics::config::AnalyticsConfig::parse(&format!(
+        "version = 1\n[subsystem]\nmodule_prefixes = [\"{package}\"]\n\
+         public_roots = [\"{package}\"]\n[seeds]\nprimary = [{seed:?}]\ndistractors = []\n\
+         [pass_a]\nmax_depth = 2\nmax_vertices = 128\nmax_edges = 512\nmax_witnesses = 3\n\
+         [briefs]\nbudget = 1\n"
+    ))
+    .map_err(|e| anyhow::anyhow!("analytics config: {e}"))?;
+    let analysis = cpg_core::analyze::Analysis {
+        config,
+        embedder: None,
+        techniques: cpg_core::analyze::Techniques::default(),
+    };
+    let runtime = tokio::runtime::Runtime::new()?;
+    let tables = std::mem::take(&mut output.tables);
+    let published = runtime.block_on(cpg_core::attempt::compile_owned(
+        store,
+        snapshot,
+        tables,
+        Some(&analysis),
+    ))?;
+    let generation = runtime.block_on(cpg_core::bundle::bundle(
+        store,
+        published.snapshot_id,
+        generations,
+    ))?;
+    println!("snapshot {}", published.snapshot_id.hex());
+    println!("generation {}", generation.dir.display());
+    Ok(())
+}
+
 /// Build (or confirm) a published snapshot's serving generation and print its directory.
 fn bundle(store: &Path, id: Id, out: &Path) -> anyhow::Result<()> {
     let runtime = tokio::runtime::Runtime::new()?;
@@ -666,6 +751,19 @@ fn run() -> anyhow::Result<()> {
             platform,
             runtime_bindings,
         } => flow_file(&file, &python, &platform, runtime_bindings.as_deref()),
+        Cmd::CompileFixture {
+            dir,
+            package,
+            seed,
+            store,
+            generations,
+        } => compile_fixture(
+            &absolute(&dir)?,
+            &package,
+            &seed,
+            &absolute(&store)?,
+            &absolute(&generations)?,
+        ),
         Cmd::Diff {
             store,
             from,

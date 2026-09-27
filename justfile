@@ -42,6 +42,11 @@ py-check: py-fixture
     uv run pytest
     uv run pyrefly check --summary=none
 
+# Independent runtime challenges of the release producer (S7): CPython admission of flow facts
+# and of served claims over compiled generated packages. Also part of `py-check`.
+oracles:
+    uv run pytest tests/scripts/test_flow_soundness.py tests/scripts/test_semantic_soundness.py -q
+
 # The structured evaluation's packet for one stage (ADR-0021; DESIGN §12): targets beside answers
 # Search items rank on live query vectors when embed_url names a running `just embed-serve`
 structured-eval generation stage embed_url="":
