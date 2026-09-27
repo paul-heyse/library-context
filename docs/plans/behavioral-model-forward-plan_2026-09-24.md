@@ -1,7 +1,7 @@
 # Plan: the behavioral model, going forward
 
-**Status:** Active; the sole product execution plan. **Revised:** 2026-09-27 (targeted
-operator-requested checkpoint and stop after checks, repairs and documentation).
+**Status:** Active; the sole product execution plan. **Revised:** 2026-09-27 (the operator
+resumed Stage 3 with an exit-driven sequence, §3.0; baseline diagnostic, §1.2).
 **Authority.** The [architecture map](../design/README.md), DESIGN and its section owners own
 contracts and accepted targets; current ADRs own rationale. This plan owns execution order, the
 current disposition of scheduled findings (§6) and deferred triggers. A change to a §B decision
@@ -31,8 +31,8 @@ completion, condition-keyed return entry, native MRO completeness, a persisted e
 codebook and `summary_origin_coverage`. Snapshots are reviewed migrations; a fresh store rebuild
 under ADR-0048 is completed for this checkpoint (§1.1). FORMAT 9 callable support is implemented; remaining S6 semantics are open.
 
-**Work stopped at the operator's requested checkpoint.** The remaining queue below is recorded
-for a later resumption; this checkpoint does not authorize another implementation slice.
+**Resumed 2026-09-27.** The operator approved the exit-driven remaining sequence (§3.0,
+"Remaining sequence"). The §1.2 diagnostic is the current reading of the served answer.
 
 **Next dependency on resumption:** finish remaining channel contracts and supported synchronous context exits;
 then compose stable controls and channel coverage through the multi-channel worklist. Direct
@@ -70,6 +70,42 @@ measurement; no cost improvement is claimed.
 This is qualification of the implemented checkpoint, not completion of S1–S8. Live embedding,
 all-channel semantic requests and the frozen Stage 3 exit rule are not established by fixture
 providers or the ordinary pilot. Work stops after this checkpoint as requested.
+
+### 1.2 Stage 3 baseline diagnostic (2026-09-27; not qualification)
+
+The qualified unknown→partial rubric rule and the evaluation-only requests were committed
+before any Stage 3 packet was read (`2c6a59c`). Then
+`uv run python scripts/structured_eval.py build/generations/cdcf4b4e519e8b79 eval/behavior/fastmcp-4.0.5.toml --stage 3 --requests eval/behavior/fastmcp-4.0.5.requests.toml --out build/structured/stage3-baseline-diagnostic.md`
+**passed** (the packet was written). The reading below is the author's informal diagnostic of the
+checkpoint generation. It is not the S8 assessment, and it does not rate the exit.
+
+| Question | Positives, informal reading | Notes |
+|---|---|---|
+| Q01 | a–f partial; b, e and f only through the `FunctionTool.from_function` request | g (negative) not claimed |
+| Q03 | a, b, d, e partial; f absent | d was *present* at Stage 2: the store is now `unknown`/`missing_evidence`. c, g not claimed |
+| Q05 | a, b, e, f partial; c, d absent | b regressed like Q03.d. No re-raise row is served for `call_tool` (cause not investigated). g not claimed |
+| Q09 | a–e partial; f borderline | Both `inspect_value_paths` requests return no path and no boundary. g not claimed |
+
+About 19 of 23 positives read as partial. None reads as present, and no negative is claimed.
+The numeric threshold is not the binding risk. Four findings affect the remaining queue:
+
+1. **Decorator over-withholding.**
+   - `flow.decorated` (`cpg-core::flow_model`) counts any decorator syntax. The behavior
+     post-pass then makes every behavior of that operation or hop `unknown`/`outside_provider_model`
+     ("a decorator may replace the callable binding").
+   - This covers builtin `@classmethod`, `@staticmethod` and `@property`.
+   - Against the last format-6 generation (`7219df40ce349931`), 914 shared rows moved from
+     established/conditional to this reason; 2,436 rows carry it now.
+   - It hides `FunctionTool.from_function` and `TaskConfig.from_bool` (Q01.b/c/e/f).
+2. **Approximation withholding.** 612 shared rows moved to `missing_evidence`. These include
+   the settings-snapshot stores behind Q03.d and Q05.b.
+3. **Field-insensitive smear.** `from_function` builds `metadata = ToolMeta(...)` and then reads
+   fields. So every option `derives` into every `metadata.*` sink: `title` into
+   `str(...)@352` and `ValueError@317`, for example. These rows are `unknown`, but they are the
+   main *misleading* risk for Q01.a/e.
+4. **Pilot composition is nearly absent.** There are 26 `summary_flows` rows, all at depth 0,
+   and nothing discharges behaviors (`cpg-core::behavior` marks every `through_call` value
+   `call_transfer`).
 
 ## 2. Product target and principles
 
@@ -167,6 +203,24 @@ keeps target acceptance separate from implementation scope and certificate corre
 | S6 | FORMAT 9 structural proofs/coverage/support; typed effect, role and exact-entry-input conjunctions on existing operation queries. Rust canonicalizes and evaluates; Python adapts. Conditions/scopes of conjoined witnesses must be compatible. Partition matched/excluded/source-open/unexamined; preserve path-local inspection. Delete FORMAT 8/native adjacency interpretation | FORMAT 9 callable support and bounded value/source-normal closure are implemented. Native actions/defaults/postconditions/invocations, full raw-source evidence closure and compatible effect/role/exact-input semantic queries remain open; matched/excluded/source-open/unexamined partitions must stay distinct |
 | S7 | Extend isolated CPython/Hypothesis comparisons to actual compiler completion, summaries, coverage and served results; use release binaries. CrossHair distinguishes exhaustive/bounded/counterexample; Pysa TITO uses real rules and pinned Pyrefly on identical source. Close original W5 work/node, W7 reach-work and W12 pair-work default-cap producer→Delta→native traces | Independent challenges accompany S2–S6. Original default-cap traces are separate from injected limits. Open |
 | S8 | After S1–S7: fmt, test-all including all-techniques digest, fresh-store pilot, structured Stage 3 packet with semantic queries, clean-wheel query, controlled live W9/W16 replay/conformance, cost measurements, assembled target review, docs-check and handoff | Current checkpoint fmt, full tests, all-techniques digest and ordinary fresh pilot are recorded in §1.1. S8 remains open until functional completion, semantic exit assessment, clean-wheel/live checks, controlled costs and assembled review; frozen exit rule unchanged |
+
+**Done bar (operator, 2026-09-27): exit-driven.** A step closes on its named acceptance, plus
+what Q01/Q03/Q05/Q09, `behavior_shapes` part 2 and the largest pilot `call_transfer` sources
+need. Other widening becomes a §7 row with a trigger. `override_dispatch` stays a named unknown.
+
+**Remaining sequence (operator-approved 2026-09-27).** Phases map to the S-steps above. Each
+phase ends with a handoff; full gates run only at P7, apart from one diagnostic pilot after P5.
+
+| Phase | Work (S-step) | Key acceptance |
+|---|---|---|
+| P0 | Rubric rule, evaluation-only requests, packet digests and guard (done, `2c6a59c`); baseline diagnostic (§1.2); these amendments; S6.0 native cleanup (typed row structs replace `ipc_input` positional tuples, one native file list) | Guard test; no product semantics changed |
+| P1 | **S5a discharge.** A design/target review first, covering discharge ordering, the `summary_effects` representation and the generic component driver; then an ADR. Split `behavior::run` into relations → (finite summaries) → claims → facets. A pure `summaries::discharge` makes per-origin proved/refuted/open decisions. Flip `call_transfer` only when every contribution agrees. Add a validator equality rule, a rules.rs rule, and `behavior_discharges` in the generation | `local_wrapper` established; `labelled`, a sibling origin and a mixed row stay unknown |
+| P2 | **S7 foundation.** `lctx compile-fixture`; a composed Hypothesis/`sys.monitoring` harness against served results; the original W5/W7/W12 default-cap fixtures with no injected limits; `just oracles` | Each cap reason traced through Delta, bundle and native |
+| P3 | **S3b logging and S1 contracts.** `Logger.*` models, including the module-global logger binding. `SummarySubjectKind` CallableFormal/CallableEntry. CallableFormal complete-empty coverage. `summary_effects` + steps for effect/callback/resource (value/transform/constant stay in `summary_flows`) | Complete-empty positives and withholding controls; no fabricated value IDs |
+| P4 | **S4/S5.** Generic `worklist::drive_component`; effect adapter; call-specific stability barriers (ADR); residual conjunction (append-only boundary reason); per-contribution refutation with `behavior_shapes` part 2 fixtures; call-crossing origin coverage; engine comparison on the shared contract | `labelled.name` refuted; `quiet` refuted; `loud` established |
+| P5 | **S3b families.** Ranked: builtin constructors; isinstance/len/getattr/hasattr; `list.append`/`extend` effect-only; `functools.partial`/`wraps`; starlette `Middleware`/`Route`; io/pathlib/zlib. Explicit candidates with reasons: pydantic, contextvars, async and uvicorn. **S2b/S3a:** `open` acquire/release pairing and distinct callback fates | Per-target pins, fixtures, catalog equality, CrossHair for definite pure rules |
+| P6 | **S6.** Export behaviors, conditions and every summary/action/execution relation. Native `operation_semantics` returns matched/excluded/source-open/unexamined partitions under exact inputs. MCP `Where`/`OperationSet`/`Operation.semantics`. The packet renders semantics. `just wheel-check`. Pysa TITO on identical source | Composition F04 and W11 operation-wide Q09; clean-wheel query |
+| P7 | **S8** as above | Exit rule under the committed rubric; `behavior_shapes` part 2; assembled review |
 
 **Contract boundaries and defaults.** Contracts/source observations belong in schema/providers;
 pure semantics in analytics; acquisition, order and publication in core; bounded immutable selection
@@ -508,7 +562,7 @@ catalog digest in `compiler_digest`; no model cites `.claude/skills/`.
 
 | Family | Targets |
 |---|---|
-| Pure identity/value | `typing.cast`, `typing.assert_type` (built); `str`, `dict`, `list`, `tuple`; `functools.partial`, `functools.wraps` |
+| Pure identity/value | `typing.cast`, `typing.assert_type` (built); `str`, `dict`, `list`, `tuple`; `functools.partial`, `functools.wraps`; pilot-driven builtins (operator, 2026-09-27): `int`, `set`, `isinstance`, `len`, `getattr`/`hasattr`, and `list.append`/`extend` as effect-only receiver mutation with no content flow or alias claim |
 | I/O and serialization | `open`/`io`/`pathlib`, `json`, `gzip`/`zlib`, logging |
 | Async, timeouts, context | asyncio and anyio (`fail_after`, `move_on_after`, `to_thread`, task groups); `contextvars`; `contextlib` |
 | Validation and settings | pydantic `BaseModel`, `Field`, `TypeAdapter.validate_python` (dynamic schema, above); pydantic-settings `BaseSettings` (environment prefix) |
@@ -573,7 +627,9 @@ rubric; decide the §B11 generative-model trigger; an assembled design/target re
 
 The packet is `just structured-eval <generation> <stage> [embed_url]`; the author assesses it with
 the rubric present/partial/absent/incorrect/misleading, per item, never as a percentage; no API
-agents evaluate content. The structured evaluation asks whether answers are useful and correct;
+agents evaluate content. From Stage 3 on, a served `unknown` counts as partial only under the
+qualified rule in `eval/behavior/README.md`. Evaluation-only requests
+(`eval/behavior/fastmcp-4.0.5.requests.toml`) are rendered but never scored. The structured evaluation asks whether answers are useful and correct;
 the validation lane asks whether the analysis admits what really executes.
 
 | Library | Decision | Trigger or qualification |
@@ -700,6 +756,13 @@ fresh-store execution is recorded in §1.1. No other review finding is closed by
 | spaCy in compile | Regex directive tagging misses conditions the evaluation needs |
 | A neural reranker | An ADR under §B10 after a measured need |
 | Native-extension bodies | A pilot question needs one |
+| Closed-hierarchy `self` dispatch (`override_dispatch`, 2,018 pilot rows) | A Stage 4/5 item graded partial solely because of dispatch, or an operator request |
+| Cross-call exception composition (callee escape through caller handlers) | A sync evaluation item not blocked by dispatch or async needs it (Q01.e/f sit behind dispatch; Q05 is async) |
+| `**kwargs` binding TypeErrors | A sync evaluation item (Q09.a/e/f are async) |
+| New condition roots; discharge for argument/store (`derives`/`stores`) sinks | Pilot evidence after P7 that these sinks dominate a graded item |
+| pydantic field storage, dataclass `__init__`, `inspect` predicates; rich, subprocess, `sys.exit` models | A sync consumer, or Stage 5 |
+| Role channel producer | An authored role meaning with a consumer |
+| F17 broader release/default/binding domains | A graded item or pilot bucket needs them |
 
 ## 8. Risks
 
