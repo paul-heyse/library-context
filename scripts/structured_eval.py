@@ -5,27 +5,35 @@ For each pre-registered question of a stage, one Markdown section: the question,
 each operation the question names: `get_operation`'s record (each parameter's fates with verdicts
 and source lines, delegations, handoffs, the status and its reason) and the brief, if one exists.
 The only marks are mechanical ones (does the operation resolve; does a parameter a claim names
-have a fate). Rating each item (present / partial / absent / incorrect / misleading) is the
-assessor's, in `docs/design_review/reviews/structured_eval_<date>.md`, and the operator reviews it.
+have a fate; does a served row cite a line inside the item's source ranges). Evaluation-only
+requests (`--requests`; never targets, never scored) add served calls under each question:
+callees an agent would follow and semantic queries. Rating each item (present / partial /
+absent / incorrect / misleading) is the assessor's, in
+`docs/design_review/reviews/structured_eval_<date>.md`, and the operator reviews it.
 
 Evaluation only: nothing here feeds the compiler.
 
     uv run python scripts/structured_eval.py GENERATION eval/behavior/fastmcp-4.0.5.toml \
-        --stage 1 --out build/structured/stage1.md
+        --stage 3 --requests eval/behavior/fastmcp-4.0.5.requests.toml \
+        --out build/structured/stage3.md
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
+import posixpath
 import re
 import sys
 import tomllib
 from pathlib import Path
 
 from lctx_mcp import operations as ops
+from lctx_mcp import value_paths
 from lctx_mcp.generation import Generation, load
 
 WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+SOURCE = re.compile(r"^(?P<path>[^:]+):(?P<start>\d+)(?:-(?P<end>\d+))?$")
 
 
 def _fate_line(f: ops.Fate) -> str:
@@ -115,18 +123,52 @@ def _render(gen: Generation, op: ops.Operation, spelling: str | None = None) -> 
     return out
 
 
-def _marks(gen: Generation, question: dict, item: dict) -> str:
+def _served_lines(op: ops.Operation) -> set[tuple[str, int]]:
+    """Every (path, line) a served record of this operation cites."""
+    fates = [f for p in op.parameters for f in p.fates] + op.delegates + op.handoffs + op.reads
+    lines = {(f.path, f.line) for f in fates if f.path and f.line}
+    lines |= {(r.path, r.line) for fr in op.fields for r in fr.reads if r.path and r.line}
+    if op.constructor is not None:
+        lines |= _served_lines(op.constructor)
+    return lines
+
+
+def _ranges(root: str, item: dict) -> list[tuple[str, int, int]]:
+    """The item's `path:start-end` citations as served paths (`<root>/<path>`, `../` siblings)."""
+    out = []
+    for cited in item.get("source", []):
+        m = SOURCE.match(cited)
+        if m is None:
+            continue
+        path = posixpath.normpath(posixpath.join(root, m["path"]))
+        start = int(m["start"])
+        out.append((path, start, int(m["end"] or start)))
+    return out
+
+
+def _marks(gen: Generation, question: dict, item: dict, root: str, extra: list[str]) -> str:
     named = set(WORD.findall(item["claim"]))
     hits = []
-    for spelling in question["operations"]:
+    served: set[tuple[str, int]] = set()
+    for spelling in question["operations"] + extra:
         try:
             op = ops.get_operation(gen, gen.snapshot_id, spelling)
         except ops.OperationError:
             continue
+        served |= _served_lines(op)
+        if spelling not in question["operations"]:
+            continue
         for p in op.parameters:
             if p.name in named:
                 hits.append(f"`{p.name}` {'has fates' if p.fates else 'has no fate'}")
-    return "; ".join(sorted(set(hits))) or "no parameter of the operations is named"
+    named_mark = "; ".join(sorted(set(hits))) or "no parameter of the operations is named"
+    cited = sum(
+        1
+        for path, start, end in _ranges(root, item)
+        if any(p == path and start <= line <= end for p, line in served)
+    )
+    total = len(_ranges(root, item))
+    return f"{named_mark}; served rows cite {cited}/{total} source range(s)"
 
 
 def _request(gen: Generation, request: dict, embedder=None) -> list[str]:
@@ -157,19 +199,86 @@ def _request(gen: Generation, request: dict, embedder=None) -> list[str]:
     return lines
 
 
+def _value_paths(gen: Generation, request: dict) -> list[str]:
+    """An evaluation-only `inspect_value_paths` request: path-local, never operation-wide."""
+    exact = value_paths.ExactPrimitive.model_validate(request["exact_input"])
+    head = (
+        f"- `inspect_value_paths({request['operation']}, {request['formal']}, "
+        f"{exact.kind} {exact.value!r})`"
+    )
+    try:
+        page = value_paths.inspect(
+            gen,
+            gen.snapshot_id,
+            request["operation"],
+            request["formal"],
+            exact,
+            bool(request.get("standard_builtins", False)),
+            50,
+            None,
+        )
+    except ops.OperationError as e:
+        return [f"{head}: **error** ({e})"]
+    lines = [
+        f"{head}: {len(page.paths)} path(s), {len(page.boundaries)} open boundary(ies), "
+        f"truncated **{page.truncated}**"
+    ]
+    lines += [
+        f"  - path `{p.summary_id[:12]}` source verdict **{p.source_verdict}**, "
+        f"exact input **{p.exact_input_result}**"
+        + (f" ({p.boundary_reason})" if p.boundary_reason else "")
+        + f", {len(p.steps)} step(s)"
+        for p in page.paths
+    ]
+    lines += [f"  - open boundary: {b.reason}" for b in page.boundaries]
+    return lines
+
+
+def _evaluation_request(gen: Generation, request: dict, embedder=None) -> list[str]:
+    head = f"*{request['id']}* — {request.get('purpose', '')}".rstrip(" —")
+    tool = request["tool"]
+    if tool == "get_operation":
+        body = _operation(gen, request["operation"])
+    elif tool == "inspect_value_paths":
+        body = _value_paths(gen, request)
+    elif tool in ("find_operations", "search_operations"):
+        body = _request(gen, request, embedder)
+    else:
+        raise ValueError(f"{request['id']}: unknown request tool {tool!r}")
+    return [head, "", *body, ""]
+
+
+def _digest(path: Path | None) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest() if path else "none"
+
+
 def packet(
-    gen: Generation, questions: list[dict], stage: int | None, exits: list[dict], embedder=None
+    gen: Generation,
+    questions: list[dict],
+    stage: int | None,
+    exits: list[dict],
+    embedder=None,
+    requests: list[dict] | None = None,
+    root: str = "",
+    inputs: dict[str, str] | None = None,
 ) -> str:
+    requests = requests or []
     lines = [
         f"# Structured evaluation packet — generation `{gen.key}`",
         "",
         f"Snapshot `{gen.snapshot_id}`, library `{gen.library}`. Stage filter: {stage or 'all'}.",
+        f"Format {gen.manifest.get('format')}, compiler digest "
+        f"`{gen.manifest.get('compiler_digest', '?')[:16]}`.",
         "Generated by `scripts/structured_eval.py`; the targets are the pre-registered set.",
-        "",
     ]
+    for name, digest in (inputs or {}).items():
+        lines.append(f"Input `{name}` sha256 `{digest[:16]}`.")
+    lines.append("")
     for q in questions:
         if stage is not None and q["stage"] != stage:
             continue
+        mine = [r for r in requests if r["question"] == q["id"]]
+        extra = [r["operation"] for r in mine if r["tool"] == "get_operation"]
         lines += [f"## {q['id']} ({q['kind']}, stage {q['stage']})", "", q["text"], ""]
         lines.append("**Targets**")
         lines.append("")
@@ -177,7 +286,7 @@ def packet(
             sources = ", ".join(it.get("source", []))
             lines.append(
                 f"- `{it['id']}` ({it['polarity']}) {it['claim']} — {sources} "
-                f"— *marks: {_marks(gen, q, it)}*"
+                f"— *marks: {_marks(gen, q, it, root, extra)}*"
             )
         lines += ["", "**Served answer**", ""]
         if "request" in q:
@@ -185,6 +294,10 @@ def packet(
         for spelling in q["operations"]:
             lines += _operation(gen, spelling)
         lines.append("")
+        if mine:
+            lines += ["**Evaluation-only requests (not targets)**", ""]
+            for r in mine:
+                lines += _evaluation_request(gen, r, embedder)
     for e in exits:
         if stage is None or e["stage"] == stage:
             lines += [f"## Exit rule, stage {e['stage']}", "", e["rule"], ""]
@@ -198,6 +311,9 @@ def main() -> int:
     parser.add_argument("--stage", type=int)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument(
+        "--requests", type=Path, help="evaluation-only requests (never targets, never scored)"
+    )
+    parser.add_argument(
         "--embed-url", help="the vLLM service for search items' query vectors (else lexical)"
     )
     args = parser.parse_args()
@@ -208,9 +324,24 @@ def main() -> int:
         embedder = HttpEmbedder(args.embed_url)
     gen = load(args.generation, embedder.spec if embedder else None)
     spec = tomllib.loads(args.questions.read_text(encoding="utf-8"))
+    requests = []
+    if args.requests:
+        requests = tomllib.loads(args.requests.read_text(encoding="utf-8"))["request"]
+    inputs = {args.questions.name: _digest(args.questions)}
+    if args.requests:
+        inputs[args.requests.name] = _digest(args.requests)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(
-        packet(gen, spec["question"], args.stage, spec.get("exit", []), embedder),
+        packet(
+            gen,
+            spec["question"],
+            args.stage,
+            spec.get("exit", []),
+            embedder,
+            requests,
+            Path(spec["source_root"]).name,
+            inputs,
+        ),
         encoding="utf-8",
     )
     print(f"structured-eval: wrote {args.out} (generation {gen.key})")

@@ -20,3 +20,17 @@ item, never as a percentage.
 **Append-only.** Once committed, the file is append-only. New questions get new ids
 (Q21, ...). Existing items are never edited or deleted; to correct one, add a new item
 with `supersedes = "<old item id>"` and leave the old item in place.
+
+**Served `unknown` answers (recorded 2026-09-27, before any Stage 3 generation's packet was
+read).** An item whose only served answer is a claim with verdict `unknown` is `partial` when
+that claim names the operation, parameter, callee or path the item describes and its boundary
+reason does not contradict the item. An `unknown` that fails either condition does not count
+toward `present` or `partial`. The negative-item rule is unchanged: a hedged or `unknown`
+statement of a negative item is still `misleading`. The Stage 1 and 2 assessments applied an
+unqualified form of this convention; it applies as written from Stage 3 on.
+
+**Evaluation-only requests.** `fastmcp-4.0.5.requests.toml` lists extra served calls the
+packet renders for a question: callees an agent would follow, and semantic queries. Requests
+are never targets and are never scored; they carry no `claim` or `polarity`, and they cannot
+alter a question, item or exit rule. The file is append-only in the same way as the question
+set. `scripts/structured_eval.py --requests` renders them under each question.

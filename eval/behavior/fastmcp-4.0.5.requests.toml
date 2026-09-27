@@ -1,0 +1,91 @@
+schema_version = 1
+library = "fastmcp"
+release = "4.0.5"
+questions = "fastmcp-4.0.5.toml"
+written = "2026-09-27"
+
+# Evaluation-only requests (README, "Evaluation-only requests"). Each names an existing
+# question and one served tool call. They are chosen from the pre-registered items' source
+# citations, before any Stage 3 generation's packet was read. Never targets, never scored.
+# Append-only: new requests get new ids; existing entries are never edited or deleted.
+
+[[request]]
+id = "Q01.r1"
+question = "Q01"
+tool = "get_operation"
+operation = "fastmcp.server.providers.local_provider.decorators.ToolDecoratorMixin.tool"
+purpose = "The local provider's decorator that FastMCP.tool delegates to (decorators/tools.py:302-320)."
+
+[[request]]
+id = "Q01.r2"
+question = "Q01"
+tool = "get_operation"
+operation = "fastmcp.tools.FunctionTool.from_function"
+purpose = "Where options become Tool fields, defaults and registration errors (function_tool.py:305-367)."
+
+[[request]]
+id = "Q01.r3"
+question = "Q01"
+tool = "get_operation"
+operation = "fastmcp.utilities.tasks.TaskConfig.from_bool"
+purpose = "The bool-to-TaskConfig normalization (utilities/tasks.py:55-58)."
+
+[[request]]
+id = "Q03.r1"
+question = "Q03"
+tool = "get_operation"
+operation = "fastmcp.server.providers.local_provider.decorators.ToolDecoratorMixin.add_tool"
+purpose = "Registration through add_tool, which does not consult the server's tasks default (decorators/tools.py:118-155)."
+
+[[request]]
+id = "Q03.r2"
+question = "Q03"
+tool = "get_operation"
+operation = "fastmcp.tools.FunctionTool.run"
+purpose = "Strict input validation at call time (function_tool.py:124-138, 389, 474-483)."
+
+[[request]]
+id = "Q05.r1"
+question = "Q05"
+tool = "get_operation"
+operation = "fastmcp.server.providers.fastmcp_provider.FastMCPProviderTool.run"
+purpose = "A mounted child's tool call (providers/fastmcp_provider.py:78-99)."
+
+[[request]]
+id = "Q09.r1"
+question = "Q09"
+tool = "get_operation"
+operation = "fastmcp.server.mixins.TransportMixin.run_stdio_async"
+purpose = "The stdio target that receives run()/run_async() keyword arguments (mixins/transport.py:94-98, 215-220)."
+
+[[request]]
+id = "Q09.r2"
+question = "Q09"
+tool = "get_operation"
+operation = "fastmcp.server.http.create_sse_app"
+purpose = "What http_app(transport='sse') passes on (http.py:416-424)."
+
+[[request]]
+id = "Q09.r3"
+question = "Q09"
+tool = "get_operation"
+operation = "fastmcp.server.http.create_streamable_http_app"
+purpose = "Where HostOriginGuardMiddleware is installed (http.py:649-661)."
+
+[[request]]
+id = "Q09.r4"
+question = "Q09"
+tool = "inspect_value_paths"
+operation = "fastmcp.server.mixins.TransportMixin.http_app"
+formal = "transport"
+exact_input = { kind = "str", value = "sse" }
+purpose = "Path-local value paths of transport under the exact input 'sse'."
+
+[[request]]
+id = "Q09.r5"
+question = "Q09"
+tool = "inspect_value_paths"
+operation = "fastmcp.server.mixins.TransportMixin.run_http_async"
+formal = "transport"
+exact_input = { kind = "str", value = "sse" }
+purpose = "Path-local value paths of transport under the exact input 'sse'."
