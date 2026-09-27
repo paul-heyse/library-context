@@ -1261,3 +1261,73 @@ call-action timing, resource/callback fates, all-channel summaries/coverage, com
 and integrated Stage 3 remain open. Full `just test-all`, fresh `just pilot`, clean-wheel and
 all-techniques/cost qualification were **not_run**. Only this review artifact was changed by
 the reviewer.
+
+## 25. Target review: authored action triggers
+
+**2026-09-27 · design/target · Proposed architecture, documentation/source-interface inspection.**
+This reviews proposed [ADR-0060](../../adr/0060-action-triggers.md) and
+[§9.9 Action triggers](../../design/sections/behavioral-analysis.md), under core 3.0, CI 1.1
+and the repository binding. It accepts a bounded elaboration of ADR-0058, not an implementation
+or assembled Stage 3 result. The existing call-input certificate (§23), normal-expression
+evaluator and candidate effect/callback/resource relations are the inspected baseline.
+
+The target has coherent ownership: authored models select trigger, descriptor and modality;
+schema owns their typed meaning and shared admission; analytics combines exact candidate,
+source binding, reached invocation and any required callee outcome; core acquires/publishes and
+reconstructs that result; native consumers use the same admission. Candidate assessments retain
+their original channel/descriptor references. They do not rename candidate observations into
+execution evidence or create parameter/resource identities to fit a value-shaped table.
+
+The decisive contract is **Invocation versus outcome**. Invocation is reached, bound entry to
+the exact callee. Normal and Exceptional require that callee's independently proved outcome;
+Finally accepts either proved callee exit, never an enclosing finalizer or pending caller
+outcome. A proved invocation plus a Potential rule remains a model-qualified potential action.
+It establishes neither occurrence of the action nor normal completion. Potential exception
+rules cannot supply exceptional-exit evidence. Coverage remains an independent obligation.
+
+**Subject distinction retained in this acceptance:** an authored subjectless effect is valid
+(the existing unscoped I/O declaration is such a case); an authored required subject whose
+source binding is unresolved is unknown. The declaration/candidate contract must distinguish
+those states. A returned-resource action additionally requires Normal and independent
+returned-value identity. Its call-expression id cannot stand in for a resource. Stored,
+Registered, Forwarded and Invoked callbacks retain their different meanings and triggers.
+
+The two simpler alternatives in the ADR are unsuitable: Normal-only activation loses partial
+effects before failure; Invocation-only activation promotes normal-exit promises before their
+premises hold. Extending the existing selector avoids a second policy/interpreter. Catalog 5's
+effect selector is mandatory; existing codes 0–2 remain stable and Invocation appends at 3.
+Remove any implicit effect-timing default as declarations migrate. New ordinary model rules
+then add declarations and focused controls; genuinely new timing semantics revisit this ADR.
+This is domain-specific composition over existing kernels, not a missing generic library.
+
+| Judgment/gate | Target verdict | Basis and bounded consequence |
+|---|---|---|
+| A1 — Localize change | satisfied | Trigger selection and admission have one schema owner; acquisition, evaluation and serving do not independently classify model names or effects |
+| A2 — Encode meaning structurally | satisfied | Trigger, callee outcome, modality, subject availability and resource identity remain distinct; unavailable evidence has an explicit unresolved result |
+| A3 — Extend through composition | satisfied | Existing call-input and whole-expression normal proofs compose with candidate/rule bindings; no outcome assumptions or general precondition interpreter are added |
+| G1/G2/G3/G5/G6; CI-G1 | pass for the target contract | Exact candidate/model/call/site/phase/condition and ordered evidence must agree; no positive action or invocation closes coverage |
+| G4/G7/G8; CI-G3 | pass for the bounded target | Pure owners and explicit acquisition persist; proposed capability is labelled; independent partial-I/O challenges are required and never compiler inputs |
+| CI-G2 | pass as a target obligation; implementation not assessed | The same candidate, trigger, subject and ordered evidence closure must reach immutable consumers before action serving is accepted |
+
+The initial execution boundary is intentionally smaller than the selector vocabulary. Normal
+uses the corresponding whole-expression normal proof for the same exact call. There is no
+initial exceptional-outcome witness; unavailable Exceptional/Finally premises remain unresolved.
+Returned-resource positives remain withheld until their identity premise exists. Current call
+entry limitations, Stage 5 deferred execution, all-channel propagation and full S6 serving
+support remain outside this initial implementation acceptance, which has not occurred.
+
+Focused implementation acceptance must challenge a reached partial effect before failure,
+the same action with failed argument evaluation, a reached call with an unproved Normal trigger,
+subjectless versus unresolved required subjects, wrong call/model/phase/condition and omitted
+or reordered evidence. It must retain potential modality, distinguish registration from
+invocation, and reject a returned-resource claim without identity. Existing proof caps and
+explicit refusals remain applicable; a positive result is not complete coverage. Independent
+runtime challenges establish their named finite examples only. No new gate or review authority
+is introduced; the [active plan §3.0](../../plans/behavioral-model-forward-plan_2026-09-24.md#30-consolidated-execution)
+continues to own sequencing and closure.
+
+**Decision: Accept the ADR-0060 target within these boundaries.** The author can mark the ADR
+accepted and its owner “Accepted target; implementation Proposed.” This review establishes no
+production action activation, native action consumer, resource identity, all-channel completeness
+or Stage 3 closure. Product tests, full `just test-all` and fresh `just pilot` were **not_run**
+for this documentation target review. Only this existing review artifact was changed.

@@ -37,6 +37,21 @@ propagates an effect or capability. Every step from a source call to a summary i
 cited relation, and each one states what it does *not* prove. Absence from a positive relation is
 unknown unless an independent coverage relation establishes a specific negative claim.
 
+## Action triggers
+
+**Accepted target; implementation Proposed.** Every authored effect,
+callback and resource action names Invocation, Normal, Exceptional or Finally. Invocation proves
+reached and bound callee entry; the exit variants require an independently proved outcome of that
+exact callee. Finally accepts either callee exit, never an enclosing finalizer or pending caller
+outcome. Potential modality remains potential even when its trigger is established. Missing
+trigger or required subject evidence stays an explicit unresolved candidate; an authored subjectless
+effect requires no invented subject. Input arguments can be
+available at entry; a returned resource requires Normal and separate returned-value identity.
+Positive actions do not establish complete channel coverage. Schema owns shared admission,
+analytics composes it, core reconstructs publication, and native consumes the same contract.
+
+> Decision: ADR-0060
+
 ## Models catalog
 
 A model is committed, typed data about a callable we do not analyze from source.
