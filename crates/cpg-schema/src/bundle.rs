@@ -96,8 +96,9 @@ pub fn files(dimensions: i32) -> Vec<ServingFile> {
             ],
             &["assertion_id", "role", "ordinal"],
         ),
-        // FORMAT 8: only findings cited by served assertions, with their analytic model and
-        // bounded witness/member closure. Backend graph handles never leave the store.
+        // Support closure (since FORMAT 8): only findings cited by served assertions, with their
+        // analytic model and bounded witness/member closure. Backend graph handles never leave
+        // the store.
         file(
             "support_findings",
             vec![

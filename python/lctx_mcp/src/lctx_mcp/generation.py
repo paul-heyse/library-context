@@ -16,7 +16,7 @@ from pathlib import Path
 import numpy as np
 import pyarrow as pa
 import pyarrow.ipc as ipc
-from lctx_semantics import SemanticExecutor, catalog_limits
+from lctx_semantics import SemanticExecutor, catalog_limits, native_files
 
 from lctx_mcp.digest import schema_digest
 from lctx_mcp.embedder import Spec
@@ -24,39 +24,13 @@ from lctx_mcp.embedder import Spec
 FORMAT = 9
 KERNEL_FORMAT = 1
 MAX_CONDITION_FILE_BYTES = 64 * 1024 * 1024
-MAX_SUMMARY_ROWS = 100_000
 MAX_SUPPORT_FILE_BYTES = 64 * 1024 * 1024
-NATIVE_IPC_FILES = frozenset(
-    {
-        "conditions",
-        "condition_nodes",
-        "analysis_conditions",
-        "analysis_condition_nodes",
-        "operations",
-        "public_paths",
-        "callable_parameters",
-        "summary_flows",
-        "summary_flow_steps",
-        "summary_boundaries",
-        "flow_test_leaves",
-        "source_parameter_identities",
-        "source_context_value_identities",
-        "source_modeled_identities",
-        "model_frame_exits",
-        "model_frame_exit_arguments",
-        "model_frame_exit_steps",
-        "source_body_completions",
-        "source_body_steps",
-        "source_body_release_inputs",
-        "source_call_bindings",
-        "source_call_normals",
-        "source_call_header_steps",
-        "flow_test_value_links",
-        "model_context_protocols",
-        "source_context_sites",
-        "source_context_arguments",
-        "return_completion_certificates",
-    }
+# The native executor owns which files it loads and their row caps; Python validates exactly those.
+_CONDITION_FILES, _SURFACE_FILES, _SUMMARY_FILES, (MAX_SUMMARY_ROWS, MAX_SURFACE_ROWS) = (
+    native_files()
+)
+NATIVE_IPC_FILES = (
+    frozenset(_CONDITION_FILES) | frozenset(_SURFACE_FILES) | frozenset(_SUMMARY_FILES)
 )
 
 
@@ -761,34 +735,8 @@ def _read(
     if path.is_symlink():
         raise GenerationError(f"{entry['file']}: a served file cannot be a symlink")
     if (
-        name
-        in {
-            "conditions",
-            "condition_nodes",
-            "analysis_conditions",
-            "analysis_condition_nodes",
-            "summary_flows",
-            "source_parameter_identities",
-            "source_context_value_identities",
-            "source_modeled_identities",
-            "model_frame_exits",
-            "model_frame_exit_arguments",
-            "model_frame_exit_steps",
-            "source_body_completions",
-            "source_body_steps",
-            "source_body_release_inputs",
-            "source_call_bindings",
-            "source_call_normals",
-            "source_call_header_steps",
-            "model_context_protocols",
-            "source_context_sites",
-            "source_context_arguments",
-            "return_completion_certificates",
-            "summary_flow_steps",
-            "summary_boundaries",
-            "flow_test_leaves",
-            "flow_test_value_links",
-        }
+        name in NATIVE_IPC_FILES
+        and name not in _SURFACE_FILES
         and path.stat().st_size > MAX_CONDITION_FILE_BYTES
     ):
         raise GenerationError(f"{entry['file']}: condition file exceeds the load budget")
@@ -1014,33 +962,11 @@ def load(root: Path, client_spec: Spec | None) -> Generation:
         > max_nodes
     ):
         raise GenerationError("condition catalog exceeds native load limits")
-    for name in (
-        "summary_flows",
-        "source_parameter_identities",
-        "source_context_value_identities",
-        "source_modeled_identities",
-        "model_frame_exits",
-        "model_frame_exit_arguments",
-        "model_frame_exit_steps",
-        "source_body_completions",
-        "source_body_steps",
-        "source_body_release_inputs",
-        "source_call_bindings",
-        "source_call_normals",
-        "source_call_header_steps",
-        "model_context_protocols",
-        "source_context_sites",
-        "source_context_arguments",
-        "return_completion_certificates",
-        "summary_flow_steps",
-        "summary_boundaries",
-        "flow_test_leaves",
-        "flow_test_value_links",
-    ):
+    for name in _SUMMARY_FILES:
         if tables[name].num_rows > MAX_SUMMARY_ROWS:
             raise GenerationError(f"{name} exceeds native load limits")
-    for name in ("operations", "public_paths", "callable_parameters"):
-        if tables[name].num_rows > 200_000:
+    for name in _SURFACE_FILES:
+        if tables[name].num_rows > MAX_SURFACE_ROWS:
             raise GenerationError(f"{name} exceeds native load limits")
     try:
         condition_graph = SemanticExecutor.from_ipc(

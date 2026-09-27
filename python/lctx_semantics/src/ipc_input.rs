@@ -14,7 +14,8 @@ use pyo3::exceptions::PyValueError;
 
 use super::{FlowInput, LeafInput, LinkInput, MAX_SUMMARY_ROWS, MAX_SURFACE_ROWS};
 
-const NAMES: &[&str] = &[
+/// Every generation file the native executor loads; Python derives its native lists from this.
+pub(super) const NAMES: &[&str] = &[
     "conditions",
     "condition_nodes",
     "analysis_conditions",
@@ -45,6 +46,15 @@ const NAMES: &[&str] = &[
     "flow_test_value_links",
 ];
 const MAX_FILE_BYTES: usize = 64 * 1024 * 1024;
+/// The condition catalogs among `NAMES`, bounded by the catalog limits rather than row caps.
+pub(super) const CONDITION_FILES: &[&str] = &[
+    "conditions",
+    "condition_nodes",
+    "analysis_conditions",
+    "analysis_condition_nodes",
+];
+/// The public-surface files among `NAMES`, bounded by `MAX_SURFACE_ROWS`.
+pub(super) const SURFACE_FILES: &[&str] = &["operations", "public_paths", "callable_parameters"];
 
 pub(super) struct Inputs {
     pub source_body_completions: Vec<cpg_schema::source_body::SourceBodyCompletionsRow>,

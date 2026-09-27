@@ -98,6 +98,30 @@ fn kernel_format() -> u32 {
     KERNEL_FORMAT
 }
 
+/// The native generation files as (condition catalogs, public surface, summary-class files), and
+/// their row caps (summary-class, surface). Python validates exactly these files before loading.
+#[pyfunction]
+fn native_files() -> (
+    Vec<&'static str>,
+    Vec<&'static str>,
+    Vec<&'static str>,
+    (usize, usize),
+) {
+    let summaries = ipc_input::NAMES
+        .iter()
+        .copied()
+        .filter(|name| {
+            !ipc_input::CONDITION_FILES.contains(name) && !ipc_input::SURFACE_FILES.contains(name)
+        })
+        .collect();
+    (
+        ipc_input::CONDITION_FILES.to_vec(),
+        ipc_input::SURFACE_FILES.to_vec(),
+        summaries,
+        (MAX_SUMMARY_ROWS, MAX_SURFACE_ROWS),
+    )
+}
+
 #[pyfunction]
 fn catalog_limits() -> (usize, usize, usize) {
     (
@@ -1510,6 +1534,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<SemanticExecutor>()?;
     m.add_function(wrap_pyfunction!(kernel_format, m)?)?;
     m.add_function(wrap_pyfunction!(catalog_limits, m)?)?;
+    m.add_function(wrap_pyfunction!(native_files, m)?)?;
     m.add_function(wrap_pyfunction!(probe_compatible, m)?)?;
     m.add_function(wrap_pyfunction!(probe_implies, m)?)?;
     Ok(())

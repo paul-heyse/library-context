@@ -9,6 +9,7 @@ from ._native import (
     SemanticExecutor,
     catalog_limits,
     kernel_format,
+    native_files,
     probe_compatible,
     probe_implies,
 )
@@ -18,6 +19,7 @@ __all__ = [
     "SemanticExecutor",
     "catalog_limits",
     "kernel_format",
+    "native_files",
     "probe_compatible",
     "probe_implies",
 ]
