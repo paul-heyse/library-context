@@ -1,5 +1,9 @@
 # PostgreSQL storage and capability assessment
 
+The follow-up [PostgreSQL stack assessment](design_review_postgresql-stack_2026-09-27.md)
+examines the external Cornucopia/Rust-Postgres proposal and refines the library recommendation.
+This report retains the storage-scope analysis and adoption findings F01–F04.
+
 ## 1. Scope, outcome and coverage
 
 **Recommendation — Proposed, 2026-09-27:** use PostgreSQL selectively alongside Delta.
