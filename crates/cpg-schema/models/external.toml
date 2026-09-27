@@ -1,4 +1,4 @@
-version = 4
+version = 5
 
 # `typing.cast` returns its value unchanged at runtime. The annotated type is not a value source.
 [[models]]
@@ -41,6 +41,7 @@ coverage = { transfers = "unspecified", effects = "partial", callbacks = "unspec
 
 [[models.rules]]
 kind = "effect"
+exit = "invocation"
 effect = { kind = "io_write" }
 modality = "potential"
 
@@ -61,11 +62,14 @@ modality = "potential"
 
 [[models.rules]]
 kind = "effect"
+exit = "normal"
 effect = { kind = "serialize", format = "json" }
 subject = { kind = "parameter", name = "obj" }
 modality = "potential"
 
-# json.dump writes serialized text to fp; it neither owns nor closes the passed stream.
+# json.dump may write chunks before later encoding or stream failure (CPython 3.14.7).
+# io_write is a potential partial action; serialize means completed serialization on Normal.
+# It neither owns nor closes the passed stream.
 # A custom encoder/default leaves the rest of its effects open.
 [[models]]
 phase = "call"
@@ -75,12 +79,14 @@ coverage = { transfers = "unspecified", effects = "partial", callbacks = "unspec
 
 [[models.rules]]
 kind = "effect"
+exit = "normal"
 effect = { kind = "serialize", format = "json" }
 subject = { kind = "parameter", name = "obj" }
 modality = "potential"
 
 [[models.rules]]
 kind = "effect"
+exit = "invocation"
 effect = { kind = "io_write" }
 subject = { kind = "parameter", name = "fp" }
 modality = "potential"
@@ -117,6 +123,7 @@ modality = "potential"
 
 [[models.rules]]
 kind = "effect"
+exit = "normal"
 effect = { kind = "compress", format = "gzip" }
 subject = { kind = "parameter", name = "data" }
 modality = "potential"
@@ -145,6 +152,7 @@ coverage = { transfers = "unspecified", effects = "partial", callbacks = "unspec
 
 [[models.rules]]
 kind = "effect"
+exit = "invocation"
 effect = { kind = "log" }
 subject = { kind = "parameter", name = "msg" }
 modality = "potential"

@@ -1331,3 +1331,88 @@ accepted and its owner “Accepted target; implementation Proposed.” This revi
 production action activation, native action consumer, resource identity, all-channel completeness
 or Stage 3 closure. Product tests, full `just test-all` and fresh `just pilot` were **not_run**
 for this documentation target review. Only this existing review artifact was changed.
+
+## 26. Bounded implementation follow-up: authored action triggers
+
+**2026-09-27 · change/conformance · Implemented; focused Tested as attributed below.**
+This reviews compiler 94 / catalog 5 against ADR-0060 and §9.9, under core 3.0, CI 1.1
+and the repository binding. The scope is pure admission and source/Delta publication of
+candidate-backed effect/callback/resource assessments. FORMAT 9 is unchanged; native action
+export, selection and semantic evidence closure are not accepted by this review.
+
+The inspected owners are `cpg-schema/src/action.rs` (candidate identity, typed subject/schema
+requirements and shared admission), `lctx-analytics/src/actions.rs` (pure composition), the
+existing call-entry/normal-expression producers, and core `summaries::action_assessments`,
+publication and `validate_actions`. Core acquires rows and reconstructs the producer; it adds
+no model-name or timing classifier. Every existing candidate gets a positive or explicitly
+unresolved assessment. This domain is candidate-relative: a provider-omitted, statically skipped
+call does not acquire a synthetic candidate, and empty assessments do not imply coverage.
+
+Admission retains the original channel, descriptor, authored modality and exact
+model/rule/call/target/function/phase/condition association. Required subjects and runtime schema
+sources require this call's unique bound raw argument; a genuinely subjectless effect needs no
+invented source. Malformed validation-schema shapes and authored Candidate modality cannot
+activate. Invocation consumes reached callee/argument evidence without claiming normal return.
+Normal and Finally additionally require the same call's normal-expression proof, extending the
+matching invocation in order and retaining the combined 64-step cap. Exceptional has no supported
+outcome witness. Returned-resource candidates retain `resource_identity_unavailable`; a call id
+does not become a resource identity. Shared admission establishes structural commitments;
+upstream source reconstruction remains mandatory to establish the cited facts' meanings.
+
+Catalog 5 makes effect timing mandatory and appends Invocation without renumbering. Potential
+partial I/O/logging and completed serialization/compression keep different triggers; no target
+was newly declared total-normal. Consequently, the production source fixture activates potential
+I/O at reached calls, including before a later raise, while serialization/compression and
+registration retain missing-outcome refusals. Positive Normal/Finally controls are synthetic
+contract cases, not production model activation. Non-total calls with omitted defaults remain
+conservatively withheld. No positive assessment changes independent channel coverage.
+
+The relevant extension scenario is another rule using an existing trigger: its model declaration
+and focused qualification feed the same candidate/admission/producer contracts. A new outcome
+proof belongs to its existing semantic owner before actions consume it. No second evaluator,
+binder, generic rule engine or new library dependency is needed. Adjacent RCA/Pass C inspection
+found no effect-candidate consumer: current attributes cover declarations, direct raises, calls
+and official-usage handoffs. Their call modality/InvocationPhase remains intact; adding effect
+triggers there now would introduce behavioral FCA scope rather than repair this migration.
+
+| Judgment/gate | Bounded verdict | Evidence and limit |
+|---|---|---|
+| A1 — Localize change | satisfied | Schema owns admission; analytics composes typed inputs; core acquisition/publication has no independent timing policy |
+| A2 — Encode meaning structurally | satisfied | Candidate descriptors/modality, invocation, callee outcome, subject availability and resource identity remain separate; source reconstruction checks persisted results |
+| A3 — Extend through composition | satisfied | Existing ordered call and normal-expression proofs compose without a second binder/evaluator; ordinary rule additions reuse that boundary |
+| G1/G2/G3/G5/G6; CI-G1 | pass for the inspected source/Delta slice | Scope/binding/ordering mutations, refusal states and the 64-to-65-step boundary are challenged; Potential is never promoted to observed occurrence |
+| G4/G7/G8; CI-G3 | pass for this slice | Pure production composition, bounded independent runtime challenges and explicit qualification limits; the adapter implements repository-specific contracts rather than a missing generic capability |
+| CI-G2 | pass for inspected source publication; native action closure unresolved | Publication reconstructs candidates and their source proofs; action serving and full raw-fact semantic support remain S6 |
+
+**Attributed receipts, inspected 2026-09-27; the reviewer did not run product tests.** The author
+ran the following final selection with `INSTA_UPDATE=no` after reading and accepting the schema,
+rule and append-only codebook migrations:
+
+```sh
+CARGO_TARGET_DIR=/home/paul/library-context/target INSTA_UPDATE=no RUST_MIN_STACK=16777216 \
+cargo nextest run --release -p cpg-schema -p cpg-core -p lctx-analytics --lib \
+  --test contracts --test codebooks --test compile \
+  -E 'binary(contracts) | binary(codebooks) | test(models::) | test(actions::) | test(action_triggers_preserve_partial_io_and_withhold_unproved_outcomes) | test(call_execution_proves_reached_inputs_without_inventing_callee_completion) | test(validation_schema_candidates_keep_attribution_separate_from_subjects)' \
+  --status-level fail --final-status-level fail
+```
+
+**passed:** 30 tests, 177 skipped, 5.694s (`/tmp/lctx-stage3-actions-tests6.log`). This includes
+the real source/Delta action case and publication mutations removing assessments or invocation
+steps; prior call-input/default boundaries; pure Normal/Finally success, unavailable outcomes,
+foreign scope/binding, missing/reordered proof, shuffled-input invariance, malformed candidates
+and cap controls. Earlier attempts encountered expected migrations and corrected fixture/test
+controls, including a cap-test enum typo; this final receipt is not an aggregate of those runs.
+
+The author's `uv run --no-sync python docs/design_review/evidence/2026-09-27_action-triggers/runtime_oracle.py`
+and corresponding `uv run --no-sync ruff check` on that file **passed**. The retained
+[nine-program receipt](../evidence/2026-09-27_action-triggers/README.md) independently distinguishes
+partial writes before encoding failure, reached invocation with no writes, and calls prevented
+by preceding failure or argument evaluation. It establishes those finite observations only;
+runtime invocation does not establish arbitrary effect occurrence or complete coverage.
+
+**Decision: Accept this bounded source/Delta implementation; no remaining in-scope blocker
+identified.** All native action consumers, full raw-fact semantics, broader call/context/default
+domains, positive resource/callback fates, all-channel propagation and complete coverage remain
+open under the active plan. Stage 5 is unchanged. Full `just test-all`, fresh `just pilot` and
+assembled Stage 3 acceptance were **not_run** for this slice. Only this review artifact was
+changed by the reviewer.

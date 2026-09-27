@@ -119,6 +119,7 @@ pub async fn validate_costed(
     violations.extend(validate_models(&cache).await?);
     violations.extend(validate_source_contexts(&cache).await?);
     violations.extend(validate_exit_sites(&cache).await?);
+    violations.extend(validate_actions(&cache).await?);
     violations.extend(validate_handlers(&cache).await?);
     violations.extend(validate_value_flow_contributions(&cache).await?);
     violations.extend(validate_value_flow_predecessor_candidates(&cache).await?);
@@ -203,6 +204,7 @@ cpg_schema::relations! {
     stored_summary_flows = "validate_stored_summary_flows", deps = ["summary_flows"],
         sql = "SELECT * FROM summary_flows".to_owned();
     stored_return_certificates = "validate_return_certificates", deps = ["return_completion_certificates"], sql = "SELECT * FROM return_completion_certificates".to_owned();
+    stored_action_assessments = "validate_action_assessments", deps = ["modeled_action_assessments"], sql = "SELECT * FROM modeled_action_assessments".to_owned();
     stored_call_executions = "validate_call_executions", deps = ["call_executions"], sql = "SELECT * FROM call_executions".to_owned();
     stored_call_execution_steps = "validate_call_execution_steps", deps = ["call_execution_steps"], sql = "SELECT * FROM call_execution_steps".to_owned();
     stored_context_sites = "validate_context_sites", deps = ["source_context_sites"], sql = "SELECT * FROM source_context_sites".to_owned();
@@ -1982,4 +1984,12 @@ async fn validate_source_contexts(ctx:&SessionContext)->Result<Vec<Violation>,Co
     Ok(if sites==expected.sites && arguments==expected.arguments {Vec::new()} else {vec![Violation {
         rule:"context-site-source-equality".into(),rows:1,sample:"context binding or ordered argument evidence differs from source".into(),
     }]})
+}
+
+async fn validate_actions(ctx:&SessionContext)->Result<Vec<Violation>,CoreError> {
+    let mut actual:Vec<cpg_schema::action::ModeledActionAssessmentsRow>=sql::fetch(ctx,&stored_action_assessments(),sql::Params::new()).await?;
+    actual.sort_by_key(|r|(r.snapshot_id,r.assessment_id));
+    let expected=crate::summaries::action_assessments(ctx).await?;
+    Ok(if actual==expected {Vec::new()} else {vec![Violation {rule:"action-source-equality".into(),rows:1,
+        sample:"action assessment differs from candidate, invocation or callee outcome evidence".into()}]})
 }

@@ -21,7 +21,7 @@ use crate::codebook::{
 use crate::id::{Digest, Id, IdHasher};
 use crate::tables::{ContextDefinitionsRow, ContextModulesRow, ContextParametersRow, ContextsRow};
 
-pub const FORMAT: u32 = 4;
+pub const FORMAT: u32 = 5;
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -365,6 +365,7 @@ pub enum Rule {
     Effect {
         effect: Effect,
         subject: Option<InputPath>,
+        exit: Exit,
         modality: RuleModality,
     },
     Callback {
@@ -411,7 +412,14 @@ impl Rule {
                 subject.as_ref().map_or(Ok(()), InputPath::validate)
             }
             Self::Callback { callback, .. } => callback.validate(),
-            Self::Resource { resource, .. } => resource.validate(),
+            Self::Resource { resource, exit, .. } => {
+                resource.validate()?;
+                if matches!(resource,ResourcePath::Output {path:OutputPath::ReturnValue})
+                    && !matches!(exit,Exit::Normal) {
+                    return Err("a returned resource requires a normal trigger".into());
+                }
+                Ok(())
+            },
             Self::Exception {
                 class,
                 action,
@@ -638,6 +646,7 @@ pub enum Exit {
     Normal,
     Exceptional,
     Finally,
+    Invocation,
 }
 
 impl Exit {
@@ -646,6 +655,7 @@ impl Exit {
             Self::Normal => ModelExit::Normal,
             Self::Exceptional => ModelExit::Exceptional,
             Self::Finally => ModelExit::Finally,
+            Self::Invocation => ModelExit::Invocation,
         }
     }
 }
@@ -982,6 +992,7 @@ impl Catalog {
                     Rule::Effect {
                         effect,
                         subject,
+                        exit,
                         modality,
                     } => {
                         let (kind, argument) = effect.kind_argument();
@@ -999,6 +1010,7 @@ impl Catalog {
                             target_definition_fact_id: target.target_definition_fact_id,
                             revision: target.revision,
                             effect: kind,
+                            exit: exit.codebook(),
                             argument: argument.map(str::to_owned),
                             schema_kind: schema.map(ValidationSchema::kind),
                             schema_class_node_id:schema_class.map(|d|d.symbol_node_id),
@@ -1261,7 +1273,7 @@ mod tests {
         );
         // Contract-only catalog controls: these authored rules are never production models
         // for typing.cast. Reuse the pinned signature to challenge schema binding independently.
-        let header = r#"version = 4
+        let header = r#"version = 5
 [[models]]
 phase = "call"
 revision = 1
@@ -1269,6 +1281,7 @@ target = { scope = "stdlib", python = "3.14.7", module = "typing", callable = "c
 coverage = { transfers = "unspecified", effects = "partial", callbacks = "unspecified", resources = "unspecified", exceptions = "unspecified" }
 [[models.rules]]
 kind = "effect"
+exit = "normal"
 subject = { kind = "parameter", name = "val" }
 modality = "potential"
 "#;
@@ -1423,6 +1436,7 @@ modality = "potential"
             Rule::Effect {
                 effect: Effect::Log,
                 subject: Some(InputPath::Parameter { name }),
+                exit: Exit::Invocation,
                 modality: RuleModality::Potential,
             } if name == "msg")));
         let adapter = &catalog.models.iter().find(|m| {
@@ -1502,7 +1516,7 @@ modality = "potential"
 
     #[test]
     fn conversion_needs_a_target_and_resource_cannot_be_a_raise_path() {
-        let header = r#"version = 4
+        let header = r#"version = 5
 [[models]]
 phase = "call"
 revision = 1
@@ -1531,8 +1545,19 @@ coverage = { transfers = "unspecified", effects = "unspecified", callbacks = "un
     }
 
     #[test]
+    fn action_triggers_are_authored_and_returned_resources_require_normal() {
+        let source=include_str!("../models/external.toml");
+        assert!(Catalog::parse("missing-trigger.toml",&source.replacen("exit = \"invocation\"\n","",1)).is_err());
+        for exit in ["invocation","exceptional","finally"] {
+            let changed=source.replacen("action = \"acquire\"\nexit = \"normal\"",
+                &format!("action = \"acquire\"\nexit = \"{exit}\""),1);
+            assert!(Catalog::parse("early-resource.toml",&changed).is_err(),"{exit}");
+        }
+    }
+
+    #[test]
     fn normal_return_requires_complete_exception_coverage_without_exception_rules() {
-        let header = r#"version = 4
+        let header = r#"version = 5
 [[models]]
 phase = "call"
 revision = 1
@@ -1572,7 +1597,7 @@ modality = "definite"
             )
             .is_err()
         );
-        let second = valid.trim_start_matches("version = 4").trim();
+        let second = valid.trim_start_matches("version = 5").trim();
         assert!(Catalog::parse("bad.toml", &format!("{valid}\n{second}\n")).is_err());
     }
 
@@ -1592,7 +1617,7 @@ modality = "definite"
         assert!(Catalog::parse("missing.toml",&original.replace("phase = \"call\"\n","")).is_err());
         assert!(Catalog::parse("unknown.toml",&original.replace("phase = \"call\"","phase = \"later\"")).is_err());
         let first=original.split("# Python 3.14 typing.assert_type").next().unwrap();
-        let init=first.trim_start_matches("version = 4").replace("phase = \"call\"","phase = \"init\"")
+        let init=first.trim_start_matches("version = 5").replace("phase = \"call\"","phase = \"init\"")
             .replace("normal_return = true","normal_return = false")
             .replace("exceptions = \"complete\"","exceptions = \"partial\"");
         let catalog=Catalog::parse("phases.toml",&format!("{first}\n{init}")).unwrap();
@@ -1602,6 +1627,6 @@ modality = "definite"
         assert!(catalog.models[0].model.normal_return);
         assert!(!catalog.models[1].model.normal_return);
         assert_ne!(catalog.models[0].model_id,catalog.models[1].model_id);
-        assert!(Catalog::parse("duplicate.toml",&format!("{first}\n{}",first.trim_start_matches("version = 4"))).is_err());
+        assert!(Catalog::parse("duplicate.toml",&format!("{first}\n{}",first.trim_start_matches("version = 5"))).is_err());
     }
 }

@@ -39,7 +39,7 @@ unknown unless an independent coverage relation establishes a specific negative 
 
 ## Action triggers
 
-**Accepted target; implementation Proposed.** Every authored effect,
+**Accepted target; source/Delta subset Implemented and focused Tested (2026-09-27).** Every authored effect,
 callback and resource action names Invocation, Normal, Exceptional or Finally. Invocation proves
 reached and bound callee entry; the exit variants require an independently proved outcome of that
 exact callee. Finally accepts either callee exit, never an enclosing finalizer or pending caller
@@ -49,6 +49,19 @@ effect requires no invented subject. Input arguments can be
 available at entry; a returned resource requires Normal and separate returned-value identity.
 Positive actions do not establish complete channel coverage. Schema owns shared admission,
 analytics composes it, core reconstructs publication, and native consumes the same contract.
+
+`action.rs` owns candidate-backed assessments and shared structural admission; `actions.rs`
+composes existing call-input and normal-expression evidence. Catalog format 5 requires effect
+triggers and appends Invocation to the existing selector. Partial I/O/logging retain Potential
+at Invocation; completed serialization/compression require Normal. Every existing candidate has
+an assessment, including a named refusal. Candidate references retain channel, descriptor and
+modality; no effect-shaped value flow is invented. Subject bindings match the same call's actual
+arguments. Normal/Finally require matching whole-call normal evidence and the existing 64-step
+bound; exact exceptional-call outcomes and returned-resource identities remain unsupported.
+Publication reconstructs the producer and its upstream source relations. The independent
+[partial-I/O challenge](../../design_review/evidence/2026-09-27_action-triggers/README.md) distinguishes
+reached calls with and without writes. Native action export/selection and full semantic support
+remain S6 work; structural admission does not replace raw-fact source validation.
 
 > Decision: ADR-0060
 
@@ -81,7 +94,7 @@ A model is committed, typed data about a callable we do not analyze from source.
 - **Channel coverage.** Each target declares transfer, effect, callback, resource and exception
   coverage independently as complete, partial or unspecified. Only complete coverage can support a
   negative summary conclusion.
-- **Phase applicability (Implemented, 2026-09-26).** Catalog format 4 requires an authored phase
+- **Phase applicability (Implemented, 2026-09-26).** Catalog format 5 requires an authored phase
   per model. The same target may have distinct models and channel coverage for different phases;
   target/phase pairs are unique and phase participates in model identity. `model_targets.phase`
   is reconstructed from the catalog. A provider observation activates a model only on exact phase
@@ -107,7 +120,7 @@ A model is committed, typed data about a callable we do not analyze from source.
 | `atexit.register` | Identity transfer; `registered` callback action on normal exit | Invocation |
 | `pydantic==2.13.5` `TypeAdapter.validate_python(object)` | Potential input → result transform | Effects, raises, completion (below) |
 
-- **Validation schema contract (Implemented; focused Tested, 2026-09-27).** Catalog format 4
+- **Validation schema contract (Implemented; focused Tested, 2026-09-27).** Catalog format 5
   separates the effect subject from `static_class`, `runtime_value` and `unresolved` schema
   attribution. Static classes require a unique pinned class node/fact pair from the available
   context; runtime sources have their own typed path and schema-role binding. A missing or

@@ -24,6 +24,14 @@ use lctx_analytics::summaries::finite::{
 
 cpg_schema::relations! {
     inventory relations;
+    action_bindings = "action_bindings", deps = ["model_argument_bindings"], sql = "SELECT * FROM model_argument_bindings".to_owned();
+    action_candidates_effect = "action_candidates_effect", deps = ["modeled_effect_sites"], sql = "SELECT * FROM modeled_effect_sites".to_owned();
+    action_candidates_callback = "action_candidates_callback", deps = ["modeled_callback_sites"], sql = "SELECT * FROM modeled_callback_sites".to_owned();
+    action_candidates_resource = "action_candidates_resource", deps = ["modeled_resource_sites"], sql = "SELECT * FROM modeled_resource_sites".to_owned();
+    action_applications = "action_applications", deps = ["model_applications"], sql = "SELECT * FROM model_applications".to_owned();
+    action_executions = "action_executions", deps = ["call_executions"], sql = "SELECT * FROM call_executions".to_owned();
+    action_execution_steps = "action_execution_steps", deps = ["call_execution_steps"], sql = "SELECT * FROM call_execution_steps".to_owned();
+
     return_certificates = "summary_return_certificates", deps = ["return_completion_certificates"], sql = "SELECT * FROM return_completion_certificates".to_owned();
     context_protocols = "summary_context_protocols", deps = ["model_context_protocols"], sql = "SELECT * FROM model_context_protocols".to_owned();
     context_sites = "summary_context_sites", deps = ["source_context_sites"], sql = "SELECT * FROM source_context_sites".to_owned();
@@ -478,5 +486,24 @@ pub async fn source_contexts(ctx:&SessionContext)->Result<lctx_analytics::contex
         declarations:&declarations,definitions:&definitions,parameters:&parameters,modules:&modules,
         bindings:&bindings,references:&references,resolutions:&resolutions,scopes:&scopes,exports:&exports,
         regions:&regions,unconditional_conditions:&unconditional_conditions,
+    }))
+}
+
+/// Acquire already-owned candidates and independent execution/outcome proofs; no action
+/// meaning or timing policy lives in orchestration.
+pub async fn action_assessments(ctx:&SessionContext)->Result<Vec<cpg_schema::action::ModeledActionAssessmentsRow>,CoreError> {
+    let bindings=sql::fetch(ctx,&action_bindings(),sql::Params::new()).await?;
+    let arguments=sql::fetch(ctx,&expression_call_arguments(),sql::Params::new()).await?;
+    let effects=sql::fetch(ctx,&action_candidates_effect(),sql::Params::new()).await?;
+    let callbacks=sql::fetch(ctx,&action_candidates_callback(),sql::Params::new()).await?;
+    let resources=sql::fetch(ctx,&action_candidates_resource(),sql::Params::new()).await?;
+    let applications=sql::fetch(ctx,&action_applications(),sql::Params::new()).await?;
+    let executions=sql::fetch(ctx,&action_executions(),sql::Params::new()).await?;
+    let execution_steps=sql::fetch(ctx,&action_execution_steps(),sql::Params::new()).await?;
+    let expressions=sql::fetch(ctx,&completion_expressions(),sql::Params::new()).await?;
+    let expression_steps=sql::fetch(ctx,&completion_expression_steps(),sql::Params::new()).await?;
+    Ok(lctx_analytics::actions::assess(lctx_analytics::actions::Inputs {
+        bindings:&bindings,arguments:&arguments,effects:&effects,callbacks:&callbacks,resources:&resources,applications:&applications,
+        executions:&executions,execution_steps:&execution_steps,expressions:&expressions,expression_steps:&expression_steps,
     }))
 }

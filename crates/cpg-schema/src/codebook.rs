@@ -227,6 +227,8 @@ codebook!(
         HandlerNameCleanup = 33 => "handler_name_cleanup",
         /// More than 128 explicit arguments in a reached-invocation proof request.
         InvocationArgumentLimit = 34 => "invocation_argument_limit",
+        ActionTriggerUnavailable = 35 => "action_trigger_unavailable",
+        ResourceIdentityUnavailable = 36 => "resource_identity_unavailable",
     }
 );
 
@@ -1616,11 +1618,13 @@ codebook!(
 );
 
 codebook!(
-    /// Exit on which a modeled resource action applies.
+    /// Trigger for an authored action of this exact callee. Finally means either proved
+    /// callee exit, never an enclosing finalizer; Invocation does not imply any callee exit.
     ModelExit = "model_exit" {
         Normal = 0 => "normal",
         Exceptional = 1 => "exceptional",
         Finally = 2 => "finally",
+        Invocation = 3 => "invocation",
     }
 );
 

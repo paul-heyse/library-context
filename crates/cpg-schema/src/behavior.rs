@@ -56,6 +56,7 @@ table!(
         target_definition_fact_id: Id,
         revision: i64,
         effect: ModelEffectKind,
+        exit: ModelExit,
         argument: Option<String>,
         schema_kind: Option<ModelSchemaKind>,
         schema_class_node_id: Option<Id>,
@@ -88,6 +89,7 @@ table!(
         rule_id: Id,
         target_definition_fact_id: Id,
         effect: ModelEffectKind,
+        exit: ModelExit,
         argument: Option<String>,
         schema_kind: Option<ModelSchemaKind>,
         schema_class_node_id: Option<Id>,
@@ -2948,7 +2950,7 @@ crate::relations! {
         sql = format!(
             "SELECT a.snapshot_id, a.call_site_node_id, a.function_node_id, \
                     a.call_fact_id, a.pysa_fact_id, a.target_node_id, a.model_id, \
-                    m.rule_id, m.target_definition_fact_id, m.effect, m.argument, \
+                    m.rule_id, m.target_definition_fact_id, m.effect, m.exit, m.argument, \
                     m.schema_kind, m.schema_class_node_id, m.schema_class_fact_id, \
                     m.schema_path_id, m.schema_path_kind, \
                     CASE WHEN {schema_bound} THEN sb.argument_node_id END AS schema_expression_node_id, \

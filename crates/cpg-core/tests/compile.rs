@@ -2211,6 +2211,7 @@ async fn model_target_requires_its_cited_pinned_definition() {
         target_definition_fact_id: Id([4; 16]),
         revision: 1,
         effect: ModelEffectKind::IoRead,
+        exit: cpg_schema::codebook::ModelExit::Invocation,
         argument: None,
         schema_kind:None, schema_class_node_id:None, schema_class_fact_id:None,
         schema_path_id:None, schema_path_kind:None,
@@ -5505,7 +5506,7 @@ async fn validation_schema_candidates_keep_attribution_separate_from_subjects() 
         candidate_set_complete_under_model:true,has_unresolved_remainder:false,target_count:1,
         target_normal_return:false,model_origin:Origin::SyntheticModel};
     let model=ModelEffectsRow {snapshot_id:id(1),model_id:id(8),target_node_id:id(7),rule_id:id(11),
-        target_definition_fact_id:id(10),revision:1,effect:ModelEffectKind::Validate,argument:None,
+        target_definition_fact_id:id(10),revision:1,effect:ModelEffectKind::Validate,exit:cpg_schema::codebook::ModelExit::Normal,argument:None,
         schema_kind:Some(ModelSchemaKind::RuntimeValue),schema_class_node_id:None,schema_class_fact_id:None,
         schema_path_id:Some(id(12)),schema_path_kind:Some(ModelPathKind::Parameter),
         subject_path_id:Some(id(13)),subject_path_kind:Some(ModelPathKind::Parameter),subject_path:Some("display only".into()),
@@ -5737,4 +5738,82 @@ for mutation in ("missing_site","missing_certificate","duplicate_certificate","m
     let violations=cpg_core::validate::validate(&ctx).await.unwrap();
     assert!(violations.iter().any(|v|v.rule=="model-context-protocol-equality"),"{violations:?}");
     ctx.deregister_table("model_context_protocols").unwrap();ctx.register_table("model_context_protocols",original).unwrap();
+}
+
+#[tokio::test(flavor="multi_thread")]
+async fn action_triggers_preserve_partial_io_and_withhold_unproved_outcomes() {
+    let root=tempfile::tempdir().unwrap();let snapshot=Id([98;16]);
+    let analysis=Analysis {config:AnalyticsConfig::parse(r#"
+version = 1
+[subsystem]
+module_prefixes = ["actions"]
+public_roots = ["actions"]
+[seeds]
+primary = ["actions.before_raise"]
+distractors = []
+[pass_a]
+max_depth = 2
+max_vertices = 128
+max_edges = 512
+max_witnesses = 3
+[briefs]
+budget = 1
+"#).unwrap(),embedder:Some(Arc::new(cpg_core::embed::FakeEmbedder::new())),techniques:Techniques::default()};
+    compile_analyzed(root.path(),snapshot,&raw_version("action_shapes",snapshot,(3,14,7)),Some(&analysis)).await.unwrap();
+    let(_,ctx)=published(root.path(),snapshot).await.unwrap().unwrap();
+    let display=sql::render(&ctx,"SELECT d.name,a.channel,a.reason,e.effect FROM modeled_action_assessments a \
+        LEFT JOIN declarations d ON d.node_id=a.function_node_id LEFT JOIN modeled_effect_sites e \
+        ON e.call_site_node_id=a.call_site_node_id AND e.rule_id=a.rule_id AND e.pysa_fact_id=a.pysa_fact_id").await.unwrap();
+    for name in ["normal","before_raise"] {
+        assert_eq!(count(&ctx,&format!("SELECT count(*) FROM modeled_action_assessments a \
+            JOIN declarations d ON d.node_id=a.function_node_id JOIN modeled_effect_sites e \
+            ON e.call_site_node_id=a.call_site_node_id AND e.rule_id=a.rule_id AND e.pysa_fact_id=a.pysa_fact_id \
+            WHERE d.name='{name}' AND a.reason IS NULL AND e.effect={} AND e.model_modality={} AND e.exit={}",
+            ModelEffectKind::IoWrite.code(),Modality::Potential.code(),cpg_schema::codebook::ModelExit::Invocation.code())).await,1,"{display}");
+    }
+    assert_eq!(count(&ctx,&format!("SELECT count(*) FROM modeled_action_assessments a JOIN modeled_effect_sites e \
+        ON e.call_site_node_id=a.call_site_node_id AND e.rule_id=a.rule_id AND e.pysa_fact_id=a.pysa_fact_id \
+        WHERE e.effect IN ({},{}) AND a.reason IS NULL",ModelEffectKind::Serialize.code(),ModelEffectKind::Compress.code())).await,0,
+        "completed transform cannot borrow a reached invocation: {display}");
+    for name in ["after_raise","raising_argument","after_opaque","missing_defaults","skipped","compression","registration","acquisition"] {
+        assert_eq!(count(&ctx,&format!("SELECT count(*) FROM modeled_action_assessments a JOIN declarations d \
+            ON d.node_id=a.function_node_id WHERE d.name='{name}' AND a.reason IS NULL")).await,0,"{display}");
+        if name!="skipped" {
+            assert!(count(&ctx,&format!("SELECT count(*) FROM modeled_action_assessments a JOIN declarations d \
+                ON d.node_id=a.function_node_id WHERE d.name='{name}' AND a.reason IS NOT NULL")).await>0,"missing boundary {name}: {display}");
+        }
+    }
+    for(name,reason)in [("registration",BoundaryReason::ActionTriggerUnavailable),
+        ("acquisition",BoundaryReason::ResourceIdentityUnavailable),("missing_defaults",BoundaryReason::DefaultUnavailable)] {
+        assert!(count(&ctx,&format!("SELECT count(*) FROM modeled_action_assessments a JOIN declarations d \
+            ON d.node_id=a.function_node_id WHERE d.name='{name}' AND a.reason={}",reason.code())).await>0,"{display}");
+    }
+    assert_eq!(count(&ctx,"SELECT count(*) FROM modeled_action_assessments").await,
+        count(&ctx,"SELECT count(*) FROM modeled_effect_sites").await+count(&ctx,"SELECT count(*) FROM modeled_callback_sites").await
+            +count(&ctx,"SELECT count(*) FROM modeled_resource_sites").await);
+    assert_eq!(count(&ctx,"SELECT count(*) FROM modeled_action_assessments WHERE reason IS NULL").await,2,"{display}");
+    let repo=Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let runtime=std::process::Command::new("uv").args(["run","--no-sync","python",
+        "docs/design_review/evidence/2026-09-27_action-triggers/runtime_oracle.py"]).current_dir(&repo).output().unwrap();
+    assert!(runtime.status.success(),"{}",String::from_utf8_lossy(&runtime.stderr));
+    let runtime:serde_json::Value=serde_json::from_slice(&runtime.stdout).unwrap();
+    assert_eq!(runtime["outcome"],"passed");
+    for name in ["normal","before_raise","partial_encoding"] {
+        assert!(!runtime["cases"][name]["chunks"].as_array().unwrap().is_empty());
+    }
+    assert_eq!(runtime["cases"]["partial_encoding"]["outcome"],"TypeError");
+    assert_eq!(runtime["cases"]["no_write_encoding"]["calls"],serde_json::json!(["dump"]));
+    assert!(runtime["cases"]["no_write_encoding"]["chunks"].as_array().unwrap().is_empty(),
+        "reached invocation never implies an actual write");
+    for name in ["after_raise","raising_argument","after_opaque","skipped"] {
+        assert!(runtime["cases"][name]["calls"].as_array().unwrap().is_empty());
+    }
+    for table in ["modeled_action_assessments","call_execution_steps"] {
+        let original=sql::query(&ctx,&format!("SELECT * FROM {table}")).await.unwrap().into_view();
+        let missing=sql::query(&ctx,&format!("SELECT * FROM {table} WHERE false")).await.unwrap().into_view();
+        ctx.deregister_table(table).unwrap();ctx.register_table(table,missing).unwrap();
+        let violations=cpg_core::validate::validate(&ctx).await.unwrap();
+        assert!(violations.iter().any(|v|v.rule=="action-source-equality"),"{table}: {violations:?}");
+        ctx.deregister_table(table).unwrap();ctx.register_table(table,original).unwrap();
+    }
 }

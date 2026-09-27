@@ -1,0 +1,25 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table modeled_action_assessments
+family findings
+key snapshot_id, assessment_id
+check normal_count_nonnegative: normal_step_count >= 0
+@lctx.family=findings
+@lctx.table=modeled_action_assessments
+snapshot_id: FixedSizeBinary(16) NOT NULL
+assessment_id: FixedSizeBinary(16) NOT NULL
+candidate_id: FixedSizeBinary(16) NOT NULL
+channel: Int16 NOT NULL [lctx.codebook=summary_channel]
+function_node_id: FixedSizeBinary(16) NULL
+call_site_node_id: FixedSizeBinary(16) NOT NULL
+pysa_fact_id: FixedSizeBinary(16) NOT NULL
+model_id: FixedSizeBinary(16) NOT NULL
+rule_id: FixedSizeBinary(16) NOT NULL
+execution_id: FixedSizeBinary(16) NULL
+condition_id: FixedSizeBinary(16) NULL
+normal_syntax_fact_id: FixedSizeBinary(16) NULL
+normal_step_count: Int64 NOT NULL
+normal_steps_digest: FixedSizeBinary(32) NOT NULL
+reason: Int16 NULL [lctx.codebook=boundary_reason]

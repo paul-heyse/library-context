@@ -88,6 +88,8 @@ boundary_reason
   32 default_stability_unknown
   33 handler_name_cleanup
   34 invocation_argument_limit
+  35 action_trigger_unavailable
+  36 resource_identity_unavailable
 pysa_unresolved_reason
   0 LambdaArgument
   1 UnexpectedPyreflyTarget
@@ -743,6 +745,7 @@ model_exit
   0 normal
   1 exceptional
   2 finally
+  3 invocation
 model_exception_action
   0 raise
   1 catch

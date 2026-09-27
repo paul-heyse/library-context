@@ -17,6 +17,7 @@ model_id: FixedSizeBinary(16) NOT NULL
 rule_id: FixedSizeBinary(16) NOT NULL
 target_definition_fact_id: FixedSizeBinary(16) NOT NULL
 effect: Int16 NOT NULL [lctx.codebook=model_effect_kind]
+exit: Int16 NOT NULL [lctx.codebook=model_exit]
 argument: Utf8 NULL
 schema_kind: Int16 NULL [lctx.codebook=model_schema_kind]
 schema_class_node_id: FixedSizeBinary(16) NULL
