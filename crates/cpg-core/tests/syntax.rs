@@ -1788,7 +1788,7 @@ async fn all_techniques_guard() {
     // signature-observation query: behavior::digest includes the query, so the behavior scan
     // invocation identity changes even where a fixture has no duplicate external signatures;
     // then compiler103's flow-model descriptor query (the builtin descriptor exemption).
-    const GUARD: &str = "99363855f29d0caa2c37ef1b0e05e5bcfac9949a31fdddd25ecb41f82eaef579";
+    const GUARD: &str = "3d992653c567237b1216b4c9ba503b18397d5cf45fe334d0dc624a3d7f675831";
     assert_eq!(digest, GUARD, "the all-techniques guard moved");
 }
 

@@ -259,10 +259,24 @@ async fn transfer_alternatives_keep_conditions_verdicts_and_receiver_boundaries(
             "{access}"
         );
     }
-    // A second decorator, or a class-local name spelled `classmethod`, keeps the withholding.
+    // The exempt descriptor's unread formal is judged like any other body (descriptor review F01).
+    assert_eq!(
+        count(
+            &ctx,
+            "SELECT count(*) FROM behaviors b JOIN operations o \
+             ON o.node_id = b.operation_node_id \
+             WHERE o.access_path = 'transferpkg.Ignoring.ignores' AND b.boundary_reason = 10"
+        )
+        .await,
+        0
+    );
+    // A second decorator, a class-local name spelled `classmethod`, a descriptor outside a class
+    // (descriptor review F02) or a property whose setter owns the path keeps the withholding.
     for access in [
         "transferpkg.Descriptors.stacked",
         "transferpkg.Shadowed.build",
+        "transferpkg.loose",
+        "transferpkg.Settable.level",
     ] {
         assert_eq!(
             count(

@@ -1589,6 +1589,8 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
     for b in &body_rows {
         body_of.entry(b.function_node_id).or_default().push(b);
     }
+    // One decorated set serves premise withholding and behavior admission (descriptor review F01).
+    let decorated = decorated_functions(&body_rows, &root_rows, &descriptor_rows);
     let not_behavior = |f: Id| -> Option<(BoundaryReason, &'static str)> {
         let Some(implementation) = implementations.get(&f) else {
             return Some((
@@ -1625,7 +1627,7 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
             return Some((BoundaryReason::AbstractBody, "a body that only raises"));
         }
         let rows = body_of.get(&f)?;
-        if rows.iter().any(|row| row.field == SyntaxField::Decorator) {
+        if decorated.contains(&f) {
             return Some((
                 BoundaryReason::OutsideProviderModel,
                 "a decorator may replace the callable binding",
@@ -1701,7 +1703,7 @@ pub async fn run(ctx: &SessionContext, snapshot_id: Id) -> Result<FlowModelRows,
     // Value flows.
     let mut out = FlowModelRows {
         unreachable: unreachable.clone(),
-        decorated: decorated_functions(&body_rows, &root_rows, &descriptor_rows),
+        decorated: decorated.clone(),
         ..FlowModelRows::default()
     };
     let mut sinks: BTreeSet<(Id, FlowSink, i64, i64)> = BTreeSet::new();
@@ -3048,5 +3050,110 @@ mod reach_fixed_point_tests {
             source.condition.diagram(),
             Err(KernelBoundary::SourceOverBudget)
         )));
+    }
+}
+
+#[cfg(test)]
+mod decorator_exemption_tests {
+    use super::*;
+
+    fn id(byte: u8) -> Id {
+        Id([byte; 16])
+    }
+
+    /// One decorator expression at bytes `start..start + 5` of module 0 on function `f`.
+    fn decorator(f: u8, start: i64, kind: SyntaxKind) -> BodyRow {
+        BodyRow {
+            function_node_id: id(f),
+            module_node_id: id(0),
+            kind,
+            field: SyntaxField::Decorator,
+            start_byte: start,
+            end_byte: start + 5,
+        }
+    }
+
+    fn builtin(start: i64, name: &str) -> NameRootRow {
+        NameRootRow {
+            module_node_id: id(0),
+            start_byte: start,
+            end_byte: start + 5,
+            binding_kind: BindingKind::Implicit,
+            binding_name: name.to_owned(),
+            binding_module_node_id: id(0),
+            binding_scope_kind: LexicalScopeKind::Module,
+            imported_module: None,
+            imported_name: None,
+            builtin_name: Some(name.to_owned()),
+        }
+    }
+
+    fn class_local(start: i64, name: &str) -> NameRootRow {
+        NameRootRow {
+            binding_kind: BindingKind::Assignment,
+            binding_scope_kind: LexicalScopeKind::Class,
+            builtin_name: None,
+            ..builtin(start, name)
+        }
+    }
+
+    fn flags(f: u8, classmethod: bool, staticmethod: bool, getter: bool) -> DescriptorRow {
+        DescriptorRow {
+            function_node_id: id(f),
+            is_classmethod: classmethod,
+            is_staticmethod: staticmethod,
+            is_property_getter: getter,
+        }
+    }
+
+    #[test]
+    fn only_agreeing_sole_builtin_descriptors_are_exempt() {
+        let e = SyntaxKind::ExprName;
+        let bodies = [
+            decorator(1, 10, e),                          // classmethod, both agree
+            decorator(2, 20, e),                          // staticmethod, both agree
+            decorator(3, 30, e),                          // property getter, both agree
+            decorator(4, 40, e),                          // lexical only: no provider row
+            decorator(5, 50, e),                          // provider says staticmethod
+            decorator(6, 60, e),                          // class-local `classmethod`
+            decorator(7, 70, e),                          // builtin and class-local resolutions
+            decorator(8, 80, e),                          // stacked: two agreeing decorators
+            decorator(8, 90, e),                          //
+            decorator(9, 100, SyntaxKind::ExprAttribute), // `@x.deleter` flagged as a getter
+            decorator(10, 110, e),                        // provider rows disagree
+        ];
+        let roots = [
+            builtin(10, "classmethod"),
+            builtin(20, "staticmethod"),
+            builtin(30, "property"),
+            builtin(40, "classmethod"),
+            builtin(50, "classmethod"),
+            class_local(60, "classmethod"),
+            builtin(70, "classmethod"),
+            class_local(70, "classmethod"),
+            builtin(80, "classmethod"),
+            builtin(90, "classmethod"),
+            builtin(110, "classmethod"),
+        ];
+        let descriptors = [
+            flags(1, true, false, false),
+            flags(2, false, true, false),
+            flags(3, false, false, true),
+            flags(5, false, true, false),
+            flags(6, true, false, false),
+            flags(7, true, false, false),
+            flags(8, true, false, false),
+            flags(9, false, false, true),
+            flags(10, true, false, false),
+            flags(10, false, false, false),
+        ];
+        let decorated = decorated_functions(&bodies, &roots, &descriptors);
+        assert_eq!(
+            decorated,
+            [4, 5, 6, 7, 8, 9, 10]
+                .map(id)
+                .into_iter()
+                .collect::<BTreeSet<_>>()
+        );
     }
 }

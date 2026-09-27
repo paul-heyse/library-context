@@ -311,12 +311,16 @@ reasoning, and every step is cited.
   Flow behaviors carry typed transfer and condition-owner scope through FORMAT 9 and Python.
   Captured values, decorated owners and decorated intermediary calls stay unknown
   (`outside_provider_model`). **Descriptor exemption (Implemented, focused Tested 2026-09-27;
-  compiler 103):** a function whose *sole* decorator is a bare name is not treated as decorated
-  when both of these agree. Our lexical resolution binds the name to the builtin `classmethod`,
-  `staticmethod` or `property` on every resolution. Every Pysa definition carries the matching
-  resolved descriptor flag. These CPython descriptors run the function's own body. A second
-  decorator, a shadowing or conditional binding, a property setter/deleter or any disagreement
-  keeps the withholding. Only an exact,
+  compiler 103):** a *class-defined* function whose *sole* decorator is a bare name is not
+  treated as decorated when both of these agree. Our lexical resolution binds the name to the
+  builtin `classmethod`, `staticmethod` or `property` on every resolution. Every Pysa definition
+  carries the matching resolved descriptor flag. These CPython descriptors run the function's
+  own body. A second decorator, a function outside a class, a shadowing or mixed binding, an
+  attribute decorator (`@x.setter`/`@x.deleter`) or any disagreement keeps the withholding. One
+  decorated set serves behavior admission and unread-premise withholding. A store-free unit test
+  covers each resolution's refusals independently; `transferpkg` covers the source cases
+  ([review](../../design_review/reviews/design_review_descriptor-exemption_2026-09-27.md)).
+  Only an exact,
   unconditional identity store composes with later field reads; a guarded store retains its direct
   claim. Receiver narrowing requires an exclusive exact identity chain. Unknown receiver scope
   blocks field/singleton negatives, and a rebound or conditional global construction is not a

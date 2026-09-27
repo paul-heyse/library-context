@@ -170,3 +170,28 @@ class Shadowed:
     @classmethod
     def build(cls, value):
         return value
+
+
+class Ignoring:
+    @classmethod
+    def ignores(cls, value, unused):
+        return value
+
+
+@classmethod
+def loose(cls, value):
+    return value
+
+
+class Settable:
+    @property
+    def level(self):
+        return self._level
+
+    @level.setter
+    def level(self, value):
+        self._level = value
+
+    @level.deleter
+    def level(self):
+        del self._level

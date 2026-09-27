@@ -463,8 +463,9 @@ pub fn receivers_sql() -> String {
     )
 }
 
-/// The functions Pysa resolves as a builtin binding-preserving descriptor (`classmethod`,
-/// `staticmethod`, a `property` getter), one row per provider definition, ordered by function.
+/// Pysa's descriptor flags (`classmethod`, `staticmethod`, a `property` getter) for each
+/// class-defined function, one row per provider definition, ordered by function. A function
+/// outside a class has no row, so a descriptor decorator there never exempts it.
 /// The flow model admits such a decorator only when our own lexical resolution agrees (the
 /// Stage 3 channel review's F06: withholding until an identity-preserving decorator model exists).
 pub fn descriptor_functions_sql() -> String {
@@ -473,7 +474,7 @@ pub fn descriptor_functions_sql() -> String {
      FROM provider_node_map m \
      JOIN pysa_functions f ON f.module_node_id = m.module_node_id \
        AND f.function_key = m.function_key \
-     WHERE m.node_id IS NOT NULL \
+     WHERE m.node_id IS NOT NULL AND f.defining_class IS NOT NULL \
      ORDER BY function_node_id, f.is_classmethod, f.is_staticmethod, f.is_property_getter"
         .to_owned()
 }
