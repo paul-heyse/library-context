@@ -294,20 +294,23 @@ impl SemanticExecutor {
             }
         }
         let mut formals = HashMap::new();
-        for (operation, formal, name) in parameters {
-            let operation = id(&operation)?;
+        let mut formal_ids = HashSet::new();
+        let mut callable_names = HashSet::new();
+        let mut formal_owners = HashMap::new();
+        for (function, formal, name) in parameters {
+            let function = id(&function)?;
             let formal = id(&formal)?;
-            if !operations.contains(&operation) {
-                return Err(PyValueError::new_err("parameter names a non-operation"));
+            if !formal_ids.insert((function, formal))
+                || !callable_names.insert((function, name.clone()))
+                || formal_owners.insert(formal, function).is_some()
+            {
+                return Err(PyValueError::new_err("duplicate callable formal or owner"));
             }
-            if formals.insert((operation, name.clone()), formal).is_some() {
-                return Err(PyValueError::new_err(format!("duplicate formal {name}")));
+            // Private/nested formals close callee proofs, but are not queryable operations.
+            if operations.contains(&function) {
+                formals.insert((function, name), formal);
             }
         }
-        let formal_ids: HashSet<(Id, Id)> = formals
-            .iter()
-            .map(|(&(operation, _), &formal)| (operation, formal))
-            .collect();
         let mut summaries = HashMap::new();
         let mut by_formal: HashMap<(Id, Id), Vec<Id>> = HashMap::new();
         for (summary, function, formal, condition, verdict, boundary, path_depth,

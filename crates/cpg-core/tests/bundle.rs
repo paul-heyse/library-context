@@ -145,6 +145,18 @@ budget = 3
 async fn finite_depth_and_unsupported_refusals_reach_the_native_response() {
     let (dir, store) = compiled_summary_caps().await;
     let (_, ctx) = published(&store, SNAPSHOT).await.unwrap().unwrap();
+    for (name,expected) in [("fresh_default_true",1),("fresh_default_false",0),
+        ("fresh_keyword_default",1),("fresh_unused_default",1),("fresh_skipped_default",1),
+        ("fresh_missing_default",0),("fresh_removed_default",0),("fresh_removed_keyword_default",0),
+        ("fresh_escaped_default",0),("fresh_intervening_default",0),("fresh_effectful_argument",0)] {
+        let rows=sql::query(&ctx,&format!("SELECT count(*) FROM summary_flows f JOIN declarations d \
+            ON d.node_id=f.function_node_id WHERE d.name='{name}'")).await.unwrap().collect().await.unwrap();
+        let counts=rows[0].column(0).as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap();
+        assert_eq!(counts.value(0),expected,"{name} fresh default admission: {}",
+            sql::render(&ctx,&format!("SELECT d.qualified_name,b.reason FROM summary_boundaries b \
+                JOIN declarations d ON d.node_id=b.function_node_id WHERE d.qualified_name LIKE '%{name}%'"))
+                .await.unwrap());
+    }
     let rows = sql::query(&ctx, &format!("SELECT count(*) FROM ( \
         SELECT c.flow_value_fact_id FROM value_flow_contributions c \
         JOIN declarations d ON d.node_id = c.sink_function_node_id \
@@ -579,19 +591,59 @@ import sys
 import asyncio
 from pathlib import Path
 from fastmcp import Client
-from lctx_mcp.generation import load
+import pyarrow as pa
+import pyarrow.ipc as ipc
+from lctx_semantics import SemanticExecutor, kernel_format
+from lctx_mcp.generation import load, NATIVE_IPC_FILES
 from lctx_mcp.server import build_server
 generation = load(Path(sys.argv[1]), None)
 index = generation.condition_graph
+public = {row["node_id"] for row in generation.tables["operations"].to_pylist()}
+private_link = next(row for row in generation.tables["flow_test_value_links"].to_pylist()
+                    if row["operation_node_id"] not in public)
+files = []
+for name in NATIVE_IPC_FILES:
+    table = generation.tables[name]
+    if name == "callable_parameters":
+        kept = [row for row in table.to_pylist() if row["formal_node_id"] != private_link["formal_node_id"]]
+        table = pa.Table.from_pylist(kept, schema=table.schema)
+    sink = pa.BufferOutputStream()
+    with ipc.new_file(sink, table.schema) as writer:
+        writer.write_table(table)
+    files.append((name, sink.getvalue().to_pybytes()))
+try:
+    SemanticExecutor.from_ipc(kernel_format(), generation.snapshot_id,
+                              generation.manifest["entry_value_effect_digest"], files)
+except ValueError as error:
+    assert "invalid value link" in str(error), str(error)
+else:
+    raise AssertionError("missing private callable formal admitted")
 def inspect(operation, formal):
     return index.inspect_value_paths(operation, formal, "none", "", True, 0, 20)
+try:
+    inspect("capspkg.fresh_default_true.inner", "enabled")
+except ValueError:
+    pass
+else:
+    raise AssertionError("private callee metadata became a public operation")
 for operation in ("capspkg.optional_unused_explicit", "capspkg.optional_keyword_explicit"):
     paths, boundaries, total, truncated, work = inspect(operation, "value")
     assert paths and not boundaries and not truncated, (operation, paths, boundaries)
 for operation in ("capspkg.optional_unused_omitted", "capspkg.optional_keyword_omitted"):
     paths, boundaries, total, truncated, work = inspect(operation, "value")
     assert not paths and boundaries and not truncated, (operation, paths, boundaries)
-    assert any(boundary[3] == "unsupported_control_flow" for boundary in boundaries), boundaries
+    assert any(boundary[3] == "default_stability_unknown" for boundary in boundaries), boundaries
+for name in ("fresh_default_true", "fresh_keyword_default", "fresh_unused_default", "fresh_skipped_default"):
+    paths, boundaries, total, truncated, work = inspect("capspkg." + name, "value")
+    assert paths and not boundaries and not truncated, (name, paths, boundaries)
+    assert all(any(step[0] == "default_availability_evidence" for step in path[3]) for path in paths), paths
+    assert all(any(step[0] == "default_stability_evidence" for step in path[3]) for path in paths), paths
+    assert all(sum(step[0] == "argument_evaluation" for step in path[3]) == 1 for path in paths), paths
+for name in ("fresh_default_false", "fresh_missing_default", "fresh_removed_default",
+             "fresh_removed_keyword_default", "fresh_escaped_default", "fresh_intervening_default",
+             "fresh_effectful_argument"):
+    paths, boundaries, total, truncated, work = inspect("capspkg." + name, "value")
+    assert not paths and boundaries and not truncated, (name, paths, boundaries)
 paths, boundaries, total, truncated, work = inspect("capspkg.handler_entry_identity", "value")
 assert paths and not boundaries and not truncated, (paths, boundaries)
 assert any(any(step[0] == "handler_class_evidence" for step in path[3]) for path in paths), paths
@@ -1037,6 +1089,7 @@ async fn a_generation_rebuilds_to_the_same_bytes() {
             "behaviors",
             "brief_members",
             "briefs",
+            "callable_parameters",
             "condition_nodes",
             "conditions",
             "embedding_spec",
@@ -1046,7 +1099,6 @@ async fn a_generation_rebuilds_to_the_same_bytes() {
             "lexical_text",
             "operation_facet_status",
             "operation_facets",
-            "operation_parameters",
             "operation_text",
             "operation_vectors",
             "operations",

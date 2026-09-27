@@ -445,15 +445,19 @@ Extraction-only runs without the behavioral condition catalog emit no such cover
 entry premise is unexamined, rather than an invented condition reference.
 See the [bounded review](../../design_review/reviews/design_review_stage3-origin-coverage_2026-09-26.md).
 
-**Default binding (Implemented and focused Tested, 2026-09-26).** The shared binder separates
-explicit source-ordered arguments from omitted definition-time default requirements. Every fixed
-source formal currently needs an explicit argument; syntax alone does not prove that a mutable
-function default remains available. This applies even to unused parameters. Pinned total models
-own their signature-default promise separately. Fresh undecorated nested definition headers now
-evaluate their defaults in definition order, cite declaration/signature/binding evidence and leave
-the nested body unevaluated. Rebinding, decorators and unsupported default expressions refuse.
-Source-default availability/stability at invocation remains an S2 target. The [semantic-frontier review](../../design_review/reviews/design_review_stage3-semantic-frontier_2026-09-26.md)
-covers this guard and the bounded value worklist change.
+**Default binding (Implemented and focused Tested, 2026-09-27).** The shared source binder
+separates explicit source-ordered arguments from omitted definition-time defaults. Syntax alone
+cannot prove availability: even unused omitted formals need a certificate. The initial domain is
+an undecorated, uniquely bound, synchronous nested definition immediately followed by its sole
+direct call in a return. The header completes normally; no alias/escape, intervening action,
+assignment expression or nested argument call is admitted. Defaults are evaluated at definition,
+never at invocation; availability, exact Boolean value and stability have distinct cited proof
+kinds. Missing defaults and unproved stability keep separate typed boundaries. Pinned total models
+own their signature-default promise separately. The pure source binder replaces the SQL
+argument-count classifier, and private/nested entry-formal links share the same reaching/no-effect
+admission as public ones. Broadening expression protocols requires rechecking the stability rule.
+The [channel review](../../design_review/reviews/design_review_stage3-channel-contracts_2026-09-26.md)
+bounds acceptance; broader default domains and all-channel coverage remain open.
 
 **Shared callee proof admission (Implemented, 2026-09-26).** Schema-owned structural admission
 checks contiguous scoped controls, the cited condition, decreasing callee depth and the common
@@ -495,9 +499,11 @@ singleton recursive. Candidate/open dispatch contributes topology only.
 
 ## Native serving boundary
 
-A FORMAT 8 generation carries the structural condition catalogs, summaries, proof steps and
+A FORMAT 9 generation carries the structural condition catalogs, summaries, proof steps and
 boundaries. The native executor (`python/lctx_semantics`, one immutable PyO3 executor per
-process) checks the schema-owned Arrow IPC projection and codebook before admission; Python
+process) validates internal `callable_parameters` for private/nested control evidence while
+query lookup stays restricted to public operations. This early S6 subset is **Implemented and
+focused Tested (2026-09-27)**; expanded channel/query support remains open. It checks the schema-owned Arrow IPC projection and codebook before admission; Python
 validates requests and shapes results. `inspect_value_paths` pages one formal's finite paths
 and open boundaries. Each positive path exposes its cited summary, source-flow fact and
 source-origin IDs; an open boundary exposes its separate source fact and origin. Each exact-input

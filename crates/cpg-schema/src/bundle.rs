@@ -323,13 +323,13 @@ pub fn files(dimensions: i32) -> Vec<ServingFile> {
             &["node_id"],
         ),
         file(
-            "operation_parameters",
+            "callable_parameters",
             vec![
-                id("operation_node_id", false),
+                id("function_node_id", false),
                 id("formal_node_id", false),
                 utf8("name", false),
             ],
-            &["operation_node_id", "formal_node_id"],
+            &["function_node_id", "formal_node_id"],
         ),
         file(
             "summary_flows",

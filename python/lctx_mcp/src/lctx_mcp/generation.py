@@ -21,7 +21,7 @@ from lctx_semantics import SemanticExecutor, catalog_limits
 from lctx_mcp.digest import schema_digest
 from lctx_mcp.embedder import Spec
 
-FORMAT = 8
+FORMAT = 9
 KERNEL_FORMAT = 1
 MAX_CONDITION_FILE_BYTES = 64 * 1024 * 1024
 MAX_SUMMARY_ROWS = 100_000
@@ -29,7 +29,7 @@ MAX_SUPPORT_FILE_BYTES = 64 * 1024 * 1024
 NATIVE_IPC_FILES = frozenset(
     {
         "conditions", "condition_nodes", "analysis_conditions", "analysis_condition_nodes",
-        "operations", "public_paths", "operation_parameters", "summary_flows",
+        "operations", "public_paths", "callable_parameters", "summary_flows",
         "summary_flow_steps", "summary_boundaries", "flow_test_leaves",
         "flow_test_value_links",
     }
@@ -243,8 +243,8 @@ def expected_schemas(dimensions: int) -> dict[str, pa.Schema]:
         "analysis_condition_nodes": pa.schema(
             [_id("node_id"), _utf8("atom"), _id("low_id"), _id("high_id")]
         ),
-        "operation_parameters": pa.schema(
-            [_id("operation_node_id"), _id("formal_node_id"), _utf8("name")]
+        "callable_parameters": pa.schema(
+            [_id("function_node_id"), _id("formal_node_id"), _utf8("name")]
         ),
         "summary_flows": pa.schema(
             [
@@ -553,7 +553,7 @@ def load(root: Path, client_spec: Spec | None) -> Generation:
     ):
         if tables[name].num_rows > MAX_SUMMARY_ROWS:
             raise GenerationError(f"{name} exceeds native load limits")
-    for name in ("operations", "public_paths", "operation_parameters"):
+    for name in ("operations", "public_paths", "callable_parameters"):
         if tables[name].num_rows > 200_000:
             raise GenerationError(f"{name} exceeds native load limits")
     try:

@@ -46,3 +46,6 @@ pub mod evaluation;
 
 /// Bounded statement completion and ordered pending-return frames.
 pub mod completion;
+
+/// Source binding and definition-time default availability/stability.
+pub mod call_binding;

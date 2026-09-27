@@ -1020,3 +1020,79 @@ def optional_keyword_omitted(value):
 
 def optional_keyword_explicit(value):
     return optional_keyword_base(value, unused=False)
+
+
+def fresh_default_true(value):
+    def inner(item, enabled=True):
+        if enabled:
+            return item
+        return None
+    return inner(value)
+
+
+def fresh_default_false(value):
+    def inner(item, enabled=False):
+        if enabled:
+            return item
+        return None
+    return inner(value)
+
+
+def fresh_keyword_default(value):
+    def inner(item, *, enabled=True):
+        if enabled:
+            return item
+        return None
+    return inner(value)
+
+
+def fresh_unused_default(value):
+    def inner(item, unused=True):
+        return item
+    return inner(value)
+
+
+def fresh_skipped_default(value):
+    def inner(item, unused=True or missing_default()):
+        return item
+    return inner(value)
+
+
+def fresh_missing_default(value):
+    def inner(item, unused=missing_default()):
+        return item
+    return inner(value)
+
+
+def fresh_removed_default(value):
+    def inner(item, unused=True):
+        return item
+    inner.__defaults__ = None
+    return inner(value)
+
+
+def fresh_removed_keyword_default(value):
+    def inner(item, *, unused=True):
+        return item
+    inner.__kwdefaults__ = None
+    return inner(value)
+
+
+def fresh_escaped_default(value):
+    def inner(item, unused=True):
+        return item
+    alias = inner
+    return inner(value)
+
+
+def fresh_intervening_default(value):
+    def inner(item, unused=True):
+        return item
+    pass
+    return inner(value)
+
+
+def fresh_effectful_argument(value):
+    def inner(item, unused=True):
+        return item
+    return inner(cast(object, value))

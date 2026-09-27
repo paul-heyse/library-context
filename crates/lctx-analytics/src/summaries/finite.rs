@@ -137,11 +137,11 @@ cpg_schema::query_row! {
         approximated: bool,
         source_argument_ordinal: i64,
         argument_count: i64,
-        binding_complete: bool,
     }
 }
 
 pub use cpg_schema::summary_contract::LocalCallArgument;
+use crate::call_binding::{SourceCallBinding,BoundCall};
 
 pub use cpg_schema::summary_contract::DirectValueLink as LocalCallValueLink;
 use cpg_schema::summary_contract::{fixed_truth, validate_fixed_control_proof};
@@ -409,7 +409,7 @@ fn unexpanded_witnesses(flows: &[SummaryFlowsRow], steps: &[SummaryFlowStepsRow]
 /// Validate a complete ordered argument group before any summary uses its values.
 fn ordered_arguments<'a>(seed: &LocalCallSummaryFlowSeed, rows: &'a [LocalCallArgument])
     -> Result<Vec<&'a LocalCallArgument>, BoundaryReason> {
-    if !seed.binding_complete || !(1..=128).contains(&seed.argument_count) {
+    if !(1..=128).contains(&seed.argument_count) {
         return Err(BoundaryReason::UnsupportedControlFlow);
     }
     if let Some(reason) = rows.iter().filter(|row| row.evaluation_fact_id.is_none())
@@ -458,7 +458,7 @@ impl LocalControlLinks {
 /// caller-linked direct formal fixed by the caller condition. All mappings apply simultaneously.
 fn specialize_local_condition(seed: &LocalCallSummaryFlowSeed,
     arguments: &[&LocalCallArgument], links: &LocalControlLinks,
-    caller: &Diagram, callee: &Diagram,
+    caller: &Diagram, callee: &Diagram, binding: &BoundCall,
 ) -> Result<Option<Vec<recipe::SummaryFlowProofStep>>, BoundaryReason> {
     if !links.valid { return Err(BoundaryReason::MissingEvidence); }
     let mut replacements = Vec::new();
@@ -472,11 +472,13 @@ fn specialize_local_condition(seed: &LocalCallSummaryFlowSeed,
         if candidates.iter().any(|id| links.by_id[id].formal_node_id != link.formal_node_id) {
             return Err(BoundaryReason::MissingEvidence);
         }
-        let Some(argument) = arguments.iter().find(|row|
-            row.formal_node_id == Some(link.formal_node_id)) else { return Ok(None) };
-        let value = if let Some(value) = argument.boolean_value {
+        let argument = arguments.iter().find(|row|row.formal_node_id == Some(link.formal_node_id));
+        let default=binding.defaults.iter().find(|d|d.formal_node_id==link.formal_node_id);
+        let value = if let Some(value) = argument.and_then(|a|a.boolean_value)
+            .or_else(||default.and_then(|d|d.boolean_value)) {
             value
         } else {
+            let Some(argument)=argument else {return Ok(None)};
             let Some(formal) = argument.source_formal_node_id else { return Ok(None) };
             let sources = links.by_formal.get(&(seed.function_node_id, formal));
             let mut fixed = None;
@@ -540,6 +542,7 @@ pub struct FiniteSummaryInputs {
     pub local_seeds: Vec<LocalCallSummaryFlowSeed>,
     pub local_arguments: Vec<LocalCallArgument>,
     pub local_value_links: Vec<LocalCallValueLink>,
+    pub local_bindings: Vec<SourceCallBinding>,
     pub boundary_candidates: Vec<SummaryBoundaryCandidate>,
 }
 
@@ -1004,7 +1007,7 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
     let FiniteSummaryInputs {
         diagrams, boundaries, mut pass_steps, entries, entry_steps, components,
         direct_seeds, modeled_seeds, chain_arguments, evaluations, assignment_seeds, local_seeds,
-        local_arguments, local_value_links, boundary_candidates,
+        local_arguments, local_value_links, local_bindings, boundary_candidates,
     } = inputs;
     let mut refusals = Vec::new();
     for passes in pass_steps.values_mut() { passes.sort_by_key(|pass| (pass.ordinal, pass.pass_fact_id)); }
@@ -1287,6 +1290,8 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
         .map(|row| (row.function_node_id, (row.component_order, row.component_id)))
         .collect();
     let local_value_links = LocalControlLinks::new(local_value_links);
+    let mut bindings_by_call:HashMap<_,Vec<_>>=HashMap::new();
+    for binding in local_bindings {bindings_by_call.entry((binding.call_fact_id,binding.callee_node_id)).or_default().push(binding);}
     let mut arguments_by_call: HashMap<(Id, Id), Vec<LocalCallArgument>> = HashMap::new();
     for row in local_arguments {
         arguments_by_call.entry((row.call_fact_id, row.callee_node_id)).or_default().push(row);
@@ -1317,6 +1322,7 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
     let mut known_summary_ids: HashSet<Id> = by_id.keys().copied().collect();
     struct PreparedLocalSeed<'a> {
         arguments: Vec<&'a LocalCallArgument>,
+        binding: &'a BoundCall,
         seed: LocalCallSummaryFlowSeed,
         condition_is_true: bool,
         predecessor_proof: Vec<recipe::SummaryFlowProofStep>,
@@ -1330,6 +1336,11 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
         let Some(&component) = component_by_function.get(&seed.function_node_id) else {
             refuse(&mut refusals, key, BoundaryReason::CallTransfer);
             continue;
+        };
+        let binding=match bindings_by_call.get(&(seed.call_fact_id,seed.callee_node_id)).map(Vec::as_slice) {
+            Some([SourceCallBinding {result:Ok(binding),..}])=>binding,
+            Some([SourceCallBinding {result:Err(reason),..}])=>{refuse(&mut refusals,key,*reason);continue;},
+            _=>{refuse(&mut refusals,key,BoundaryReason::MissingEvidence);continue;},
         };
         let arguments = match ordered_arguments(&seed, arguments_by_call
             .get(&(seed.call_fact_id, seed.callee_node_id)).map_or(&[], Vec::as_slice)) {
@@ -1370,7 +1381,7 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
             }
         };
         groups.entry(component).or_default().push(PreparedLocalSeed {
-            arguments, condition_is_true: condition.is_true(), seed, predecessor_proof,
+            arguments, binding, condition_is_true: condition.is_true(), seed, predecessor_proof,
             admitted: false, refused: BTreeMap::new(),
         });
     }
@@ -1431,7 +1442,7 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
                 Vec::new()
             } else {
                 match specialize_local_condition(seed, arguments, &local_value_links,
-                    &diagrams[&seed.condition_id], callee_condition) {
+                    &diagrams[&seed.condition_id], callee_condition,path.binding) {
                     Ok(Some(proof)) => proof,
                     Ok(None) => continue,
                     Err(reason) => { path.refused.insert(semantic, reason); continue; },
@@ -1460,6 +1471,9 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
                     condition_id: seed.condition_id,
                 });
             }
+            proof.extend(path.binding.proof.iter().map(|&(kind,evidence_id)|recipe::SummaryFlowProofStep {
+                kind,evidence_id,condition_id:seed.condition_id,
+            }));
             proof.extend([
                 (
                     SummaryFlowStepKind::CallSite,
@@ -1631,6 +1645,12 @@ fn origin_coverage(candidates: &[SummaryBoundaryCandidate], flows: &[SummaryFlow
 mod tests {
     use super::*;
     fn entry_inputs(mut input:FiniteSummaryInputs) -> FiniteSummaryInputs {
+        for seed in &input.local_seeds {
+            if !input.local_bindings.iter().any(|b|b.call_fact_id==seed.call_fact_id && b.callee_node_id==seed.callee_node_id) {
+                input.local_bindings.push(SourceCallBinding {call_fact_id:seed.call_fact_id,
+                    callee_node_id:seed.callee_node_id,result:Ok(BoundCall::default())});
+            }
+        }
         let mut seeds=Vec::new();
         macro_rules! collect { ($rows:expr) => { for seed in $rows { seeds.push((seed.snapshot_id,seed.function_node_id,seed.return_site_fact_id)); } }; }
         collect!(&input.direct_seeds);collect!(&input.modeled_seeds);collect!(&input.assignment_seeds);
@@ -1686,6 +1706,7 @@ mod tests {
             local_seeds: Vec::new(),
             local_arguments: Vec::new(),
             local_value_links: Vec::new(),
+            local_bindings: Vec::new(),
             boundary_candidates: vec![SummaryBoundaryCandidate {
                 snapshot_id: id(1),
                 function_node_id: id(2),
@@ -1877,7 +1898,6 @@ mod tests {
             return_condition_id: Diagram::always().id(), return_start_byte: 30,
             approximated: false,
             source_argument_ordinal: 0,
-            binding_complete: true,
             argument_count: 1,
         }
     }
@@ -2206,7 +2226,8 @@ mod tests {
                 1 => broken.local_arguments[0].evaluation_fact_id = None,
                 2 => broken.local_arguments[0].formal_node_id = Some(id(3)),
                 3 => broken.local_arguments[0].ordinal = 1,
-                _ => broken.local_seeds[0].binding_complete = false,
+                _ => broken.local_bindings.push(SourceCallBinding {call_fact_id:broken.local_seeds[0].call_fact_id,
+                    callee_node_id:broken.local_seeds[0].callee_node_id,result:Err(BoundaryReason::UnsupportedControlFlow)}),
             }
             let refused = finite_flows(broken);
             assert!(!refused.flows.iter().any(|row| row.source_origin_id == id(41)));
@@ -2221,6 +2242,25 @@ mod tests {
         }
         assert!(!finite_flows(multi_control_inputs(false)).flows.iter()
             .any(|row| row.source_origin_id == id(41)));
+    }
+
+    #[test]
+    fn default_controls_use_definition_values_without_inventing_argument_evaluation() {
+        let mut input=multi_control_inputs(true);
+        let last=input.local_arguments.iter().find(|a|a.ordinal==2).unwrap().clone();
+        input.local_arguments.retain(|a|a.ordinal!=2);
+        input.local_seeds[0].argument_count=2;
+        input.local_bindings.push(SourceCallBinding {call_fact_id:last.call_fact_id,callee_node_id:last.callee_node_id,
+            result:Ok(BoundCall {defaults:vec![crate::call_binding::DefaultValue {
+                formal_node_id:last.formal_node_id.unwrap(),boolean_value:Some(true)}],
+                proof:vec![(SummaryFlowStepKind::DefaultValueEvidence,id(99))]})});
+        let result=finite_flows(input.clone());
+        let local=result.flows.iter().find(|f|f.source_origin_id==id(41)).unwrap();
+        let evaluations:Vec<_>=result.steps.iter().filter(|s|s.summary_id==local.summary_id
+            && s.kind==SummaryFlowStepKind::ArgumentEvaluation).map(|s|s.evidence_id).collect();
+        assert_eq!(evaluations,vec![id(90),id(40)]);
+        input.local_bindings[0].result.as_mut().unwrap().defaults[0].boolean_value=Some(false);
+        assert!(!finite_flows(input).flows.iter().any(|f|f.source_origin_id==id(41)));
     }
 
     #[test]
@@ -2458,7 +2498,6 @@ mod tests {
                 return_start_byte: 30,
                 approximated: false,
                 source_argument_ordinal: 0,
-            binding_complete: true,
                 argument_count: 1,
             });
             input.boundary_candidates.push(SummaryBoundaryCandidate {
@@ -2499,7 +2538,6 @@ mod tests {
             return_site_fact_id: id(5), return_region_fact_id: id(6),
             return_condition_id: always, return_start_byte: 30, approximated: false,
             source_argument_ordinal: 0,
-            binding_complete: true,
             argument_count: 1,
         });
         bounded.boundary_candidates[0].condition_id = id(200);
@@ -2555,7 +2593,6 @@ mod tests {
             return_site_fact_id: id(5), return_region_fact_id: id(6),
             return_condition_id: exit_id, return_start_byte: 30, approximated: false,
             source_argument_ordinal: 0,
-            binding_complete: true,
             argument_count: 1,
         });
 

@@ -260,6 +260,11 @@ execution after the `function_implementations` schema migration is pending the i
 `mixed_embedding_specs_are_refused`, `serving_schema_digests_are_the_shared_known_answers`;
 2026-09-23 onward); the files marked below as later-stage are **Proposed**.
 
+**FORMAT 9 callable support (Implemented, 2026-09-27).** Internal callable/formal metadata
+replaces public-only `operation_parameters` so nested callee proofs can load. It does not add
+private operations to discovery or queries. General channel/proof support and typed semantic
+queries remain the forward plan S6 target; FORMAT 8 is no longer accepted.
+
 - **Derivation.** The generation is built **only after** the `snapshots` append succeeds, by
   reading the published snapshot at its recorded versions, including `embedding_cache`. That is
   its one derivation path. Rebuilding a generation from Delta gives byte-identical files.
@@ -289,7 +294,7 @@ execution after the `function_implementations` schema migration is pending the i
     "item", D)`, `D` the spec's dimensions. The spec comes from the snapshot's `embedding_specs`
     row, and each document's key is `(spec_hash, input_hash)`;
   - the behavior and summary files: `operations`, `operation_facets`, `operation_facet_status`,
-    `operation_parameters`, `operation_text`, `operation_vectors`, `behaviors`, `singletons`,
+    `callable_parameters`, `operation_text`, `operation_vectors`, `behaviors`, `singletons`,
     `ambient_reads`, `place_claims`, `conditions`, `condition_nodes`, `analysis_conditions`,
     `analysis_condition_nodes`, `summary_flows`, `summary_flow_steps`, `summary_boundaries`,
     `flow_test_leaves` and `flow_test_value_links`. Their meaning is owned by

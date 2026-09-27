@@ -20,7 +20,7 @@ const NAMES: &[&str] = &[
     "analysis_condition_nodes",
     "operations",
     "public_paths",
-    "operation_parameters",
+    "callable_parameters",
     "summary_flows",
     "summary_flow_steps",
     "summary_boundaries",
@@ -156,7 +156,7 @@ pub(super) fn decode(files: Vec<(String, Vec<u8>)>) -> PyResult<Inputs> {
         return Err(invalid("native generation projection has missing files"));
     }
     for name in NAMES {
-        let limit = if matches!(*name, "operations" | "public_paths" | "operation_parameters") {
+        let limit = if matches!(*name, "operations" | "public_paths" | "callable_parameters") {
             MAX_SURFACE_ROWS
         } else {
             MAX_SUMMARY_ROWS
@@ -192,8 +192,8 @@ pub(super) fn decode(files: Vec<(String, Vec<u8>)>) -> PyResult<Inputs> {
     let operations = (0..table.len()).map(|row| table.id("node_id", row)).collect::<PyResult<_>>()?;
     let table = batch(&batches, "public_paths");
     let public_paths = (0..table.len()).map(|row| Ok((table.text("access_path", row)?, table.id("node_id", row)?))).collect::<PyResult<_>>()?;
-    let table = batch(&batches, "operation_parameters");
-    let parameters = (0..table.len()).map(|row| Ok((table.id("operation_node_id", row)?, table.id("formal_node_id", row)?, table.text("name", row)?))).collect::<PyResult<_>>()?;
+    let table = batch(&batches, "callable_parameters");
+    let parameters = (0..table.len()).map(|row| Ok((table.id("function_node_id", row)?, table.id("formal_node_id", row)?, table.text("name", row)?))).collect::<PyResult<_>>()?;
     let table = batch(&batches, "summary_flows");
     let flows = (0..table.len()).map(|row| Ok((table.id("summary_id", row)?, table.id("function_node_id", row)?, table.id("parameter_node_id", row)?, table.id("condition_id", row)?, table.text("verdict", row)?, table.optional_text("boundary_reason", row)?, table.integer("path_depth", row)?, table.id("source_flow_fact_id", row)?, table.id("source_origin_id", row)?))).collect::<PyResult<_>>()?;
     let table = batch(&batches, "summary_flow_steps");

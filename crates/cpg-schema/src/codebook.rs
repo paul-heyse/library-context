@@ -193,6 +193,8 @@ codebook!(
         CompletionDepthLimit = 28 => "completion_depth_limit",
         CompletionWorkLimit = 29 => "completion_work_limit",
         SummaryProofLimit = 30 => "summary_proof_limit",
+        DefaultUnavailable = 31 => "default_unavailable",
+        DefaultStabilityUnknown = 32 => "default_stability_unknown",
     }
 );
 
@@ -1394,6 +1396,9 @@ codebook!(
         HandlerClassEvidence = 21 => "handler_class_evidence",
         /// Declaration, signature and fresh binding supporting definition-time completion.
         DefinitionHeaderEvidence = 22 => "definition_header_evidence",
+        DefaultAvailabilityEvidence = 23 => "default_availability_evidence",
+        DefaultValueEvidence = 24 => "default_value_evidence",
+        DefaultStabilityEvidence = 25 => "default_stability_evidence",
     }
 );
 

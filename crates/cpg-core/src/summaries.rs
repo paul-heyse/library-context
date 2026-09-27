@@ -73,6 +73,10 @@ cpg_schema::relations! {
     completion_mro = "summary_completion_mro", deps = ["context_class_mro"], sql = "SELECT * FROM context_class_mro".to_owned();
     completion_modules = "summary_completion_modules", deps = ["context_modules"], sql = "SELECT * FROM context_modules".to_owned();
     completion_tests = "summary_completion_tests", deps = ["flow_tests"], sql = "SELECT * FROM flow_tests".to_owned();
+    binding_references = "summary_binding_references", deps = ["references"], sql = "SELECT * FROM references".to_owned();
+    binding_resolutions = "summary_binding_resolutions", deps = ["reference_resolutions"], sql = "SELECT * FROM reference_resolutions".to_owned();
+    binding_statements = "summary_binding_statements", deps = ["statement_completions"], sql = "SELECT * FROM statement_completions".to_owned();
+    binding_statement_steps = "summary_binding_statement_steps", deps = ["statement_completion_steps"], sql = "SELECT * FROM statement_completion_steps".to_owned();
     provider_conditions = "summary_provider_conditions", deps = ["conditions"],
         sql = "SELECT DISTINCT condition_id, root_id, boundary_reason FROM conditions".to_owned();
     provider_nodes = "summary_provider_nodes", deps = ["condition_nodes"],
@@ -248,16 +252,41 @@ pub async fn finite_flows(
     let local_arguments: Vec<LocalCallArgument> = sql::fetch(ctx, &cpg_schema::behavior::local_call_arguments(), sql::Params::new()).await?;
     let local_value_links: Vec<LocalCallValueLink> = sql::fetch(ctx, &cpg_schema::behavior::local_call_value_links(), sql::Params::new()).await?;
     let boundary_candidates: Vec<SummaryBoundaryCandidate> = sql::fetch(ctx, &cpg_schema::behavior::summary_boundary_candidates(), sql::Params::new()).await?;
+    let local_bindings=source_call_bindings(ctx,&local_seeds,&local_arguments).await?;
     let mut result=lctx_analytics::summaries::finite::finite_flows(FiniteSummaryInputs {
         diagrams, boundaries, pass_steps, entries, entry_steps, components,
         direct_seeds, modeled_seeds, chain_arguments, evaluations, assignment_seeds, local_seeds,
-        local_arguments, local_value_links, boundary_candidates,
+        local_arguments, local_value_links, local_bindings, boundary_candidates,
     });
     // Require the published premise, not a root available only in raw provider conditions.
     let statements=sql::fetch(ctx,&completion_outcomes(),
         sql::Params::new().ids("entry_condition",[Diagram::always().id()])).await?;
     result.coverage.extend(lctx_analytics::completion::coverage(&statements));
     Ok(result)
+}
+
+async fn source_call_bindings(ctx:&SessionContext,seeds:&[LocalCallSummaryFlowSeed],mappings:&[LocalCallArgument])
+    -> Result<Vec<lctx_analytics::call_binding::SourceCallBinding>,CoreError> {
+    if seeds.is_empty() {return Ok(Vec::new());}
+    let requests:Vec<_>=seeds.iter().map(|s|lctx_analytics::call_binding::Request {
+        snapshot:s.snapshot_id,caller:s.function_node_id,call_node:s.call_site_node_id,
+        call_fact:s.call_fact_id,callee:s.callee_node_id,
+    }).collect();
+    let syntax=sql::fetch(ctx,&expression_syntax(),sql::Params::new()).await?;
+    let declarations=sql::fetch(ctx,&completion_declarations(),sql::Params::new()).await?;
+    let parameters=sql::fetch(ctx,&completion_parameters(),sql::Params::new()).await?;
+    let arguments=sql::fetch(ctx,&expression_call_arguments(),sql::Params::new()).await?;
+    let bindings=sql::fetch(ctx,&completion_bindings(),sql::Params::new()).await?;
+    let references=sql::fetch(ctx,&binding_references(),sql::Params::new()).await?;
+    let resolutions=sql::fetch(ctx,&binding_resolutions(),sql::Params::new()).await?;
+    let statements=sql::fetch(ctx,&binding_statements(),sql::Params::new()).await?;
+    let statement_steps=sql::fetch(ctx,&binding_statement_steps(),sql::Params::new()).await?;
+    let expressions=sql::fetch(ctx,&completion_expressions(),sql::Params::new()).await?;
+    Ok(lctx_analytics::call_binding::bind(lctx_analytics::call_binding::Inputs {
+        requests:&requests,mappings,syntax:&syntax,declarations:&declarations,parameters:&parameters,
+        arguments:&arguments,bindings:&bindings,references:&references,resolutions:&resolutions,
+        statements:&statements,statement_steps:&statement_steps,expressions:&expressions,
+    }))
 }
 
 async fn load_conditions(

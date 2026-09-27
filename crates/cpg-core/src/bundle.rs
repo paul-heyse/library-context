@@ -48,7 +48,7 @@ use sha2::{Digest as _, Sha256};
 use crate::{CoreError, sql};
 
 /// The manifest's format version: bumped when a served file, its schema or the manifest changes.
-pub const FORMAT: u64 = 8;
+pub const FORMAT: u64 = 9;
 const MAX_SUPPORT_ROWS: usize = 100_000;
 const MAX_SUPPORT_FILE_BYTES: usize = 64 * 1024 * 1024;
 
@@ -266,12 +266,12 @@ fn query(name: &str) -> Option<String> {
         "analysis_condition_nodes" => "SELECT node_id, atom, low_id, high_id \
                                        FROM analysis_condition_nodes ORDER BY node_id"
             .to_owned(),
-        "operation_parameters" => "SELECT o.node_id AS operation_node_id, \
-                                   p.node_id AS formal_node_id, p.name \
-                                   FROM operations o JOIN parameter_syntax p \
-                                     ON p.function_node_id = o.node_id \
-                                   ORDER BY operation_node_id, formal_node_id"
-            .to_owned(),
+        "callable_parameters" => format!(
+            "SELECT d.node_id AS function_node_id, p.node_id AS formal_node_id, p.name \
+             FROM declarations d JOIN parameter_syntax p ON p.function_node_id=d.node_id \
+               AND p.snapshot_id=d.snapshot_id WHERE d.kind IN ({}, {}) \
+             ORDER BY function_node_id, formal_node_id",
+            DeclarationKind::Function.code(), DeclarationKind::AsyncFunction.code()),
         "summary_flows" => format!(
             "SELECT summary_id, function_node_id, parameter_node_id, input_path, output_path, \
                     {kind} AS kind, condition_id, {verdict} AS verdict, \

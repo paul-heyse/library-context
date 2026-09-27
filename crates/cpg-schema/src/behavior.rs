@@ -1525,9 +1525,10 @@ table!(
 );
 
 table!(
-    /// A conservative, cited identity bridge from a public operation's entry formal to the
+    /// A conservative, cited identity bridge from a callable's entry formal to the
     /// exact operand use of one source test. A Pyrefly type observation is not this proof.
     /// The initial origin permits only one direct reaching formal and no intervening effect.
+    /// Private/nested callables support composition without becoming public operations.
     FlowTestValueLinks, FlowTestValueLinksRow = "flow_test_value_links",
     family = Findings,
     key = [snapshot_id, operation_node_id, formal_node_id, leaf_fact_id, use_id],
@@ -2712,8 +2713,8 @@ crate::relations! {
     /// explicit keyword parameter operand and one definite closed local target. Ordered argument
     /// evaluation and formal binding are separate inputs, checked as a complete group by the
     /// pure producer. No argument count or Boolean-control policy lives in this source join.
-    /// Every fixed formal needs an explicit argument until definition-time default availability
-    /// and stability have a source certificate. An unused omitted default can still raise at binding.
+    /// The shared source binder discharges every fixed formal with explicit arguments or cited
+    /// definition-time default availability/stability. This projection does not classify binding.
     /// Callee summaries join in the SCC worklist, not
     /// here: a call edge by itself is never a transfer proof.
     local_call_summary_flow_seeds = "behavior:local_call_summary_flow_seeds",
@@ -2730,18 +2731,6 @@ crate::relations! {
                SELECT a.*, count(*) OVER (PARTITION BY a.call_site_node_id, a.target_node_id, \
                  a.argument_node_id, a.source_parameter_node_id) AS mapping_count \
                FROM argument_flows a \
-             ), formal_counts AS ( \
-               SELECT function_node_id, count(*) AS n FROM parameter_syntax \
-               WHERE kind NOT IN ({var_positional}, {var_keyword}) \
-                 GROUP BY function_node_id \
-             ), bound_counts AS ( \
-               SELECT m.call_site_node_id, m.target_node_id, count(DISTINCT m.formal_node_id) AS n \
-               FROM mappings m JOIN parameter_syntax p ON p.node_id = m.formal_node_id \
-                 AND p.function_node_id = m.target_node_id \
-               WHERE p.kind NOT IN ({var_positional}, {var_keyword}) \
-                 AND m.mapping_count = 1 \
-                 AND m.modality = {definite} AND m.phase = {call_phase} \
-               GROUP BY m.call_site_node_id, m.target_node_id \
              ) \
              SELECT DISTINCT v.snapshot_id, v.sink_function_node_id AS function_node_id, \
                     v.parameter_node_id, p.name AS parameter_name, \
@@ -2757,8 +2746,7 @@ crate::relations! {
                     ret.start_byte AS return_start_byte, \
                     (f.approximated OR e.approximated) AS approximated, \
                     arg.ordinal AS source_argument_ordinal, \
-                    c.positional_count + c.keyword_count AS argument_count, \
-                    COALESCE(formals.n, 0) = COALESCE(bound.n, 0) AS binding_complete \
+                    c.positional_count + c.keyword_count AS argument_count \
              FROM value_flow_contributions v \
              JOIN flow_values f ON f.fact_id = v.flow_value_fact_id \
                AND f.sink = {return_sink} \
@@ -2782,9 +2770,6 @@ crate::relations! {
                AND NOT r.has_unresolved_remainder \
              JOIN call_targets t ON t.call_site_node_id = c.node_id \
                AND t.argument_node_id IS NULL AND t.target_node_id IS NOT NULL \
-             LEFT JOIN formal_counts formals ON formals.function_node_id = t.target_node_id \
-             LEFT JOIN bound_counts bound ON bound.call_site_node_id = c.node_id \
-               AND bound.target_node_id = t.target_node_id \
              JOIN mappings a ON a.call_site_node_id = c.node_id \
                AND a.target_node_id = t.target_node_id \
                AND a.argument_node_id = arg.node_id \
@@ -2811,8 +2796,6 @@ crate::relations! {
                AND NOT EXISTS (SELECT 1 FROM syntax_nodes y \
                  WHERE y.owner_node_id = d.node_id \
                    AND y.kind IN ({yield_kind}, {yield_from_kind}))",
-            var_positional = ParameterKind::VarPositional.code(),
-            var_keyword = ParameterKind::VarKeyword.code(),
             callee_candidates = modeled_callee_candidates_sql(),
             return_sink = FlowSink::Return.code(),
             bound_argument = FlowCallLinkStatus::BoundArgument.code(),

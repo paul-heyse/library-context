@@ -4,7 +4,8 @@
 //! function scope with no intervening operation that could change the observed value. Prior
 //! predicates are barriers too: comparison/truthiness may dispatch Python methods without a
 //! `call_syntax` row. A type trace locates the tested operand; its type is not used to prove
-//! identity or exact runtime type.
+//! identity or exact runtime type. Private and nested functions need the same evidence for
+//! local-call composition; public visibility selects served operations, not source semantics.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -92,7 +93,7 @@ cpg_schema::query_row! {
 cpg_schema::relations! {
     inventory relations;
     test_uses = "entry_links_test_uses",
-        deps = ["flow_test_types", "flow_test_leaves", "flow_uses", "declarations", "public_paths", "coverage"],
+        deps = ["flow_test_types", "flow_test_leaves", "flow_uses", "declarations", "coverage"],
         sql = format!(
             "SELECT DISTINCT d.node_id AS operation_node_id, u.module_node_id, \
                     t.leaf_fact_id, t.atom_id, l.atom, l.leaf_start_byte, l.leaf_end_byte, \
@@ -104,7 +105,6 @@ cpg_schema::relations! {
              JOIN declarations d ON d.module_node_id = u.module_node_id \
                AND d.name_start_byte = u.scope_start_byte \
                AND d.name_end_byte = u.scope_end_byte \
-             JOIN public_paths p ON p.node_id = d.node_id \
              JOIN coverage c ON c.scope_node_id = u.module_node_id \
                AND c.fact_family = {flow} AND c.status = {complete} \
              WHERE NOT u.annotation ORDER BY 1, 2, 3, 5",

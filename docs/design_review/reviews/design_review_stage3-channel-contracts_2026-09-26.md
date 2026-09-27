@@ -292,3 +292,133 @@ acceptance in §12 stays separate. The attributed receipts above add focused tes
 this reviewer ran no tests. Full gates, pilot, clean-wheel, live embedding and general multi-channel/
 native qualification remain `not_run` here. Neither the earlier editable-binary result nor the
 subsequent focused rebuilt-native pass certifies assembled Stage 3.
+
+## 14. Bounded implementation follow-up: fresh source-default binding
+
+**2026-09-26 · change/conformance · dirty slice after `bde50d7` · source inspection.** Reviewed
+`lctx-analytics::call_binding`, its core acquisition, the local-summary consumer, the removed SQL
+binding-count classifier, new codebook entries, and the source/native and independent runtime
+controls. No production files were edited and no tests were executed by this reviewer.
+
+**Implemented, inspected:** the pure source binder calls schema-owned `bind_arguments` and
+checks the explicit argument/formal mappings. An omitted source default requires a synchronous,
+undecorated nested definition directly followed by its sole direct return call, a fresh binding,
+the sole resolving callee reference, and the independently reconstructed normal header outcome.
+Module functions, escaped/aliased defaults, intervening actions, recursion, unsupported headers,
+and arguments containing nested calls or named assignments remain withheld. Header steps and
+the exact default syntax supply availability/value evidence; no default expression is evaluated
+again at invocation and no argument row/ordinal is fabricated.
+
+The finite producer separately requires every actual argument's ordered normal-evaluation proof
+and the return's predecessor/exit proof. Current evaluation admits primitive operations and
+ordinary name reads but withholds arbitrary truthiness, attribute protocols and overloaded
+operators; combined with the binder's stricter call/assignment exclusion, this supports the narrow
+no-intervening-effect window. Definition-time execution already occurs in the predecessor proof;
+later `DefaultAvailabilityEvidence` references that established creation, rather than describing
+another execution. Exact Boolean default values may specialize the linked callee controls;
+opaque or non-Boolean default values are not converted to Boolean facts.
+
+The binding proof is composed before shared callee admission and the existing cumulative proof
+limit. `DefaultUnavailable` and `DefaultStabilityUnknown` remain explicit refusals. The old SQL
+`formal_counts`/`bound_counts` and `binding_complete` decision are removed: SQL still acquires
+attributed candidates, while source-binding policy has one pure owner. Core reconstruction invokes
+that production binder, so publication checks the same source obligations; native loading remains
+the previously scoped structural admission, not a second default interpreter.
+
+**Change scenario:** another positional or keyword-only default in the same supported window
+changes source/model data consumed by the shared binder and a focused control. It does not require
+another SQL count policy or native classification branch. A broader lifetime or implicit protocol
+requires a deliberate stability contract change. In particular, if the expression evaluator gains
+normal outcomes that may run attribute/operator/protocol hooks, the current call/assignment
+exclusion must not silently become a no-effect certificate: keep those forms withheld here or
+consume a shared effect/stability certificate before admitting them. This is the boundary of this
+acceptance, not a newly established defect in the current supported expressions.
+
+| Judgment/gate | Verdict for this narrow slice | Evidence and qualification |
+|---|---|---|
+| A1 | satisfied | Explicit pure inputs and output; source binding decisions leave the SQL adapter |
+| A2 | satisfied | Explicit arguments, omitted defaults, exact values and availability/stability proofs remain distinct |
+| A3 | satisfied | Existing binder, header/evaluation proofs, condition specialization and shared admission compose without a new interpreter |
+| G1–G6; CI-G1 | pass by inspection | One binding owner; ordered actual evaluation; bounded proof admission; no default re-evaluation, phase promotion or coverage closure |
+| G7/G8; CI-G2/CI-G3 | no new defect found in inspected scope | No new library/version, measured benefit, independent oracle input, or serving-format claim |
+
+No blocking finding was established. Inspected controls cover enabled/disabled Boolean defaults,
+keyword-only and unused defaults, a skipped versus evaluated unsupported default expression,
+removed positional/keyword defaults, escape, an intervening statement, and a nested-call argument.
+The pure finite test checks that specializing a default adds no `ArgumentEvaluation` step.
+The generated CPython program checks fresh default selection, definition-time evaluation and
+mutation behavior independently; agreement alone is not compiler/runtime equivalence.
+
+**Bounded decision: Accept scoped at source-inspection strength.** Actual source → Delta → native
+fixture execution is in progress with the author; no new test receipt is credited here yet.
+This accepts only the fresh immediate-call window and existing explicit-argument behavior.
+General default lifetimes, default-derived value transfer, synchronous context exit, callback/
+resource fate, full S2 and assembled Stage 3 remain unfinished. Earlier sections' target and
+bounded-slice decisions keep their original scope.
+
+## 15. Bounded follow-up: private callable proof support and FORMAT 9 prerequisite
+
+**2026-09-27 · change/conformance · dirty slice after `bde50d7` · source inspection.** Reviewed
+the removal of the public-path restriction from `cpg-core::entry_links::test_uses`, the serving
+`callable_parameters` projection, and the corresponding schema, Python and native reader changes.
+This is the necessary callable-support subset of S6 brought forward for S2's fresh default calls;
+it is not acceptance of the complete FORMAT 9 semantic-query target. No production edits or tests
+were performed by this reviewer.
+
+**Implemented, inspected:** the entry-link producer uses the same single reaching-parameter,
+complete flow coverage, exact owner, predecessor-test and intervening-effect checks for private and
+nested functions as for public functions. Removing the `public_paths` join changes the source
+analysis universe, not those proof obligations. The effect-model digest includes the relation SQL,
+so the broadened derivation changes the digest without relying only on its revision label.
+Public visibility is owned by the query surface, not by this source identity proof.
+
+`cpg-schema::bundle` declares `callable_parameters(function_node_id, formal_node_id, name)`;
+core derives it from declared functions/async functions and their raw parameter syntax in the
+same snapshot. The former `operation_parameters` was itself a direct operation-ID/raw-parameter
+join; this replacement does not remove an additional class-to-constructor formal mapping.
+The projection supplies private callee evidence required by shared proof admission. Merely
+including an async declaration's parameter is structural metadata: it supplies no Call-phase
+execution, completion, callback activation or channel-coverage claim.
+
+Native loading builds the complete `(function, formal)` membership set independently of the
+public query lookup. It rejects duplicate formal pairs, duplicate callable parameter names and
+one formal assigned multiple owners. Every loaded value link must name a pair from that set;
+the existing leaf/atom/place/condition and effect-digest checks still apply. Only functions in
+`operations` populate the name lookup, and requests still resolve through public paths belonging
+to those operations. Private metadata therefore supports a public caller's proof without making
+the callee directly queryable. Schema-owned IPC validation, the existing byte/row bounds and the
+Python adapter boundary remain in place.
+
+**Ownership and deletion:** this is an implementation prerequisite within ADR-0058's accepted
+FORMAT 9 target and ADR-0048's fresh-generation policy, not a new architecture authority. The
+writer and Python manifest reader now require FORMAT 9, and the old serving filename/field reader
+is removed rather than retained as a FORMAT 8 fallback. `operations` and `public_paths` retain
+their public-surface responsibilities. A private function becoming public changes those surface
+rows; it does not require a second source proof policy or a new native proof interpretation.
+
+The owning documentation must describe the source link as a **callable** entry-formal proof,
+rename the storage/publication inventory entry, and mark FORMAT 9's callable-support subset as
+implemented while keeping the rest of S6 unfinished. At inspection, those owner/STATUS/plan
+updates were still pending with the author. The initial target review's FORMAT 8 statements
+describe its dated baseline, not the current slice. Full formal-reference admission for summary
+and boundary rows, complete typed channel/proof support, bounded cited spans and operation-wide
+conjunction/effect/role queries remain broader S6 obligations; this subset establishes none of
+their closure.
+
+| Judgment/gate | Verdict for this subset | Evidence and remaining boundary |
+|---|---|---|
+| A1 | satisfied | Source proof universe, serving metadata and public query selection have separate owners |
+| A2 | satisfied | Callable formal identity is explicit; public query membership is checked separately |
+| A3 | satisfied | Private callee proofs reuse existing source and shared native admission, without a visibility-specific interpreter |
+| G1–G6; CI-G1/CI-G2 | pass by source inspection | Attributed same-snapshot projection, unchanged proof checks, explicit public lookup and bounded loading; full S6 closure excluded |
+| G7 | conditional on documentation closure | Current owners and checkpoint must distinguish the implemented FORMAT 9 prerequisite from the unfinished query contract |
+| G8; CI-G3 | no new defect found in inspected scope | No new library, independent evaluation input or measured claim |
+
+**Bounded decision: Accept scoped at source-inspection strength, with documentation closure
+required before the slice is recorded complete.** No production correctness blocker was found.
+Focused acceptance should cover a real nested default call through fresh source → Delta → native,
+refusal of a direct private-path query, rejection after removing the private formal needed by a
+link, duplicate callable name/owner rejection, and strict refusal of the retired format/schema.
+The author has added the public/private query control to the source/native fixture; execution
+results are not credited here yet. Full gates, pilot, clean-wheel and assembled S2/S6/Stage 3
+acceptance remain `not_run` in this review.

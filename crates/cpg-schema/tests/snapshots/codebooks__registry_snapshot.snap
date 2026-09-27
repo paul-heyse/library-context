@@ -84,6 +84,8 @@ boundary_reason
   28 completion_depth_limit
   29 completion_work_limit
   30 summary_proof_limit
+  31 default_unavailable
+  32 default_stability_unknown
 pysa_unresolved_reason
   0 LambdaArgument
   1 UnexpectedPyreflyTarget
@@ -800,6 +802,9 @@ summary_flow_step_kind
   20 statement_condition
   21 handler_class_evidence
   22 definition_header_evidence
+  23 default_availability_evidence
+  24 default_value_evidence
+  25 default_stability_evidence
 modeled_argument_evaluation_status
   0 source_operand
   1 literal_normal
