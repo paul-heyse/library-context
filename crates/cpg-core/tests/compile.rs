@@ -5898,3 +5898,77 @@ budget = 1
         ctx.deregister_table(table).unwrap();ctx.register_table(table,original).unwrap();
     }
 }
+
+#[tokio::test]
+async fn source_body_outcomes_do_not_invent_value_flows_or_caller_continuation() {
+    let root=tempfile::tempdir().unwrap();
+    let snapshot=Id([85;16]);
+    let analysis=Analysis {config:AnalyticsConfig::parse(r#"
+version = 1
+[subsystem]
+module_prefixes = ["bodypkg"]
+public_roots = ["bodypkg"]
+[seeds]
+primary = ["bodypkg.explicit_return"]
+distractors = []
+[pass_a]
+max_depth = 2
+max_vertices = 128
+max_edges = 512
+max_witnesses = 3
+[briefs]
+budget = 1
+"#).unwrap(),embedder:Some(Arc::new(cpg_core::embed::FakeEmbedder::new())),techniques:Techniques::default()};
+    compile_analyzed(root.path(),snapshot,&raw_version("source_body_shapes",snapshot,(3,14,7)),Some(&analysis)).await.unwrap();
+    let (_,ctx)=published(root.path(),snapshot).await.unwrap().unwrap();
+    for (name,kind) in [("fallthrough",0),("explicit_return",1),("first_initialization",1),
+        ("selected_literal",1),("preserved_return",1),("replaced_return",1),("replaced_raise",2),("explicit_raise",2)] {
+        assert_eq!(count(&ctx,&format!("SELECT count(*) FROM source_body_completions b JOIN declarations d \
+            ON d.node_id=b.function_node_id WHERE d.name='{name}' AND b.kind={kind} \
+            AND b.reason IS NULL AND b.release_reason IS NULL AND b.function_retainer_required")).await,1,"{name}");
+        assert_eq!(count(&ctx,&format!("SELECT count(*) FROM summary_flows s JOIN declarations d \
+            ON d.node_id=s.function_node_id WHERE d.name='{name}'")).await,0,"no invented value source: {name}");
+    }
+    for name in ["replaced_raise","explicit_raise"] {
+        assert_eq!(count(&ctx,&format!("SELECT count(*) FROM source_body_completions b JOIN declarations d \
+            ON d.node_id=b.function_node_id WHERE d.name='{name}' AND b.exception=0 AND b.terminal_fact_id IS NOT NULL")).await,1);
+    }
+    assert_eq!(count(&ctx,"SELECT count(*) FROM source_body_completions b JOIN declarations d \
+        ON d.node_id=b.function_node_id WHERE d.name='docstring_only' AND b.kind=0 AND b.step_count=0 \
+        AND b.release_count=0 AND b.runtime_statement_count=0 AND b.function_retainer_required").await,1);
+    assert_eq!(count(&ctx,"SELECT count(*) FROM source_body_release_inputs r JOIN syntax_nodes e ON e.fact_id=r.syntax_fact_id \
+        JOIN syntax_nodes s ON s.node_id=e.parent_node_id JOIN declarations d ON d.node_id=s.owner_node_id \
+        WHERE d.name IN ('explicit_return','docstring_only') AND s.ordinal=0 AND s.kind=22").await,0);
+    assert_eq!(count(&ctx,"SELECT count(*) FROM source_body_completions b JOIN declarations d \
+        ON d.node_id=b.function_node_id WHERE d.name='proof_at_limit' AND b.kind=1 AND b.step_count=64 AND b.release_reason IS NULL").await,1);
+    assert_eq!(count(&ctx,&format!("SELECT count(*) FROM source_body_completions b JOIN declarations d \
+        ON d.node_id=b.function_node_id WHERE d.name='proof_over_limit' AND b.kind=5 AND b.reason={}",
+        BoundaryReason::SummaryProofLimit.code())).await,1);
+    // A normal local read has no closed-value provenance until its executed initialization is
+    // linked. The known body outcome survives, while its release certificate stays open.
+    assert_eq!(count(&ctx,&format!("SELECT count(*) FROM source_body_completions b JOIN declarations d \
+        ON d.node_id=b.function_node_id WHERE d.name='initialized_local_read' AND b.kind=1 \
+        AND b.reason IS NULL AND b.release_reason={}",BoundaryReason::FrameExitCleanup.code())).await,1);
+    for name in ["default_parameter","required_parameter","captured","dynamic_definition","deferred_async",
+        "deferred_generator","decorated"] {
+        assert_eq!(count(&ctx,&format!("SELECT count(*) FROM source_body_completions b JOIN declarations d \
+            ON d.node_id=b.function_node_id WHERE d.name='{name}' AND b.kind=5 AND b.reason={}",
+            BoundaryReason::ScopeBoundary.code())).await,1,"{name}");
+    }
+    for name in ["unknown_owned_value","reassignment"] {
+        assert_eq!(count(&ctx,&format!("SELECT count(*) FROM source_body_completions b JOIN declarations d \
+            ON d.node_id=b.function_node_id WHERE d.name='{name}' AND b.kind=5 AND b.reason IS NOT NULL")).await,1,"{name}");
+    }
+    for (table,query) in [
+        ("source_body_completions","SELECT * EXCEPT(function_retainer_required), false AS function_retainer_required FROM source_body_completions"),
+        ("source_body_steps","SELECT * FROM source_body_steps WHERE false"),
+        ("source_body_release_inputs","SELECT * FROM source_body_release_inputs WHERE false"),
+    ] {
+        let original=sql::query(&ctx,&format!("SELECT * FROM {table}")).await.unwrap().into_view();
+        let changed=sql::query(&ctx,query).await.unwrap().into_view();
+        ctx.deregister_table(table).unwrap();ctx.register_table(table,changed).unwrap();
+        let violations=cpg_core::validate::validate(&ctx).await.unwrap();
+        assert!(violations.iter().any(|v|v.rule=="source-body-source-equality"),"{table}: {violations:?}");
+        ctx.deregister_table(table).unwrap();ctx.register_table(table,original).unwrap();
+    }
+}

@@ -1,0 +1,30 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table source_body_completions
+family findings
+key snapshot_id, body_id
+check positive_work: work > 0
+check retainer_required: function_retainer_required
+check body_status: (kind = 5 AND reason IS NOT NULL) OR (kind <> 5 AND reason IS NULL)
+check bounded_proof: step_count >= 0 AND step_count <= 64 AND release_count >= 0 AND release_count <= 64
+@lctx.family=findings
+@lctx.table=source_body_completions
+snapshot_id: FixedSizeBinary(16) NOT NULL
+body_id: FixedSizeBinary(16) NOT NULL
+function_node_id: FixedSizeBinary(16) NOT NULL
+declaration_fact_id: FixedSizeBinary(16) NOT NULL
+syntax_fact_id: FixedSizeBinary(16) NOT NULL
+kind: Int16 NOT NULL [lctx.codebook=completion_kind]
+terminal_fact_id: FixedSizeBinary(16) NULL
+exception: Int16 NULL [lctx.codebook=exact_runtime_exception]
+reason: Int16 NULL [lctx.codebook=boundary_reason]
+release_reason: Int16 NULL [lctx.codebook=boundary_reason]
+function_retainer_required: Boolean NOT NULL
+runtime_statement_count: Int64 NOT NULL
+step_count: Int64 NOT NULL
+steps_digest: FixedSizeBinary(32) NOT NULL
+release_count: Int64 NOT NULL
+releases_digest: FixedSizeBinary(32) NOT NULL
+work: Int64 NOT NULL

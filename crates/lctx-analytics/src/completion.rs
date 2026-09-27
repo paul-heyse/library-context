@@ -21,6 +21,8 @@ type Proof = Vec<(K, Id)>;
 type Result = std::result::Result<Completion, BoundaryReason>;
 
 pub struct Inputs<'a> {
+    pub references:&'a [cpg_schema::tables::ReferencesRow],
+    pub resolutions:&'a [cpg_schema::tables::ReferenceResolutionsRow],
     pub invocations:&'a [crate::evaluation::CallInvocation],
     pub context_protocols: &'a [ModelContextProtocolsRow],
     pub context_sites: &'a [SourceContextSitesRow],
@@ -46,6 +48,9 @@ pub struct Inputs<'a> {
 
 #[derive(Default)]
 pub struct Outcome {
+    pub bodies:Vec<cpg_schema::source_body::SourceBodyCompletionsRow>,
+    pub body_steps:Vec<cpg_schema::source_body::SourceBodyStepsRow>,
+    pub body_releases:Vec<cpg_schema::source_body::SourceBodyReleaseInputsRow>,
     pub calls:Vec<cpg_schema::call_execution::CallExecutionsRow>,
     pub call_steps:Vec<cpg_schema::call_execution::CallExecutionStepsRow>,
     pub certificates: Vec<cpg_schema::completion_proof::ReturnCompletionCertificatesRow>,
@@ -174,6 +179,7 @@ struct PreparedContext<'a> {
 }
 
 struct Kernel<'a> {
+    body_releases:Option<Vec<(Id,cpg_schema::codebook::ReleaseSafety,usize,usize,Id)>>,
     contexts: HashMap<(Id,Id),PreparedContext<'a>>,
     definitions: HashMap<(Id,Id),DefinitionHeader<'a>>,
     children: HashMap<(Id, Id), Vec<&'a SyntaxNodesRow>>,
@@ -408,15 +414,9 @@ impl<'ctx> Kernel<'ctx> {
                 || prefix.iter().enumerate().any(|(i,n)|n.ordinal!=i as i64) {
                 return Err(BoundaryReason::MissingEvidence);
             }
-            for statement in prefix {
-                // A function docstring initializes __doc__ at definition time; it is not
-                // evaluated again on invocation.
-                if parent.kind==S::StmtFunctionDef && statement.ordinal==0 && statement.kind==S::StmtExpr {
-                    let value=self.children.get(&(site.snapshot_id,statement.node_id));
-                    if value.is_some_and(|v|v.len()==1 && v[0].field==F::Value && v[0].kind==S::ExprStringLiteral) {continue;}
-                }
-                if self.statement(statement,0)?.kind()!=C::Normal { return Err(BoundaryReason::RuntimeUnreachable); }
-            }
+            let prefix=if parent.kind==S::StmtFunctionDef {self.runtime_function_body(&prefix)?} else {prefix};
+            if self.walk_statements(&prefix,0)?.kind()!=C::Normal {return Err(BoundaryReason::RuntimeUnreachable);}
+
         }
         Ok(())
     }
@@ -578,19 +578,38 @@ impl<'ctx> Kernel<'ctx> {
             || steps.last().is_none_or(|s|s.operand_fact_id != node.fact_id || Some(s.evidence_id) != row.evidence_id || s.status != row.status) {
             return Err(BoundaryReason::MissingEvidence);
         }
+        if let Some(releases)=self.body_releases.as_mut() {releases.push((node.fact_id,row.release_safety,self.proof.len(),steps.len(),row.evidence_id.unwrap()));}
         self.proof.extend(steps.iter().map(|s|(s.kind,s.evidence_id)));
         Ok(row.boolean_value)
     }
 
-    fn suite(&mut self, nodes: &[&SyntaxNodesRow], field: F, depth: usize) -> Result {
-        let mut statements: Vec<_> = nodes.iter().copied().filter(|n| n.field == field).collect();
-        statements.sort_by_key(|n| (n.ordinal, n.fact_id));
-        if statements.iter().enumerate().any(|(i,n)| n.ordinal != i as i64) { return Err(BoundaryReason::MissingEvidence); }
+    fn ordered_suite<'a>(nodes:&[&'a SyntaxNodesRow],field:F)->std::result::Result<Vec<&'a SyntaxNodesRow>,BoundaryReason> {
+        let mut statements:Vec<_>=nodes.iter().copied().filter(|n|n.field==field).collect();
+        statements.sort_by_key(|n|(n.ordinal,n.fact_id));
+        if statements.iter().enumerate().any(|(i,n)|n.ordinal!=i as i64) {return Err(BoundaryReason::MissingEvidence);}
+        Ok(statements)
+    }
+
+    /// The docstring belongs to definition metadata, including a docstring-only body.
+    /// Both invocation entry and whole-body execution select the same runtime statements.
+    fn runtime_function_body<'a>(&self,nodes:&[&'a SyntaxNodesRow])->std::result::Result<Vec<&'a SyntaxNodesRow>,BoundaryReason> {
+        Ok(Self::ordered_suite(nodes,F::Body)?.into_iter().filter(|statement| {
+            !(statement.ordinal==0 && statement.kind==S::StmtExpr
+                && self.children.get(&(statement.snapshot_id,statement.node_id)).is_some_and(|v|
+                    v.len()==1 && v[0].field==F::Value && v[0].kind==S::ExprStringLiteral))
+        }).collect())
+    }
+
+    fn walk_statements(&mut self,statements:&[&SyntaxNodesRow],depth:usize)->Result {
         for statement in statements {
-            let outcome = self.statement(statement, depth + 1)?;
-            if outcome.kind() != C::Normal { return Ok(outcome); }
+            let outcome=self.statement(statement,depth)?;
+            if outcome.kind()!=C::Normal {return Ok(outcome);}
         }
         Ok(Completion::Normal)
+    }
+
+    fn suite(&mut self,nodes:&[&SyntaxNodesRow],field:F,depth:usize)->Result {
+        self.walk_statements(&Self::ordered_suite(nodes,field)?,depth+1)
     }
 
     fn statement(&mut self, node: &SyntaxNodesRow, depth: usize) -> Result {
@@ -771,13 +790,96 @@ pub fn complete(inputs: Inputs<'_>) -> Outcome {
         if inputs.context_sites.iter().filter(|s|(s.snapshot_id,s.item_node_id)==key).count()!=1 {continue;}
         contexts.insert(key,PreparedContext {site,protocol,arguments});
     }
-    let mut kernel = Kernel { contexts, definitions, children, writes, initializations, expression_steps, tests, diagrams:inputs.diagrams, boundaries:inputs.boundaries, assumption:None,
+    let mut kernel = Kernel { body_releases:None, contexts, definitions, children, writes, initializations, expression_steps, tests, diagrams:inputs.diagrams, boundaries:inputs.boundaries, assumption:None,
         handler_types,classes,mro,modules,active_exception:None,
         entry_mode:false,initialized:BTreeSet::new(),path_initializations:eligible,
         remaining: MAX_WORK, proof: Vec::new(),
         expressions: inputs.expressions.iter().map(|e| ((e.snapshot_id,e.syntax_fact_id),e)).collect(),
         scopes: inputs.scopes.iter().map(|s| ((s.snapshot_id,s.node_id),s)).collect() };
     let mut out = Outcome::default();
+    // A callable body is evaluated under entry, never as its StmtFunctionDef header. The
+    // first release domain has no arguments or closure/cell obligations. Its function object
+    // still needs an independently proved external retainer at every consuming call.
+    let mut resolution_index:HashMap<_,Vec<_>>=HashMap::new();
+    for r in inputs.resolutions {resolution_index.entry((r.snapshot_id,r.reference_id)).or_default().push(r);}
+    let mut captured=BTreeSet::new();
+    for r in inputs.references {
+        if resolution_index.get(&(r.snapshot_id,r.node_id)).into_iter().flatten().any(|r|r.captured) {
+            if let Some(scope)=kernel.scopes.get(&(r.snapshot_id,r.scope_id)) {captured.insert((r.snapshot_id,scope.owner_node_id));}
+        }
+    }
+    let mut headers_by_node:HashMap<_,Vec<_>>=HashMap::new();
+    let mut syntax_by_owner:HashMap<_,Vec<_>>=HashMap::new();
+    for n in inputs.syntax {
+        headers_by_node.entry((n.snapshot_id,n.node_id)).or_default().push(n);
+        if let Some(owner)=n.owner_node_id {syntax_by_owner.entry((n.snapshot_id,owner)).or_default().push(n);}
+    }
+    let with_parameters:BTreeSet<_>=inputs.parameters.iter().map(|p|(p.snapshot_id,p.function_node_id)).collect();
+    let generic:BTreeSet<_>=inputs.bindings.iter().filter(|b|b.kind==BindingKind::TypeParam).filter_map(|b|
+        kernel.scopes.get(&(b.snapshot_id,b.scope_id)).map(|s|(b.snapshot_id,s.owner_node_id))).collect();
+    for declaration in inputs.declarations.iter().filter(|d|matches!(d.kind,
+        cpg_schema::codebook::DeclarationKind::Function|cpg_schema::codebook::DeclarationKind::AsyncFunction)) {
+        use cpg_schema::source_body::{SourceBodyCompletionsRow,SourceBodyStepsRow,SourceBodyReleaseInputsRow};
+        use cpg_schema::codebook::ReleaseSafety;
+        kernel.remaining=MAX_WORK;kernel.proof.clear();kernel.initialized.clear();kernel.active_exception=None;
+        kernel.assumption=None;kernel.entry_mode=false;kernel.body_releases=Some(Vec::new());
+        let key=(declaration.snapshot_id,declaration.node_id);
+        let headers=headers_by_node.get(&key).map_or(&[][..],Vec::as_slice);
+        let owned=syntax_by_owner.get(&key).map_or(&[][..],Vec::as_slice);
+        let admitted=declaration.kind==cpg_schema::codebook::DeclarationKind::Function
+            && declaration.decorators.is_empty() && !declaration.is_overload && headers.len()==1
+            && headers[0].kind==S::StmtFunctionDef && headers[0].module_node_id==declaration.module_node_id
+            && headers[0].start_byte==declaration.start_byte && headers[0].end_byte==declaration.end_byte
+            && !with_parameters.contains(&key) && !captured.contains(&key) && !generic.contains(&key)
+            && !owned.iter().any(|n|matches!(n.kind,S::StmtFunctionDef|S::StmtClassDef|S::ExprLambda
+                |S::ExprYield|S::ExprYieldFrom|S::ExprAwait|S::ExprGenerator|S::ExprListComp|S::ExprSetComp
+                |S::ExprDictComp|S::StmtGlobal|S::StmtNonlocal|S::StmtWith|S::ExceptHandlerExceptHandler));
+        let body=kernel.children.get(&key).cloned().unwrap_or_default();
+        let runtime_body=kernel.runtime_function_body(&body);
+        let runtime_statement_count=runtime_body.as_ref().map_or(body.len(),Vec::len) as i64;
+        let result=if !admitted {Err(BoundaryReason::ScopeBoundary)}
+            else if body.is_empty() || body.iter().any(|n|n.field!=F::Body || n.owner_node_id!=Some(key.1)) {
+                Err(BoundaryReason::MissingEvidence)
+            } else {runtime_body.and_then(|body|kernel.walk_statements(&body,1))};
+        let result=if kernel.proof.len()>cpg_schema::summary_contract::MAX_SUMMARY_PROOF_STEPS
+            || kernel.body_releases.as_ref().is_some_and(|r|r.len()>cpg_schema::summary_contract::MAX_SUMMARY_PROOF_STEPS) {
+            Err(BoundaryReason::SummaryProofLimit)
+        } else {result};
+        let (kind,terminal_fact_id,exception,reason)=match result {
+            Ok(outcome) if matches!(outcome.kind(),C::Normal|C::Return|C::Raise)=>(outcome.kind(),outcome.terminal(),outcome.exception(),None),
+            Ok(_)=>(C::Unknown,None,None,Some(BoundaryReason::UnsupportedControlFlow)),
+            Err(reason)=>(C::Unknown,None,None,Some(reason)),
+        };
+        let releases=kernel.body_releases.take().unwrap_or_default();
+        let mut steps:Vec<_>=if reason.is_none() {kernel.proof.iter().enumerate().map(|(ordinal,&(kind,evidence_id))|
+            SourceBodyStepsRow {snapshot_id:key.0,body_id:Id::ZERO,ordinal:ordinal as i64,kind,evidence_id}).collect()} else {Vec::new()};
+        let mut releases:Vec<_>=if reason.is_none() {releases.into_iter().enumerate().map(|(ordinal,(syntax_fact_id,safety,offset,count,evaluation_evidence_id))|
+            SourceBodyReleaseInputsRow {snapshot_id:key.0,body_id:Id::ZERO,ordinal:ordinal as i64,syntax_fact_id,safety,
+                proof_offset:offset as i64,proof_count:count as i64,evaluation_evidence_id,
+                proof_digest:cpg_schema::source_body::steps_digest(&steps[offset..offset+count])}).collect()} else {Vec::new()};
+        let release_reason=reason.or_else(||releases.iter().any(|r|r.safety!=ReleaseSafety::Closed).then_some(BoundaryReason::FrameExitCleanup));
+        let mut row=SourceBodyCompletionsRow {snapshot_id:key.0,body_id:Id::ZERO,function_node_id:key.1,
+            declaration_fact_id:declaration.fact_id,syntax_fact_id:headers.first().map_or(declaration.fact_id,|n|n.fact_id),
+            kind,terminal_fact_id,exception,reason,release_reason,function_retainer_required:true,
+            runtime_statement_count,step_count:steps.len() as i64,steps_digest:cpg_schema::source_body::steps_digest(&steps),
+            release_count:releases.len() as i64,releases_digest:cpg_schema::source_body::releases_digest(&releases),
+            work:(MAX_WORK-kernel.remaining).max(1) as i64};
+        row.body_id=cpg_schema::source_body::identity(&row);
+        for step in &mut steps {step.body_id=row.body_id;}
+        for release in &mut releases {release.body_id=row.body_id;}
+        if let Err(error)=cpg_schema::source_body::admit(&row,&steps,&releases) {
+            row.kind=C::Unknown;row.terminal_fact_id=None;row.exception=None;
+            row.reason=Some(error.reason);row.release_reason=Some(error.reason);
+            steps.clear();releases.clear();row.step_count=0;row.release_count=0;
+            row.steps_digest=cpg_schema::source_body::steps_digest(&steps);
+            row.releases_digest=cpg_schema::source_body::releases_digest(&releases);
+            row.body_id=cpg_schema::source_body::identity(&row);
+        }
+        out.bodies.push(row);out.body_steps.extend(steps);out.body_releases.extend(releases);
+    }
+    out.bodies.sort_by_key(|r|(r.snapshot_id,r.body_id));
+    out.body_steps.sort_by_key(|r|(r.snapshot_id,r.body_id,r.ordinal));
+    out.body_releases.sort_by_key(|r|(r.snapshot_id,r.body_id,r.ordinal));
     for invocation in inputs.invocations {
         use cpg_schema::call_execution::{CallExecutionsRow,CallExecutionStepsRow,identity,admit};
         use cpg_schema::completion_proof::proof_digest;
@@ -927,7 +1029,7 @@ mod tests {
     }
     fn run(nodes:&[SyntaxNodesRow], exits:&[ExitSitesRow]) -> Outcome {
         let expressions=evaluate(EvaluationInputs {syntax:nodes,..Default::default()});
-        complete(Inputs {invocations:&[],context_protocols:&[],context_sites:&[],context_arguments:&[],declarations:&[],parameters:&[],syntax:nodes,expressions:&expressions.evaluations,expression_steps:&expressions.steps,bindings:&[],scopes:&[],exits,
+        complete(Inputs {references:&[],resolutions:&[],invocations:&[],context_protocols:&[],context_sites:&[],context_arguments:&[],declarations:&[],parameters:&[],syntax:nodes,expressions:&expressions.evaluations,expression_steps:&expressions.steps,bindings:&[],scopes:&[],exits,
             handler_types:&[],classes:&[],mro:&[],modules:&[],tests:&[],entry_conditions:&[],boundaries:&HashMap::new(),diagrams:&HashMap::new()})
     }
     fn exit(site:u8) -> ExitSitesRow {
@@ -1143,7 +1245,7 @@ mod tests {
             let diagrams=HashMap::from([(path.id(),path),(predicate.id(),predicate)]);
             let exits=[target];let tests=[test];
             let check=|diagrams:&HashMap<Id,Diagram>,boundaries:&HashMap<Id,BoundaryReason>| {
-                let out=complete(Inputs {invocations:&[],context_protocols:&[],context_sites:&[],context_arguments:&[],declarations:&[],parameters:&[],syntax:&nodes,expressions:&evaluations.evaluations,expression_steps:&evaluations.steps,
+                let out=complete(Inputs {references:&[],resolutions:&[],invocations:&[],context_protocols:&[],context_sites:&[],context_arguments:&[],declarations:&[],parameters:&[],syntax:&nodes,expressions:&evaluations.evaluations,expression_steps:&evaluations.steps,
                     bindings:&[],scopes:&[],exits:&exits,handler_types:&[],classes:&[],mro:&[],modules:&[],tests:&tests,entry_conditions:&[],boundaries,diagrams});
                 assert_eq!(out.entries[0].reason,Some(expected));assert!(out.entry_steps.is_empty());
             };
@@ -1173,7 +1275,7 @@ mod tests {
         let check=|nodes:&[SyntaxNodesRow]| {
             let evaluations=evaluate(EvaluationInputs {syntax:nodes,reads:std::slice::from_ref(&read),..Default::default()});
             assert!(!evaluations.evaluations.iter().find(|e|e.syntax_fact_id==id(11)).unwrap().normal);
-            complete(Inputs {invocations:&[],context_protocols:&[],context_sites:&[],context_arguments:&[],declarations:&[],parameters:&[],syntax:nodes,expressions:&evaluations.evaluations,expression_steps:&evaluations.steps,
+            complete(Inputs {references:&[],resolutions:&[],invocations:&[],context_protocols:&[],context_sites:&[],context_arguments:&[],declarations:&[],parameters:&[],syntax:nodes,expressions:&evaluations.evaluations,expression_steps:&evaluations.steps,
                 bindings:&[],scopes:&[],exits:std::slice::from_ref(&target),handler_types:&[],classes:&[],mro:&[],modules:&[],tests:&tests,
                 entry_conditions:&[(id(1),id(99),Diagram::always().id())],boundaries:&HashMap::new(),diagrams:&diagrams})
         };

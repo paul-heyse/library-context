@@ -171,7 +171,7 @@ A model is committed, typed data about a callable we do not analyze from source.
   The [independent controls](../../design_review/evidence/2026-09-27_frame-exit/README.md)
   observe finalization before continuation; they are not compiler false-positive reproductions.
 
-**Next source-body domain (Proposed under ADR-0063, 2026-09-27).** The existing completion
+**Source-body foundation (Implemented and focused Tested under ADR-0063, 2026-09-27).** The existing completion
 kernel evaluates a zero-parameter synchronous, undecorated body's suite under entry, separately
 from its definition header and independently of value-flow seeds. Fallthrough Normal, explicit
 Return, exact primitive-raise TypeError and unknown remain distinct. Closed expression values
@@ -183,6 +183,12 @@ therefore cannot establish caller continuation alone: its consumer must prove th
 object remains held, initially through an immediate fresh nested definition's live binding and
 an effect-free body. Source publication reconstructs both domains; call composition and serving
 must preserve this independent retainer obligation.
+Compiler98 persists `source_body_completions`, `source_body_steps` and ordered
+`source_body_release_inputs`. Terminal anchors and release-root segments are shared structural
+obligations; publication independently reconstructs their source meaning. Leading docstrings
+remain definition metadata; a docstring-only body has zero runtime statements and no invented
+proof. Indexed preparation preserves the existing suite, work and 64-step proof bounds. The
+fresh-call consumer and native export are still **Proposed**, not implemented by these tables.
 
 > Decision: ADR-0063
 

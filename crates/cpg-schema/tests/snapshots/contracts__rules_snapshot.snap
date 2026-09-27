@@ -166,6 +166,12 @@ key:source_context_sites
   SELECT snapshot_id, site_id, count(*) AS n FROM source_context_sites GROUP BY snapshot_id, site_id HAVING count(*) > 1
 key:call_executions
   SELECT snapshot_id, execution_id, count(*) AS n FROM call_executions GROUP BY snapshot_id, execution_id HAVING count(*) > 1
+key:source_body_completions
+  SELECT snapshot_id, body_id, count(*) AS n FROM source_body_completions GROUP BY snapshot_id, body_id HAVING count(*) > 1
+key:source_body_steps
+  SELECT snapshot_id, body_id, ordinal, count(*) AS n FROM source_body_steps GROUP BY snapshot_id, body_id, ordinal HAVING count(*) > 1
+key:source_body_release_inputs
+  SELECT snapshot_id, body_id, ordinal, count(*) AS n FROM source_body_release_inputs GROUP BY snapshot_id, body_id, ordinal HAVING count(*) > 1
 key:model_frame_exits
   SELECT snapshot_id, frame_exit_id, count(*) AS n FROM model_frame_exits GROUP BY snapshot_id, frame_exit_id HAVING count(*) > 1
 key:model_frame_exit_arguments
@@ -522,6 +528,24 @@ ref:return_exit_steps.evidence_id->facts|model_targets|model_transfers|model_fra
   SELECT f.evidence_id AS value FROM return_exit_steps f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts UNION ALL SELECT model_id AS k FROM model_targets UNION ALL SELECT rule_id AS k FROM model_transfers UNION ALL SELECT frame_exit_id AS k FROM model_frame_exits UNION ALL SELECT site_id AS k FROM source_context_sites) r ON f.evidence_id = r.k WHERE f.evidence_id IS NOT NULL
 ref:expression_evaluations.syntax_fact_id->syntax_nodes
   SELECT f.syntax_fact_id AS value FROM expression_evaluations f LEFT ANTI JOIN (SELECT fact_id AS k FROM syntax_nodes) r ON f.syntax_fact_id = r.k WHERE f.syntax_fact_id IS NOT NULL
+ref:source_body_completions.function_node_id->declarations
+  SELECT f.function_node_id AS value FROM source_body_completions f LEFT ANTI JOIN (SELECT node_id AS k FROM declarations) r ON f.function_node_id = r.k WHERE f.function_node_id IS NOT NULL
+ref:source_body_completions.declaration_fact_id->declarations
+  SELECT f.declaration_fact_id AS value FROM source_body_completions f LEFT ANTI JOIN (SELECT fact_id AS k FROM declarations) r ON f.declaration_fact_id = r.k WHERE f.declaration_fact_id IS NOT NULL
+ref:source_body_completions.syntax_fact_id->syntax_nodes
+  SELECT f.syntax_fact_id AS value FROM source_body_completions f LEFT ANTI JOIN (SELECT fact_id AS k FROM syntax_nodes) r ON f.syntax_fact_id = r.k WHERE f.syntax_fact_id IS NOT NULL
+ref:source_body_completions.terminal_fact_id->syntax_nodes
+  SELECT f.terminal_fact_id AS value FROM source_body_completions f LEFT ANTI JOIN (SELECT fact_id AS k FROM syntax_nodes) r ON f.terminal_fact_id = r.k WHERE f.terminal_fact_id IS NOT NULL
+ref:source_body_steps.body_id->source_body_completions
+  SELECT f.body_id AS value FROM source_body_steps f LEFT ANTI JOIN (SELECT body_id AS k FROM source_body_completions) r ON f.body_id = r.k WHERE f.body_id IS NOT NULL
+ref:source_body_steps.evidence_id->facts|model_targets|model_transfers|model_frame_exits
+  SELECT f.evidence_id AS value FROM source_body_steps f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts UNION ALL SELECT model_id AS k FROM model_targets UNION ALL SELECT rule_id AS k FROM model_transfers UNION ALL SELECT frame_exit_id AS k FROM model_frame_exits) r ON f.evidence_id = r.k WHERE f.evidence_id IS NOT NULL
+ref:source_body_release_inputs.body_id->source_body_completions
+  SELECT f.body_id AS value FROM source_body_release_inputs f LEFT ANTI JOIN (SELECT body_id AS k FROM source_body_completions) r ON f.body_id = r.k WHERE f.body_id IS NOT NULL
+ref:source_body_release_inputs.syntax_fact_id->expression_evaluations
+  SELECT f.syntax_fact_id AS value FROM source_body_release_inputs f LEFT ANTI JOIN (SELECT syntax_fact_id AS k FROM expression_evaluations) r ON f.syntax_fact_id = r.k WHERE f.syntax_fact_id IS NOT NULL
+ref:source_body_release_inputs.evaluation_evidence_id->facts
+  SELECT f.evaluation_evidence_id AS value FROM source_body_release_inputs f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.evaluation_evidence_id = r.k WHERE f.evaluation_evidence_id IS NOT NULL
 ref:model_frame_exits.function_node_id->declarations
   SELECT f.function_node_id AS value FROM model_frame_exits f LEFT ANTI JOIN (SELECT node_id AS k FROM declarations) r ON f.function_node_id = r.k WHERE f.function_node_id IS NOT NULL
 ref:model_frame_exits.call_node_id->call_syntax
@@ -1732,6 +1756,18 @@ codebook:call_executions.phase
   SELECT phase FROM call_executions WHERE phase IS NOT NULL AND phase NOT IN (0, 1, 2, 3, 4, 5)
 codebook:call_executions.reason
   SELECT reason FROM call_executions WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37)
+codebook:source_body_completions.kind
+  SELECT kind FROM source_body_completions WHERE kind IS NOT NULL AND kind NOT IN (0, 1, 2, 3, 4, 5)
+codebook:source_body_completions.exception
+  SELECT exception FROM source_body_completions WHERE exception IS NOT NULL AND exception NOT IN (0)
+codebook:source_body_completions.reason
+  SELECT reason FROM source_body_completions WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37)
+codebook:source_body_completions.release_reason
+  SELECT release_reason FROM source_body_completions WHERE release_reason IS NOT NULL AND release_reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37)
+codebook:source_body_steps.kind
+  SELECT kind FROM source_body_steps WHERE kind IS NOT NULL AND kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36)
+codebook:source_body_release_inputs.safety
+  SELECT safety FROM source_body_release_inputs WHERE safety IS NOT NULL AND safety NOT IN (0, 1, 2)
 codebook:model_frame_exit_arguments.safety
   SELECT safety FROM model_frame_exit_arguments WHERE safety IS NOT NULL AND safety NOT IN (0, 1, 2)
 codebook:model_frame_exit_steps.status

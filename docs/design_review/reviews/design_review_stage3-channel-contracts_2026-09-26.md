@@ -2057,3 +2057,85 @@ interpreter or Stage 5 lifecycle expansion is warranted.
 body/frame domain and retained-occurrence omissions. F17 remains open for broader release/source
 domains and S6 semantic evidence closure, with current disposition owned by the forward plan.
 Neither this correction nor the proposed next domain certifies enclosing S1/S2, S6 or Stage 3.
+
+## 33. Bounded implementation follow-up: source body outcomes under entry
+
+**2026-09-27 · change/conformance · Implemented; focused Tested as attributed below.**
+Compiler 98 adds the source-body foundation under ADR-0063. Scope is the schema contract,
+analytics completion kernel and core source/Delta publication/reconstruction. No call consumer,
+native source-completion projection, new value-flow seed or caller-continuation claim is included.
+The reviewer inspected source and receipts, ran no product tests, and edited only this review.
+
+`source_body.rs` separates a callable's body outcome from the closed-release domain and keeps
+`function_retainer_required=true` mandatory. `completion.rs` reuses the existing statement
+kernel under body entry, independently of definition-header evaluation and parameter-flow seeds.
+The first domain requires zero declared parameters, synchronous undecorated functions, and no
+captured/type-parameter/dynamic-definition/deferred-execution obligations. Executed unsupported
+operations remain unknown. Normal fallthrough, Return and exact primitive-raise TypeError stay
+distinct. First closed initializations can qualify release; a normal local read still retains
+`FrameExitCleanup` until its executed initializer supplies closed-value provenance. An outcome
+can therefore be known while its release remains unresolved.
+
+The three review corrections are implemented. Return/Raise terminal facts must occur exactly
+once as retained statement conclusions. Each release input commits an ordered, nonoverlapping
+expression-proof segment and its root; nonstatement proof steps cannot escape the release
+domain. Expression segments reject intervening statement/assignment/pass markers, preventing a
+resealed two-statement group from hiding the earlier release classification. These are structural
+checks; the source replay remains responsible for the exact expression semantics, classification
+and domain. A self-consistent digest is not an independent source proof.
+
+`runtime_function_body` now selects the same runtime statements for body and entry traversal,
+excluding only the leading function docstring. `walk_statements` preserves the earlier depth
+conventions. A docstring-only function has explicit zero runtime statements, zero proof steps
+and zero release inputs with Normal under entry; no synthetic pass or runtime docstring
+evaluation is invented. Header/owner syntax and parameter/generic presence are indexed once,
+removing the new per-function full-input scans. Existing work/depth and 64-step limits remain.
+Producer admission failures become named unknowns, and publication independently reconstructs
+the body, steps and release relations through `source-body-source-equality`.
+
+| Judgment/gate | Bounded verdict | Basis and boundary |
+|---|---|---|
+| A1 — Localize change | satisfied | Schema owns outcome/release obligations; the existing completion kernel owns execution semantics; core only acquires, publishes and reconstructs. |
+| A2 — Encode meaning structurally | satisfied | Body outcome, release refusal, runtime statement domain and mandatory callable retainer are independent. Ordered segment commitments preserve the retained evidence. |
+| A3 — Extend through composition | satisfied | The next fresh-call adapter can consume this body contract and add exact binding/retainer premises; no second body interpreter is needed. |
+| G1/G3/G5/G6 | pass within the slice | Shared schema admission, deterministic indexed acquisition and source/Delta reconstruction; resealed structural and published-table mutations challenge distinct boundaries. |
+| G2/G4/G7; CI-G1 | pass within the admitted domain | Definition metadata is not relabelled runtime execution; unknown release does not become caller completion or complete value coverage. |
+| G8 | pass within the slice | Existing bounded Python completion/evaluation machinery supplies the required semantics; no new library or general lifecycle engine is introduced. |
+| CI-G2 | pass for source publication; call/native closure not assessed | Publication reconstructs source evidence; there is no new served completion claim. |
+| CI-G3 | pass for the named qualification | Independently generated CPython programs challenge body outcomes and callable retention; static analyzer fixtures are never executed. |
+
+The applicable authority, explicit-contract, composition and local-reasoning rules under
+FP-01–06 are satisfied for this foundation. Broader source outcomes, actual invocation,
+interprocedural fixed points and full S6 semantic closure remain outside this acceptance.
+
+**Attributed receipts, inspected 2026-09-27.** The final command was:
+
+```sh
+CARGO_TARGET_DIR=/home/paul/library-context/target INSTA_UPDATE=no RUST_MIN_STACK=16777216 cargo nextest run --release -p cpg-schema -p lctx-analytics -p cpg-core --lib --test contracts --test compile -E 'binary(contracts) | test(completion::) | test(source_body::) | test(source_body_outcomes_do_not_invent_value_flows_or_caller_continuation) | test(composed_argument_reads_keep_ordered_source_evidence)' --status-level fail --final-status-level fail
+```
+
+`/tmp/lctx-stage3-source-body-tests4.log` records **passed: 26, 187 skipped, 15.232 s**.
+The selection includes source→Delta outcomes/refusals, empty docstring execution, original
+64/65 proof-bound controls, retainer/step/release removal, resealed terminal/foreign-root/order/
+whole-release/merged-segment controls, and existing completion/composed-argument cases.
+The prior corrected run recorded **24 passed, two failed** on revised contract/rule snapshots;
+the author read and accepted those schema migrations before the final no-update run. An earlier
+source fixture also required the selected brief's documented Outcome; that fixture correction
+was replayed without changing production completion semantics.
+
+The author ran
+`uv run --no-sync python docs/design_review/evidence/2026-09-27_frame-exit/source_body_oracle.py`
+and the corresponding Ruff check: **passed**, twelve isolated generated CPython controls,
+recorded in [source_body_receipt.json](../evidence/2026-09-27_frame-exit/raw/source_body_receipt.json).
+The probe includes docstring-only fallthrough and a temporary callable whose attribute finalizer
+runs after its body return, versus an externally retained callable that resumes normally.
+The bounded delay is not a divergence proof or an admitted compiler false positive. No native
+rebuild/replay is claimed for compiler 98; integrated gates and pilot remain **not_run**.
+
+**Decision: Accept scoped.** This is a source/Delta foundation, not source-call completion.
+The next adapter must independently establish the exact fresh definition binding, zero-formal
+binding and preserved external function retainer, require Normal/Return plus an admitted closed
+release domain, and preserve nested frame evidence. Ignored-call results also need safe disposal.
+Its source-call conclusion must remain mandatory even when transfer markers are absent. None
+of those future call premises is discharged merely by this new body row; F17's wider disposition
+and enclosing Stage 3 work remain with forward-plan §6.

@@ -1,0 +1,19 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table source_body_release_inputs
+family findings
+key snapshot_id, body_id, ordinal
+check ordinal_nonnegative: ordinal >= 0
+@lctx.family=findings
+@lctx.table=source_body_release_inputs
+snapshot_id: FixedSizeBinary(16) NOT NULL
+body_id: FixedSizeBinary(16) NOT NULL
+ordinal: Int64 NOT NULL
+syntax_fact_id: FixedSizeBinary(16) NOT NULL
+safety: Int16 NOT NULL [lctx.codebook=release_safety]
+proof_offset: Int64 NOT NULL
+proof_count: Int64 NOT NULL
+proof_digest: FixedSizeBinary(32) NOT NULL
+evaluation_evidence_id: FixedSizeBinary(16) NOT NULL

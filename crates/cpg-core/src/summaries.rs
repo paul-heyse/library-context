@@ -436,6 +436,8 @@ pub async fn expression_evaluations(ctx: &SessionContext)
 /// Mechanical acquisition for statement and frame completion.
 pub async fn completions(ctx: &SessionContext) -> Result<lctx_analytics::completion::Outcome, CoreError> {
     let invocations=expression_evaluations(ctx).await?.invocations;
+    let references=sql::fetch(ctx,&binding_references(),sql::Params::new()).await?;
+    let resolutions=sql::fetch(ctx,&binding_resolutions(),sql::Params::new()).await?;
     let context_protocols=sql::fetch(ctx,&context_protocols(),sql::Params::new()).await?;
     let context_sites=sql::fetch(ctx,&context_sites(),sql::Params::new()).await?;
     let context_arguments=sql::fetch(ctx,&context_arguments(),sql::Params::new()).await?;
@@ -456,7 +458,7 @@ pub async fn completions(ctx: &SessionContext) -> Result<lctx_analytics::complet
     let requests:Vec<EntryCondition> = sql::fetch(ctx,&completion_entry_conditions(),sql::Params::new()).await?;
     let entry_conditions:Vec<_>=requests.iter().map(|r|(r.snapshot_id,r.return_site_fact_id,r.condition_id)).collect();
     Ok(lctx_analytics::completion::complete(lctx_analytics::completion::Inputs {
-        invocations:&invocations,
+        references:&references,resolutions:&resolutions,invocations:&invocations,
         context_protocols:&context_protocols,context_sites:&context_sites,context_arguments:&context_arguments,
         declarations: &declarations, parameters: &parameters,
         syntax: &syntax, expressions: &expressions, expression_steps: &expression_steps, bindings: &bindings, scopes: &scopes, exits: &exits,

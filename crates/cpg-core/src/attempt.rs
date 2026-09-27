@@ -120,7 +120,7 @@ pub struct Published {
 /// 94: explicit authored action triggers and candidate-backed action assessments.
 /// 95: pinned default availability and independently committed omitted-formal obligations.
 /// 96: normal-exit action implications with mandatory undischarged outcome obligations.
-pub const COMPILER_OUTPUT_VERSION: u32 = 97;
+pub const COMPILER_OUTPUT_VERSION: u32 = 98;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -829,6 +829,9 @@ async fn finish(
         write_analysis::<cpg_schema::context_protocol::SourceContextSites>(&ctx,root,snapshot_id,&contexts.sites,w).await?;
         write_analysis::<cpg_schema::context_protocol::SourceContextArguments>(&ctx,root,snapshot_id,&contexts.arguments,w).await?;
         let completions = crate::summaries::completions(&ctx).await?;
+        write_analysis::<cpg_schema::source_body::SourceBodyCompletions>(&ctx,root,snapshot_id,&completions.bodies,w).await?;
+        write_analysis::<cpg_schema::source_body::SourceBodySteps>(&ctx,root,snapshot_id,&completions.body_steps,w).await?;
+        write_analysis::<cpg_schema::source_body::SourceBodyReleaseInputs>(&ctx,root,snapshot_id,&completions.body_releases,w).await?;
         write_analysis::<cpg_schema::call_execution::CallExecutions>(&ctx,root,snapshot_id,&completions.calls,w).await?;
         write_analysis::<cpg_schema::call_execution::CallExecutionSteps>(&ctx,root,snapshot_id,&completions.call_steps,w).await?;
         let actions=crate::summaries::action_assessments(&ctx).await?;

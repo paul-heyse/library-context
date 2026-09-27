@@ -52,3 +52,35 @@ finite_depth_and_unsupported_refusals_reach_the_native_response` **passed**, one
 It rejects outer frame+normal+model-rule deletion while an inner transfer remains. The 13-case
 Python replay passed again. Deleting an entire source occurrence including its anchors is part
 of the still-open full S6 source-evidence closure obligation.
+
+## Source-body foundation
+
+**Focused Tested, 2026-09-27; compiler98.** The shared statement kernel produces body outcomes
+independently of parameter flows, with a separate closed-local release commitment and mandatory
+unresolved function-retainer obligation. No call continuation or native source-call behavior is
+claimed. Normal fallthrough, explicit Return, exact TypeError and unknown remain distinct;
+first closed initialization does not silently make a later normal read a closed value.
+
+`CARGO_TARGET_DIR=/home/paul/library-context/target INSTA_UPDATE=no RUST_MIN_STACK=16777216
+cargo nextest run --release -p cpg-schema -p lctx-analytics -p cpg-core --lib --test contracts
+--test compile -E 'binary(contracts) | test(completion::) | test(source_body::) |
+test(source_body_outcomes_do_not_invent_value_flows_or_caller_continuation) |
+test(composed_argument_reads_keep_ordered_source_evidence)' --status-level fail --final-status-level fail`
+**passed**, 26 cases, 187 skipped, 15.232 s (`/tmp/lctx-stage3-source-body-tests4.log`).
+Tests cover source/Delta reconstruction, retained terminal and expression-root segments,
+resealed foreign/reordered/merged/missing support, mandatory callable retention, docstring-only
+empty runtime bodies, unsupported ownership domains and the original 64→65 proof boundary.
+
+Earlier runs had expected schema migrations and a fixture brief without its required documented
+Outcome; that fixture metadata was corrected without changing compiler admission. A 25-case
+intermediate run passed; review then tightened proof segments, shared docstring selection and
+indexed preparation. The final no-update run includes those corrections. Snapshots were read
+and accepted as schema migrations.
+
+`uv run --no-sync python docs/design_review/evidence/2026-09-27_frame-exit/source_body_oracle.py`
+and its corresponding Ruff check **passed**. The [source-body receipt](raw/source_body_receipt.json)
+records twelve independently generated CPython 3.14.7 controls. It includes body/caller event
+ordering, exact TypeError, docstring-only fallthrough, and a temporary zero-argument function
+whose attribute finalizer delays caller continuation. A retained function resumes normally.
+No analyzer fixture is executed; finite observations and a worker timeout are not universal
+proofs. Call-site discharge, full native evidence closure and integrated Stage 3 remain open.

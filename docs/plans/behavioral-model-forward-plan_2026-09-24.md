@@ -24,7 +24,7 @@ integrated qualification is outstanding.**
 | L7 serving | **Partially implemented.** FORMAT 9 has internal callable-formal support, checked native IPC decoding and bounded cited-finding support closure; a finalizer and a finding-only coordinates claim round-trip in focused tests. `inspect_value_paths` remains path-local and exposes source fact/origin IDs on both positive paths and open boundaries; operation facet values retain verdicts | Typed operation-wide compatibility/effect/role filters, full proof spans beyond the cited witness projection, clean-wheel query |
 | Integrated acceptance | **Not established.** A 2026-09-25 `just test-all` attempt passed 313/313 release Rust tests and 110/112 Python tests (two stale tool-list expectations, since corrected: `test_server.py` 12/12 passed). The rerun was stopped at operator direction; the operator's expectation of a pass is an assumption, not an outcome | `just test-all`, fresh `just pilot`, Q01/Q03/Q05/Q09, structured evaluation, clean-wheel query and the increment-end review are `not_run` |
 
-**Accepted schema migrations at this checkpoint:** extractor output 33; compiler output 97; catalog format 7.
+**Accepted schema migrations at this checkpoint:** extractor output 33; compiler output 98; catalog format 7.
 The current contracts include `expression_evaluations` and ordered operand proofs, statement/frame
 completion, condition-keyed return entry, native MRO completeness, a persisted exact exception
 codebook and `summary_origin_coverage`. Snapshots are reviewed migrations; a fresh store rebuild
@@ -275,6 +275,23 @@ CPython controls independently observe body return before cleanup and delayed ca
 ([evidence](../design_review/evidence/2026-09-27_frame-exit/README.md)); none is claimed as a
 compiler false-positive reproduction. Source/local-callee bodies must next reuse the completion
 kernel with separate closed release evidence; broader cleanup remains open.
+
+**Value-independent source-body foundation (Implemented and focused Tested, 2026-09-27;
+compiler98, ADR-0063).** The existing statement kernel now evaluates a zero-formal callable's
+suite separately from definition headers and value-flow seeds. Persisted body outcomes distinguish
+Normal fallthrough, Return, exact TypeError and unknown; closed local releases remain a separate
+obligation. Every row still requires the exact function object to remain externally retained.
+Defaults, captured/dynamic/decorated/async scopes and unknown owned values are withheld; a normal
+local read keeps `frame_exit_cleanup` until linked to its executed closed initialization.
+Docstring-only bodies have zero runtime statements; docstrings never become runtime release
+inputs. Shared admission anchors terminals and ordered expression-root segments, while source
+publication reconstructs all three relations. Twenty-six focused cases passed, including original
+64→65 proof controls and resealed/missing/foreign/reordered support. Twelve generated runtime
+controls include retained versus temporary function objects and docstring-only fallthrough
+([evidence](../design_review/evidence/2026-09-27_frame-exit/README.md)). This foundation does not
+establish caller continuation or export native source-call behavior. Next, the fresh nested-call
+adapter must discharge the live definition-binding retainer together with exact zero-argument
+binding, successful header creation, Normal/Return body and closed release/result domains.
 
 ### 3.1 Contract repairs before extension
 

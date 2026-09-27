@@ -206,6 +206,9 @@ cpg_schema::relations! {
         sql = "SELECT * FROM modeled_assignment_return_paths".to_owned();
     stored_summary_flows = "validate_stored_summary_flows", deps = ["summary_flows"],
         sql = "SELECT * FROM summary_flows".to_owned();
+    stored_source_bodies = "validate_source_bodies", deps = ["source_body_completions"], sql = "SELECT * FROM source_body_completions".to_owned();
+    stored_source_body_steps = "validate_source_body_steps", deps = ["source_body_steps"], sql = "SELECT * FROM source_body_steps".to_owned();
+    stored_source_body_releases = "validate_source_body_releases", deps = ["source_body_release_inputs"], sql = "SELECT * FROM source_body_release_inputs".to_owned();
     stored_return_certificates = "validate_return_certificates", deps = ["return_completion_certificates"], sql = "SELECT * FROM return_completion_certificates".to_owned();
     stored_action_assessments = "validate_action_assessments", deps = ["modeled_action_assessments"], sql = "SELECT * FROM modeled_action_assessments".to_owned();
     stored_action_postconditions = "validate_action_postconditions", deps = ["modeled_action_postconditions"], sql = "SELECT * FROM modeled_action_postconditions".to_owned();
@@ -789,6 +792,16 @@ async fn validate_exit_sites(ctx: &SessionContext) -> Result<Vec<Violation>, Cor
     certificates.sort_by_key(|r|(r.snapshot_id,r.certificate_id));
     if certificates!=expected.certificates {violations.push(Violation {rule:"completion-certificate-source-equality".into(),rows:1,
         sample:"return evidence commitment differs from independently reconstructed entry and exit obligations".into()});}
+    let mut bodies:Vec<cpg_schema::source_body::SourceBodyCompletionsRow>=sql::fetch(ctx,&stored_source_bodies(),sql::Params::new()).await?;
+    let mut body_steps:Vec<cpg_schema::source_body::SourceBodyStepsRow>=sql::fetch(ctx,&stored_source_body_steps(),sql::Params::new()).await?;
+    let mut body_releases:Vec<cpg_schema::source_body::SourceBodyReleaseInputsRow>=sql::fetch(ctx,&stored_source_body_releases(),sql::Params::new()).await?;
+    bodies.sort_by_key(|r|(r.snapshot_id,r.body_id));
+    body_steps.sort_by_key(|r|(r.snapshot_id,r.body_id,r.ordinal));
+    body_releases.sort_by_key(|r|(r.snapshot_id,r.body_id,r.ordinal));
+    if bodies!=expected.bodies || body_steps!=expected.body_steps || body_releases!=expected.body_releases {
+        violations.push(Violation {rule:"source-body-source-equality".into(),rows:1,
+            sample:"callable body/release evidence differs from source suite reconstruction".into()});
+    }
     let mut expected_statuses = expected.returns;
     let mut statements: Vec<cpg_schema::behavior::StatementCompletionsRow> = sql::fetch(ctx, &stored_statement_completions(), sql::Params::new()).await?;
     let mut statement_steps: Vec<cpg_schema::behavior::StatementCompletionStepsRow> = sql::fetch(ctx, &stored_statement_completion_steps(), sql::Params::new()).await?;
