@@ -106,7 +106,10 @@ entries and doc links. **It may never state a control, a limit or a behavioral c
   handoff evidence to its retained pairs/formal, with both endpoint fact/model references.
   Publication and startup reject missing or foreign support, malformed pair members and incomplete
   incidence shapes. A handoff pair is not a delegation-chain witness. Labels are rendered from
-  typed attributes by the schema-owned renderer (template version 20).
+  typed attributes by the schema-owned renderer (template version 20). Synchronous
+  context-protocol evidence is a **Proposed** FORMAT 9 extension under ADR-0059: source-reached
+  model actions retain their class assertion and lifecycle role, rather than posing as provider
+  call facts. Rust shares structural admission; Python transports the validated projection.
 
 **Assertion kinds**
 
@@ -600,7 +603,11 @@ The channel contract additionally separates complete empty results from unanalyz
 Conjoined semantic terms require compatible conditions and subject/phase scopes. Structural proof
 admission and evidence closure are shared with compile-time semantics; labels are not query logic.
 
-> Decision: ADR-0057, ADR-0058
+**Proposed (ADR-0059):** context-protocol support retains the fresh manager occurrence separately
+from its entry-result binding and cites authored class assertions for implicit exits. Shared Rust
+admission rejects missing, foreign or swapped certificates; Python does not infer lifecycle facts.
+
+> Decision: ADR-0057, ADR-0058, ADR-0059
 
 **Implemented so far toward that target** (**Implemented** and **Tested**, 2026-09-25, focused
 and internal):

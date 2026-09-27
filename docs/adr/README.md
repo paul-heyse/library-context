@@ -33,6 +33,7 @@ The [architecture map](../design/README.md) and its section owners own contracts
 | [ADR-0056](0056-closed-expression-evaluation.md) | Give closed argument expressions their own normal-evaluation status | 2026-09-26 | [§B5](../design/DESIGN.md#section-b5), [§9.9](../design/sections/behavioral-analysis.md#section-9-9) | Tested |  |
 | [ADR-0057](0057-compositional-stage3-semantics.md) | Compose Stage 3 evaluation, completion and summaries through shared typed contracts | 2026-09-26 | [§B5](../design/DESIGN.md#section-b5), [§9.9](../design/sections/behavioral-analysis.md#section-9-9), [§11.3](../design/sections/synthesis-and-serving.md#section-11-3) | Proposed |  |
 | [ADR-0058](0058-stage3-channel-contracts.md) | Represent Stage 3 channel subjects and proof obligations explicitly | 2026-09-26 | [§B5](../design/DESIGN.md#section-b5), [§B6](../design/DESIGN.md#section-b6), [§9.6](../design/sections/analytics.md#section-9-6), [§9.9](../design/sections/behavioral-analysis.md#section-9-9), [§11.3](../design/sections/synthesis-and-serving.md#section-11-3) | Proposed |  |
+| [ADR-0059](0059-synchronous-context-protocols.md) | Bind synchronous context protocols to pinned classes and source lifecycle sites | 2026-09-27 | [§B5](../design/DESIGN.md#section-b5), [§9.9](../design/sections/behavioral-analysis.md#section-9-9), [§11.3](../design/sections/synthesis-and-serving.md#section-11-3) | Proposed |  |
 
 ## Proposed: open choices, not accepted decisions
 

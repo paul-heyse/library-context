@@ -114,6 +114,22 @@ A model is committed, typed data about a callable we do not analyze from source.
   equivalence; the `int` specializations of `cast` and `assert_type` are **Tested**, the generic
   models are not) belong to the validation lane ([§8.1](validation-and-evaluation.md#section-8-1)).
 
+## Synchronous context protocol target
+
+**Proposed implementation (2026-09-27; ADR-0059).** A separate typed class-protocol category in
+this catalog supplies pinned construction, entry and exit meaning. Class identity and initializer
+signatures are independent; a missing provider exit is not invented, and inherited stub entry
+observations remain attributed. Existing call models retain exact provider/authored phase matching.
+Pure completion admits fresh source-bound construction and ordered arguments, registers an exit
+after successful entry and before `as` assignment, then unwinds entered contexts in reverse on
+normal or abrupt completion, including partial-entry failure. Suppression applies only to Raise;
+exit failures replace pending outcomes. Publication reconstructs source/model evidence and native
+consumers share structural proof admission. The initial exact synchronous domain is CPython
+`nullcontext`/`suppress`; aliases, custom matching, groups and deferred execution remain explicit
+unknowns. This extends the accepted S2b/S3a target; it is not implemented by accepting the ADR.
+
+> Decision: ADR-0059
+
 ## Model application at source calls
 
 Each relation below is **candidate-local**: it says a model applies at one cited call candidate,

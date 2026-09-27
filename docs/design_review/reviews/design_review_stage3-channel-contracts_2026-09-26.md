@@ -836,3 +836,57 @@ this slice. This accepts neither all S5 coverage/discharge nor enclosing Stage 3
 context completion, remaining model activation and channel composition, full S6 semantics and
 evidence, independent S7 challenges and S8 qualification remain open. Full `just test-all`,
 fresh `just pilot`, clean-wheel and all-techniques/cost qualification were **not_run** here.
+
+## 20. Bounded target follow-up: synchronous class protocols
+
+**2026-09-27 · design/target · document and source-interface inspection.** The subject is
+[ADR-0059](../../adr/0059-synchronous-context-protocols.md) and its amended §B5/§9.9/§11.3 owners.
+**Proposed target: Accept scoped. Implementation remains Proposed.** This additive decision
+settles class-protocol applicability under ADR-0057/0058; it does not replace observed-call
+models or broaden Stage 3 into arbitrary protocol interpretation or Stage 5 execution.
+
+The target separates pinned class identity and constructor signatures from authored runtime
+transitions and provider method observations. This addresses the actual interface mismatch:
+the provider omits exits and reports inherited stub entry for `suppress`; neither fact should
+be relabelled as an observed runtime method. Class assertions remain synthetic model evidence.
+The existing pure completion owner evaluates ordered items and unwinds entered managers in
+reverse; the catalog selects typed transitions, core reconstructs source admission, and native
+consumers share structural proof admission. A second runtime interpreter or model-name-specific
+classifier is unnecessary. Future instances using supported transitions add declarations;
+new transitions deliberately extend the contract.
+
+| Judgment/gate | Target verdict | Basis and qualification boundary |
+|---|---|---|
+| A1 — Localize change | satisfied | Existing catalog, completion, acquisition/publication and native owners retain their responsibilities |
+| A2 — Encode meaning structurally | satisfied | Class, constructor roles, provider observations, manager occurrence, entry result and pending outcome remain distinct; phase and evidence are explicit |
+| A3 — Extend through composition | satisfied | Pinned declarations compose with argument evaluation, existing frame completion and shared admission; no generic protocol engine |
+| G1/G2/G3/G6; CI-G1/CI-G2 | target route satisfactory; implementation open | Authored actions do not invent call facts; source reconstruction and native missing/foreign/swapped-proof refusal are required |
+| G4/G5/G7/G8; CI-G3 | scoped | Pure semantics, explicit unknowns and existing bounded mechanisms; no performance, production behavior or evaluation claim established |
+
+The initial implementation must preserve the ADR's important boundaries: successful entry
+registers the current exit before `as` assignment; failed entry does not. Later evaluation,
+construction or assignment failure unwinds earlier successful entries. Suppression changes
+only Raise; exit failure replaces the pending outcome before outer cleanup. Manager identity
+never becomes the entered value, and returning an `as` binding needs a separate transfer
+certificate. Exact builtin suppression and handler matching may share pinned hierarchy facts
+without sharing their semantic meaning. Unknown bodies, groups, custom matching, aliases and
+deferred execution remain open. Normal completion closes no unrelated effect/resource channel.
+
+**Attributed interface receipt:** the author's corrected
+`uv run --no-sync python docs/design_review/evidence/2026-09-27_sync-contexts/source_probe.py`
+completed without unavailable queries in the inspected `/tmp/lctx-stage3-context-source.log`.
+The [probe](../evidence/2026-09-27_sync-contexts/README.md) exercises real extraction of generated
+source; it does not execute that source or prove admission. It records separate constructor
+phases, exact ranges/receiver identities, bindings, signatures and WithItems. Notably, bare
+`TypeError` argument references also have provider `new`/`init` observations at identifier
+sites; source admission must not treat those as executed constructor calls. WithItem and call
+ranges differ when an `as` target exists, and entry's implicit-dunder flag is false in these
+observations. Matching must use explicit source roles, not those shortcuts.
+
+The author reports `just adr index` and `just adr lint` **passed**, with 31 records; these are
+documentation receipts only. Implementation acceptance requires independent pinned CPython
+challenges and source→Delta→native controls for partial entry, assignment failure, reverse
+cleanup, suppression/nonmatch, preserved abrupt outcomes, exit replacement, nested active
+exception restoration and malformed certificates. No tests or production edits were performed
+by this reviewer. S2b/S3a implementation, all S5/S6 obligations and integrated Stage 3 acceptance
+remain open; §19's earlier bounded implementation acceptance is unchanged.

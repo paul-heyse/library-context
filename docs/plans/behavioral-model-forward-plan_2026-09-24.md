@@ -96,7 +96,8 @@ acceptance. Findings are identified in §6; their priority follows the follow-up
 ### 3.0 Consolidated execution
 
 **Accepted target; implementation in progress (2026-09-26, ADR-0057 and ADR-0058).** This is the
-operator-approved detailed execution queue. Orders 1–10 below retain their semantic requirements;
+operator-approved detailed execution queue. ADR-0059 refines class-protocol applicability for
+S2b/S3a; implementation remains open. Orders 1–10 below retain their semantic requirements;
 §6 retains finding disposition. The [composition review](../design_review/reviews/design_review_stage3-composition_2026-09-26.md)
 F01–F04 remain applicable. Accepted targets do not certify their implementation.
 
