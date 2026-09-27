@@ -23,7 +23,7 @@ const NAMES: &[&str] = &[
     "public_paths",
     "callable_parameters",
     "summary_flows",
-    "source_parameter_identities",
+    "source_parameter_identities", "source_context_value_identities",
     "model_context_protocols", "source_context_sites", "source_context_arguments", "return_completion_certificates",
     "summary_flow_steps",
     "summary_boundaries",
@@ -38,6 +38,7 @@ pub(super) struct Inputs {
     pub source_context_sites: Vec<cpg_schema::context_protocol::SourceContextSitesRow>,
     pub source_context_arguments: Vec<cpg_schema::context_protocol::SourceContextArgumentsRow>,
 
+    pub context_value_identities: Vec<cpg_schema::context_value::SourceContextValueIdentitiesRow>,
     pub identities: Vec<SourceParameterIdentitiesRow>,
     pub return_sites: HashMap<Id, Id>,
     pub conditions: Vec<(String, Option<String>, Option<String>)>,
@@ -227,6 +228,38 @@ pub(super) fn decode(files: Vec<(String, Vec<u8>)>) -> PyResult<Inputs> {
     let leaves = (0..table.len()).map(|row| Ok((table.id("fact_id", row)?, table.id("module_node_id", row)?, table.id("condition_id", row)?, table.id("atom_id", row)?, table.text("atom", row)?, table.optional_text("path", row)?, table.integer("leaf_start_byte", row)?, table.integer("leaf_end_byte", row)?))).collect::<PyResult<_>>()?;
     let table = batch(&batches, "flow_test_value_links");
     let links = (0..table.len()).map(|row| Ok((table.id("link_id", row)?, table.id("operation_node_id", row)?, table.id("formal_node_id", row)?, table.id("module_node_id", row)?, table.id("leaf_fact_id", row)?, table.id("atom_id", row)?, table.id("condition_id", row)?, table.text("place", row)?, table.text("origin", row)?, table.digest("effect_model_digest", row)?, (table.optional_text("path", row)?, table.integer("operand_start_byte", row)?, table.integer("operand_end_byte", row)?)))).collect::<PyResult<_>>()?;
+    let table = batch(&batches, "source_context_value_identities");
+    let context_value_identities = (0..table.len()).map(|row| {
+        let key = |name| super::id(&table.id(name, row)?);
+        Ok(cpg_schema::context_value::SourceContextValueIdentitiesRow { snapshot_id: Id::ZERO,
+            identity_id: key("identity_id")?,
+            function_node_id: key("function_node_id")?,
+            parameter_node_id: key("parameter_node_id")?,
+            parameter_name: table.text("parameter_name", row)?,
+            source_flow_fact_id: key("source_flow_fact_id")?,
+            source_origin_id: key("source_origin_id")?,
+            condition_id: key("condition_id")?,
+            return_site_fact_id: key("return_site_fact_id")?,
+            return_region_fact_id: key("return_region_fact_id")?,
+            return_condition_id: key("return_condition_id")?,
+            return_start_byte: table.integer("return_start_byte", row)?,
+            context_site_id: key("context_site_id")?,
+            argument_fact_id: key("argument_fact_id")?,
+            argument_expression_fact_id: key("argument_expression_fact_id")?,
+            argument_reference_fact_id: key("argument_reference_fact_id")?,
+            argument_resolution_fact_id: key("argument_resolution_fact_id")?,
+            parameter_binding_fact_id: key("parameter_binding_fact_id")?,
+            parameter_fact_id: key("parameter_fact_id")?,
+            target_binding_fact_id: key("target_binding_fact_id")?,
+            expression_fact_id: key("expression_fact_id")?,
+            reference_fact_id: key("reference_fact_id")?,
+            resolution_fact_id: key("resolution_fact_id")?,
+            scope_fact_id: key("scope_fact_id")?,
+            module_node_id: key("module_node_id")?,
+            start_byte: table.integer("start_byte", row)?,
+            end_byte: table.integer("end_byte", row)?,
+        })
+    }).collect::<PyResult<_>>()?;
     let table = batch(&batches, "source_parameter_identities");
     let identities = (0..table.len()).map(|row| {
         let key = |name| super::id(&table.id(name, row)?);
@@ -316,6 +349,7 @@ pub(super) fn decode(files: Vec<(String, Vec<u8>)>) -> PyResult<Inputs> {
         })
     }).collect::<PyResult<_>>()?;
     Ok(Inputs {
+        context_value_identities,
         return_certificates,
         model_context_protocols,
         source_context_sites,

@@ -189,6 +189,8 @@ fn query(name: &str) -> Option<String> {
         "source_context_arguments"=>format!(
             "SELECT p.site_id, p.ordinal, p.argument_fact_id, p.expression_fact_id, p.parameter_fact_id, p.exception_class_node_id, p.exception_class_fact_id, p.exception_module_fact_id, p.reference_fact_id, p.resolution_fact_id FROM source_context_arguments p WHERE EXISTS (SELECT 1 FROM summary_flow_steps step WHERE step.evidence_id=p.site_id AND step.kind IN (27,28,29)) ORDER BY p.site_id, p.ordinal LIMIT {limit}",
             limit=MAX_SUPPORT_ROWS+1),
+        "source_context_value_identities" => format!(
+            "SELECT identity_id, function_node_id, parameter_node_id, parameter_name, source_flow_fact_id, source_origin_id, condition_id, return_site_fact_id, return_region_fact_id, return_condition_id, return_start_byte, context_site_id, argument_fact_id, argument_expression_fact_id, argument_reference_fact_id, argument_resolution_fact_id, parameter_binding_fact_id, parameter_fact_id, target_binding_fact_id, expression_fact_id, reference_fact_id, resolution_fact_id, scope_fact_id, module_node_id, start_byte, end_byte FROM source_context_value_identities ORDER BY identity_id LIMIT {}",MAX_SUPPORT_ROWS+1),
         "source_parameter_identities" => format!(
             "SELECT identity_id, function_node_id, parameter_node_id, source_flow_fact_id, \
              source_origin_id, condition_id, return_site_fact_id, expression_fact_id, reference_fact_id, \
@@ -852,7 +854,7 @@ pub async fn build(ctx: &SessionContext, out: &Path) -> Result<Generation, CoreE
         };
         let bounded_support = file.name.starts_with("support_") || matches!(file.name,
             "return_completion_certificates" | "model_context_protocols" | "source_context_sites"
-            | "source_context_arguments" | "source_parameter_identities");
+            | "source_context_arguments" | "source_context_value_identities" | "source_parameter_identities");
         if bounded_support && batch.num_rows() > MAX_SUPPORT_ROWS {
             return Err(bad(format!("{} exceeds the support projection row limit", file.name)));
         }

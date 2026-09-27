@@ -986,3 +986,77 @@ protocols, callback/resource fates, named-handler cleanup, remaining channels/co
 S6 evidence and integrated Stage 3 remain open. Normal completion proves no unrelated channel
 complete. Full `just test-all`, fresh `just pilot`, clean-wheel and all-techniques/cost
 qualification were **not_run**. This reviewer ran no tests and changed no production files.
+
+## 22. Bounded implementation follow-up: context entry-value identity
+
+**2026-09-27 · change/conformance · source inspection with attributed focused receipts.**
+Compiler 90 adds the narrow entry-result proof left open in §21: an immutable current parameter
+is the explicit modeled entry argument, and a bare return reads the unique `WithTarget` inside
+that exact active body. General aliases and returns after a completed context remain outside
+this slice. ADR-0059's owner/authority split is unchanged.
+
+Schema [`context_value.rs`](../../../crates/cpg-schema/src/context_value.rs) owns identity and
+shared admission; analytics' corresponding producer proves both lexical reference/resolution/
+binding chains and return ancestry. Core reconstructs the source certificate at publication;
+native loading checks its hash, scope, exact argument expression and lifecycle references.
+The proof requires entry, successful target assignment, value witness, matching exit and return
+anchor in that order, with the anchor's original condition. Existing return commitments still
+prove predecessor and cleanup obligations independently. The entered value never denotes the
+manager merely because it is a context object.
+
+<a id="F13"></a>**F13 — Completion cannot substitute for a value basis.** Removing both the new
+certificate and its witness must not leave an admitted base summary. Shared `admit_base_value`
+now requires exactly one raw or context value basis, its original condition and a later return
+anchor; the raw basis must cite that summary's source flow. Source and production IPC consumers
+both call it. Missing, foreign, duplicate and uncited context certificates are refused. An
+internal `BaseReturnBasis` distinguishes raw identity from source/model identity; synthesized
+coordinates copy actual origin fidelity, with missing, ambiguous or budgeted origins withheld.
+Raw provider nonidentity/call-crossing flags are preserved, and the new certificate does not
+discharge complete-origin coverage. Full native verification of a raw fact's semantic meaning
+remains S6 work; this structural check is not that broader evidence closure.
+
+| Judgment/gate | Bounded verdict | Basis and qualification boundary |
+|---|---|---|
+| A1 — Localize change | satisfied at source-inspection strength | Source proof, typed admission, mechanical acquisition and immutable loading retain their existing owners |
+| A2 — Encode meaning structurally | satisfied after F13 correction | Manager, entered value, raw transfer, independent source/model basis and completion obligations remain distinct |
+| A3 — Extend through composition | satisfied for this case | The new value certificate composes with existing site/protocol and return commitments; it does not introduce general alias interpretation |
+| G1/G2/G3/G6; CI-G1/CI-G2 | no remaining blocker established in this slice | Source reconstruction, active-site ordering, shared base admission and cited-set closure; complete raw-fact/native support remains open |
+| G4/G5/G7/G8; CI-G3 | scoped, no new blocker established | Bounded inputs and proofs, preserved raw fidelity, independent opaque-object identity challenge; no integrated or performance claim |
+
+**Attributed focused receipt:** the author ran the command below. This reviewer inspected the
+source and `/tmp/lctx-stage3-context-value-final.log`, but ran no tests.
+
+```sh
+CARGO_TARGET_DIR=/home/paul/library-context/target \
+INSTA_UPDATE=no RUST_MIN_STACK=16777216 LCTX_WRITE_KNOWN_ANSWERS=1 \
+LCTX_PY_FIXTURE=/home/paul/library-context/build/py-fixture \
+cargo nextest run --release -p cpg-schema -p cpg-core -p lctx-analytics --lib \
+  --test contracts --test codebooks --test compile --test bundle \
+  -E 'binary(contracts) | binary(codebooks) | test(context_value::) | test(summary_contract::) | test(summaries::finite::) | test(context_protocols_bind_class_and_constructor_roles_independently) | test(serving_schema_digests_are_the_shared_known_answers) | test(writes_the_python_fixture_generation) | test(a_generation_rebuilds_to_the_same_bytes)' \
+  --status-level fail --final-status-level fail
+```
+
+Outcome **passed: 45 cases, 160 skipped** (9.789 seconds). This command enabled known-answer
+regeneration; schema snapshots used `INSTA_UPDATE=no`. The initial selection remains **failed:
+38 passed, 3 expected schema/codebook migration failures**, subsequently read and accepted.
+The controls admit positional/keyword arguments and the correct formal among two inputs; they
+withhold rebinding, deletion, nested nonlocal mutation, omitted/default entry values, suppressor
+entry, completed sibling contexts, opaque predecessors and overridden returns. Structural
+controls challenge assignment/value/exit order and return scope. Publication rejects forged
+target-binding evidence; native IPC rejects certificate/witness omission and malformed support.
+
+The author rebuilt the editable native module using §21's `uv sync --frozen
+--reinstall-package lctx-semantics` command with the same checkout target (**passed**,
+`/tmp/lctx-stage3-context-value-sync2.log`), then reran §21's targeted source/context command:
+**passed: 1 case, 30 skipped** (6.796 seconds), inspected in
+`/tmp/lctx-stage3-context-value-native-current.log`. That replay includes the independent
+generated CPython challenge with a fresh opaque object, so identity is distinguished from
+primitive equality/interning. It retains the real source→Delta→FORMAT 9/native checks; fake
+embeddings serve fixture storage only.
+
+**Bounded decision: Accept this active-site entry-value implementation at source-inspection
+strength, supported by the focused receipts.** F13 is corrected within this slice. Broader
+entry/alias domains, general failing entry, resource/callback fates, named cleanup, all-channel
+composition and coverage, complete S6 support and integrated Stage 3 remain open. Full
+`just test-all`, fresh `just pilot`, clean-wheel and all-techniques/cost qualification were
+**not_run**. Only this review artifact was changed by the reviewer.

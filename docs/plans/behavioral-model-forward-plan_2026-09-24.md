@@ -19,12 +19,12 @@ integrated qualification is outstanding.**
 |---|---|---|
 | L1/L1.5 conditions | **Partially implemented; focused tests passed.** Bounded BDD catalogs, exact entry-value links, literal string membership and non-bool integer equality, non-allocating decisions, effective support, cube factoring, restricted exact-input assessments with bounded link minimization, a ten-atom truth-table control and focused CPython literal lowering | Operation-wide compatibility; real-pilot W6 cost; W11's served round trips and Q09 |
 | L4 pinned models | **Implemented; focused tests passed.** Typed transfer/effect/callback/resource/exception assertions and exact source applications. `typing.cast`/`typing.assert_type` assert total normal return. A Pydantic `TypeAdapter.validate_python` potential transform is dormant | Pure/helper, I/O, async/context, pydantic and HTTP/server families; a dynamic-schema representation before any validation effect |
-| L2 fates | **Implemented and Tested in focused cases.** Ordered expression/predecessor/frame completion, exact-TypeError handlers and re-raise, handler/else/finalizer entry, persisted exact exception identity and pinned nullcontext/suppress lifecycle completion | Broader default domains, named-handler cleanup, unmodeled contexts, entry-result identity, callback fate and resource pairing remain open |
+| L2 fates | **Implemented and Tested in focused cases.** Ordered expression/predecessor/frame completion, exact-TypeError handlers and re-raise, handler/else/finalizer entry, persisted exact exception identity and pinned nullcontext/suppress lifecycle completion | Broader default domains, named-handler cleanup, unmodeled contexts, broader entry-result domains, callback fate and resource pairing remain open |
 | L3 summaries | **Partially implemented; focused tests passed.** Direct, exact modeled, unique-assignment and local value paths retain ordered, origin-specific proofs. Normalized local arguments require every explicit evaluation and all fixed formal mappings, with certified defaults for immediate fresh nested calls, including a separate tracked-source read. Bounded nested closed expressions supply independently represented exact Boolean controls. The BDD kernel supports simultaneous substitution; the pure producer consumes multiple stable linked controls. SCC scheduling separates semantic progress and shorter-proof progress from retained witness alternatives in the bounded ADR-0053 value worklist. Real three-argument/reversed-keyword calls, missing/raising arguments and default expression depth/work caps reach Delta/native; source-level later-predicate identity remains unknown | General reads/calls/defaults/predecessor/frame completion; call-specific multi-control stability and residual conjunction; multi-channel semantic/witness state; effect/exception/role summaries; original W5/W7/W12 cap traces and channel discharge |
 | L7 serving | **Partially implemented.** FORMAT 9 has internal callable-formal support, checked native IPC decoding and bounded cited-finding support closure; a finalizer and a finding-only coordinates claim round-trip in focused tests. `inspect_value_paths` remains path-local and exposes source fact/origin IDs on both positive paths and open boundaries; operation facet values retain verdicts | Typed operation-wide compatibility/effect/role filters, full proof spans beyond the cited witness projection, clean-wheel query |
 | Integrated acceptance | **Not established.** A 2026-09-25 `just test-all` attempt passed 313/313 release Rust tests and 110/112 Python tests (two stale tool-list expectations, since corrected: `test_server.py` 12/12 passed). The rerun was stopped at operator direction; the operator's expectation of a pass is an assumption, not an outcome | `just test-all`, fresh `just pilot`, Q01/Q03/Q05/Q09, structured evaluation, clean-wheel query and the increment-end review are `not_run` |
 
-**Accepted schema migrations at this checkpoint:** extractor output 33; compiler output 89.
+**Accepted schema migrations at this checkpoint:** extractor output 33; compiler output 90.
 The current contracts include `expression_evaluations` and ordered operand proofs, statement/frame
 completion, condition-keyed return entry, native MRO completeness, a persisted exact exception
 codebook and `summary_origin_coverage`. Snapshots are reviewed migrations; a fresh store rebuild
@@ -101,7 +101,7 @@ S2b/S3a; the bounded nullcontext/suppress lifecycle subset is implemented and fo
 §6 retains finding disposition. The [composition review](../design_review/reviews/design_review_stage3-composition_2026-09-26.md)
 F01–F04 remain applicable. Accepted targets do not certify their implementation.
 
-**Current implementation checkpoint.** Compiler output 89 includes typed value-origin and execution-site
+**Current implementation checkpoint.** Compiler output 90 includes typed value-origin and execution-site
 coverage, including complete empty escaping-exception domains under statement entry. Async and
 generator scopes remain excluded. Fresh nested definition-header completion is reconciled with
 source/Delta controls; immediate fresh nested calls now use availability/value/stability certificates. Shared callee proof admission replaces
@@ -130,7 +130,7 @@ keeps target acceptance separate from implementation scope and certificate corre
 | S0 | Reconcile draft header work; update this plan and governing sections; record ADR-0058. Activate the already-triggered transfer and W10 repairs. Keep source finding IDs and one disposition owner | Current tree reconciled; plan adopted. Implementation and qualification remain open |
 | S1 | Schema owns typed subjects/origins for completion, value, transform, effect, exception, callback, resource and role; phase-specific coverage separates complete empty results, unresolved alternatives and omitted witnesses. Shared structural proof admission replaces native adjacency and seed-specific classifiers as consumers migrate. Add model phase and dynamic-schema contracts | Pure/schema tests and shared publication reject wrong channel/origin/phase, malformed groups and missing/reordered evidence; complete zero-effect differs from unanalyzed empty. Partial existing value contracts |
 | S2a | Complete definition-time header evaluation, then call-specific default availability, binding, value and stability certificates. Start with undecorated, unescaped synchronous nested definitions immediately followed by the sole direct call. Defaults are never evaluated at invocation; unused omitted formals still require availability | Fresh header completion implemented; source/Delta controls cover positional and keyword defaults, unevaluated body, missing defaults, decorators and rebinding. Immediate fresh default invocation passes source/Delta/native controls; broader domains remain withheld |
-| S2b/S3a | Bootstrap the minimum synchronous protocol models, then compose ordered entry and reverse exits, suppression and replacement of pending outcomes, resource identity and distinct callback fates. Named-handler cleanup requires a proof or a specific boundary | Later entry failure still exits earlier managers; exit raises; suppression; finalizer override; callback not run; acquire without release. Pinned nullcontext/suppress completion and mandatory ordered return commitments implemented with source/Delta/native and independent runtime controls (2026-09-27); entry-result identity, broader models, resources/callbacks and named cleanup remain open |
+| S2b/S3a | Bootstrap the minimum synchronous protocol models, then compose ordered entry and reverse exits, suppression and replacement of pending outcomes, resource identity and distinct callback fates. Named-handler cleanup requires a proof or a specific boundary | Later entry failure still exits earlier managers; exit raises; suppression; finalizer override; callback not run; acquire without release. Pinned nullcontext/suppress completion and mandatory ordered return commitments implemented with source/Delta/native and independent runtime controls (2026-09-27); narrow entry-result identity is also proved; broader entry domains/models, resources/callbacks and named cleanup remain open |
 | S3b | Activate every §3.3 family's supported exact source targets by channel and phase; unsupported phase/binding and no-consumer targets remain explicit candidates. Typed runtime schema precedes validation effects. Source-backed total return is independent of transfer and effects | Per-target positive/withholding pairs, exact pins/signatures, catalog equality and independent pure-model challenge. Open |
 | S4 | Call-specific stable controls, simultaneous bounded substitution and residual caller/callee conjunction. Extend semantic fixed-point state to all channels; preserve origins, modality, phase, parallel calls and per-alternative refusal recovery; effects before raises use prefix evidence | Finite/base-free/self/mutual recursion, shuffled bytes, swapped/captured formals, later predicates and original typed caps. Existing value frontier retained; remaining channels open |
 | S4 engine | Compare current worklist, Ascent and datafrog on the actual shared semantic/refusal/witness contract. Keep ADR-0053 unless another conforming engine removes total machinery; measure build/preparation/run/memory after parity, record an ADR before replacement, delete superseded production path | No timeout treated as deterministic budget; no dual production engines. Comparison open |
@@ -176,8 +176,11 @@ binds the CPython 3.14.7 class, allocation and initializer roles independently. 
 contexts retain ordered construction, successful entry registration before `as` assignment, reverse
 cleanup, suppression only on Raise and exit replacement. Constructor mismatch, failed unpacking,
 matching/nonmatching and return/break/continue controls distinguish outcomes. Unsupported
-argument evaluation remains unknown; these models have no failing-entry assertion. Returning the
-entry result is still unproved. Every production value summary requires a source-derived commitment
+argument evaluation remains unknown; these models have no failing-entry assertion. A separate source/model certificate now proves a bare return of the unique `as` binding inside
+its active context when the explicit entry argument is an immutable current parameter. Raw
+provider flags remain unchanged; the distinct value witness binds both lexical reads, exact
+site/argument, successful assignment, later exit and return-condition scope. Omitted value
+proofs are rejected independently of completion. Broad entry domains remain open. Every production value summary requires a source-derived commitment
 to all ordered entry/exit obligations, including empty ones and condition scope. Publication
 reconstructs it; native checks missing/duplicate/swapped/omitted evidence. Typed kernel limits
 survive proof admission. The original 64-step budget remains fixed; fixture finalizer counts adjust
@@ -282,7 +285,7 @@ share the 64-step cap and restrict completion admission. The
 passed 120 generated cases and recorded two started implicit actions with no completion before
 timeout. The subsequent typed-handler extension passed eleven focused pure/source/Delta/native
 cases and 100 independent runtime controls. Handler/else/finalizer entry now composes through the shared try-body owner. Named-handler cleanup,
-exception groups, broader synchronous context models, entry-result identity, callback execution and resource fates remain open. The S2b/S3a checkpoint above owns the implemented pinned lifecycle subset.
+exception groups, broader synchronous context models, broader entry-result domains, callback execution and resource fates remain open. The S2b/S3a checkpoint above owns the implemented pinned lifecycle subset.
 
 **Order 3 checkpoint (2026-09-26; partial).** Schema-owned normalized local arguments separate
 syntax order, formal binding, normal completion and exact value. Up to 128 explicit arguments
@@ -426,7 +429,12 @@ The [channel review §21](../design_review/reviews/design_review_stage3-channel-
 completion/schema/native owners bind ordered return obligations and preserve condition-limit
 reasons; the context binder distinguishes unknown/bounded signatures from proved argument mismatch.
 The 57-case contract/source/native selection and subsequent rebuilt-native replay provide closure
-evidence for those corrections. Entry-result identity and enclosing Stage 3 remain open.
+evidence for those corrections. The later bounded entry-value extension is recorded in §3.0.
+The [channel review §22](../design_review/reviews/design_review_stage3-channel-contracts_2026-09-26.md#22-bounded-implementation-follow-up-context-entry-value-identity)
+**F13 is corrected within that slice (2026-09-27, focused Tested)**: schema/analytics/native
+owners require a value basis independently of completion and preserve source/model versus raw
+identity. The 45-case selection and rebuilt-native replay close that correction; complete raw-fact
+semantics remain S6. Broader entry domains and enclosing Stage 3 remain open.
 
 | Item | Component | Consequence and intended correction | Disposition · dependency | Closure check |
 |---|---|---|---|---|

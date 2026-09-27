@@ -5481,6 +5481,14 @@ async fn context_protocols_bind_class_and_constructor_roles_independently() {
             "{name}: {}",text(&ctx,"SELECT d.name,c.kind,c.reason FROM statement_completions c JOIN syntax_nodes n ON n.fact_id=c.source_fact_id JOIN declarations d ON d.node_id=c.function_node_id WHERE n.kind=13").await);
     }
 
+    assert_eq!(count(&ctx,"SELECT count(*) FROM source_context_value_identities").await,3,
+        "{}",text(&ctx,"SELECT d.name,c.* FROM source_context_value_identities c JOIN declarations d ON d.node_id=c.function_node_id").await);
+    assert_eq!(count(&ctx,"SELECT count(*) FROM source_context_value_identities i JOIN value_flow_contributions c ON c.origin_id=i.source_origin_id JOIN summary_flows f ON f.source_origin_id=i.source_origin_id WHERE NOT c.identity AND c.through_call AND f.kind=0").await,3,
+        "raw transfer remains nonidentity; the new witness supplies modeled entry identity");
+    assert_eq!(count(&ctx,"SELECT count(*) FROM summary_origin_coverage c JOIN source_context_value_identities i ON i.source_origin_id=c.subject_id WHERE c.complete").await,0);
+    for name in ["entry_after_context","entry_rebound","entry_deleted","entry_nested_mutation","entry_none","entry_suppress", "entry_sibling","entry_overridden","entry_opaque_predecessor"] {
+        assert_eq!(count(&ctx,&format!("SELECT count(*) FROM source_context_value_identities i JOIN declarations d ON d.node_id=i.function_node_id WHERE d.name='{name}'")).await,0,"{name}");
+    }
     assert_eq!(count(&ctx,"SELECT count(*) FROM model_context_protocols p JOIN context_definitions c ON c.fact_id=p.class_fact_id JOIN context_definitions i ON i.fact_id=p.initialization_fact_id WHERE c.kind=1 AND c.signature_count IS NULL AND i.kind=0 AND c.symbol_node_id<>i.symbol_node_id").await,2);
     assert_eq!(count(&ctx,"SELECT count(*) FROM pysa_calls WHERE target_name LIKE '%__exit__%'").await,0,
         "a runtime class assertion does not manufacture missing provider exit calls");
@@ -5496,15 +5504,25 @@ import json, subprocess
 oracle=json.loads(subprocess.run([sys.executable,"docs/design_review/evidence/2026-09-27_sync-contexts/runtime_oracle.py"],capture_output=True,text=True,check=True,timeout=30).stdout)
 observed={row["case"]:row for row in oracle["cases"]}
 g=load(Path(sys.argv[1]),None)
-for name in ("preserve","suppress_type_error","multiple","assignment_failure_suppressed",
+for name in ("preserve","entry_value","suppress_type_error","multiple","assignment_failure_suppressed",
              "constructor_failure_suppressed","replacement_suppressed","return_preserved","matching_short_circuit"):
     paths,boundaries,total,truncated,work=g.condition_graph.inspect_value_paths("contextpkg."+name,"value","none","",True,0,20)
     assert observed[name]["outcome"]=={"kind":"return","value":42}
+    assert observed[name]["identity_outcome"]=={"kind":"return","same_entry_value":True}
     assert paths and not truncated,(name,paths,boundaries)
     assert any(any(s[0]=="context_entry" for s in p[3]) for p in paths),(name,paths)
     assert any(any(s[0]=="context_exit" for s in p[3]) for p in paths),(name,paths)
+for operation,formal in (("entry_value","value"),("entry_keyword","value"),("entry_other","other")):
+    paths,_,_,truncated,_=g.condition_graph.inspect_value_paths("contextpkg."+operation,formal,"none","",True,0,20)
+    assert paths and not truncated,(operation,paths)
+    assert all(any(s[0]=="context_entry_value_identity" for s in p[3]) for p in paths)
+    assert all(not any(s[0]=="raw_identity" for s in p[3]) for p in paths)
+paths,*_=g.condition_graph.inspect_value_paths("contextpkg.entry_other","value","none","",True,0,20)
+assert not paths,paths
 for mutation in ("missing_site","missing_certificate","duplicate_certificate","missing_match",
-                 "wrong_condition","missing_group","same_function_sites"):
+                 "wrong_condition","missing_group","same_function_sites", "missing_context_value", "duplicate_context_value",
+                 "omitted_value_basis", "foreign_context_value"):
+
     sites_by_function={}
     for row in g.tables["source_context_sites"].to_pylist():
         sites_by_function.setdefault(row["function_node_id"],[]).append(row["site_id"])
@@ -5520,7 +5538,13 @@ for mutation in ("missing_site","missing_certificate","duplicate_certificate","m
             rows=rows[1:]
         if name=="return_completion_certificates" and mutation=="duplicate_certificate":
             rows.append(rows[0].copy())
+        if name=="source_context_value_identities":
+            if mutation in ("missing_context_value","omitted_value_basis"): rows=[]
+            if mutation=="duplicate_context_value": rows.append(rows[0].copy())
+            if mutation=="foreign_context_value": rows[0]["context_site_id"]=twins[0]
         if name=="summary_flow_steps":
+            if mutation=="omitted_value_basis":
+                rows=[r for r in rows if r["kind"]!="context_entry_value_identity"]
             if mutation=="same_function_sites":
                 for row in rows:
                     if row["kind"] in ("context_construction","context_entry","context_exit"):
@@ -5578,6 +5602,12 @@ for mutation in ("missing_site","missing_certificate","duplicate_certificate","m
     contexts.remove(0);
     for module in &mut modules {module.origin=cpg_schema::codebook::ModuleOrigin::SitePackages;}
     assert!(bind(&contexts,&modules,&definitions,&parameters).unwrap().is_empty(),"wrong module authority");
+    let context_value_original=sql::query(&ctx,"SELECT * FROM source_context_value_identities").await.unwrap().into_view();
+    let context_value_wrong=sql::query(&ctx,"SELECT * EXCLUDE (target_binding_fact_id), parameter_binding_fact_id AS target_binding_fact_id FROM source_context_value_identities").await.unwrap().into_view();
+    ctx.deregister_table("source_context_value_identities").unwrap();ctx.register_table("source_context_value_identities",context_value_wrong).unwrap();
+    let violations=cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(violations.iter().any(|v|v.rule=="source-context-value-identity-equality"),"{violations:?}");
+    ctx.deregister_table("source_context_value_identities").unwrap();ctx.register_table("source_context_value_identities",context_value_original).unwrap();
     let completion_original=sql::query(&ctx,"SELECT * FROM return_completion_certificates").await.unwrap().into_view();
     let completion_wrong=sql::query(&ctx,"SELECT * EXCLUDE (entry_digest), exit_digest AS entry_digest FROM return_completion_certificates").await.unwrap().into_view();
     ctx.deregister_table("return_completion_certificates").unwrap();

@@ -221,6 +221,7 @@ struct SemanticExecutor {
 
 #[derive(Default)]
 struct ContextProofs {
+    values:Vec<cpg_schema::context_value::SourceContextValueIdentitiesRow>,
     returns:Vec<cpg_schema::completion_proof::ReturnCompletionCertificatesRow>,
     protocols:Vec<cpg_schema::context_protocol::ModelContextProtocolsRow>,
     sites:Vec<cpg_schema::context_protocol::SourceContextSitesRow>,
@@ -256,7 +257,7 @@ impl SemanticExecutor {
             || leaves.len() > MAX_SUMMARY_ROWS
             || links.len() > MAX_SUMMARY_ROWS
             || contexts.returns.len()>MAX_SUMMARY_ROWS || contexts.protocols.len()>MAX_SUMMARY_ROWS || contexts.sites.len()>MAX_SUMMARY_ROWS
-            || contexts.arguments.len()>MAX_SUMMARY_ROWS
+            || contexts.arguments.len()>MAX_SUMMARY_ROWS || contexts.values.len()>MAX_SUMMARY_ROWS
             || identities.len() > MAX_SUMMARY_ROWS
         {
             return Err(PyValueError::new_err("semantic index exceeds load limits"));
@@ -545,6 +546,7 @@ impl SemanticExecutor {
         for argument in &mut contexts.arguments {argument.snapshot_id=snapshot_id;}
         for argument in contexts.arguments {arguments_by_site.entry(argument.site_id).or_default().push(argument);}
         let mut context_by_id=HashMap::new();
+        let mut context_argument_by_id=HashMap::new();
         let mut used_protocols=HashSet::new();
         for mut site in contexts.sites {
             site.snapshot_id=snapshot_id;
@@ -555,12 +557,26 @@ impl SemanticExecutor {
                 || graph.diagrams.get(&site.import_condition_id).is_none_or(|d|!d.is_true()) {
                 return Err(PyValueError::new_err("invalid context source certificate"));
             }
+            for argument in arguments {
+                if context_argument_by_id.insert((argument.site_id,argument.argument_fact_id),argument).is_some() {
+                    return Err(PyValueError::new_err("duplicate context argument identity"));
+                }
+            }
             used_protocols.insert(site.protocol_id);
             if context_by_id.insert(site.site_id,site).is_some() {return Err(PyValueError::new_err("duplicate context source certificate"));}
         }
         if !arguments_by_site.is_empty() || used_protocols.len()!=protocol_by_id.len() {
             return Err(PyValueError::new_err("uncited context protocol or argument"));
         }
+        let mut context_value_by_id=HashMap::new();
+        for mut certificate in contexts.values {
+            certificate.snapshot_id=snapshot_id;
+            if certificate.identity_id!=cpg_schema::context_value::identity(&certificate)
+                || context_value_by_id.insert(certificate.identity_id,certificate).is_some() {
+                return Err(PyValueError::new_err("invalid or duplicate context value identity"));
+            }
+        }
+        let mut cited_context_values=HashSet::new();
         let mut completion_by_return:HashMap<(Id,Id),Vec<_>>=HashMap::new();
         let mut certificate_ids=HashSet::new();
         for mut certificate in contexts.returns {
@@ -594,6 +610,8 @@ impl SemanticExecutor {
                     })
                 }).map_err(|error|PyValueError::new_err(error.message))?;
             if let Some(return_site)=summary.return_site_fact_id {
+                if summary.path_depth==0 {cpg_schema::summary_contract::admit_base_value(summary.source_flow_fact_id,summary.condition_id,&steps)
+                    .map_err(|error|PyValueError::new_err(error.message))?;}
                 let all=completion_by_return.get(&(summary.function_node_id,return_site))
                     .ok_or_else(||PyValueError::new_err("missing return completion certificate"))?;
                 let exact:Vec<_>=all.iter().filter(|c|c.entry_condition_id==summary.condition_id).collect();
@@ -607,6 +625,24 @@ impl SemanticExecutor {
             }
             cited_contexts.extend(cpg_schema::context_protocol::admit_proof(summary.function_node_id,&steps,
                 |id|context_by_id.get(&id)).map_err(PyValueError::new_err)?);
+            let context_values:Vec<_>=steps.iter().filter(|s|s.kind==SummaryFlowStepKind::ContextEntryValueIdentity).collect();
+            if context_values.len()>1 {return Err(PyValueError::new_err("duplicate context entry value witness"));}
+            for step in context_values {
+                let certificate=context_value_by_id.get(&step.evidence_id)
+                    .ok_or_else(||PyValueError::new_err("missing context value identity"))?;
+                let site=context_by_id.get(&certificate.context_site_id)
+                    .ok_or_else(||PyValueError::new_err("missing context value site"))?;
+                let argument=context_argument_by_id.get(&(site.site_id,certificate.argument_fact_id))
+                    .ok_or_else(||PyValueError::new_err("missing context value argument"))?;
+                let return_site=summary.return_site_fact_id.ok_or_else(||PyValueError::new_err("missing context value return site"))?;
+                if summary.path_depth!=0 || step.condition_id!=summary.condition_id
+                    || steps.iter().any(|s|matches!(s.kind,SummaryFlowStepKind::RawIdentity|SummaryFlowStepKind::SourceParameterIdentity))
+                    || !cpg_schema::context_value::admits(certificate,site,argument,summary.function_node_id,
+                        summary.parameter_node_id,summary.source_flow_fact_id,summary.source_origin_id,summary.condition_id,return_site,&steps) {
+                    return Err(PyValueError::new_err("context value identity does not prove this active entry result"));
+                }
+                cited_context_values.insert(certificate.identity_id);
+            }
             let identity_steps: Vec<_> = steps.iter().filter(|s| s.kind == SummaryFlowStepKind::SourceParameterIdentity).collect();
             if identity_steps.len() > 1 {
                 return Err(PyValueError::new_err("duplicate source parameter identity step"));
@@ -625,6 +661,7 @@ impl SemanticExecutor {
                 cited_identities.insert(step.evidence_id);
             }
         }
+        if cited_context_values.len()!=context_value_by_id.len() {return Err(PyValueError::new_err("uncited context value identity"));}
         if cited_completions!=certificate_ids {return Err(PyValueError::new_err("uncited return completion certificate"));}
         if cited_contexts.len()!=context_by_id.len() {return Err(PyValueError::new_err("uncited context source certificate"));}
         if cited_identities.len() != identity_by_id.len() {
@@ -674,7 +711,7 @@ impl SemanticExecutor {
             input.links,
             input.identities,
             input.return_sites,
-            ContextProofs {returns:input.return_certificates,protocols:input.model_context_protocols,sites:input.source_context_sites,arguments:input.source_context_arguments},
+            ContextProofs {values:input.context_value_identities,returns:input.return_certificates,protocols:input.model_context_protocols,sites:input.source_context_sites,arguments:input.source_context_arguments},
         )
     }
 

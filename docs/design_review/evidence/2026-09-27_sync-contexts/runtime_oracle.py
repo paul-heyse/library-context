@@ -84,7 +84,13 @@ def worker(name: str) -> dict:
             result = {"kind": "raise", "exception": type(error).__name__}
     finally:
         monitor.free_tool_id(tool)
-    return {"case": name, "source": source, "outcome": result, "trace": trace}
+    # An opaque fresh object distinguishes identity from primitive equality/interning.
+    sentinel = object()
+    try:
+        identity_result = {"kind": "return", "same_entry_value": namespace["generated"](sentinel) is sentinel}
+    except Exception as error:
+        identity_result = {"kind": "raise", "exception": type(error).__name__}
+    return {"case": name, "source": source, "outcome": result, "identity_outcome": identity_result, "trace": trace}
 
 
 def main() -> None:
@@ -108,6 +114,7 @@ def main() -> None:
         assert by_name[name]["outcome"] == {"kind": "raise", "exception": "TypeError"}
     for name in set(CASES) - {"nonmatching", "replacement_preserved", "invalid_first"}:
         assert by_name[name]["outcome"] == {"kind": "return", "value": 42}
+        assert by_name[name]["identity_outcome"] == {"kind": "return", "same_entry_value": True}
     assert not any(row[0] == "nullcontext.__enter__" for row in by_name["constructor_failure_suppressed"]["trace"])
     exits = [row[0] for row in by_name["assignment_failure_suppressed"]["trace"] if row[1] == "start" and row[0].endswith("__exit__")]
     assert exits == ["nullcontext.__exit__", "suppress.__exit__"]

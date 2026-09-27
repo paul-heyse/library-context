@@ -12,6 +12,8 @@ use cpg_schema::models::{InputPath, OutputPath};
 use cpg_schema::parameter_identity::{SourceParameterIdentitiesRow, admits as admits_identity};
 
 cpg_schema::query_row! {
+    /// Base-return source coordinates. The SQL direct seed asserts raw identity; a context
+    /// entry seed has a separate source/model certificate selected as its typed value basis.
     pub struct SummaryFlowSeed {
         snapshot_id: Id,
         function_node_id: Id,
@@ -192,6 +194,7 @@ impl SummaryRefusal {
 }
 
 pub struct FiniteSummaryOutcome {
+    pub context_identities: Vec<cpg_schema::context_value::SourceContextValueIdentitiesRow>,
     pub identities: Vec<SourceParameterIdentitiesRow>,
     pub flows: Vec<SummaryFlowsRow>,
     pub steps: Vec<SummaryFlowStepsRow>,
@@ -524,6 +527,8 @@ type ReturnPassIndex = HashMap<Id, Vec<ReturnPassStep>>;
 
 #[derive(Clone)]
 pub struct FiniteSummaryInputs {
+    pub context_identities: Vec<cpg_schema::context_value::SourceContextValueIdentitiesRow>,
+    pub context_arguments: Vec<cpg_schema::context_protocol::SourceContextArgumentsRow>,
     pub return_certificates: Vec<cpg_schema::completion_proof::ReturnCompletionCertificatesRow>,
     pub context_sites: Vec<cpg_schema::context_protocol::SourceContextSitesRow>,
     pub identities: Vec<SourceParameterIdentitiesRow>,
@@ -573,11 +578,19 @@ fn entry_proof(
     Ok(steps.iter().map(|s|recipe::SummaryFlowProofStep {kind:s.kind,evidence_id:s.evidence_id,condition_id}).collect())
 }
 
-/// The first finite summary case: a direct, synchronous body return of a local parameter.
+enum BaseReturnBasis<'a> {
+    RawIdentity,
+    ContextEntryValue(&'a cpg_schema::context_value::SourceContextValueIdentitiesRow),
+}
+
+/// A bounded local return proof with an explicit raw or source/model value basis.
 /// A bounded/missing condition is a named unknown, never an admitted positive flow.
 fn direct_flows(
     seeds: Vec<SummaryFlowSeed>,
     identities: &[SourceParameterIdentitiesRow],
+    context_identities: &[cpg_schema::context_value::SourceContextValueIdentitiesRow],
+    context_sites: &[cpg_schema::context_protocol::SourceContextSitesRow],
+    context_arguments: &[cpg_schema::context_protocol::SourceContextArgumentsRow],
     diagrams: &HashMap<Id, Diagram>,
     boundaries: &HashMap<Id, BoundaryReason>,
     pass_steps: &ReturnPassIndex,
@@ -593,6 +606,16 @@ fn direct_flows(
             .or_default().push(identity);
     }
     for seed in seeds {
+        let context_identity:Vec<_>=context_identities.iter().filter(|r|r.snapshot_id==seed.snapshot_id
+            && r.source_origin_id==seed.source_origin_id && r.source_flow_fact_id==seed.source_flow_fact_id).collect();
+        if context_identity.len()>1 {
+            refuse(refusals,(seed.snapshot_id,seed.function_node_id,seed.parameter_node_id,
+                seed.source_flow_fact_id,seed.condition_id,seed.source_origin_id),BoundaryReason::MissingEvidence);
+            continue;
+        }
+        let basis=match context_identity.first() {
+            Some(identity)=>BaseReturnBasis::ContextEntryValue(identity),None=>BaseReturnBasis::RawIdentity,
+        };
         let Some(return_diagram) = diagrams.get(&seed.condition_id) else {
             refuse(refusals, (seed.snapshot_id, seed.function_node_id,
                 seed.parameter_node_id, seed.source_flow_fact_id, seed.condition_id,
@@ -625,8 +648,9 @@ fn direct_flows(
         .render();
         let output_path = OutputPath::ReturnValue.render();
         proof.push(recipe::SummaryFlowProofStep {
-            kind: SummaryFlowStepKind::RawIdentity,
-            evidence_id: seed.source_flow_fact_id,
+            kind: match basis {BaseReturnBasis::ContextEntryValue(_)=>SummaryFlowStepKind::ContextEntryValueIdentity,
+                BaseReturnBasis::RawIdentity=>SummaryFlowStepKind::RawIdentity},
+            evidence_id: match basis {BaseReturnBasis::ContextEntryValue(r)=>r.identity_id,BaseReturnBasis::RawIdentity=>seed.source_flow_fact_id},
             condition_id: seed.condition_id,
         });
         let finalizers = pass_steps
@@ -645,7 +669,19 @@ fn direct_flows(
             .into_iter().flatten().filter(|row| admits_identity(row, seed.function_node_id, seed.parameter_node_id,
                 seed.source_flow_fact_id, seed.source_origin_id, seed.condition_id,
                 seed.return_site_fact_id)).collect::<Vec<_>>();
-        let certified = if seed.approximated {
+        let certified = if let BaseReturnBasis::ContextEntryValue(identity)=basis {
+            let site=context_sites.iter().find(|s|s.snapshot_id==seed.snapshot_id && s.site_id==identity.context_site_id);
+            let argument=context_arguments.iter().find(|a|a.snapshot_id==seed.snapshot_id && a.site_id==identity.context_site_id
+                && a.argument_fact_id==identity.argument_fact_id);
+            if !site.zip(argument).is_some_and(|(site,argument)|cpg_schema::context_value::admits(identity,site,argument,
+                seed.function_node_id,seed.parameter_node_id,seed.source_flow_fact_id,seed.source_origin_id,
+                seed.condition_id,seed.return_site_fact_id,&proof)) {
+                refuse(refusals,(seed.snapshot_id,seed.function_node_id,seed.parameter_node_id,seed.source_flow_fact_id,
+                    seed.condition_id,seed.source_origin_id),BoundaryReason::MissingEvidence);
+                continue;
+            }
+            true
+        } else if seed.approximated {
             if let [identity] = identity.as_slice() {
                 proof.push(recipe::SummaryFlowProofStep { kind: SummaryFlowStepKind::SourceParameterIdentity,
                     evidence_id: identity.identity_id, condition_id: seed.condition_id });
@@ -1035,11 +1071,26 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
     -> FiniteSummaryOutcome
 {
     let FiniteSummaryInputs {
-        identities,
+        identities, context_identities, context_arguments,
         diagrams, boundaries, mut pass_steps, entries, entry_steps, components, context_sites, return_certificates,
-        direct_seeds, modeled_seeds, chain_arguments, evaluations, assignment_seeds, local_seeds,
+        mut direct_seeds, modeled_seeds, chain_arguments, evaluations, assignment_seeds, local_seeds,
         local_arguments, local_value_links, local_bindings, boundary_candidates,
     } = inputs;
+    for row in &context_identities {
+        if direct_seeds.iter().any(|s|s.snapshot_id==row.snapshot_id && s.source_origin_id==row.source_origin_id
+            && s.source_flow_fact_id==row.source_flow_fact_id) {continue;}
+        let candidates:Vec<_>=boundary_candidates.iter().filter(|c|c.snapshot_id==row.snapshot_id
+            && c.function_node_id==row.function_node_id && c.parameter_node_id==row.parameter_node_id
+            && c.source_flow_fact_id==row.source_flow_fact_id && c.source_origin_id==row.source_origin_id
+            && c.condition_id==row.condition_id).collect();
+        let [candidate]=candidates.as_slice() else {continue;};
+        if candidate.reach_budget {continue;}
+        direct_seeds.push(SummaryFlowSeed {snapshot_id:row.snapshot_id,function_node_id:row.function_node_id,
+            parameter_node_id:row.parameter_node_id,parameter_name:row.parameter_name.clone(),
+            source_flow_fact_id:row.source_flow_fact_id,source_origin_id:row.source_origin_id,condition_id:row.condition_id,
+            return_site_fact_id:row.return_site_fact_id,return_region_fact_id:row.return_region_fact_id,
+            return_condition_id:row.return_condition_id,return_start_byte:row.return_start_byte,approximated:candidate.raw_approximated});
+    }
     let mut refusals = Vec::new();
     for passes in pass_steps.values_mut() { passes.sort_by_key(|pass| (pass.ordinal, pass.pass_fact_id)); }
     let mut entries_by_return:EntryIndex=HashMap::new();
@@ -1047,7 +1098,7 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
     let mut steps_by_return:EntryStepIndex=HashMap::new();
     for row in entry_steps { steps_by_return.entry(row.return_site_fact_id).or_default().push(row); }
     for steps in steps_by_return.values_mut() { steps.sort_by_key(|s|s.ordinal); }
-    let (mut flows,mut steps)=direct_flows(direct_seeds,&identities,&diagrams,&boundaries,&pass_steps,
+    let (mut flows,mut steps)=direct_flows(direct_seeds,&identities,&context_identities,&context_sites,&context_arguments,&diagrams,&boundaries,&pass_steps,
         &entries_by_return,&steps_by_return,&mut refusals);
     let seeds = modeled_seeds;
     let mut by_candidate: ArgumentIndex = HashMap::new();
@@ -1620,6 +1671,8 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
         let exact:Vec<_>=all.iter().copied().filter(|c|c.entry_condition_id==flow.condition_id).collect();
         let candidates=if exact.is_empty() {all} else {exact};
         let completion = (|| {
+            if flow.path_depth==0 {cpg_schema::summary_contract::admit_base_value(flow.source_flow_fact_id,flow.condition_id,&proof)
+                .map_err(|error|error.reason)?;}
             let [certificate] = candidates.as_slice() else { return Err(BoundaryReason::MissingEvidence); };
             let get = |id| diagrams.get(&id).ok_or_else(|| boundaries.get(&id).copied()
                 .unwrap_or(BoundaryReason::MissingEvidence));
@@ -1663,7 +1716,10 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
             omitted_origins.contains(&(row.snapshot_id,row.function_node_id,
                 parameter,row.source_fact_id,row.condition_id,row.subject_id)));
     }
-    FiniteSummaryOutcome { identities, flows, steps, refusals, boundaries, coverage }
+    let cited:HashSet<_>=steps.iter().filter(|s|s.kind==SummaryFlowStepKind::ContextEntryValueIdentity)
+        .map(|s|s.evidence_id).collect();
+    let context_identities=context_identities.into_iter().filter(|r|cited.contains(&r.identity_id)).collect();
+    FiniteSummaryOutcome { context_identities, identities, flows, steps, refusals, boundaries, coverage }
 }
 
 /// Coverage deliberately reads refusals even where a positive path means there is no
@@ -1797,7 +1853,7 @@ mod tests {
             identities: Vec::new(),
             diagrams: HashMap::from([(always.id(), always)]),
             boundaries: HashMap::new(),
-            context_sites: Vec::new(),
+            context_sites: Vec::new(),context_identities:Vec::new(),context_arguments:Vec::new(),
             return_certificates: Vec::new(),
             pass_steps: HashMap::new(),
             entries: vec![ReturnEntryStatusesRow { snapshot_id:id(1),function_node_id:id(2),return_site_fact_id:id(5),condition_id:Diagram::always().id(),reason:None,work:1 }],

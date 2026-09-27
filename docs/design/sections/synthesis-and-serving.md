@@ -608,7 +608,11 @@ admission and evidence closure are shared with compile-time semantics; labels ar
 fresh manager occurrence and authored class assertions for implicit exits. Mandatory return
 certificates bind ordered entry/exit evidence and condition scope, including empty obligations.
 Shared Rust admission rejects missing, foreign, swapped or omitted evidence; Python does not
-infer lifecycle facts. Entry-result identity and remaining S6 semantics stay open.
+infer lifecycle facts. A separate context-entry value certificate binds both lexical reads and
+the actual source origin; shared admission requires the exact active site, constructor argument,
+assignment, later cleanup and return scope. A mandatory local value basis rejects omission even
+when completion obligations are intact. Full raw-fact semantic support and remaining S6 queries
+stay open; these structural checks do not independently prove a forged raw identity.
 
 > Decision: ADR-0057, ADR-0058, ADR-0059
 

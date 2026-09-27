@@ -205,6 +205,8 @@ cpg_schema::relations! {
     stored_return_certificates = "validate_return_certificates", deps = ["return_completion_certificates"], sql = "SELECT * FROM return_completion_certificates".to_owned();
     stored_context_sites = "validate_context_sites", deps = ["source_context_sites"], sql = "SELECT * FROM source_context_sites".to_owned();
     stored_context_arguments = "validate_context_arguments", deps = ["source_context_arguments"], sql = "SELECT * FROM source_context_arguments".to_owned();
+    stored_context_value_identities = "validate_stored_context_value_identities", deps = ["source_context_value_identities"],
+        sql = "SELECT * FROM source_context_value_identities".to_owned();
     stored_parameter_identities = "validate_stored_parameter_identities", deps = ["source_parameter_identities"],
         sql = "SELECT * FROM source_parameter_identities".to_owned();
     stored_summary_origin_coverage = "validate_stored_summary_origin_coverage", deps = ["summary_origin_coverage"],
@@ -524,6 +526,12 @@ async fn validate_summary_flows(ctx: &SessionContext) -> Result<Vec<Violation>, 
     let mut violations = Vec::new();
     let mut actual_identities: Vec<cpg_schema::parameter_identity::SourceParameterIdentitiesRow> =
         sql::fetch(ctx, &stored_parameter_identities(), sql::Params::new()).await?;
+    let mut actual_context:Vec<cpg_schema::context_value::SourceContextValueIdentitiesRow>=
+        sql::fetch(ctx,&stored_context_value_identities(),sql::Params::new()).await?;
+    let mut expected_context=summary.context_identities;
+    actual_context.sort_by_key(|r|r.identity_id);expected_context.sort_by_key(|r|r.identity_id);
+    if actual_context!=expected_context {violations.push(Violation {rule:"source-context-value-identity-equality".into(),rows:1,
+        sample:"context entry value certificates differ from source reconstruction".into()});}
     let mut expected_identities = summary.identities;
     actual_identities.sort_by_key(|r| r.identity_id);
     expected_identities.sort_by_key(|r| r.identity_id);

@@ -103,3 +103,70 @@ def unknown_body(value, effect):
 def generator(value):
     with nullcontext():
         yield value
+
+
+def entry_keyword(value):
+    with nullcontext(enter_result=value) as chosen:
+        return chosen
+
+
+def entry_other(value, other):
+    with nullcontext(other) as chosen:
+        return chosen
+
+
+def entry_after_context(value):
+    with nullcontext(value) as chosen:
+        pass
+    return chosen
+
+
+def entry_rebound(value):
+    with nullcontext(value) as chosen:
+        chosen = None
+        return chosen
+
+
+def entry_deleted(value):
+    with nullcontext(value) as chosen:
+        del chosen
+        return chosen
+
+
+def entry_nested_mutation(value):
+    with nullcontext(value) as chosen:
+        def change():
+            nonlocal chosen
+            chosen = None
+        return chosen
+
+
+def entry_none(value):
+    with nullcontext() as chosen:
+        return chosen
+
+
+def entry_suppress(value):
+    with suppress(TypeError) as chosen:
+        return chosen
+
+
+def entry_sibling(value):
+    with nullcontext(value) as first:
+        pass
+    with nullcontext() as chosen:
+        return chosen
+
+
+def entry_overridden(value):
+    with nullcontext(value) as chosen:
+        try:
+            return chosen
+        finally:
+            return None
+
+
+def entry_opaque_predecessor(value, effect):
+    with nullcontext(value) as chosen:
+        effect()
+        return chosen

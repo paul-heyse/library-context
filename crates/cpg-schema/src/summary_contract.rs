@@ -163,6 +163,25 @@ impl From<KernelBoundary> for ProofAdmissionError {
     }
 }
 
+/// A local base return requires a value witness in addition to its completion obligations.
+/// Completion alone proves no relationship between an entry formal and the returned value.
+pub fn admit_base_value(source:Id,condition:Id,steps:&[SummaryFlowProofStep])->Result<(),ProofAdmissionError> {
+    let values:Vec<_>=steps.iter().enumerate().filter(|(_,s)|matches!(s.kind,
+        SummaryFlowStepKind::RawIdentity|SummaryFlowStepKind::ContextEntryValueIdentity)).collect();
+    let [(at,value)]=values.as_slice() else {return Err("base return requires exactly one value witness".into());};
+    if value.condition_id!=condition || !steps[*at+1..].iter().any(|s|s.kind==SummaryFlowStepKind::ReturnExit) {
+        return Err("base value witness has a foreign condition or follows its return exit".into());
+    }
+    if value.kind==SummaryFlowStepKind::RawIdentity && value.evidence_id!=source {
+        return Err("base identity cites a different source flow".into());
+    }
+    if value.kind==SummaryFlowStepKind::ContextEntryValueIdentity && steps.iter()
+        .any(|s|s.kind==SummaryFlowStepKind::SourceParameterIdentity) {
+        return Err("context entry value is not a bare parameter read".into());
+    }
+    Ok(())
+}
+
 /// Admit the complete structural callee obligations in a proof. Source reconstruction still
 /// owns binding/evaluation evidence. A link belongs to exactly one following callee reference;
 /// references decrease depth, cite the callee's actual condition, and cover every control.

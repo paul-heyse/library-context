@@ -347,7 +347,8 @@ RCA projections preserve semantic alternatives and modality; deferred execution 
 **Implemented and focused Tested (2026-09-27; ADR-0059), partial:** synchronous `nullcontext` and
 `suppress` protocols bind authored runtime transitions to pinned classes and fresh source sites.
 Constructor signatures, provider method observations and manager occurrences remain separate;
-entry-result identity remains open. Pure completion owns entry and reverse cleanup order. Shared
+a separate certificate proves the bounded parameter-to-entry-result identity inside the active
+context body. Pure completion owns entry and reverse cleanup order. Shared
 source/native admission checks source-derived ordered return obligations, including condition
 scope; no missing exit observation is fabricated as a call. Full Stage 3 qualification is pending.
 

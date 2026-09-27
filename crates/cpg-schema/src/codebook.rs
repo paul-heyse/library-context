@@ -1456,6 +1456,7 @@ codebook!(
         ContextEntry = 28 => "context_entry",
         ContextExit = 29 => "context_exit",
         ContextExceptionEvidence = 30 => "context_exception_evidence",
+        ContextEntryValueIdentity = 31 => "context_entry_value_identity",
     }
 );
 

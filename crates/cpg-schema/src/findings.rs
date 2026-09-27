@@ -484,6 +484,7 @@ macro_rules! for_each_analysis_table {
             $crate::completion_proof::ReturnCompletionCertificates,
             $crate::context_protocol::ModelContextProtocols,
             $crate::context_protocol::SourceContextSites,
+            $crate::context_value::SourceContextValueIdentities,
             $crate::context_protocol::SourceContextArguments,
             $crate::concept_attributes::ConceptAttributes,
             $crate::concept_attributes::ConceptIncidences,

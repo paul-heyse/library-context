@@ -131,14 +131,21 @@ outcomes. Return, break and continue survive normal exits. Exact builtin matchin
 resolution and complete MRO evidence when needed. Arbitrary matching, exception groups, opaque
 argument evaluation, custom managers and deferred execution remain unknown. These initial models
 assert normal entry; a general failing-entry model is not implemented. Manager identity and
-entry-result identity remain separate; returning an `as` value is still unproved.
+entry-result identity remain separate. A bounded source/model certificate now proves a bare
+return of a unique `as` name inside this exact `With` body when the explicit entry argument is
+an immutable current parameter. Both lexical reference/resolution/binding chains and the actual
+raw contribution remain cited. Raw nonidentity/call-crossing flags are unchanged; a distinct
+`ContextEntryValueIdentity` supplies the modeled basis. Missing/default entry values, sibling or
+completed contexts, mutation and overridden returns do not acquire that identity proof.
 
 `return_completion_certificates` commits each normal return's ordered entry and frame-exit
 obligations, even when empty. Conditions specialize explicitly; finalizer conditions retain their
 scope. Publication reconstructs commitments from completion, and source/native consumers share
-structural admission plus lifecycle order checks. Missing, swapped, reordered or omitted evidence
+structural admission plus lifecycle order checks. A local base return requires exactly one value
+basis independently of completion. A context basis requires successful assignment before the value
+witness, its matching exit after it, and the same return-condition anchor. Missing, swapped, reordered or omitted evidence
 cannot become a value summary; bounded condition decisions keep their specific reason. This is
-compiler output 89/extractor output 33, with fresh stores under ADR-0048. The [independent
+compiler output 90/extractor output 33, with fresh stores under ADR-0048. The [independent
 controls](../../design_review/evidence/2026-09-27_sync-contexts/README.md) compare actual CPython
 lifecycle outcomes with the focused source/Delta/native paths; they do not qualify all Stage 3.
 

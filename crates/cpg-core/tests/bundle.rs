@@ -1173,6 +1173,7 @@ async fn a_generation_rebuilds_to_the_same_bytes() {
             "singletons",
             "source_context_arguments",
             "source_context_sites",
+            "source_context_value_identities",
             "source_parameter_identities",
             "summary_boundaries",
             "summary_flow_steps",

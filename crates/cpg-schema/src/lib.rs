@@ -11,6 +11,7 @@ pub mod communities;
 pub mod concepts;
 pub mod concept_attributes;
 pub mod context_protocol;
+pub mod context_value;
 pub mod condition;
 pub mod condition_kernel;
 pub mod derived;

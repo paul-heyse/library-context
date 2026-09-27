@@ -49,8 +49,10 @@ The cases distinguish preservation from suppression, matching from nonmatching c
 return from raises, short-circuit matching from an invalid first class, and break/continue from
 exception suppression. Partial constructor failure does not register an exit. Failed `as`
 unpacking does register the successful entry and unwinds in reverse; an exit TypeError replaces
-the pending exception and can be suppressed by the outer context. Entry-result identity is a
-runtime observation only in this slice; the compiler still withholds that value summary.
+the pending exception and can be suppressed by the outer context. Each generated program also receives a fresh opaque object, separately from the monitored integer
+invocation, to distinguish entry-value identity from equality. The compiler's bounded value proof
+now joins the explicit parameter argument and unique `as` return within that active context;
+general alias propagation remains outside this slice.
 
 The real `context_protocols_bind_class_and_constructor_roles_independently` release test compiles
 source through the extractor, Delta publication and FORMAT 9 native loading, and compares the
@@ -69,3 +71,18 @@ editable native package, the real context replay passed one case (30 skipped),
 generation type check reported zero errors. Initial runs failed on implementation/test adapter
 corrections and expected schema migrations; the reviewed migration was accepted before these final
 checks. Full gates, fresh pilot, clean wheel and live embedding remain `not_run`.
+
+
+**Entry-value extension (2026-09-27; compiler 90, focused Tested).** The source/Delta/native
+controls admit positional and keyword entry arguments and preserve the correct formal when two
+inputs exist. Rebinding, deletion, nested nonlocal mutation, omitted entry values, suppressor entry,
+completed sibling contexts, opaque predecessors and overridden returns withhold the certificate.
+Raw nonidentity/through-call flags and open coverage are retained. Missing/duplicate/foreign
+certificates and omission of both certificate and value witness are refused. A pure structural
+control moves the value after cleanup, before assignment or under a foreign return scope; all
+refuse. Publication reconstructs the exact certificate from source. The final selection passed
+45 cases (160 skipped), `/tmp/lctx-stage3-context-value-final.log`; full Stage 3 stays open.
+
+The rebuilt-native replay passed one case (30 skipped), 6.796 seconds,
+`/tmp/lctx-stage3-context-value-native-current.log`, after the opaque-object assertion was added.
+Python server/digest checks passed 15 cases; generation type checking reported zero errors.

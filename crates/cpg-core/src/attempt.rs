@@ -112,8 +112,9 @@ pub struct Published {
 /// 86: condition-safe transfer alternatives and typed behavior transfer/scope in FORMAT 9.
 /// 87: occurrence-specific source parameter identity independent of provider reach approximation.
 /// 88: typed current FCA/RCA attributes, incidence evidence and presentation-only labels.
-/// 89: independently bound synchronous class-protocol declarations (catalog format 4).
-pub const COMPILER_OUTPUT_VERSION: u32 = 89;
+/// 89: independently bound synchronous class protocols and mandatory return obligations (catalog format 4).
+/// 90: separate context entry-value identity and mandatory base value witnesses.
+pub const COMPILER_OUTPUT_VERSION: u32 = 90;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -843,6 +844,8 @@ async fn finish(
         let summaries = crate::summaries::finite_flows(&ctx).await?;
         write_analysis::<cpg_schema::parameter_identity::SourceParameterIdentities>(
             &ctx, root, snapshot_id, &summaries.identities, w).await?;
+        write_analysis::<cpg_schema::context_value::SourceContextValueIdentities>(
+            &ctx,root,snapshot_id,&summaries.context_identities,w).await?;
         write_analysis::<SummaryFlows>(&ctx, root, snapshot_id, &summaries.flows, w).await?;
         write_analysis::<SummaryFlowSteps>(&ctx, root, snapshot_id, &summaries.steps, w).await?;
         write_analysis::<SummaryBoundaries>(&ctx, root, snapshot_id, &summaries.boundaries, w)
