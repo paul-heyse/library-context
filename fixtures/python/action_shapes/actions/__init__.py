@@ -2,7 +2,7 @@
 from json import dump, dumps, loads
 from gzip import compress
 from atexit import register
-from builtins import print
+from builtins import print, open
 
 
 def normal(value, sink):
@@ -47,6 +47,10 @@ def registration(callback):
 
 def acquisition(path):
     return open(path)
+
+
+def acquisition_explicit(path):
+    return open(path, mode="r", buffering=-1, encoding=None, errors=None, newline=None, closefd=True, opener=None)
 
 
 def unasserted_defaults(value):

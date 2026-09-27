@@ -91,7 +91,7 @@ native action support remain open; no omitted subject is manufactured.
 
 ## Normal-exit postconditions
 
-**Accepted target; implementation Proposed.** A separate relation preserves the exact pinned Normal rule as an implication:
+**Implemented and focused Tested (2026-09-27; compiler96, source/Delta subset).** A separate relation preserves the exact pinned Normal rule as an implication:
 under a proved reached/bound invocation, if that exact callee returns normally, the authored
 effect/callback/resource action holds with its declared modality. The Normal obligation remains
 undischarged; no outcome feasibility, expression completion, action occurrence, transfer discharge
@@ -105,6 +105,18 @@ separate outcome domains. Composition and native serving must preserve the exact
 phase and pending outcome obligation. Unsupported consumers cannot treat it as an active claim.
 Source/local-callee completion can discharge an obligation only with a closed normal-completion
 domain under that occurrence's admitted inputs and condition. See the active plan's S3/S4/S6 queue.
+
+`modeled_action_postconditions` retains a mandatory Normal obligation independently of the
+candidate's descriptor and modality. Removing or replacing it, swapping occurrences or deleting
+invocation/binding evidence invalidates shared admission or source reconstruction. The common
+invocation owner serves both relations; core publishes them from one pure composition result.
+Seven source cases qualify serialization/compression/registration implications while their
+activated assessments keep unproved-outcome refusals. Symbolic acquisition has pure contract
+controls only: explicit `open` retains `summary_proof_limit` under its overload evidence, and
+ordinary `open` remains unsupported. No cap is raised or resource identity inferred.
+The [six-program independent challenge](../../design_review/evidence/2026-09-27_normal-postconditions/README.md)
+distinguishes normal completion from partial failure and registration from later invocation.
+Native export/selection, source/local outcome discharge and concrete resource fates remain open.
 
 > Decision: ADR-0062
 

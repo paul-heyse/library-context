@@ -205,6 +205,7 @@ cpg_schema::relations! {
         sql = "SELECT * FROM summary_flows".to_owned();
     stored_return_certificates = "validate_return_certificates", deps = ["return_completion_certificates"], sql = "SELECT * FROM return_completion_certificates".to_owned();
     stored_action_assessments = "validate_action_assessments", deps = ["modeled_action_assessments"], sql = "SELECT * FROM modeled_action_assessments".to_owned();
+    stored_action_postconditions = "validate_action_postconditions", deps = ["modeled_action_postconditions"], sql = "SELECT * FROM modeled_action_postconditions".to_owned();
     stored_call_executions = "validate_call_executions", deps = ["call_executions"], sql = "SELECT * FROM call_executions".to_owned();
     stored_call_execution_steps = "validate_call_execution_steps", deps = ["call_execution_steps"], sql = "SELECT * FROM call_execution_steps".to_owned();
     stored_context_sites = "validate_context_sites", deps = ["source_context_sites"], sql = "SELECT * FROM source_context_sites".to_owned();
@@ -1990,6 +1991,12 @@ async fn validate_actions(ctx:&SessionContext)->Result<Vec<Violation>,CoreError>
     let mut actual:Vec<cpg_schema::action::ModeledActionAssessmentsRow>=sql::fetch(ctx,&stored_action_assessments(),sql::Params::new()).await?;
     actual.sort_by_key(|r|(r.snapshot_id,r.assessment_id));
     let expected=crate::summaries::action_assessments(ctx).await?;
-    Ok(if actual==expected {Vec::new()} else {vec![Violation {rule:"action-source-equality".into(),rows:1,
-        sample:"action assessment differs from candidate, invocation or callee outcome evidence".into()}]})
+    let mut postconditions:Vec<cpg_schema::action::ModeledActionPostconditionsRow>=sql::fetch(ctx,&stored_action_postconditions(),sql::Params::new()).await?;
+    postconditions.sort_by_key(|r|(r.snapshot_id,r.postcondition_id));
+    let mut violations=Vec::new();
+    if actual!=expected.assessments {violations.push(Violation {rule:"action-source-equality".into(),rows:1,
+        sample:"action assessment differs from candidate, invocation or callee outcome evidence".into()});}
+    if postconditions!=expected.postconditions {violations.push(Violation {rule:"action-postcondition-source-equality".into(),rows:1,
+        sample:"normal postcondition differs from candidate or reached invocation evidence".into()});}
+    Ok(violations)
 }

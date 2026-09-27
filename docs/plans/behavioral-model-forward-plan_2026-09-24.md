@@ -24,7 +24,7 @@ integrated qualification is outstanding.**
 | L7 serving | **Partially implemented.** FORMAT 9 has internal callable-formal support, checked native IPC decoding and bounded cited-finding support closure; a finalizer and a finding-only coordinates claim round-trip in focused tests. `inspect_value_paths` remains path-local and exposes source fact/origin IDs on both positive paths and open boundaries; operation facet values retain verdicts | Typed operation-wide compatibility/effect/role filters, full proof spans beyond the cited witness projection, clean-wheel query |
 | Integrated acceptance | **Not established.** A 2026-09-25 `just test-all` attempt passed 313/313 release Rust tests and 110/112 Python tests (two stale tool-list expectations, since corrected: `test_server.py` 12/12 passed). The rerun was stopped at operator direction; the operator's expectation of a pass is an assumption, not an outcome | `just test-all`, fresh `just pilot`, Q01/Q03/Q05/Q09, structured evaluation, clean-wheel query and the increment-end review are `not_run` |
 
-**Accepted schema migrations at this checkpoint:** extractor output 33; compiler output 95; catalog format 6.
+**Accepted schema migrations at this checkpoint:** extractor output 33; compiler output 96; catalog format 6.
 The current contracts include `expression_evaluations` and ordered operand proofs, statement/frame
 completion, condition-keyed return entry, native MRO completeness, a persisted exact exception
 codebook and `summary_origin_coverage`. Snapshots are reviewed migrations; a fresh store rebuild
@@ -246,13 +246,20 @@ the real source applications produces DefaultUnavailable and invalidates publica
 ([evidence](../design_review/evidence/2026-09-27_pinned-defaults/README.md)); native actions,
 nested default-proof ownership and broader local/default/model domains remain open.
 
-**Next S3 outcome contract (Accepted target; implementation Proposed, ADR-0062).** Retain fallible models' Normal rules as explicit
-normal-exit postconditions, separate from activated assessments. Reuse shared invocation/binding
-admission; carry an undischarged exact-callee outcome obligation through composition and S6.
+**S3 outcome contract (Implemented and focused Tested, 2026-09-27; compiler96, ADR-0062).** Fallible
+models' Normal rules now have explicit normal-exit postconditions, separate from activated
+assessments. Shared invocation/binding admission checks both; a mandatory undischarged exact-callee
+outcome obligation must survive future composition and S6.
 Returned-resource endpoints remain symbolic until independent identity/fate evidence exists.
 This adds useful model-relative implications without weakening proved triggers or asserting
 that normal completion is feasible. Value-independent source/local-callee completion and concrete
 resource/transform fates remain required; this relation alone closes none of them.
+The final 36-case release selection passed, including seven real source implications, bound
+subject/obligation mutations, publication deletion/replacement and original 64→65 proof controls.
+Explicit `open` retains its natural `summary_proof_limit`; symbolic-resource positives are
+contract-only. Six generated runtime cases independently challenge entry/outcome/action distinctions
+([evidence](../design_review/evidence/2026-09-27_normal-postconditions/README.md)). No native or
+assembled Stage 3 acceptance is claimed.
 
 ### 3.1 Contract repairs before extension
 

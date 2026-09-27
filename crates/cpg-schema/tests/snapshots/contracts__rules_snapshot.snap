@@ -170,6 +170,8 @@ key:call_execution_steps
   SELECT snapshot_id, execution_id, ordinal, count(*) AS n FROM call_execution_steps GROUP BY snapshot_id, execution_id, ordinal HAVING count(*) > 1
 key:modeled_action_assessments
   SELECT snapshot_id, assessment_id, count(*) AS n FROM modeled_action_assessments GROUP BY snapshot_id, assessment_id HAVING count(*) > 1
+key:modeled_action_postconditions
+  SELECT snapshot_id, postcondition_id, count(*) AS n FROM modeled_action_postconditions GROUP BY snapshot_id, postcondition_id HAVING count(*) > 1
 key:source_context_value_identities
   SELECT snapshot_id, identity_id, count(*) AS n FROM source_context_value_identities GROUP BY snapshot_id, identity_id HAVING count(*) > 1
 key:source_context_arguments
@@ -656,6 +658,20 @@ ref:modeled_action_assessments.condition_id->analysis_conditions|conditions
   SELECT f.condition_id AS value FROM modeled_action_assessments f LEFT ANTI JOIN (SELECT condition_id AS k FROM analysis_conditions UNION ALL SELECT condition_id AS k FROM conditions) r ON f.condition_id = r.k WHERE f.condition_id IS NOT NULL
 ref:modeled_action_assessments.normal_syntax_fact_id->expression_evaluations
   SELECT f.normal_syntax_fact_id AS value FROM modeled_action_assessments f LEFT ANTI JOIN (SELECT syntax_fact_id AS k FROM expression_evaluations) r ON f.normal_syntax_fact_id = r.k WHERE f.normal_syntax_fact_id IS NOT NULL
+ref:modeled_action_postconditions.function_node_id->declarations
+  SELECT f.function_node_id AS value FROM modeled_action_postconditions f LEFT ANTI JOIN (SELECT node_id AS k FROM declarations) r ON f.function_node_id = r.k WHERE f.function_node_id IS NOT NULL
+ref:modeled_action_postconditions.call_site_node_id->call_syntax
+  SELECT f.call_site_node_id AS value FROM modeled_action_postconditions f LEFT ANTI JOIN (SELECT node_id AS k FROM call_syntax) r ON f.call_site_node_id = r.k WHERE f.call_site_node_id IS NOT NULL
+ref:modeled_action_postconditions.pysa_fact_id->pysa_calls
+  SELECT f.pysa_fact_id AS value FROM modeled_action_postconditions f LEFT ANTI JOIN (SELECT fact_id AS k FROM pysa_calls) r ON f.pysa_fact_id = r.k WHERE f.pysa_fact_id IS NOT NULL
+ref:modeled_action_postconditions.model_id->model_targets
+  SELECT f.model_id AS value FROM modeled_action_postconditions f LEFT ANTI JOIN (SELECT model_id AS k FROM model_targets) r ON f.model_id = r.k WHERE f.model_id IS NOT NULL
+ref:modeled_action_postconditions.rule_id->model_effects|model_callbacks|model_resources
+  SELECT f.rule_id AS value FROM modeled_action_postconditions f LEFT ANTI JOIN (SELECT rule_id AS k FROM model_effects UNION ALL SELECT rule_id AS k FROM model_callbacks UNION ALL SELECT rule_id AS k FROM model_resources) r ON f.rule_id = r.k WHERE f.rule_id IS NOT NULL
+ref:modeled_action_postconditions.execution_id->call_executions
+  SELECT f.execution_id AS value FROM modeled_action_postconditions f LEFT ANTI JOIN (SELECT execution_id AS k FROM call_executions) r ON f.execution_id = r.k WHERE f.execution_id IS NOT NULL
+ref:modeled_action_postconditions.condition_id->analysis_conditions|conditions
+  SELECT f.condition_id AS value FROM modeled_action_postconditions f LEFT ANTI JOIN (SELECT condition_id AS k FROM analysis_conditions UNION ALL SELECT condition_id AS k FROM conditions) r ON f.condition_id = r.k WHERE f.condition_id IS NOT NULL
 ref:call_executions.function_node_id->declarations
   SELECT f.function_node_id AS value FROM call_executions f LEFT ANTI JOIN (SELECT node_id AS k FROM declarations) r ON f.function_node_id = r.k WHERE f.function_node_id IS NOT NULL
 ref:call_executions.call_node_id->call_syntax
@@ -1688,6 +1704,12 @@ codebook:modeled_action_assessments.channel
   SELECT channel FROM modeled_action_assessments WHERE channel IS NOT NULL AND channel NOT IN (0, 1, 2, 3, 4, 5, 6, 7)
 codebook:modeled_action_assessments.reason
   SELECT reason FROM modeled_action_assessments WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36)
+codebook:modeled_action_postconditions.channel
+  SELECT channel FROM modeled_action_postconditions WHERE channel IS NOT NULL AND channel NOT IN (0, 1, 2, 3, 4, 5, 6, 7)
+codebook:modeled_action_postconditions.outcome_obligation
+  SELECT outcome_obligation FROM modeled_action_postconditions WHERE outcome_obligation IS NOT NULL AND outcome_obligation NOT IN (0, 1, 2, 3)
+codebook:modeled_action_postconditions.reason
+  SELECT reason FROM modeled_action_postconditions WHERE reason IS NOT NULL AND reason NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36)
 codebook:concept_attributes.kind
   SELECT kind FROM concept_attributes WHERE kind IS NOT NULL AND kind NOT IN (0, 1, 2, 3, 4, 5, 6, 7)
 codebook:concept_attributes.parameter_kind

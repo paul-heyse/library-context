@@ -1648,3 +1648,89 @@ accepted and both owners “Accepted target; implementation Proposed.” No post
 activated action, native consumer, resource identity or Stage 3 completion is accepted here.
 Product tests, full `just test-all` and fresh `just pilot` were **not_run** for this documentation
 review. Only this existing review artifact was changed by the reviewer.
+
+## 30. Bounded implementation follow-up: normal-exit postconditions
+
+**2026-09-27 · change/conformance · Implemented; focused Tested as attributed below.**
+This reviews compiler 96's source/Delta implementation of ADR-0062 and §29 under core 3.0,
+CI 1.1 and the repository binding. Catalog 6 and FORMAT 9 remain unchanged. Installed native
+is compiler 93; this review accepts no native postcondition export, selection or rendering.
+
+`cpg-schema::action` owns the new `modeled_action_postconditions` contract, identity and shared
+admission. Normal is a mandatory non-null obligation, checked against both the row and authored
+candidate before a refusal or positive implication is admitted. A usable implication must cite
+the exact execution/condition and pass `admit_invocation`. This common function now owns
+candidate/application/target, input/schema binding, raw argument domain, pinned defaults and
+ordered invocation checks for both assessments and postconditions. Activated assessments retain
+their independent proved-trigger requirement; no expression, action, transfer or coverage state
+is promoted by the new relation.
+
+`lctx-analytics::actions::assess` returns the two relations from one acquisition/indexing path,
+including one positive or named-refusal postcondition per Normal candidate. Core publishes both
+and independently compares each with the reconstructed pure result. Descriptor and authored
+modality remain attached to the original candidate. The pending Normal obligation survives even
+if an assessment separately proves normal completion; this slice implements no obligation
+discharge. A valid implication claims neither feasibility nor occurrence of its antecedent.
+
+The symbolic resource exception has a separate subject interpretation: only Normal Acquire at
+Output/ReturnValue with CallResult status and this call's exact node/fact coordinates qualifies.
+It waives only the absent resource-identity premise for that symbolic endpoint. Open targets,
+foreign coordinates, wrong role/action/status, source refusal and malformed authored modality
+still fail. Actual-value assessments retain the resource-identity refusal. Input subjects use
+the unchanged exact argument binding. No resource identity, alias, acquisition occurrence,
+release pairing or release absence is produced.
+
+The qualification boundary matters here: **seven real source serialization/compression/
+registration implications pass**. Their corresponding Normal actions remain unactivated without
+callee completion. The fully explicit source `open` call exceeds the original 64-step proof cap
+and retains `summary_proof_limit` (code 30); the ordinary open call is also withheld. The positive
+symbolic-resource case is **contract-only**, not successful source activation or concrete resource
+qualification. The first test's contrary source expectation was corrected without changing the
+proof cap or weakening evidence requirements.
+
+| Judgment/gate | Bounded verdict | Basis and limit |
+|---|---|---|
+| A1 — Localize change | satisfied | Shared invocation admission owns common premises; analytics and core compose/publish both contracts without another semantic classifier |
+| A2 — Encode meaning structurally | satisfied | Mandatory Normal obligation, candidate modality and symbolic result interpretation remain distinct from activated outcomes and resource identity |
+| A3 — Extend through composition | satisfied | Existing candidate/binding/invocation contracts support ordinary Normal rules; no second catalog, evaluator or generic framework |
+| G1/G2/G3/G5/G6; CI-G1 | pass for the source/Delta slice | Independent reconstruction and obligation/scope/binding mutations protect implication meaning; source and pure cap controls retain refusal |
+| G4/G7/G8; CI-G3 | pass for this slice | Pure composition, explicit supported limits and independent generated runtime cases; no execution oracle feeds production facts |
+| CI-G2 | pass for inspected publication; native serving unresolved | Candidate and invocation support remain source-reconstructed; unsupported native consumers receive no successful-action projection |
+
+The extension scenario remains a new ordinary Normal rule: its declaration and qualification
+reuse shared admission and one producer, while a new exit domain requires the ADR's explicit
+revisit. Concrete completion/resource/transform composition and outcome-qualified serving are
+still separate consumers; this relation does not satisfy those remaining Stage 3 obligations.
+No additional in-scope architectural or correctness finding was identified.
+
+**Attributed receipt, inspected 2026-09-27; the reviewer did not run product tests:**
+
+```sh
+CARGO_TARGET_DIR=/home/paul/library-context/target INSTA_UPDATE=no RUST_MIN_STACK=16777216 \
+cargo nextest run --release -p cpg-schema -p cpg-core -p lctx-analytics --lib \
+  --test contracts --test codebooks --test compile \
+  -E 'binary(contracts) | binary(codebooks) | test(models::) | test(actions::) | test(call_execution::) | test(pinned_defaults_require_an_independent_promise_and_all_signature_agreement) | test(action_triggers_preserve_partial_io_and_withhold_unproved_outcomes) | test(call_execution_proves_reached_inputs_without_inventing_callee_completion) | test(validation_schema_candidates_keep_attribution_separate_from_subjects)' \
+  --status-level fail --final-status-level fail
+```
+
+**passed:** 36 tests, 176 skipped, 8.194s (`/tmp/lctx-stage3-postconditions-tests2.log`). The author
+read and accepted the new table/rule migrations. Pure controls cover mandatory obligation,
+foreign/missing execution, condition/scope, open target, shared bound-subject requirements,
+narrow symbolic shape and the 64-to-65-step boundary. Source/Delta controls replace Normal
+obligations with Invocation and remove postconditions or invocation evidence; publication rejects
+the changed meaning/missing support. The earlier selection had the expected migrations and the
+incorrect open-positive expectation; the final receipt supersedes that attempt.
+
+The author's `uv run --no-sync python docs/design_review/evidence/2026-09-27_normal-postconditions/runtime_oracle.py`
+and corresponding `uv run --no-sync ruff check` on that file **passed**. The retained
+[six-program evidence](../evidence/2026-09-27_normal-postconditions/README.md) distinguishes
+registration from later invocation, complete serialization from partial writes before failure,
+and successful open from failure returning no resource. The exit queue is explicitly exercised
+only by the isolated oracle after observing registration; it adds no production Stage 5 semantics.
+These finite observations do not establish arbitrary outcome feasibility or exhaustive coverage.
+
+**Decision: Accept the bounded source/Delta implementation.** Normal outcomes remain undischarged;
+source/local-callee completion, concrete resource/callback/transform fates, all-channel summaries
+and coverage, native semantic support and assembled Stage 3 remain open. Full `just test-all`,
+fresh `just pilot` and integrated qualification were **not_run** for this slice. Only this review
+artifact was changed by the reviewer.

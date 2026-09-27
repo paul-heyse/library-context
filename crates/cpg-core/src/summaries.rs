@@ -491,7 +491,7 @@ pub async fn source_contexts(ctx:&SessionContext)->Result<lctx_analytics::contex
 
 /// Acquire already-owned candidates and independent execution/outcome proofs; no action
 /// meaning or timing policy lives in orchestration.
-pub async fn action_assessments(ctx:&SessionContext)->Result<Vec<cpg_schema::action::ModeledActionAssessmentsRow>,CoreError> {
+pub async fn action_assessments(ctx:&SessionContext)->Result<lctx_analytics::actions::Outcome,CoreError> {
     let bindings=sql::fetch(ctx,&action_bindings(),sql::Params::new()).await?;
     let arguments=sql::fetch(ctx,&expression_call_arguments(),sql::Params::new()).await?;
     let effects=sql::fetch(ctx,&action_candidates_effect(),sql::Params::new()).await?;

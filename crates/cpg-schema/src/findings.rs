@@ -487,6 +487,7 @@ macro_rules! for_each_analysis_table {
             $crate::call_execution::CallExecutions,
             $crate::call_execution::CallExecutionSteps,
             $crate::action::ModeledActionAssessments,
+            $crate::action::ModeledActionPostconditions,
             $crate::context_value::SourceContextValueIdentities,
             $crate::context_protocol::SourceContextArguments,
             $crate::concept_attributes::ConceptAttributes,

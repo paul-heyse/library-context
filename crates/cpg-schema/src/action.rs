@@ -37,6 +37,69 @@ table!(
     }
 );
 
+table!(
+    /// If this exact reached invocation returns normally, its authored Normal rule holds.
+    /// A non-refused row proves the implication, never feasibility/occurrence of the outcome.
+    /// Returned resource paths are symbolic results here, never concrete resource identities.
+    ModeledActionPostconditions,ModeledActionPostconditionsRow = "modeled_action_postconditions",
+    family = Findings,
+    key = [snapshot_id,postcondition_id],
+    checks = [("normal_obligation","outcome_obligation = 0")],
+    {
+        snapshot_id:Id,
+        postcondition_id:Id,
+        candidate_id:Id,
+        channel:C,
+        function_node_id:Option<Id>,
+        call_site_node_id:Id,
+        pysa_fact_id:Id,
+        model_id:Id,
+        rule_id:Id,
+        execution_id:Option<Id>,
+        condition_id:Option<Id>,
+        /// Mandatory even when an activated assessment separately proves this outcome.
+        outcome_obligation:ModelExit,
+        reason:Option<B>,
+    }
+);
+
+pub fn postcondition_identity(r:&ModeledActionPostconditionsRow)->Id {
+    IdHasher::new("modeled-action-postcondition").id(r.candidate_id).i64(i64::from(r.channel.code()))
+        .opt_id(r.function_node_id).id(r.call_site_node_id).id(r.pysa_fact_id).id(r.model_id).id(r.rule_id)
+        .opt_id(r.execution_id).opt_id(r.condition_id).i64(i64::from(r.outcome_obligation.code()))
+        .opt_i64(r.reason.map(|x|i64::from(x.code()))).finish_id()
+}
+
+/// Subject interpretation belongs to the proof kind, not to a consumer's missing-ID fallback.
+enum SubjectMeaning { ActualValue, NormalPostcondition }
+
+impl Candidate<'_> {
+    fn symbolic_normal_acquisition(self)->bool {
+        matches!(self,Self::Resource(r) if r.exit==ModelExit::Normal
+            && r.action==crate::codebook::ModelResourceAction::Acquire
+            && r.resource_role==ModelPathRole::Output && r.resource_path_kind==ModelPathKind::ReturnValue
+            && r.source_status==ModelResourceSourceStatus::CallResult && r.source_reason.is_none()
+            && r.source_expression_node_id==Some(r.call_site_node_id) && r.source_expression_fact_id==Some(r.call_fact_id))
+    }
+}
+
+pub fn admit_postcondition(r:&ModeledActionPostconditionsRow,candidate:Candidate<'_>,support:&Support<'_>)
+    ->Result<(),ProofAdmissionError> {
+    let v=candidate.view();
+    if r.postcondition_id!=postcondition_identity(r) || r.snapshot_id!=v.snapshot_id || r.candidate_id!=v.candidate_id
+        || r.channel!=v.channel || r.function_node_id!=v.function_node_id || r.call_site_node_id!=v.call_site_node_id
+        || r.pysa_fact_id!=v.pysa_fact_id || r.model_id!=v.model_id || r.rule_id!=v.rule_id
+        || r.outcome_obligation!=ModelExit::Normal || v.trigger!=ModelExit::Normal {
+        return Err("postcondition lacks its exact candidate and mandatory Normal obligation".into());
+    }
+    if r.reason.is_some() {return Ok(());}
+    let (_,execution)=admit_invocation(candidate,support,SubjectMeaning::NormalPostcondition)?;
+    if r.execution_id!=Some(execution.execution_id) || r.condition_id!=Some(execution.condition_id) {
+        return Err("postcondition outcome obligation belongs to another invocation".into());
+    }
+    Ok(())
+}
+
 #[derive(Clone,Copy)]
 pub enum Candidate<'a> {
     Effect(&'a ModeledEffectSitesRow),
@@ -190,44 +253,9 @@ pub fn admit(r:&ModeledActionAssessmentsRow,candidate:Candidate<'_>,support:&Sup
         }
         return Ok(());
     }
-    if let Some(reason)=v.source_reason {return Err(ProofAdmissionError {reason,message:"action subject or target unavailable"});}
-    let app=support.application.ok_or("action lacks its exact model application")?;
-    if app.snapshot_id!=v.snapshot_id || app.call_site_node_id!=v.call_site_node_id || app.call_fact_id!=v.call_fact_id
-        || app.function_node_id!=v.function_node_id || app.pysa_fact_id!=v.pysa_fact_id || app.model_id!=v.model_id
-        || app.target_node_id!=v.target_node_id || app.target_definition_fact_id!=v.target_definition_fact_id
-        || app.model_origin!=Origin::SyntheticModel || app.phase!=InvocationPhase::Call || app.target_count!=1 || app.target_modality!=Modality::Definite
-        || !app.candidate_set_complete_under_model || app.has_unresolved_remainder {
-        return Err("action application differs from the admitted callee".into());
-    }
-    for(role,path,node,fact)in candidate.bindings() {
-        let found:Vec<_>=support.bindings.iter().filter(|b|b.snapshot_id==v.snapshot_id
-            && b.call_site_node_id==v.call_site_node_id && b.pysa_fact_id==v.pysa_fact_id
-            && b.model_id==v.model_id && b.rule_id==v.rule_id && b.path_role==role && b.path_id==path).collect();
-        let [binding]=found.as_slice() else {return Err("action lacks one exact subject binding".into());};
-        if binding.target_node_id!=v.target_node_id || binding.argument_node_id!=node || binding.argument_fact_id!=fact
-            || binding.status!=ModelArgumentStatus::Bound || binding.reason.is_some() || binding.signature_count<=0
-            || binding.matched_signatures!=binding.signature_count || node.is_none() || fact.is_none()
-            || support.arguments.iter().filter(|a|a.snapshot_id==v.snapshot_id && a.call_node_id==v.call_site_node_id
-                && Some(a.node_id)==node && Some(a.fact_id)==fact).count()!=1 {
-            return Err("action subject is not this call's bound argument".into());
-        }
-    }
-    let e=support.execution.ok_or("action lacks reached invocation")?;
-    if e.snapshot_id!=v.snapshot_id || Some(e.function_node_id)!=v.function_node_id || e.call_node_id!=v.call_site_node_id
-        || e.call_fact_id!=v.call_fact_id || e.pysa_fact_id!=v.pysa_fact_id || e.target_node_id!=v.target_node_id
-        || e.model_id!=v.model_id || e.phase!=app.phase || r.execution_id!=Some(e.execution_id)
-        || r.condition_id!=Some(e.condition_id) {
+    let(app,e)=admit_invocation(candidate,support,SubjectMeaning::ActualValue)?;
+    if r.execution_id!=Some(e.execution_id) || r.condition_id!=Some(e.condition_id) {
         return Err("action execution scope mismatch".into());
-    }
-    if let Some(reason)=e.reason {return Err(ProofAdmissionError {reason,message:"action invocation unresolved"});}
-    crate::call_execution::admit(e,support.invocation_steps)?;
-    if e.default_formal_count.is_some_and(|n|n>0) && !app.target_call_defaults_available {
-        return Err("action lacks an authored pinned-default availability promise".into());
-    }
-
-    if support.arguments.len()!=e.argument_count as usize
-        || support.arguments.iter().any(|a|a.snapshot_id!=e.snapshot_id || a.call_node_id!=e.call_node_id) {
-        return Err("action argument domain differs from its invocation".into());
     }
 
     match v.trigger {
@@ -270,4 +298,55 @@ pub fn admit(r:&ModeledActionAssessmentsRow,candidate:Candidate<'_>,support:&Sup
         },
     }
     Ok(())
+}
+
+/// One owner for candidate, application, subject and invocation premises. Outcome meaning
+/// remains with the assessment/postcondition consumer; no Normal proof is inferred here.
+fn admit_invocation<'a>(candidate:Candidate<'_>,support:&Support<'a>,meaning:SubjectMeaning)
+    ->Result<(&'a ModelApplicationsRow,&'a CallExecutionsRow),ProofAdmissionError> {
+    let v=candidate.view();
+    let symbolic=matches!(meaning,SubjectMeaning::NormalPostcondition) && candidate.symbolic_normal_acquisition();
+    if let Some(reason)=v.source_reason {
+        if !(symbolic && reason==B::ResourceIdentityUnavailable) {
+            return Err(ProofAdmissionError {reason,message:"action subject or target unavailable"});
+        }
+    }
+    let app=support.application.ok_or("action lacks its exact model application")?;
+    if app.snapshot_id!=v.snapshot_id || app.call_site_node_id!=v.call_site_node_id || app.call_fact_id!=v.call_fact_id
+        || app.function_node_id!=v.function_node_id || app.pysa_fact_id!=v.pysa_fact_id || app.model_id!=v.model_id
+        || app.target_node_id!=v.target_node_id || app.target_definition_fact_id!=v.target_definition_fact_id
+        || app.model_origin!=Origin::SyntheticModel || app.phase!=InvocationPhase::Call || app.target_count!=1 || app.target_modality!=Modality::Definite
+        || !app.candidate_set_complete_under_model || app.has_unresolved_remainder {
+        return Err("action application differs from the admitted callee".into());
+    }
+    for(role,path,node,fact)in if symbolic {Vec::new()} else {candidate.bindings()} {
+        let found:Vec<_>=support.bindings.iter().filter(|b|b.snapshot_id==v.snapshot_id
+            && b.call_site_node_id==v.call_site_node_id && b.pysa_fact_id==v.pysa_fact_id
+            && b.model_id==v.model_id && b.rule_id==v.rule_id && b.path_role==role && b.path_id==path).collect();
+        let [binding]=found.as_slice() else {return Err("action lacks one exact subject binding".into());};
+        if binding.target_node_id!=v.target_node_id || binding.argument_node_id!=node || binding.argument_fact_id!=fact
+            || binding.status!=ModelArgumentStatus::Bound || binding.reason.is_some() || binding.signature_count<=0
+            || binding.matched_signatures!=binding.signature_count || node.is_none() || fact.is_none()
+            || support.arguments.iter().filter(|a|a.snapshot_id==v.snapshot_id && a.call_node_id==v.call_site_node_id
+                && Some(a.node_id)==node && Some(a.fact_id)==fact).count()!=1 {
+            return Err("action subject is not this call's bound argument".into());
+        }
+    }
+    let e=support.execution.ok_or("action lacks reached invocation")?;
+    if e.snapshot_id!=v.snapshot_id || Some(e.function_node_id)!=v.function_node_id || e.call_node_id!=v.call_site_node_id
+        || e.call_fact_id!=v.call_fact_id || e.pysa_fact_id!=v.pysa_fact_id || e.target_node_id!=v.target_node_id
+        || e.model_id!=v.model_id || e.phase!=app.phase {
+        return Err("action execution scope mismatch".into());
+    }
+    if let Some(reason)=e.reason {return Err(ProofAdmissionError {reason,message:"action invocation unresolved"});}
+    crate::call_execution::admit(e,support.invocation_steps)?;
+    if e.default_formal_count.is_some_and(|n|n>0) && !app.target_call_defaults_available {
+        return Err("action lacks an authored pinned-default availability promise".into());
+    }
+
+    if support.arguments.len()!=e.argument_count as usize
+        || support.arguments.iter().any(|a|a.snapshot_id!=e.snapshot_id || a.call_node_id!=e.call_node_id) {
+        return Err("action argument domain differs from its invocation".into());
+    }
+    Ok((app,e))
 }

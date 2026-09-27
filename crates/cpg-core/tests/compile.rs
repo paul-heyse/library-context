@@ -5846,12 +5846,45 @@ budget = 1
     for name in ["missing_required","raising_explicit"] {
         assert!(defaults["cases"][name]["starts"].as_array().unwrap().is_empty());
     }
-    for table in ["modeled_action_assessments","call_execution_steps"] {
+    let postconditions=sql::render(&ctx,"SELECT d.name,p.reason,p.outcome_obligation,p.channel FROM modeled_action_postconditions p \
+        JOIN declarations d ON d.node_id=p.function_node_id").await.unwrap();
+    for name in ["normal","before_raise","missing_defaults","dumps_defaults","compression","compress_defaults","registration"] {
+        assert_eq!(count(&ctx,&format!("SELECT count(*) FROM modeled_action_postconditions p JOIN declarations d \
+            ON d.node_id=p.function_node_id WHERE d.name='{name}' AND p.reason IS NULL AND p.outcome_obligation={}",
+            cpg_schema::codebook::ModelExit::Normal.code())).await,1,"{postconditions}");
+    }
+    for name in ["after_raise","raising_argument","after_opaque","missing_required","acquisition","acquisition_explicit"] {
+        assert_eq!(count(&ctx,&format!("SELECT count(*) FROM modeled_action_postconditions p JOIN declarations d \
+            ON d.node_id=p.function_node_id WHERE d.name='{name}' AND p.reason IS NULL")).await,0,"{postconditions}");
+    }
+    assert_eq!(count(&ctx,"SELECT count(*) FROM modeled_action_postconditions WHERE channel=5 AND reason IS NULL").await,1,
+        "registration postcondition is separate from actual callback invocation");
+    assert_eq!(count(&ctx,&format!("SELECT count(*) FROM modeled_action_postconditions p JOIN declarations d \
+        ON d.node_id=p.function_node_id WHERE d.name='acquisition_explicit' AND p.reason={}",BoundaryReason::SummaryProofLimit.code())).await,1,
+        "the pinned open overload evidence still obeys the original proof cap: {postconditions}");
+    let implications=std::process::Command::new("uv").args(["run","--no-sync","python",
+        "docs/design_review/evidence/2026-09-27_normal-postconditions/runtime_oracle.py"]).current_dir(&repo).output().unwrap();
+    assert!(implications.status.success(),"{}",String::from_utf8_lossy(&implications.stderr));
+    let implications:serde_json::Value=serde_json::from_slice(&implications.stdout).unwrap();
+    assert_eq!(implications["outcome"],"passed");
+    assert_eq!(implications["cases"]["register_normal"]["before_shutdown"],serde_json::json!([]));
+    assert_eq!(implications["cases"]["register_raises"]["outcome"],"TypeError");
+    assert_eq!(implications["cases"]["serialize_raises"]["outcome"],"TypeError");
+    assert_eq!(implications["cases"]["acquire_raises"]["resource_result"],false);
+    let original=sql::query(&ctx,"SELECT * FROM modeled_action_postconditions").await.unwrap().into_view();
+    let erased=sql::query(&ctx,"SELECT * EXCLUDE (outcome_obligation), CAST(3 AS SMALLINT) AS outcome_obligation \
+        FROM modeled_action_postconditions").await.unwrap().into_view();
+    ctx.deregister_table("modeled_action_postconditions").unwrap();ctx.register_table("modeled_action_postconditions",erased).unwrap();
+    let violations=cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(violations.iter().any(|v|v.rule=="action-postcondition-source-equality"),"{violations:?}");
+    ctx.deregister_table("modeled_action_postconditions").unwrap();ctx.register_table("modeled_action_postconditions",original).unwrap();
+    for table in ["modeled_action_assessments","modeled_action_postconditions","call_execution_steps"] {
         let original=sql::query(&ctx,&format!("SELECT * FROM {table}")).await.unwrap().into_view();
         let missing=sql::query(&ctx,&format!("SELECT * FROM {table} WHERE false")).await.unwrap().into_view();
         ctx.deregister_table(table).unwrap();ctx.register_table(table,missing).unwrap();
         let violations=cpg_core::validate::validate(&ctx).await.unwrap();
-        assert!(violations.iter().any(|v|v.rule=="action-source-equality"),"{table}: {violations:?}");
+        let expected=if table=="modeled_action_postconditions" {"action-postcondition-source-equality"} else {"action-source-equality"};
+        assert!(violations.iter().any(|v|v.rule==expected),"{table}: {violations:?}");
         ctx.deregister_table(table).unwrap();ctx.register_table(table,original).unwrap();
     }
 }

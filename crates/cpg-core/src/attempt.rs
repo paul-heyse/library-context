@@ -119,7 +119,8 @@ pub struct Published {
 /// 93: independent lexical input/model identity for direct modeled returns.
 /// 94: explicit authored action triggers and candidate-backed action assessments.
 /// 95: pinned default availability and independently committed omitted-formal obligations.
-pub const COMPILER_OUTPUT_VERSION: u32 = 95;
+/// 96: normal-exit action implications with mandatory undischarged outcome obligations.
+pub const COMPILER_OUTPUT_VERSION: u32 = 96;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -828,7 +829,8 @@ async fn finish(
         write_analysis::<cpg_schema::call_execution::CallExecutions>(&ctx,root,snapshot_id,&completions.calls,w).await?;
         write_analysis::<cpg_schema::call_execution::CallExecutionSteps>(&ctx,root,snapshot_id,&completions.call_steps,w).await?;
         let actions=crate::summaries::action_assessments(&ctx).await?;
-        write_analysis::<cpg_schema::action::ModeledActionAssessments>(&ctx,root,snapshot_id,&actions,w).await?;
+        write_analysis::<cpg_schema::action::ModeledActionAssessments>(&ctx,root,snapshot_id,&actions.assessments,w).await?;
+        write_analysis::<cpg_schema::action::ModeledActionPostconditions>(&ctx,root,snapshot_id,&actions.postconditions,w).await?;
 
         write_analysis::<cpg_schema::completion_proof::ReturnCompletionCertificates>(&ctx,root,snapshot_id,&completions.certificates,w).await?;
         write_analysis::<StatementCompletions>(&ctx, root, snapshot_id, &completions.statements, w).await?;

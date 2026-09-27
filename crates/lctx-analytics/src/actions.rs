@@ -1,6 +1,7 @@
 //! Pure composition of authored action candidates with independently proved call triggers.
 use std::collections::BTreeMap;
-use cpg_schema::action::{Candidate,ModeledActionAssessmentsRow,Support,admit,identity,normal_digest};
+use cpg_schema::action::{Candidate,ModeledActionAssessmentsRow,ModeledActionPostconditionsRow,
+    Support,admit,identity,normal_digest,admit_postcondition,postcondition_identity};
 use cpg_schema::behavior::{ModeledEffectSitesRow,ModeledCallbackSitesRow,ModeledResourceSitesRow,
     ModelApplicationsRow,ExpressionEvaluationsRow,ExpressionEvaluationStepsRow};
 use cpg_schema::call_execution::{CallExecutionsRow,CallExecutionStepsRow};
@@ -23,7 +24,13 @@ fn unique_index<'a,T,K:Ord>(rows:&'a [T],key:impl Fn(&T)->K)->BTreeMap<K,Option<
     index
 }
 
-pub fn assess(inputs:Inputs<'_>)->Vec<ModeledActionAssessmentsRow> {
+#[derive(Default)]
+pub struct Outcome {
+    pub assessments:Vec<ModeledActionAssessmentsRow>,
+    pub postconditions:Vec<ModeledActionPostconditionsRow>,
+}
+
+pub fn assess(inputs:Inputs<'_>)->Outcome {
     let applications=unique_index(inputs.applications,|r|(r.snapshot_id,r.call_site_node_id,r.pysa_fact_id,r.model_id));
     let executions=unique_index(inputs.executions,|r|(r.snapshot_id,r.call_node_id,r.pysa_fact_id,r.model_id));
     let expressions=unique_index(inputs.expressions,|r|(r.snapshot_id,r.syntax_fact_id));
@@ -37,7 +44,7 @@ pub fn assess(inputs:Inputs<'_>)->Vec<ModeledActionAssessmentsRow> {
     for b in inputs.bindings {bindings.entry((b.snapshot_id,b.call_site_node_id,b.pysa_fact_id,b.model_id,b.rule_id)).or_default().push(b.clone());}
     let mut arguments:BTreeMap<_,Vec<_>>=BTreeMap::new();
     for a in inputs.arguments {arguments.entry((a.snapshot_id,a.call_node_id)).or_default().push(a.clone());}
-    let mut out=Vec::new();
+    let mut out=Outcome::default();
     for candidate in inputs.effects.iter().map(Candidate::Effect)
         .chain(inputs.callbacks.iter().map(Candidate::Callback)).chain(inputs.resources.iter().map(Candidate::Resource)) {
         let v=candidate.view();let key=(v.snapshot_id,v.call_site_node_id,v.pysa_fact_id,v.model_id);
@@ -67,9 +74,22 @@ pub fn assess(inputs:Inputs<'_>)->Vec<ModeledActionAssessmentsRow> {
             row.reason=Some(reason);row.normal_syntax_fact_id=None;row.normal_step_count=0;
             row.normal_steps_digest=normal_digest(&[]);row.assessment_id=identity(&row);
         }
-        out.push(row);
+        out.assessments.push(row);
+        if v.trigger==ModelExit::Normal {
+            let mut post=ModeledActionPostconditionsRow {snapshot_id:v.snapshot_id,postcondition_id:Id::ZERO,
+                candidate_id:v.candidate_id,channel:v.channel,function_node_id:v.function_node_id,
+                call_site_node_id:v.call_site_node_id,pysa_fact_id:v.pysa_fact_id,model_id:v.model_id,rule_id:v.rule_id,
+                execution_id:execution.map(|e|e.execution_id),condition_id:execution.map(|e|e.condition_id),
+                outcome_obligation:ModelExit::Normal,reason:None};
+            post.postcondition_id=postcondition_identity(&post);
+            post.reason=if !ordered {Some(BoundaryReason::MissingEvidence)}
+                else {admit_postcondition(&post,candidate,&support).err().map(|e|e.reason)};
+            post.postcondition_id=postcondition_identity(&post);
+            out.postconditions.push(post);
+        }
     }
-    out.sort_by_key(|r|(r.snapshot_id,r.assessment_id));
+    out.assessments.sort_by_key(|r|(r.snapshot_id,r.assessment_id));
+    out.postconditions.sort_by_key(|r|(r.snapshot_id,r.postcondition_id));
     out
 }
 
@@ -124,13 +144,80 @@ mod tests {
         fn assess(&self)->ModeledActionAssessmentsRow {
             let mut rows=assess(Inputs {effects:std::slice::from_ref(&self.effect),applications:std::slice::from_ref(&self.app),
                 executions:std::slice::from_ref(&self.execution),execution_steps:&self.steps,expressions:std::slice::from_ref(&self.normal),
-                expression_steps:&self.normal_steps,..Default::default()});
+                expression_steps:&self.normal_steps,..Default::default()}).assessments;
             assert_eq!(rows.len(),1);rows.pop().unwrap()
         }
         fn admits(&self,row:&ModeledActionAssessmentsRow)->bool {
             let proof:Vec<_>=self.steps.iter().map(|s|SummaryFlowProofStep {kind:s.kind,evidence_id:s.evidence_id,condition_id:s.condition_id}).collect();
             admit(row,Candidate::Effect(&self.effect),&Support {bindings:&[],arguments:&[],application:Some(&self.app),execution:Some(&self.execution),
                 invocation_steps:&proof,normal:Some(&self.normal),normal_steps:&self.normal_steps}).is_ok()
+        }
+        fn postcondition(&self)->ModeledActionPostconditionsRow {
+            let mut out=assess(Inputs {effects:std::slice::from_ref(&self.effect),applications:std::slice::from_ref(&self.app),
+                executions:std::slice::from_ref(&self.execution),execution_steps:&self.steps,..Default::default()});
+            assert_eq!(out.postconditions.len(),1);out.postconditions.pop().unwrap()
+        }
+        fn admits_postcondition(&self,row:&ModeledActionPostconditionsRow)->bool {
+            let proof:Vec<_>=self.steps.iter().map(|s|SummaryFlowProofStep {kind:s.kind,evidence_id:s.evidence_id,condition_id:s.condition_id}).collect();
+            admit_postcondition(row,Candidate::Effect(&self.effect),&Support {bindings:&[],arguments:&[],application:Some(&self.app),
+                execution:Some(&self.execution),invocation_steps:&proof,normal:None,normal_steps:&[]}).is_ok()
+        }
+    }
+    #[test]
+    fn normal_postconditions_preserve_the_obligation_without_activating_fallible_actions() {
+        let mut c=Case::new();c.effect.exit=ModelExit::Normal;c.app.target_normal_return=false;
+        c.normal.normal=false;c.normal.reason=Some(BoundaryReason::UnsupportedControlFlow);c.normal_steps.clear();
+        let good=c.postcondition();assert_eq!(good.reason,None);assert!(c.admits_postcondition(&good));
+        assert_eq!(c.assess().reason,Some(BoundaryReason::ActionTriggerUnavailable));
+        for mutation in 0..5 {
+            let mut altered=good.clone();
+            match mutation {0=>altered.outcome_obligation=ModelExit::Invocation,1=>altered.execution_id=None,
+                2=>altered.execution_id=Some(id(80)),3=>altered.call_site_node_id=id(80),_=>altered.condition_id=Some(id(80))}
+            altered.postcondition_id=postcondition_identity(&altered);
+            assert!(!c.admits_postcondition(&altered),"mutation {mutation}");
+        }
+        c.effect.has_unresolved_remainder=true;
+        assert_eq!(c.postcondition().reason,Some(BoundaryReason::UnresolvedTarget));
+        c.effect.has_unresolved_remainder=false;c.steps.clear();
+        assert!(c.postcondition().reason.is_some());
+    }
+
+    #[test]
+    fn symbolic_acquisition_is_only_a_normal_output_postcondition_never_a_resource_identity() {
+        use cpg_schema::codebook::{ModelPathKind,ModelPathRole,ModelResourceAction,ModelResourceSourceStatus};
+        let c=Case::new();
+        let resource=ModeledResourceSitesRow {snapshot_id:id(1),call_site_node_id:id(2),function_node_id:Some(id(4)),
+            call_fact_id:id(5),pysa_fact_id:id(6),target_node_id:id(7),model_id:id(8),rule_id:id(9),target_definition_fact_id:id(10),
+            resource_path_id:id(30),resource_role:ModelPathRole::Output,resource_path_kind:ModelPathKind::ReturnValue,
+            source_expression_node_id:Some(id(2)),source_expression_fact_id:Some(id(5)),source_status:ModelResourceSourceStatus::CallResult,
+            source_reason:None,action:ModelResourceAction::Acquire,exit:ModelExit::Normal,target_modality:Modality::Definite,
+            model_modality:Modality::Definite,candidate_set_complete_under_model:true,has_unresolved_remainder:false,origin:Origin::SyntheticModel};
+        for mutation in 0..8 {
+            let mut r=resource.clone();
+            match mutation {1=>r.action=ModelResourceAction::Release,2=>r.resource_role=ModelPathRole::Input,
+                3=>r.source_status=ModelResourceSourceStatus::Unknown,4=>r.source_expression_fact_id=Some(id(80)),
+                5=>r.has_unresolved_remainder=true,6=>r.source_reason=Some(BoundaryReason::MissingEvidence),
+                7=>r.model_modality=Modality::Candidate,_=>{}}
+            let out=assess(Inputs {resources:&[r],applications:std::slice::from_ref(&c.app),
+                executions:std::slice::from_ref(&c.execution),execution_steps:&c.steps,..Default::default()});
+            assert_eq!(out.postconditions[0].reason.is_none(),mutation==0,"mutation {mutation}");
+            assert!(out.assessments[0].reason.is_some(),"a symbolic endpoint never proves an acquired resource");
+        }
+    }
+
+    #[test]
+    fn normal_postconditions_preserve_the_original_invocation_proof_cap() {
+        for prefix_count in [58,59] {
+            let mut c=Case::new();c.effect.exit=ModelExit::Normal;
+            let prefix:Vec<_>=(0..prefix_count).map(|_|SummaryFlowProofStep {
+                kind:K::CompletionStatement,evidence_id:id(80),condition_id:c.execution.condition_id}).collect();
+            let mut steps:Vec<_>=prefix.iter().map(|s|CallExecutionStepsRow {snapshot_id:id(1),execution_id:Id::ZERO,
+                ordinal:0,kind:s.kind,evidence_id:s.evidence_id,condition_id:s.condition_id}).collect();
+            steps.extend(c.steps);c.execution.prefix_count=prefix_count;c.execution.prefix_digest=proof_digest(&prefix);
+            c.execution.execution_id=cpg_schema::call_execution::identity(&c.execution);
+            for(i,s)in steps.iter_mut().enumerate(){s.ordinal=i as i64;s.execution_id=c.execution.execution_id;}
+            c.steps=steps;
+            assert_eq!(c.postcondition().reason.is_none(),prefix_count==58);
         }
     }
     #[test]
@@ -213,8 +300,13 @@ mod tests {
             match mutation {1=>binding.call_site_node_id=id(70),2=>argument.call_node_id=id(70),3=>binding.matched_signatures=0,_=>{}}
             let rows=assess(Inputs {effects:std::slice::from_ref(&c.effect),applications:std::slice::from_ref(&c.app),
                 executions:std::slice::from_ref(&c.execution),execution_steps:&c.steps,
+                bindings:std::slice::from_ref(&binding),arguments:std::slice::from_ref(&argument),..Default::default()});
+            assert_eq!(rows.assessments[0].reason.is_none(),mutation==0);
+            let mut normal_effect=c.effect.clone();normal_effect.exit=ModelExit::Normal;
+            let rows=assess(Inputs {effects:&[normal_effect],applications:std::slice::from_ref(&c.app),
+                executions:std::slice::from_ref(&c.execution),execution_steps:&c.steps,
                 bindings:&[binding],arguments:&[argument],..Default::default()});
-            assert_eq!(rows[0].reason.is_none(),mutation==0);
+            assert_eq!(rows.postconditions[0].reason.is_none(),mutation==0);
         }
     }
     #[test]
