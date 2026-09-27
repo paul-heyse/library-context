@@ -817,6 +817,10 @@ summary_flow_step_kind
   24 default_value_evidence
   25 default_stability_evidence
   26 source_parameter_identity
+  27 context_construction
+  28 context_entry
+  29 context_exit
+  30 context_exception_evidence
 modeled_argument_evaluation_status
   0 source_operand
   1 literal_normal
@@ -858,3 +862,9 @@ concept_attribute_kind
   5 calls
   6 hands_off
   7 takes_from
+context_entry_kind
+  0 none_value
+  1 argument_or_none
+context_exit_kind
+  0 preserve
+  1 suppress_classes

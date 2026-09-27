@@ -24,6 +24,14 @@ use lctx_analytics::summaries::finite::{
 
 cpg_schema::relations! {
     inventory relations;
+    return_certificates = "summary_return_certificates", deps = ["return_completion_certificates"], sql = "SELECT * FROM return_completion_certificates".to_owned();
+    context_protocols = "summary_context_protocols", deps = ["model_context_protocols"], sql = "SELECT * FROM model_context_protocols".to_owned();
+    context_sites = "summary_context_sites", deps = ["source_context_sites"], sql = "SELECT * FROM source_context_sites".to_owned();
+    context_arguments = "summary_context_arguments", deps = ["source_context_arguments"], sql = "SELECT * FROM source_context_arguments".to_owned();
+    context_calls = "summary_context_calls", deps = ["call_syntax"], sql = "SELECT * FROM call_syntax".to_owned();
+    context_provider_calls = "summary_context_provider_calls", deps = ["pysa_calls"], sql = "SELECT * FROM pysa_calls".to_owned();
+    context_exports = "summary_context_exports", deps = ["export_syntax"], sql = "SELECT * FROM export_syntax".to_owned();
+    context_regions = "summary_context_regions", deps = ["flow_regions"], sql = "SELECT * FROM flow_regions".to_owned();
     expression_syntax = "summary_expression_syntax", deps = ["syntax_nodes"],
         sql = "SELECT * FROM syntax_nodes".to_owned();
     expression_reads = "summary_expression_reads", deps = ["syntax_nodes", "references", "reference_resolutions",
@@ -256,8 +264,10 @@ pub async fn finite_flows(
     let boundary_candidates: Vec<SummaryBoundaryCandidate> = sql::fetch(ctx, &cpg_schema::behavior::summary_boundary_candidates(), sql::Params::new()).await?;
     let local_bindings=source_call_bindings(ctx,&local_seeds,&local_arguments).await?;
     let identities = source_parameter_identities(ctx).await?;
+    let context_sites=sql::fetch(ctx,&context_sites(),sql::Params::new()).await?;
+    let return_certificates=sql::fetch(ctx,&return_certificates(),sql::Params::new()).await?;
     let mut result=lctx_analytics::summaries::finite::finite_flows(FiniteSummaryInputs {
-        diagrams, boundaries, pass_steps, entries, entry_steps, components,
+        diagrams, boundaries, pass_steps, entries, entry_steps, components, context_sites, return_certificates,
         direct_seeds, modeled_seeds, chain_arguments, evaluations, assignment_seeds, local_seeds,
         local_arguments, local_value_links, local_bindings, boundary_candidates, identities,
     });
@@ -397,6 +407,9 @@ pub async fn expression_evaluations(ctx: &SessionContext)
 
 /// Mechanical acquisition for statement and frame completion.
 pub async fn completions(ctx: &SessionContext) -> Result<lctx_analytics::completion::Outcome, CoreError> {
+    let context_protocols=sql::fetch(ctx,&context_protocols(),sql::Params::new()).await?;
+    let context_sites=sql::fetch(ctx,&context_sites(),sql::Params::new()).await?;
+    let context_arguments=sql::fetch(ctx,&context_arguments(),sql::Params::new()).await?;
     let declarations = sql::fetch(ctx, &completion_declarations(), sql::Params::new()).await?;
     let parameters = sql::fetch(ctx, &completion_parameters(), sql::Params::new()).await?;
     let syntax = sql::fetch(ctx, &expression_syntax(), sql::Params::new()).await?;
@@ -414,8 +427,37 @@ pub async fn completions(ctx: &SessionContext) -> Result<lctx_analytics::complet
     let requests:Vec<EntryCondition> = sql::fetch(ctx,&completion_entry_conditions(),sql::Params::new()).await?;
     let entry_conditions:Vec<_>=requests.iter().map(|r|(r.snapshot_id,r.return_site_fact_id,r.condition_id)).collect();
     Ok(lctx_analytics::completion::complete(lctx_analytics::completion::Inputs {
+        context_protocols:&context_protocols,context_sites:&context_sites,context_arguments:&context_arguments,
         declarations: &declarations, parameters: &parameters,
         syntax: &syntax, expressions: &expressions, expression_steps: &expression_steps, bindings: &bindings, scopes: &scopes, exits: &exits,
         handler_types:&handler_types,classes:&classes,mro:&mro,modules:&modules,tests: &tests, diagrams: &diagrams, boundaries:&boundaries,entry_conditions:&entry_conditions,
+    }))
+}
+
+/// Source admission and publication reconstruction use the same pure operator. No persisted
+/// site or completion result is an input to its own reconstruction.
+pub async fn source_contexts(ctx:&SessionContext)->Result<lctx_analytics::context_protocol::Outcome,CoreError> {
+    let protocols=sql::fetch(ctx,&context_protocols(),sql::Params::new()).await?;
+    let syntax=sql::fetch(ctx,&expression_syntax(),sql::Params::new()).await?;
+    let calls=sql::fetch(ctx,&context_calls(),sql::Params::new()).await?;
+    let provider_calls=sql::fetch(ctx,&context_provider_calls(),sql::Params::new()).await?;
+    let arguments=sql::fetch(ctx,&expression_call_arguments(),sql::Params::new()).await?;
+    let declarations=sql::fetch(ctx,&completion_declarations(),sql::Params::new()).await?;
+    let definitions=sql::fetch(ctx,&completion_classes(),sql::Params::new()).await?;
+    let parameters=sql::fetch(ctx,&expression_parameters(),sql::Params::new()).await?;
+    let modules=sql::fetch(ctx,&completion_modules(),sql::Params::new()).await?;
+    let bindings=sql::fetch(ctx,&completion_bindings(),sql::Params::new()).await?;
+    let references=sql::fetch(ctx,&binding_references(),sql::Params::new()).await?;
+    let resolutions=sql::fetch(ctx,&binding_resolutions(),sql::Params::new()).await?;
+    let scopes=sql::fetch(ctx,&completion_scopes(),sql::Params::new()).await?;
+    let exports=sql::fetch(ctx,&context_exports(),sql::Params::new()).await?;
+    let regions=sql::fetch(ctx,&context_regions(),sql::Params::new()).await?;
+    let (diagrams,_)=load_conditions(ctx).await?;
+    let unconditional_conditions:Vec<_>=diagrams.iter().filter(|(_,d)|d.is_true()).map(|(id,_)|*id).collect();
+    Ok(lctx_analytics::context_protocol::admit(lctx_analytics::context_protocol::Inputs {
+        protocols:&protocols,syntax:&syntax,calls:&calls,provider_calls:&provider_calls,arguments:&arguments,
+        declarations:&declarations,definitions:&definitions,parameters:&parameters,modules:&modules,
+        bindings:&bindings,references:&references,resolutions:&resolutions,scopes:&scopes,exports:&exports,
+        regions:&regions,unconditional_conditions:&unconditional_conditions,
     }))
 }

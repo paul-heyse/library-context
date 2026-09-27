@@ -804,11 +804,10 @@ def expression_work_cap(value):
 
 
 def summary_proof_cap(value):
-    # 63 finalizer steps plus raw identity and the source certificate.
+    # 62 finalizer steps plus raw identity, exit anchor and source certificate.
     try:
         return value
     finally:
-        pass
         pass
         pass
         pass
@@ -874,11 +873,10 @@ def summary_proof_cap(value):
 
 
 def summary_proof_boundary(value):
-    # 62 finalizer steps plus raw identity and the source certificate.
+    # 61 finalizer steps plus raw identity, exit anchor and source certificate.
     try:
         return value
     finally:
-        pass
         pass
         pass
         pass

@@ -10,6 +10,7 @@ pub mod column;
 pub mod communities;
 pub mod concepts;
 pub mod concept_attributes;
+pub mod context_protocol;
 pub mod condition;
 pub mod condition_kernel;
 pub mod derived;
@@ -41,3 +42,5 @@ pub use arrow_schema;
 pub use codebook::Codebook;
 pub use id::{Digest, Id, IdHasher};
 pub use table::Table;
+
+pub mod completion_proof;

@@ -5452,3 +5452,144 @@ async fn validation_schema_candidates_keep_attribution_separate_from_subjects() 
         assert_eq!(count(&ctx,&format!("SELECT count(*) FROM ({})",shape.sql)).await,1);
     }
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn context_protocols_bind_class_and_constructor_roles_independently() {
+    use cpg_schema::context_protocol::ModelContextProtocolsRow;
+    use cpg_schema::query::QueryRow;
+    use cpg_schema::tables::{ContextsRow,ContextModulesRow,ContextDefinitionsRow,ContextParametersRow};
+    let snapshot=Id([109;16]);
+    let inputs=raw_version("context_protocol_shapes",snapshot,(3,14,7));
+    let root=tempfile::tempdir().unwrap();
+    let analysis=Analysis {config:AnalyticsConfig::parse(
+        "version = 1\n[subsystem]\nmodule_prefixes = [\"contextpkg\"]\npublic_roots = [\"contextpkg\"]\n[seeds]\nprimary = [\"contextpkg.preserve\"]\ndistractors = []\n[pass_a]\nmax_depth = 2\nmax_vertices = 128\nmax_edges = 512\nmax_witnesses = 3\n[briefs]\nbudget = 1\n").unwrap(),
+        embedder:Some(Arc::new(cpg_core::embed::FakeEmbedder::new())),techniques:Techniques::default()};
+    compile_analyzed(root.path(),snapshot,&inputs,Some(&analysis)).await.unwrap();
+    let (_,ctx)=published(root.path(),snapshot).await.unwrap().unwrap();
+    let rows=sql::query(&ctx,"SELECT * FROM model_context_protocols").await.unwrap().collect().await.unwrap();
+    let rows:Vec<ModelContextProtocolsRow>=rows.iter().flat_map(|b|ModelContextProtocolsRow::read_batch(&cpg_core::delta::to_schema(b,&ModelContextProtocolsRow::schema()).unwrap()).unwrap()).collect();
+    assert_eq!(rows.len(),2);
+    assert!(rows.iter().all(cpg_schema::context_protocol::valid_shape));
+    assert_eq!(count(&ctx,"SELECT count(*) FROM source_context_sites s JOIN declarations d ON d.node_id=s.function_node_id WHERE d.name IN ('preserve','entry_value','suppress_type_error','multiple','unsupported','deferred')").await,5,
+        "{}",text(&ctx,"SELECT d.name,s.* FROM source_context_sites s JOIN declarations d ON d.node_id=s.function_node_id").await);
+    for (name,kind) in [("preserve",1),("suppress_type_error",0),("multiple",0),("unsupported",5),("deferred",5),
+        ("nonmatching",2),("assignment_failure_suppressed",0),("constructor_failure_suppressed",0),
+        ("replacement_suppressed",0),("replacement_preserved",2),("return_preserved",1),
+        ("matching_short_circuit",0),("invalid_first",2),("break_preserved",3),("continue_preserved",4),
+        ("unknown_body",5),("generator",5)] {
+        assert_eq!(count(&ctx,&format!("SELECT count(*) FROM statement_completions c JOIN syntax_nodes n ON n.fact_id=c.source_fact_id JOIN declarations d ON d.node_id=c.function_node_id WHERE d.name='{name}' AND n.kind=13 AND c.kind={kind}")).await,1,
+            "{name}: {}",text(&ctx,"SELECT d.name,c.kind,c.reason FROM statement_completions c JOIN syntax_nodes n ON n.fact_id=c.source_fact_id JOIN declarations d ON d.node_id=c.function_node_id WHERE n.kind=13").await);
+    }
+
+    assert_eq!(count(&ctx,"SELECT count(*) FROM model_context_protocols p JOIN context_definitions c ON c.fact_id=p.class_fact_id JOIN context_definitions i ON i.fact_id=p.initialization_fact_id WHERE c.kind=1 AND c.signature_count IS NULL AND i.kind=0 AND c.symbol_node_id<>i.symbol_node_id").await,2);
+    assert_eq!(count(&ctx,"SELECT count(*) FROM pysa_calls WHERE target_name LIKE '%__exit__%'").await,0,
+        "a runtime class assertion does not manufacture missing provider exit calls");
+    let generation=cpg_core::bundle::bundle(root.path(),snapshot,&root.path().join("generations")).await.unwrap();
+    let script=r#"
+import sys
+from pathlib import Path
+import pyarrow as pa
+import pyarrow.ipc as ipc
+from lctx_mcp.generation import load, NATIVE_IPC_FILES
+from lctx_semantics import SemanticExecutor
+import json, subprocess
+oracle=json.loads(subprocess.run([sys.executable,"docs/design_review/evidence/2026-09-27_sync-contexts/runtime_oracle.py"],capture_output=True,text=True,check=True,timeout=30).stdout)
+observed={row["case"]:row for row in oracle["cases"]}
+g=load(Path(sys.argv[1]),None)
+for name in ("preserve","suppress_type_error","multiple","assignment_failure_suppressed",
+             "constructor_failure_suppressed","replacement_suppressed","return_preserved","matching_short_circuit"):
+    paths,boundaries,total,truncated,work=g.condition_graph.inspect_value_paths("contextpkg."+name,"value","none","",True,0,20)
+    assert observed[name]["outcome"]=={"kind":"return","value":42}
+    assert paths and not truncated,(name,paths,boundaries)
+    assert any(any(s[0]=="context_entry" for s in p[3]) for p in paths),(name,paths)
+    assert any(any(s[0]=="context_exit" for s in p[3]) for p in paths),(name,paths)
+for mutation in ("missing_site","missing_certificate","duplicate_certificate","missing_match",
+                 "wrong_condition","missing_group","same_function_sites"):
+    sites_by_function={}
+    for row in g.tables["source_context_sites"].to_pylist():
+        sites_by_function.setdefault(row["function_node_id"],[]).append(row["site_id"])
+    twins=next(sites for sites in sites_by_function.values() if len(sites)>1)
+    swapped={twins[0]:twins[1],twins[1]:twins[0]}
+    files=[]
+    for name in NATIVE_IPC_FILES:
+        table=g.tables[name]
+        rows=table.to_pylist()
+        if name=="source_context_sites" and mutation=="missing_site":
+            rows=rows[1:]
+        if name=="return_completion_certificates" and mutation=="missing_certificate":
+            rows=rows[1:]
+        if name=="return_completion_certificates" and mutation=="duplicate_certificate":
+            rows.append(rows[0].copy())
+        if name=="summary_flow_steps":
+            if mutation=="same_function_sites":
+                for row in rows:
+                    if row["kind"] in ("context_construction","context_entry","context_exit"):
+                        row["evidence_id"]=swapped.get(row["evidence_id"],row["evidence_id"])
+            if mutation=="missing_match":
+                rows=[r for r in rows if r["kind"]!="context_exception_evidence"]
+            if mutation=="missing_group":
+                rows=[r for r in rows if not r["kind"].startswith("context_")]
+            if mutation=="wrong_condition":
+                for row in rows:
+                    if row["kind"]=="context_entry": row["condition_id"]=b"\xff"*16
+            counters={}
+            for row in rows:
+                key=row["summary_id"];row["ordinal"]=counters.get(key,0);counters[key]=row["ordinal"]+1
+        altered=pa.Table.from_pylist(rows,schema=table.schema)
+        sink=pa.BufferOutputStream()
+        with ipc.new_file(sink,table.schema) as writer: writer.write_table(altered)
+        files.append((name,sink.getvalue().to_pybytes()))
+    try:
+        SemanticExecutor.from_ipc(1,g.snapshot_id,g.manifest["entry_value_effect_digest"],files)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("accepted "+mutation)
+"#;
+    let output=std::process::Command::new("uv").args(["run","--no-sync","python","-c",script]).arg(&generation.dir)
+        .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")).output().unwrap();
+    assert!(output.status.success(),"{}",String::from_utf8_lossy(&output.stderr));
+    let table=|name|inputs.iter().find(|(n,_)|*n==name).unwrap().1.clone();
+    let mut contexts=ContextsRow::read_batch(&table("contexts")).unwrap();
+    let mut modules=ContextModulesRow::read_batch(&table("context_modules")).unwrap();
+    let mut definitions=ContextDefinitionsRow::read_batch(&table("context_definitions")).unwrap();
+    let mut parameters=ContextParametersRow::read_batch(&table("context_parameters")).unwrap();
+    let catalog=cpg_schema::models::Catalog::committed().unwrap();
+    let bind=|contexts:&[_],modules:&[_],definitions:&[_],parameters:&[_]|
+        catalog.bind_context_protocols(snapshot,contexts,modules,definitions,parameters);
+    assert_eq!(bind(&contexts,&modules,&definitions,&parameters).unwrap().len(),2);
+    let allocation=definitions.iter().find(|d|d.qualified_name=="object.__new__").unwrap().clone();
+    definitions.push(allocation.clone());
+    assert!(bind(&contexts,&modules,&definitions,&parameters).is_err(),"ambiguous constructor role");
+    definitions.pop();
+    definitions.retain(|d|d.fact_id!=allocation.fact_id);
+    assert!(bind(&contexts,&modules,&definitions,&parameters).unwrap().is_empty(),"missing independent allocation role");
+    definitions.push(allocation);
+    let i=parameters.iter().position(|p|p.name.as_deref()==Some("enter_result")).unwrap();
+    let parameter=parameters[i].clone();
+    parameters[i].ordinal=Some(99);
+    assert!(bind(&contexts,&modules,&definitions,&parameters).is_err(),"incomplete initializer signature");
+    parameters[i]=parameter;
+    let context=contexts[0].clone();
+    contexts[0].python_version="3.14.6".into();
+    assert!(bind(&contexts,&modules,&definitions,&parameters).unwrap().is_empty(),"wrong runtime pin");
+    contexts.push(context);
+    assert!(bind(&contexts,&modules,&definitions,&parameters).is_err(),"mixed runtime pins");
+    contexts.remove(0);
+    for module in &mut modules {module.origin=cpg_schema::codebook::ModuleOrigin::SitePackages;}
+    assert!(bind(&contexts,&modules,&definitions,&parameters).unwrap().is_empty(),"wrong module authority");
+    let completion_original=sql::query(&ctx,"SELECT * FROM return_completion_certificates").await.unwrap().into_view();
+    let completion_wrong=sql::query(&ctx,"SELECT * EXCLUDE (entry_digest), exit_digest AS entry_digest FROM return_completion_certificates").await.unwrap().into_view();
+    ctx.deregister_table("return_completion_certificates").unwrap();
+    ctx.register_table("return_completion_certificates",completion_wrong).unwrap();
+    let violations=cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(violations.iter().any(|v|v.rule=="completion-certificate-source-equality"),"{violations:?}");
+    ctx.deregister_table("return_completion_certificates").unwrap();
+    ctx.register_table("return_completion_certificates",completion_original).unwrap();
+    let original=sql::query(&ctx,"SELECT * FROM model_context_protocols").await.unwrap().into_view();
+    let wrong=sql::query(&ctx,"SELECT * EXCLUDE (class_fact_id), initialization_fact_id AS class_fact_id FROM model_context_protocols").await.unwrap().into_view();
+    ctx.deregister_table("model_context_protocols").unwrap();ctx.register_table("model_context_protocols",wrong).unwrap();
+    let violations=cpg_core::validate::validate(&ctx).await.unwrap();
+    assert!(violations.iter().any(|v|v.rule=="model-context-protocol-equality"),"{violations:?}");
+    ctx.deregister_table("model_context_protocols").unwrap();ctx.register_table("model_context_protocols",original).unwrap();
+}

@@ -344,10 +344,12 @@ partial in §9.9). Providers observe; the pure semantic layer owns these conclus
 subjects, independent phase/coverage and shared proof admission (§9.9). Current transfer and
 RCA projections preserve semantic alternatives and modality; deferred execution remains Stage 5.
 
-**Proposed implementation (ADR-0059):** synchronous context protocols bind authored runtime
-transitions to pinned classes and source lifecycle sites. Constructor signatures, provider method
-observations, manager occurrences and entry results remain separate. Pure completion owns entry
-and reverse cleanup order; no missing exit observation is fabricated as a call.
+**Implemented and focused Tested (2026-09-27; ADR-0059), partial:** synchronous `nullcontext` and
+`suppress` protocols bind authored runtime transitions to pinned classes and fresh source sites.
+Constructor signatures, provider method observations and manager occurrences remain separate;
+entry-result identity remains open. Pure completion owns entry and reverse cleanup order. Shared
+source/native admission checks source-derived ordered return obligations, including condition
+scope; no missing exit observation is fabricated as a call. Full Stage 3 qualification is pending.
 
 > Decision: ADR-0045, ADR-0028, ADR-0054, ADR-0055, ADR-0056, ADR-0057, ADR-0058, ADR-0059
 

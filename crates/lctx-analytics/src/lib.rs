@@ -52,3 +52,5 @@ pub mod call_binding;
 
 /// Source proofs of immutable bare-parameter return reads.
 pub mod parameter_identity;
+
+pub mod context_protocol;

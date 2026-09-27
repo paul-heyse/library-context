@@ -85,42 +85,43 @@ pub fn fixed_truth(condition: &Diagram, atom: &str) -> Result<Option<bool>, Kern
 pub fn validate_fixed_control_proof(
     caller: Id, caller_condition: &Diagram, callee: Id, callee_condition: &Diagram,
     steps: &[SummaryFlowProofStep], links: &HashMap<Id, DirectValueLink>,
-) -> Result<(), &'static str> {
+) -> Result<(), ProofAdmissionError> {
     if steps.is_empty() {
-        return Err("conditional callee lacks a test link");
+        return Err("conditional callee lacks a test link".into());
     }
     let mut atoms = BTreeSet::new();
     let mut pending_caller = false;
     for step in steps {
         match step.kind {
             SummaryFlowStepKind::CallerConditionLink => {
-                let supported = !pending_caller && step.condition_id == caller_condition.id()
-                    && links.get(&step.evidence_id).is_some_and(|link|
-                        link.operation_node_id == caller
-                        && caller_condition.support().contains(&link.atom)
-                        && matches!(fixed_truth(caller_condition, &link.atom), Ok(Some(_))));
-                if !supported { return Err("caller condition link does not fix its direct formal"); }
+                let link=links.get(&step.evidence_id)
+                    .ok_or("caller condition link does not fix its direct formal")?;
+                if pending_caller || step.condition_id!=caller_condition.id()
+                    || link.operation_node_id!=caller || !caller_condition.support().contains(&link.atom)
+                    || fixed_truth(caller_condition,&link.atom)?.is_none() {
+                    return Err("caller condition link does not fix its direct formal".into());
+                }
                 pending_caller = true;
             },
             SummaryFlowStepKind::CalleeConditionLink => {
                 let Some(link) = links.get(&step.evidence_id) else {
-                    return Err("conditional callee lacks a cited exact test link");
+                    return Err("conditional callee lacks a cited exact test link".into());
                 };
                 if link.operation_node_id != callee || step.condition_id != callee_condition.id()
                     || !callee_condition.support().contains(&link.atom)
                     || !matches!(Atom::parse_encoded(&link.atom), Ok(Atom::Evaluated { atom, .. })
                         if matches!(*atom, Atom::Truthy { .. }))
                     || !atoms.insert(link.atom.as_str()) {
-                    return Err("conditional callee lacks a cited exact test link");
+                    return Err("conditional callee lacks a cited exact test link".into());
                 }
                 pending_caller = false;
             },
-            _ => return Err("unexpected step in conditional callee control proof"),
+            _ => return Err("unexpected step in conditional callee control proof".into()),
         }
     }
-    if pending_caller { return Err("caller condition link does not fix its direct formal"); }
+    if pending_caller { return Err("caller condition link does not fix its direct formal".into()); }
     if atoms.len() != callee_condition.support().len() {
-        return Err("conditional callee control proof has incomplete atom coverage");
+        return Err("conditional callee control proof has incomplete atom coverage".into());
     }
     Ok(())
 }
@@ -142,6 +143,24 @@ pub struct ProofAdmissionError {
 
 impl From<&'static str> for ProofAdmissionError {
     fn from(message: &'static str) -> Self {Self {reason:BoundaryReason::MissingEvidence,message}}
+}
+
+/// One summary-facing classification for a bounded condition operation or stored root.
+pub fn condition_limit(reason: KernelBoundary) -> BoundaryReason {
+    match reason {
+        KernelBoundary::AtomLimit => BoundaryReason::ConditionAtomLimit,
+        KernelBoundary::WorkPreflight => BoundaryReason::ConditionWorkLimit,
+        KernelBoundary::NodeLimit => BoundaryReason::ConditionNodeLimit,
+        KernelBoundary::SourceOverBudget => BoundaryReason::BudgetReached,
+        KernelBoundary::TransferUnsupported => BoundaryReason::OutsideProviderModel,
+        KernelBoundary::AtomNameCollision => BoundaryReason::MissingEvidence,
+    }
+}
+
+impl From<KernelBoundary> for ProofAdmissionError {
+    fn from(boundary: KernelBoundary) -> Self {
+        Self { reason: condition_limit(boundary), message: boundary.code() }
+    }
 }
 
 /// Admit the complete structural callee obligations in a proof. Source reconstruction still

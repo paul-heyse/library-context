@@ -21,13 +21,15 @@ use crate::codebook::{
 use crate::id::{Digest, Id, IdHasher};
 use crate::tables::{ContextDefinitionsRow, ContextModulesRow, ContextParametersRow, ContextsRow};
 
-pub const FORMAT: u32 = 3;
+pub const FORMAT: u32 = 4;
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CatalogFile {
     pub version: u32,
     pub models: Vec<Model>,
+    #[serde(default)]
+    pub context_protocols: Vec<ContextProtocolModel>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -45,6 +47,29 @@ pub struct Model {
     pub normal_return: bool,
     pub rules: Vec<Rule>,
 }
+
+/// A pinned runtime class assertion. Constructor roles retain their own identities and phases;
+/// protocol entry/exit are source lifecycle actions, not purported provider call observations.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ContextProtocolModel {
+    pub revision: u32,
+    pub target: Target,
+    pub allocation: Target,
+    pub initialization: Target,
+    pub entry: ContextEntry,
+    pub exit: ContextExit,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(tag="kind",rename_all="snake_case",deny_unknown_fields)]
+pub enum ContextEntry { NoneValue, ArgumentOrNone {formal:String} }
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(tag="kind",rename_all="snake_case",deny_unknown_fields)]
+pub enum ContextExit { Preserve, SuppressClasses {formal:String} }
+
+pub struct CompiledContextProtocol {pub model_id:Id,pub model:ContextProtocolModel}
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
@@ -142,6 +167,26 @@ impl Target {
             } => format!("dependency:{distribution}=={version}:{module}.{callable}"),
             Self::Release { module, callable } => format!("release:{module}.{callable}"),
         }
+    }
+
+    fn bindings<'a>(&self,contexts:&[ContextsRow],modules:&'a [ContextModulesRow],definitions:&'a [ContextDefinitionsRow])
+        -> Result<Vec<(&'a ContextModulesRow,&'a ContextDefinitionsRow)>,String> {
+        let applicable:Vec<_>=modules.iter().filter(|m|match self {
+            Self::Stdlib {python,module,..}=>m.module_name==*module && m.origin==ModuleOrigin::BundledTypeshed
+                && contexts.iter().any(|c|c.python_version==*python),
+            Self::Dependency {distribution,version,module,..}=>m.module_name==*module && m.origin==ModuleOrigin::SitePackages
+                && m.distribution.as_deref()==Some(distribution) && m.version.as_deref()==Some(version),
+            Self::Release {..}=>false,
+        }).collect();
+        if matches!(self,Self::Release {..}) {return Err(format!("release model target binding is not implemented: {}",self.key()));}
+        if applicable.is_empty() {return Ok(Vec::new());}
+        if let Self::Stdlib {python,..}=self {
+            if contexts.iter().any(|c|c.python_version!=*python) {return Err(format!("mixed Python versions cannot safely bind {}",self.key()));}
+        }
+        let callable=match self {Self::Stdlib {callable,..}|Self::Dependency {callable,..}=>callable,Self::Release {..}=>unreachable!()};
+        Ok(applicable.into_iter().flat_map(|module|definitions.iter().filter(move |d|
+            d.module_node_id==module.module_node_id && d.qualified_name==*callable
+                && matches!(d.kind,DefinitionKind::Function|DefinitionKind::Class)).map(move |d|(module,d))).collect())
     }
 
     fn validate(&self) -> Result<(), String> {
@@ -633,6 +678,7 @@ pub struct CompiledModel {
 pub struct Catalog {
     pub digest: Digest,
     pub models: Vec<CompiledModel>,
+    pub context_protocols: Vec<CompiledContextProtocol>,
 }
 
 #[derive(Default)]
@@ -695,12 +741,30 @@ impl Catalog {
             models.push(CompiledModel { model_id, model });
         }
         models.sort_by_key(|row| (row.model.target.key(),row.model.phase));
+        let mut context_protocols=Vec::new();
+        let mut context_classes=BTreeSet::new();
+        for model in parsed.context_protocols {
+            for target in [&model.target,&model.allocation,&model.initialization] {target.validate()?;}
+            if model.revision==0 || !context_classes.insert(model.target.key()) {
+                return Err("context protocol needs a positive revision and unique class target".into());
+            }
+            let entry=match &model.entry {ContextEntry::NoneValue=>None,ContextEntry::ArgumentOrNone {formal}=>Some(formal)};
+            let exit=match &model.exit {ContextExit::Preserve=>None,ContextExit::SuppressClasses {formal}=>Some(formal)};
+            if entry.into_iter().chain(exit).any(|name|!identifier(name)) {
+                return Err("context protocol formal must be an identifier".into());
+            }
+            let model_id=IdHasher::new("context-protocol-model").str(source_name).bytes(source.as_bytes())
+                .str(&model.target.key()).i64(i64::from(model.revision)).finish_id();
+            context_protocols.push(CompiledContextProtocol {model_id,model});
+        }
+        context_protocols.sort_by_key(|p|p.model.target.key());
         Ok(Self {
             digest: IdHasher::new("behavior-model-catalog")
                 .str(source_name)
                 .bytes(source.as_bytes())
                 .finish_digest(),
             models,
+            context_protocols,
         })
     }
 
@@ -730,61 +794,7 @@ impl Catalog {
         let mut out: BTreeMap<(Id, Id), ModelTargetsRow> = BTreeMap::new();
         for compiled in &self.models {
             let target = &compiled.model.target;
-            let applicable_modules: Vec<_> = modules
-                .iter()
-                .filter(|m| match target {
-                    Target::Stdlib { python, module, .. } => {
-                        m.module_name == *module
-                            && m.origin == ModuleOrigin::BundledTypeshed
-                            && contexts.iter().any(|c| c.python_version == *python)
-                    }
-                    Target::Dependency {
-                        distribution,
-                        version,
-                        module,
-                        ..
-                    } => {
-                        m.module_name == *module
-                            && m.origin == ModuleOrigin::SitePackages
-                            && m.distribution.as_deref() == Some(distribution)
-                            && m.version.as_deref() == Some(version)
-                    }
-                    Target::Release { .. } => false,
-                })
-                .collect();
-            if matches!(target, Target::Release { .. }) {
-                return Err(format!(
-                    "release model target binding is not implemented: {}",
-                    target.key()
-                ));
-            }
-            if applicable_modules.is_empty() {
-                continue;
-            }
-            if matches!(target, Target::Stdlib { .. })
-                && contexts
-                    .iter()
-                    .any(|c| !matches!(target, Target::Stdlib { python, .. } if c.python_version == *python))
-            {
-                return Err(format!(
-                    "mixed Python versions cannot safely bind {}",
-                    target.key()
-                ));
-            }
-            let callable = match target {
-                Target::Stdlib { callable, .. } | Target::Dependency { callable, .. } => callable,
-                Target::Release { .. } => unreachable!(),
-            };
-            for module in applicable_modules {
-                let matches: Vec<_> = definitions
-                    .iter()
-                    .filter(|d| {
-                        d.module_node_id == module.module_node_id
-                            && d.qualified_name == *callable
-                            && matches!(d.kind, DefinitionKind::Function | DefinitionKind::Class)
-                    })
-                    .collect();
-                for definition in matches {
+            for (module,definition) in target.bindings(contexts,modules,definitions)? {
                     if compiled.model.normal_return && definition.kind != DefinitionKind::Function {
                         return Err(format!(
                             "{}: normal_return requires a function target",
@@ -817,10 +827,52 @@ impl Catalog {
                             out.insert(key, row);
                         }
                     }
-                }
             }
         }
         Ok(out.into_values().collect())
+    }
+
+    pub fn bind_context_protocols(&self,snapshot_id:Id,contexts:&[ContextsRow],modules:&[ContextModulesRow],
+        definitions:&[ContextDefinitionsRow],parameters:&[ContextParametersRow])
+        -> Result<Vec<crate::context_protocol::ModelContextProtocolsRow>,String> {
+        use crate::codebook::{ContextEntryKind as Entry,ContextExitKind as Exit};
+        let mut out=Vec::new();
+        for compiled in &self.context_protocols {
+            let model=&compiled.model;
+            let classes=model.target.bindings(contexts,modules,definitions)?;
+            if classes.is_empty() {continue;}
+            if classes.len()!=1 || classes[0].1.kind!=DefinitionKind::Class {
+                return Err(format!("context protocol requires one pinned class: {}",model.target.key()));
+            }
+            let (module,class)=classes[0];
+            let allocations=model.allocation.bindings(contexts,modules,definitions)?;
+            let initializations=model.initialization.bindings(contexts,modules,definitions)?;
+            // Merely importing a class need not expose its constructor roles. A source site
+            // without these independently pinned premises cannot activate the protocol.
+            if allocations.is_empty() || initializations.is_empty() {continue;}
+            if allocations.len()!=1 || initializations.len()!=1
+                || allocations[0].1.kind!=DefinitionKind::Function || initializations[0].1.kind!=DefinitionKind::Function {
+                return Err(format!("context protocol has ambiguous or invalid constructor roles: {}",model.target.key()));
+            }
+            let (allocation_module,allocation)=allocations[0];
+            let (initialization_module,initialization)=initializations[0];
+            let (entry,entry_formal)=match &model.entry {ContextEntry::NoneValue=>(Entry::NoneValue,None),
+                ContextEntry::ArgumentOrNone {formal}=>(Entry::ArgumentOrNone,Some(formal.clone()))};
+            let (exit,exception_formal)=match &model.exit {ContextExit::Preserve=>(Exit::Preserve,None),
+                ContextExit::SuppressClasses {formal}=>(Exit::SuppressClasses,Some(formal.clone()))};
+            let signatures=crate::context_protocol::initializer_signatures(initialization,parameters)
+                .map_err(|reason|format!("{}: {reason}",model.target.key()))?;
+            if entry_formal.iter().chain(exception_formal.iter()).any(|formal|
+                !signatures.iter().flatten().any(|p|p.name==*formal)) {
+                return Err(format!("context protocol initializer has no compatible formal: {}",model.target.key()));
+            }
+            out.push(crate::context_protocol::ModelContextProtocolsRow {snapshot_id,model_id:compiled.model_id,
+                revision:i64::from(model.revision),class_node_id:class.symbol_node_id,class_fact_id:class.fact_id,class_module_fact_id:module.fact_id,
+                allocation_node_id:allocation.symbol_node_id,allocation_fact_id:allocation.fact_id,allocation_module_fact_id:allocation_module.fact_id,
+                initialization_node_id:initialization.symbol_node_id,initialization_fact_id:initialization.fact_id,initialization_module_fact_id:initialization_module.fact_id,
+                entry,entry_formal,exit,exception_formal,origin:Origin::SyntheticModel});
+        }
+        out.sort_by_key(|p|(p.model_id,p.class_node_id));Ok(out)
     }
 
     /// Compile every authored family in one pass, against the same pinned target and complete
@@ -1209,7 +1261,7 @@ mod tests {
         );
         // Contract-only catalog controls: these authored rules are never production models
         // for typing.cast. Reuse the pinned signature to challenge schema binding independently.
-        let header = r#"version = 3
+        let header = r#"version = 4
 [[models]]
 phase = "call"
 revision = 1
@@ -1450,7 +1502,7 @@ modality = "potential"
 
     #[test]
     fn conversion_needs_a_target_and_resource_cannot_be_a_raise_path() {
-        let header = r#"version = 3
+        let header = r#"version = 4
 [[models]]
 phase = "call"
 revision = 1
@@ -1480,7 +1532,7 @@ coverage = { transfers = "unspecified", effects = "unspecified", callbacks = "un
 
     #[test]
     fn normal_return_requires_complete_exception_coverage_without_exception_rules() {
-        let header = r#"version = 3
+        let header = r#"version = 4
 [[models]]
 phase = "call"
 revision = 1
@@ -1520,7 +1572,7 @@ modality = "definite"
             )
             .is_err()
         );
-        let second = valid.trim_start_matches("version = 3").trim();
+        let second = valid.trim_start_matches("version = 4").trim();
         assert!(Catalog::parse("bad.toml", &format!("{valid}\n{second}\n")).is_err());
     }
 
@@ -1540,7 +1592,7 @@ modality = "definite"
         assert!(Catalog::parse("missing.toml",&original.replace("phase = \"call\"\n","")).is_err());
         assert!(Catalog::parse("unknown.toml",&original.replace("phase = \"call\"","phase = \"later\"")).is_err());
         let first=original.split("# Python 3.14 typing.assert_type").next().unwrap();
-        let init=first.trim_start_matches("version = 3").replace("phase = \"call\"","phase = \"init\"")
+        let init=first.trim_start_matches("version = 4").replace("phase = \"call\"","phase = \"init\"")
             .replace("normal_return = true","normal_return = false")
             .replace("exceptions = \"complete\"","exceptions = \"partial\"");
         let catalog=Catalog::parse("phases.toml",&format!("{first}\n{init}")).unwrap();
@@ -1550,6 +1602,6 @@ modality = "definite"
         assert!(catalog.models[0].model.normal_return);
         assert!(!catalog.models[1].model.normal_return);
         assert_ne!(catalog.models[0].model_id,catalog.models[1].model_id);
-        assert!(Catalog::parse("duplicate.toml",&format!("{first}\n{}",first.trim_start_matches("version = 3"))).is_err());
+        assert!(Catalog::parse("duplicate.toml",&format!("{first}\n{}",first.trim_start_matches("version = 4"))).is_err());
     }
 }

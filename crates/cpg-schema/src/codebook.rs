@@ -100,6 +100,20 @@ codebook!(
 );
 
 codebook!(
+    ContextEntryKind = "context_entry_kind" {
+        NoneValue = 0 => "none_value",
+        ArgumentOrNone = 1 => "argument_or_none",
+    }
+);
+
+codebook!(
+    ContextExitKind = "context_exit_kind" {
+        Preserve = 0 => "preserve",
+        SuppressClasses = 1 => "suppress_classes",
+    }
+);
+
+codebook!(
     Modality = "modality" {
         Definite = 0 => "definite",
         Candidate = 1 => "candidate",
@@ -1438,6 +1452,10 @@ codebook!(
         DefaultValueEvidence = 24 => "default_value_evidence",
         DefaultStabilityEvidence = 25 => "default_stability_evidence",
         SourceParameterIdentity = 26 => "source_parameter_identity",
+        ContextConstruction = 27 => "context_construction",
+        ContextEntry = 28 => "context_entry",
+        ContextExit = 29 => "context_exit",
+        ContextExceptionEvidence = 30 => "context_exception_evidence",
     }
 );
 
@@ -1801,6 +1819,8 @@ pub fn registry() -> Vec<CodebookEntry> {
         CodebookEntry::of::<SummaryChannel>(),
         CodebookEntry::of::<SummarySubjectKind>(),
         CodebookEntry::of::<ConceptAttributeKind>(),
+        CodebookEntry::of::<ContextEntryKind>(),
+        CodebookEntry::of::<ContextExitKind>(),
     ]
 }
 

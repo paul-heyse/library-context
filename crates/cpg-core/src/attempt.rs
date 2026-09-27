@@ -112,7 +112,8 @@ pub struct Published {
 /// 86: condition-safe transfer alternatives and typed behavior transfer/scope in FORMAT 9.
 /// 87: occurrence-specific source parameter identity independent of provider reach approximation.
 /// 88: typed current FCA/RCA attributes, incidence evidence and presentation-only labels.
-pub const COMPILER_OUTPUT_VERSION: u32 = 88;
+/// 89: independently bound synchronous class-protocol declarations (catalog format 4).
+pub const COMPILER_OUTPUT_VERSION: u32 = 89;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -500,6 +501,7 @@ pub async fn compile_owned(
 
 #[derive(Default)]
 struct BoundModels {
+    contexts: Vec<cpg_schema::context_protocol::ModelContextProtocolsRow>,
     targets: Vec<cpg_schema::behavior::ModelTargetsRow>,
     rules: cpg_schema::models::CompiledRules,
 }
@@ -526,11 +528,13 @@ fn bind_models(
     }
     let catalog = cpg_schema::models::Catalog::committed().map_err(CoreError::Analysis)?;
     let definitions = rows::<cpg_schema::tables::ContextDefinitions>(raw)?;
+    let contexts=rows::<cpg_schema::tables::Contexts>(raw)?;
+    let modules=rows::<cpg_schema::tables::ContextModules>(raw)?;
     let targets = catalog
         .bind_targets(
             snapshot_id,
-            &rows::<cpg_schema::tables::Contexts>(raw)?,
-            &rows::<cpg_schema::tables::ContextModules>(raw)?,
+            &contexts,
+            &modules,
             &definitions,
         )
         .map_err(CoreError::Analysis)?;
@@ -538,7 +542,9 @@ fn bind_models(
     let rules = catalog
         .compile_rules(&targets, &definitions, &parameters)
         .map_err(CoreError::Analysis)?;
-    Ok(BoundModels { targets, rules })
+    let protocols=catalog.bind_context_protocols(snapshot_id,&contexts,&modules,&definitions,&parameters)
+        .map_err(CoreError::Analysis)?;
+    Ok(BoundModels { targets, rules, contexts:protocols })
 }
 
 /// What the raw writes leave for the rest of the attempt.
@@ -628,6 +634,8 @@ async fn finish(
         &mut written,
     )
     .await?;
+    write_analysis::<cpg_schema::context_protocol::ModelContextProtocols>(
+        &ctx,root,snapshot_id,&models.contexts,&mut written).await?;
     write_analysis::<cpg_schema::behavior::ModelTargets>(
         &ctx,
         root,
@@ -807,7 +815,11 @@ async fn finish(
             &cpg_schema::behavior::handler_clauses(), w).await?;
         write_analysis_query::<HandlerTypes>(&ctx, root, snapshot_id,
             &cpg_schema::behavior::handler_types(), w).await?;
+        let contexts=crate::summaries::source_contexts(&ctx).await?;
+        write_analysis::<cpg_schema::context_protocol::SourceContextSites>(&ctx,root,snapshot_id,&contexts.sites,w).await?;
+        write_analysis::<cpg_schema::context_protocol::SourceContextArguments>(&ctx,root,snapshot_id,&contexts.arguments,w).await?;
         let completions = crate::summaries::completions(&ctx).await?;
+        write_analysis::<cpg_schema::completion_proof::ReturnCompletionCertificates>(&ctx,root,snapshot_id,&completions.certificates,w).await?;
         write_analysis::<StatementCompletions>(&ctx, root, snapshot_id, &completions.statements, w).await?;
         write_analysis::<StatementCompletionSteps>(&ctx, root, snapshot_id, &completions.statement_steps, w).await?;
         write_analysis::<ReturnExitStatuses>(&ctx, root, snapshot_id, &completions.returns, w).await?;

@@ -169,6 +169,26 @@ fn query(name: &str) -> Option<String> {
             files = cpg_schema::flows::display_files_sql(),
             limit = MAX_SUPPORT_ROWS + 1,
         ),
+        "return_completion_certificates"=>format!(
+            "WITH candidates AS (SELECT c.*, f.condition_id AS selected_condition, \
+                count(*) OVER (PARTITION BY f.summary_id) AS candidate_count \
+                FROM return_completion_certificates c JOIN summary_flows f \
+                ON f.function_node_id=c.function_node_id AND f.return_site_fact_id=c.return_site_fact_id) \
+             SELECT DISTINCT certificate_id,function_node_id,return_site_fact_id,entry_condition_id,exit_condition_id, \
+                entry_count,exit_count,entry_digest,exit_digest FROM candidates \
+             WHERE entry_condition_id=selected_condition OR candidate_count=1 ORDER BY certificate_id LIMIT {}",MAX_SUPPORT_ROWS+1),
+        "model_context_protocols"=>format!(
+            "SELECT p.model_id, p.revision, p.class_node_id, p.class_fact_id, p.class_module_fact_id, p.allocation_node_id, p.allocation_fact_id, p.allocation_module_fact_id, p.initialization_node_id, p.initialization_fact_id, p.initialization_module_fact_id, {entry} AS entry, p.entry_formal, {exit} AS exit, p.exception_formal, {origin} AS origin FROM model_context_protocols p WHERE EXISTS (SELECT 1 FROM source_context_sites site JOIN summary_flow_steps step ON step.evidence_id=site.site_id AND step.kind IN (27,28,29) WHERE site.model_id=p.model_id AND site.class_node_id=p.class_node_id) ORDER BY p.model_id, p.class_node_id LIMIT {limit}",
+            entry=text_of::<cpg_schema::codebook::ContextEntryKind>("p.entry"),
+            exit=text_of::<cpg_schema::codebook::ContextExitKind>("p.exit"),
+            origin=text_of::<cpg_schema::codebook::Origin>("p.origin"),
+            limit=MAX_SUPPORT_ROWS+1),
+        "source_context_sites"=>format!(
+            "SELECT p.site_id, p.function_node_id, p.with_node_id, p.with_fact_id, p.item_node_id, p.item_fact_id, p.item_ordinal, p.call_node_id, p.call_fact_id, p.expression_fact_id, p.protocol_id, p.model_id, p.class_node_id, p.reference_fact_id, p.resolution_fact_id, p.import_binding_fact_id, p.import_region_fact_id, p.import_condition_id, p.export_fact_id, p.allocation_call_fact_id, p.initialization_call_fact_id, p.constructor_valid, p.entry_argument_fact_id FROM source_context_sites p WHERE EXISTS (SELECT 1 FROM summary_flow_steps step WHERE step.evidence_id=p.site_id AND step.kind IN (27,28,29)) ORDER BY p.site_id LIMIT {limit}",
+            limit=MAX_SUPPORT_ROWS+1),
+        "source_context_arguments"=>format!(
+            "SELECT p.site_id, p.ordinal, p.argument_fact_id, p.expression_fact_id, p.parameter_fact_id, p.exception_class_node_id, p.exception_class_fact_id, p.exception_module_fact_id, p.reference_fact_id, p.resolution_fact_id FROM source_context_arguments p WHERE EXISTS (SELECT 1 FROM summary_flow_steps step WHERE step.evidence_id=p.site_id AND step.kind IN (27,28,29)) ORDER BY p.site_id, p.ordinal LIMIT {limit}",
+            limit=MAX_SUPPORT_ROWS+1),
         "source_parameter_identities" => format!(
             "SELECT identity_id, function_node_id, parameter_node_id, source_flow_fact_id, \
              source_origin_id, condition_id, return_site_fact_id, expression_fact_id, reference_fact_id, \
@@ -830,12 +850,15 @@ pub async fn build(ctx: &SessionContext, out: &Path) -> Result<Generation, CoreE
             (None, "operation_text") => operation_text(ctx, &file.schema).await?,
             (None, _) => lexical(ctx, &file.schema).await?,
         };
-        if file.name.starts_with("support_") && batch.num_rows() > MAX_SUPPORT_ROWS {
+        let bounded_support = file.name.starts_with("support_") || matches!(file.name,
+            "return_completion_certificates" | "model_context_protocols" | "source_context_sites"
+            | "source_context_arguments" | "source_parameter_identities");
+        if bounded_support && batch.num_rows() > MAX_SUPPORT_ROWS {
             return Err(bad(format!("{} exceeds the support projection row limit", file.name)));
         }
         let digest = schema_digest(&file.schema).map_err(bad)?;
         let bytes = ipc_bytes(&batch)?;
-        if file.name.starts_with("support_") && bytes.len() > MAX_SUPPORT_FILE_BYTES {
+        if bounded_support && bytes.len() > MAX_SUPPORT_FILE_BYTES {
             return Err(bad(format!("{} exceeds the support projection byte limit", file.name)));
         }
         built.push((file.name, bytes, batch.num_rows(), digest));

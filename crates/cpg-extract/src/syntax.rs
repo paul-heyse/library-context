@@ -418,6 +418,7 @@ pub(crate) fn detail(node: AnyNodeRef<'_>, text: &str) -> Option<String> {
         AnyNodeRef::ExprBoolOp(b) => Some(b.op.as_str().to_owned()),
         AnyNodeRef::ExprUnaryOp(u) => Some(u.op.as_str().to_owned()),
         AnyNodeRef::StmtTry(t) if t.is_star => Some("except*".to_owned()),
+        AnyNodeRef::StmtWith(w) if w.is_async => Some("async".to_owned()),
         AnyNodeRef::StmtAugAssign(a) => Some(a.op.as_str().to_owned()),
         AnyNodeRef::ExprStringLiteral(e) => raw(e.range()),
         AnyNodeRef::ExprBytesLiteral(e) => raw(e.range()),

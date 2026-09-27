@@ -481,6 +481,10 @@ macro_rules! for_each_analysis_table {
     ($mac:ident) => {
         $mac!(
             $crate::findings::PublicPaths,
+            $crate::completion_proof::ReturnCompletionCertificates,
+            $crate::context_protocol::ModelContextProtocols,
+            $crate::context_protocol::SourceContextSites,
+            $crate::context_protocol::SourceContextArguments,
             $crate::concept_attributes::ConceptAttributes,
             $crate::concept_attributes::ConceptIncidences,
             $crate::behavior::ArgumentFlows,

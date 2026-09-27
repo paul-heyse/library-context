@@ -1161,6 +1161,7 @@ async fn a_generation_rebuilds_to_the_same_bytes() {
             "flow_test_leaves",
             "flow_test_value_links",
             "lexical_text",
+            "model_context_protocols",
             "operation_facet_status",
             "operation_facets",
             "operation_text",
@@ -1168,16 +1169,22 @@ async fn a_generation_rebuilds_to_the_same_bytes() {
             "operations",
             "place_claims",
             "public_paths",
+            "return_completion_certificates",
             "singletons",
+            "source_context_arguments",
+            "source_context_sites",
+            "source_parameter_identities",
             "summary_boundaries",
             "summary_flow_steps",
             "summary_flows",
+            "support_attribute_incidences",
+            "support_attributes",
             "support_findings",
             "support_members",
             "support_witnesses",
             "supports",
             "symbol_map",
-            "vectors"
+            "vectors",
         ]
     );
 

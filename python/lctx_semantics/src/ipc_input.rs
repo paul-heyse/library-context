@@ -24,6 +24,7 @@ const NAMES: &[&str] = &[
     "callable_parameters",
     "summary_flows",
     "source_parameter_identities",
+    "model_context_protocols", "source_context_sites", "source_context_arguments", "return_completion_certificates",
     "summary_flow_steps",
     "summary_boundaries",
     "flow_test_leaves",
@@ -32,6 +33,11 @@ const NAMES: &[&str] = &[
 const MAX_FILE_BYTES: usize = 64 * 1024 * 1024;
 
 pub(super) struct Inputs {
+    pub return_certificates: Vec<cpg_schema::completion_proof::ReturnCompletionCertificatesRow>,
+    pub model_context_protocols: Vec<cpg_schema::context_protocol::ModelContextProtocolsRow>,
+    pub source_context_sites: Vec<cpg_schema::context_protocol::SourceContextSitesRow>,
+    pub source_context_arguments: Vec<cpg_schema::context_protocol::SourceContextArgumentsRow>,
+
     pub identities: Vec<SourceParameterIdentitiesRow>,
     pub return_sites: HashMap<Id, Id>,
     pub conditions: Vec<(String, Option<String>, Option<String>)>,
@@ -109,6 +115,17 @@ impl NamedBatch {
             return Err(invalid(format!("{}: null {field}", self.name)));
         }
         Ok(array.value(row))
+    }
+
+    fn boolean(&self, field:&str, row:usize)->PyResult<bool> {
+        let array=self.array::<arrow_array::BooleanArray>(field)?;
+        if array.is_null(row) {return Err(invalid(format!("{}: null {field}",self.name)));}
+        Ok(array.value(row))
+    }
+
+    fn code<T:cpg_schema::codebook::Codebook>(&self,field:&str,row:usize)->PyResult<T> {
+        let value=self.text(field,row)?;
+        T::all().iter().copied().find(|k|k.text()==value).ok_or_else(||invalid(format!("{}: invalid {field}",self.name)))
     }
 
     fn len(&self) -> usize {
@@ -224,7 +241,86 @@ pub(super) fn decode(files: Vec<(String, Vec<u8>)>) -> PyResult<Inputs> {
             end_byte: table.integer("end_byte", row)?,
         })
     }).collect::<PyResult<_>>()?;
+    let table = batch(&batches, "model_context_protocols");
+    let model_context_protocols = (0..table.len()).map(|row| {
+        Ok(cpg_schema::context_protocol::ModelContextProtocolsRow { snapshot_id: Id::ZERO,
+            model_id: super::id(&table.id("model_id", row)?)?,
+            revision: table.integer("revision", row)?,
+            class_node_id: super::id(&table.id("class_node_id", row)?)?,
+            class_fact_id: super::id(&table.id("class_fact_id", row)?)?,
+            class_module_fact_id: super::id(&table.id("class_module_fact_id", row)?)?,
+            allocation_node_id: super::id(&table.id("allocation_node_id", row)?)?,
+            allocation_fact_id: super::id(&table.id("allocation_fact_id", row)?)?,
+            allocation_module_fact_id: super::id(&table.id("allocation_module_fact_id", row)?)?,
+            initialization_node_id: super::id(&table.id("initialization_node_id", row)?)?,
+            initialization_fact_id: super::id(&table.id("initialization_fact_id", row)?)?,
+            initialization_module_fact_id: super::id(&table.id("initialization_module_fact_id", row)?)?,
+            entry: table.code::<cpg_schema::codebook::ContextEntryKind>("entry", row)?,
+            entry_formal: table.optional_text("entry_formal", row)?,
+            exit: table.code::<cpg_schema::codebook::ContextExitKind>("exit", row)?,
+            exception_formal: table.optional_text("exception_formal", row)?,
+            origin: table.code::<cpg_schema::codebook::Origin>("origin", row)?,
+        })
+    }).collect::<PyResult<_>>()?;
+    let table = batch(&batches, "source_context_sites");
+    let source_context_sites = (0..table.len()).map(|row| {
+        Ok(cpg_schema::context_protocol::SourceContextSitesRow { snapshot_id: Id::ZERO,
+            site_id: super::id(&table.id("site_id", row)?)?,
+            function_node_id: super::id(&table.id("function_node_id", row)?)?,
+            with_node_id: super::id(&table.id("with_node_id", row)?)?,
+            with_fact_id: super::id(&table.id("with_fact_id", row)?)?,
+            item_node_id: super::id(&table.id("item_node_id", row)?)?,
+            item_fact_id: super::id(&table.id("item_fact_id", row)?)?,
+            item_ordinal: table.integer("item_ordinal", row)?,
+            call_node_id: super::id(&table.id("call_node_id", row)?)?,
+            call_fact_id: super::id(&table.id("call_fact_id", row)?)?,
+            expression_fact_id: super::id(&table.id("expression_fact_id", row)?)?,
+            protocol_id: super::id(&table.id("protocol_id", row)?)?,
+            model_id: super::id(&table.id("model_id", row)?)?,
+            class_node_id: super::id(&table.id("class_node_id", row)?)?,
+            reference_fact_id: super::id(&table.id("reference_fact_id", row)?)?,
+            resolution_fact_id: super::id(&table.id("resolution_fact_id", row)?)?,
+            import_binding_fact_id: super::id(&table.id("import_binding_fact_id", row)?)?,
+            import_region_fact_id: super::id(&table.id("import_region_fact_id", row)?)?,
+            import_condition_id: super::id(&table.id("import_condition_id", row)?)?,
+            export_fact_id: super::id(&table.id("export_fact_id", row)?)?,
+            allocation_call_fact_id: super::id(&table.id("allocation_call_fact_id", row)?)?,
+            initialization_call_fact_id: super::id(&table.id("initialization_call_fact_id", row)?)?,
+            constructor_valid: table.boolean("constructor_valid", row)?,
+            entry_argument_fact_id: table.optional_id("entry_argument_fact_id", row)?.as_deref().map(super::id).transpose()?,
+        })
+    }).collect::<PyResult<_>>()?;
+    let table = batch(&batches, "source_context_arguments");
+    let source_context_arguments = (0..table.len()).map(|row| {
+        Ok(cpg_schema::context_protocol::SourceContextArgumentsRow { snapshot_id: Id::ZERO,
+            site_id: super::id(&table.id("site_id", row)?)?,
+            ordinal: table.integer("ordinal", row)?,
+            argument_fact_id: super::id(&table.id("argument_fact_id", row)?)?,
+            expression_fact_id: super::id(&table.id("expression_fact_id", row)?)?,
+            parameter_fact_id: table.optional_id("parameter_fact_id", row)?.as_deref().map(super::id).transpose()?,
+            exception_class_node_id: table.optional_id("exception_class_node_id", row)?.as_deref().map(super::id).transpose()?,
+            exception_class_fact_id: table.optional_id("exception_class_fact_id", row)?.as_deref().map(super::id).transpose()?,
+            exception_module_fact_id: table.optional_id("exception_module_fact_id", row)?.as_deref().map(super::id).transpose()?,
+            reference_fact_id: table.optional_id("reference_fact_id", row)?.as_deref().map(super::id).transpose()?,
+            resolution_fact_id: table.optional_id("resolution_fact_id", row)?.as_deref().map(super::id).transpose()?,
+        })
+    }).collect::<PyResult<_>>()?;
+    let table=batch(&batches,"return_completion_certificates");
+    let return_certificates=(0..table.len()).map(|row| {
+        let key=|name|super::id(&table.id(name,row)?);
+        Ok(cpg_schema::completion_proof::ReturnCompletionCertificatesRow {snapshot_id:Id::ZERO,
+            certificate_id:key("certificate_id")?,function_node_id:key("function_node_id")?,return_site_fact_id:key("return_site_fact_id")?,
+            entry_condition_id:key("entry_condition_id")?,exit_condition_id:key("exit_condition_id")?,
+            entry_count:table.integer("entry_count",row)?,exit_count:table.integer("exit_count",row)?,
+            entry_digest:super::digest(&table.digest("entry_digest",row)?)?,exit_digest:super::digest(&table.digest("exit_digest",row)?)?,
+        })
+    }).collect::<PyResult<_>>()?;
     Ok(Inputs {
+        return_certificates,
+        model_context_protocols,
+        source_context_sites,
+        source_context_arguments,
+
         identities,
         return_sites,
         conditions: conditions.into_values().collect(),

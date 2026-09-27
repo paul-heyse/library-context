@@ -890,3 +890,99 @@ cleanup, suppression/nonmatch, preserved abrupt outcomes, exit replacement, nest
 exception restoration and malformed certificates. No tests or production edits were performed
 by this reviewer. S2b/S3a implementation, all S5/S6 obligations and integrated Stage 3 acceptance
 remain open; §19's earlier bounded implementation acceptance is unchanged.
+
+## 21. Bounded implementation follow-up: synchronous lifecycle and return obligations
+
+**2026-09-27 · change/conformance · source inspection with attributed focused receipts.**
+This reviews the compiler-89/catalog-4/extractor-33 implementation of ADR-0059's initial
+`nullcontext`/`suppress` lifecycle subset. §20 remains target acceptance; this section accepts
+only the implementation boundary described here. The forward plan §3.0 S2b/S3a owns remaining
+work and §6 owns scheduled finding disposition.
+
+Schema owns typed protocol/site identity and shared proof admission; the catalog owns pinned
+runtime assertions; analytics owns source binding and completion; core acquires, publishes and
+reconstructs; native loading checks immutable commitments. Provider constructor phases remain
+observations, distinct from authored entry/exit meaning. A new declaration using the supported
+transitions changes the catalog and its controls; a new transition deliberately changes the
+typed contract and completion owner. Neither case requires a serving-side Python interpreter
+or a library-name classifier.
+
+<a id="F11"></a>**F11 — Balanced lifecycle steps alone do not prove this return's obligations.**
+`completion_proof.rs` now commits the function, return site, entry/exit conditions, counts and
+ordered kind/evidence/condition digests, including empty obligations. Source-derived certificates
+are mandatory on the production IPC path. Explicit implication permits stronger entry scope;
+finalizer scope is retained. Admission checks the return anchor, exact prefix and cleanup slice,
+and refuses context evidence outside those obligations. Source finite admission applies the
+same checks before coverage and removes callers of refused witnesses; publication reconstructs
+certificates. Native loading also requires exact cited certificate closure. This corrects the
+earlier native-only lifecycle check and missing match/condition/whole-group evidence gap.
+The final correction preserves typed condition-budget reasons through shared
+`ProofAdmissionError` and finite refusal instead of relabelling them `MissingEvidence`.
+
+<a id="F12"></a>**F12 — Unsupported constructor binding must not become exact TypeError.**
+The source binder distinguishes bound, demonstrated mismatch and unknown. Incomplete or
+unsupported signatures, omitted defaults without authored meaning and bounded binding refuse
+admission. An explicit guard keeps the shared binder's greater-than-128-formal boundary unknown;
+only a proved argument-shape mismatch produces the modeled construction TypeError. Complete
+overload sets and exact allocation/initialization observations remain separate premises.
+
+The inspected completion code evaluates arguments in source order, registers a successful entry
+before assignment, unwinds entered managers in reverse, suppresses only Raise, preserves other
+abrupt outcomes and propagates replacement exceptions to outer exits. It restores the previous
+active exception. These models assert normal entry; broader failing-entry or opaque argument
+evaluation remains unknown. The manager is never substituted for the entered value.
+
+| Judgment/gate | Bounded verdict | Evidence and limit |
+|---|---|---|
+| A1 — Localize change | satisfied at source-inspection strength | Existing schema, pure semantics, acquisition/publication and native owners retain distinct responsibilities |
+| A2 — Encode meaning structurally | satisfied after F11/F12 corrections | Class/constructor/site roles, ordered return obligations, condition scope and unknown-versus-mismatch remain explicit |
+| A3 — Extend through composition | satisfied for the two supported transitions | Catalog declarations compose with existing evaluation, completion and shared admission; new transitions require a deliberate extension |
+| G1/G2/G3/G6; CI-G1/CI-G2 | no remaining blocker established in this slice | Source reconstruction and native closure reject missing, foreign, reordered and omitted obligations without fabricating provider calls |
+| G4/G5/G7/G8; CI-G3 | scoped, no new blocker established | Pure bounded evaluation and independent generated runtime controls; no performance, live embedding or whole-product qualification |
+
+**Attributed focused receipt:** this reviewer inspected the source and
+`/tmp/lctx-stage3-context-final2.log`; the author ran:
+
+```sh
+CARGO_TARGET_DIR=/home/paul/library-context/target \
+INSTA_UPDATE=no RUST_MIN_STACK=16777216 cargo nextest run --release \
+  -p cpg-schema -p lctx-analytics -p cpg-core --lib \
+  --test contracts --test codebooks --test compile --test bundle \
+  -E 'test(completion_proof::) | test(summary_contract::) | test(context_protocol::) | test(summaries::finite::) | test(completion::) | binary(contracts) | binary(codebooks) | test(context_protocols_bind_class_and_constructor_roles_independently) | test(a_generation_rebuilds_to_the_same_bytes)' \
+  --status-level fail --final-status-level fail
+```
+
+Outcome **passed: 57 cases, 147 skipped** (10.544 seconds). Coverage includes ordered certificate
+digests, explicit condition specialization, foreign scope, typed implication/binding limits,
+real extraction→Delta→FORMAT 9/native paths, missing/duplicate certificate and lifecycle support,
+deleted match evidence, omitted groups, same-function site swaps, and source certificate forgery.
+The source/native case separately runs 14 finite generated CPython 3.14.7 programs, including
+monitored partial construction, assignment-before-cleanup and reverse exits; it does not execute
+the fixture or use compiler outputs to choose expected runtime outcomes. Fake embeddings serve
+fixture storage only. Expected schema snapshots were read and accepted before the no-update run;
+the earlier snapshot-failing command remains **failed**. The author subsequently removed an
+unused import warning; that edit changes no semantics.
+
+The author then rebuilt the current native module with
+`CARGO_TARGET_DIR=/home/paul/library-context/target uv sync --frozen --reinstall-package lctx-semantics`
+(**passed**, `/tmp/lctx-stage3-context-native-sync3.log`) and reran the source/Delta/native case:
+
+```sh
+CARGO_TARGET_DIR=/home/paul/library-context/target \
+INSTA_UPDATE=no RUST_MIN_STACK=16777216 cargo nextest run --release \
+  -p cpg-core --test compile \
+  -E 'test(context_protocols_bind_class_and_constructor_roles_independently)' \
+  --status-level fail --final-status-level fail
+```
+
+Outcome **passed: 1 case, 30 skipped** (5.905 seconds), confirmed by this reviewer's inspection
+of `/tmp/lctx-stage3-context-current-native.log`. This establishes the focused current-native
+replay after the rebuild; the earlier 57-case receipt alone is not that rebuild receipt.
+
+**Bounded decision: Accept the lifecycle/completion implementation at source-inspection
+strength, supported by the focused receipt.** F11/F12 are corrected within this slice. Returning
+an `as` value still lacks entry-result identity evidence; general failing-entry models, broader
+protocols, callback/resource fates, named-handler cleanup, remaining channels/coverage, complete
+S6 evidence and integrated Stage 3 remain open. Normal completion proves no unrelated channel
+complete. Full `just test-all`, fresh `just pilot`, clean-wheel and all-techniques/cost
+qualification were **not_run**. This reviewer ran no tests and changed no production files.

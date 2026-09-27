@@ -1,0 +1,27 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table model_context_protocols
+family findings
+key snapshot_id, model_id, class_node_id
+check revision_positive: revision > 0
+@lctx.family=findings
+@lctx.table=model_context_protocols
+snapshot_id: FixedSizeBinary(16) NOT NULL
+model_id: FixedSizeBinary(16) NOT NULL
+revision: Int64 NOT NULL
+class_node_id: FixedSizeBinary(16) NOT NULL
+class_fact_id: FixedSizeBinary(16) NOT NULL
+class_module_fact_id: FixedSizeBinary(16) NOT NULL
+allocation_node_id: FixedSizeBinary(16) NOT NULL
+allocation_fact_id: FixedSizeBinary(16) NOT NULL
+allocation_module_fact_id: FixedSizeBinary(16) NOT NULL
+initialization_node_id: FixedSizeBinary(16) NOT NULL
+initialization_fact_id: FixedSizeBinary(16) NOT NULL
+initialization_module_fact_id: FixedSizeBinary(16) NOT NULL
+entry: Int16 NOT NULL [lctx.codebook=context_entry_kind]
+entry_formal: Utf8 NULL
+exit: Int16 NOT NULL [lctx.codebook=context_exit_kind]
+exception_formal: Utf8 NULL
+origin: Int16 NOT NULL [lctx.codebook=origin]

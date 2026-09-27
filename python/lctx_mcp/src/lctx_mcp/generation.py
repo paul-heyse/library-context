@@ -31,7 +31,7 @@ NATIVE_IPC_FILES = frozenset(
         "conditions", "condition_nodes", "analysis_conditions", "analysis_condition_nodes",
         "operations", "public_paths", "callable_parameters", "summary_flows",
         "summary_flow_steps", "summary_boundaries", "flow_test_leaves", "source_parameter_identities",
-        "flow_test_value_links",
+        "flow_test_value_links", "model_context_protocols", "source_context_sites", "source_context_arguments", "return_completion_certificates",
     }
 )
 
@@ -286,6 +286,72 @@ def expected_schemas(dimensions: int) -> dict[str, pa.Schema]:
              _id("resolution_fact_id"), _id("binding_fact_id"), _id("parameter_fact_id"),
              _id("module_node_id"), _int("start_byte"), _int("end_byte")]
         ),
+        "return_completion_certificates": pa.schema(
+            [_id("certificate_id"),_id("function_node_id"),_id("return_site_fact_id"),
+             _id("entry_condition_id"),_id("exit_condition_id"),_int("entry_count"),_int("exit_count"),
+             pa.field("entry_digest",pa.binary(32),nullable=False),pa.field("exit_digest",pa.binary(32),nullable=False)]
+        ),
+        "model_context_protocols": pa.schema(
+            [
+                _id("model_id"),
+                _int("revision"),
+                _id("class_node_id"),
+                _id("class_fact_id"),
+                _id("class_module_fact_id"),
+                _id("allocation_node_id"),
+                _id("allocation_fact_id"),
+                _id("allocation_module_fact_id"),
+                _id("initialization_node_id"),
+                _id("initialization_fact_id"),
+                _id("initialization_module_fact_id"),
+                _utf8("entry"),
+                _utf8("entry_formal", True),
+                _utf8("exit"),
+                _utf8("exception_formal", True),
+                _utf8("origin"),
+            ]
+        ),
+        "source_context_sites": pa.schema(
+            [
+                _id("site_id"),
+                _id("function_node_id"),
+                _id("with_node_id"),
+                _id("with_fact_id"),
+                _id("item_node_id"),
+                _id("item_fact_id"),
+                _int("item_ordinal"),
+                _id("call_node_id"),
+                _id("call_fact_id"),
+                _id("expression_fact_id"),
+                _id("protocol_id"),
+                _id("model_id"),
+                _id("class_node_id"),
+                _id("reference_fact_id"),
+                _id("resolution_fact_id"),
+                _id("import_binding_fact_id"),
+                _id("import_region_fact_id"),
+                _id("import_condition_id"),
+                _id("export_fact_id"),
+                _id("allocation_call_fact_id"),
+                _id("initialization_call_fact_id"),
+                pa.field("constructor_valid", pa.bool_(), nullable=False),
+                _id("entry_argument_fact_id", True),
+            ]
+        ),
+        "source_context_arguments": pa.schema(
+            [
+                _id("site_id"),
+                _int("ordinal"),
+                _id("argument_fact_id"),
+                _id("expression_fact_id"),
+                _id("parameter_fact_id", True),
+                _id("exception_class_node_id", True),
+                _id("exception_class_fact_id", True),
+                _id("exception_module_fact_id", True),
+                _id("reference_fact_id", True),
+                _id("resolution_fact_id", True),
+            ]
+        ),
         "summary_flow_steps": pa.schema(
             [
                 _id("summary_id"),
@@ -460,6 +526,7 @@ def _read(
             "analysis_condition_nodes",
             "summary_flows",
             "source_parameter_identities",
+            "model_context_protocols", "source_context_sites", "source_context_arguments", "return_completion_certificates",
             "summary_flow_steps",
             "summary_boundaries",
             "flow_test_leaves",
@@ -657,6 +724,7 @@ def load(root: Path, client_spec: Spec | None) -> Generation:
     for name in (
         "summary_flows",
         "source_parameter_identities",
+        "model_context_protocols", "source_context_sites", "source_context_arguments", "return_completion_certificates",
         "summary_flow_steps",
         "summary_boundaries",
         "flow_test_leaves",

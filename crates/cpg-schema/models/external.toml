@@ -1,4 +1,4 @@
-version = 3
+version = 4
 
 # `typing.cast` returns its value unchanged at runtime. The annotated type is not a value source.
 [[models]]
@@ -208,3 +208,22 @@ from = { kind = "parameter", name = "object" }
 to = { kind = "return_value" }
 transfer = "transform"
 modality = "potential"
+
+# Synchronous class protocols, CPython 3.14.7 Lib/contextlib.py (ADR-0059).
+# These assert runtime behavior of the exact class after admitted constructor arguments;
+# they are not synthetic provider __enter__/__exit__ call observations.
+[[context_protocols]]
+revision = 1
+target = { scope = "stdlib", python = "3.14.7", module = "contextlib", callable = "nullcontext" }
+allocation = { scope = "stdlib", python = "3.14.7", module = "builtins", callable = "object.__new__" }
+initialization = { scope = "stdlib", python = "3.14.7", module = "contextlib", callable = "nullcontext.__init__" }
+entry = { kind = "argument_or_none", formal = "enter_result" }
+exit = { kind = "preserve" }
+
+[[context_protocols]]
+revision = 1
+target = { scope = "stdlib", python = "3.14.7", module = "contextlib", callable = "suppress" }
+allocation = { scope = "stdlib", python = "3.14.7", module = "builtins", callable = "object.__new__" }
+initialization = { scope = "stdlib", python = "3.14.7", module = "contextlib", callable = "suppress.__init__" }
+entry = { kind = "none_value" }
+exit = { kind = "suppress_classes", formal = "exceptions" }

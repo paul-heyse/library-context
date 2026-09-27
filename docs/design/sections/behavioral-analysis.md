@@ -66,7 +66,7 @@ A model is committed, typed data about a callable we do not analyze from source.
 - **Channel coverage.** Each target declares transfer, effect, callback, resource and exception
   coverage independently as complete, partial or unspecified. Only complete coverage can support a
   negative summary conclusion.
-- **Phase applicability (Implemented, 2026-09-26).** Catalog format 3 requires an authored phase
+- **Phase applicability (Implemented, 2026-09-26).** Catalog format 4 requires an authored phase
   per model. The same target may have distinct models and channel coverage for different phases;
   target/phase pairs are unique and phase participates in model identity. `model_targets.phase`
   is reconstructed from the catalog. A provider observation activates a model only on exact phase
@@ -92,7 +92,7 @@ A model is committed, typed data about a callable we do not analyze from source.
 | `atexit.register` | Identity transfer; `registered` callback action on normal exit | Invocation |
 | `pydantic==2.13.5` `TypeAdapter.validate_python(object)` | Potential input → result transform | Effects, raises, completion (below) |
 
-- **Validation schema contract (Implemented; focused Tested, 2026-09-27).** Catalog format 3
+- **Validation schema contract (Implemented; focused Tested, 2026-09-27).** Catalog format 4
   separates the effect subject from `static_class`, `runtime_value` and `unresolved` schema
   attribution. Static classes require a unique pinned class node/fact pair from the available
   context; runtime sources have their own typed path and schema-role binding. A missing or
@@ -114,19 +114,33 @@ A model is committed, typed data about a callable we do not analyze from source.
   equivalence; the `int` specializations of `cast` and `assert_type` are **Tested**, the generic
   models are not) belong to the validation lane ([§8.1](validation-and-evaluation.md#section-8-1)).
 
-## Synchronous context protocol target
+## Synchronous context protocols
 
-**Proposed implementation (2026-09-27; ADR-0059).** A separate typed class-protocol category in
-this catalog supplies pinned construction, entry and exit meaning. Class identity and initializer
-signatures are independent; a missing provider exit is not invented, and inherited stub entry
-observations remain attributed. Existing call models retain exact provider/authored phase matching.
-Pure completion admits fresh source-bound construction and ordered arguments, registers an exit
-after successful entry and before `as` assignment, then unwinds entered contexts in reverse on
-normal or abrupt completion, including partial-entry failure. Suppression applies only to Raise;
-exit failures replace pending outcomes. Publication reconstructs source/model evidence and native
-consumers share structural proof admission. The initial exact synchronous domain is CPython
-`nullcontext`/`suppress`; aliases, custom matching, groups and deferred execution remain explicit
-unknowns. This extends the accepted S2b/S3a target; it is not implemented by accepting the ADR.
+**Implemented and focused Tested (2026-09-27; ADR-0059), partial.** Catalog format 4 separates
+pinned class protocols from observed call models. The initial CPython 3.14.7 models are
+`nullcontext` and `suppress`: class, allocator and initializer facts bind independently. The
+source binder admits fresh direct constructions through unique stable imports and exact explicit
+new/init observations. Complete initializer signatures bind arguments; a demonstrated mismatch
+and an unsupported or bounded binding remain distinct. Missing provider exit calls are never
+invented; inherited stub entry observations remain attributed.
+
+Pure completion evaluates arguments in source order, registers each successful entry before `as`
+assignment, and unwinds entered contexts in reverse. Suppression applies only to Raise. Supported
+constructor and unpacking failures trigger partial cleanup; exit failures replace pending
+outcomes. Return, break and continue survive normal exits. Exact builtin matching retains class,
+resolution and complete MRO evidence when needed. Arbitrary matching, exception groups, opaque
+argument evaluation, custom managers and deferred execution remain unknown. These initial models
+assert normal entry; a general failing-entry model is not implemented. Manager identity and
+entry-result identity remain separate; returning an `as` value is still unproved.
+
+`return_completion_certificates` commits each normal return's ordered entry and frame-exit
+obligations, even when empty. Conditions specialize explicitly; finalizer conditions retain their
+scope. Publication reconstructs commitments from completion, and source/native consumers share
+structural admission plus lifecycle order checks. Missing, swapped, reordered or omitted evidence
+cannot become a value summary; bounded condition decisions keep their specific reason. This is
+compiler output 89/extractor output 33, with fresh stores under ADR-0048. The [independent
+controls](../../design_review/evidence/2026-09-27_sync-contexts/README.md) compare actual CPython
+lifecycle outcomes with the focused source/Delta/native paths; they do not qualify all Stage 3.
 
 > Decision: ADR-0059
 
@@ -241,8 +255,8 @@ witness.
   alone drops that flag and omits self/object. Extraction retains the modeled runtime class and
   acquires public metadata at the same pin; there is no fork or dependency change. Handler facts
   are prepared before completion. Named-handler cleanup, exception groups (`except*` is marked
-  in syntax), opaque constructors, arbitrary rebinding/finalization, loops and context exits
-  remain unknown. Handler/else/finalizer entry now reconstructs the pending outcome through
+  in syntax), opaque constructors, arbitrary rebinding/finalization, loops and unmodeled context exits
+  remain unknown. Pinned synchronous protocols have the separate bounded owner above. Handler/else/finalizer entry now reconstructs the pending outcome through
   the same try-body owner. A shared `CompletionOutcome` enum prevents invalid combinations;
   `statement_completions.exception` retains an exact raised kind independently of potential effects.
   Full operand/call/binding evidence is retained in inner-to-outer frame order. Completion depth

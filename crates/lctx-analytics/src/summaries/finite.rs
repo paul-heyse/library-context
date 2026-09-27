@@ -4,7 +4,9 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use cpg_schema::behavior::{ModeledArgumentEvaluationsRow, ReturnEntryStatusesRow, ReturnEntryStepsRow, SummaryBoundariesRow, SummaryComponentsRow, SummaryFlowStepsRow, SummaryFlowsRow};
 use cpg_schema::codebook::{BoundaryReason, ModeledArgumentEvaluationStatus, SummaryFlowKind, SummaryFlowStepKind, Verdict};
 use cpg_schema::condition::Atom;
-use cpg_schema::condition_kernel::{Diagram, KernelBoundary};
+use cpg_schema::condition_kernel::Diagram;
+#[cfg(test)]
+use cpg_schema::condition_kernel::KernelBoundary;
 use cpg_schema::id::{Id, recipe};
 use cpg_schema::models::{InputPath, OutputPath};
 use cpg_schema::parameter_identity::{SourceParameterIdentitiesRow, admits as admits_identity};
@@ -20,6 +22,7 @@ cpg_schema::query_row! {
         condition_id: Id,
         return_site_fact_id: Id,
         return_region_fact_id: Id,
+        return_condition_id: Id,
         return_start_byte: i64,
         approximated: bool,
     }
@@ -213,17 +216,7 @@ fn refuse(
     });
 }
 
-/// One summary-facing classification for a bounded condition operation or stored root.
-pub fn condition_limit(reason: KernelBoundary) -> BoundaryReason {
-    match reason {
-        KernelBoundary::AtomLimit => BoundaryReason::ConditionAtomLimit,
-        KernelBoundary::WorkPreflight => BoundaryReason::ConditionWorkLimit,
-        KernelBoundary::NodeLimit => BoundaryReason::ConditionNodeLimit,
-        KernelBoundary::SourceOverBudget => BoundaryReason::BudgetReached,
-        KernelBoundary::TransferUnsupported => BoundaryReason::OutsideProviderModel,
-        KernelBoundary::AtomNameCollision => BoundaryReason::MissingEvidence,
-    }
-}
+pub use cpg_schema::summary_contract::condition_limit;
 
 fn refusal_priority(reason: BoundaryReason) -> u8 {
     match reason {
@@ -511,7 +504,7 @@ fn specialize_local_condition(seed: &LocalCallSummaryFlowSeed,
     let result = callee.substitute_atoms(&refs).map_err(condition_limit)?;
     if !result.is_true() { return Ok(None); }
     validate_fixed_control_proof(seed.function_node_id, caller, seed.callee_node_id, callee,
-        &proof, &links.by_id).map_err(|_| BoundaryReason::MissingEvidence)?;
+        &proof, &links.by_id).map_err(|error| error.reason)?;
     Ok(Some(proof))
 }
 
@@ -531,6 +524,8 @@ type ReturnPassIndex = HashMap<Id, Vec<ReturnPassStep>>;
 
 #[derive(Clone)]
 pub struct FiniteSummaryInputs {
+    pub return_certificates: Vec<cpg_schema::completion_proof::ReturnCompletionCertificatesRow>,
+    pub context_sites: Vec<cpg_schema::context_protocol::SourceContextSitesRow>,
     pub identities: Vec<SourceParameterIdentitiesRow>,
     pub diagrams: HashMap<Id, Diagram>,
     pub boundaries: HashMap<Id, BoundaryReason>,
@@ -644,6 +639,8 @@ fn direct_flows(
                 condition_id: finalizer.condition_id,
             });
         }
+        proof.push(recipe::SummaryFlowProofStep {kind:SummaryFlowStepKind::ReturnExit,
+            evidence_id:seed.return_site_fact_id,condition_id:seed.return_condition_id});
         let identity = identities_by_origin.get(&(seed.snapshot_id, seed.source_origin_id))
             .into_iter().flatten().filter(|row| admits_identity(row, seed.function_node_id, seed.parameter_node_id,
                 seed.source_flow_fact_id, seed.source_origin_id, seed.condition_id,
@@ -1039,7 +1036,7 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
 {
     let FiniteSummaryInputs {
         identities,
-        diagrams, boundaries, mut pass_steps, entries, entry_steps, components,
+        diagrams, boundaries, mut pass_steps, entries, entry_steps, components, context_sites, return_certificates,
         direct_seeds, modeled_seeds, chain_arguments, evaluations, assignment_seeds, local_seeds,
         local_arguments, local_value_links, local_bindings, boundary_candidates,
     } = inputs;
@@ -1604,6 +1601,48 @@ fn finite_flows_with_pair_limit(inputs: FiniteSummaryInputs, max_pair_work: usiz
             for reason in path.refused.values().copied() { refuse(&mut refusals, key, reason); }
         }
     }
+    // Source and native consumers share lifecycle admission. Check complete witnesses after
+    // finalizer insertion, in dependency order, and refuse callers of a rejected witness.
+    let mut context_index=HashMap::new();
+    for site in &context_sites {
+        context_index.entry(site.site_id).and_modify(|prior|*prior=None).or_insert(Some(site));
+    }
+    let mut proof_index:HashMap<_,Vec<_>>=HashMap::new();
+    for step in &steps {proof_index.entry(step.summary_id).or_default().push(step);}
+    for proof in proof_index.values_mut() {proof.sort_by_key(|s|s.ordinal);}
+    flows.sort_by_key(|flow|(flow.path_depth,flow.summary_id));
+    let mut admitted=HashSet::new();
+    flows.retain(|flow| {
+        let proof:Vec<_>=proof_index.get(&flow.summary_id).into_iter().flatten().map(|s|
+            recipe::SummaryFlowProofStep {kind:s.kind,evidence_id:s.evidence_id,condition_id:s.condition_id}).collect();
+        let all:Vec<_>=return_certificates.iter().filter(|c|c.snapshot_id==flow.snapshot_id
+            && c.function_node_id==flow.function_node_id && c.return_site_fact_id==flow.return_site_fact_id).collect();
+        let exact:Vec<_>=all.iter().copied().filter(|c|c.entry_condition_id==flow.condition_id).collect();
+        let candidates=if exact.is_empty() {all} else {exact};
+        let completion = (|| {
+            let [certificate] = candidates.as_slice() else { return Err(BoundaryReason::MissingEvidence); };
+            let get = |id| diagrams.get(&id).ok_or_else(|| boundaries.get(&id).copied()
+                .unwrap_or(BoundaryReason::MissingEvidence));
+            cpg_schema::completion_proof::admit(certificate,flow.function_node_id,flow.return_site_fact_id,
+                get(flow.condition_id)?,get(certificate.entry_condition_id)?,get(certificate.exit_condition_id)?,&proof)
+                .map_err(|error|error.reason)?;
+            cpg_schema::context_protocol::admit_proof(flow.function_node_id,&proof,
+                |id|context_index.get(&id).copied().flatten()).map_err(|_|BoundaryReason::MissingEvidence)?;
+            if !proof.iter().filter(|s|s.kind==SummaryFlowStepKind::CalleeSummary)
+                .all(|s|admitted.contains(&s.evidence_id)) {return Err(BoundaryReason::MissingEvidence);}
+            Ok(())
+        })();
+        let valid = match completion {
+            Ok(()) => {admitted.insert(flow.summary_id);true},
+            Err(reason) => {
+                refuse(&mut refusals,(flow.snapshot_id,flow.function_node_id,flow.parameter_node_id,
+                    flow.source_flow_fact_id,flow.condition_id,flow.source_origin_id),reason);
+                false
+            },
+        };
+        valid
+    });
+    steps.retain(|s|admitted.contains(&s.summary_id));
     flows.sort_by_key(|row| row.summary_id);
     steps.sort_by_key(|row| (row.summary_id, row.ordinal));
     refusals.sort_by_key(|row| (row.key(), row.reason));
@@ -1706,6 +1745,23 @@ mod tests {
                     condition_id:Diagram::always().id(),reason:None,work:1});
             }
         }
+        if input.return_certificates.is_empty() {
+            for entry in &input.entries {
+                let mut before:Vec<_>=input.entry_steps.iter().filter(|s|s.return_site_fact_id==entry.return_site_fact_id
+                    && s.condition_id==entry.condition_id).collect();before.sort_by_key(|s|s.ordinal);
+                let before:Vec<_>=before.into_iter().map(|s|recipe::SummaryFlowProofStep {kind:s.kind,evidence_id:s.evidence_id,condition_id:s.condition_id}).collect();
+                let mut after=input.pass_steps.get(&entry.return_site_fact_id).cloned().unwrap_or_default();after.sort_by_key(|s|s.ordinal);
+                let after:Vec<_>=after.into_iter().map(|s|recipe::SummaryFlowProofStep {kind:s.kind,evidence_id:s.pass_fact_id,condition_id:s.condition_id}).collect();
+                let mut exit_condition=entry.condition_id;
+                macro_rules! exit {($rows:expr)=>{for seed in $rows {if seed.return_site_fact_id==entry.return_site_fact_id {exit_condition=seed.return_condition_id;}}};}
+                exit!(&input.direct_seeds);exit!(&input.modeled_seeds);exit!(&input.assignment_seeds);exit!(&input.local_seeds);exit!(&input.chain_arguments);
+                let mut certificate=cpg_schema::completion_proof::ReturnCompletionCertificatesRow {snapshot_id:entry.snapshot_id,
+                    certificate_id:Id::ZERO,function_node_id:entry.function_node_id,return_site_fact_id:entry.return_site_fact_id,
+                    entry_condition_id:entry.condition_id,exit_condition_id:exit_condition,entry_count:before.len() as i64,exit_count:after.len() as i64,
+                    entry_digest:cpg_schema::completion_proof::proof_digest(&before),exit_digest:cpg_schema::completion_proof::proof_digest(&after)};
+                certificate.certificate_id=cpg_schema::completion_proof::identity(&certificate);input.return_certificates.push(certificate);
+            }
+        }
         input
     }
     fn finite_flows(input:FiniteSummaryInputs) -> FiniteSummaryOutcome { super::finite_flows(entry_inputs(input)) }
@@ -1729,6 +1785,7 @@ mod tests {
             condition_id: Diagram::always().id(),
             return_site_fact_id: id(5),
             return_region_fact_id: id(6),
+            return_condition_id: Diagram::always().id(),
             return_start_byte: 30,
             approximated: false,
         }
@@ -1740,6 +1797,8 @@ mod tests {
             identities: Vec::new(),
             diagrams: HashMap::from([(always.id(), always)]),
             boundaries: HashMap::new(),
+            context_sites: Vec::new(),
+            return_certificates: Vec::new(),
             pass_steps: HashMap::new(),
             entries: vec![ReturnEntryStatusesRow { snapshot_id:id(1),function_node_id:id(2),return_site_fact_id:id(5),condition_id:Diagram::always().id(),reason:None,work:1 }],
             entry_steps: Vec::new(),
@@ -2429,7 +2488,7 @@ mod tests {
         let outcome = finite_flows(with_local_arguments(inputs()));
         assert_eq!(outcome.flows.len(), 1);
         assert_eq!(outcome.flows[0].verdict, Verdict::Established);
-        assert_eq!(outcome.steps.len(), 1);
+        assert_eq!(outcome.steps.len(), 2);
         assert_eq!(outcome.steps[0].kind, SummaryFlowStepKind::RawIdentity);
         assert!(outcome.boundaries.is_empty());
 
@@ -2498,7 +2557,7 @@ mod tests {
         assert_eq!(first.flows, second.flows);
         assert_eq!(first.steps, second.steps);
         assert_eq!(first.steps.iter().map(|step| step.evidence_id).collect::<Vec<_>>(),
-            [id(4), id(50), id(51)]);
+            [id(4), id(50), id(51), id(5)]);
     }
 
     #[test]
@@ -2508,11 +2567,11 @@ mod tests {
         let steps:Vec<_>=(0..limit).map(|i| ReturnPassStep {
             return_site_fact_id:id(5),pass_fact_id:id(50),kind:SummaryFlowStepKind::FinalizerPass,
             condition_id:Diagram::always().id(),ordinal:i as i64 }).collect();
-        input.pass_steps.insert(id(5),steps[..limit-1].to_vec());
+        input.pass_steps.insert(id(5),steps[..limit-2].to_vec());
         let admitted=finite_flows(input.clone());
         assert_eq!(admitted.steps.len(),limit);
         assert_eq!(admitted.flows.len(),1);
-        input.pass_steps.insert(id(5),steps);
+        input.pass_steps.insert(id(5),steps[..limit-1].to_vec());
         let refused=finite_flows(input);
         assert!(refused.flows.is_empty());
         assert!(refused.boundaries.iter().any(|r|r.reason==BoundaryReason::SummaryProofLimit));
@@ -2545,7 +2604,7 @@ mod tests {
         let out=finite_flows(input.clone());input.entry_steps.reverse();
         let shuffled=finite_flows(input);
         assert_eq!(out.steps,shuffled.steps);assert_eq!(out.flows,shuffled.flows);
-        assert_eq!(out.steps.iter().map(|s|s.evidence_id).collect::<Vec<_>>(),[id(70),id(71),id(4)]);
+        assert_eq!(out.steps.iter().map(|s|s.evidence_id).collect::<Vec<_>>(),[id(70),id(71),id(4),id(5)]);
     }
 
     #[test]

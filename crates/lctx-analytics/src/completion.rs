@@ -6,6 +6,7 @@ use cpg_schema::behavior::{ExpressionEvaluationsRow, ExpressionEvaluationStepsRo
 use cpg_schema::codebook::{BindingKind, BoundaryReason, Codebook, CompletionKind as C,
     ExitSiteKind, LexicalScopeKind, SummaryFlowStepKind as K, SyntaxField as F, SyntaxKind as S};
 use cpg_schema::id::Id;
+use cpg_schema::context_protocol::{ModelContextProtocolsRow,SourceContextSitesRow,SourceContextArgumentsRow};
 use cpg_schema::tables::{SyntaxNodesRow, BindingsRow, ScopesRow, FlowTestsRow, DeclarationsRow, ParameterSyntaxRow};
 use cpg_schema::condition_kernel::Diagram;
 use crate::summaries::finite::condition_limit;
@@ -20,6 +21,9 @@ type Proof = Vec<(K, Id)>;
 type Result = std::result::Result<Completion, BoundaryReason>;
 
 pub struct Inputs<'a> {
+    pub context_protocols: &'a [ModelContextProtocolsRow],
+    pub context_sites: &'a [SourceContextSitesRow],
+    pub context_arguments: &'a [SourceContextArgumentsRow],
     pub declarations: &'a [DeclarationsRow],
     pub parameters: &'a [ParameterSyntaxRow],
     pub syntax: &'a [SyntaxNodesRow],
@@ -41,6 +45,7 @@ pub struct Inputs<'a> {
 
 #[derive(Default)]
 pub struct Outcome {
+    pub certificates: Vec<cpg_schema::completion_proof::ReturnCompletionCertificatesRow>,
     pub statements: Vec<StatementCompletionsRow>,
     pub statement_steps: Vec<StatementCompletionStepsRow>,
     pub returns: Vec<ReturnExitStatusesRow>,
@@ -154,7 +159,15 @@ fn definition_headers<'a>(inputs: &Inputs<'a>, children: &HashMap<(Id,Id),Vec<&'
     out
 }
 
+#[derive(Clone)]
+struct PreparedContext<'a> {
+    site:&'a SourceContextSitesRow,
+    protocol:&'a ModelContextProtocolsRow,
+    arguments:Vec<(&'a SourceContextArgumentsRow,&'a SyntaxNodesRow)>,
+}
+
 struct Kernel<'a> {
+    contexts: HashMap<(Id,Id),PreparedContext<'a>>,
     definitions: HashMap<(Id,Id),DefinitionHeader<'a>>,
     children: HashMap<(Id, Id), Vec<&'a SyntaxNodesRow>>,
     expressions: HashMap<(Id, Id), &'a ExpressionEvaluationsRow>,
@@ -178,7 +191,136 @@ struct Kernel<'a> {
     proof: Proof,
 }
 
-impl Kernel<'_> {
+impl<'ctx> Kernel<'ctx> {
+    fn context_items(&self,node:&SyntaxNodesRow,children:&[&SyntaxNodesRow])
+        ->std::result::Result<Vec<PreparedContext<'ctx>>,BoundaryReason> {
+        if node.detail.as_deref()==Some("async") || children.iter().any(|n|!matches!(n.field,F::Item|F::Body)) {
+            return Err(BoundaryReason::UnsupportedControlFlow);
+        }
+        let mut items:Vec<_>=children.iter().copied().filter(|n|n.field==F::Item).collect();
+        items.sort_by_key(|n|n.ordinal);
+        if items.is_empty() || items.len()>128 || items.iter().enumerate().any(|(i,n)|n.ordinal!=i as i64 || n.kind!=S::WithItem) {
+            return Err(BoundaryReason::MissingEvidence);
+        }
+        items.into_iter().map(|item| {
+            let context=self.contexts.get(&(node.snapshot_id,item.node_id)).ok_or(BoundaryReason::UnsupportedControlFlow)?;
+            if context.site.with_node_id!=node.node_id || context.site.with_fact_id!=node.fact_id
+                || context.site.item_fact_id!=item.fact_id || context.site.item_ordinal!=item.ordinal {
+                return Err(BoundaryReason::MissingEvidence);
+            }
+            Ok(context.clone())
+        }).collect()
+    }
+
+    fn enter_contexts(&mut self,node:&SyntaxNodesRow,children:&[&SyntaxNodesRow])
+        ->std::result::Result<(Vec<PreparedContext<'ctx>>,Completion),BoundaryReason> {
+        let items=self.context_items(node,children)?;
+        let mut entered=Vec::new();
+        for context in items {
+            self.remaining=self.remaining.checked_sub(1+context.arguments.len()).ok_or(BoundaryReason::CompletionWorkLimit)?;
+            for (_,argument) in &context.arguments {self.expression(argument)?;}
+            self.proof.push((K::ContextConstruction,context.site.site_id));
+            if !context.site.constructor_valid {
+                return Ok((entered,Completion::raised(context.site.expression_fact_id,ExactRuntimeException::TypeError)));
+            }
+            self.proof.push((K::ContextEntry,context.site.site_id));
+            // Register before assignment: a failed `as` assignment still runs this exit.
+            entered.push(context.clone());
+            let pending=self.assign_context(&context)?;
+            if pending!=Completion::Normal {return Ok((entered,pending));}
+        }
+        Ok((entered,Completion::Normal))
+    }
+
+    fn assign_context(&mut self,context:&PreparedContext<'_>)->Result {
+        let site=context.site;
+        let children=self.children.get(&(site.snapshot_id,site.item_node_id)).cloned().unwrap_or_default();
+        let targets:Vec<_>=children.iter().copied().filter(|n|n.field==F::Target).collect();
+        if targets.is_empty() {return Ok(Completion::Normal);}
+        let [target]=targets.as_slice() else {return Err(BoundaryReason::MissingEvidence);};
+        self.remaining=self.remaining.checked_sub(1).ok_or(BoundaryReason::CompletionWorkLimit)?;
+        self.proof.push((K::ExpressionSyntax,target.fact_id));
+        if target.kind==S::ExprName {
+            let bindings=self.writes.get(&(site.snapshot_id,target.node_id)).ok_or(BoundaryReason::MissingEvidence)?;
+            let [binding]=bindings.as_slice() else {return Err(BoundaryReason::MissingEvidence);};
+            let scope=self.scopes.get(&(site.snapshot_id,binding.scope_id)).ok_or(BoundaryReason::MissingEvidence)?;
+            if binding.kind!=BindingKind::WithTarget || scope.kind!=LexicalScopeKind::Function
+                || scope.owner_node_id!=site.function_node_id || !self.initializations.contains(&binding.fact_id)
+                || !self.initialized.insert((site.snapshot_id,binding.scope_id,binding.name.clone())) {
+                return Err(BoundaryReason::UnsupportedControlFlow);
+            }
+            self.proof.push((K::LocalAssignmentBinding,binding.fact_id));
+            return Ok(Completion::Normal);
+        }
+        let none=context.protocol.entry==cpg_schema::codebook::ContextEntryKind::NoneValue
+            || context.site.entry_argument_fact_id.is_none()
+            || context.arguments.iter().any(|(a,n)|Some(a.argument_fact_id)==site.entry_argument_fact_id && n.kind==S::ExprNoneLiteral);
+        if none && matches!(target.kind,S::ExprTuple|S::ExprList) {
+            // Iterator acquisition fails before any target assignment, so no old value is
+            // released. Other unpacking and attribute/subscript assignment remain open.
+            return Ok(Completion::raised(target.fact_id,ExactRuntimeException::TypeError));
+        }
+        Err(BoundaryReason::UnsupportedControlFlow)
+    }
+
+    fn exit_contexts(&mut self,entered:&[PreparedContext<'_>],mut pending:Completion)->Result {
+        let previous=self.active_exception;
+        let result=(|| {
+            for context in entered.iter().rev() {
+                self.remaining=self.remaining.checked_sub(1).ok_or(BoundaryReason::CompletionWorkLimit)?;
+                self.active_exception=pending.exception().or(previous);
+                if let Some(exception)=pending.exception() {
+                    if context.protocol.exit==cpg_schema::codebook::ContextExitKind::SuppressClasses {
+                        pending=self.suppress_context(context,exception,pending)?;
+                    }
+                }
+                self.proof.push((K::ContextExit,context.site.site_id));
+            }
+            Ok(pending)
+        })();
+        self.active_exception=previous;
+        result
+    }
+
+    /// contextlib.suppress uses issubclass, not exception-handler matching. Only pinned
+    /// builtin classes have no user metaclass hook here; nonclasses can raise during exit.
+    fn suppress_context(&mut self,context:&PreparedContext<'_>,exception:ExactRuntimeException,pending:Completion)->Result {
+        for (argument,node) in &context.arguments {
+            self.remaining=self.remaining.checked_sub(1).ok_or(BoundaryReason::CompletionWorkLimit)?;
+            let Some(class_id)=argument.exception_class_node_id else {
+                if matches!(node.kind,S::ExprNoneLiteral|S::ExprNumberLiteral|S::ExprStringLiteral|S::ExprBytesLiteral
+                    |S::ExprBooleanLiteral|S::ExprEllipsisLiteral) {
+                    return Ok(Completion::raised(context.site.item_fact_id,ExactRuntimeException::TypeError));
+                }
+                return Err(BoundaryReason::UnsupportedControlFlow);
+            };
+            let (module,name)=exception.class();
+            let raised=self.pinned_class(context.site.snapshot_id,module,name)?;
+            let raised_id=raised.symbol_node_id;
+            let mut evidence=vec![raised.fact_id,argument.exception_class_fact_id.ok_or(BoundaryReason::MissingEvidence)?,
+                argument.exception_module_fact_id.ok_or(BoundaryReason::MissingEvidence)?,
+                argument.reference_fact_id.ok_or(BoundaryReason::MissingEvidence)?,argument.resolution_fact_id.ok_or(BoundaryReason::MissingEvidence)?];
+            let classes:Vec<_>=self.classes.values().flatten().filter(|c|c.snapshot_id==context.site.snapshot_id
+                && c.symbol_node_id==class_id).collect();
+            let [class]=classes.as_slice() else {return Err(BoundaryReason::MissingEvidence);};
+            if class.module_name!="builtins" || class.fact_id!=argument.exception_class_fact_id.unwrap() {return Err(BoundaryReason::MissingEvidence);}
+            let mut matches=raised_id==class_id;
+            if !matches {
+                let mro=self.mro.get(&(context.site.snapshot_id,raised_id)).ok_or(BoundaryReason::MissingEvidence)?;
+                if mro.is_empty() || mro.iter().enumerate().any(|(i,a)|a.cyclic || !a.linearization_complete
+                    || a.ordinal!=Some(i as i64) || a.ancestor_module.is_none() || a.ancestor_key.is_none()) {
+                    return Err(BoundaryReason::MissingEvidence);
+                }
+                matches=mro.iter().any(|a|a.ancestor_module.as_deref()==Some(&class.module_name) && a.ancestor_key.as_deref()==Some(&class.key));
+                evidence.extend(mro.iter().map(|a|a.fact_id));
+            }
+            self.remaining=self.remaining.checked_sub(evidence.len()).ok_or(BoundaryReason::CompletionWorkLimit)?;
+            self.proof.extend(evidence.into_iter().map(|id|(K::ContextExceptionEvidence,id)));
+            if matches {return Ok(Completion::Normal);}
+        }
+        Ok(pending)
+    }
+
     fn entry(&mut self, exit:&ExitSitesRow, nodes:&HashMap<(Id,Id),&SyntaxNodesRow>)
         -> std::result::Result<(),BoundaryReason> {
         let mut current=*nodes.get(&(exit.snapshot_id,exit.site_node_id)).ok_or(BoundaryReason::MissingEvidence)?;
@@ -222,6 +364,10 @@ impl Kernel<'_> {
                         },
                         _ => return Err(BoundaryReason::UnsupportedControlFlow),
                     }
+                },
+                S::StmtWith if node.field==F::Body => {
+                    let (_,pending)=self.enter_contexts(parent,&children)?;
+                    if pending!=Completion::Normal {return Err(BoundaryReason::RuntimeUnreachable);}
                 },
                 S::ExceptHandlerExceptHandler if node.field==F::Body => {},
                 S::ElifElseClause if node.field==F::Body => {},
@@ -534,6 +680,11 @@ impl Kernel<'_> {
                     result
                 }
             },
+            S::StmtWith => {
+                let (entered,mut pending)=self.enter_contexts(node,&children)?;
+                if pending==Completion::Normal {pending=self.suite(&children,F::Body,depth)?;}
+                self.exit_contexts(&entered,pending)?
+            },
             S::StmtTry if node.detail.as_deref()!=Some("except*") => {
                 let pending = self.try_body(node,&children,depth)?;
                 let previous=self.active_exception;
@@ -564,7 +715,7 @@ pub fn complete(inputs: Inputs<'_>) -> Outcome {
     // lexical initialization cannot replace an earlier parameter, assignment or handler value.
     let mut by_name: HashMap<_,Vec<_>> = HashMap::new();
     for binding in inputs.bindings { by_name.entry((binding.snapshot_id,binding.scope_id,&binding.name)).or_default().push(binding); }
-    let eligible: BTreeSet<Id>=by_name.values().filter(|group|group.iter().all(|b|b.kind==BindingKind::Assignment)).flat_map(|group|group.iter()).filter_map(|binding| {
+    let eligible: BTreeSet<Id>=by_name.values().filter(|group|group.iter().all(|b|matches!(b.kind,BindingKind::Assignment|BindingKind::WithTarget))).flat_map(|group|group.iter()).filter_map(|binding| {
         let mut current=nodes.get(&(binding.snapshot_id,binding.site_node_id)).copied();
         let mut seen=BTreeSet::new();
         for _ in 0..MAX_DEPTH {
@@ -591,7 +742,27 @@ pub fn complete(inputs: Inputs<'_>) -> Outcome {
     for ancestor in inputs.mro {mro.entry((ancestor.snapshot_id,ancestor.class_node_id)).or_default().push(ancestor);}
     for ancestors in mro.values_mut() {ancestors.sort_by_key(|a|(a.ordinal,a.fact_id));}
     let definitions=definition_headers(&inputs,&children);
-    let mut kernel = Kernel { definitions, children, writes, initializations, expression_steps, tests, diagrams:inputs.diagrams, boundaries:inputs.boundaries, assumption:None,
+    let mut contexts=HashMap::new();
+    for site in inputs.context_sites {
+        let protocols:Vec<_>=inputs.context_protocols.iter().filter(|p|p.snapshot_id==site.snapshot_id
+            && p.model_id==site.model_id && p.class_node_id==site.class_node_id).collect();
+        let [protocol]=protocols.as_slice() else {continue;};
+        let mut arguments:Vec<_>=inputs.context_arguments.iter().filter(|a|a.snapshot_id==site.snapshot_id && a.site_id==site.site_id).cloned().collect();
+        arguments.sort_by_key(|a|a.ordinal);
+        if !cpg_schema::context_protocol::admits_site(site,&arguments,protocol) {continue;}
+        let mut rows:Vec<_>=inputs.context_arguments.iter().filter(|a|a.snapshot_id==site.snapshot_id && a.site_id==site.site_id).collect();
+        rows.sort_by_key(|a|a.ordinal);
+        let arguments:Option<Vec<_>>=rows.into_iter().map(|a| {
+            let found:Vec<_>=inputs.syntax.iter().filter(|n|n.snapshot_id==site.snapshot_id && n.fact_id==a.expression_fact_id
+                && n.owner_node_id==Some(site.function_node_id) && n.parent_node_id==site.call_node_id).collect();
+            (found.len()==1).then(||(a,found[0]))
+        }).collect();
+        let Some(arguments)=arguments else {continue;};
+        let key=(site.snapshot_id,site.item_node_id);
+        if inputs.context_sites.iter().filter(|s|(s.snapshot_id,s.item_node_id)==key).count()!=1 {continue;}
+        contexts.insert(key,PreparedContext {site,protocol,arguments});
+    }
+    let mut kernel = Kernel { contexts, definitions, children, writes, initializations, expression_steps, tests, diagrams:inputs.diagrams, boundaries:inputs.boundaries, assumption:None,
         handler_types,classes,mro,modules,active_exception:None,
         entry_mode:false,initialized:BTreeSet::new(),path_initializations:eligible,
         remaining: MAX_WORK, proof: Vec::new(),
@@ -647,7 +818,16 @@ pub fn complete(inputs: Inputs<'_>) -> Outcome {
                 && actions.iter().any(|n| n.field == F::Finalbody)) {
                 if row.frame_node_id.is_none() { row.frame_node_id=Some(parent.node_id); row.frame_fact_id=Some(parent.fact_id); }
                 frames.push(parent.node_id);
-                if parent.kind == S::StmtWith { row.reason=Some(BoundaryReason::UnsupportedControlFlow); break; }
+                if parent.kind == S::StmtWith {
+                    let contexts=kernel.context_items(parent,&actions);
+                    match contexts.and_then(|items|kernel.exit_contexts(&items,Completion::Return(exit.source_fact_id))) {
+                        Ok(Completion::Return(id)) if id==exit.source_fact_id=>{},
+                        Ok(_)=>{row.reason=Some(BoundaryReason::UnsupportedControlFlow);break;},
+                        Err(reason)=>{row.reason=Some(reason);break;},
+                    }
+                    row.pass_node_id=None;row.pass_fact_id=None;
+                    row.walk_depth+=1;current=Some(parent);continue;
+                }
                 match kernel.suite(&actions,F::Finalbody,0) {
                     Ok(outcome) if outcome.kind()==C::Normal => {},
                     Ok(_) => { row.reason=Some(BoundaryReason::UnsupportedControlFlow); break; },
@@ -674,6 +854,7 @@ pub fn complete(inputs: Inputs<'_>) -> Outcome {
     out.return_steps.sort_by_key(|r|(r.snapshot_id,r.return_site_fact_id,r.ordinal));
     out.entries.sort_by_key(|r|(r.snapshot_id,r.return_site_fact_id,r.condition_id));
     out.entry_steps.sort_by_key(|r|(r.snapshot_id,r.return_site_fact_id,r.condition_id,r.ordinal));
+    out.certificates=cpg_schema::completion_proof::certify(&out.entries,&out.entry_steps,&out.returns,&out.return_steps);
     out
 }
 
@@ -689,7 +870,7 @@ mod tests {
     }
     fn run(nodes:&[SyntaxNodesRow], exits:&[ExitSitesRow]) -> Outcome {
         let expressions=evaluate(EvaluationInputs {syntax:nodes,..Default::default()});
-        complete(Inputs {declarations:&[],parameters:&[],syntax:nodes,expressions:&expressions.evaluations,expression_steps:&expressions.steps,bindings:&[],scopes:&[],exits,
+        complete(Inputs {context_protocols:&[],context_sites:&[],context_arguments:&[],declarations:&[],parameters:&[],syntax:nodes,expressions:&expressions.evaluations,expression_steps:&expressions.steps,bindings:&[],scopes:&[],exits,
             handler_types:&[],classes:&[],mro:&[],modules:&[],tests:&[],entry_conditions:&[],boundaries:&HashMap::new(),diagrams:&HashMap::new()})
     }
     fn exit(site:u8) -> ExitSitesRow {
@@ -905,7 +1086,7 @@ mod tests {
             let diagrams=HashMap::from([(path.id(),path),(predicate.id(),predicate)]);
             let exits=[target];let tests=[test];
             let check=|diagrams:&HashMap<Id,Diagram>,boundaries:&HashMap<Id,BoundaryReason>| {
-                let out=complete(Inputs {declarations:&[],parameters:&[],syntax:&nodes,expressions:&evaluations.evaluations,expression_steps:&evaluations.steps,
+                let out=complete(Inputs {context_protocols:&[],context_sites:&[],context_arguments:&[],declarations:&[],parameters:&[],syntax:&nodes,expressions:&evaluations.evaluations,expression_steps:&evaluations.steps,
                     bindings:&[],scopes:&[],exits:&exits,handler_types:&[],classes:&[],mro:&[],modules:&[],tests:&tests,entry_conditions:&[],boundaries,diagrams});
                 assert_eq!(out.entries[0].reason,Some(expected));assert!(out.entry_steps.is_empty());
             };
@@ -935,7 +1116,7 @@ mod tests {
         let check=|nodes:&[SyntaxNodesRow]| {
             let evaluations=evaluate(EvaluationInputs {syntax:nodes,reads:std::slice::from_ref(&read),..Default::default()});
             assert!(!evaluations.evaluations.iter().find(|e|e.syntax_fact_id==id(11)).unwrap().normal);
-            complete(Inputs {declarations:&[],parameters:&[],syntax:nodes,expressions:&evaluations.evaluations,expression_steps:&evaluations.steps,
+            complete(Inputs {context_protocols:&[],context_sites:&[],context_arguments:&[],declarations:&[],parameters:&[],syntax:nodes,expressions:&evaluations.evaluations,expression_steps:&evaluations.steps,
                 bindings:&[],scopes:&[],exits:std::slice::from_ref(&target),handler_types:&[],classes:&[],mro:&[],modules:&[],tests:&tests,
                 entry_conditions:&[(id(1),id(99),Diagram::always().id())],boundaries:&HashMap::new(),diagrams:&diagrams})
         };
