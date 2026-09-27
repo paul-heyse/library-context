@@ -19,12 +19,16 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 ROOT = Path(__file__).resolve().parents[2]
-FLOW_BIN = ROOT / "target/debug/lctx"
+FLOW_BIN = ROOT / "target/release/lctx"
 
 
 @cache
 def _flow_bin() -> Path:
-    subprocess.run(["cargo", "build", "-p", "lctx", "--quiet"], cwd=ROOT, check=True, timeout=180)
+    # The oracle challenges the release producer used by integrated compilation. Keep this
+    # checkout's cache even when the operator's shell inherits another project's target.
+    env = {**os.environ, "CARGO_TARGET_DIR": str(ROOT / "target")}
+    subprocess.run(["cargo", "build", "--release", "-p", "lctx", "--quiet"], cwd=ROOT,
+                   env=env, check=True, timeout=600)
     return FLOW_BIN
 
 

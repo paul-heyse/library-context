@@ -23,12 +23,13 @@ Every Cargo/native-build command uses `CARGO_TARGET_DIR=/home/paul/library-conte
 | Initial `INSTA_UPDATE=new` codebook selection; `cargo insta accept --snapshot crates/cpg-schema/tests/snapshots/codebooks__registry_snapshot.snap` | `failed`: expected append-only migration (code 33), read/accepted; subsequent codebook selection passed. |
 | `uv sync --frozen --reinstall-package lctx-semantics` | `passed`: current boundary decoder rebuilt before the native test; `/tmp/lctx-stage3-handler-sync.log`. |
 | Context entry-value slice (5778c9a) | `passed`: 45 focused cases; current-native 1 case, Python 15, pyrefly 0 errors, 14 generated runtime programs. Exact commands/limits in [review §22](docs/design_review/reviews/design_review_stage3-channel-contracts_2026-09-26.md#22-bounded-implementation-follow-up-context-entry-value-identity). |
+| `uv run --no-sync pytest tests/scripts/test_flow_soundness.py -q` | `passed`: 18 raw-flow/region oracle cases using this checkout's release `lctx`; `/tmp/lctx-stage3-release-oracle.log`. Composed semantic coverage is separate. |
 | `just fmt`; `just test-all`; fresh `just pilot`; structured Q01/Q03/Q05/Q09; clean wheel; live W9; all-techniques/cost; `just docs-check` | `not_run`: integrated qualification awaits assembled S1–S7 functionality. |
 
 ## Next work and boundaries
 
 - Continue reached-call execution certificates and resource/callback fates. Named-handler proof-or-specific-boundary requirement is met; general cleanup semantics, resources/callbacks and remaining pinned model families/independent challenges stay open. Unsupported argument/entry domains, custom managers, exception groups and deferred execution remain named boundaries.
 - S4/S5 retain stable multi-control/residual conjunction, all-channel SCC semantics with separate witness progress, actual callee/model coverage and claim-specific discharge. New behavioral FCA/registry stays Stage 4.
-- S7 oracle release-binary change is in progress, with its focused run pending.
+- S7 raw-flow oracle now uses the release binary; composed semantic and default-cap challenges remain open.
 - S6/S7 retain FORMAT 9 semantic queries/full evidence, actual default-cap producer→Delta→native traces and independent compiler/oracle challenges. Stage 5 execution remains outside scope.
 - Finish S1–S7 before integrated S8 gates. Focused receipts certify only their named cases; no current full-suite or assembled Stage 3 receipt exists.

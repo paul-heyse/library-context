@@ -99,6 +99,11 @@ it does not yet challenge ignored predecessors, raise escapes or refutations, an
 are example-based (plan W11: truth-table kernel tests, Python-lowering controls and served
 round trips).
 
+**Implemented and focused Tested (2026-09-27):** the raw-flow runtime oracle builds and drives
+this checkout's release `lctx` binary, overriding an inherited target directory. `uv run --no-sync
+pytest tests/scripts/test_flow_soundness.py -q` passed 18 cases. This receipt covers raw flow and
+regions; composed summary/coverage/serving challenges remain separately scoped Stage 3 work.
+
 ---
 
 ## §12 Evaluation
