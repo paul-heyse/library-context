@@ -1,0 +1,12 @@
+[package]
+name = "postgresql-qualification"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+sqlx = { version = "=0.9.0", default-features = false, features = ["postgres", "runtime-tokio", "macros", "migrate", "tls-rustls-ring-native-roots"] }
+tokio = { version = "=1.53.1", features = ["macros", "rt-multi-thread"] }
+testcontainers-modules = { version = "=0.15.0", default-features = false, features = ["postgres"] }

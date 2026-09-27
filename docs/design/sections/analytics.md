@@ -1,7 +1,7 @@
 # Analytics
 
 This owner covers the analyses that run over published facts and derived projections to produce
-typed **findings** (ADR-0047): the three structural passes behind briefs (Pass A delegation,
+typed **findings** (ADR-0067): the three structural passes behind briefs (Pass A delegation,
 Pass B controls, Pass C handoffs), the whole-surface behavior scan, direct-usage ranking and seed
 selection, and the optional statistical and lattice techniques (communities, PageRank, FCA/RCA,
 embedding kNN). Its consumers are Stage F synthesis ([§10](synthesis-and-serving.md#section-10)),
@@ -28,7 +28,7 @@ are **Implemented** and **Tested** as off-by-default variants (§9.8).
 - it must have a **named consumer** in the served model: a tool's output or a brief (ADR-0021);
 - it must be **deterministic** for fixed inputs and parameters;
 - it must record its method, parameters, projection and diagnostics in `analysis_invocations`
-  (ADR-0047);
+  (ADR-0067);
 - it runs by default only if it passes the keep criterion (§9.8), and its effect must be
   measurable as a mechanical diff.
 
@@ -115,7 +115,7 @@ amendment. Defaults below are starting budgets, not measured optima.
   subsystem callees only, and briefs state that stop as a limit, so a seed's brief and its
   behavior rows can differ past the subsystem edge.
 
-> Decision: ADR-0005, ADR-0047, ADR-0021, ADR-0044, ADR-0045
+> Decision: ADR-0005, ADR-0067, ADR-0021, ADR-0044, ADR-0045
 
 
 ### §9.1 Pass A — public entry point and delegation

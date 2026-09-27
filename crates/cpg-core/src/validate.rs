@@ -135,11 +135,15 @@ pub async fn validate_costed(
     violations.extend(validate_summary_flows(&cache).await?);
     violations.extend(validate_summary_components(&cache).await?);
     violations.extend(validate_concept_attributes(&cache).await?);
+    violations.extend(validate_embedding_receipts(&cache).await?);
     Ok((violations, costs))
 }
 
 cpg_schema::relations! {
     inventory exit_relations;
+    stored_embedding_values = "validate_embedding_values", deps=["used_embeddings"], sql="SELECT * FROM used_embeddings".to_owned();
+    stored_embedding_uses = "validate_embedding_uses", deps=["embedding_uses"], sql="SELECT * FROM embedding_uses".to_owned();
+    stored_embedding_specs = "validate_embedding_specs", deps=["embedding_specs"], sql="SELECT * FROM embedding_specs".to_owned();
     concept_call_sources = "validate_concept_call_sources", deps=["nodes","edges","pysa_calls","facts","resolutions","syntax_nodes"],
         sql=format!("SELECT a.src_node_id AS caller,a.dst_node_id AS target,a.call_site_node_id AS site,a.edge_id AS edge,a.modality,a.phase \
             FROM ({arcs}) a JOIN nodes n ON n.node_id=a.dst_node_id WHERE a.arc_kind={call} AND n.node_kind={function} AND a.phase IS NOT NULL",
@@ -2288,4 +2292,54 @@ async fn validate_actions(ctx: &SessionContext) -> Result<Vec<Violation>, CoreEr
         });
     }
     Ok(violations)
+}
+
+/// Exact codec/shape checks reuse the same domain owner as cache admission. SQL rules separately
+/// prove key uniqueness and coverage, including independently stored analytics-only uses.
+pub async fn validate_embedding_receipts(
+    ctx: &SessionContext,
+) -> Result<Vec<Violation>, CoreError> {
+    use cpg_schema::embedding::{EmbeddingUsesRow, UsedEmbeddingsRow, value_digest};
+    use cpg_schema::findings::EmbeddingSpecsRow;
+    let specs: Vec<EmbeddingSpecsRow> =
+        sql::fetch(ctx, &stored_embedding_specs(), sql::Params::new()).await?;
+    let values: Vec<UsedEmbeddingsRow> =
+        sql::fetch(ctx, &stored_embedding_values(), sql::Params::new()).await?;
+    let uses: Vec<EmbeddingUsesRow> =
+        sql::fetch(ctx, &stored_embedding_uses(), sql::Params::new()).await?;
+    let mut errors = 0;
+    let mut admitted = std::collections::BTreeMap::new();
+    for row in specs {
+        match serde_json::from_str::<crate::embed::Spec>(&row.spec) {
+            Ok(spec) if spec.hash() == row.spec_hash && spec.canonical_json() == row.spec => {
+                admitted.insert(row.spec_hash, spec);
+            }
+            _ => errors += 1,
+        }
+    }
+    for row in values {
+        if !admitted
+            .get(&row.spec_hash)
+            .is_some_and(|spec| crate::embed::check_vector(&row.vector, spec.dimensions).is_ok())
+            || row.value_digest != value_digest(&row.vector)
+        {
+            errors += 1;
+        }
+    }
+    errors += uses
+        .iter()
+        .filter(|u| {
+            !cpg_schema::embedding::Usage::valid_mask(u.usage_mask)
+                || !admitted.contains_key(&u.spec_hash)
+        })
+        .count();
+    Ok(if errors == 0 {
+        Vec::new()
+    } else {
+        vec![Violation {
+            rule: "embedding-receipt-integrity".to_owned(),
+            rows: errors,
+            sample: "invalid spec, vector, digest or usage".to_owned(),
+        }]
+    })
 }

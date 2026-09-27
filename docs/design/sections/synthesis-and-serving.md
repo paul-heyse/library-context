@@ -6,7 +6,7 @@ exposed to coding agents through the FastMCP server (§11). Its inputs are the a
 ([§9](analytics.md#section-9)), behavioral relations ([§9.9](behavioral-analysis.md#section-9-9)),
 extracted evidence spans and the published generation
 ([§6.4](storage-and-publication.md#section-6-4)); its outputs are the `assertions`/`briefs`
-analysis tables, the `embedding_cache` rows and the tool responses agents read. Dependencies run
+analysis tables, the consumed-vector receipts and the tool responses agents read. Dependencies run
 one way: synthesis reads findings and evidence, never the reverse; the server reads only an
 immutable generation and never Delta, DataFusion or the compiler. Authoritative declarations
 live in `crates/cpg-schema/src/findings.rs` (kinds, statuses, `ASSERTION_POLICY`) and
@@ -14,7 +14,7 @@ live in `crates/cpg-schema/src/findings.rs` (kinds, statuses, `ASSERTION_POLICY`
 embedding is `crates/cpg-core/src/embed.rs`, `crates/lctx-embed` and
 `specs/embedding/`; serving is `python/lctx_mcp` (tests under `python/lctx_mcp/tests/`) with the
 native executor in `python/lctx_semantics`. Rationale: ADR-0005 (programmatic synthesis),
-ADR-0043 (interface, retrieval, embeddings) and proposed ADR-0025 (native executor). See the
+ADR-0066 (interface, retrieval, embeddings) and proposed ADR-0025 (native executor). See the
 [architecture map](../README.md).
 
 ## §10 Synthesis and briefs
@@ -38,12 +38,12 @@ order and the grounding rules below are **Implemented** and **Tested** (2026-09-
 Briefs are one rendering of the analysis. Behavioral claims served through the operation tools
 (§11.3) come from the behavior relations directly, not from briefs.
 
-> Decision: ADR-0005, ADR-0047, ADR-0049
+> Decision: ADR-0005, ADR-0067, ADR-0049
 
 
 ### §10.1 Findings
 
-**A finding is a typed record** (`cpg_schema::findings`; ADR-0047), carrying:
+**A finding is a typed record** (`cpg_schema::findings`; ADR-0067), carrying:
 - `finding_kind`;
 - its subject and related nodes;
 - ordered witness steps (call site, callee, modality and phase; the `edge_id` as lineage) and
@@ -291,19 +291,19 @@ Repository text is treated as untrusted data. It is never an instruction to the 
   usage description.
 - Executed fixtures (`fixture_checked`) are permitted by the policy but not produced yet.
 
-> Decision: ADR-0005, ADR-0047, ADR-0049
+> Decision: ADR-0005, ADR-0067, ADR-0049
 
 ---
 
 ## §11 Serving and agent interface
 
-**Label.** The interface, retrieval and embedding contracts are accepted (ADR-0043). Lines cite
+**Label.** The interface, retrieval and embedding contracts are accepted (ADR-0066). Lines cite
 their own evidence: vLLM and model behaviour was **Tested** against the pinned service on
 2026-09-22; the server and clients are **Implemented** and **Tested** as stated per section;
 the native semantic executor is **Proposed** (ADR-0025) with a partial implementation (§11.3).
 Pins are in `docs/pins.md`.
 
-> Decision: ADR-0046, ADR-0043
+> Decision: ADR-0046, ADR-0066
 
 
 ### §11.1 Embedding spec and vectors
@@ -361,7 +361,7 @@ Focused controls include `every_cache_fill_entry_admits_with_the_tokenizer` and
   since the service is local; 10 s connect and 300 s request timeouts).
 - Query-time vectors come from Python (`httpx2`, pydantic's continuation of `httpx`, which
   FastMCP already depends on).
-- **Conformance** (**Tested**; ADR-0043). Over the shared conformance inputs, both clients build
+- **Conformance** (**Tested**; ADR-0066). Over the shared conformance inputs, both clients build
   byte-identical request bodies (`specs/embedding/request_bodies.json`), apply the same rejections
   (`every_rejection_fires`) and judge responses alike, Rust by its serde types and Python by
   pydantic strict models, held to one corpus of 25 bodies (`specs/embedding/responses.json`;
@@ -384,35 +384,23 @@ Focused controls include `every_cache_fill_entry_admits_with_the_tokenizer` and
   spec-hash equality proves it. Broader guarantees need endpoint attestation and a new contract
   ([plan W16](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
 
-**Cache.** Vectors are keyed by `spec_hash + input_hash` in the canonical `embedding_cache`
-Delta table ([§3.2](facts-and-identity.md#section-3-2)), because live numerics vary between
-requests: the committed vector, not a recomputation, is the run input. Snapshots record the cache
-version they read, and generations copy the vectors they need from it.
-- **Writes** are an insert-only MERGE (`delta::merge_global`) on an append-only table: only Add
-  actions, only missing keys inserted, CHECKs enforced, and concurrent merges of one key leave
-  one row (**Tested** at the pinned delta-rs:
-  `an_insert_only_merge_adds_only_missing_keys_to_an_append_only_table`,
-  `a_merge_enforces_the_immutable_checks`, `concurrent_merges_of_one_key_leave_one_row`).
-- Only keys the cache lacks are embedded, so a fully cached `--embedder vllm` compile needs no
-  service; batches completed before a failing one are merged, so a rerun embeds only what is
-  missing.
-- **Committed readback (Implemented, source-inspected 2026-09-27).** Both entry points share
-  `fill_cache` admission, batching, insert-only merge and readback at the returned version.
-  `racing_fillers_return_the_committed_winner_at_their_version` covers the focused race.
-  Broader live replay/conformance qualification remains with
-  ([plan W9](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
-- `lctx compile --embedder vllm|fake|none` selects the embedder.
+**Cache and receipts (Implemented, 2026-09-27).** PostgreSQL reuses one immutable winner
+per `spec_hash + input_hash`. Bounded SQLx inserts use `ON CONFLICT DO NOTHING`, followed by a
+separate READ COMMITTED statement. Runtime permissions forbid value replacement/deletion.
+The attempt retains exact returned values before any consumer uses them; later consumers reuse
+those bytes even if the service becomes unavailable or its disposable cache is restored.
+`used_embeddings` and `embedding_uses` in Delta capture all operation, E0/kNN and brief inputs.
+Content identity includes exact value digests, and bundle replay reads the published snapshot
+alone. See [§6.5](storage-and-publication.md#section-6-5) and ADR-0065/0067.
 
-**Proposed PostgreSQL target:** [§6.5](storage-and-publication.md#section-6-5) replaces the
-mutable global cache with PostgreSQL only after each attempt captures all consumed vectors
-in its immutable Delta snapshot. This includes analytics-only E0 vectors, not only documents
-copied into serving files. Model/spec/tokenization and query-time client rules above continue;
-the proposed storage change is not currently implemented (ADR-0065).
-
+`lctx compile --embedder vllm|fake` requires configured PostgreSQL. The deterministic fixture
+API has an explicit uncached route; database errors never select it. `--embedder none` and
+immutable readers remain usable without a database. Live numerical/conformance qualification
+remains separate from deterministic integration under [W9/W16](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition).
 
 ### §11.2 Retrieval
 
-**In-process, exact, over the pinned generation** (ADR-0043; `lctx_mcp.retrieval`;
+**In-process, exact, over the pinned generation** (ADR-0066; `lctx_mcp.retrieval`;
 **Implemented** and **Tested**). At the current corpus size exact search needs no index service;
 LanceDB waits for its trigger (below).
 
@@ -518,7 +506,7 @@ wheel isolates its own Arrow/DataFusion line, so it would not affect
   and the fake twin (`test_the_fake_twin_reproduces_rusts_vectors`); the serving digests' known
   answers; the behavioral tools in `test_operations.py` and `test_server.py`.
 
-**Executor.** The accepted current route (ADR-0043) is **lookup over materialized rows**: pyarrow
+**Executor.** The accepted current route (ADR-0066) is **lookup over materialized rows**: pyarrow
 compute and indexed dictionaries over the generation, with no SQL built and nothing recursing at
 serve time; paths are precomputed as summaries and witnesses; results have row caps, a
 `truncated` flag and cursors. Python never re-implements predicate or condition semantics.
@@ -657,7 +645,7 @@ row storing its rule id and proof height. Under ADR-0025 the native executor may
 stored witness links at request time, retaining their row ids and reporting a boundary if the
 depth budget is reached.
 
-> Decision: ADR-0043, ADR-0025, ADR-0046, ADR-0049
+> Decision: ADR-0066, ADR-0025, ADR-0046, ADR-0049
 
 
 **Accepted frame-completion target, implementation in progress (ADR-0063).** Every modeled normal-call obligation,
@@ -672,7 +660,7 @@ mutation controls pass. Typed Normal postconditions remain independent of actual
 
 ### §11.4 PostgreSQL workflow and serving candidates
 
-**Proposed, 2026-09-27.** The initial [PostgreSQL plan](../../plans/postgresql-integration-plan_2026-09-27.md)
+**Initial services Implemented; later capabilities Proposed, 2026-09-27.** The [PostgreSQL plan](../../plans/postgresql-integration-plan_2026-09-27.md)
 changes compile-time cache/operations, not the current file-generation MCP or native executor.
 [§6.5](storage-and-publication.md#section-6-5) owns the database effect boundary and library
 capability map. Its later F1–F10 work packages require named consumers before implementation.
@@ -710,10 +698,10 @@ capability map. Its later F1–F10 work packages require named consumers before 
   batch fetch into the existing executor. Preserve generation/model identity, evidence,
   unknowns and cancellation/resource limits; respect PostgreSQL memory/thread rules.
 
-Adopting database serving changes §B13/ADR-0043's network and file-only boundary and therefore
+Adopting database serving changes §B13/ADR-0066's network and file-only boundary and therefore
 requires its successor decision, a generation importer, failure/read-pinning tests, exact-answer
 parity and explicit approximation evaluation. These are not established by the cache deployment.
 The [forward plan PostgreSQL findings](../../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-findings)
 retain the unresolved storage-review F02/F04 conditions.
 
-> Decision: ADR-0065 (proposed)
+> Decision: ADR-0065, ADR-0066

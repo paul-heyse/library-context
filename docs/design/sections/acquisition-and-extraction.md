@@ -167,7 +167,7 @@ log whatever was written after it; a table it did not write is left out, so a qu
 fails (`attempt_versions`; `a_rejected_attempt_is_inspected_at_its_own_commits`). This is for
 inspecting a failure, never for a reader.
 
-> Decision: ADR-0046, ADR-0047, ADR-0015, ADR-0018, ADR-0045
+> Decision: ADR-0046, ADR-0067, ADR-0015, ADR-0018, ADR-0045
 
 
 ### §4.1 Stages
@@ -187,7 +187,7 @@ inspecting a failure, never for a reader.
 Unmapped rows stay in the derived table with a null node and, where one applies, a reason
 column. No inner join drops them.
 
-> Decision: ADR-0046, ADR-0047
+> Decision: ADR-0046, ADR-0067
 
 
 ### §4.2 Extraction
@@ -474,4 +474,4 @@ families; the current tree has not been re-measured):
 - **Peak memory:** reopen when the peak nears the host's memory (ADR-0016 owns the allocator's own
   trigger).
 
-> Decision: ADR-0047, ADR-0016
+> Decision: ADR-0067, ADR-0016

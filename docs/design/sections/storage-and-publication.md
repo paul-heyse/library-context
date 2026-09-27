@@ -100,13 +100,13 @@ arc's row index (the arc columns stay in Arrow).
   safety, is owned by the analytics side and still open
   ([plan W13](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
 
-> Decision: ADR-0044, ADR-0047
+> Decision: ADR-0044, ADR-0067
 
 ---
 
 ## §6 Persistence and publication
 
-> Decision: ADR-0047
+> Decision: ADR-0067
 
 **Implemented** in `cpg-core` and **Tested** where a line names a test or says so
 (`cpg-core/tests/delta.rs`, `compile.rs`, `bundle.rs`; 2026-09-22 onward). Lines about delta-rs
@@ -130,7 +130,7 @@ kernel sources (deltalake skill, 2026-09-22).
      snapshot's reader sees only its rows). A snapshot is published at most once: `publish`
      refuses a `snapshot_id` that `snapshots` already holds.
 - **That commit is the publication act** (Delta commits are atomic per table; there is no
-  multi-table commit). The row set also records the `embedding_cache` version the attempt read.
+  multi-table commit). The row set records ordinary snapshot-local `used_embeddings` and `embedding_uses` tables.
 - **An error on the `snapshots` append itself** is ambiguous (`delta.commit.1`). Re-read
   `snapshots`, classify the attempt as published or unpublished, and only then retry or build
   the generation (**Tested**: `a_failed_snapshots_append_is_classified_by_rereading`).
@@ -139,28 +139,16 @@ kernel sources (deltalake skill, 2026-09-22).
   unpublished attempts are invisible to readers.
 - **Adapter failure on a module** gives `coverage.status = failed` for that module and family. The
   snapshot can still publish, with that gap visible.
-- **Writes go through `DeltaTable::write` only** (§4.3), except the global `embedding_cache`.
-  Both paths enforce the tables' CHECK constraints and `delta.appendOnly` where the table
+- **Canonical writes go through `DeltaTable::write` only** (§4.3).
+  These writes enforce the tables' CHECK constraints and `delta.appendOnly` where the table
   features are present, and the open-time verify asserts they are. DataFusion `INSERT INTO` does
   not, so it is never used (**Tested**).
-- **The global table** (`embedding_cache`, read mode `global`, §6.2) has no `snapshot_id` column
-  and may be committed more than once per attempt. It is written by an insert-only MERGE on
-  `(spec_hash, input_hash)` (`DeltaTable::merge(..).when_not_matched_insert(..)`), with a retry on a
-  commit conflict: delta-rs never marks a commit a blind append, so two concurrent appends of one
-  key would both commit, and because served vectors differ slightly between requests a duplicate
-  key would make the generation's vector choice, and its byte-identical rebuild, unstable. The
-  merge reads the target, so a racing merge conflicts and re-runs (probed before use,
-  2026-09-23). Source rows pass the local type, length, finiteness and norm checks first. The
-  snapshot's row for it records the version read after the last write and `row_count` = the rows
-  the snapshot **used**. Key uniqueness over the whole table is a validation rule; since the table
-  is append-only and validators never repair, a violation's declared recovery is a migration to a
-  new table keeping the earliest-version row per key (an accepted contingency, not implemented).
-  If two concurrent merges could ever leave two rows, the accepted fallback is an exclusive lock
-  file in the store around an anti-join and append. Both cache-fill entry points now share token
-  admission, batching, insert-only merge and versioned committed readback in focused tests
-  ([plan W9](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition),
-  RFU/F06); the cache's embedding semantics are owned by
-  [§11.1](synthesis-and-serving.md#section-11-1).
+- **Consumed vectors (Implemented, 2026-09-27)** are ordinary snapshot-qualified tables.
+  One attempt-owned collector retains the exact PostgreSQL winners before returning them to
+  operation views, E0/kNN or brief documents. `used_embeddings` captures values/digests;
+  `embedding_uses` independently captures consumer coverage. They are written once, validated
+  and published like other analysis tables. No cache version or global read exception remains.
+  The shared cache and legacy admission procedure are owned by [§6.5](#section-6-5).
 - **`SaveMode::Ignore` is never used.** It appends to existing tables (`delta.write.3`).
 - **No vacuum or optimize on fact tables.** Vacuum defaults to `dry_run=false` and Lite mode.
 - **Retention keeps every published snapshot readable** (**Tested** by
@@ -191,9 +179,7 @@ kernel sources (deltalake skill, 2026-09-22).
    `DeltaTableBuilder::from_url(..)?.with_version(v).load()`, then assert
    `table.version() == Some(v)`. A provider built on an already-loaded handle ignores the
    requested version (`delta.open.2`, `delta.read.4`).
-3. Honour the table's declared **read mode** (`snapshot` or `global`, in `cpg-schema`); every
-   reader (`register`, `session`, `attempt_versions`, the generation builder) does.
-   - **A snapshot-qualified table: read only that commit's files** (`snapshot::commit_provider`:
+3. Every table is **snapshot-qualified: read only that commit's files** (`snapshot::commit_provider`:
      `LogStore::read_commit_entry(v)` + `logstore::get_actions` → the `Add` actions →
      `TableProviderBuilder::with_adds`). A snapshot's rows of a table are exactly the commit at
      its recorded version (one commit per table per attempt, §6.1). Before reading,
@@ -204,9 +190,6 @@ kernel sources (deltalake skill, 2026-09-22).
      predicate. The reason: Delta log statistics skip the Binary `snapshot_id`, so a filter alone
      skips no file and costs one footer read per file of every snapshot, a cost that grows with
      the store (a 200-snapshot table answered in 4.7 ms instead of 15.7 ms, Measured 2026-09-23).
-   - **A global table** (`embedding_cache`) is read at its recorded version over **all** its
-     active files, with no commit selection, no `lctx.snapshot_id` check and no snapshot filter.
-     Its recorded version may be another attempt's commit.
 4. Project columns by name through the DataFusion provider. Never use `scan_table().with_columns`,
    which returned the wrong column for a partition-first schema (`delta.read.3`).
 5. Never scan the Parquet directory directly (`delta.read.2`).
@@ -269,7 +252,7 @@ channel/proof support and typed semantic queries remain the forward plan S6 targ
 formats are not implicitly accepted.
 
 - **Derivation.** The generation is built **only after** the `snapshots` append succeeds, by
-  reading the published snapshot at its recorded versions, including `embedding_cache`. That is
+  reading the published snapshot at its recorded versions, including `used_embeddings`. That is
   its one derivation path. Rebuilding a generation from Delta gives byte-identical files.
 - **Bundle.** It is a directory `generations/<key>/` of Arrow IPC files, with declared schemas
   from `cpg-schema` (`cpg_schema::bundle`). Codebook values are served as their text. The files:
@@ -348,17 +331,16 @@ formats are not implicitly accepted.
   finalizer-bearing generation and schema-drift controls passed; integrated qualification is
   pending ([plan W1](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
 
-> Decision: ADR-0047, ADR-0043, ADR-0049
+> Decision: ADR-0067, ADR-0066, ADR-0049
 
 <a id="section-6-5"></a>
 
 ### §6.5 PostgreSQL services and capability adoption
 
-**Proposed, 2026-09-27; no PostgreSQL product integration implemented.** The
+**Implemented and Tested, 2026-09-27.** The
 [PostgreSQL implementation plan](../../plans/postgresql-integration-plan_2026-09-27.md)
-owns deployment and work packages. The [forward plan §6](../../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-findings)
-owns the six review dispositions. Existing §6.1–§6.4 and §B7/§B12 remain current until the
-affected ADRs are superseded and the planned implementation is qualified.
+owns deployment and qualification. The [forward plan §6](../../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-findings)
+owns review dispositions. [Operating instructions](../../postgresql.md) cover the deployed service.
 
 **Owners and authority.** Use SQLx's PostgreSQL driver, pool, migrations and transaction APIs
 with the existing Tokio runtime and one Rustls configuration. PostgreSQL effects live in
@@ -369,13 +351,12 @@ Arrow batches; a generic federation layer is not required for the initial bounda
 The first consumers are the shared embedding cache, compile-attempt history and reconciled
 snapshot/generation discovery. Attempt history is operational authority; discovery is derived
 from Delta/manifests. No PostgreSQL row publishes a snapshot, changes a semantic verdict or
-modifies a published generation. Durable operational records have SQL migrations and tested
-backup/restore; analytical projections remain rebuildable under §6.3.
+modifies a published generation. Durable operational records have SQL migrations and explicit backup/restore tooling; analytical projections remain rebuildable under §6.3.
 
 **Cache and replay.** PostgreSQL holds one insert-only committed value per existing full
 spec/input key. An attempt retains the exact admitted values it consumes, including E0 and
 other analytics-only keys, and writes a snapshot-qualified `used_embeddings` relation before
-shared validation/publication. Its versioned canonical value/aggregate receipt hashes are
+shared validation/publication; `embedding_uses` records independent operation/E0/brief coverage. Its versioned canonical value/aggregate receipt hashes are
 owned by `cpg-schema` and included in content identity. The snapshot's declared schema and
 embedding spec are sufficient for replay; bundle/rebuild never contacts PostgreSQL or the
 embedder. Initial adoption removes the former global Delta cache writer/read exceptions after
@@ -390,8 +371,7 @@ not a query/startup side effect. Disposable tests assert PG18 and use an explici
 image; source inspection of libraries does not establish deployment compatibility.
 
 **Capability map.** These are proposed uses and revisit conditions, not installed features or
-an API allowlist. Candidate versions and dependency composition are in the implementation plan;
-the actual installed set will be recorded in `docs/pins.md` when adopted.
+an API allowlist. Installed versions are in `docs/pins.md`; conditional candidates remain in the implementation plan.
 
 | Capability / library mechanism | Initial or later consumer | Contract and adoption boundary |
 |---|---|---|
@@ -414,4 +394,4 @@ Future review events preserve exact subject revision and become explicit attribu
 inputs when used. Later SQL serving remains an immutable projection. Both need their own
 consumer, replay and failure evidence; neither is silently enabled by installing PostgreSQL.
 
-> Decision: ADR-0065 (proposed)
+> Decision: ADR-0065, ADR-0067

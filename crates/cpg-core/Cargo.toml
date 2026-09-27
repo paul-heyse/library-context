@@ -25,8 +25,10 @@ ruff_python_stdlib.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+sqlx.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
+tracing.workspace = true
 unicode-segmentation.workspace = true
 url.workspace = true
 
@@ -35,6 +37,7 @@ cpg-extract = { path = "../cpg-extract" }
 insta.workspace = true
 petgraph.workspace = true
 tempfile.workspace = true
+testcontainers-modules.workspace = true
 
 [build-dependencies]
 blake3.workspace = true

@@ -1,7 +1,7 @@
 ---
 id: ADR-0065
 title: Use SQLx-owned PostgreSQL services with immutable Delta vector receipts
-status: proposed
+status: accepted
 date: 2026-09-27
 supersedes: []
 superseded-by: null
@@ -40,7 +40,7 @@ The proposal covers deployment, recovery and later library capabilities as well 
 
 ## Decision
 
-**Proposed, not accepted or implemented.**
+**Accepted for implementation, 2026-09-27; runtime qualification remains open.**
 
 - Use SQLx's PostgreSQL driver, Tokio, pool, transactions, SQL migrations and one Rustls
   configuration. Test through real PostgreSQL 18 with Testcontainers and pinned images.
@@ -63,11 +63,10 @@ The proposal covers deployment, recovery and later library capabilities as well 
   and [§11.4](../design/sections/synthesis-and-serving.md#section-11-4).
   Catalog availability is not a dependency-installation requirement.
 
-This proposed record **does not supersede ADR-0043 or ADR-0047 yet**. Before cache cutover,
-PG0 must accept the decision and publish self-contained successors carrying all unrelated
-clauses of both accepted records, replacing only the cache/replay clauses and any expressly
-chosen contract changes. Current file serving, ranking, model/spec, identity and publication
-clauses remain in force. ADR-0048's fresh-store schema policy continues.
+ADR-0066 and ADR-0067 carry forward the unrelated serving and canonical-storage clauses of
+ADR-0043 and ADR-0047 while replacing cache/replay ownership. ADR-0048's fresh-store schema
+policy continues. Explicit uncached sessions are available for deterministic unit fixtures;
+production cache failures never fall back silently.
 
 ## Consequences
 
@@ -81,3 +80,11 @@ owns detailed work. The [forward plan §6](../plans/behavioral-model-forward-pla
 owns review-finding dispositions and sequencing with Stage 3–5. All product implementation,
 runtime integration and comparative measurements are **not_run** at this planning checkpoint.
 Accepting an ADR later will not close the review findings without their stated evidence.
+
+## Amendments
+
+2026-09-27: Initial PG0–PG7 scope is implemented and deployed. The full gate, fake/live and
+concurrent pilots, exact offline replay, populated restore and rollback controls passed;
+[qualification evidence](../design_review/evidence/2026-09-27_postgresql/README.md) records
+commands, measured costs and the scoped documentation exception. This does not implement
+consumer-triggered future capabilities or complete Stage 3 semantic acceptance.

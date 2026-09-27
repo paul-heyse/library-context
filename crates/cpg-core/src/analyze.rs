@@ -40,6 +40,8 @@ pub const TOOL: &str = "lctx-compiler";
 /// brief documents are embedded with (none: the documents carry no `input_hash`).
 #[derive(Clone)]
 pub struct Analysis {
+    /// Explicit PostgreSQL cache, or uncached unit-fixture execution.
+    pub embedding_cache: Option<crate::postgres::Store>,
     pub config: AnalyticsConfig,
     pub embedder: Option<std::sync::Arc<dyn crate::embed::Embedder>>,
     /// Which analytics techniques run (the §9.8 ablation's variants; slice 3.2).
@@ -217,8 +219,6 @@ pub struct AnalysisRows {
     pub findings: Vec<FindingsRow>,
     pub members: Vec<FindingMembersRow>,
     pub witnesses: Vec<WitnessesRow>,
-    /// E0's embedding keys (slice 3.1): the snapshot's key set includes them.
-    pub embedded_keys: Vec<cpg_schema::id::Digest>,
     /// Each seed's FCA scope: its node and label (the increment-2 review's F1). Stage F states
     /// only that scope's concepts and implications for the seed.
     pub seed_scopes: BTreeMap<Id, (Id, String)>,
@@ -551,7 +551,7 @@ pub async fn project(ctx: &SessionContext, spec: &ProjectionSpec) -> Result<Proj
 /// Stage E for one attempt: Pass A from every seed of the config.
 pub async fn run(
     ctx: &SessionContext,
-    root: &std::path::Path,
+    embeddings: &mut crate::embed::Session,
     snapshot_id: Id,
     analysis: &Analysis,
     compiler: CompilerRun,
@@ -654,9 +654,9 @@ pub async fn run(
                 }
             }
         }
-        let (vectors, keys, _) =
-            crate::embed::embed_texts(root, snapshot_id, embedder.as_ref(), &texts).await?;
-        rows.embedded_keys = keys;
+        let vectors = embeddings
+            .texts(embedder.as_ref(), &texts, crate::embed::Usage::Analytics)
+            .await?;
         let item = |node: Id, first: usize, count: usize| neighbours::Item {
             node,
             vectors: vectors[first..first + count].to_vec(),

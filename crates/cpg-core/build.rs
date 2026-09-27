@@ -14,7 +14,7 @@ const SOURCES: &[&str] = &[
     "crates/cpg-schema/src",
 ];
 
-/// Every `.rs` file under `dir`, recursively, as workspace-relative paths.
+/// Every `.rs` or `.sql` file under `dir`, recursively, as workspace-relative paths.
 fn rust_files(root: &std::path::Path, dir: &std::path::Path, out: &mut Vec<String>) {
     println!("cargo:rerun-if-changed={}", dir.display());
     let mut entries: Vec<_> = std::fs::read_dir(dir)
@@ -25,7 +25,7 @@ fn rust_files(root: &std::path::Path, dir: &std::path::Path, out: &mut Vec<Strin
     for path in entries {
         if path.is_dir() {
             rust_files(root, &path, out);
-        } else if path.extension().is_some_and(|e| e == "rs") {
+        } else if path.extension().is_some_and(|e| e == "rs" || e == "sql") {
             println!("cargo:rerun-if-changed={}", path.display());
             let relative = path.strip_prefix(root).expect("under the workspace");
             out.push(relative.to_string_lossy().replace('\\', "/"));

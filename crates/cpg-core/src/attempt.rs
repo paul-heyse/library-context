@@ -126,7 +126,7 @@ pub struct Published {
 /// 103: builtin binding-preserving descriptors no longer write the decorator boundary.
 /// 104: summaries neither start in nor compose through a decorated function (ADR-0064).
 /// 105: call-transfer return claims graded after summaries with claim-keyed discharges (ADR-0064).
-pub const COMPILER_OUTPUT_VERSION: u32 = 105;
+pub const COMPILER_OUTPUT_VERSION: u32 = 106;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -256,7 +256,7 @@ pub fn content_digest(run_ids: &[Id]) -> Digest {
 }
 
 /// [`content_digest`] with the embedding inputs (§3.4.1; ADR-0017 amendment): the spec hash and a
-/// digest of the sorted keys the snapshot used, never the shared cache version.
+/// digest of exact sorted key/value receipts the snapshot consumed, never mutable cache state.
 pub fn content_digest_with(run_ids: &[Id], embedded: Option<(Digest, Digest)>) -> Digest {
     let mut runs: Vec<String> = run_ids.iter().map(Id::hex).collect();
     runs.sort();
@@ -349,7 +349,6 @@ fn schema_digest_of(name: &str) -> Result<Digest, CoreError> {
     cpg_schema::for_each_table!(find);
     cpg_schema::for_each_derived_table!(find);
     cpg_schema::for_each_analysis_table!(find);
-    cpg_schema::for_each_global_table!(find);
     Err(CoreError::UnknownTable(name.to_owned()))
 }
 
@@ -620,6 +619,11 @@ async fn finish(
     analysis: Option<(&Analysis, CompilerRun)>,
     models: &BoundModels,
 ) -> Result<Published, CoreError> {
+    let cache = analysis.and_then(|(a, _)| a.embedding_cache.clone());
+    let budget = cache
+        .as_ref()
+        .map_or(268435456, crate::postgres::Store::receipt_budget);
+    let mut embeddings = crate::embed::Session::new(snapshot_id, cache, budget);
     let ctx = session(root, snapshot_id, &written.versions).await?;
     written.stages.mark("open session");
     {
@@ -1179,7 +1183,7 @@ async fn finish(
             Some((a, compiler)) => {
                 crate::behavior::run(
                     &ctx,
-                    root,
+                    &mut embeddings,
                     snapshot_id,
                     a,
                     compiler,
@@ -1223,7 +1227,7 @@ async fn finish(
         Some((a, compiler)) => {
             crate::analyze::run(
                 &ctx,
-                root,
+                &mut embeddings,
                 snapshot_id,
                 a,
                 compiler,
@@ -1236,9 +1240,6 @@ async fn finish(
     };
     let mut found = found;
     found.invocations.extend(behavior.invocations);
-    found.embedded_keys.extend(behavior.embedded_keys);
-    found.embedded_keys.sort();
-    found.embedded_keys.dedup();
     use cpg_schema::findings::{AnalysisInvocations, FindingMembers, Findings, Witnesses};
     write_analysis::<AnalysisInvocations>(
         &ctx,
@@ -1279,37 +1280,43 @@ async fn finish(
         },
     };
     written.stages.mark("synthesize");
-    // The brief documents embedded through the global cache (§11.1; ADR-0017 amendment): its
-    // version is registered for validation and recorded in the row set with the keys used.
-    let mut specs = Vec::new();
-    let embedded = match analysis.and_then(|(a, _)| a.embedder.clone()) {
-        Some(embedder) => {
-            let e = crate::embed::embed_documents(
-                root,
-                snapshot_id,
-                embedder.as_ref(),
-                &mut made.brief_documents,
-                &found.embedded_keys,
-            )
+    if let Some(embedder) = analysis.and_then(|(a, _)| a.embedder.as_deref()) {
+        embeddings
+            .documents(embedder, &mut made.brief_documents)
             .await?;
-            // The spec itself, so a generation is built from the store alone (§6.4).
-            specs.push(cpg_schema::findings::EmbeddingSpecsRow {
-                snapshot_id,
-                spec_hash: e.spec_hash,
-                spec: embedder.spec().canonical_json(),
-            });
-            let name = cpg_schema::embedding::EmbeddingCache::NAME;
-            register(&ctx, root, name, e.version, snapshot_id).await?;
-            written.versions.insert(name.to_owned(), e.version);
-            written.rows.push((name, e.used));
-            written.stages.mark("embed brief documents");
-            Some(e)
-        }
-        None => {
-            crate::snapshot::register_empty_globals(&ctx, &written.versions)?;
-            None
-        }
-    };
+        written.stages.mark("embed brief documents");
+    }
+    let receipt = embeddings.finish()?;
+    let embedded = receipt
+        .spec
+        .as_ref()
+        .zip(receipt.digest)
+        .map(|(s, d)| (s.hash(), d));
+    let specs = receipt
+        .spec
+        .iter()
+        .map(|s| cpg_schema::findings::EmbeddingSpecsRow {
+            snapshot_id,
+            spec_hash: s.hash(),
+            spec: s.canonical_json(),
+        })
+        .collect::<Vec<_>>();
+    write_analysis::<cpg_schema::embedding::UsedEmbeddings>(
+        &ctx,
+        root,
+        snapshot_id,
+        &receipt.values,
+        &mut written,
+    )
+    .await?;
+    write_analysis::<cpg_schema::embedding::EmbeddingUses>(
+        &ctx,
+        root,
+        snapshot_id,
+        &receipt.uses,
+        &mut written,
+    )
+    .await?;
     use cpg_schema::findings::{
         AssertionPolicy, AssertionSupport, Assertions, BriefAssertions, BriefDocuments,
         BriefMembers, Briefs, EmbeddingSpecs, Evidence,
@@ -1365,7 +1372,7 @@ async fn finish(
         return Err(CoreError::Invalid(violations));
     }
 
-    let digest = content_digest_with(&runs, embedded.map(|e| (e.spec_hash, e.keys_digest)));
+    let digest = content_digest_with(&runs, embedded);
     let snapshot_rows: Vec<SnapshotsRow> = rows
         .iter()
         .map(|(name, count)| {
@@ -1414,7 +1421,7 @@ pub async fn publish(root: &Path, snapshot_id: Id, rows: &[SnapshotsRow]) -> Res
 mod tests {
     use super::*;
 
-    /// The holistic assessment's A2(e): every `.rs` file of the three source trees is in the
+    /// The holistic assessment's A2(e): every `.rs`/`.sql` file of the three source trees is in the
     /// source digest, so no module can change the compiler's output without moving it.
     #[test]
     fn every_compiler_source_is_hashed() {
@@ -1423,7 +1430,7 @@ mod tests {
                 let path = entry.unwrap().path();
                 if path.is_dir() {
                     walk(root, &path, out);
-                } else if path.extension().is_some_and(|e| e == "rs") {
+                } else if path.extension().is_some_and(|e| e == "rs" || e == "sql") {
                     out.push(
                         path.strip_prefix(root)
                             .unwrap()

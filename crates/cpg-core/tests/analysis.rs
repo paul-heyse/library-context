@@ -110,6 +110,7 @@ async fn compile_at(
     })
     .unwrap();
     let analysis = Analysis {
+        embedding_cache: None,
         config: AnalyticsConfig::parse(config).unwrap(),
         embedder: None,
         techniques,
@@ -153,6 +154,7 @@ async fn analyzed(sub: &str, reverse: bool) -> (SessionContext, tempfile::TempDi
     })
     .unwrap();
     let analysis = Analysis {
+        embedding_cache: None,
         config: AnalyticsConfig::parse(CONFIG).unwrap(),
         embedder: Some(std::sync::Arc::new(cpg_core::embed::FakeEmbedder::new())),
         techniques: kernels(),
@@ -1396,6 +1398,11 @@ async fn briefs_are_synthesized_from_findings_and_verbatim_evidence() {
             20,
             "08f5bb0ff4bf0d53819b622f787b5c3b304193052282bfe73a1b801a1ebbdbe7",
         ),
+        (
+            106,
+            20,
+            "08f5bb0ff4bf0d53819b622f787b5c3b304193052282bfe73a1b801a1ebbdbe7",
+        ),
     ];
     // Texts, and every identity column of Stage F's tables (slice 1.5 review F6).
     let mut output = format!(
@@ -1450,7 +1457,8 @@ async fn the_analysis_rules_reject_their_violations() {
         "brief_members",
         "brief_documents",
         "embedding_specs",
-        "embedding_cache",
+        "used_embeddings",
+        "embedding_uses",
         "operations",
         "operation_facets",
         "operation_facet_status",
@@ -1768,11 +1776,26 @@ async fn the_analysis_rules_reject_their_violations() {
              JOIN assertions a ON a.assertion_id = ba.assertion_id WHERE a.assertion_kind <> 0",
         ),
         (
+            "semantic:embedding-use-receipt",
+            "used_embeddings",
+            "SELECT * FROM used_embeddings_published LIMIT 0",
+        ),
+        (
+            "semantic:operation-vector-cached",
+            "used_embeddings",
+            "SELECT * FROM used_embeddings_published LIMIT 0",
+        ),
+        (
+            "semantic:embedding-consumer-attribution",
+            "embedding_uses",
+            "SELECT snapshot_id, spec_hash, input_hash, CAST(2 AS BIGINT) AS usage_mask FROM embedding_uses_published",
+        ),
+        (
             "semantic:embedding-dimensions",
-            "embedding_cache",
-            "SELECT * FROM embedding_cache_published UNION ALL \
-             (SELECT spec_hash, input_hash, array_slice(vector, 1, 8) AS vector, model \
-              FROM embedding_cache_published LIMIT 1)",
+            "used_embeddings",
+            "SELECT * FROM used_embeddings_published UNION ALL \
+             (SELECT snapshot_id, spec_hash, input_hash, array_slice(vector, 1, 8) AS vector, value_digest \
+              FROM used_embeddings_published LIMIT 1)",
         ),
         (
             "semantic:direct-delegation-is-definite",

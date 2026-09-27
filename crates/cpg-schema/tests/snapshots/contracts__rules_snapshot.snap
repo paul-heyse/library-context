@@ -356,10 +356,12 @@ key:brief_documents
   SELECT snapshot_id, brief_id, chunk, count(*) AS n FROM brief_documents GROUP BY snapshot_id, brief_id, chunk HAVING count(*) > 1
 key:embedding_specs
   SELECT snapshot_id, spec_hash, count(*) AS n FROM embedding_specs GROUP BY snapshot_id, spec_hash HAVING count(*) > 1
+key:used_embeddings
+  SELECT snapshot_id, spec_hash, input_hash, count(*) AS n FROM used_embeddings GROUP BY snapshot_id, spec_hash, input_hash HAVING count(*) > 1
+key:embedding_uses
+  SELECT snapshot_id, spec_hash, input_hash, count(*) AS n FROM embedding_uses GROUP BY snapshot_id, spec_hash, input_hash HAVING count(*) > 1
 key:assertion_policy
   SELECT snapshot_id, assertion_kind, evidence_status, count(*) AS n FROM assertion_policy GROUP BY snapshot_id, assertion_kind, evidence_status HAVING count(*) > 1
-key:embedding_cache
-  SELECT spec_hash, input_hash, count(*) AS n FROM embedding_cache GROUP BY spec_hash, input_hash HAVING count(*) > 1
 ref:facts.run_id->runs
   SELECT f.run_id AS value FROM facts f LEFT ANTI JOIN (SELECT run_id AS k FROM runs) r ON f.run_id = r.k WHERE f.run_id IS NOT NULL
 ref:runs.release_id->releases
@@ -2222,8 +2224,8 @@ finite:findings.score
   SELECT v FROM (SELECT score AS v FROM findings) x WHERE v IS NOT NULL AND (isnan(v) OR abs(v) = CAST('Infinity' AS DOUBLE))
 finite:finding_members.weight
   SELECT v FROM (SELECT weight AS v FROM finding_members) x WHERE v IS NOT NULL AND (isnan(v) OR abs(v) = CAST('Infinity' AS DOUBLE))
-finite:embedding_cache.vector
-  SELECT v FROM (SELECT unnest(vector) AS v FROM embedding_cache) x WHERE v IS NOT NULL AND (isnan(v) OR abs(v) = CAST('Infinity' AS DOUBLE))
+finite:used_embeddings.vector
+  SELECT v FROM (SELECT unnest(vector) AS v FROM used_embeddings) x WHERE v IS NOT NULL AND (isnan(v) OR abs(v) = CAST('Infinity' AS DOUBLE))
 coverage:declared-family
   WITH declared AS (SELECT unnest(families) AS family FROM runs) SELECT family FROM declared WHERE family NOT IN ('provenance', 'exports', 'signatures', 'calls', 'coverage', 'syntax', 'lexical', 'types', 'docs', 'flow')
 coverage:complete
@@ -2331,7 +2333,13 @@ semantic:invocation-run-is-compiler
 semantic:document-key-whole
   SELECT brief_id, chunk FROM brief_documents WHERE (spec_hash IS NULL) <> (input_hash IS NULL)
 semantic:document-vector-cached
-  SELECT d.brief_id, d.chunk FROM brief_documents d LEFT ANTI JOIN embedding_cache c ON c.spec_hash = d.spec_hash AND c.input_hash = d.input_hash WHERE d.input_hash IS NOT NULL
+  SELECT d.brief_id, d.chunk FROM brief_documents d LEFT ANTI JOIN used_embeddings c ON c.spec_hash = d.spec_hash AND c.input_hash = d.input_hash WHERE d.input_hash IS NOT NULL
+semantic:embedding-use-receipt
+  SELECT u.input_hash FROM embedding_uses u LEFT ANTI JOIN used_embeddings v ON v.snapshot_id=u.snapshot_id AND v.spec_hash=u.spec_hash AND v.input_hash=u.input_hash UNION ALL SELECT v.input_hash FROM used_embeddings v LEFT ANTI JOIN embedding_uses u ON v.snapshot_id=u.snapshot_id AND v.spec_hash=u.spec_hash AND v.input_hash=u.input_hash
+semantic:operation-vector-cached
+  SELECT d.node_id FROM operation_documents d LEFT ANTI JOIN used_embeddings v ON v.snapshot_id=d.snapshot_id AND v.spec_hash=d.spec_hash AND v.input_hash=d.input_hash WHERE d.input_hash IS NOT NULL
+semantic:embedding-consumer-attribution
+  SELECT d.input_hash FROM operation_documents d LEFT ANTI JOIN embedding_uses u ON u.snapshot_id=d.snapshot_id AND u.spec_hash=d.spec_hash AND u.input_hash=d.input_hash AND (u.usage_mask & 1)=1 WHERE d.input_hash IS NOT NULL UNION ALL SELECT d.input_hash FROM brief_documents d LEFT ANTI JOIN embedding_uses u ON u.snapshot_id=d.snapshot_id AND u.spec_hash=d.spec_hash AND u.input_hash=d.input_hash AND (u.usage_mask & 4)=4 WHERE d.input_hash IS NOT NULL
 semantic:one-embedding-spec
   SELECT count(*) AS specs FROM embedding_specs HAVING count(*) > 1
 semantic:documented-parameter-cites-its-doc
@@ -2351,7 +2359,7 @@ semantic:usage-pattern-shows-its-handoff
 semantic:no-materialized-block-path
   SELECT assertion_id FROM assertions WHERE strpos(text, '_lctx_blocks/') > 0
 semantic:embedding-dimensions
-  SELECT spec_hash FROM embedding_cache GROUP BY spec_hash HAVING count(DISTINCT cardinality(vector)) > 1
+  SELECT spec_hash FROM used_embeddings GROUP BY spec_hash HAVING count(DISTINCT cardinality(vector)) > 1
 semantic:assertion-policy
   SELECT a.assertion_id FROM assertions a LEFT ANTI JOIN assertion_policy p ON p.assertion_kind = a.assertion_kind AND p.evidence_status = a.evidence_status
 semantic:assertion-policy-published

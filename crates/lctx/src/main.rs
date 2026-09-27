@@ -22,6 +22,7 @@
 //! Upgrading a library: edit its pin, `uv lock --project libraries/<name> --upgrade-package <dist>`,
 //! then `lctx compile <name>`.
 
+mod db;
 mod propose;
 
 /// jemalloc, not glibc malloc (ADR-0016): glibc's per-thread arenas retained about half of a
@@ -48,6 +49,9 @@ use cpg_schema::id::Id;
     about = "Compile a pinned Python library into a published snapshot"
 )]
 struct Cli {
+    /// Protected PostgreSQL config; otherwise LCTX_DATABASE_CONFIG or ~/.config/library-context/postgres.json.
+    #[arg(long, global = true)]
+    database_config: Option<PathBuf>,
     /// Library definitions: `<DIR>/<name>/`.
     #[arg(long, global = true, default_value = "libraries")]
     libraries: PathBuf,
@@ -63,6 +67,26 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Cmd {
+    /// PostgreSQL migrations, diagnostics and explicit reconciliation/import.
+    Db {
+        #[command(subcommand)]
+        command: db::Command,
+    },
+    /// Operational compile-attempt history.
+    Runs {
+        #[command(subcommand)]
+        command: db::Runs,
+    },
+    /// Reconciled publication discovery, checked against Delta when read.
+    Snapshots {
+        #[command(subcommand)]
+        command: db::Snapshots,
+    },
+    /// Reconciled generation discovery, checked against the immutable files when read.
+    Generations {
+        #[command(subcommand)]
+        command: db::Generations,
+    },
     /// Library definitions.
     Library {
         #[command(subcommand)]
@@ -441,6 +465,7 @@ fn embedder_of(
     reason = "the compile command's flags, one each"
 )]
 fn compile(
+    database_config: Option<&Path>,
     library_dir: &Path,
     env_dir: &Path,
     sources: &Path,
@@ -450,104 +475,211 @@ fn compile(
     generations: &Path,
     techniques: cpg_core::analyze::Techniques,
 ) -> anyhow::Result<()> {
-    let started = Instant::now();
-    acquire(library_dir, env_dir, reinstall)?;
-    let tree = fetch_source(library_dir, sources)?;
-    let acquired = started.elapsed();
-    let snapshot = random_id()?;
-    let mut input = library::acquired(library_dir, env_dir, snapshot)?;
-    if let Some((tree, source)) = &tree {
-        input.corpus = Some(library::corpus(tree, source, &input)?);
-    }
-    let staged = started.elapsed() - acquired;
-    // Printed first, so an attempt validation rejects can be inspected (`query --unpublished`).
-    println!("attempt  {}", snapshot.hex());
-    println!(
-        "release {} ({} modules)",
-        input.release.release_id.hex(),
-        input.release.files.len()
-    );
-    if let Some(c) = &input.corpus {
-        println!(
-            "corpus  {} ({} documents, {} usage modules)",
-            c.release.release_id.hex(),
-            c.documents.len(),
-            c.release.files.len()
-        );
-    }
-    let mut output = extract(&input)?;
-    let extracted = started.elapsed();
     let runtime = tokio::runtime::Runtime::new()?;
-    let tables = std::mem::take(&mut output.tables);
-    // The pre-registered analytics config (DESIGN §1.4, §9): without one, no analysis runs.
-    let config_path = library_dir.join("analytics.toml");
-    let analysis = if config_path.exists() {
-        if let Some(e) = &embedder {
-            let spec = e.spec();
-            println!("embedder {} (spec {})", spec.model, spec.hash().hex());
+    let snapshot = random_id()?;
+    let config_path = cpg_core::postgres::Config::path(database_config);
+    let pg = if embedder.is_some() {
+        let db = runtime.block_on(db::connect(Some(&config_path?), false))?;
+        runtime.block_on(db.check())?;
+        Some(db)
+    } else if config_path.as_ref().is_ok_and(|p| p.exists())
+        || database_config.is_some()
+        || std::env::var_os("LCTX_DATABASE_CONFIG").is_some()
+    {
+        match runtime.block_on(async {
+            let db = db::connect(Some(&config_path?), false).await?;
+            db.check().await?;
+            Ok::<_, anyhow::Error>(db)
+        }) {
+            Ok(db) => Some(db),
+            Err(error) => {
+                eprintln!("journal unavailable: {error}");
+                None
+            }
         }
-        println!("analytics techniques {}", techniques.label());
-        Some(cpg_core::analyze::Analysis {
-            config: lctx_analytics::config::AnalyticsConfig::load(&config_path)?,
-            embedder,
-            techniques,
-        })
     } else {
         None
     };
-    let published = runtime.block_on(cpg_core::attempt::compile_owned(
-        store,
-        snapshot,
-        tables,
-        analysis.as_ref(),
-    ))?;
-    println!("snapshot {} published", published.snapshot_id.hex());
-    println!("content  {}", published.content_digest.hex());
-    for (name, rows) in &published.rows {
-        println!(
-            "  {name:<20} {rows:>7} rows  v{}",
-            published.versions[*name]
-        );
+    if let Some(db) = &pg
+        && let Err(error) = runtime.block_on(db.start_attempt(
+            snapshot,
+            cpg_core::attempt::compiler_digest(),
+            &library_dir.to_string_lossy(),
+            &store.to_string_lossy(),
+        ))
+    {
+        eprintln!("journal start unavailable: {error}");
     }
-    println!("stages (wall time, peak RSS so far):");
-    println!(
-        "  {:<52} {:>7.2}s",
-        "acquire (uv sync --frozen, source fetch)",
-        acquired.as_secs_f64()
-    );
-    println!(
-        "  {:<52} {:>7.2}s",
-        "Stage A (verify RECORDs)",
-        staged.as_secs_f64()
-    );
-    for stage in output.stages.iter().chain(&published.stages) {
+    let result = (|| -> anyhow::Result<()> {
+        let started = Instant::now();
+        acquire(library_dir, env_dir, reinstall)?;
+        let tree = fetch_source(library_dir, sources)?;
+        let acquired = started.elapsed();
+        let mut input = library::acquired(library_dir, env_dir, snapshot)?;
+        if let Some((tree, source)) = &tree {
+            input.corpus = Some(library::corpus(tree, source, &input)?);
+        }
+        let staged = started.elapsed() - acquired;
+        // Printed first, so an attempt validation rejects can be inspected (`query --unpublished`).
+        println!("attempt  {}", snapshot.hex());
         println!(
-            "  {:<52} {:>7.2}s  {:>6} MiB",
-            stage.name,
-            stage.seconds,
-            stage
-                .peak_rss_bytes
-                .map_or("?".to_owned(), |b| (b >> 20).to_string())
+            "release {} ({} modules)",
+            input.release.release_id.hex(),
+            input.release.files.len()
         );
+        if let Some(c) = &input.corpus {
+            println!(
+                "corpus  {} ({} documents, {} usage modules)",
+                c.release.release_id.hex(),
+                c.documents.len(),
+                c.release.files.len()
+            );
+        }
+        let mut output = extract(&input)?;
+        let extracted = started.elapsed();
+        if let Some(db) = &pg {
+            for (index, stage) in output.stages.iter().enumerate() {
+                if let Err(error) = runtime.block_on(db.event(
+                    snapshot,
+                    &format!("extract/{index}"),
+                    "stage",
+                    &format!("{} {:.6}s", stage.name, stage.seconds),
+                )) {
+                    eprintln!("extraction journal unavailable: {error}");
+                    break;
+                }
+            }
+        }
+        let tables = std::mem::take(&mut output.tables);
+        // The pre-registered analytics config (DESIGN §1.4, §9): without one, no analysis runs.
+        let config_path = library_dir.join("analytics.toml");
+        let analysis = if config_path.exists() {
+            if let Some(e) = &embedder {
+                let spec = e.spec();
+                println!("embedder {} (spec {})", spec.model, spec.hash().hex());
+            }
+            println!("analytics techniques {}", techniques.label());
+            Some(cpg_core::analyze::Analysis {
+                embedding_cache: pg.clone(),
+                config: lctx_analytics::config::AnalyticsConfig::load(&config_path)?,
+                embedder,
+                techniques,
+            })
+        } else {
+            None
+        };
+        let published = runtime.block_on(cpg_core::attempt::compile_owned(
+            store,
+            snapshot,
+            tables,
+            analysis.as_ref(),
+        ))?;
+        if let Some(db) = &pg {
+            if let Err(error) = runtime.block_on(async {
+                db.event(
+                    snapshot,
+                    "published",
+                    "published",
+                    &published.content_digest.hex(),
+                )
+                .await?;
+                db.record_snapshot(
+                    &store.to_string_lossy(),
+                    snapshot,
+                    published.content_digest,
+                    cpg_core::attempt::compiler_digest(),
+                )
+                .await
+            }) {
+                eprintln!("publication succeeded; journal/discovery needs reconciliation: {error}");
+            }
+            for (index, stage) in published.stages.iter().enumerate() {
+                if let Err(error) = runtime.block_on(db.event(
+                    snapshot,
+                    &format!("stage/{index}"),
+                    "stage",
+                    &format!("{} {:.6}s", stage.name, stage.seconds),
+                )) {
+                    eprintln!("stage journal unavailable: {error}");
+                    break;
+                }
+            }
+        }
+        println!("snapshot {} published", published.snapshot_id.hex());
+        println!("content  {}", published.content_digest.hex());
+        for (name, rows) in &published.rows {
+            println!(
+                "  {name:<20} {rows:>7} rows  v{}",
+                published.versions[*name]
+            );
+        }
+        println!("stages (wall time, peak RSS so far):");
+        println!(
+            "  {:<52} {:>7.2}s",
+            "acquire (uv sync --frozen, source fetch)",
+            acquired.as_secs_f64()
+        );
+        println!(
+            "  {:<52} {:>7.2}s",
+            "Stage A (verify RECORDs)",
+            staged.as_secs_f64()
+        );
+        for stage in output.stages.iter().chain(&published.stages) {
+            println!(
+                "  {:<52} {:>7.2}s  {:>6} MiB",
+                stage.name,
+                stage.seconds,
+                stage
+                    .peak_rss_bytes
+                    .map_or("?".to_owned(), |b| (b >> 20).to_string())
+            );
+        }
+        // Stage G (§6.4): the generation, from the published snapshot alone.
+        let bundling = Instant::now();
+        let generation = runtime.block_on(cpg_core::bundle::bundle(
+            store,
+            published.snapshot_id,
+            generations,
+        ))?;
+        if let Some(db) = &pg {
+            if let Err(error) = runtime.block_on(db::record_generation(db, store, &generation.dir))
+            {
+                eprintln!("generation succeeded; discovery needs reconciliation: {error}");
+            }
+            if let Err(error) =
+                runtime.block_on(db.event(snapshot, "generated", "generated", &generation.key))
+            {
+                eprintln!("generation journal unavailable: {error}");
+            }
+        }
+        println!(
+            "generation {} ({:.2}s)",
+            generation.dir.display(),
+            bundling.elapsed().as_secs_f64()
+        );
+        println!(
+            "extract {:.1}s, total {:.1}s",
+            extracted.as_secs_f64(),
+            started.elapsed().as_secs_f64()
+        );
+        Ok(())
+    })();
+    if let Some(db) = &pg {
+        if result.is_err() {
+            // Preserve the original error; diagnostics may contain source text and are not
+            // persisted into the operational database.
+            if let Err(error) = runtime.block_on(db.event(
+                snapshot,
+                "failed",
+                "failed",
+                "compile or generation failed; see operator stderr",
+            )) {
+                eprintln!("failure journal unavailable: {error}");
+            }
+        }
+        runtime.block_on(db.close());
     }
-    // Stage G (§6.4): the generation, from the published snapshot alone.
-    let bundling = Instant::now();
-    let generation = runtime.block_on(cpg_core::bundle::bundle(
-        store,
-        published.snapshot_id,
-        generations,
-    ))?;
-    println!(
-        "generation {} ({:.2}s)",
-        generation.dir.display(),
-        bundling.elapsed().as_secs_f64()
-    );
-    println!(
-        "extract {:.1}s, total {:.1}s",
-        extracted.as_secs_f64(),
-        started.elapsed().as_secs_f64()
-    );
-    Ok(())
+    result
 }
 
 /// Extract, compile and bundle a dependency-free generated tree (the runtime challenge's input),
@@ -591,6 +723,7 @@ fn compile_fixture(
     ))
     .map_err(|e| anyhow::anyhow!("analytics config: {e}"))?;
     let analysis = cpg_core::analyze::Analysis {
+        embedding_cache: None,
         config,
         embedder: None,
         techniques: cpg_core::analyze::Techniques::default(),
@@ -726,6 +859,14 @@ fn run() -> anyhow::Result<()> {
     let envs = absolute(&cli.envs)?;
     let sources = absolute(&cli.sources)?;
     match cli.command {
+        Cmd::Db { command } => tokio::runtime::Runtime::new()?
+            .block_on(db::command(command, cli.database_config.as_deref())),
+        Cmd::Runs { command } => tokio::runtime::Runtime::new()?
+            .block_on(db::runs(command, cli.database_config.as_deref())),
+        Cmd::Snapshots { command } => tokio::runtime::Runtime::new()?
+            .block_on(db::snapshots(command, cli.database_config.as_deref())),
+        Cmd::Generations { command } => tokio::runtime::Runtime::new()?
+            .block_on(db::generations(command, cli.database_config.as_deref())),
         Cmd::Library {
             command:
                 LibraryCommand::Init {
@@ -788,6 +929,7 @@ fn run() -> anyhow::Result<()> {
             generations,
             analytics,
         } => compile(
+            cli.database_config.as_deref(),
             &libraries.join(&name),
             &envs.join(&name),
             &sources.join(&name),

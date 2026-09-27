@@ -1,16 +1,20 @@
 ---
-id: ADR-0047
-title: Typed family tables with derived graph catalogs, content identity, snapshot publication and in-row analysis provenance
+id: ADR-0067
+title: Publish canonical snapshots with exact consumed-vector receipts
 status: accepted
-date: 2026-09-25
-supersedes: [ADR-0012, ADR-0013, ADR-0014, ADR-0017, ADR-0019]
+date: 2026-09-27
+supersedes: [ADR-0047]
 superseded-by: null
 design: [§1.2, §B2, §B6, §B7, §B12, §3.1, §3.2, §3.3, §3.4, §3.4.1, §3.5, §3.7, §3.8, §4.0, §4.1, §4.3, §5, §6, §8, §9, §10]
-evidence: Tested
+evidence: Proposed
 revisit: A pass needs a relationship that neither a family table nor the edge catalog can express without a second writable copy; two runs over the same inputs give a different node_id or edge_id; `nodes`/`edges` derivation dominates compile time or memory on the pilot; one attempt writes a snapshot-qualified table in more than one commit, or a reader needs rows of a table across snapshots; an injected failure test finds a reader seeing unpublished rows; a consumer needs a finding, assertion or brief as a catalog node or edge; an analysis result cannot be rebuilt from its snapshot, analytics config and compiler digest; the language-neutral serving schema form and the store's canonical schema diverge in a way a reader notices; or the first schema change that must keep older snapshots readable.
 ---
 
 ## Context
+
+This successor preserves ADR-0047's unrelated clauses and changes cache/replay ownership
+under ADR-0065. The PostgreSQL target is accepted for implementation on 2026-09-27;
+implementation and runtime qualification are tracked in the PostgreSQL plan, not inferred here.
 
 This record replaces ADR-0014, ADR-0017 and ADR-0019 with their surviving clauses, together with
 the storage and identity-encoding clauses of ADR-0012 and ADR-0013 (whose front-end and
@@ -127,8 +131,9 @@ coverage unit). They carry identity, kind, endpoints and evidence, never a paylo
   changes the id and a lineage column does not. `capability_id = brief_id`; a changed brief is a
   new brief. Two seeds that name one declaration refuse the compile.
 - `content_digest` takes the attempt's sorted run ids, the compiler digest, and, when embeddings
-  are used, the spec hash and a digest of the sorted `(spec_hash, input_hash)` keys used; never the
-  shared cache's version, which another library's compile can move.
+  are used, the spec hash and a versioned digest of sorted `(spec_hash, input_hash, value_digest)`
+  receipts, including the exact Float32 bits used; never a cache/server version, location or
+  operational record. `cpg-schema::embedding` owns the codec and digest recipes.
 
 **Physical storage.**
 - Only immutable per-row CHECKs (span order, non-negative offsets) are added, with
@@ -162,14 +167,13 @@ derived, byte-reproducible projection of it.
   (`ForeignCommit` otherwise, never an empty read); a missing file fails the scan; then
   `snapshot_id` is filtered and columns projected by name. `snapshots` stays the authority for
   which version.
-- A **global** table that accumulates across attempts (`embedding_cache`) has no `snapshot_id`,
-  is read at its recorded version over all active files, and may be committed more than once per
-  attempt. It is written by an insert-only MERGE on its key with a retry on conflict, after the
-  local type, length, finiteness and norm checks. The snapshot row records the version read after
-  the last write and the rows the snapshot used. Key uniqueness is a validation rule; its declared
-  recovery is a migration to a new table keeping the earliest-version row per key, and if two
-  concurrent merges could ever leave two rows, the fallback is an exclusive store lock around an
-  anti-join and append.
+- `used_embeddings` is an ordinary snapshot-qualified table, including every consumed E0,
+  operation and brief vector. It is written once and validated for full consumer coverage,
+  spec, dimensions, finite unit vectors and exact value digests. No global mutable table enters
+  snapshot readers. PostgreSQL serves insert-only reuse; database outage or cache restoration
+  cannot change a published receipt. SQLx performs bound inserts and subsequent READ COMMITTED
+  reads of committed winners. The session retains values before consumption and never re-fetches
+  them during finalization. ADR-0065 owns this effect boundary and operational projections.
 - An unpublished attempt is readable only for inspection, at the commits carrying its own
   `lctx.snapshot_id`; tables it did not write are left out.
 
@@ -218,9 +222,8 @@ land.
   all of them, or the reader contract changes.
 - Analysis ablations are joins on content ids across snapshots; every new analysis table gets its
   generated key, reference and codebook rules through its table group.
-- Contract changes are migrations that today need a fresh store (W15). The cache-fill path has two
-  entry points with different admission and one returns locally computed rather than committed
-  vectors ([plan W9](../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
+- Contract changes are migrations that today need a fresh store (W15). The shared cache-fill path already corrects tokenizer admission and committed readback;
+  live checks remain outstanding ([plan W9](../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
 - **Evidence (Tested, 2026-09-22 onward):** `cpg-core/tests/graph.rs` (graph shapes, parallel
   edges, isolates, unresolved calls, identical catalogs across reruns, module order and
   locations, every registry rule rejecting an injected violation, `retention_keeps_old_versions_loadable`);

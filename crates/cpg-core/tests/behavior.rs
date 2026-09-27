@@ -71,6 +71,7 @@ pub async fn compiled() -> (SessionContext, tempfile::TempDir) {
     })
     .unwrap();
     let analysis = Analysis {
+        embedding_cache: None,
         config: AnalyticsConfig::parse(CONFIG).unwrap(),
         embedder: Some(std::sync::Arc::new(cpg_core::embed::FakeEmbedder::new())),
         techniques: Techniques::default(),

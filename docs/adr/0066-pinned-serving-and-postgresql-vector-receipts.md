@@ -1,9 +1,9 @@
 ---
-id: ADR-0043
-title: FastMCP interface over one pinned generation, in-process hybrid retrieval and one hashed embedding spec
+id: ADR-0066
+title: Keep pinned file serving with PostgreSQL cache and immutable vector receipts
 status: accepted
-date: 2026-09-25
-supersedes: [ADR-0010]
+date: 2026-09-27
+supersedes: [ADR-0043]
 superseded-by: null
 design: [§B13, §B14, §11]
 evidence: Proposed
@@ -11,6 +11,10 @@ revisit: The corpus exceeds ~10⁵ vectors at 4,096 dimensions or needs filtered
 ---
 
 ## Context
+
+This successor preserves ADR-0043's unrelated clauses and changes cache/replay ownership
+under ADR-0065. The PostgreSQL target is accepted for implementation on 2026-09-27;
+implementation and runtime qualification are tracked in the PostgreSQL plan, not inferred here.
 
 Coding agents reach the compiled model through an interface that must be local, deterministic
 over one published generation, and honest about what it does not know. The operator chose FastMCP
@@ -124,9 +128,12 @@ from ours.
   **Conformance oracle:** over shared inputs both clients build byte-identical request bodies,
   apply the same rejections and judge responses alike; against the live service their vectors
   agree to cosine ≥ 0.9995.
-- Vectors are cached by `spec_hash + input_hash` in the canonical `embedding_cache` Delta table,
-  written insert-only; snapshots record the cache version they read and generations copy the
-  committed vectors. A deterministic fake embedder with its own spec keeps tests GPU-free.
+- Vectors are reused by `spec_hash + input_hash` through SQLx-owned PostgreSQL insert-only
+  admission. One attempt-owned session freezes every committed value before exposing it to
+  operation, E0 or brief consumers; repeated keys reuse the retained value. Each snapshot writes
+  its complete `used_embeddings` receipt before validation/publication. Bundle construction reads
+  that snapshot alone. Fake-provider unit fixtures may explicitly use an uncached session; the
+  production cache has no automatic fallback. ADR-0065 owns deployment and operational effects.
 
 ## Consequences
 
@@ -138,8 +145,8 @@ from ours.
 - Evidence: the server, retrieval, spec, conformance and cache-merge clauses are **Tested**
   (DESIGN §11 names the tests); the Stage 4 tools are **Proposed**, which sets this record's
   floor.
-- Known gaps against this decision, owned by the forward plan: cache fill has two admission
-  paths and one returns uncommitted local vectors
+- Remaining qualification, owned by the forward plan: cache admission/readback is corrected
+  in the pre-PostgreSQL baseline, with live checks outstanding
   ([W9](../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)); spec-hash
   equality does not identify the running deployment
   ([W16](../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)); lookup

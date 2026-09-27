@@ -116,6 +116,7 @@ dynamic_settings = DynamicSettings()
     // The same corrected premise must survive the publication and serving projections.
     let store = dir.path().join("store");
     let analysis = cpg_core::analyze::Analysis {
+        embedding_cache: None,
         config: lctx_analytics::config::AnalyticsConfig::parse(CONFIG).unwrap(),
         embedder: Some(std::sync::Arc::new(cpg_core::embed::FakeEmbedder::new())),
         techniques: Default::default(),

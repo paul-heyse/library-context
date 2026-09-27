@@ -471,13 +471,13 @@ fn query(name: &str) -> Option<String> {
         ),
         "operation_vectors" => format!(
             "SELECT d.node_id, {view} AS embedding_view, d.chunk, d.input_hash, c.vector \
-             FROM operation_documents d JOIN embedding_cache c \
+             FROM operation_documents d JOIN used_embeddings c \
                ON c.spec_hash = d.spec_hash AND c.input_hash = d.input_hash \
              ORDER BY d.node_id, embedding_view, d.chunk",
             view = text_of::<EmbeddingView>("d.embedding_view"),
         ),
         "vectors" => "SELECT d.brief_id, d.chunk, d.input_hash, c.vector FROM brief_documents d \
-                      JOIN embedding_cache c \
+                      JOIN used_embeddings c \
                         ON c.spec_hash = d.spec_hash AND c.input_hash = d.input_hash \
                       ORDER BY d.brief_id, d.chunk"
             .to_owned(),

@@ -115,6 +115,7 @@ async fn transfer_alternatives_keep_conditions_verdicts_and_receiver_boundaries(
     let snapshot = Id([103; 16]);
     let mut inputs = raw("transfer_alternatives", snapshot);
     let analysis = Analysis {
+        embedding_cache: None,
         config: AnalyticsConfig::parse(
             "version = 1\n[subsystem]\nmodule_prefixes = [\"transferpkg\"]\n\
              public_roots = [\"transferpkg\"]\n[seeds]\nprimary = [\"transferpkg.mixed\"]\n\
@@ -644,6 +645,7 @@ async fn real_flow_input_row_order_keeps_published_contribution_bytes() {
     let first = tempfile::tempdir().unwrap();
     let second = tempfile::tempdir().unwrap();
     let analysis = Analysis {
+        embedding_cache: None,
         config: AnalyticsConfig::parse(
             "version = 1\n[subsystem]\nmodule_prefixes = [\"returnpkg\"]\n\
              public_roots = [\"returnpkg\"]\n[seeds]\nprimary = [\"returnpkg.plain_identity\"]\n\
@@ -1215,6 +1217,7 @@ async fn nested_returns_need_an_uncontrolled_exit_before_becoming_value_summarie
     let root = tempfile::tempdir().unwrap();
     let snapshot = Id([56; 16]);
     let analysis = Analysis {
+        embedding_cache: None,
         config: AnalyticsConfig::parse(
             r#"
 version = 1
@@ -1913,6 +1916,7 @@ async fn pysa_tito_control_uses_the_same_source_as_finite_summary_fixture() {
     let root = tempfile::tempdir().unwrap();
     let snapshot = Id([57; 16]);
     let analysis = Analysis {
+        embedding_cache: None,
         config: AnalyticsConfig::parse(
             r#"
 version = 1
@@ -2060,6 +2064,7 @@ async fn modeled_exception_handler_candidates_follow_exact_try_body_ancestry() {
     let root = tempfile::tempdir().unwrap();
     let snapshot = Id([59; 16]);
     let analysis = Analysis {
+        embedding_cache: None,
         config: AnalyticsConfig::parse(
             r#"
 version = 1
@@ -2497,6 +2502,7 @@ async fn unresolved_frames_withhold_raise_escape_guards() {
     let root = tempfile::tempdir().unwrap();
     let snapshot = Id([57; 16]);
     let analysis = Analysis {
+        embedding_cache: None,
         config: AnalyticsConfig::parse(
             r#"
 version = 1
@@ -2826,6 +2832,7 @@ async fn pinned_identity_models_require_and_publish_their_real_formals() {
     let root = tempfile::tempdir().unwrap();
     let snapshot = Id([52; 16]);
     let analysis = Analysis {
+        embedding_cache: None,
         config: AnalyticsConfig::parse(
             r#"
 version = 1
@@ -4806,6 +4813,7 @@ async fn resolved_type_guard_publishes_only_a_cited_exact_class_origin() {
     let root = tempfile::tempdir().unwrap();
     let snapshot = Id([49; 16]);
     let analysis = Analysis {
+        embedding_cache: None,
         config: AnalyticsConfig::parse(
             r#"
 version = 1
@@ -5012,6 +5020,7 @@ async fn entry_value_links_require_a_direct_uninterrupted_parameter_reach() {
     let root = tempfile::tempdir().unwrap();
     let snapshot = Id([48; 16]);
     let analysis = Analysis {
+        embedding_cache: None,
         config: AnalyticsConfig::parse(
             r#"
 version = 1
@@ -5953,6 +5962,7 @@ async fn composed_argument_reads_keep_ordered_source_evidence() {
     let root = tempfile::tempdir().unwrap();
     let snapshot = Id([78; 16]);
     let analysis = Analysis {
+        embedding_cache: None,
         config: AnalyticsConfig::parse(
             r#"
 version = 1
@@ -6252,6 +6262,7 @@ async fn call_execution_proves_reached_inputs_without_inventing_callee_completio
     let root = tempfile::tempdir().unwrap();
     let snapshot = Id([97; 16]);
     let analysis = Analysis {
+        embedding_cache: None,
         config: AnalyticsConfig::parse(
             r#"
 version = 1
@@ -6711,7 +6722,8 @@ async fn context_protocols_bind_class_and_constructor_roles_independently() {
     let snapshot = Id([109; 16]);
     let inputs = raw_version("context_protocol_shapes", snapshot, (3, 14, 7));
     let root = tempfile::tempdir().unwrap();
-    let analysis=Analysis {config:AnalyticsConfig::parse(
+    let analysis=Analysis {
+        embedding_cache: None,config:AnalyticsConfig::parse(
         "version = 1\n[subsystem]\nmodule_prefixes = [\"contextpkg\"]\npublic_roots = [\"contextpkg\"]\n[seeds]\nprimary = [\"contextpkg.preserve\"]\ndistractors = []\n[pass_a]\nmax_depth = 2\nmax_vertices = 128\nmax_edges = 512\nmax_witnesses = 3\n[briefs]\nbudget = 1\n").unwrap(),
         embedder:Some(Arc::new(cpg_core::embed::FakeEmbedder::new())),techniques:Techniques::default()};
     compile_analyzed(root.path(), snapshot, &inputs, Some(&analysis))
@@ -7013,6 +7025,7 @@ async fn action_triggers_preserve_partial_io_and_withhold_unproved_outcomes() {
     let root = tempfile::tempdir().unwrap();
     let snapshot = Id([98; 16]);
     let analysis = Analysis {
+        embedding_cache: None,
         config: AnalyticsConfig::parse(
             r#"
 version = 1
@@ -7433,6 +7446,7 @@ async fn source_body_outcomes_do_not_invent_value_flows_or_caller_continuation()
     let root = tempfile::tempdir().unwrap();
     let snapshot = Id([85; 16]);
     let analysis = Analysis {
+        embedding_cache: None,
         config: AnalyticsConfig::parse(
             r#"
 version = 1
@@ -7595,6 +7609,7 @@ async fn fresh_source_calls_require_body_binding_and_release() {
     let root = tempfile::tempdir().unwrap();
     let snapshot = Id([85; 16]);
     let analysis = Analysis {
+        embedding_cache: None,
         config: AnalyticsConfig::parse(
             r#"
 version = 1

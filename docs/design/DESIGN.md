@@ -77,7 +77,7 @@ owns remaining execution and exit criteria.
 | 4 | Stages 2.9–3: the `flow` family, conditions and verdicts, the condition kernel, models, L2 fates, transfer summaries and native serving | In progress |
 | 5 | Stages 4–5: the capability registry, `lookup_concepts` and `explain`, framework models and protocols, then the held-out evaluation and the §B11 decision | Proposed |
 
-**The CPG precedes its analytics** (ADR-0047): node and edge catalogs, then the `syntax`,
+**The CPG precedes its analytics** (ADR-0067): node and edge catalogs, then the `syntax`,
 `lexical`, `types` and `docs`/usage-corpus families; every family names the consumer that reads
 it. Libraries are pinned uv projects acquired by `lctx` (ADR-0046).
 
@@ -91,7 +91,7 @@ for Linux links; agents work on `main` in the current tree and use a separate wo
 truly concurrent production-code edits. Build performance of this configuration remains
 **Proposed** until measured.
 
-> Decision: ADR-0021, ADR-0047, ADR-0046, ADR-0026, ADR-0040
+> Decision: ADR-0021, ADR-0067, ADR-0046, ADR-0026, ADR-0040
 
 <a id="section-1-3"></a>
 
@@ -258,7 +258,7 @@ and codebook snapshots).
 - A schema change is a reviewed snapshot change and a declared migration; codebook codes are
   never renumbered or reordered.
 
-> Decision: ADR-0047
+> Decision: ADR-0067
 
 <a id="section-b3"></a>
 
@@ -376,7 +376,7 @@ scope; no missing exit observation is fabricated as a call. Full Stage 3 qualifi
 complete empty channels from missing analysis and omitted witnesses; non-value channels cite
 their actual subjects and sources instead of invented parameter-return identities (§9.9).
 
-> Decision: ADR-0047, ADR-0045, ADR-0058
+> Decision: ADR-0067, ADR-0045, ADR-0058
 
 <a id="section-b7"></a>
 
@@ -389,7 +389,7 @@ their actual subjects and sources instead of invented parameter-return identitie
 - Readers resolve table versions through that row, open only the pinned commit's files and filter
   by `snapshot_id` ([§6](sections/storage-and-publication.md#section-6)).
 
-> Decision: ADR-0047
+> Decision: ADR-0067
 
 <a id="section-b8"></a>
 
@@ -471,7 +471,7 @@ ADR-0024's open proposal.
   from it in turn.
 - No cross-store transactions: the generation manifest names the snapshot it came from.
 
-> Decision: ADR-0047
+> Decision: ADR-0067
 
 <a id="section-b13"></a>
 
@@ -490,32 +490,26 @@ implemented** under a **Proposed** decision (ADR-0025).
   negative or `complete` claim; no semantic decision is duplicated in Python. Today it provides
   path-local value inspection only; admission and decoding defects are plan items W1–W3.
 
-> Decision: ADR-0043, ADR-0025
+> Decision: ADR-0066, ADR-0025
 
 <a id="section-b14"></a>
 
-### §B14 One embedding spec, cached vectors
+### §B14 One embedding spec, exact consumed-vector receipts
 
-**Implemented and Tested** for the spec, cache and conformance oracle.
+**Implemented and Tested, 2026-09-27; PostgreSQL receipts are linked below.**
 
 - One hashed embedding spec ([§11.1](sections/synthesis-and-serving.md#section-11-1)) governs
-  every vector; compile-time (Rust) and query-time (Python) clients are held to shared
-  conformance vectors.
-- Vectors are cached by `spec_hash + input_hash` in the canonical `embedding_cache`; a snapshot
-  records the cache version it read and the generation copies vectors from it. A view (signature
-  and docstring, source body) is a column, not part of the cache key.
-- The two cache-fill routes now share admission and committed-value readback in focused tests
-  ([plan W9](../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
-  Deployment identity beyond the operator-controlled launch remains open (plan W16).
+  every vector; Rust and Python clients retain their shared conformance oracle.
+- PostgreSQL reuses one immutable winner per `spec_hash + input_hash`. An attempt retains each
+  exact value before operation/E0/brief consumption and publishes snapshot-local Delta receipts
+  for all consumed values, including analytics-only inputs. Value digests enter content identity.
+- Generations copy vectors from the selected snapshot. Rebuild and serving remain independent
+  of PostgreSQL. Database discovery cannot authorize an unpublished snapshot or generation.
+- [§6.5](sections/storage-and-publication.md#section-6-5) owns database effects and conditional
+  capabilities. The [PostgreSQL plan](../plans/postgresql-integration-plan_2026-09-27.md) owns
+  current qualification; W9/W16 retain live-client and endpoint-identity boundaries.
 
-**Proposed, not implemented:** [§6.5](sections/storage-and-publication.md#section-6-5) and
-[ADR-0065](../adr/0065-postgresql-services-and-vector-receipts.md) describe PostgreSQL cache
-admission plus snapshot-local exact-vector receipts. This replaces the cache-version clause
-only after the affected accepted ADRs and consumers are migrated; the current contract above
-remains in force. The [PostgreSQL plan](../plans/postgresql-integration-plan_2026-09-27.md)
-owns that work and later library capability adoption.
-
-> Decision: ADR-0043; ADR-0065 (proposed target)
+> Decision: ADR-0065, ADR-0066, ADR-0067
 
 ---
 

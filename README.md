@@ -22,3 +22,7 @@ and serves on http://127.0.0.1:8000. Rebuild after edits; the preview is not a w
 These commands use the pinned Python interpreter without installing native product packages.
 Source Markdown remains usable without a site. CI produces a downloadable site artifact; public
 hosting is not configured. See [publishing operations](docs/publishing.md) for details.
+
+PostgreSQL-backed compiles use the [local PostgreSQL setup and recovery commands](docs/postgresql.md).
+SQLx owns cache/operational access in Rust; Delta receipts and immutable generations remain the
+replay/serving boundary. `--embedder none` and existing immutable readers can operate without PG.

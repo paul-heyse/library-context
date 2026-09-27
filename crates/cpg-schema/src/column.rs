@@ -396,7 +396,7 @@ fn float32_item() -> Arc<Field> {
     Arc::new(Field::new("item", DataType::Float32, false))
 }
 
-/// An embedding vector (DESIGN §3.3): `List<Float32>` in `embedding_cache` (the child is renamed
+/// An embedding vector (DESIGN §3.3): `List<Float32>` in consumed-vector receipts (the child is renamed
 /// `element` by Delta); its length, finiteness and norm are checked where it is made and read.
 impl ArrowColumn for Vec<f32> {
     fn data_type() -> DataType {

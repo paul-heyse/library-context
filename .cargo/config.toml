@@ -3,6 +3,10 @@ jobs = 16
 rustc-wrapper = "sccache"
 incremental = false
 
+# Ordinary builds never introspect an ambient database; sqlx-check opts in explicitly.
+[env]
+SQLX_OFFLINE = { value = "true", force = false }
+
 [target.'cfg(target_os = "linux")']
 linker = "clang"
 rustflags = ["-C", "link-arg=-fuse-ld=mold"]

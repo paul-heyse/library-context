@@ -13,7 +13,7 @@ check: fmt-check lint test py-check rules-scan rules-test lint-agents
     uv run python scripts/adr.py lint
 
 # Everything: check + fixtures + dependency policy
-test-all: check fixtures-check deps gold
+test-all: check fixtures-check deps gold test-postgres sqlx-check
 
 # rustfmt + ruff format check (no changes)
 fmt-check:
@@ -80,18 +80,18 @@ fixtures-check:
 
 # The real-library oracle (ADR-0046): acquire the FastMCP pilot from libraries/fastmcp, then
 # extract, derive, validate and publish a snapshot into build/store. First run needs the network.
-pilot store="build/store":
+pilot store="build/store" log="build/pilot.log":
     cargo build --release -p lctx --quiet
-    target/release/lctx compile fastmcp --store {{store}} --embedder fake | tee build/pilot.log
-    uv run python -m lctx_mcp.smoke "$(grep '^generation ' build/pilot.log | cut -d' ' -f2)" --embedder fake
+    target/release/lctx compile fastmcp --store {{store}} --embedder fake | tee {{log}}
+    uv run python -m lctx_mcp.smoke "$(grep '^generation ' {{log}} | cut -d' ' -f2)" --embedder fake
 
 # The same compile with live vectors: needs `just embed-serve` running (else `blocked`)
-pilot-live:
+pilot-live store="build/store" log="build/pilot-live.log":
     cargo build --release -p lctx --quiet
-    target/release/lctx compile fastmcp --store build/store --embedder vllm | tee build/pilot-live.log
-    uv run python -m lctx_mcp.smoke "$(grep '^generation ' build/pilot-live.log | cut -d' ' -f2)" --embedder vllm
+    target/release/lctx compile fastmcp --store {{store}} --embedder vllm | tee {{log}}
+    uv run python -m lctx_mcp.smoke "$(grep '^generation ' {{log}} | cut -d' ' -f2)" --embedder vllm
 
-# The embedding service (DESIGN §11.1, ADR-0043): vLLM 0.30.0 from the locked services/vllm
+# The embedding service (DESIGN §11.1, ADR-0066): vLLM 0.30.0 from the locked services/vllm
 # project, serving Qwen3-Embedding-8B at its pinned revision on the local GPU
 embed-serve port="8000":
     uv run python scripts/embed_serve.py --port {{port}}
@@ -101,12 +101,12 @@ embed-conformance url="http://127.0.0.1:8000":
     LCTX_EMBED_URL={{url}} LCTX_CONFORMANCE_OUT="$PWD/build/conformance-rust.json" cargo nextest run --release -p lctx-embed -E 'test(live_conformance_vectors)' --status-level none --final-status-level fail
     uv run python scripts/embed_conformance.py build/conformance-rust.json --url {{url}}
 
-# Gold scores of a generation (DESIGN §12; matcher 2, ADR-0043). Exits 2 when
+# Gold scores of a generation (DESIGN §12; matcher 2, ADR-0066). Exits 2 when
 # `vllm` was asked for and any alias degraded (`blocked`)
 score generation embedder="none":
     uv run python scripts/score_gold.py {{generation}} --embedder {{embedder}} --json build/score-$(basename {{generation}})-{{embedder}}.json
 
-# The §1.5 retrieval check over a generation (ADR-0043): exits 1 on a miss. Only
+# The §1.5 retrieval check over a generation (ADR-0066): exits 1 on a miss. Only
 # `--embedder vllm` (with `just embed-serve` running) makes a hybrid result evidence
 ranking-check generation embedder="none":
     uv run python scripts/ranking_check.py {{generation}} --embedder {{embedder}}
@@ -131,7 +131,7 @@ lint-agents:
 # Tool presence and versions (compare with docs/pins.md)
 doctor:
     #!/usr/bin/env bash
-    for t in cargo rustc cargo-nextest cargo-insta cargo-deny cargo-shear uv ast-grep rg git gh clang clang++ llvm-config mold sccache; do
+    for t in cargo rustc cargo-nextest cargo-insta cargo-deny cargo-shear uv ast-grep rg git gh clang clang++ llvm-config mold sccache sqlx psql pg_dump pg_restore docker; do
       printf '%-14s ' "$t"; command -v "$t" >/dev/null && "$t" --version 2>/dev/null | head -1 || echo MISSING
     done
     printf '%-14s ' ruff; uv run ruff --version
@@ -164,3 +164,18 @@ docs-test:
 # Build then serve the finished artifact; no watcher or reindex during serving
 docs-serve port="8000":
     uv run --no-project --offline --no-python-downloads python scripts/docs.py serve --port {{port}}
+
+# Fetch the exact disposable PG18 image explicitly before database qualification.
+postgres-test-setup:
+    docker pull "postgres:$(cat specs/postgres-image.txt)"
+
+# Real database semantics; pure model tests do not require a running service.
+test-postgres:
+    @docker image inspect "postgres:$(cat specs/postgres-image.txt)" >/dev/null || { echo 'blocked: run just postgres-test-setup'; exit 2; }
+    INSTA_UPDATE=no cargo nextest run --release -p cpg-core --test postgres --run-ignored only --test-threads 2 --no-fail-fast --success-output immediate
+
+sqlx-check:
+    uv run python scripts/postgres_check.py
+
+sqlx-prepare:
+    uv run python scripts/postgres_check.py --prepare

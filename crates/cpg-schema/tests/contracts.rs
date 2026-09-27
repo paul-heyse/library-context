@@ -8,7 +8,11 @@ use cpg_schema::tables::{self, Declarations, DeclarationsRow};
 
 #[test]
 fn contracts_snapshot() {
-    for (name, text) in tables::contracts() {
+    // The legacy import schema remains frozen even though it is not a live snapshot table.
+    for (name, text) in tables::contracts().into_iter().chain(std::iter::once((
+        "embedding_cache",
+        cpg_schema::table::contract::<cpg_schema::embedding::EmbeddingCache>(),
+    ))) {
         insta::assert_snapshot!(name, text);
     }
 }

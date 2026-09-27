@@ -1002,6 +1002,7 @@ async fn an_outcome_from_the_docs_is_the_sentence_that_mentions_the_seed() {
     let input = corpus_input(dir.path(), s, &[("outcome", "docs/outcome")]);
     let out = extract(&input).unwrap();
     let analysis = cpg_core::analyze::Analysis {
+        embedding_cache: None,
         config: lctx_analytics::config::AnalyticsConfig::parse(
             r#"
 version = 1
@@ -1167,6 +1168,7 @@ async fn docs_shapes_embedded(
     input.test_hooks.reverse_module_order = reverse;
     let out = extract(&input).unwrap();
     let analysis = cpg_core::analyze::Analysis {
+        embedding_cache: None,
         config: lctx_analytics::config::AnalyticsConfig::parse(&format!(
             r#"
 version = 1
@@ -1461,6 +1463,7 @@ async fn docs_shapes_variant(
     let s = Id([7; 16]);
     let out = extract(&corpus_input(&base, s, &[("usage", "examples")])).unwrap();
     let analysis = cpg_core::analyze::Analysis {
+        embedding_cache: None,
         config: lctx_analytics::config::AnalyticsConfig::parse(
             r#"
 version = 1
@@ -1790,8 +1793,9 @@ async fn all_techniques_guard() {
     // then compiler103's flow-model descriptor query (the builtin descriptor exemption), then
     // compiler105's discharge ordering: argument flows written by query before summaries, and
     // the behavior scan graded from their decisions (ADR-0064), then the committed catalog's
-    // remaining Logger levels (catalog content, format 7).
-    const GUARD: &str = "3c5b10c994490f6c85b68a828cb59928ff8ff7510d319711d0aafb121cd2cbb4";
+    // remaining Logger levels (catalog content, format 7), then compiler106's snapshot-local
+    // consumed vector values and consumer inventory (ADR-0065/0067).
+    const GUARD: &str = "38340ec5ea4f4a187a14e0593a1e990c951532dc27d187a1674ec07fc2d91e6c";
     assert_eq!(digest, GUARD, "the all-techniques guard moved");
 }
 

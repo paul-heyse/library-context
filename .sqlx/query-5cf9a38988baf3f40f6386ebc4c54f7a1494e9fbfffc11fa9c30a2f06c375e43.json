@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT canonical_spec, dimensions FROM lctx_cache.specs WHERE spec_hash=$1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "canonical_spec",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "lctx_cache.specs",
+            "name": "canonical_spec"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "dimensions",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "lctx_cache.specs",
+            "name": "dimensions"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bytea"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "5cf9a38988baf3f40f6386ebc4c54f7a1494e9fbfffc11fa9c30a2f06c375e43"
+}

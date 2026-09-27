@@ -62,8 +62,6 @@ pub struct BehaviorRows {
     pub steps: Vec<BehaviorStepsRow>,
     pub documents: Vec<OperationDocumentsRow>,
     pub invocations: Vec<AnalysisInvocationsRow>,
-    /// The cache keys the documents use, for the snapshot's key set (`content_digest`).
-    pub embedded_keys: Vec<Digest>,
 }
 
 /// A handoff pair's formal name, first occurrence (path, byte, site) and occurrence count.
@@ -265,7 +263,7 @@ pub fn digest() -> Digest {
 )]
 pub async fn run(
     ctx: &SessionContext,
-    root: &std::path::Path,
+    embeddings: &mut crate::embed::Session,
     snapshot_id: Id,
     analysis: &Analysis,
     compiler: CompilerRun,
@@ -1741,12 +1739,13 @@ pub async fn run(
         let spec = embedder.spec();
         let spec_hash = spec.hash();
         let texts: Vec<String> = out.documents.iter().map(|d| d.text.clone()).collect();
-        let (_, keys, _) = crate::embed::embed_texts(root, snapshot_id, embedder, &texts).await?;
+        embeddings
+            .texts(embedder, &texts, crate::embed::Usage::Operation)
+            .await?;
         for d in &mut out.documents {
             d.spec_hash = Some(spec_hash);
             d.input_hash = Some(crate::embed::input_hash(&spec.document_text(&d.text)));
         }
-        out.embedded_keys = keys;
         stages.mark("behavior: embed operation documents");
     }
     Ok(out)

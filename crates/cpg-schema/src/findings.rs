@@ -580,6 +580,8 @@ macro_rules! for_each_analysis_table {
             $crate::findings::BriefMembers,
             $crate::findings::BriefDocuments,
             $crate::findings::EmbeddingSpecs,
+            $crate::embedding::UsedEmbeddings,
+            $crate::embedding::EmbeddingUses,
             $crate::findings::AssertionPolicy
         )
     };

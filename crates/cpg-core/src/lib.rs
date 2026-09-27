@@ -11,6 +11,7 @@ pub mod diff;
 pub mod embed;
 pub mod entry_links;
 pub mod flow_model;
+pub mod postgres;
 pub mod snapshot;
 pub mod sql;
 pub mod summaries;
@@ -31,6 +32,8 @@ fn summary(violations: &[Violation]) -> String {
 
 #[derive(Debug, thiserror::Error)]
 pub enum CoreError {
+    #[error(transparent)]
+    Postgres(#[from] postgres::Error),
     #[error("delta: {0}")]
     Delta(#[from] deltalake::DeltaTableError),
     #[error("datafusion: {0}")]

@@ -1,21 +1,10 @@
-//! Embeddings through the cache (DESIGN §11.1, §B14; ADR-0010, ADR-0017 amendment).
-//!
-//! One hashed spec governs every vector. Vectors are cached in the global `embedding_cache` by
-//! `(spec_hash, input_hash)`, where `input_hash` is the SHA-256 of the exact request text. An
-//! attempt embeds only the keys the cache lacks, inserts them by an insert-only MERGE, and records
-//! the cache version it read. The embedder is a trait here so that `reqwest` stays out of
-//! `cpg-core`: `lctx-embed` implements it over vLLM, and the deterministic fake here keeps tests
-//! and GPU-free runs working.
-//!
-//! Serving-side digests are SHA-256 (Python recomputes them); store-side ids stay BLAKE3.
+//! Attempt-owned embedding admission and immutable exact-value replay (ADR-0065).
 
 use std::future::Future;
 use std::pin::Pin;
 
-use cpg_schema::embedding::{EmbeddingCache, EmbeddingCacheRow};
 use cpg_schema::findings::BriefDocumentsRow;
-use cpg_schema::id::{Digest, Id, IdHasher};
-use cpg_schema::table::Table;
+use cpg_schema::id::{Digest, Id};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 
@@ -175,261 +164,211 @@ impl Embedder for FakeEmbedder {
     }
 }
 
-/// What an attempt's embedding step recorded.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Embedded {
-    pub spec_hash: Digest,
-    /// The cache version read after the attempt's merge.
-    pub version: u64,
-    /// Distinct keys the snapshot uses.
-    pub used: i64,
-    /// A digest of the sorted keys used (`content_digest`'s input, never the shared version).
-    pub keys_digest: Digest,
+/// Exact replay state owned by one compile attempt, never by cloneable Analysis or Embedder.
+pub struct Session {
+    snapshot_id: Id,
+    cache: Option<crate::postgres::Store>,
+    spec: Option<String>,
+    values: std::collections::BTreeMap<Digest, crate::postgres::CacheValue>,
+    uses: std::collections::BTreeMap<Digest, i64>,
+    max_bytes: usize,
 }
 
-const BATCH: usize = 32;
+pub use cpg_schema::embedding::Usage;
 
-/// Embed the brief documents through the cache: fill each document's `input_hash`, check the token
-/// cap, embed the keys the cache lacks, merge them, and return the cache version and the keys the
-/// snapshot uses (the documents' and `prior`, the analytics' E0 keys).
-pub async fn embed_documents(
-    root: &std::path::Path,
-    snapshot_id: Id,
-    embedder: &dyn Embedder,
-    docs: &mut [BriefDocumentsRow],
-    prior: &[Digest],
-) -> Result<Embedded, CoreError> {
-    let spec = embedder.spec();
-    let spec_hash = spec.hash();
-    let mut requests: Vec<(cpg_schema::id::Digest, String)> = Vec::new();
-    for doc in docs.iter_mut() {
-        let request = spec.document_text(&doc.text);
-        let key = input_hash(&request);
-        doc.spec_hash = Some(spec_hash);
-        doc.input_hash = Some(key);
-        requests.push((key, request));
-    }
-    requests.sort();
-    requests.dedup_by(|a, b| a.0 == b.0);
-    let (_, version) = fill_cache(root, snapshot_id, embedder, &requests).await?;
-    // The snapshot's keys: its documents' and the analytics' (E0, slice 3.1), sorted and distinct.
-    let mut keys: Vec<Digest> = requests
-        .iter()
-        .map(|(k, _)| *k)
-        .chain(prior.iter().copied())
-        .collect();
-    keys.sort();
-    keys.dedup();
-    let mut h = IdHasher::new("embedding-keys");
-    h.digest_field(spec_hash);
-    for key in &keys {
-        h.digest_field(*key);
-    }
-    Ok(Embedded {
-        spec_hash,
-        version,
-        used: keys.len() as i64,
-        keys_digest: h.finish_digest(),
-    })
+pub struct Receipt {
+    pub values: Vec<cpg_schema::embedding::UsedEmbeddingsRow>,
+    pub uses: Vec<cpg_schema::embedding::EmbeddingUsesRow>,
+    pub spec: Option<Spec>,
+    pub digest: Option<Digest>,
 }
 
-/// Embed document texts through the cache for the analytics (E0; DESIGN §9.7, slice 3.1): each
-/// text's vector in order, read from the cache or embedded and merged by the insert-only MERGE,
-/// with the distinct keys used and the cache version after the merge. A text is embedded as a
-/// document (the spec's document template); its caller keeps it under the document cap.
-pub async fn embed_texts(
-    root: &std::path::Path,
-    snapshot_id: Id,
-    embedder: &dyn Embedder,
-    texts: &[String],
-) -> Result<(Vec<Vec<f32>>, Vec<Digest>, u64), CoreError> {
-    let spec = embedder.spec();
-    let requests: Vec<(Digest, String)> = texts
-        .iter()
-        .map(|t| {
-            let request = spec.document_text(t);
-            (input_hash(&request), request)
-        })
-        .collect();
-    let (vectors, version) = fill_cache(root, snapshot_id, embedder, &requests).await?;
-    let out = requests
-        .iter()
-        .map(|(k, _)| vectors.get(k).cloned())
-        .collect::<Option<Vec<_>>>()
-        .ok_or_else(|| CoreError::Embed("a text without a vector".to_owned()))?;
-    Ok((out, vectors.into_keys().collect(), version))
-}
-
-/// The single cache-fill contract: admit missing requests with the real tokenizer, merge only
-/// validated vectors, and return the winning rows at precisely the committed Delta version.
-async fn fill_cache(
-    root: &std::path::Path,
-    snapshot_id: Id,
-    embedder: &dyn Embedder,
-    requests: &[(Digest, String)],
-) -> Result<(std::collections::BTreeMap<Digest, Vec<f32>>, u64), CoreError> {
-    let spec = embedder.spec();
-    let spec_hash = spec.hash();
-    let unique: std::collections::BTreeMap<Digest, &String> =
-        requests.iter().map(|(key, text)| (*key, text)).collect();
-    let have = cached_keys(root, spec_hash, unique.keys().copied()).await?;
-    let missing: Vec<(Digest, &String)> = unique
-        .iter()
-        .filter(|(key, _)| !have.contains(*key))
-        .map(|(key, text)| (*key, *text))
-        .collect();
-    // A cached key already passed this same spec's tokenizer at insertion. No service is needed
-    // for a fully cached compile; every new path through the cache shares this check.
-    for (_, request) in &missing {
-        let tokens = embedder.count_tokens(request).await?;
-        if tokens > spec.max_document_tokens as usize {
-            return Err(CoreError::Embed(format!(
-                "a document request is {tokens} tokens, over the {}-token cap",
-                spec.max_document_tokens
-            )));
+impl Session {
+    pub fn new(snapshot_id: Id, cache: Option<crate::postgres::Store>, max_bytes: usize) -> Self {
+        Self {
+            snapshot_id,
+            cache,
+            spec: None,
+            values: Default::default(),
+            uses: Default::default(),
+            max_bytes,
         }
     }
-    let (rows, failed) = embed_batches(embedder, &missing).await;
-    // Completed batches survive a later failure; the insert-only merge makes retry idempotent.
-    let batch = EmbeddingCache::to_sorted_batch(&rows)?;
-    let version = crate::delta::merge_global::<EmbeddingCache>(root, batch, snapshot_id).await?;
-    if let Some(error) = failed {
-        return Err(error);
-    }
-    let vectors = cached_vectors(root, spec_hash, version, unique.keys().copied()).await?;
-    if vectors.len() != unique.len() {
-        return Err(CoreError::Embed(
-            "committed embedding cache omitted a requested key".to_owned(),
-        ));
-    }
-    Ok((vectors, version))
-}
 
-/// Embed `(key, request text)` pairs in batches of [`BATCH`], checking each vector: the cache rows
-/// of every batch that completed, and the first failure, after which nothing more is sent.
-async fn embed_batches(
-    embedder: &dyn Embedder,
-    requests: &[(Digest, &String)],
-) -> (Vec<EmbeddingCacheRow>, Option<CoreError>) {
-    let spec = embedder.spec();
-    let spec_hash = spec.hash();
-    let mut rows = Vec::new();
-    for chunk in requests.chunks(BATCH) {
-        let texts: Vec<String> = chunk.iter().map(|(_, r)| (*r).clone()).collect();
-        let vectors = match embedder.embed(&texts).await {
-            Ok(v) if v.len() == texts.len() => v,
-            Ok(v) => {
-                let e = format!("{} vectors for {} texts", v.len(), texts.len());
-                return (rows, Some(CoreError::Embed(e)));
+    /// Explicitly uncached deterministic fixtures. Production selects a configured cache;
+    /// failure of that cache is never an invitation to switch this mode.
+    pub fn uncached(snapshot_id: Id) -> Self {
+        Self::new(snapshot_id, None, 268435456)
+    }
+
+    pub async fn texts(
+        &mut self,
+        embedder: &dyn Embedder,
+        texts: &[String],
+        usage: Usage,
+    ) -> Result<Vec<Vec<f32>>, CoreError> {
+        let spec = embedder.spec();
+        let canonical = spec.canonical_json();
+        if self.spec.as_ref().is_some_and(|s| s != &canonical) {
+            return Err(CoreError::Embed(
+                "an attempt cannot mix embedding specs".to_owned(),
+            ));
+        }
+        self.spec = Some(canonical);
+        let requests: Vec<_> = texts
+            .iter()
+            .map(|t| {
+                let text = spec.document_text(t);
+                (input_hash(&text), text)
+            })
+            .collect();
+        let unique: std::collections::BTreeMap<_, _> =
+            requests.iter().map(|(k, t)| (*k, t)).collect();
+        let missing: Vec<_> = unique
+            .keys()
+            .filter(|k| !self.values.contains_key(k))
+            .copied()
+            .collect();
+        let count = self
+            .values
+            .len()
+            .checked_add(missing.len())
+            .ok_or_else(|| CoreError::Embed("receipt budget overflow".to_owned()))?;
+        if count
+            .checked_mul(spec.dimensions as usize)
+            .and_then(|n| n.checked_mul(4))
+            .is_none_or(|n| n > self.max_bytes)
+        {
+            return Err(CoreError::Embed(
+                "attempt vector receipt exceeds configured memory budget".to_owned(),
+            ));
+        }
+        if let Some(cache) = &self.cache
+            && !missing.is_empty()
+        {
+            cache.ensure_spec(spec).await?;
+            self.values.extend(cache.cached(spec, &missing).await?);
+        }
+        let missing: Vec<_> = missing
+            .into_iter()
+            .filter(|k| !self.values.contains_key(k))
+            .collect();
+        for chunk in missing.chunks(32) {
+            let texts: Vec<String> = chunk.iter().map(|k| (*unique[k]).clone()).collect();
+            let mut tokens = Vec::with_capacity(texts.len());
+            for text in &texts {
+                let count = embedder.count_tokens(text).await?;
+                if count > spec.max_document_tokens as usize {
+                    return Err(CoreError::Embed(format!(
+                        "a document request is {count} tokens, over the {}-token cap",
+                        spec.max_document_tokens
+                    )));
+                }
+                tokens.push(count as u32);
             }
-            Err(e) => return (rows, Some(e)),
+            let vectors = embedder.embed(&texts).await?;
+            if vectors.len() != texts.len() {
+                return Err(CoreError::Embed(
+                    "embedding response count mismatch".to_owned(),
+                ));
+            }
+            let mut candidates = Vec::with_capacity(vectors.len());
+            for ((key, vector), admitted_tokens) in chunk.iter().zip(vectors).zip(tokens) {
+                check_vector(&vector, spec.dimensions).map_err(CoreError::Embed)?;
+                candidates.push(crate::postgres::CacheValue {
+                    input_hash: *key,
+                    vector,
+                    admitted_tokens,
+                });
+            }
+            let winners = match &self.cache {
+                Some(cache) => cache.admit(spec, &candidates).await?,
+                None => candidates.into_iter().map(|v| (v.input_hash, v)).collect(),
+            };
+            self.values.extend(winners);
+        }
+        // Record every consumer before any value escapes. The separate inventory survives
+        // publication, so a removed E0-only receipt row fails shared validation too.
+        for key in unique.keys() {
+            *self.uses.entry(*key).or_default() |= usage as i64;
+        }
+        requests
+            .iter()
+            .map(|(key, _)| {
+                self.values
+                    .get(key)
+                    .map(|v| v.vector.clone())
+                    .ok_or_else(|| CoreError::Embed("missing committed vector".to_owned()))
+            })
+            .collect()
+    }
+
+    pub async fn documents(
+        &mut self,
+        embedder: &dyn Embedder,
+        docs: &mut [BriefDocumentsRow],
+    ) -> Result<(), CoreError> {
+        self.texts(
+            embedder,
+            &docs.iter().map(|d| d.text.clone()).collect::<Vec<_>>(),
+            Usage::Brief,
+        )
+        .await?;
+        for doc in docs {
+            doc.spec_hash = Some(embedder.spec().hash());
+            doc.input_hash = Some(input_hash(&embedder.spec().document_text(&doc.text)));
+        }
+        Ok(())
+    }
+
+    /// Consumes retained bytes; it cannot perform database/network I/O.
+    pub fn finish(self) -> Result<Receipt, CoreError> {
+        use cpg_schema::embedding::{
+            EmbeddingUsesRow, UsedEmbeddingsRow, receipt_digest, value_digest,
         };
-        let mut checked = Vec::with_capacity(vectors.len());
-        for ((key, _), vector) in chunk.iter().zip(vectors) {
-            if let Err(e) = check_vector(&vector, spec.dimensions) {
-                return (rows, Some(CoreError::Embed(e)));
-            }
-            checked.push(EmbeddingCacheRow {
-                spec_hash,
-                input_hash: *key,
-                vector,
-                model: spec.model.clone(),
-            });
+        let spec: Option<Spec> = self
+            .spec
+            .map(|s| serde_json::from_str(&s))
+            .transpose()
+            .map_err(|e| CoreError::Embed(e.to_string()))?;
+        if self.uses.len() != self.values.len()
+            || self.uses.keys().any(|k| !self.values.contains_key(k))
+        {
+            return Err(CoreError::Embed(
+                "consumed vector receipt is incomplete".to_owned(),
+            ));
         }
-        rows.extend(checked);
+        let spec_hash = spec.as_ref().map(Spec::hash);
+        let values = self
+            .values
+            .into_iter()
+            .map(|(input_hash, v)| UsedEmbeddingsRow {
+                snapshot_id: self.snapshot_id,
+                spec_hash: spec_hash.expect("values have spec"),
+                input_hash,
+                value_digest: value_digest(&v.vector),
+                vector: v.vector,
+            })
+            .collect::<Vec<_>>();
+        let uses = self
+            .uses
+            .into_iter()
+            .map(|(input_hash, usage_mask)| EmbeddingUsesRow {
+                snapshot_id: self.snapshot_id,
+                spec_hash: spec_hash.expect("uses have spec"),
+                input_hash,
+                usage_mask,
+            })
+            .collect();
+        let digest = spec_hash.map(|s| receipt_digest(s, &values));
+        tracing::info!(target: "lctx::postgres", operation="receipt_freeze", retained_keys=values.len(), vector_bytes=values.iter().map(|v| v.vector.len()*4).sum::<usize>(), budget_bytes=self.max_bytes);
+        Ok(Receipt {
+            values,
+            uses,
+            spec,
+            digest,
+        })
     }
-    (rows, None)
-}
-
-// The embedding cache's relations (the holistic assessment's A4): the spec and keys bound, never
-// spliced as `X'…'` literals.
-cpg_schema::relations! {
-    inventory relations;
-    /// Every cached vector of one spec (`$spec`).
-    cache_relation = "embedding_cache_vectors",
-        deps = ["embedding_cache"],
-        sql = "SELECT input_hash, vector FROM embedding_cache \
-               WHERE spec_hash = $spec AND array_has($keys, input_hash)".to_owned();
-    /// The keys of one spec (`$spec`) the cache holds among `$keys`.
-    keys_relation = "embedding_cache_keys",
-        deps = ["embedding_cache"],
-        sql = "SELECT input_hash FROM embedding_cache \
-               WHERE spec_hash = $spec AND array_has($keys, input_hash)"
-            .to_owned();
-}
-
-cpg_schema::query_row! {
-    struct CachedRow {
-        input_hash: Digest,
-        vector: Vec<f32>,
-    }
-}
-
-cpg_schema::query_row! {
-    struct KeyRow {
-        input_hash: Digest,
-    }
-}
-
-/// Requested vectors of `spec_hash` at exactly the version returned by the merge.
-async fn cached_vectors(
-    root: &std::path::Path,
-    spec_hash: Digest,
-    version: u64,
-    wanted: impl Iterator<Item = Digest>,
-) -> Result<std::collections::BTreeMap<Digest, Vec<f32>>, CoreError> {
-    let mut out = std::collections::BTreeMap::new();
-    let wanted: Vec<Digest> = wanted.collect();
-    if wanted.is_empty() {
-        return Ok(out);
-    }
-    let table = crate::snapshot::load_at(root, EmbeddingCache::NAME, version).await?;
-    crate::delta::verify::<EmbeddingCache>(&table)?;
-    let ctx = crate::snapshot::empty_session();
-    table.update_datafusion_session(&ctx.state())?;
-    ctx.register_table(EmbeddingCache::NAME, table.table_provider().await?)?;
-    for r in crate::sql::fetch::<CachedRow>(
-        &ctx,
-        &cache_relation(),
-        crate::sql::Params::new()
-            .digest("spec", spec_hash)
-            .digests("keys", wanted),
-    )
-    .await?
-    {
-        out.insert(r.input_hash, r.vector);
-    }
-    Ok(out)
-}
-
-/// The keys of `spec_hash` the cache holds among `wanted`, read at its latest version over all
-/// its files (the global read mode).
-async fn cached_keys(
-    root: &std::path::Path,
-    spec_hash: Digest,
-    wanted: impl Iterator<Item = Digest>,
-) -> Result<std::collections::BTreeSet<Digest>, CoreError> {
-    let wanted: Vec<Digest> = wanted.collect();
-    let mut out = std::collections::BTreeSet::new();
-    if wanted.is_empty() || !root.join(EmbeddingCache::NAME).join("_delta_log").exists() {
-        return Ok(out);
-    }
-    let table = crate::delta::open_verified::<EmbeddingCache>(root).await?;
-    let ctx = crate::snapshot::empty_session();
-    table.update_datafusion_session(&ctx.state())?;
-    ctx.register_table(EmbeddingCache::NAME, table.table_provider().await?)?;
-    for r in crate::sql::fetch::<KeyRow>(
-        &ctx,
-        &keys_relation(),
-        crate::sql::Params::new()
-            .digest("spec", spec_hash)
-            .digests("keys", wanted),
-    )
-    .await?
-    {
-        out.insert(r.input_hash);
-    }
-    Ok(out)
 }
 
 #[cfg(test)]
@@ -465,210 +404,101 @@ mod tests {
         assert_eq!(s.document_text("x"), "x");
     }
 
-    /// The fake embedder, counting what it is asked, and failing its `fail_on`-th batch.
-    struct Probe {
-        fake: FakeEmbedder,
-        counted: std::sync::atomic::AtomicUsize,
-        embedded: std::sync::atomic::AtomicUsize,
-        batches: std::sync::atomic::AtomicUsize,
-        fail_on: Option<usize>,
-    }
-
-    impl Probe {
-        fn new(fail_on: Option<usize>) -> Self {
-            Probe {
-                fake: FakeEmbedder::new(),
-                counted: Default::default(),
-                embedded: Default::default(),
-                batches: Default::default(),
-                fail_on,
+    #[tokio::test]
+    async fn every_consumer_is_recorded_before_use_and_exact_values_affect_identity() {
+        let fake = FakeEmbedder::new();
+        let mut session = Session::uncached(Id([1; 16]));
+        session
+            .texts(&fake, &["shared".to_owned()], Usage::Operation)
+            .await
+            .unwrap();
+        session
+            .texts(
+                &fake,
+                &["shared".to_owned(), "E0 only".to_owned()],
+                Usage::Analytics,
+            )
+            .await
+            .unwrap();
+        session
+            .texts(
+                &fake,
+                &["shared".to_owned(), "brief only".to_owned()],
+                Usage::Brief,
+            )
+            .await
+            .unwrap();
+        let receipt = session.finish().unwrap();
+        assert_eq!(receipt.values.len(), 3);
+        assert_eq!(
+            receipt
+                .uses
+                .iter()
+                .find(|u| u.input_hash == input_hash("shared"))
+                .unwrap()
+                .usage_mask,
+            7
+        );
+        assert_eq!(
+            receipt
+                .uses
+                .iter()
+                .find(|u| u.input_hash == input_hash("E0 only"))
+                .unwrap()
+                .usage_mask,
+            2
+        );
+        let mut changed = receipt.values.clone();
+        changed[0].vector[0] = -changed[0].vector[0];
+        changed[0].value_digest = cpg_schema::embedding::value_digest(&changed[0].vector);
+        assert_ne!(
+            receipt.digest.unwrap(),
+            cpg_schema::embedding::receipt_digest(fake.spec().hash(), &changed)
+        );
+        changed.reverse();
+        assert_eq!(
+            cpg_schema::embedding::receipt_digest(fake.spec().hash(), &changed),
+            {
+                changed.reverse();
+                cpg_schema::embedding::receipt_digest(fake.spec().hash(), &changed)
             }
-        }
-        fn get(n: &std::sync::atomic::AtomicUsize) -> usize {
-            n.load(std::sync::atomic::Ordering::SeqCst)
-        }
+        );
     }
 
-    impl Embedder for Probe {
-        fn spec(&self) -> &Spec {
-            self.fake.spec()
-        }
-        fn count_tokens<'a>(&'a self, request_text: &'a str) -> EmbedFuture<'a, usize> {
-            self.counted
-                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            self.fake.count_tokens(request_text)
-        }
-        fn embed<'a>(&'a self, request_texts: &'a [String]) -> EmbedFuture<'a, Vec<Vec<f32>>> {
-            let n = self
-                .batches
-                .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
-                + 1;
-            if self.fail_on == Some(n) {
-                return Box::pin(async {
-                    Err(CoreError::Embed("the service went down".to_owned()))
-                });
-            }
-            self.embedded
-                .fetch_add(request_texts.len(), std::sync::atomic::Ordering::SeqCst);
-            self.fake.embed(request_texts)
-        }
-    }
-
-    fn document(text: &str) -> BriefDocumentsRow {
-        BriefDocumentsRow {
-            snapshot_id: Id([1; 16]),
-            brief_id: Id([2; 16]),
-            chunk: 0,
-            text: text.to_owned(),
-            spec_hash: None,
-            input_hash: None,
-        }
-    }
-
-    /// The holistic assessment's D3: a cached document is neither counted nor embedded again, so
-    /// a fully cached compile needs no service.
     #[tokio::test]
-    async fn only_documents_the_cache_lacks_are_counted_and_embedded() {
-        let dir = tempfile::tempdir().unwrap();
-        let first = Probe::new(None);
-        let mut docs = vec![document("alpha"), document("beta")];
-        embed_documents(dir.path(), Id([1; 16]), &first, &mut docs, &[])
+    async fn omitted_e0_receipt_and_oversized_requests_fail_closed() {
+        let fake = FakeEmbedder::new();
+        let mut session = Session::uncached(Id([1; 16]));
+        session
+            .texts(&fake, &["E0 only".to_owned()], Usage::Analytics)
             .await
             .unwrap();
-        assert_eq!(Probe::get(&first.counted), 2);
-        let second = Probe::new(None);
-        let mut again = vec![document("alpha"), document("beta"), document("gamma")];
-        embed_documents(dir.path(), Id([3; 16]), &second, &mut again, &[])
-            .await
-            .unwrap();
-        assert_eq!(Probe::get(&second.counted), 1);
-        assert_eq!(Probe::get(&second.embedded), 1);
-        let cached = Probe::new(None);
-        let mut all = vec![document("gamma"), document("alpha")];
-        embed_documents(dir.path(), Id([4; 16]), &cached, &mut all, &[])
-            .await
-            .unwrap();
-        assert_eq!(Probe::get(&cached.counted) + Probe::get(&cached.batches), 0);
-    }
-
-    /// D3: when a later batch fails, the batches before it are merged, so a rerun embeds only
-    /// what is still missing.
-    #[tokio::test]
-    async fn completed_batches_survive_a_later_failure() {
-        let dir = tempfile::tempdir().unwrap();
-        let texts: Vec<String> = (0..BATCH + 8).map(|i| format!("text {i}")).collect();
-        let failing = Probe::new(Some(2));
+        session.values.clear();
+        assert!(session.finish().is_err());
+        let mut session = Session::uncached(Id([1; 16]));
         assert!(
-            embed_texts(dir.path(), Id([1; 16]), &failing, &texts)
+            session
+                .texts(&fake, &["x".repeat(8193)], Usage::Operation)
                 .await
                 .is_err()
         );
-        let rerun = Probe::new(None);
-        let (vectors, keys, _) = embed_texts(dir.path(), Id([2; 16]), &rerun, &texts)
-            .await
-            .unwrap();
-        assert_eq!(Probe::get(&rerun.embedded), 8);
-        assert_eq!((vectors.len(), keys.len()), (BATCH + 8, BATCH + 8));
-    }
-
-    struct OverCap {
-        fake: FakeEmbedder,
-    }
-
-    impl Embedder for OverCap {
-        fn spec(&self) -> &Spec {
-            self.fake.spec()
-        }
-        fn count_tokens<'a>(&'a self, _: &'a str) -> EmbedFuture<'a, usize> {
-            Box::pin(async { Ok(2049) })
-        }
-        fn embed<'a>(&'a self, _: &'a [String]) -> EmbedFuture<'a, Vec<Vec<f32>>> {
-            Box::pin(async { panic!("over-cap input reached the embedder") })
-        }
-    }
-
-    #[tokio::test]
-    async fn every_cache_fill_entry_admits_with_the_tokenizer() {
-        let dir = tempfile::tempdir().unwrap();
-        let embedder = OverCap {
-            fake: FakeEmbedder::new(),
-        };
-        let mut docs = vec![document("one")];
+        let mut tiny = Session::new(Id([1; 16]), None, 1);
         assert!(
-            embed_documents(dir.path(), Id([1; 16]), &embedder, &mut docs, &[])
+            tiny.texts(&fake, &["x".to_owned()], Usage::Brief)
                 .await
                 .is_err()
         );
-        assert!(
-            embed_texts(dir.path(), Id([2; 16]), &embedder, &["one".to_owned()])
-                .await
-                .is_err()
+    }
+
+    #[test]
+    fn vector_codec_preserves_signed_zero_and_rejects_wrong_width() {
+        use cpg_schema::embedding::{decode_vector, encode_vector, value_digest};
+        assert_eq!(encode_vector(&[1.0, -0.0]), [0, 0, 128, 63, 0, 0, 0, 128]);
+        assert_eq!(
+            decode_vector(&[0, 0, 0, 128], 1).unwrap()[0].to_bits(),
+            (-0.0f32).to_bits()
         );
-        assert!(!dir.path().join(EmbeddingCache::NAME).exists());
-    }
-
-    struct Racing {
-        fake: FakeEmbedder,
-        gate: std::sync::Arc<tokio::sync::Barrier>,
-        negative: bool,
-    }
-
-    impl Embedder for Racing {
-        fn spec(&self) -> &Spec {
-            self.fake.spec()
-        }
-        fn count_tokens<'a>(&'a self, request: &'a str) -> EmbedFuture<'a, usize> {
-            self.fake.count_tokens(request)
-        }
-        fn embed<'a>(&'a self, requests: &'a [String]) -> EmbedFuture<'a, Vec<Vec<f32>>> {
-            Box::pin(async move {
-                self.gate.wait().await;
-                Ok(requests
-                    .iter()
-                    .map(|request| {
-                        let mut vector = self.fake.vector(request);
-                        if self.negative {
-                            vector.iter_mut().for_each(|value| *value = -*value);
-                        }
-                        vector
-                    })
-                    .collect())
-            })
-        }
-    }
-
-    #[tokio::test]
-    async fn racing_fillers_return_the_committed_winner_at_their_version() {
-        let dir = tempfile::tempdir().unwrap();
-        let gate = std::sync::Arc::new(tokio::sync::Barrier::new(2));
-        let a = Racing {
-            fake: FakeEmbedder::new(),
-            gate: gate.clone(),
-            negative: false,
-        };
-        let b = Racing {
-            fake: FakeEmbedder::new(),
-            gate,
-            negative: true,
-        };
-        let text = vec!["shared".to_owned()];
-        let (left, right) = tokio::join!(
-            embed_texts(dir.path(), Id([1; 16]), &a, &text),
-            embed_texts(dir.path(), Id([2; 16]), &b, &text)
-        );
-        let (left_vectors, left_keys, left_version) = left.unwrap();
-        let (right_vectors, right_keys, right_version) = right.unwrap();
-        assert_eq!(left_keys, right_keys);
-        assert_eq!(left_vectors, right_vectors);
-        let spec_hash = a.spec().hash();
-        for (vectors, version) in [
-            (&left_vectors, left_version),
-            (&right_vectors, right_version),
-        ] {
-            let stored = cached_vectors(dir.path(), spec_hash, version, left_keys.iter().copied())
-                .await
-                .unwrap();
-            assert_eq!(vectors[0], stored[&left_keys[0]]);
-        }
+        assert!(decode_vector(&[0, 0, 0], 1).is_err());
+        assert_ne!(value_digest(&[1.0, 0.0]), value_digest(&[1.0, -0.0]));
     }
 }

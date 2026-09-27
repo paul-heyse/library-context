@@ -91,13 +91,13 @@ Each analyzed library pins itself in `libraries/<name>/` (`pyproject.toml`, `.py
 | fcars, bitvec | `=0.2.2` and `=1.0.1`, dev-dependencies of `lctx-analytics` only: fcars is the oracle for our FCA's concept sets (ADR-0044), bitvec builds its relation | 2026-09-23 (slice 2.5) | MIT; the lock gains bitvec, funty, radium, tap and wyz (dev only; rayon was already locked); `fcars_agrees_on_the_concepts` compares concept sets on random contexts |
 | rand, rand_chacha, rand_core | the 0.9 line leiden-rs resolves: rand 0.9.5, rand_chacha 0.9.0, rand_core 0.9.5 (the lock also holds rand 0.8 and 0.10 for other crates) | 2026-09-23 (slice 2.3) | `lctx-analytics` `build.rs` asserts each is locked exactly once on the `0.9.` line and records it; rand does not promise sequences across versions (ADR-0044) |
 
-## Serving and embeddings (ADR-0043; the native executor is proposed in ADR-0025)
+## Serving and embeddings (ADR-0066; the native executor is proposed in ADR-0025)
 
 | Component | Pin | Verified | How |
 |---|---|---|---|
 | FastMCP (served) | `==4.0.5` in `python/lctx_mcp` (the workspace `uv.lock`; mcp 2.2.0, pydantic 2.13.5), independent of the analyzed pin | 2026-09-23 | `uv lock`; the lctx_mcp tests negotiate `2026-07-28` (auto) and `2025-11-25` (legacy) |
-| vLLM | 0.30.0 in its own locked uv project `services/vllm` (`uv.lock`: torch and CUDA pinned with it; ADR-0043), served by `just embed-serve`: `--runner pooling --max-model-len 8192 --dtype bfloat16 --gpu-memory-utilization 0.80` | 2026-09-23 | `uv lock --project services/vllm` resolved 204 packages; spike E1 (2026-09-22) ran the same service from the project `.venv` |
-| Qwen/Qwen3-Embedding-8B | revision `1d8ad4ca9b3dd8059ad90a75d4983776a23d44af`; 4,096 dims; bf16 weights (15 GB), float32 output, L2-normalized (pooling `LAST` + sentence-transformers normalize). Operator choice over 4B (ADR-0043) | 2026-09-22 | HF API `sha` at that revision; `hf download … --revision`; spike E1 served it with vLLM 0.30.0 and every norm was 1 ± 1e-7 |
+| vLLM | 0.30.0 in its own locked uv project `services/vllm` (`uv.lock`: torch and CUDA pinned with it; ADR-0066), served by `just embed-serve`: `--runner pooling --max-model-len 8192 --dtype bfloat16 --gpu-memory-utilization 0.80` | 2026-09-23 | `uv lock --project services/vllm` resolved 204 packages; spike E1 (2026-09-22) ran the same service from the project `.venv` |
+| Qwen/Qwen3-Embedding-8B | revision `1d8ad4ca9b3dd8059ad90a75d4983776a23d44af`; 4,096 dims; bf16 weights (15 GB), float32 output, L2-normalized (pooling `LAST` + sentence-transformers normalize). Operator choice over 4B (ADR-0066) | 2026-09-22 | HF API `sha` at that revision; `hf download … --revision`; spike E1 served it with vLLM 0.30.0 and every norm was 1 ± 1e-7 |
 | pyarrow | `==25.0.1` (the bundle reader in `lctx_mcp`; cp314 wheels) | 2026-09-23 | `uv lock` (slice 1.8); the serving-digest tests read the generation's files with it |
 | numpy | `==2.4.6` (vectors, exact cosine; bm25s's only dependency) | 2026-09-23 | `uv lock`; `uv run python -c "import numpy"` |
 | httpx2 | `==2.13.1` (the query embedder; bytes sent as `content=`, never `json=`). pydantic's maintained continuation of httpx (operator, 2026-09-24); FastMCP 4.0.5 already depends on it, so the switch removes `httpx` 0.28.1 from the server's lock | 2026-09-24 | PyPI JSON read 2026-09-24 (2.13.1, 2026-09-23; `import httpx2`); `uv lock`; `test_the_http_client_sends_the_exact_bytes_and_reports_a_down_service` |
@@ -129,3 +129,19 @@ The single version declaration is [site.toml](site.toml), consumed by local boot
 CI. Verified 2026-09-25 with `mdbook --version`, `pagefind --version` and `lychee --version`.
 Python retains `.python-version`; isolated script tests use pytest from `uv.lock`. Qualification
 is `just docs-test` plus `just docs-check` ([publishing operations](publishing.md)).
+
+## PostgreSQL services (ADR-0065; verified 2026-09-27)
+
+| Component | Pin / enabled features | Verification |
+|---|---|---|
+| PostgreSQL application service | installed 18.6, server_version_num 180006 | actual service query through SQLx; PG18-only startup assertion |
+| SQLx / sqlx-cli | =0.9.0; defaults off; postgres, runtime-tokio, macros, migrate, tls-rustls-ring-native-roots | registry manifests, Cargo.lock, `sqlx --version`, assembled Rust check; no enabled MySQL/SQLite driver |
+| testcontainers-modules | =0.15.0; defaults off, postgres | registry manifest/Cargo.lock; reexported Testcontainers 0.27.3, real server 180006 |
+| Disposable image | postgres:18.6-bookworm@sha256:3725f4e2499eef5134592b3b4ab79a543ed7f8e533b05b5b637af926630f6650 | `docker pull`; single machine-readable pin in `specs/postgres-image.txt` |
+| tracing | =0.1.44 (already resolved family; now direct for cache telemetry) | registry manifest and Cargo.lock; matches capability skill |
+| Backup tools | pg_dump / pg_restore 18.6 | `pg_dump --version`; `pg_restore --version`; disposable restore drill |
+
+No Psycopg/SQLAlchemy, SeaQuery, pgvector, ADBC/federation or pgrx dependency is installed by this
+scope. Their consumer and qualification triggers remain in the [PostgreSQL plan](plans/postgresql-integration-plan_2026-09-27.md#7-later-capabilities-and-adoption-triggers).
+Operation/configuration: [PostgreSQL runbook](postgresql.md). Focused and integrated results:
+[qualification evidence](design_review/evidence/2026-09-27_postgresql/README.md).

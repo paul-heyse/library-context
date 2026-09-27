@@ -84,6 +84,7 @@ async fn compiled(sub: &str, reverse: bool, finalizer: bool) -> (tempfile::TempD
     })
     .unwrap();
     let analysis = Analysis {
+        embedding_cache: None,
         config: AnalyticsConfig::parse(CONFIG).unwrap(),
         embedder: Some(std::sync::Arc::new(cpg_core::embed::FakeEmbedder::new())),
         techniques: Default::default(),
@@ -138,6 +139,7 @@ budget = 3
     )
     .unwrap();
     let analysis = cpg_core::analyze::Analysis {
+        embedding_cache: None,
         config,
         embedder: Some(std::sync::Arc::new(cpg_core::embed::FakeEmbedder::new())),
         techniques: Default::default(),
