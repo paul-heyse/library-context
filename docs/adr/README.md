@@ -38,6 +38,7 @@ The [architecture map](../design/README.md) and its section owners own contracts
 | [ADR-0061](0061-pinned-call-defaults.md) | Prove pinned call default availability independently of callee outcomes | 2026-09-27 | [§9.9](../design/sections/behavioral-analysis.md#section-9-9) | Proposed |  |
 | [ADR-0062](0062-normal-action-postconditions.md) | Keep normal-exit model postconditions separate from activated actions | 2026-09-27 | [§9.9](../design/sections/behavioral-analysis.md#section-9-9), [§11.3](../design/sections/synthesis-and-serving.md#section-11-3) | Proposed |  |
 | [ADR-0063](0063-frame-exit-completion.md) | Require a cleanup premise before promoting body return to callee completion | 2026-09-27 | [§B5](../design/DESIGN.md#section-b5), [§9.9](../design/sections/behavioral-analysis.md#section-9-9), [§11.3](../design/sections/synthesis-and-serving.md#section-11-3) | Proposed |  |
+| [ADR-0064](0064-call-transfer-discharge.md) | Grade call-transfer claims after summaries from claim-keyed discharge evidence | 2026-09-27 | [§3.9](../design/sections/behavior-model.md#section-3-9), [§9.9](../design/sections/behavioral-analysis.md#section-9-9) | Proposed |  |
 
 ## Proposed: open choices, not accepted decisions
 

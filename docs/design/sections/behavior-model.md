@@ -332,7 +332,13 @@ reasoning, and every step is cited.
   weakest step (identity, derived, through a call). A `derives`, `stores`, `returns` or
   `raises_when` claim reached only through a call is `unknown` (`call_transfer`), keeping the
   condition it would hold under. Operators, f-strings and containers are computed from their
-  operands directly.
+  operands directly. **Discharge (accepted target, ADR-0064; implementation open, plan P1):**
+  claims are graded after finite summaries. A call-transfer claim becomes established or
+  conditional only when every member origin has a proved summary. The claim keeps
+  `transfer = call` and cites its `behavior_discharges` rows (behavior, origin, typed proof kind,
+  summary). Those proofs discharge the members' certified value approximation. Any open member
+  keeps `unknown` (`call_transfer`). [§9.9](behavioral-analysis.md#transfer-summaries) owns the
+  decision and evidence.
 - **Nested call provenance** (ADR-0028, proposed). Each `flow_values` use inside calls has raw,
   ordered outer-to-inner `flow_value_calls` steps citing the parent value fact, byte span and
   callee/argument operand role; `flow_value_call_links` persists the unique Ruff `call_syntax`
@@ -477,6 +483,6 @@ question; "when it runs" versus "when called" for coroutines and generators is S
   (`semantic:unreachable-not-established`). `unreachable_in_context` keeps its meaning: the
   checker never binds it.
 
-> Decision: ADR-0045, ADR-0024, ADR-0028, ADR-0051
+> Decision: ADR-0045, ADR-0024, ADR-0028, ADR-0051, ADR-0064
 
 ---

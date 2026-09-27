@@ -456,7 +456,7 @@ Shared proof admission serves publication and native decoding. Existing narrow i
 below remain the current behavior until each migration is tested; the active plan §3.0 owns
 the dependency order and deletions.
 
-> Decision: ADR-0057
+> Decision: ADR-0057, ADR-0064
 
 **The contract** (accepted target; finite parts implemented as stated below).
 - **Tables:** `summary_flows` (callable, input path, output path, kind `value`/`transform`/
@@ -474,7 +474,20 @@ the dependency order and deletions.
   modality.
 - **Discharge:** a callee's summary resolves a `call_transfer` claim to `established` or
   `conditional` only with the matching proof; `refuted_under_model` needs a complete summary with
-  every candidate call, handler and modeled channel closed.
+  every candidate call, handler and modeled channel closed. **Accepted target (ADR-0064;
+  implementation open, plan P1):**
+  - `lctx-analytics::summaries::discharge` decides per candidate origin, purely: `proved` (an
+    established or conditional summary with that `source_origin_id`) or `open` (the refusal
+    reason). It grades a claim from all its members after the claim merge, independent of order.
+  - `behavior_discharges` is keyed by `(behavior_id, origin_id)`, with a typed `proof_kind`
+    (`caller_return_summary` only) and the cited summary.
+  - Membership comes from `flow_model`'s contribution merge.
+  - The summary producer refuses a local target in `flow_model`'s decorated set as
+    `outside_provider_model`, and decorated functions have no base summary.
+  - The rule "an established or conditional call-transfer claim has only proved discharge rows,
+    with sibling closure" replaces `semantic:call-transfer-never-established`.
+  - FORMAT carries the relation, and native admission checks each citation.
+  - Refutation evidence and argument/store proof kinds come later (P4, plan §7).
 
 **Positive paths** (implemented producers). A finite `summary_flows` path is admitted only when:
 - **Direct base:** a synchronous function body returns its own parameter by raw identity, with no
