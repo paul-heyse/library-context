@@ -209,3 +209,11 @@ class ClassBodyFrame(metaclass=FrameMeta):
     value = object()
     retained_looking = cast(value, 1)
     closed_looking = cast("object", 1)
+
+
+def inform(value: str) -> None:
+    logging.getLogger(__name__).info(value)
+
+
+def log_at(value: str) -> None:
+    logging.getLogger(__name__).log(logging.INFO, value)

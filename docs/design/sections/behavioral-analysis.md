@@ -245,7 +245,7 @@ provide native invocation queries. Full raw-source closure and all-channel compo
 | `builtins.print` | Potential `io.write`, no subject stream | Which stream |
 | `json.dumps`, `json.dump` | Potential `obj` → return transform (`dumps`); potential JSON serialization of `obj`; potential `io.write` on the bound `fp` (`dump`) | Custom encoder and `default` callbacks; completion |
 | `json.loads`, `gzip.compress`, `gzip.decompress` | Potential input → return transforms; `compress(gzip)` on `data` for `gzip.compress` | Malformed input, resource exhaustion, JSON hooks; completion; channel coverage |
-| `logging.Logger.warning` | Potential `log` on the `msg` formal | Configuration can suppress emission; handlers run arbitrary code |
+| `logging.Logger.warning`, `.debug`, `.info`, `.error`, `.exception`, `.critical`, `.log` | Potential `log` on the `msg` formal (after `level` for `log`), at invocation | Configuration can suppress emission; handlers run arbitrary code. Sites inside async bodies stay withheld with those bodies |
 | `builtins.open` | Candidate resource `acquire` on normal return; potential `OSError` | Release; completion |
 | `atexit.register` | Identity transfer; `registered` callback action on normal exit | Invocation |
 | `pydantic==2.13.5` `TypeAdapter.validate_python(object)` | Potential input → result transform | Effects, raises, completion (below) |

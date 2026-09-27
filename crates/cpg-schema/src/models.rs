@@ -1769,7 +1769,7 @@ modality = "potential"
     fn committed_catalog_has_typed_identity_path_and_digest() {
         let catalog = Catalog::committed().unwrap();
         assert_eq!(catalog.digest, Catalog::committed_digest());
-        assert_eq!(catalog.models.len(), 12);
+        assert_eq!(catalog.models.len(), 18);
         let model = &catalog
             .models
             .iter()

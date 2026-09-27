@@ -1789,8 +1789,9 @@ async fn all_techniques_guard() {
     // invocation identity changes even where a fixture has no duplicate external signatures;
     // then compiler103's flow-model descriptor query (the builtin descriptor exemption), then
     // compiler105's discharge ordering: argument flows written by query before summaries, and
-    // the behavior scan graded from their decisions (ADR-0064).
-    const GUARD: &str = "71ead0fd7a648da3c8a80b058055e2a09b7b68f82fdc14b71294e0c3272ee4ce";
+    // the behavior scan graded from their decisions (ADR-0064), then the committed catalog's
+    // remaining Logger levels (catalog content, format 7).
+    const GUARD: &str = "3c5b10c994490f6c85b68a828cb59928ff8ff7510d319711d0aafb121cd2cbb4";
     assert_eq!(digest, GUARD, "the all-techniques guard moved");
 }
 

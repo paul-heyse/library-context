@@ -165,6 +165,96 @@ effect = { kind = "log" }
 subject = { kind = "parameter", name = "msg" }
 modality = "potential"
 
+# Logger.debug: like `warning`, the level may be disabled and handlers are user code; the
+# message is an exact source argument when a record is emitted.
+[[models]]
+phase = "call"
+revision = 1
+target = { scope = "stdlib", python = "3.14.7", module = "logging", callable = "Logger.debug" }
+coverage = { transfers = "unspecified", effects = "partial", callbacks = "unspecified", resources = "unspecified", exceptions = "unspecified" }
+
+[[models.rules]]
+kind = "effect"
+exit = "invocation"
+effect = { kind = "log" }
+subject = { kind = "parameter", name = "msg" }
+modality = "potential"
+
+# Logger.info: like `warning`, the level may be disabled and handlers are user code; the
+# message is an exact source argument when a record is emitted.
+[[models]]
+phase = "call"
+revision = 1
+target = { scope = "stdlib", python = "3.14.7", module = "logging", callable = "Logger.info" }
+coverage = { transfers = "unspecified", effects = "partial", callbacks = "unspecified", resources = "unspecified", exceptions = "unspecified" }
+
+[[models.rules]]
+kind = "effect"
+exit = "invocation"
+effect = { kind = "log" }
+subject = { kind = "parameter", name = "msg" }
+modality = "potential"
+
+# Logger.error: like `warning`, the level may be disabled and handlers are user code; the
+# message is an exact source argument when a record is emitted.
+[[models]]
+phase = "call"
+revision = 1
+target = { scope = "stdlib", python = "3.14.7", module = "logging", callable = "Logger.error" }
+coverage = { transfers = "unspecified", effects = "partial", callbacks = "unspecified", resources = "unspecified", exceptions = "unspecified" }
+
+[[models.rules]]
+kind = "effect"
+exit = "invocation"
+effect = { kind = "log" }
+subject = { kind = "parameter", name = "msg" }
+modality = "potential"
+
+# Logger.exception: like `warning`, the level may be disabled and handlers are user code; the
+# message is an exact source argument when a record is emitted.
+[[models]]
+phase = "call"
+revision = 1
+target = { scope = "stdlib", python = "3.14.7", module = "logging", callable = "Logger.exception" }
+coverage = { transfers = "unspecified", effects = "partial", callbacks = "unspecified", resources = "unspecified", exceptions = "unspecified" }
+
+[[models.rules]]
+kind = "effect"
+exit = "invocation"
+effect = { kind = "log" }
+subject = { kind = "parameter", name = "msg" }
+modality = "potential"
+
+# Logger.critical: like `warning`, the level may be disabled and handlers are user code; the
+# message is an exact source argument when a record is emitted.
+[[models]]
+phase = "call"
+revision = 1
+target = { scope = "stdlib", python = "3.14.7", module = "logging", callable = "Logger.critical" }
+coverage = { transfers = "unspecified", effects = "partial", callbacks = "unspecified", resources = "unspecified", exceptions = "unspecified" }
+
+[[models.rules]]
+kind = "effect"
+exit = "invocation"
+effect = { kind = "log" }
+subject = { kind = "parameter", name = "msg" }
+modality = "potential"
+
+# Logger.log: like `warning`, the level may be disabled and handlers are user code; the
+# message is an exact source argument when a record is emitted.
+[[models]]
+phase = "call"
+revision = 1
+target = { scope = "stdlib", python = "3.14.7", module = "logging", callable = "Logger.log" }
+coverage = { transfers = "unspecified", effects = "partial", callbacks = "unspecified", resources = "unspecified", exceptions = "unspecified" }
+
+[[models.rules]]
+kind = "effect"
+exit = "invocation"
+effect = { kind = "log" }
+subject = { kind = "parameter", name = "msg" }
+modality = "potential"
+
 # A successful open returns a newly acquired file object. Mode-dependent read/write behavior is
 # deliberately not asserted. The returned resource needs an independent close/with witness.
 [[models]]

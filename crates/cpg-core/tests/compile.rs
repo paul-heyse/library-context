@@ -2858,8 +2858,10 @@ budget = 1
     .unwrap();
     let (_, ctx) = published(root.path(), snapshot).await.unwrap().unwrap();
     let targets = count(&ctx, "SELECT count(*) FROM model_targets").await;
+    // Stdlib models bind only where the fixture reaches their pinned definitions (warning,
+    // info and log of the Logger family among them).
     assert_eq!(
-        targets, 11,
+        targets, 13,
         "the empty fixture site-packages leaves dependency models dormant"
     );
     assert_eq!(
@@ -3728,10 +3730,10 @@ budget = 1
         2,
         "unsupported formals leave the input endpoint unknown, even with a call result"
     );
-    assert_eq!(count(&ctx, "SELECT count(*) FROM model_effects").await, 6);
+    assert_eq!(count(&ctx, "SELECT count(*) FROM model_effects").await, 8);
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM modeled_effect_sites").await,
-        7,
+        9,
         "print, JSON, gzip and logging effects apply to their resolved source calls"
     );
     assert_eq!(
@@ -3810,6 +3812,26 @@ budget = 1
         1,
         "a resolved Logger.warning cites the exact message argument"
     );
+    // The other pinned Logger levels bind the same message formal, after `level` for `log`.
+    for name in ["inform", "log_at"] {
+        assert_eq!(
+            count(
+                &ctx,
+                &format!(
+                    "SELECT count(*) FROM modeled_effect_sites s \
+                     JOIN declarations d ON d.node_id = s.function_node_id \
+                     WHERE d.name = '{name}' AND s.effect = {} AND s.subject_status = {} \
+                       AND s.subject_expression_node_id IS NOT NULL AND s.model_modality = {}",
+                    ModelEffectKind::Log.code(),
+                    ModelEffectSubjectStatus::BoundArgument.code(),
+                    Modality::Potential.code(),
+                ),
+            )
+            .await,
+            1,
+            "{name} cites its message argument"
+        );
+    }
     assert_eq!(
         count(
             &ctx,
@@ -3870,7 +3892,7 @@ budget = 1
     );
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM model_formal_paths").await,
-        13,
+        15,
         "typing, JSON, gzip, logging and atexit paths use typed model ASTs"
     );
     assert_eq!(
@@ -4014,7 +4036,7 @@ budget = 1
     );
     assert_eq!(
         count(&ctx, "SELECT count(*) FROM model_applications").await,
-        37,
+        39,
         "each pinned model applies only at its resolved source call"
     );
     assert!(
