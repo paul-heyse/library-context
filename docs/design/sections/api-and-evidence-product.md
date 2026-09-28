@@ -19,6 +19,9 @@ and finding-disposition owner. The [target review](../../design_review/reviews/d
 assesses this target against the actual `739f9df` baseline. The two supplied external reviews are
 inputs, not contract authorities: [pathway](../../external-review-pathway-working-product.md) and
 [R01–R08 recommendations](../../library_context_product_recommendations_739f9df.md).
+The [catalog library-fit review](../../design_review/reviews/design_review_catalog-library-fit_2026-09-28.md)
+supplies the interface evidence and CLF findings for ADR-0073's accepted contract/derivation target.
+Its implementation and qualification remain Proposed; the forward plan §6.2 owns finding status.
 
 Unless explicitly labeled otherwise, all new behavior in this section is **Proposed**. Names below
 are logical contracts to refine in `cpg-schema`, not independently authoritative SQL schemas.
@@ -91,7 +94,7 @@ the general analysis substrate.
 
 ## §14.3 Responsibilities and representation flow
 
-> Decision: ADR-0071, ADR-0072
+> Decision: ADR-0071, ADR-0072, ADR-0073
 
 ```mermaid
 flowchart TD
@@ -110,13 +113,14 @@ flowchart TD
 | Owner | Responsibility and retained decisions | Consumer boundary |
 |---|---|---|
 | `cpg-extract`, acquisition in `library.rs` | Pinned source/environment, declarations, types, docs, package metadata and source spans | Attributed observations; no library import to produce static facts |
-| `cpg-schema` | Public member/signature/options/evidence/relationship/query contracts, finite view catalog, coverage and validators | Arrow/typed Rust contracts with append-only codebooks |
-| Focused catalog module in `cpg-core` | Build product records from canonical facts; normalize supported surface forms and create units | Pure transforms plus existing DataFusion joins; no new framework/crate required |
+| `cpg-schema` | Canonical public/signature/options/evidence relations plus finite typed wire requests, contextual witnesses, envelopes and view vocabulary | Arrow remains the fact authority; Schemars derives input/output schemas from Rust wire contracts; codebooks stay append-only |
+| Catalog loading/index owner in `cpg-core` | Load exact fact inputs and declare scanned relations, membership, coverage and policy dependencies; build reused indexes | Immutable validated input bundle; DataFusion joins remain available; no store handle inside pure derivation |
+| Catalog derivation functions in `cpg-core` | Normalize supported surface forms, construct contracts and associate options/scenarios from explicit inputs | Pure transforms with deterministic output and evidence; effects follow derivation; no new framework/crate required |
 | `lctx-analytics`, `flow_model`, condition kernel | Optional bounded inference and existing behavioral admission | Model-scoped claims with evidence and local boundaries |
 | Existing `cpg-core` publication/bundle | Canonical persistence, catalog/retrieval artifacts and generation manifest | Validate all advertised capabilities before existing publication boundary |
 | `lctx-postgres`, SQLx/pgpq | Finite imports, typed SQL selection, bounded hydration, generation pins and physical index admission | No second Python semantics engine in SQL |
 | `lctx_storage`, pure semantic extension | Coarse asynchronous requests and explicit native capability loading | Existing lifespan/pool ownership; pure semantic computation stays separate |
-| `lctx_mcp` | Existing lexical/name/fusion policy, packet rendering and tool transport | Semantic classification comes from Rust; no second facet interpreter |
+| `lctx_mcp` | Existing lexical/name/fusion policy, packet rendering and schema-backed FastMCP Tool transport | Generated wire schemas and Rust decoding/classification; no second facet interpreter or independently authored semantic Pydantic contract |
 | Evaluation tooling | Tasks, exact environments, independent task checks and paired agent runs | No evaluation answers or skill-derived gold enter compiler inputs |
 
 The catalog is a **compiled projection of canonical evidence**, not an authored second knowledge
@@ -124,6 +128,15 @@ store. Core query dimensions use typed relations; JSON payloads hold genuinely v
 PostgreSQL stores product-selected records and their evidence closure, not every raw AST node.
 Original evidence is captured and content-addressed before serving; opening a citation never
 silently fetches a mutable current website to replace the pinned bytes.
+
+**Accepted target, implementation Proposed (ADR-0073).** Compilation separates
+`load_catalog_facts → indexed inputs → pure derivations → canonical rows/evidence → retrieval and
+embedding → publication`. Index repeated declaration-owner, signature-parameter, parameter-doc,
+ancestry and type-parent lookups once where used. Preserve one-to-many observations and alternatives;
+indexing cannot silently select one conflicting provider record. Keep suitable bulk relations in
+DataFusion, and finite type closure in an indexed worklist. New surface/scenario fixtures can test
+the derivation without acquisition, embedding or PostgreSQL setup. CLF/F02/F03 track the current
+mixed derivation and empty dependency declaration; no performance gain is claimed before measurement.
 
 <a id="section-14-4"></a>
 
@@ -258,10 +271,40 @@ provisioner or mandatory library-wide runtime probing.
 
 ## §14.7 Query semantics and customizable requirements
 
+> Decision: ADR-0071, ADR-0073
+
 One finite typed request/classification contract lives in Rust. PostgreSQL performs relational
 selection; the existing pure condition kernel supplies any supported semantic decision. MCP
 validates/transports the same contract and does not restate its rules. Do not expose arbitrary SQL,
 an unconstrained predicate DSL or another general query planner.
+
+**Accepted wire target, implementation Proposed (ADR-0073).** A focused `cpg-schema` module owns
+tagged request/requirement variants, quantifier/domain/operator enums, contextual witnesses and
+serializable result envelopes. Matching flat components derive from canonical table/query-row
+declarations; nesting and presentation differences use explicit typed adapters. Private nominal
+wrappers distinguish `PublicMemberId`, `BindingId`, `SignatureId`, `EvidenceId`, `TypeTermId`,
+`SnapshotId`, `GenerationDigest` and `RetrievalUnitId` at request/witness/hydration boundaries.
+Existing hashes and stored widths remain; generation membership and relation role are checked
+after decoding, independently of nominal type and string syntax.
+
+A finite descriptor for each predicate declares arguments, supported domains/quantifiers,
+relations/capabilities read, witness shape, completeness scope and explanation metadata. Derive
+agent vocabulary/help from it; keep semantic evaluation in the Rust owner. This is no dynamic
+plugin registry. Unsupported predicates fail before database work, never disappear from a request.
+
+Schemars generates separate deserialization and serialization schemas using explicit draft2020-12
+settings, tagged variants, closed request objects and the actual hex-string ID representation.
+Bounded types share constraints with decoding. New bounded selector/filter text uses at most
+500 Unicode scalar values, distinct from encoded-byte/depth budgets; the legacy native 2,000-byte
+limit requires an explicit migration. Field-specific limits, missing/null, defaults, ID spelling,
+integer/boolean and numeric-coercion policies are explicit. Arbitrary custom Rust predicates are
+not automatically expressible in JSON Schema. Contextual validity, evidence closure and compatible
+overloads remain Rust/runtime obligations even when JSON is schema-valid.
+
+Version the wire contract and schema-generation settings; snapshot generated schemas with existing
+`insta`. A changed schema hash alone does not determine compatibility. The typed vocabulary begins
+with PR2; the complete PR4 classifier still depends on PR2/PR3 evidence. Existing facets keep an
+explicit scoped adapter during migration, without acquiring stronger joint-applicability meaning.
 
 Initial predicates cover public path/module/class/kind, invocation form, declared parameter name/
 kind/type/default, configuration field/domain/scope, explicit relationship kind/target, scenario
@@ -362,8 +405,23 @@ exact stays selected until the existing physical admission process independently
 
 ## §14.9 Agent interface and bounded implementation packet
 
+> Decision: ADR-0071, ADR-0073
+
 Evolve existing tools and add only missing product actions. These are **target** contracts; current
 MCP schemas remain implemented until the versioned migration lands.
+
+The accepted target uses a thin FastMCP `Tool` adapter: native-exported generated `parameters` and
+`output_schema`, a bounded `run`, and Rust-owned request decoding/semantic validation. A custom
+Tool does not inherit FunctionTool's Pydantic validation; explicit validation precedes effects.
+Retain the existing lifespan, errors, total deadlines, native cancellation/lease behavior and
+`ToolResult` structured output. Root-object, `$defs`, tagged unions and missing/null behavior must
+survive actual MCP listing and invocation, not only a direct Python function call.
+
+Migrate tool families incrementally. Remove superseded semantic Pydantic models and string-key
+packet assembly after consumers move to typed Rust envelopes; retain genuinely rendering-specific
+Python models. Generated Python domain classes are deferred until a concrete Python consumer
+needs them. Existing/spec'd additive tools and structures remain; deprecating a duplicate encoding
+does not authorize deleting the underlying query capability.
 
 | Tool route | Target responsibility |
 |---|---|
@@ -399,6 +457,8 @@ generates new recipes nor executes library code in the query path.
 
 ## §14.10 Publication, optional analyses and rebuild boundaries
 
+> Decision: ADR-0071, ADR-0072, ADR-0073
+
 Make public roots and API catalog construction mandatory product inputs independent of `Some(analysis)`.
 Use an explicit compile capability selection, initially `catalog` and the retained `behavioral`
 profile; identity includes the selection. Unselected deep passes yield `not_requested`, not an empty
@@ -427,6 +487,19 @@ Separate coarse rebuild inputs without creating another incremental framework:
 | Add/re-render retrieval unit or embedding spec | Retrieval artifacts and a new serving generation referencing the catalog | Canonical facts; cached vectors only for exact admitted keys |
 | Change ranking/display budget | Versioned retrieval/response policy; no source analysis | Content units/vectors if their definitions are unchanged |
 
+The loader's dependency declarations name actual scanned relations. Reuse also depends on group
+membership, missing lookups, coverage, roots/profile, provider meaning and policy versions. An
+empty scanned-dependency list cannot stand for a table read; a correct list alone is insufficient
+to establish complete invalidation. PR2 repairs declarations; PR5 qualifies coarse rebuild reuse
+with insert/delete, previously missing lookup and evidence-only changes.
+
+Separate semantic shape from current evidence binding only where their contracts permit reuse.
+An unchanged signature with moved spans or new attribution still needs current snapshot/fact IDs,
+source digests and citations. Do not exclude evidence-bearing fields from equality to increase
+cache hits. Compare reused outputs with a clean rebuild, including provenance and absence states.
+Salsa persistence, if later admitted under §14.11, is a disposable version-qualified cache;
+incompatible cache state is discarded, while canonical/serving validation remains mandatory.
+
 The final serving generation references exact fact snapshot, catalog definition/content, retrieval
 unit/spec set, advertised capabilities and artifact closure. Existing retrieval policy/physical
 admission remains a separate identity, bound to requests/cursors. Publish validated artifacts and
@@ -437,10 +510,58 @@ merely because the earlier external sketch shows one arrow. Old processes keep t
 
 ## §14.11 Library fit, retained work and exclusions
 
-**Interface-checked existing mechanisms; new composition Proposed.** Reuse Ruff/Pyrefly/ty,
+> Decision: ADR-0071, ADR-0073
+
+**Accepted selection, new implementation Proposed (2026-09-28).** Reuse Ruff/Pyrefly/ty,
 Arrow/DataFusion/Delta, SQLx/pgpq/pgvector, existing graph/condition kernels, PyO3 async lifetime,
 FastMCP, BM25 and the embedding cache. No new broad analyzer, solver, graph store, ORM or orchestration
 system is selected. The domain-specific catalog/association rules belong in ordinary Rust modules.
+
+Select **Schemars** for §14.7 wire-schema generation, starting from the locked 1.2.2 candidate and
+qualifying direct derive/features during implementation. Select Rust **`jsonschema`** initially as
+a dev dependency for independent input/output conformance: compiled validators, explicit draft and
+format policy, approved embedded references, no HTTP/file resolution and offline refusal of unknown
+references. Review evidence inspected 0.58.2; exact adoption pin/features remain an implementation
+check. Production uses typed decoding and shared domain validation; double validation needs a
+dynamic-schema consumer. **`trybuild`** is selected conditionally for meaningful cross-module
+nominal-ID/state compile-fail cases, with passing controls; a private wrapper can use a doctest.
+Retain `insta`/`proptest`. These selections do not claim installed direct dependencies or change pins.
+
+Extend **SQLx** checked static/file queries and typed rows as stable reads are touched by PR4;
+refresh offline metadata against the migrated disposable PG database. Runtime `query_as` is typed
+decoding, not compile-time SQL checking. Preserve inventory-driven dynamic hydration: identifiers
+come from executable contracts, values are bound, and shared Arrow codecs and budgets validate
+results. SQLx codecs stay at that adapter; transparent derives alone do not enforce smart-constructor
+invariants. `Json<T>` fits genuinely variable existing JSON fields, not core selection dimensions.
+Cornucopia or an ORM does not improve this ownership; Clorinde's merger is recorded in the review.
+
+**Conditional capabilities.** The following are retained alternatives with named consumers, not
+required dependencies. The [forward plan §7](../../plans/behavioral-model-forward-plan_2026-09-24.md#7-deferred-each-with-a-trigger)
+owns activation; the [library-fit review §8](../../design_review/reviews/design_review_catalog-library-fit_2026-09-28.md#8-library-fit-and-total-complexity)
+retains capability evidence and comparisons.
+
+| Candidate | Consumer and contract before adoption |
+|---|---|
+| Salsa | Repeated fine-grained catalog derivation demonstrably exceeds coarse reuse. Keep a separate catalog database and pinned 0.28.2 provider family; no ty handles, ambient SQL/files/embedding effects or accumulator-only evidence. Compare a bounded worker with optional disposable persisted cache; include compiler/query-layout/schema/features and input/policy compatibility. Persistence is available, not enabled/qualified here |
+| Ascent | A supported recursive multi-relation association/analysis becomes difficult as explicit worklists. Preserve rule/relationship/evidence identities, complete domains for negation and explicit conflicts; cooperative timeout is not a hard memory bound or completeness proof. Recompute affected closure after deletion unless maintenance is separately proved |
+| Differential Dataflow | A real continuous insert/delete view-maintenance requirement; immutable catalog compilation is insufficient reason |
+| Moka | Measured repeated immutable-generation selection/hydration. Key generation, normalized request, semantic/rank/render policy; qualify initializer sharing, error/cancellation and eviction. Weighted capacity/TTL do not replace hard request budgets or correctness; no cached leases or duplicate Python/FastMCP answer cache |
+| `typed-index-collections` / `cranelift-entity` | A kernel needs distinct dense index domains; prefer TiVec/TiSlice for ordinary side arrays, primary/secondary maps when required. Keep generation-local canonical-ID mapping and qualified slice/index behavior; no persisted arena IDs |
+| `lasso` / `roaring` | Measured repeated short-string allocation or sparse candidate/evidence set cost. Freeze interner views; retain fixedbitset for dense universes and never truncate canonical IDs into bitmap keys; avoid duplicating Salsa interners |
+| `nutype`, `garde`, `bon` | Repeated scalar constraints, contextual form validation or a difficult builder respectively. Ordinary private newtypes first; explicit validating ingress, no source/evidence sanitization, no claim that field presence proves evidence closure |
+| SeaQuery | Substantive finite dynamic joins/expressions beyond clear SQLx queries; PG plan F4. Binding syntax does not own predicate meaning or prove SQL equivalence |
+| Typify / reflection / Specta | Externally owned stable JSON Schema→Rust, or a concrete reflection/client-generation consumer. Do not generate Rust types for discovered Python terms or establish two schema authorities |
+| `egg`/`egglog`, `ena`, Z3/SAT/OxiDD | A named pure rewrite/unification or reasoning gap with explicit laws and unknown-preserving semantics; not general Python equivalence or a replacement for the current BDD kernel |
+| `strum`, `enum-map`, `serde_with`, `derive_more`; `imbl`, `rpds`, `ecow`, small-vector crates | Repeated local convenience or measured representation workload; stored codes stay explicit and append-only |
+| Slot maps, ECS, new syntax trees, dynamic plugins; uom/Symbolica/solvers; Protobuf/Cap'n Proto/FlatBuffers/rkyv | No immediate catalog consumer. Revisit actual mutable deletion, parser/plugin, scientific execution or protocol/serialization needs; existing Arrow/Serde remains the boundary |
+
+Salsa admission compares cold and reused complete outputs after doc, signature, member insertion/
+deletion, previously missing evidence, source-coordinate and policy changes, including cache reload.
+Measure work counts, time, peak/retained memory and cache size against coarse reuse. Ascent admission
+compares the explicit worklist on cycles, reconvergence, parallel evidence, unknown targets and
+removals. Neither experiment gates PR2–PR6 or changes canonical publication; future engine ownership
+needs its own decision. No generic speed or differentiation claim follows from library availability.
+
 Any parser needed for a selected new document/package format gets a focused pinned-library check
 before implementation; Markdown/MDX and Python sources already have owners. NumPy-style docstrings,
 RST and notebooks have a named-library trigger rather than becoming universal prerequisites.
@@ -557,11 +678,22 @@ typed selection plus retrieval witnesses; bounded agent tools; then comparative 
 Each packet is a vertical slice across canonical facts, shared validators, versioned projection,
 PG import, native/MCP and focused product fixtures. R08 baseline work precedes feature tuning.
 
+**Accepted next-slice integration (ADR-0073; implementation Proposed):** PR2 first establishes the
+small nominal-ID/wire foundation and load/index/derive boundary while implementing surface/options;
+PR3 uses those identities and pure inputs for scenarios/deployment. PR4 completes the contextual
+classifier, migrated typed packets and selected SQLx checking. PR5 finishes schema-backed tools
+and coarse rebuild qualification. Do not move the whole classifier ahead of its evidence or make
+optional engines a product prerequisite. [Forward-plan §6.2](../../plans/behavioral-model-forward-plan_2026-09-24.md#62-product-target-findings-and-recommendation-disposition)
+owns the open CLF/F01–F03 corrections; acceptance of this target does not close them.
+
 Required deletions/replacements: analysis-gated public-universe construction; facet-string signature
 reconstruction; trailing-decorator-name invocation classification; seed-only evidence eligibility;
 fixed duplicated view lists and rank payloads that discard witnesses; anonymous matches without
 requirement evidence. Preserve historical migrations and stable fact IDs; introduce versioned
 new contracts and explicit compatibility errors. Replace a consumer only after its new path works.
+Also remove migrated duplicate Python semantic declarations, string-key packet construction and
+superseded mixed-effect catalog derivations. Keep presentation-only models and generic storage
+machinery where they still have a consumer.
 
 PR1 advances compiler108/extractor34 and bundle13/projection3 with additive migration009.
 Pinned libraries and the 1024 embedding specification are unchanged; old generations stay immutable.
@@ -570,4 +702,4 @@ The existing fast editable environment remains the development path; no wheel or
 is introduced. Full formatting/integrated checks wait for the complete authorized implementation
 scope; focused checks follow each functional boundary.
 
-> Decision: ADR-0071
+> Decision: ADR-0071, ADR-0073

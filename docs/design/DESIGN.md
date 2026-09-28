@@ -238,7 +238,15 @@ and codebook snapshots).
 - A schema change is a reviewed snapshot change and a declared migration; codebook codes are
   never renumbered or reordered.
 
-> Decision: ADR-0067
+**Accepted target, implementation Proposed (ADR-0073).** `cpg-schema` also owns finite typed
+catalog requests, contextual witnesses and wire envelopes. Schemars is selected as a pure
+Rust→JSON-Schema derivation dependency; Rust `jsonschema` is selected initially for offline dev
+conformance. These wire representations do not replace or infer canonical Arrow schemas.
+Matching flat components derive from existing declarations; nominal domain wrappers preserve
+the canonical ID encodings. SQLx codecs, effectful loading and transport remain outside schema.
+[§14.7/§14.11](sections/api-and-evidence-product.md#section-14-7) own the contract and library policy.
+
+> Decision: ADR-0067, ADR-0073
 
 <a id="section-b3"></a>
 
@@ -472,7 +480,12 @@ semantic executor remains **Partially implemented** under a **Proposed** decisio
   negative or `complete` claim; no semantic decision is duplicated in Python. Today it provides
   path-local value inspection only; admission and decoding defects are plan items W1–W3.
 
-> Decision: ADR-0068, ADR-0070, ADR-0025
+- **Accepted target, implementation Proposed (ADR-0073):** generated input/output schemas and
+  typed Rust decoding/envelopes replace duplicate semantic Python declarations through the
+  [§14.9 Tool adapter](sections/api-and-evidence-product.md#section-14-9). Existing generation,
+  lifetime, budgets and cancellation ownership remain; custom Tool validation is explicit.
+
+> Decision: ADR-0068, ADR-0070, ADR-0025, ADR-0073
 
 <a id="section-b14"></a>
 
@@ -668,8 +681,14 @@ owns the scheduling triggers.
   generation, because Lance writes are not byte-reproducible.
 - **A recursion engine (Ascent/datafrog).** A same-state finite-base relation probe found no
   integration advantage for the first value channel over the bounded SCC-local producer;
-  compare again when several recursive channels share rules (§9.9, ADR-0053).
+  compare again when several recursive channels share rules (§9.9, ADR-0053), or a catalog consumer
+  needs genuinely recursive multi-relation association (§14.11, ADR-0073). A simple finite closure
+  remains an indexed worklist; optional engines do not gate product delivery.
+- **Catalog fine-grained memoization and extra serving caches.** Coarse immutable rebuilds remain
+  selected. Salsa (including optional disposable persistence), Moka, interning and compressed/dense
+  collections require §14.11's named consumers and equivalence/resource evidence. Existing ty's
+  Salsa database remains provider-private; no provider-family upgrade is selected.
 - **Graph-FCA in the pipeline; on-demand RCA at serve time.**
 - **Generative interpretation** (§B11), graph embeddings, neural reranking and composition planning.
 
-> Decision: ADR-0046, ADR-0071
+> Decision: ADR-0046, ADR-0071, ADR-0073

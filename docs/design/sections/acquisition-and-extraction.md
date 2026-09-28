@@ -201,7 +201,15 @@ inspecting a failure, never for a reader.
 Unmapped rows stay in the derived table with a null node and, where one applies, a reason
 column. No inner join drops them.
 
-> Decision: ADR-0046, ADR-0067
+**Accepted catalog target, implementation Proposed (ADR-0073).** The mandatory catalog's
+internal sequence separates exact fact loading and indexes from pure contract/option/scenario
+derivation, followed by existing materialization/embedding/publication. Inputs include truthful
+scanned relations, membership, missing lookups, coverage and policy context. The
+[§14.3 owner](api-and-evidence-product.md#section-14-3) defines these boundaries; suitable bulk joins
+remain in DataFusion. This refines `cpg-core::catalog`, not acquisition or analyzer ownership,
+and preserves the mandatory-catalog/optional-analysis profile boundary from ADR-0072.
+
+> Decision: ADR-0046, ADR-0067, ADR-0073
 
 
 ### §4.2 Extraction

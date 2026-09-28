@@ -7,8 +7,9 @@ a graph without a second authority. Producers are the extractor and the Stage C/
 ([acquisition and extraction](acquisition-and-extraction.md#section-4)); consumers are validation
 ([§8](validation-and-evaluation.md#section-8)), publication and projections
 ([storage and publication](storage-and-publication.md#section-5)), analytics and synthesis. The
-dependency direction is one way: every crate depends on `cpg-schema`, which depends only on
-Arrow, id hashing, typed-declaration parsing and the BDD kernel library, never on DataFusion,
+dependency direction is one way: every crate depends on `cpg-schema`, which owns Arrow, id hashing,
+typed declarations and the BDD kernel, with pure wire-schema generation selected under ADR-0073;
+it never depends on DataFusion,
 Delta, an async runtime or I/O (§B2). The executable declarations are authoritative for columns and codes:
 `crates/cpg-schema/src/` (`tables.rs`, `derived.rs`, `codebook.rs`, `id.rs`, `graph.rs`,
 `rules.rs`, `findings.rs`, `flows.rs`), with snapshot tests in `crates/cpg-schema/tests/` and
@@ -211,7 +212,15 @@ default dictionary encoding and page statistics.
 - **Deduplicate repeated ingestion of the *same* assertion only.** Assertions from independent
   providers are separate facts, even when they agree.
 
-> Decision: ADR-0046, ADR-0067
+**Accepted target, implementation Proposed (ADR-0073).** Nominal wrappers at request, witness
+and hydration boundaries distinguish member/binding/signature/evidence/type/snapshot/generation/
+retrieval-unit identities while retaining the existing `Id`/`Digest` hashes and physical widths.
+Conversions from generic storage IDs are explicit; string syntax and nominal type do not establish
+generation membership or a relationship's semantic role. Dense indices and interned keys remain
+private to their computation/generation. [§14.7](api-and-evidence-product.md#section-14-7) owns wire
+typing and [§14.10](api-and-evidence-product.md#section-14-10) owns evidence-preserving reuse.
+
+> Decision: ADR-0046, ADR-0067, ADR-0073
 
 
 ### §3.4.1 ID derivation

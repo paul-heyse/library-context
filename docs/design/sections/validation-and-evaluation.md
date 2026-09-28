@@ -23,6 +23,22 @@ rule rejects an injected violation or is a declared edit guard, and every genera
 Rules for the behavioral, condition and summary tables are generated or hand-written the same
 way and land with their tables.
 
+**Accepted wire/catalog verification target, implementation Proposed (ADR-0073).** Rust
+`jsonschema` validators independently challenge Schemars schemas against typed request decoding
+and emitted packet JSON, with an explicit draft/format policy and offline-only approved references.
+Cover unknown fields/variants, missing/null, defaults, Unicode lengths, IDs, integer/boolean/coercion
+and input/output union differences. Exercise real FastMCP listing and calls; function-only checks
+cannot certify transport parity. Shared runtime/publication validators still enforce generation
+membership, relational integrity, coverage and evidence closure; schema validity cannot prove them.
+Use existing `insta`/`proptest` and meaningful cross-module ID/state compile-fail cases (`trybuild`
+when a dedicated harness is justified). Pure catalog known answers should not need acquisition,
+embedding or PostgreSQL. Coarse and optional fine-grained reuse compare complete clean/reused
+outputs, including insert/delete, missing evidence, source coordinates and policy changes.
+[Forward-plan §3.0/§6.2](../../plans/behavioral-model-forward-plan_2026-09-24.md#30-consolidated-execution)
+owns timing and CLF closure. These controls do not replace PR6's independent product comparison.
+
+> Decision: ADR-0073
+
 **Local** (Arrow/Rust), at every materialization boundary: exact physical types, nullability and
 widths (`RecordBatch::try_new` against the declared schema); codebook membership; numeric bounds;
 finite floats and unit-norm vectors.

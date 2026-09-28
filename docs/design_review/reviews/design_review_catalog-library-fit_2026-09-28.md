@@ -13,6 +13,12 @@ All recommendations and expected benefits below are **Proposed**. Library capabi
 source observations are **Interface-checked, 2026-09-28**, unless explicitly attributed to earlier
 receipts. No proposed integration was compiled, benchmarked or deployed in this review.
 
+**Disposition update, 2026-09-28:** the operator adopted the recommended direction through
+[ADR-0073](../../adr/0073-catalog-wire-contracts.md) and the updated product design/plan. Implementation
+remains Proposed. [Forward-plan §6.2](../../plans/behavioral-model-forward-plan_2026-09-24.md#62-product-target-findings-and-recommendation-disposition)
+now owns CLF/F01–F03 status, and its §7 owns conditional library activation. The assessment below
+retains its original evidence strength; design adoption is not finding closure.
+
 | Field | Scope |
 |---|---|
 | Subject | [External library review](../../external-review-postgresl-libraries-supporting-catalog-approach.md), assessed against `3076848`, rather than its earlier `d9eb2ee` baseline |
@@ -181,9 +187,9 @@ Verdicts concern the reviewed extension boundaries, not a new certificate for th
 
 ## 7. Findings and applicability
 
-The following stable **CLF/F01–F03** findings are new source-grounded architectural findings. They
-remain unscheduled recommendations here until detailed PR2/PR4 planning adopts them; §11 names
-the transfer route. Existing AP findings retain their own identities and completion criteria.
+The following stable **CLF/F01–F03** findings are source-grounded architectural findings. Current
+disposition transferred to forward-plan §6.2 under ADR-0073; §11 records the ownership route.
+Existing AP findings retain their own identities and completion criteria.
 
 <a id="F01"></a>
 
@@ -529,9 +535,9 @@ working route. A review-only documentation check is recorded in STATUS separatel
 
 ## 11. Proposed integration into the current plan and authority
 
-This section gives concrete changes for the next plan update; it does not create a parallel
-implementation plan or accept new architecture by publishing a review. The forward plan remains
-the execution authority. Existing/spec'd additive queries and behavioral structures are retained.
+This section records the recommended changes adopted through ADR-0073 and the forward plan; it
+is not a parallel execution or status owner. Existing/spec'd additive queries and behavioral
+structures are retained. Adoption changes the target, not this review's implementation evidence.
 
 | Existing package | Recommended addition / owner | Removal and acceptance obligation |
 |---|---|---|
@@ -542,17 +548,15 @@ the execution authority. Existing/spec'd additive queries and behavioral structu
 | Optional work after explicit trigger | Salsa repeated-build experiment; Ascent recursive relation experiment; typed collections/interner/bitmap profiling | Each has a named consumer, simpler baseline, measurable benefit and deletion/replacement scope; none blocks PR2–PR6 |
 | PR6 qualification | Existing product tasks and independent comparison consume the finished shared contract | Demonstrate differentiation using the existing admission rules; adding libraries alone closes no product objective |
 
-**Finding disposition:** CLF/F01 is deferred to adoption of the PR2 wire foundation/PR4 migration;
-CLF/F02 to the next PR2/PR3 catalog extension; CLF/F03 to the next catalog loader/reuse change.
-They remain owned by this review until scheduled, then transfer current status to forward-plan §6.2
-under these stable IDs. AP/F02–F06 and all retained semantic findings keep their current plan owners.
+**Finding disposition:** forward-plan §6.2 owns CLF/F01's PR2/PR4/PR5 wire migration, CLF/F02's
+PR2/PR3 derivation boundary and CLF/F03's PR2 declarations/PR5 reuse qualification under these
+stable IDs. AP/F02–F06 and retained semantic findings keep their existing owners and criteria.
 
-**Decision route:** shared Rust semantic ownership already follows §14.7. Selecting generated wire
-schemas plus a different MCP registration/validation boundary warrants a focused ADR when adopted,
-with §14.3/14.7/14.9/14.11 updated together. A local pure-module refactor does not itself require
-another ADR. Selecting Salsa persistence or a new inference owner would be a separate decision
-affecting §14.10 and its lifecycle; do not edit accepted ADR-0071/0072 in place. Direct dependency
-adoption follows the pin-check skill, records exact features and uses appropriate focused probes.
+**Decision route:** ADR-0073 records the selected shared wire/schema, MCP validation and pure
+catalog boundaries, with their design owners updated together. A local refactor within that
+contract needs no further ADR. Selecting Salsa persistence or a new inference owner would be a
+separate lifecycle decision; accepted ADR-0071/0072 remain unchanged. Direct dependency adoption
+follows pin-check, records exact features and uses appropriate focused probes.
 
 ## 12. Architectural judgment and decision
 

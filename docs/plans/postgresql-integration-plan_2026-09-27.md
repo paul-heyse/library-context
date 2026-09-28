@@ -55,6 +55,11 @@ Product PR1 subsequently advances compiler108/extractor34, FORMAT13/projection3 
 under ADR-0072; its current qualification belongs to the forward plan §1/§6.2 and the runbook.
 Online serving
 retains native/lexical state and a PostgreSQL pin; relational maps and dense Python vector scans have been removed.
+**Accepted product extension, implementation Proposed (ADR-0073):** the
+[forward plan PR2–PR5](behavioral-model-forward-plan_2026-09-24.md#30-consolidated-execution) owns
+shared Rust wire schemas, nominal IDs, typed catalog hydration, pure derivations and selective
+SQLx checking. These build on the qualified PG foundation and do not reopen PG0–PG17 or select
+another driver. CLF/F01–F03 status belongs to forward-plan §6.2.
 [Initial qualification](../design_review/evidence/2026-09-27_postgresql/README.md) is historical
 acceptance of that scope, not evidence for PG8–PG17.
 
@@ -91,6 +96,18 @@ the actual selected revisions/features; optional alternatives below remain condi
 | pyo3-async-runtimes 0.29.0 | Async Rust serving operations→Python awaitables with existing PyO3 0.29.2 | One configured process runtime, lifespan-owned SQLx pool. Qualify cancellation, Python 3.14/native build and connection reuse |
 | Existing bm25s/native executor | Keep lexical scoring, RRF/name-promotion owner and pure native semantic evaluation | No PostgreSQL `ts_rank` substitution, duplicate fusion owner or SQL-side behavioral interpreter |
 
+**Catalog contract adoption (accepted target; implementation Proposed, ADR-0073).** Schemars
+wire-schema generation and offline Rust `jsonschema` dev conformance belong to `cpg-schema` and
+the product boundary, not the PG schema generator. Stable SQLx reads use checked static/file
+queries as PR4 touches them; `query_as`/`FromRow` alone is runtime decoding. Keep migrated
+disposable-database offline checks and real nullability/type-override controls. Preserve the
+inventory-driven dynamic hydration adapter, shared Arrow codecs and existing leases/budgets.
+Domain IDs keep canonical bytes; validating conversion and membership are separate from a
+transparent codec. `Json<T>` is for genuinely variable JSON, not core relational dimensions.
+Exact direct pins/features are qualified during product implementation; this documentation update
+changes no installed stack. [§14.11](../design/sections/api-and-evidence-product.md#section-14-11)
+owns catalog library policy and conditional Salsa/Ascent/cache/representation candidates.
+
 Optional compatible paths stay explicit rather than becoming default dependencies:
 
 | Candidate | Capability direction and pin from the review | Adoption owner |
@@ -100,8 +117,8 @@ Optional compatible paths stay explicit rather than becoming default dependencie
 | datafusion-postgres family `eda0da032ed8d6003b5041fce67c1e5b2f101876` | PostgreSQL wire **server over DataFusion**, with arrow-pg, datafusion-pg-catalog and datafusion-pg-functions | F12; not the PostgreSQL storage reader |
 | adbc-driver-datafusion 0.27.0 source `3d24e0f3ad8bf914b9d2a48d0151fc313b8ae28c` | Embedded DataFusion **exposed through ADBC** | F12; not the PostgreSQL ADBC driver |
 | Psycopg 3 + psycopg_pool; optional SQLAlchemy | Direct Python-owned relational workflow; select one pool and retain Rust migration history | F6; main serving uses the Rust repository |
-| SeaQuery 1.0.2 + sea-query-sqlx 0.9.1 | Substantive typed dynamic query composition | F4; simple bound filters stay SQLx-owned |
-| tokio-postgres 0.7.x / Cornucopia; pgrx | Alternate application query/driver architecture; separate server-side extension respectively | PGK/F01 on an actual driver switch; F8 for pgrx. The provider's internal driver does not select Cornucopia |
+| SeaQuery 1.0.2 + sea-query-sqlx 0.9.1 | Substantive typed dynamic query composition | F4; simple bound filters and inventory-driven hydration stay SQLx-owned. Builder syntax does not own catalog predicate semantics |
+| tokio-postgres 0.7.x / Cornucopia; pgrx | Alternate application query/driver architecture; separate server-side extension respectively | PGK/F01 on an actual driver switch; F8 for pgrx. No catalog-triggered switch: SQLx already supplies the needed boundary. Clorinde merged into Cornucopia; provider internals do not select the application stack |
 | connector_arrow 0.12.2 | Arrow 58 family | Excluded from this family; use selected compatible paths |
 
 Only enable features with a selected consumer. Check root resolution/builds, not only probe
@@ -264,6 +281,15 @@ performing DDL. PostgreSQL readiness complements, rather than replaces, canonica
   connections. For coherent mutable operational reports, materialize all needed relations under one
   bounded read-only repeatable-read transaction before DataFusion joins. Export/import snapshots is
   a later alternative if genuinely required; independent pooled transactions do not share a view.
+
+**Product extension target (ADR-0073; implementation Proposed).** PR4's finite typed requirements,
+contextual witnesses and result envelopes have one Rust contract; MCP publishes its generated
+schemas and explicitly validates through the existing native boundary. The legacy facet contract
+above remains scoped to materialized facet membership until an explicit migration. Never infer
+joint applicability from unrelated overload/configuration matches. Typed hydration composes with
+the current schema inventory rather than maintaining per-table hand-written schema copies.
+Schema-valid JSON does not establish generation membership or evidence closure. New wire/type
+representations preserve pools, role separation, deadlines, cancellation and rebuildable storage.
 
 ## 4. Dependency-ordered implementation
 
@@ -781,6 +807,7 @@ no new register or full-gate-per-slice workflow is introduced.
 | CLI/README/runbook, PG12–PG16 | Concrete import/select/reconcile/serve configuration, readiness, resource limits, availability, backups/rebuild/rollback and retained artifact policy |
 | Design map/AGENTS, PG8–PG16 | Correct runtime/dependency routes and command surfaces as they change; pure native and two-plan ownership remain clear |
 | Reviews and STATUS | Reviews keep dated evidence/source IDs and link §6.1 for status. STATUS links current work without duplicating a finding register |
+| Catalog product target, ADR-0073 | Forward-plan PR2–PR5/§6.2 own wire schema/typed hydration/SQLx extension and CLF status; §14.7/§14.11 own meaning. This plan retains PG mechanisms and storage-specific triggers; no renewed deployment or dependency installation claim |
 
 This planning revision does not edit accepted ADR rationale or present new targets as implemented.
 PG8 settles binding changes before dependent production work; it does not reopen the settled
@@ -799,7 +826,7 @@ compatible library availability alone does not install a second transport, query
 | F1 Operator/manual-review workflow | Selected operator-facing review consumer under §10.4; existing operations plus projection contracts | Append exact-subject-revision events, provenance/idempotency and optimistic conflicts. Freeze a selected revision into canonical compiler inputs; never patch a published brief or infer approval from absence. Backup/restore and frozen-input replay |
 | F2 PostgreSQL serving projection | **Promoted:** PG8/PG11–PG13/PG16–PG17 | Rust-owned generation-pinned exact selection and full hydration; no renewed startup/RSS prerequisite |
 | F3 Database vector retrieval | **Promoted:** PG9/PG10/PG14/PG17 | 1024 standard, exact and explicit HNSW profiles; future LanceDB selection replaced through PG8. Additional text-search policy is F13 |
-| F4 Dynamic SQL | Substantive typed variable joins/expressions beyond clear SQLx queries | SeaQuery+binder with allowlisted identifiers and bound values; null/array/adversarial SQL controls. Stage 4 AST remains Rust→DataFusion |
+| F4 Dynamic SQL | Substantive typed variable joins/expressions beyond clear SQLx queries; not simple inventory hydration or the existence of PR4 predicates | SeaQuery+binder with allowlisted identifiers and bound values; null/array/adversarial SQL controls. Semantic predicate/witness authority stays in Rust; Stage 4 AST remains Rust→DataFusion |
 | F5 Bulk/Arrow/federation | **Promoted:** pgpq+SQLx in PG12; maintained PG provider+federation in PG15 | One family, checked domain codecs and admitted read views. Native ADBC alternative is F11; this does not select the Cornucopia stack |
 | F6 Direct Python workflow/SQLAlchemy | Python gains its own relational workflow, not just an MCP transport caller | Psycopg 3 default; one async pool owner; SQLAlchemy only for substantive Core/ORM ownership. Python 3.14 lifecycle/type controls, same Rust migration history |
 | F7 Notifications/durable jobs | Actual worker or polling-cost consumer | Durable rows/events are truth; LISTEN/NOTIFY is a reconnectable hint. Bound transactions, claiming/retry/idempotency and crash recovery before job scheduling |
@@ -814,6 +841,10 @@ PostgreSQL arrays, JSONB, constraints, indexes, CTEs, windows, partitioning and 
 available through the existing driver when a named schema/query needs them. Do not add a wrapper
 framework, ORM or another client merely to expose those capabilities. Authored event data is backed
 up independently of reconstructible serving projections; notifications never replace that history.
+`postgres-types` belongs to rust-postgres consumers and is not a SQLx codec replacement. A future
+Cornucopia application path requires the actual driver/domain change and replacement evidence in
+PGK/F01. Catalog incremental/inference/caching candidates stay under forward-plan §7, avoiding a
+second adoption queue in this storage plan.
 
 ## 8. Finding traceability, finish and current verification
 

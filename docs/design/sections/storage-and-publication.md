@@ -364,6 +364,16 @@ transformations remain independent of database setup. Bounded driver reads const
 Arrow batches. `cpg-core::postgres_read` isolates the separate bounded provider read pool;
 PG15 owns admitted scans/federation, never application writes.
 
+**Accepted catalog-query target, implementation Proposed (ADR-0073).** PR4 extends SQLx checked
+static/file queries and typed rows for stable generation/catalog reads. Runtime `query_as` is typed
+decoding, not compile-time database checking; offline metadata follows the migrated disposable
+schema, with real-PG controls for nullability and type overrides. Inventory-driven dynamic hydration stays derived
+from `cpg-schema`, with bound values, shared Arrow codecs, byte/row budgets and existing leases.
+SQLx codecs remain local to this adapter; nominal IDs require checked conversion and generation
+membership. Schemars wire schemas do not become PostgreSQL DDL or replace relational invariants.
+No Cornucopia/ORM/driver switch is selected; SeaQuery retains the substantive dynamic-query trigger.
+[§14.7/§14.11](api-and-evidence-product.md#section-14-7) and forward-plan PR4 own this product work.
+
 The first consumers are the shared embedding cache, compile-attempt history and reconciled
 snapshot/generation discovery. Attempt history is operational authority; discovery is derived
 from Delta/manifests. No PostgreSQL row publishes a snapshot, changes a semantic verdict or
@@ -429,7 +439,7 @@ Future review events preserve exact subject revision and become explicit attribu
 inputs when used. Later SQL serving remains an immutable projection. Both need their own
 consumer, replay and failure evidence; neither is silently enabled by installing PostgreSQL.
 
-> Decision: ADR-0068, ADR-0070, ADR-0067
+> Decision: ADR-0068, ADR-0070, ADR-0067, ADR-0073
 
 
 **Implemented; focused controls Tested (2026-09-28; ADR-0070).** Projection FORMAT 2 / bundle FORMAT 12 binds

@@ -469,6 +469,18 @@ owns typed requirement states, bounded implementation packets and independent ev
 catalog contracts, optional semantic capability loading and versioned migration. Contracts below
 also retain existing behavioral queries and semantic research.
 
+**Accepted wire target, implementation Proposed (ADR-0073):**
+[§14.7/§14.9](api-and-evidence-product.md#section-14-7) select Rust-owned requests, contextual witnesses
+and typed envelopes, with generated Schemars input/output schemas on a thin FastMCP `Tool` adapter.
+Its `run` explicitly validates through Rust before effects, retains current lifetime/deadline/error
+contracts and returns structured results. Migrate tools without deleting compatible query scope;
+remove duplicate semantic Pydantic declarations and string-key packet construction after consumer
+migration, while retaining presentation models. MCP listing/invocation conformance is required;
+the current Pydantic/FunctionTool routes remain implemented until migration. CLF/F01 stays open
+in [forward-plan §6.2](../../plans/behavioral-model-forward-plan_2026-09-24.md#62-product-target-findings-and-recommendation-disposition).
+
+> Decision: ADR-0071, ADR-0072, ADR-0073
+
 - **Package.** `python/lctx_mcp`. It depends on `fastmcp` 4.0.x, `pyarrow` (the generation
   reader), `numpy`, `bm25s` and `httpx2`, never on vLLM, Delta or the compiler; versions are in
   `docs/pins.md` and the uv lock. The native executor is the separate workspace member
