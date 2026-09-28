@@ -927,7 +927,7 @@ arbitrary endpoint attestation. Expanded serving/ANN/federation acceptance is **
   ids, model ids). `libraries/fastmcp/analytics.toml` is frozen; an edit needs an ADR.
 - `fixtures/python/` is never executed; `eval/heldout/` stays sealed until increment 5's end.
 - Pitfalls already hit: `just test-all` stops at its first failure, so rerun before reporting;
-  edits made through Python or shell bypass the format hook, so run `just fmt` first; the Python
+  `fmt-check` fails on unformatted code, so run `just fmt` first (end of scope only); the Python
   suite runs against the `analysis_shapes` fixture generation, and the analysis diff snapshot
   counts its behaviors, so attribution changes move both; `pkill -f` can match its own command
   line (use `[v]llm`).

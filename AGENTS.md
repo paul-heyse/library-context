@@ -67,19 +67,19 @@ real consumer.
 | `libraries/` | One committed uv project per analyzed library (`pyproject.toml` with `[tool.lctx] release`, `.python-version`, `uv.lock`); `libraries/README.md` has the add/upgrade procedure (ADR-0046). Environments go to `build/envs/` (gitignored) |
 | `fixtures/python/` | Tiny Python packages to analyze. Input data: never executed or linted |
 | `third_party/` | `pyrefly-<ver>.patch`: the one commit our Pyrefly fork adds to the upstream tag (ADR-0046, `docs/pins.md`) |
-| `scripts/` | `adr.py`, `design_sections.py` and `docs.py` (documentation), `check_family.py`, `check_agents.py`, gold/eval scripts, and the format hook |
+| `scripts/` | `adr.py`, `design_sections.py` and `docs.py` (documentation), `check_family.py`, `check_agents.py`, and gold/eval scripts |
 | `rules/`, `rule-tests/` | ast-grep rules. They grow only from design-review findings |
 
 ## Commands
 
 | When | Run |
 |---|---|
-| During a design/implementation phase | Use focused compile, probe, and behavior checks only where they resolve a material question. Do not run the fully integrated gate after each slice or commit. |
-| At the end of the integrated scope | `just test-all`: fmt-check, clippy `-D warnings`, release-profile nextest, pytest + pyrefly, rules, ADR/agent lint, fixture parsing, `just deps` and `just gold` |
+| During a design/implementation phase | Compile checks (`cargo check`/`cargo build` on the touched crates) and targeted tests or probes for the scope just implemented. No formatting, linting or integrated gate after a slice or commit. |
+| After all functional scope in the plan is implemented | `just fmt`, then `just test-all`: fmt-check, clippy `-D warnings`, release-profile nextest, pytest + pyrefly, rules, ADR/agent lint, fixture parsing, `just deps` and `just gold` |
 | The real library, end to end | `just pilot`: `lctx compile fastmcp` (release build) into `build/store`, printing rows and per-stage time and peak RSS. Run at the integrated end; report `not_run` for interim slices. |
 | Inspect a published snapshot | `target/release/lctx query --store build/store --snapshot <hex> "SQL"` (read-only; every table by name at its recorded version) |
 | Add or upgrade a library | `lctx library init <name> --requirement '<req>'`; upgrade with `uv lock --project libraries/<name> --upgrade-package <dist>` (`libraries/README.md`) |
-| Format (mutating) | `just fmt` |
+| Format (mutating) | `just fmt`, once at the end of the scope (above) |
 | Dependency policy | `just deps`: one version each of Arrow/DataFusion/object_store/delta-rs/ruff/pyrefly/blake3, cargo-deny, and the Pyrefly fork check (tag + patch, classified env reads) |
 | Decisions | `just adr new <slug> --title "…"`, `just adr supersede ADR-NNNN <slug>`, `just adr index`, `just adr lint`, `just adr revisit` |
 | Documentation changes | `just docs-test` for publisher/resolver changes; `just docs-check` for publication. First run: `just bootstrap-docs`; preview: `just docs-serve`. No product gate solely for docs. |
@@ -128,10 +128,16 @@ capability is absent.
 
 ## Testing rules
 
-- Full `just test-all` and `just pilot` runs are end-of-scope acceptance, not the design loop.
-  Run focused checks during design, then run both once the integrated Stage 3 scope is ready;
-  repeat only for a failure or a subsequent material change. Reuse cached release-profile Rust
-  code for tests. Test data may be fresh, existing, or empty according to the test's purpose.
+- **During implementation, only compile checks and targeted tests.** Validate each new piece of
+  scope with a compile check and the focused tests or probes that exercise it. Integrated tests
+  (`just test`, `just check`, `just test-all`, `just pilot`) wait until all functional scope in
+  the plan is implemented; repeat them only for a failure or a subsequent material change.
+- **No formatting or linting until all functional scope is implemented.** Don't run `just fmt`,
+  `cargo fmt`, `ruff format`, `cargo clippy`, `ruff check` or `pyrefly check` mid-plan: they add
+  nothing during execution and rewrite code other than yours, which you then have to reassess.
+  Run `just fmt` once at the end, then the integrated gates (which include the lint checks).
+- Reuse cached release-profile Rust code for tests. Test data may be fresh, existing, or empty
+  according to the test's purpose.
 - **Schema contracts** are insta snapshots. `just check` runs with `INSTA_UPDATE=no`. To accept
   a change, read the `.snap.new` diff first, then run `cargo insta accept`. Never run
   `cargo insta review`, which is interactive. A schema snapshot change is a schema migration,

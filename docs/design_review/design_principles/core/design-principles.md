@@ -385,9 +385,8 @@ work fail late or silently fall back? Can installing a package change a selectio
 
 **SHOULD · G8.** Judge a design by the independent semantic decisions and bespoke code it
 removes. An ordinary extension should be one authoritative declaration, any genuinely new
-implementation, and focused tests where warranted (§E). Prefer a suitable runtime or library
-mechanism to a generator that duplicates its work; derived code can be appropriate when it
-reduces total complexity and has a clear consumer. Never treat generated output as an authority.
+implementation, and focused tests where warranted (§E). Generated code is a derived artifact
+(DP-01): regenerate it from its authority; never edit it or treat it as an authority.
 Proportionality applies to every mechanism, including adopted libraries, registries, generators
 and wrappers. Qualify their total integration burden against a current or agreed planned need.
 Once a replacement lands and its callers have moved, delete the replaced
@@ -552,7 +551,7 @@ correctness defect, unless the bespoke code also fails another gate.
 | Is it a representation translation with no new domain decision? | A mechanical adapter |
 | Is it an optimized layout or queryable projection? | A derived artifact with explicit dependencies and identity mapping |
 | Is it an effectful action or an important execution sequence? | A typed action or workflow at an execution boundary |
-| Is it a repeated mechanical expression of an existing contract? | A runtime or library mechanism; generate code only where none serves |
+| Is it a repeated mechanical expression of an existing contract? | Derived from that contract: a runtime or library mechanism, or generated code |
 | Is it flexibility without a current or agreed planned requirement? | Defer it; assess library adoption and bespoke mechanisms by the same total complexity test |
 
 ## §D Evidence vocabulary
@@ -639,7 +638,7 @@ attractive claim.
 | "The schema enforces it." | The invariant is metadata that no path rejects on. |
 | "It uses library X." | A wrapper re-implements, bypasses or restricts the library's core capability. |
 | "It is incremental." | A hidden read, a mutable handle or untracked membership makes reuse stale. |
-| "It is generated from one source." | Generated output is edited, stale, or preferred where a runtime mechanism exists. |
+| "It is generated from one source." | Generated output is edited, stale, or also restated by hand elsewhere. |
 | "The algorithm succeeded." | Its status or convergence was not checked against the declared contract. |
 | "Every backend is supported." | Lowerings or auxiliary capabilities exist for only some accepted operations. |
 | "It is zero-copy" or "it is faster." | Ownership, conversion, construction and end-to-end costs were never measured. |

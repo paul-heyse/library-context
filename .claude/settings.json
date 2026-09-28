@@ -38,15 +38,5 @@
       "Bash(cargo publish*)",
       "Bash(pip install*)"
     ]
-  },
-  "hooks": {
-    "PostToolUse": [
-      {
-        "matcher": "Edit|Write",
-        "hooks": [
-          { "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/scripts/hooks/format_edited.sh", "timeout": 30 }
-        ]
-      }
-    ]
   }
 }

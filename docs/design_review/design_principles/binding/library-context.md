@@ -155,7 +155,8 @@ An action uses the existing route appropriate to it:
 
 | Existing check | Use |
 |---|---|
-| Focused tests/probes | Resolve material implementation uncertainty; use release-profile Rust reuse |
+| Compile checks, focused tests/probes | During implementation: validate the scope just implemented; use release-profile Rust reuse |
+| `just fmt`, `just lint` | Once, after all functional scope is implemented; never mid-plan |
 | `just rules-scan`, `just rules-test` | A justified code-shape invariant |
 | `just adr lint`, `just lint-agents` | Decision metadata and agent-facing links/commands |
 | `just test-all`, `just pilot` | Integrated functional acceptance at scope end, not every slice or process edit |
