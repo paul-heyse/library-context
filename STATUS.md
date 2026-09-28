@@ -7,6 +7,7 @@ _Updated 2026-09-28 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
 - **PR1 Implemented, Tested and deployed:** catalog compilation is the default; `--profile behavioral` enriches the same catalog. Ordered source/provider contracts, stable public members, constructor associations and original declaration/type evidence reach PostgreSQL and FastMCP. [ADR-0072](docs/adr/0072-catalog-compile-profiles.md), [product owner](docs/design/sections/api-and-evidence-product.md), [qualification](docs/design_review/evidence/2026-09-28_catalog/README.md).
 - **PR0 Implemented; comparative admission blocked:** frozen development protocol and isolated API/function-tool runner; 12 local controls pass. Twelve A/B/C smoke admissions are blocked/unscored because Context7 FastMCP4.0.5 material parity is unestablished. The separately sealed confirmation candidate remains unexecuted and independently unadmitted; late-seal timing is disclosed. No product differentiation is claimed.
 - **Single execution/disposition owner:** [forward plan §3.0/§6.2](docs/plans/behavioral-model-forward-plan_2026-09-24.md#30-consolidated-execution). AP/F01 closed at Tested strength; AP/F02–F06 remain open for PR2–PR6. Scoped reviews accept the repaired [PR0 contracts](docs/design_review/reviews/design_review_pr0-evaluation_2026-09-28.md) and [PR1 composition](docs/design_review/reviews/design_review_pr1-implementation_2026-09-28.md).
+- **Catalog library review, 2026-09-28:** [target assessment](docs/design_review/reviews/design_review_catalog-library-fit_2026-09-28.md) recommends shared Rust wire schemas/conformance and isolated catalog derivations. CLF/F01–F03 are Interface-checked; their corrections and optional Salsa/Ascent/cache uses remain Proposed in the review pending plan adoption. No dependencies or runtime behavior changed.
 - **Current versions:** compiler108, extractor34, template20, catalog7, bundle13/projection3, migration009; unchanged 1024 embedding specification and library pins. Delta remains canonical; PostgreSQL projections remain rebuildable.
 - **Operator deployment verified 2026-09-28:** PG18.6/pgvector0.8.6, migrations001–009. Both live profiles are ready; enriched generation `2081c10e…` is selected with exact profile `ff645e4a…`. Two older ready generations/artifacts remain retained. ANN remains conditional, with no admitted candidate.
 - **Preserved recovery:** `build/pr1-operator-cutover/current.dump` plus receipt/artifacts; retained schema008/runtime at `build/postgresql-pr1-baseline-a6c9fcf/` with all 35 runtime checksums verified. Keep earlier PG17/PG16/PG8 backup assets. Old runtime requires its separately restored matching schema; no reverse migration or reader bypass.
@@ -15,7 +16,7 @@ _Updated 2026-09-28 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
 
 ## Verification boundary
 
-| Command / evidence, 2026-09-28 | Outcome and scope |
+| Prior PR0–PR1 command / evidence, 2026-09-28 | Outcome and scope |
 |---|---|
 | `just fmt`; `just test-all` | **passed:** 446 Rust, 184 Python, 18 real-PG Rust and 2 PG Python tests; all format/lint/Pyrefly/rules/ADR/agent/fixture/dependency/gold/SQLx legs. Final log: `build/pr1-operator-cutover/gates/test-all.log` |
 | `uv run python docs/design_review/evidence/2026-09-28_catalog/pilot_probe.py build/pr1-pilots-v3` | **passed:** fresh catalog/behavioral FastMCP compiles, import/selection and stdio MCP serving with live vectors; fake-vector legs qualify mechanics only. Four-current-generation restore 24.69 s |
@@ -25,9 +26,14 @@ _Updated 2026-09-28 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
 | `just docs-check`; `just adr index`; `just adr lint`; `git diff --check` | **passed:** 163 canonical pages, zero offline link errors,38 ADR records and clean patch whitespace |
 | Context7 A/B/C model comparison; confirmation | **blocked** on release/material parity and independent admission; no model execution/scoring or sealed plaintext inspection |
 
+Library-review-only verification: source/Context7/upstream interface checks completed; product
+tests and benchmarks **not_run** because this scope changes documentation only. `just docs-check`
+**passed** (165 canonical pages, zero link errors) after adding the supplied review's missing H1;
+prior PR0–PR1 receipts above were not rerun for this review.
+
 ## Next
 
-1. PR2: bounded surface/configuration specificity, using the existing catalog identities and contracts.
+1. PR2 detailed execution: disposition the library review's proposed wire/derivation improvements alongside bounded surface/configuration specificity, using existing catalog identities.
 2. PR3: contextual original scenarios and deployment/package evidence, retaining unknowns and attribution.
 3. Independent evaluation: resolve PR0 parity/candidate admission before PR6 comparison. PR4–PR5 typed retrieval and agent journeys remain planned; no confirmation retuning or superiority claim.
 

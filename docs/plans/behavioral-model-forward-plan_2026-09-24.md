@@ -142,6 +142,14 @@ reported in §1 and §6.2. PR2–PR6 remain dependency-ordered proposed vertical
 Each uses targeted compile/functional controls; formatting and integrated gates
 wait until the authorized functional scope is complete. No extra hook, register or build system.
 
+**Proposed library guidance, 2026-09-28:** the
+[catalog library-fit review](../design_review/reviews/design_review_catalog-library-fit_2026-09-28.md)
+recommends a Rust-owned wire contract with Schemars/schema conformance and an explicit catalog
+load/index/derive boundary, mapped to PR2–PR6 in its §11. It preserves the current storage stack
+and additive query scope. Its CLF/F01–F03 findings and conditional library triggers remain in that
+review pending detailed execution adoption; no new dependency or runtime mechanism is selected
+by this pointer.
+
 
 ### 3.0 Consolidated execution
 
