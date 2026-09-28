@@ -334,7 +334,7 @@ formats are not implicitly accepted.
   finalizer-bearing generation and schema-drift controls passed; integrated qualification is
   pending ([plan W1](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
 
-> Decision: ADR-0067, ADR-0068, ADR-0069, ADR-0049
+> Decision: ADR-0067, ADR-0068, ADR-0070, ADR-0049
 
 <a id="section-6-5"></a>
 
@@ -369,7 +369,8 @@ all consumers migrate. This is one mutable reuse service plus immutable per-snap
 **Projection publication (Implemented; focused controls Tested, 2026-09-28).**
 [Bounded evidence](../../design_review/evidence/2026-09-27_postgresql-expansion/implementation.md)
 records the foundation. PG12–PG15 add import, exact queries, retrieval qualification and reports;
-[query integration evidence](../../design_review/evidence/2026-09-28_postgresql-query/README.md) bounds those checks. Production rollout/recovery and assembled acceptance remain PG16/PG17.
+[query integration evidence](../../design_review/evidence/2026-09-28_postgresql-query/README.md) bounds those checks. PG16/PG17 local exact rollout/recovery and assembled acceptance passed;
+[operations evidence](../../design_review/evidence/2026-09-28_postgresql-operations/README.md) bounds the claim.
 `cpg-schema::serving_projection` owns FORMAT 2 manifests, all FORMAT 12 relation receipts,
 native/lexical artifact identities and generation-local constraints. `serving_support` is shared
 by publication, file loading and import. Full content digests exclude physical row order/COPY
@@ -416,11 +417,18 @@ Future review events preserve exact subject revision and become explicit attribu
 inputs when used. Later SQL serving remains an immutable projection. Both need their own
 consumer, replay and failure evidence; neither is silently enabled by installing PostgreSQL.
 
-> Decision: ADR-0068, ADR-0069, ADR-0067
+> Decision: ADR-0068, ADR-0070, ADR-0067
 
 
-**Implemented; focused controls Tested (2026-09-28; ADR-0069).** Projection FORMAT 2 / bundle FORMAT 12 binds
+**Implemented; focused controls Tested (2026-09-28; ADR-0070).** Projection FORMAT 2 / bundle FORMAT 12 binds
 release identity and complete coverage context. PG12 validates stored projection rows before
 readiness; PG13 preserves exact query/native contracts; PG14 qualifies separately selected
 exact/HNSW profiles; PG15 admits bounded provider expressions and coherent operational reports.
 Implementation and qualification remain separately tracked in the PostgreSQL plan.
+
+**Implemented and Tested (2026-09-28; ADR-0070):** physical-index ANN admission, mixed exact/ANN
+routing, complete artifact-bearing recovery receipts and bounded operational diagnostics are
+available. The deployed live generation uses exact retrieval; no ANN class passed calibration.
+Restore/reindex invalidation and complete recovery through MCP serving passed. The
+[operations evidence](../../design_review/evidence/2026-09-28_postgresql-operations/README.md) records
+measured costs and the numerical-oracle boundary. Positive ANN admission remains conditional.

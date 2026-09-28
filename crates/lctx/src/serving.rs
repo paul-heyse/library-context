@@ -37,7 +37,21 @@ pub enum Command {
     },
     Status {
         #[arg(long,value_parser=parse_digest)]
+        generation: Option<Digest>,
+        #[arg(long)]
+        verify_artifacts: bool,
+    },
+    /// Register content-addressed artifacts restored under a new root. Never selects.
+    RelocateArtifacts {
+        #[arg(long,value_parser=parse_digest)]
         generation: Digest,
+        #[arg(long)]
+        artifacts: PathBuf,
+    },
+    /// Backup-only validated inventory at an existing exported PostgreSQL snapshot.
+    RecoveryInventory {
+        #[arg(long)]
+        snapshot: String,
     },
     /// Pin future servers to this ready generation/profile. Existing servers retain their pin.
     Select {
@@ -72,6 +86,17 @@ pub async fn command(
         None => Config::path(config)?.with_file_name("postgres-importer.json"),
     };
     let config = RoleConfig::load(&path)?;
+    if let Command::Status {
+        generation,
+        verify_artifacts,
+    } = &cmd
+    {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&config.diagnose(*generation, *verify_artifacts).await)?
+        );
+        return Ok(());
+    }
     // Prepare and validate source before opening the bounded importer pool.
     let prepared = if let Command::Import {
         store,
@@ -93,8 +118,10 @@ pub async fn command(
         match cmd {
             Command::Import{artifacts,..}|Command::ImportBundle{artifacts,..}=>println!("{}",serde_json::to_string_pretty(&db.import(prepared.expect("prepared import"),artifacts).await?)?),
             Command::BuildHnsw{generation}=>{db.build_hnsw(generation).await?;println!("HNSW indexes built; no profile selected");},
-            Command::QualifyHnsw{pack,serving_config}=>{use std::io::Read;let mut bytes=Vec::new();std::fs::File::open(pack)?.take(128*1024*1024+1).read_to_end(&mut bytes)?;anyhow::ensure!(bytes.len()<=128*1024*1024,"qualification pack byte budget");let reader=RoleConfig::load(&serving_config)?.open_serving().await?;let report=db.qualify_hnsw(&reader,&bytes).await;reader.close().await;let report=report?;println!("{}",serde_json::to_string_pretty(&report)?);anyhow::ensure!(report["passed"]==true,"ANN profile failed qualification; exact remains available");},
-            Command::Status{generation}=>println!("{}",serde_json::to_string_pretty(&db.status(generation).await?)?),
+            Command::QualifyHnsw{pack,serving_config}=>{use std::io::Read;let mut bytes=Vec::new();std::fs::File::open(pack)?.take(128*1024*1024+1).read_to_end(&mut bytes)?;anyhow::ensure!(bytes.len()<=128*1024*1024,"qualification pack byte budget");let reader=RoleConfig::load(&serving_config)?.open_serving().await?;let report=db.qualify_hnsw(&reader,&bytes).await;reader.close().await;let report=report?;println!("{}",serde_json::to_string_pretty(&report)?);anyhow::ensure!(report["passed"]==true || (report["phase"]=="calibration" && !report["chosen_policy"].is_null()),"ANN profile failed qualification; exact remains available");},
+            Command::Status{..}=>unreachable!("diagnostic path runs before normal schema admission"),
+            Command::RelocateArtifacts{generation,artifacts}=>println!("{}",serde_json::to_string_pretty(&db.relocate_artifacts(generation,artifacts).await?)?),
+            Command::RecoveryInventory{snapshot}=>println!("{}",serde_json::to_string(&db.recovery_inventory(&snapshot).await?)?),
             Command::Reconcile{generation}=>println!("{}",serde_json::to_string_pretty(&db.reconcile(generation).await?)?),
             Command::Select{library,generation,profile}=>{let profile=profile.unwrap_or(Digest::from_hex(&Policy::exact().digest()?).expect("profile digest"));db.select(&library,generation,profile).await?;println!("{}",serde_json::json!({"library":library,"generation":generation.hex(),"profile":profile.hex(),"selected":true}));},
             Command::Cleanup{generation}=>{db.cleanup(generation).await?;println!("{}",serde_json::json!({"generation":generation.hex(),"cleaned":true}));},

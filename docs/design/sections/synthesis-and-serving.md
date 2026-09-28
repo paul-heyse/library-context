@@ -446,14 +446,14 @@ lower brief id and a promoted brief ranks first
 with its reason (`test_a_down_embedder_degrades_to_lexical_and_says_so`). The fixture's fake
 vectors carry no meaning, so ranking quality is an evaluation question, not a unit test.
 
-**Implemented PG route (2026-09-28; ADR-0068/0069).** pgvector stores standard full-float 1024 vectors. Exact
+**Implemented PG route (2026-09-28; ADR-0068/0070).** pgvector stores standard full-float 1024 vectors. Exact
 requests rank all eligible entities per view before fusion; an index must not silently change
 this route. Explicit HNSW profiles declare generation/filter isolation, chunk aggregation,
 candidate/widening/underfill, numeric ties and qualification. Exact remains default; live ANN
 activation requires passing generation-specific recall/plan/latency criteria. LanceDB,
 FTS and changed lexical policy require a named capability beyond the selected route.
 
-> Decision: ADR-0068, ADR-0069
+> Decision: ADR-0068, ADR-0070
 
 ### §11.3 FastMCP contract
 
@@ -650,7 +650,7 @@ row storing its rule id and proof height. Under ADR-0025 the native executor may
 stored witness links at request time, retaining their row ids and reporting a boundary if the
 depth budget is reached.
 
-> Decision: ADR-0068, ADR-0069, ADR-0025, ADR-0046, ADR-0049
+> Decision: ADR-0068, ADR-0070, ADR-0025, ADR-0046, ADR-0049
 
 
 **Accepted frame-completion target, implementation in progress (ADR-0063).** Every modeled normal-call obligation,
@@ -665,14 +665,15 @@ mutation controls pass. Typed Normal postconditions remain independent of actual
 
 ### §11.4 PostgreSQL serving and conditional workflows
 
-**PG12–PG15 Implemented; focused controls Tested, 2026-09-28.**
-PG16 production rollover/recovery and PG17 assembled acceptance remain open.
+**PG12–PG17 Implemented, Tested and Measured for local exact serving, 2026-09-28.**
+Operator migration008, two-generation rollover and populated recovery passed. ANN activation
+remains conditional after real calibration failed plan/latency benefit gates.
 The [PostgreSQL plan](../../plans/postgresql-integration-plan_2026-09-27.md) owns execution;
 [§6.5](storage-and-publication.md#section-6-5) owns effects and physical storage.
 
 `cpg-schema` declares manifests, relation shapes/keys and complete support validation once.
 `lctx-postgres` owns SQLx operations and codecs; `lctx_storage` provides explicit coarse awaitables
-on one process Tokio runtime and lifespan-owned pools. The serving wheel excludes DataFusion,
+on one process Tokio runtime and lifespan-owned pools. The serving native extension excludes DataFusion,
 Delta and compiler code. `lctx_semantics` remains a pure bounded IPC/kernel boundary. Offline reference loading exports schemas from Rust, retains an independent Python digest oracle
 and shares projection validation. Online Python retains only the pinned descriptor, native image
 and lexical state; Rust selects and hydrates complete relational answers. Dense Python vector
@@ -698,10 +699,17 @@ Psycopg 3/SQLAlchemy only for a distinct Python-owned domain; pgrx only for a me
 kernel consumer; ADBC/protocol/notification/FTS/topology features only at the plan's named triggers.
 None adds a second migration owner or changes model/evaluation meaning.
 
-> Decision: ADR-0068, ADR-0069
+> Decision: ADR-0068, ADR-0070
 
-**Implemented; focused controls Tested (2026-09-28; ADR-0069).** Projection FORMAT 2 / bundle FORMAT 12 binds
+**Implemented; focused controls Tested (2026-09-28; ADR-0070).** Projection FORMAT 2 / bundle FORMAT 12 binds
 release identity and complete coverage context. PG12 validates stored projection rows before
 readiness; PG13 preserves exact query/native contracts; PG14 qualifies separately selected
 exact/HNSW profiles; PG15 admits bounded provider expressions and coherent operational reports.
 Implementation and qualification remain separately tracked in the PostgreSQL plan.
+
+**Implemented and Tested (2026-09-28; ADR-0070):** physical-index ANN admission, mixed exact/ANN
+routing, complete artifact-bearing recovery receipts and bounded operational diagnostics are
+available. The deployed live generation uses exact retrieval; no ANN class passed calibration.
+Restore/reindex invalidation and complete recovery through MCP serving passed. The
+[operations evidence](../../design_review/evidence/2026-09-28_postgresql-operations/README.md) records
+measured costs and the numerical-oracle boundary. Positive ANN admission remains conditional.

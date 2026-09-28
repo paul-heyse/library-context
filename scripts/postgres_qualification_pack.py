@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
 from pathlib import Path
 
@@ -88,12 +89,26 @@ async def build(args):
                 )
             )
         pack = dict(
-            format=1,
+            format=1 if args.phase == "legacy" else 2,
             generation=gen.key,
             spec=gen.spec_hash,
             maximum_ann_p95_ms=args.maximum_ann_p95_ms,
             cases=cases,
         )
+        if args.phase != "legacy":
+            pack["phase"] = args.phase
+            pack["policy"] = None
+            pack["calibration_sha256"] = None
+            if args.phase == "confirmation":
+                if args.calibration is None:
+                    raise ValueError("confirmation requires a calibration report")
+                calibration = json.loads(args.calibration.read_text())
+                if calibration.get("phase") != "calibration" or not calibration.get(
+                    "chosen_policy"
+                ):
+                    raise ValueError("calibration did not admit a candidate policy")
+                pack["policy"] = calibration["chosen_policy"]
+                pack["calibration_sha256"] = calibration["pack_sha256"]
         raw = json.dumps(pack, separators=(",", ":")).encode()
         if len(raw) > 128 * 1024 * 1024:
             raise ValueError("qualification pack exceeds 128 MiB")
@@ -101,7 +116,8 @@ async def build(args):
         with args.out.open("xb") as output:
             output.write(raw)
         print(
-            f"Frozen {len(cases)} cases for {gen.key}; {len(raw)} bytes; {args.embedder} embeddings"
+            f"Frozen {len(cases)} cases for {gen.key}; {len(raw)} bytes; "
+            f"{args.embedder} embeddings; sha256={hashlib.sha256(raw).hexdigest()}"
         )
 
 
@@ -114,6 +130,10 @@ def main():
     parser.add_argument("--embedder", choices=["fake", "vllm"], default="vllm")
     parser.add_argument("--embed-url", default="http://127.0.0.1:8000")
     parser.add_argument("--maximum-ann-p95-ms", type=float, default=250.0)
+    parser.add_argument(
+        "--phase", choices=["calibration", "confirmation", "legacy"], default="calibration"
+    )
+    parser.add_argument("--calibration", type=Path)
     asyncio.run(build(parser.parse_args()))
 
 

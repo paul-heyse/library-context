@@ -4,7 +4,7 @@ use crate::{
     import::{digest, lock, verify_locations},
     profiles::{Policy, Route, hex},
     repository::PinnedGeneration,
-    retrieval::{RankedEntity, rank_on, validate_query},
+    retrieval::{RankMode, RankedEntity, rank_on, validate_query},
     serving::{ImportStore, QueryLease, ServingStore},
 };
 use cpg_schema::id::{Digest, Id};
@@ -54,16 +54,24 @@ struct Stratum {
 impl ImportStore {
     pub async fn build_hnsw(&self, generation: Digest) -> Result<(), Error> {
         let mut lease = QueryLease::acquire(&self.pool).await?;
+        let mut tx = lease.connection.begin().await?;
+        sqlx::raw_sql("SET LOCAL statement_timeout='300s'; SET LOCAL transaction_timeout='300s'; SET LOCAL maintenance_work_mem='256MB'; SET LOCAL max_parallel_maintenance_workers=2").execute(&mut *tx).await?;
         sqlx::query("SELECT lctx_serving.build_hnsw($1)")
             .bind(generation.0.as_slice())
-            .execute(&mut *lease.connection)
+            .execute(&mut *tx)
             .await?;
+        tx.commit().await?;
         lease.complete();
         Ok(())
     }
     pub async fn qualify_hnsw(&self, reader: &ServingStore, raw: &[u8]) -> Result<Value, Error> {
         if raw.len() > 128 * 1024 * 1024 {
             return Err(refused("qualification pack byte budget").into());
+        }
+        let header: Value = serde_json::from_slice(raw)
+            .map_err(|_| Error::Request("invalid qualification pack".into()))?;
+        if header["format"] == 2 {
+            return crate::mixed_qualification::qualify(self, reader, raw).await;
         }
         let pack: QualificationPack = serde_json::from_slice(raw)
             .map_err(|_| Error::Request("invalid qualification pack".into()))?;
@@ -96,6 +104,7 @@ impl ImportStore {
             artifacts,
             profile: digest(&Policy::hnsw().digest()?)?,
             policy: Policy::hnsw(),
+            vector_population: None,
         };
         let mut strata: BTreeMap<String, Stratum> = BTreeMap::new();
         let mut cases = Vec::new();
@@ -147,7 +156,7 @@ impl ImportStore {
                 case.operations,
                 &ids,
                 10,
-                Route::Exact,
+                RankMode::Qualification(Route::Exact),
             )
             .await?;
             let exact_ms = started.elapsed().as_secs_f64() * 1000.0;
@@ -159,7 +168,7 @@ impl ImportStore {
                 case.operations,
                 &ids,
                 10,
-                Route::Hnsw,
+                RankMode::Qualification(Route::Hnsw),
             )
             .await?;
             let ann_ms = started.elapsed().as_secs_f64() * 1000.0;
@@ -288,7 +297,7 @@ impl ImportStore {
         Ok(result)
     }
 }
-fn ids(values: &[String]) -> Result<Vec<Vec<u8>>, Error> {
+pub(crate) fn ids(values: &[String]) -> Result<Vec<Vec<u8>>, Error> {
     if values.len() > 200000 {
         return Err(refused("qualification entity budget").into());
     }
@@ -305,14 +314,14 @@ fn ids(values: &[String]) -> Result<Vec<Vec<u8>>, Error> {
     }
     Ok(ids)
 }
-fn overlap(wanted: &[String], actual: &[String]) -> f64 {
+pub(crate) fn overlap(wanted: &[String], actual: &[String]) -> f64 {
     if wanted.is_empty() {
         return f64::from(actual.is_empty());
     }
     wanted.iter().filter(|id| actual.contains(id)).count() as f64 / wanted.len() as f64
 }
 // Qualification-only independent RRF oracle. Online fusion remains solely Python-owned.
-fn fused(lexical: &[String], promoted: &[String], rows: &[RankedEntity]) -> Vec<String> {
+pub(crate) fn fused(lexical: &[String], promoted: &[String], rows: &[RankedEntity]) -> Vec<String> {
     let mut scores: BTreeMap<String, f64> = BTreeMap::new();
     for (i, id) in lexical.iter().enumerate() {
         *scores.entry(id.clone()).or_default() += 1.0 / (61 + i) as f64;
@@ -327,7 +336,7 @@ fn fused(lexical: &[String], promoted: &[String], rows: &[RankedEntity]) -> Vec<
     rows.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
     rows.into_iter().take(10).map(|(id, _)| id).collect()
 }
-async fn plans(
+pub(crate) async fn plans(
     conn: &mut PgConnection,
     generation: &PinnedGeneration,
     query: &[f32],

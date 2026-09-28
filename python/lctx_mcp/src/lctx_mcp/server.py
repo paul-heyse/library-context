@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from collections.abc import AsyncIterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
@@ -513,6 +514,12 @@ def build_server(
             )
             del inputs
             served = await workers.run(serve, state, embedder, workers)
+            logging.getLogger(__name__).info(
+                "PostgreSQL serving generation=%s profile=%s route=%s",
+                descriptor["generation"],
+                descriptor["profile"],
+                descriptor["policy"]["route"],
+            )
             yield {"served": served}
         finally:
             try:

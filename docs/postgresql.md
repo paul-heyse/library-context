@@ -1,7 +1,7 @@
 # PostgreSQL operations
 
-**Implemented, 2026-09-27; qualification receipts:**
-[PostgreSQL evidence](design_review/evidence/2026-09-27_postgresql/README.md).
+**Implemented and Tested, 2026-09-28; qualification receipts:**
+[PG16–PG17 operations evidence](design_review/evidence/2026-09-28_postgresql-operations/README.md).
 [ADR-0068](adr/0068-postgresql-serving-and-standard-embeddings.md) owns the SQLx boundary;
 [the plan](plans/postgresql-integration-plan_2026-09-27.md) records initial acceptance and
 owns conditional capabilities. These instructions concern one operator's local application database.
@@ -152,7 +152,7 @@ stores/logs while preserving earlier evaluation artifacts.
 
 ## PG8–PG11 deployment and rollback
 
-**Implemented foundations; expanded runtime cutover remains PG12–PG17.** After the PG7 backup,
+**Implemented and deployed through PG17, 2026-09-28.** After the PG7 backup,
 `uv run python scripts/postgres_expand.py` installs pinned pgvector and provisions `lctx_importer`
 and `lctx_serving`. It does not migrate schemas. Run the newly built `target/release/lctx db migrate`
 then `target/release/lctx db check`. Application/serving startup only checks compatibility.
@@ -188,11 +188,19 @@ snapshot fingerprints; PG7 receipts retain their original image and tables.
 
 ## PG12–PG15 publication and query operations
 
-**Implemented with focused PG18 controls, 2026-09-28.** Migrations 005–007 accompany this code;
-they have been tested on disposable databases. The operator database still has 001–004.
-PG16 owns its coordinated upgrade, production server rollover and populated recovery drill;
-PG17 owns assembled live ANN/performance acceptance. Preserve the prior binary/config before
-explicit migration. No read, import or MCP startup migrates schemas automatically.
+**Implemented and deployed, 2026-09-28.** The operator database now runs migrations 001–008.
+The live 1024 FastMCP generation is selected with exact retrieval; no ANN class met its calibration
+benefit/plan gates. Serving config reserves two of its six connections for the provider and four
+for SQLx; importer has two, and the application cache pool has six. Budgets are per process.
+No read, import or MCP startup migrates schemas automatically.
+
+The protected populated `build/postgresql-pg17-operator.dump` receipt/artifact set restored both
+ready generations and the captured exact selection through least-privilege native/MCP serving
+in 15.31 seconds (900-second local objective). Retain the matching prior schema004/schema007
+binary, native/Python sources, config, artifacts and dumps in
+`build/postgresql-pg16-baseline-9471b93/`, as well as the PG7 baseline
+`build/postgresql-pg8-baseline-6403b60/`. Never pair a schema007 rollback database with the current
+schema008 runtime. Daily backup remains an operator action; no scheduler was installed.
 
 Projection FORMAT 2 / bundle FORMAT 12 binds release and coverage context to content identity.
 Re-export compatible canonical snapshots with `lctx bundle`; this does not re-embed their vectors.
@@ -235,23 +243,37 @@ fusion. HNSW indexes alone change no route. To prepare optional ANN qualificatio
 target/release/lctx serving build-hnsw --generation FULL_GENERATION_DIGEST
 uv run python scripts/postgres_qualification_pack.py BUNDLE_DIRECTORY REQUESTS_JSON \
   --out FROZEN_PACK_JSON --config SERVING_CONFIG --embedder vllm \
-  --maximum-ann-p95-ms 1000
+  --phase calibration --maximum-ann-p95-ms 250
 target/release/lctx serving qualify-hnsw --pack FROZEN_PACK_JSON \
   --serving-config SERVING_CONFIG
-# Only after a passing profile has been registered:
+# Retain the calibration JSON stdout. Freeze disjoint requests, then confirm:
+uv run python scripts/postgres_qualification_pack.py BUNDLE_DIRECTORY CONFIRMATION_REQUESTS_JSON \
+  --out CONFIRMATION_PACK_JSON --config SERVING_CONFIG --embedder vllm \
+  --phase confirmation --calibration CALIBRATION_REPORT_JSON
+target/release/lctx serving qualify-hnsw --pack CONFIRMATION_PACK_JSON \
+  --serving-config SERVING_CONFIG
+# Only after both confirmation runs pass for the current physical indexes:
 target/release/lctx serving select --library fastmcp --generation FULL_GENERATION_DIGEST \
   --profile QUALIFIED_PROFILE_DIGEST
 ```
 
-Choose the latency ceiling before measuring. Request entries supply `name`, `query`, `operations`,
-`stratum` and optional operation `where`; include briefs unfiltered, operations unfiltered, broad
-and selective filters. The frozen pack uses independent float64 cosine scores, entity-ID ties and
-canonical vectors. Qualification requires complete exact-reference agreement, 99% mean recall@10
-per consumer/view/filter stratum and fused output, declared latency, actual custom/generic HNSW
-plans, partition pruning and no fallback. Failure records an attempt and keeps the profile
-unselectable. Tiny fake fixtures test refusal plumbing, not live ANN quality. Responses disclose
-requested profile, actual route and fallback. Search may be lexical-only when embeddings are
-unavailable; database loss is an explicit error.
+Mixed format 2 always routes briefs, <=1024/4096 eligible vector-bearing operations and <=10%
+selectivity to exact. Calibration selects the smallest passing count floor and independently
+admitted broad/unfiltered classes. Confirmation uses disjoint queries and cannot retune policy.
+Each class needs eight distinct requests and two paired runs (three warmups, ten repetitions),
+99% mean recall@10 per active view and fused result, natural custom/generic index plans, no
+underfill fallback, <=250 ms rank-stage p95 and at least 20% improvement over exact. Timing
+includes routing, admission catalog work and compact IPC materialization under the serving role.
+Embedding and MCP protocol latency are reported separately. Comparison revision 2 checks
+complete inventories, finite per-entity scores within 1e-5 and each calculation's score/ID order;
+float64 ordinal crossings and top-10/fusion differences are reported separately. This preserves
+the declared PostgreSQL numerical policy without fuzzy ties. Frozen packs remain <=64 cases/128 MiB.
+
+Failed calibration/confirmation records evidence without selecting a profile. Exact-only deployment
+is supported when ANN has no measured benefit. Reindex, restore, index replacement, server/extension
+or retrieval-engine changes invalidate physical admission: explicit profile pins and ANN queries
+refuse stale admission. Requalify the actual indexes or explicitly select exact. Old format-1 ANN
+attempts remain historical evidence and cannot bypass this admission boundary.
 
 For a coherent operational report, reserve one or two provider connections in a protected serving
 config's existing total budget (`provider_connections < max_connections`, maximum six total):
@@ -285,3 +307,31 @@ ranking/structured evaluation use `--config` and the same pinned repository. `ju
 builds its own canonical fixture. `just test-postgres-reference PROJECTION REFERENCE_JSON` runs
 the separate saved-answer parity comparison; retained inputs and commands are in the
 [PG12–PG15 evidence](design_review/evidence/2026-09-28_postgresql-query/README.md).
+
+
+### Complete recovery and diagnostics
+
+`serving status [--generation DIGEST] [--verify-artifacts]` is a bounded, redacted read-only
+observation that also reports unavailable databases and incompatible schemas. It separates
+publication, artifact availability, selections and profile admission. Startup logs only the pin;
+optional diagnostic queries do not become serving prerequisites. The importer configuration
+selects the database; `--verify-artifacts` explicitly hashes retained files.
+
+Backup receipt format 2 uses one exported snapshot for pg_dump, streaming logical-root table
+fingerprints, ready manifests and selections. It copies each required native/lexical artifact into
+`ARCHIVE.artifacts/SHA256/NAME`. The completion receipt appears only after checksums and fsync.
+Keep the dump, JSON receipt and artifact directory together. Incomplete output is retained for
+inspection and is not a recovery point. Daily backups remain an operator responsibility.
+
+`postgres_backup.py restore-drill ARCHIVE` creates only an owned disposable PG18/vector database.
+It compares all logical rows and the receipt's complete inventory before mutations; verifies
+sequences/event writes; relocates artifacts with old paths unavailable; reconciles every ready
+generation; restores the recorded selected generation with an explicit exact profile; and enters
+least-privilege MCP/native lifespans. The 15-minute RTO includes verification and usable serving.
+Logical restore never inherits ANN admission. A compatible historical receipt uses the retained
+legacy restore verifier; old-schema operation requires the matching retained binary/native/config.
+
+Finite index/analyze maintenance uses a 300-second limit, 256 MiB maintenance memory and two
+parallel workers. Normal serving limits stay at 30 seconds. Retain all ready generations and
+artifacts; observe vector partition/index bytes, backup bytes and cluster-wide WAL growth before
+manual capacity changes. Automatic deletion, replicas and PITR remain later F10 scope.

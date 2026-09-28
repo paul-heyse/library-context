@@ -29,8 +29,12 @@ pub struct PinnedGeneration {
     pub(crate) policy: Policy,
     pub(crate) profile: Digest,
     pub(crate) artifacts: Vec<(String, PathBuf)>,
+    pub(crate) vector_population: Option<u64>,
 }
 impl PinnedGeneration {
+    pub fn id(&self) -> Digest {
+        self.id
+    }
     pub fn manifest(&self) -> &Manifest {
         &self.manifest
     }
@@ -151,14 +155,22 @@ impl ServingStore {
             return Err(corrupt("profile identity").into());
         }
         let artifacts = verify_locations(&mut lease.connection, &id, &manifest).await?;
-        lease.complete();
-        Ok(PinnedGeneration {
+        let vector_population = if policy.route == crate::profiles::Route::Mixed {
+            Some(crate::admission::universe(&mut lease.connection, id).await?)
+        } else {
+            None
+        };
+        let pinned = PinnedGeneration {
             id,
             manifest,
             profile,
             policy,
             artifacts,
-        })
+            vector_population,
+        };
+        crate::admission::check(&mut lease.connection, &pinned).await?;
+        lease.complete();
+        Ok(pinned)
     }
     pub async fn resolve(
         &self,

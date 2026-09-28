@@ -27,6 +27,8 @@ pub struct RankMetadata {
     pub fallback: Option<String>,
     pub candidate_depth: u32,
     pub approximate: bool,
+    pub routing_reason: String,
+    pub admission: Option<String>,
 }
 pub struct RankResult {
     pub metadata: RankMetadata,
@@ -83,7 +85,7 @@ impl ServingStore {
             operations,
             &eligible,
             limit,
-            generation.policy.route,
+            RankMode::Selected,
         )
         .await?;
         lease.complete();
@@ -106,6 +108,10 @@ pub(crate) fn validate_query(query: &[f32]) -> Result<(), Error> {
     }
     Ok(())
 }
+pub(crate) enum RankMode {
+    Selected,
+    Qualification(Route),
+}
 pub(crate) async fn rank_on(
     conn: &mut PgConnection,
     generation: &PinnedGeneration,
@@ -113,8 +119,12 @@ pub(crate) async fn rank_on(
     operations: bool,
     eligible: &[Vec<u8>],
     limit: u32,
-    route: Route,
+    mode: RankMode,
 ) -> Result<(Vec<RankedEntity>, RankMetadata), Error> {
+    let (route, enforce_admission) = match mode {
+        RankMode::Selected => (generation.policy.route, true),
+        RankMode::Qualification(route) => (route, false),
+    };
     let mut metadata = RankMetadata {
         profile: generation.profile.hex(),
         requested_route: route,
@@ -122,9 +132,43 @@ pub(crate) async fn rank_on(
         fallback: None,
         candidate_depth: 0,
         approximate: route == Route::Hnsw,
+        routing_reason: "explicit_profile".into(),
+        admission: None,
     };
     let mut tx = conn.begin().await?;
     sqlx::raw_sql("SET TRANSACTION READ ONLY; SET LOCAL work_mem='8MB'; SET LOCAL statement_timeout='30s'; SET LOCAL hnsw.ef_search=100; SET LOCAL hnsw.iterative_scan='strict_order'; SET LOCAL hnsw.max_scan_tuples=20000; SET LOCAL hnsw.scan_mem_multiplier=2").execute(&mut *tx).await?;
+    let route = if route == Route::Mixed {
+        let (e, u) = if operations {
+            crate::admission::population(
+                &mut tx,
+                generation.id,
+                true,
+                eligible,
+                generation.vector_population,
+            )
+            .await?
+        } else {
+            (0, 0)
+        };
+        let (chosen, reason) = generation.policy.choose(operations, e, u);
+        metadata.routing_reason = reason.into();
+        chosen
+    } else {
+        route
+    };
+    metadata.actual_route = route;
+    metadata.approximate = route == Route::Hnsw;
+    if route == Route::Hnsw && (enforce_admission || generation.policy.route == Route::Mixed) {
+        sqlx::query("SELECT pg_advisory_xact_lock_shared(lctx_serving.lock_key($1))")
+            .bind(generation.id.0.as_slice())
+            .execute(&mut *tx)
+            .await?;
+        metadata.admission = if enforce_admission {
+            crate::admission::check(&mut tx, generation).await?
+        } else {
+            crate::admission::inspect(&mut tx, generation, false).await?
+        };
+    }
     let views: Vec<&str> = if operations {
         vec!["signature_doc", "source_body"]
     } else {
@@ -317,7 +361,7 @@ pub(crate) async fn exact(
     }
     Ok(out)
 }
-fn encode(rows: &[RankedEntity]) -> Result<Vec<u8>, Error> {
+pub(crate) fn encode(rows: &[RankedEntity]) -> Result<Vec<u8>, Error> {
     let schema = cpg_schema::serving_projection::rank_schema();
     let mut bytes = Vec::new();
     {

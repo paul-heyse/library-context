@@ -878,6 +878,154 @@ async fn exact_ranks_and_ann_profile_isolation() {
 }
 
 #[tokio::test]
+#[ignore = "explicit real PostgreSQL physical admission and recovery controls"]
+async fn physical_admission_reindex_and_artifact_relocation() {
+    use lctx_postgres::profiles::Policy;
+    let source = lctx_postgres::import::Source::open(&std::path::PathBuf::from(
+        std::env::var("LCTX_TEST_PROJECTION").unwrap(),
+    ))
+    .unwrap();
+    let f = Fixture::start().await;
+    let first = tempfile::tempdir().unwrap();
+    let second = tempfile::tempdir().unwrap();
+    let mut config = f.config.clone();
+    config.role = Role::Importer;
+    config.url = config.url.replace("lctx_serving:", "lctx_importer:");
+    config.statement_timeout_seconds = 30;
+    let importer = config.open_importer().await.unwrap();
+    importer
+        .import(source.clone(), first.path().to_owned())
+        .await
+        .unwrap();
+    importer.build_hnsw(source.generation()).await.unwrap();
+    let id = source.generation();
+    let policy = Policy::mixed(1024, vec!["unfiltered".into()]);
+    let profile = cpg_schema::Digest::from_hex(&policy.digest().unwrap()).unwrap();
+    let realization: serde_json::Value =
+        sqlx::query_scalar("SELECT lctx_serving.index_realization($1)")
+            .bind(id.0.as_slice())
+            .fetch_one(&f.serving)
+            .await
+            .unwrap();
+    assert_eq!(realization["valid"], true);
+    assert!(
+        sqlx::query("SELECT lctx_serving.record_mixed_profile($1,$2,$3)")
+            .bind(id.0.as_slice())
+            .bind(policy.canonical().unwrap())
+            .bind(serde_json::json!({"passed":true,"phase":"confirmation"}))
+            .execute(&f.importer)
+            .await
+            .is_err()
+    );
+    // Synthetic measurement documents challenge the finite SQL transition and lifecycle.
+    // These are fixture controls, never evidence of real ANN recall or latency qualification.
+    let calibration = serde_json::json!({"fixture":true,"passed":false,"phase":"calibration","pack_sha256":"01".repeat(32),"chosen_policy":policy});
+    sqlx::query("SELECT lctx_serving.record_mixed_profile($1,$2,$3)")
+        .bind(id.0.as_slice())
+        .bind(policy.canonical().unwrap())
+        .bind(calibration)
+        .execute(&f.importer)
+        .await
+        .unwrap();
+    let run = serde_json::json!({"passed":true,"plans_passed":true,"ann_execution_passed":true,"recall_at_10":1.,"fused_recall_at_10":1.,"ann_p95_ms":1.,"exact_p95_ms":2.});
+    let confirmation = serde_json::json!({"fixture":true,"passed":true,"phase":"confirmation","runner":2,"generation":id.hex(),"profile":profile.hex(),"policy":policy,"pack_sha256":"02".repeat(32),"calibration_sha256":"01".repeat(32),"realization":realization,"exact_reference_passed":true,"classes":[{"class":"unfiltered","queries":8,"runs":[run,run]}]});
+    sqlx::query("SELECT lctx_serving.record_mixed_profile($1,$2,$3)")
+        .bind(id.0.as_slice())
+        .bind(policy.canonical().unwrap())
+        .bind(confirmation)
+        .execute(&f.importer)
+        .await
+        .unwrap();
+    let reader = f.config.open_serving().await.unwrap();
+    let lib = &source.manifest().context.library;
+    importer.select(lib, id, profile).await.unwrap();
+    let pin = reader.pin(lib, Some(id), Some(profile)).await.unwrap();
+    assert_eq!(
+        reader.diagnostics(id, true).await.unwrap()["generation"]["availability"],
+        "available"
+    );
+    let index = format!("lctx_serving.o_{}_d_ann", &id.hex()[..48]);
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("REINDEX INDEX {index}")))
+        .execute(&f.admin)
+        .await
+        .unwrap();
+    let changed: serde_json::Value =
+        sqlx::query_scalar("SELECT lctx_serving.index_realization($1)")
+            .bind(id.0.as_slice())
+            .fetch_one(&f.serving)
+            .await
+            .unwrap();
+    assert_ne!(realization, changed);
+    assert!(reader.pin(lib, Some(id), Some(profile)).await.is_err());
+    assert!(importer.select(lib, id, profile).await.is_err());
+    assert_eq!(pin.generation(), id.hex());
+    // A retained reader must recheck physical admission on the actual ANN path.
+    // The small default fixture stays exact; the pilot control has >1024 vector entities.
+    let population:i64=sqlx::query_scalar("SELECT count(DISTINCT node_id) FROM lctx_serving.operation_vectors WHERE generation_digest=$1").bind(id.0.as_slice()).fetch_one(&f.serving).await.unwrap();
+    if population > 1024 {
+        let mut query = vec![0.0f32; 1024];
+        query[0] = 1.;
+        assert!(matches!(
+            reader
+                .vector_ranks(
+                    &pin,
+                    &query,
+                    source.manifest().spec_hash.as_deref().unwrap(),
+                    true,
+                    None,
+                    10
+                )
+                .await,
+            Err(lctx_postgres::Error::Admission(_))
+        ));
+    }
+    let exact = cpg_schema::Digest::from_hex(&Policy::exact().digest().unwrap()).unwrap();
+    importer.select(lib, id, exact).await.unwrap();
+    importer
+        .import(source.clone(), second.path().to_owned())
+        .await
+        .unwrap();
+    first.close().unwrap();
+    importer
+        .relocate_artifacts(id, second.path().to_owned())
+        .await
+        .unwrap();
+    let relocated = reader.pin(lib, Some(id), None).await.unwrap();
+    assert!(
+        relocated
+            .artifacts()
+            .iter()
+            .all(|(_, p)| p.starts_with(second.path()))
+    );
+    let (name, path) = relocated.artifacts()[0].clone();
+    std::fs::write(&path, b"corrupt").unwrap();
+    assert_eq!(
+        reader.diagnostics(id, true).await.unwrap()["generation"]["availability"],
+        "corrupt"
+    );
+    std::fs::remove_file(path).unwrap();
+    assert_eq!(
+        reader.diagnostics(id, true).await.unwrap()["generation"]["availability"],
+        "missing",
+        "{name}"
+    );
+    assert!(reader.pin(lib, Some(id), None).await.is_err());
+    let mut invalid = config.clone();
+    let mut url = url::Url::parse(&invalid.url).unwrap();
+    url.set_port(Some(1)).unwrap();
+    invalid.url = url.to_string();
+    assert_eq!(invalid.diagnose(None, false).await.database, "unavailable");
+    // Incompatible migrations must still be observable without normal repository admission.
+    sqlx::query("UPDATE public._sqlx_migrations SET checksum=decode('00','hex') WHERE version=(SELECT max(version) FROM public._sqlx_migrations)").execute(&f.admin).await.unwrap();
+    let diagnostic = config.diagnose(Some(id), false).await;
+    assert_eq!(diagnostic.database, "available");
+    assert!(!diagnostic.schema_current);
+    assert!(diagnostic.failure.is_some());
+    reader.close().await;
+    importer.close().await;
+}
+
+#[tokio::test]
 #[ignore = "explicit real PostgreSQL publication fault controls"]
 async fn interrupted_import_resumes_without_partial_visibility() {
     let source = lctx_postgres::import::Source::open(std::path::Path::new(

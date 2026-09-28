@@ -214,6 +214,98 @@ fn load_order(dimensions: i32) -> Result<Vec<&'static str>, Error> {
     Ok(order)
 }
 impl ImportStore {
+    /// Append verified content-addressed locations; never change generation content or selection.
+    pub async fn relocate_artifacts(
+        &self,
+        id: Digest,
+        root: PathBuf,
+    ) -> Result<ImportStatus, Error> {
+        let mut lease = QueryLease::acquire(&self.pool).await?;
+        let mut guard = lock(&id).acquire(&mut *lease.connection).await?;
+        let raw:String=sqlx::query_scalar("SELECT canonical_manifest FROM lctx_serving.generations WHERE generation_digest=$1 AND state='ready'").bind(id.0.as_slice()).fetch_one(guard.as_mut()).await?;
+        let manifest: Manifest =
+            serde_json::from_str(&raw).map_err(|_| corrupt("relocation manifest"))?;
+        manifest.validate()?;
+        if manifest.generation()? != id.hex() {
+            return Err(corrupt("relocation identity").into());
+        }
+        let owned = manifest.clone();
+        let locations = tokio::task::spawn_blocking(move || {
+            let root = fs_err::canonicalize(root).map_err(io_error)?;
+            let mut locations = Vec::new();
+            for (name, r) in &owned.artifacts {
+                let path = root.join(&r.sha256).join(name);
+                owned.verify_artifact(name, &read_bounded(&path, contract::MAX_RELATION_BYTES)?)?;
+                locations.push((name.clone(), path));
+            }
+            Ok::<_, Error>(locations)
+        })
+        .await
+        .map_err(|_| Error::Integrity("relocation worker failed"))??;
+        let mut tx = guard.as_mut().begin().await?;
+        for (name, path) in locations {
+            let r = &manifest.artifacts[&name];
+            sqlx::query("SELECT lctx_serving.register_artifact($1,$2,$3,$4,$5,$6)")
+                .bind(id.0.as_slice())
+                .bind(name)
+                .bind(digest(&r.sha256)?.0.as_slice())
+                .bind(r.bytes as i64)
+                .bind(r.format as i32)
+                .bind(path.to_str().ok_or_else(|| corrupt("artifact path"))?)
+                .execute(&mut *tx)
+                .await?;
+        }
+        tx.commit().await?;
+        let status = status_on(guard.as_mut(), &id).await?;
+        guard.release_now().await?;
+        lease.complete();
+        Ok(status)
+    }
+
+    /// Export validated ready manifests/artifact closure under the backup's exported snapshot.
+    pub async fn recovery_inventory(&self, snapshot: &str) -> Result<serde_json::Value, Error> {
+        if snapshot.is_empty()
+            || snapshot.len() > 64
+            || !snapshot.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-')
+        {
+            return Err(Error::Request("invalid exported snapshot".into()));
+        }
+        let mut lease = QueryLease::acquire(&self.pool).await?;
+        let mut tx = lease
+            .connection
+            .begin_with("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            .await?;
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "SET TRANSACTION SNAPSHOT '{snapshot}'; SET LOCAL transaction_timeout='300s'"
+        )))
+        .execute(&mut *tx)
+        .await?;
+        let rows:Vec<(Vec<u8>,String)>=sqlx::query_as("SELECT generation_digest,canonical_manifest FROM lctx_serving.generations WHERE state='ready' ORDER BY generation_digest LIMIT 1001").fetch_all(&mut *tx).await?;
+        if rows.len() > 1000 {
+            return Err(refused("recovery generation budget").into());
+        }
+        let mut generations = Vec::new();
+        let mut bytes = 0;
+        for (id, raw) in rows {
+            bytes += raw.len();
+            if bytes > 16 * 1024 * 1024 {
+                return Err(refused("recovery manifest budget").into());
+            }
+            let id = Digest(id.try_into().map_err(|_| corrupt("recovery identity"))?);
+            let manifest: Manifest =
+                serde_json::from_str(&raw).map_err(|_| corrupt("recovery manifest"))?;
+            manifest.validate()?;
+            if manifest.generation()? != id.hex() {
+                return Err(corrupt("recovery manifest identity").into());
+            }
+            let paths = verify_locations(&mut tx, &id, &manifest).await?;
+            let artifacts=paths.into_iter().map(|(name,path)| {let r=&manifest.artifacts[&name];serde_json::json!({"name":name,"location":path,"sha256":r.sha256,"bytes":r.bytes,"format":r.format})}).collect::<Vec<_>>();
+            generations.push(serde_json::json!({"generation":id.hex(),"manifest":manifest,"artifacts":artifacts}));
+        }
+        tx.commit().await?;
+        lease.complete();
+        Ok(serde_json::json!({"format":1,"generations":generations}))
+    }
     pub async fn import(
         &self,
         source: Source,
@@ -380,10 +472,13 @@ impl ImportStore {
                 .await?;
         }
         if state != "ready" {
+            let mut maintenance = conn.begin().await?;
+            sqlx::raw_sql("SET LOCAL statement_timeout='300s'; SET LOCAL transaction_timeout='300s'; SET LOCAL maintenance_work_mem='256MB'; SET LOCAL max_parallel_maintenance_workers=2").execute(&mut *maintenance).await?;
             sqlx::query("SELECT lctx_serving.analyze_generation($1)")
                 .bind(source.generation.0.as_slice())
-                .execute(&mut *conn)
+                .execute(&mut *maintenance)
                 .await?;
+            maintenance.commit().await?;
             validate_stored(conn, &source.generation, &source.manifest).await?;
             check_indexes(conn, &source.generation).await?;
             verify_locations(conn, &source.generation, &source.manifest).await?;
@@ -415,6 +510,11 @@ impl ImportStore {
         profile: Digest,
     ) -> Result<(), Error> {
         let mut lease = QueryLease::acquire(&self.pool).await?;
+        let raw:String=sqlx::query_scalar("SELECT canonical_manifest FROM lctx_serving.generations WHERE generation_digest=$1 AND state='ready'").bind(generation.0.as_slice()).fetch_one(&mut *lease.connection).await?;
+        let manifest: Manifest =
+            serde_json::from_str(&raw).map_err(|_| corrupt("selection manifest"))?;
+        manifest.validate()?;
+        verify_locations(&mut lease.connection, &generation, &manifest).await?;
         sqlx::query("SELECT lctx_serving.select_generation($1,$2,$3)")
             .bind(library)
             .bind(generation.0.as_slice())
@@ -668,17 +768,35 @@ pub(crate) async fn verify_locations(
     tokio::task::spawn_blocking(move || {
         let mut locations = Vec::new();
         for name in manifest.artifacts.keys() {
+            let mut damaged = false;
             let found = rows
                 .iter()
                 .filter(|(n, _)| n == name)
                 .find_map(|(_, location)| {
                     let path = PathBuf::from(location);
-                    read_bounded(&path, contract::MAX_RELATION_BYTES)
-                        .ok()
-                        .filter(|bytes| manifest.verify_artifact(name, bytes).is_ok())
-                        .map(|_| path)
+                    match read_bounded(&path, contract::MAX_RELATION_BYTES) {
+                        Ok(bytes) if manifest.verify_artifact(name, &bytes).is_ok() => Some(path),
+                        Err(Error::Projection(e))
+                            if e.kind == contract::FailureKind::Unavailable =>
+                        {
+                            None
+                        }
+                        _ => {
+                            damaged = true;
+                            None
+                        }
+                    }
                 })
-                .ok_or_else(|| corrupt("required artifact missing or corrupt"))?;
+                .ok_or_else(|| {
+                    if damaged {
+                        corrupt("required artifact corrupt")
+                    } else {
+                        contract::ProjectionError {
+                            kind: contract::FailureKind::Unavailable,
+                            message: "required artifact missing".into(),
+                        }
+                    }
+                })?;
             locations.push((name.clone(), found));
         }
         Ok(locations)

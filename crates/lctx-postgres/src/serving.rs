@@ -88,7 +88,7 @@ impl RoleConfig {
         self.options()?;
         Ok(())
     }
-    fn options(&self) -> Result<PgConnectOptions, Error> {
+    pub(crate) fn options(&self) -> Result<PgConnectOptions, Error> {
         let options = PgConnectOptions::from_str(&self.url)
             .map_err(|_| Error::Config("invalid role connection URL"))?;
         let host = options.get_host();
@@ -191,8 +191,11 @@ impl std::ops::DerefMut for LeaseConnection {
 }
 impl QueryLease {
     pub(crate) async fn acquire(pool: &PgPool) -> Result<Self, Error> {
+        let started = std::time::Instant::now();
+        let connection = pool.acquire().await?;
+        tracing::debug!(target:"lctx::postgres", acquire_ms=started.elapsed().as_secs_f64()*1000.0, connections=pool.size(),idle=pool.num_idle(),"database lease acquired");
         Ok(Self {
-            connection: LeaseConnection(Some(pool.acquire().await?)),
+            connection: LeaseConnection(Some(connection)),
             pool: pool.clone(),
             complete: false,
         })
@@ -233,7 +236,7 @@ impl Drop for QueryLease {
     }
 }
 
-async fn check_connection(conn: &mut PgConnection) -> Result<(), Error> {
+pub(crate) async fn check_connection(conn: &mut PgConnection) -> Result<(), Error> {
     let rows: Vec<(i64, bool, Vec<u8>)> = sqlx::query_as(
         "SELECT version, success, checksum FROM public._sqlx_migrations ORDER BY version",
     )
@@ -274,6 +277,7 @@ pub struct ServingHealth {
     pub extension: &'static str,
     pub schema_current: bool,
     pub connections: u32,
+    pub idle_connections: usize,
 }
 impl ServingStore {
     pub async fn check(&self) -> Result<ServingHealth, Error> {
@@ -288,6 +292,7 @@ impl ServingStore {
             extension: EXTENSION_VERSION,
             schema_current: true,
             connections: self.pool.size(),
+            idle_connections: self.pool.num_idle(),
         })
     }
     pub async fn close(&self) {

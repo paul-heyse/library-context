@@ -1,8 +1,11 @@
 //! SQLx owns PostgreSQL effects; neither connections nor operational rows are semantic inputs.
 
+pub mod admission;
 mod cache;
+pub mod diagnostics;
 mod hydration;
 pub mod import;
+mod mixed_qualification;
 pub mod operations;
 pub mod profiles;
 pub mod projection;
@@ -31,6 +34,8 @@ pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 /// Deliberately omits driver/server text, which may include credentials or bound values.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("PostgreSQL retrieval admission unavailable: {0}")]
+    Admission(&'static str),
     #[error("PostgreSQL configuration: {0}")]
     Config(&'static str),
     #[error("invalid serving request: {0}")]

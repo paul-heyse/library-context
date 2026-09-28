@@ -63,11 +63,13 @@ RANK_BYTES = 32 * 1024 * 1024
 
 class RetrievalMetadata(BaseModel):
     profile: str
-    requested_route: Literal["exact", "hnsw"]
+    requested_route: Literal["exact", "hnsw", "mixed"]
     actual_route: Literal["exact", "hnsw", "lexical-only"]
     fallback: str | None = None
     candidate_depth: int = 0
     approximate: bool = False
+    routing_reason: str = "explicit_profile"
+    admission: str | None = None
 
 
 def identities(values: list[str]) -> np.ndarray:

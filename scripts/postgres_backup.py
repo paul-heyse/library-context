@@ -63,94 +63,7 @@ def fingerprints(query, tables=TABLES) -> dict[str, dict[str, object]]:
     }
 
 
-def backup(config: Path, archive: Path) -> None:
-    protected(config)
-    settings = json.loads(config.read_text())
-    if "migration_url" not in settings:
-        admin = config.with_name("postgres-admin.json")
-        protected(admin)
-        settings = json.loads(admin.read_text())
-    env = connection_env(settings["migration_url"])
-    archive.parent.mkdir(parents=True, exist_ok=True)
-    receipt = archive.with_suffix(archive.suffix + ".json")
-    if archive.exists() or receipt.exists():
-        raise SystemExit("refusing to overwrite an existing backup or receipt")
-    archive.touch(mode=0o600, exist_ok=False)
-    process = subprocess.Popen(
-        ["psql", "-X", "-qAt", "-v", "ON_ERROR_STOP=1"],
-        env=env,
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
-    assert process.stdin is not None and process.stdout is not None
-
-    def query(sql: str) -> str:
-        assert process.stdin is not None and process.stdout is not None
-        process.stdin.write(sql + "\n")
-        process.stdin.flush()
-        answer = process.stdout.readline().strip()
-        if not answer:
-            raise RuntimeError("PostgreSQL backup snapshot query failed")
-        return answer
-
-    try:
-        snapshot = query(
-            "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY; SELECT pg_export_snapshot();"
-        )
-        projection_tables = json.loads(
-            query(
-                "SELECT coalesce(json_agg('lctx_serving.'||tablename "
-                "ORDER BY tablename),'[]'::json) "
-                "FROM pg_tables WHERE schemaname='lctx_serving';"
-            )
-        )
-        if any(
-            not name.removeprefix("lctx_serving.").replace("_", "").isalnum()
-            for name in projection_tables
-        ):
-            raise RuntimeError("unexpected projection table identifier")
-        state = fingerprints(query, (*TABLES, *projection_tables))
-        image = (
-            (Path(__file__).resolve().parent.parent / "specs/postgres-vector-image.txt")
-            .read_text()
-            .strip()
-            if projection_tables
-            else "postgres:"
-            + (Path(__file__).resolve().parent.parent / "specs/postgres-image.txt")
-            .read_text()
-            .strip()
-        )
-        call(
-            ["pg_dump", "--format=custom", "--snapshot", snapshot, "--file", str(archive)],
-            env=env,
-            capture_output=True,
-        )
-        process.stdin.write("COMMIT;\n\\q\n")
-        process.stdin.flush()
-        if process.wait(timeout=10):
-            raise RuntimeError("PostgreSQL backup transaction failed")
-        receipt.touch(mode=0o600, exist_ok=False)
-        receipt.write_text(
-            json.dumps(
-                {
-                    "sha256": hashlib.file_digest(archive.open("rb"), "sha256").hexdigest(),
-                    "tables": state,
-                    "image": image,
-                },
-                indent=2,
-            )
-            + "\n"
-        )
-        print(f"passed: consistent application backup and recovery fingerprints: {archive}")
-    finally:
-        if process.poll() is None:
-            process.terminate()
-            process.wait(timeout=10)
-
-
-def restore_drill(archive: Path) -> None:
+def legacy_restore_drill(archive: Path) -> None:
     protected(archive)
     receipt = archive.with_suffix(archive.suffix + ".json")
     protected(receipt)
@@ -265,9 +178,18 @@ def main() -> None:
     args = parser.parse_args()
     try:
         if args.command == "backup":
+            from postgres_recovery import backup
+
             backup(args.config, args.archive)
         else:
-            restore_drill(args.archive)
+            receipt = args.archive.with_suffix(args.archive.suffix + ".json")
+            protected(receipt)
+            if json.loads(receipt.read_text()).get("format") == 2:
+                from postgres_recovery import restore
+
+                restore(args.archive)
+            else:
+                legacy_restore_drill(args.archive)
     except (OSError, RuntimeError, subprocess.SubprocessError) as error:
         # Driver/utility error text can contain credentials, identifiers or row payloads.
         reason = str(error) if isinstance(error, RuntimeError) else type(error).__name__

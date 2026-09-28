@@ -131,6 +131,23 @@ fn filter(value: &str) -> PyResult<Where> {
 }
 #[pymethods]
 impl PinnedRepository {
+    #[pyo3(signature=(verify_artifacts=false))]
+    fn diagnostics<'py>(
+        &self,
+        py: Python<'py>,
+        verify_artifacts: bool,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let store = self.store.clone();
+        let id = self.pinned.id();
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            encode(
+                store
+                    .diagnostics(id, verify_artifacts)
+                    .await
+                    .map_err(error)?,
+            )
+        })
+    }
     fn descriptor(&self) -> PyResult<String> {
         encode(self.pinned.descriptor())
     }
