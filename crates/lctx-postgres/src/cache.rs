@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use super::{Error, Store};
-use crate::embed::{Spec, check_vector};
+use cpg_schema::embedding_spec::{Spec, check_vector};
 use cpg_schema::{
     embedding::{VALUE_CODEC, decode_vector, encode_vector, value_digest},
     id::Digest,
@@ -26,6 +26,8 @@ struct StoredValue {
 
 impl Store {
     pub async fn ensure_spec(&self, spec: &Spec) -> Result<(), Error> {
+        spec.validate()
+            .map_err(|_| Error::Integrity("embedding specification"))?;
         let dimensions =
             i32::try_from(spec.dimensions).map_err(|_| Error::Integrity("dimensions"))?;
         if !(1..=65536).contains(&dimensions) {

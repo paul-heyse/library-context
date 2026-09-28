@@ -126,7 +126,7 @@ pub struct Published {
 /// 103: builtin binding-preserving descriptors no longer write the decorator boundary.
 /// 104: summaries neither start in nor compose through a decorated function (ADR-0064).
 /// 105: call-transfer return claims graded after summaries with claim-keyed discharges (ADR-0064).
-pub const COMPILER_OUTPUT_VERSION: u32 = 106;
+pub const COMPILER_OUTPUT_VERSION: u32 = 107;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -1452,6 +1452,7 @@ mod tests {
         ] {
             walk(&root, &root.join(tree), &mut found);
         }
+        found.push("crates/lctx-postgres/src/cache.rs".to_owned());
         found.sort();
         let hashed: Vec<&str> = env!("LCTX_SOURCE_FILES").split(';').collect();
         assert_eq!(found, hashed);

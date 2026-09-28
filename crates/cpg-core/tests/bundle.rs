@@ -1794,10 +1794,35 @@ async fn finalizer_proof_round_trips_through_the_native_generation_reader() {
     let generation = bundle(&store, SNAPSHOT, &dir.path().join("generations"))
         .await
         .unwrap();
+    let mut tables = std::collections::BTreeMap::new();
+    for entry in std::fs::read_dir(&generation.dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().is_some_and(|ext| ext == "arrow") {
+            let reader =
+                arrow_ipc::reader::FileReader::try_new(std::fs::File::open(&path).unwrap(), None)
+                    .unwrap();
+            let batches = reader.collect::<Result<Vec<_>, _>>().unwrap();
+            tables.insert(
+                path.file_stem().unwrap().to_str().unwrap().to_owned(),
+                batches,
+            );
+        }
+    }
+    cpg_schema::serving_support::validate(&tables).unwrap();
+    let findings = tables.get_mut("support_findings").unwrap();
+    let first = findings
+        .iter_mut()
+        .find(|batch| batch.num_rows() > 0)
+        .unwrap();
+    *first = first.slice(1, first.num_rows() - 1);
+    assert!(
+        cpg_schema::serving_support::validate(&tables).is_err(),
+        "a missing finding closure was admitted"
+    );
     let script = r#"
 import sys
 from pathlib import Path
-from lctx_mcp.generation import GenerationError, _validate_support_closure, load
+from lctx_mcp.generation import load
 from lctx_mcp.server import hydrate, markdown, serve
 generation = load(Path(sys.argv[1]), None)
 index = generation.condition_graph
@@ -1826,14 +1851,6 @@ rendered = markdown(capability)
 assert finding.finding_id in rendered
 assert finding.invocation_id in rendered and finding.model_id in rendered
 assert f"{source.source_path}:{source.start_byte}-{source.end_byte}" in rendered
-broken = dict(generation.tables)
-broken["support_findings"] = broken["support_findings"].slice(1)
-try:
-    _validate_support_closure(broken)
-except GenerationError:
-    pass
-else:
-    raise AssertionError("a missing finding closure was served")
 "#;
     let output = std::process::Command::new("uv")
         .args(["run", "--no-sync", "python", "-c", script])
@@ -2025,6 +2042,18 @@ async fn a_changed_generation_is_refused() {
     let err = verify(&renamed).unwrap_err().to_string();
     assert!(err.contains("unexpected served file path"), "{err}");
 
+    let mut mismatched = g.manifest.clone();
+    mismatched["projection"]["snapshot_id"] = serde_json::json!("ff".repeat(16));
+    let projection: cpg_schema::serving_projection::Manifest =
+        serde_json::from_value(mismatched["projection"].clone()).unwrap();
+    mismatched["projection_generation"] = serde_json::json!(projection.generation().unwrap());
+    std::fs::write(&manifest_path, serde_json::to_vec(&mismatched).unwrap()).unwrap();
+    let err = verify(&renamed).unwrap_err().to_string();
+    assert!(
+        err.contains("projection envelope mismatch: snapshot_id"),
+        "{err}"
+    );
+
     let path = g.dir.join("briefs.arrow");
     let mut bytes = std::fs::read(&path).unwrap();
     let last = bytes.len() - 20;
@@ -2065,7 +2094,7 @@ fn serving_schema_digests_are_the_shared_known_answers() {
     let path =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../specs/serving/schema_digests.json");
     let mut answers = serde_json::Map::new();
-    for f in cpg_schema::bundle::files(4096) {
+    for f in cpg_schema::bundle::files(1024) {
         answers.insert(
             f.name.to_owned(),
             serde_json::json!({

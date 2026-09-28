@@ -1096,6 +1096,10 @@ impl WordsEmbedder {
     fn new() -> Self {
         WordsEmbedder {
             spec: cpg_core::embed::Spec {
+                format: 2,
+                source_dimensions: 64,
+                reduction: "none".to_owned(),
+                admission: None,
                 model: "test-words".to_owned(),
                 revision: "1".to_owned(),
                 tokenizer_revision: "bytes/4".to_owned(),
@@ -1794,8 +1798,9 @@ async fn all_techniques_guard() {
     // compiler105's discharge ordering: argument flows written by query before summaries, and
     // the behavior scan graded from their decisions (ADR-0064), then the committed catalog's
     // remaining Logger levels (catalog content, format 7), then compiler106's snapshot-local
-    // consumed vector values and consumer inventory (ADR-0065/0067).
-    const GUARD: &str = "38340ec5ea4f4a187a14e0593a1e990c951532dc27d187a1674ec07fc2d91e6c";
+    // consumed vector values and consumer inventory (ADR-0068/0067), then compiler107
+    // format-2 spec identity (the word-overlap test oracle retains its own 64-dimension model).
+    const GUARD: &str = "355fd67d85428a8e7ea94bbb564a0e4732ca67979499c8f5d87e1813cf4f5495";
     assert_eq!(digest, GUARD, "the all-techniques guard moved");
 }
 
@@ -1809,7 +1814,10 @@ async fn typed_handoff_pair_support_survives_serving_without_becoming_a_call_cha
 import sys
 from pathlib import Path
 import pyarrow as pa
-from lctx_mcp.generation import load, _validate_support_closure, GenerationError
+from lctx_mcp.generation import load
+from lctx_semantics import validate_projection_ipc
+sys.path.insert(0, str(Path('python/lctx_mcp/tests').resolve()))
+from test_projection import changed as changed_projection
 from lctx_mcp.server import serve, _finding
 
 generation = load(Path(sys.argv[1]), None)
@@ -1835,8 +1843,8 @@ changed = dict(generation.tables)
 changed['support_members'] = pa.Table.from_pylist([m for m in members if m is not consumer],
     schema=generation.tables['support_members'].schema)
 try:
-    _validate_support_closure(changed)
-except GenerationError:
+    validate_projection_ipc(*changed_projection(Path(sys.argv[1]), "support_members", changed["support_members"]))
+except ValueError:
     pass
 else:
     raise AssertionError('orphan handoff member admitted')
@@ -1848,8 +1856,8 @@ for fields in (('other_fact_id',), ('other_edge_id', 'other_fact_id', 'other_fac
         [dict(r, **{name: None for name in fields}) if r['finding_id'] == handoffs[0] else r for r in rows],
         schema=generation.tables['support_attribute_incidences'].schema)
     try:
-        _validate_support_closure(changed)
-    except GenerationError:
+        validate_projection_ipc(*changed_projection(Path(sys.argv[1]), "support_attribute_incidences", changed["support_attribute_incidences"]))
+    except ValueError:
         pass
     else:
         raise AssertionError(('missing handoff evidence admitted', fields))

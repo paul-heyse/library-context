@@ -85,19 +85,24 @@ pub enum Generations {
     },
 }
 
-pub async fn connect(config: Option<&Path>, migration: bool) -> anyhow::Result<Store> {
+pub async fn connect(config: Option<&Path>) -> anyhow::Result<Store> {
     let config = Config::load(&Config::path(config)?)?;
-    Ok(config.connect(migration).await?)
+    Ok(config.connect_application().await?)
 }
 
 pub async fn command(command: Command, config: Option<&Path>) -> anyhow::Result<()> {
-    let db = connect(config, matches!(command, Command::Migrate)).await?;
+    if matches!(command, Command::Migrate) {
+        let settings = Config::load(&Config::path(config)?)?;
+        let db = settings.connect_migrator().await?;
+        db.migrate().await?;
+        db.check().await?;
+        db.close().await;
+        println!("PostgreSQL migrations applied; schema current");
+        return Ok(());
+    }
+    let db = connect(config).await?;
     match command {
-        Command::Migrate => {
-            db.migrate().await?;
-            db.check().await?;
-            println!("PostgreSQL migrations applied; schema current");
-        }
+        Command::Migrate => unreachable!("handled before opening application pool"),
         Command::Check => {
             db.check().await?;
             println!("PostgreSQL 18 schema check passed");
@@ -187,7 +192,7 @@ pub async fn command(command: Command, config: Option<&Path>) -> anyhow::Result<
 }
 
 pub async fn runs(command: Runs, config: Option<&Path>) -> anyhow::Result<()> {
-    let db = connect(config, false).await?;
+    let db = connect(config).await?;
     db.check().await?;
     match command {
         Runs::List { limit, offset } => println!(
@@ -228,7 +233,7 @@ pub async fn runs(command: Runs, config: Option<&Path>) -> anyhow::Result<()> {
 }
 
 pub async fn snapshots(command: Snapshots, config: Option<&Path>) -> anyhow::Result<()> {
-    let db = connect(config, false).await?;
+    let db = connect(config).await?;
     db.check().await?;
     let (id, limit, offset) = match command {
         Snapshots::List { limit, offset } => (None, limit, offset),
@@ -254,7 +259,7 @@ pub async fn snapshots(command: Snapshots, config: Option<&Path>) -> anyhow::Res
 }
 
 pub async fn generations(command: Generations, config: Option<&Path>) -> anyhow::Result<()> {
-    let db = connect(config, false).await?;
+    let db = connect(config).await?;
     db.check().await?;
     let (key, limit, offset) = match command {
         Generations::List { limit, offset } => (None, limit, offset),

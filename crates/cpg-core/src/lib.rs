@@ -104,3 +104,5 @@ pub enum CoreError {
     #[error("the snapshots append failed and re-reading shows it unpublished: {0}")]
     Unpublished(Box<CoreError>),
 }
+
+pub mod postgres_read;

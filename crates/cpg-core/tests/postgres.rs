@@ -1,7 +1,7 @@
 //! Real PG18 qualification. Explicitly run by `just test-postgres`; never a mocked DB pass.
 use cpg_core::{
     embed::{Embedder, FakeEmbedder, Session, Usage},
-    postgres::{CacheValue, Config, Store, TEST_IMAGE_TAG},
+    postgres::{CacheValue, Config, Store},
 };
 use cpg_schema::{
     embedding::encode_vector,
@@ -24,7 +24,14 @@ impl Fixture {
         cpg_extract::logging::init_logging();
         let db = Postgres::default()
             .with_fsync_enabled()
-            .with_tag(TEST_IMAGE_TAG.trim())
+            .with_name("pgvector/pgvector")
+            .with_tag(
+                cpg_core::postgres::serving::TEST_IMAGE
+                    .trim()
+                    .split_once(':')
+                    .unwrap()
+                    .1,
+            )
             .start()
             .await
             .expect("blocked: Docker and the pinned PostgreSQL image are required");
@@ -34,8 +41,9 @@ impl Fixture {
         ))
         .await
         .unwrap();
-        sqlx::raw_sql("CREATE ROLE lctx_app LOGIN PASSWORD 'fixture-only'; CREATE ROLE lctx_migrator LOGIN PASSWORD 'fixture-only'; GRANT CREATE ON DATABASE postgres TO lctx_migrator; GRANT CREATE ON SCHEMA public TO lctx_migrator;").execute(&admin).await.unwrap();
+        sqlx::raw_sql("CREATE ROLE lctx_app LOGIN PASSWORD 'fixture-only'; CREATE ROLE lctx_migrator LOGIN PASSWORD 'fixture-only'; GRANT CREATE ON DATABASE postgres TO lctx_migrator; GRANT CREATE ON SCHEMA public TO lctx_migrator; CREATE ROLE lctx_importer LOGIN PASSWORD 'fixture-only'; CREATE ROLE lctx_serving LOGIN PASSWORD 'fixture-only'; CREATE SCHEMA lctx_ext; REVOKE ALL ON SCHEMA lctx_ext FROM PUBLIC; CREATE EXTENSION vector WITH SCHEMA lctx_ext VERSION '0.8.6'; GRANT USAGE ON SCHEMA lctx_ext TO lctx_app,lctx_migrator,lctx_importer,lctx_serving;").execute(&admin).await.unwrap();
         let config = Config {
+            migration_config: None,
             application_url: format!("postgres://lctx_app:fixture-only@127.0.0.1:{port}/postgres"),
             migration_url: format!(
                 "postgres://lctx_migrator:fixture-only@127.0.0.1:{port}/postgres"
@@ -46,14 +54,14 @@ impl Fixture {
             lock_timeout_seconds: 1,
             max_receipt_bytes: 268435456,
         };
-        let migrator = config.connect(true).await.unwrap();
+        let migrator = config.connect_migrator().await.unwrap();
         assert!(migrator.check().await.is_err());
         let (first, second) = tokio::join!(migrator.migrate(), migrator.migrate());
         first.unwrap();
         second.unwrap();
         migrator.check().await.unwrap();
         migrator.close().await;
-        let app = config.connect(false).await.unwrap();
+        let app = config.connect_application().await.unwrap();
         app.check().await.unwrap();
         assert_eq!(app.health().await.unwrap().server_version, "180006");
         Self {
@@ -71,6 +79,7 @@ async fn pg_cache_race_bytes_privileges_and_corruption() {
     let f = Fixture::start().await;
     let mut spec = FakeEmbedder::new().spec().clone();
     spec.dimensions = 2;
+    spec.source_dimensions = 2;
     f.app.ensure_spec(&spec).await.unwrap();
     let a = CacheValue {
         input_hash: Digest([1; 32]),
@@ -461,7 +470,7 @@ budget = 6
     config.acquire_timeout_seconds = 5;
     let restored = tokio::time::timeout(std::time::Duration::from_secs(30), async {
         loop {
-            if let Ok(store) = config.connect(false).await {
+            if let Ok(store) = config.connect_application().await {
                 break store;
             }
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -490,12 +499,12 @@ async fn pg_cache_cost_workloads() {
     config.max_connections = 6;
     f.app.close().await;
     let fake = FakeEmbedder::new();
-    assert_eq!(fake.spec().dimensions, 4096);
+    assert_eq!(fake.spec().dimensions, 1024);
     for count in [2463, 25000] {
         for clients in [1, 4] {
             let mut stores = Vec::new();
             for _ in 0..clients {
-                let store = config.connect(false).await.unwrap();
+                let store = config.connect_application().await.unwrap();
                 store.ensure_spec(fake.spec()).await.unwrap();
                 stores.push(store);
             }
@@ -533,7 +542,7 @@ async fn pg_cache_cost_workloads() {
             let (wal, database): (i64, i64) = sqlx::query_as("SELECT pg_wal_lsn_diff(pg_current_wal_lsn(),$1::text::pg_lsn)::bigint,pg_database_size(current_database())").bind(before).fetch_one(&f.admin).await.unwrap();
             println!(
                 "PG_COST {}",
-                serde_json::json!({"keys":count,"dimensions":fake.spec().dimensions,"clients":clients,"pool_per_client":6,"cold_seconds":cold,"warm_seconds":warm,"vector_bytes_per_client":count*4096*4,"wal_bytes":wal,"database_bytes":database,"smaller_workload_budget_met":count!=2463 || (cold<5.0 && warm<2.0)})
+                serde_json::json!({"keys":count,"dimensions":fake.spec().dimensions,"clients":clients,"pool_per_client":6,"cold_seconds":cold,"warm_seconds":warm,"vector_bytes_per_client":count*1024*4,"wal_bytes":wal,"database_bytes":database,"smaller_workload_budget_met":count!=2463 || (cold<5.0 && warm<2.0)})
             );
             for store in stores {
                 store.close().await;
@@ -550,7 +559,7 @@ async fn pg_connection_loss_reconciles_retry_and_pool_exhaustion_is_bounded() {
     config.max_connections = 1;
     config.statement_timeout_seconds = 10;
     config.lock_timeout_seconds = 10;
-    let app = config.connect(false).await.unwrap();
+    let app = config.connect_application().await.unwrap();
     let fake = FakeEmbedder::new();
     app.ensure_spec(fake.spec()).await.unwrap();
     let value = CacheValue {
@@ -599,4 +608,45 @@ async fn pg_connection_loss_reconciles_retry_and_pool_exhaustion_is_bounded() {
             .len(),
         1
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "explicit PostgreSQL provider pool functional check"]
+async fn pg_provider_pool_shares_the_declared_budget() {
+    let f = Fixture::start().await;
+    let config = cpg_core::postgres::serving::RoleConfig {
+        format: 1,
+        role: cpg_core::postgres::serving::Role::Serving,
+        url: f
+            .config
+            .application_url
+            .replace("lctx_app:", "lctx_serving:"),
+        max_connections: 3,
+        provider_connections: 1,
+        acquire_timeout_seconds: 1,
+        statement_timeout_seconds: 2,
+        lock_timeout_seconds: 1,
+    };
+    let serving = config.open_serving().await.unwrap();
+    let provider = cpg_core::postgres_read::ProviderPool::open(&config)
+        .await
+        .unwrap();
+    assert_eq!(provider.connection_limit(), 1);
+    assert_eq!(serving.check().await.unwrap().role, "lctx_serving");
+    let pools:Vec<(String,i64)>=sqlx::query_as("SELECT application_name::text,count(*) FROM pg_stat_activity WHERE usename='lctx_serving' GROUP BY application_name").fetch_all(&f.admin).await.unwrap();
+    assert!(
+        pools
+            .iter()
+            .any(|(name, count)| name == "lctx-provider" && *count == 1)
+    );
+    assert!(pools.iter().map(|(_, n)| *n).sum::<i64>() <= 3);
+    let mut invalid = config.clone();
+    invalid.provider_connections = 3;
+    assert!(
+        cpg_core::postgres_read::ProviderPool::open(&invalid)
+            .await
+            .is_err()
+    );
+    serving.close().await;
+    drop(provider);
 }

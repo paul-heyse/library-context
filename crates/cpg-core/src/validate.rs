@@ -2310,7 +2310,7 @@ pub async fn validate_embedding_receipts(
     let mut errors = 0;
     let mut admitted = std::collections::BTreeMap::new();
     for row in specs {
-        match serde_json::from_str::<crate::embed::Spec>(&row.spec) {
+        match crate::embed::Spec::parse(&row.spec) {
             Ok(spec) if spec.hash() == row.spec_hash && spec.canonical_json() == row.spec => {
                 admitted.insert(row.spec_hash, spec);
             }

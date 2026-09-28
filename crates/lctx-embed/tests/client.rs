@@ -18,7 +18,7 @@ fn specs() -> std::path::PathBuf {
 fn the_committed_spec_is_its_canonical_form() {
     let spec = qwen_spec();
     assert_eq!(format!("{}\n", spec.canonical_json()), QWEN_SPEC);
-    assert_eq!(spec.dimensions, 4096);
+    assert_eq!(spec.dimensions, 1024);
     assert_eq!(spec.max_document_tokens, 2048);
 }
 
@@ -71,26 +71,26 @@ fn response(model: &str, data: &[(usize, Vec<f64>)]) -> Vec<u8> {
 fn every_rejection_fires() {
     let spec = qwen_spec();
     let m = spec.model.clone();
-    let ok = response(&m, &[(1, unit(4096)), (0, unit(4096))]);
+    let ok = response(&m, &[(1, unit(1024)), (0, unit(1024))]);
     assert_eq!(parse_embeddings(&spec, 2, &ok).unwrap().len(), 2);
     assert!(
         parse_embeddings(&spec, 3, &ok)
             .unwrap_err()
             .contains("2 vectors for 3")
     );
-    let other = response("other/model", &[(0, unit(4096))]);
+    let other = response("other/model", &[(0, unit(1024))]);
     assert!(
         parse_embeddings(&spec, 1, &other)
             .unwrap_err()
             .contains("model")
     );
-    let twice = response(&m, &[(0, unit(4096)), (0, unit(4096))]);
+    let twice = response(&m, &[(0, unit(1024)), (0, unit(1024))]);
     assert!(
         parse_embeddings(&spec, 2, &twice)
             .unwrap_err()
             .contains("twice")
     );
-    let range = response(&m, &[(5, unit(4096))]);
+    let range = response(&m, &[(5, unit(1024))]);
     assert!(
         parse_embeddings(&spec, 1, &range)
             .unwrap_err()
@@ -102,7 +102,7 @@ fn every_rejection_fires() {
             .unwrap_err()
             .contains("dimensions")
     );
-    let long = response(&m, &[(0, vec![0.5; 4096])]);
+    let long = response(&m, &[(0, vec![0.5; 1024])]);
     assert!(
         parse_embeddings(&spec, 1, &long)
             .unwrap_err()
@@ -162,13 +162,13 @@ async fn the_client_round_trips_through_a_stub_service() {
     let spec = qwen_spec();
     let (url, server) = stub(vec![
         br#"{"count": 7, "max_model_len": 8192, "tokens": []}"#.to_vec(),
-        response(&spec.model, &[(0, unit(4096))]),
+        response(&spec.model, &[(0, unit(1024))]),
     ]);
     let client = VllmEmbedder::new(&url, spec.clone());
     assert_eq!(client.count_tokens("hello there").await.unwrap(), 7);
     let texts = vec!["hello".to_owned()];
     let vectors = client.embed(&texts).await.unwrap();
-    assert_eq!(vectors[0].len(), 4096);
+    assert_eq!(vectors[0].len(), 1024);
     let seen = server.join().unwrap();
     assert_eq!(seen[0].0, "/tokenize");
     assert_eq!(seen[1].0, "/v1/embeddings");

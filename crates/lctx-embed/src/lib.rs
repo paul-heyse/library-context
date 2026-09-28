@@ -4,8 +4,7 @@
 //! - The request body is built here with `serde_json`, so its bytes are ours and the Python query
 //!   client can be held to the same bytes (`specs/embedding/request_bodies.json`, E2).
 //! - Every response is checked: the vector count, the index mapping, the length, finiteness and
-//!   unit norm, and the served model. `dimensions` is never sent (vLLM rejects it without a
-//!   Matryoshka override, E1).
+//!   unit norm, and the served model. The versioned spec owns dimensions and MRL admission.
 //! - Token counts come from the service's own tokenizer (`POST /tokenize`, attached for every
 //!   runner in vLLM 0.30.0), so no Rust tokenizer is needed.
 //! - An unreachable service is an error naming the URL: a compile asked for live vectors is
@@ -20,7 +19,7 @@ pub const QWEN_SPEC: &str = include_str!("../../../specs/embedding/qwen3-embeddi
 
 /// The spec every live vector is made under.
 pub fn qwen_spec() -> Spec {
-    serde_json::from_str(QWEN_SPEC).expect("the committed spec parses")
+    Spec::parse(QWEN_SPEC).expect("the committed spec parses")
 }
 
 /// An embeddings request (the holistic assessment's D3): a struct, so its key order is its field
@@ -30,6 +29,7 @@ struct EmbeddingsRequest<'a> {
     model: &'a str,
     input: &'a [String],
     encoding_format: &'a str,
+    dimensions: u32,
 }
 
 /// A tokenize request: the model and one prompt.
@@ -45,6 +45,7 @@ pub fn request_body(spec: &Spec, request_texts: &[String]) -> Vec<u8> {
         model: &spec.model,
         input: request_texts,
         encoding_format: "float",
+        dimensions: spec.dimensions,
     })
     .expect("a request serializes")
 }

@@ -91,7 +91,7 @@ pilot-live store="build/store" log="build/pilot-live.log":
     target/release/lctx compile fastmcp --store {{store}} --embedder vllm | tee {{log}}
     uv run python -m lctx_mcp.smoke "$(grep '^generation ' {{log}} | cut -d' ' -f2)" --embedder vllm
 
-# The embedding service (DESIGN §11.1, ADR-0066): vLLM 0.30.0 from the locked services/vllm
+# The embedding service (DESIGN §11.1, ADR-0068): vLLM 0.30.0 from the locked services/vllm
 # project, serving Qwen3-Embedding-8B at its pinned revision on the local GPU
 embed-serve port="8000":
     uv run python scripts/embed_serve.py --port {{port}}
@@ -101,12 +101,12 @@ embed-conformance url="http://127.0.0.1:8000":
     LCTX_EMBED_URL={{url}} LCTX_CONFORMANCE_OUT="$PWD/build/conformance-rust.json" cargo nextest run --release -p lctx-embed -E 'test(live_conformance_vectors)' --status-level none --final-status-level fail
     uv run python scripts/embed_conformance.py build/conformance-rust.json --url {{url}}
 
-# Gold scores of a generation (DESIGN §12; matcher 2, ADR-0066). Exits 2 when
+# Gold scores of a generation (DESIGN §12; matcher 2, ADR-0068). Exits 2 when
 # `vllm` was asked for and any alias degraded (`blocked`)
 score generation embedder="none":
     uv run python scripts/score_gold.py {{generation}} --embedder {{embedder}} --json build/score-$(basename {{generation}})-{{embedder}}.json
 
-# The §1.5 retrieval check over a generation (ADR-0066): exits 1 on a miss. Only
+# The §1.5 retrieval check over a generation (ADR-0068): exits 1 on a miss. Only
 # `--embedder vllm` (with `just embed-serve` running) makes a hybrid result evidence
 ranking-check generation embedder="none":
     uv run python scripts/ranking_check.py {{generation}} --embedder {{embedder}}
@@ -168,11 +168,13 @@ docs-serve port="8000":
 # Fetch the exact disposable PG18 image explicitly before database qualification.
 postgres-test-setup:
     docker pull "postgres:$(cat specs/postgres-image.txt)"
+    docker pull "$(cat specs/postgres-vector-image.txt)"
 
 # Real database semantics; pure model tests do not require a running service.
 test-postgres:
-    @docker image inspect "postgres:$(cat specs/postgres-image.txt)" >/dev/null || { echo 'blocked: run just postgres-test-setup'; exit 2; }
-    INSTA_UPDATE=no cargo nextest run --release -p cpg-core --test postgres --run-ignored only --test-threads 2 --no-fail-fast --success-output immediate
+    @docker image inspect "$(cat specs/postgres-vector-image.txt)" >/dev/null || { echo 'blocked: run just postgres-test-setup'; exit 2; }
+    INSTA_UPDATE=no cargo nextest run --release -p cpg-core --test postgres -p lctx-postgres --test serving --run-ignored only --test-threads 2 --no-fail-fast --success-output immediate
+    LCTX_POSTGRES_TEST=1 uv run pytest tests/scripts/test_postgres_serving.py
 
 sqlx-check:
     uv run python scripts/postgres_check.py

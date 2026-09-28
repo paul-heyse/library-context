@@ -1403,6 +1403,12 @@ async fn briefs_are_synthesized_from_findings_and_verbatim_evidence() {
             20,
             "08f5bb0ff4bf0d53819b622f787b5c3b304193052282bfe73a1b801a1ebbdbe7",
         ),
+        // Standard 1024/spec format 2 changes fake embedding identities and derived output.
+        (
+            107,
+            20,
+            "1d2879178a1913822fbad7abbc5d1c5271d50613a97d47eda62f20c48b4bb9e0",
+        ),
     ];
     // Texts, and every identity column of Stage F's tables (slice 1.5 review F6).
     let mut output = format!(
@@ -2049,7 +2055,10 @@ async fn typed_attributes_keep_source_evidence_through_serving() {
 import sys
 from pathlib import Path
 import pyarrow as pa
-from lctx_mcp.generation import load, _validate_support_closure, GenerationError
+from lctx_mcp.generation import load
+from lctx_semantics import validate_projection_ipc
+sys.path.insert(0, str(Path('python/lctx_mcp/tests').resolve()))
+from test_projection import changed as changed_projection
 from lctx_mcp.server import serve, _finding
 
 generation = load(Path(sys.argv[1]), None)
@@ -2073,8 +2082,8 @@ for mutation in ('missing', 'foreign', 'source_fact_id', 'fact_table', 'fact_mod
         data = [dict(r, **{mutation: None}) if r is first else r for r in rows]
     changed['support_attribute_incidences'] = pa.Table.from_pylist(data, schema=generation.tables['support_attribute_incidences'].schema)
     try:
-        _validate_support_closure(changed)
-    except GenerationError:
+        validate_projection_ipc(*changed_projection(Path(sys.argv[1]), "support_attribute_incidences", changed["support_attribute_incidences"]))
+    except ValueError:
         pass
     else:
         raise AssertionError((mutation, 'attribute support admitted'))

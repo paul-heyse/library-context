@@ -93,6 +93,102 @@ fn work_answer(work: TheoryWork) -> WorkAnswer {
     )
 }
 
+/// Canonical spec parsing stays with the Rust contract, including field order and rejection.
+#[pyfunction]
+fn canonical_embedding_spec(text: &str) -> PyResult<String> {
+    cpg_schema::embedding_spec::Spec::parse(text)
+        .map(|s| s.canonical_json())
+        .map_err(PyValueError::new_err)
+}
+
+/// IPC schemas are exported by the domain owner; Python keeps an independent digest oracle.
+#[pyfunction]
+fn serving_schemas(
+    py: Python<'_>,
+    dimensions: i32,
+) -> PyResult<Vec<(String, Py<pyo3::types::PyBytes>)>> {
+    if !(0..=65536).contains(&dimensions) {
+        return Err(PyValueError::new_err("invalid dimensions"));
+    }
+    cpg_schema::bundle::files(dimensions)
+        .into_iter()
+        .map(|file| {
+            let mut bytes = Vec::new();
+            let mut writer = arrow_ipc::writer::FileWriter::try_new(&mut bytes, &file.schema)
+                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+            writer
+                .finish()
+                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+            drop(writer);
+            Ok((
+                file.name.to_owned(),
+                pyo3::types::PyBytes::new(py, &bytes).unbind(),
+            ))
+        })
+        .collect()
+}
+
+/// Validate the complete frozen projection without filesystem or database effects.
+#[pyfunction(signature = (manifest, files, envelope=None))]
+fn validate_projection_ipc(
+    manifest: &str,
+    files: Vec<(String, Vec<u8>)>,
+    envelope: Option<&str>,
+) -> PyResult<String> {
+    use cpg_schema::serving_projection as projection;
+    let manifest: projection::Manifest =
+        serde_json::from_str(manifest).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let key = manifest
+        .generation()
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    if manifest.projection_digest != projection::definition_digest() {
+        return Err(PyValueError::new_err("incompatible projection definition"));
+    }
+    if let Some(envelope) = envelope {
+        let envelope =
+            serde_json::from_str(envelope).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        manifest
+            .validate_envelope(&envelope)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    }
+    let schemas = cpg_schema::bundle::files(manifest.dimensions);
+    if files.len() != schemas.len() {
+        return Err(PyValueError::new_err("projection file inventory"));
+    }
+    let mut total = 0usize;
+    let mut tables = std::collections::BTreeMap::new();
+    for (name, bytes) in files {
+        total = total
+            .checked_add(bytes.len())
+            .ok_or_else(|| PyValueError::new_err("projection byte budget"))?;
+        if total > 512 * 1024 * 1024 || bytes.len() > projection::MAX_RELATION_BYTES {
+            return Err(PyValueError::new_err("projection byte budget"));
+        }
+        manifest
+            .verify_artifact(&format!("{name}.arrow"), &bytes)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let file = schemas
+            .iter()
+            .find(|f| f.name == name)
+            .ok_or_else(|| PyValueError::new_err("unknown projection file"))?;
+        let reader = arrow_ipc::reader::FileReader::try_new(std::io::Cursor::new(bytes), None)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        if reader.schema() != file.schema {
+            return Err(PyValueError::new_err("projection schema/metadata drift"));
+        }
+        let batches = reader
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        if tables.insert(name, batches).is_some() {
+            return Err(PyValueError::new_err("duplicate projection file"));
+        }
+    }
+    manifest
+        .validate_relations(&tables)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    Ok(key)
+}
+
 #[pyfunction]
 fn kernel_format() -> u32 {
     KERNEL_FORMAT
@@ -1567,7 +1663,10 @@ fn probe_implies(left: &str, right: &str) -> PyResult<Option<bool>> {
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ConditionGraph>()?;
     m.add_class::<SemanticExecutor>()?;
+    m.add_function(wrap_pyfunction!(canonical_embedding_spec, m)?)?;
     m.add_function(wrap_pyfunction!(kernel_format, m)?)?;
+    m.add_function(wrap_pyfunction!(serving_schemas, m)?)?;
+    m.add_function(wrap_pyfunction!(validate_projection_ipc, m)?)?;
     m.add_function(wrap_pyfunction!(catalog_limits, m)?)?;
     m.add_function(wrap_pyfunction!(native_files, m)?)?;
     m.add_function(wrap_pyfunction!(probe_compatible, m)?)?;

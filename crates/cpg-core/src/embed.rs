@@ -1,11 +1,10 @@
-//! Attempt-owned embedding admission and immutable exact-value replay (ADR-0065).
+//! Attempt-owned embedding admission and immutable exact-value replay (ADR-0068).
 
 use std::future::Future;
 use std::pin::Pin;
 
 use cpg_schema::findings::BriefDocumentsRow;
 use cpg_schema::id::{Digest, Id};
-use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 
 use crate::CoreError;
@@ -13,51 +12,7 @@ use crate::CoreError;
 /// A future an embedder returns.
 pub type EmbedFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, CoreError>> + Send + 'a>>;
 
-/// The embedding spec (DESIGN §11.1): everything that can change a vector. Its SHA-256 over the
-/// canonical JSON (fields in this order, no whitespace) is the spec hash.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Spec {
-    pub model: String,
-    pub revision: String,
-    pub tokenizer_revision: String,
-    /// The serving engine and version.
-    pub server: String,
-    pub served_dtype: String,
-    pub pooling: String,
-    pub query_template: String,
-    pub query_task: String,
-    pub document_template: String,
-    pub dimensions: u32,
-    pub output_dtype: String,
-    pub normalization: String,
-    /// The §11.1 cap on a document, in the model's tokens.
-    pub max_document_tokens: u32,
-}
-
-impl Spec {
-    pub fn canonical_json(&self) -> String {
-        serde_json::to_string(self).expect("a spec always serializes")
-    }
-
-    /// SHA-256 of the canonical JSON.
-    pub fn hash(&self) -> Digest {
-        Digest(Sha256::digest(self.canonical_json().as_bytes()).into())
-    }
-
-    /// The request text of a document (§11.1: documents take no prefix).
-    pub fn document_text(&self, text: &str) -> String {
-        self.document_template.replace("{text}", text)
-    }
-
-    /// The request text of a query: `Instruct: {task}\nQuery:{query}`, with no space after
-    /// `Query:` (E1).
-    pub fn query_text(&self, query: &str) -> String {
-        self.query_template
-            .replace("{task_description}", &self.query_task)
-            .replace("{query}", query)
-    }
-}
+pub use cpg_schema::embedding_spec::{Spec, check_vector};
 
 /// The cache key of a request text: its SHA-256.
 pub fn input_hash(request_text: &str) -> Digest {
@@ -73,25 +28,6 @@ pub trait Embedder: Send + Sync {
     fn embed<'a>(&'a self, request_texts: &'a [String]) -> EmbedFuture<'a, Vec<Vec<f32>>>;
 }
 
-/// §11.1's rejections of a returned vector: its length, finiteness and unit norm.
-pub fn check_vector(v: &[f32], dimensions: u32) -> Result<(), String> {
-    if v.len() != dimensions as usize {
-        return Err(format!("{} dimensions, not {dimensions}", v.len()));
-    }
-    if v.iter().any(|x| !x.is_finite()) {
-        return Err("a non-finite component".to_owned());
-    }
-    let norm: f64 = v
-        .iter()
-        .map(|x| f64::from(*x) * f64::from(*x))
-        .sum::<f64>()
-        .sqrt();
-    if (norm - 1.0).abs() > 1e-3 {
-        return Err(format!("norm {norm}, not 1"));
-    }
-    Ok(())
-}
-
 /// A deterministic fake embedder with its own spec (DESIGN §11.1): each vector is a unit vector
 /// drawn by splitmix64 from the first 8 bytes (little-endian) of the request text's SHA-256, so
 /// the Python server's fake twin reproduces it bit for bit with its standard library. Tests and
@@ -104,8 +40,12 @@ impl FakeEmbedder {
     pub fn new() -> Self {
         Self {
             spec: Spec {
+                format: 2,
+                source_dimensions: 1024,
+                reduction: "none".to_owned(),
+                admission: None,
                 model: "lctx-fake-embedder".to_owned(),
-                revision: "1".to_owned(),
+                revision: "2".to_owned(),
                 tokenizer_revision: "bytes/4".to_owned(),
                 server: "in-process".to_owned(),
                 served_dtype: "float32".to_owned(),
@@ -115,7 +55,7 @@ impl FakeEmbedder {
                              library that solve it"
                     .to_owned(),
                 document_template: "{text}".to_owned(),
-                dimensions: 4096,
+                dimensions: 1024,
                 output_dtype: "float32".to_owned(),
                 normalization: "l2".to_owned(),
                 max_document_tokens: 2048,
@@ -208,6 +148,7 @@ impl Session {
         usage: Usage,
     ) -> Result<Vec<Vec<f32>>, CoreError> {
         let spec = embedder.spec();
+        spec.validate().map_err(CoreError::Embed)?;
         let canonical = spec.canonical_json();
         if self.spec.as_ref().is_some_and(|s| s != &canonical) {
             return Err(CoreError::Embed(
@@ -381,12 +322,12 @@ mod tests {
         let a = f.vector("alpha");
         assert_eq!(a, f.vector("alpha"));
         assert_ne!(a, f.vector("beta"));
-        check_vector(&a, 4096).unwrap();
-        assert!(check_vector(&a[..10], 4096).is_err());
+        check_vector(&a, 1024).unwrap();
+        assert!(check_vector(&a[..10], 1024).is_err());
         let mut nan = a.clone();
         nan[0] = f32::NAN;
-        assert!(check_vector(&nan, 4096).is_err());
-        assert!(check_vector(&vec![0.5; 4096], 4096).is_err());
+        assert!(check_vector(&nan, 1024).is_err());
+        assert!(check_vector(&vec![0.5; 1024], 1024).is_err());
     }
 
     #[test]

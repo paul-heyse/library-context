@@ -133,6 +133,11 @@ def test_responses_are_judged_as_the_shared_corpus_says() -> None:
         **Spec.packaged(QWEN).fields,
         "model": corpus["model"],
         "dimensions": corpus["dimensions"],
+        "admission": {
+            "is_matryoshka": True,
+            "matryoshka_dimensions": [corpus["dimensions"]],
+            "use_activation": True,
+        },
     }
     spec = Spec.from_json(json.dumps(fields))
     for case in corpus["cases"]:

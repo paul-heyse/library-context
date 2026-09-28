@@ -7,19 +7,25 @@ The probes take Stage 2 condition text, have no pinned generation, and return
 from ._native import (
     ConditionGraph,
     SemanticExecutor,
+    canonical_embedding_spec,
     catalog_limits,
     kernel_format,
     native_files,
     probe_compatible,
     probe_implies,
+    serving_schemas,
+    validate_projection_ipc,
 )
 
 __all__ = [
     "ConditionGraph",
     "SemanticExecutor",
+    "canonical_embedding_spec",
     "catalog_limits",
     "kernel_format",
     "native_files",
     "probe_compatible",
     "probe_implies",
+    "serving_schemas",
+    "validate_projection_ipc",
 ]

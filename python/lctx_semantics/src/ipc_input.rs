@@ -15,37 +15,7 @@ use pyo3::exceptions::PyValueError;
 use super::{FlowInput, LeafInput, LinkInput, MAX_SUMMARY_ROWS, MAX_SURFACE_ROWS};
 
 /// Every generation file the native executor loads; Python derives its native lists from this.
-pub(super) const NAMES: &[&str] = &[
-    "conditions",
-    "condition_nodes",
-    "analysis_conditions",
-    "analysis_condition_nodes",
-    "operations",
-    "public_paths",
-    "callable_parameters",
-    "summary_flows",
-    "source_parameter_identities",
-    "source_context_value_identities",
-    "source_modeled_identities",
-    "model_frame_exits",
-    "model_frame_exit_arguments",
-    "model_frame_exit_steps",
-    "source_body_completions",
-    "source_body_steps",
-    "source_body_release_inputs",
-    "source_call_bindings",
-    "source_call_normals",
-    "source_call_header_steps",
-    "model_context_protocols",
-    "source_context_sites",
-    "source_context_arguments",
-    "return_completion_certificates",
-    "summary_flow_steps",
-    "summary_boundaries",
-    "behavior_discharges",
-    "flow_test_leaves",
-    "flow_test_value_links",
-];
+pub(super) const NAMES: &[&str] = cpg_schema::serving_projection::NATIVE_FILES;
 const MAX_FILE_BYTES: usize = 64 * 1024 * 1024;
 /// The condition catalogs among `NAMES`, bounded by the catalog limits rather than row caps.
 pub(super) const CONDITION_FILES: &[&str] = &[

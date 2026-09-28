@@ -12,6 +12,7 @@ const SOURCES: &[&str] = &[
     "crates/cpg-core/src",
     "crates/lctx-analytics/src",
     "crates/cpg-schema/src",
+    "crates/lctx-postgres/src/cache.rs",
 ];
 
 /// Every `.rs` or `.sql` file under `dir`, recursively, as workspace-relative paths.
@@ -81,7 +82,13 @@ fn main() {
         .expect("the workspace");
     let mut files = Vec::new();
     for tree in SOURCES {
-        rust_files(&root, &root.join(tree), &mut files);
+        let source = root.join(tree);
+        if source.is_file() {
+            println!("cargo:rerun-if-changed={}", source.display());
+            files.push((*tree).to_owned());
+        } else {
+            rust_files(&root, &source, &mut files);
+        }
     }
     files.sort();
     let mut h = blake3::Hasher::new();

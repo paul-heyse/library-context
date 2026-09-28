@@ -37,7 +37,7 @@ def main() -> None:
     )
     args = parser.parse_args()
     root = Path(__file__).resolve().parent.parent
-    image = "postgres:" + (root / "specs/postgres-image.txt").read_text().strip()
+    image = (root / "specs/postgres-vector-image.txt").read_text().strip()
     try:
         call(["docker", "image", "inspect", image], stdout=subprocess.DEVNULL)
     except (OSError, subprocess.CalledProcessError) as error:
@@ -73,6 +73,12 @@ def main() -> None:
         else:
             raise SystemExit("blocked: disposable PostgreSQL did not become ready")
         sql = """CREATE ROLE lctx_app LOGIN PASSWORD 'fixture-only';
+CREATE ROLE lctx_importer LOGIN PASSWORD 'fixture-only';
+CREATE ROLE lctx_serving LOGIN PASSWORD 'fixture-only';
+CREATE ROLE lctx_migrator LOGIN PASSWORD 'fixture-only';
+CREATE SCHEMA lctx_ext;
+CREATE EXTENSION vector WITH SCHEMA lctx_ext VERSION '0.8.6';
+GRANT USAGE ON SCHEMA lctx_ext TO lctx_app,lctx_migrator,lctx_importer,lctx_serving;
 DO $$ BEGIN
  IF current_setting('server_version_num')::int <> 180006 THEN
   RAISE EXCEPTION 'pinned PG18 patch mismatch';
@@ -98,12 +104,16 @@ END $$;"""
         env["SQLX_OFFLINE"] = "false"
         env["CARGO_TARGET_DIR"] = str(root / "target")
         call(
-            ["sqlx", "migrate", "run", "--source", "crates/cpg-core/migrations"], env=env, cwd=root
+            ["sqlx", "migrate", "run", "--source", "crates/lctx-postgres/migrations"],
+            env=env,
+            cwd=root,
         )
         command = ["cargo", "sqlx", "prepare", "--workspace"]
         if not args.prepare:
             command.append("--check")
-        call([*command, "--", "-p", "cpg-core", "--all-targets", "--release"], env=env, cwd=root)
+        call(
+            [*command, "--", "-p", "lctx-postgres", "--all-targets", "--release"], env=env, cwd=root
+        )
     finally:
         call(["docker", "rm", "--force", container], stdout=subprocess.DEVNULL)
 

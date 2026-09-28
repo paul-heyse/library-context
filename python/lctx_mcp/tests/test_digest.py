@@ -18,7 +18,7 @@ ANSWERS = json.loads((REPO / "specs/serving/schema_digests.json").read_text(enco
 
 
 def test_expected_schemas_are_rusts_known_answers() -> None:
-    schemas = expected_schemas(4096)
+    schemas = expected_schemas(1024)
     assert list(schemas) == list(ANSWERS)
     for name, schema in schemas.items():
         assert canonical_form(schema) == ANSWERS[name]["form"], name

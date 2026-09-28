@@ -56,8 +56,8 @@
     "digest": "85da37f37ba0806990dd8953c4f240d1f92ca98d40297b4afd5942e75cc06111"
   },
   "vectors": {
-    "form": "[{\"metadata\":[],\"name\":\"brief_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"chunk\",\"nullable\":false,\"type\":\"int64\"},{\"metadata\":[],\"name\":\"input_hash\",\"nullable\":false,\"type\":\"fixed_size_binary(32)\"},{\"metadata\":[],\"name\":\"vector\",\"nullable\":false,\"type\":\"fixed_size_list(float32 not null \\\"item\\\", 4096)\"}]",
-    "digest": "bdc340204c1f661dc82f801aa2814f75ca05700a122c475f7e73c3d59d6b74ab"
+    "form": "[{\"metadata\":[],\"name\":\"brief_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"chunk\",\"nullable\":false,\"type\":\"int64\"},{\"metadata\":[],\"name\":\"input_hash\",\"nullable\":false,\"type\":\"fixed_size_binary(32)\"},{\"metadata\":[],\"name\":\"vector\",\"nullable\":false,\"type\":\"fixed_size_list(float32 not null \\\"item\\\", 1024)\"}]",
+    "digest": "c98b9aecd3b9a2f535d2d374da831fa156321da5d336100934cc010c42109111"
   },
   "operations": {
     "form": "[{\"metadata\":[],\"name\":\"node_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"access_path\",\"nullable\":false,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"kind\",\"nullable\":false,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"is_method\",\"nullable\":false,\"type\":\"bool\"},{\"metadata\":[],\"name\":\"qualified_name\",\"nullable\":false,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"module\",\"nullable\":false,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"docstring_summary\",\"nullable\":true,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"behavior_status\",\"nullable\":false,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"boundary_reason\",\"nullable\":true,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"status_reason\",\"nullable\":true,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"brief_id\",\"nullable\":true,\"type\":\"fixed_size_binary(16)\"}]",
@@ -200,7 +200,7 @@
     "digest": "ba47475330c7ea9b2b8d0688a394f9083e98866b8a00a15dc0ad733fdbc6f345"
   },
   "operation_vectors": {
-    "form": "[{\"metadata\":[],\"name\":\"node_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"embedding_view\",\"nullable\":false,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"chunk\",\"nullable\":false,\"type\":\"int64\"},{\"metadata\":[],\"name\":\"input_hash\",\"nullable\":false,\"type\":\"fixed_size_binary(32)\"},{\"metadata\":[],\"name\":\"vector\",\"nullable\":false,\"type\":\"fixed_size_list(float32 not null \\\"item\\\", 4096)\"}]",
-    "digest": "a45909e04e2653c64ed806c3c5baece393d087471b2ef541899373453ac96857"
+    "form": "[{\"metadata\":[],\"name\":\"node_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"embedding_view\",\"nullable\":false,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"chunk\",\"nullable\":false,\"type\":\"int64\"},{\"metadata\":[],\"name\":\"input_hash\",\"nullable\":false,\"type\":\"fixed_size_binary(32)\"},{\"metadata\":[],\"name\":\"vector\",\"nullable\":false,\"type\":\"fixed_size_list(float32 not null \\\"item\\\", 1024)\"}]",
+    "digest": "025d249e0884d70eb4d3d1e678567789ffdc1a1a5490eedc7902787c3e42c91a"
   }
 }

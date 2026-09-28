@@ -18,6 +18,7 @@ pub mod context_protocol;
 pub mod context_value;
 pub mod derived;
 pub mod embedding;
+pub mod embedding_spec;
 pub mod findings;
 pub mod flows;
 pub mod frame_exit;
@@ -54,3 +55,6 @@ pub mod action;
 
 pub mod source_body;
 pub mod source_call;
+
+pub mod serving_projection;
+pub mod serving_support;

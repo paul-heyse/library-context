@@ -23,6 +23,8 @@ unknown-registry = "deny"
 unknown-git = "deny"
 allow-git = [
     "https://github.com/delta-io/delta-rs",
+    # Owned DF55 provider and bounded pool patch (ADR-0068).
+    "https://github.com/paul-heyse/datafusion-table-providers",
     "https://github.com/buoyant-data/delta-kernel-rs",
     # Pyrefly fork (ADR-0012) and the lsp-types fork Pyrefly depends on.
     "https://github.com/paul-heyse/pyrefly",

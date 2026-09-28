@@ -6,6 +6,7 @@ requires-python = "==3.14.*"
 members = [
     "lctx-mcp",
     "lctx-semantics",
+    "lctx-storage",
     "library-context-dev",
 ]
 
@@ -627,12 +628,18 @@ version = "0.1.0"
 source = { editable = "python/lctx_semantics" }
 
 [[package]]
+name = "lctx-storage"
+version = "0.1.0"
+source = { editable = "python/lctx_storage" }
+
+[[package]]
 name = "library-context-dev"
 version = "0.0.0"
 source = { virtual = "." }
 dependencies = [
     { name = "lctx-mcp" },
     { name = "lctx-semantics" },
+    { name = "lctx-storage" },
 ]
 
 [package.dev-dependencies]
@@ -647,6 +654,7 @@ dev = [
 requires-dist = [
     { name = "lctx-mcp", editable = "python/lctx_mcp" },
     { name = "lctx-semantics", editable = "python/lctx_semantics" },
+    { name = "lctx-storage", editable = "python/lctx_storage" },
 ]
 
 [package.metadata.requires-dev]

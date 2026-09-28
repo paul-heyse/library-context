@@ -479,7 +479,7 @@ fn compile(
     let snapshot = random_id()?;
     let config_path = cpg_core::postgres::Config::path(database_config);
     let pg = if embedder.is_some() {
-        let db = runtime.block_on(db::connect(Some(&config_path?), false))?;
+        let db = runtime.block_on(db::connect(Some(&config_path?)))?;
         runtime.block_on(db.check())?;
         Some(db)
     } else if config_path.as_ref().is_ok_and(|p| p.exists())
@@ -487,7 +487,7 @@ fn compile(
         || std::env::var_os("LCTX_DATABASE_CONFIG").is_some()
     {
         match runtime.block_on(async {
-            let db = db::connect(Some(&config_path?), false).await?;
+            let db = db::connect(Some(&config_path?)).await?;
             db.check().await?;
             Ok::<_, anyhow::Error>(db)
         }) {

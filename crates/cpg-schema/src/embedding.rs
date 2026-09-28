@@ -1,4 +1,4 @@
-//! Exact consumed-vector receipts and their canonical byte recipes (ADR-0065/0067).
+//! Exact consumed-vector receipts and their canonical byte recipes (ADR-0068/0067).
 //! PostgreSQL reuses immutable winners across attempts. Ordinary snapshot-local Delta tables
 //! preserve every consumed vector independently of that mutable service's availability.
 //! The historical EmbeddingCache declaration is retained only for explicit legacy import.

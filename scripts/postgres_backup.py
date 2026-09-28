@@ -44,11 +44,11 @@ def connection_env(url: str) -> dict[str, str]:
 
 
 def protected(path: Path) -> None:
-    if path.stat().st_mode & 0o077:
+    if path.is_symlink() or not path.is_file() or path.stat().st_mode & 0o077:
         raise SystemExit(f"protected file requires mode 600: {path}")
 
 
-def fingerprints(query) -> dict[str, dict[str, object]]:
+def fingerprints(query, tables=TABLES) -> dict[str, dict[str, object]]:
     # Identifier list is fixed by the schema owner. Hash rows before aggregation, so large bytea
     # payloads do not accumulate in string_agg's state. These are recovery checks, not semantic IDs.
     return {
@@ -59,13 +59,17 @@ def fingerprints(query) -> dict[str, dict[str, object]]:
                 f"(SELECT md5(to_jsonb(t)::text) AS h FROM {table} t) q;"
             )
         )
-        for table in TABLES
+        for table in tables
     }
 
 
 def backup(config: Path, archive: Path) -> None:
     protected(config)
     settings = json.loads(config.read_text())
+    if "migration_url" not in settings:
+        admin = config.with_name("postgres-admin.json")
+        protected(admin)
+        settings = json.loads(admin.read_text())
     env = connection_env(settings["migration_url"])
     archive.parent.mkdir(parents=True, exist_ok=True)
     receipt = archive.with_suffix(archive.suffix + ".json")
@@ -95,7 +99,29 @@ def backup(config: Path, archive: Path) -> None:
         snapshot = query(
             "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY; SELECT pg_export_snapshot();"
         )
-        state = fingerprints(query)
+        projection_tables = json.loads(
+            query(
+                "SELECT coalesce(json_agg('lctx_serving.'||tablename "
+                "ORDER BY tablename),'[]'::json) "
+                "FROM pg_tables WHERE schemaname='lctx_serving';"
+            )
+        )
+        if any(
+            not name.removeprefix("lctx_serving.").replace("_", "").isalnum()
+            for name in projection_tables
+        ):
+            raise RuntimeError("unexpected projection table identifier")
+        state = fingerprints(query, (*TABLES, *projection_tables))
+        image = (
+            (Path(__file__).resolve().parent.parent / "specs/postgres-vector-image.txt")
+            .read_text()
+            .strip()
+            if projection_tables
+            else "postgres:"
+            + (Path(__file__).resolve().parent.parent / "specs/postgres-image.txt")
+            .read_text()
+            .strip()
+        )
         call(
             ["pg_dump", "--format=custom", "--snapshot", snapshot, "--file", str(archive)],
             env=env,
@@ -111,6 +137,7 @@ def backup(config: Path, archive: Path) -> None:
                 {
                     "sha256": hashlib.file_digest(archive.open("rb"), "sha256").hexdigest(),
                     "tables": state,
+                    "image": image,
                 },
                 indent=2,
             )
@@ -132,10 +159,20 @@ def restore_drill(archive: Path) -> None:
         digest = hashlib.file_digest(stream, "sha256").hexdigest()
     if digest != expected["sha256"]:
         raise SystemExit("backup checksum mismatch")
-    image = (
+    image = expected.get(
+        "image",
         "postgres:"
-        + (Path(__file__).resolve().parent.parent / "specs/postgres-image.txt").read_text().strip()
+        + (Path(__file__).resolve().parent.parent / "specs/postgres-image.txt").read_text().strip(),
     )
+    allowed = {
+        "postgres:"
+        + (Path(__file__).resolve().parent.parent / "specs/postgres-image.txt").read_text().strip(),
+        (Path(__file__).resolve().parent.parent / "specs/postgres-vector-image.txt")
+        .read_text()
+        .strip(),
+    }
+    if image not in allowed:
+        raise RuntimeError("backup image is not one of the declared recovery pins")
     call(["docker", "image", "inspect", image], stdout=subprocess.DEVNULL)
     started = time.monotonic()
     container = call(
@@ -169,7 +206,10 @@ def restore_drill(archive: Path) -> None:
         ]
         call(
             command,
-            input="CREATE ROLE lctx_app LOGIN; CREATE ROLE lctx_migrator LOGIN;",
+            input=(
+                "CREATE ROLE lctx_app LOGIN; CREATE ROLE lctx_migrator LOGIN; "
+                "CREATE ROLE lctx_importer LOGIN; CREATE ROLE lctx_serving LOGIN;"
+            ),
             capture_output=True,
         )
         call(["docker", "cp", str(archive), f"{container}:/tmp/lctx.dump"], capture_output=True)
@@ -188,12 +228,13 @@ def restore_drill(archive: Path) -> None:
             capture_output=True,
         )
         actual = fingerprints(
-            lambda sql: call(command, input=sql, capture_output=True).stdout.strip()
+            lambda sql: call(command, input=sql, capture_output=True).stdout.strip(),
+            expected["tables"],
         )
         if actual != expected["tables"]:
             raise RuntimeError(
                 "restored tables differ: "
-                + ", ".join(t for t in TABLES if actual[t] != expected["tables"][t])
+                + ", ".join(t for t in expected["tables"] if actual[t] != expected["tables"][t])
             )
         print(
             json.dumps(

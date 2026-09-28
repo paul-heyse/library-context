@@ -49,7 +49,7 @@ use sha2::{Digest as _, Sha256};
 use crate::{CoreError, sql};
 
 /// The manifest's format version: bumped when a served file, its schema or the manifest changes.
-pub const FORMAT: u64 = 10;
+pub const FORMAT: u64 = 11;
 const MAX_SUPPORT_ROWS: usize = 100_000;
 const MAX_SUPPORT_FILE_BYTES: usize = 64 * 1024 * 1024;
 
@@ -914,7 +914,7 @@ pub async fn build(ctx: &SessionContext, out: &Path) -> Result<Generation, CoreE
     let (spec_hash, dimensions) = match specs.first() {
         Some((labels, _)) => {
             let spec: crate::embed::Spec =
-                serde_json::from_str(&labels[1]).map_err(|e| bad(format!("the spec: {e}")))?;
+                crate::embed::Spec::parse(&labels[1]).map_err(|e| bad(format!("the spec: {e}")))?;
             if documents.first().is_some_and(|(d, _)| d[0] != labels[0]) {
                 return Err(bad("the documents' spec is not the snapshot's"));
             }
@@ -924,6 +924,9 @@ pub async fn build(ctx: &SessionContext, out: &Path) -> Result<Generation, CoreE
     };
 
     let served: Vec<ServingFile> = files(dimensions);
+    let mut projection_batches = BTreeMap::new();
+    let mut projection_relations = BTreeMap::new();
+    let mut projection_artifacts = BTreeMap::new();
     let mut built: Vec<(&'static str, Vec<u8>, usize, String)> = Vec::new();
     for file in &served {
         let batch = match (query(file.name), file.name) {
@@ -957,6 +960,9 @@ pub async fn build(ctx: &SessionContext, out: &Path) -> Result<Generation, CoreE
                 file.name
             )));
         }
+        cpg_schema::serving_projection::validate_batch(file.name, dimensions, &batch)
+            .map_err(|e| bad(e.to_string()))?;
+        projection_batches.insert(file.name.to_owned(), vec![batch.clone()]);
         let digest = schema_digest(&file.schema).map_err(bad)?;
         let bytes = ipc_bytes(&batch)?;
         if bounded_support && bytes.len() > MAX_SUPPORT_FILE_BYTES {
@@ -965,8 +971,31 @@ pub async fn build(ctx: &SessionContext, out: &Path) -> Result<Generation, CoreE
                 file.name
             )));
         }
+        projection_relations.insert(
+            file.name.to_owned(),
+            cpg_schema::serving_projection::receipt(
+                file.name,
+                dimensions,
+                std::slice::from_ref(&batch),
+            )
+            .map_err(|e| bad(e.to_string()))?,
+        );
+        let artifact_name = format!("{}.arrow", file.name);
+        if cpg_schema::serving_projection::artifact_names().contains(&artifact_name) {
+            projection_artifacts.insert(
+                artifact_name,
+                cpg_schema::serving_projection::ArtifactReceipt {
+                    sha256: sha256(&bytes),
+                    bytes: bytes.len() as u64,
+                    format: 1,
+                },
+            );
+        }
         built.push((file.name, bytes, batch.num_rows(), digest));
     }
+    cpg_schema::serving_projection::validate_relations(dimensions, &projection_batches)
+        .map_err(|e| bad(e.to_string()))?;
+    drop(projection_batches);
     let embedded = counted(
         ctx,
         "SELECT 'documents', count(*) FROM brief_documents WHERE input_hash IS NOT NULL",
@@ -992,7 +1021,25 @@ pub async fn build(ctx: &SessionContext, out: &Path) -> Result<Generation, CoreE
             }),
         );
     }
+    let projection = cpg_schema::serving_projection::Manifest {
+        format: cpg_schema::serving_projection::FORMAT,
+        bundle_format: FORMAT as u32,
+        snapshot_id: ids[0].clone(),
+        snapshot_digest: ids[1].clone(),
+        compiler_digest: ids[2].clone(),
+        projection_digest: cpg_schema::serving_projection::definition_digest(),
+        catalog_digest: cpg_schema::models::Catalog::committed_digest().hex(),
+        kernel_format: cpg_schema::condition_kernel::KERNEL_FORMAT,
+        entry_value_effect_digest: crate::entry_links::digest().hex(),
+        spec_hash: spec_hash.clone(),
+        dimensions,
+        relations: projection_relations,
+        artifacts: projection_artifacts,
+    };
+    let projection_generation = projection.generation().map_err(|e| bad(e.to_string()))?;
     let mut manifest = json!({
+        "projection": projection,
+        "projection_generation": projection_generation,
         "format": FORMAT,
         "condition_kernel_format": cpg_schema::condition_kernel::KERNEL_FORMAT,
         "entry_value_effect_digest": crate::entry_links::digest().hex(),
@@ -1059,6 +1106,18 @@ pub fn verify(dir: &Path) -> Result<Value, CoreError> {
     {
         return Err(bad("manifest or condition kernel format mismatch"));
     }
+    let projection: cpg_schema::serving_projection::Manifest =
+        serde_json::from_value(manifest["projection"].clone()).map_err(|e| bad(e.to_string()))?;
+    projection
+        .validate_envelope(&manifest)
+        .map_err(|e| bad(e.to_string()))?;
+    let projection_key = projection.generation().map_err(|e| bad(e.to_string()))?;
+    if manifest["projection_generation"].as_str() != Some(&projection_key)
+        || projection.projection_digest != cpg_schema::serving_projection::definition_digest()
+    {
+        return Err(bad("projection identity/definition mismatch"));
+    }
+    let mut projection_batches = BTreeMap::new();
     let files = manifest["files"]
         .as_object()
         .ok_or_else(|| bad("MANIFEST.json lists no files"))?;
@@ -1076,6 +1135,9 @@ pub fn verify(dir: &Path) -> Result<Value, CoreError> {
         if Some(sha256(&bytes).as_str()) != entry["sha256"].as_str() {
             return Err(bad(format!("{file}: its sha256 differs from the manifest")));
         }
+        projection
+            .verify_artifact(file, &bytes)
+            .map_err(|e| bad(e.to_string()))?;
         let reader = FileReader::try_new(std::io::Cursor::new(bytes), None)?;
         let digest = schema_digest(&reader.schema()).map_err(bad)?;
         if Some(digest.as_str()) != entry["schema_digest"].as_str() {
@@ -1083,13 +1145,16 @@ pub fn verify(dir: &Path) -> Result<Value, CoreError> {
                 "{file}: its schema digest differs from the manifest"
             )));
         }
-        let rows: usize = reader
-            .map(|b| b.map(|b| b.num_rows()))
-            .sum::<Result<usize, _>>()?;
+        let batches = reader.collect::<Result<Vec<_>, _>>()?;
+        let rows: usize = batches.iter().map(RecordBatch::num_rows).sum();
+        projection_batches.insert(name.to_owned(), batches);
         if Some(rows as u64) != entry["rows"].as_u64() {
             return Err(bad(format!("{file}: {rows} rows, not the manifest's")));
         }
     }
+    projection
+        .validate_relations(&projection_batches)
+        .map_err(|e| bad(e.to_string()))?;
     let key = key_of(&manifest)?;
     let named = dir.file_name().map(|n| n.to_string_lossy().into_owned());
     if manifest["generation"].as_str() != Some(key.as_str()) || named.as_deref() != Some(&key) {

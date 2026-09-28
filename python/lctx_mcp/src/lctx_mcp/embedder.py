@@ -17,6 +17,7 @@ from typing import Protocol
 
 import httpx2
 import numpy as np
+from lctx_semantics import canonical_embedding_spec
 from pydantic import BaseModel, ConfigDict
 from pydantic import ValidationError as PydanticValidationError
 
@@ -36,8 +37,8 @@ class Spec:
 
     @classmethod
     def from_json(cls, text: str) -> Spec:
-        fields = json.loads(text)
-        canonical = json.dumps(fields, separators=(",", ":"), ensure_ascii=False)
+        canonical = canonical_embedding_spec(text)
+        fields = json.loads(canonical)
         return cls(canonical, fields)
 
     @classmethod
@@ -76,7 +77,12 @@ FAKE = "lctx-fake-embedder.json"
 
 def request_body(spec: Spec, texts: list[str]) -> bytes:
     """The embeddings request body, byte for byte the Rust client's."""
-    body = {"model": spec.model, "input": texts, "encoding_format": "float"}
+    body = {
+        "model": spec.model,
+        "input": texts,
+        "encoding_format": "float",
+        "dimensions": spec.dimensions,
+    }
     return json.dumps(body, separators=(",", ":"), ensure_ascii=False).encode()
 
 

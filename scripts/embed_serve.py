@@ -21,6 +21,21 @@ def launch_command(spec: dict, port: int) -> list[str]:
         raise ValueError("the launch recipe does not support this pooling contract")
     if not 1 <= port <= 65535:
         raise ValueError("port must be between 1 and 65535")
+    admission = spec["admission"]
+    if (
+        spec["format"] != 2
+        or spec["source_dimensions"] != 4096
+        or spec["reduction"] != "mrl-prefix"
+        or spec["dimensions"] != 1024
+        or spec["normalization"] != "l2"
+        or admission
+        != {
+            "is_matryoshka": True,
+            "matryoshka_dimensions": [1024],
+            "use_activation": True,
+        }
+    ):
+        raise ValueError("incompatible embedding reduction/admission")
     return [
         "uv",
         "run",
@@ -44,6 +59,20 @@ def launch_command(spec: dict, port: int) -> list[str]:
         spec["served_dtype"],
         "--gpu-memory-utilization",
         "0.80",
+        "--hf-overrides",
+        json.dumps(
+            {k: admission[k] for k in ("is_matryoshka", "matryoshka_dimensions")},
+            separators=(",", ":"),
+        ),
+        "--pooler-config",
+        json.dumps(
+            {
+                "seq_pooling_type": "LAST",
+                "use_activation": admission["use_activation"],
+                "dimensions": spec["dimensions"],
+            },
+            separators=(",", ":"),
+        ),
         "--port",
         str(port),
     ]

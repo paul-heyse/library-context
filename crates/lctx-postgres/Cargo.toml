@@ -1,0 +1,30 @@
+[package]
+name = "lctx-postgres"
+description = "Bounded PostgreSQL effects for compilation and serving, without compiler dependencies."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+arrow-array.workspace = true
+arrow-schema.workspace = true
+pgvector.workspace = true
+pgpq.workspace = true
+bytes.workspace = true
+url.workspace = true
+cpg-schema = { path = "../cpg-schema" }
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+arrow-ipc.workspace = true
+arrow-select.workspace = true
+testcontainers-modules.workspace = true
+
+[lints]
+workspace = true

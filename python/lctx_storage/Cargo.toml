@@ -1,0 +1,20 @@
+[package]
+name = "lctx-storage"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lib]
+name = "_storage"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+lctx-postgres = { path = "../../crates/lctx-postgres" }
+pyo3.workspace = true
+pyo3-async-runtimes.workspace = true
+tokio.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true
