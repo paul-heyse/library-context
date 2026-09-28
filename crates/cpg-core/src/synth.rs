@@ -68,6 +68,7 @@ pub const DOCUMENT_BYTE_CAP: usize = 4 * 2048;
 /// The rows Stage F produces.
 #[derive(Debug, Default)]
 pub struct SynthRows {
+    pub skipped: BTreeMap<Id, String>,
     pub evidence: Vec<EvidenceRow>,
     pub assertions: Vec<AssertionsRow>,
     pub supports: Vec<AssertionSupportRow>,
@@ -2014,6 +2015,12 @@ pub async fn run(
             drafts.push(Draft::new(AssertionKind::AnalysisBoundary, text).citing(f));
         }
 
+        // A selected synthesis may legitimately find no admissible documentation brief.
+        // Keep the Outcome validator strict; the mandatory catalog still exposes this API.
+        let has_outcome = drafts.iter().any(|d| d.kind == AssertionKind::Outcome && d.text.is_some()
+            && (!d.evidence.is_empty() || !d.findings.is_empty()));
+        let analysis_backed = drafts.iter().flat_map(|d| &d.findings).any(|(_, _, _, k)| ANALYSIS_BACKED.contains(k));
+        if !has_outcome && !analysis_backed { out.skipped.insert(seed, "no admissible outcome or analysis-backed finding".into()); continue; }
         // Assertions, ordered by section then draft order.
         let mut ordered: Vec<(usize, Draft)> = drafts.into_iter().enumerate().collect();
         ordered.sort_by_key(|(i, d)| (section_of(d.kind).code(), *i));

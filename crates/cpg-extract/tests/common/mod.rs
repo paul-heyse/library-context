@@ -52,6 +52,7 @@ pub fn layout(fixture_name: &str, root: &Path) -> Layout {
 
 pub fn input(l: &Layout, label: &str) -> ExtractInput {
     ExtractInput {
+        profile: cpg_schema::catalog::CompileProfile::Behavioral,
         release: Release::from_tree(l.release_root.clone(), label).unwrap(),
         venv_root: l.venv_root.clone(),
         site_packages: vec![l.site_packages.clone()],

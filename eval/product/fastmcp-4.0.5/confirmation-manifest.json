@@ -1,0 +1,54 @@
+{
+  "confirmation_execution": "PR6_only_not_run",
+  "created": "2026-09-28",
+  "curator": {
+    "authoring_basis": "Only original pinned FastMCP documentation/source was used for prompts, expected answers, rubrics and executable assertions.",
+    "distinctness": "Authored independently without development-set inspection; semantic overlap with development has not been compared by this curator. Before promotion, a separate non-implementer must attest distinctness and parity without returning task content.",
+    "exposure": "Read evaluation protocol, runner, current plan/product design/status and design-review standards; generic memory registry search showed old project/review metadata only. Separately inspected Codex documentation for runner isolation. Did not read development.json, eval/gold, eval/heldout, capability library skills, generated product catalogs, implementation task answers or root agent implementation messages beyond review logistics.",
+    "freeze_timing": "Candidate sealed after concurrent PR1 work had started; no retrospective claim of pre-implementation freeze. Candidate remains hidden from implementation and unscored.",
+    "implementation_context": "Task/rubric plaintext is confined to this isolated curator context and build/product-eval/sealed; parent receives manifest/review only.",
+    "role": "independent_design_review_and_confirmation_curator",
+    "session": "/root/pr0_confirmation_review"
+  },
+  "encrypted_artifact": "confirmation.sealed",
+  "encrypted_sha256": "f48c3912e7b9576df7c9feeee69f9163d1004975bd39278eae6e7d0a663419db",
+  "encryption": "cryptography.fernet.Fernet",
+  "implementation_deployment_tasks": 2,
+  "key_custody": {
+    "committed": false,
+    "location": "operator_user_config",
+    "mode": "0600"
+  },
+  "plaintext_format": "UTF-8 JSON task array, sorted keys, indent=2, final newline",
+  "plaintext_sha256": "6958b53eb4c62368bb49c5a897f01d21231244a3fce0b0561c49300d7c1d31f0",
+  "promotion_requirements": [
+    "Independent exact-release/material A/B/C parity attestation for all 24 tasks before comparison freeze.",
+    "Independent development/confirmation distinctness attestation without disclosure to implementation.",
+    "Correct runner isolation, observation completeness, independent scoring and PR6 authorization."
+  ],
+  "release": "fastmcp==4.0.5",
+  "source_alignment": {
+    "Context7_release_and_material_parity": "blocked",
+    "missing_prerequisite": "Independent task-level A/B/C availability attestation without exposing task answers; exact-release Context7 corpus coverage has not been established by this curator.",
+    "original_revision": "passed"
+  },
+  "source_revision": "004bf15a2ba99f077160993c00a404e1a9da83ea",
+  "source_tree": "4b863be870e0e503f7e8ce043902d29718009a34",
+  "source_verification": "Every cited original Git-tracked document/source file was byte-compared with git show at source_revision; untracked _lctx_blocks excluded.",
+  "status": "sealed_candidate_comparison_blocked",
+  "strata": {
+    "ambiguity": 4,
+    "choice": 4,
+    "discovery": 8,
+    "implementation": 8
+  },
+  "tasks": 24,
+  "validation": {
+    "benchmark_trials": "not_run",
+    "executable_check_syntax": "passed",
+    "qualification": "No task success, product superiority, or fair comparison population is claimed.",
+    "shape_counts_source_hashes_and_encryption_roundtrip": "passed",
+    "task_execution": "not_run"
+  },
+  "version": 1
+}

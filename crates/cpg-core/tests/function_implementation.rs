@@ -31,6 +31,7 @@ class Concrete:
     .unwrap();
     let snapshot = Id([8; 16]);
     let out = cpg_extract::extract(&cpg_extract::ExtractInput {
+        profile: cpg_schema::catalog::CompileProfile::Behavioral,
         release: cpg_extract::Release::from_tree(release, "function_status_probe").unwrap(),
         venv_root: dir.path().join("venv"),
         site_packages: vec![site],

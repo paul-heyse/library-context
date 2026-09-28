@@ -273,18 +273,20 @@ impl Report {
 
 /// The library run, then the corpus run when one is declared (C5), merged into one attempt.
 fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
-    let (library, vocabulary) = run_release(input, &FAMILIES, None)?;
+    let families: Vec<_> = FAMILIES.into_iter().filter(|f| input.profile.behavioral() || *f != FactFamily::Flow).collect();
+    let (library, vocabulary) = run_release(input, &families, None)?;
     let Some(corpus) = &input.corpus else {
         return Ok(library);
     };
     let corpus_input = ExtractInput {
+        profile: input.profile,
         release: corpus.release.clone(),
         corpus: None,
         ..input.clone()
     };
     let (corpus_out, _) = run_release(
         &corpus_input,
-        &CORPUS_FAMILIES,
+        &CORPUS_FAMILIES.into_iter().filter(|f| input.profile.behavioral() || *f != FactFamily::Flow).collect::<Vec<_>>(),
         Some((&corpus.documents, &vocabulary)),
     )?;
     merge(library, corpus_out)
@@ -340,7 +342,7 @@ fn run_release(
     let mut stages = Stages::new();
     let cfg = config::pyrefly_config(input)?;
     let context = config::context(&cfg, input)?;
-    let producer = config::producer();
+    let producer = config::producer(input.profile);
     let family_names: Vec<&str> = families
         .iter()
         .map(|f| cpg_schema::Codebook::text(*f))
@@ -943,6 +945,12 @@ fn run_release(
     // The dependency context the facts reference (ADR-0014): a second check, over those modules.
     stages.mark("extract: public names");
     let mut txn = txn;
+    if !input.profile.behavioral() {
+        for m in &modules {
+            report.cover(&sink, m.node_id, FactFamily::Flow, CoverageStatus::NotRequested,
+                Some(BoundaryReason::NotRequested), Some("catalog profile".into()));
+        }
+    }
     let mut context_out = context::context_facts(
         &mut txn,
         handles.first(),

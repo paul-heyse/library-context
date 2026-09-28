@@ -65,6 +65,7 @@ async fn compiled(sub: &str, reverse: bool, finalizer: bool) -> (tempfile::TempD
         std::fs::write(path, source.replace(before, after)).unwrap();
     }
     let out = extract(&ExtractInput {
+        profile: cpg_schema::catalog::CompileProfile::Behavioral,
         release: cpg_extract::Release::from_tree(
             std::fs::canonicalize(base.join("release")).unwrap(),
             "analysis_shapes",
@@ -104,6 +105,7 @@ async fn compiled_summary_caps() -> (tempfile::TempDir, PathBuf) {
     copy(&fixture, &base.join("release"));
     std::fs::create_dir_all(base.join("venv/site-packages")).unwrap();
     let out = extract(&ExtractInput {
+        profile: cpg_schema::catalog::CompileProfile::Behavioral,
         release: cpg_extract::Release::from_tree(
             std::fs::canonicalize(base.join("release")).unwrap(),
             "summary_caps",

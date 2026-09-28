@@ -391,8 +391,9 @@ fn empty_source_version(
         files.insert(file.name.into(),serde_json::json!({"file":name,"sha256":hash,"rows":0,"schema_digest":relations[file.name].schema_digest}));
     }
     let m = Manifest {
-        format: 2,
-        bundle_format: 12,
+        capabilities: cpg_schema::catalog::Capabilities::for_profile(cpg_schema::catalog::CompileProfile::Behavioral),
+        format: 3,
+        bundle_format: 13,
         context: ServingContext {
             library: "empty".into(),
             requirement: requirement.into(),
@@ -402,15 +403,15 @@ fn empty_source_version(
         snapshot_digest: "02".repeat(32),
         compiler_digest: "03".repeat(32),
         projection_digest: contract::definition_digest(),
-        catalog_digest: cpg_schema::models::Catalog::committed_digest().hex(),
-        kernel_format: 1,
-        entry_value_effect_digest: "04".repeat(32),
+        catalog_digest: Some(cpg_schema::models::Catalog::committed_digest().hex()),
+        kernel_format: Some(1),
+        entry_value_effect_digest: Some("04".repeat(32)),
         spec_hash: None,
         dimensions: 0,
         relations,
         artifacts,
     };
-    let outer = serde_json::json!({"format":12,"library":m.context.library,"requirement":m.context.requirement,"summary":m.context.summary,"snapshot_id":m.snapshot_id,"content_digest":m.snapshot_digest,"compiler_digest":m.compiler_digest,"condition_kernel_format":1,"entry_value_effect_digest":m.entry_value_effect_digest,"spec_hash":null,"files":files,"projection_generation":m.generation().unwrap(),"projection":m});
+    let outer = serde_json::json!({"format":13,"capabilities":m.capabilities,"library":m.context.library,"requirement":m.context.requirement,"summary":m.context.summary,"snapshot_id":m.snapshot_id,"content_digest":m.snapshot_digest,"compiler_digest":m.compiler_digest,"condition_kernel_format":1,"entry_value_effect_digest":m.entry_value_effect_digest,"spec_hash":null,"files":files,"projection_generation":m.generation().unwrap(),"projection":m});
     std::fs::write(
         root.join("MANIFEST.json"),
         serde_json::to_vec(&outer).unwrap(),

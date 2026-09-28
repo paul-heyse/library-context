@@ -23,12 +23,12 @@ use cpg_schema::behavior::{
 };
 use cpg_schema::codebook::{
     AnalyticMethod, BehaviorKind, BoundaryReason, Codebook, CoverageStatus, DeclarationKind,
-    EmbeddingView, ExtractionMode, FindingKind, FlowSink, FlowTransfer, MemberRole, Modality,
-    OperationFacet, ValueClass, Verdict,
+    ExtractionMode, FindingKind, FlowSink, FlowTransfer, MemberRole, Modality,
+    ValueClass, Verdict,
 };
 use cpg_schema::condition_kernel::{BoundedCondition as ModelCondition, KernelBoundary};
 use cpg_schema::findings::{
-    AnalysisInvocationsRow, FindingMembersRow, PublicPathsRow, recipe as findings,
+    AnalysisInvocationsRow, FindingMembersRow, recipe as findings,
 };
 use cpg_schema::id::{Digest, Id, content_digest};
 use cpg_schema::table::Table;
@@ -267,7 +267,7 @@ pub async fn run(
     snapshot_id: Id,
     analysis: &Analysis,
     compiler: CompilerRun,
-    public: &[PublicPathsRow],
+    catalog: &crate::catalog::Contracts,
     flow: &crate::flow_model::FlowModelRows,
     discharges: &lctx_analytics::summaries::discharge::Decisions,
     stages: &mut Stages,
@@ -1430,29 +1430,6 @@ pub async fn run(
         }
     }
 
-    // Names for partners outside the public surface: their qualified names.
-    let partners: BTreeSet<Id> = out
-        .behaviors
-        .iter()
-        .filter_map(|r| r.callee_node_id)
-        .filter(|n| !path_of.contains_key(n))
-        .collect();
-    let qualified: BTreeMap<Id, String> = sql::fetch::<QualifiedRow>(
-        ctx,
-        &qualified_names(),
-        sql::Params::new().ids("ids", partners.iter().copied()),
-    )
-    .await?
-    .into_iter()
-    .map(|r| (r.node_id, r.qualified_name))
-    .collect();
-    let name_of = |n: Id| -> Option<String> {
-        path_of
-            .get(&n)
-            .map(|p| (*p).to_owned())
-            .or_else(|| qualified.get(&n).cloned())
-    };
-
     // Operations: established only when the scan met no boundary in its region (increment 3's
     // deep review, F2); its own open call sites count too.
     let open: BTreeMap<Id, i64> =
@@ -1511,242 +1488,7 @@ pub async fn run(
         });
     }
 
-    // Facets, each with the best verdict of what it comes from (increment 3's deep review, F3).
-    let mut facets: BTreeMap<(Id, OperationFacet, String), Verdict> = BTreeMap::new();
-    let mut put = |node: Id, facet: OperationFacet, value: String, verdict: Verdict| {
-        let e = facets.entry((node, facet, value)).or_insert(verdict);
-        *e = (*e).min(verdict);
-    };
-    for s in &sources {
-        let kind = match (s.kind, s.is_method) {
-            (DeclarationKind::Class, _) => "class",
-            (_, true) => "method",
-            _ => "function",
-        };
-        put(
-            s.node_id,
-            OperationFacet::Kind,
-            kind.to_owned(),
-            Verdict::Established,
-        );
-        put(
-            s.node_id,
-            OperationFacet::Module,
-            s.module.clone(),
-            Verdict::Established,
-        );
-        if s.kind == DeclarationKind::AsyncFunction {
-            put(
-                s.node_id,
-                OperationFacet::Async,
-                "true".to_owned(),
-                Verdict::Established,
-            );
-        }
-        if s.kind == DeclarationKind::Class {
-            for d in &s.decorators {
-                put(
-                    s.node_id,
-                    OperationFacet::Decorator,
-                    d.clone(),
-                    Verdict::Established,
-                );
-            }
-        }
-    }
-    let attributes = crate::analyze::collect_attributes(ctx, &callables).await?;
-    let mut declared: BTreeMap<Id, Vec<(OperationFacet, String)>> = BTreeMap::new();
-    for (node, attribute) in attributes {
-        let (facet, value) = attribute
-            .facet()
-            .ok_or_else(|| CoreError::Analysis("invalid declared attribute".into()))?;
-        put(node, facet, value.to_owned(), Verdict::Established);
-        declared
-            .entry(node)
-            .or_default()
-            .push((facet, value.to_owned()));
-    }
-    // A class's parameters are its public constructor's: `<class path>.__init__`, its own or
-    // inherited through a public path.
-    let node_at: BTreeMap<&str, Id> = public
-        .iter()
-        .map(|p| (p.access_path.as_str(), p.node_id))
-        .collect();
-    let mut constructor: BTreeMap<Id, Id> = BTreeMap::new();
-    for s in sources.iter().filter(|s| s.kind == DeclarationKind::Class) {
-        if let Some(&init) = node_at.get(format!("{}.__init__", s.access_path).as_str()) {
-            constructor.insert(s.node_id, init);
-            for (facet, value) in declared.get(&init).into_iter().flatten() {
-                if matches!(
-                    facet,
-                    OperationFacet::Parameter | OperationFacet::ParameterType
-                ) {
-                    put(s.node_id, *facet, value.clone(), Verdict::Established);
-                }
-            }
-        }
-    }
-    for r in &out.behaviors {
-        if r.kind == BehaviorKind::ReadsSetting
-            && let Some(setting) = &r.target_name
-        {
-            put(
-                r.operation_node_id,
-                OperationFacet::ReadsSetting,
-                setting.clone(),
-                r.verdict,
-            );
-            continue;
-        }
-        let facet = match r.kind {
-            BehaviorKind::Delegates => OperationFacet::DelegatesTo,
-            BehaviorKind::Forwards => OperationFacet::ForwardsTo,
-            BehaviorKind::HandsOffTo => OperationFacet::HandsOffTo,
-            BehaviorKind::TakesFrom => OperationFacet::TakesFrom,
-            _ => continue,
-        };
-        if let Some(name) = r.callee_node_id.and_then(name_of) {
-            put(r.operation_node_id, facet, name, r.verdict);
-        }
-    }
-    out.facets = facets
-        .into_iter()
-        .map(|((node_id, facet, value), verdict)| OperationFacetsRow {
-            snapshot_id,
-            node_id,
-            facet,
-            value,
-            verdict,
-        })
-        .collect();
-
-    // Whether each operation's rows for each facet are complete (F3, F4): the served authority
-    // for `find_operations`' `complete` and its `unknown` list.
-    let status_of: BTreeMap<Id, (Verdict, Option<String>)> = out
-        .operations
-        .iter()
-        .map(|o| (o.node_id, (o.behavior_status, o.status_reason.clone())))
-        .collect();
-    for s in &sources {
-        let class = s.kind == DeclarationKind::Class;
-        let (scan, scan_reason) = status_of
-            .get(&s.node_id)
-            .cloned()
-            .unwrap_or((Verdict::NotAnalyzed, None));
-        for &facet in <OperationFacet as Codebook>::all() {
-            let (verdict, reason) = match facet {
-                OperationFacet::Kind
-                | OperationFacet::Module
-                | OperationFacet::Async
-                | OperationFacet::Decorator => (Verdict::Established, None),
-                OperationFacet::Parameter | OperationFacet::ParameterType
-                    if class && !constructor.contains_key(&s.node_id) =>
-                {
-                    (
-                        Verdict::NotAnalyzed,
-                        Some(
-                            "no public __init__: a synthesized or unexported constructor"
-                                .to_owned(),
-                        ),
-                    )
-                }
-                OperationFacet::Parameter | OperationFacet::ParameterType => {
-                    (Verdict::Established, None)
-                }
-                OperationFacet::Returns if class => (
-                    Verdict::NotAnalyzed,
-                    Some("a class: its constructor returns the instance".to_owned()),
-                ),
-                OperationFacet::Returns => (Verdict::Established, None),
-                OperationFacet::Raises => (
-                    Verdict::Unknown,
-                    Some("only a typed raise directly in the body is a row".to_owned()),
-                ),
-                OperationFacet::DelegatesTo | OperationFacet::ForwardsTo => {
-                    (scan, scan_reason.clone())
-                }
-                OperationFacet::HandsOffTo | OperationFacet::TakesFrom => (
-                    Verdict::Unknown,
-                    Some("official usage is read in two handoff shapes only".to_owned()),
-                ),
-                OperationFacet::ReadsSetting if class => (
-                    Verdict::NotAnalyzed,
-                    Some("a class: its reads are its constructor's".to_owned()),
-                ),
-                OperationFacet::ReadsSetting => (
-                    Verdict::Unknown,
-                    Some("reads in its own body only: reads in callees are Stage 3's".to_owned()),
-                ),
-            };
-            out.facet_status.push(OperationFacetStatusRow {
-                snapshot_id,
-                node_id: s.node_id,
-                facet,
-                verdict,
-                reason,
-            });
-        }
-    }
-    stages.mark("behavior: operations and facets");
-
-    // Documents: the signature-and-docstring view and the source-body view of each callable.
-    let modules: BTreeSet<Id> = sources.iter().map(|s| s.module_node_id).collect();
-    let texts: BTreeMap<Id, String> = sql::fetch::<TextRow>(
-        ctx,
-        &module_texts(),
-        sql::Params::new().ids("ids", modules.iter().copied()),
-    )
-    .await?
-    .into_iter()
-    .filter_map(|r| r.text.map(|t| (r.module_node_id, t)))
-    .collect();
-    for s in sources.iter().filter(|s| s.kind != DeclarationKind::Class) {
-        let names: Vec<&str> = parameters_of
-            .get(&s.node_id)
-            .map(|ps| ps.iter().map(|p| p.name.as_str()).collect())
-            .unwrap_or_default();
-        let signature = lctx_analytics::neighbours::api_text(
-            &s.access_path,
-            Some(&names.join(", ")),
-            s.docstring.as_deref(),
-        );
-        let body = texts
-            .get(&s.module_node_id)
-            .and_then(|t| t.get(s.start_byte as usize..s.end_byte as usize))
-            .unwrap_or_default()
-            .to_owned();
-        for (view, text) in [
-            (EmbeddingView::SignatureDoc, signature),
-            (EmbeddingView::SourceBody, body),
-        ] {
-            for (chunk, window) in lctx_analytics::neighbours::windows(&text, WINDOW_BYTES)
-                .into_iter()
-                .enumerate()
-            {
-                out.documents.push(OperationDocumentsRow {
-                    snapshot_id,
-                    node_id: s.node_id,
-                    embedding_view: view,
-                    chunk: chunk as i64,
-                    text: window.to_owned(),
-                    spec_hash: None,
-                    input_hash: None,
-                });
-            }
-        }
-    }
-    if let Some(embedder) = analysis.embedder.as_deref() {
-        let spec = embedder.spec();
-        let spec_hash = spec.hash();
-        let texts: Vec<String> = out.documents.iter().map(|d| d.text.clone()).collect();
-        embeddings
-            .texts(embedder, &texts, crate::embed::Usage::Operation)
-            .await?;
-        for d in &mut out.documents {
-            d.spec_hash = Some(spec_hash);
-            d.input_hash = Some(crate::embed::input_hash(&spec.document_text(&d.text)));
-        }
-        stages.mark("behavior: embed operation documents");
-    }
+    crate::catalog::populate(ctx, embeddings, snapshot_id, analysis.embedder.as_deref(), catalog,
+        &mut out, stages).await?;
     Ok(out)
 }

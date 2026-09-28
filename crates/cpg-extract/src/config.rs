@@ -28,7 +28,7 @@ pub const PYREFLY_PATCH_SHA256: &str =
 pub const RUFF_LINE: &str = "ruff crates 0.0.11";
 /// Bumped by hand whenever the mapping changes output for the same inputs (it changes
 /// `producer_id`). The variant and id snapshots are what show such a change (DESIGN §4.0).
-pub const EXTRACTOR_OUTPUT_VERSION: u32 = 33;
+pub const EXTRACTOR_OUTPUT_VERSION: u32 = 34;
 /// The driver thread's stack. Part of the producer config: a deeper solve could overflow a smaller
 /// stack, which is a SIGSEGV rather than a panic (review F8).
 pub const DRIVER_STACK_BYTES: usize = 512 << 20;
@@ -186,6 +186,8 @@ impl Release {
 /// Everything an extraction may depend on, passed explicitly (DESIGN §4.0).
 #[derive(Debug, Clone)]
 pub struct ExtractInput {
+    /// Explicit producer policy; default callers select their required families.
+    pub profile: cpg_schema::catalog::CompileProfile,
     pub release: Release,
     /// The analysis environment's root; site-package paths are recorded relative to it. Absolute.
     pub venv_root: PathBuf,
@@ -421,21 +423,21 @@ pub(crate) struct Producer {
     pub config_digest: Digest,
 }
 
-pub(crate) fn producer() -> Producer {
+pub(crate) fn producer(profile: cpg_schema::catalog::CompileProfile) -> Producer {
     // The flow provider runs in the extraction, so it is part of this producer's identity
     // (ADR-0022 §Identity).
     let revision = format!(
         "pyrefly 1.3.1 {PYREFLY_REV} (patch sha256 {PYREFLY_PATCH_SHA256}); {RUFF_LINE}; flow: {}",
         cpg_flow::PROVIDER
     );
-    let config = format!("threads=inline; stack_bytes={DRIVER_STACK_BYTES}");
+    let config = format!("threads=inline; stack_bytes={DRIVER_STACK_BYTES}; profile={}", profile.name());
     let build = format!("{}/{EXTRACTOR_OUTPUT_VERSION}", env!("CARGO_PKG_VERSION"));
     // Context facts now retain classes named by committed model rules. Changing those bytes can
     // change extraction output even when the Rust mapping and release bytes are unchanged.
-    let build_digest = IdHasher::new("extractor-build")
-        .str(&build)
-        .bytes(cpg_schema::models::Catalog::committed_digest().bytes())
-        .finish_digest();
+    let mut build_hash = IdHasher::new("extractor-build");
+    build_hash.str(&build).str(profile.name());
+    if profile.behavioral() { build_hash.bytes(cpg_schema::models::Catalog::committed_digest().bytes()); }
+    let build_digest = build_hash.finish_digest();
     let config_digest = content_digest(config.as_bytes());
     let id = cpg_schema::id::recipe::producer(TOOL, &revision, build_digest);
     Producer {

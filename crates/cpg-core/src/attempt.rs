@@ -126,7 +126,7 @@ pub struct Published {
 /// 103: builtin binding-preserving descriptors no longer write the decorator boundary.
 /// 104: summaries neither start in nor compose through a decorated function (ADR-0064).
 /// 105: call-transfer return claims graded after summaries with claim-keyed discharges (ADR-0064).
-pub const COMPILER_OUTPUT_VERSION: u32 = 107;
+pub const COMPILER_OUTPUT_VERSION: u32 = 108;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -357,7 +357,7 @@ fn schema_digest_of(name: &str) -> Result<Digest, CoreError> {
 fn with_compiler_run(
     raw: &mut [(&str, RecordBatch)],
     snapshot_id: Id,
-    analysis: &Analysis,
+    config_digest: Digest,
 ) -> Result<CompilerRun, CoreError> {
     let runs = raw
         .iter()
@@ -389,8 +389,6 @@ fn with_compiler_run(
     let release = ids(&runs, "release_id")?[row];
     let context = ids(&runs, "context_id")?[row];
     // The whole technique set joins the config digest (§9.8; the ADR-0020 review's F3).
-    let config_digest =
-        crate::analyze::variant_config_digest(analysis.config.digest(), &analysis.techniques);
     let (compiler, run, producer) = compiler_rows(snapshot_id, release, context, config_digest);
     for (name, batch) in raw.iter_mut() {
         let extra = match *name {
@@ -451,8 +449,11 @@ async fn write_analysis_batch<T: Table>(
     w: &mut Written,
 ) -> Result<(), CoreError> {
     let version = write::<T>(root, &batch, snapshot_id).await?;
+    // Replace the empty planning relation with this attempt's committed Delta view.
+    ctx.deregister_table(T::NAME)?;
     register(ctx, root, T::NAME, version, snapshot_id).await?;
     w.versions.insert(T::NAME.to_owned(), version);
+    w.rows.retain(|(name, _)| *name != T::NAME);
     w.rows.push((T::NAME, batch.num_rows() as i64));
     w.stages.mark(format!("write {}", T::NAME));
     Ok(())
@@ -479,7 +480,7 @@ pub async fn compile_analyzed(
     let models = bind_models(snapshot_id, raw, analysis.is_some())?;
     let mut raw = raw.to_vec();
     let compiler = analysis
-        .map(|a| with_compiler_run(&mut raw, snapshot_id, a))
+        .map(|a| with_compiler_run(&mut raw, snapshot_id, crate::catalog::CompileInputs::from_analysis(Some(a)).digest(Some(a))))
         .transpose()?;
     let mut written = Written::new();
     let runs = write_all(root, snapshot_id, &raw, &mut written).await?;
@@ -490,6 +491,7 @@ pub async fn compile_analyzed(
         written,
         analysis.zip(compiler),
         &models,
+        &crate::catalog::CompileInputs::from_analysis(analysis),
     )
     .await
 }
@@ -504,7 +506,7 @@ pub async fn compile_owned(
 ) -> Result<Published, CoreError> {
     let models = bind_models(snapshot_id, &raw, analysis.is_some())?;
     let compiler = analysis
-        .map(|a| with_compiler_run(&mut raw, snapshot_id, a))
+        .map(|a| with_compiler_run(&mut raw, snapshot_id, crate::catalog::CompileInputs::from_analysis(Some(a)).digest(Some(a))))
         .transpose()?;
     let mut written = Written::new();
     let runs = write_all(root, snapshot_id, &raw, &mut written).await?;
@@ -517,8 +519,25 @@ pub async fn compile_owned(
         written,
         analysis.zip(compiler),
         &models,
+        &crate::catalog::CompileInputs::from_analysis(analysis),
     )
     .await
+}
+
+/// Product compilation: public scope/provenance are mandatory; analysis is explicit enrichment.
+pub async fn compile_catalog(root: &Path, snapshot_id: Id, mut raw: Vec<(&'static str, RecordBatch)>,
+    inputs: &crate::catalog::CompileInputs, analysis: Option<&Analysis>) -> Result<Published, CoreError> {
+    cpg_schema::catalog::validate_roots(&inputs.public_roots).map_err(CoreError::Analysis)?;
+    if inputs.profile.behavioral() != analysis.is_some()
+        || analysis.is_some_and(|a| a.config.subsystem.public_roots != inputs.public_roots) {
+        return Err(CoreError::Analysis("compile profile, public scope and enrichment disagree".into()));
+    }
+    let models = bind_models(snapshot_id, &raw, analysis.is_some())?;
+    let compiler = with_compiler_run(&mut raw, snapshot_id, inputs.digest(analysis))?;
+    let mut written = Written::new();
+    let runs = write_all(root, snapshot_id, &raw, &mut written).await?;
+    drop(raw);
+    finish(root, snapshot_id, runs, written, analysis.map(|a| (a, compiler)), &models, inputs).await
 }
 
 #[derive(Default)]
@@ -618,8 +637,9 @@ async fn finish(
     mut written: Written,
     analysis: Option<(&Analysis, CompilerRun)>,
     models: &BoundModels,
+    inputs: &crate::catalog::CompileInputs,
 ) -> Result<Published, CoreError> {
-    let cache = analysis.and_then(|(a, _)| a.embedding_cache.clone());
+    let cache = inputs.embedding_cache.clone();
     let budget = cache
         .as_ref()
         .map_or(268435456, crate::postgres::Store::receipt_budget);
@@ -642,17 +662,20 @@ async fn finish(
 
     // The one public-path authority (the holistic assessment's A1; ADR-0019's amendment): from the
     // snapshot and the config's public roots, written before Stage E, which reads it.
-    let public = match analysis {
-        Some((a, _)) => {
-            crate::sql::fetch::<cpg_schema::findings::PublicPathsRow>(
-                &ctx,
-                &cpg_schema::public::public_paths(),
-                crate::sql::Params::new().texts("roots", &a.config.subsystem.public_roots),
-            )
-            .await?
-        }
-        None => Vec::new(),
-    };
+    let public = crate::sql::fetch::<cpg_schema::findings::PublicPathsRow>(
+        &ctx, &cpg_schema::public::public_paths(),
+        crate::sql::Params::new().texts("roots", &inputs.public_roots)).await?;
+    let mut catalog = crate::catalog::contracts(&ctx, snapshot_id, &inputs.public_roots, &public).await?;
+    // Every analysis table exists for validators and retained consumers. Unselected producers
+    // leave typed empty tables; the compilation row records why, independently of row counts.
+    macro_rules! initialize { ($($t:ty),+) => { $(
+        ctx.register_batch(<$t as Table>::NAME, <$t as Table>::to_batch(&[])?)?;
+    )+ }; }
+    cpg_schema::for_each_analysis_table!(initialize);
+    write_analysis::<cpg_schema::catalog::CatalogCompilation>(&ctx, root, snapshot_id,
+        &[cpg_schema::catalog::CatalogCompilationRow { snapshot_id,
+            profile: inputs.profile.name().into(), public_roots: inputs.public_roots.clone(),
+            input_digest: inputs.digest(analysis.map(|(a, _)| a)) }], &mut written).await?;
     write_analysis::<cpg_schema::findings::PublicPaths>(
         &ctx,
         root,
@@ -798,7 +821,7 @@ async fn finish(
     };
     // The behavior model's Stage 1 (ADR-0021, ADR-0022) runs inside this block after the finite
     // summaries, whose decisions discharge call-transfer claims (ADR-0064); before Stage E.
-    let behavior = {
+    let behavior = if analysis.is_some() {
         use cpg_schema::behavior::{
             AmbientReads, AnalysisConditionNodes, AnalysisConditions, ArgumentFlows, BehaviorSteps,
             Behaviors, Delegations, DynamicAccesses, ExitSites, ExpressionEvaluationSteps,
@@ -1187,7 +1210,7 @@ async fn finish(
                     snapshot_id,
                     a,
                     compiler,
-                    &public,
+                    &catalog,
                     m,
                     &decisions,
                     &mut w.stages,
@@ -1218,7 +1241,24 @@ async fn finish(
         write_analysis::<OperationDocuments>(&ctx, root, snapshot_id, &behavior.documents, w)
             .await?;
         behavior
+    } else {
+        let mut behavior = crate::behavior::BehaviorRows::default();
+        crate::catalog::populate(&ctx, &mut embeddings, snapshot_id, inputs.embedder.as_deref(),
+            &catalog, &mut behavior, &mut written.stages).await?;
+        write_analysis::<cpg_schema::behavior::Operations>(&ctx, root, snapshot_id, &behavior.operations, &mut written).await?;
+        write_analysis::<cpg_schema::behavior::OperationFacets>(&ctx, root, snapshot_id, &behavior.facets, &mut written).await?;
+        write_analysis::<cpg_schema::behavior::OperationFacetStatus>(&ctx, root, snapshot_id, &behavior.facet_status, &mut written).await?;
+        write_analysis::<cpg_schema::behavior::OperationDocuments>(&ctx, root, snapshot_id, &behavior.documents, &mut written).await?;
+        behavior
     };
+    write_analysis::<cpg_schema::catalog::CatalogConstructors>(&ctx, root, snapshot_id, &catalog.constructors, &mut written).await?;
+    write_analysis::<cpg_schema::catalog::CatalogBindings>(&ctx, root, snapshot_id, &catalog.bindings, &mut written).await?;
+    write_analysis::<cpg_schema::catalog::CatalogSignatures>(&ctx, root, snapshot_id, &catalog.signatures, &mut written).await?;
+    write_analysis::<cpg_schema::catalog::CatalogParameters>(&ctx, root, snapshot_id, &catalog.parameters, &mut written).await?;
+    write_analysis::<cpg_schema::catalog::CatalogEvidence>(&ctx, root, snapshot_id, &catalog.evidence, &mut written).await?;
+    write_analysis::<cpg_schema::catalog::CatalogTypes>(&ctx, root, snapshot_id, &catalog.types, &mut written).await?;
+    write_analysis::<cpg_schema::catalog::CatalogTypeArgs>(&ctx, root, snapshot_id, &catalog.type_args, &mut written).await?;
+    write_analysis::<cpg_schema::catalog::CatalogTypeObservations>(&ctx, root, snapshot_id, &catalog.type_observations, &mut written).await?;
 
     // Stage E (ADR-0019): the analyses read the session, and their rows are written like any
     // other table's, one commit each.
@@ -1287,6 +1327,14 @@ async fn finish(
         written.stages.mark("embed brief documents");
     }
     let receipt = embeddings.finish()?;
+    for member in &mut catalog.members {
+        if let Some(reason) = member.operation_node_id.and_then(|id| made.skipped.get(&id)) {
+            member.brief_status = "skipped".into(); member.brief_reason = Some(reason.clone());
+        } else if made.briefs.iter().any(|b| Some(b.seed_node_id) == member.operation_node_id) {
+            member.brief_status = "available".into();
+        } else if analysis.is_some() { member.brief_status = "not_selected".into(); }
+    }
+    write_analysis::<cpg_schema::catalog::CatalogMembers>(&ctx, root, snapshot_id, &catalog.members, &mut written).await?;
     let embedded = receipt
         .spec
         .as_ref()
@@ -1340,6 +1388,12 @@ async fn finish(
         .await?;
     write_analysis::<EmbeddingSpecs>(&ctx, root, snapshot_id, &specs, &mut written).await?;
     write_analysis::<AssertionPolicy>(&ctx, root, snapshot_id, &made.policy, &mut written).await?;
+    macro_rules! persist_unselected { ($($t:ty),+) => { $(
+        if !written.versions.contains_key(<$t as Table>::NAME) {
+            write_analysis::<$t>(&ctx, root, snapshot_id, &[], &mut written).await?;
+        }
+    )+ }; }
+    cpg_schema::for_each_analysis_table!(persist_unselected);
     let Written {
         mut stages,
         versions,

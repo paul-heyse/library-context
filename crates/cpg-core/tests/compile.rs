@@ -70,6 +70,7 @@ fn raw_version(
     let site = dir.path().join("venv/site-packages");
     std::fs::create_dir_all(&site).unwrap();
     extract(&ExtractInput {
+        profile: cpg_schema::catalog::CompileProfile::Behavioral,
         release: cpg_extract::Release::from_tree(std::fs::canonicalize(&release).unwrap(), fixture)
             .unwrap(),
         venv_root: std::fs::canonicalize(dir.path().join("venv")).unwrap(),

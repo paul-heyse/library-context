@@ -1,0 +1,12 @@
+{
+  "outcome": "blocked",
+  "release": "fastmcp==4.0.5",
+  "verified_date": "2026-09-28",
+  "matched_conditions": [],
+  "independent_reviewer": null,
+  "evidence_inventory": [],
+  "reason": "Context7 resolve advertises v3.2.0/v3.2.4; exact 4.0.5 material and task parity not established. This is not evidence of API absence.",
+  "source": "Context7 resolve-library-id fastmcp and /prefecthq/fastmcp query-docs",
+  "frozen_model_access": "blocked: OPENAI_API_KEY absent in execution environment",
+  "confirmation": "sealed candidate; no confirmation trials"
+}

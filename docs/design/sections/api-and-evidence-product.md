@@ -127,8 +127,10 @@ silently fetches a mutable current website to replace the pinned bytes.
 
 ## §14.4 Public API and configuration contracts
 
-**Public identity.** Introduce a `PublicMember` identity over the snapshot's exposed owner/name and
-binding/access form. It references zero, one or several existing declarations; it never overwrites
+**Public identity.** Introduce a `PublicMember` identity over the snapshot's public exposure
+(exposed owner/name and access path), independent of later binding interpretation. Binding/access
+forms are attributed associations, so better knowledge cannot rename the public slot. It references
+zero, one or several existing declarations; it never overwrites
 their node IDs. Alias/access-path records retain defining and inherited origin, binding mode and
 source. A method inherited by two public classes can share an implementation while retaining each
 public exposure. Group aliases only when the exposure equivalence is established. Ambiguous names
@@ -526,6 +528,16 @@ required for a broad superiority claim. The earlier semantic suite retains its o
 <a id="section-14-13"></a>
 
 ## §14.13 Migration and immediate implementation priority
+
+**PR0–PR1 decision (ADR-0072; implementation tracked in the forward plan).** Catalog compilation
+is the default; explicit behavioral compilation enriches the same catalog. Preserve existing and
+specified additive capabilities, query contracts, data structures, tests and future scope.
+Deprioritization changes sequencing, not retention. One schema-owned capability inventory governs
+optional outputs through publication, PG import, native/MCP loading and recovery. Dotted roots
+remain supported; source alternatives retain roles rather than fabricated runtime possibilities.
+Existing analytics parameters and behavioral evaluation freezes remain unchanged.
+
+> Decision: ADR-0072
 
 The forward plan orders product packets PR0–PR6: freeze tasks/contract inventory; mandatory catalog
 and complete signatures; surface/options normalization; scenarios/deployment/evidence closure;

@@ -12,7 +12,7 @@ from lctx_storage import PinnedRepository
 
 from lctx_mcp.embedder import Spec
 
-FORMAT = 12
+FORMAT = 13
 KERNEL_FORMAT = 1
 _CONDITION_FILES, _SURFACE_FILES, _SUMMARY_FILES, _LIMITS = native_files()
 NATIVE_IPC_FILES = (
@@ -37,7 +37,7 @@ class Generation:
     repository: PinnedRepository
     descriptor: dict
     lexical_state: LexicalState
-    condition_graph: SemanticExecutor
+    condition_graph: SemanticExecutor | None
 
     @property
     def manifest(self) -> dict:
@@ -88,7 +88,7 @@ def load(
         manifest["snapshot_id"],
         manifest["entry_value_effect_digest"],
         [(name, inputs[name]) for name in sorted(NATIVE_IPC_FILES)],
-    )
+    ) if manifest["capabilities"]["native_value_paths"] else None
 
     def lexical(name: str, key: str) -> tuple[np.ndarray, list[str]]:
         table = ipc.open_file(pa.BufferReader(inputs[name])).read_all()

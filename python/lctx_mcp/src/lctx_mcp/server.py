@@ -30,9 +30,10 @@ from typing import Annotated, Literal
 import numpy as np
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError, ValidationError
+from fastmcp.tools import ToolResult
 from lctx_storage import StorageError, open_repository
 from mcp_types import ToolAnnotations
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, TypeAdapter
 
 from lctx_mcp import operations as ops
 from lctx_mcp import value_paths
@@ -80,6 +81,21 @@ class Hit(BaseModel):
     relevance: float
     rank_source: RankSource
     promoted: bool
+
+
+class CapabilityUnavailable(BaseModel):
+    status: Literal["unavailable"] = "unavailable"
+    reason: Literal["not_requested"] = "not_requested"
+    capability: str
+    snapshot_id: str
+    generation: str
+
+
+def unavailable(served: Served, capability: str) -> CapabilityUnavailable | None:
+    if served.generation.manifest["capabilities"][capability]:
+        return None
+    return CapabilityUnavailable(capability=capability, snapshot_id=served.generation.snapshot_id,
+                                 generation=served.generation.key)
 
 
 class SearchResult(BaseModel):
@@ -536,17 +552,24 @@ def build_server(
         query: Annotated[str, Field(min_length=1, max_length=4000)],
         ctx: Context,
         limit: Annotated[int, Field(ge=1, le=10)] = 5,
-    ) -> SearchResult:
+    ) -> SearchResult | CapabilityUnavailable:
         """Find capability briefs for a coding task in a library: ranked hits with their outcome
         and its evidence status. Read a hit whole with get_capability."""
-        return await search(ctx.lifespan_context["served"], library, query, limit)
+        served = ctx.lifespan_context["served"]
+        _check(served, library)
+        missing = unavailable(served, "briefs")
+        return missing if missing is not None else await search(served, library, query, limit)
 
     @mcp.tool(annotations=READ_ONLY)
     @request_deadline
-    async def get_capability(snapshot_id: str, capability_id: str, ctx: Context) -> Capability:
+    async def get_capability(snapshot_id: str, capability_id: str, ctx: Context) -> Capability | CapabilityUnavailable:
         """One capability brief, whole: every section's statements with their evidence status,
         their supports, and the verbatim evidence they cite."""
-        return await hydrate(ctx.lifespan_context["served"], snapshot_id, capability_id)
+        served = ctx.lifespan_context["served"]
+        if snapshot_id != served.generation.snapshot_id:
+            raise CapabilityError("snapshot is not the pinned one")
+        missing = unavailable(served, "briefs")
+        return missing if missing is not None else await hydrate(served, snapshot_id, capability_id)
 
     def _check(served: Served, library: str) -> None:
         if library != served.generation.library:
@@ -554,24 +577,36 @@ def build_server(
                 f"this server serves {served.generation.library!r}, not {library!r}"
             )
 
-    @mcp.tool(annotations=READ_ONLY)
+    @mcp.tool(annotations=READ_ONLY, output_schema={
+        **TypeAdapter(ops.Operation | ops.AmbiguousOperation).json_schema(), "type": "object"
+    })
     @request_deadline
     async def get_operation(
         snapshot_id: str,
         operation: Annotated[str, Field(min_length=1, max_length=500)],
         ctx: Context,
-    ) -> ops.Operation:
+        expanded: bool = False,
+    ) -> ToolResult:
         """One public operation, whole, by any public spelling (or its id): its paths, facets,
         each parameter's fates (forwarded, literal, raises-when, unfollowed) with verdicts and
         source lines, its delegations and official-usage handoffs, and its brief if one exists.
         Established and conditional fates are may-behavior admitted by the model, not concrete
         execution witnesses. A negative fate requires complete coverage under the model."""
         served = ctx.lifespan_context["served"]
-        return await decode_model(
+        encoded = await storage(served.generation.repository.get_operation(snapshot_id, operation))
+        model = ops.AmbiguousOperation if json.loads(encoded).get("resolution") == "ambiguous" else ops.Operation
+        result = await decode_model(
             served,
-            ops.Operation,
-            await storage(served.generation.repository.get_operation(snapshot_id, operation)),
+            model,
+            encoded,
         )
+        payload = result.model_dump(mode="json")
+        limit = 256 * 1024 if expanded else 32 * 1024
+        if len(json.dumps(payload, ensure_ascii=False).encode()) > limit:
+            raise CapabilityError("operation packet exceeds byte budget; request expanded=true" if not expanded
+                                  else "expanded operation packet exceeds 256 KiB; no signature was truncated")
+        return ToolResult(content="Public API contract and evidence; effective behavior may remain unresolved.",
+                          structured_content=payload)
 
     @mcp.tool(annotations=READ_ONLY)
     @request_deadline
@@ -584,12 +619,17 @@ def build_server(
         standard_builtins: bool = False,
         limit: Annotated[int, Field(ge=1, le=50)] = 20,
         cursor: str | None = None,
-    ) -> value_paths.ValuePathPage:
+    ) -> value_paths.ValuePathPage | CapabilityUnavailable:
         """Inspect cited value-summary paths for one public formal and exact primitive input.
         A refuted path is excluded only under that input model. A compatible path has a
         satisfiable Boolean model after checked value links, not a concrete execution. Other
         paths and open boundaries remain possible; there is no operation-wide negative."""
         served = ctx.lifespan_context["served"]
+        if snapshot_id != served.generation.snapshot_id:
+            raise CapabilityError("snapshot is not the pinned one")
+        missing = unavailable(served, "native_value_paths")
+        if missing is not None:
+            return missing
         resolved = json.loads(await storage(served.generation.repository.resolve(operation)))
         try:
             return await served.workers.run(
@@ -657,6 +697,10 @@ def build_server(
     async def capability(snapshot_id: str, capability_id: str, ctx: Context) -> str:
         """A capability brief as Markdown."""
         served = ctx.lifespan_context["served"]
+        if snapshot_id != served.generation.snapshot_id:
+            raise CapabilityError("snapshot differs from the pinned generation")
+        if missing := unavailable(served, "briefs"):
+            return missing.model_dump_json()
         result = await hydrate(served, snapshot_id, capability_id)
         return await served.workers.run(markdown, result)
 

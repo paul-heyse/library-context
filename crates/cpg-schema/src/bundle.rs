@@ -51,7 +51,7 @@ pub fn files(dimensions: i32) -> Vec<ServingFile> {
         schema: Arc::new(Schema::new(fields)),
         key,
     };
-    vec![
+    let mut out = vec![
         file(
             "briefs",
             vec![
@@ -835,7 +835,9 @@ pub fn files(dimensions: i32) -> Vec<ServingFile> {
             ],
             &["node_id", "embedding_view", "chunk"],
         ),
-    ]
+    ];
+    out.extend(crate::catalog::serving_files());
+    out
 }
 
 /// A data type in the declared grammar: `bool`, `int16`, `int32`, `int64`, `float32`, `float64`,

@@ -83,6 +83,7 @@ fn input(a: Args) -> Result<ExtractInput, String> {
         );
     };
     Ok(ExtractInput {
+        profile: cpg_schema::catalog::CompileProfile::Behavioral,
         release: Release::from_tree(root, &label).map_err(|e| e.to_string())?,
         venv_root,
         site_packages: a.site_packages,

@@ -179,6 +179,13 @@ table!(
     }
 );
 
+/// Attributed declaration candidates before any winner filter. `keyed` must be in scope.
+pub(crate) fn ranked_declarations_sql() -> String {
+    format!("SELECT d.node_id, d.fact_id, d.module_node_id, d.qualified_name, {} AS pick \
+        FROM declarations d LEFT JOIN keyed k ON k.node_id = d.node_id",
+        seed_rank("d.module_node_id, d.qualified_name"))
+}
+
 impl Derived for Exports {
     fn sql() -> String {
         let variable_like = [
@@ -196,9 +203,7 @@ impl Derived for Exports {
         format!(
             "WITH {KEYED}, \
              ranked AS ( \
-               SELECT d.node_id, d.fact_id, d.module_node_id, d.qualified_name, \
-                      {rank} AS pick \
-               FROM declarations d LEFT JOIN keyed k ON k.node_id = d.node_id), \
+               {ranked}), \
              ext AS ( \
                SELECT m.module_name, d.name, d.symbol_node_id, \
                       row_number() OVER (PARTITION BY m.module_name, d.name \
@@ -262,7 +267,7 @@ impl Derived for Exports {
                                AND origin_module_node_id IS NULL THEN {variable} END \
                          AS SMALLINT) AS reason \
              FROM resolved",
-            rank = seed_rank("d.module_node_id, d.qualified_name"),
+            ranked = ranked_declarations_sql(),
             module = c(SymbolKind::Module),
             module_scope = c(LexicalScopeKind::Module),
             unbinding = [

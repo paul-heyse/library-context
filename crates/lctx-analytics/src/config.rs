@@ -64,6 +64,18 @@ pub struct Briefs {
 }
 
 impl AnalyticsConfig {
+    /// Mandatory catalog scope does not depend on seeds, budgets or optional technique config.
+    pub fn public_roots(path: &Path) -> Result<Vec<String>, AnalyticsError> {
+        #[derive(Deserialize)]
+        struct Scope { version: u32, subsystem: Roots }
+        #[derive(Deserialize)]
+        struct Roots { public_roots: Vec<String> }
+        let text = std::fs::read_to_string(path).map_err(|e| AnalyticsError::Config(e.to_string()))?;
+        let scope: Scope = toml::from_str(&text).map_err(|e| AnalyticsError::Config(e.to_string()))?;
+        if scope.version != VERSION { return Err(AnalyticsError::Config("unsupported scope version".into())); }
+        cpg_schema::catalog::validate_roots(&scope.subsystem.public_roots).map_err(AnalyticsError::Config)?;
+        Ok(scope.subsystem.public_roots)
+    }
     pub fn load(path: &Path) -> Result<Self, AnalyticsError> {
         let text = std::fs::read_to_string(path)
             .map_err(|e| AnalyticsError::Config(format!("{}: {e}", path.display())))?;
@@ -78,6 +90,7 @@ impl AnalyticsConfig {
     }
 
     fn check(&self) -> Result<(), AnalyticsError> {
+        cpg_schema::catalog::validate_roots(&self.subsystem.public_roots).map_err(AnalyticsError::Config)?;
         let bad = |m: String| Err(AnalyticsError::Config(m));
         if self.version != VERSION {
             return bad(format!(

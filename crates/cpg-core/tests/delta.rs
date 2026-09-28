@@ -24,6 +24,7 @@ fn fixture_output(dir: &Path) -> cpg_extract::ExtractOutput {
     let site = dir.join("venv/site-packages");
     std::fs::create_dir_all(&site).unwrap();
     extract(&ExtractInput {
+        profile: cpg_schema::catalog::CompileProfile::Behavioral,
         release: cpg_extract::Release::from_tree(
             std::fs::canonicalize(&release).unwrap(),
             "pysa_variants",

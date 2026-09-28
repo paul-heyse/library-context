@@ -1,0 +1,40 @@
+{
+  "comparison": "blocked until exact-release/material evidence availability and isolated condition configuration are independently recorded",
+  "conditions": {
+    "A": "Context7 strongest available relevant route",
+    "B": "pinned original source/docs only; no derived labels or relationships",
+    "C": "B plus structured product"
+  },
+  "confirmation": {
+    "ambiguity_majority_success": 4,
+    "disallowed_negative_claims": 0,
+    "execution": "PR6_only",
+    "gain_A_strata": 2,
+    "gain_over_A": 4,
+    "gain_over_B": 2,
+    "implementation_majority_success": 6,
+    "increased_false_claims": false,
+    "majority_success": 20,
+    "maximum_stratum_loss": 1,
+    "runs_per_condition_task": 3,
+    "tasks": 24
+  },
+  "exposure": "Implementation author read capability skills. Development tasks are exposed. Confirmation must be independently curated from original pinned evidence and sealed; existing gold/heldout unchanged.",
+  "limits": {
+    "input_tokens": 100000,
+    "output_tokens": 16000,
+    "seconds": 1200,
+    "tool_calls": 64
+  },
+  "model": "gpt-6-sol",
+  "reasoning": "high",
+  "release": "fastmcp==4.0.5",
+  "smoke_tasks": [
+    "D01",
+    "I01",
+    "C01",
+    "U01"
+  ],
+  "status": "frozen_before_product_implementation",
+  "version": 1
+}

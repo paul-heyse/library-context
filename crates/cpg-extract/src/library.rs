@@ -430,6 +430,7 @@ pub fn acquired(
     }
 
     Ok(ExtractInput {
+        profile: cpg_schema::catalog::CompileProfile::Behavioral,
         release: Release {
             root: site_packages.clone(),
             files,
@@ -875,6 +876,7 @@ mod corpus_identity_tests {
 
     fn identity(root: &Path) -> Id {
         let library = ExtractInput {
+            profile: cpg_schema::catalog::CompileProfile::Behavioral,
             release: Release::from_tree(root.to_path_buf(), "library").unwrap(),
             venv_root: root.to_path_buf(),
             site_packages: vec![],
@@ -933,6 +935,7 @@ mod corpus_identity_tests {
             .unwrap();
             fs_err::write(tree.join("helper.py"), helper).unwrap();
             let mut library = ExtractInput {
+                profile: cpg_schema::catalog::CompileProfile::Behavioral,
                 release: Release::from_tree(release.canonicalize().unwrap(), "pkg").unwrap(),
                 venv_root: root.join("venv").canonicalize().unwrap(),
                 site_packages: vec![site.canonicalize().unwrap()],

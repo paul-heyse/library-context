@@ -94,6 +94,7 @@ async fn compile_at(
     copy(&fixture.join("release"), &base.join("release"));
     copy(&fixture.join("site"), &base.join("venv/site-packages"));
     let out = extract(&ExtractInput {
+        profile: cpg_schema::catalog::CompileProfile::Behavioral,
         release: cpg_extract::Release::from_tree(
             std::fs::canonicalize(base.join("release")).unwrap(),
             "analysis_shapes",
@@ -135,6 +136,7 @@ async fn analyzed(sub: &str, reverse: bool) -> (SessionContext, tempfile::TempDi
     copy(&fixture.join("site"), &base.join("venv/site-packages"));
     let s = Id([7; 16]);
     let out = extract(&ExtractInput {
+        profile: cpg_schema::catalog::CompileProfile::Behavioral,
         release: cpg_extract::Release::from_tree(
             std::fs::canonicalize(base.join("release")).unwrap(),
             "analysis_shapes",

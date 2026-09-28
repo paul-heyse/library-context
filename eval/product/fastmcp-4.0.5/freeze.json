@@ -1,0 +1,9 @@
+{
+  "confirmation_answers_exposed": false,
+  "confirmation_status": "sealed_candidate_comparison_blocked",
+  "sha256": {
+    "development.json": "930163b779aa4ef94753fa1d715c8821c475217e627201ea7e75040f661fd1a1",
+    "protocol.json": "bbcfbbb92cea174109a0227f0771b8e06802f0ca7f88a01f3d27bfd74aac5e02"
+  },
+  "confirmation_manifest": "confirmation-manifest.json"
+}

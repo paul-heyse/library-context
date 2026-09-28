@@ -1,0 +1,386 @@
+[
+  {
+    "checks": [
+      "Independent reviewer verifies requested built-in API and each cited contract against pinned original bytes",
+      "Executable examples are checked in disposable pinned environment; missing prerequisite is blocked, not success",
+      "Every uncertainty/negative claim is assessed separately; invented setup or unsupported equivalence fails"
+    ],
+    "deployment": false,
+    "evidence_requirements": [
+      "Exact FastMCP 4.0.5 original source/docs and relevant public contract",
+      "Record source revision and any unavailable prerequisites"
+    ],
+    "id": "D01",
+    "prompt": "Find the built-in mechanism for registering a Python function as a tool. Identify the public entry point and its declared customization parameters.",
+    "stratum": "discovery",
+    "success": "All task requirements satisfied with supported invocation and evidence; independent check receipt required"
+  },
+  {
+    "checks": [
+      "Independent reviewer verifies requested built-in API and each cited contract against pinned original bytes",
+      "Executable examples are checked in disposable pinned environment; missing prerequisite is blocked, not success",
+      "Every uncertainty/negative claim is assessed separately; invented setup or unsupported equivalence fails"
+    ],
+    "deployment": false,
+    "evidence_requirements": [
+      "Exact FastMCP 4.0.5 original source/docs and relevant public contract",
+      "Record source revision and any unavailable prerequisites"
+    ],
+    "id": "D02",
+    "prompt": "Find how to expose a dynamically computed resource and distinguish it from a fixed resource.",
+    "stratum": "discovery",
+    "success": "All task requirements satisfied with supported invocation and evidence; independent check receipt required"
+  },
+  {
+    "checks": [
+      "Independent reviewer verifies requested built-in API and each cited contract against pinned original bytes",
+      "Executable examples are checked in disposable pinned environment; missing prerequisite is blocked, not success",
+      "Every uncertainty/negative claim is assessed separately; invented setup or unsupported equivalence fails"
+    ],
+    "deployment": false,
+    "evidence_requirements": [
+      "Exact FastMCP 4.0.5 original source/docs and relevant public contract",
+      "Record source revision and any unavailable prerequisites"
+    ],
+    "id": "D03",
+    "prompt": "Find how to enumerate the server tools with a client, including the asynchronous calling form.",
+    "stratum": "discovery",
+    "success": "All task requirements satisfied with supported invocation and evidence; independent check receipt required"
+  },
+  {
+    "checks": [
+      "Independent reviewer verifies requested built-in API and each cited contract against pinned original bytes",
+      "Executable examples are checked in disposable pinned environment; missing prerequisite is blocked, not success",
+      "Every uncertainty/negative claim is assessed separately; invented setup or unsupported equivalence fails"
+    ],
+    "deployment": false,
+    "evidence_requirements": [
+      "Exact FastMCP 4.0.5 original source/docs and relevant public contract",
+      "Record source revision and any unavailable prerequisites"
+    ],
+    "id": "D04",
+    "prompt": "Find the built-in support for validating tool arguments and explain the declared inputs.",
+    "stratum": "discovery",
+    "success": "All task requirements satisfied with supported invocation and evidence; independent check receipt required"
+  },
+  {
+    "checks": [
+      "Independent reviewer verifies requested built-in API and each cited contract against pinned original bytes",
+      "Executable examples are checked in disposable pinned environment; missing prerequisite is blocked, not success",
+      "Every uncertainty/negative claim is assessed separately; invented setup or unsupported equivalence fails"
+    ],
+    "deployment": false,
+    "evidence_requirements": [
+      "Exact FastMCP 4.0.5 original source/docs and relevant public contract",
+      "Record source revision and any unavailable prerequisites"
+    ],
+    "id": "D05",
+    "prompt": "Find the public mechanism for attaching middleware and identify the interception interface.",
+    "stratum": "discovery",
+    "success": "All task requirements satisfied with supported invocation and evidence; independent check receipt required"
+  },
+  {
+    "checks": [
+      "Independent reviewer verifies requested built-in API and each cited contract against pinned original bytes",
+      "Executable examples are checked in disposable pinned environment; missing prerequisite is blocked, not success",
+      "Every uncertainty/negative claim is assessed separately; invented setup or unsupported equivalence fails"
+    ],
+    "deployment": false,
+    "evidence_requirements": [
+      "Exact FastMCP 4.0.5 original source/docs and relevant public contract",
+      "Record source revision and any unavailable prerequisites"
+    ],
+    "id": "D06",
+    "prompt": "Find how an existing server can be mounted under a prefix; distinguish exposure names from implementation names.",
+    "stratum": "discovery",
+    "success": "All task requirements satisfied with supported invocation and evidence; independent check receipt required"
+  },
+  {
+    "checks": [
+      "Independent reviewer verifies requested built-in API and each cited contract against pinned original bytes",
+      "Executable examples are checked in disposable pinned environment; missing prerequisite is blocked, not success",
+      "Every uncertainty/negative claim is assessed separately; invented setup or unsupported equivalence fails"
+    ],
+    "deployment": false,
+    "evidence_requirements": [
+      "Exact FastMCP 4.0.5 original source/docs and relevant public contract",
+      "Record source revision and any unavailable prerequisites"
+    ],
+    "id": "D07",
+    "prompt": "Find built-in component filtering by tags and identify the public configuration points.",
+    "stratum": "discovery",
+    "success": "All task requirements satisfied with supported invocation and evidence; independent check receipt required"
+  },
+  {
+    "checks": [
+      "Independent reviewer verifies requested built-in API and each cited contract against pinned original bytes",
+      "Executable examples are checked in disposable pinned environment; missing prerequisite is blocked, not success",
+      "Every uncertainty/negative claim is assessed separately; invented setup or unsupported equivalence fails"
+    ],
+    "deployment": false,
+    "evidence_requirements": [
+      "Exact FastMCP 4.0.5 original source/docs and relevant public contract",
+      "Record source revision and any unavailable prerequisites"
+    ],
+    "id": "D08",
+    "prompt": "Find supported structured tool results and identify the return contract and evidence for it.",
+    "stratum": "discovery",
+    "success": "All task requirements satisfied with supported invocation and evidence; independent check receipt required"
+  },
+  {
+    "checks": [
+      "Independent reviewer verifies requested built-in API and each cited contract against pinned original bytes",
+      "Executable examples are checked in disposable pinned environment; missing prerequisite is blocked, not success",
+      "Every uncertainty/negative claim is assessed separately; invented setup or unsupported equivalence fails"
+    ],
+    "deployment": false,
+    "evidence_requirements": [
+      "Exact FastMCP 4.0.5 original source/docs and relevant public contract",
+      "Record source revision and any unavailable prerequisites"
+    ],
+    "id": "I01",
+    "prompt": "Write the smallest valid example defining a FastMCP server and registering a typed integer addition tool, then invoke it with an in-process asynchronous client.",
+    "stratum": "implementation",
+    "success": "All task requirements satisfied with supported invocation and evidence; independent check receipt required"
+  },
+  {
+    "checks": [
+      "Independent reviewer verifies requested built-in API and each cited contract against pinned original bytes",
+      "Executable examples are checked in disposable pinned environment; missing prerequisite is blocked, not success",
+      "Every uncertainty/negative claim is assessed separately; invented setup or unsupported equivalence fails"
+    ],
+    "deployment": false,
+    "evidence_requirements": [
+      "Exact FastMCP 4.0.5 original source/docs and relevant public contract",
+      "Record source revision and any unavailable prerequisites"
+    ],
+    "id": "I02",
+    "prompt": "Write a tool with one required and one optional argument, preserving the exact public decorator signature and default semantics.",
+    "stratum": "implementation",
+    "success": "All task requirements satisfied with supported invocation and evidence; independent check receipt required"
+  },
+  {
+    "checks": [
+      "Independent reviewer verifies requested built-in API and each cited contract against pinned original bytes",
+      "Executable examples are checked in disposable pinned environment; missing prerequisite is blocked, not success",
+      "Every uncertainty/negative claim is assessed separately; invented setup or unsupported equivalence fails"
+    ],
+    "deployment": false,
+    "evidence_requirements": [
+      "Exact FastMCP 4.0.5 original source/docs and relevant public contract",
+      "Record source revision and any unavailable prerequisites"
+    ],
+    "id": "I03",
+    "prompt": "Write a resource template that accepts a path parameter and retrieve it with the asynchronous client.",
+    "stratum": "implementation",
+    "success": "All task requirements satisfied with supported invocation and evidence; independent check receipt required"
+  },
+  {
+    "checks": [
+      "Independent reviewer verifies requested built-in API and each cited contract against pinned original bytes",
+      "Executable examples are checked in disposable pinned environment; missing prerequisite is blocked, not success",
+      "Every uncertainty/negative claim is assessed separately; invented setup or unsupported equivalence fails"
+    ],
+    "deployment": false,
+    "evidence_requirements": [
+      "Exact FastMCP 4.0.5 original source/docs and relevant public contract",
+      "Record source revision and any unavailable prerequisites"
+    ],
+    "id": "I04",
+    "prompt": "Write an example exposing a reusable server under a prefix and show the actual resulting tool name.",
+    "stratum": "implementation",
+    "success": "All task requirements satisfied with supported invocation and evidence; independent check receipt required"
+  },
+  {
+    "checks": [
+      "Independent reviewer verifies requested built-in API and each cited contract against pinned original bytes",
+      "Executable examples are checked in disposable pinned environment; missing prerequisite is blocked, not success",
+      "Every uncertainty/negative claim is assessed separately; invented setup or unsupported equivalence fails"
+    ],
+    "deployment": false,
+    "evidence_requirements": [
+      "Exact FastMCP 4.0.5 original source/docs and relevant public contract",
+      "Record source revision and any unavailable prerequisites"
+    ],
+    "id": "I05",
+    "prompt": "Write an example returning both structured data and a human-readable result using the supported public result type.",
+    "stratum": "implementation",
+    "success": "All task requirements satisfied with supported invocation and evidence; independent check receipt required"
+  },
+  {
+    "checks": [
+      "Independent reviewer verifies requested built-in API and each cited contract against pinned original bytes",
+      "Executable examples are checked in disposable pinned environment; missing prerequisite is blocked, not success",
+      "Every uncertainty/negative claim is assessed separately; invented setup or unsupported equivalence fails"
+    ],
+    "deployment": false,
+    "evidence_requirements": [
+      "Exact FastMCP 4.0.5 original source/docs and relevant public contract",
+      "Record source revision and any unavailable prerequisites"
+    ],
+    "id": "I06",
+    "prompt": "Write a middleware example observing a tool call without changing its result; include required lifecycle and continuation calls.",
+    "stratum": "implementation",
+    "success": "All task requirements satisfied with supported invocation and evidence; independent check receipt required"
+  },
+  {
+    "checks": [
+      "Independent reviewer verifies requested built-in API and each cited contract against pinned original bytes",
+      "Executable examples are checked in disposable pinned environment; missing prerequisite is blocked, not success",
+      "Every uncertainty/negative claim is assessed separately; invented setup or unsupported equivalence fails"
+    ],
+    "deployment": true,
+    "evidence_requirements": [
+      "Exact FastMCP 4.0.5 original source/docs and relevant public contract",
+      "Record source revision and any unavailable prerequisites"
+    ],
+    "id": "I07",
+    "prompt": "Give a pinned install and programmatic launch for an HTTP server, including imports, launch options and external prerequisites; identify what has actually been tested.",
+    "stratum": "implementation",
+    "success": "All task requirements satisfied with supported invocation and evidence; independent check receipt required"
+  },
+  {
+    "checks": [
+      "Independent reviewer verifies requested built-in API and each cited contract against pinned original bytes",
+      "Executable examples are checked in disposable pinned environment; missing prerequisite is blocked, not success",
+      "Every uncertainty/negative claim is assessed separately; invented setup or unsupported equivalence fails"
+    ],
+    "deployment": true,
+    "evidence_requirements": [
+      "Exact FastMCP 4.0.5 original source/docs and relevant public contract",
+      "Record source revision and any unavailable prerequisites"
+    ],
+    "id": "I08",
+    "prompt": "Give a pinned install and CLI invocation for serving a Python server file over stdio; distinguish CLI flags from Python run arguments.",
+    "stratum": "implementation",
+    "success": "All task requirements satisfied with supported invocation and evidence; independent check receipt required"
+  },
+  {
+    "checks": [
+      "Independent reviewer verifies requested built-in API and each cited contract against pinned original bytes",
+      "Executable examples are checked in disposable pinned environment; missing prerequisite is blocked, not success",
+      "Every uncertainty/negative claim is assessed separately; invented setup or unsupported equivalence fails"
+    ],
+    "deployment": false,
+    "evidence_requirements": [
+      "Exact FastMCP 4.0.5 original source/docs and relevant public contract",
+      "Record source revision and any unavailable prerequisites"
+    ],
+    "id": "C01",
+    "prompt": "Choose between registering a tool and a resource for a side-effect-free parametrized lookup; compare declared invocation and return contracts with citations.",
+    "stratum": "choice",
+    "success": "All task requirements satisfied with supported invocation and evidence; independent check receipt required"
+  },
+  {
+    "checks": [
+      "Independent reviewer verifies requested built-in API and each cited contract against pinned original bytes",
+      "Executable examples are checked in disposable pinned environment; missing prerequisite is blocked, not success",
+      "Every uncertainty/negative claim is assessed separately; invented setup or unsupported equivalence fails"
+    ],
+    "deployment": false,
+    "evidence_requirements": [
+      "Exact FastMCP 4.0.5 original source/docs and relevant public contract",
+      "Record source revision and any unavailable prerequisites"
+    ],
+    "id": "C02",
+    "prompt": "Compare in-process and HTTP clients for testing a local server; give the minimum setup and explain which deployment assumptions differ.",
+    "stratum": "choice",
+    "success": "All task requirements satisfied with supported invocation and evidence; independent check receipt required"
+  },
+  {
+    "checks": [
+      "Independent reviewer verifies requested built-in API and each cited contract against pinned original bytes",
+      "Executable examples are checked in disposable pinned environment; missing prerequisite is blocked, not success",
+      "Every uncertainty/negative claim is assessed separately; invented setup or unsupported equivalence fails"
+    ],
+    "deployment": false,
+    "evidence_requirements": [
+      "Exact FastMCP 4.0.5 original source/docs and relevant public contract",
+      "Record source revision and any unavailable prerequisites"
+    ],
+    "id": "C03",
+    "prompt": "Compare static mounting and runtime proxying where both are supported; distinguish namespacing, lifecycle and unresolved behavior.",
+    "stratum": "choice",
+    "success": "All task requirements satisfied with supported invocation and evidence; independent check receipt required"
+  },
+  {
+    "checks": [
+      "Independent reviewer verifies requested built-in API and each cited contract against pinned original bytes",
+      "Executable examples are checked in disposable pinned environment; missing prerequisite is blocked, not success",
+      "Every uncertainty/negative claim is assessed separately; invented setup or unsupported equivalence fails"
+    ],
+    "deployment": false,
+    "evidence_requirements": [
+      "Exact FastMCP 4.0.5 original source/docs and relevant public contract",
+      "Record source revision and any unavailable prerequisites"
+    ],
+    "id": "C04",
+    "prompt": "Choose a supported result representation for a tool returning machine-readable data plus explanatory text, and explain the schema contract.",
+    "stratum": "choice",
+    "success": "All task requirements satisfied with supported invocation and evidence; independent check receipt required"
+  },
+  {
+    "checks": [
+      "Independent reviewer verifies requested built-in API and each cited contract against pinned original bytes",
+      "Executable examples are checked in disposable pinned environment; missing prerequisite is blocked, not success",
+      "Every uncertainty/negative claim is assessed separately; invented setup or unsupported equivalence fails"
+    ],
+    "deployment": false,
+    "evidence_requirements": [
+      "Exact FastMCP 4.0.5 original source/docs and relevant public contract",
+      "Record source revision and any unavailable prerequisites"
+    ],
+    "id": "U01",
+    "prompt": "Can a Callable annotation alone prove a tool invokes that callback? Explain precisely what source evidence would and would not establish the claim.",
+    "stratum": "ambiguity",
+    "success": "All task requirements satisfied with supported invocation and evidence; independent check receipt required"
+  },
+  {
+    "checks": [
+      "Independent reviewer verifies requested built-in API and each cited contract against pinned original bytes",
+      "Executable examples are checked in disposable pinned environment; missing prerequisite is blocked, not success",
+      "Every uncertainty/negative claim is assessed separately; invented setup or unsupported equivalence fails"
+    ],
+    "deployment": false,
+    "evidence_requirements": [
+      "Exact FastMCP 4.0.5 original source/docs and relevant public contract",
+      "Record source revision and any unavailable prerequisites"
+    ],
+    "id": "U02",
+    "prompt": "Does the absence of a timeout parameter on one displayed overload prove an API rejects timeout as a keyword? Inspect available variants and disclose uncertainty.",
+    "stratum": "ambiguity",
+    "success": "All task requirements satisfied with supported invocation and evidence; independent check receipt required"
+  },
+  {
+    "checks": [
+      "Independent reviewer verifies requested built-in API and each cited contract against pinned original bytes",
+      "Executable examples are checked in disposable pinned environment; missing prerequisite is blocked, not success",
+      "Every uncertainty/negative claim is assessed separately; invented setup or unsupported equivalence fails"
+    ],
+    "deployment": false,
+    "evidence_requirements": [
+      "Exact FastMCP 4.0.5 original source/docs and relevant public contract",
+      "Record source revision and any unavailable prerequisites"
+    ],
+    "id": "U03",
+    "prompt": "Does a passing test that expects an exception demonstrate a successful-use recipe? Explain its intent without rewriting it into a success example.",
+    "stratum": "ambiguity",
+    "success": "All task requirements satisfied with supported invocation and evidence; independent check receipt required"
+  },
+  {
+    "checks": [
+      "Independent reviewer verifies requested built-in API and each cited contract against pinned original bytes",
+      "Executable examples are checked in disposable pinned environment; missing prerequisite is blocked, not success",
+      "Every uncertainty/negative claim is assessed separately; invented setup or unsupported equivalence fails"
+    ],
+    "deployment": false,
+    "evidence_requirements": [
+      "Exact FastMCP 4.0.5 original source/docs and relevant public contract",
+      "Record source revision and any unavailable prerequisites"
+    ],
+    "id": "U04",
+    "prompt": "Does installation with every extra establish the minimum dependency set for one transport? Identify which claims need a separate installation check.",
+    "stratum": "ambiguity",
+    "success": "All task requirements satisfied with supported invocation and evidence; independent check receipt required"
+  }
+]

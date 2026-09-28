@@ -336,11 +336,12 @@ pub(crate) async fn resolve_on(
         return Err(Error::Request("invalid operation spelling".into()));
     }
     let raw = Id::from_hex(spelling).map(|id| id.0.to_vec());
-    let row:Option<(Vec<u8>,String)>=sqlx::query_as("WITH candidates AS (SELECT node_id,0 priority FROM lctx_serving.public_paths WHERE generation_digest=$1 AND access_path=$2 UNION ALL SELECT class_node_id,1 FROM lctx_serving.singletons WHERE generation_digest=$1 AND global=$2 UNION ALL SELECT node_id,2 FROM lctx_serving.operations WHERE generation_digest=$1 AND node_id=$3) SELECT o.node_id,o.access_path FROM candidates c JOIN lctx_serving.operations o ON o.generation_digest=$1 AND o.node_id=c.node_id ORDER BY c.priority,o.node_id LIMIT 1")
-        .bind(generation.id.0.as_slice()).bind(spelling).bind(raw).fetch_optional(conn).await?;
-    let (id, path) = row.ok_or_else(|| {
-        Error::Request("no public operation with this spelling or identity".into())
-    })?;
+    let rows:Vec<(Vec<u8>,String)>=sqlx::query_as("WITH candidates AS (SELECT node_id,0 priority FROM lctx_serving.public_paths WHERE generation_digest=$1 AND access_path=$2 UNION ALL SELECT class_node_id,1 FROM lctx_serving.singletons WHERE generation_digest=$1 AND global=$2 UNION ALL SELECT node_id,2 FROM lctx_serving.operations WHERE generation_digest=$1 AND node_id=$3) SELECT o.node_id,o.access_path FROM candidates c JOIN lctx_serving.operations o ON o.generation_digest=$1 AND o.node_id=c.node_id ORDER BY c.priority,o.node_id LIMIT 2")
+        .bind(generation.id.0.as_slice()).bind(spelling).bind(raw).fetch_all(conn).await?;
+    let mut unique = rows;
+    unique.dedup_by(|a,b| a.0 == b.0);
+    if unique.len() > 1 { return Err(Error::Request("ambiguous operation; use get_operation for public member choices".into())); }
+    let (id, path) = unique.pop().ok_or_else(|| Error::Request("no public operation with this spelling or identity".into()))?;
     Ok(ResolvedOperation {
         operation_id: hex(id),
         access_path: path,

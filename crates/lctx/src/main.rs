@@ -110,6 +110,12 @@ enum Cmd {
     /// Acquire, then Stage A, extract, derive, validate and publish.
     Compile {
         name: String,
+        /// Catalog contracts by default; behavioral adds the retained analysis and brief pipeline.
+        #[arg(long, value_enum, default_value = "catalog")]
+        profile: Profile,
+        /// Explicit roots when the library has no analytics.toml; repeat for multiple roots.
+        #[arg(long)]
+        public_root: Vec<String>,
         /// The Delta store.
         #[arg(long)]
         store: PathBuf,
@@ -180,9 +186,12 @@ enum Cmd {
         /// The top-level package (the analytics subsystem and public root).
         #[arg(long)]
         package: String,
-        /// A public operation seeding the analysis.
+        /// Catalog by default; runtime semantic challenges explicitly select behavioral.
+        #[arg(long, value_enum, default_value = "catalog")]
+        profile: Profile,
+        /// A public operation seeding optional behavioral analysis.
         #[arg(long)]
-        seed: String,
+        seed: Option<String>,
         /// The Delta store.
         #[arg(long)]
         store: PathBuf,
@@ -275,6 +284,15 @@ fn flow_file(
     });
     println!("{}", serde_json::to_string(&result)?);
     Ok(())
+}
+
+#[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+enum Profile { Catalog, Behavioral }
+impl Profile {
+    fn schema(self) -> cpg_schema::catalog::CompileProfile {
+        match self { Self::Catalog => cpg_schema::catalog::CompileProfile::Catalog,
+            Self::Behavioral => cpg_schema::catalog::CompileProfile::Behavioral }
+    }
 }
 
 /// The embedder a compile uses (DESIGN §11.1).
@@ -482,6 +500,8 @@ fn compile(
     embedder: Option<std::sync::Arc<dyn cpg_core::embed::Embedder>>,
     generations: &Path,
     techniques: cpg_core::analyze::Techniques,
+    profile: Profile,
+    public_roots: Vec<String>,
 ) -> anyhow::Result<()> {
     let runtime = tokio::runtime::Runtime::new()?;
     let snapshot = random_id()?;
@@ -523,7 +543,14 @@ fn compile(
         acquire(library_dir, env_dir, reinstall)?;
         let tree = fetch_source(library_dir, sources)?;
         let acquired = started.elapsed();
+        let config_path = library_dir.join("analytics.toml");
+        let public_roots = if config_path.exists() {
+            anyhow::ensure!(public_roots.is_empty(), "--public-root conflicts with analytics.toml roots");
+            lctx_analytics::config::AnalyticsConfig::public_roots(&config_path)?
+        } else { public_roots };
+        cpg_schema::catalog::validate_roots(&public_roots).map_err(anyhow::Error::msg)?;
         let mut input = library::acquired(library_dir, env_dir, snapshot)?;
+        input.profile = profile.schema();
         if let Some((tree, source)) = &tree {
             input.corpus = Some(library::corpus(tree, source, &input)?);
         }
@@ -561,7 +588,7 @@ fn compile(
         let tables = std::mem::take(&mut output.tables);
         // The pre-registered analytics config (DESIGN §1.4, §9): without one, no analysis runs.
         let config_path = library_dir.join("analytics.toml");
-        let analysis = if config_path.exists() {
+        let analysis = if profile == Profile::Behavioral {
             if let Some(e) = &embedder {
                 let spec = e.spec();
                 println!("embedder {} (spec {})", spec.model, spec.hash().hex());
@@ -570,18 +597,16 @@ fn compile(
             Some(cpg_core::analyze::Analysis {
                 embedding_cache: pg.clone(),
                 config: lctx_analytics::config::AnalyticsConfig::load(&config_path)?,
-                embedder,
+                embedder: embedder.clone(),
                 techniques,
             })
         } else {
             None
         };
-        let published = runtime.block_on(cpg_core::attempt::compile_owned(
-            store,
-            snapshot,
-            tables,
-            analysis.as_ref(),
-        ))?;
+        let inputs = cpg_core::catalog::CompileInputs { public_roots, profile: profile.schema(),
+            embedding_cache: pg.clone(), embedder };
+        let published = runtime.block_on(cpg_core::attempt::compile_catalog(
+            store, snapshot, tables, &inputs, analysis.as_ref()))?;
         if let Some(db) = &pg {
             if let Err(error) = runtime.block_on(async {
                 db.event(
@@ -695,7 +720,8 @@ fn compile(
 fn compile_fixture(
     dir: &Path,
     package: &str,
-    seed: &str,
+    seed: Option<&str>,
+    profile: Profile,
     store: &Path,
     generations: &Path,
 ) -> anyhow::Result<()> {
@@ -712,6 +738,7 @@ fn compile_fixture(
     fs_err::create_dir_all(&site)?;
     let snapshot = random_id()?;
     let input = cpg_extract::ExtractInput {
+        profile: profile.schema(),
         release: cpg_extract::Release::from_tree(fs_err::canonicalize(dir)?, package)?,
         venv_root: fs_err::canonicalize(&venv)?,
         site_packages: vec![fs_err::canonicalize(&site)?],
@@ -723,6 +750,8 @@ fn compile_fixture(
         test_hooks: cpg_extract::TestHooks::default(),
     };
     let mut output = extract(&input)?;
+    let analysis = if profile == Profile::Behavioral {
+    let seed = seed.ok_or_else(|| anyhow::anyhow!("--profile behavioral requires --seed"))?;
     let config = lctx_analytics::config::AnalyticsConfig::parse(&format!(
         "version = 1\n[subsystem]\nmodule_prefixes = [\"{package}\"]\n\
          public_roots = [\"{package}\"]\n[seeds]\nprimary = [{seed:?}]\ndistractors = []\n\
@@ -736,13 +765,15 @@ fn compile_fixture(
         embedder: None,
         techniques: cpg_core::analyze::Techniques::default(),
     };
+    Some(analysis) } else { anyhow::ensure!(seed.is_none(), "--seed requires --profile behavioral"); None };
     let runtime = tokio::runtime::Runtime::new()?;
     let tables = std::mem::take(&mut output.tables);
-    let published = runtime.block_on(cpg_core::attempt::compile_owned(
+    let published = runtime.block_on(cpg_core::attempt::compile_catalog(
         store,
         snapshot,
         tables,
-        Some(&analysis),
+        &cpg_core::catalog::CompileInputs { public_roots: vec![package.into()], profile: profile.schema(), embedder: None, embedding_cache: None },
+        analysis.as_ref(),
     ))?;
     let generation = runtime.block_on(cpg_core::bundle::bundle(
         store,
@@ -912,12 +943,14 @@ fn run() -> anyhow::Result<()> {
             dir,
             package,
             seed,
+            profile,
             store,
             generations,
         } => compile_fixture(
             &absolute(&dir)?,
             &package,
-            &seed,
+            seed.as_deref(),
+            profile,
             &absolute(&store)?,
             &absolute(&generations)?,
         ),
@@ -938,13 +971,18 @@ fn run() -> anyhow::Result<()> {
         }
         Cmd::Compile {
             name,
+            profile,
+            public_root,
             store,
             reinstall,
             embedder,
             embed_url,
             generations,
             analytics,
-        } => compile(
+        } => {
+            anyhow::ensure!(profile == Profile::Behavioral || analytics == "default",
+                "--analytics requires --profile behavioral");
+            compile(
             cli.database_config.as_deref(),
             &libraries.join(&name),
             &envs.join(&name),
@@ -954,7 +992,9 @@ fn run() -> anyhow::Result<()> {
             embedder_of(embedder, &embed_url),
             &absolute(&generations)?,
             cpg_core::analyze::Techniques::parse(&analytics).map_err(|e| anyhow::anyhow!(e))?,
-        ),
+            profile, public_root,
+        )
+        },
         Cmd::Bundle {
             store,
             snapshot,

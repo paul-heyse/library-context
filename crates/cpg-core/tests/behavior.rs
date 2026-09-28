@@ -55,6 +55,7 @@ pub async fn compiled() -> (SessionContext, tempfile::TempDir) {
     std::fs::create_dir_all(dir.path().join("venv/site-packages")).unwrap();
     let s = Id([9; 16]);
     let out = extract(&ExtractInput {
+        profile: cpg_schema::catalog::CompileProfile::Behavioral,
         release: cpg_extract::Release::from_tree(
             std::fs::canonicalize(dir.path().join("release")).unwrap(),
             "behavior_shapes",

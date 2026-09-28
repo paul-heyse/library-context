@@ -113,6 +113,12 @@ pub async fn validate_costed(
         violations.extend(v);
         costs.push(c);
     }
+    let selected: Vec<cpg_schema::catalog::CatalogCompilationRow> = sql::fetch(&cache,
+        &cpg_schema::query::Relation { name: "validation_profile", deps: &["catalog_compilation"],
+            sql: "SELECT * FROM catalog_compilation".into() }, sql::Params::new()).await?;
+    if selected.len() != 1 { return Err(CoreError::Analysis("one catalog compilation profile required".into())); }
+    violations.extend(crate::catalog::validate(&cache, &selected[0]).await?);
+    if selected[0].profile == "behavioral" {
     violations.extend(validate_condition_graph(&cache).await?);
     violations.extend(validate_test_type_links(&cache).await?);
     violations.extend(validate_entry_proofs(&cache).await?);
@@ -135,6 +141,7 @@ pub async fn validate_costed(
     violations.extend(validate_summary_flows(&cache).await?);
     violations.extend(validate_summary_components(&cache).await?);
     violations.extend(validate_concept_attributes(&cache).await?);
+    }
     violations.extend(validate_embedding_receipts(&cache).await?);
     Ok((violations, costs))
 }

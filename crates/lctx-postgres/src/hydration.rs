@@ -1,7 +1,6 @@
 //! Complete selected records. Query projection and evidence assembly have one Rust owner.
 use crate::{
     Error,
-    profiles::hex,
     repository::{Hydration, Keys, Object, PinnedGeneration, check_response, resolve_on},
     serving::{QueryLease, ServingStore},
 };
@@ -45,6 +44,47 @@ fn pick(row: &Object, fields: &[&str]) -> Object {
         .collect()
 }
 
+async fn catalog_record(conn: &mut sqlx::PgConnection, generation: &PinnedGeneration,
+    budget: &mut Hydration, member: &Object) -> Result<Value, Error> {
+    let members = vec![id(member["member_id"].as_str().ok_or_else(|| corrupt("catalog member identity"))?)?];
+    let bindings = budget.fetch(conn, generation, "catalog_bindings", Some("member_id"), &members).await?;
+    let mut declarations = ids(&bindings, "declaration_node_id")?;
+    if let Some(node) = member["operation_node_id"].as_str() { declarations.push(id(node)?); }
+    declarations.sort(); declarations.dedup();
+    let constructors = budget.fetch(conn, generation, "catalog_constructors", Some("class_node_id"), &declarations).await?;
+    let mut signatures = budget.fetch(conn, generation, "catalog_signatures", Some("callable_node_id"), &declarations).await?;
+    signatures.extend(budget.fetch(conn, generation, "catalog_signatures", Some("signature_id"), &ids(&constructors, "signature_id")?).await?);
+    signatures.sort_by(|a,b| a["signature_id"].as_str().cmp(&b["signature_id"].as_str()));
+    signatures.dedup_by(|a,b| a["signature_id"] == b["signature_id"]);
+    let parameters = budget.fetch(conn, generation, "catalog_parameters", Some("signature_id"), &ids(&signatures,"signature_id")?).await?;
+    let mut subjects = declarations.clone();
+    subjects.extend(ids(&signatures, "declaration_node_id")?);
+    subjects.extend(ids(&parameters, "formal_node_id")?);
+    subjects.sort(); subjects.dedup();
+    let observations = budget.fetch(conn, generation, "catalog_type_observations", Some("subject_node_id"), &subjects).await?;
+    let mut term_ids = ids(&observations,"term_id")?;
+    let mut visited = BTreeSet::new();
+    let mut types = Vec::new(); let mut type_args = Vec::new();
+    while !term_ids.is_empty() {
+        term_ids.retain(|id| visited.insert(id.clone()));
+        if term_ids.is_empty() { break; }
+        types.extend(budget.fetch(conn, generation, "catalog_types", Some("term_id"), &term_ids).await?);
+        let args = budget.fetch(conn, generation, "catalog_type_args", Some("parent_term_id"), &term_ids).await?;
+        term_ids = ids(&args,"child_term_id")?;
+        type_args.extend(args);
+    }
+    let evidence = budget.fetch(conn, generation, "catalog_evidence", Some("subject_node_id"), &subjects).await?;
+    let params = grouped(parameters, "signature_id");
+    for signature in &mut signatures {
+        let mut parameters = group(&params, signature["signature_id"].as_str().ok_or_else(|| corrupt("signature identity"))?).to_vec();
+        parameters.sort_by_key(|p| p["ordinal"].as_i64());
+        signature.insert("parameters".into(), json!(parameters));
+    }
+    Ok(json!({"member":member,"bindings":bindings,"constructors":constructors,"signatures":signatures,"evidence":evidence,
+        "type_observations":observations,"types":types,"type_arguments":type_args,
+        "effective_surface":"unresolved","basis":"source and attributed provider observations"}))
+}
+
 impl ServingStore {
     pub async fn get_operation(
         &self,
@@ -54,7 +94,44 @@ impl ServingStore {
     ) -> Result<Value, Error> {
         generation.check_snapshot(snapshot)?;
         let mut lease = QueryLease::acquire(&self.pool).await?;
-        let resolved = resolve_on(&mut lease.connection, generation, operation).await?;
+        let mut catalog_budget = Hydration::new();
+        let spelling = operation.trim();
+        let member_id = spelling.strip_prefix("member:").map(id).transpose()?;
+        let legacy = Id::from_hex(spelling).map(|id| id.0.to_vec());
+        let member_ids: Vec<(Vec<u8>,)> = sqlx::query_as(
+            "SELECT member_id FROM lctx_serving.catalog_members WHERE generation_digest=$1 AND (access_path=$2 OR member_id=$3 OR operation_node_id=$4) ORDER BY access_path COLLATE \"C\",member_id LIMIT 101")
+            .bind(generation.id.0.as_slice()).bind(spelling).bind(member_id).bind(legacy)
+            .fetch_all(&mut *lease.connection).await?;
+        if member_ids.len() > 100 { return Err(cpg_schema::serving_projection::refused("public member choice budget").into()); }
+        let member_ids: Vec<_> = member_ids.into_iter().map(|r| r.0).collect();
+        let members = catalog_budget.fetch(&mut lease.connection, generation, "catalog_members", Some("member_id"), &member_ids).await?;
+        if members.len() > 1 {
+            let result = json!({"snapshot_id":snapshot,"generation":generation.generation(),
+                "resolution":"ambiguous","requested":operation,"choices":members});
+            lease.complete();
+            return Ok(result);
+        }
+        let member = members.first();
+        let catalog = if let Some(member) = member {
+            Some(catalog_record(&mut lease.connection, generation, &mut catalog_budget, member).await?)
+        } else { None };
+        if let Some(member) = member && member["operation_node_id"].is_null() {
+            let mut result = json!({"snapshot_id":snapshot,"generation":generation.generation(),
+                "operation_id":null,"member_id":member["member_id"],"access_path":member["access_path"],
+                "resolution":member["resolution"],"kind":member["kind"],"is_method":null,
+                "own_paths":[member["access_path"]],"inherited_paths":[],"qualified_name":member["access_path"],
+                "module":member["owner_path"],"docstring_summary":null,"behavior_status":"not_analyzed",
+                "boundary_reason":"unresolved_target","status_reason":"public binding unresolved",
+                "capability_id":null,"facets":{},"incomplete_facets":{},"parameters":[],
+                "delegates":[],"handoffs":[],"reads":[],"constructor":null,"singleton_of":null,"fields":[]});
+            result["catalog"] = catalog.unwrap_or(Value::Null);
+            result["capabilities"] = json!(generation.manifest.capabilities);
+            check_response(&result)?;
+            lease.complete();
+            return Ok(result);
+        }
+        let selected_operation = member.and_then(|m| m["operation_node_id"].as_str()).unwrap_or(operation);
+        let resolved = resolve_on(&mut lease.connection, generation, selected_operation).await?;
         let mut budget = Hydration::new();
         let selected = vec![id(&resolved.operation_id)?];
         let initial = budget
@@ -66,33 +143,19 @@ impl ServingStore {
                 &selected,
             )
             .await?;
-        let paths = budget
-            .fetch(
-                &mut lease.connection,
-                generation,
-                "public_paths",
-                Some("node_id"),
-                &selected,
-            )
-            .await?;
-        let mut requested = selected;
+        let mut requested = selected.clone();
         let mut constructor = None;
-        if initial.first().is_some_and(|o| o["kind"] == "class") {
-            let candidates: Vec<_> = std::iter::once(operation.trim().to_owned())
-                .chain(
-                    paths
-                        .iter()
-                        .map(|p| p["access_path"].as_str().expect("path").to_owned()),
-                )
-                .map(|p| format!("{p}.__init__"))
-                .collect();
-            let constructors:Vec<(Vec<u8>,String)>=sqlx::query_as("SELECT p.node_id,p.access_path FROM lctx_serving.public_paths p JOIN lctx_serving.operations o ON o.generation_digest=p.generation_digest AND o.node_id=p.node_id WHERE p.generation_digest=$1 AND p.access_path=ANY($2)")
-                .bind(generation.id.0.as_slice()).bind(&candidates).fetch_all(&mut *lease.connection).await?;
-            for path in candidates {
-                if let Some((node, _)) = constructors.iter().find(|(_, p)| *p == path) {
-                    constructor = Some(hex(node));
-                    requested.push(node.clone());
-                    break;
+        if initial.first().is_some_and(|o| o["kind"] == "class") && let Some(contract) = &catalog {
+            let signature_ids: BTreeSet<_> = contract["constructors"].as_array().into_iter().flatten()
+                .filter_map(|c| c["signature_id"].as_str()).collect();
+            let callable_ids: BTreeSet<_> = contract["signatures"].as_array().into_iter().flatten()
+                .filter(|s| signature_ids.contains(s["signature_id"].as_str().unwrap_or("")))
+                .filter_map(|s| s["callable_node_id"].as_str()).collect();
+            if callable_ids.len() == 1 {
+                let callable = *callable_ids.first().expect("one constructor");
+                let candidate = id(callable)?;
+                if !budget.fetch(&mut lease.connection, generation, "operations", Some("node_id"), std::slice::from_ref(&candidate)).await?.is_empty() {
+                    constructor = Some(callable.to_owned()); requested.push(candidate);
                 }
             }
         }
@@ -237,19 +300,17 @@ impl ServingStore {
             own.sort_by(|a, b| a.as_str().cmp(&b.as_str()));
             inherited.sort_by(|a, b| a.as_str().cmp(&b.as_str()));
             let mut facet_map: BTreeMap<String, Vec<Value>> = BTreeMap::new();
-            let mut parameters: Vec<(String, Vec<Value>)> = Vec::new();
+            let mut parameters: Vec<(String, Vec<Value>)> = catalog.as_ref()
+                .and_then(|c| c["signatures"].as_array()).into_iter().flatten()
+                .flat_map(|s| s["parameters"].as_array().into_iter().flatten())
+                .filter_map(|p| p["name"].as_str()).collect::<BTreeSet<_>>()
+                .into_iter().map(|name| (name.to_owned(), Vec::new())).collect();
             for f in group(&facets, node) {
                 let name = f["facet"].as_str().expect("facet");
                 facet_map
                     .entry(name.into())
                     .or_default()
                     .push(json!({"value":f["value"],"verdict":f["verdict"]}));
-                if name == "parameter" && row["kind"] != "class" {
-                    let name = f["value"].as_str().expect("parameter");
-                    if !name.starts_with('*') && !parameters.iter().any(|(n, _)| n == name) {
-                        parameters.push((name.into(), Vec::new()));
-                    }
-                }
             }
             let incomplete: BTreeMap<_, _> = group(&statuses, node)
                 .iter()
@@ -266,6 +327,7 @@ impl ServingStore {
                     )
                 })
                 .collect();
+            let mut unbound_fates = Vec::new();
             let mut delegates = Vec::new();
             let mut supplies = Vec::new();
             let mut handoffs = Vec::new();
@@ -295,7 +357,7 @@ impl ServingStore {
                     if let Some((_, fates)) = parameters.iter_mut().find(|(n, _)| n == name) {
                         fates.push(fate.clone());
                     } else {
-                        parameters.push((name.into(), vec![fate.clone()]));
+                        unbound_fates.push(fate.clone());
                     }
                 }
                 match kind {
@@ -320,7 +382,7 @@ impl ServingStore {
             } else {
                 Vec::new()
             };
-            record.extend(json!({"own_paths":own,"inherited_paths":inherited,"facets":facet_map,"incomplete_facets":incomplete,"parameters":parameters,"delegates":delegates,"handoffs":handoffs,"reads":settings,"constructor":null,"singleton_of":singleton.map(|s|s["global"].clone()),"fields":fields}).as_object().expect("object").clone());
+            record.extend(json!({"own_paths":own,"inherited_paths":inherited,"facets":facet_map,"incomplete_facets":incomplete,"parameters":parameters,"unbound_parameter_fates":unbound_fates,"delegates":delegates,"handoffs":handoffs,"reads":settings,"constructor":null,"singleton_of":singleton.map(|s|s["global"].clone()),"fields":fields}).as_object().expect("object").clone());
             records.insert(node.clone(), Value::Object(record));
         }
         let ctor = if let Some(ctor) = constructor {
@@ -339,6 +401,13 @@ impl ServingStore {
             .remove(&resolved.operation_id)
             .ok_or_else(|| corrupt("missing resolved operation"))?;
         result["constructor"] = ctor.unwrap_or(Value::Null);
+        result["catalog"] = catalog.unwrap_or(Value::Null);
+        result["capabilities"] = json!(generation.manifest.capabilities);
+        if let Some(member) = member {
+            result["member_id"] = member["member_id"].clone();
+            result["access_path"] = member["access_path"].clone();
+            result["resolution"] = member["resolution"].clone();
+        }
         check_response(&result)?;
         lease.complete();
         Ok(result)

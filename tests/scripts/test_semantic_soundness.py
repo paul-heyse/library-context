@@ -164,6 +164,8 @@ def _served(tree: Path, work: Path, functions: list[Function], db) -> dict[str, 
         [
             str(_lctx()),
             "compile-fixture",
+            "--profile",
+            "behavioral",
             str(tree),
             "--package",
             PACKAGE,

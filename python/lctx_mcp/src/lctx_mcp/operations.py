@@ -151,17 +151,148 @@ class FacetValue(BaseModel):
     verdict: str
 
 
+class CatalogMember(BaseModel):
+    member_id: str
+    brief_status: str
+    brief_reason: str | None
+    access_path: str
+    owner_path: str
+    operation_node_id: str | None
+    kind: str
+    resolution: str
+
+
+class CatalogBinding(BaseModel):
+    member_id: str
+    binding_id: str
+    declaration_node_id: str | None
+    source_fact_id: str
+    role: str
+    own: bool
+    defining_path: str | None
+
+
+class CatalogParameter(BaseModel):
+    signature_id: str
+    ordinal: int
+    formal_node_id: str | None
+    name: str | None
+    kind: str | None
+    required: bool | None
+    syntax_fact_id: str | None
+    semantics_fact_id: str | None
+    provider_name: str | None
+    provider_kind: str | None
+    annotation_text: str | None
+    provider_annotation: str | None
+    default_state: str
+    default_text: str | None
+    literal_json: str | None
+    documentation: str | None
+    reason: str | None
+
+
+class CatalogSignature(BaseModel):
+    signature_id: str
+    callable_node_id: str
+    declaration_node_id: str | None
+    constructor_class_id: str | None
+    module_node_id: str
+    function_key: str | None
+    signature_index: int | None
+    role: str
+    form: str
+    source_fact_id: str
+    reason: str | None
+    return_annotation: str | None
+    docstring: str | None
+    parameters: list[CatalogParameter]
+
+
+class CatalogEvidence(BaseModel):
+    evidence_id: str
+    subject_node_id: str
+    source_fact_id: str
+    source_digest: str
+    path: str
+    start_byte: int
+    end_byte: int
+    role: str
+    text: str
+
+
+class CatalogType(BaseModel):
+    term_id: str
+    source_fact_id: str
+    kind: str
+    display: str
+    detail: str | None
+    class_module: str | None
+    class_key: str | None
+    variable: str | None
+
+
+class CatalogTypeArgument(BaseModel):
+    parent_term_id: str
+    role: str
+    ordinal: int
+    child_term_id: str
+    source_fact_id: str
+    name: str | None
+    parameter_kind: str | None
+    required: bool | None
+
+
+class CatalogTypeObservation(BaseModel):
+    source_fact_id: str
+    subject_node_id: str
+    role: str
+    declared: bool
+    term_id: str
+
+
+class CatalogConstructor(BaseModel):
+    class_node_id: str
+    signature_id: str
+    own: bool
+
+
+class CatalogRecord(BaseModel):
+    member: CatalogMember
+    constructors: list[CatalogConstructor]
+    bindings: list[CatalogBinding]
+    signatures: list[CatalogSignature]
+    evidence: list[CatalogEvidence]
+    type_observations: list[CatalogTypeObservation]
+    types: list[CatalogType]
+    type_arguments: list[CatalogTypeArgument]
+    effective_surface: str
+    basis: str
+
+
+class AmbiguousOperation(BaseModel):
+    snapshot_id: str
+    generation: str
+    resolution: Literal["ambiguous"]
+    requested: str
+    choices: list[CatalogMember]
+
+
 class Operation(BaseModel):
     """One public operation, whole."""
 
     snapshot_id: str
     generation: str
-    operation_id: str
+    operation_id: str | None
+    member_id: str | None = None
+    resolution: str | None = None
+    capabilities: dict[str, bool] = Field(default_factory=dict)
+    catalog: CatalogRecord | None = None
     access_path: str
     own_paths: list[str]
     inherited_paths: list[str]
     kind: str
-    is_method: bool
+    is_method: bool | None
     qualified_name: str
     module: str
     docstring_summary: str | None
@@ -173,6 +304,7 @@ class Operation(BaseModel):
     # The facets whose rows are not complete for this operation, with why.
     incomplete_facets: dict[str, str]
     parameters: list[ParameterRecord]
+    unbound_parameter_fates: list[Fate] = Field(default_factory=list)
     delegates: list[Fate]
     handoffs: list[Fate]
     # Settings the operation reads in its own body (Stage 2), each with its phase and condition.

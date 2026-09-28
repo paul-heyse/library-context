@@ -45,6 +45,23 @@ const fn r(
 
 /// The declared references of every stored table (keys and fact links are generated).
 pub const REFERENCES: &[Reference] = &[
+    r("catalog_constructors", "class_node_id", &[("nodes", "node_id")]),
+    r("catalog_constructors", "signature_id", &[("catalog_signatures", "signature_id")]),
+    r("catalog_bindings", "member_id", &[("catalog_members", "member_id")]),
+    r("catalog_bindings", "source_fact_id", &[("facts", "fact_id")]),
+    r("catalog_bindings", "declaration_node_id", &[("nodes", "node_id")]),
+    r("catalog_members", "operation_node_id", &[("operations", "node_id")]),
+    r("catalog_parameters", "signature_id", &[("catalog_signatures", "signature_id")]),
+    r("catalog_parameters", "syntax_fact_id", &[("facts", "fact_id")]),
+    r("catalog_parameters", "semantics_fact_id", &[("facts", "fact_id")]),
+    r("catalog_signatures", "source_fact_id", &[("facts", "fact_id")]),
+    r("catalog_evidence", "source_fact_id", &[("facts", "fact_id")]),
+    r("catalog_evidence", "subject_node_id", &[("nodes", "node_id")]),
+    r("catalog_type_observations", "term_id", &[("catalog_types", "term_id")]),
+    r("catalog_type_observations", "source_fact_id", &[("facts", "fact_id")]),
+    r("catalog_type_args", "parent_term_id", &[("catalog_types", "term_id")]),
+    r("catalog_type_args", "child_term_id", &[("catalog_types", "term_id")]),
+    r("catalog_types", "source_fact_id", &[("facts", "fact_id")]),
     // Node-valued columns are generated from the registry (`graph::node_columns`) and checked
     // against `nodes` with their kinds; these are the fact, provenance and composite references.
     r("facts", "run_id", &[("runs", "run_id")]),
@@ -3333,7 +3350,7 @@ fn semantic() -> Vec<Rule> {
                 "SELECT p.node_id FROM (SELECT DISTINCT node_id FROM public_paths) p \
                  LEFT JOIN operations o ON o.node_id = p.node_id \
                  WHERE o.node_id IS NULL \
-                    OR (o.kind = {class}) <> (o.behavior_status = {not_analyzed})",
+                    OR (EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'behavioral') AND (o.kind = {class}) <> (o.behavior_status = {not_analyzed}))",
                 class = DeclarationKind::Class.code(),
                 not_analyzed = Verdict::NotAnalyzed.code(),
             ),
@@ -3679,6 +3696,22 @@ pub fn rules() -> Vec<Rule> {
             ),
         });
     }
+    for shape in &shapes {
+        for field in shape.schema.fields() {
+            if let Some(values) = crate::catalog::vocabulary(shape.name, field.name()) {
+                out.push(Rule { name: format!("catalog-code:{}.{}",shape.name,field.name()),
+                    sql: format!("SELECT \"{}\" FROM {} WHERE \"{}\" NOT IN ({})",
+                        field.name(), shape.name, field.name(), quoted(values)) });
+            }
+        }
+    }
+    macro_rules! unselected { ($($t:ty),+) => { $(
+        if !crate::catalog::mandatory_table(<$t as crate::Table>::NAME) {
+            out.push(Rule { name: format!("catalog-unselected:{}", <$t as crate::Table>::NAME),
+                sql: format!("SELECT snapshot_id FROM {} WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')", <$t as crate::Table>::NAME) });
+        }
+    )+ }; }
+    crate::for_each_analysis_table!(unselected);
     for r in REFERENCES {
         let targets =
             r.to.iter()

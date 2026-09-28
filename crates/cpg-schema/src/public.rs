@@ -49,8 +49,7 @@ fn public_paths_sql() -> String {
                       ORDER BY s.is_stub, e.declaration_node_id, e.export_node_id) AS pick \
              FROM exports e JOIN declarations d ON d.node_id = e.declaration_node_id \
              JOIN source_files s ON s.module_node_id = d.module_node_id \
-             WHERE array_has($roots, split_part(e.access_path, '.', 1)) \
-               AND strpos(e.access_path, '._') = 0 AND NOT starts_with(e.access_path, '_')) \
+             WHERE strpos(e.access_path, '._') = 0 AND NOT starts_with(e.access_path, '_')) \
            WHERE pick = 1), \
          direct AS ( \
            SELECT x.snapshot_id, x.node_id, x.access_path, x.export_node_id, d.kind, true AS own \
@@ -105,7 +104,8 @@ fn public_paths_sql() -> String {
            SELECT *, row_number() OVER ( \
              PARTITION BY node_id ORDER BY own DESC, \
                length(access_path) - length(replace(access_path, '.', '')), access_path) AS rank \
-           FROM paths) \
+           FROM paths WHERE EXISTS (SELECT 1 FROM (SELECT unnest(CAST($roots AS VARCHAR[])) AS root) roots \
+             WHERE paths.access_path = root OR starts_with(paths.access_path, root || '.'))) \
          SELECT snapshot_id, node_id, access_path, export_node_id, kind, own, \
                 rank = 1 AS preferred \
          FROM ranked ORDER BY node_id, access_path",
@@ -155,4 +155,18 @@ pub fn preferred_callables(
         }
     }
     Ok(out)
+}
+
+crate::query_row! { pub struct ExportCandidateRow {
+    public_fact_id: crate::Id, declaration_node_id: Option<crate::Id>,
+    declaration_fact_id: Option<crate::Id>, source_rank: Option<i64>
+} }
+crate::relations! {
+    inventory candidate_relations;
+    /// Raw public observations joined to all attributed source declarations, before rank selection.
+    export_candidates = "catalog_export_candidates", deps=["public_names","declarations","provider_node_map"],
+        sql=format!("WITH {}, ranked AS ({}) SELECT p.fact_id AS public_fact_id, r.node_id AS declaration_node_id, \
+            r.fact_id AS declaration_fact_id, r.pick AS source_rank FROM public_names p LEFT JOIN ranked r \
+            ON r.module_node_id = p.origin_module_node_id AND r.qualified_name = p.origin_path",
+            crate::derived::KEYED, crate::derived::ranked_declarations_sql());
 }

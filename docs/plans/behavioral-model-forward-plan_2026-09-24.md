@@ -156,6 +156,39 @@ why source/docs/current facts are insufficient, its bounded semantics and an ind
 Otherwise prioritize association/query/packet work. Resource or deployment failures do not justify
 weakening evidence or declaring an unavailable capability implemented.
 
+#### PR0–PR1 detailed execution (2026-09-28)
+
+**Authorized implementation; ADR-0072.** Catalog is the default profile; behavioral compilation
+enriches the same catalog. Retain existing/spec'd additive queries, structures, implementations,
+tests and obligations. No wheel work. Targeted functional checks accompany each step; formatting
+and integrated gates wait for the full PR0–PR1 functional scope.
+
+| Order | Owner and implementation | Acceptance / retained boundary |
+|---|---|---|
+| PR0.1 | Evaluation/schema inventory maps R01–R08 and deployment journeys to facts and missing work | Acceptance APIs never restrict the public universe |
+| PR0.2 | Freeze 24 development and separately sealed 24 confirmation tasks, protocol and rubric | Gold/heldout unchanged; confirmation answers isolated |
+| PR0.3 | Check Context7 release/material parity; A Context7, B original evidence, C B plus structure | Unavailable parity blocks comparisons, not PR1 |
+| PR0.4–5 | Minimal subprocess runner, immutable receipts, four-stratum A/B development smoke | No confirmation execution or superiority claim |
+| PR1.1 | Mandatory roots/provenance; catalog default, behavioral opt-in; optional flow/model context | Dotted/overlapping/member roots; explicit not-requested coverage |
+| PR1.2 | Public candidates before export/path selection; stable exposure IDs and declaration roles | Aliases/inheritance/overloads/stubs retained; ambiguity returns choices |
+| PR1.3 | Ordered signatures and provider constructors | All kinds, zero-formal/ParamSpec, overloads, defaults/provenance |
+| PR1.4 | Mandatory discovery and independent raw evidence roots | Classes/undocumented/wrapped contracts; retained supported facets |
+| PR1.5 | Finite capability/artifact contract through publication/import/native/MCP/recovery | Not-requested, empty, unknown and corrupt differ; native closure indivisible |
+| PR1.6 | Canonical/PG projections, migration009, SQLx batch hydration, bounded packets | No facet-derived signatures/arbitrary resolver winner; explicit size refusal |
+| PR1.7 | Same catalog with retained enrichment, then final qualification/operator cutover | Both profiles restored/served; legacy assets retained; no implicit live downgrade |
+
+**Preservation inventory.** Declared parameter/type/return/decorator/module/kind and source async
+queries belong to catalog. Fates, delegation/value paths, conditions and negative-claim proof retain
+analysis dependencies. Brief tools retain explicit capability state. PR2 normalization/configuration,
+PR3 scenarios/deployment, PR4 requirements/retrieval and PR5 browsing remain scheduled. Prior
+action/effect/role/exact-input contracts and schema-backed extensions remain in the retained queue.
+
+**Qualification.** Focused root/candidate/signature/evidence/optional-capability/corruption tests
+precede final formatting, full code/docs gates, real catalog and enriched pilots, four C development
+smoke trials, disposable migration/import/selection/restore and explicit operator migration. Preserve
+old CLI/Python/native assets for old-format recovery. AP/F01 needs end-to-end evidence;
+AP/F02/F03/F06 retain PR2/PR3/PR5–PR6 obligations. PR1 implies neither comparative nor semantic completion.
+
 **Usability checkpoint:** PR1 already exposes ordinary API contracts; PR2–PR5 progressively add the
 specificity required by the selected core journeys. Pilot use need not wait for all confirmation runs.
 The final differentiated-product claim still requires PR6; the frozen semantic exit is independent.

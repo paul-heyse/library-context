@@ -41,12 +41,16 @@ pub const NATIVE_FILES: &[&str] = &[
     "flow_test_value_links",
 ];
 
-pub const FORMAT: u32 = 2;
-pub const BUNDLE_FORMAT: u32 = 12;
+pub const FORMAT: u32 = 3;
+pub const BUNDLE_FORMAT: u32 = 13;
 pub fn artifact_names() -> Vec<String> {
+    artifacts_for(&crate::catalog::Capabilities::for_profile(crate::catalog::CompileProfile::Behavioral))
+}
+pub fn artifacts_for(capabilities: &crate::catalog::Capabilities) -> Vec<String> {
     NATIVE_FILES
         .iter()
         .copied()
+        .filter(|_| capabilities.native_value_paths)
         .chain(["lexical_text", "operation_text", "embedding_spec"])
         .map(|s| format!("{s}.arrow"))
         .collect()
@@ -60,6 +64,7 @@ pub fn definition_digest() -> String {
         schema: String,
         key: Option<&'static str>,
         codes: Vec<(String, &'static str)>,
+        vocabularies: Vec<(String, Vec<&'static str>)>,
     }
     #[derive(Serialize)]
     struct Definition {
@@ -77,6 +82,7 @@ pub fn definition_digest() -> String {
             name: file.name,
             schema: bundle::schema_digest(&file.schema).expect("declared serving schema"),
             key: unique_key(file.name),
+            vocabularies: file.schema.fields().iter().filter_map(|f| crate::catalog::vocabulary(file.name, f.name()).map(|v| (f.name().clone(), v))).collect(),
             codes: file
                 .schema
                 .fields()
@@ -173,6 +179,7 @@ pub struct CoverageSummary {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Manifest {
+    pub capabilities: crate::catalog::Capabilities,
     pub format: u32,
     pub bundle_format: u32,
     pub context: ServingContext,
@@ -180,9 +187,9 @@ pub struct Manifest {
     pub snapshot_digest: String,
     pub compiler_digest: String,
     pub projection_digest: String,
-    pub catalog_digest: String,
-    pub kernel_format: u32,
-    pub entry_value_effect_digest: String,
+    pub catalog_digest: Option<String>,
+    pub kernel_format: Option<u32>,
+    pub entry_value_effect_digest: Option<String>,
     pub spec_hash: Option<String>,
     pub dimensions: i32,
     pub relations: BTreeMap<String, RelationReceipt>,
@@ -213,17 +220,16 @@ impl Manifest {
             ("snapshot_id", self.snapshot_id.as_str()),
             ("content_digest", self.snapshot_digest.as_str()),
             ("compiler_digest", self.compiler_digest.as_str()),
-            (
-                "entry_value_effect_digest",
-                self.entry_value_effect_digest.as_str(),
-            ),
+
         ] {
             if envelope[field].as_str() != Some(expected) {
                 return Err(corrupt(format!("projection envelope mismatch: {field}")));
             }
         }
         if envelope["format"].as_u64() != Some(self.bundle_format.into())
-            || envelope["condition_kernel_format"].as_u64() != Some(self.kernel_format.into())
+            || envelope["condition_kernel_format"] != serde_json::json!(self.kernel_format)
+            || envelope["entry_value_effect_digest"] != serde_json::json!(self.entry_value_effect_digest)
+            || envelope["capabilities"] != serde_json::json!(self.capabilities)
             || envelope.get("spec_hash")
                 != Some(&serde_json::to_value(&self.spec_hash).expect("spec hash"))
         {
@@ -254,6 +260,15 @@ impl Manifest {
             }
         }
         validate_relations(self.dimensions, tables)?;
+        for (name, batches) in tables {
+            let unavailable = (!self.capabilities.native_value_paths && NATIVE_FILES.contains(&name.as_str())
+                && !matches!(name.as_str(), "operations" | "public_paths"))
+                || (!self.capabilities.behavioral_claims && matches!(name.as_str(), "behaviors" | "singletons" | "ambient_reads" | "place_claims"))
+                || (!self.capabilities.briefs && matches!(name.as_str(), "briefs" | "assertions" | "supports" | "lexical_text" | "vectors"));
+            if unavailable && batches.iter().any(|b| b.num_rows() != 0) {
+                return Err(corrupt(format!("unadvertised capability has rows: {name}")));
+            }
+        }
         for batch in &tables["embedding_spec"] {
             let hashes = batch
                 .column_by_name("spec_hash")
@@ -273,7 +288,6 @@ impl Manifest {
     pub fn validate(&self) -> Result<(), ProjectionError> {
         if self.format != FORMAT
             || self.bundle_format != BUNDLE_FORMAT
-            || self.kernel_format != crate::condition_kernel::KERNEL_FORMAT
             || !matches!(self.dimensions, 0 | 1024)
         {
             return Err(ProjectionError {
@@ -284,9 +298,17 @@ impl Manifest {
         if self.context.library.is_empty() {
             return Err(corrupt("missing serving release context"));
         }
-        if self.projection_digest != definition_digest()
-            || self.catalog_digest != crate::models::Catalog::committed_digest().hex()
-        {
+        if !self.capabilities.valid() { return Err(corrupt("invalid capability dependencies")); }
+        if self.capabilities.native_value_paths {
+            if self.catalog_digest.as_deref() != Some(crate::models::Catalog::committed_digest().hex().as_str())
+                || self.kernel_format != Some(crate::condition_kernel::KERNEL_FORMAT)
+                || self.entry_value_effect_digest.as_ref().is_none_or(|d| !is_hex(d, 32)) {
+                return Err(corrupt("missing or incompatible native capability identity"));
+            }
+        } else if self.catalog_digest.is_some() || self.kernel_format.is_some() || self.entry_value_effect_digest.is_some() {
+            return Err(corrupt("unselected native capability advertises model identities"));
+        }
+        if self.projection_digest != definition_digest() {
             return Err(ProjectionError {
                 kind: FailureKind::Incompatible,
                 message: "incompatible projection definition or catalog".into(),
@@ -297,8 +319,6 @@ impl Manifest {
                 &self.snapshot_digest,
                 &self.compiler_digest,
                 &self.projection_digest,
-                &self.catalog_digest,
-                &self.entry_value_effect_digest,
             ]
             .iter()
             .any(|s| !is_hex(s, 32))
@@ -330,7 +350,7 @@ impl Manifest {
             .keys()
             .cloned()
             .collect::<std::collections::BTreeSet<_>>()
-            != artifact_names().into_iter().collect()
+            != artifacts_for(&self.capabilities).into_iter().collect()
         {
             return Err(corrupt("incomplete native/lexical artifact inventory"));
         }
@@ -450,6 +470,10 @@ pub fn validate_batch(
     for (field, array) in batch.schema().fields().iter().zip(batch.columns()) {
         if !field.is_nullable() && array.null_count() != 0 {
             return Err(corrupt(format!("{name}: null {}", field.name())));
+        }
+        if let Some(values) = crate::catalog::vocabulary(name, field.name()) {
+            let a = array.as_any().downcast_ref::<StringArray>().ok_or_else(|| corrupt("catalog code type"))?;
+            if a.iter().flatten().any(|v| !values.contains(&v)) { return Err(corrupt(format!("{name}: unknown {}", field.name()))); }
         }
         if let Some(book) = codebook_name(name, field.name()) {
             let book = codebooks
@@ -593,6 +617,15 @@ pub fn receipt(
 
 pub fn unique_key(name: &str) -> Option<&'static str> {
     Some(match name {
+        "catalog_members" => "member_id",
+        "catalog_constructors" => "class_node_id,signature_id",
+        "catalog_bindings" => "member_id,binding_id",
+        "catalog_signatures" => "signature_id",
+        "catalog_parameters" => "signature_id,ordinal",
+        "catalog_evidence" => "evidence_id",
+        "catalog_types" => "term_id",
+        "catalog_type_args" => "parent_term_id,role,ordinal",
+        "catalog_type_observations" => "source_fact_id",
         "briefs" => "brief_id",
         "behaviors" => "behavior_id",
         "assertions" => "brief_id,ordinal",
@@ -615,6 +648,13 @@ pub fn unique_key(name: &str) -> Option<&'static str> {
 }
 pub fn foreign_keys() -> Vec<(&'static str, &'static str, &'static str, &'static str)> {
     vec![
+        ("catalog_members", "operation_node_id", "operations", "node_id"),
+        ("catalog_bindings", "member_id", "catalog_members", "member_id"),
+        ("catalog_constructors", "signature_id", "catalog_signatures", "signature_id"),
+        ("catalog_parameters", "signature_id", "catalog_signatures", "signature_id"),
+        ("catalog_type_observations", "term_id", "catalog_types", "term_id"),
+        ("catalog_type_args", "parent_term_id", "catalog_types", "term_id"),
+        ("catalog_type_args", "child_term_id", "catalog_types", "term_id"),
         ("assertions", "brief_id", "briefs", "brief_id"),
         ("brief_members", "brief_id", "briefs", "brief_id"),
         ("symbol_map", "brief_id", "briefs", "brief_id"),

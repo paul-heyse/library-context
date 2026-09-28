@@ -53,8 +53,9 @@ fn full_manifest_identity_rejects_missing_relations_and_mixed_spec() {
         .map(|f| (f.name.to_owned(), receipt(f.name, 1024, &[]).unwrap()))
         .collect();
     let mut m = Manifest {
-        format: 2,
-        bundle_format: 12,
+        capabilities: cpg_schema::catalog::Capabilities::for_profile(cpg_schema::catalog::CompileProfile::Behavioral),
+        format: 3,
+        bundle_format: 13,
         context: cpg_schema::serving_projection::ServingContext {
             library: "fixture".into(),
             requirement: "fixture==1".into(),
@@ -64,9 +65,9 @@ fn full_manifest_identity_rejects_missing_relations_and_mixed_spec() {
         snapshot_digest: "02".repeat(32),
         compiler_digest: "03".repeat(32),
         projection_digest: cpg_schema::serving_projection::definition_digest(),
-        catalog_digest: cpg_schema::models::Catalog::committed_digest().hex(),
-        kernel_format: 1,
-        entry_value_effect_digest: "07".repeat(32),
+        catalog_digest: Some(cpg_schema::models::Catalog::committed_digest().hex()),
+        kernel_format: Some(1),
+        entry_value_effect_digest: Some("07".repeat(32)),
         spec_hash: Some("05".repeat(32)),
         dimensions: 1024,
         relations,

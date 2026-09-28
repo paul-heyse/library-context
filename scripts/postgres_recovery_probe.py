@@ -23,6 +23,8 @@ async def probe(config: Path, receipt: Path):
         await repository.check()
         for generation in expected["inventory"]["generations"]:
             manifest = generation["manifest"]
+            if manifest["bundle_format"] != 13:
+                raise RuntimeError("legacy generation requires the retained pre-PR1 runtime and a separate receipt")
             pinned = await repository.pin(manifest["context"]["library"], generation["generation"])
             descriptor = json.loads(pinned.descriptor())
             if descriptor["manifest"] != manifest:
@@ -54,7 +56,8 @@ async def probe(config: Path, receipt: Path):
             results.append(
                 {
                     "generation": generation["generation"],
-                    "native_loaded": True,
+                    "native_loaded": state.condition_graph is not None,
+                    "capabilities": manifest["capabilities"],
                     "operations": len(scope["eligible"]),
                     "page": bool(operations),
                 }

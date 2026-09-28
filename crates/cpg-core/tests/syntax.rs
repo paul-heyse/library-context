@@ -38,6 +38,7 @@ async fn published_fixture(fixture: &str) -> (SessionContext, tempfile::TempDir)
     std::fs::create_dir_all(dir.path().join("venv/site-packages")).unwrap();
     let s = Id([6; 16]);
     let out = extract(&ExtractInput {
+        profile: cpg_schema::catalog::CompileProfile::Behavioral,
         release: cpg_extract::Release::from_tree(
             std::fs::canonicalize(dir.path().join("release")).unwrap(),
             fixture,
@@ -473,6 +474,7 @@ fn corpus_input(dir: &Path, s: Id, extra: &[(&str, &str)]) -> ExtractInput {
             .collect(),
     };
     let mut input = ExtractInput {
+        profile: cpg_schema::catalog::CompileProfile::Behavioral,
         release: cpg_extract::Release {
             root: site.clone(),
             files: vec![site.join("pkg/__init__.py"), site.join("pkg/core.py")],

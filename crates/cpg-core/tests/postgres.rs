@@ -402,6 +402,7 @@ async fn pg_published_bundle_replays_every_byte_after_database_stops() {
         .unwrap();
     let id = Id([31; 16]);
     let mut input = cpg_extract::ExtractInput {
+        profile: cpg_schema::catalog::CompileProfile::Behavioral,
         release: cpg_extract::Release::from_tree(fixture.join("release"), "analysis_shapes")
             .unwrap(),
         venv_root: fixture.clone(),

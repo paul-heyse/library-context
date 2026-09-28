@@ -195,8 +195,10 @@ pub(crate) fn context_facts(
         .map(|(h, n)| (h.module().to_string(), n.clone()))
         .collect();
     let referenced = refs.referenced.borrow().clone();
+    let mut modeled_classes: BTreeSet<(String, String)> = BTreeSet::new();
+    if input.profile.behavioral() {
     let catalog = Catalog::committed().map_err(ExtractError::Context)?;
-    let mut modeled_classes: BTreeSet<(String, String)> =
+    modeled_classes =
         cpg_schema::summary_contract::ExactRuntimeException::ALL
             .iter()
             .map(|exception| {
@@ -228,6 +230,8 @@ pub(crate) fn context_facts(
                 }
             }
         }
+    }
+
     }
 
     let list: Vec<Handle> = handles.values().cloned().collect();

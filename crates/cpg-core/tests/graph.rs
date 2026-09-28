@@ -37,6 +37,7 @@ async fn shapes(sub: &str, reverse: bool) -> (SessionContext, tempfile::TempDir)
     copy(&fixture.join("site"), &base.join("venv/site-packages"));
     let s = Id([5; 16]);
     let out = extract(&ExtractInput {
+        profile: cpg_schema::catalog::CompileProfile::Behavioral,
         release: cpg_extract::Release::from_tree(
             std::fs::canonicalize(base.join("release")).unwrap(),
             "graph_shapes",

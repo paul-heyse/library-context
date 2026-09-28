@@ -93,6 +93,10 @@ fn section_of(expr: &str) -> String {
 
 /// Each served file's query, sorted by its key; `lexical_text` is computed after the others.
 fn query(name: &str) -> Option<String> {
+    if let Some(file) = cpg_schema::catalog::serving_files().into_iter().find(|f| f.name == name) {
+        let columns = file.schema.fields().iter().map(|f| format!("\"{}\"", f.name())).collect::<Vec<_>>().join(", ");
+        return Some(format!("SELECT {columns} FROM {} ORDER BY {}", file.name, file.key.join(", ")));
+    }
     Some(match name {
         "briefs" => format!(
             "SELECT b.brief_id, b.seed_node_id, b.access_path, b.title, b.applicable_case, \
@@ -923,6 +927,11 @@ pub async fn build(ctx: &SessionContext, out: &Path) -> Result<Generation, CoreE
         None => (None, 0),
     };
 
+    let selection = counted(ctx, "SELECT profile, count(*) FROM catalog_compilation GROUP BY profile").await?;
+    let [(profile, 1)] = selection.as_slice() else { return Err(bad("exactly one catalog compilation selection is required")); };
+    let profile = match profile[0].as_str() { "catalog" => cpg_schema::catalog::CompileProfile::Catalog,
+        "behavioral" => cpg_schema::catalog::CompileProfile::Behavioral, _ => return Err(bad("unknown compile profile")) };
+    let capabilities = cpg_schema::catalog::Capabilities::for_profile(profile);
     let served: Vec<ServingFile> = files(dimensions);
     let mut projection_batches = BTreeMap::new();
     let mut projection_relations = BTreeMap::new();
@@ -981,7 +990,7 @@ pub async fn build(ctx: &SessionContext, out: &Path) -> Result<Generation, CoreE
             .map_err(|e| bad(e.to_string()))?,
         );
         let artifact_name = format!("{}.arrow", file.name);
-        if cpg_schema::serving_projection::artifact_names().contains(&artifact_name) {
+        if cpg_schema::serving_projection::artifacts_for(&capabilities).contains(&artifact_name) {
             projection_artifacts.insert(
                 artifact_name,
                 cpg_schema::serving_projection::ArtifactReceipt {
@@ -1034,9 +1043,10 @@ pub async fn build(ctx: &SessionContext, out: &Path) -> Result<Generation, CoreE
         snapshot_digest: ids[1].clone(),
         compiler_digest: ids[2].clone(),
         projection_digest: cpg_schema::serving_projection::definition_digest(),
-        catalog_digest: cpg_schema::models::Catalog::committed_digest().hex(),
-        kernel_format: cpg_schema::condition_kernel::KERNEL_FORMAT,
-        entry_value_effect_digest: crate::entry_links::digest().hex(),
+        catalog_digest: capabilities.native_value_paths.then(|| cpg_schema::models::Catalog::committed_digest().hex()),
+        kernel_format: capabilities.native_value_paths.then_some(cpg_schema::condition_kernel::KERNEL_FORMAT),
+        entry_value_effect_digest: capabilities.native_value_paths.then(|| crate::entry_links::digest().hex()),
+        capabilities: capabilities.clone(),
         spec_hash: spec_hash.clone(),
         dimensions,
         relations: projection_relations,
@@ -1047,8 +1057,9 @@ pub async fn build(ctx: &SessionContext, out: &Path) -> Result<Generation, CoreE
         "projection": projection,
         "projection_generation": projection_generation,
         "format": FORMAT,
-        "condition_kernel_format": cpg_schema::condition_kernel::KERNEL_FORMAT,
-        "entry_value_effect_digest": crate::entry_links::digest().hex(),
+        "capabilities": capabilities,
+        "condition_kernel_format": projection.kernel_format,
+        "entry_value_effect_digest": projection.entry_value_effect_digest,
         "library": context.library,
         "requirement": context.requirement,
         "snapshot_id": ids[0],

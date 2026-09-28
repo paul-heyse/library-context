@@ -480,6 +480,16 @@ pub fn section_of(kind: AssertionKind) -> BriefSection {
 macro_rules! for_each_analysis_table {
     ($mac:ident) => {
         $mac!(
+            $crate::catalog::CatalogCompilation,
+            $crate::catalog::CatalogMembers,
+            $crate::catalog::CatalogBindings,
+            $crate::catalog::CatalogSignatures,
+            $crate::catalog::CatalogConstructors,
+            $crate::catalog::CatalogParameters,
+            $crate::catalog::CatalogEvidence,
+            $crate::catalog::CatalogTypes,
+            $crate::catalog::CatalogTypeArgs,
+            $crate::catalog::CatalogTypeObservations,
             $crate::findings::PublicPaths,
             $crate::completion_proof::ReturnCompletionCertificates,
             $crate::context_protocol::ModelContextProtocols,
