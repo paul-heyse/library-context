@@ -91,13 +91,13 @@ Each analyzed library pins itself in `libraries/<name>/` (`pyproject.toml`, `.py
 | fcars, bitvec | `=0.2.2` and `=1.0.1`, dev-dependencies of `lctx-analytics` only: fcars is the oracle for our FCA's concept sets (ADR-0044), bitvec builds its relation | 2026-09-23 (slice 2.5) | MIT; the lock gains bitvec, funty, radium, tap and wyz (dev only; rayon was already locked); `fcars_agrees_on_the_concepts` compares concept sets on random contexts |
 | rand, rand_chacha, rand_core | the 0.9 line leiden-rs resolves: rand 0.9.5, rand_chacha 0.9.0, rand_core 0.9.5 (the lock also holds rand 0.8 and 0.10 for other crates) | 2026-09-23 (slice 2.3) | `lctx-analytics` `build.rs` asserts each is locked exactly once on the `0.9.` line and records it; rand does not promise sequences across versions (ADR-0044) |
 
-## Serving and embeddings (ADR-0066; the native executor is proposed in ADR-0025)
+## Serving and embeddings (ADR-0068; the native executor is proposed in ADR-0025)
 
 | Component | Pin | Verified | How |
 |---|---|---|---|
 | FastMCP (served) | `==4.0.5` in `python/lctx_mcp` (the workspace `uv.lock`; mcp 2.2.0, pydantic 2.13.5), independent of the analyzed pin | 2026-09-23 | `uv lock`; the lctx_mcp tests negotiate `2026-07-28` (auto) and `2025-11-25` (legacy) |
-| vLLM | 0.30.0 in its own locked uv project `services/vllm` (`uv.lock`: torch and CUDA pinned with it; ADR-0066), served by `just embed-serve`: `--runner pooling --max-model-len 8192 --dtype bfloat16 --gpu-memory-utilization 0.80` | 2026-09-23 | `uv lock --project services/vllm` resolved 204 packages; spike E1 (2026-09-22) ran the same service from the project `.venv` |
-| Qwen/Qwen3-Embedding-8B | revision `1d8ad4ca9b3dd8059ad90a75d4983776a23d44af`; 4,096 dims; bf16 weights (15 GB), float32 output, L2-normalized (pooling `LAST` + sentence-transformers normalize). Operator choice over 4B (ADR-0066) | 2026-09-22 | HF API `sha` at that revision; `hf download … --revision`; spike E1 served it with vLLM 0.30.0 and every norm was 1 ± 1e-7 |
+| vLLM | 0.30.0 in its own locked uv project `services/vllm` (`uv.lock`: torch and CUDA pinned with it; ADR-0068), served by `just embed-serve`: `--runner pooling --max-model-len 8192 --dtype bfloat16 --gpu-memory-utilization 0.80` | 2026-09-23 | `uv lock --project services/vllm` resolved 204 packages; spike E1 (2026-09-22) ran the same service from the project `.venv` |
+| Qwen/Qwen3-Embedding-8B | revision `1d8ad4ca9b3dd8059ad90a75d4983776a23d44af`; 1,024 output dims from a 4,096 MRL source; bf16 weights (15 GB), float32 output, L2-normalized (pooling `LAST` + sentence-transformers normalize). Operator choice over 4B; format-2 spec declares prefix/L2/admission (ADR-0068) | 2026-09-27 | Pinned model unchanged; controlled 1024 vLLM launch, Rust/Python conformance ≥0.9995, exact cold/warm receipts and offline replay ([evidence](design_review/evidence/2026-09-27_postgresql-expansion/implementation.md)) |
 | pyarrow | `==25.0.1` (the bundle reader in `lctx_mcp`; cp314 wheels) | 2026-09-23 | `uv lock` (slice 1.8); the serving-digest tests read the generation's files with it |
 | numpy | `==2.4.6` (vectors, exact cosine; bm25s's only dependency) | 2026-09-23 | `uv lock`; `uv run python -c "import numpy"` |
 | httpx2 | `==2.13.1` (the query embedder; bytes sent as `content=`, never `json=`). pydantic's maintained continuation of httpx (operator, 2026-09-24); FastMCP 4.0.5 already depends on it, so the switch removes `httpx` 0.28.1 from the server's lock | 2026-09-24 | PyPI JSON read 2026-09-24 (2.13.1, 2026-09-23; `import httpx2`); `uv lock`; `test_the_http_client_sends_the_exact_bytes_and_reports_a_down_service` |
@@ -105,7 +105,7 @@ Each analyzed library pins itself in `libraries/<name>/` (`pyproject.toml`, `.py
 | uv_build | `>=0.12,<0.13` (the `lctx-mcp` build backend, matching uv 0.12.18) | 2026-09-23 | `uv sync` built the member |
 | PyO3 | `=0.29.2` with `extension-module` (native semantic query member; CPython 3.14.7) | 2026-09-24 | `cargo info pyo3@0.29.2`, official PyO3 0.29.2 changelog for Python 3.14 support, and `cargo check -p lctx-semantics` |
 | maturin | `==1.15.0` (the `lctx-semantics` PEP 517/660 backend) | 2026-09-24 | PyPI 1.15.0 release (2026-08-24), `uvx --from maturin==1.15.0 maturin --version`; mixed package route checked in Context7 `/pyo3/maturin`; `uv sync` passed. A one-time `uv build --package lctx-semantics` and isolated CPython 3.14.7 wheel import passed before the operator chose the faster design track; those artifacts were removed and wheel builds are deferred to release. |
-| LanceDB | 0.39.0 (Python) — **deferred** behind a size trigger | 2026-09-22 (source read at tag) | hybrid/FTS/RRF chain; bundles Arrow 58 / DataFusion 54 |
+| LanceDB | 0.39.0 (Python) — **conditional alternative** beyond selected pgvector | 2026-09-22 (source read at tag) | hybrid/FTS/RRF chain; bundles Arrow 58 / DataFusion 54 |
 
 ## Dev tools
 
@@ -130,7 +130,7 @@ CI. Verified 2026-09-25 with `mdbook --version`, `pagefind --version` and `lyche
 Python retains `.python-version`; isolated script tests use pytest from `uv.lock`. Qualification
 is `just docs-test` plus `just docs-check` ([publishing operations](publishing.md)).
 
-## PostgreSQL services (ADR-0065; verified 2026-09-27)
+## PostgreSQL services (ADR-0068; source and focused verification 2026-09-27)
 
 | Component | Pin / enabled features | Verification |
 |---|---|---|
@@ -140,8 +140,18 @@ is `just docs-test` plus `just docs-check` ([publishing operations](publishing.m
 | Disposable image | postgres:18.6-bookworm@sha256:3725f4e2499eef5134592b3b4ab79a543ed7f8e533b05b5b637af926630f6650 | `docker pull`; single machine-readable pin in `specs/postgres-image.txt` |
 | tracing | =0.1.44 (already resolved family; now direct for cache telemetry) | registry manifest and Cargo.lock; matches capability skill |
 | Backup tools | pg_dump / pg_restore 18.6 | `pg_dump --version`; `pg_restore --version`; disposable restore drill |
+| pgvector Rust | =0.4.2, defaults off, `sqlx` | Exact registry manifest: SQLx 0.9 adapter; real PG18 type, width and signed-zero round trip |
+| pgvector extension | 0.8.6; Ubuntu package `postgresql-18-pgvector=0.8.6-1.pgdg24.04+2` | Administrator expansion script and real disposable schema/version assertions; extension lives in `lctx_ext` |
+| Extension test image | `pgvector/pgvector:0.8.6-pg18-trixie@sha256:78bf48b801e792f99e3ac62b5036fd3876e9be48afda16c1e331af1c75ceb2ff` | Docker pull/digest, `specs/postgres-vector-image.txt`; PG7 image retained for rollback |
+| bytes | =1.12.1 | Shared SQLx/pgpq COPY buffer type; existing resolved version, now direct |
+| pgpq | =0.12.0 | Exact registry manifest, Arrow 59 native; real binary COPY and declared Arrow reconstruction |
+| pyo3-async-runtimes | =0.29.0, defaults off, `tokio-runtime`; existing PyO3 =0.29.2 | Exact registry API/manifest, `uv sync` native wheel build; one lazy configured two-worker Tokio runtime |
+| datafusion-federation | 0.5.7 locked, transitive through provider `federation`/`sql` | Registry manifest; root product graph compiled with DataFusion 55.1 / Arrow 59.3 |
+| datafusion-table-providers-postgres | Owned fork `paul-heyse/datafusion-table-providers`, rev `b4dbe895b40ad49eb0593d8887616eba2c1f9bbf`, defaults off, `federation` | Based on `CaptainEureka` migration `33095588fcdd17301a5d1c340dcd66cd60e41ec8`; explicit typed bounded pool constructor, focused limit test passed; patch in `third_party/datafusion-table-providers-df55.patch` |
+| tokio-postgres | =0.7.18 | Provider-only configuration adapter; exact registry manifest. SQLx retains application write/transaction ownership |
 
-No Psycopg/SQLAlchemy, SeaQuery, pgvector, ADBC/federation or pgrx dependency is installed by this
-scope. Their consumer and qualification triggers remain in the [PostgreSQL plan](plans/postgresql-integration-plan_2026-09-27.md#7-later-capabilities-and-adoption-triggers).
+Psycopg/SQLAlchemy, native ADBC and pgrx remain uninstalled. SeaQuery is a transitive provider
+implementation dependency, not an application query owner. Production provider/federation scan
+and pushdown qualification remains PG15. Conditional triggers remain in the [PostgreSQL plan](plans/postgresql-integration-plan_2026-09-27.md#7-later-capabilities-and-adoption-triggers).
 Operation/configuration: [PostgreSQL runbook](postgresql.md). Focused and integrated results:
-[qualification evidence](design_review/evidence/2026-09-27_postgresql/README.md).
+[PG8–PG11 evidence](design_review/evidence/2026-09-27_postgresql-expansion/implementation.md).

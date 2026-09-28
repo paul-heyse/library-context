@@ -13,7 +13,8 @@ The pieces:
   semantic index over a second parse, joined by byte range (ADR-0046, ADR-0045). The
   Pyrefly CLI is only a parity-test oracle.
 - **Facts:** Arrow schemas are the contract, DataFusion constructs and validates the facts, and
-  Delta stores them.
+  Delta stores them. `lctx-postgres` owns rebuildable PostgreSQL projections and transactional
+  cache/operation services; canonical publication remains Delta-owned (ADR-0067/0068).
 - **Behavior:** conditions are bounded BDDs over evaluation atoms (biodivine-lib-bdd), with
   pinned models and finite summaries composed over petgraph SCCs; five verdicts, never a null.
 - **Analytics:** petgraph, leiden-rs and our own FCA/RCA.
@@ -36,7 +37,7 @@ real consumer.
    boundary, §3 execution queue and §6 findings. It coordinates product sequencing and owns
    finding disposition. For PostgreSQL work also read the distinct detailed plan
    `docs/plans/postgresql-integration-plan_2026-09-27.md`; forward-plan §3.4 owns its relationship
-   to Stage 3–5, and §6.1 owns both PostgreSQL reviews' finding status.
+   to Stage 3–5, and §6.1 owns PostgreSQL finding status.
 3. For design questions, follow **owner → decision → open work**:
    - start at the architecture map `docs/design/README.md` and read the owning section in
      `docs/design/DESIGN.md` (scope, §B1–§B14) or `docs/design/sections/` plus adjacent consumers;
@@ -60,8 +61,8 @@ real consumer.
 | `docs/design_review/reviews/` | Review outputs: evidence, never authority; kept while a finding they supply is open |
 | `docs/design_review/evidence/` | Probes, spikes and investigations behind decisions, one `YYYY-MM-DD_<topic>/` folder each with a README; raw outputs and binaries through Git LFS; never venvs or `target/`. Put probes here, not in the session scratchpad |
 | `docs/pins.md` | Every pin, with dated verification |
-| `crates/` | The single Rust workspace. `cpg-schema` holds the authoritative Arrow contracts, derivations, rules and the graph registry (`graph.rs`: the `nodes`/`edges` catalogs, ADR-0067); `cpg-extract` (Stage A in `library.rs`, extraction, the dependency context in `context.rs`), `cpg-core` (Delta, the `lctx_id` UDF, derive, validate, publish, flow model), `cpg-flow` (ty flow facts), `lctx-analytics` (passes, FCA/RCA, communities, summaries; Arrow in/out, no store), `lctx-embed` (compile-time embedding client) and `lctx` (the CLI). Further crates are added as increments need them (ADR-0046) |
-| `python/` | `lctx_mcp` (the FastMCP server over one pinned generation) and `lctx_semantics` (the PyO3 native executor) |
+| `crates/` | The single Rust workspace. `cpg-schema` holds the authoritative Arrow contracts, derivations, rules and the graph registry (`graph.rs`: the `nodes`/`edges` catalogs, ADR-0067); `cpg-extract` (Stage A in `library.rs`, extraction, the dependency context in `context.rs`), `cpg-core` (Delta, the `lctx_id` UDF, derive, validate, publish, flow model), `cpg-flow` (ty flow facts), `lctx-analytics` (passes, FCA/RCA, communities, summaries; Arrow in/out, no store), `lctx-embed` (compile-time embedding client), `lctx-postgres` (SQLx effects, migrations, projection codecs and role pools) and `lctx` (the CLI). Further crates are added as increments need them (ADR-0046) |
+| `python/` | `lctx_mcp` (the FastMCP server over one pinned generation) , `lctx_semantics` (the pure PyO3 native executor) and `lctx_storage` (explicit asynchronous PostgreSQL service lifetime) |
 | `eval/` | `behavior/` pre-registered question sets, `gold/` evaluation-only gold extract and freeze, `heldout/` sealed until increment 5 |
 | `libraries/` | One committed uv project per analyzed library (`pyproject.toml` with `[tool.lctx] release`, `.python-version`, `uv.lock`); `libraries/README.md` has the add/upgrade procedure (ADR-0046). Environments go to `build/envs/` (gitignored) |
 | `fixtures/python/` | Tiny Python packages to analyze. Input data: never executed or linted |

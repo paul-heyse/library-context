@@ -312,7 +312,7 @@ Pins are in `docs/pins.md`.
 vLLM service** from the locked `services/vllm` project (`just embed-serve`: `vllm serve …
 --runner pooling --max-model-len 8192`). vLLM is never a dependency of the compiler's Python
 tools or of `lctx_mcp`; running it as its own service also keeps GPU use explicit.
-- **Output (Implemented, 2026-09-27):** 1,024 dimensions, `Float32`, cosine; source width 4,096.
+- **Output (Implemented and Tested, 2026-09-27):** 1,024 dimensions, `Float32`, cosine; source width 4,096.
 - **Reduction and normalization:** the format-2 spec declares MRL prefix selection before L2
   normalization. Both clients send `dimensions=1024`. The launcher derives
   `is_matryoshka=true`, `matryoshka_dimensions=[1024]`, pooling `LAST`, activation and dimensions
@@ -659,7 +659,8 @@ mutation controls pass. Typed Normal postconditions remain independent of actual
 
 ### §11.4 PostgreSQL serving and conditional workflows
 
-**Accepted target; foundations Implemented and integrated qualification pending, 2026-09-27.**
+**Accepted target; PG8–PG11 foundations Implemented and Tested, 2026-09-27.**
+PG12–PG17 production integration/qualification remains open.
 The [PostgreSQL plan](../../plans/postgresql-integration-plan_2026-09-27.md) owns execution;
 [§6.5](storage-and-publication.md#section-6-5) owns effects and physical storage.
 

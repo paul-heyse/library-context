@@ -17,7 +17,7 @@ and the disposition of known defects.
 | PostgreSQL services and later library capabilities | [Storage §6.5](sections/storage-and-publication.md#section-6-5), [serving §11.4](sections/synthesis-and-serving.md#section-11-4) | [PostgreSQL plan](../plans/postgresql-integration-plan_2026-09-27.md); SQLx effect boundary, exact-vector receipts and conditional consumers; integrated qualification in progress |
 | Analytic passes, communities, centrality, FCA/RCA, keep rule | [Analytics (§9–§9.8)](sections/analytics.md) | [lctx-analytics](../../crates/lctx-analytics/src/lib.rs): Arrow in, Arrow out, no store |
 | Models, L2 fates, summaries, proof identity, registry | [Behavioral analysis (§9.9)](sections/behavioral-analysis.md) | `lctx-analytics::summaries`, `cpg-core`; explicit unknown boundaries constrain claims |
-| Findings, assertions, briefs, embeddings, retrieval and tools | [Synthesis and serving (§10–§11)](sections/synthesis-and-serving.md) | `cpg-core` Stage F, [lctx_mcp](../../python/lctx_mcp/src/lctx_mcp/server.py), `lctx_semantics` |
+| Findings, assertions, briefs, embeddings, retrieval and tools | [Synthesis and serving (§10–§11)](sections/synthesis-and-serving.md) | `cpg-core` Stage F, `cpg-schema` projection contracts, `lctx-postgres`/`lctx_storage` effects, [lctx_mcp](../../python/lctx_mcp/src/lctx_mcp/server.py), pure `lctx_semantics` |
 | Publication rules, independent oracles, evaluation | [Validation and evaluation (§8, §12)](sections/validation-and-evaluation.md) | `cpg_schema::rules`, `eval/behavior/`, `tests/scripts/test_flow_soundness.py` |
 
 Dependency direction runs from orchestration (`lctx`) through capability owners to the schema and

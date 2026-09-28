@@ -2,7 +2,9 @@
 
 **2026-09-27.** Evidence for the
 [expanded architecture review](../../reviews/design_review_postgresql-expanded-architecture_2026-09-27.md).
-This folder is a bounded investigation, not the implementation plan or a product acceptance packet.
+The original sections below record the bounded design investigation. The later
+[PG8–PG11 implementation evidence](implementation.md) records deployed foundations and focused
+qualification; neither is PG17 product acceptance.
 
 | Evidence | Outcome and claim boundary |
 |---|---|

@@ -72,7 +72,7 @@ IDs are never reused or renumbered. Changing a §B decision needs an ADR and a d
 | §B10 | The standing exclusions | DP-16 · — |
 | §B11 | Insight synthesis is programmatic; no generative model in v1, and never in the query path | DP-02, DP-08, DP-11, DP-22, CI-11 · G2, G7, CI-G2 |
 | §B12 | Canonical Delta store vs rebuildable serving projections; no cross-store transactions | DP-01, DP-19, CI-13 · G1, G5 |
-| §B13 | The agent interface is a FastMCP server over one pinned file-based generation per process | DP-10, DP-14, DP-15, CI-13 · G2, G3, G7 |
+| §B13 | The agent interface is a FastMCP server over one pinned generation per process; accepted PG serving uses a Rust repository and pure native executor | DP-10, DP-14, DP-15, CI-13 · G2, G3, G7 |
 | §B14 | One hashed embedding spec, cached vectors, conformance-checked Rust and Python clients | DP-09, DP-11, DP-21, CI-13 · G6 |
 
 ## 2. Recurring review questions, routed onto the gates

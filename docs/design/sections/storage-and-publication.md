@@ -244,7 +244,8 @@ that dated checkpoint does not establish current assembled Stage 3 acceptance.
 `mixed_embedding_specs_are_refused`, `serving_schema_digests_are_the_shared_known_answers`;
 2026-09-23 onward); the files marked below as later-stage are **Proposed**.
 
-**FORMAT 10 (Implemented, source-inspected 2026-09-27).** FORMAT 9's internal callable/formal
+**FORMAT 11 (Implemented, 2026-09-27).** Adds standard 1024/spec format 2 and the full
+projection manifest with shared Rust schema/closure validation (ADR-0068). FORMAT 9's internal callable/formal
 metadata remains, so nested callee proofs can load without adding private operations to
 discovery. FORMAT 10 adds claim-keyed `behavior_discharges` and native citation admission
 (ADR-0064). The executable `cpg_schema::bundle::files` list is authoritative. General
@@ -363,7 +364,9 @@ embedding spec are sufficient for replay; bundle/rebuild never contacts PostgreS
 embedder. Initial adoption removes the former global Delta cache writer/read exceptions after
 all consumers migrate. This is one mutable reuse service plus immutable per-snapshot inputs.
 
-**Projection foundation (Implemented; integrated qualification pending, 2026-09-27).**
+**Projection foundation (Implemented and Tested for PG8–PG11, 2026-09-27).**
+[Bounded evidence](../../design_review/evidence/2026-09-27_postgresql-expansion/implementation.md)
+records validation/codecs/roles; production import/query qualification remains PG12–PG17.
 `cpg-schema::serving_projection` owns FORMAT 1 manifests, all FORMAT 11 relation receipts,
 native/lexical artifact identities and generation-local constraints. `serving_support` is shared
 by publication, file loading and import. Full content digests exclude physical row order/COPY
@@ -385,7 +388,7 @@ redacted; checked query builds force `SQLX_OFFLINE=true`. Migrations are an expl
 not a query/startup side effect. Disposable tests assert PG18 and use an explicitly pinned
 image; source inspection of libraries does not establish deployment compatibility.
 
-**Capability map.** Selected service/projection mechanisms are implemented during PG8–PG11;
+**Capability map.** Selected service/projection foundations are implemented in PG8–PG11;
 activation and conditional later consumers remain distinct. Installed versions are in `docs/pins.md`; conditional candidates remain in the implementation plan.
 
 | Capability / library mechanism | Initial or later consumer | Contract and adoption boundary |

@@ -36,7 +36,7 @@ this bounded decision.
 | [`postgres`](../../../crates/cpg-core/src/postgres/mod.rs) and its cache module | SQLx configuration/pool/schema checks, immutable reusable values and typed failure | Effects remain below compilation orchestration; provider I/O does not hold a database lease |
 | [`attempt`](../../../crates/cpg-core/src/attempt.rs), [`validate`](../../../crates/cpg-core/src/validate.rs) | Write receipt rows, validate canonical facts, incorporate receipt identity, then publish | The Delta `snapshots` append remains the publication event |
 | [`bundle`](../../../crates/cpg-core/src/bundle.rs) and pinned native/Python serving | Read exact values from the selected snapshot and serve a pinned generation | Bundle reconstruction has no PostgreSQL/provider dependency |
-| [`postgres::operations`](../../../crates/cpg-core/src/postgres/operations.rs), [`lctx::db`](../../../crates/lctx/src/db.rs) | Append observations; reconstruct discovery from canonical storage and verified manifests | Database discovery neither publishes a snapshot nor establishes a semantic verdict |
+| [`postgres::operations`](../../../crates/lctx-postgres/src/operations.rs), [`lctx::db`](../../../crates/lctx/src/db.rs) | Append observations; reconstruct discovery from canonical storage and verified manifests | Database discovery neither publishes a snapshot nor establishes a semantic verdict |
 | [`postgres::legacy`](../../../crates/cpg-core/src/postgres/legacy.rs) | Explicit read-only import of a selected historical Delta cache version | Retained legacy schema is migration input, not a second runtime cache mode |
 
 The dependency direction is CLI → attempt/effect owners → schema contracts. Analytics still
@@ -180,8 +180,8 @@ analytics-only values and conflicting restored cache state.
 
 ## 11. Authority changes and dispositions
 
-[ADR-0065](../../adr/0065-postgresql-services-and-vector-receipts.md),
-[ADR-0066](../../adr/0066-pinned-serving-and-postgresql-vector-receipts.md) and
+Historical ADR-0065/0066 (now superseded by
+[ADR-0068](../../adr/0068-postgresql-serving-and-standard-embeddings.md)) and
 [ADR-0067](../../adr/0067-canonical-snapshots-with-consumed-vector-receipts.md) provide the decision
 route for the new service/receipt boundaries and their affected predecessors. Accepted decisions
 do not establish implementation qualification. The architecture owners and final handoff must

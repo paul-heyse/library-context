@@ -1,11 +1,11 @@
 # Plan: PostgreSQL deployment and integration
 
-**Revised 2026-09-27. PG0–PG7 are implemented, deployed and accepted; PG8–PG17 are planned.**
+**Revised 2026-09-27. PG0–PG7 are accepted; PG8–PG11 foundations are implemented, deployed and tested; PG12–PG17 remain planned.**
 This revision incorporates the [expanded architecture review](../design_review/reviews/design_review_postgresql-expanded-architecture_2026-09-27.md).
 It selects 1024-dimensional embeddings, PostgreSQL relational serving and pgvector, Rust-owned
 serving queries, pgpq ingestion and qualified DataFusion federation as the next integrated scope.
 The old serving/COPY/provider consumer triggers are met by this selected work; they are not
-additional prerequisites. Implementation and expanded deployment have **not started**.
+additional prerequisites. The PG8–PG11 foundation slice is implemented, including local roles/extension/schema deployment; production query cutover remains PG12–PG17.
 
 This document owns PostgreSQL packages, contracts, deployment, acceptance and conditional library
 adoption. The [forward plan §3.4](behavioral-model-forward-plan_2026-09-24.md#postgresql-workstream)
@@ -16,12 +16,10 @@ The reviews retain their original finding meanings and dated evidence; this plan
 Sources: [storage review, PGS](../design_review/reviews/design_review_postgresql-storage_2026-09-27.md),
 [stack review, PGK](../design_review/reviews/design_review_postgresql-stack_2026-09-27.md),
 [expanded review, PGE](../design_review/reviews/design_review_postgresql-expanded-architecture_2026-09-27.md).
-[ADR-0065](../adr/0065-postgresql-services-and-vector-receipts.md),
-[ADR-0066](../adr/0066-pinned-serving-and-postgresql-vector-receipts.md) and
-[ADR-0067](../adr/0067-canonical-snapshots-with-consumed-vector-receipts.md) govern the implemented
-baseline. The expanded target below is **Proposed** until PG8 records the successor decisions and
-owning design changes. The operator's **1024 dimension choice is settled**, with no further
-4096-versus-1024 fidelity or analytics-quality gate.
+[ADR-0068](../adr/0068-postgresql-serving-and-standard-embeddings.md) governs the accepted
+expanded target and supersedes 0065/0066. [ADR-0067](../adr/0067-canonical-snapshots-with-consumed-vector-receipts.md)
+retains canonical Delta/receipt authority. The operator's **1024 dimension choice is settled**,
+with no further 4096-versus-1024 fidelity or analytics-quality gate.
 
 ## 1. Outcome, scope and baseline
 
@@ -42,11 +40,12 @@ policy; the native semantic executor remains pure. PostgreSQL is not the canonic
 | Operations | Explicit extension/migrations, import/readiness/selection/reconciliation, backup/rebuild/rollback and bounded resources | Existing PG18 cluster; no automatic migration on reads, extra cluster, replica, queue or network endpoint |
 | Later product work | Stage 4 concept projections and explicitly frozen review-event revisions | TOML/definition AST and semantic kernels retain authority; full authoring workflow and other transports remain §7 consumers |
 
-**Implemented baseline, source-inspected 2026-09-27 at `219070e`:** SQLx 0.9, local PG18.6,
+**Preserved PG0–PG7 baseline, source-inspected 2026-09-27 at `219070e`:** SQLx 0.9, local PG18.6,
 migrations 202609270001/2, one shared cache writer, `used_embeddings`/`embedding_uses`, exact
 snapshot-local receipts, operational CLI and reconciled discovery. Compiler 106/extractor 33,
-catalog 7/template 20 and bundle FORMAT 10 are current. Serving still reads a complete file generation
-and materializes Python maps/dense vectors; the live spec still requests full 4096 output.
+catalog 7/template 20 and bundle FORMAT 10 were the pre-expansion baseline, with full 4096 vectors.
+PG8–PG11 now use compiler 107, FORMAT 11 and standard 1024. The file reference consumer still
+materializes Python maps/dense vectors until PG13/PG14.
 [Initial qualification](../design_review/evidence/2026-09-27_postgresql/README.md) is historical
 acceptance of that scope, not evidence for PG8–PG17.
 
@@ -65,11 +64,11 @@ This preserves evidence without creating an indefinite historical-schema support
 
 ## 2. Stack and feature policy
 
-**Proposed selection, based on the dated review; actual dependency edits belong to PG10.** Keep
+**Implemented selection (PG10), 2026-09-27.** Keep
 exact DataFusion 55.1 and Arrow 59.3, the existing delta-rs pin and one object_store family. The
 supplied lower minor requirements are compatible ranges, not a reason to downgrade root pins.
-The [pins page](../pins.md#postgresql-services-adr-0065-verified-2026-09-27) continues to describe
-what is installed; PG10 updates it only after resolution/build verification.
+The [pins page](../pins.md#postgresql-services-adr-0068-source-and-focused-verification-2026-09-27) continues to describe
+the actual selected revisions/features; optional alternatives below remain conditional.
 
 | Layer | Selected role / package | Constraint and qualification |
 |---|---|---|
@@ -260,7 +259,7 @@ performing DDL. PostgreSQL readiness complements, rather than replaces, canonica
 ## 4. Dependency-ordered implementation
 
 PG0–PG7 are complete historical packages (§8), not an instruction to repeat deployment. The active
-implementation queue is **PG8–PG17, all planned/not_run**. Contract/source inventory changes precede
+implementation queue is **PG12–PG17** with PG8–PG11 foundations complete. Contract/source inventory changes precede
 production edits; focused checks settle each boundary and integrated gates run at PG17.
 
 | Package | Owner and deliverable | Depends on |
@@ -328,6 +327,9 @@ scope. None of these results qualifies new 1024 clients, database serving or ANN
 
 ### PG8 — Settle expanded contracts, decisions and the migration baseline
 
+**Complete for this foundation slice, 2026-09-27.** Commands, controls and limits are in the
+[implementation evidence](../design_review/evidence/2026-09-27_postgresql-expansion/implementation.md).
+
 **Owner:** storage/serving/schema owners. **Dependencies:** expanded review. **Deliver:**
 
 - Supersede ADR-0065/0066 using the ADR skill and update §B13/§B14, storage §6.5 and serving §11
@@ -352,7 +354,7 @@ superseded text only after all surviving clauses and references move; retain sta
 
 #### PG8–PG11 execution contracts (2026-09-27)
 
-**Accepted; implementation in progress.** ADR-0068 supersedes 0065/0066. The functional slice
+**Implemented and tested, 2026-09-27.** ADR-0068 supersedes 0065/0066. The functional slice
 ends at projection contracts, codecs, role deployment and the async service foundation. PG12
 owns production import/promotion; PG13 exact query cutover; PG14 indexes/ranking; PG15 admitted
 federation. The file MCP remains a reference consumer throughout this slice. Per operator
@@ -401,6 +403,9 @@ fingerprints. Canonical stores/evaluation artifacts remain preserved and unmodif
 
 ### PG9 — Implement the standard 1024 spec and rebuild dependent outputs
 
+**Complete for this foundation slice, 2026-09-27.** Commands, controls and limits are in the
+[implementation evidence](../design_review/evidence/2026-09-27_postgresql-expansion/implementation.md).
+
 **Owner:** `Spec`, `lctx-embed`, Python embedder, launcher and analytics orchestration. **Depends:** PG8.
 
 - Record MRL prefix→L2 normalization and admission override in canonical spec identity; keep
@@ -420,6 +425,9 @@ PG17. **Deletion:** full 4096 default/no-dimensions instructions and obsolete kn
 permanent embedding standard. **Rollback:** preserved binary/spec/store, never rewritten receipts.
 
 ### PG10 — Integrate the selected stack and extend the existing deployment
+
+**Complete for this foundation slice, 2026-09-27.** Commands, controls and limits are in the
+[implementation evidence](../design_review/evidence/2026-09-27_postgresql-expansion/implementation.md).
 
 **Owner:** dependency, PostgreSQL service and test tooling. **Depends:** PG8; coordinate PG9/PG11 contracts.
 
@@ -444,6 +452,9 @@ and combined pool-budget controls. Missing admin access is a named deployment pr
 code/disposable qualification independently. **Deletion:** probe-only or competing default clients.
 
 ### PG11 — Declare serving generations, physical mappings and complete validation
+
+**Complete for this foundation slice, 2026-09-27.** Commands, controls and limits are in the
+[implementation evidence](../design_review/evidence/2026-09-27_postgresql-expansion/implementation.md).
 
 **Owner:** `cpg-schema`, projection/native/storage owners. **Depends:** PG8 and PG9's spec contract.
 
@@ -642,7 +653,7 @@ no new register or full-gate-per-slice workflow is introduced.
 | Owner | Required update and timing |
 |---|---|
 | This plan | PG8–PG17 detail and §7 conditional capabilities; §8 distinguishes historical acceptance, review probes and unimplemented expansion |
-| Forward plan | §1/§3.4 current boundary and sequencing, Stage 4/5 projection consumers, §6.1 all 11 PostgreSQL finding dispositions, deferred/risk/identity conventions |
+| Forward plan | §1/§3.4 current boundary and sequencing, Stage 4/5 projection consumers, §6.1 all PostgreSQL finding dispositions, deferred/risk/identity conventions |
 | ADR/design owners, PG8 | Supersede 0065/0066; update §B13/§B14, storage §6.4/§6.5 and serving §11.1–§11.4. Carry unchanged clauses; retain 0067 canonical authority |
 | Schema/bundle/native owners, PG9/PG11 | One spec/serving schema/manifest/codec authority and explicit version migration; reviewed snapshots and known answers |
 | Pins/Cargo/uv/tooling, PG10 | Actual selected revisions/features, extension image, maintained fork and existing offline/dependency checks; no documentation-only claim of installation |
@@ -724,7 +735,13 @@ recommends revising the target; unrestricted federation semantics remain unresol
 protocol packages were resolved, not executed; native ADBC and full serving/ANN were not run.
 [Probe evidence](../design_review/evidence/2026-09-27_postgresql-expansion/README.md) is not PG17 acceptance.
 
-**Current planning checkpoint:** PG8–PG17 implementation, extension deployment, live 1024 serving,
-new exact/ANN tools and product acceptance are **not_run**. This revision updates planning and
-finding ownership only. Remote topology and arbitrary embedding-endpoint attestation remain
+**Current implementation checkpoint:** PG8–PG11 foundations, extension/role/schema deployment,
+1024 clients and fresh live canonical/file generations are **Implemented**. Focused real PG,
+native/codec, cancellation, live conformance, cold/warm receipt and offline replay controls
+**passed**; [bounded evidence](../design_review/evidence/2026-09-27_postgresql-expansion/implementation.md)
+records commands and limits. End-of-slice code checks, fresh pilot, SQLx negative controls and the bounded **Accept scoped**
+review passed. Full docs-check retains the supplied external input's missing-H1 failure; scoped
+publication passed. PG12 production import/promotion,
+PG13 query cutover, PG14 exact/ANN retrieval, PG15 admitted federation and PG16/17 acceptance remain
+**not_run**. Remote topology and arbitrary embedding-endpoint attestation remain
 unqualified; Stage 3 semantic completion and its independent exit remain in the forward plan.

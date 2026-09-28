@@ -12,12 +12,12 @@ revisit: Measured pilot query latency or memory exceeds the interactive budget, 
 
 ## Context
 
-ADR-0066's executor clause and DESIGN §B13 restrict FastMCP to lookups over materialized rows.
-This record proposes to replace that one clause of ADR-0066; every other ADR-0066 clause stays in
-force. The operator rejected the lookup-only restriction on 2026-09-24: Stage 3 Q09 asks whether a fate is compatible with a
+ADR-0068 and DESIGN §B13 preserve materialized relational selection and the existing partial
+native boundary without accepting this proposal. This record proposes the complete bounded
+semantic-query contract; ADR-0068's other serving, storage and retrieval clauses stay in force. The operator rejected the lookup-only restriction on 2026-09-24: Stage 3 Q09 asks whether a fate is compatible with a
 user-supplied condition, and later definitions need implication. Precomputing every possible
 query would be unbounded. Python must not independently reimplement the Rust condition semantics.
-The file-based generation and one embedding spec remain useful.
+The immutable generation and one embedding spec remain useful.
 
 The focused [entry-value bridge probe](../design_review/evidence/2026-09-24_entry-value-bridge/README.md)
 shows a direct guard reaching its formal, an explicit rebind reaching an assignment, and a
@@ -90,7 +90,7 @@ cannot certify the needed value stability across a call.
   answer material questions; the full repository and pilot gates run at the integrated Stage 3
   end, not after each slice. Rust test execution uses cached release-profile binaries; data
   setup follows each test's own contract.
-- ADR-0066's embedding model/spec, cached vectors, view policy, conformance rule, lexical
+- ADR-0068's embedding model/spec, cached vectors, view policy, conformance rule, lexical
   degradation, BM25/fusion and exact-symbol promotion continue as DESIGN §B14 and §11.1–§11.2
   state. This proposal changes the executor boundary only.
 
