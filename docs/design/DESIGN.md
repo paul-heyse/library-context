@@ -475,14 +475,16 @@ ADR-0024's open proposal.
 
 <a id="section-b13"></a>
 
-### §B13 The agent interface is a FastMCP server over file-based generations
+### §B13 FastMCP pins one immutable generation; Rust owns PostgreSQL effects
 
-**Implemented** for the materialized server; the native semantic executor is **Partially
-implemented** under a **Proposed** decision (ADR-0025).
+**Implemented** for the materialized file server; PostgreSQL serving is the **Accepted target**
+(ADR-0068). The native semantic executor remains **Partially implemented** under a **Proposed**
+decision (ADR-0025).
 
 - `lctx_mcp` serves the §1.1 operations from exactly one pinned, immutable generation per process,
-  with no Delta, DataFusion, compiler code or network access. Direct lookup and ranked retrieval
-  use materialized rows and cached vectors
+  with no Delta, DataFusion or compiler code. Current file lookup uses materialized rows and
+  vectors. The accepted PostgreSQL route uses `lctx_storage`/`lctx-postgres` for bounded relational
+  selection and complete evidence hydration; PostgreSQL is an explicit serving dependency
   ([§11.3](sections/synthesis-and-serving.md#section-11-3)).
 - **Target (ADR-0025):** a pinned in-process Rust/PyO3 extension executes bounded semantic queries
   (compatibility, implication, effect/role filters, witness traversal) over that generation with
@@ -490,7 +492,7 @@ implemented** under a **Proposed** decision (ADR-0025).
   negative or `complete` claim; no semantic decision is duplicated in Python. Today it provides
   path-local value inspection only; admission and decoding defects are plan items W1–W3.
 
-> Decision: ADR-0066, ADR-0025
+> Decision: ADR-0068, ADR-0025
 
 <a id="section-b14"></a>
 
@@ -499,17 +501,20 @@ implemented** under a **Proposed** decision (ADR-0025).
 **Implemented and Tested, 2026-09-27; PostgreSQL receipts are linked below.**
 
 - One hashed embedding spec ([§11.1](sections/synthesis-and-serving.md#section-11-1)) governs
-  every vector; Rust and Python clients retain their shared conformance oracle.
+  every vector. Standard output is 1024 float32 dimensions, MRL prefix then L2 normalization;
+  format-2 spec identity includes launch admission and reduction. Rust and Python retain their
+  shared conformance oracle.
 - PostgreSQL reuses one immutable winner per `spec_hash + input_hash`. An attempt retains each
   exact value before operation/E0/brief consumption and publishes snapshot-local Delta receipts
   for all consumed values, including analytics-only inputs. Value digests enter content identity.
 - Generations copy vectors from the selected snapshot. Rebuild and serving remain independent
-  of PostgreSQL. Database discovery cannot authorize an unpublished snapshot or generation.
+  of PostgreSQL. Current file serving is independent; the accepted PG runtime pins a ready
+  projection/profile for its lifespan. Database discovery cannot authorize an unpublished snapshot.
 - [§6.5](sections/storage-and-publication.md#section-6-5) owns database effects and conditional
   capabilities. The [PostgreSQL plan](../plans/postgresql-integration-plan_2026-09-27.md) owns
   current qualification; W9/W16 retain live-client and endpoint-identity boundaries.
 
-> Decision: ADR-0065, ADR-0066, ADR-0067
+> Decision: ADR-0068, ADR-0067
 
 ---
 
@@ -678,8 +683,8 @@ owns the scheduling triggers.
 - **General alias analysis (points-to).** Flow runs over bounded places and summaries (§3.9, §9.9).
 - **SCC condensation on projections.** If needed, it is built from SCC membership keeping every
   arc's evidence, never from petgraph's `condensation`, which merges parallel edges (§9).
-- **An ANN index or Lance/LanceDB.** Exact search serves today; adoption needs an isolated
-  workspace, Arrow IPC as the only interface and a derived index outside the byte-identical
+- **Lance/LanceDB.** pgvector is selected for the accepted exact/ANN projection; an alternative
+  needs a named capability beyond that qualified route and an isolated workspace, Arrow IPC as the only interface and a derived index outside the byte-identical
   generation, because Lance writes are not byte-reproducible.
 - **A recursion engine (Ascent/datafrog).** A same-state finite-base relation probe found no
   integration advantage for the first value channel over the bounded SCC-local producer;
@@ -688,3 +693,4 @@ owns the scheduling triggers.
 - **Generative interpretation** (§B11), graph embeddings, neural reranking and composition planning.
 
 > Decision: ADR-0046, ADR-0021
+

@@ -28,7 +28,7 @@ integrated qualification is outstanding.**
 | L7 serving | **Partially implemented.** FORMAT 9 has internal callable-formal support, checked native IPC decoding and bounded cited-finding support closure; a finalizer and a finding-only coordinates claim round-trip in focused tests. `inspect_value_paths` remains path-local and exposes source fact/origin IDs on both positive paths and open boundaries; operation facet values retain verdicts | Typed operation-wide compatibility/effect/role filters, full proof spans beyond the cited witness projection, clean-wheel query |
 | Current checkpoint / Stage 3 acceptance | **Checkpoint tests passed; Stage 3 acceptance not established.** The latest 2026-09-27 [PostgreSQL gate](../design_review/evidence/2026-09-27_postgresql/README.md) passes 430 ordinary Rust tests, 8 real PG tests, the fresh native fixture, 154 Python tests, strict lints/Pyrefly, rules, ADR/agent checks, 83 fixture parses, dependency/gold policy and SQLx metadata. Fake/live/concurrent pilots and controlled W9/W16 conformance/replay passed | S1–S7 remain functionally incomplete; Q01/Q03/Q05/Q09 exit assessment, semantic-query packet, clean-wheel query, controlled Stage 3 cost comparison and assembled Stage 3 review remain outstanding; PostgreSQL acceptance is scoped separately |
 
-**PostgreSQL expansion — Proposed, planned/not_run:** the
+**PostgreSQL expansion — Accepted target; PG8–PG11 implementation in progress:** the
 [expanded review](../design_review/reviews/design_review_postgresql-expanded-architecture_2026-09-27.md)
 selects PG relational serving and pgvector, one Rust serving repository with an async Python
 boundary, pgpq+SQLx imports and the compatible maintained provider/federation path. The operator
@@ -587,7 +587,7 @@ catalog digest in `compiler_digest`; no model cites `.claude/skills/`.
 
 ### 3.4 PostgreSQL deployment and integration workstream
 
-**PG0–PG7 implemented/deployed/accepted; PG8–PG17 planned, 2026-09-27.** The distinct
+**PG0–PG7 accepted; PG8–PG11 implementation in progress; PG12–PG17 planned, 2026-09-27.** The distinct
 [PostgreSQL plan](postgresql-integration-plan_2026-09-27.md) owns detailed packages, contracts,
 deployment and acceptance. PG0–PG7 supplies SQLx/cache/exact receipts, PG18 operations and canonical
 discovery. The [expanded review](../design_review/reviews/design_review_postgresql-expanded-architecture_2026-09-27.md)
@@ -595,15 +595,15 @@ now selects standard 1024 embeddings, immutable PG relational serving, pgvector,
 pgpq COPY and qualified DataFusion read views/federation. Old F2/F3(vector)/F5(selected bridge)
 consumer triggers are met; their implementation no longer waits for a generic size/bottleneck threshold.
 
-[ADR-0065](../adr/0065-postgresql-services-and-vector-receipts.md), ADR-0066 and ADR-0067 govern
-the deployed baseline. PG8 records 0065/0066 successors and amends their design owners before
+[ADR-0068](../adr/0068-postgresql-serving-and-standard-embeddings.md) supersedes 0065/0066 for the
+expanded target; ADR-0067 retains canonical Delta/receipt authority. PG8 amends design owners before
 production changes. Canonical Delta/receipt authority and the pure native semantic kernel remain;
 no PostgreSQL-only canonical store, Python ORM or new network protocol service is implied.
 
 | Order relative to this plan | PostgreSQL work | Dependency / boundary |
 |---|---|---|
 | Completed before Stage 3 P7 | PG0–PG7 initial deployment/cache/receipt/operations and acceptance | Preserve historical receipts and current canonical stores; this did not complete Stage 3 |
-| Next PostgreSQL implementation entry | PG8 successor decisions, baseline preservation, contract/consumer/deletion inventory and acceptance criteria | This revision is planning-only. Capture the actual current tree/binary/locks/artifacts before new source/schema/spec changes; retain existing frozen evaluation inputs |
+| Next PostgreSQL implementation entry | PG8 successor decisions, baseline preservation, contract/consumer/deletion inventory and acceptance criteria | ADR-0068 accepted; current binary/locks/config and a checksummed PG7 dump preserved under build/postgresql-pg8-baseline-6403b60; disposable PG7 restore passed. Frozen evaluation inputs retained |
 | Before new 1024 generations | PG9 spec/client/launcher migration; PG10 selected root libraries, owned provider fork, PG extension/roles/tooling; PG11 projection/codec/native contracts | PG9 and PG10 can progress independently after PG8; PG11 uses the frozen spec contract. Enforce one DF55.1/Arrow 59.3 family; no renewed dimension-quality investigation |
 | Before PG online serving cutover | PG12 COPY/staged import/ready transaction → PG13 exact repository/hydration/async MCP → PG14 exact vector ranks and explicit HNSW profile | Full evidence and unknown coverage precede ranked discovery; keep Python lexical/fusion policy and pure native evaluation |
 | Alongside query integration | PG15 restricted read-only DataFusion views and concrete operator federation report | Uses PG10–PG12 contracts; qualify codecs/pushdown/read views. Mutable coherent reports materialize under one transaction, not independent pooled scans |

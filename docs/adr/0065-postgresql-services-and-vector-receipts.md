@@ -1,10 +1,10 @@
 ---
 id: ADR-0065
 title: Use SQLx-owned PostgreSQL services with immutable Delta vector receipts
-status: accepted
+status: superseded
 date: 2026-09-27
 supersedes: []
-superseded-by: null
+superseded-by: ADR-0068
 design: [§6.5, §11.4, §B14]
 evidence: Proposed
 revisit: A representative PostgreSQL-owned query catalog or typed binary COPY workload favors Cornucopia and Rust-Postgres; immutable vector replay fails; a measured serving requirement triggers PostgreSQL projection work; or operational complexity exceeds the capability or cost benefit.

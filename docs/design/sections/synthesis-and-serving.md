@@ -14,7 +14,7 @@ live in `crates/cpg-schema/src/findings.rs` (kinds, statuses, `ASSERTION_POLICY`
 embedding is `crates/cpg-core/src/embed.rs`, `crates/lctx-embed` and
 `specs/embedding/`; serving is `python/lctx_mcp` (tests under `python/lctx_mcp/tests/`) with the
 native executor in `python/lctx_semantics`. Rationale: ADR-0005 (programmatic synthesis),
-ADR-0066 (interface, retrieval, embeddings) and proposed ADR-0025 (native executor). See the
+ADR-0068 (interface, retrieval, embeddings) and proposed ADR-0025 (native executor). See the
 [architecture map](../README.md).
 
 ## §10 Synthesis and briefs
@@ -297,13 +297,13 @@ Repository text is treated as untrusted data. It is never an instruction to the 
 
 ## §11 Serving and agent interface
 
-**Label.** The interface, retrieval and embedding contracts are accepted (ADR-0066). Lines cite
+**Label.** The interface, retrieval and embedding contracts are accepted (ADR-0068). Lines cite
 their own evidence: vLLM and model behaviour was **Tested** against the pinned service on
 2026-09-22; the server and clients are **Implemented** and **Tested** as stated per section;
 the native semantic executor is **Proposed** (ADR-0025) with a partial implementation (§11.3).
 Pins are in `docs/pins.md`.
 
-> Decision: ADR-0046, ADR-0066
+> Decision: ADR-0046, ADR-0068
 
 
 ### §11.1 Embedding spec and vectors
@@ -312,20 +312,20 @@ Pins are in `docs/pins.md`.
 vLLM service** from the locked `services/vllm` project (`just embed-serve`: `vllm serve …
 --runner pooling --max-model-len 8192`). vLLM is never a dependency of the compiler's Python
 tools or of `lctx_mcp`; running it as its own service also keeps GPU use explicit.
-- **Output:** 4,096 dimensions, `Float32`, cosine.
-- **Normalization** (**Tested**, 2026-09-22). vLLM L2-normalizes: every norm was 1 ± 1e-7. The
-  pooling (`LAST`, with activation) comes from the model's sentence-transformers config.
-- **Never send `dimensions`.** We use the full 4,096, and vLLM rejects the parameter without a
-  Matryoshka override.
+- **Output (Implemented, 2026-09-27):** 1,024 dimensions, `Float32`, cosine; source width 4,096.
+- **Reduction and normalization:** the format-2 spec declares MRL prefix selection before L2
+  normalization. Both clients send `dimensions=1024`. The launcher derives
+  `is_matryoshka=true`, `matryoshka_dimensions=[1024]`, pooling `LAST`, activation and dimensions
+  from the same spec. The operator selected this standard; no new dimension-quality gate applies.
 - **Footprint** (Measured, 2026-09-22): ~15.5 GiB of weights, ~27 GB of the RTX 5090 at 0.80
   utilization, 85 s to start. This is why live GPU legs run only with the service started
   deliberately and stopped afterwards.
 
 **Spec.** One committed canonical JSON, `specs/embedding/qwen3-embedding-8b.json`, whose SHA-256
-is `spec_hash` (`cpg_core::embed::Spec`; `the_committed_spec_is_its_canonical_form`). It covers
+is `spec_hash` (`cpg_schema::embedding_spec::Spec`, re-exported by `cpg_core::embed`; `the_committed_spec_is_its_canonical_form`). It covers
 the model and revision, tokenizer revision, vLLM version and served dtype (bfloat16), pooling,
 query instruction and template, document template, dimensions, output dtype, normalization and
-the document token cap (2,048). **One spec governs every vector** in a generation; mixing spec
+the document token cap (2,048), format, source width, reduction and launch admission. **One spec governs every vector** in a generation; mixing spec
 hashes is rejected (`semantic:one-embedding-spec`).
 - **Query template (query only):** `Instruct: {task_description}\nQuery:{query}`. There is no
   space after `Query:`. Documents take no prefix, so one spec identifies one vector space for
@@ -361,7 +361,7 @@ Focused controls include `every_cache_fill_entry_admits_with_the_tokenizer` and
   since the service is local; 10 s connect and 300 s request timeouts).
 - Query-time vectors come from Python (`httpx2`, pydantic's continuation of `httpx`, which
   FastMCP already depends on).
-- **Conformance** (**Tested**; ADR-0066). Over the shared conformance inputs, both clients build
+- **Conformance** (**Tested**; ADR-0068). Over the shared conformance inputs, both clients build
   byte-identical request bodies (`specs/embedding/request_bodies.json`), apply the same rejections
   (`every_rejection_fires`) and judge responses alike, Rust by its serde types and Python by
   pydantic strict models, held to one corpus of 25 bodies (`specs/embedding/responses.json`;
@@ -391,7 +391,7 @@ The attempt retains exact returned values before any consumer uses them; later c
 those bytes even if the service becomes unavailable or its disposable cache is restored.
 `used_embeddings` and `embedding_uses` in Delta capture all operation, E0/kNN and brief inputs.
 Content identity includes exact value digests, and bundle replay reads the published snapshot
-alone. See [§6.5](storage-and-publication.md#section-6-5) and ADR-0065/0067.
+alone. See [§6.5](storage-and-publication.md#section-6-5) and ADR-0068/0067.
 
 `lctx compile --embedder vllm|fake` requires configured PostgreSQL. The deterministic fixture
 API has an explicit uncached route; database errors never select it. `--embedder none` and
@@ -400,9 +400,9 @@ remains separate from deterministic integration under [W9/W16](../../plans/behav
 
 ### §11.2 Retrieval
 
-**In-process, exact, over the pinned generation** (ADR-0066; `lctx_mcp.retrieval`;
-**Implemented** and **Tested**). At the current corpus size exact search needs no index service;
-LanceDB waits for its trigger (below).
+**In-process, exact, over the pinned generation** (ADR-0068; `lctx_mcp.retrieval`;
+**Implemented** and **Tested** for file serving). The accepted PostgreSQL route preserves exact
+full ranks and the same lexical/fusion policy; HNSW is a separately qualified explicit profile.
 
 1. **Lexical.** BM25 over `lexical_text`, scored by `bm25s` (`method="lucene"`, k1 1.5, b 0.75,
    numpy backend, `get_scores`) over our own tokenization: lower-cased runs of letters and digits.
@@ -446,12 +446,11 @@ lower brief id and a promoted brief ranks first
 with its reason (`test_a_down_embedder_degrades_to_lexical_and_says_so`). The fixture's fake
 vectors carry no meaning, so ranking quality is an evaluation question, not a unit test.
 
-**LanceDB** is deferred behind its trigger ([§13](../DESIGN.md#section-13)): more than ~10⁵
-vectors at 4,096 dimensions, or filtered ANN together with managed FTS. Its hybrid, FTS and RRF
-call chain is Interface-checked; it would sit in an isolated workspace with its own lock, and its
-wheel isolates its own Arrow/DataFusion line, so it would not affect
-[§B9](../DESIGN.md#section-b9).
-
+**Accepted PG target (ADR-0068).** pgvector stores standard full-float 1024 vectors. Exact
+requests rank all eligible entities per view before fusion; an index must not silently change
+this route. Explicit HNSW profiles declare generation/filter isolation, chunk aggregation,
+candidate/widening/underfill, numeric ties and qualification. PG14 owns implementation. LanceDB,
+FTS and changed lexical policy require a named capability beyond the selected route.
 
 ### §11.3 FastMCP contract
 
@@ -506,7 +505,7 @@ wheel isolates its own Arrow/DataFusion line, so it would not affect
   and the fake twin (`test_the_fake_twin_reproduces_rusts_vectors`); the serving digests' known
   answers; the behavioral tools in `test_operations.py` and `test_server.py`.
 
-**Executor.** The accepted current route (ADR-0066) is **lookup over materialized rows**: pyarrow
+**Executor.** The accepted current route (ADR-0068) is **lookup over materialized rows**: pyarrow
 compute and indexed dictionaries over the generation, with no SQL built and nothing recursing at
 serve time; paths are precomputed as summaries and witnesses; results have row caps, a
 `truncated` flag and cursors. Python never re-implements predicate or condition semantics.
@@ -645,7 +644,7 @@ row storing its rule id and proof height. Under ADR-0025 the native executor may
 stored witness links at request time, retaining their row ids and reporting a boundary if the
 depth budget is reached.
 
-> Decision: ADR-0066, ADR-0025, ADR-0046, ADR-0049
+> Decision: ADR-0068, ADR-0025, ADR-0046, ADR-0049
 
 
 **Accepted frame-completion target, implementation in progress (ADR-0063).** Every modeled normal-call obligation,
@@ -658,50 +657,36 @@ mutation controls pass. Typed Normal postconditions remain independent of actual
 
 <a id="section-11-4"></a>
 
-### §11.4 PostgreSQL workflow and serving candidates
+### §11.4 PostgreSQL serving and conditional workflows
 
-**Initial services Implemented; later capabilities Proposed, 2026-09-27.** The [PostgreSQL plan](../../plans/postgresql-integration-plan_2026-09-27.md)
-changes compile-time cache/operations, not the current file-generation MCP or native executor.
-[§6.5](storage-and-publication.md#section-6-5) owns the database effect boundary and library
-capability map. Its later F1–F10 work packages require named consumers before implementation.
+**Accepted target; foundations Implemented and integrated qualification pending, 2026-09-27.**
+The [PostgreSQL plan](../../plans/postgresql-integration-plan_2026-09-27.md) owns execution;
+[§6.5](storage-and-publication.md#section-6-5) owns effects and physical storage.
 
-- **Operator review:** append events against exact subject/revision with actor/provenance,
-  preserve disagreement, and freeze an explicit selected event revision into attributed
-  compiler facts when consumed. §10.4's accepted manual-review target remains unimplemented.
-  A workflow must not edit a published brief, replace evidence or make approval out of silence.
-- **Relational serving:** import one immutable validated generation into PostgreSQL, qualify
-  schema/compiler/model/spec/source digests and full support closure, then mark it ready.
-  Generation identity belongs in keys, joins and cursors; a mutable active selector is resolved
-  once at server startup and pinned for the process lifetime, as in the current contract.
-  Hot switching would need a separate successor decision. No process-long MVCC transaction is
-  needed to express immutable generation identity.
-- **Exact semantic queries:** preserve the five verdicts, typed modality, coverage and explicit
-  unknown/unexamined partitions. SQL filters can select materialized facts; bounded semantic
-  interpretation remains in the shared Rust executor. Ranked search cannot implement exhaustive
-  `find_operations`, and missing rows cannot establish absence.
-- **Ranked retrieval:** pgvector, PostgreSQL text/trigram indexes and a LanceDB alternative must
-  preserve the declared discovery/semantic distinction. PostgreSQL FTS is not the current BM25
-  formula. Change ranking only through a declared spec/ADR with independent evaluation; retain
-  exact-symbol promotion, degradation reporting and evidence hydration. The accepted LanceDB
-  trigger is reopened explicitly if PostgreSQL is selected instead.
-- **Embedding dimensions:** current 4,096-dimensional vectors can be stored in pgvector, but
-  ordinary full/half-precision ANN indexes cap at 2,000/4,000 dimensions. Half precision alone
-  is insufficient. Exact search, a separately versioned reduced spec, or binary candidates with
-  full-vector reranking need their own recall/filtered-search/latency qualification. The
-  canonical full-vector receipt remains available regardless of the derived index.
-- **Client placement:** Rust SQLx remains the default. A direct Python database consumer may
-  use Psycopg 3 with an async pool owned by FastMCP lifespan and shared schema/version rules.
-  SQLAlchemy is conditional on a real Python relational domain. Neither creates another
-  migration authority or duplicates the native semantic evaluator.
-- **Server-side Rust:** pgrx is a later measured experiment, not a way to link the whole
-  compiler into PostgreSQL. Compare a shared pure kernel over SQL-side candidates with bounded
-  batch fetch into the existing executor. Preserve generation/model identity, evidence,
-  unknowns and cancellation/resource limits; respect PostgreSQL memory/thread rules.
+`cpg-schema` declares manifests, relation shapes/keys and complete support validation once.
+`lctx-postgres` owns SQLx operations and codecs; `lctx_storage` provides explicit coarse awaitables
+on one process Tokio runtime and lifespan-owned pools. The serving wheel excludes DataFusion,
+Delta and compiler code. `lctx_semantics` remains a pure bounded IPC/kernel boundary. File loading
+exports schemas from Rust, retains an independent Python digest oracle, and shares projection
+validation; its generation handle, native executor and lexical state are separated from temporary
+full relational hydration. PG13 removes those maps only after exact answer/evidence parity.
 
-Adopting database serving changes §B13/ADR-0066's network and file-only boundary and therefore
-requires its successor decision, a generation importer, failure/read-pinning tests, exact-answer
-parity and explicit approximation evaluation. These are not established by the cache deployment.
-The [forward plan PostgreSQL findings](../../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-findings)
-retain the unresolved storage-review F02/F04 conditions.
+PG12 imports invisible generations through bounded COPY staging, freezes writes, verifies every
+relation and required artifact, then publishes readiness atomically. Each server pins a ready
+generation/profile once; every selection, cursor and hydration binds those identities. Missing
+support/artifacts and database loss are explicit failures. No hot switching, silent file fallback
+or reader-unsafe ready-generation deletion is introduced. Exact semantic selection preserves
+unknowns, coverage and the five verdicts. SQL selects materialized facts; native Rust interprets
+bounded semantics. Ranked retrieval never defines the exhaustive operation universe.
 
-> Decision: ADR-0065, ADR-0066
+PG14 owns exact ranks and qualified pgvector HNSW profiles; Python retains lexical scoring and
+registered fusion. PG15 owns admitted DataFusion predicates and coherent read views. Independently
+pooled mutable reads are not one snapshot; the initial coherent report materializes under one
+bounded read-only repeatable-read transaction.
+
+Conditional later work remains: attributed operator events frozen to exact subject/revision;
+Psycopg 3/SQLAlchemy only for a distinct Python-owned domain; pgrx only for a measured SQL-side
+kernel consumer; ADBC/protocol/notification/FTS/topology features only at the plan's named triggers.
+None adds a second migration owner or changes model/evaluation meaning.
+
+> Decision: ADR-0068

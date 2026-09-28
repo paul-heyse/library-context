@@ -1,10 +1,10 @@
 ---
 id: ADR-0066
 title: Keep pinned file serving with PostgreSQL cache and immutable vector receipts
-status: accepted
+status: superseded
 date: 2026-09-27
 supersedes: [ADR-0043]
-superseded-by: null
+superseded-by: ADR-0068
 design: [§B13, §B14, §11]
 evidence: Proposed
 revisit: The corpus exceeds ~10⁵ vectors at 4,096 dimensions or needs filtered ANN with managed FTS (adopt LanceDB); the Rust and Python embedding clients disagree beyond tolerance on the conformance inputs; the embedding model, tokenizer or serving revision changes, or another endpoint must be accepted (a new spec hash, and plan W16's deployment-identity work); or ADR-0025 is accepted, replacing the lookup-only executor clause below.

@@ -350,6 +350,55 @@ scope. None of these results qualifies new 1024 clients, database serving or ANN
 and limits have named criteria. Finding disposition stays in forward-plan §6.1. **Deletion:** retire
 superseded text only after all surviving clauses and references move; retain stable source IDs.
 
+#### PG8–PG11 execution contracts (2026-09-27)
+
+**Accepted; implementation in progress.** ADR-0068 supersedes 0065/0066. The functional slice
+ends at projection contracts, codecs, role deployment and the async service foundation. PG12
+owns production import/promotion; PG13 exact query cutover; PG14 indexes/ranking; PG15 admitted
+federation. The file MCP remains a reference consumer throughout this slice. Per operator
+instruction, only targeted functional checks run during implementation. Formatting, integrated
+checks and documentation checks wait until this functional scope is complete.
+
+| Surface / consumer | Contract and owner | Migration / deletion destination |
+|---|---|---|
+| All brief tools/resource: briefs, assertions, members, symbols, evidence and complete analytic support | `cpg-schema::bundle` and `serving_support`; `lctx-postgres::projection` physical codec | Delete Python schema inventory and closure algorithm now; PG13 deletes relational hydration/maps after exact tool parity |
+| `get_operation` and `find_operations`: paths/aliases, operation rows, parameters, facets/status, behaviors, globals/place claims | Existing Arrow meaning plus generation-local keys; five verdicts and unknown partitions retained | PG13 repository owns selection and full hydration; current file selectors remain until then |
+| `search_operations` and `search_capabilities`: text, chunks, vector views, input/spec identity | One standard spec; current lexical policy; exact ranks and explicit approximate profiles | PG14 removes Python dense matrices, retaining Python lexical scoring/fusion; index installation alone never changes exact routing |
+| Native conditions, source/model identities, summaries/proofs and value paths | `serving_projection::NATIVE_FILES`, existing `lctx_semantics` IPC decoder/kernel | Native file inventory moves to schema owner; bounded pure IPC remains. No SQL in semantic executor |
+| Compiler E0, operation views, brief chunks, query text | `embedding_spec::Spec` format 2; both clients send 1024 dimensions; prefix then L2 | Compiler output 107 and bundle FORMAT 11; fresh outputs, old receipts never rewritten |
+| Stage 4 membership/explanation; selected operator review inputs | Existing attributed facts and source identity; future query contracts remain Stage 4 owners | No placeholder semantics/tables. Freeze selected review revision before attributed compiler ingestion |
+| Python service lifetime | `lctx_storage` coarse awaitables, one two-worker Tokio runtime, explicit open/check/close | No effects at import and no compiler/DataFusion dependency in the serving wheel; PG13 adds request methods |
+| PostgreSQL read provider | Maintained immutable fork, isolated `cpg_core::postgres_read` configuration/pool adapter | Provider qualification and production federation activation remain PG15 |
+
+Content identities are separate: canonical snapshot/content/compiler; full 256-bit projection
+manifest digest; digest/size/format of every native/lexical artifact; separately qualified retrieval
+profile. The projection includes schema, catalog/kernel, entry-effect and embedding identities,
+all logical relation receipts and artifact receipts. Relation receipts ignore row order and COPY
+chunk boundaries but preserve duplicates, nulls and float bits. Locations, attempts, timing,
+selection and index readiness do not enter content identity. Typed failures are `unavailable`,
+`incomplete`, `corrupt`, `incompatible`, and `resource_refused`; refusal never means an empty answer.
+
+**Registered budgets, before the new live workload measurements.** Use the real pinned FastMCP
+pilot plus 10× repeated query/codec workload, bounded by existing native caps; these are resource
+controls, not a new embedding-fidelity experiment. Keep individual native IPC files at 64 MiB,
+summary/support relations at 100,000 rows, public surface at 200,000 rows. Projection relations
+are at most 200,000 rows/128 MiB; full file validation refuses above 512 MiB. COPY encoded staging
+is at most 16 MiB with 128 MiB aggregate import buffering. The importer has at most two SQLx
+connections; serving defaults to six total, with at most two reserved for the provider, never
+six plus two. Acquire/lock/statement defaults are 5/5/30 seconds, import transactions at most
+30 seconds, and unfinished leases are closed. Target bounded codec/validation RSS below 512 MiB
+for the pilot and growth workload; report actual peak separately from retained file hydration.
+Live request conformance remains cosine ≥0.9995 between clients. Cold/warm receipts and offline
+rebuild require exact content equality. ANN recall/filter/underfill controls and whole-import
+WAL/latency acceptance belong to PG12/14/17, before those measurements; PG8–PG11 cannot certify them.
+
+**Rollback boundary.** `build/postgresql-pg8-baseline-6403b60/` preserves binary, locks, protected
+config and a checksummed PG7 dump. Its reader supports FORMAT 10/spec format 1. The new reader
+supports FORMAT 11/spec format 2 and refuses incompatible generations. A rollback restores a
+separate PG7 database/config: the old binary's exact migration check rejects an expanded database.
+A successful dump is insufficient; perform the disposable restore and compare all PG7 table
+fingerprints. Canonical stores/evaluation artifacts remain preserved and unmodified.
+
 ### PG9 — Implement the standard 1024 spec and rebuild dependent outputs
 
 **Owner:** `Spec`, `lctx-embed`, Python embedder, launcher and analytics orchestration. **Depends:** PG8.

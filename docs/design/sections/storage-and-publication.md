@@ -331,7 +331,7 @@ formats are not implicitly accepted.
   finalizer-bearing generation and schema-drift controls passed; integrated qualification is
   pending ([plan W1](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
 
-> Decision: ADR-0067, ADR-0066, ADR-0049
+> Decision: ADR-0067, ADR-0068, ADR-0049
 
 <a id="section-6-5"></a>
 
@@ -344,9 +344,10 @@ owns review dispositions. [Operating instructions](../../postgresql.md) cover th
 
 **Owners and authority.** Use SQLx's PostgreSQL driver, pool, migrations and transaction APIs
 with the existing Tokio runtime and one Rustls configuration. PostgreSQL effects live in
-`cpg-core` modules and `lctx` configuration/commands. Schema, analytics and native semantic
+`lctx-postgres`; `cpg-core` retains Delta orchestration and `lctx` owns operational commands. Schema, analytics and native semantic
 transformations remain independent of database setup. Bounded driver reads construct declared
-Arrow batches; a generic federation layer is not required for the initial boundary.
+Arrow batches. `cpg-core::postgres_read` isolates the separate bounded provider read pool;
+PG15 owns admitted scans/federation, never application writes.
 
 The first consumers are the shared embedding cache, compile-attempt history and reconciled
 snapshot/generation discovery. Attempt history is operational authority; discovery is derived
@@ -362,16 +363,30 @@ embedding spec are sufficient for replay; bundle/rebuild never contacts PostgreS
 embedder. Initial adoption removes the former global Delta cache writer/read exceptions after
 all consumers migrate. This is one mutable reuse service plus immutable per-snapshot inputs.
 
-**Deployment boundary.** Reuse the installed PG18 service with a dedicated application database,
-explicit non-superuser runtime identity and separate migration identity. Keep connection pools,
+**Projection foundation (Implemented; integrated qualification pending, 2026-09-27).**
+`cpg-schema::serving_projection` owns FORMAT 1 manifests, all FORMAT 11 relation receipts,
+native/lexical artifact identities and generation-local constraints. `serving_support` is shared
+by publication, file loading and import. Full content digests exclude physical row order/COPY
+batching, locations and retrieval profiles; multiplicity/nulls/float bits remain significant.
+SQL mappings retain 16/32-byte identity widths, typed codebook checks and generation-qualified
+foreign keys. Vector parents partition by generation; PG12 creates partitions while unpublished.
+SQLx/pgpq COPY targets bounded temporary staging, then validated INSERT because RLS tables cannot
+accept COPY FROM. A row-lock barrier freezes loading before validation; ready rows cannot mutate.
+Serving roles see ready generations only. PG12 owns promotion after full receipt/artifact checks;
+PG13–PG15 own query, indexed retrieval and qualified federation activation. Profile qualification
+and artifact locations are outside immutable projection identity. Canonical Delta never rolls back
+because a serving import fails.
+
+**Deployment boundary.** Reuse PG18 with pinned pgvector 0.8.6 in the locked `lctx_ext` schema.
+Application, importer, serving and migration credentials/grants are separate. Keep connection pools,
 SQL operations, retries, transaction lifetime and memory/disk/WAL use bounded. Embedding/network
 work runs outside database transactions. Runtime configuration and secrets are explicit and
 redacted; checked query builds force `SQLX_OFFLINE=true`. Migrations are an explicit command,
 not a query/startup side effect. Disposable tests assert PG18 and use an explicitly pinned
 image; source inspection of libraries does not establish deployment compatibility.
 
-**Capability map.** These are proposed uses and revisit conditions, not installed features or
-an API allowlist. Installed versions are in `docs/pins.md`; conditional candidates remain in the implementation plan.
+**Capability map.** Selected service/projection mechanisms are implemented during PG8–PG11;
+activation and conditional later consumers remain distinct. Installed versions are in `docs/pins.md`; conditional candidates remain in the implementation plan.
 
 | Capability / library mechanism | Initial or later consumer | Contract and adoption boundary |
 |---|---|---|
@@ -384,8 +399,8 @@ an API allowlist. Installed versions are in `docs/pins.md`; conditional candidat
 | SQLx PgListener / LISTEN-NOTIFY, row locks and work claiming | Later live operational consumer/job requirement | Notification is a wakeup; persistent events/rows determine state. Reconnect, idempotency, missed notification and crash cases before durable workflow claims |
 | Testcontainers modules | Initial and later real PostgreSQL integration tests | Pin server version/digest and extension-bearing image where needed; actual application role and migrations; a missing daemon is a block |
 | Psycopg 3 / psycopg_pool; possibly SQLAlchemy | Direct Python retrieval/operator domain only | Async lifetime/resource ownership, Python 3.14 qualification, one pool and one migration history; no Python semantic interpreter |
-| pgvector / PostgreSQL text or trigram indexes | Later search projection | §11.4 owns generation, evidence and ranking/approximation obligations; cache storage alone is no trigger |
-| ADBC / DataFusion PostgreSQL provider | Measured Arrow bulk/federated query need | Match pinned family and prove metadata/null/ID/value/ordering/pushdown/read-view semantics; no unsafe layout conversion |
+| pgvector; text/trigram remains conditional | Selected immutable vector projection, PG14 retrieval | §11.4 owns generation, evidence and ranking/approximation obligations; cache storage alone is no trigger |
+| Owned DataFusion PostgreSQL provider; ADBC remains conditional | Selected PG15 read/federation consumer | Match pinned family and prove metadata/null/ID/value/ordering/pushdown/read-view semantics; no unsafe layout conversion |
 | pgrx | Measured SQL-side filtering/aggregation can avoid material transfer | Separate PG18 extension deployment; shared pure kernel, backend lifetime/thread/cancel constraints and unchanged evidence/model meaning |
 | pg_stat_statements / backup-WAL-replication / pooler | Observability or recovery/scale requirement | Explicit deployment and resource cost; extension preload/restart and proxy session semantics qualified before use |
 | Cornucopia + Rust-Postgres family; ORMs | A different query/domain programming model earns lower total complexity | Revisit driver decision through ADR; alternatives are not layered onto the base speculatively |
@@ -394,4 +409,5 @@ Future review events preserve exact subject revision and become explicit attribu
 inputs when used. Later SQL serving remains an immutable projection. Both need their own
 consumer, replay and failure evidence; neither is silently enabled by installing PostgreSQL.
 
-> Decision: ADR-0065, ADR-0067
+> Decision: ADR-0068, ADR-0067
+

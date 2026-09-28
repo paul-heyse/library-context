@@ -2,7 +2,7 @@
 
 **Implemented, 2026-09-27; qualification receipts:**
 [PostgreSQL evidence](design_review/evidence/2026-09-27_postgresql/README.md).
-[ADR-0065](adr/0065-postgresql-services-and-vector-receipts.md) owns the SQLx boundary;
+[ADR-0068](adr/0068-postgresql-serving-and-standard-embeddings.md) owns the SQLx boundary;
 [the plan](plans/postgresql-integration-plan_2026-09-27.md) records initial acceptance and
 owns conditional capabilities. These instructions concern one operator's local application database.
 
@@ -12,7 +12,7 @@ The installed `18/main` PostgreSQL 18.6 cluster on port 5432 hosts database `lct
 `lctx_migrator` owns the database/migrations; `lctx_app` is a separate limited login.
 The bootstrap leaves host authentication unchanged and uses loopback SCRAM. Neither login has
 superuser, createdb, createrole or replication privileges. `16/main` and unrelated databases
-are outside this application deployment. No PostgreSQL extension is required.
+are outside this application deployment. pgvector 0.8.6 is installed explicitly in the protected `lctx_ext` schema.
 
 For a new deployment, run `uv run python scripts/postgres_bootstrap.py` interactively once.
 It requires postgres-administrator access through sudo. It refuses existing roles/database or
@@ -21,7 +21,7 @@ protected generated credentials for operator diagnosis. Never rerun it as a repa
 
 Runtime configuration precedence is `--database-config PATH`, `LCTX_DATABASE_CONFIG`, then
 `~/.config/library-context/postgres.json`. The JSON file must exclude group/other permissions
-(`chmod 600`). It contains `application_url`, `migration_url`, `max_connections` (default 6),
+(`chmod 600`). It contains `application_url`, `max_connections` (default 6),
 `acquire_timeout_seconds` (5), `statement_timeout_seconds` (30), `lock_timeout_seconds` (5),
 and `max_receipt_bytes` (268435456). Upper bounds are 32 connections, 60/300/60 seconds, and
 1 GiB of retained vector payload. Map/text/returned-vector overhead is additional memory.
@@ -141,3 +141,39 @@ The full `just test-all` includes these checks. Keep this repository's existing 
 if the shell inherits another project's `CARGO_TARGET_DIR`, explicitly select this repository's
 `target`. Do not clean the cache. `just pilot STORE LOG` and `just pilot-live STORE LOG` allow fresh
 stores/logs while preserving earlier evaluation artifacts.
+
+## PG8–PG11 deployment and rollback
+
+**Implemented foundations; expanded runtime cutover remains PG12–PG17.** After the PG7 backup,
+`uv run python scripts/postgres_expand.py` installs pinned pgvector and provisions `lctx_importer`
+and `lctx_serving`. It does not migrate schemas. Run the newly built `target/release/lctx db migrate`
+then `target/release/lctx db check`. Application/serving startup only checks compatibility.
+
+Protected files in `~/.config/library-context/` now separate capabilities:
+
+| File | Capability |
+|---|---|
+| `postgres.json` | Existing cache/operations application connection and limits |
+| `postgres-admin.json` | Migration connection only; explicit commands and protected backup tooling |
+| `postgres-importer.json` | At most two import connections; TEMP staging allowed, application schema DDL denied |
+| `postgres-serving.json` | Read-only role; six total connections by default, zero provider connections until selected |
+
+All are regular mode-0600 files. The pending expansion file preserves generated credentials for
+idempotent recovery and is also protected. Never copy credentials into command lines, logs or
+reports. Both clients use `pg_catalog,lctx_ext` as their trusted search path. Remote connections
+require hostname-verifying TLS; a provider budget is reserved from the total, not added to it.
+Runtime statements/locks/acquisition and cancelled leases are bounded. `lctx_storage` opens only
+when explicitly awaited and closes at lifespan exit; importing the module makes no connection.
+
+The SQLx migration history now lives in `crates/lctx-postgres/migrations`; the original two
+migrations are byte-preserved. Projection schema installation does not publish a ready generation.
+PG12 owns load/freeze/validation/promotion and child vector partition creation. Import uses TEMP
+COPY followed by generation-qualified inserts: RLS protects final tables. No ready-generation
+cleanup is available. Native/lexical artifacts remain digest-checked files with manifest references.
+
+The preserved PG7 binary, locks, config and dump are under
+`build/postgresql-pg8-baseline-6403b60/`. Its old reader/schema check cannot use the upgraded database.
+Rollback requires restoring the PG7 dump into a separate database and pairing that endpoint/config
+with the old binary, FORMAT 10 generation and spec. Do not reverse-migrate canonical receipts.
+`postgres_backup.py restore-drill` chooses the receipt's pinned image and compares protected
+snapshot fingerprints; PG7 receipts retain their original image and tables.
