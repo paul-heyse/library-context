@@ -336,6 +336,14 @@ formats are not implicitly accepted.
 
 > Decision: ADR-0067, ADR-0068, ADR-0070, ADR-0049
 
+**Accepted product target, implementation Proposed (ADR-0071):**
+[§14.10](api-and-evidence-product.md#section-14-10) extends the existing generation manifest with
+catalog/evidence contracts and explicit optional capabilities. Product facts and original evidence
+are independent roots; rebuild boundaries reuse canonical inputs. Existing runtime FORMAT12 and
+projection2 remain current until that versioned migration is implemented.
+
+> Decision: ADR-0071
+
 <a id="section-6-5"></a>
 
 ### §6.5 PostgreSQL services and capability adoption

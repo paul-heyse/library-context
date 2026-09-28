@@ -15,6 +15,12 @@ dependency context, `walk.rs`, `pysa_map.rs`, `public.rs`, `lexical.rs`, `types.
 `crates/cpg-core/tests/compile.rs`. Pins are in [`docs/pins.md`](../../pins.md); the map is in the
 [architecture README](../README.md).
 
+**Product extension, Proposed under ADR-0071:** bounded field default/factory associations and
+package/deployment metadata in [§14.4–§14.6](api-and-evidence-product.md#section-14-4) are the next
+extraction additions. [§14.10](api-and-evidence-product.md#section-14-10) separates mandatory catalog
+construction from selected analysis profiles. Static acquisition/extraction remains non-executing;
+any opt-in surface observation or executable product task is a separately attributed isolated lane.
+
 ## §4 Pipeline
 
 

@@ -1,8 +1,11 @@
 # library-context
 
-Compile pinned Python libraries into evidence-carrying behavioral models for coding agents.
-Rust extraction, Arrow contracts, DataFusion derivation and Delta publication support queryable
-facts and bounded semantic analyses; Python/FastMCP exposes the serving tools.
+Target: compile pinned Python libraries into an API and evidence catalog that helps coding agents
+find, configure and use built-in features with precise, inspectable support. Existing Rust facts and
+bounded behavioral analyses, Arrow/DataFusion/Delta and PostgreSQL serving provide the foundation.
+The [replacement product design](docs/design/sections/api-and-evidence-product.md) is an accepted
+target; its new API/evidence capabilities and Context7 differentiation remain to be implemented
+and measured.
 
 The project is in active design and implementation. [STATUS](STATUS.md) owns the current
 checkpoint and remaining qualification. Accepted architecture includes labeled targets.

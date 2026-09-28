@@ -19,13 +19,13 @@ kernels live in `crates/lctx-analytics/src/` (`pass_a`, `pass_b`, `pass_c`, `com
 
 ## §9 Analytics
 
-**Label.** The technique rules and algorithm ownership are accepted (ADR-0005, ADR-0021,
+**Label.** The technique rules and algorithm ownership are accepted (ADR-0005, ADR-0071,
 ADR-0044). The default analytics (Passes A–C, the behavior scan, direct usage and selection) are
 **Implemented** and **Tested** (2026-09-23/24; tests named per section). The optional techniques
 are **Implemented** and **Tested** as off-by-default variants (§9.8).
 
 **Rules for every technique:**
-- it must have a **named consumer** in the served model: a tool's output or a brief (ADR-0021);
+- it must have a **named consumer** in the served model: a tool's output or a brief (ADR-0071);
 - it must be **deterministic** for fixed inputs and parameters;
 - it must record its method, parameters, projection and diagnostics in `analysis_invocations`
   (ADR-0067);
@@ -88,10 +88,9 @@ pass budgets live in one versioned, pre-registered analytics config
 `content_digest`. The community, PageRank and selection parameters are pre-registered code
 (`communities::Params`, `ranking::Params`, `selection::Params`): each invocation records them,
 the compiler digest includes them, and `eval/gold/analytics-freeze.json` pins their digest
-beside the config's. The config file and these parameters are frozen; an edit is an ADR-0021
-amendment. Defaults below are starting budgets, not measured optima.
+beside the config's. The config file and these parameters are frozen; a parameter edit needs a new decision with evaluation-exposure disclosure under ADR-0042. Defaults below are starting budgets, not measured optima.
 
-**Per public callable, not per seed** (ADR-0021; **Implemented** and **Tested**, 2026-09-24).
+**Per public callable, not per seed** (ADR-0071; **Implemented** and **Tested**, 2026-09-24).
 - **Persistence.** The passes' relations are persisted as the `behavior` tables
   ([§3.2](facts-and-identity.md#section-3-2)).
 - **The behavior scan** (`pass_b_surface`, one invocation) runs Pass B's worklist from **every**
@@ -115,7 +114,7 @@ amendment. Defaults below are starting budgets, not measured optima.
   subsystem callees only, and briefs state that stop as a limit, so a seed's brief and its
   behavior rows can differ past the subsystem edge.
 
-> Decision: ADR-0005, ADR-0067, ADR-0021, ADR-0044, ADR-0045
+> Decision: ADR-0005, ADR-0067, ADR-0071, ADR-0044, ADR-0045
 
 
 ### §9.1 Pass A — public entry point and delegation
@@ -500,7 +499,8 @@ facets is the Stage 4 target consumer (**Proposed**; plan Stage 4 item 7).
   partner's preferred path, else its qualified name. The pairs come from the in-memory projection
   and Pass C's relation; `RCA_POLICY` joins the FCA invocations' parameters and relation digest.
   The 2026-09-27 checkpoint aligns the frozen variant-policy digest with this already
-  accepted ADR-0058 contract; ADR-0021 records the disclosure. Evaluation targets, thresholds
+  accepted ADR-0058 contract; the original 2026-09-27 disclosure is preserved by ADR-0071 and
+  the freeze metadata. Evaluation targets, thresholds
   and the remaining frozen analytics parameters are unchanged.
 - **Typed attribute contract (Implemented, 2026-09-27; ADR-0058).** `concept_attributes`
   owns meaning: parameter spelling/kind, structural type identity, normalized raised class,
@@ -589,21 +589,16 @@ not this technique's output.
 - **Ablation is mechanical.** Disable one technique and diff the published findings,
   assertions, evidence, briefs and documents (`lctx diff`). This is a join on content ids
   ([§3.4.1](facts-and-identity.md#section-3-4-1)).
-- **The keep criterion** (ADR-0021; **accepted**, not yet applied). A variant is turned on by
-  default only if the structured evaluation of the stage that introduces its **tool** consumer
-  shows three things:
-  - it supplies at least one target item, rated present or partial, that the default lacks;
-  - it introduces no item rated incorrect or misleading;
-  - it does not push a target operation or item out of a tool's first page.
-
-  A variant with no tool consumer by the end of increment 5, or that fails the criterion at two
-  consecutive stages, is deleted by ADR with its tests and frozen parameters. Brief retrieval
-  (§12(b)) no longer decides.
-- **Named consumers today.** FCA over behavioral attributes (candidate facets, Stage 4) is the
-  only planned tool consumer among the variants. **Communities, kNN and PageRank have none:** no
-  tool takes or returns communities, and `search_operations` ranks by operation views, not kNN
-  output. Whether to retain or delete the variants is decided once Stage 4 gives them consumers
-  (ADR-0020 stays proposed until then; [plan §7](../../plans/behavioral-model-forward-plan_2026-09-24.md#7-deferred-each-with-a-trigger)).
+- **The keep criterion** (ADR-0071; **accepted target**, new comparative implementation Proposed).
+  Every technique needs a named product consumer. A new default requires independent product-task
+  benefit with no incorrect/misleading claims or displacement regression; compare against the
+  unstructured-evidence baseline and existing default. Existing parameter freezes and current
+  defaults remain unchanged. General ontology/graph variants do not gate first-product release.
+- **Retention.** Former increment-5 deadlines are replaced by a named-consumer decision: retain
+  existing optional research machinery and its tests until a specific extension/cost/removal case
+  warrants an ADR. No automatic deletion or promotion follows from this product pivot. Communities,
+  kNN, PageRank and RCA remain off by default where they are off today. The forward plan owns
+  task-driven reactivation rather than a mandatory Stage 4/5 completion deadline.
 - **The current default** (ADR-0020, **Proposed** as a decision; **Implemented**): Passes A–C,
   the behavior scan, direct usage, seed selection and Stage F. Every other technique is off. It
   rests on the brief-era keep rule, applied once and **Measured** 2026-09-23: every variant
@@ -627,4 +622,4 @@ not this technique's output.
   weight rule in the consensus's). A finding the variant does not touch keeps its id, so an
   ablation diff is a join (`variants_add_relational_attributes_and_layers`).
 
-> Decision: ADR-0020, ADR-0021
+> Decision: ADR-0020, ADR-0071

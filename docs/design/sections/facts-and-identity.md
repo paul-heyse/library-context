@@ -15,6 +15,11 @@ Delta, an async runtime or I/O (§B2). The executable declarations are authorita
 graph, syntax and corpus tests in `crates/cpg-core/tests/`. Flow semantics are in the
 [behavior model](behavior-model.md#section-3-9); the map is in the [architecture README](../README.md).
 
+**Product extension, Proposed under ADR-0071:** [§14.4–§14.8](api-and-evidence-product.md#section-14-4)
+defines the next public-member, signature-variant, option, scenario and retrieval-unit contracts.
+Those additions preserve these canonical identities and will use the same executable schema/validator
+owner. They are not claims that the current tables already contain every required field.
+
 ## §3 Fact model
 
 Evidence labels are per section. The families, identity recipes, codebooks and catalogs described

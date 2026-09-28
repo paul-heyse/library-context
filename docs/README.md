@@ -10,6 +10,7 @@ contradiction or dependency requires it; the whole corpus is not the default rea
 | Change conditions, models or summaries | [Behavior model §3.9](design/sections/behavior-model.md) → [behavioral analysis §9.9](design/sections/behavioral-analysis.md) → affected serving contract → plan §6 items |
 | Change schemas or identity | [Facts and identity](design/sections/facts-and-identity.md) → [schema owner](../crates/cpg-schema/src/lib.rs) → governing ADR |
 | Change serving, retrieval or embeddings | [Synthesis and serving](design/sections/synthesis-and-serving.md) → [storage and publication §6.4](design/sections/storage-and-publication.md) |
+| Build the differentiated API/evidence product | [Target design §14](design/sections/api-and-evidence-product.md) → [current PR0–PR6 queue](plans/behavioral-model-forward-plan_2026-09-24.md#30-consolidated-execution) |
 | Deploy or integrate PostgreSQL | [PostgreSQL plan](plans/postgresql-integration-plan_2026-09-27.md) → [storage §6.5](design/sections/storage-and-publication.md#section-6-5); [forward plan §3.4](plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-workstream) coordinates sequencing and §6.1 owns finding status |
 | Review a design or implementation | [Review skill](../.claude/skills/design-review/SKILL.md) → [repository binding](design_review/design_principles/binding/library-context.md) |
 | Research a library capability | [Pins](pins.md) → [local capability skills](../.claude/skills/README.md) → Context7, then the `library-research` route |

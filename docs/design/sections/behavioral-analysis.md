@@ -32,6 +32,10 @@ operation-wide serving and the registry remain **Proposed** targets. The compile
 ([plan §3, §6](../../plans/behavioral-model-forward-plan_2026-09-24.md#3-stage-3-execution-queue)).
 The rationale is ADR-0045 and ADR-0050.
 
+**Scheduling, 2026-09-28:** ADR-0071 and [product §14](api-and-evidence-product.md) retain these
+semantic contracts while deferring their general completion. The current queue is forward-plan
+PR0–PR6; a selected product task or an exposed-claim defect activates bounded additional analysis.
+
 **The organizing rule.** Meaning comes from models, propagation from summaries: a call alone never
 propagates an effect or capability. Every step from a source call to a summary is a separate,
 cited relation, and each one states what it does *not* prove. Absence from a positive relation is

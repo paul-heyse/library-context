@@ -1,68 +1,43 @@
-# Plan: the behavioral model, going forward
+# Plan: the API and evidence product, going forward
 
-**Status:** Active; product sequencing and scheduled-finding disposition owner. **Revised:**
-2026-09-28 (Stage 3's exit-driven sequence, §3.0; baseline diagnostic, §1.2; the operator-requested
-distinct [PostgreSQL implementation plan](postgresql-integration-plan_2026-09-27.md), now expanded
-for standard 1024 embeddings, PG serving/pgvector, COPY and qualified federation, §3.4).
-**Authority.** The [architecture map](../design/README.md), DESIGN and its section owners own
-contracts and accepted targets; current ADRs own rationale. This plan owns execution order, the
-current disposition of scheduled findings (§6) and deferred triggers. A change to a §B decision
-lands its ADR and a design/target review first (binding under ADR-0040).
-The PostgreSQL plan owns its detailed work packages/deployment; this plan coordinates their
-ordering with Stage 3–5. Its review findings have one current disposition here, not two registers.
+**Status:** Active replacement product plan; **Revised 2026-09-28** under ADR-0071. The filename
+stays stable for existing links. The [target design §14](../design/sections/api-and-evidence-product.md)
+replaces general behavioral completion as the first-product target. This plan owns PR0–PR6 and
+current finding disposition; the PostgreSQL plan retains completed deployment and conditional
+storage work. No runtime change or product superiority is claimed by this planning revision.
 
 ## 1. Current state and qualification boundary
 
-Production is on `main`; the pre-Stage-3 repairs after `acbcee5` include
-schema migrations and targeted checks. Increment 4 (Stages 2.9–3) remains in progress. Stages
-0–2.9 built the whole-surface operation catalog, ty `flow` facts, conditions, five verdicts and
-Stage 2 behaviors. **The remediation and remaining Stage 3 scope are functionally incomplete;
-integrated qualification is outstanding.**
+**Implemented baseline, source-inspected 2026-09-28:** `739f9df` contains pinned extraction, rich
+canonical facts, partial behavioral analysis, operation/brief tools and completed PG0–PG17 local
+exact deployment. Compiler107, extractor33, template20, catalog7, bundle FORMAT12/projection2,
+standard1024 and operator schema008 remain unchanged. Historical PostgreSQL qualification is in
+[its evidence](../design_review/evidence/2026-09-28_postgresql-operations/README.md); it does not
+measure product differentiation.
 
-| Scope | State (2026-09-27) | Remaining boundary |
+**New target: Proposed implementation.** Build a mandatory public API/evidence catalog with complete
+contracts, typed options, contextual scenarios, deployment evidence, structured search and bounded
+implementation packets. Existing facts provide much of the content; targeted surface normalization,
+record-field expressions/links and package metadata are genuine new work. No broad new analysis
+engine is selected. [Target review](../design_review/reviews/design_review_api-evidence-product_2026-09-28.md)
+assesses R01–R08 and the additional obligations.
+
+| Boundary | Current state | Next obligation |
 |---|---|---|
-| L1/L1.5 conditions | **Partially implemented; focused tests passed.** Bounded BDD catalogs, exact entry-value links, literal string membership and non-bool integer equality, non-allocating decisions, effective support, cube factoring, restricted exact-input assessments with bounded link minimization, a ten-atom truth-table control and focused CPython literal lowering | Operation-wide compatibility; real-pilot W6 cost; W11's served round trips and Q09 |
-| L4 pinned models | **Implemented; focused tests passed.** Typed transfer/effect/callback/resource/exception assertions and exact source applications. `typing.cast`/`typing.assert_type` have typed direct-return bodies; full completion additionally requires a bound-argument frame-release certificate. A Pydantic `TypeAdapter.validate_python` potential transform is dormant | Pure/helper, I/O, async/context, pydantic and HTTP/server families; a dynamic-schema representation before any validation effect |
-| L2 fates | **Implemented and Tested in focused cases.** Ordered expression/predecessor/frame completion, exact-TypeError handlers and re-raise, handler/else/finalizer entry, persisted exact exception identity and pinned nullcontext/suppress lifecycle completion | Broader default domains, named-handler cleanup, unmodeled contexts, broader entry-result domains, callback fate and resource pairing remain open |
-| L3 summaries | **Partially implemented; focused tests passed.** Direct, exact modeled, unique-assignment and local value paths retain ordered, origin-specific proofs. Normalized local arguments require every explicit evaluation and all fixed formal mappings, with certified defaults for immediate fresh nested calls, including a separate tracked-source read. Bounded nested closed expressions supply independently represented exact Boolean controls. The BDD kernel supports simultaneous substitution; the pure producer consumes multiple stable linked controls. SCC scheduling separates semantic progress and nondominated depth/expanded-proof-cost progress from retained witness alternatives in the bounded ADR-0053 value worklist (compiler101). Real three-argument/reversed-keyword calls, missing/raising arguments and default expression depth/work caps reach Delta/native; source-level later-predicate identity remains unknown | General reads/calls/defaults/predecessor/frame completion; call-specific multi-control stability and residual conjunction; multi-channel semantic/witness state; effect/exception/role summaries; original W5/W7/W12 cap traces and channel discharge |
-| L7 serving | **Partially implemented.** FORMAT 9 has internal callable-formal support, checked native IPC decoding and bounded cited-finding support closure; a finalizer and a finding-only coordinates claim round-trip in focused tests. `inspect_value_paths` remains path-local and exposes source fact/origin IDs on both positive paths and open boundaries; operation facet values retain verdicts | Typed operation-wide compatibility/effect/role filters, full proof spans beyond the cited witness projection, clean-wheel query |
-| Current checkpoint / Stage 3 acceptance | **Checkpoint tests passed; Stage 3 acceptance not established.** The 2026-09-27 [PG8–PG11 code checkpoint](../design_review/evidence/2026-09-27_postgresql-expansion/implementation.md) passes 437 ordinary Rust tests across the full run and six targeted repairs, 11 real PG tests, the async PG lifecycle test, fresh native fixture, 164 Python tests, strict lints/Pyrefly, rules, ADR/agent checks, 83 fixture parses, dependency/gold policy and SQLx metadata. Fresh fake pilot plus controlled 1024 live conformance/receipt/replay passed | S1–S7 remain functionally incomplete; Q01/Q03/Q05/Q09 exit assessment, semantic-query packet, clean-wheel query, controlled Stage 3 cost comparison and assembled Stage 3 review remain outstanding; PostgreSQL acceptance is scoped separately |
+| Product construction | Public paths and operation construction depend on optional analysis; useful no-brief publication is not independent | PR1 mandatory catalog/capability manifest |
+| Contract and evidence | Facts richer than responses; signature reconstruction, seed-oriented usage and assertion-rooted evidence lose useful content | PR1–PR3 product records and closure |
+| Retrieval/customization | Exact PG/BM25 works; strict facets hide unknowns and entity ranks omit winning units | PR4 typed requirement states and addressable evidence |
+| Deployment details | Pinned source/docs/environment available; no complete package/extras requirement projection | PR3 attributed package/setup evidence |
+| Comparative value | No controlled Context7 comparison | PR0 protocol/baselines; PR6 confirmation; parity leaves objective open |
+| Existing semantic Stage 3 | Functionally incomplete; earlier tests retain their scope | Research backlog, except defects affecting exposed claims must be fixed or withheld |
 
-**PostgreSQL expansion — Implemented, Tested and Measured for local exact serving (2026-09-28):**
-PG0–PG17 now provide SQLx cache/history, immutable relational serving, standard 1024 pgvector
-retrieval, a Rust repository with async Python lifetime, pgpq COPY and admitted DataFusion
-federation. Operator PG18.6/pgvector 0.8.6 runs migrations 001–008 and selects the live generation
-with exact retrieval. Populated restore, two-server rollover, cold/warm receipt equality and
-PG/embedder-offline replay passed. Live ANN preserved recall but failed plan/latency benefit gates;
-no ANN profile is selected. [Operations evidence](../design_review/evidence/2026-09-28_postgresql-operations/README.md)
-bounds this acceptance separately from Stage 3 semantics. §3.4 coordinates scope; §6.1 owns findings.
+**Next:** PR0 task/contract inventory and baseline feasibility, then PR1's catalog/signature vertical
+slice. Read §3.0, not the retained semantic queue, for current execution. General all-channel proof,
+new logger models, ontology work, ANN tuning and wheel builds are off the first-product critical path.
+Fast editable uv/native and cached Cargo development remain the workflow.
 
-**Current versions:** extractor output 33; compiler output 107; catalog format 7; bundle FORMAT 12;
-projection format 2. PostgreSQL adds snapshot-local `used_embeddings` and `embedding_uses`;
-preceding Stage 3 work adds `behavior_discharges`.
-
-**Earlier checkpoint (§1.1):** compiler output 102, FORMAT 9.
-Compiler101 changes bounded scheduler progress; compiler102 repairs repeated pinned-context observations and migrates the model argument-binding query. Neither adds Arrow columns.
-The current contracts include `expression_evaluations` and ordered operand proofs, statement/frame
-completion, condition-keyed return entry, native MRO completeness, a persisted exact exception
-codebook and `summary_origin_coverage`. Snapshots are reviewed migrations; a fresh store rebuild
-under ADR-0048 is completed for this checkpoint (§1.1). FORMAT 9 callable support is implemented; remaining S6 semantics are open.
-
-**Resumed 2026-09-27.** The operator approved the exit-driven remaining sequence (§3.0,
-"Remaining sequence"). The §1.2 diagnostic is the current reading of the served answer.
-
-**Next dependency on resumption:** finish remaining channel contracts and supported synchronous context exits;
-then compose stable controls and channel coverage through the multi-channel worklist. Direct
-value-origin coverage exists, but call origins and uncertified approximated paths remain open even when a
-positive witness exists. Coverage is not operation-wide and does not close another channel.
-W5/W7/W12 default-cap traces, broader model activation and remaining FORMAT 9 semantics are outstanding.
-
-**Measurement baseline** (pilot snapshot `162bda5a0fe39cc1cedadbfaa8efd1f9`, 2026-09-24, fake
-embedder; Measured): 1,534 public declarations; 15,415 behaviors (4,276 established, 3,554
-conditional, 19 refuted); unknown by reason: **6,137 `call_transfer`**, 1,347 `override_dispatch`,
-42 `budget_reached`, 39 `abstract_body`, 1 `runtime_unreachable`; pilot compile 40.4 s. Stage 3
-reports its exit against these counts. The compiler102 checkpoint below does not show a
-`call_transfer` reduction; the frozen semantic exit assessment is still outstanding.
+The following checkpoint and diagnostic remain historical evidence for open semantic findings;
+they are not current product acceptance or an instruction to resume the old sequence.
 
 ### 1.1 Operator-requested checkpoint (2026-09-27)
 
@@ -126,48 +101,69 @@ The numeric threshold is not the binding risk. Four findings affect the remainin
 
 ## 2. Product target and principles
 
-The product (ADR-0021) is an **evidence-carrying behavioral model of a pinned library's whole
-public surface**. An agent asks which operations accept X, pass it to Y, under which
-configuration, raising what, needing which lifecycle, and receives exhaustive answers where the
-analysis is complete, ranked candidates where only discovery applies, and a named unknown where the
-analysis stopped. Each claim carries evidence and a derivation; briefs remain one rendering.
-[§3.9](../design/sections/behavior-model.md) owns conditions, places and verdicts;
-[§9.9](../design/sections/behavioral-analysis.md) owns models, summaries and the registry.
+The [API/evidence target](../design/sections/api-and-evidence-product.md) owns detailed contracts.
+The product must let an agent find the relevant built-in API, inspect its invocation/configuration,
+use original scenarios and deployment material, and explain support and uncertainty per requirement.
+Context7 already supplies versioned documentation and code/source snippets; differentiation requires
+measured task benefit from the connected structured evidence.
 
-| # | Principle | Without it |
+| Principle | Consequence |
+|---|---|
+| Whole declared public surface; local uncertainty | An unmodeled wrapper does not erase source signature or examples |
+| One fact/semantic owner, derived catalog | No editable prose knowledge base or Python/SQL inference duplicate |
+| Correctly named requirements | Declared parameter absence is not keyword-rejection proof |
+| Witnesses retain variant, binding and configuration | Independent overload tags never imply one valid invocation |
+| Original evidence and intent | Expected-failure tests cannot become successful-use recipes |
+| Optional analysis is explicit | Not-requested capabilities differ from corrupt selected output |
+| Product outcomes before more machinery | A missing task-relevant relation justifies bounded analysis; library availability alone does not |
+| Usable pilot differs from differentiated product | Comparative parity or unavailable fair comparison cannot close the stated value objective |
+
+Preserve five behavioral verdicts, strict negative-claim coverage, canonical identities/receipts,
+programmatic synthesis, generation pinning and evaluation-only gold. Existing false-claim defects
+remain safety obligations wherever their consumers remain exposed. The old behavioral suite keeps
+its questions, unmet exits and sealed heldout; it is not repurposed as the new confirmation set.
+
+## 3. Product execution queue
+
+Functional implementation is **not started by this design task**. PR0–PR6 are dependency-ordered
+vertical slices. Each uses targeted compile/functional controls; formatting and integrated gates
+wait until the authorized functional scope is complete. No extra hook, register or build system.
+
+
+### 3.0 Consolidated execution
+
+**Current queue: PR0–PR6, Proposed.** The old P0–P7/S1–S7 labels below are research identifiers,
+not product packages. The target's response budgets and comparison thresholds are frozen in PR0
+before outcomes; the design does not claim they have passed.
+
+| Packet / dependency | Concrete scope and owners | Required outcome and deletion obligation |
 |---|---|---|
-| T1 | The whole public surface is the universe; analysis runs per callable, bottom-up | Silence about most operations |
-| T2 | Relations first, sentences last: typed, persisted relations with in-row provenance | Knowledge locked in templates |
-| T3 | The flow IR is our declared runtime model (§B5), whichever provider builds it | Checker views relabelled as runtime flow |
-| T4 | Meaning comes from models, propagation from summaries; never "calls X, so can X" | Unsupported transitive claims |
-| T5 | Conditions are Boolean functions over evaluation atoms in a bounded decision-diagram kernel, plus a typed theory for primitive places; no theory solver (§B10) | Merged evaluations drop feasible paths; budget cuts lose structure |
-| T6 | Five verdicts, never a null; a negative verdict only inside complete coverage | Unsupported negatives |
-| T7 | Materialize source facts at compile time; run bounded semantic selections in the pinned Rust executor | A second, unproven serve-time semantics |
-| T8 | Discovery nominates, definitions decide; FCA, RCA, communities and embeddings never write membership | Statistical membership |
-| T9 | Pre-registered behavioral question sets, plus mechanical known-answer fixtures | Circular evaluation |
-| T10 | Providers observe; our semantic layer concludes under stated, tested rules | Provider artefacts become claims |
-| T11 | Execution checks admission: within the stated model every observed execution is admitted; a violation is a counterexample; a finite pass is evidence, not proof | Translation defects stay invisible |
+| **PR0 — Product contract and independent baseline**, first | Evaluation owner freezes 24 development tasks and separate 24 confirmation tasks; source/metadata inventory, selected pilot core APIs and predicate meanings. Verify comparable Context7 release/corpus availability. Schema owner maps existing fields and missing facts | Commit task criteria before tuning; baseline feasibility and explicit unmatched cases. No heldout/gold leakage. Inventory every R01–R08 requirement and deployment extension; comparison blocked if fair population unavailable |
+| **PR1 — Mandatory catalog and complete API packet**, after PR0 | `cpg-core` catalog module, `cpg-schema`, PG hydration/native/MCP. Separate public-root/API construction from optional analysis; ordered signatures, variants, synthesized constructors, public member/alias identity, raw evidence, capability-aware manifest/loading, optional valid briefs | Ordinary/undocumented/unresolved-decorator APIs publish and inspect without brief/deep pass; invalid mandatory references fail. Signature round-trip includes kinds/defaults/provenance. Remove facet-string signature construction and unconditional semantic capability assumptions |
+| **PR2 — Surface and configuration specificity**, after PR1 | One decorator surface normalization owner reused by behavioral admission and synthesis; properties/accessors, inherited binding, selected protocol/registration forms; options/default expressions and supported field/direct relationships | Shadowed/replacement/wraps controls; two-field no-leakage; known source and unresolved effective forms coexist. Remove trailing-name invocation classifier and generic cross-field attribution in supported models; no general decorator/heap project |
+| **PR3 — Original scenarios and deployment evidence**, after PR1; shares PR2 identities | Acquisition metadata plus catalog-wide docs/usage associations, enclosing contexts, intent/status, evidence-root closure; package requirements/extras/entry points and selected launch/config snippets | API outside brief seeds has usable evidence; negative tests retain negative intent; unresolved fixtures disclosed; base-install sufficiency never inferred from all-extras environment. Evidence reaches PG/MCP/recovery, not merely a new table |
+| **PR4 — Typed requirements and evidence retrieval**, after PR2/PR3 | Rust per-requirement classifier, explicit quantifiers/coverage/conflict/joint context; same eligibility for all legs. Schema view registry and winning-unit IPC; options/scenario/docs units, class coverage, bounded family fusion and migrated query instruction | Strict/discovery/contradiction/mutually-exclusive-overload controls, stable cursors, actual match witnesses, duplicate-example stability, exact-name/lexical-only parity. Replace fixed view lists and anonymous entity-only ranks; never modify deployed migrations |
+| **PR5 — Agent journeys and usability**, after PR4 | Bounded packet sections; catalog browsing/facet counts; independent evidence search/expansion; thin candidate comparison using same classifier. Qualify real pilot setup and deployment plus compile/catalog/retrieval rebuilds | Agent can find, choose, invoke/configure and inspect a built-in API with original context. Catalog-only and behavioral manifests both validate/import/restore. Exposed unsafe semantic claims fixed or unavailable explicitly; no fallback or inference from missing results |
+| **PR6 — Comparative confirmation and handoff**, after PR5 | Full authorized-scope code gate and real-embedding pilot; fixed A/B/C agent comparison, independent task checks, costs/latency, review/closure and current docs | Usable pilot recorded separately. Differentiation requires the §14.12 comparable-population material gain and false-claim rule; failed/parity results remain open. Second library/repeat required before broad claims |
 
-Kept unchanged: programmatic synthesis with no generative model in the pipeline or query path
-(§B11); immutable, byte-identical generations (§B7, §B12); declared dependency families
-(ADR-0002); the gold under `.claude/skills/` is never a compiler input; licence is never a
-criterion.
+Every functional packet carries canonical/derived contract versions, validators and meaningful
+negative fixtures through bundle → PG import → Rust hydration → MCP. Retain new relation definitions
+in existing authorities. No schema-only completion. Coarse rebuilds reuse published facts when the
+input evidence is sufficient; new meanings/facts require explicit canonical migration.
 
-| Layer | What | State |
-|---|---|---|
-| L0 | The CPG | Built |
-| L1 | Flow facts (`flow` family, ty through `cpg-flow`) | Built |
-| L1.5 | The condition kernel (bounded BDDs, typed primitive theory) | Built in part |
-| L2 | Behavior relations, including handlers, callbacks, resources and exits | Built in part |
-| L3 | Transfer summaries resolving `call_transfer` | Built in part |
-| L4 | Models catalog | Built in part |
-| L5 | Capability registry and membership | Stage 4 |
-| L6 | Discovery (FCA, RCA, communities, views) | Built; consumers in Stage 4 |
-| L7 | Serving (FastMCP tools, native executor) | Built in part |
-| L8 | Structured evaluation | Built; stage exit rules continue |
-| L9 | Validation lane (runtime soundness oracle, CrossHair, Pysa) | Built in part; order 8 extends it |
+**Work selection rule:** a new analysis must name a failed development task, the missing relation,
+why source/docs/current facts are insufficient, its bounded semantics and an independent control.
+Otherwise prioritize association/query/packet work. Resource or deployment failures do not justify
+weakening evidence or declaring an unavailable capability implemented.
 
-## 3. Stage 3 execution queue
+**Usability checkpoint:** PR1 already exposes ordinary API contracts; PR2–PR5 progressively add the
+specificity required by the selected core journeys. Pilot use need not wait for all confirmation runs.
+The final differentiated-product claim still requires PR6; the frozen semantic exit is independent.
+
+**Deferred research contract, retained for traceability.** Everything until §3.4 below is
+unscheduled unless a product task or exposed-claim defect activates it. Earlier phrases such as
+“next,” “remaining sequence,” and “operator approved” describe the prior semantic workstream.
+They do not compete with PR0–PR6. Tests/unknowns are retained, not relabeled complete.
 
 Every intermediate outcome is a cited positive candidate or `unknown`. No absence becomes
 `refuted_under_model` before the model channels and relevant source paths are closed. A slice
@@ -175,7 +171,9 @@ uses focused compilation, one positive and one withholding fixture, its schema/r
 the shared publication validator; the last column names a targeted check, not integrated
 acceptance. Findings are identified in §6; their priority follows the follow-up review's §12.
 
-### 3.0 Consolidated execution
+<a id="3-stage-3-execution-queue"></a>
+
+### 3.0.1 Retained semantic research sequence
 
 **Accepted target; implementation in progress (2026-09-26, ADR-0057 and ADR-0058).** This is the
 operator-approved detailed execution queue. ADR-0059 refines class-protocol applicability for
@@ -627,14 +625,19 @@ attributed to their original spec/profile. Stage 3's frozen questions and exit r
 W9's exact-cache defect stays closed on its recorded evidence; the new spec has fresh correctness
 checks in PGE/F01. Arbitrary endpoint attestation remains W16's deferred boundary.
 
-PostgreSQL integration is an additive workstream before the final served Stage 3 packet, consistent
-with the operator's existing sequencing choice. Pure channel/default/completion work may proceed
-independently. After PG serving cutover, Stage 3's packet uses the selected, qualified generation and supported
-backend in the editable development environment; distribution packaging has a separate future trigger; the unchanged semantic rubric still governs them.
-PG17 does not replace Stage 3 P7, Q01/Q03/Q05/Q09 or the all-channel completion obligations. Current
+PostgreSQL integration is now the completed storage/serving foundation for product PR0–PR6.
+Channel/default/completion work resumes only for a named product task or exposed-claim defect.
+Any later Stage 3 packet uses the selected qualified generation and supported backend in the
+editable development environment; distribution packaging retains a separate future trigger and
+the unchanged semantic rubric still governs that packet. PG17 does not replace Stage 3 P7,
+Q01/Q03/Q05/Q09 or the retained all-channel completion obligations. Current
 finding status, including all PGE items, lives only in [§6.1](#postgresql-findings).
 
 ## 4. Stages 4 and 5
+
+**Deferred research scope under ADR-0071.** The detailed contracts below remain available for a
+named product failure requiring their semantics. They are not prerequisites for PR0–PR6 or a
+reason to add a concept registry before bounded evidence/requirement tools work.
 
 PostgreSQL does not change the semantic authorities below. The
 [PostgreSQL workstream](#postgresql-workstream) adds immutable relational serving/retrieval and
@@ -643,8 +646,8 @@ condition kernels and DataFusion materialization remain authoritative; PostgreSQ
 published output through generation-qualified projections. Stage 5 model/lifecycle computation
 remains Rust-owned. Neither stage depends on optional ADBC, SQL-wire endpoints, ORM or pgrx.
 
-PG11–PG13 provide the projection/query path; the stage introducing a new semantic family owns its
-schema, evidence and exact-answer controls. If either stage advances before PG cutover, preserve
+PG11–PG13 provide the projection/query path; any reactivated stage introducing a new semantic family
+owns its schema, evidence and exact-answer controls. Preserve
 its existing serving path until that family is represented and qualified in the new projection;
 do not omit supported facts to meet a storage milestone.
 
@@ -710,6 +713,21 @@ rubric; decide the §B11 generative-model trigger; an assembled design/target re
 
 ## 5. Evaluation and tooling
 
+**Primary product protocol:** [§14.12](../design/sections/api-and-evidence-product.md#section-14-12),
+owned by PR0/PR6. Three conditions (Context7, local unstructured evidence, structured product),
+24 frozen development plus distinct 24 confirmation tasks, at least three agent runs/condition,
+independent execution/source checks. Default acceptance is at least 20/24 task-majority successes,
+including six implementation and all ambiguity tasks, plus at least four net tasks over Context7
+and two over the same-corpus evidence baseline, under the stated per-stratum/no-false-claim rules.
+Only the preregistered version/evidence-comparable population counts. No comparison ran in this
+revision; proposed thresholds freeze before results. A usable pilot and measured differentiation
+are separately recorded; parity leaves the latter open.
+
+**Retained semantic research evaluation** follows below with its original rubric. Its “no API
+agents” rule concerns assessment of that semantic packet; the new product suite uses agents as
+performers with independent judges/tests. Stage exits and old heldout remain unmodified and unmet.
+
+
 | Stage | Pre-registered questions (`eval/behavior/fastmcp-4.0.5.toml`) | Exit rule |
 |---|---|---|
 | 3 | Q01 (`tool` options), Q03 (`tasks=`, strict validation), Q05 (error masking), Q09 (transport option conflicts) | No positive item incorrect or misleading; no negative claimed; at least half the positives present or partial |
@@ -741,6 +759,16 @@ Avoid: crepe, DDlog, cozo, differential-dataflow; LinkML, OWL/RDF stacks, taxono
 BERTopic or UMAP in the pipeline; rust-bert, ort, fastembed.
 
 ## 6. Findings disposition
+
+**Scheduling authority, 2026-09-28:** §6.2/PR0–PR6 is the active product queue. Existing semantic
+finding states/evidence below are retained. Their broad extensions are **deferred from first-product
+completion**; a defect in an exposed claim is activated by PR1/PR5 for correction or explicit
+withholding before usability. W1–W4/W8/W15 evidence/identity obligations survive; W5–W7/W10–W14
+retain their soundness tests but do not require global completion. W9's cache closure and §6.1's
+PG deployment closure remain valid. Neither this scheduling change nor ADR acceptance closes an
+implementation finding. PR0 records the exposed-consumer inventory; future changes use that row's
+original source IDs and preserve its prior qualification limits.
+
 
 **Stage 3 channel review F17 — open.** Owner: schema model/frame contracts and analytics
 expression/completion, with finite-summary and native consumers. ADR-0063 records the accepted
@@ -884,7 +912,27 @@ arbitrary endpoint attestation. Final expanded-system acceptance is **passed for
 operations receipts add deployed rollover/recovery and real ANN rejection to the bounded PG12–PG15
 controls. They do not establish positive ANN admission, larger-corpus scaling or Stage 3 completion.
 
+### 6.2 Product-target findings and recommendation disposition
+
+**Single current owner.** AP refers to the
+[target review](../design_review/reviews/design_review_api-evidence-product_2026-09-28.md).
+R01–R08 are external recommendation IDs, not claims of defects independently demonstrated by them.
+All rows are **open; target accepted, implementation Proposed** on 2026-09-28.
+
+| Finding / recommendations | Responsible owner and package | Closure evidence |
+|---|---|---|
+| AP/F01 mandatory catalog and optional capabilities; R01 | `cpg-core` orchestration, schema manifest, native lifetime; PR1 | No-analysis/no-brief API available; corrupt advertised capability fails; same contract through restore |
+| AP/F02 complete API/surface/option identity; R02–R04 | schema/extraction/catalog/hydration; PR1/PR2 | Ordered signatures, overload/property/inherited/generated forms, defaults, exact field links and removal of duplicate invocation classifier |
+| AP/F03 evidence/scenario/deployment closure; R05 plus deployment addition | acquisition/catalog/bundle; PR3 | Non-seed context-preserving and negative-intent examples; package/extras source distinction; generation-qualified evidence survives PG/MCP/recovery |
+| AP/F04 typed custom selection and joint applicability; R07 | Rust request/classifier/semantic owner; PR4 | Scoped absence, variant quantifiers, contradiction/conflict precedence, mutually exclusive features and stable group cursors |
+| AP/F05 retrieval-unit identity and family composition; R06 | schema view catalog, embed/retrieval/fusion; PR4 | Winning-unit round-trip, class/doc coverage, duplicate stability and held-constant baseline; shared token admission retained |
+| AP/F06 product exposure and comparative acceptance; R02/R08 | MCP packet/browse/evidence tools and evaluation; PR0/PR5/PR6 | Bounded useful packet and independent matched-condition gain; full failures/costs recorded; no semantic-suite relabeling |
+
 ## 7. Deferred, each with a trigger
+
+Product PR0–PR6 takes precedence over the historical semantic triggers below. A retained semantic
+trigger activates work only for a selected product task or an exposed-claim defect; it does not
+automatically resume the former stage sequence.
 
 | Item | Trigger |
 |---|---|
@@ -892,15 +940,15 @@ controls. They do not establish positive ANN admission, larger-corpus scaling or
 | Per-claim assumption records | A served claim misread because of an assumption the `approximated` flag does not show |
 | A per-iteration unrolled loop model | An evaluation item graded `partial` for a loop condition |
 | Pyrefly-typed receivers for dynamic access; per-run largest-scope and residue reports | A refutation on a field read through a typed non-`self` receiver, or a report consumer |
-| Transfer/decorator/lambda fidelity | Trigger met; correction scheduled in S5 above. General deferred execution remains Stage 5 |
+| General transfer/decorator/lambda fidelity | PR2 owns bounded surface normalization for selected APIs. Additional behavioral transfer or deferred-execution semantics require a failed product task or an exposed-claim defect; retained S5 describes the research route |
 | An unmapped argument at a multi-callee site; a lambda read's phase; inherited methods counted as field reads | A pilot or fixture row appears |
 | ty type inference as a second type provider; ty patches; the CPython bytecode CFG (`bytecode` 0.19) | A question Pyrefly's types cannot answer; a measurably degraded scope; an effectful-frame case runtime inputs cannot exercise (order 2) |
-| Analytics technique retention (ADR-0020's keep-rule outcome); deleting FCA, RCA, communities or kNN variants | Stage 4 gives them consumers; decide on that evidence |
+| Analytics technique retention (ADR-0020's keep-rule outcome); deleting FCA, RCA, communities or kNN variants | A named product consumer and independent benefit/false-claim comparison under ADR-0071; no automatic increment deadline or deletion |
 | Stage F brief-builder restructuring | A rendering consumer needs it; briefs remain one rendering |
 | Graph-FCA in the pipeline | An offline experiment yields templates the evaluation rates useful |
 | On-demand RCA at serve time | Materialized membership proves too coarse |
 | Lance / LanceDB or changed lexical/FTS policy | A named capability or measured limitation beyond qualified PG serving/pgvector; PostgreSQL F13. The old 4096/size trigger is replaced by PG8's successor decision; no automatic alternative installation |
-| PostgreSQL operator review, dynamic SQL, direct Python/ORM access, notifications/jobs, native ADBC, SQL/ADBC client protocols, pgrx and advanced topology | [PostgreSQL plan §7](postgresql-integration-plan_2026-09-27.md#7-later-capabilities-and-adoption-triggers) owns F1/F4/F6–F13 consumer triggers. Serving/vector/COPY/selected federation are active PG8–PG17 work, not deferred; §6.1 owns finding status |
+| PostgreSQL operator review, dynamic SQL, direct Python/ORM access, notifications/jobs, native ADBC, SQL/ADBC client protocols, pgrx and advanced topology | [PostgreSQL plan §7](postgresql-integration-plan_2026-09-27.md#7-later-capabilities-and-adoption-triggers) owns F1/F4/F6–F13 consumer triggers. Serving/vector/COPY/selected federation are completed PG8–PG17 scope; §6.1 owns finding status |
 | spaCy in compile | Regex directive tagging misses conditions the evaluation needs |
 | A neural reranker | An ADR under §B10 after a measured need |
 | Native-extension bodies | A pilot question needs one |
@@ -908,7 +956,7 @@ controls. They do not establish positive ANN admission, larger-corpus scaling or
 | Cross-call exception composition (callee escape through caller handlers) | A sync evaluation item not blocked by dispatch or async needs it (Q01.e/f sit behind dispatch; Q05 is async) |
 | `**kwargs` binding TypeErrors | A sync evaluation item (Q09.a/e/f are async) |
 | New condition roots; discharge for argument/store (`derives`/`stores`) sinks | Pilot evidence after P7 that these sinks dominate a graded item |
-| pydantic field storage, dataclass `__init__`, `inspect` predicates; rich, subprocess, `sys.exit` models | A sync consumer, or Stage 5 |
+| General pydantic field storage/dataclass initialization semantics and `inspect` predicates; rich, subprocess, `sys.exit` models | PR1/PR2 already cover declared/generated constructor contracts and bounded exact config-field links. General initialization/storage behavior or additional models require a selected task that those contracts cannot answer |
 | Role channel producer | An authored role meaning with a consumer |
 | F17 broader release/default/binding domains | A graded item or pilot bucket needs them |
 | Reachability certificates for non-return sinks under ty's AMBIGUOUS regions (`try` bodies, `with` exits, loops over unknown iterables): 730 pilot `missing_evidence` rows, including Q03.d and Q05.b | A graded item whose rating depends on it, or a completion-kernel extension that already covers the shape |
@@ -919,10 +967,10 @@ controls. They do not establish positive ANN admission, larger-corpus scaling or
 |---|---|
 | Per-site atoms lose simplification | Sound by construction; the typed theory restores sharing for proven-stable primitive places; rendered sizes measured on the pilot |
 | BDD blow-up on unstructured conditions | Per-operation node and pair-work caps widening to `unknown`; W6's aggregate preparation budget; deterministic order |
-| The validation lane executes code | Generated programs only, outside `fixtures/python/`; isolated worker, no network, timeouts; the analyzed library is never executed |
+| The validation/observation lanes execute code | Existing semantic oracles keep their generated-program contract. New product task checks and any opt-in surface observation use disposable pinned environments with explicit effects/budgets; extraction and serving never import or execute the library, and `fixtures/python/` remains input data |
 | Summaries lose precision or fail to terminate | Finite domains with explicit caps and typed refusals (W5); `unknown` rates reported |
 | ty churn and salsa skew | Exact pins; parity tests on upgrade |
-| Scope creep | Stage exit rules; §7's triggers; nothing starts before its stage |
+| Scope creep | PR0–PR6 dependencies and task-driven additions; §7's triggers keep general research off the product critical path |
 | Disk and GPU | One pilot store; live GPU legs only with ≥30 GB free and vLLM stopped afterwards |
 | PostgreSQL/1024 migration disturbs the semantic baseline or creates a second authority | PG8 baseline preservation and explicit spec/projection identities; exact Delta receipts, fresh stores and separately named results; canonical replay independent of live PG/cache/embedder; no tuning of frozen semantic/evaluation parameters |
 | Partial PG projection or cross-generation hydration | PG11/PG12 whole-evidence/artifact validation and atomic ready, lifespan-pinned selection/cursors, PG16 restore/rebuild; retain ready generations and artifacts until explicit reader protection exists |

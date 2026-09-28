@@ -35,10 +35,15 @@ order and the grounding rules below are **Implemented** and **Tested** (2026-09-
 - each rule rejects an injected violation in `the_analysis_rules_reject_their_violations`; the
   status rule, a floor and a ceiling, has three cases.
 
+**Accepted replacement target, implementation Proposed (ADR-0071):** [§14](api-and-evidence-product.md)
+adds mandatory API/evidence catalog construction and optional valid briefs. Existing synthesis
+validators still govern every emitted brief; absence of an admissible Outcome will omit the brief
+instead of blocking a valid catalog. Original evidence gets independent catalog roots.
+
 Briefs are one rendering of the analysis. Behavioral claims served through the operation tools
 (§11.3) come from the behavior relations directly, not from briefs.
 
-> Decision: ADR-0005, ADR-0067, ADR-0049
+> Decision: ADR-0005, ADR-0067, ADR-0049, ADR-0071
 
 
 ### §10.1 Findings
@@ -338,7 +343,7 @@ hashes is rejected (`semantic:one-embedding-spec`).
   applicable case (when one exists), public APIs, controls, usage description and limits. The
   limits are the capability's own (Limits-section kinds other than `analysis_boundary`); what
   the analysis did not follow stays in the served brief, out of retrieval. Each public
-  callable's **views** (`operation_documents`: signature and docstring, and source body; ADR-0021)
+  callable's **views** (`operation_documents`: signature and docstring, and source body; ADR-0071)
   are documents too. A view is a **column** (`operation_documents.embedding_view`,
   `operation_vectors.embedding_view`), not part of the cache key, so two views with the same text
   share one vector.
@@ -456,6 +461,11 @@ FTS and changed lexical policy require a named capability beyond the selected ro
 > Decision: ADR-0068, ADR-0070
 
 ### §11.3 FastMCP contract
+
+**Target overlay, Proposed (ADR-0071):** [§14.7–§14.10](api-and-evidence-product.md#section-14-7)
+owns typed requirement states, bounded implementation packets, independent evidence/browsing,
+optional semantic capability loading and versioned migration. Contracts below describe existing
+behavior or retained semantic research; they do not claim those product additions are implemented.
 
 - **Package.** `python/lctx_mcp`. It depends on `fastmcp` 4.0.x, `pyarrow` (the generation
   reader), `numpy`, `bm25s` and `httpx2`, never on vLLM, Delta or the compiler; versions are in
@@ -650,7 +660,7 @@ row storing its rule id and proof height. Under ADR-0025 the native executor may
 stored witness links at request time, retaining their row ids and reporting a boundary if the
 depth budget is reached.
 
-> Decision: ADR-0068, ADR-0070, ADR-0025, ADR-0046, ADR-0049
+> Decision: ADR-0068, ADR-0070, ADR-0025, ADR-0046, ADR-0049, ADR-0071
 
 
 **Accepted frame-completion target, implementation in progress (ADR-0063).** Every modeled normal-call obligation,

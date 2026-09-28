@@ -108,10 +108,16 @@ regions; composed summary/coverage/serving challenges remain separately scoped S
 
 ## §12 Evaluation
 
-**Accepted** (ADR-0021) for the structured behavioral evaluation; gold scoring is
+**Accepted** (ADR-0071) for the structured behavioral evaluation; gold scoring is
 **Implemented** as a record of brief retrieval.
 
-**The structured behavioral evaluation** is the primary judgment of usefulness and correctness.
+**The product comparison** in [§14.12](api-and-evidence-product.md#section-14-12) is the primary
+first-product usefulness/differentiation criterion (Proposed execution). It uses coding agents as
+task performers, independent checks/review as judges, and matched Context7 plus internal evidence
+baselines. Pilot usability alone is not comparative acceptance.
+
+**The structured behavioral evaluation** remains a separate judgment of semantic correctness and
+research progress, with its existing unanswered targets and truth criteria.
 - **Question sets.** `eval/behavior/<library>-<release>.toml` holds representative questions a
   coding agent might ask. Each has atomic target items cited to the library's source lines and
   docs, including **negative** items an answer must not state.
@@ -145,8 +151,10 @@ of gold scores, only with a rationale independent of the gold. **Tested** over c
 **Ablation and the keep rule.** Technique defaults are decided by the §9.8 keep rule
 ([analytics](analytics.md#section-9-8)); the registered outcome is ADR-0020 (proposed).
 
-**Generative-model trigger (§B11).** `unresolved` slot counts by brief section are reported; if the
-end-of-increment-5 evaluation attributes failures to those slots, an ADR may add a local
-compile-time generation model under mechanical grounding.
+**Retained research trigger (§B11), outside the product critical path.** `unresolved` slot counts
+by brief section remain diagnostic. If the retained end-of-increment-5 evaluation attributes
+failures to those slots, an ADR may add a local compile-time generation model under mechanical
+grounding. That research evaluation is no first-product prerequisite; no generative pipeline or
+query-path feature is selected by ADR-0071.
 
-> Decision: ADR-0021, ADR-0046, ADR-0020
+> Decision: ADR-0071, ADR-0046, ADR-0020

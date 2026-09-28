@@ -9,7 +9,7 @@ additional prerequisites. The PG8–PG11 foundation slice is implemented, includ
 
 This document owns PostgreSQL packages, contracts, deployment, acceptance and conditional library
 adoption. The [forward plan §3.4](behavioral-model-forward-plan_2026-09-24.md#postgresql-workstream)
-owns coordination with Stage 3–5; its [§6.1](behavioral-model-forward-plan_2026-09-24.md#postgresql-findings)
+owns coordination with the product queue and retained Stage 3–5 research; its [§6.1](behavioral-model-forward-plan_2026-09-24.md#postgresql-findings)
 is the **single current disposition owner** for PGS/F01–F04, PGK/F01–F02 and PGE/F01–F05.
 The reviews retain their original finding meanings and dated evidence; this plan does not close them.
 
@@ -20,6 +20,12 @@ Sources: [storage review, PGS](../design_review/reviews/design_review_postgresql
 expanded target and supersedes 0065/0066. [ADR-0067](../adr/0067-canonical-snapshots-with-consumed-vector-receipts.md)
 retains canonical Delta/receipt authority. The operator's **1024 dimension choice is settled**,
 with no further 4096-versus-1024 fidelity or analytics-quality gate.
+
+The next product direction is the [API/evidence target §14](../design/sections/api-and-evidence-product.md)
+under ADR-0071. The forward plan's PR0–PR6 queue owns those catalog/serving extensions. PG0–PG17
+remain completed infrastructure; this plan is not a second active product queue. New product
+relations and views reuse these publication/role/recovery contracts through new migrations and
+explicit generation versions; prior stored generations and migration checksums remain unchanged.
 
 ## 1. Outcome, scope and baseline
 

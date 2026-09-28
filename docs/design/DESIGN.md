@@ -31,73 +31,53 @@ version (skill brief, probe or pinned source), not that our code uses it yet.
 
 ### §1.1 Objective and the promise
 
-**Accepted scope** (ADR-0021); operation states as labeled below.
+**Accepted target, implementation Proposed (ADR-0071, 2026-09-28).** A pinned Python library
+compiles into an **API and evidence catalog for feature discovery and correct use**. A coding agent
+can identify a built-in feature, select its public invocation/configuration, inspect original examples
+and deployment details, and follow precise evidence and uncertainty. The comprehensive target is
+[§14](sections/api-and-evidence-product.md); it replaces general behavioral completion as the first-
+product release route.
 
-A pinned Python library compiles into an **evidence-carrying behavioral model of its whole public
-surface** for coding agents:
-- which operations accept a value, pass it where, under which configuration, raising what, and
-  needing which lifecycle;
-- each claim with its evidence and derivation;
-- an exhaustive answer where the analysis is complete, a ranked candidate where only discovery
-  applies, and a named `unknown` where the analysis stopped ([§3.9](sections/behavior-model.md#section-3-9)).
+Whole-public-surface identities and existing behavioral evidence remain valuable. Exhaustive results
+name their supported domain and coverage; ranked discovery is not exhaustive; unavailable analysis
+and unresolved behavior are local, explicit states. Briefs are optional renderings. No generative
+model runs in compilation or the query path (§B11).
 
-The universe is the library's `public_paths`; every analysis runs per public callable. **Briefs
-remain one rendering** for a curated subset ([§10](sections/synthesis-and-serving.md#section-10)).
+**Implemented baseline:** existing operation/brief tools, bounded native semantic queries and PG
+serving. Complete API packets, public-member normalization, contextual evidence/deployment search,
+typed per-requirement states and catalog-only readiness are **Proposed**, not current capabilities.
+[§11.3](sections/synthesis-and-serving.md#section-11-3) describes current tools and
+[§14.9](sections/api-and-evidence-product.md#section-14-9) owns their replacement target.
 
-| Operation | State | Returns | Does not promise |
-|---|---|---|---|
-| `search_capabilities(library, query, limit)` | **Implemented** | Published briefs relevant to a task, including ones whose API names differ from its wording | Exhaustive discovery |
-| `get_capability(snapshot_id, capability_id)` | **Implemented** | The full brief | A synthesized solution for arbitrary requirements |
-| `get_operation(snapshot_id, operation)` | **Implemented** (behavioral detail grows by stage) | One public operation's record: paths, signature, control fates and verdicts, behaviors with conditions, raises, callbacks, ambient reads, evidence, boundaries; its brief if one exists | Behavior the analysis did not reach, which is stated as `unknown` or `not_analyzed` |
-| `find_operations(library, where, limit, cursor)` | **Implemented** for declared and materialized facets; semantic filters **Proposed** (Stage 3) | **Exhaustive** matches over the pinned generation, with `complete` and the operations whose answer is unknown; never vectors | Completeness where a boundary intervenes, which it names |
-| `search_operations(library, query, filters, limit)` | **Implemented** | **Ranked** discovery over operations, labelled as such | Exhaustiveness |
-| `lookup_concepts(text)` | **Proposed** (Stage 4) | Candidate capability concepts with scope notes | A single interpretation of ambiguous wording |
-| `explain(snapshot_id, claim)` | **Proposed** (Stage 4) | The stored derivation: rule, premises, source spans | Proof of runtime behavior beyond the stated model |
-
-Compile time publishes facts, summaries and lossless condition nodes. A request selects
-materialized rows or, as a **Proposed** target, runs a bounded Rust semantic query over the same
-immutable generation ([§11.3](sections/synthesis-and-serving.md#section-11-3), ADR-0025). No
-generative model runs in the request path (§B11).
-
-> Decision: ADR-0021, ADR-0025
+> Decision: ADR-0071, ADR-0025
 
 <a id="section-1-2"></a>
 
 ### §1.2 Increments
 
-**Implemented** for increments 1–3; increment 4 **in progress**; increment 5 **Proposed**.
-Each increment is a working vertical slice; the [forward plan](../plans/behavioral-model-forward-plan_2026-09-24.md)
-owns remaining execution and exit criteria.
+**Accepted sequencing, implementation Proposed (ADR-0071).** The
+[forward plan §3.0](../plans/behavioral-model-forward-plan_2026-09-24.md#30-consolidated-execution)
+owns PR0–PR6: task/baseline freeze, mandatory catalog/contracts, bounded surface/options,
+scenarios/deployment, typed retrieval, agent usability and comparative confirmation.
 
-| # | Deliverable | State |
-|---|---|---|
-| 1 | One complete path on real FastMCP: acquisition, extraction, the CPG, Pass A, briefs, the serving bundle, embeddings, hybrid search and both brief tools | Built |
-| 2 | Passes B and C, community detection, centrality and FCA over declared structural scopes | Built (default analytics decided by §9.8) |
-| 3 | The whole public surface: the `behavior` family, per-callable passes, the operation catalog and the three operation tools, structured evaluation v0 | Built |
-| 4 | Stages 2.9–3: the `flow` family, conditions and verdicts, the condition kernel, models, L2 fates, transfer summaries and native serving | In progress |
-| 5 | Stages 4–5: the capability registry, `lookup_concepts` and `explain`, framework models and protocols, then the held-out evaluation and the §B11 decision | Proposed |
+**Retained implementation:** earlier increments 1–3 built facts/analytics/whole-surface tools;
+Stage 3 has partial conditions/models/summaries and remains incomplete. PG0–PG17 local exact
+storage/serving deployment is qualified within its recorded scope. Neither is a Context7 comparison.
+Remaining Stage 3–5 work is deferred research unless an exposed claim or named product task needs it.
+No former semantic exit is relabeled passed.
 
-**The CPG precedes its analytics** (ADR-0067): node and edge catalogs, then the `syntax`,
-`lexical`, `types` and `docs`/usage-corpus families; every family names the consumer that reads
-it. Libraries are pinned uv projects acquired by `lctx` (ADR-0046).
+The CPG precedes its analytics (ADR-0067). Canonical facts keep their identity and provenance;
+mandatory catalog construction will be independent of optional analysis. Libraries remain pinned
+uv projects (ADR-0046). ADR-0040 owns review cadence. ADR-0026's current-tree, stable target and
+fast editable development loop remains unchanged; no wheel project is selected.
 
-**Reviews** follow the repository binding's cadence (ADR-0040): design/target reviews for
-architectural choices and assembled stages, change/conformance reviews for bounded slices; a
-coincident stage/increment end needs one review.
-
-**Development loop** (**Implemented**, ADR-0026): pinned stable Rust 1.98.1, 16 Cargo jobs, the
-default single rustc frontend thread, sccache with incremental compilation off, Clang with mold
-for Linux links; agents work on `main` in the current tree and use a separate worktree only for
-truly concurrent production-code edits. Build performance of this configuration remains
-**Proposed** until measured.
-
-> Decision: ADR-0021, ADR-0067, ADR-0046, ADR-0026, ADR-0040
+> Decision: ADR-0071, ADR-0067, ADR-0046, ADR-0026, ADR-0040
 
 <a id="section-1-3"></a>
 
 ### §1.3 Non-goals
 
-**Accepted** (ADR-0021).
+**Accepted** (ADR-0071).
 
 - Analysis of the caller's own codebase.
 - Comparison across library versions.
@@ -114,14 +94,14 @@ truly concurrent production-code edits. Build performance of this configuration 
 - **General alias analysis (points-to).** Flow is intraprocedural over bounded places (§3.9);
   summaries are interprocedural (§9.9).
 
-> Decision: ADR-0021
+> Decision: ADR-0071
 
 <a id="section-1-4"></a>
 
 ### §1.4 Pilot, subsystem and gold reference
 
 **Implemented and Tested** for the pilot and the gold guard; the subsystem and freezes are
-**accepted** (ADR-0021, ADR-0046).
+**accepted** (ADR-0071, ADR-0046).
 
 - **Library.** FastMCP **4.0.5**, acquired as `libraries/fastmcp`
   ([§4.0](sections/acquisition-and-extraction.md#section-4-0)) with the `fastmcp` skill's install
@@ -147,29 +127,28 @@ truly concurrent production-code edits. Build performance of this configuration 
 - **Serving** runs FastMCP from the project's own environment; that environment is never an
   analysis input.
 
-> Decision: ADR-0021, ADR-0046
+> Decision: ADR-0071, ADR-0046
 
 <a id="section-1-5"></a>
 
 ### §1.5 Definition of done
 
-**Accepted** (ADR-0021).
+**Accepted target, implementation/evaluation Proposed (ADR-0071).**
 
-The behavioral model is done when:
-- each stage's exit criterion has passed on the pilot (stage exits are in the
-  [forward plan §3–§5](../plans/behavioral-model-forward-plan_2026-09-24.md#5-evaluation-and-tooling));
-- every stage's structured evaluation (`eval/behavior/`, targets pre-registered) has been assessed
-  and reviewed by the operator;
-- the held-out structured evaluation has run;
-- no answer states `refuted_under_model` outside complete coverage (§3.9).
+The first **usable pilot** has accurate supported API contracts, typed options, contextual scenarios,
+deployment evidence, field-specific uncertainty and a functioning real-embedding PG/MCP path. Valid
+APIs remain available without briefs or completed deep analysis; invalid claimed evidence still
+fails. The product is **differentiated** only after the independent matched-condition task comparison
+in [§14.12](sections/api-and-evidence-product.md#section-14-12) demonstrates its declared material
+improvement over Context7 and the internal unstructured-evidence baseline. Unknown-count reduction,
+retrieval rank or nicer presentation alone is not that result.
 
-Briefs remain a rendering under two standing rules: no brief reaches publication by bypassing the
-analytics (a brief explained by documentation alone is allowed and labelled so, with a
-`documented` Outcome), and "analysis-backed" means citing a derivation family's positive finding
-(`findings::ANALYSIS_BACKED`). `semantic:brief-cites-analysis` and
-`semantic:documentation-only-has-outcome` enforce both (**Implemented and Tested**).
+Existing behavioral/brief evaluation retains its own rubric and sealed data; incomplete Stage 3–5
+exits remain incomplete. No answer states `refuted_under_model` outside complete coverage. Every
+emitted brief still meets its grounding/Outcome validators; missing optional briefs are a catalog
+availability concern, not permission to invent a documented outcome.
 
-> Decision: ADR-0021
+> Decision: ADR-0071
 
 ---
 
@@ -477,13 +456,13 @@ ADR-0024's open proposal.
 
 ### §B13 FastMCP pins one immutable generation; Rust owns PostgreSQL effects
 
-**Implemented** for the materialized file server; PostgreSQL serving is the **Accepted target**
-(ADR-0068). The native semantic executor remains **Partially implemented** under a **Proposed**
-decision (ADR-0025).
+**Implemented and Tested for local PostgreSQL exact serving, 2026-09-28** (ADR-0068/0070;
+[qualification](../design_review/evidence/2026-09-28_postgresql-operations/README.md)). The native
+semantic executor remains **Partially implemented** under a **Proposed** decision (ADR-0025).
 
 - `lctx_mcp` serves the §1.1 operations from exactly one pinned, immutable generation per process,
-  with no Delta, DataFusion or compiler code. Current file lookup uses materialized rows and
-  vectors. The accepted PostgreSQL route uses `lctx_storage`/`lctx-postgres` for bounded relational
+  with no Delta, DataFusion or compiler code. The PostgreSQL route uses
+  `lctx_storage`/`lctx-postgres` for bounded relational
   selection and complete evidence hydration; PostgreSQL is an explicit serving dependency
   ([§11.3](sections/synthesis-and-serving.md#section-11-3)).
 - **Target (ADR-0025):** a pinned in-process Rust/PyO3 extension executes bounded semantic queries
@@ -492,7 +471,7 @@ decision (ADR-0025).
   negative or `complete` claim; no semantic decision is duplicated in Python. Today it provides
   path-local value inspection only; admission and decoding defects are plan items W1–W3.
 
-> Decision: ADR-0068, ADR-0025
+> Decision: ADR-0068, ADR-0070, ADR-0025
 
 <a id="section-b14"></a>
 
@@ -668,7 +647,7 @@ Owner: [Validation and evaluation](sections/validation-and-evaluation.md#section
 
 ## §13 Deferred
 
-**Accepted deferrals** (ADR-0021, ADR-0046). These capabilities are outside the current
+**Accepted deferrals** (ADR-0071, ADR-0046). These capabilities are outside the current
 architecture on purpose; each returns by ADR when a named consumer needs it. The
 [forward plan §7](../plans/behavioral-model-forward-plan_2026-09-24.md#7-deferred-each-with-a-trigger)
 owns the scheduling triggers.
@@ -692,5 +671,4 @@ owns the scheduling triggers.
 - **Graph-FCA in the pipeline; on-demand RCA at serve time.**
 - **Generative interpretation** (§B11), graph embeddings, neural reranking and composition planning.
 
-> Decision: ADR-0046, ADR-0021
-
+> Decision: ADR-0046, ADR-0071

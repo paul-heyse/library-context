@@ -1,11 +1,11 @@
 # library-context — agent instructions
 
-library-context compiles a pinned Python library into an **evidence-carrying behavioral model of
-its whole public surface** (ADR-0021; DESIGN §1): which operations accept a value, pass it where,
-under which configuration, raising what. Answers are exhaustive where the analysis is complete,
-ranked where only discovery applies, and a named `unknown` where it stopped. Coding agents reach
-it through a FastMCP server (`get_operation`, `find_operations`, `search_operations`, and the
-brief tools `search_capabilities`/`get_capability`); briefs are one rendering.
+library-context targets a **version-pinned API and evidence catalog for feature discovery and
+correct use** (ADR-0071; DESIGN §1 and §14). Agents should find built-in APIs, inspect invocation,
+configuration, examples and deployment evidence, and see precise support and uncertainty. Existing
+behavioral analyses are enrichment; general semantic completion no longer gates the first product.
+The detailed target is `docs/design/sections/api-and-evidence-product.md`; new capabilities there
+remain Proposed until implemented. Existing FastMCP operation/brief tools remain the current interface.
 
 The pieces:
 - **Extraction:** Pyrefly (a pinned, minimally patched fork) and Ruff 0.0.11 crates, both linked
@@ -34,10 +34,11 @@ real consumer.
 1. Read `STATUS.md`: where we are and what's next.
 2. For product work, read the forward plan
    (`docs/plans/behavioral-model-forward-plan_2026-09-24.md`): §1 current state and qualification
-   boundary, §3 execution queue and §6 findings. It coordinates product sequencing and owns
+   boundary, §3.0 product PR0–PR6 queue and §6 findings. The retained Stage 3–5 sequence is a
+   research backlog, activated only by a product task or an exposed-claim defect. It coordinates product sequencing and owns
    finding disposition. For PostgreSQL work also read the distinct detailed plan
    `docs/plans/postgresql-integration-plan_2026-09-27.md`; forward-plan §3.4 owns its relationship
-   to Stage 3–5, and §6.1 owns PostgreSQL finding status.
+   to the product queue and retained Stage 3–5 research, and §6.1 owns PostgreSQL finding status.
 3. For design questions, follow **owner → decision → open work**:
    - start at the architecture map `docs/design/README.md` and read the owning section in
      `docs/design/DESIGN.md` (scope, §B1–§B14) or `docs/design/sections/` plus adjacent consumers;
