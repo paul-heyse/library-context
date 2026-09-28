@@ -102,6 +102,12 @@ isolated diagnosis, override the config through Cargo's environment variables an
 
 ## Writing code against the pinned libraries
 
+Select library skills in `.config/library-skills.toml`, then run `just skills-sync` (or
+`just skills-check` to inspect). The gitignored `.claude/skills/<name>` links expose one live
+copy per skill from `~/.local/share/library-skills/skills/` to both Codex and Claude Code.
+Improvements there reach every selecting repo; process skills remain local. Set
+`LIBRARY_SKILLS_ROOT` if the shared store is elsewhere. New worktrees need `just skills-sync`.
+
 The library capability skills under `.claude/skills/` are pinned, offline indexes. Use them
 **before** writing against an API, rather than relying on memory:
 - `datafusion` (DataFusion, Arrow, object_store)

@@ -8,6 +8,14 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 default:
     @just --list
 
+# Apply the shared library-skill selection for Codex and Claude Code
+skills-sync:
+    python3 scripts/library_skills.py
+
+# Check selected library links without changing files
+skills-check:
+    python3 scripts/library_skills.py --check
+
 # The default loop: format check, lints, optimized cached core tests, rules, ADRs, agent config
 check: fmt-check lint test py-check rules-scan rules-test lint-agents
     uv run python scripts/adr.py lint

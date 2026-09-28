@@ -16,6 +16,8 @@ _Updated 2026-09-28 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
 
 ## Verification boundary
 
+Library skills now use one shared live store, selected by `.config/library-skills.toml` for both runtimes (`just skills-sync`). Fourteen skills remain selected; improvements propagate without copying between repos. Process skills stay local.
+
 | PR3 command / evidence, 2026-09-28 | Outcome and scope |
 |---|---|
 | `just fmt`; focused Rust/schema/PG/runner controls | **passed:** original and failed-parse context, negative/deferred/override intent, provider ordering, receipts, Binary round trip and bounded expansion. Nine schema/identity snapshots were inspected before acceptance as the declared migration |
@@ -26,6 +28,7 @@ _Updated 2026-09-28 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
 | `just docs-test`; `just adr index`; `just adr lint` | **passed:** 39 documentation-tool tests and 42 ADR records; shared-skill publication and retained ADR-chain regressions repaired |
 | `just docs-check`; `git diff --check` | **passed:** 173 canonical pages, zero offline link errors; patch whitespace clean |
 | Incremental/cache policy | Prior operator policy controls retained. PR3's complete gate used the current Cargo settings; build/cache benchmarking **not_run** |
+| Shared skills migration (2026-09-28) | Selection check and `python3 scripts/check_agents.py` **passed**; shared lookup/runtime checks passed with no new broken links. Product builds/tests **not_run** for this tooling change |
 
 ## Next
 

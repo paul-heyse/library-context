@@ -14,13 +14,14 @@ Workflows for building this repository. A skill is added when a workflow has act
 | [`handoff/`](handoff/SKILL.md) | Rewrite STATUS.md from the actual tree at session end |
 | [`pin-check/`](pin-check/SKILL.md) | Change or re-verify any dependency or tool pin |
 
-## Library capability skills (gitignored — versioned outside this repo)
+## Library capability skills (shared live copies)
 
-Pinned, offline indexes of the libraries this project builds on, queried with ripgrep, ast-grep
-and `Read`. They exist because an agent writing against a fast-moving library otherwise writes
-the API it remembers. Several are tens of GB with their evidence, so this repo ignores them;
-each carries its own `build/` to reproduce it and a `reference.md` saying what it does **not**
-claim — silence in an index is not evidence of absence.
+`.config/library-skills.toml` selects the shared library skills for both runtimes.
+Run `just skills-sync` after changing it; `just skills-check` checks the links. Each selected
+folder links to `~/.local/share/library-skills/skills/<name>` (or `LIBRARY_SKILLS_ROOT`).
+Edit the shared copy to improve it for every selecting repo. Process skills above stay local.
+Each library skill retains its pinned references, lookup scripts, evidence and build inputs.
+Silence in an index is not evidence of absence.
 
 Check a skill's pinned profile against `docs/pins.md` before transferring a claim: `deltalake` is
 pinned to exactly this repo's delta-rs git profile; `pyrefly-ruff` indexes ruff 0.16.7 (crates
