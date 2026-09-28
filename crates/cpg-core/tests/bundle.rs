@@ -1248,8 +1248,9 @@ from fastmcp import Client
 import pyarrow as pa
 import pyarrow.ipc as ipc
 from lctx_semantics import SemanticExecutor, kernel_format
-from lctx_mcp.generation import load, NATIVE_IPC_FILES
-from lctx_mcp.server import build_server
+from lctx_mcp.generation import NATIVE_IPC_FILES
+sys.path[:0] = [str(Path("scripts").resolve()), str(Path("python/lctx_mcp/tests").resolve())]
+from support import load_native as load, served_bundle
 generation = load(Path(sys.argv[1]), None)
 index = generation.condition_graph
 public = {row["node_id"] for row in generation.tables["operations"].to_pylist()}
@@ -1599,8 +1600,8 @@ for operation, formal, kind, value, expected in (
     )
     assert not truncated and paths and not boundaries, (operation, paths, boundaries)
     assert any(path[4] == expected for path in paths), (operation, expected, paths)
-async def check_mcp():
-    async with Client(build_server(generation.root, None)) as client:
+async def check_mcp(server):
+    async with Client(server) as client:
         for operation, formal, kind, value, expected in (
             ("capspkg.string_member_identity", "transport", "str", "stdio", "refuted_under_model"),
             ("capspkg.string_member_identity", "transport", "str", "http", "compatible_under_model"),
@@ -1618,7 +1619,8 @@ async def check_mcp():
             page = result.structured_content
             assert page and page["paths"] and not page["boundaries"], (operation, page)
             assert any(path["exact_input_result"] == expected for path in page["paths"]), (operation, expected, page)
-asyncio.run(check_mcp())
+with served_bundle(Path(sys.argv[1])) as pg:
+    asyncio.run(check_mcp(pg.server(None)))
 paths, boundaries, total, truncated, work = inspect("capspkg.terminating_branch_before_recursion", "value")
 assert not truncated and paths, (paths, boundaries)
 assert any(boundary[3] == "scope_boundary" for boundary in boundaries), boundaries
@@ -1822,8 +1824,9 @@ async fn finalizer_proof_round_trips_through_the_native_generation_reader() {
     let script = r#"
 import sys
 from pathlib import Path
-from lctx_mcp.generation import load
-from lctx_mcp.server import hydrate, markdown, serve
+sys.path[:0] = [str(Path("scripts").resolve()), str(Path("python/lctx_mcp/tests").resolve())]
+from support import load_native as load, served_bundle
+from lctx_mcp.server import markdown
 generation = load(Path(sys.argv[1]), None)
 index = generation.condition_graph
 paths, boundaries, total, truncated, work = index.inspect_value_paths(
@@ -1835,12 +1838,12 @@ assert any(
     and sum(step[0] == "finalizer_pass" for step in path[3]) == 2
     for path in paths
 ), paths
-served = serve(generation, None)
 brief_id = next(
-    brief_id for brief_id, brief in generation.briefs.items()
+    brief["brief_id"] for brief in generation.tables["briefs"].to_pylist()
     if brief["access_path"] == "pkg.configure"
 )
-capability = hydrate(served, generation.snapshot_id, brief_id.hex())
+with served_bundle(Path(sys.argv[1])) as pg:
+    capability = pg.capability(brief_id.hex())
 coordinates = next(a for a in capability.assertions if a.kind == "coordinates")
 finding = next(s.finding for s in coordinates.supports if s.finding is not None)
 assert finding.model_id and finding.invocation_id and finding.witnesses, finding

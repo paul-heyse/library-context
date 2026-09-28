@@ -49,7 +49,7 @@ use sha2::{Digest as _, Sha256};
 use crate::{CoreError, sql};
 
 /// The manifest's format version: bumped when a served file, its schema or the manifest changes.
-pub const FORMAT: u64 = 11;
+pub const FORMAT: u64 = cpg_schema::serving_projection::BUNDLE_FORMAT as u64;
 const MAX_SUPPORT_ROWS: usize = 100_000;
 const MAX_SUPPORT_FILE_BYTES: usize = 64 * 1024 * 1024;
 
@@ -1021,9 +1021,15 @@ pub async fn build(ctx: &SessionContext, out: &Path) -> Result<Generation, CoreE
             }),
         );
     }
+    let context = cpg_schema::serving_projection::ServingContext {
+        library: release[0].clone(),
+        requirement: release[1].clone(),
+        summary: serde_json::from_value(coverage(ctx).await?).map_err(|e| bad(e.to_string()))?,
+    };
     let projection = cpg_schema::serving_projection::Manifest {
         format: cpg_schema::serving_projection::FORMAT,
         bundle_format: FORMAT as u32,
+        context: context.clone(),
         snapshot_id: ids[0].clone(),
         snapshot_digest: ids[1].clone(),
         compiler_digest: ids[2].clone(),
@@ -1043,14 +1049,14 @@ pub async fn build(ctx: &SessionContext, out: &Path) -> Result<Generation, CoreE
         "format": FORMAT,
         "condition_kernel_format": cpg_schema::condition_kernel::KERNEL_FORMAT,
         "entry_value_effect_digest": crate::entry_links::digest().hex(),
-        "library": release[0],
-        "requirement": release[1],
+        "library": context.library,
+        "requirement": context.requirement,
         "snapshot_id": ids[0],
         "content_digest": ids[1],
         "compiler_digest": ids[2],
         "spec_hash": spec_hash,
         "files": Value::Object(entries),
-        "summary": coverage(ctx).await?,
+        "summary": context.summary,
     });
     let key = key_of(&manifest)?;
     manifest["generation"] = json!(key);

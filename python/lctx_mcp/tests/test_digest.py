@@ -8,9 +8,9 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.ipc as ipc
 import pytest
+from support import expected_schemas
 
 from lctx_mcp.digest import GrammarError, canonical_form, schema_digest, type_grammar
-from lctx_mcp.generation import expected_schemas
 
 REPO = Path(__file__).resolve().parents[3]
 

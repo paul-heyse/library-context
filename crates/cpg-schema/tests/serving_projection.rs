@@ -53,8 +53,13 @@ fn full_manifest_identity_rejects_missing_relations_and_mixed_spec() {
         .map(|f| (f.name.to_owned(), receipt(f.name, 1024, &[]).unwrap()))
         .collect();
     let mut m = Manifest {
-        format: 1,
-        bundle_format: 11,
+        format: 2,
+        bundle_format: 12,
+        context: cpg_schema::serving_projection::ServingContext {
+            library: "fixture".into(),
+            requirement: "fixture==1".into(),
+            summary: Default::default(),
+        },
         snapshot_id: "01".repeat(16),
         snapshot_digest: "02".repeat(32),
         compiler_digest: "03".repeat(32),
@@ -124,6 +129,6 @@ fn ipc_shared_buffers_and_slices_have_the_same_logical_budget() {
 fn definition_encoding_is_independent_of_serde_json_map_features() {
     assert_eq!(
         cpg_schema::serving_projection::definition_digest(),
-        "01f5b50e67bf65f16e9a9df89c2416c73c61c0d6663b4b903a089375978d95da"
+        "3cf5543cc6682554f92c1b9e36e0c7e7149df5874d1c81ceacb63fbb362734a5"
     );
 }

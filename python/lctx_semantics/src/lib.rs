@@ -1524,6 +1524,7 @@ impl SemanticExecutor {
     )]
     fn inspect_value_paths(
         &self,
+        py: Python<'_>,
         operation_path: &str,
         formal_name: &str,
         kind: &str,
@@ -1532,67 +1533,69 @@ impl SemanticExecutor {
         offset: usize,
         limit: usize,
     ) -> PyResult<ValuePathPage> {
-        if limit == 0 || limit > 50 {
-            return Err(PyValueError::new_err("limit must be between 1 and 50"));
-        }
-        let operation = *self
-            .paths
-            .get(operation_path)
-            .ok_or_else(|| PyValueError::new_err("unknown public operation"))?;
-        let formal = *self
-            .formals
-            .get(&(operation, formal_name.to_owned()))
-            .ok_or_else(|| PyValueError::new_err("unknown operation formal"))?;
-        let ids = self
-            .by_formal
-            .get(&(operation, formal))
-            .map_or(&[][..], Vec::as_slice);
-        let open = self
-            .boundaries
-            .get(&(operation, formal))
-            .map_or(&[][..], Vec::as_slice);
-        let total = ids.len() + open.len();
-        if offset > total {
-            return Err(PyValueError::new_err("cursor offset exceeds result size"));
-        }
-        let end = offset.saturating_add(limit).min(total);
-        let mut paths = Vec::new();
-        let mut boundaries = Vec::new();
-        for index in offset..end {
-            if let Some(summary_id) = ids.get(index) {
-                let summary = &self.summaries[summary_id];
-                let (result, links, boundary, theory_work) = self.assess_value_path(
-                    operation_path,
-                    formal_name,
-                    &summary_id.hex(),
-                    kind,
-                    value,
-                    standard_builtins,
-                )?;
-                paths.push((
-                    summary_id.hex(),
-                    summary.verdict.clone(),
-                    summary.condition_id.hex(),
-                    summary
-                        .steps
-                        .iter()
-                        .map(|(step_kind, evidence, condition)| {
-                            (step_kind.clone(), evidence.hex(), condition.hex())
-                        })
-                        .collect(),
-                    result,
-                    links,
-                    boundary,
-                    theory_work,
-                    summary.source_flow_fact_id.hex(),
-                    summary.source_origin_id.hex(),
-                ));
-            } else {
-                let (source, origin, condition, reason) = &open[index - ids.len()];
-                boundaries.push((source.hex(), origin.hex(), condition.hex(), reason.clone()));
+        py.detach(|| {
+            if limit == 0 || limit > 50 {
+                return Err(PyValueError::new_err("limit must be between 1 and 50"));
             }
-        }
-        Ok((paths, boundaries, total, end < total, end - offset))
+            let operation = *self
+                .paths
+                .get(operation_path)
+                .ok_or_else(|| PyValueError::new_err("unknown public operation"))?;
+            let formal = *self
+                .formals
+                .get(&(operation, formal_name.to_owned()))
+                .ok_or_else(|| PyValueError::new_err("unknown operation formal"))?;
+            let ids = self
+                .by_formal
+                .get(&(operation, formal))
+                .map_or(&[][..], Vec::as_slice);
+            let open = self
+                .boundaries
+                .get(&(operation, formal))
+                .map_or(&[][..], Vec::as_slice);
+            let total = ids.len() + open.len();
+            if offset > total {
+                return Err(PyValueError::new_err("cursor offset exceeds result size"));
+            }
+            let end = offset.saturating_add(limit).min(total);
+            let mut paths = Vec::new();
+            let mut boundaries = Vec::new();
+            for index in offset..end {
+                if let Some(summary_id) = ids.get(index) {
+                    let summary = &self.summaries[summary_id];
+                    let (result, links, boundary, theory_work) = self.assess_value_path(
+                        operation_path,
+                        formal_name,
+                        &summary_id.hex(),
+                        kind,
+                        value,
+                        standard_builtins,
+                    )?;
+                    paths.push((
+                        summary_id.hex(),
+                        summary.verdict.clone(),
+                        summary.condition_id.hex(),
+                        summary
+                            .steps
+                            .iter()
+                            .map(|(step_kind, evidence, condition)| {
+                                (step_kind.clone(), evidence.hex(), condition.hex())
+                            })
+                            .collect(),
+                        result,
+                        links,
+                        boundary,
+                        theory_work,
+                        summary.source_flow_fact_id.hex(),
+                        summary.source_origin_id.hex(),
+                    ));
+                } else {
+                    let (source, origin, condition, reason) = &open[index - ids.len()];
+                    boundaries.push((source.hex(), origin.hex(), condition.hex(), reason.clone()));
+                }
+            }
+            Ok((paths, boundaries, total, end < total, end - offset))
+        })
     }
 }
 

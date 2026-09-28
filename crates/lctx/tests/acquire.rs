@@ -85,6 +85,7 @@ fn run_with(
         .args(extra)
         .env("PATH", path)
         .env("STUB_OUT", &root)
+        .env("LCTX_DATABASE_CONFIG", root.join("absent-database.json"))
         .env("UV_INDEX_URL", "https://example.invalid/simple")
         .env("UV_CONFIG_FILE", "/tmp/elsewhere.toml")
         .env("VIRTUAL_ENV", "/tmp/some-venv")
@@ -153,7 +154,7 @@ fn reinstall_rebuilds_every_package() {
 fn compile_honours_reinstall() {
     let (_, args, _, _) = run_with(
         &["compile", "demo", "--store", "/nonexistent-store"],
-        &["--reinstall"],
+        &["--reinstall", "--embedder", "none"],
         "",
     );
     assert_eq!(args.first().map(String::as_str), Some("sync"));

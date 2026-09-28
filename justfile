@@ -35,7 +35,7 @@ lint:
 # Rust inputs; repeated runs execute cached optimized test binaries. Tests own their data state.
 # Snapshots never auto-accept (INSTA_UPDATE=no).
 test *args:
-    INSTA_UPDATE=no cargo nextest run --release --workspace --no-tests=pass {{args}}
+    INSTA_UPDATE=no cargo nextest run --release --workspace --no-fail-fast --no-tests=pass {{args}}
 
 # Python tests (scripts and lctx_mcp over the fixture generation) + pyrefly
 py-check: py-fixture
@@ -80,16 +80,18 @@ fixtures-check:
 
 # The real-library oracle (ADR-0046): acquire the FastMCP pilot from libraries/fastmcp, then
 # extract, derive, validate and publish a snapshot into build/store. First run needs the network.
-pilot store="build/store" log="build/pilot.log":
+pilot store="build/store" log="build/pilot.log" serving_config="":
     cargo build --release -p lctx --quiet
     target/release/lctx compile fastmcp --store {{store}} --embedder fake | tee {{log}}
-    uv run python -m lctx_mcp.smoke "$(grep '^generation ' {{log}} | cut -d' ' -f2)" --embedder fake
+    target/release/lctx serving import-bundle --bundle "$(grep '^generation ' {{log}} | cut -d' ' -f2)"
+    uv run python -m lctx_mcp.smoke "$(grep '^generation ' {{log}} | cut -d' ' -f2)" --embedder fake {{ if serving_config != "" { "--config " + serving_config } else { "" } }}
 
 # The same compile with live vectors: needs `just embed-serve` running (else `blocked`)
-pilot-live store="build/store" log="build/pilot-live.log":
+pilot-live store="build/store" log="build/pilot-live.log" serving_config="":
     cargo build --release -p lctx --quiet
     target/release/lctx compile fastmcp --store {{store}} --embedder vllm | tee {{log}}
-    uv run python -m lctx_mcp.smoke "$(grep '^generation ' {{log}} | cut -d' ' -f2)" --embedder vllm
+    target/release/lctx serving import-bundle --bundle "$(grep '^generation ' {{log}} | cut -d' ' -f2)"
+    uv run python -m lctx_mcp.smoke "$(grep '^generation ' {{log}} | cut -d' ' -f2)" --embedder vllm {{ if serving_config != "" { "--config " + serving_config } else { "" } }}
 
 # The embedding service (DESIGN §11.1, ADR-0068): vLLM 0.30.0 from the locked services/vllm
 # project, serving Qwen3-Embedding-8B at its pinned revision on the local GPU
@@ -171,10 +173,14 @@ postgres-test-setup:
     docker pull "$(cat specs/postgres-vector-image.txt)"
 
 # Real database semantics; pure model tests do not require a running service.
-test-postgres:
+test-postgres: py-fixture
     @docker image inspect "$(cat specs/postgres-vector-image.txt)" >/dev/null || { echo 'blocked: run just postgres-test-setup'; exit 2; }
-    INSTA_UPDATE=no cargo nextest run --release -p cpg-core --test postgres -p lctx-postgres --test serving --run-ignored only --test-threads 2 --no-fail-fast --success-output immediate
+    LCTX_TEST_PROJECTION="$PWD/build/py-fixture/$(cat build/py-fixture/CURRENT)" INSTA_UPDATE=no cargo nextest run --release -p cpg-core --test postgres -p lctx-postgres --test serving --run-ignored only --test-threads 2 --no-fail-fast --success-output immediate -E 'not test(captured_reference_parity)'
     LCTX_POSTGRES_TEST=1 uv run pytest tests/scripts/test_postgres_serving.py
+
+# Explicit comparison with a previously frozen, same-input reference answer capture.
+test-postgres-reference projection reference:
+    LCTX_TEST_PROJECTION="{{projection}}" LCTX_TEST_REFERENCE="{{reference}}" cargo nextest run --release -p lctx-postgres --test serving --run-ignored only -E 'test(captured_reference_parity)' --success-output immediate
 
 sqlx-check:
     uv run python scripts/postgres_check.py

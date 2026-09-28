@@ -2055,17 +2055,19 @@ async fn typed_attributes_keep_source_evidence_through_serving() {
 import sys
 from pathlib import Path
 import pyarrow as pa
-from lctx_mcp.generation import load
+sys.path[:0] = [str(Path("scripts").resolve()), str(Path("python/lctx_mcp/tests").resolve())]
+from support import load_native as load, served_bundle
 from lctx_semantics import validate_projection_ipc
 sys.path.insert(0, str(Path('python/lctx_mcp/tests').resolve()))
 from test_projection import changed as changed_projection
-from lctx_mcp.server import serve, _finding
 
 generation = load(Path(sys.argv[1]), None)
-served = serve(generation, None)
-assert served.attributes and served.attribute_incidences
-for finding_id in served.attribute_incidences:
-    result = _finding(served, finding_id)
+with served_bundle(Path(sys.argv[1])) as pg:
+    findings = pg.findings()
+finding_ids = {r["finding_id"] for r in generation.tables["support_attribute_incidences"].to_pylist()}
+assert finding_ids
+for finding_id in finding_ids:
+    result = findings[finding_id]
     assert result.attributes and result.attribute_incidences
     assert result.source_resolution in ('fact_only', 'source_span')
     assert all(row.source_fact_id and row.fact_table and row.fact_model_id for row in result.attribute_incidences)

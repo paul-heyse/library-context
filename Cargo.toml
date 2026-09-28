@@ -13,9 +13,11 @@ publish = false
 # `just deps` enforces that with scripts/check_family.py (not deny.toml, which
 # misses dev-only duplicates — ADR-0002).
 [workspace.dependencies]
+async-trait = "=0.1.92"
+datafusion-federation = { version = "=0.5.7", features = ["sql"] }
 pgvector = { version = "=0.4.2", default-features = false, features = ["sqlx"] }
 pgpq = "=0.12.0"
-datafusion-table-providers-postgres = { git = "https://github.com/paul-heyse/datafusion-table-providers", rev = "b4dbe895b40ad49eb0593d8887616eba2c1f9bbf", default-features = false, features = ["federation"] }
+datafusion-table-providers-postgres = { git = "https://github.com/paul-heyse/datafusion-table-providers", rev = "e6fc4c40ec0ffdb7c89371371b18c5f819cc79a9", default-features = false, features = ["federation"] }
 tokio-postgres = "=0.7.18"
 bytes = "=1.12.1"
 pyo3-async-runtimes = { version = "=0.29.0", default-features = false, features = ["tokio-runtime"] }

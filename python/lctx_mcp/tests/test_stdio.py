@@ -87,12 +87,23 @@ def not_protocol(lines: list[str]) -> list[str]:
     return bad
 
 
-def server(generation: Path) -> list[str]:
-    return ["-m", "lctx_mcp", "--generation", str(generation), "--embedder", "fake"]
+def server(pg_serving) -> list[str]:
+    return [
+        "-m",
+        "lctx_mcp",
+        "--config",
+        str(pg_serving.config),
+        "--library",
+        pg_serving.library,
+        "--generation",
+        pg_serving.generation,
+        "--embedder",
+        "fake",
+    ]
 
 
-async def test_the_server_speaks_only_the_protocol_on_stdout(generation: Path) -> None:
-    lines = await stdout_lines([sys.executable, *server(generation)])
+async def test_the_server_speaks_only_the_protocol_on_stdout(generation: Path, pg_serving) -> None:
+    lines = await stdout_lines([sys.executable, *server(pg_serving)])
     assert not_protocol(lines) == []
     answer = json.loads(lines[-1])
     assert answer["id"] == 3 and not answer["result"].get("isError")
@@ -100,12 +111,19 @@ async def test_the_server_speaks_only_the_protocol_on_stdout(generation: Path) -
     assert hits[0]["title"] == "pkg.describe"
 
 
-async def test_a_server_that_prints_fails_the_check(generation: Path) -> None:
+async def test_a_server_that_prints_fails_the_check(generation: Path, pg_serving) -> None:
     """The control: the same check sees a line printed before the server starts."""
     noisy = (
         "import runpy, sys; print('noise', flush=True); "
-        f"sys.argv = ['lctx_mcp', *{server(generation)[2:]!r}]; "
+        f"sys.argv = ['lctx_mcp', *{server(pg_serving)[2:]!r}]; "
         "runpy.run_module('lctx_mcp', run_name='__main__')"
     )
     lines = await stdout_lines([sys.executable, "-c", noisy])
     assert not_protocol(lines) == ["noise"]
+
+
+@pytest.mark.anyio
+async def test_smoke_uses_pinned_postgres_generation(generation, pg_serving):
+    from lctx_mcp.smoke import smoke
+
+    assert await smoke(generation, "fake", pg_serving.config) == 0

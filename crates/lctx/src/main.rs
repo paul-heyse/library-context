@@ -24,6 +24,7 @@
 
 mod db;
 mod propose;
+mod serving;
 
 /// jemalloc, not glibc malloc (ADR-0016): glibc's per-thread arenas retained about half of a
 /// 6,100-7,300 MiB pilot peak; under jemalloc the peak stays flat at extraction's working set
@@ -67,6 +68,13 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Cmd {
+    /// Immutable PostgreSQL serving projections and explicit operator selection.
+    Serving {
+        #[arg(long)]
+        importer_config: Option<PathBuf>,
+        #[command(subcommand)]
+        command: serving::Command,
+    },
     /// PostgreSQL migrations, diagnostics and explicit reconciliation/import.
     Db {
         #[command(subcommand)]
@@ -859,6 +867,14 @@ fn run() -> anyhow::Result<()> {
     let envs = absolute(&cli.envs)?;
     let sources = absolute(&cli.sources)?;
     match cli.command {
+        Cmd::Serving {
+            command,
+            importer_config,
+        } => tokio::runtime::Runtime::new()?.block_on(serving::command(
+            command,
+            cli.database_config.as_deref(),
+            importer_config.as_deref(),
+        )),
         Cmd::Db { command } => tokio::runtime::Runtime::new()?
             .block_on(db::command(command, cli.database_config.as_deref())),
         Cmd::Runs { command } => tokio::runtime::Runtime::new()?

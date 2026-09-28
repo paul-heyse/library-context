@@ -7,6 +7,7 @@ use cpg_schema::{
     embedding::encode_vector,
     id::{Digest, Id},
 };
+use std::sync::Arc;
 use testcontainers_modules::{
     postgres::Postgres,
     testcontainers::{ContainerAsync, ImageExt, runners::AsyncRunner},
@@ -400,7 +401,7 @@ async fn pg_published_bundle_replays_every_byte_after_database_stops() {
         .canonicalize()
         .unwrap();
     let id = Id([31; 16]);
-    let out = cpg_extract::extract(&cpg_extract::ExtractInput {
+    let mut input = cpg_extract::ExtractInput {
         release: cpg_extract::Release::from_tree(fixture.join("release"), "analysis_shapes")
             .unwrap(),
         venv_root: fixture.clone(),
@@ -411,8 +412,27 @@ async fn pg_published_bundle_replays_every_byte_after_database_stops() {
         corpus: None,
         keep_pysa_json: false,
         test_hooks: Default::default(),
-    })
-    .unwrap();
+    };
+    input.corpus = Some(
+        cpg_extract::library::corpus(
+            &fixture.parent().unwrap().join("postgres_report_corpus"),
+            &cpg_extract::library::Source {
+                repository: "https://example.invalid/report-fixture".into(),
+                tag: "v1".into(),
+                commit: "0".repeat(40),
+                documents: vec!["*.md".into()],
+                documents_exclude: vec![],
+                examples: vec!["examples/**/*.py".into()],
+                examples_exclude: vec![],
+                tests: vec![],
+                tests_exclude: vec![],
+            },
+            &input,
+        )
+        .unwrap(),
+    );
+    let out = cpg_extract::extract(&input).unwrap();
+    // A separate corpus release must not duplicate the serving-relation report.
     let config = lctx_analytics::config::AnalyticsConfig::parse(r#"
 version = 1
 [subsystem]
@@ -442,6 +462,92 @@ budget = 6
     let first = bundle::bundle(&store, id, &dir.path().join("online"))
         .await
         .unwrap();
+    let source = cpg_core::postgres::import::Source::open(&first.dir).unwrap();
+    let mut role = cpg_core::postgres::serving::RoleConfig {
+        format: 1,
+        role: cpg_core::postgres::serving::Role::Importer,
+        url: f
+            .config
+            .application_url
+            .replace("lctx_app:", "lctx_importer:"),
+        max_connections: 2,
+        provider_connections: 0,
+        acquire_timeout_seconds: 2,
+        statement_timeout_seconds: 30,
+        lock_timeout_seconds: 2,
+    };
+    let importer = role.open_importer().await.unwrap();
+    let envelope: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(first.dir.join("MANIFEST.json")).unwrap()).unwrap();
+    let files: std::collections::BTreeMap<_, _> = envelope["files"]
+        .as_object()
+        .unwrap()
+        .iter()
+        .map(|(name, value)| (name.clone(), value["sha256"].as_str().unwrap().to_owned()))
+        .collect();
+    use sha2::Digest as _;
+    let transport = sha2::Sha256::digest(serde_json::to_vec(&files).unwrap());
+    sqlx::query("SELECT lctx_serving.prepare_generation($1,$2)")
+        .bind(serde_json::to_string(source.manifest()).unwrap())
+        .bind(transport.as_slice())
+        .execute(&f.admin)
+        .await
+        .unwrap();
+    role.role = cpg_core::postgres::serving::Role::Serving;
+    role.url = role.url.replace("lctx_importer:", "lctx_serving:");
+    role.max_connections = 6;
+    role.provider_connections = 2;
+    let loading = cpg_core::postgres_read::report(&role, &store, id, source.generation())
+        .await
+        .unwrap();
+    assert_eq!(
+        loading.json["diagnostics"]["captured_projection_state"][0]["state"],
+        "loading"
+    );
+    assert_eq!(
+        loading.json["rows"].as_array().unwrap().len(),
+        1,
+        "unready report retains canonical/operational summary"
+    );
+    let imported = importer
+        .import(source.clone(), dir.path().join("artifacts"))
+        .await
+        .unwrap();
+    importer
+        .select(
+            "analysis_shapes",
+            source.generation(),
+            Digest::from_hex(&imported.profile).unwrap(),
+        )
+        .await
+        .unwrap();
+    let report = cpg_core::postgres_read::report(&role, &store, id, source.generation())
+        .await
+        .unwrap();
+    assert_eq!(report.json["rows"].as_array().unwrap().len(), 51);
+    assert_eq!(
+        report.json["diagnostics"]["captured_profiles"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        report.json["diagnostics"]["captured_profile_attempts"]
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
+    assert_eq!(
+        report.json["diagnostics"]["captured_selections"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(report.json["provider_rows"].as_u64().unwrap() > 0);
+    importer.close().await;
     f.app.close().await;
     f.admin.close().await;
     f._db.stop().await.unwrap();
@@ -649,4 +755,260 @@ async fn pg_provider_pool_shares_the_declared_budget() {
     );
     serving.close().await;
     drop(provider);
+}
+
+#[tokio::test]
+#[ignore = "explicit admitted provider/published projection check"]
+async fn admitted_provider_matches_local_residuals_and_empty_schema() {
+    use cpg_core::postgres::{
+        import::Source,
+        serving::{Role, RoleConfig},
+    };
+    use cpg_core::postgres_read::{ProviderPool, session};
+    use cpg_schema::postgres_report::View;
+    let source = Source::open(std::path::Path::new(
+        &std::env::var("LCTX_TEST_PROJECTION").unwrap(),
+    ))
+    .unwrap();
+    let f = Fixture::start().await;
+    let artifacts = tempfile::tempdir().unwrap();
+    let mut config = RoleConfig {
+        format: 1,
+        role: Role::Importer,
+        url: f
+            .config
+            .application_url
+            .replace("lctx_app:", "lctx_importer:"),
+        max_connections: 2,
+        provider_connections: 0,
+        acquire_timeout_seconds: 2,
+        statement_timeout_seconds: 30,
+        lock_timeout_seconds: 2,
+    };
+    let importer = config.open_importer().await.unwrap();
+    importer
+        .import(source.clone(), artifacts.path().to_owned())
+        .await
+        .unwrap();
+    config.role = Role::Serving;
+    config.url = config.url.replace("lctx_importer:", "lctx_serving:");
+    config.max_connections = 6;
+    config.provider_connections = 2;
+    let pool = ProviderPool::open(&config).await.unwrap();
+    let reader = config.open_serving().await.unwrap();
+    let pin = reader
+        .pin(
+            &source.manifest().context.library,
+            Some(source.generation()),
+            None,
+        )
+        .await
+        .unwrap();
+    let local = session();
+    let remote = session();
+    for (ctx, push, federation) in [(&local, false, false), (&remote, true, true)] {
+        pool.register(
+            ctx,
+            &pin,
+            View::GenerationRelations,
+            "relations",
+            push,
+            federation,
+        )
+        .await
+        .unwrap();
+        pool.register(ctx, &pin, View::OperationOutline, "ops", push, federation)
+            .await
+            .unwrap();
+    }
+    for query in [
+        "SELECT * FROM relations WHERE rows >= 1 ORDER BY relation_name LIMIT 7",
+        "SELECT node_id,access_path,docstring_summary FROM ops WHERE kind='method' AND is_method ORDER BY access_path,node_id LIMIT 10",
+        "SELECT node_id,access_path FROM ops WHERE lower(kind)='class' ORDER BY access_path,node_id LIMIT 3",
+        "SELECT node_id FROM ops WHERE docstring_summary IS NULL ORDER BY node_id LIMIT 4",
+        "SELECT node_id FROM ops WHERE CAST(is_method AS VARCHAR)='true' ORDER BY node_id LIMIT 5",
+        "SELECT a.relation_name,b.rows FROM relations a JOIN relations b ON a.generation_digest=b.generation_digest AND a.relation_name=b.relation_name WHERE a.rows>0 ORDER BY a.relation_name LIMIT 5",
+        "SELECT a.relation_name,b.rows FROM relations a LEFT JOIN (SELECT * FROM relations WHERE rows>0) b ON a.generation_digest=b.generation_digest AND a.relation_name=b.relation_name ORDER BY a.relation_name",
+        "SELECT * FROM ops WHERE kind='does_not_exist'",
+        "SELECT is_method IS NULL FROM ops LIMIT 1",
+        "SELECT a.relation_name,relations.rows FROM relations a JOIN relations ON a.generation_digest=relations.generation_digest AND a.relation_name=relations.relation_name ORDER BY a.relation_name LIMIT 5",
+        "SELECT a.relation_name,generation_relations.rows FROM relations a JOIN relations generation_relations ON a.generation_digest=generation_relations.generation_digest AND a.relation_name=generation_relations.relation_name ORDER BY a.relation_name LIMIT 5",
+        "SELECT CAST(rows AS DOUBLE) AS n FROM relations WHERE CAST(rows AS DOUBLE)>1.5 ORDER BY n LIMIT 5",
+        "SELECT CAST('2026-09-28T12:00:00Z' AS TIMESTAMP) AS at FROM relations LIMIT 1",
+        "SELECT X'0102ff' AS bytes FROM relations LIMIT 1",
+        "SELECT a.node_id FROM (SELECT generation_digest,kind node_id FROM ops) a JOIN (SELECT generation_digest,kind node_id FROM ops) b ON a.generation_digest=b.generation_digest AND a.node_id=b.node_id ORDER BY a.node_id LIMIT 5",
+    ] {
+        let expected = cpg_core::sql::query(&local, query)
+            .await
+            .unwrap()
+            .collect()
+            .await
+            .unwrap();
+        let actual = cpg_core::sql::query(&remote, query)
+            .await
+            .unwrap()
+            .collect()
+            .await
+            .unwrap();
+        let render = |b: &Vec<arrow_array::RecordBatch>| {
+            datafusion::arrow::util::pretty::pretty_format_batches(b)
+                .unwrap()
+                .to_string()
+        };
+        assert_eq!(render(&expected), render(&actual), "{query}");
+        if !actual.is_empty() {
+            assert_eq!(expected[0].schema(), actual[0].schema(), "{query}");
+        }
+    }
+    let plan = cpg_core::sql::query(
+        &remote,
+        "SELECT relation_name,rows FROM relations WHERE rows>1 ORDER BY relation_name LIMIT 5",
+    )
+    .await
+    .unwrap()
+    .into_optimized_plan()
+    .unwrap()
+    .display_indent()
+    .to_string();
+    assert!(
+        plan.contains("Federated"),
+        "admitted subtree must actually federate: {plan}"
+    );
+    // A physical predicate arriving after federation must remain executable locally.
+    use datafusion::physical_optimizer::PhysicalOptimizerRule;
+    let physical = cpg_core::sql::query(
+        &remote,
+        "SELECT relation_name,rows FROM relations WHERE rows>0",
+    )
+    .await
+    .unwrap()
+    .create_physical_plan()
+    .await
+    .unwrap();
+    let predicate = Arc::new(datafusion::physical_expr::expressions::BinaryExpr::new(
+        Arc::new(datafusion::physical_expr::expressions::Column::new(
+            "rows", 1,
+        )),
+        datafusion::logical_expr::Operator::Lt,
+        Arc::new(datafusion::physical_expr::expressions::Literal::new(
+            datafusion::common::ScalarValue::Int64(Some(0)),
+        )),
+    ));
+    let filter = Arc::new(
+        datafusion::physical_plan::filter::FilterExec::try_new(predicate, physical).unwrap(),
+    );
+    let optimized = datafusion::physical_optimizer::filter_pushdown::FilterPushdown::new()
+        .optimize(filter, remote.state().config_options())
+        .unwrap();
+    let filtered = datafusion::physical_plan::collect(optimized, remote.task_ctx())
+        .await
+        .unwrap();
+    assert_eq!(filtered.iter().map(|b| b.num_rows()).sum::<usize>(), 0);
+    // Cancellation before any first batch discards the owner and stops server work.
+    for _ in 0..3 {
+        let connection = pool.pool().connect_direct().await.unwrap();
+        connection.conn.start_request();
+        assert!(
+            tokio::time::timeout(
+                std::time::Duration::from_millis(30),
+                connection.conn.query("SELECT pg_sleep(5)", &[])
+            )
+            .await
+            .is_err()
+        );
+        drop(connection);
+    }
+    let mut active = 1i64;
+    for _ in 0..100 {
+        active=sqlx::query_scalar("SELECT count(*) FROM pg_stat_activity WHERE application_name='lctx-provider' AND state='active' AND query LIKE '%pg_sleep%'").fetch_one(&f.admin).await.unwrap();
+        if active == 0 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    assert_eq!(
+        active, 0,
+        "cancelled queries must not outlive the pool budget"
+    );
+    let raw = cpg_core::sql::query(&remote, "SELECT * FROM ops WHERE kind='does_not_exist'")
+        .await
+        .unwrap();
+    assert_eq!(
+        raw.schema().as_arrow(),
+        View::OperationOutline.schema().as_ref()
+    );
+    let capture = reader
+        .capture_report(
+            "none",
+            cpg_schema::Id::from_hex(&source.manifest().snapshot_id).unwrap(),
+            source.generation(),
+            cpg_schema::Digest::from_hex(&source.manifest().compiler_digest).unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        capture.tables["captured_imports"]
+            .iter()
+            .map(|b| b.num_rows())
+            .sum::<usize>(),
+        1
+    );
+    assert_eq!(capture.tables["captured_events"][0].num_rows(), 0);
+    assert!(pool.pool().read_metrics().2 > 0);
+    // Atomic writer transactions race the seven-view capture. Every capture must see one epoch.
+    let compiler = cpg_schema::Digest::from_hex(&source.manifest().compiler_digest).unwrap();
+    let snapshot = cpg_schema::Id::from_hex(&source.manifest().snapshot_id).unwrap();
+    sqlx::query("INSERT INTO lctx_ops.attempts(attempt_id,compiler_digest,library,store_path) VALUES($1,$2,'coherence','coherence')").bind(snapshot.0.as_slice()).bind(compiler.0.as_slice()).execute(&f.admin).await.unwrap();
+    sqlx::query("INSERT INTO lctx_ops.events(attempt_id,event_key,kind,detail) VALUES($1,'epoch','stage','0')").bind(snapshot.0.as_slice()).execute(&f.admin).await.unwrap();
+    sqlx::query("INSERT INTO lctx_ops.snapshots(store_path,snapshot_id,content_digest,compiler_digest,available) VALUES('coherence',$1,$2,$2,false)").bind(snapshot.0.as_slice()).bind(compiler.0.as_slice()).execute(&f.admin).await.unwrap();
+    let writer = tokio::spawn({
+        let admin = f.admin.clone();
+        async move {
+            for epoch in 1..41 {
+                let mut tx = admin.begin().await.unwrap();
+                sqlx::query("UPDATE lctx_ops.events SET detail=$1 WHERE event_key='epoch'")
+                    .bind(if epoch % 2 == 1 { "1" } else { "0" })
+                    .execute(&mut *tx)
+                    .await
+                    .unwrap();
+                sqlx::query(
+                    "UPDATE lctx_ops.snapshots SET available=$1 WHERE store_path='coherence'",
+                )
+                .bind(epoch % 2 == 1)
+                .execute(&mut *tx)
+                .await
+                .unwrap();
+                tx.commit().await.unwrap();
+                tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+            }
+        }
+    });
+    for _ in 0..20 {
+        let capture = reader
+            .capture_report("coherence", snapshot, source.generation(), compiler)
+            .await
+            .unwrap();
+        let event = capture.tables[View::Events.name()][0]
+            .column_by_name("detail")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<arrow_array::StringArray>()
+            .unwrap()
+            .value(0)
+            == "1";
+        let publication = capture.tables[View::Publications.name()][0]
+            .column_by_name("available")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<arrow_array::BooleanArray>()
+            .unwrap()
+            .value(0);
+        assert_eq!(
+            event, publication,
+            "coherent capture cannot mix committed epochs"
+        );
+    }
+    writer.await.unwrap();
+    reader.close().await;
+    importer.close().await;
 }

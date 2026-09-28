@@ -16,15 +16,20 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 from collections.abc import AsyncIterator
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from functools import partial, wraps
 from pathlib import Path
 from typing import Annotated, Literal
 
 import numpy as np
 from fastmcp import Context, FastMCP
-from fastmcp.exceptions import ValidationError
+from fastmcp.exceptions import ToolError, ValidationError
+from lctx_storage import StorageError, open_repository
 from mcp_types import ToolAnnotations
 from pydantic import BaseModel, Field
 
@@ -32,7 +37,15 @@ from lctx_mcp import operations as ops
 from lctx_mcp import value_paths
 from lctx_mcp.embedder import Embedder, EmbedderError
 from lctx_mcp.generation import Generation, load
-from lctx_mcp.retrieval import Lexical, RankSource, fuse, ranks, vector_scores
+from lctx_mcp.retrieval import (
+    Lexical,
+    RankSource,
+    RetrievalMetadata,
+    fuse_legs,
+    identities,
+    lexical_rank,
+    vector_legs,
+)
 
 INSTRUCTIONS = (
     "A behavioral model of one pinned Python library's whole public surface, compiled from its "
@@ -69,6 +82,8 @@ class Hit(BaseModel):
 
 
 class SearchResult(BaseModel):
+    retrieval: RetrievalMetadata
+
     library: str
     snapshot_id: str
     generation: str
@@ -206,263 +221,216 @@ class Capability(BaseModel):
     sections_absent: list[str]
 
 
+class NativeWorkers:
+    """Two admitted CPU jobs; cancellation retains the slot until native work actually ends."""
+
+    def __init__(self) -> None:
+        self.pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="lctx-native")
+        self.slots = asyncio.Semaphore(2)
+
+    async def run(self, fn, *args):
+        try:
+            await asyncio.wait_for(self.slots.acquire(), 1.0)
+        except TimeoutError as exc:
+            raise ToolError("resource_refused: native worker capacity") from exc
+        loop = asyncio.get_running_loop()
+        try:
+            future = loop.run_in_executor(self.pool, partial(fn, *args))
+        except BaseException:
+            self.slots.release()
+            raise
+
+        def completed(done):
+            self.slots.release()
+            if not done.cancelled():
+                done.exception()
+
+        future.add_done_callback(completed)
+        try:
+            return await asyncio.wait_for(asyncio.shield(future), 30.0)
+        except TimeoutError as exc:
+            raise ToolError("resource_refused: native request deadline") from exc
+
+    async def close(self) -> None:
+        await asyncio.to_thread(self.pool.shutdown, wait=True, cancel_futures=True)
+
+
 @dataclass
 class Served:
-    """What the lifespan yields: the generation, its lexical index, and the query embedder."""
-
     generation: Generation
-    lexical: Lexical
+    lexical: Lexical | None
+    operation_lexical: Lexical | None
     embedder: Embedder | None
-    assertions: dict[bytes, list[dict]]
-    supports: dict[bytes, list[dict]]
-    evidence: dict[bytes, dict]
-    findings: dict[bytes, dict]
-    witnesses: dict[bytes, list[dict]]
-    finding_members: dict[bytes, list[dict]]
-    attributes: dict[bytes, dict]
-    attribute_incidences: dict[bytes, list[dict]]
-    members: dict[bytes, list[str]]
-    operations: ops.OperationIndex
+    workers: NativeWorkers
 
 
-def _hex(b: bytes | None) -> str | None:
-    return None if b is None else b.hex()
-
-
-def _finding(served: Served, finding_id: bytes) -> FindingSupport:
-    row = served.findings[finding_id]
-    witnesses = [
-        FindingWitness(
-            path=w["path"],
-            step=w["step"],
-            call_site_node_id=w["call_site_node_id"].hex(),
-            callee_node_id=w["callee_node_id"].hex(),
-            arc_kind=w["arc_kind"],
-            modality=w["modality"],
-            phase=w["phase"],
-            source_fact_id=_hex(w["source_fact_id"]),
-            source_path=w["source_path"],
-            start_byte=w["start_byte"],
-            end_byte=w["end_byte"],
-        )
-        for w in served.witnesses.get(finding_id, [])
-    ]
-    members = [
-        FindingMember(
-            role=m["role"],
-            ordinal=m["ordinal"],
-            node_id=_hex(m["node_id"]),
-            cited_fact_id=_hex(m["cited_fact_id"]),
-            attribute_id=_hex(m["attribute_id"]),
-            fact_table=m["fact_table"],
-            fact_model_id=m["fact_model_id"],
-            label=m["label"],
-        )
-        for m in served.finding_members.get(finding_id, [])
-    ]
-
-    def encode_ids(row: dict) -> dict:
-        return {k: v.hex() if isinstance(v, bytes) else v for k, v in row.items()}
-
-    attribute_ids = {
-        m["attribute_id"]
-        for m in served.finding_members.get(finding_id, [])
-        if m["attribute_id"] is not None
-    }
-    attributes = [
-        ConceptAttribute(**encode_ids(served.attributes[a])) for a in sorted(attribute_ids)
-    ]
-    incidences = [
-        AttributeIncidence(**encode_ids(r)) for r in served.attribute_incidences.get(finding_id, [])
-    ]
-    resolution = (
-        "source_span"
-        if witnesses
-        else "fact_only"
-        if incidences or any(m.cited_fact_id for m in members)
-        else "unavailable"
-    )
-    return FindingSupport(
-        finding_id=finding_id.hex(),
-        kind=row["finding_kind"],
-        evidence_status=row["evidence_status"],
-        subject_node_id=row["subject_node_id"].hex(),
-        related_node_id=_hex(row["related_node_id"]),
-        invocation_id=row["invocation_id"].hex(),
-        model_id=row["model_id"],
-        method=row["method"],
-        parameters=row["parameters"],
-        completion=row["completion"],
-        stop_reason=row["stop_reason"],
-        witnesses_omitted=row["witnesses_omitted"],
-        witnesses=witnesses,
-        members=members,
-        attributes=attributes,
-        attribute_incidences=incidences,
-        source_resolution=resolution,
-    )
-
-
-def serve(generation: Generation, embedder: Embedder | None) -> Served:
-    """Index a loaded generation for serving."""
-    assertions: dict[bytes, list[dict]] = {}
-    for r in generation.tables["assertions"].to_pylist():
-        assertions.setdefault(r["brief_id"], []).append(r)
-    supports: dict[bytes, list[dict]] = {}
-    for r in generation.tables["supports"].to_pylist():
-        supports.setdefault(r["assertion_id"], []).append(r)
-    findings = {r["finding_id"]: r for r in generation.tables["support_findings"].to_pylist()}
-    witnesses: dict[bytes, list[dict]] = {}
-    for r in generation.tables["support_witnesses"].to_pylist():
-        witnesses.setdefault(r["finding_id"], []).append(r)
-    finding_members: dict[bytes, list[dict]] = {}
-    for r in generation.tables["support_members"].to_pylist():
-        finding_members.setdefault(r["finding_id"], []).append(r)
-    attributes = {r["attribute_id"]: r for r in generation.tables["support_attributes"].to_pylist()}
-    attribute_incidences: dict[bytes, list[dict]] = {}
-    for row in generation.tables["support_attribute_incidences"].to_pylist():
-        attribute_incidences.setdefault(row["finding_id"], []).append(row)
-    # A brief is shown by its own public paths; the inherited ones only promote (FORMAT 2).
-    members: dict[bytes, list[str]] = {}
-    for r in generation.tables["brief_members"].to_pylist():
-        if r["own"]:
-            members.setdefault(r["brief_id"], []).append(r["access_path"])
+def serve(generation: Generation, embedder: Embedder | None, workers: NativeWorkers) -> Served:
+    state = generation.lexical_state
     return Served(
-        generation=generation,
-        lexical=Lexical(generation.lexical),
-        embedder=embedder,
-        assertions=assertions,
-        supports=supports,
-        evidence={r["evidence_id"]: r for r in generation.tables["evidence"].to_pylist()},
-        findings=findings,
-        witnesses=witnesses,
-        finding_members=finding_members,
-        attributes=attributes,
-        attribute_incidences=attribute_incidences,
-        members=members,
-        operations=ops.OperationIndex(generation),
+        generation,
+        Lexical(state.brief_text) if state.brief_text else None,
+        Lexical(state.operation_text) if state.operation_text else None,
+        embedder,
+        workers,
     )
 
 
-async def search(served: Served, library: str, query: str, limit: int) -> SearchResult:
-    """§11.2: lexical, vector, fused, exact symbols promoted; degraded to lexical when needed."""
+REQUEST_SECONDS = 30.0
+
+
+def request_deadline(fn):
+    """One wall-clock budget covers eligibility, embedding, vector work and rendering."""
+
+    @wraps(fn)
+    async def wrapped(*args, **kwargs):
+        try:
+            async with asyncio.timeout(REQUEST_SECONDS):
+                return await fn(*args, **kwargs)
+        except TimeoutError as exc:
+            raise ToolError("resource_refused: request deadline") from exc
+
+    return wrapped
+
+
+async def decode_model(served: Served, model, raw: str):
+    return await served.workers.run(lambda: bounded(model.model_validate_json(raw)))
+
+
+async def storage(awaitable):
+    try:
+        return await asyncio.wait_for(awaitable, 30.0)
+    except StorageError as exc:
+        raise ToolError(f"storage {exc.kind}: {exc}") from exc
+    except ValueError as exc:
+        raise CapabilityError(str(exc)) from exc
+    except TimeoutError as exc:
+        raise ToolError("storage unavailable: request deadline") from exc
+
+
+def bounded(model):
+    # Bound the actual Pydantic response including notes and metadata, not only Rust payloads.
+    if len(model.model_dump_json().encode()) > 8 * 1024 * 1024:
+        raise ToolError("resource_refused: serialized response byte budget")
+    return model
+
+
+@request_deadline
+async def search(
+    served: Served,
+    library: str,
+    query: str,
+    limit: int,
+    where: ops.Where | None = None,
+    operations: bool = False,
+):
     gen = served.generation
     if library != gen.library:
         raise CapabilityError(f"this server serves {gen.library!r}, not {library!r}")
-    lexical_scores = dict(zip(gen.brief_ids, served.lexical.scores(query).tolist(), strict=True))
-    lexical = ranks(lexical_scores, positive_only=True)
-    vector: dict[bytes, int] = {}
-    reason: str | None = None
-    if gen.vectors is None:
-        reason = "this generation has no vectors"
+    where_json = where.model_dump_json() if where else None
+    raw_scope = await storage(gen.repository.search_scope(query, operations, where_json))
+
+    def decode_scope():
+        scope = json.loads(raw_scope)
+        return identities(scope["eligible"]), identities(scope["promoted"])
+
+    eligible, promoted = await served.workers.run(decode_scope)
+    lexical = served.operation_lexical if operations else served.lexical
+    ids = gen.lexical_state.operation_ids if operations else gen.lexical_state.brief_ids
+    legs = [
+        await served.workers.run(lambda: lexical_rank(ids, lexical.scores(query), eligible))
+        if lexical
+        else np.empty(0, dtype="V16")
+    ]
+    policy = gen.descriptor["policy"]
+    metadata = RetrievalMetadata(
+        profile=gen.descriptor["profile"],
+        requested_route=policy["route"],
+        actual_route="lexical-only",
+    )
+    reason = None
+    relation = "operation_vectors" if operations else "vectors"
+    if gen.manifest["relations"][relation]["rows"] == 0:
+        reason = (
+            "this generation has no operation vectors"
+            if operations
+            else "this generation has no vectors"
+        )
     elif served.embedder is None:
         reason = "no query embedder is configured"
     else:
         try:
-            q = (await served.embedder.embed([served.embedder.spec.query_text(query)]))[0]
-            vector = ranks(vector_scores(gen.vectors, gen.vector_rows, np.asarray(q)), False)
-        except EmbedderError as e:
-            reason = f"the embedding service failed: {e}"
-    promoted = set(gen.symbols.get(query.strip(), []))
-    hits = []
-    for r in fuse(lexical, vector, promoted, limit):
-        brief = gen.briefs[r.brief_id]
-        hits.append(
-            Hit(
-                capability_id=r.brief_id.hex(),
-                title=brief["title"],
-                outcome=brief["outcome"],
-                outcome_status=brief["outcome_status"],
-                relevance=r.relevance,
-                rank_source=r.rank_source,
-                promoted=r.promoted,
+            query_vector = (await served.embedder.embed([served.embedder.spec.query_text(query)]))[
+                0
+            ]
+        except EmbedderError as exc:
+            reason = f"the embedding service failed: {exc}"
+        else:
+            raw_metadata, raw = await storage(
+                gen.repository.vector_ranks(
+                    query_vector, served.embedder.spec.hash, operations, where_json, limit
+                )
             )
-        )
-    return SearchResult(
-        library=gen.library,
-        snapshot_id=gen.snapshot_id,
-        generation=gen.key,
-        mode="lexical-only" if reason else "hybrid",
-        degraded_reason=reason,
-        coverage=gen.manifest["summary"],
-        note=NOTE,
-        hits=hits,
-    )
+            metadata = RetrievalMetadata.model_validate_json(raw_metadata)
+            legs.extend(await served.workers.run(vector_legs, raw))
+    ranked = await served.workers.run(fuse_legs, legs, promoted, limit)
+    raw_rows = await storage(gen.repository.hit_records([row[0] for row in ranked], operations))
 
-
-def hydrate(served: Served, snapshot_id: str, capability_id: str) -> Capability:
-    """One brief, whole, by deterministic lookup."""
-    gen = served.generation
-    if snapshot_id != gen.snapshot_id:
-        raise CapabilityError(
-            f"snapshot {snapshot_id} is not the served one ({gen.snapshot_id}); search again"
-        )
-    try:
-        brief_id = bytes.fromhex(capability_id)
-    except ValueError as e:
-        raise CapabilityError(f"{capability_id!r} is not a capability id") from e
-    brief = gen.briefs.get(brief_id)
-    if brief is None:
-        raise CapabilityError(f"no capability {capability_id} in snapshot {snapshot_id}")
-    assertions = []
-    cited: list[bytes] = []
-    for a in served.assertions.get(brief_id, []):
-        rows = served.supports.get(a["assertion_id"], [])
-        for s in rows:
-            if s["evidence_id"] is not None and s["evidence_id"] not in cited:
-                cited.append(s["evidence_id"])
-        assertions.append(
-            Assertion(
-                assertion_id=a["assertion_id"].hex(),
-                kind=a["kind"],
-                section=a["section"],
-                status=a["status"],
-                text=a["text"],
-                applicable_case=a["applicable_case"],
-                conditions=a["conditions"],
-                limitations=a["limitations"],
-                supports=[
-                    Support(
-                        role=s["role"],
-                        finding_id=_hex(s["finding_id"]),
-                        finding_kind=s["finding_kind"],
-                        evidence_id=_hex(s["evidence_id"]),
-                        finding=_finding(served, s["finding_id"])
-                        if s["finding_id"] is not None
-                        else None,
+    def render():
+        rows = json.loads(raw_rows)
+        hits: list[ops.OperationHit | Hit] = []
+        for (identity, relevance, source, exact), row in zip(ranked, rows, strict=True):
+            if operations:
+                hits.append(
+                    ops.OperationHit(
+                        operation_id=identity,
+                        access_path=row["access_path"],
+                        kind=row["kind"],
+                        docstring_summary=row["docstring_summary"],
+                        relevance=relevance,
+                        rank_source=source,
+                        promoted=exact,
                     )
-                    for s in rows
-                ],
+                )
+            else:
+                hits.append(
+                    Hit(
+                        capability_id=identity,
+                        title=row["title"],
+                        outcome=row["outcome"],
+                        outcome_status=row["outcome_status"],
+                        relevance=relevance,
+                        rank_source=source,
+                        promoted=exact,
+                    )
+                )
+        common = dict(
+            snapshot_id=gen.snapshot_id,
+            generation=gen.key,
+            mode="lexical-only" if reason else "hybrid",
+            degraded_reason=reason,
+            retrieval=metadata,
+            hits=hits,
+        )
+        if operations:
+            return bounded(
+                ops.OperationHits.model_validate(
+                    {**common, "ranked_discovery": True, "note": ops.NOTE_SEARCH}
+                )
+            )
+        return bounded(
+            SearchResult.model_validate(
+                {**common, "library": gen.library, "coverage": gen.summary, "note": NOTE}
             )
         )
-    evidence = [
-        Evidence(
-            evidence_id=e["evidence_id"].hex(),
-            kind=e["kind"],
-            path=e["path"],
-            start_byte=e["start_byte"],
-            end_byte=e["end_byte"],
-            text=e["text"],
-        )
-        for e in (served.evidence[i] for i in cited if i in served.evidence)
-    ]
-    present = {a.section for a in assertions}
-    absent = [s for s in gen.manifest["summary"]["slot_sections"] if s not in present]
-    return Capability(
-        library=gen.library,
-        snapshot_id=gen.snapshot_id,
-        generation=gen.key,
-        capability_id=capability_id,
-        title=brief["title"],
-        access_path=brief["access_path"],
-        public_paths=served.members.get(brief_id, []),
-        documentation_only=brief["documentation_only"],
-        review_state=brief["review_state"],
-        outcome=brief["outcome"],
-        outcome_status=brief["outcome_status"],
-        assertions=assertions,
-        evidence=evidence,
-        sections_absent=absent,
+
+    return await served.workers.run(render)
+
+
+async def hydrate(served: Served, snapshot_id: str, capability_id: str) -> Capability:
+    return await decode_model(
+        served,
+        Capability,
+        await storage(served.generation.repository.get_capability(snapshot_id, capability_id)),
     )
 
 
@@ -516,20 +484,46 @@ def markdown(c: Capability) -> str:
         for e in c.evidence:
             where = f"{e.path}:{e.start_byte}-{e.end_byte}" if e.path else e.kind
             lines.append(f"- `{e.evidence_id}` ({e.kind}, {where}): {e.text}")
-    return "\n".join(lines) + "\n"
+    rendered = "\n".join(lines) + "\n"
+    if len(rendered.encode()) > 8 * 1024 * 1024:
+        raise ToolError("resource_refused: resource response byte budget")
+    return rendered
 
 
-def build_server(generation_dir: Path, embedder: Embedder | None) -> FastMCP:
-    """The server over the generation at `generation_dir`, embedding queries with `embedder`."""
+def build_server(
+    config_path: Path,
+    embedder: Embedder | None,
+    *,
+    library: str,
+    generation: str | None = None,
+    profile: str | None = None,
+) -> FastMCP:
+    """Open the read-only repository once; pin selection once for the entire server lifespan."""
 
     @asynccontextmanager
     async def lifespan(_server: FastMCP) -> AsyncIterator[dict]:
-        spec = embedder.spec if embedder is not None else None
-        yield {"served": serve(load(generation_dir, spec), embedder)}
+        repository = await open_repository(config_path)
+        workers = NativeWorkers()
+        try:
+            pinned = await repository.pin(library, generation, profile)
+            descriptor = json.loads(pinned.descriptor())
+            inputs = await pinned.inputs()
+            state = await workers.run(
+                load, pinned, descriptor, inputs, embedder.spec if embedder else None
+            )
+            del inputs
+            served = await workers.run(serve, state, embedder, workers)
+            yield {"served": served}
+        finally:
+            try:
+                await workers.close()
+            finally:
+                await repository.close()
 
     mcp = FastMCP("lctx", instructions=INSTRUCTIONS, lifespan=lifespan, mask_error_details=True)
 
     @mcp.tool(annotations=READ_ONLY)
+    @request_deadline
     async def search_capabilities(
         library: str,
         query: Annotated[str, Field(min_length=1, max_length=4000)],
@@ -541,10 +535,11 @@ def build_server(generation_dir: Path, embedder: Embedder | None) -> FastMCP:
         return await search(ctx.lifespan_context["served"], library, query, limit)
 
     @mcp.tool(annotations=READ_ONLY)
-    def get_capability(snapshot_id: str, capability_id: str, ctx: Context) -> Capability:
+    @request_deadline
+    async def get_capability(snapshot_id: str, capability_id: str, ctx: Context) -> Capability:
         """One capability brief, whole: every section's statements with their evidence status,
         their supports, and the verbatim evidence they cite."""
-        return hydrate(ctx.lifespan_context["served"], snapshot_id, capability_id)
+        return await hydrate(ctx.lifespan_context["served"], snapshot_id, capability_id)
 
     def _check(served: Served, library: str) -> None:
         if library != served.generation.library:
@@ -553,7 +548,8 @@ def build_server(generation_dir: Path, embedder: Embedder | None) -> FastMCP:
             )
 
     @mcp.tool(annotations=READ_ONLY)
-    def get_operation(
+    @request_deadline
+    async def get_operation(
         snapshot_id: str,
         operation: Annotated[str, Field(min_length=1, max_length=500)],
         ctx: Context,
@@ -563,15 +559,16 @@ def build_server(generation_dir: Path, embedder: Embedder | None) -> FastMCP:
         source lines, its delegations and official-usage handoffs, and its brief if one exists.
         Established and conditional fates are may-behavior admitted by the model, not concrete
         execution witnesses. A negative fate requires complete coverage under the model."""
-        try:
-            return ops.get_operation(
-                ctx.lifespan_context["served"].generation, snapshot_id, operation
-            )
-        except ops.OperationError as e:
-            raise CapabilityError(str(e)) from e
+        served = ctx.lifespan_context["served"]
+        return await decode_model(
+            served,
+            ops.Operation,
+            await storage(served.generation.repository.get_operation(snapshot_id, operation)),
+        )
 
     @mcp.tool(annotations=READ_ONLY)
-    def inspect_value_paths(
+    @request_deadline
+    async def inspect_value_paths(
         snapshot_id: str,
         operation: Annotated[str, Field(min_length=1, max_length=500)],
         formal: Annotated[str, Field(min_length=1, max_length=500)],
@@ -585,22 +582,29 @@ def build_server(generation_dir: Path, embedder: Embedder | None) -> FastMCP:
         A refuted path is excluded only under that input model. A compatible path has a
         satisfiable Boolean model after checked value links, not a concrete execution. Other
         paths and open boundaries remain possible; there is no operation-wide negative."""
+        served = ctx.lifespan_context["served"]
+        resolved = json.loads(await storage(served.generation.repository.resolve(operation)))
         try:
-            return value_paths.inspect(
-                ctx.lifespan_context["served"].generation,
-                snapshot_id,
-                operation,
-                formal,
-                exact_input,
-                standard_builtins,
-                limit,
-                cursor,
+            return await served.workers.run(
+                lambda: bounded(
+                    value_paths.inspect(
+                        served.generation,
+                        snapshot_id,
+                        resolved["access_path"],
+                        formal,
+                        exact_input,
+                        standard_builtins,
+                        limit,
+                        cursor,
+                    )
+                )
             )
-        except ops.OperationError as e:
-            raise CapabilityError(str(e)) from e
+        except ops.OperationError as exc:
+            raise CapabilityError(str(exc)) from exc
 
     @mcp.tool(annotations=READ_ONLY)
-    def find_operations(
+    @request_deadline
+    async def find_operations(
         library: str,
         where: ops.Where,
         ctx: Context,
@@ -615,12 +619,19 @@ def build_server(generation_dir: Path, embedder: Embedder | None) -> FastMCP:
         behavior facets are may-behavior under the model. No negation."""
         served = ctx.lifespan_context["served"]
         _check(served, library)
-        try:
-            return ops.find_operations(served.generation, where, limit, cursor)
-        except ops.OperationError as e:
-            raise CapabilityError(str(e)) from e
+        raw = await storage(
+            served.generation.repository.find_operations(where.model_dump_json(), limit, cursor)
+        )
+
+        def render():
+            result = json.loads(raw)
+            result["note"] = ops.NOTE_FIND
+            return bounded(ops.OperationSet.model_validate(result))
+
+        return await served.workers.run(render)
 
     @mcp.tool(annotations=READ_ONLY)
+    @request_deadline
     async def search_operations(
         library: str,
         query: Annotated[str, Field(min_length=1, max_length=4000)],
@@ -632,13 +643,14 @@ def build_server(generation_dir: Path, embedder: Embedder | None) -> FastMCP:
         an optional facet filter. Ranked discovery, not exhaustive: confirm with get_operation."""
         served = ctx.lifespan_context["served"]
         _check(served, library)
-        return await ops.search_operations(
-            served.generation, served.operations, served.embedder, query, where, limit
-        )
+        return await search(served, library, query, limit, where, operations=True)
 
     @mcp.resource("capability://{snapshot_id}/{capability_id}", mime_type="text/markdown")
-    def capability(snapshot_id: str, capability_id: str, ctx: Context) -> str:
+    @request_deadline
+    async def capability(snapshot_id: str, capability_id: str, ctx: Context) -> str:
         """A capability brief as Markdown."""
-        return markdown(hydrate(ctx.lifespan_context["served"], snapshot_id, capability_id))
+        served = ctx.lifespan_context["served"]
+        result = await hydrate(served, snapshot_id, capability_id)
+        return await served.workers.run(markdown, result)
 
     return mcp

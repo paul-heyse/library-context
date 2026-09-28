@@ -10,6 +10,7 @@ analyzer fixtures and analyzed libraries are never executed. Precision is counte
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import subprocess
@@ -19,11 +20,14 @@ from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
 
+import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
+from lctx_storage import open_repository
 
 from lctx_mcp import operations as ops
-from lctx_mcp.generation import load
+from postgres_expand import write_secret
+from postgres_test_support import database
 
 ROOT = Path(__file__).resolve().parents[2]
 LCTX = ROOT / "target/release/lctx"
@@ -155,7 +159,7 @@ def _observe(tree: Path, functions: list[Function]) -> dict[str, list[dict]]:
     return json.loads(done.stdout.splitlines()[-1])
 
 
-def _served(tree: Path, work: Path, functions: list[Function]) -> dict[str, list[ops.Fate]]:
+def _served(tree: Path, work: Path, functions: list[Function], db) -> dict[str, list[ops.Fate]]:
     done = subprocess.run(
         [
             str(_lctx()),
@@ -176,19 +180,64 @@ def _served(tree: Path, work: Path, functions: list[Function]) -> dict[str, list
         check=True,
     )
     line = next(x for x in done.stdout.splitlines() if x.startswith("generation "))
-    generation = load(Path(line.removeprefix("generation ")), None)
-    served = {}
-    for f in functions:
-        op = ops.get_operation(generation, generation.snapshot_id, f"{PACKAGE}.{f.name}")
-        (value,) = [p for p in op.parameters if p.name == "value"]
-        served[f.name] = [fate for fate in value.fates if fate.kind == "returns"]
-    return served
+    bundle = Path(line.removeprefix("generation "))
+    serving, importer, call, artifacts = db
+    call(
+        [
+            str(_lctx()),
+            "serving",
+            "--importer-config",
+            str(importer),
+            "import-bundle",
+            "--bundle",
+            str(bundle),
+            "--artifacts",
+            str(artifacts),
+        ]
+    )
+    manifest = json.loads((bundle / "MANIFEST.json").read_text())
+
+    async def fetch():
+        repo = await open_repository(serving)
+        try:
+            pin = await repo.pin(PACKAGE, manifest["projection_generation"], None)
+            served = {}
+            for f in functions:
+                op = ops.Operation.model_validate_json(
+                    await pin.get_operation(manifest["snapshot_id"], f"{PACKAGE}.{f.name}")
+                )
+                (value,) = [p for p in op.parameters if p.name == "value"]
+                served[f.name] = [fate for fate in value.fates if fate.kind == "returns"]
+            return served
+        finally:
+            await repo.close()
+
+    return asyncio.run(fetch())
+
+
+@pytest.fixture(scope="module")
+def semantic_database(tmp_path_factory):
+    tmp = tmp_path_factory.mktemp("semantic-postgres")
+    with database(tmp) as (serving, _command, call, role, _port):
+        importer = tmp / "importer.json"
+        write_secret(
+            importer,
+            {
+                **role,
+                "role": "importer",
+                "url": role["url"].replace("lctx_serving:", "lctx_importer:"),
+                "statement_timeout_seconds": 30,
+            },
+        )
+        serving = tmp / "runtime-serving.json"
+        write_secret(serving, {**role, "statement_timeout_seconds": 30})
+        yield serving, importer, call, tmp / "artifacts"
 
 
 PRECISION = {"identity_observed": 0, "identity_established": 0}
 
 
-def _check(functions: list[Function]) -> None:
+def _check(functions: list[Function], db) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         work = Path(tmp)
         tree = work / "tree"
@@ -196,7 +245,7 @@ def _check(functions: list[Function]) -> None:
         source = _source(functions)
         (tree / PACKAGE / "__init__.py").write_text(source, encoding="utf-8")
         observed = _observe(tree, functions)
-        served = _served(tree, work, functions)
+        served = _served(tree, work, functions, db)
     for f in functions:
         returns = served[f.name]
         normal = [r for r in observed[f.name] if r["raised"] is None]
@@ -228,7 +277,7 @@ def _check(functions: list[Function]) -> None:
         )
 
 
-def test_known_shapes() -> None:
+def test_known_shapes(semantic_database) -> None:
     fs = [
         Function("f0", False, LEAVES["ident"][1]),
         Function("f1", False, "    return f0(value)\n"),
@@ -239,10 +288,10 @@ def test_known_shapes() -> None:
         Function("f6", False, DECORATED, decorated=True),
         Function("f7", False, "    return f6(value)\n"),
     ]
-    _check(fs)
+    _check(fs, semantic_database)
 
 
 @settings(max_examples=8, derandomize=True, deadline=None, database=None)
 @given(packages())
-def test_served_returns_admit_cpython(functions: list[Function]) -> None:
-    _check(functions)
+def test_served_returns_admit_cpython(semantic_database, functions: list[Function]) -> None:
+    _check(functions, semantic_database)

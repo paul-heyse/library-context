@@ -1,8 +1,15 @@
 //! SQLx owns PostgreSQL effects; neither connections nor operational rows are semantic inputs.
 
 mod cache;
+mod hydration;
+pub mod import;
 pub mod operations;
+pub mod profiles;
 pub mod projection;
+pub mod qualification;
+pub mod report;
+pub mod repository;
+pub mod retrieval;
 pub mod serving;
 
 use serde::{Deserialize, Serialize};
@@ -26,6 +33,8 @@ pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 pub enum Error {
     #[error("PostgreSQL configuration: {0}")]
     Config(&'static str),
+    #[error("invalid serving request: {0}")]
+    Request(String),
     #[error("PostgreSQL {kind} (SQLSTATE {code})")]
     Database { kind: &'static str, code: String },
     #[error("PostgreSQL schema is incompatible; run lctx db status with the matching binary")]
@@ -34,6 +43,8 @@ pub enum Error {
     Integrity(&'static str),
     #[error("PostgreSQL migration failed; inspect migration status using the migration identity")]
     Migration,
+    #[error("{0}")]
+    Projection(#[from] cpg_schema::serving_projection::ProjectionError),
 }
 
 impl From<sqlx::Error> for Error {

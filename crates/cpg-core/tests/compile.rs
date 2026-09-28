@@ -511,18 +511,19 @@ async fn transfer_alternatives_keep_conditions_verdicts_and_receiver_boundaries(
         .args(["run", "--no-sync", "python", "-c", r#"
 import sys
 from pathlib import Path
-from lctx_mcp.generation import load
-from lctx_mcp.operations import get_operation
-generation = load(Path(sys.argv[1]), None)
-mixed = get_operation(generation, generation.snapshot_id, 'transferpkg.mixed')
-fates = [f for p in mixed.parameters if p.name == 'value' for f in p.fates if f.kind == 'returns']
-assert {f.transfer: f.verdict for f in fates} == {'identity': 'conditional', 'derived': 'conditional', 'call': 'unknown'}
-assert all(f.condition_scope_id == mixed.operation_id for f in fates)
-holder = get_operation(generation, generation.snapshot_id, 'transferpkg.Holder.__init__')
-fates = [f for p in holder.parameters if p.name == 'value' for f in p.fates if f.kind == 'returns']
-assert len(fates) == 3 and all(f.condition_scope_id != holder.operation_id for f in fates)
-assert {f.transfer for f in fates} == {'identity', 'derived', 'call'}
-assert all(f.verdict == 'unknown' for f in fates if f.transfer == 'call')
+sys.path[:0] = [str(Path("scripts").resolve()), str(Path("python/lctx_mcp/tests").resolve())]
+from support import load_native as load, served_bundle
+with served_bundle(Path(sys.argv[1])) as pg:
+    generation = pg.load()
+    mixed = pg.operation(generation, generation.snapshot_id, 'transferpkg.mixed')
+    fates = [f for p in mixed.parameters if p.name == 'value' for f in p.fates if f.kind == 'returns']
+    assert {f.transfer: f.verdict for f in fates} == {'identity': 'conditional', 'derived': 'conditional', 'call': 'unknown'}
+    assert all(f.condition_scope_id == mixed.operation_id for f in fates)
+    holder = pg.operation(generation, generation.snapshot_id, 'transferpkg.Holder.__init__')
+    fates = [f for p in holder.parameters if p.name == 'value' for f in p.fates if f.kind == 'returns']
+    assert len(fates) == 3 and all(f.condition_scope_id != holder.operation_id for f in fates)
+    assert {f.transfer for f in fates} == {'identity', 'derived', 'call'}
+    assert all(f.verdict == 'unknown' for f in fates if f.transfer == 'call')
 "#]).arg(&generation.dir)
         .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
         .output().unwrap();
@@ -6809,7 +6810,9 @@ import sys
 from pathlib import Path
 import pyarrow as pa
 import pyarrow.ipc as ipc
-from lctx_mcp.generation import load, NATIVE_IPC_FILES
+from lctx_mcp.generation import NATIVE_IPC_FILES
+sys.path[:0] = [str(Path("scripts").resolve()), str(Path("python/lctx_mcp/tests").resolve())]
+from support import load_native as load, served_bundle
 from lctx_semantics import SemanticExecutor
 import json, subprocess
 oracle=json.loads(subprocess.run([sys.executable,"docs/design_review/evidence/2026-09-27_sync-contexts/runtime_oracle.py"],capture_output=True,text=True,check=True,timeout=30).stdout)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -99,8 +100,15 @@ def test_the_ranking_check_is_blocked_by_a_degraded_live_alias(monkeypatch) -> N
         hit = SimpleNamespace(title="fastmcp.FastMCP.tool", capability_id=brief.hex())
         return SimpleNamespace(mode="lexical-only", hits=[hit], degraded_reason="down")
 
-    monkeypatch.setattr(ranking_check, "load", lambda path, spec: gen)
-    monkeypatch.setattr(ranking_check, "serve", lambda g, e: None)
+    gen.tables["briefs"] = SimpleNamespace(
+        to_pylist=lambda: [{"brief_id": brief, "seed_node_id": seed}], num_rows=1
+    )
+
+    @asynccontextmanager
+    async def session(path, embedder, config):
+        yield SimpleNamespace(generation=gen), SimpleNamespace(table=lambda name: gen.tables[name])
+
+    monkeypatch.setattr(ranking_check, "session", session)
     monkeypatch.setattr(ranking_check, "search", search)
     live = ranking_check.check(Path("gen"), "vllm", "http://127.0.0.1:1", "fm.register")
     assert asyncio.run(live) == 2

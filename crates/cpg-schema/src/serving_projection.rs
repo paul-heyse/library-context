@@ -41,7 +41,8 @@ pub const NATIVE_FILES: &[&str] = &[
     "flow_test_value_links",
 ];
 
-pub const FORMAT: u32 = 1;
+pub const FORMAT: u32 = 2;
+pub const BUNDLE_FORMAT: u32 = 12;
 pub fn artifact_names() -> Vec<String> {
     NATIVE_FILES
         .iter()
@@ -150,9 +151,31 @@ pub struct ArtifactReceipt {
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct ServingContext {
+    pub library: String,
+    pub requirement: String,
+    pub summary: CoverageSummary,
+}
+
+/// Context rendered by MCP, derived once from the canonical published snapshot.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CoverageSummary {
+    pub coverage: BTreeMap<String, BTreeMap<String, BTreeMap<String, u64>>>,
+    pub boundaries: BTreeMap<String, u64>,
+    pub invocations: BTreeMap<String, u64>,
+    pub briefs: BTreeMap<String, BTreeMap<String, u64>>,
+    pub unresolved_slots: BTreeMap<String, u64>,
+    pub absent_slots: BTreeMap<String, u64>,
+    pub slot_sections: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Manifest {
     pub format: u32,
     pub bundle_format: u32,
+    pub context: ServingContext,
     pub snapshot_id: String,
     pub snapshot_digest: String,
     pub compiler_digest: String,
@@ -178,6 +201,14 @@ impl Manifest {
     /// Bind the projection to the canonical provenance recorded by the file publisher.
     /// Database readers instead obtain this manifest from their pinned generation handle.
     pub fn validate_envelope(&self, envelope: &serde_json::Value) -> Result<(), ProjectionError> {
+        if envelope["library"].as_str() != Some(&self.context.library)
+            || envelope["requirement"].as_str() != Some(&self.context.requirement)
+            || envelope["summary"]
+                != serde_json::to_value(&self.context.summary)
+                    .map_err(|_| corrupt("context encoding"))?
+        {
+            return Err(corrupt("projection serving context mismatch"));
+        }
         for (field, expected) in [
             ("snapshot_id", self.snapshot_id.as_str()),
             ("content_digest", self.snapshot_digest.as_str()),
@@ -197,6 +228,16 @@ impl Manifest {
                 != Some(&serde_json::to_value(&self.spec_hash).expect("spec hash"))
         {
             return Err(corrupt("projection envelope format/spec mismatch"));
+        }
+        for (name, receipt) in &self.relations {
+            let entry = &envelope["files"][name];
+            if entry["schema_digest"].as_str() != Some(&receipt.schema_digest)
+                || entry["rows"].as_u64() != Some(receipt.rows)
+            {
+                return Err(corrupt(format!(
+                    "projection envelope relation metadata mismatch: {name}"
+                )));
+            }
         }
         Ok(())
     }
@@ -231,7 +272,7 @@ impl Manifest {
 
     pub fn validate(&self) -> Result<(), ProjectionError> {
         if self.format != FORMAT
-            || self.bundle_format != 11
+            || self.bundle_format != BUNDLE_FORMAT
             || self.kernel_format != crate::condition_kernel::KERNEL_FORMAT
             || !matches!(self.dimensions, 0 | 1024)
         {
@@ -239,6 +280,9 @@ impl Manifest {
                 kind: FailureKind::Incompatible,
                 message: "unsupported projection/spec format".into(),
             });
+        }
+        if self.context.library.is_empty() {
+            return Err(corrupt("missing serving release context"));
         }
         if self.projection_digest != definition_digest()
             || self.catalog_digest != crate::models::Catalog::committed_digest().hex()
@@ -299,7 +343,12 @@ impl Manifest {
             {
                 return Err(corrupt("artifact identity"));
             }
-            if a.bytes > MAX_RELATION_BYTES as u64 {
+            if a.bytes > MAX_RELATION_BYTES as u64
+                || (NATIVE_FILES
+                    .iter()
+                    .any(|native| format!("{native}.arrow") == *name)
+                    && a.bytes > 64 * 1024 * 1024)
+            {
                 return Err(refused("artifact byte budget"));
             }
         }
@@ -753,4 +802,15 @@ fn keys(batches: &[RecordBatch], fields: &str) -> Result<Vec<Option<Vec<u8>>>, P
         }
     }
     Ok(result)
+}
+
+/// Rank transport is a query result, not a persisted relation or truncated exact substitute.
+pub fn rank_schema() -> arrow_schema::SchemaRef {
+    use arrow_schema::{DataType, Field, Schema};
+    std::sync::Arc::new(Schema::new(vec![
+        Field::new("entity_id", DataType::FixedSizeBinary(16), false),
+        Field::new("view", DataType::Utf8, false),
+        Field::new("rank", DataType::UInt32, false),
+        Field::new("score", DataType::Float64, false),
+    ]))
 }

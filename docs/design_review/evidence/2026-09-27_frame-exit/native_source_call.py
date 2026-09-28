@@ -7,7 +7,10 @@ import pyarrow as pa
 import pyarrow.ipc as ipc
 from lctx_semantics import SemanticExecutor, kernel_format
 
-from lctx_mcp.generation import NATIVE_IPC_FILES, load
+from lctx_mcp.generation import NATIVE_IPC_FILES
+
+sys.path[:0] = [str(Path("scripts").resolve()), str(Path("python/lctx_mcp/tests").resolve())]
+from support import load_native as load
 
 
 def main() -> None:

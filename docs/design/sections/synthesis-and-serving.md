@@ -446,11 +446,14 @@ lower brief id and a promoted brief ranks first
 with its reason (`test_a_down_embedder_degrades_to_lexical_and_says_so`). The fixture's fake
 vectors carry no meaning, so ranking quality is an evaluation question, not a unit test.
 
-**Accepted PG target (ADR-0068).** pgvector stores standard full-float 1024 vectors. Exact
+**Implemented PG route (2026-09-28; ADR-0068/0069).** pgvector stores standard full-float 1024 vectors. Exact
 requests rank all eligible entities per view before fusion; an index must not silently change
 this route. Explicit HNSW profiles declare generation/filter isolation, chunk aggregation,
-candidate/widening/underfill, numeric ties and qualification. PG14 owns implementation. LanceDB,
+candidate/widening/underfill, numeric ties and qualification. Exact remains default; live ANN
+activation requires passing generation-specific recall/plan/latency criteria. LanceDB,
 FTS and changed lexical policy require a named capability beyond the selected route.
+
+> Decision: ADR-0068, ADR-0069
 
 ### §11.3 FastMCP contract
 
@@ -458,11 +461,13 @@ FTS and changed lexical policy require a named capability beyond the selected ro
   reader), `numpy`, `bm25s` and `httpx2`, never on vLLM, Delta or the compiler; versions are in
   `docs/pins.md` and the uv lock. The native executor is the separate workspace member
   `python/lctx_semantics` (ADR-0025).
-- **Startup checks.** The lifespan loads the generation once and rejects one whose manifest
-  format, condition-kernel format, per-file schema digests (from `cpg-schema`'s canonical schema
-  form) or `embedding_spec` hash differ from what the server and its query client expect
-  (`test_a_mismatched_generation_fails_at_connect`). The manifest names the library and
-  requirement, so tools check a requested library against the generation itself.
+- **Startup checks (Implemented, 2026-09-28).** The lifespan opens `lctx_storage` with read-only
+  credentials and pins one ready full generation/profile. Rust checks schema/extension/history,
+  canonical manifest identity and digest-checked artifacts. Python checks the query embedding
+  spec and initializes only native/lexical consumers. Context includes library, requirement and
+  complete coverage. Missing database/artifact or incompatible format fails explicitly; there is
+  no file fallback. SQLx and native work own separate bounded lifetimes.
+
 - **State.** The generation is exposed through `ctx.lifespan_context`. One generation per
   process.
 
@@ -505,10 +510,11 @@ FTS and changed lexical policy require a named capability beyond the selected ro
   and the fake twin (`test_the_fake_twin_reproduces_rusts_vectors`); the serving digests' known
   answers; the behavioral tools in `test_operations.py` and `test_server.py`.
 
-**Executor.** The accepted current route (ADR-0068) is **lookup over materialized rows**: pyarrow
-compute and indexed dictionaries over the generation, with no SQL built and nothing recursing at
-serve time; paths are precomputed as summaries and witnesses; results have row caps, a
-`truncated` flag and cursors. Python never re-implements predicate or condition semantics.
+**Executor (Implemented, 2026-09-28).** Rust uses generation-qualified SQLx queries for exact
+selection and complete hydration over materialized rows. Python owns transport, lexical scoring
+and compact rank fusion. Paths are precomputed as summaries and witnesses; responses have row/byte
+budgets, a `truncated` flag and request-bound cursors. Python never re-implements predicate or
+condition semantics. Pure Rust/PyO3 handles admitted bounded native queries.
 **Proposed** (ADR-0025): a pinned in-process Rust/PyO3 extension executes bounded semantic
 queries (condition compatibility and implication, effect and role filters, witness traversal)
 over the same immutable generation, returning cited row/node ids, budgets, unknown boundaries and
@@ -644,7 +650,7 @@ row storing its rule id and proof height. Under ADR-0025 the native executor may
 stored witness links at request time, retaining their row ids and reporting a boundary if the
 depth budget is reached.
 
-> Decision: ADR-0068, ADR-0025, ADR-0046, ADR-0049
+> Decision: ADR-0068, ADR-0069, ADR-0025, ADR-0046, ADR-0049
 
 
 **Accepted frame-completion target, implementation in progress (ADR-0063).** Every modeled normal-call obligation,
@@ -659,18 +665,20 @@ mutation controls pass. Typed Normal postconditions remain independent of actual
 
 ### §11.4 PostgreSQL serving and conditional workflows
 
-**Accepted target; PG8–PG11 foundations Implemented and Tested, 2026-09-27.**
-PG12–PG17 production integration/qualification remains open.
+**PG12–PG15 Implemented; focused controls Tested, 2026-09-28.**
+PG16 production rollover/recovery and PG17 assembled acceptance remain open.
 The [PostgreSQL plan](../../plans/postgresql-integration-plan_2026-09-27.md) owns execution;
 [§6.5](storage-and-publication.md#section-6-5) owns effects and physical storage.
 
 `cpg-schema` declares manifests, relation shapes/keys and complete support validation once.
 `lctx-postgres` owns SQLx operations and codecs; `lctx_storage` provides explicit coarse awaitables
 on one process Tokio runtime and lifespan-owned pools. The serving wheel excludes DataFusion,
-Delta and compiler code. `lctx_semantics` remains a pure bounded IPC/kernel boundary. File loading
-exports schemas from Rust, retains an independent Python digest oracle, and shares projection
-validation; its generation handle, native executor and lexical state are separated from temporary
-full relational hydration. PG13 removes those maps only after exact answer/evidence parity.
+Delta and compiler code. `lctx_semantics` remains a pure bounded IPC/kernel boundary. Offline reference loading exports schemas from Rust, retains an independent Python digest oracle
+and shares projection validation. Online Python retains only the pinned descriptor, native image
+and lexical state; Rust selects and hydrates complete relational answers. Dense Python vector
+matrices and production relational dictionaries/selectors have been removed after same-input
+reference parity. Native work releases the GIL, uses two bounded worker slots, and keeps its slot
+through cancellation until actual completion; each MCP request has a 30-second total deadline.
 
 PG12 imports invisible generations through bounded COPY staging, freezes writes, verifies every
 relation and required artifact, then publishes readiness atomically. Each server pins a ready
@@ -690,4 +698,10 @@ Psycopg 3/SQLAlchemy only for a distinct Python-owned domain; pgrx only for a me
 kernel consumer; ADBC/protocol/notification/FTS/topology features only at the plan's named triggers.
 None adds a second migration owner or changes model/evaluation meaning.
 
-> Decision: ADR-0068
+> Decision: ADR-0068, ADR-0069
+
+**Implemented; focused controls Tested (2026-09-28; ADR-0069).** Projection FORMAT 2 / bundle FORMAT 12 binds
+release identity and complete coverage context. PG12 validates stored projection rows before
+readiness; PG13 preserves exact query/native contracts; PG14 qualifies separately selected
+exact/HNSW profiles; PG15 admits bounded provider expressions and coherent operational reports.
+Implementation and qualification remain separately tracked in the PostgreSQL plan.

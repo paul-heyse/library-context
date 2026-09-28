@@ -13,10 +13,12 @@ dependencies = [
     "pydantic==2.13.5",
     "mcp-types==2.2.0",
     "lctx-semantics==0.1.0",
+    "lctx-storage==0.1.0",
 ]
 
 [tool.uv.sources]
 lctx-semantics = { workspace = true }
+lctx-storage = { workspace = true }
 
 [project.scripts]
 lctx-mcp = "lctx_mcp.__main__:main"

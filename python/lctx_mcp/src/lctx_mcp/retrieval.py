@@ -14,11 +14,13 @@ A score ranks briefs; it is never evidence that a brief fits the task.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
 from typing import Literal
 
 import bm25s
 import numpy as np
+import pyarrow as pa
+import pyarrow.ipc as ipc
+from pydantic import BaseModel
 
 K = 60
 RankSource = Literal["hybrid", "lexical", "vector", "exact_symbol"]
@@ -55,54 +57,92 @@ class Lexical:
         return np.asarray(self.retriever.get_scores(tokens), dtype=np.float32)
 
 
-def ranks(scores: dict[bytes, float], positive_only: bool) -> dict[bytes, int]:
-    """1-based ranks by descending score, ties by brief id."""
-    kept = [b for b, s in scores.items() if s > 0 or not positive_only]
-    kept.sort(key=lambda b: (-scores[b], b))
-    return {b: r + 1 for r, b in enumerate(kept)}
+FUSION_BYTES = 128 * 1024 * 1024
+RANK_BYTES = 32 * 1024 * 1024
 
 
-def vector_scores(matrix: np.ndarray, rows: list[bytes], query: np.ndarray) -> dict[bytes, float]:
-    """Each brief's best cosine over its chunks (all vectors are unit vectors)."""
-    cosines = matrix.astype(np.float64) @ query.astype(np.float64)
-    best: dict[bytes, float] = {}
-    for b, c in zip(rows, cosines.tolist(), strict=True):
-        best[b] = max(best.get(b, -2.0), c)
-    return best
+class RetrievalMetadata(BaseModel):
+    profile: str
+    requested_route: Literal["exact", "hnsw"]
+    actual_route: Literal["exact", "hnsw", "lexical-only"]
+    fallback: str | None = None
+    candidate_depth: int = 0
+    approximate: bool = False
 
 
-@dataclass(frozen=True)
-class Ranked:
-    brief_id: bytes
-    relevance: float
-    rank_source: RankSource
-    promoted: bool
+def identities(values: list[str]) -> np.ndarray:
+    return np.frombuffer(b"".join(bytes.fromhex(value) for value in values), dtype="V16")
 
 
-def fuse(
-    lexical: dict[bytes, int],
-    vector: dict[bytes, int],
-    promoted: set[bytes],
-    limit: int,
-) -> list[Ranked]:
-    """RRF of the two rankings, promoted briefs first, at most `limit`."""
-    fused = {
-        b: sum(1.0 / (K + r[b]) for r in (lexical, vector) if b in r)
-        for b in set(lexical) | set(vector) | promoted
-    }
-    for b in promoted:
-        fused[b] += 1.0
-    order = sorted(fused, key=lambda b: (-fused[b], b))[:limit]
+def lexical_rank(ids: np.ndarray, scores: np.ndarray, eligible: np.ndarray) -> np.ndarray:
+    keep = (scores > 0) & np.isin(ids, eligible, assume_unique=True)
+    ids, scores = ids[keep], scores[keep]
+    return ids[np.lexsort((ids, -scores))]
+
+
+def vector_legs(raw: bytes) -> list[np.ndarray]:
+    if len(raw) > RANK_BYTES:
+        raise ValueError("resource_refused: rank IPC byte budget")
+    table = ipc.open_stream(pa.BufferReader(raw)).read_all()
+    expected = pa.schema(
+        [
+            pa.field("entity_id", pa.binary(16), False),
+            pa.field("view", pa.string(), False),
+            pa.field("rank", pa.uint32(), False),
+            pa.field("score", pa.float64(), False),
+        ]
+    )
+    if table.schema != expected:
+        raise ValueError("corrupt: rank schema")
+    ids = np.frombuffer(b"".join(table.column("entity_id").to_pylist()), dtype="V16")
+    views = table.column("view").to_numpy()
+    ranks = table.column("rank").to_numpy()
+    result = []
+    for view in sorted(set(views)):
+        selected = np.flatnonzero(views == view)
+        selected = selected[np.argsort(ranks[selected])]
+        if not np.array_equal(ranks[selected], np.arange(1, len(selected) + 1)):
+            raise ValueError("corrupt: non-contiguous vector ranks")
+        result.append(ids[selected])
+    return result
+
+
+def fuse_legs(
+    legs: list[np.ndarray], promoted: np.ndarray, limit: int
+) -> list[tuple[str, float, str, bool]]:
+    """Compact RRF over complete exact ranks or explicitly labelled candidate ranks.
+
+    The conservative ledger covers all arrays and sorting temporaries simultaneously. It is
+    checked before concatenation; no full-universe Python score/rank dictionaries are allocated.
+    """
+    pairs = sum(len(leg) for leg in legs) + len(promoted)
+    if pairs * 160 > FUSION_BYTES:
+        raise ValueError("resource_refused: aggregate fusion byte budget")
+    if not pairs:
+        return []
+    universe = np.unique(np.concatenate([*legs, promoted]))
+    scores = np.zeros(len(universe), dtype=np.float64)
+    masks = np.zeros(len(universe), dtype=np.uint8)
+    for i, leg in enumerate(legs):
+        indices = np.searchsorted(universe, leg)
+        scores[indices] += 1.0 / (K + np.arange(1, len(leg) + 1, dtype=np.float64))
+        masks[indices] |= 1 << i
+    is_promoted = np.isin(universe, promoted, assume_unique=True)
+    scores[is_promoted] += 1.0
+    order = np.lexsort((universe, -scores))[:limit]
     out = []
-    for b in order:
-        source: RankSource
-        if b in promoted:
-            source = "exact_symbol"
-        elif b in lexical and b in vector:
-            source = "hybrid"
-        elif b in vector:
-            source = "vector"
-        else:
-            source = "lexical"
-        out.append(Ranked(b, round(fused[b], 6), source, b in promoted))
+    for i in order:
+        mask = int(masks[i])
+        source = (
+            "exact_symbol"
+            if is_promoted[i]
+            else "hybrid"
+            if mask & 1 and mask & ~1
+            else "lexical"
+            if mask == 1
+            else "vector"
+        )
+        out.append(
+            (universe[i].tobytes().hex(), round(float(scores[i]), 6), source, bool(is_promoted[i]))
+        )
     return out

@@ -1814,18 +1814,19 @@ async fn typed_handoff_pair_support_survives_serving_without_becoming_a_call_cha
 import sys
 from pathlib import Path
 import pyarrow as pa
-from lctx_mcp.generation import load
+sys.path[:0] = [str(Path("scripts").resolve()), str(Path("python/lctx_mcp/tests").resolve())]
+from support import load_native as load, served_bundle
 from lctx_semantics import validate_projection_ipc
 sys.path.insert(0, str(Path('python/lctx_mcp/tests').resolve()))
 from test_projection import changed as changed_projection
-from lctx_mcp.server import serve, _finding
 
 generation = load(Path(sys.argv[1]), None)
-served = serve(generation, None)
-handoffs = [key for key, row in served.findings.items() if row['finding_kind'] == 'handoff']
+with served_bundle(Path(sys.argv[1])) as pg:
+    findings = pg.findings()
+handoffs = [key for key, row in findings.items() if row.kind == "handoff"]
 assert handoffs
 for key in handoffs:
-    result = _finding(served, key)
+    result = findings[key]
     assert not result.witnesses, 'a handoff pair is not a delegation chain'
     assert len(result.attributes) == 1
     attribute = result.attributes[0]

@@ -6,6 +6,19 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    /// Join a coherent operational capture, immutable serving generation and pinned Delta release.
+    Report {
+        #[arg(long)]
+        store: PathBuf,
+        #[arg(long,value_parser=crate::parse_id)]
+        snapshot: Id,
+        #[arg(long,value_parser=crate::serving::parse_digest)]
+        generation: Digest,
+        #[arg(long)]
+        serving_config: Option<PathBuf>,
+        #[arg(long,default_value="json",value_parser=["json","table"])]
+        format: String,
+    },
     /// Apply embedded SQL migrations using the migration identity.
     Migrate,
     /// Show server, effective identity, schema compatibility and pool state.
@@ -100,8 +113,31 @@ pub async fn command(command: Command, config: Option<&Path>) -> anyhow::Result<
         println!("PostgreSQL migrations applied; schema current");
         return Ok(());
     }
+    if let Command::Report {
+        store,
+        snapshot,
+        generation,
+        serving_config,
+        format,
+    } = command
+    {
+        let path =
+            serving_config.unwrap_or(Config::path(config)?.with_file_name("postgres-serving.json"));
+        let mut settings = cpg_core::postgres::serving::RoleConfig::load(&path)?;
+        // Reserve inside the same configured total; no second independent pool allowance.
+        settings.provider_connections = 2.min(settings.max_connections - 1);
+        let report =
+            cpg_core::postgres_read::report(&settings, &store, snapshot, generation).await?;
+        if format == "table" {
+            println!("{}", report.table);
+        } else {
+            println!("{}", serde_json::to_string_pretty(&report.json)?);
+        }
+        return Ok(());
+    }
     let db = connect(config).await?;
     match command {
+        Command::Report { .. } => unreachable!("handled with serving pool"),
         Command::Migrate => unreachable!("handled before opening application pool"),
         Command::Check => {
             db.check().await?;

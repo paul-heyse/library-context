@@ -13,8 +13,9 @@ from lctx_semantics import (
     probe_compatible,
     probe_implies,
 )
+from support import load_native as load
 
-from lctx_mcp.generation import NATIVE_IPC_FILES, load
+from lctx_mcp.generation import NATIVE_IPC_FILES
 
 
 def test_native_condition_boundary_uses_the_rust_kernel() -> None:

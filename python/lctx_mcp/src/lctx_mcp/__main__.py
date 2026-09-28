@@ -1,4 +1,4 @@
-"""`python -m lctx_mcp --generation DIR [--embedder vllm|fake|none] [--embed-url URL]`.
+"""`python -m lctx_mcp --library NAME [--config FILE] [--generation DIGEST]`.
 
 Serves one generation over stdio (DESIGN §11.3). Nothing is written to stdout but the protocol:
 FastMCP's update check is switched off before it is imported, and its banner is not shown.
@@ -13,7 +13,14 @@ from pathlib import Path
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="lctx-mcp", description=__doc__)
-    parser.add_argument("--generation", type=Path, required=True, help="a generation directory")
+    parser.add_argument(
+        "--config", type=Path, default=Path.home() / ".config/library-context/postgres-serving.json"
+    )
+    parser.add_argument("--library", required=True)
+    parser.add_argument(
+        "--generation", help="full ready generation digest; default: selected at startup"
+    )
+    parser.add_argument("--profile", help="qualified retrieval profile digest")
     parser.add_argument("--embedder", choices=["vllm", "fake", "none"], default="vllm")
     parser.add_argument("--embed-url", default="http://127.0.0.1:8000")
     args = parser.parse_args(argv)
@@ -27,7 +34,13 @@ def main(argv: list[str] | None = None) -> None:
         "fake": FakeEmbedder,
         "none": lambda: None,
     }[args.embedder]()
-    build_server(args.generation.resolve(), embedder).run(transport="stdio", show_banner=False)
+    build_server(
+        args.config.resolve(),
+        embedder,
+        library=args.library,
+        generation=args.generation,
+        profile=args.profile,
+    ).run(transport="stdio", show_banner=False)
 
 
 if __name__ == "__main__":

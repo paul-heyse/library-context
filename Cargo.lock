@@ -1401,10 +1401,12 @@ dependencies = [
  "arrow-ipc",
  "arrow-schema",
  "arrow-select",
+ "async-trait",
  "blake3",
  "cpg-extract",
  "cpg-schema",
  "datafusion",
+ "datafusion-federation",
  "datafusion-table-providers-postgres",
  "deltalake",
  "fs-err",
@@ -2520,7 +2522,7 @@ dependencies = [
 [[package]]
 name = "datafusion-table-providers-common"
 version = "0.13.1"
-source = "git+https://github.com/paul-heyse/datafusion-table-providers?rev=b4dbe895b40ad49eb0593d8887616eba2c1f9bbf#b4dbe895b40ad49eb0593d8887616eba2c1f9bbf"
+source = "git+https://github.com/paul-heyse/datafusion-table-providers?rev=e6fc4c40ec0ffdb7c89371371b18c5f819cc79a9#e6fc4c40ec0ffdb7c89371371b18c5f819cc79a9"
 dependencies = [
  "arrow",
  "arrow-json",
@@ -2555,7 +2557,7 @@ dependencies = [
 [[package]]
 name = "datafusion-table-providers-postgres"
 version = "0.13.1"
-source = "git+https://github.com/paul-heyse/datafusion-table-providers?rev=b4dbe895b40ad49eb0593d8887616eba2c1f9bbf#b4dbe895b40ad49eb0593d8887616eba2c1f9bbf"
+source = "git+https://github.com/paul-heyse/datafusion-table-providers?rev=e6fc4c40ec0ffdb7c89371371b18c5f819cc79a9#e6fc4c40ec0ffdb7c89371371b18c5f819cc79a9"
 dependencies = [
  "arrow",
  "arrow-json",
@@ -4334,13 +4336,18 @@ dependencies = [
  "arrow-ipc",
  "arrow-schema",
  "arrow-select",
+ "base64 0.22.1",
  "bytes",
  "cpg-schema",
+ "fs-err",
+ "futures 0.3.34",
  "pgpq",
  "pgvector",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "sqlx",
+ "tempfile",
  "testcontainers-modules",
  "thiserror 2.0.20",
  "tokio",
@@ -4363,9 +4370,11 @@ dependencies = [
 name = "lctx-storage"
 version = "0.1.0"
 dependencies = [
+ "cpg-schema",
  "lctx-postgres",
  "pyo3",
  "pyo3-async-runtimes",
+ "serde",
  "serde_json",
  "tokio",
 ]

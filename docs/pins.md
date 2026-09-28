@@ -146,12 +146,12 @@ is `just docs-test` plus `just docs-check` ([publishing operations](publishing.m
 | bytes | =1.12.1 | Shared SQLx/pgpq COPY buffer type; existing resolved version, now direct |
 | pgpq | =0.12.0 | Exact registry manifest, Arrow 59 native; real binary COPY and declared Arrow reconstruction |
 | pyo3-async-runtimes | =0.29.0, defaults off, `tokio-runtime`; existing PyO3 =0.29.2 | Exact registry API/manifest, `uv sync` native wheel build; one lazy configured two-worker Tokio runtime |
-| datafusion-federation | 0.5.7 locked, transitive through provider `federation`/`sql` | Registry manifest; root product graph compiled with DataFusion 55.1 / Arrow 59.3 |
-| datafusion-table-providers-postgres | Owned fork `paul-heyse/datafusion-table-providers`, rev `b4dbe895b40ad49eb0593d8887616eba2c1f9bbf`, defaults off, `federation` | Based on `CaptainEureka` migration `33095588fcdd17301a5d1c340dcd66cd60e41ec8`; explicit typed bounded pool constructor, focused limit test passed; patch in `third_party/datafusion-table-providers-df55.patch` |
+| datafusion-federation | =0.5.7, direct `sql` integration | 2026-09-28: registry manifest and final product-provider controls with DataFusion 55.1 / Arrow 59.3 |
+| async-trait | =0.1.92 | 2026-09-28: existing resolved registry release, now direct for DataFusion provider traits |
+| datafusion-table-providers-postgres | Owned fork `paul-heyse/datafusion-table-providers`, rev `e6fc4c40ec0ffdb7c89371371b18c5f819cc79a9`, defaults off, `federation` | Based on `CaptainEureka` migration `33095588fcdd17301a5d1c340dcd66cd60e41ec8`; 2026-09-28: declared schema reads, stream ownership, cancellation with capacity quarantine, per-pool metrics; actual PG18 pushed/local/coherence/cancellation controls passed; patch in `third_party/datafusion-table-providers-df55.patch` |
 | tokio-postgres | =0.7.18 | Provider-only configuration adapter; exact registry manifest. SQLx retains application write/transaction ownership |
 
 Psycopg/SQLAlchemy, native ADBC and pgrx remain uninstalled. SeaQuery is a transitive provider
-implementation dependency, not an application query owner. Production provider/federation scan
-and pushdown qualification remains PG15. Conditional triggers remain in the [PostgreSQL plan](plans/postgresql-integration-plan_2026-09-27.md#7-later-capabilities-and-adoption-triggers).
+implementation dependency, not an application query owner. PG15 admits the two declared report views, a closed expression policy and generation-qualified key joins; unsupported expressions remain local. Conditional triggers remain in the [PostgreSQL plan](plans/postgresql-integration-plan_2026-09-27.md#7-later-capabilities-and-adoption-triggers).
 Operation/configuration: [PostgreSQL runbook](postgresql.md). Focused and integrated results:
 [PG8–PG11 evidence](design_review/evidence/2026-09-27_postgresql-expansion/implementation.md).

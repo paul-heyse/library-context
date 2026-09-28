@@ -16,15 +16,32 @@ import os
 import sys
 from pathlib import Path
 
+DEFAULT_CONFIG = Path.home() / ".config/library-context/postgres-serving.json"
 
-async def smoke(generation: Path, embedder: str) -> int:
+
+async def smoke(
+    generation: Path,
+    embedder: str,
+    config: Path = DEFAULT_CONFIG,
+) -> int:
     from fastmcp import Client
     from fastmcp.client.transports import StdioTransport
 
     manifest = json.loads((generation / "MANIFEST.json").read_text(encoding="utf-8"))
     transport = StdioTransport(
         command=sys.executable,
-        args=["-m", "lctx_mcp", "--generation", str(generation), "--embedder", embedder],
+        args=[
+            "-m",
+            "lctx_mcp",
+            "--config",
+            str(config),
+            "--library",
+            manifest["library"],
+            "--generation",
+            manifest["projection_generation"],
+            "--embedder",
+            embedder,
+        ],
         env={**os.environ, "FASTMCP_CHECK_FOR_UPDATES": "off"},
     )
     import pyarrow.ipc as ipc
@@ -70,9 +87,12 @@ async def smoke(generation: Path, embedder: str) -> int:
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="lctx_mcp.smoke", description=__doc__)
     parser.add_argument("generation", type=Path)
+    parser.add_argument(
+        "--config", type=Path, default=Path.home() / ".config/library-context/postgres-serving.json"
+    )
     parser.add_argument("--embedder", choices=["vllm", "fake", "none"], default="fake")
     args = parser.parse_args(argv)
-    sys.exit(asyncio.run(smoke(args.generation.resolve(), args.embedder)))
+    sys.exit(asyncio.run(smoke(args.generation.resolve(), args.embedder, args.config)))
 
 
 if __name__ == "__main__":

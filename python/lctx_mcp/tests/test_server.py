@@ -13,8 +13,7 @@ from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
 from lctx_mcp.embedder import EmbedderError, FakeEmbedder, HttpEmbedder, Spec
-from lctx_mcp.generation import GenerationError, generation_key, load
-from lctx_mcp.server import build_server
+from projection_reference import ReferenceBundle
 
 pytestmark = pytest.mark.anyio
 
@@ -39,9 +38,9 @@ class Down:
 
 @pytest.mark.parametrize(("mode", "protocol"), [("auto", "2026-07-28"), ("legacy", "2025-11-25")])
 async def test_the_tools_round_trip_in_both_protocol_eras(
-    generation: Path, mode: str, protocol: str
+    generation: Path, pg_serving, mode: str, protocol: str
 ) -> None:
-    async with Client(build_server(generation, FakeEmbedder()), mode=mode) as client:
+    async with Client(pg_serving.server(FakeEmbedder()), mode=mode) as client:
         assert client.protocol_version == protocol
         tools = {t.name: t for t in await client.list_tools()}
         assert set(tools) == {
@@ -63,7 +62,7 @@ async def test_the_tools_round_trip_in_both_protocol_eras(
         result = structured(found)
         assert result is not None
         assert result["mode"] == "hybrid" and result["degraded_reason"] is None
-        assert result["library"] == LIBRARY and len(result["generation"]) == 16
+        assert result["library"] == LIBRARY and len(result["generation"]) == 64
         # Passes A, B and C for each of 5 configured seeds (the fixture has no usage code, so
         # selection adds none: the increment-2 review's U1), the direct-usage count and the
         # selection. Communities, FCA and kNN are off by default (ADR-0020).
@@ -96,8 +95,8 @@ async def test_the_tools_round_trip_in_both_protocol_eras(
         assert span["path"].endswith("pkg/server.py")
 
 
-async def test_a_public_path_is_promoted(generation: Path) -> None:
-    async with Client(build_server(generation, FakeEmbedder())) as client:
+async def test_a_public_path_is_promoted(generation: Path, pg_serving) -> None:
+    async with Client(pg_serving.server(FakeEmbedder())) as client:
         found = await client.call_tool(
             "search_capabilities", {"library": LIBRARY, "query": "pkg.helpers.helper", "limit": 1}
         )
@@ -106,11 +105,11 @@ async def test_a_public_path_is_promoted(generation: Path) -> None:
         assert hit["rank_source"] == "exact_symbol"
 
 
-async def test_an_inherited_spelling_is_promoted(generation: Path) -> None:
+async def test_an_inherited_spelling_is_promoted(generation: Path, pg_serving) -> None:
     """FORMAT 2 (the holistic assessment's A1): `pkg.Alpha.tool` names `Server.tool`'s node through
     a public subclass, so it promotes that brief, as `fastmcp.FastMCP.http_app` promotes
     `TransportMixin.http_app`'s."""
-    async with Client(build_server(generation, FakeEmbedder())) as client:
+    async with Client(pg_serving.server(FakeEmbedder())) as client:
         found = await client.call_tool(
             "search_capabilities", {"library": LIBRARY, "query": "pkg.Alpha.tool", "limit": 1}
         )
@@ -119,8 +118,10 @@ async def test_an_inherited_spelling_is_promoted(generation: Path) -> None:
         assert hit["rank_source"] == "exact_symbol"
 
 
-async def test_a_down_embedder_degrades_to_lexical_and_says_so(generation: Path) -> None:
-    async with Client(build_server(generation, Down())) as client:
+async def test_a_down_embedder_degrades_to_lexical_and_says_so(
+    generation: Path, pg_serving
+) -> None:
+    async with Client(pg_serving.server(Down())) as client:
         found = await client.call_tool(
             "search_capabilities", {"library": LIBRARY, "query": "register fn as a tool"}
         )
@@ -131,8 +132,10 @@ async def test_a_down_embedder_degrades_to_lexical_and_says_so(generation: Path)
         assert all(h["rank_source"] == "lexical" for h in result["hits"])
 
 
-async def test_unknown_libraries_ids_and_snapshots_are_tool_errors(generation: Path) -> None:
-    async with Client(build_server(generation, None)) as client:
+async def test_unknown_libraries_ids_and_snapshots_are_tool_errors(
+    generation: Path, pg_serving
+) -> None:
+    async with Client(pg_serving.server(None)) as client:
         found = await client.call_tool(
             "search_capabilities", {"library": LIBRARY, "query": "helper"}
         )
@@ -142,7 +145,11 @@ async def test_unknown_libraries_ids_and_snapshots_are_tool_errors(generation: P
             ("search_capabilities", {"library": "numpy", "query": "x"}, "serves"),
             ("get_capability", {"snapshot_id": "00" * 16, "capability_id": "ff" * 16}, "search"),
             ("get_capability", {"snapshot_id": snapshot, "capability_id": "ff" * 16}, "no cap"),
-            ("get_capability", {"snapshot_id": snapshot, "capability_id": "zz"}, "not a cap"),
+            (
+                "get_capability",
+                {"snapshot_id": snapshot, "capability_id": "zz"},
+                "invalid entity identity",
+            ),
             ("search_capabilities", {"library": LIBRARY, "query": ""}, None),
             ("search_capabilities", {"library": LIBRARY, "query": "x", "limit": 11}, None),
         ]
@@ -153,8 +160,8 @@ async def test_unknown_libraries_ids_and_snapshots_are_tool_errors(generation: P
                 assert message in str(err.value), (name, args, str(err.value))
 
 
-async def test_the_resource_is_the_brief_as_markdown(generation: Path) -> None:
-    async with Client(build_server(generation, None)) as client:
+async def test_the_resource_is_the_brief_as_markdown(generation: Path, pg_serving) -> None:
+    async with Client(pg_serving.server(None)) as client:
         found = await client.call_tool(
             "search_capabilities", {"library": LIBRARY, "query": "pkg.Server.route"}
         )
@@ -173,53 +180,22 @@ async def test_the_resource_is_the_brief_as_markdown(generation: Path) -> None:
         assert getattr(err.value, "code", None) == -32602
 
 
-def tampered(generation: Path, tmp: Path, edit) -> Path:
-    """A copy of the generation with its manifest edited and its key recomputed."""
-    manifest = json.loads((generation / "MANIFEST.json").read_text(encoding="utf-8"))
-    edit(manifest)
-    manifest["generation"] = generation_key(manifest)
-    copy = tmp / manifest["generation"]
-    shutil.copytree(generation, copy)
-    (copy / "MANIFEST.json").write_text(json.dumps(manifest, indent=2, sort_keys=True))
-    return copy
-
-
-async def test_a_mismatched_generation_fails_at_connect(generation: Path, tmp_path: Path) -> None:
-    def schema(m: dict) -> None:
-        m["files"]["briefs"]["schema_digest"] = "0" * 64
-
-    wrong_schema = tampered(generation, tmp_path, schema)
-    with pytest.raises(GenerationError, match="schema digest"):
-        load(wrong_schema, FakeEmbedder().spec)
-    wrong_path = tampered(
-        generation,
-        tmp_path,
-        lambda m: m["files"]["conditions"].update(file="../conditions.arrow"),
-    )
-    with pytest.raises(GenerationError, match="unexpected served file path"):
-        load(wrong_path, None)
-    renamed = tmp_path / "renamed"
-    shutil.copytree(generation, renamed)
-    with pytest.raises(GenerationError, match="generation directory"):
-        load(renamed, None)
-    with pytest.raises(RuntimeError, match="Client failed to connect") as err:
-        async with Client(build_server(wrong_schema, FakeEmbedder())):
-            pass
-    assert "schema digest" in repr(err.value.__cause__) or "schema digest" in str(err.value)
-
+async def test_a_mismatched_generation_fails_at_connect(
+    generation: Path, pg_serving, tmp_path: Path
+) -> None:
     live = HttpEmbedder("http://127.0.0.1:9", spec=Spec.packaged("qwen3-embedding-8b.json"))
     with pytest.raises(RuntimeError, match="Client failed to connect") as err:
-        async with Client(build_server(generation, live)):
+        async with Client(pg_serving.server(live)):
             pass
     assert "embedding spec" in str(err.value)
-
-    moved = tmp_path / "moved"
-    shutil.copytree(generation, moved)
-    manifest = json.loads((generation / "MANIFEST.json").read_text(encoding="utf-8"))
-    manifest["requirement"] = "moved==1"
-    (moved / "MANIFEST.json").write_text(json.dumps(manifest, indent=2, sort_keys=True))
-    with pytest.raises(GenerationError, match="generation key"):
-        load(moved, None)
+    for field, value in [("schema_digest", "0" * 64), ("file", "../briefs.arrow")]:
+        copy = tmp_path / field
+        shutil.copytree(generation, copy)
+        manifest = json.loads((copy / "MANIFEST.json").read_text())
+        manifest["files"]["briefs"][field] = value
+        (copy / "MANIFEST.json").write_text(json.dumps(manifest))
+        with pytest.raises(ValueError):
+            ReferenceBundle(copy)
 
 
 @pytest.mark.parametrize(
@@ -231,7 +207,9 @@ async def test_a_mismatched_generation_fails_at_connect(generation: Path, tmp_pa
         b'{"model": "lctx-fake-embedder", "data": [{"index": 0, "embedding": "x"}]}',
     ],
 )
-async def test_a_malformed_embedder_answer_degrades(generation: Path, body: bytes) -> None:
+async def test_a_malformed_embedder_answer_degrades(
+    generation: Path, pg_serving, body: bytes
+) -> None:
     """Increment-1 deep review F7: an answer of another shape is a rejection, so lexical-only."""
 
     def answer(_request: httpx2.Request) -> httpx2.Response:
@@ -240,7 +218,7 @@ async def test_a_malformed_embedder_answer_degrades(generation: Path, body: byte
     odd = HttpEmbedder(
         "http://embed.invalid", spec=FakeEmbedder().spec, transport=httpx2.MockTransport(answer)
     )
-    async with Client(build_server(generation, odd)) as client:
+    async with Client(pg_serving.server(odd)) as client:
         found = await client.call_tool(
             "search_capabilities", {"library": LIBRARY, "query": "register fn as a tool"}
         )

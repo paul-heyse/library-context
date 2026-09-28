@@ -20,3 +20,12 @@ def generation() -> Path:
     if not current.exists():
         raise RuntimeError("no fixture generation: run `just py-fixture` (part of `just py-check`)")
     return FIXTURE / current.read_text().strip()
+
+
+@pytest.fixture(scope="session")
+def pg_serving(generation):
+    """Import the canonical fixture through the same real CLI used by Rust consumer tests."""
+    from support import served_bundle
+
+    with served_bundle(generation) as fixture:
+        yield fixture

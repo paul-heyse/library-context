@@ -6,10 +6,9 @@ import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 from pydantic import ValidationError
+from support import load_native as load
 
-from lctx_mcp.generation import load
 from lctx_mcp.operations import OperationError
-from lctx_mcp.server import build_server
 from lctx_mcp.value_paths import ExactPrimitive, inspect
 
 
@@ -22,7 +21,9 @@ def test_exact_primitive_rejects_cross_kind_values() -> None:
         ExactPrimitive(kind="str", value="x" * 501)
 
 
-def test_native_page_reports_path_local_refutation_and_open_boundary(generation: Path) -> None:
+def test_native_page_reports_path_local_refutation_and_open_boundary(
+    generation: Path, pg_serving
+) -> None:
     gen = load(generation, None)
     exact = ExactPrimitive(kind="none", value=None)
     page = inspect(gen, gen.snapshot_id, "pkg.controls.strict", "value", exact, True, 1, None)
@@ -58,9 +59,11 @@ def test_native_page_reports_path_local_refutation_and_open_boundary(generation:
 
 
 @pytest.mark.anyio
-async def test_value_path_inspection_round_trips_as_structured_mcp(generation: Path) -> None:
+async def test_value_path_inspection_round_trips_as_structured_mcp(
+    generation: Path, pg_serving
+) -> None:
     snapshot = load(generation, None).snapshot_id
-    async with Client(build_server(generation, None)) as client:
+    async with Client(pg_serving.server(None)) as client:
         tools = {tool.name for tool in await client.list_tools()}
         assert "inspect_value_paths" in tools
         result = await client.call_tool(

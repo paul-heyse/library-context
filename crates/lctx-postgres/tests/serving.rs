@@ -346,3 +346,731 @@ fn role_configuration_refuses_ambiguous_tls_and_pool_budgets() {
     c.provider_connections = 6;
     assert!(c.validate().is_err());
 }
+
+fn empty_source(root: &std::path::Path) -> lctx_postgres::import::Source {
+    empty_source_version(root, "empty==1")
+}
+fn empty_source_version(
+    root: &std::path::Path,
+    requirement: &str,
+) -> lctx_postgres::import::Source {
+    use cpg_schema::serving_projection::{
+        self as contract, ArtifactReceipt, Manifest, ServingContext,
+    };
+    use sha2::{Digest as _, Sha256};
+    let hex = |b: &[u8]| b.iter().map(|v| format!("{v:02x}")).collect::<String>();
+    let mut relations = std::collections::BTreeMap::new();
+    let mut artifacts = std::collections::BTreeMap::new();
+    let mut files = serde_json::Map::new();
+    for file in cpg_schema::bundle::files(0) {
+        let batch = RecordBatch::new_empty(file.schema.clone());
+        let mut raw = Vec::new();
+        {
+            let mut writer =
+                arrow_ipc::writer::FileWriter::try_new(&mut raw, &file.schema).unwrap();
+            writer.write(&batch).unwrap();
+            writer.finish().unwrap();
+        }
+        let name = format!("{}.arrow", file.name);
+        let hash = hex(&Sha256::digest(&raw));
+        std::fs::write(root.join(&name), &raw).unwrap();
+        relations.insert(
+            file.name.to_owned(),
+            contract::receipt(file.name, 0, &[batch]).unwrap(),
+        );
+        if contract::artifact_names().contains(&name) {
+            artifacts.insert(
+                name.clone(),
+                ArtifactReceipt {
+                    sha256: hash.clone(),
+                    bytes: raw.len() as u64,
+                    format: 1,
+                },
+            );
+        }
+        files.insert(file.name.into(),serde_json::json!({"file":name,"sha256":hash,"rows":0,"schema_digest":relations[file.name].schema_digest}));
+    }
+    let m = Manifest {
+        format: 2,
+        bundle_format: 12,
+        context: ServingContext {
+            library: "empty".into(),
+            requirement: requirement.into(),
+            summary: Default::default(),
+        },
+        snapshot_id: "01".repeat(16),
+        snapshot_digest: "02".repeat(32),
+        compiler_digest: "03".repeat(32),
+        projection_digest: contract::definition_digest(),
+        catalog_digest: cpg_schema::models::Catalog::committed_digest().hex(),
+        kernel_format: 1,
+        entry_value_effect_digest: "04".repeat(32),
+        spec_hash: None,
+        dimensions: 0,
+        relations,
+        artifacts,
+    };
+    let outer = serde_json::json!({"format":12,"library":m.context.library,"requirement":m.context.requirement,"summary":m.context.summary,"snapshot_id":m.snapshot_id,"content_digest":m.snapshot_digest,"compiler_digest":m.compiler_digest,"condition_kernel_format":1,"entry_value_effect_digest":m.entry_value_effect_digest,"spec_hash":null,"files":files,"projection_generation":m.generation().unwrap(),"projection":m});
+    std::fs::write(
+        root.join("MANIFEST.json"),
+        serde_json::to_vec(&outer).unwrap(),
+    )
+    .unwrap();
+    lctx_postgres::import::Source::open(root).unwrap()
+}
+#[tokio::test]
+#[ignore = "explicit real PostgreSQL functional check"]
+async fn production_import_is_atomic_repeatable_and_selection_is_explicit() {
+    let f = Fixture::start().await;
+    let input = tempfile::tempdir().unwrap();
+    let artifacts = tempfile::tempdir().unwrap();
+    let source = empty_source(input.path());
+    let mut config = f.config.clone();
+    config.role = Role::Importer;
+    config.url = config.url.replace("lctx_serving:", "lctx_importer:");
+    config.statement_timeout_seconds = 30;
+    let store = config.open_importer().await.unwrap();
+    let result = store
+        .import(source.clone(), artifacts.path().to_owned())
+        .await
+        .unwrap();
+    assert_eq!(result.state, "ready");
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM lctx_serving.generations")
+            .fetch_one(&f.serving)
+            .await
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM lctx_serving.selections")
+            .fetch_one(&f.serving)
+            .await
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        store
+            .import(source.clone(), artifacts.path().to_owned())
+            .await
+            .unwrap()
+            .generation,
+        result.generation
+    );
+    store.reconcile(source.generation()).await.unwrap();
+    store
+        .select(
+            "empty",
+            source.generation(),
+            cpg_schema::id::Digest::from_hex(&result.profile).unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(
+        store
+            .select(
+                "another-library",
+                source.generation(),
+                cpg_schema::id::Digest::from_hex(&result.profile).unwrap()
+            )
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM lctx_serving.selections")
+            .fetch_one(&f.serving)
+            .await
+            .unwrap(),
+        1
+    );
+    let reader = f.config.open_serving().await.unwrap();
+    let pin = reader.pin("empty", None, None).await.unwrap();
+    let second = tempfile::tempdir().unwrap();
+    let second = empty_source_version(second.path(), "empty==2");
+    store
+        .import(second.clone(), artifacts.path().to_owned())
+        .await
+        .unwrap();
+    store
+        .select(
+            "empty",
+            second.generation(),
+            cpg_schema::Digest::from_hex(&result.profile).unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(pin.generation(), source.generation().hex());
+    assert_eq!(
+        reader.pin("empty", None, None).await.unwrap().generation(),
+        second.generation().hex()
+    );
+    assert!(store.cleanup(source.generation()).await.is_err());
+    reader.close().await;
+    for sql in [
+        "SELECT lctx_serving.mark_ready(decode(repeat('01',32),'hex'),'{}')",
+        "CREATE TABLE lctx_serving.unowned(x int)",
+    ] {
+        assert!(
+            sqlx::query(sqlx::AssertSqlSafe(sql))
+                .execute(&f.serving)
+                .await
+                .is_err()
+        );
+    }
+    let path = artifacts
+        .path()
+        .join(&source.manifest().artifacts["lexical_text.arrow"].sha256)
+        .join("lexical_text.arrow");
+    std::fs::write(path, b"corrupt").unwrap();
+    assert!(
+        store
+            .import(source, artifacts.path().to_owned())
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, String>("SELECT state FROM lctx_serving.generations")
+            .fetch_one(&f.admin)
+            .await
+            .unwrap(),
+        "ready"
+    );
+    store.close().await;
+}
+
+#[tokio::test]
+#[ignore = "explicit real PostgreSQL and published pilot projection check"]
+async fn published_pilot_import_and_repository_queries() {
+    let path = std::env::var_os("LCTX_TEST_PROJECTION")
+        .expect("LCTX_TEST_PROJECTION must name a verified published bundle");
+    let source = lctx_postgres::import::Source::open(std::path::Path::new(&path)).unwrap();
+    let f = Fixture::start().await;
+    let artifacts = tempfile::tempdir().unwrap();
+    let mut config = f.config.clone();
+    config.role = Role::Importer;
+    config.url = config.url.replace("lctx_serving:", "lctx_importer:");
+    config.statement_timeout_seconds = 30;
+    let importer = config.open_importer().await.unwrap();
+    let imported = importer
+        .import(source.clone(), artifacts.path().to_owned())
+        .await
+        .unwrap();
+    assert_eq!(imported.state, "ready");
+    assert!(imported.completed_batches > 0);
+    let mut read_config = f.config.clone();
+    read_config.statement_timeout_seconds = 30;
+    let reader = read_config.open_serving().await.unwrap();
+    let pinned = reader
+        .pin(
+            &source.manifest().context.library,
+            Some(source.generation()),
+            None,
+        )
+        .await
+        .unwrap();
+    let page = reader
+        .find_operations(&pinned, &Default::default(), 20, None)
+        .await
+        .unwrap();
+    assert_eq!(
+        page["total"].as_u64().unwrap(),
+        source.manifest().relations["operations"].rows
+    );
+    for op in page["matches"].as_array().unwrap() {
+        let result = reader
+            .get_operation(
+                &pinned,
+                &pinned.manifest().snapshot_id,
+                op["access_path"].as_str().unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(result["operation_id"], op["operation_id"]);
+    }
+    let scope = reader
+        .search_scope(&pinned, None, "transport", false)
+        .await
+        .unwrap();
+    for id in scope["eligible"].as_array().unwrap() {
+        let result = reader
+            .get_capability(
+                &pinned,
+                &pinned.manifest().snapshot_id,
+                id.as_str().unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(result["capability_id"], *id);
+    }
+    assert!(
+        reader
+            .find_operations(&pinned, &Default::default(), 20, Some("not a cursor"))
+            .await
+            .is_err()
+    );
+    if let Some(cursor) = page["next_cursor"].as_str() {
+        let filter = lctx_postgres::repository::Where {
+            path_prefix: Some("different".into()),
+            ..Default::default()
+        };
+        assert!(
+            reader
+                .find_operations(&pinned, &filter, 20, Some(cursor))
+                .await
+                .is_err()
+        );
+    }
+    reader.close().await;
+    importer.close().await;
+}
+
+#[tokio::test]
+#[ignore = "explicit captured file-reference parity check"]
+async fn captured_reference_parity() {
+    use serde_json::Value;
+    fn compare(expected: &Value, actual: &Value, path: &str) {
+        match expected {
+            Value::Object(fields) => {
+                for (key, value) in fields {
+                    if key == "generation" || key == "note" || key == "next_cursor" {
+                        continue;
+                    }
+                    compare(value, &actual[key], &format!("{path}.{key}"));
+                }
+            }
+            Value::Array(rows) => {
+                assert_eq!(
+                    rows.len(),
+                    actual
+                        .as_array()
+                        .unwrap_or_else(|| panic!("missing {path}"))
+                        .len(),
+                    "{path}"
+                );
+                for (i, r) in rows.iter().enumerate() {
+                    compare(r, &actual[i], &format!("{path}[{i}]"));
+                }
+            }
+            _ => assert_eq!(expected, actual, "{path}"),
+        }
+    }
+    let source = lctx_postgres::import::Source::open(std::path::Path::new(
+        &std::env::var("LCTX_TEST_PROJECTION").unwrap(),
+    ))
+    .unwrap();
+    let reference: Value = serde_json::from_slice(
+        &std::fs::read(std::env::var("LCTX_TEST_REFERENCE").unwrap()).unwrap(),
+    )
+    .unwrap();
+    let f = Fixture::start().await;
+    let artifacts = tempfile::tempdir().unwrap();
+    let mut config = f.config.clone();
+    config.role = Role::Importer;
+    config.url = config.url.replace("lctx_serving:", "lctx_importer:");
+    config.statement_timeout_seconds = 30;
+    let importer = config.open_importer().await.unwrap();
+    importer
+        .import(source.clone(), artifacts.path().to_owned())
+        .await
+        .unwrap();
+    let mut config = f.config.clone();
+    config.statement_timeout_seconds = 30;
+    let reader = config.open_serving().await.unwrap();
+    let pinned = reader
+        .pin(
+            &source.manifest().context.library,
+            Some(source.generation()),
+            None,
+        )
+        .await
+        .unwrap();
+    for (spelling, expected) in reference["operations"].as_object().unwrap() {
+        let actual = reader
+            .get_operation(&pinned, &pinned.manifest().snapshot_id, spelling)
+            .await
+            .unwrap();
+        compare(expected, &actual, spelling);
+    }
+    for (id, expected) in reference["briefs"].as_object().unwrap() {
+        let actual = reader
+            .get_capability(&pinned, &pinned.manifest().snapshot_id, id)
+            .await
+            .unwrap();
+        compare(expected, &actual, id);
+    }
+    for case in reference["find"].as_array().unwrap() {
+        let filter = serde_json::from_value(case["filter"].clone()).unwrap();
+        let actual = reader
+            .find_operations(&pinned, &filter, 20, None)
+            .await
+            .unwrap();
+        compare(&case["result"], &actual, "find");
+    }
+    reader.close().await;
+    importer.close().await;
+}
+
+#[tokio::test]
+#[ignore = "explicit exact-vector and ANN installation/qualification check"]
+async fn exact_ranks_and_ann_profile_isolation() {
+    use arrow_array::{Array, FixedSizeListArray, Float32Array};
+    let root = std::path::PathBuf::from(std::env::var("LCTX_TEST_PROJECTION").unwrap());
+    let source = lctx_postgres::import::Source::open(&root).unwrap();
+    let f = Fixture::start().await;
+    let artifacts = tempfile::tempdir().unwrap();
+    let mut config = f.config.clone();
+    config.role = Role::Importer;
+    config.url = config.url.replace("lctx_serving:", "lctx_importer:");
+    config.statement_timeout_seconds = 30;
+    let importer = config.open_importer().await.unwrap();
+    importer
+        .import(source.clone(), artifacts.path().to_owned())
+        .await
+        .unwrap();
+    let mut config = f.config.clone();
+    config.statement_timeout_seconds = 30;
+    let reader = config.open_serving().await.unwrap();
+    let pinned = reader
+        .pin(
+            &source.manifest().context.library,
+            Some(source.generation()),
+            None,
+        )
+        .await
+        .unwrap();
+    let mut query = vec![0.0f32; 1024];
+    query[0] = 1.0;
+    for (operations, relation, key) in [
+        (false, "vectors", "brief_id"),
+        (true, "operation_vectors", "node_id"),
+    ] {
+        let ranks = reader
+            .vector_ranks(
+                &pinned,
+                &query,
+                pinned.manifest().spec_hash.as_deref().unwrap(),
+                operations,
+                None,
+                10,
+            )
+            .await
+            .unwrap();
+        assert!(!ranks.metadata.approximate);
+        assert!(ranks.metadata.fallback.is_none());
+        let batches = arrow_ipc::reader::FileReader::try_new(
+            std::fs::File::open(root.join(format!("{relation}.arrow"))).unwrap(),
+            None,
+        )
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+        let mut expected = std::collections::BTreeMap::<(String, Vec<u8>), f64>::new();
+        for batch in batches {
+            let ids = batch
+                .column_by_name(key)
+                .unwrap()
+                .as_any()
+                .downcast_ref::<FixedSizeBinaryArray>()
+                .unwrap();
+            let views = batch
+                .column_by_name("embedding_view")
+                .map(|a| a.as_any().downcast_ref::<StringArray>().unwrap());
+            let vectors = batch
+                .column_by_name("vector")
+                .unwrap()
+                .as_any()
+                .downcast_ref::<FixedSizeListArray>()
+                .unwrap();
+            for row in 0..batch.num_rows() {
+                let v = vectors.value(row);
+                let values = v.as_any().downcast_ref::<Float32Array>().unwrap();
+                let norm = values
+                    .values()
+                    .iter()
+                    .map(|v| f64::from(*v).powi(2))
+                    .sum::<f64>()
+                    .sqrt();
+                let cosine = f64::from(values.value(0)) / norm;
+                let view = views.map_or("brief", |v| v.value(row)).to_owned();
+                let score = expected
+                    .entry((view, ids.value(row).to_vec()))
+                    .or_insert(-2.0);
+                *score = score.max(cosine);
+            }
+        }
+        let mut seen = 0;
+        for batch in
+            arrow_ipc::reader::StreamReader::try_new(std::io::Cursor::new(ranks.ipc), None).unwrap()
+        {
+            let batch = batch.unwrap();
+            let ids = batch
+                .column(0)
+                .as_any()
+                .downcast_ref::<FixedSizeBinaryArray>()
+                .unwrap();
+            let views = batch
+                .column(1)
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .unwrap();
+            let actual_ranks = batch
+                .column(2)
+                .as_any()
+                .downcast_ref::<arrow_array::UInt32Array>()
+                .unwrap();
+            let scores = batch
+                .column(3)
+                .as_any()
+                .downcast_ref::<arrow_array::Float64Array>()
+                .unwrap();
+            for i in 0..batch.num_rows() {
+                let want = expected[&(views.value(i).to_owned(), ids.value(i).to_vec())];
+                assert!((scores.value(i) - want).abs() <= 1e-5);
+                let mut order: Vec<_> = expected
+                    .iter()
+                    .filter(|((v, _), _)| v == views.value(i))
+                    .collect();
+                order.sort_by(|a, b| b.1.total_cmp(a.1).then(a.0.1.cmp(&b.0.1)));
+                assert_eq!(
+                    order[actual_ranks.value(i) as usize - 1].0.1,
+                    ids.value(i),
+                    "full rank drift cannot be hidden by score tolerance"
+                );
+                seen += 1;
+            }
+        }
+        assert_eq!(seen, expected.len());
+    }
+    importer.build_hnsw(source.generation()).await.unwrap();
+    importer.build_hnsw(source.generation()).await.unwrap();
+    let ann =
+        cpg_schema::Digest::from_hex(&lctx_postgres::profiles::Policy::hnsw().digest().unwrap())
+            .unwrap();
+    assert!(
+        reader
+            .pin(
+                &source.manifest().context.library,
+                Some(source.generation()),
+                Some(ann)
+            )
+            .await
+            .is_err()
+    );
+    let bogus = serde_json::json!({"format":1,"generation":source.generation().hex(),"spec":source.manifest().spec_hash,"maximum_ann_p95_ms":1000.0,"cases":[{"name":"foreign","stratum":"selective","operations":true,"vector":query,"eligible":["ff".repeat(16)],"promoted":[],"lexical":[],"reference":{"signature_doc":[],"source_body":[]}}]});
+    assert!(
+        importer
+            .qualify_hnsw(&reader, &serde_json::to_vec(&bogus).unwrap())
+            .await
+            .is_err()
+    );
+    assert!(
+        reader
+            .pin(
+                &source.manifest().context.library,
+                Some(source.generation()),
+                Some(ann)
+            )
+            .await
+            .is_err()
+    );
+    reader.close().await;
+    importer.close().await;
+}
+
+#[tokio::test]
+#[ignore = "explicit real PostgreSQL publication fault controls"]
+async fn interrupted_import_resumes_without_partial_visibility() {
+    let source = lctx_postgres::import::Source::open(std::path::Path::new(
+        &std::env::var("LCTX_TEST_PROJECTION").unwrap(),
+    ))
+    .unwrap();
+    let f = Fixture::start().await;
+    let artifacts = tempfile::tempdir().unwrap();
+    let mut config = f.config.clone();
+    config.role = Role::Importer;
+    config.url = config.url.replace("lctx_serving:", "lctx_importer:");
+    config.statement_timeout_seconds = 30;
+    config.lock_timeout_seconds = 30;
+    let importer = Arc::new(config.open_importer().await.unwrap());
+    let mut lock = f.admin.begin().await.unwrap();
+    sqlx::raw_sql("LOCK TABLE lctx_serving.import_batches IN ACCESS EXCLUSIVE MODE")
+        .execute(&mut *lock)
+        .await
+        .unwrap();
+    let task = tokio::spawn({
+        let store = importer.clone();
+        let source = source.clone();
+        let artifacts = artifacts.path().to_owned();
+        async move { store.import(source, artifacts).await }
+    });
+    let mut blocked = false;
+    for _ in 0..200 {
+        let count:i64=sqlx::query_scalar("SELECT count(*) FROM pg_stat_activity WHERE wait_event_type='Lock' AND query LIKE '%SELECT first_row,row_count,content_digest FROM lctx_serving.import_batches%'").fetch_one(&f.admin).await.unwrap();
+        if count > 0 {
+            blocked = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    assert!(
+        blocked,
+        "production import reached the locked batch boundary"
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM lctx_serving.generations")
+            .fetch_one(&f.serving)
+            .await
+            .unwrap(),
+        0
+    );
+    task.abort();
+    assert!(task.await.unwrap_err().is_cancelled());
+    lock.rollback().await.unwrap();
+    let resumed = importer
+        .import(source.clone(), artifacts.path().to_owned())
+        .await
+        .unwrap();
+    assert_eq!(resumed.state, "ready");
+    let outcomes: Vec<String> =
+        sqlx::query_scalar("SELECT outcome FROM lctx_serving.import_attempts ORDER BY attempt_id")
+            .fetch_all(&f.admin)
+            .await
+            .unwrap();
+    assert_eq!(outcomes, vec!["interrupted", "completed"]);
+    let (left, right) = tokio::join!(
+        importer.import(source.clone(), artifacts.path().to_owned()),
+        importer.import(source.clone(), artifacts.path().to_owned())
+    );
+    assert_eq!(left.unwrap().generation, right.unwrap().generation);
+    assert!(importer.cleanup(source.generation()).await.is_err());
+    importer.close().await;
+}
+
+#[tokio::test]
+#[ignore = "explicit conflicting receipt and incomplete validation controls"]
+async fn publication_refuses_conflicts_and_incomplete_stored_content() {
+    use sha2::Digest as _;
+    let root = std::path::PathBuf::from(std::env::var("LCTX_TEST_PROJECTION").unwrap());
+    let source = lctx_postgres::import::Source::open(&root).unwrap();
+    let envelope: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(root.join("MANIFEST.json")).unwrap()).unwrap();
+    let files: std::collections::BTreeMap<_, _> = envelope["files"]
+        .as_object()
+        .unwrap()
+        .iter()
+        .map(|(k, v)| (k.clone(), v["sha256"].as_str().unwrap().to_owned()))
+        .collect();
+    let transport = sha2::Sha256::digest(serde_json::to_vec(&files).unwrap());
+    for conflict in [true, false] {
+        let f = Fixture::start().await;
+        let artifacts = tempfile::tempdir().unwrap();
+        let doc = serde_json::to_string(source.manifest()).unwrap();
+        sqlx::query("SELECT lctx_serving.prepare_generation($1,$2)")
+            .bind(&doc)
+            .bind(transport.as_slice())
+            .execute(&f.admin)
+            .await
+            .unwrap();
+        assert!(
+            sqlx::query("SELECT lctx_serving.prepare_generation($1,$2)")
+                .bind(&doc)
+                .bind([0u8; 32].as_slice())
+                .execute(&f.admin)
+                .await
+                .is_err(),
+            "transport retry conflicts before loading"
+        );
+        if conflict {
+            let name = source
+                .manifest()
+                .relations
+                .iter()
+                .find(|(_, r)| r.rows > 0)
+                .unwrap()
+                .0;
+            sqlx::query("INSERT INTO lctx_serving.import_batches VALUES($1,$2,0,0,1,$3)")
+                .bind(source.generation().0.as_slice())
+                .bind(name)
+                .bind([0u8; 32].as_slice())
+                .execute(&f.admin)
+                .await
+                .unwrap();
+        } else {
+            for (name, receipt) in &source.manifest().artifacts {
+                sqlx::query("SELECT lctx_serving.register_artifact($1,$2,$3,$4,$5,$6)")
+                    .bind(source.generation().0.as_slice())
+                    .bind(name)
+                    .bind(
+                        cpg_schema::Digest::from_hex(&receipt.sha256)
+                            .unwrap()
+                            .0
+                            .as_slice(),
+                    )
+                    .bind(receipt.bytes as i64)
+                    .bind(receipt.format as i32)
+                    .bind(root.join(name).to_str().unwrap())
+                    .execute(&f.admin)
+                    .await
+                    .unwrap();
+            }
+            sqlx::query("SELECT lctx_serving.freeze_generation($1)")
+                .bind(source.generation().0.as_slice())
+                .execute(&f.admin)
+                .await
+                .unwrap();
+        }
+        let mut config = f.config.clone();
+        config.role = Role::Importer;
+        config.url = config.url.replace("lctx_serving:", "lctx_importer:");
+        config.statement_timeout_seconds = 30;
+        let importer = config.open_importer().await.unwrap();
+        let error = importer
+            .import(source.clone(), artifacts.path().to_owned())
+            .await
+            .unwrap_err();
+        if conflict {
+            assert!(
+                error.to_string().contains("batch receipt conflict"),
+                "{error}"
+            );
+        }
+        assert_eq!(
+            sqlx::query_scalar::<_, String>("SELECT state FROM lctx_serving.generations")
+                .fetch_one(&f.admin)
+                .await
+                .unwrap(),
+            "failed",
+            "{error:?}"
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM lctx_serving.generations")
+                .fetch_one(&f.serving)
+                .await
+                .unwrap(),
+            0
+        );
+        importer.cleanup(source.generation()).await.unwrap();
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM lctx_serving.import_recipes")
+                .fetch_one(&f.admin)
+                .await
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM lctx_serving.artifact_locations")
+                .fetch_one(&f.admin)
+                .await
+                .unwrap(),
+            0
+        );
+        assert!(
+            importer
+                .import(source.clone(), artifacts.path().to_owned())
+                .await
+                .is_err(),
+            "failed generation remains terminal after cleanup"
+        );
+        importer.close().await;
+    }
+}

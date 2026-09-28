@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import math
 
+import numpy as np
 import pytest
 
-from lctx_mcp.retrieval import K, Lexical, fuse, ranks, tokenize
+from lctx_mcp.retrieval import K, Lexical, fuse_legs, identities, lexical_rank, tokenize
 
 
 def test_tokens_are_lowercased_runs_of_letters_and_digits() -> None:
@@ -51,24 +52,35 @@ def test_a_word_every_brief_contains_does_not_vote() -> None:
     assert lexical.discriminating("register tool") == ["tool"]
     a, b = b"\x01" * 16, b"\x02" * 16
     ids = [a, b]
-    lexical_ranks = ranks(dict(zip(ids, lexical.scores("register").tolist(), strict=True)), True)
-    vector_ranks = ranks({a: 0.2, b: 0.9}, positive_only=False)
-    fused = fuse(lexical_ranks, vector_ranks, promoted=set(), limit=2)
-    assert [r.brief_id for r in fused] == [b, a]
-    assert {r.rank_source for r in fused} == {"vector"}
+    ids = np.array(ids, dtype="V16")
+    lexical_ranks = lexical_rank(ids, lexical.scores("register"), ids)
+    vector_ranks = np.array([b, a], dtype="V16")
+    fused = fuse_legs([lexical_ranks, vector_ranks], promoted=identities([]), limit=2)
+    assert [r[0] for r in fused] == [b.hex(), a.hex()]
+    assert {r[2] for r in fused} == {"vector"}
 
 
 def test_fusion_ranks_ties_by_id_and_promotes_exact_symbols() -> None:
     a, b, c = b"\x01" * 16, b"\x02" * 16, b"\x03" * 16
-    lexical = ranks({a: 2.0, b: 2.0, c: 0.0}, positive_only=True)
-    assert lexical == {a: 1, b: 2}
-    vector = ranks({a: 0.1, b: 0.9, c: -0.5}, positive_only=False)
-    assert vector == {b: 1, a: 2, c: 3}
-    fused = fuse(lexical, vector, promoted=set(), limit=10)
-    # a and b fuse to equal scores (ranks 1 and 2 each way): the tie goes to the lower id.
-    assert [r.brief_id for r in fused] == [a, b, c]
-    assert fused[0].relevance == round(1 / (K + 1) + 1 / (K + 2), 6)
-    assert {r.rank_source for r in fused} == {"hybrid", "vector"}
-    promoted = fuse(lexical, vector, promoted={c}, limit=2)
-    assert promoted[0].brief_id == c and promoted[0].promoted
-    assert promoted[0].rank_source == "exact_symbol" and len(promoted) == 2
+    ids = np.array([a, b, c], dtype="V16")
+    lexical = lexical_rank(ids, np.array([2.0, 2.0, 0.0]), ids)
+    assert lexical.tolist() == [a, b]
+    vector = np.array([b, a, c], dtype="V16")
+    fused = fuse_legs([lexical, vector], promoted=identities([]), limit=10)
+    assert [r[0] for r in fused] == [a.hex(), b.hex(), c.hex()]
+    assert fused[0][1] == round(1 / (K + 1) + 1 / (K + 2), 6)
+    assert {r[2] for r in fused} == {"hybrid", "vector"}
+    promoted = fuse_legs([lexical, vector], promoted=identities([c.hex()]), limit=2)
+    assert promoted[0][0] == c.hex() and promoted[0][3]
+    assert promoted[0][2] == "exact_symbol" and len(promoted) == 2
+    # Two vector views do not imply a lexical contribution.
+    vectors_only = fuse_legs([identities([]), vector, vector], identities([]), 3)
+    assert {r[2] for r in vectors_only} == {"vector"}
+
+
+def test_fusion_refuses_aggregate_budget_before_allocating(monkeypatch):
+    import lctx_mcp.retrieval as retrieval
+
+    monkeypatch.setattr(retrieval, "FUSION_BYTES", 100)
+    with pytest.raises(ValueError, match="resource_refused"):
+        fuse_legs([identities(["01" * 16])], identities([]), 1)

@@ -58,3 +58,5 @@ pub mod source_call;
 
 pub mod serving_projection;
 pub mod serving_support;
+
+pub mod postgres_report;

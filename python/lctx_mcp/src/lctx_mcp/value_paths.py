@@ -10,12 +10,25 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Protocol
 
+from lctx_semantics import SemanticExecutor
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from lctx_mcp.generation import Generation
-from lctx_mcp.operations import OperationError, resolve
+from lctx_mcp.operations import OperationError
+
+
+class NativeGeneration(Protocol):
+    """Pure native input boundary; inspection needs no database repository."""
+
+    @property
+    def snapshot_id(self) -> str: ...
+
+    @property
+    def key(self) -> str: ...
+
+    @property
+    def condition_graph(self) -> SemanticExecutor: ...
 
 
 class ExactPrimitive(BaseModel):
@@ -105,7 +118,11 @@ class ValuePathPage(BaseModel):
 
 
 def _query_hash(
-    gen: Generation, operation: str, formal: str, exact: ExactPrimitive, standard_builtins: bool
+    gen: NativeGeneration,
+    operation: str,
+    formal: str,
+    exact: ExactPrimitive,
+    standard_builtins: bool,
 ) -> str:
     request = {
         "snapshot": gen.snapshot_id,
@@ -119,7 +136,7 @@ def _query_hash(
     return hashlib.sha256(body).hexdigest()[:32]
 
 
-def _offset(gen: Generation, query_hash: str, cursor: str | None) -> int:
+def _offset(gen: NativeGeneration, query_hash: str, cursor: str | None) -> int:
     if cursor is None:
         return 0
     try:
@@ -135,7 +152,7 @@ def _offset(gen: Generation, query_hash: str, cursor: str | None) -> int:
 
 
 def inspect(
-    gen: Generation,
+    gen: NativeGeneration,
     snapshot_id: str,
     operation: str,
     formal: str,
@@ -149,8 +166,8 @@ def inspect(
         raise OperationError(f"this server serves snapshot {gen.snapshot_id}, not {snapshot_id}")
     if not 1 <= limit <= 50:
         raise OperationError("limit must be between 1 and 50")
-    node = resolve(gen, operation)
-    path = gen.operations[node]["access_path"]
+    # PostgreSQL resolved this spelling before the native worker was submitted.
+    path = operation
     query_hash = _query_hash(gen, path, formal, exact, standard_builtins)
     offset = _offset(gen, query_hash, cursor)
     kind, value = exact.native()

@@ -6,13 +6,12 @@ import asyncio
 import json
 import os
 import subprocess
-import time
 from pathlib import Path
 
 import pytest
 
 from postgres_backup import connection_env
-from postgres_expand import provision_sql, write_secret
+from postgres_expand import write_secret
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("LCTX_POSTGRES_TEST") != "1", reason="explicit real PostgreSQL functional check"
@@ -22,95 +21,10 @@ ROOT = Path(__file__).resolve().parents[2]
 
 @pytest.fixture
 def database(tmp_path):
-    def call(args, **kw):
-        return subprocess.run(args, text=True, capture_output=True, check=True, **kw)
+    from postgres_test_support import database as provision
 
-    image = (ROOT / "specs/postgres-vector-image.txt").read_text().strip()
-    container = call(
-        [
-            "docker",
-            "run",
-            "--rm",
-            "-d",
-            "-p",
-            "127.0.0.1::5432",
-            "-e",
-            "POSTGRES_PASSWORD=fixture-only",
-            image,
-        ]
-    ).stdout.strip()
-    try:
-        port = json.loads(call(["docker", "inspect", container]).stdout)[0]["NetworkSettings"][
-            "Ports"
-        ]["5432/tcp"][0]["HostPort"]
-        command = [
-            "docker",
-            "exec",
-            "-i",
-            container,
-            "psql",
-            "-X",
-            "-qAt",
-            "-U",
-            "postgres",
-            "-v",
-            "ON_ERROR_STOP=1",
-        ]
-        for _ in range(120):
-            if (
-                subprocess.run(
-                    ["docker", "exec", container, "pg_isready", "-h", "127.0.0.1"],
-                    capture_output=True,
-                ).returncode
-                == 0
-            ):
-                break
-            time.sleep(0.25)
-        call(
-            command,
-            input=(
-                "CREATE ROLE lctx_app LOGIN PASSWORD 'fixture-only'; "
-                "CREATE ROLE lctx_migrator LOGIN PASSWORD 'fixture-only'; "
-                "CREATE DATABASE lctx OWNER lctx_migrator;"
-            ),
-        )
-        command += ["-d", "lctx"]
-        call(
-            command, input=provision_sql({r: "ab" * 32 for r in ("lctx_importer", "lctx_serving")})
-        )
-        config = tmp_path / "postgres.json"
-        url = f"postgres://lctx_app:fixture-only@127.0.0.1:{port}/lctx"
-        write_secret(
-            config,
-            dict(
-                application_url=url,
-                max_connections=2,
-                acquire_timeout_seconds=1,
-                statement_timeout_seconds=1,
-                lock_timeout_seconds=1,
-                max_receipt_bytes=268435456,
-            ),
-        )
-        write_secret(
-            tmp_path / "postgres-admin.json",
-            {"migration_url": url.replace("lctx_app:", "lctx_migrator:")},
-        )
-        call([str(ROOT / "target/release/lctx"), "--database-config", str(config), "db", "migrate"])
-        role = dict(
-            format=1,
-            role="serving",
-            url=f"postgres://lctx_serving:{'ab' * 32}@127.0.0.1:{port}/lctx",
-            max_connections=2,
-            provider_connections=0,
-            acquire_timeout_seconds=1,
-            statement_timeout_seconds=1,
-            lock_timeout_seconds=1,
-        )
-        serving = tmp_path / "serving.json"
-        write_secret(serving, role)
-        yield serving, command, call, role, port
-    finally:
-        call(["docker", "rm", "-f", container])
+    with provision(tmp_path) as fixture:
+        yield fixture
 
 
 def test_async_lifetime_cancellation_and_sanitized_errors(database, tmp_path):
@@ -188,5 +102,75 @@ def test_async_lifetime_cancellation_and_sanitized_errors(database, tmp_path):
             await open_repository(wrong)
         assert rejected.value.kind == "incompatible"
         assert "do-not-leak" not in str(rejected.value)
+
+    asyncio.run(scenario())
+
+
+def test_cancelled_server_work_retains_one_slot_until_statement_deadline(database, tmp_path):
+    from lctx_storage import open_repository
+
+    _serving, command, call, role, _port = database
+    config = tmp_path / "one-slot.json"
+    write_secret(config, {**role, "max_connections": 1, "statement_timeout_seconds": 2})
+
+    async def scenario():
+        repo = await open_repository(config)
+        call(
+            command,
+            input=(
+                "ALTER TABLE public._sqlx_migrations RENAME TO retained_migrations; "
+                "CREATE VIEW public._sqlx_migrations AS SELECT m.* "
+                "FROM public.retained_migrations m CROSS JOIN pg_sleep(5); "
+                "GRANT SELECT ON public._sqlx_migrations TO lctx_serving;"
+            ),
+        )
+        pending = repo.check()
+        try:
+            for _ in range(100):
+                sleeping = await asyncio.to_thread(
+                    lambda: call(
+                        command,
+                        input=(
+                            "SELECT count(*) FROM pg_stat_activity "
+                            "WHERE application_name='lctx-serving' AND wait_event='PgSleep'"
+                        ),
+                    ).stdout.strip()
+                )
+                if sleeping == "1":
+                    break
+                await asyncio.sleep(0.01)
+            assert sleeping == "1"
+            pending.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await pending
+            waiting = repo.check()
+            await asyncio.sleep(0.15)
+            assert not waiting.done(), "cancelled server work must still own the sole pool slot"
+            active = await asyncio.to_thread(
+                lambda: call(
+                    command,
+                    input=(
+                        "SELECT count(*) FROM pg_stat_activity "
+                        "WHERE application_name='lctx-serving' AND state='active'"
+                    ),
+                ).stdout.strip()
+            )
+            assert active == "1"
+            waiting.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await waiting
+        finally:
+            # DDL waits for the actual query/statement deadline, then restores the fixture.
+            await asyncio.to_thread(
+                lambda: call(
+                    command,
+                    input=(
+                        "DROP VIEW public._sqlx_migrations; "
+                        "ALTER TABLE public.retained_migrations RENAME TO _sqlx_migrations;"
+                    ),
+                )
+            )
+        assert json.loads(await repo.check())["role"] == "lctx_serving"
+        await repo.close()
 
     asyncio.run(scenario())

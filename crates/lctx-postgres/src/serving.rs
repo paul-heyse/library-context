@@ -2,7 +2,7 @@
 use crate::{Error, MIGRATOR, load_protected};
 use serde::{Deserialize, Serialize};
 use sqlx::{
-    ConnectOptions, PgConnection, PgPool, Postgres,
+    ConnectOptions, Connection, PgConnection, PgPool, Postgres,
     pool::PoolConnection,
     postgres::{PgConnectOptions, PgPoolOptions, PgSslMode},
 };
@@ -57,7 +57,7 @@ impl RoleConfig {
         Ok(config)
     }
     pub fn validate(&self) -> Result<(), Error> {
-        let max = if self.role == Role::Importer { 2 } else { 32 };
+        let max = if self.role == Role::Importer { 2 } else { 6 };
         if self.format != 1
             || !(1..=max).contains(&self.max_connections)
             || self.provider_connections >= self.max_connections
@@ -115,6 +115,7 @@ impl RoleConfig {
                 ),
                 ("lock_timeout", format!("{}s", self.lock_timeout_seconds)),
                 ("idle_in_transaction_session_timeout", "30s".to_owned()),
+                ("transaction_timeout", "30s".to_owned()),
                 (
                     "default_transaction_read_only",
                     if self.role == Role::Serving {
@@ -169,16 +170,30 @@ impl RoleConfig {
     }
 }
 
-/// A cancelled or failed operation discards its uncertain connection. Successful work
-/// returns the ordinary connection to the pool. No background query is lent to another caller.
+/// Keep pool capacity until server work has drained, including after caller cancellation.
+/// SQLx 0.9 exposes no PostgreSQL CancelToken; work remains bounded by statement_timeout.
 pub(crate) struct QueryLease {
-    pub(crate) connection: PoolConnection<Postgres>,
+    pub(crate) connection: LeaseConnection,
+    pool: PgPool,
     complete: bool,
+}
+pub(crate) struct LeaseConnection(Option<PoolConnection<Postgres>>);
+impl std::ops::Deref for LeaseConnection {
+    type Target = PgConnection;
+    fn deref(&self) -> &PgConnection {
+        self.0.as_ref().expect("owned lease")
+    }
+}
+impl std::ops::DerefMut for LeaseConnection {
+    fn deref_mut(&mut self) -> &mut PgConnection {
+        self.0.as_mut().expect("owned lease")
+    }
 }
 impl QueryLease {
     pub(crate) async fn acquire(pool: &PgPool) -> Result<Self, Error> {
         Ok(Self {
-            connection: pool.acquire().await?,
+            connection: LeaseConnection(Some(pool.acquire().await?)),
+            pool: pool.clone(),
             complete: false,
         })
     }
@@ -188,9 +203,33 @@ impl QueryLease {
 }
 impl Drop for QueryLease {
     fn drop(&mut self) {
-        if !self.complete {
-            self.connection.close_on_drop();
+        if self.complete {
+            return;
         }
+        let Some(mut connection) = self.connection.0.take() else {
+            return;
+        };
+        let pool = self.pool.clone();
+        tokio::spawn(async move {
+            // Retain the pool permit while synchronizing the wire. A cancelled transaction
+            // may first report its pending SQL error; a second ping consumes ReadyForQuery.
+            // RoleConfig caps every server statement at 300 seconds.
+            let drained = tokio::time::timeout(Duration::from_secs(305), async {
+                match connection.ping().await {
+                    Err(sqlx::Error::Database(_)) => connection.ping().await,
+                    result => result,
+                }
+            })
+            .await;
+            if !matches!(drained, Ok(Ok(()))) {
+                // Start shutdown before releasing uncertain capacity; no replacement query
+                // may amplify work on an unresponsive backend. Later close() still awaits it.
+                use futures::FutureExt;
+                let _ = pool.close().now_or_never();
+                tracing::warn!(target:"lctx::postgres","cancelled lease could not drain; serving pool closed");
+            }
+            let _ = connection.close().await;
+        });
     }
 }
 

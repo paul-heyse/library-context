@@ -21,7 +21,9 @@ Evaluation only: nothing here feeds the compiler.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import hashlib
+import json
 import posixpath
 import re
 import sys
@@ -30,7 +32,9 @@ from pathlib import Path
 
 from lctx_mcp import operations as ops
 from lctx_mcp import value_paths
-from lctx_mcp.generation import Generation, load
+from lctx_mcp.generation import Generation
+from lctx_mcp.server import Capability, Served, search
+from postgres_session import DEFAULT_CONFIG, session
 
 WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 SOURCE = re.compile(r"^(?P<path>[^:]+):(?P<start>\d+)(?:-(?P<end>\d+))?$")
@@ -64,15 +68,17 @@ def _fate_line(f: ops.Fate) -> str:
     return " ".join(parts) + f" — {where}" + (f" — `{text}`" if text else "")
 
 
-def _operation(gen: Generation, spelling: str) -> list[str]:
+async def _operation(gen: Generation, spelling: str) -> list[str]:
     try:
-        op = ops.get_operation(gen, gen.snapshot_id, spelling)
-    except ops.OperationError as e:
+        op = ops.Operation.model_validate_json(
+            await gen.repository.get_operation(gen.snapshot_id, spelling)
+        )
+    except ValueError as e:
         return [f"- **`{spelling}`: does not resolve** ({e})"]
-    return _render(gen, op, spelling)
+    return await _render(gen, op, spelling)
 
 
-def _render(gen: Generation, op: ops.Operation, spelling: str | None = None) -> list[str]:
+async def _render(gen: Generation, op: ops.Operation, spelling: str | None = None) -> list[str]:
     spelling = spelling or op.access_path
     out = [
         f"- **`{spelling}`** → `{op.access_path}` ({op.kind}), status **{op.behavior_status}**"
@@ -113,13 +119,15 @@ def _render(gen: Generation, op: ops.Operation, spelling: str | None = None) -> 
             )
     if op.constructor is not None:
         out.append(f"  - constructor `{op.constructor.access_path}`:")
-        out.extend("  " + line for line in _render(gen, op.constructor))
+        out.extend("  " + line for line in await _render(gen, op.constructor))
     if op.capability_id:
         out.append(f"  - brief `{op.capability_id[:12]}`:")
-        brief = bytes.fromhex(op.capability_id)
-        for a in gen.tables["assertions"].to_pylist():
-            if a["brief_id"] == brief and a["text"]:
-                out.append(f"    - [{a['section']}/{a['status']}] {a['text']}")
+        brief = Capability.model_validate_json(
+            await gen.repository.get_capability(gen.snapshot_id, op.capability_id)
+        )
+        for a in brief.assertions:
+            if a.text:
+                out.append(f"    - [{a.section}/{a.status}] {a.text}")
     return out
 
 
@@ -146,14 +154,16 @@ def _ranges(root: str, item: dict) -> list[tuple[str, int, int]]:
     return out
 
 
-def _marks(gen: Generation, question: dict, item: dict, root: str, extra: list[str]) -> str:
+async def _marks(gen: Generation, question: dict, item: dict, root: str, extra: list[str]) -> str:
     named = set(WORD.findall(item["claim"]))
     hits = []
     served: set[tuple[str, int]] = set()
     for spelling in question["operations"] + extra:
         try:
-            op = ops.get_operation(gen, gen.snapshot_id, spelling)
-        except ops.OperationError:
+            op = ops.Operation.model_validate_json(
+                await gen.repository.get_operation(gen.snapshot_id, spelling)
+            )
+        except ValueError:
             continue
         served |= _served_lines(op)
         if spelling not in question["operations"]:
@@ -171,12 +181,16 @@ def _marks(gen: Generation, question: dict, item: dict, root: str, extra: list[s
     return f"{named_mark}; served rows cite {cited}/{total} source range(s)"
 
 
-def _request(gen: Generation, request: dict, embedder=None) -> list[str]:
+async def _request(served: Served, request: dict) -> list[str]:
     """A pre-registered `find_operations` or `search_operations` request, answered."""
+    gen = served.generation
     if request["tool"] == "find_operations":
-        found = ops.find_operations(
-            gen, ops.Where.model_validate(request["where"]), limit=50, cursor=None
+        result = json.loads(
+            await gen.repository.find_operations(
+                ops.Where.model_validate(request["where"]).model_dump_json(), 50
+            )
         )
+        found = ops.OperationSet.model_validate({**result, "note": ops.NOTE_FIND})
         lines = [
             f"- `find_operations({request['where']})`: {found.total} match(es), "
             f"complete **{found.complete}**, {found.unknown_total} could still match"
@@ -184,13 +198,7 @@ def _request(gen: Generation, request: dict, embedder=None) -> list[str]:
         lines += [f"  - match `{m.access_path}` ({m.behavior_status})" for m in found.matches]
         lines += [f"  - could match `{u.access_path}`" for u in found.unknown[:10]]
         return lines
-    import asyncio
-
-    hits = asyncio.run(
-        ops.search_operations(
-            gen, ops.OperationIndex(gen), embedder, request["query"], None, limit=10
-        )
-    )
+    hits = await search(served, gen.library, request["query"], 10, operations=True)
     lines = [f"- `search_operations({request['query']!r})`, mode {hits.mode}:"]
     lines += [
         f"  {i + 1}. `{h.access_path}` ({h.rank_source}, {h.relevance})"
@@ -199,25 +207,28 @@ def _request(gen: Generation, request: dict, embedder=None) -> list[str]:
     return lines
 
 
-def _value_paths(gen: Generation, request: dict) -> list[str]:
+async def _value_paths(served: Served, request: dict) -> list[str]:
     """An evaluation-only `inspect_value_paths` request: path-local, never operation-wide."""
+    gen = served.generation
     exact = value_paths.ExactPrimitive.model_validate(request["exact_input"])
     head = (
         f"- `inspect_value_paths({request['operation']}, {request['formal']}, "
         f"{exact.kind} {exact.value!r})`"
     )
     try:
-        page = value_paths.inspect(
+        resolved = json.loads(await gen.repository.resolve(request["operation"]))
+        page = await served.workers.run(
+            value_paths.inspect,
             gen,
             gen.snapshot_id,
-            request["operation"],
+            resolved["access_path"],
             request["formal"],
             exact,
             bool(request.get("standard_builtins", False)),
             50,
             None,
         )
-    except ops.OperationError as e:
+    except ValueError as e:
         return [f"{head}: **error** ({e})"]
     lines = [
         f"{head}: {len(page.paths)} path(s), {len(page.boundaries)} open boundary(ies), "
@@ -234,15 +245,15 @@ def _value_paths(gen: Generation, request: dict) -> list[str]:
     return lines
 
 
-def _evaluation_request(gen: Generation, request: dict, embedder=None) -> list[str]:
+async def _evaluation_request(served: Served, request: dict) -> list[str]:
     head = f"*{request['id']}* — {request.get('purpose', '')}".rstrip(" —")
     tool = request["tool"]
     if tool == "get_operation":
-        body = _operation(gen, request["operation"])
+        body = await _operation(served.generation, request["operation"])
     elif tool == "inspect_value_paths":
-        body = _value_paths(gen, request)
+        body = await _value_paths(served, request)
     elif tool in ("find_operations", "search_operations"):
-        body = _request(gen, request, embedder)
+        body = await _request(served, request)
     else:
         raise ValueError(f"{request['id']}: unknown request tool {tool!r}")
     return [head, "", *body, ""]
@@ -252,16 +263,16 @@ def _digest(path: Path | None) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest() if path else "none"
 
 
-def packet(
-    gen: Generation,
+async def packet(
+    served: Served,
     questions: list[dict],
     stage: int | None,
     exits: list[dict],
-    embedder=None,
     requests: list[dict] | None = None,
     root: str = "",
     inputs: dict[str, str] | None = None,
 ) -> str:
+    gen = served.generation
     requests = requests or []
     lines = [
         f"# Structured evaluation packet — generation `{gen.key}`",
@@ -286,18 +297,18 @@ def packet(
             sources = ", ".join(it.get("source", []))
             lines.append(
                 f"- `{it['id']}` ({it['polarity']}) {it['claim']} — {sources} "
-                f"— *marks: {_marks(gen, q, it, root, extra)}*"
+                f"— *marks: {await _marks(gen, q, it, root, extra)}*"
             )
         lines += ["", "**Served answer**", ""]
         if "request" in q:
-            lines += _request(gen, q["request"], embedder)
+            lines += await _request(served, q["request"])
         for spelling in q["operations"]:
-            lines += _operation(gen, spelling)
+            lines += await _operation(gen, spelling)
         lines.append("")
         if mine:
             lines += ["**Evaluation-only requests (not targets)**", ""]
             for r in mine:
-                lines += _evaluation_request(gen, r, embedder)
+                lines += await _evaluation_request(served, r)
     for e in exits:
         if stage is None or e["stage"] == stage:
             lines += [f"## Exit rule, stage {e['stage']}", "", e["rule"], ""]
@@ -307,6 +318,7 @@ def packet(
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("generation", type=Path)
+    parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     parser.add_argument("questions", type=Path)
     parser.add_argument("--stage", type=int)
     parser.add_argument("--out", type=Path, required=True)
@@ -322,7 +334,6 @@ def main() -> int:
         from lctx_mcp.embedder import HttpEmbedder
 
         embedder = HttpEmbedder(args.embed_url)
-    gen = load(args.generation, embedder.spec if embedder else None)
     spec = tomllib.loads(args.questions.read_text(encoding="utf-8"))
     requests = []
     if args.requests:
@@ -331,20 +342,22 @@ def main() -> int:
     if args.requests:
         inputs[args.requests.name] = _digest(args.requests)
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(
-        packet(
-            gen,
-            spec["question"],
-            args.stage,
-            spec.get("exit", []),
-            embedder,
-            requests,
-            Path(spec["source_root"]).name,
-            inputs,
-        ),
-        encoding="utf-8",
-    )
-    print(f"structured-eval: wrote {args.out} (generation {gen.key})")
+
+    async def run():
+        async with session(args.generation, embedder, args.config) as (served, _reference):
+            text = await packet(
+                served,
+                spec["question"],
+                args.stage,
+                spec.get("exit", []),
+                requests,
+                Path(spec["source_root"]).name,
+                inputs,
+            )
+            args.out.write_text(text, encoding="utf-8")
+            print(f"structured-eval: wrote {args.out} (generation {served.generation.key})")
+
+    asyncio.run(run())
     return 0
 
 

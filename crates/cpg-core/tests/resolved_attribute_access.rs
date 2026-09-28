@@ -130,14 +130,15 @@ dynamic_settings = DynamicSettings()
     let script = r#"
 import sys
 from pathlib import Path
-from lctx_mcp.generation import load
-from lctx_mcp.operations import get_operation
+sys.path[:0] = [str(Path("scripts").resolve()), str(Path("python/lctx_mcp/tests").resolve())]
+from support import load_native as load, served_bundle
 generation = load(Path(sys.argv[1]), None)
-claims = generation.claims
+claims = {r["place_key"]: r for r in generation.tables["place_claims"].to_pylist()}
 assert any(k.endswith("qualified_only]") and not v["holds"] for k, v in claims.items()), claims
 assert any(k.endswith("aliased_only]") and not v["holds"] for k, v in claims.items()), claims
 assert any(k.endswith("unread_only]") and v["holds"] for k, v in claims.items()), claims
-operation = get_operation(generation, generation.snapshot_id, "probe.Settings")
+with served_bundle(Path(sys.argv[1])) as pg:
+    operation = pg.operation(pg.load(), generation.snapshot_id, "probe.Settings")
 fields = {field.name: field.never_read for field in operation.fields}
 assert "probe.settings" == operation.singleton_of, operation
 assert fields["qualified_only"].startswith("unknown (not refuted)"), fields

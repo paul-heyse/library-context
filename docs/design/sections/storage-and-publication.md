@@ -244,7 +244,8 @@ that dated checkpoint does not establish current assembled Stage 3 acceptance.
 `mixed_embedding_specs_are_refused`, `serving_schema_digests_are_the_shared_known_answers`;
 2026-09-23 onward); the files marked below as later-stage are **Proposed**.
 
-**FORMAT 11 (Implemented, 2026-09-27).** Adds standard 1024/spec format 2 and the full
+**FORMAT 12 (Implemented, 2026-09-28).** Binds release/coverage context in projection FORMAT 2;
+outer fields and file schema/row receipts must agree. FORMAT 11 adds standard 1024/spec format 2 and the full
 projection manifest with shared Rust schema/closure validation (ADR-0068). FORMAT 9's internal callable/formal
 metadata remains, so nested callee proofs can load without adding private operations to
 discovery. FORMAT 10 adds claim-keyed `behavior_discharges` and native citation admission
@@ -304,8 +305,9 @@ formats are not implicitly accepted.
   - a coverage summary: coverage by scope, family and status; boundaries by reason; invocations
     by completion; briefs by review state and analysis backing; unresolved and absent slots by
     section (the §B11 gap metric).
-  - The **generation key** is the first 16 hex digits of the SHA-256 of the manifest without its
-    key. It moves with any file, and with the snapshot's provenance.
+  - The **portable generation key** is the first 16 hex digits of the SHA-256 of the manifest without its
+    key. It moves with any file, and with the snapshot's provenance. The separate full projection
+    digest binds logical rows, schemas, context and artifacts for PostgreSQL pins/cursors.
 - **Normalization**, so a rebuild is byte-identical:
   - each file is one query, sorted by its declared key;
   - every column is cast to its declared type and rebuilt through a builder, so no view type,
@@ -319,11 +321,11 @@ formats are not implicitly accepted.
   - `lctx compile` builds the generation after publishing; `lctx bundle` rebuilds it.
   - A reader session registers its own `snapshots` rows, so the manifest's digests are read
     from the store.
-- **Activation.** The implemented builder stages and renames a generation directory; the
-  pilot smoke-queries its explicit path, and a running server retains the path loaded at
-  startup (source-inspected 2026-09-27). An atomic `generations/active` selector after successful
-  smoke validation remains a **Proposed** deployment workflow, not an implemented switch.
-  Restarting with an explicitly selected generation is the current selection boundary.
+- **Activation (Implemented, 2026-09-28).** The portable builder stages and renames a bundle
+  directory. `lctx serving import` separately validates and publishes a complete PostgreSQL
+  projection; `serving select` changes the pointer used by future servers. Each server pins the
+  full ready generation/profile digest at startup. An existing server or cursor never changes
+  when the pointer moves. Portable directory keys are export identities, not online selectors.
 
 - **Derived search indexes** (an FTS table, any ANN index) are rebuilt from the generation's Arrow
   files, keyed by the generation key, outside the byte-identical manifest.
@@ -332,7 +334,7 @@ formats are not implicitly accepted.
   finalizer-bearing generation and schema-drift controls passed; integrated qualification is
   pending ([plan W1](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
 
-> Decision: ADR-0067, ADR-0068, ADR-0049
+> Decision: ADR-0067, ADR-0068, ADR-0069, ADR-0049
 
 <a id="section-6-5"></a>
 
@@ -364,10 +366,11 @@ embedding spec are sufficient for replay; bundle/rebuild never contacts PostgreS
 embedder. Initial adoption removes the former global Delta cache writer/read exceptions after
 all consumers migrate. This is one mutable reuse service plus immutable per-snapshot inputs.
 
-**Projection foundation (Implemented and Tested for PG8–PG11, 2026-09-27).**
+**Projection publication (Implemented; focused controls Tested, 2026-09-28).**
 [Bounded evidence](../../design_review/evidence/2026-09-27_postgresql-expansion/implementation.md)
-records validation/codecs/roles; production import/query qualification remains PG12–PG17.
-`cpg-schema::serving_projection` owns FORMAT 1 manifests, all FORMAT 11 relation receipts,
+records the foundation. PG12–PG15 add import, exact queries, retrieval qualification and reports;
+[query integration evidence](../../design_review/evidence/2026-09-28_postgresql-query/README.md) bounds those checks. Production rollout/recovery and assembled acceptance remain PG16/PG17.
+`cpg-schema::serving_projection` owns FORMAT 2 manifests, all FORMAT 12 relation receipts,
 native/lexical artifact identities and generation-local constraints. `serving_support` is shared
 by publication, file loading and import. Full content digests exclude physical row order/COPY
 batching, locations and retrieval profiles; multiplicity/nulls/float bits remain significant.
@@ -375,8 +378,9 @@ SQL mappings retain 16/32-byte identity widths, typed codebook checks and genera
 foreign keys. Vector parents partition by generation; PG12 creates partitions while unpublished.
 SQLx/pgpq COPY targets bounded temporary staging, then validated INSERT because RLS tables cannot
 accept COPY FROM. A row-lock barrier freezes loading before validation; ready rows cannot mutate.
-Serving roles see ready generations only. PG12 owns promotion after full receipt/artifact checks;
-PG13–PG15 own query, indexed retrieval and qualified federation activation. Profile qualification
+Serving roles see ready generations only. Production COPY import freezes a transport recipe,
+reconciles atomic batch receipts and validates stored rows before promotion. Rust repositories
+serve pinned exact queries; HNSW requires separate qualification and explicit selection. Profile qualification
 and artifact locations are outside immutable projection identity. Canonical Delta never rolls back
 because a serving import fails.
 
@@ -412,5 +416,11 @@ Future review events preserve exact subject revision and become explicit attribu
 inputs when used. Later SQL serving remains an immutable projection. Both need their own
 consumer, replay and failure evidence; neither is silently enabled by installing PostgreSQL.
 
-> Decision: ADR-0068, ADR-0067
+> Decision: ADR-0068, ADR-0069, ADR-0067
 
+
+**Implemented; focused controls Tested (2026-09-28; ADR-0069).** Projection FORMAT 2 / bundle FORMAT 12 binds
+release identity and complete coverage context. PG12 validates stored projection rows before
+readiness; PG13 preserves exact query/native contracts; PG14 qualifies separately selected
+exact/HNSW profiles; PG15 admits bounded provider expressions and coherent operational reports.
+Implementation and qualification remain separately tracked in the PostgreSQL plan.

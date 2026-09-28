@@ -120,24 +120,30 @@ pub fn decode_rows(
     dimensions: i32,
     rows: &[sqlx::postgres::PgRow],
 ) -> Result<RecordBatch, ProjectionError> {
+    let file = bundle::files(dimensions)
+        .into_iter()
+        .find(|f| f.name == name)
+        .ok_or_else(|| corrupt("unknown relation"))?;
+    let batch = decode_schema(file.schema, rows)?;
+    serving_projection::validate_batch(name, dimensions, &batch)?;
+    Ok(batch)
+}
+/// Decode a separately declared, finite reporting schema with the same domain codec.
+pub(crate) fn decode_schema(
+    schema: arrow_schema::SchemaRef,
+    rows: &[sqlx::postgres::PgRow],
+) -> Result<RecordBatch, ProjectionError> {
     use arrow_array::{
         ArrayRef, BooleanArray, Int64Array, StringArray,
         builder::{FixedSizeBinaryBuilder, FixedSizeListBuilder, Float32Builder},
     };
     use sqlx::Row;
     use std::sync::Arc;
-    if !matches!(dimensions, 0 | 1024) {
-        return Err(corrupt("unsupported projection dimensions"));
-    }
-    let file = bundle::files(dimensions)
-        .into_iter()
-        .find(|f| f.name == name)
-        .ok_or_else(|| corrupt("unknown relation"))?;
     if rows.len() > serving_projection::MAX_RELATION_ROWS {
         return Err(serving_projection::refused("row budget"));
     }
     let mut columns = Vec::<ArrayRef>::new();
-    for field in file.schema.fields() {
+    for field in schema.fields() {
         let col = field.name().as_str();
         columns.push(match field.data_type() {
             DataType::FixedSizeBinary(width) => {
@@ -203,8 +209,7 @@ pub fn decode_rows(
             _ => return Err(corrupt("unsupported serving type")),
         });
     }
-    let batch = RecordBatch::try_new(file.schema, columns)
+    let batch = RecordBatch::try_new(schema, columns)
         .map_err(|_| corrupt("reconstructed schema/nullability"))?;
-    serving_projection::validate_batch(name, dimensions, &batch)?;
     Ok(batch)
 }
