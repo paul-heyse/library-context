@@ -270,9 +270,11 @@ separate column; historical PG0–PG7 acceptance is not reversed.
 ## 7. Findings and applicability
 
 These are target-design gaps, not claims that unimplemented features currently return bad answers.
-**Current disposition owner: this review.** F01–F05 await the requested next plan revision; that
-revision should transfer scheduled status to the existing plan/forward-plan finding rows using
-the qualified source IDs **PGE/F01–F05**. No execution status is duplicated here after transfer.
+**Disposition transferred 2026-09-27:** the [forward plan §6.1](../../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-findings)
+is the single current status owner for **PGE/F01–F05**. The updated
+[PostgreSQL plan](../../plans/postgresql-integration-plan_2026-09-27.md) owns PG8–PG17's detailed
+work and acceptance. The findings below retain this review's dated evidence and corrections;
+planning does not establish implementation or closure.
 
 <a id="F01"></a>
 ### F01 — The selected embedding width lacks an explicit end-to-end request/launch contract
@@ -293,7 +295,7 @@ a permanent 4096 analytics/1024 retrieval split.
 
 **Closure:** request/response known answers, finite/unit/width refusal, spec mismatch, exact cold/warm
 receipt replay and controlled launch conformance. These verify implementation, not the already
-accepted fidelity decision. **Disposition:** next PostgreSQL plan revision.
+accepted fidelity decision. **Disposition:** [forward plan §6.1](../../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-findings).
 
 <a id="F02"></a>
 ### F02 — A vector-only database integration leaves serving ownership tied to full-file hydration
@@ -313,7 +315,7 @@ abandoned, but do not implement both production query owners.
 
 **Closure:** exact get/find/hydration answers across unknown coverage, aliases, condition verdicts,
 parallel witnesses and pagination; one new fact/facet traced through declared projections; bounded
-DB/native fixtures and cancellation/lifespan checks. **Disposition:** next PostgreSQL plan revision.
+DB/native fixtures and cancellation/lifespan checks. **Disposition:** [forward plan §6.1](../../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-findings).
 
 <a id="F03"></a>
 ### F03 — Readiness must cover the whole serving/evidence generation, not individual indexes
@@ -331,8 +333,8 @@ read-only serving roles. Keep retention disabled initially; introduce reader pro
 deletion. Rebuild projections from canonical data, not from partially restored derived tables.
 
 **Closure:** interrupted/retried import, duplicate/conflicting identity, missing supporter/artifact,
-cross-generation cursor, two-reader rollover and restore/rebuild controls. **Disposition:** next plan
-revision, alongside existing PGS/F02 rather than rewriting that source finding.
+cross-generation cursor, two-reader rollover and restore/rebuild controls. **Disposition:** [forward plan §6.1](../../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-findings),
+alongside existing PGS/F02 without rewriting that source finding.
 
 <a id="F04"></a>
 ### F04 — A compatible provider graph does not preserve domain schemas, predicates or read views
@@ -351,8 +353,8 @@ adapter is required. ADBC remains an alternative transport, not an exemption fro
 
 **Closure:** one resolved dependency family, compiled feature graph, actual provider results and
 domain round trips, empty schemas, adversarial null/order/filter/limit cases and concurrent mutable
-read-view controls. Existing bridge probes close only their named subset. **Disposition:** next plan
-revision; relate to PGS/F04, leaving Cornucopia-specific PGK/F01 separate.
+read-view controls. Existing bridge probes close only their named subset. **Disposition:** [forward plan §6.1](../../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-findings);
+relate to PGS/F04, leaving Cornucopia-specific PGK/F01 separate.
 
 <a id="F05"></a>
 ### F05 — Indexed vector candidates cannot silently inherit exhaustive selection or current full-rank fusion
@@ -371,8 +373,8 @@ Keep BM25 policy and compiler kNN until an independently scoped change selects a
 
 **Closure:** independent 1024 exact-search reference, filtered/duplicate-chunk/multiple-view/tie cases,
 explicit ANN result metadata and resource-limit behavior; exact operation answers unchanged.
-ANN recall/latency checks concern index approximation, not MRL fidelity. **Disposition:** next plan
-revision, replacing the previous 4096 index obstacle and LanceDB-only future route.
+ANN recall/latency checks concern index approximation, not MRL fidelity. **Disposition:** [forward plan §6.1](../../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-findings);
+planned work replaces the previous 4096 index obstacle and LanceDB-only future route.
 
 **Foundation verdicts for the Proposed replacement:** FP-01/06 are satisfied by the separated
 repository, semantic executor and application lifecycle in F02; FP-04/05 by the authority, typed

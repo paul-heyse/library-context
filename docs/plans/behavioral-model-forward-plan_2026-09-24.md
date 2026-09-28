@@ -2,7 +2,8 @@
 
 **Status:** Active; product sequencing and scheduled-finding disposition owner. **Revised:**
 2026-09-27 (Stage 3's exit-driven sequence, §3.0; baseline diagnostic, §1.2; the operator-requested
-distinct [PostgreSQL implementation plan](postgresql-integration-plan_2026-09-27.md), §3.4).
+distinct [PostgreSQL implementation plan](postgresql-integration-plan_2026-09-27.md), now expanded
+for standard 1024 embeddings, PG serving/pgvector, COPY and qualified federation, §3.4).
 **Authority.** The [architecture map](../design/README.md), DESIGN and its section owners own
 contracts and accepted targets; current ADRs own rationale. This plan owns execution order, the
 current disposition of scheduled findings (§6) and deferred triggers. A change to a §B decision
@@ -26,6 +27,14 @@ integrated qualification is outstanding.**
 | L3 summaries | **Partially implemented; focused tests passed.** Direct, exact modeled, unique-assignment and local value paths retain ordered, origin-specific proofs. Normalized local arguments require every explicit evaluation and all fixed formal mappings, with certified defaults for immediate fresh nested calls, including a separate tracked-source read. Bounded nested closed expressions supply independently represented exact Boolean controls. The BDD kernel supports simultaneous substitution; the pure producer consumes multiple stable linked controls. SCC scheduling separates semantic progress and nondominated depth/expanded-proof-cost progress from retained witness alternatives in the bounded ADR-0053 value worklist (compiler101). Real three-argument/reversed-keyword calls, missing/raising arguments and default expression depth/work caps reach Delta/native; source-level later-predicate identity remains unknown | General reads/calls/defaults/predecessor/frame completion; call-specific multi-control stability and residual conjunction; multi-channel semantic/witness state; effect/exception/role summaries; original W5/W7/W12 cap traces and channel discharge |
 | L7 serving | **Partially implemented.** FORMAT 9 has internal callable-formal support, checked native IPC decoding and bounded cited-finding support closure; a finalizer and a finding-only coordinates claim round-trip in focused tests. `inspect_value_paths` remains path-local and exposes source fact/origin IDs on both positive paths and open boundaries; operation facet values retain verdicts | Typed operation-wide compatibility/effect/role filters, full proof spans beyond the cited witness projection, clean-wheel query |
 | Current checkpoint / Stage 3 acceptance | **Checkpoint tests passed; Stage 3 acceptance not established.** The latest 2026-09-27 [PostgreSQL gate](../design_review/evidence/2026-09-27_postgresql/README.md) passes 430 ordinary Rust tests, 8 real PG tests, the fresh native fixture, 154 Python tests, strict lints/Pyrefly, rules, ADR/agent checks, 83 fixture parses, dependency/gold policy and SQLx metadata. Fake/live/concurrent pilots and controlled W9/W16 conformance/replay passed | S1–S7 remain functionally incomplete; Q01/Q03/Q05/Q09 exit assessment, semantic-query packet, clean-wheel query, controlled Stage 3 cost comparison and assembled Stage 3 review remain outstanding; PostgreSQL acceptance is scoped separately |
+
+**PostgreSQL expansion — Proposed, planned/not_run:** the
+[expanded review](../design_review/reviews/design_review_postgresql-expanded-architecture_2026-09-27.md)
+selects PG relational serving and pgvector, one Rust serving repository with an async Python
+boundary, pgpq+SQLx imports and the compatible maintained provider/federation path. The operator
+selected 1024 for all new production embeddings; no dimension-fidelity gate remains. The live tree
+still uses 4096/file serving. Isolated bridge resolution/build/PG probes do not qualify this new
+product scope. PG8–PG17 in §3.4 own implementation; §6.1 now owns PGE/F01–F05 disposition.
 
 **Current versions:** extractor output 33; compiler output 106; catalog format 7; bundle FORMAT 10. PostgreSQL adds snapshot-local `used_embeddings` and `embedding_uses`; preceding Stage 3 work adds `behavior_discharges`.
 
@@ -578,36 +587,63 @@ catalog digest in `compiler_digest`; no model cites `.claude/skills/`.
 
 ### 3.4 PostgreSQL deployment and integration workstream
 
-**PG0–PG7 implemented, deployed and accepted (2026-09-27).** The distinct
-[PostgreSQL plan](postgresql-integration-plan_2026-09-27.md) owns PG0–PG7's detailed work:
-SQLx/Tokio/Rustls, PG18 deployment/testing, exact-vector snapshot receipts, shared cache,
-operational attempt history and reconciled snapshot/generation discovery. Its §7 covers later
-workflow, SQL/search projections and library capabilities. [ADR-0065](../adr/0065-postgresql-services-and-vector-receipts.md)
-is accepted for implementation; ADR-0066/0067 preserve unrelated serving and storage clauses.
+**PG0–PG7 implemented/deployed/accepted; PG8–PG17 planned, 2026-09-27.** The distinct
+[PostgreSQL plan](postgresql-integration-plan_2026-09-27.md) owns detailed packages, contracts,
+deployment and acceptance. PG0–PG7 supplies SQLx/cache/exact receipts, PG18 operations and canonical
+discovery. The [expanded review](../design_review/reviews/design_review_postgresql-expanded-architecture_2026-09-27.md)
+now selects standard 1024 embeddings, immutable PG relational serving, pgvector, Rust async serving,
+pgpq COPY and qualified DataFusion read views/federation. Old F2/F3(vector)/F5(selected bridge)
+consumer triggers are met; their implementation no longer waits for a generic size/bottleneck threshold.
+
+[ADR-0065](../adr/0065-postgresql-services-and-vector-receipts.md), ADR-0066 and ADR-0067 govern
+the deployed baseline. PG8 records 0065/0066 successors and amends their design owners before
+production changes. Canonical Delta/receipt authority and the pure native semantic kernel remain;
+no PostgreSQL-only canonical store, Python ORM or new network protocol service is implied.
 
 | Order relative to this plan | PostgreSQL work | Dependency / boundary |
 |---|---|---|
-| May prepare independently of Stage 3 semantics | PG0 decisions/contracts and PG1a standalone disposable qualification | Keep the probe outside hashed production sources and the root dependency graph. No semantic baseline or evaluation target changes |
-| Authorized before Stage 3 P7 (2026-09-27) | PG1b application/dependency integration; PG2 host deployment and PG3 snapshot receipts → PG4 PG cache → PG5 cutover/removal; PG6 operational CLI consumers | Every cpg-core Rust source contributes to compiler identity. Include compiler-affecting external SQL in its inventory; account for source/schema/content changes and fresh stores. Host administration requires usable credentials; frozen analytics/ranking parameters remain unchanged |
-| End of the integrated PostgreSQL scope | PG7 full product gate, pilot, live embedding, replay/restore/rollback, costs and assembled review | Do not rerun full integrated gates after every PG slice; fake vectors do not qualify live W9/W16 |
-| Stage 4–5 or a measured consumer trigger | PostgreSQL plan F1–F10 | Registry/semantic computation stays Rust/Arrow/DataFusion; serving/workflow changes require the owning decision and evidence |
+| Completed before Stage 3 P7 | PG0–PG7 initial deployment/cache/receipt/operations and acceptance | Preserve historical receipts and current canonical stores; this did not complete Stage 3 |
+| Next PostgreSQL implementation entry | PG8 successor decisions, baseline preservation, contract/consumer/deletion inventory and acceptance criteria | This revision is planning-only. Capture the actual current tree/binary/locks/artifacts before new source/schema/spec changes; retain existing frozen evaluation inputs |
+| Before new 1024 generations | PG9 spec/client/launcher migration; PG10 selected root libraries, owned provider fork, PG extension/roles/tooling; PG11 projection/codec/native contracts | PG9 and PG10 can progress independently after PG8; PG11 uses the frozen spec contract. Enforce one DF55.1/Arrow 59.3 family; no renewed dimension-quality investigation |
+| Before PG online serving cutover | PG12 COPY/staged import/ready transaction → PG13 exact repository/hydration/async MCP → PG14 exact vector ranks and explicit HNSW profile | Full evidence and unknown coverage precede ranked discovery; keep Python lexical/fusion policy and pure native evaluation |
+| Alongside query integration | PG15 restricted read-only DataFusion views and concrete operator federation report | Uses PG10–PG12 contracts; qualify codecs/pushdown/read views. Mutable coherent reports materialize under one transaction, not independent pooled scans |
+| End of expanded PostgreSQL scope | PG16 diagnostics/cutover/restore/rebuild/deletion → PG17 full code gate, fresh pilot/live 1024 conformance, exact/ANN controls, costs and assembled review | Focused checks during slices, full integrated gates at the end. Native ADBC and other conditional paths are not PG17 requirements |
+| Stage 4/5 named consumers | Add their declared concept/model/evidence projections through PG11–PG13 boundaries; F1 frozen review events when workflow is selected | Semantic work does not wait on optional protocol/ORM/ADBC/FTS features. Serving/schema acceptance follows the stage's actual output contract |
 
-The operator requested execution now, so PostgreSQL proceeds before Stage 3 P7. The baseline
-commit is `5e623535ed0ad836b633e5788cd6c3ea1765a248`; its existing binary and lockfile are
-preserved under `build/postgresql-baseline-5e62353/`, and existing stores, generations and
-evaluation artifacts stay untouched. New schema/compiler/content identities require fresh
-PostgreSQL-scope stores and separately named results. No evaluation target, model, ranking
-parameter or sealed heldout input changes. PostgreSQL acceptance does not close Stage 3. W9's shared admission/readback now has controlled live conformance, cold/warm and offline byte-replay evidence; arbitrary endpoint attestation remains W16's deferred boundary. W15's analytical fresh-store policy continues; durable operational history
-uses SQL migrations. Current finding status is in [§6](#postgresql-findings).
+The initial work preserved baseline `5e623535ed0ad836b633e5788cd6c3ea1765a248` under
+`build/postgresql-baseline-5e62353/`. The expansion preserves a new current baseline in PG8 rather
+than overwriting it. Compiler-affecting source and external SQL are inventoried; changed schema,
+spec and content identities require fresh stores and separately named outputs. Existing 4096
+artifacts retain identity and a compatible rollback reader; they are never cast/relabelled as 1024.
+W15's fresh-store policy continues, while durable PG operational history uses explicit migrations.
+
+The 1024 choice changes vector geometry and derived analytics outputs by a new spec, not by retuning
+analytics thresholds, model semantics, question targets or sealed heldout data. PG14's exact/ANN
+retrieval profiles explicitly record any changed ranking semantics; historical results remain
+attributed to their original spec/profile. Stage 3's frozen questions and exit rule stay unchanged.
+W9's exact-cache defect stays closed on its recorded evidence; the new spec has fresh correctness
+checks in PGE/F01. Arbitrary endpoint attestation remains W16's deferred boundary.
+
+PostgreSQL integration is an additive workstream before the final served Stage 3 packet, consistent
+with the operator's existing sequencing choice. Pure channel/default/completion work may proceed
+independently. After PG serving cutover, Stage 3's packet and clean-wheel query use the selected,
+qualified generation and supported backend; the unchanged semantic rubric still governs them.
+PG17 does not replace Stage 3 P7, Q01/Q03/Q05/Q09 or the all-channel completion obligations. Current
+finding status, including all PGE items, lives only in [§6.1](#postgresql-findings).
 
 ## 4. Stages 4 and 5
 
 PostgreSQL does not change the semantic authorities below. The
-[PostgreSQL workstream](#postgresql-workstream) supplies cache/operational capabilities;
-its F1–F10 packages describe later consumers and adoption triggers. Stage 4 registry TOML,
-Rust definition AST and DataFusion materialization remain authoritative; PostgreSQL may index
-their output only through an explicit projection. Stage 5 model/lifecycle computation remains
-Rust-owned. Neither stage waits for a database search engine or extension without a named need.
+[PostgreSQL workstream](#postgresql-workstream) adds immutable relational serving/retrieval and
+qualified read views to the deployed cache/operations. Stage 4 registry TOML, Rust definition AST,
+condition kernels and DataFusion materialization remain authoritative; PostgreSQL indexes their
+published output through generation-qualified projections. Stage 5 model/lifecycle computation
+remains Rust-owned. Neither stage depends on optional ADBC, SQL-wire endpoints, ORM or pgrx.
+
+PG11–PG13 provide the projection/query path; the stage introducing a new semantic family owns its
+schema, evidence and exact-answer controls. If either stage advances before PG cutover, preserve
+its existing serving path until that family is represented and qualified in the new projection;
+do not omit supported facts to meet a storage milestone.
 
 ### Stage 4: the capability registry
 
@@ -623,13 +659,23 @@ Rust-owned. Neither stage waits for a database search engine or extension withou
 4. **Membership:** `concept_members` materialized with role bindings, condition, verdict and
    witness; every member cites a definition digest and a witness; a test shows FCA never writes
    membership.
-5. **`lookup_concepts`** lists every concept while the catalog is small; ranked lookup (bm25s,
-   PyStemmer, vectors, RRF) waits until it outgrows one page.
+5. **`lookup_concepts`** lists every concept while the catalog is small. Project authored registry
+   revisions/labels/facets and derived memberships into the pinned PG generation through PG11–PG13;
+   preserve definition digest, condition, verdict and witness. Ranked lookup (bm25s, PyStemmer,
+   standard 1024 vectors, explicit retrieval profile/RRF) waits until the catalog outgrows one page;
+   it nominates candidates and never writes membership.
 6. **`explain`** returns the stored witness chain: rule id, premises and spans; each derived row
    stores its rule id and proof height.
 7. **FCA over behavioral attributes** per structural scope, as candidate facets. RCA only if the
    structured evaluation shows value, and only after W10 gives attributes typed meaning.
 8. **Query schema authority** (schemars → JSON Schema → pydantic) only if Rust needs the request types.
+   Reuse the PG13 typed repository boundary for concept lookup/explanation instead of adding a
+   Python SQL catalog or a second completeness/evidence interpreter.
+9. **Selected manual review workflow** (PostgreSQL F1): append decisions against exact subject
+   revisions and freeze an explicitly selected event revision into compiler inputs. Keep provenance,
+   conflicts/idempotency and unreviewed state explicit; never edit published membership or brief
+   truth through mutable PG status. Implement the workflow only when its operator-facing consumer
+   is selected; its absence does not block registry semantics.
 
 **Exit:** the structured evaluation of concept queries, with targets pre-registered in
 `eval/behavior/` before this stage's output is read.
@@ -649,6 +695,10 @@ Rust-owned. Neither stage waits for a database search engine or extension withou
    the user's annotations, coroutines and generators.
 6. **Graph-FCA offline** on a bounded projection, judged by the structured evaluation; never in
    the pipeline.
+7. **Serving projection extension:** add each supported lifecycle/protocol/role fact and its full
+   proof/coverage to PG11–PG13's declared projection and pure native image. Preserve creation versus
+   execution and observed versus enforced distinctions through exact filters and hydration. Search
+   similarity is never a protocol proof; do not move Stage 5 semantics into SQL or ANN.
 
 **Exit:** Q02, Q06, Q07, Q08, Q11 and Q12 under Stage 5's exit rule. **Then, to close
 increment 5:** unseal `eval/heldout/` and verify its manifest; write each task's target before
@@ -682,6 +732,7 @@ the validation lane asks whether the analysis admits what really executes.
 | Pysa, CrossHair, Hypothesis + `sys.monitoring` | **Oracles** (order 8) | Pysa's call graph is Pyrefly's, so only its TITO result is independent |
 | PyStemmer, DataFusion `WITH RECURSIVE` (compile time), schemars | Stage 4 adopt | schemars only if Rust needs request types |
 | Graph-FCA | Stage 5 offline spike | Never in the pipeline |
+| PostgreSQL serving/pgvector/pgpq/qualified federation and Rust async boundary | **Planned PG8–PG17**, not installed by this revision | Exact pins/features and feature-set qualification in the [PostgreSQL plan §2](postgresql-integration-plan_2026-09-27.md#2-stack-and-feature-policy); 1024 is selected, adapter/ANN/runtime correctness remains required |
 
 Avoid: crepe, DDlog, cozo, differential-dataflow; LinkML, OWL/RDF stacks, taxonomy induction,
 BERTopic or UMAP in the pipeline; rust-bert, ort, fastembed.
@@ -781,19 +832,31 @@ fresh-store execution is recorded in §1.1. No other review finding is closed by
 ### 6.1 PostgreSQL review findings
 
 **Single current disposition owner, 2026-09-27.** PGS is the
-[storage assessment](../design_review/reviews/design_review_postgresql-storage_2026-09-27.md);
-PGK is the [stack assessment](../design_review/reviews/design_review_postgresql-stack_2026-09-27.md).
-The [PostgreSQL plan](postgresql-integration-plan_2026-09-27.md) provides detailed work and
-acceptance. No row closes through plan/ADR adoption alone; the original source IDs are retained.
+[storage assessment](../design_review/reviews/design_review_postgresql-storage_2026-09-27.md),
+PGK the [stack assessment](../design_review/reviews/design_review_postgresql-stack_2026-09-27.md),
+and PGE the [expanded architecture assessment](../design_review/reviews/design_review_postgresql-expanded-architecture_2026-09-27.md).
+PGE/F01–F05 transfer here from that review with this planning revision. The
+[PostgreSQL plan](postgresql-integration-plan_2026-09-27.md) owns detailed packages and acceptance;
+its traceability table is a work mapping, not a second disposition register. No finding closes
+through plan or ADR adoption alone; all original IDs retain their meaning.
 
 | Source finding | Owner / disposition | Work and closure evidence / trigger |
 |---|---|---|
-| **[PGS/F01](../design_review/reviews/design_review_postgresql-storage_2026-09-27.md#F01)** exact used-vector replay | Schema, embed/attempt/bundle; **Tested, closed (2026-09-27)** | [PG qualification](../design_review/evidence/2026-09-27_postgresql/README.md): all consumers including E0 enter exact receipts; real winner/restored-cache controls; live cold/warm equality and PG-offline all-file byte replay; obsolete global routes deleted |
-| **[PGS/F02](../design_review/reviews/design_review_postgresql-storage_2026-09-27.md#F02)** pinned serving semantics | Importer/retrieval/native/MCP; **Deferred to F2/F3** | Trigger: measured SQL serving/search consumer. Require immutable generation identity, exact semantic/evidence parity, declared ranking/recall changes, unknown coverage and interrupted-import/read-pinning controls |
-| **[PGS/F03](../design_review/reviews/design_review_postgresql-storage_2026-09-27.md#F03)** canonical replacement case | Storage architecture; **Deferred to F9** | Trigger: measured canonical bottleneck or agreed PG-transaction capability. Complete write/validate/publish/read/rebuild cost comparison and removed-machinery/authority mapping; initial scope retains Delta |
-| **[PGS/F04](../design_review/reviews/design_review_postgresql-storage_2026-09-27.md#F04)** unqualified federation/Arrow bridge | Driver/Arrow integration; **Deferred to F5** | Initial PG1/PG3 uses bounded typed conversion, not a generic provider. Trigger: bulk/federation consumer; exact family/type/metadata/null/ordering, pushdown and coherent-read-view evidence |
-| **[PGK/F01](../design_review/reviews/design_review_postgresql-stack_2026-09-27.md#F01)** external-stack dependency composition | PostgreSQL adapter/dependency owner; **Deferred to reconsidering Cornucopia/Rust-Postgres** | Trigger: adopting that alternative (e.g. F5). Correct connector versions, binder and generated features, then resolve/build/execute its graph. PG1 qualifies SQLx separately; choosing SQLx neither corrects nor closes the external-stack finding |
-| **[PGK/F02](../design_review/reviews/design_review_postgresql-stack_2026-09-27.md#F02)** test/generation server defaults | Test/deployment owners; **Tested, closed (2026-09-27)** | [PG qualification](../design_review/evidence/2026-09-27_postgresql/README.md): installed and disposable server 180006, image patch/digest pinned, migrated application-role/type/query/restart tests. Extension-bearing images remain conditional on an extension consumer |
+| **[PGS/F01](../design_review/reviews/design_review_postgresql-storage_2026-09-27.md#F01)** exact used-vector replay | Schema, embed/attempt/bundle; **Tested, closed (2026-09-27)** | [PG qualification](../design_review/evidence/2026-09-27_postgresql/README.md): all consumers including E0 enter exact receipts; real winner/restored-cache controls; live cold/warm equality and PG-offline all-file byte replay; obsolete global routes deleted. PG9/PG17 preserve these controls for the new spec |
+| **[PGS/F02](../design_review/reviews/design_review_postgresql-storage_2026-09-27.md#F02)** pinned serving semantics | Importer/retrieval/native/MCP; **Planned PG8/PG11–PG14/PG16–PG17** | Consumer selected by the expanded target; no generic measured-bottleneck prerequisite. Immutable projection identity, exact semantic/evidence parity, declared rank/ANN policy, unknown coverage, interrupted import, pinning and recovery |
+| **[PGS/F03](../design_review/reviews/design_review_postgresql-storage_2026-09-27.md#F03)** canonical replacement case | Storage architecture; **Deferred to F9** | Trigger: measured canonical bottleneck or agreed PG-transaction capability. Complete write/validate/publish/read/rebuild cost and removed-machinery/authority comparison; expanded target still retains Delta |
+| **[PGS/F04](../design_review/reviews/design_review_postgresql-storage_2026-09-27.md#F04)** federation/Arrow boundary | Driver/Arrow integration; **Planned PG10–PG12/PG15/PG17** | COPY/import and operator/read-view consumers selected. [Isolated probes](../design_review/evidence/2026-09-27_postgresql-expansion/bridges/README.md) establish compatible graph and bounded reads/COPY, not closure. Product schemas/metadata/null/order, pushdown/limits and coherent views remain |
+| **[PGK/F01](../design_review/reviews/design_review_postgresql-stack_2026-09-27.md#F01)** external-stack dependency composition | PostgreSQL adapter/dependency owner; **Deferred to reconsidering the Cornucopia/application-driver alternative** | Trigger: selecting that app stack; correct connector/binder/generated features and resolve/build/execute its graph. Provider-internal Rust-Postgres and SQLx+pgpq do not select that architecture or close this finding |
+| **[PGK/F02](../design_review/reviews/design_review_postgresql-stack_2026-09-27.md#F02)** server defaults | Test/deployment owners; **Tested, closed for PG0–PG7 (2026-09-27)** | Installed/disposable 180006, pinned image and application-role tests in [initial evidence](../design_review/evidence/2026-09-27_postgresql/README.md). PG10/PG17 extend version/image/role controls to the now-selected pgvector extension |
+| **[PGE/F01](../design_review/reviews/design_review_postgresql-expanded-architecture_2026-09-27.md#F01)** dimension/request/launch contract | Spec, launcher and both clients; **Planned PG8/PG9/PG17** | 1024 standard is settled. Version prefix/normalization/admission, matching requests, rebuilt outputs, finite/unit/width/model refusals, mixed-spec rejection and cold/warm exact receipts; no dimension-fidelity gate |
+| **[PGE/F02](../design_review/reviews/design_review_postgresql-expanded-architecture_2026-09-27.md#F02)** full-hydration serving ownership | Rust repository, native and MCP owners; **Planned PG8/PG11/PG13/PG16/PG17** | One exact selection/full-support owner, coarse async interface, pure native image, cancellation/pool lifecycle, parity for unknowns/aliases/verdicts/cursors; remove production Python relational maps and duplicate queries |
+| **[PGE/F03](../design_review/reviews/design_review_postgresql-expanded-architecture_2026-09-27.md#F03)** whole-generation readiness | Projection writer/schema/operator; **Planned PG11/PG12/PG16/PG17** | Separate canonical/projection identity; generation keys/FKs, native/lexical artifact digests and whole closure; invisible staging and atomic ready; interruption/retry/conflict, rollover and restore/rebuild. Retain ready generations until reader protection exists |
+| **[PGE/F04](../design_review/reviews/design_review_postgresql-expanded-architecture_2026-09-27.md#F04)** schema/predicate/read-view preservation | Domain codec, provider fork and DataFusion adapter; **Planned PG10/PG11/PG15/PG17** | Owned pinned fork and selected product graph; exact domain types/metadata/empty schemas; admitted scan/federation predicates and residual-before-limit; immutable generation views or coherent transaction materialization. Probe compatibility is partial evidence only |
+| **[PGE/F05](../design_review/reviews/design_review_postgresql-expanded-architecture_2026-09-27.md#F05)** exact versus indexed retrieval | Rust retrieval and Python lexical/fusion owners; **Planned PG8/PG14/PG17** | Separate full per-view ranks from bounded ANN candidates; generation/filter/chunk/tie/fusion and underfill contracts, numeric/profile identity, budget refusal and ANN criteria against a 1024 exact reference. Preserve exhaustive queries and current BM25/name policy |
+
+The initial W9/W16 and PG0–PG7 live receipts retain their original 4096 spec and scope. New1024
+implementation correctness is PGE/F01 work; it neither reopens the closed cache defect nor claims
+arbitrary endpoint attestation. Expanded serving/ANN/federation acceptance is **not_run**.
 
 ## 7. Deferred, each with a trigger
 
@@ -810,8 +873,8 @@ acceptance. No row closes through plan/ADR adoption alone; the original source I
 | Stage F brief-builder restructuring | A rendering consumer needs it; briefs remain one rendering |
 | Graph-FCA in the pipeline | An offline experiment yields templates the evaluation rates useful |
 | On-demand RCA at serve time | Materialized membership proves too coarse |
-| Lance / LanceDB | More than ~10⁵ vectors at 4,096-d, or filtered ANN with managed FTS |
-| PostgreSQL serving, pgvector/FTS, dynamic SQL, direct Python access, operator review, notifications/jobs, federation, pgrx and advanced operations | [PostgreSQL plan §7](postgresql-integration-plan_2026-09-27.md#7-later-capabilities-and-adoption-triggers) owns work packages F1–F10; [§6.1](#postgresql-findings) owns review status. A PG alternative to the accepted LanceDB trigger needs its successor decision |
+| Lance / LanceDB or changed lexical/FTS policy | A named capability or measured limitation beyond qualified PG serving/pgvector; PostgreSQL F13. The old 4096/size trigger is replaced by PG8's successor decision; no automatic alternative installation |
+| PostgreSQL operator review, dynamic SQL, direct Python/ORM access, notifications/jobs, native ADBC, SQL/ADBC client protocols, pgrx and advanced topology | [PostgreSQL plan §7](postgresql-integration-plan_2026-09-27.md#7-later-capabilities-and-adoption-triggers) owns F1/F4/F6–F13 consumer triggers. Serving/vector/COPY/selected federation are active PG8–PG17 work, not deferred; §6.1 owns finding status |
 | spaCy in compile | Regex directive tagging misses conditions the evaluation needs |
 | A neural reranker | An ADR under §B10 after a measured need |
 | Native-extension bodies | A pilot question needs one |
@@ -835,8 +898,10 @@ acceptance. No row closes through plan/ADR adoption alone; the original source I
 | ty churn and salsa skew | Exact pins; parity tests on upgrade |
 | Scope creep | Stage exit rules; §7's triggers; nothing starts before its stage |
 | Disk and GPU | One pilot store; live GPU legs only with ≥30 GB free and vLLM stopped afterwards |
-| PostgreSQL adoption disturbs the semantic baseline or creates a second authority | §3.4 sequencing; exact Delta vector receipts and one publication act; no live PG reads during immutable semantic replay |
-| PostgreSQL service, durable history and dependency/image drift | PG1–PG2 actual version/role/feature checks, bounded resources and restore drill; PG7 deployment evidence; later libraries stay behind named consumers |
+| PostgreSQL/1024 migration disturbs the semantic baseline or creates a second authority | PG8 baseline preservation and explicit spec/projection identities; exact Delta receipts, fresh stores and separately named results; canonical replay independent of live PG/cache/embedder; no tuning of frozen semantic/evaluation parameters |
+| Partial PG projection or cross-generation hydration | PG11/PG12 whole-evidence/artifact validation and atomic ready, lifespan-pinned selection/cursors, PG16 restore/rebuild; retain ready generations and artifacts until explicit reader protection exists |
+| ANN/pushdown changes exhaustive or unknown semantics | PG13 exact universe/coverage; PG14 full ranks versus versioned approximate candidates and budget refusal; PG15 admitted expression/codec/read-view contracts. Similarity never becomes evidence |
+| PostgreSQL service, pool pressure and dependency/extension drift | PG10 actual server/extension/image/role checks and owned immutable fork; PG13 cancellation/reuse; PG16/PG17 two-pool/resource/recovery measurements. Native/lexical/rank memory remains measured, not assumed eliminated |
 
 ## 9. Standing conventions
 
@@ -850,7 +915,10 @@ acceptance. No row closes through plan/ADR adoption alone; the original source I
   store rebuilt from pinned inputs (ADR-0048). Moving `build/store` aside is a temporary rollback
   measure, not a historical-read promise. New compiles publish `embedding_specs`, `used_embeddings`
   and `embedding_uses`; shared reuse goes through PostgreSQL. Legacy cache admission uses the
-  explicit versioned importer and original request texts. Do not copy old analysis tables.
+  explicit versioned importer and original request texts. Standard 1024 creates new spec/cache/receipt
+  identities and rebuilt derived outputs; never rewrite 4096 receipts. PG projection format/index
+  profile changes are separately versioned and cannot alter canonical snapshot identity. Do not
+  copy old analysis tables or require PG during canonical bundle reconstruction.
 - Codebooks are append-only (`verdict`, `boundary_reason`, `condition_atom`, effect kinds, concept
   ids, model ids). `libraries/fastmcp/analytics.toml` is frozen; an edit needs an ADR.
 - `fixtures/python/` is never executed; `eval/heldout/` stays sealed until increment 5's end.

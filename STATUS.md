@@ -19,17 +19,17 @@ _Updated 2026-09-27 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
   two explicit migrations, protected config, backup/restore and operational CLI.
   [Plan](docs/plans/postgresql-integration-plan_2026-09-27.md),
   [runbook](docs/postgresql.md), [evidence](docs/design_review/evidence/2026-09-27_postgresql/README.md).
-  ADR-0065/0066/0067 are accepted; F1–F10 remain consumer-triggered future capabilities.
-- **PostgreSQL expansion reviewed:** [target review](docs/design_review/reviews/design_review_postgresql-expanded-architecture_2026-09-27.md)
-  owns PGE/F01–F05 pending plan revision. 1024 is the operator-selected standard; proposed PG
-  serving/pgvector/COPY/federation retains canonical Delta. Product, deployment and plans unchanged.
+  ADR-0065/0066/0067 govern this baseline; PG8 will record the expanded successor decisions.
+- **PostgreSQL expansion planned:** the [updated plan](docs/plans/postgresql-integration-plan_2026-09-27.md)
+  owns PG8–PG17: standard 1024, PG serving/pgvector, Rust async queries, COPY and qualified federation.
+  Both plans incorporate the review; production/deployment are unchanged and expansion is not_run.
 - **Versions:** compiler **106**, extractor **33**, template **20**, catalog **7**, FORMAT **10**.
   `used_embeddings`/`embedding_uses` are schema migrations; use fresh stores under ADR-0048.
   Prior binary/lockfile and baseline artifacts remain under `build/postgresql-baseline-5e62353/`.
 
 ## Last verified (2026-09-27)
 
-Product rows retain prior PG0–PG7 receipts; full product gates were **not_run** for this design review.
+Product/probe rows retain prior receipts; full product gates were **not_run** for this planning update.
 Product target `/home/paul/library-context/target`; expansion probes use a separate cache target.
 
 | Command | Outcome and scope |
@@ -45,10 +45,10 @@ Product target `/home/paul/library-context/target`; expansion probes use a separ
 
 ## Known boundaries and next
 
-- Next PostgreSQL step: revise the existing plan and decision owners from the expansion review;
-  native ADBC, expanded serving and ANN remain unqualified. No further dimension-quality gate.
+- Next PostgreSQL implementation step: PG8 decisions, baseline and contract/consumer inventory;
+  then PG9–PG11 spec/stack/projection work. No further dimension-quality gate.
 - PostgreSQL acceptance does not complete Stage 3. The [forward-plan findings](docs/plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-findings)
-  own PGS/PGK dispositions; W9 is tested closed for its cache defect, while arbitrary endpoint
+  own PGS/PGK/PGE dispositions; W9 is tested closed for its cache defect, while arbitrary endpoint
   attestation stays deferred under W16. No Python database client or future search stack is installed.
 - A documentation-only brief for an undocumented, analysis-free seed fails
   `semantic:documentation-only-has-outcome` (fail-closed); generated packages only, unscheduled.
