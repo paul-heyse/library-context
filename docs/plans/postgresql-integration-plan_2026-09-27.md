@@ -1,11 +1,11 @@
 # Plan: PostgreSQL deployment and integration
 
-**Revised 2026-09-27. PG0–PG7 are accepted; PG8–PG11 foundations are implemented, deployed and tested; PG12–PG17 remain planned.**
+**Revised 2026-09-28. PG0–PG11 are implemented and deployed; PG12–PG15 are implemented with focused runtime evidence; PG16/PG17 remain planned.**
 This revision incorporates the [expanded architecture review](../design_review/reviews/design_review_postgresql-expanded-architecture_2026-09-27.md).
 It selects 1024-dimensional embeddings, PostgreSQL relational serving and pgvector, Rust-owned
 serving queries, pgpq ingestion and qualified DataFusion federation as the next integrated scope.
 The old serving/COPY/provider consumer triggers are met by this selected work; they are not
-additional prerequisites. The PG8–PG11 foundation slice is implemented, including local roles/extension/schema deployment; production query cutover remains PG12–PG17.
+additional prerequisites. The PG8–PG11 foundation slice is implemented, including local roles/extension/schema deployment; PG12–PG15 query integration is implemented; coordinated operator rollout remains PG16.
 
 This document owns PostgreSQL packages, contracts, deployment, acceptance and conditional library
 adoption. The [forward plan §3.4](behavioral-model-forward-plan_2026-09-24.md#postgresql-workstream)
@@ -45,7 +45,7 @@ migrations 202609270001/2, one shared cache writer, `used_embeddings`/`embedding
 snapshot-local receipts, operational CLI and reconciled discovery. Compiler 106/extractor 33,
 catalog 7/template 20 and bundle FORMAT 10 were the pre-expansion baseline, with full 4096 vectors.
 PG8–PG11 now use compiler 107, FORMAT 11 and standard 1024. The file reference consumer still
-materializes Python maps/dense vectors until PG13/PG14.
+now retains only native/lexical state and a PostgreSQL pin; relational maps and dense vector scans have been removed.
 [Initial qualification](../design_review/evidence/2026-09-27_postgresql/README.md) is historical
 acceptance of that scope, not evidence for PG8–PG17.
 
@@ -259,7 +259,7 @@ performing DDL. PostgreSQL readiness complements, rather than replaces, canonica
 ## 4. Dependency-ordered implementation
 
 PG0–PG7 are complete historical packages (§8), not an instruction to repeat deployment. The active
-implementation queue is **PG12–PG17** with PG8–PG11 foundations complete. Contract/source inventory changes precede
+remaining implementation queue is **PG16–PG17** with PG12–PG15 query integration implemented. Contract/source inventory changes precede
 production edits; focused checks settle each boundary and integrated gates run at PG17.
 
 | Package | Owner and deliverable | Depends on |
@@ -478,7 +478,48 @@ parallel/cross-generation/missing-support rejection and native round trips. Read
 acceptance; report schema migration. **Deletion:** duplicate shape/meaning declarations and permissive
 casts on this boundary; do not remove independent malformed-input controls.
 
+### PG12–PG15 execution contract (accepted 2026-09-28)
+
+ADR-0069 records the additional context and query-profile decisions. Implement PG12.1 context
+and append-only lifecycle migration; PG12.2 resumable COPY/artifacts; PG12.3 read-back validation,
+readiness and explicit selection; PG13.1 exact repository/hydration; PG13.2 async MCP/native
+lifecycle and selector removal; PG14.1 complete ranks/compact fusion; PG14.2 qualified HNSW;
+PG15.1 declared providers/federation admission; PG15.2 coherent operational report. PG15 can
+start after PG12.3. Existing PG8–PG11 receipts do not qualify these consumers.
+
+Projection FORMAT 2 carries `ServingContext { library, requirement, summary }`; bundle FORMAT 12
+renders outer fields from it. Rebuild projections from compatible canonical snapshots without
+re-embedding. Deployed migrations 001–004 are immutable. Import receipts freeze physical input
+fingerprints and batch layout outside content identity. A dedicated session advisory lock spans
+bounded transactions; rows and receipts commit atomically, uncertain commits reconcile before
+retry, transient failure leaves the generation resumable. Shared validation reads PostgreSQL
+rows back after freezing before the final readiness transaction. Ready artifacts are retained.
+
+Exact PostgreSQL ranks remain the default and exhaust every eligible entity/view before fusion.
+The optional HNSW profile uses the ADR-0069 parameters and must achieve 99% mean recall@10 in
+every preregistered filter stratum, both per-view and after fusion. Exact-symbol promotion and
+BM25/RRF K=60 remain unchanged. Distinct-entity underfill widens then uses bounded exact fallback;
+no numerical tolerance excuses ranking differences. Responses disclose profile/route/fallback.
+
+Additional budgets: hydration 64 MiB decoded/8 MiB serialized; rank transfer 32 MiB/fusion state
+128 MiB; candidate rescoring 200,000 rows/128 MiB; report capture 100,000 rows/64 MiB/30 seconds;
+native CPU work two slots. Existing COPY/pool/native limits remain binding. Exhaustion refuses
+explicitly. Keep statement/acquire/lock defaults and do not hold connections across embedding,
+fusion or native work. Actual RSS/latency/WAL remain measured claims, not inferred benefits.
+
+**Development workflow (operator clarification, 2026-09-28):** use the existing editable Python
+and cached Rust development environment. Rebuild native bindings in place when PostgreSQL/PyO3
+changes require it. Standalone wheel packaging and clean-install checks are deferred until an
+actual distribution/deployment consumer requires them; they are not a gate for this phase.
+
+Only focused functional checks run while PG12–PG15 functionality is incomplete. Broader
+formatting/lint/documentation and combined checks follow full functional completion. PG16 owns
+production rollover/restore; PG17 owns final expanded-system acceptance. The forward plan §6.1
+remains the single finding disposition owner.
+
 ### PG12 — Build COPY import, index construction and atomic serving readiness
+
+**Implemented, 2026-09-28; focused controls in the [query evidence](../design_review/evidence/2026-09-28_postgresql-query/README.md).**
 
 **Owner:** Rust projection writer and `lctx` serving-generation commands. **Depends:** PG9–PG11.
 
@@ -500,6 +541,8 @@ controls. **Deletion:** no direct vector-only publication path or automatic migr
 
 ### PG13 — Integrate exact Rust serving and the asynchronous MCP boundary
 
+**Implemented, 2026-09-28; focused controls in the [query evidence](../design_review/evidence/2026-09-28_postgresql-query/README.md).**
+
 **Owner:** Rust serving repository, Python application and native-input owner. **Depends:** PG12.
 
 - Provide typed resolve/get, exact facet page and batched full-evidence hydration operations. Bind
@@ -518,11 +561,13 @@ controls. **Deletion:** no direct vector-only publication path or automatic migr
 
 **Exit:** current exact tools match independent fixture/reference answers on the same canonical 1024
 input, including unknown coverage, aliases, conditions, parallel witnesses and cursor errors; clean
-Python 3.14 wheel/native integration and lifecycle controls. **Deletion:** superseded production
+Python 3.14 development-environment/native integration and lifecycle controls. **Deletion:** superseded production
 Python relational dictionaries/selectors and duplicated schema/hydration logic after cutover; retain
 semantic oracles and golden inputs, not obsolete implementation-mirroring tests.
 
 ### PG14 — Add exact pgvector ranks and explicit HNSW discovery
+
+**Implemented, 2026-09-28; focused controls in the [query evidence](../design_review/evidence/2026-09-28_postgresql-query/README.md).**
 
 **Owner:** retrieval repository and existing Python lexical/fusion owner. **Depends:** PG13/PG9/PG10.
 
@@ -551,6 +596,8 @@ dense Python cosine scans and unversioned truncated-rank substitutes. F13 owns a
 
 ### PG15 — Qualify DataFusion PostgreSQL views and operational federation
 
+**Implemented, 2026-09-28; focused controls in the [query evidence](../design_review/evidence/2026-09-28_postgresql-query/README.md).**
+
 **Owner:** DataFusion PG adapter and operational CLI. **Depends:** PG10–PG12; coexists with PG13/PG14.
 
 - Provide read-only registered views over immutable serving/operational identities with explicit
@@ -559,7 +606,8 @@ dense Python cosine scans and unversioned truncated-rank substitutes. F13 owns a
 - Declare and execute a finite supported expression/cast/collation set for table-scan and federation
   pushdown. Compare pushed/local controls for nulls, ordering, limits, floats, timestamps, casts and
   empty results. Return Unsupported or retain an inexact residual where equivalence is unqualified;
-  constrain federation rewrites too, not only `supports_filters_pushdown`.
+  constrain federation rewrites too, not only `supports_filters_pushdown`. The implemented subset
+  admits generation-qualified inner key joins; outer joins remain local.
 - Deliver a concrete operator report joining PG attempts/events/projection readiness with an explicitly
   pinned Delta snapshot (for example run identity, publication, row counts and serving readiness).
   Immutable inputs carry their identity; coherent mutable relations are fetched together under one
@@ -616,7 +664,7 @@ unrelated stores/services and operator-retained historical artifacts remain unto
   startup/RSS (including remaining native/lexical/rank state), exact/ANN latency, concurrent serving/
   compile contention and pool saturation. Report capability gains and limits; no inferred 4× speedup
   from fourfold payload reduction. A latency miss changes tuning/ANN support claims, not 1024 adoption.
-- Execute recovery/cancellation/rollover controls, clean-wheel installation, existing dependency/
+- Execute recovery/cancellation/rollover controls, editable development-environment integration, existing dependency/
   metadata checks, `just docs-check` and assembled design/target review. Retain passing evidence
   after localized fixes; repeat only affected checks unless the changed boundary warrants broader work.
 - Update implementation/test labels, runbook, actual pins and forward-plan findings only from
@@ -640,7 +688,7 @@ and PGE closure evidence is linked. Future §7 alternatives are not required to 
 | Retrieval | Independent 1024 exact reference, full ranks versus ANN candidates, per-view/chunk/filter/tie controls, index plans and bounded underfill | PG14 |
 | Federation | Supported pushdown on/off equivalence, residual-before-limit, schema fidelity, concurrent mutable views and concrete operator report | PG15 |
 | Lifecycle/recovery | Cancellation/pool exhaustion/reuse, restart, pinned servers across rollover, restore/rebuild, explicit availability and compatible rollback | PG13/PG16 |
-| Integrated scope/cost | Full code gate, fresh pilot, controlled live conformance, clean wheel, exact/ANN smoke and declared whole-workload costs | PG17 |
+| Integrated scope/cost | Full code gate, fresh pilot, controlled live conformance, editable native integration, exact/ANN smoke and declared whole-workload costs | PG17 |
 
 Commands report `passed`, `failed`, `blocked` with prerequisite or `not_run`. Labels distinguish
 Proposed/Interface-checked/Implemented/Tested/Measured and give dates. Real PG semantics use real
@@ -735,13 +783,18 @@ recommends revising the target; unrestricted federation semantics remain unresol
 protocol packages were resolved, not executed; native ADBC and full serving/ANN were not run.
 [Probe evidence](../design_review/evidence/2026-09-27_postgresql-expansion/README.md) is not PG17 acceptance.
 
-**Current implementation checkpoint:** PG8–PG11 foundations, extension/role/schema deployment,
-1024 clients and fresh live canonical/file generations are **Implemented**. Focused real PG,
-native/codec, cancellation, live conformance, cold/warm receipt and offline replay controls
-**passed**; [bounded evidence](../design_review/evidence/2026-09-27_postgresql-expansion/implementation.md)
-records commands and limits. End-of-slice code checks, fresh pilot, SQLx negative controls and the bounded **Accept scoped**
-review passed. Full docs-check retains the supplied external input's missing-H1 failure; scoped
-publication passed. PG12 production import/promotion,
-PG13 query cutover, PG14 exact/ANN retrieval, PG15 admitted federation and PG16/17 acceptance remain
-**not_run**. Remote topology and arbitrary embedding-endpoint attestation remain
-unqualified; Stage 3 semantic completion and its independent exit remain in the forward plan.
+**Current implementation checkpoint, 2026-09-28:** PG12 production import/readiness, PG13 exact
+repository/MCP, PG14 exact ranks and gated ANN qualification, and PG15 admitted federation/report
+are **Implemented**. [Focused evidence](../design_review/evidence/2026-09-28_postgresql-query/README.md)
+records interrupted/resumed/conflicting imports, inactive cleanup, full reference answer parity,
+unknown/cursor controls, independent exact ranks, failed ANN activation, provider schema/residual/
+join/cancellation parity and coherent report capture. Live ANN has not been qualified or selected.
+The initial full gate and localized repairs retain passing evidence for 437 ordinary Rust tests,
+169 Python tests, 17 PostgreSQL tests and two async controls. Strict checks, fresh fake pilot and
+real-library report passed; the evidence records the external-input documentation failure. The
+fresh bounded review is Accept scoped. These receipts do not establish PG16/PG17 acceptance.
+
+Operator PostgreSQL retains migrations 001–004; 005–007 are tested on disposable PG18. PG16 owns
+coordinated migration/rollover and populated restore/rebuild, and PG17 owns live ANN, measured
+workloads and final expanded-system acceptance. Remote topology and arbitrary endpoint attestation
+remain unqualified; Stage 3 semantic completion and its independent exit remain in the forward plan.

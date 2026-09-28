@@ -24,5 +24,7 @@ Source Markdown remains usable without a site. CI produces a downloadable site a
 hosting is not configured. See [publishing operations](docs/publishing.md) for details.
 
 PostgreSQL-backed compiles use the [local PostgreSQL setup and recovery commands](docs/postgresql.md).
-SQLx owns cache/operational access in Rust; Delta receipts and immutable generations remain the
-replay/serving boundary. `--embedder none` and existing immutable readers can operate without PG.
+SQLx owns cache, operational services and immutable serving projections in Rust; Delta retains
+canonical publication and offline replay. MCP serves an explicitly pinned ready PostgreSQL
+generation. Portable bundles remain export/reference/recovery inputs. See the runbook for
+`lctx serving import/select` and `lctx-mcp --library NAME`.

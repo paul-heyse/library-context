@@ -45,11 +45,19 @@ PostgreSQL advisory lock and checks migration checksums. Runtime commands never 
 The application role can SELECT/INSERT cache values and history, UPDATE rebuildable indexes,
 and read migration status; it cannot UPDATE/DELETE winners or durable history, or create tables.
 
+## Development environment
+
+Use the root editable uv environment for Python and the existing cached Cargo target for Rust.
+Rebuild native bindings in that environment when their Rust sources change. PostgreSQL requires
+`lctx_storage` and the pure `lctx_semantics` bindings, not standalone wheel artifacts; packaging
+and clean-install checks are deferred until a distribution workflow needs them.
+
 ## Consumers and recovery
 
 `lctx compile fastmcp --store build/store-pg --embedder fake|vllm` requires the configured cache.
 There is no automatic fallback after failure. `--embedder none`, extraction, Delta query/diff,
-bundle rebuild and file/native serving remain usable without PostgreSQL. Optional journaling is
+bundle rebuild and pure native semantic evaluation remain usable without PostgreSQL. Online MCP
+serving requires a ready PostgreSQL generation. Optional journaling is
 disabled with a diagnostic when schema/connectivity is unavailable; that cannot unpublish Delta.
 
 ```sh
@@ -177,3 +185,103 @@ Rollback requires restoring the PG7 dump into a separate database and pairing th
 with the old binary, FORMAT 10 generation and spec. Do not reverse-migrate canonical receipts.
 `postgres_backup.py restore-drill` chooses the receipt's pinned image and compares protected
 snapshot fingerprints; PG7 receipts retain their original image and tables.
+
+## PG12–PG15 publication and query operations
+
+**Implemented with focused PG18 controls, 2026-09-28.** Migrations 005–007 accompany this code;
+they have been tested on disposable databases. The operator database still has 001–004.
+PG16 owns its coordinated upgrade, production server rollover and populated recovery drill;
+PG17 owns assembled live ANN/performance acceptance. Preserve the prior binary/config before
+explicit migration. No read, import or MCP startup migrates schemas automatically.
+
+Projection FORMAT 2 / bundle FORMAT 12 binds release and coverage context to content identity.
+Re-export compatible canonical snapshots with `lctx bundle`; this does not re-embed their vectors.
+After the coordinated explicit `lctx db migrate`/`lctx db check`, publication uses:
+
+```sh
+target/release/lctx serving import --store STORE --snapshot SNAPSHOT_ID \
+  --bundles build/generations --artifacts build/serving-artifacts
+# Or import an existing verified portable export:
+target/release/lctx serving import-bundle --bundle BUNDLE_DIRECTORY \
+  --artifacts build/serving-artifacts
+target/release/lctx serving status --generation FULL_GENERATION_DIGEST
+target/release/lctx serving reconcile --generation FULL_GENERATION_DIGEST
+target/release/lctx serving select --library fastmcp --generation FULL_GENERATION_DIGEST
+uv run lctx-mcp --library fastmcp --embedder vllm
+```
+
+`serving --importer-config FILE COMMAND` selects an explicit protected importer file. Defaults
+use the sibling `postgres-importer.json` of `--database-config`/`LCTX_DATABASE_CONFIG`.
+`lctx-mcp --config FILE --library NAME --generation FULL_DIGEST --profile PROFILE_DIGEST`
+pins an explicit ready generation/profile; omitted generation uses the selected pointer once at
+startup. Omitting profile selects the exact default or the selection's explicit profile.
+Use the full 64-character projection digest printed by import, not the portable directory name.
+The Python service opens a read-only Rust repository and closes it at lifespan exit. It retains
+native/lexical state, with relational hydration and vector ranks fetched from PostgreSQL.
+
+Import validates source before opening a lease, freezes transport/batch identity, copies at most
+1,000 rows/16 MiB per transaction, and commits rows with their receipts. A generation advisory
+lock serializes retries. Interrupted loading/validation is resumable; conflicting content fails.
+Stored rows, complete support closure, artifact bytes and required indexes must pass before one
+ready transaction. Import/reconcile never select. Existing readers remain pinned after selection.
+`serving cleanup --generation DIGEST` removes only inactive unpublished rows/artifact locations;
+it keeps terminal metadata, attempts, receipts and content-addressed files. Ready generations and
+artifacts are retained. No automated pruning is installed.
+
+Exact vector ranks enumerate all eligible entities and both operation views before BM25/RRF
+fusion. HNSW indexes alone change no route. To prepare optional ANN qualification:
+
+```sh
+target/release/lctx serving build-hnsw --generation FULL_GENERATION_DIGEST
+uv run python scripts/postgres_qualification_pack.py BUNDLE_DIRECTORY REQUESTS_JSON \
+  --out FROZEN_PACK_JSON --config SERVING_CONFIG --embedder vllm \
+  --maximum-ann-p95-ms 1000
+target/release/lctx serving qualify-hnsw --pack FROZEN_PACK_JSON \
+  --serving-config SERVING_CONFIG
+# Only after a passing profile has been registered:
+target/release/lctx serving select --library fastmcp --generation FULL_GENERATION_DIGEST \
+  --profile QUALIFIED_PROFILE_DIGEST
+```
+
+Choose the latency ceiling before measuring. Request entries supply `name`, `query`, `operations`,
+`stratum` and optional operation `where`; include briefs unfiltered, operations unfiltered, broad
+and selective filters. The frozen pack uses independent float64 cosine scores, entity-ID ties and
+canonical vectors. Qualification requires complete exact-reference agreement, 99% mean recall@10
+per consumer/view/filter stratum and fused output, declared latency, actual custom/generic HNSW
+plans, partition pruning and no fallback. Failure records an attempt and keeps the profile
+unselectable. Tiny fake fixtures test refusal plumbing, not live ANN quality. Responses disclose
+requested profile, actual route and fallback. Search may be lexical-only when embeddings are
+unavailable; database loss is an explicit error.
+
+For a coherent operational report, reserve one or two provider connections in a protected serving
+config's existing total budget (`provider_connections < max_connections`, maximum six total):
+
+```sh
+target/release/lctx db report --store STORE --snapshot SNAPSHOT_ID \
+  --generation FULL_GENERATION_DIGEST --serving-config REPORT_CONFIG --format json
+```
+
+The report verifies the canonical snapshot and summarizes its library and corpus releases once,
+using the same library identity as bundle publication. It captures seven mutable operational views in one
+read-only repeatable-read transaction, then joins them to immutable generation data in DataFusion.
+An unready projection still produces a canonical summary and diagnostics. Attempts/events are
+explicitly scoped to store/compiler and can include other libraries. The report names its capture
+snapshot/time, transfer rows/bytes, query/transfer time and Arrow conversion time. Provider reads
+admit declared binary/text/bool/int64 schemas and a closed expression policy; generation-qualified
+inner key joins can federate, outer joins and unsupported expressions stay local.
+
+Budgets refuse explicitly: hydration 64 MiB decoded/8 MiB response; ranks 32 MiB; fusion 128 MiB;
+ANN rescoring 200,000 rows/128 MiB; mutable report capture 100,000 rows/64 MiB/30 seconds. Native
+work has two slots, one-second admission and a whole MCP request deadline of 30 seconds. Cancelled
+native jobs retain slots until completion. Cancelled SQLx work retains its lease through wire drain
+and the configured server statement deadline; uncertain drain closes the pool. The provider sends
+CancelRequest and drains before releasing capacity, quarantining an unconfirmed slot. A cancellation
+response does not claim instantaneous server/CPU termination.
+
+`just pilot STORE LOG [SERVING_CONFIG]` and `pilot-live` now explicitly import the produced bundle
+and smoke-test that pinned PostgreSQL generation without selecting it. Their configured database
+must already be migrated. Offline scoring references can be read without PostgreSQL, while online
+ranking/structured evaluation use `--config` and the same pinned repository. `just test-postgres`
+builds its own canonical fixture. `just test-postgres-reference PROJECTION REFERENCE_JSON` runs
+the separate saved-answer parity comparison; retained inputs and commands are in the
+[PG12–PG15 evidence](design_review/evidence/2026-09-28_postgresql-query/README.md).

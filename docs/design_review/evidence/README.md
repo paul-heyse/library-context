@@ -33,3 +33,4 @@ removed and recovered from Git (ADR-0042, [historical recovery](../../README.md#
 | [`2026-09-25_library-fit-followup-kernel`](2026-09-25_library-fit-followup-kernel/README.md) | Actual-kernel decision refusal, support history, catalog hydration | Forward plan W6 |
 | [`2026-09-25_library-fit-followup-flow`](2026-09-25_library-fit-followup-flow/README.md) | Cycle-head reach and qualified/aliased builtin access | Forward plan W4, W7 |
 | [`2026-09-25_library-fit-followup-serving`](2026-09-25_library-fit-followup-serving/README.md) | Facet verdicts and claim citations in served projections | Forward plan W2, W3 |
+| [`2026-09-28_postgresql-query`](2026-09-28_postgresql-query/README.md) | Do immutable PG publication, complete queries, gated retrieval and admitted federation preserve their contracts? | ADR-0069, PostgreSQL PG12–PG15 and forward-plan §6.1 |

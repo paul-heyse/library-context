@@ -1,53 +1,53 @@
 # Status
 
-_Updated 2026-09-27 under the [handoff skill](.claude/skills/handoff/SKILL.md); work is on `main`._
+_Updated 2026-09-28 under the [handoff skill](.claude/skills/handoff/SKILL.md); work is on `main`._
 
 ## Increment and checkpoint
 
 - **Increment 4 / Stage 3 remains functionally incomplete.** [Forward plan §3.0](docs/plans/behavioral-model-forward-plan_2026-09-24.md#30-consolidated-execution) owns P0–P7 and the frozen exit rule; §6 owns finding disposition.
-- **P0 done:** preregistration, baseline diagnostic, native limits and descriptor exemption.
-  AMBIGUOUS reachability remains withheld by design.
-- **P1 implemented; change review to settle:** ADR-0064, decorated-summary refusal, claim-keyed
-  discharge and native citation admission. The existing Stage 3 discharge review is concurrent work.
-- **P2 partly done:** compile-fixture/CPython harness; original W5/W7/W12 default-cap traces remain
-  open. P3 includes the additional pinned Logger models.
-- **PostgreSQL PG8–PG11 complete:** `de2343c` decisions/baseline; `1800348` implementation;
-  `fda9297` async qualification. Standard 1024/spec format 2, shared Rust projection contracts,
-  COPY/Arrow codecs, pure semantic wheel and async storage wheel, maintained provider fork,
-  PG18.6/pgvector 0.8.6, separate roles/credentials and four explicit migrations are deployed.
+- **P0 done; P1 implemented, change review to settle; P2 partly done.** ADR-0064,
+  decorated-summary refusal, claim-keyed discharge and native citation admission remain the current
+  semantic slice. The concurrent discharge review, W5/W7/W12 traces and P3 Logger models are unchanged.
+- **PostgreSQL PG12–PG15 implemented (`4288940`):** resumable COPY publication, immutable generation selection,
+  Rust query/hydration and async MCP cutover, exact pgvector ranks, qualification-gated HNSW,
+  admitted DataFusion federation and coherent operational reports. Portable files remain canonical
+  export/reference/recovery inputs. Online MCP requires a ready PostgreSQL generation.
   [Plan](docs/plans/postgresql-integration-plan_2026-09-27.md), [runbook](docs/postgresql.md),
-  [bounded evidence](docs/design_review/evidence/2026-09-27_postgresql-expansion/implementation.md).
-- **Architecture:** ADR-0068 governs expanded serving/spec/effects; ADR-0067 retains canonical
-  Delta/receipt authority. [Fresh review](docs/design_review/reviews/design_review_postgresql-foundations_2026-09-27.md): **Accept scoped** after identity/empty-codec corrections.
-- **Versions:** compiler **107**, extractor **33**, template **20**, catalog **7**, FORMAT **11**.
-  Spec/projection migration requires fresh outputs. PG7 rollback binary/locks/protected config/dump
-  remain under `build/postgresql-pg8-baseline-6403b60/`; old readers use a separately restored PG7 DB.
+  [dated evidence](docs/design_review/evidence/2026-09-28_postgresql-query/README.md).
+- **Architecture:** ADR-0069 adds query/publication contracts to ADR-0068; ADR-0067 retains Delta
+  authority. [Fresh bounded review](docs/design_review/reviews/design_review_postgresql-query-integration_2026-09-28.md): **Accept scoped**; SQLx lease correction tested closed. Outer joins remain local.
+- **Versions:** compiler **107**, extractor **33**, template **20**, catalog **7**, FORMAT **12**;
+  projection format **2**, standard embedding width **1024**. Rebuild older portable generations.
+  Owned provider pin: `paul-heyse/datafusion-table-providers@e6fc4c40`.
+- **Operator database:** PG18.6/pgvector 0.8.6 and migrations 001–004 remain deployed. New 005–007
+  migrations ran only in disposable databases. Preserve `build/postgresql-pg8-baseline-6403b60/`.
+- **Development workflow:** root editable uv environment and cached Cargo target; rebuild native
+  bindings in place when needed. Standalone wheels/clean installs are deferred until distribution
+  requires them. No further wheel work is part of this phase.
 
-## Last verified (2026-09-27)
+## Last verified (2026-09-28)
 
-Checks used `/home/paul/library-context/target`. Formatting and broad checks followed functional completion.
-The full no-fail-fast Rust run retained 431 passes; all six migration-related failures passed targeted repair runs.
+All Cargo commands used `/home/paul/library-context/target`. Broad checks followed functional scope.
+The evidence page records exact commands and distinguishes retained passes from repair reruns.
 
 | Command | Outcome and scope |
 |---|---|
-| `just test-all` plus targeted repairs and remaining recipes | **passed across retained/repair receipts:** 437 ordinary Rust tests, 11 real PG tests, one async PG test, fresh native fixture, 164 Python tests, strict fmt/Clippy/Ruff/Pyrefly, rules, agents, 83 fixture parses, deps/gold and fresh-schema SQLx metadata |
-| `just pilot build/postgresql-pg11-pilot-store build/pg11-pilot.log` | **passed:** fresh fake pilot, 143.0 s; MCP smoke, 20 briefs |
-| Controlled 1024 live compile and Rust/Python conformance | **passed:** cosine ≥0.9999176; warm compile succeeds with the owned endpoint stopped; exact consumed-vector receipts agree |
-| Offline `lctx bundle`; `projection_probe` 1×/10× | **passed:** all 52 replay files byte-equal; measured COPY codec peak 376,608 KiB below the registered 512 MiB ceiling; repeated-row transport workload only |
-| PG7/expanded restore drills; `lctx db migrate/check/status` | **passed:** table fingerprints agree; local server 180006, `lctx_app`, exact current migration history |
-| Bogus-DSN offline build; deliberate stale `.sqlx` control | **passed:** full graph builds offline; fresh-schema checker rejects the changed query; original metadata restored |
-| `just adr lint`; `just docs-check`; scoped publisher | **passed:** 36 ADRs. **failed:** supplied external review lacks H1; **passed:** 150 canonical pages excluding only that unchanged input |
+| `just test-all` and localized repair selectors | **passed across retained/repair receipts:** 437 ordinary Rust tests; the initial invocation failed on nine old consumers, all nine passed targeted repair |
+| `just py-check` and ranking guard repair | **passed across retained/repair receipts:** 169 Python tests; two explicit PG tests skipped here and run separately; Pyrefly passed |
+| `just test-postgres` | **passed:** 17 real PostgreSQL tests and two async lifecycle tests; acquired-corpus report correction passed its focused rerun |
+| `just fmt-check lint`; final report Clippy; remaining policy/SQLx recipes | **passed:** strict Rust/Python checks, 84 fixtures, rules/agents, dependency/gold policy and fresh-schema SQLx metadata |
+| Full frozen reference selector | **passed:** 6,302 operation answers, 20 briefs and four facet pages; same canonical inputs |
+| `just pilot build/postgresql-pg15-pilot-store build/pg15-pilot.log …` | **passed:** fresh fake-vector FastMCP compile, PostgreSQL import and all 20 MCP brief smoke checks |
+| `just docs-check`; scoped publisher | **failed:** unchanged supplied external review lacks H1. **passed:** ADR/agent checks and 153 canonical pages/offline links excluding only that input |
 
 ## Known boundaries and next
 
-- **Next PostgreSQL step: PG12** production COPY import, partitions/index build, validation and atomic
-  readiness. PG13 owns exact query cutover, PG14 retrieval, PG15 admitted federation, PG16/17 operations
-  and assembled acceptance. The file MCP remains the reference consumer; PostgreSQL projections
-  have contracts/schema/codec foundations, not production imported generations or ANN routing.
-- [Forward-plan §6.1](docs/plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-findings) owns PGS/PGK/PGE/PGF disposition. PG9 and PGF corrections are tested closed; broader serving findings remain open. W9 stays closed; arbitrary endpoint attestation remains W16 work.
-- PostgreSQL acceptance does not complete Stage 3. Resume P1 review disposition, then P2.3 default-cap
-  traces and P3/P4 channels. The semantic packet, clean-wheel query and Stage 3 exit remain open.
-- An undocumented, analysis-free documentation seed fails `semantic:documentation-only-has-outcome`
-  (fail-closed); generated packages only, unscheduled.
-- Operator: retain protected backups; this task's vLLM is stopped. Unrelated Stage 3 review and
-  external-review input remain preserved and uncommitted.
+- **Next PostgreSQL step: PG16**, coordinated operator migration/import/rollover and recovery;
+  PG17 owns assembled live ANN/latency/RSS/WAL acceptance. Exact retrieval stays the default;
+  no production ANN profile is qualified or selected. The tiny-fixture ANN refusal is tested.
+- [Forward-plan §6.1](docs/plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-findings) owns PGS/PGK/PGE/PGF/PGQ disposition; broader deployment findings remain open. W9 stays closed; arbitrary endpoint attestation remains W16 work.
+- PostgreSQL work does not complete Stage 3. Resume P1 review disposition, P2.3 default-cap traces,
+  then P3/P4 channels and the frozen semantic exit packet.
+- The undocumented analysis-free documentation seed still fails `semantic:documentation-only-has-outcome`
+  fail-closed; generated packages only, unscheduled. Live embedding was not rerun in this slice.
+- Unrelated Stage 3 review and external-review input remain preserved and uncommitted.
