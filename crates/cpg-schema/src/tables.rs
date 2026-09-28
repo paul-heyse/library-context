@@ -1290,6 +1290,16 @@ table!(
     }
 );
 
+table!(
+    /// Source-only class field syntax from the existing parse. Factory semantics are derived later.
+    RecordFieldSyntax, RecordFieldSyntaxRow = "record_field_syntax", family = Syntax,
+    key = [snapshot_id, class_node_id, name, fact_id],
+    checks = [("span", "start_byte >= 0 AND end_byte >= start_byte")],
+    { snapshot_id: Id, fact_id: Id, field_node_id: Id, class_node_id: Id, module_node_id: Id,
+      name: String, start_byte: i64, end_byte: i64, annotation_text: Option<String>,
+      value_text: Option<String>, value_start_byte: Option<i64>, value_end_byte: Option<i64> }
+);
+
 // ---------------------------------------------------------------- docs
 
 table!(
@@ -1557,6 +1567,7 @@ macro_rules! for_each_table {
             $crate::tables::TypeObservations,
             $crate::tables::FunctionImplementations,
             $crate::tables::RecordFields,
+            $crate::tables::RecordFieldSyntax,
             $crate::tables::Documents,
             $crate::tables::Passages,
             $crate::tables::CodeBlocks,

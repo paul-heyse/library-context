@@ -81,7 +81,7 @@ impl Error {
     }
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
     pub application_url: String,
@@ -94,6 +94,13 @@ pub struct Config {
     pub statement_timeout_seconds: u64,
     pub lock_timeout_seconds: u64,
     pub max_receipt_bytes: usize,
+}
+
+/// Read-only credential contract; schema export never serializes an actual credential.
+#[derive(Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MigrationConfig {
+    pub migration_url: String,
 }
 
 impl std::fmt::Debug for Config {
@@ -148,12 +155,7 @@ impl Config {
                 .migration_config
                 .as_ref()
                 .ok_or(Error::Config("missing migration config"))?;
-            #[derive(Deserialize)]
-            #[serde(deny_unknown_fields)]
-            struct Admin {
-                migration_url: String,
-            }
-            let admin: Admin = load_protected(path)?;
+            let admin: MigrationConfig = load_protected(path)?;
             config.migration_url = admin.migration_url;
         }
         Ok(MigrationStore {
@@ -237,7 +239,7 @@ impl std::fmt::Debug for Store {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct Health {
     pub server_version: String,
     pub role: String,
@@ -333,4 +335,63 @@ pub(crate) fn load_protected<T: serde::de::DeserializeOwned>(path: &Path) -> Res
     }
     let bytes = std::fs::read(path).map_err(|_| Error::Config("unreadable protected config"))?;
     serde_json::from_slice(&bytes).map_err(|_| Error::Config("invalid protected config"))
+}
+
+/// Shared generated schemas for the existing PostgreSQL format owners.
+pub fn contract_schema(name: &str, output: bool) -> Result<serde_json::Value, Error> {
+    use cpg_schema::wire::schema_for;
+    Ok(match name {
+        "PostgresConfig" if !output => schema_for::<Config>(false),
+        "MigrationConfig" if !output => schema_for::<MigrationConfig>(false),
+        "PostgresRoleConfig" => schema_for::<serving::RoleConfig>(output),
+        "RetrievalPolicy" => schema_for::<profiles::Policy>(output),
+        "Diagnostics" if output => schema_for::<diagnostics::Diagnostics>(true),
+        "LiveDiagnostics" if output => schema_for::<diagnostics::LiveDiagnostics>(true),
+        _ => return Err(Error::Config("unknown schema or unsupported direction")),
+    })
+}
+
+#[cfg(test)]
+mod schema_tests {
+    use super::*;
+    #[test]
+    fn existing_contracts_and_synthetic_credentials_conform() {
+        for (name, directions) in [
+            ("PostgresConfig", &[false][..]),
+            ("MigrationConfig", &[false][..]),
+            ("PostgresRoleConfig", &[false, true][..]),
+            ("RetrievalPolicy", &[false, true][..]),
+            ("Diagnostics", &[true][..]),
+            ("LiveDiagnostics", &[true][..]),
+        ] {
+            for output in directions {
+                assert!(
+                    jsonschema::options()
+                        .offline()
+                        .build(&contract_schema(name, *output).unwrap())
+                        .is_ok(),
+                    "{name}"
+                );
+            }
+        }
+        assert!(contract_schema("PostgresConfig", true).is_err());
+        let schema = contract_schema("MigrationConfig", false).unwrap();
+        let validator = jsonschema::options().offline().build(&schema).unwrap();
+        let synthetic =
+            serde_json::json!({"migration_url":"postgresql://example:synthetic@localhost/example"});
+        assert!(validator.is_valid(&synthetic));
+        assert!(serde_json::from_value::<MigrationConfig>(synthetic).is_ok());
+        assert!(!validator.is_valid(&serde_json::json!({"migration_url":3})));
+        let policy = profiles::Policy::exact();
+        let before = policy.canonical().unwrap();
+        let digest = policy.digest().unwrap();
+        let validator = jsonschema::options()
+            .offline()
+            .build(&contract_schema("RetrievalPolicy", false).unwrap())
+            .unwrap();
+        assert!(validator.is_valid(&serde_json::from_str(&before).unwrap()));
+        let after: profiles::Policy = serde_json::from_str(&before).unwrap();
+        assert_eq!(after.canonical().unwrap(), before);
+        assert_eq!(after.digest().unwrap(), digest);
+    }
 }

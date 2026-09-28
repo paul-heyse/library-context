@@ -1576,6 +1576,8 @@ pub fn node_columns() -> Vec<NodeColumn> {
             ],
         ),
         nc("type_observations", "term_node_id", &[N::Type]),
+        nc("record_field_syntax", "class_node_id", &[N::Class]),
+        nc("record_field_syntax", "module_node_id", MODULE),
         nc("record_fields", "class_node_id", &[N::Class]),
         nc("record_fields", "module_node_id", MODULE),
         nc("record_fields", "term_node_id", &[N::Type]),

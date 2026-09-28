@@ -26,6 +26,7 @@ from hypothesis import strategies as st
 from lctx_storage import open_repository
 
 from lctx_mcp import operations as ops
+from lctx_mcp.wire import Packet
 from postgres_expand import write_secret
 from postgres_test_support import database
 
@@ -159,7 +160,7 @@ def _observe(tree: Path, functions: list[Function]) -> dict[str, list[dict]]:
     return json.loads(done.stdout.splitlines()[-1])
 
 
-def _served(tree: Path, work: Path, functions: list[Function], db) -> dict[str, list[ops.Fate]]:
+def _served(tree: Path, work: Path, functions: list[Function], db) -> dict[str, list[Packet]]:
     done = subprocess.run(
         [
             str(_lctx()),

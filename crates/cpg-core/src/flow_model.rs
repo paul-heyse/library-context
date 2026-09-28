@@ -224,7 +224,7 @@ cpg_schema::query_row! {
 }
 
 cpg_schema::query_row! {
-    struct DescriptorRow {
+    pub struct DescriptorRow {
         function_node_id: Id,
         is_classmethod: bool,
         is_staticmethod: bool,
@@ -233,7 +233,7 @@ cpg_schema::query_row! {
 }
 
 cpg_schema::query_row! {
-    struct NameRootRow {
+    pub struct NameRootRow {
         module_node_id: Id,
         start_byte: i64,
         end_byte: i64,
@@ -327,13 +327,6 @@ fn decorated_functions(
             .or_default()
             .push(row);
     }
-    let mut roots_at: HashMap<(Id, i64, i64), Vec<&NameRootRow>> = HashMap::new();
-    for r in roots {
-        roots_at
-            .entry((r.module_node_id, r.start_byte, r.end_byte))
-            .or_default()
-            .push(r);
-    }
     let mut flags: HashMap<Id, Vec<&DescriptorRow>> = HashMap::new();
     for d in descriptors {
         flags.entry(d.function_node_id).or_default().push(d);
@@ -344,32 +337,19 @@ fn decorated_functions(
             let [row] = rows.as_slice() else {
                 return true;
             };
-            if row.kind != SyntaxKind::ExprName {
-                return true;
-            }
-            let builtin = roots_at
-                .get(&(row.module_node_id, row.start_byte, row.end_byte))
-                .and_then(|resolutions| {
-                    let name = resolutions.first()?.builtin_name.as_deref();
-                    resolutions
-                        .iter()
-                        .all(|r| {
-                            r.binding_kind == BindingKind::Implicit
-                                && r.builtin_name.as_deref() == name
-                        })
-                        .then_some(name)
-                        .flatten()
-                });
             let provider = flags.get(function).map(Vec::as_slice).unwrap_or_default();
-            let flagged = |flag: fn(&DescriptorRow) -> bool| {
-                !provider.is_empty() && provider.iter().all(|d| flag(d))
-            };
-            let exempt = match builtin {
-                Some("classmethod") => flagged(|d| d.is_classmethod),
-                Some("staticmethod") => flagged(|d| d.is_staticmethod),
-                Some("property") => flagged(|d| d.is_property_getter),
-                _ => false,
-            };
+            let flags: Vec<_> = provider
+                .iter()
+                .map(|d| (d.is_classmethod, d.is_staticmethod, d.is_property_getter))
+                .collect();
+            let exempt = crate::surface::admitted_descriptor(
+                row.kind,
+                row.module_node_id,
+                row.start_byte,
+                row.end_byte,
+                roots,
+                &flags,
+            );
             !exempt
         })
         .map(|(function, _)| function)

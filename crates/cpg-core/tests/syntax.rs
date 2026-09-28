@@ -1839,8 +1839,9 @@ async fn all_techniques_guard() {
     // remaining Logger levels (catalog content, format 7), then compiler106's snapshot-local
     // consumed vector values and consumer inventory (ADR-0068/0067), then compiler107
     // format-2 spec identity (the word-overlap test oracle retains its own 64-dimension model),
-    // then compiler108 catalog contracts and explicit enrichment capabilities (ADR-0072).
-    const GUARD: &str = "334f6c3218bce20217665b95ee10644a85079383a2190454156b2c0b8a2fb135";
+    // then compiler108 catalog contracts and explicit enrichment capabilities (ADR-0072),
+    // then compiler109 ordered surface/configuration contracts and shared admission (ADR-0074).
+    const GUARD: &str = "90356b2d77755fddc8cd53c613842ae71d0e6327b76d3a39ea546e5bad95cfeb";
     assert_eq!(digest, GUARD, "the all-techniques guard moved");
 }
 

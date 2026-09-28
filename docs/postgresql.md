@@ -188,7 +188,7 @@ snapshot fingerprints; PG7 receipts retain their original image and tables.
 
 ## PG12–PG15 publication and query operations
 
-**Implemented and deployed, 2026-09-28.** PG17 completed migrations001–008; product PR1 now adds009.
+**Implemented and deployed, 2026-09-28.** PG17 completed migrations001–008; product PR1/PR2 add009/010.
 The live 1024 FastMCP generation is selected with exact retrieval; no ANN class met its calibration
 benefit/plan gates. Serving config reserves two of its six connections for the provider and four
 for SQLx; importer has two, and the application cache pool has six. Budgets are per process.
@@ -199,11 +199,11 @@ ready generations and the captured exact selection through least-privilege nativ
 in 15.31 seconds (900-second local objective). Retain the matching prior schema004/schema007
 binary, native/Python sources, config, artifacts and dumps in
 `build/postgresql-pg16-baseline-9471b93/`, as well as the PG7 baseline
-`build/postgresql-pg8-baseline-6403b60/`. Never pair a schema007 rollback database with the current
-schema008 runtime. Daily backup remains an operator action; no scheduler was installed.
+`build/postgresql-pg8-baseline-6403b60/`. Never pair a rollback database with a newer runtime. Daily backup remains an operator action; no scheduler was installed.
 
-Current projection FORMAT3 / bundle FORMAT13 binds release/coverage context and explicit catalog/
-behavioral capabilities to content identity (ADR-0072). Retained PG17 generations use FORMAT2/12.
+Current projection FORMAT4 / bundle FORMAT14 adds surface/configuration/field-link records
+(ADR-0073/0074), retaining release/coverage context and explicit catalog/behavioral capabilities
+from ADR-0072. Retained PG17 and PR1 generations use FORMAT2/12 and FORMAT3/13.
 Re-export compatible canonical snapshots with `lctx bundle`; this does not re-embed their vectors.
 After the coordinated explicit `lctx db migrate`/`lctx db check`, publication uses:
 
@@ -310,21 +310,30 @@ the separate saved-answer parity comparison; retained inputs and commands are in
 [PG12–PG15 evidence](design_review/evidence/2026-09-28_postgresql-query/README.md).
 
 
-### PR1 catalog deployment
+### PR2 catalog deployment
 
-**Implemented and Tested, 2026-09-28:** `lctx db migrate`/`db check` applied additive migration009.
-Both live FastMCP4.0.5 catalog and behavioral generations were imported, reconciled and served through
-stdio MCP by the final editable runtime. The selected enriched generation is
-`2081c10e6ef2e803c832b19e04f595a2ff6cf0f26822461ac89a1122b9823ab4`, with exact profile `ff645e4a…`.
-The ready catalog-only generation is `115529089522683876f095aa4b21819938aab138260ecb43fdbcc5f522e5193a`.
-Both old ready generations and their artifacts remain retained.
+**Implemented and Tested, 2026-09-28:** explicit `lctx db migrate`/`db check` applied additive
+migration010. Both live FastMCP4.0.5 profiles imported, reconciled and served through stdio MCP
+using the editable runtime. The selected behavioral generation is
+`e50090b2c724518f0caf0283d272364fb9f9eb9bafc4183831391723ea007336`, with exact profile
+`ff645e4a55461d3041fa4dbbd56f01d90da07b74a55040ec350933ac23ef4586`.
+The ready catalog-only generation is `ddb9fbcb23fb11ad9e5c7ef7ff4b0261b3fd547a02a0336504be67060423150d`.
+All four older ready generations and their artifacts remain retained.
 
-`build/pr1-operator-cutover/current.dump` plus its protected receipt/artifacts contains 78 tables and
-all four ready generations. Its disposable restore passed in 12.49 s, preserving legacy bytes,
-serving both current profiles and restoring the captured enriched selection. Prior schema008
-rollback assets and their 35-file checksum receipt remain at `build/postgresql-pr1-baseline-a6c9fcf/`.
-Do not open the schema009 database with the old runtime. See the
-[catalog qualification](design_review/evidence/2026-09-28_catalog/README.md) for commands and bounds.
+`build/pr2-operator-cutover/current.dump` plus protected receipt/artifacts contains 81 tables and
+all six ready generations. The disposable restore passed in 21.61 s, preserving legacy content,
+serving both current profiles and restoring the exact behavioral selection. The retained schema009
+runtime/source/native modules and protected baseline dump/receipt/artifacts are at
+`build/pr2-baseline-8334c86/source/`; the matching-runtime restore passed before cutover. Its CLI was
+reconstructed from 8334c86 because the original executable was absent; the native modules were
+preserved directly. Runtime checksum receipts distinguish those paths.
+
+Keep the prior PR1 populated dump at `build/pr1-operator-cutover/current.dump` and schema008
+rollback assets at `build/postgresql-pr1-baseline-a6c9fcf/`, alongside the older PG baselines.
+Use each runtime only with its matching restored schema; do not reverse migrations or relax current
+reader checks. The temporary controlled embedding service was stopped after both live operator
+smokes. Start `just embed-serve` when live query embeddings are needed. The
+[PR2 evidence](design_review/evidence/2026-09-28_pr2/README.md) owns receipts and qualification limits.
 
 ### Complete recovery and diagnostics
 
@@ -334,7 +343,7 @@ publication, artifact availability, selections and profile admission. Startup lo
 optional diagnostic queries do not become serving prerequisites. The importer configuration
 selects the database; `--verify-artifacts` explicitly hashes retained files.
 
-PR1 backup receipt format 3 (inventory2) uses one exported snapshot for pg_dump, streaming logical-root table
+Backup receipt format 3 (inventory2) uses one exported snapshot for pg_dump, streaming logical-root table
 fingerprints, ready manifests and selections. It copies each required native/lexical artifact into
 `ARCHIVE.artifacts/SHA256/NAME`. The completion receipt appears only after checksums and fsync.
 Keep the dump, JSON receipt and artifact directory together. Incomplete output is retained for
@@ -343,8 +352,8 @@ inspection and is not a recovery point. Daily backups remain an operator respons
 `postgres_backup.py restore-drill ARCHIVE` creates only an owned disposable PG18/vector database.
 It compares all logical rows and the receipt's complete inventory before mutations; verifies
 sequences/event writes; relocates every retained artifact with old paths unavailable; reconciles and
-serves current bundle13 catalog and behavioral generations; and restores the recorded selection with
-an explicit exact profile. Retained bundle12 rows, exact manifest bytes and artifacts are verified as
+serves current bundle14 catalog and behavioral generations; and restores the recorded selection with
+an explicit exact profile. Retained bundle12/13 rows, exact manifest bytes and artifacts are verified as
 preserved with `legacy_runtime_required`; they are not admitted to the new reader. An incompatible
 selected pointer fails usable-serving recovery rather than choosing another generation. The 15-minute RTO includes verification and usable serving.
 Logical restore never inherits ANN admission. A compatible historical receipt uses the retained

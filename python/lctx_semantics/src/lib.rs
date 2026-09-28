@@ -343,6 +343,7 @@ struct NativeSummary {
 /// operation/formal resolution and proof admission happen here.
 #[pyclass]
 struct SemanticExecutor {
+    snapshot_id: Id,
     graph: ConditionGraph,
     effect_model_digest: Digest,
     paths: HashMap<String, Id>,
@@ -1241,6 +1242,7 @@ impl SemanticExecutor {
             return Err(PyValueError::new_err("uncited source parameter identity"));
         }
         Ok(Self {
+            snapshot_id,
             graph,
             effect_model_digest,
             paths,
@@ -1516,6 +1518,127 @@ impl SemanticExecutor {
         }
     }
 
+    /// One coarse typed boundary owns exact-input validation, cursor scope and page assembly.
+    fn inspect_value_page(
+        &self,
+        py: Python<'_>,
+        generation: &str,
+        request: &str,
+    ) -> PyResult<String> {
+        use cpg_schema::wire as w;
+        let error = |e: w::WireError| PyValueError::new_err(e.to_string());
+        if request.len() > w::RESPONSE_BYTES {
+            return Err(PyValueError::new_err(
+                "resource_refused: request byte budget",
+            ));
+        }
+        let request: w::InspectValuePathsRequest =
+            serde_json::from_str(request).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        if request.snapshot_id.storage() != self.snapshot_id {
+            return Err(PyValueError::new_err(
+                "snapshot does not match pinned executor",
+            ));
+        }
+        let generation = w::GenerationDigest::parse(generation).map_err(error)?;
+        let query = w::value_query(&request, generation);
+        let offset = w::value_offset(
+            request.cursor.as_ref().map(|c| c.as_str()),
+            generation,
+            &query,
+        )
+        .map_err(error)?;
+        let (kind, value) = request.exact_input.native();
+        let (rows, open, total, truncated, examined) = self.inspect_value_paths(
+            py,
+            request.operation.as_str(),
+            request.formal.as_str(),
+            kind,
+            &value,
+            request.standard_builtins,
+            offset,
+            request.limit.get() as usize,
+        )?;
+        let work = |w: WorkAnswer| w::TheoryWork {
+            links_examined: w.0 as i64,
+            assignments_applied: w.1 as i64,
+            bdd_preflight_pairs: w.2 as i64,
+            peak_bdd_nodes: w.3 as i64,
+        };
+        let mut page_work = w::TheoryWork {
+            links_examined: 0,
+            assignments_applied: 0,
+            bdd_preflight_pairs: 0,
+            peak_bdd_nodes: 0,
+        };
+        let mut paths = Vec::new();
+        for (
+            summary_id,
+            source_verdict,
+            condition_id,
+            steps,
+            result,
+            links,
+            boundary_reason,
+            theory_work,
+            source_flow_fact_id,
+            source_origin_id,
+        ) in rows
+        {
+            let theory_work = work(theory_work);
+            page_work.links_examined += theory_work.links_examined;
+            page_work.assignments_applied += theory_work.assignments_applied;
+            page_work.bdd_preflight_pairs += theory_work.bdd_preflight_pairs;
+            page_work.peak_bdd_nodes = page_work.peak_bdd_nodes.max(theory_work.peak_bdd_nodes);
+            let exact_input_result = match result.as_str() {
+                "refuted_under_model" => w::ValuePathExactInputResult::RefutedUnderModel,
+                "compatible_under_model" => w::ValuePathExactInputResult::CompatibleUnderModel,
+                "unknown" => w::ValuePathExactInputResult::Unknown,
+                _ => return Err(PyValueError::new_err("invalid native path result")),
+            };
+            paths.push(w::ValuePath {
+                summary_id,
+                source_verdict,
+                condition_id,
+                source_flow_fact_id,
+                source_origin_id,
+                steps: steps
+                    .into_iter()
+                    .map(|(kind, evidence_id, condition_id)| {
+                        Ok(w::ProofStep {
+                            kind,
+                            evidence_id: w::EvidenceId::parse(&evidence_id).map_err(error)?,
+                            condition_id,
+                        })
+                    })
+                    .collect::<PyResult<_>>()?,
+                exact_input_result,
+                value_links: links
+                    .into_iter()
+                    .map(
+                        |(link_id, path, start_byte, end_byte)| w::ValueLinkEvidence {
+                            link_id,
+                            path,
+                            start_byte,
+                            end_byte,
+                        },
+                    )
+                    .collect(),
+                boundary_reason,
+                theory_work,
+            });
+        }
+        let next_cursor = if truncated {
+            Some(w::value_cursor(generation, query, offset + examined).map_err(error)?)
+        } else {
+            None
+        };
+        let page=w::ValuePathPage {snapshot_id:request.snapshot_id,generation,operation:request.operation.as_str().into(),formal:request.formal.as_str().into(),exact_input:request.exact_input,standard_builtins:request.standard_builtins,
+            paths,boundaries:open.into_iter().map(|(source_flow_fact_id,source_origin_id,condition_id,reason)|w::OpenBoundary{source_flow_fact_id,source_origin_id,condition_id,reason}).collect(),
+            total_rows:total as i64,examined_rows:examined as i64,theory_work:page_work,truncated,next_cursor,
+            note:"A refutation applies only to its cited summary path under the exact input model. Compatibility means only a satisfiable model after checked value links, not a concrete execution. Unknown and absent paths do not establish absence.".into()};
+        serde_json::to_string(&page).map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
     /// Page through one formal's finite summary paths and open boundaries. Each path's exact
     /// input result is local to that path; the page never claims complete operation behavior.
     #[allow(
@@ -1662,11 +1785,54 @@ fn probe_implies(left: &str, right: &str) -> PyResult<Option<bool>> {
     Ok(left.implies(&right).ok())
 }
 
+#[pyfunction]
+fn wire_versions() -> (u32, u32, u32, u32) {
+    (
+        cpg_schema::wire::FORMAT,
+        cpg_schema::serving_projection::FORMAT,
+        cpg_schema::serving_projection::BUNDLE_FORMAT,
+        cpg_schema::condition_kernel::KERNEL_FORMAT,
+    )
+}
+
+/// Generated wire contracts; no Python domain model is an authority.
+#[pyfunction]
+fn wire_schema(name: &str, output: bool) -> PyResult<String> {
+    cpg_schema::wire::schema(name, output)
+        .and_then(|v| serde_json::to_string(&v).map_err(Into::into))
+        .map_err(|e| PyValueError::new_err(e.to_string()))
+}
+#[pyfunction]
+fn wire_decode(py: Python<'_>, name: &str, raw: &str) -> PyResult<String> {
+    py.detach(|| cpg_schema::wire::decode(name, raw))
+        .map_err(|e| PyValueError::new_err(e.to_string()))
+}
+
+#[pyfunction]
+fn wire_tool(name: &str) -> PyResult<String> {
+    let (request, response) =
+        cpg_schema::wire::tool_contract(name).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let (input, output) =
+        cpg_schema::wire::tool_schemas(name).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    Ok(serde_json::json!({"format":cpg_schema::wire::FORMAT,"request":request,"response":response,"parameters":input,"output_schema":output}).to_string())
+}
+#[pyfunction]
+#[pyo3(signature = (name, raw, expanded=false))]
+fn wire_tool_result(py: Python<'_>, name: &str, raw: &str, expanded: bool) -> PyResult<String> {
+    py.detach(|| cpg_schema::wire::tool_result(name, raw, expanded))
+        .map_err(|e| PyValueError::new_err(e.to_string()))
+}
+
 #[pymodule]
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ConditionGraph>()?;
     m.add_class::<SemanticExecutor>()?;
     m.add_function(wrap_pyfunction!(canonical_embedding_spec, m)?)?;
+    m.add_function(wrap_pyfunction!(wire_versions, m)?)?;
+    m.add_function(wrap_pyfunction!(wire_schema, m)?)?;
+    m.add_function(wrap_pyfunction!(wire_decode, m)?)?;
+    m.add_function(wrap_pyfunction!(wire_tool, m)?)?;
+    m.add_function(wrap_pyfunction!(wire_tool_result, m)?)?;
     m.add_function(wrap_pyfunction!(kernel_format, m)?)?;
     m.add_function(wrap_pyfunction!(serving_schemas, m)?)?;
     m.add_function(wrap_pyfunction!(validate_projection_ipc, m)?)?;

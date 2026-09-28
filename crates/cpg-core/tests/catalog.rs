@@ -31,6 +31,14 @@ async fn catalog_profile_publishes_original_contracts_without_native_analysis() 
     std::fs::create_dir_all(&destination).unwrap();
     let attempt = tempfile::tempdir_in(&destination).unwrap();
     let store = attempt.path().join("store");
+    if std::env::var_os("LCTX_CATALOG_FIXTURE").is_some() {
+        let _ = attempt.keep();
+        std::fs::write(
+            destination.join("STORE"),
+            store.to_string_lossy().as_bytes(),
+        )
+        .unwrap();
+    }
     let result = cpg_core::attempt::compile_catalog(
         &store,
         snapshot,
@@ -75,6 +83,176 @@ async fn catalog_profile_publishes_original_contracts_without_native_analysis() 
         .await
         .unwrap()
         .unwrap();
+    let facts = cpg_core::catalog::load_facts(&ctx).await.unwrap();
+    let public: Vec<cpg_schema::findings::PublicPathsRow> = cpg_core::sql::fetch(
+        &ctx,
+        &cpg_schema::public::public_paths(),
+        cpg_core::sql::Params::new().texts("roots", ["catalogpkg"]),
+    )
+    .await
+    .unwrap();
+    let clean =
+        cpg_core::catalog::derive_contracts(&facts, snapshot, &["catalogpkg".into()], &public)
+            .unwrap();
+    let prepared = cpg_core::catalog::PreparedCatalog::new(facts);
+    assert_eq!(
+        clean,
+        prepared
+            .derive(snapshot, &["catalogpkg".into()], &public)
+            .unwrap()
+    );
+    input_change_controls(prepared.facts(), snapshot, &public, &clean);
+    let by_name = |name: &str| {
+        prepared
+            .facts()
+            .declarations
+            .iter()
+            .find(|d| d.qualified_name == name || d.qualified_name.ends_with(&format!(".{name}")))
+            .unwrap_or_else(|| {
+                panic!(
+                    "missing {name}: {:?}",
+                    prepared
+                        .facts()
+                        .declarations
+                        .iter()
+                        .map(|d| &d.qualified_name)
+                        .collect::<Vec<_>>()
+                )
+            })
+            .node_id
+    };
+    let options = by_name("Options");
+    let left = clean
+        .configurations
+        .iter()
+        .find(|f| f.class_node_id == options && f.name == "left")
+        .unwrap();
+    assert_eq!(left.literal_json.as_deref(), Some("\"http\""));
+    assert!(
+        clean
+            .configurations
+            .iter()
+            .any(|f| f.class_node_id == options
+                && f.name == "cache"
+                && f.factory_text.as_deref() == Some("list"))
+    );
+    let left_read = by_name("Options.read_left");
+    let right_read = by_name("Options.read_right");
+    let unrelated = by_name("Options.unrelated");
+    assert!(clean.field_links.iter().any(|l| l.field_id == left.field_id
+        && l.reader_node_id == Some(left_read)
+        && l.kind == "exact_reader"));
+    assert!(
+        !clean
+            .field_links
+            .iter()
+            .any(|l| l.field_id == left.field_id && l.reader_node_id == Some(right_read))
+    );
+    assert!(
+        !clean
+            .field_links
+            .iter()
+            .any(|l| l.reader_node_id == Some(unrelated))
+    );
+    for name in [
+        "CustomAllocation",
+        "CustomMeta",
+        "ReplacedRecord",
+        "DescriptorField",
+        "SetterMutation",
+        "OperatorMutation",
+        "StaticConstructor",
+    ] {
+        let class = by_name(name);
+        assert!(
+            !clean
+                .field_links
+                .iter()
+                .any(|l| l.class_node_id == class && l.kind == "exact_storage"),
+            "{name}"
+        );
+    }
+    assert!(
+        clean
+            .field_links
+            .iter()
+            .any(|l| l.class_node_id == by_name("DirectOptions") && l.kind == "exact_storage")
+    );
+    let replaced_properties: std::collections::BTreeSet<_> = prepared
+        .facts()
+        .declarations
+        .iter()
+        .filter(|d| d.parent_node_id == Some(by_name("ReplacedProperty")))
+        .map(|d| d.node_id)
+        .collect();
+    assert!(
+        !clean
+            .surfaces
+            .iter()
+            .any(|s| replaced_properties.contains(&s.declaration_node_id)
+                && s.accessor_role.as_deref() == Some("setter"))
+    );
+    assert!(
+        clean
+            .surfaces
+            .iter()
+            .any(|s| s.accessor_role.as_deref() == Some("setter") && s.related_node_id.is_some())
+    );
+    assert!(
+        clean
+            .surfaces
+            .iter()
+            .any(|s| s.protocol.as_deref() == Some("context_manager") && s.admission == "withheld")
+    );
+    assert!(
+        clean
+            .surfaces
+            .iter()
+            .any(|s| s.resolved_target.as_deref() == Some("functools.wraps")
+                && s.related_node_id.is_some())
+    );
+    assert!(
+        clean
+            .evidence
+            .iter()
+            .any(|e| e.subject_node_id == left.field_id && e.text.contains("'http'"))
+    );
+    assert!(clean.surfaces.iter().any(|s| s.declaration_node_id
+        == by_name("AliasDescriptor.create")
+        && s.binding_mode.as_deref() == Some("class")
+        && s.admission == "withheld"));
+    assert!(!clean.surfaces.iter().any(|s| s.registration.is_some()));
+    // Same immutable source observations, explicit pinned-provider input change. This control
+    // tests the normalizer's policy boundary, not execution of FastMCP or an analyzed fixture.
+    let mut pilot_facts = prepared.facts().clone();
+    pilot_facts.releases[0]
+        .distributions
+        .push("fastmcp==4.0.5".into());
+    let pilot_clean = cpg_core::catalog::derive_contracts(
+        &pilot_facts,
+        snapshot,
+        &["catalogpkg".into()],
+        &public,
+    )
+    .unwrap();
+    let pilot_prepared = cpg_core::catalog::PreparedCatalog::new(pilot_facts);
+    assert_eq!(
+        pilot_clean,
+        pilot_prepared
+            .derive(snapshot, &["catalogpkg".into()], &public)
+            .unwrap()
+    );
+    for registration in ["tool", "resource", "prompt"] {
+        assert!(
+            pilot_clean
+                .surfaces
+                .iter()
+                .any(|s| s.registration.as_deref() == Some(registration)
+                    && s.admission == "withheld"),
+            "{registration}"
+        );
+    }
+
     let check = cpg_core::sql::render(&ctx,
         "SELECT ordinal,name,kind,default_state FROM catalog_parameters WHERE signature_id IN (SELECT signature_id FROM catalog_signatures WHERE callable_node_id IN (SELECT node_id FROM operations WHERE access_path='catalogpkg.ordinary')) ORDER BY ordinal").await.unwrap();
     for value in [
@@ -256,4 +434,155 @@ async fn catalog_profile_publishes_original_contracts_without_native_analysis() 
             .iter()
             .any(|f| f.rule == "catalog-source-equality:catalog_parameters")
     );
+}
+
+/// Pure transform controls after one fixture load: no store, embedding or PG calls inside.
+fn input_change_controls(
+    facts: &cpg_core::catalog::CatalogFacts,
+    snapshot: Id,
+    public: &[cpg_schema::findings::PublicPathsRow],
+    baseline: &cpg_core::catalog::Contracts,
+) {
+    use cpg_core::catalog::{Contracts, PreparedCatalog, derive_contracts};
+    // Canonical publication treats rows as multisets; explicit ordinal fields retain ordering.
+    fn rows(c: &Contracts) -> Vec<String> {
+        let mut out = Vec::new();
+        macro_rules! include {
+            ($($field:ident),+) => { $(for row in &c.$field {
+                out.push(format!("{}:{row:?}", stringify!($field)));
+            })+ };
+        }
+        include!(
+            members,
+            constructors,
+            bindings,
+            signatures,
+            parameters,
+            evidence,
+            types,
+            type_args,
+            type_observations,
+            surfaces,
+            configurations,
+            field_links
+        );
+        out.sort();
+        out
+    }
+    let compare = |facts: &cpg_core::catalog::CatalogFacts,
+                   roots: &[String],
+                   public: &[cpg_schema::findings::PublicPathsRow]| {
+        let clean = derive_contracts(facts, snapshot, roots, public).unwrap();
+        let indexed = PreparedCatalog::new(facts.clone())
+            .derive(snapshot, roots, public)
+            .unwrap();
+        assert_eq!(rows(&clean), rows(&indexed));
+        clean
+    };
+    let roots = ["catalogpkg".to_owned()];
+    let mut shuffled = facts.clone();
+    macro_rules! reverse {
+        ($($field:ident),+) => { $(shuffled.$field.reverse();)+ };
+    }
+    reverse!(
+        declarations,
+        source,
+        names,
+        signatures,
+        parameters,
+        syntax,
+        semantics,
+        docs,
+        functions,
+        synthetic,
+        classes,
+        class_map,
+        ancestry,
+        ancestry_targets,
+        scopes,
+        lexical_bindings,
+        observations,
+        terms,
+        args,
+        candidates,
+        member_observations,
+        releases,
+        field_syntax,
+        record_fields,
+        nodes,
+        references,
+        resolutions,
+        roots,
+        descriptors
+    );
+    let mut reversed_public = public.to_vec();
+    reversed_public.reverse();
+    assert_eq!(
+        rows(baseline),
+        rows(&compare(&shuffled, &roots, &reversed_public))
+    );
+
+    // A previously absent public spelling appears, then is removed again. No negative lookup
+    // can survive the changed membership. Stable declaration/signature identity is retained.
+    let missing = ["catalogpkg.new_alias".to_owned()];
+    let empty = compare(facts, &missing, &[]);
+    assert!(empty.members.is_empty());
+    let mut alias = public
+        .iter()
+        .find(|p| p.access_path == "catalogpkg.ordinary")
+        .unwrap()
+        .clone();
+    alias.access_path = missing[0].clone();
+    let added = compare(facts, &missing, &[alias]);
+    assert_eq!(added.members.len(), 1);
+    assert_eq!(added.members[0].access_path, missing[0]);
+    assert!(!added.signatures.is_empty());
+    assert_eq!(rows(&empty), rows(&compare(facts, &missing, &[])));
+
+    // Absent source syntax remains unknown; restoring the observation restores its exact default.
+    let parameter = baseline
+        .parameters
+        .iter()
+        .find(|p| p.default_text.is_some() && p.syntax_fact_id.is_some())
+        .unwrap();
+    let mut absent = facts.clone();
+    let syntax_id = parameter.syntax_fact_id.unwrap();
+    absent.syntax.retain(|p| p.fact_id != syntax_id);
+    for p in &mut absent.parameters {
+        if p.syntax_fact_id == Some(syntax_id) {
+            p.syntax_fact_id = None;
+        }
+    }
+    let without = compare(&absent, &roots, public);
+    let p = without
+        .parameters
+        .iter()
+        .find(|p| p.signature_id == parameter.signature_id && p.ordinal == parameter.ordinal)
+        .unwrap();
+    assert!(p.default_text.is_none());
+    assert_ne!(p.default_state, "literal");
+    assert_eq!(rows(baseline), rows(&compare(facts, &roots, public)));
+
+    // Appending whitespace leaves source spans/signatures intact, but every cited file digest
+    // must be rebound. This input perturbation is not published as a new canonical snapshot.
+    let mut evidence = facts.clone();
+    for file in &mut evidence.source {
+        if let Some(text) = &mut file.text {
+            text.push('\n');
+            file.byte_len = text.len() as i64;
+            file.content_digest = cpg_schema::id::content_digest(text.as_bytes());
+        }
+    }
+    let refreshed = compare(&evidence, &roots, public);
+    assert_eq!(baseline.signatures, refreshed.signatures);
+    assert_ne!(baseline.evidence, refreshed.evidence);
+    for citation in &refreshed.evidence {
+        let prior = baseline
+            .evidence
+            .iter()
+            .find(|e| e.evidence_id == citation.evidence_id)
+            .unwrap();
+        assert_eq!(prior.text, citation.text);
+        assert_ne!(prior.source_digest, citation.source_digest);
+    }
 }

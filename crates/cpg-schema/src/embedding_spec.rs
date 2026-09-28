@@ -3,7 +3,7 @@ use crate::id::Digest;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct MatryoshkaAdmission {
     pub is_matryoshka: bool,
@@ -13,7 +13,7 @@ pub struct MatryoshkaAdmission {
 
 /// The embedding spec (DESIGN §11.1): everything that can change a vector. Its SHA-256 over the
 /// canonical JSON (fields in this order, no whitespace) is the spec hash.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Spec {
     pub format: u32,

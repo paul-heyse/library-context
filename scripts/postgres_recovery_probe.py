@@ -10,7 +10,7 @@ from pathlib import Path
 from fastmcp import Client
 from lctx_storage import open_repository
 
-from lctx_mcp.generation import load
+from lctx_mcp.generation import FORMAT, load
 from lctx_mcp.server import NativeWorkers, build_server, serve
 
 
@@ -23,12 +23,12 @@ async def probe(config: Path, receipt: Path):
         await repository.check()
         for generation in expected["inventory"]["generations"]:
             manifest = generation["manifest"]
-            if manifest["bundle_format"] != 13:
+            if manifest["bundle_format"] != FORMAT:
                 if (
                     manifest["format"],
                     manifest["bundle_format"],
                     generation["runtime_admission"],
-                ) != (2, 12, "legacy_runtime_required"):
+                ) not in {(2, 12, "legacy_runtime_required"), (3, 13, "legacy_runtime_required")}:
                     raise RuntimeError("unrecognized legacy generation")
                 results.append(
                     {

@@ -4,14 +4,14 @@ use cpg_schema::serving_projection::corrupt;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Route {
     Exact,
     Hnsw,
     Mixed,
 }
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Policy {
     pub format: u32,
@@ -23,13 +23,13 @@ pub struct Policy {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub routing: Option<Routing>,
 }
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Routing {
     pub count_floor: u32,
     pub classes: Vec<String>,
 }
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Hnsw {
     pub m: u32,

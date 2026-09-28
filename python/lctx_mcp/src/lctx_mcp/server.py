@@ -25,7 +25,6 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from functools import partial, wraps
 from pathlib import Path
-from typing import Annotated, Literal
 
 import numpy as np
 from fastmcp import Context, FastMCP
@@ -33,7 +32,6 @@ from fastmcp.exceptions import ToolError, ValidationError
 from fastmcp.tools import ToolResult
 from lctx_storage import StorageError, open_repository
 from mcp_types import ToolAnnotations
-from pydantic import BaseModel, Field, TypeAdapter
 
 from lctx_mcp import operations as ops
 from lctx_mcp import value_paths
@@ -41,13 +39,13 @@ from lctx_mcp.embedder import Embedder, EmbedderError
 from lctx_mcp.generation import Generation, load
 from lctx_mcp.retrieval import (
     Lexical,
-    RankSource,
     RetrievalMetadata,
     fuse_legs,
     identities,
     lexical_rank,
     vector_legs,
 )
+from lctx_mcp.wire import REQUEST_SECONDS, Contract, Packet, register
 
 INSTRUCTIONS = (
     "A behavioral model of one pinned Python library's whole public surface, compiled from its "
@@ -73,25 +71,13 @@ class CapabilityError(ValidationError):
     client's bad input, so FastMCP answers it as invalid params in every component."""
 
 
-class Hit(BaseModel):
-    capability_id: str
-    title: str
-    outcome: str | None
-    outcome_status: str
-    relevance: float
-    rank_source: RankSource
-    promoted: bool
+Hit = Contract("Hit")
 
 
-class CapabilityUnavailable(BaseModel):
-    status: Literal["unavailable"] = "unavailable"
-    reason: Literal["not_requested"] = "not_requested"
-    capability: str
-    snapshot_id: str
-    generation: str
+CapabilityUnavailable = Contract("CapabilityUnavailable")
 
 
-def unavailable(served: Served, capability: str) -> CapabilityUnavailable | None:
+def unavailable(served: Served, capability: str) -> Packet | None:
     if served.generation.manifest["capabilities"][capability]:
         return None
     return CapabilityUnavailable(
@@ -101,144 +87,34 @@ def unavailable(served: Served, capability: str) -> CapabilityUnavailable | None
     )
 
 
-class SearchResult(BaseModel):
-    retrieval: RetrievalMetadata
-
-    library: str
-    snapshot_id: str
-    generation: str
-    mode: Literal["hybrid", "lexical-only"]
-    degraded_reason: str | None
-    coverage: dict
-    note: str
-    hits: list[Hit]
+SearchResult = Contract("SearchResult")
 
 
-class Evidence(BaseModel):
-    evidence_id: str
-    kind: str
-    path: str | None
-    start_byte: int | None
-    end_byte: int | None
-    text: str | None
+Evidence = Contract("Evidence")
 
 
-class FindingWitness(BaseModel):
-    path: int
-    step: int
-    call_site_node_id: str
-    callee_node_id: str
-    arc_kind: str
-    modality: str
-    phase: str | None
-    source_fact_id: str | None
-    source_path: str
-    start_byte: int
-    end_byte: int
+FindingWitness = Contract("FindingWitness")
 
 
-class ConceptAttribute(BaseModel):
-    attribute_id: str
-    kind: str
-    symbol: str | None
-    parameter_kind: str | None
-    type_term_id: str | None
-    class_module: str | None
-    class_key: str | None
-    target_node_id: str | None
-    modality: str | None
-    phase: str | None
-    producer_modality: str | None
-    producer_phase: str | None
-    display: str
+ConceptAttribute = Contract("ConceptAttribute")
 
 
-class AttributeIncidence(BaseModel):
-    finding_id: str
-    incidence_id: str
-    attribute_id: str
-    object_node_id: str
-    source_fact_id: str
-    fact_table: str
-    fact_model_id: str
-    site_node_id: str | None
-    edge_id: str | None
-    other_site_node_id: str | None
-    other_edge_id: str | None
-    consumer_formal_id: str | None
-    other_fact_id: str | None
-    other_fact_table: str | None
-    other_fact_model_id: str | None
+AttributeIncidence = Contract("AttributeIncidence")
 
 
-class FindingMember(BaseModel):
-    role: str
-    ordinal: int
-    node_id: str | None
-    cited_fact_id: str | None
-    attribute_id: str | None
-    fact_table: str | None
-    fact_model_id: str | None
-    label: str | None
+FindingMember = Contract("FindingMember")
 
 
-class FindingSupport(BaseModel):
-    finding_id: str
-    kind: str
-    evidence_status: str
-    subject_node_id: str
-    related_node_id: str | None
-    invocation_id: str
-    model_id: str
-    method: str
-    parameters: str
-    completion: str
-    stop_reason: str | None
-    witnesses_omitted: bool
-    witnesses: list[FindingWitness]
-    members: list[FindingMember]
-    attributes: list[ConceptAttribute]
-    attribute_incidences: list[AttributeIncidence]
-    source_resolution: Literal["source_span", "fact_only", "unavailable"]
+FindingSupport = Contract("FindingSupport")
 
 
-class Support(BaseModel):
-    role: str
-    finding_id: str | None
-    finding_kind: str | None
-    evidence_id: str | None
-    finding: FindingSupport | None = None
+Support = Contract("Support")
 
 
-class Assertion(BaseModel):
-    assertion_id: str
-    kind: str
-    section: str
-    status: str
-    text: str | None
-    applicable_case: str | None
-    conditions: str | None
-    limitations: str | None
-    supports: list[Support]
+Assertion = Contract("Assertion")
 
 
-class Capability(BaseModel):
-    library: str
-    snapshot_id: str
-    generation: str
-    capability_id: str
-    title: str
-    access_path: str
-    public_paths: list[str]
-    documentation_only: bool
-    review_state: str
-    outcome: str | None
-    outcome_status: str
-    assertions: list[Assertion]
-    evidence: list[Evidence]
-    # Slot sections this brief has no statement in: absent, not unresolved and not empty by
-    # evidence (increment-1 deep review F4).
-    sections_absent: list[str]
+Capability = Contract("Capability")
 
 
 class NativeWorkers:
@@ -295,9 +171,6 @@ def serve(generation: Generation, embedder: Embedder | None, workers: NativeWork
     )
 
 
-REQUEST_SECONDS = 30.0
-
-
 def request_deadline(fn):
     """One wall-clock budget covers eligibility, embedding, vector work and rendering."""
 
@@ -313,7 +186,7 @@ def request_deadline(fn):
 
 
 async def decode_model(served: Served, model, raw: str):
-    return await served.workers.run(lambda: bounded(model.model_validate_json(raw)))
+    return await served.workers.run(lambda: model.model_validate_json(raw))
 
 
 async def storage(awaitable):
@@ -327,20 +200,13 @@ async def storage(awaitable):
         raise ToolError("storage unavailable: request deadline") from exc
 
 
-def bounded(model):
-    # Bound the actual Pydantic response including notes and metadata, not only Rust payloads.
-    if len(model.model_dump_json().encode()) > 8 * 1024 * 1024:
-        raise ToolError("resource_refused: serialized response byte budget")
-    return model
-
-
 @request_deadline
 async def search(
     served: Served,
     library: str,
     query: str,
     limit: int,
-    where: ops.Where | None = None,
+    where: Packet | None = None,
     operations: bool = False,
 ):
     gen = served.generation
@@ -397,7 +263,7 @@ async def search(
 
     def render():
         rows = json.loads(raw_rows)
-        hits: list[ops.OperationHit | Hit] = []
+        hits: list[Packet | Packet] = []
         for (identity, relevance, source, exact), row in zip(ranked, rows, strict=True):
             if operations:
                 hits.append(
@@ -432,21 +298,17 @@ async def search(
             hits=hits,
         )
         if operations:
-            return bounded(
-                ops.OperationHits.model_validate(
-                    {**common, "ranked_discovery": True, "note": ops.NOTE_SEARCH}
-                )
+            return ops.OperationHits.model_validate(
+                {**common, "ranked_discovery": True, "note": ops.NOTE_SEARCH}
             )
-        return bounded(
-            SearchResult.model_validate(
-                {**common, "library": gen.library, "coverage": gen.summary, "note": NOTE}
-            )
+        return SearchResult.model_validate(
+            {**common, "library": gen.library, "coverage": gen.summary, "note": NOTE}
         )
 
     return await served.workers.run(render)
 
 
-async def hydrate(served: Served, snapshot_id: str, capability_id: str) -> Capability:
+async def hydrate(served: Served, snapshot_id: str, capability_id: str) -> Packet:
     return await decode_model(
         served,
         Capability,
@@ -454,7 +316,7 @@ async def hydrate(served: Served, snapshot_id: str, capability_id: str) -> Capab
     )
 
 
-def markdown(c: Capability) -> str:
+def markdown(c: Packet) -> str:
     """A brief as Markdown text, each statement with its status."""
     lines = [
         f"# {c.title}",
@@ -546,21 +408,21 @@ def build_server(
             finally:
                 await repository.close()
 
-    mcp = FastMCP("lctx", instructions=INSTRUCTIONS, lifespan=lifespan, mask_error_details=True)
-
-    @mcp.tool(
-        annotations=READ_ONLY,
-        output_schema={
-            **TypeAdapter(SearchResult | CapabilityUnavailable).json_schema(),
-            "type": "object",
-        },
+    mcp = FastMCP(
+        "lctx",
+        instructions=INSTRUCTIONS,
+        lifespan=lifespan,
+        mask_error_details=True,
+        dereference_schemas=False,
     )
+
+    @register(mcp, READ_ONLY)
     @request_deadline
     async def search_capabilities(
         library: str,
-        query: Annotated[str, Field(min_length=1, max_length=4000)],
+        query: str,
         ctx: Context,
-        limit: Annotated[int, Field(ge=1, le=10)] = 5,
+        limit: int = 5,
     ) -> ToolResult:
         """Find capability briefs for a coding task in a library: ranked hits with their outcome
         and its evidence status. Read a hit whole with get_capability."""
@@ -572,18 +434,18 @@ def build_server(
             content=result.model_dump_json(), structured_content=result.model_dump(mode="json")
         )
 
-    @mcp.tool(
-        annotations=READ_ONLY,
-        output_schema={
-            **TypeAdapter(Capability | CapabilityUnavailable).json_schema(),
-            "type": "object",
-        },
-    )
+    @register(mcp, READ_ONLY)
     @request_deadline
     async def get_capability(snapshot_id: str, capability_id: str, ctx: Context) -> ToolResult:
         """One capability brief, whole: every section's statements with their evidence status,
         their supports, and the verbatim evidence they cite."""
         served = ctx.lifespan_context["served"]
+        request = await served.workers.run(
+            lambda: Contract("GetCapabilityRequest").model_validate(
+                {"snapshot_id": snapshot_id, "capability_id": capability_id}
+            )
+        )
+        snapshot_id, capability_id = request.snapshot_id, request.capability_id
         if snapshot_id != served.generation.snapshot_id:
             raise CapabilityError("snapshot is not the pinned one")
         missing = unavailable(served, "briefs")
@@ -600,17 +462,11 @@ def build_server(
                 f"this server serves {served.generation.library!r}, not {library!r}"
             )
 
-    @mcp.tool(
-        annotations=READ_ONLY,
-        output_schema={
-            **TypeAdapter(ops.Operation | ops.AmbiguousOperation).json_schema(),
-            "type": "object",
-        },
-    )
+    @register(mcp, READ_ONLY)
     @request_deadline
     async def get_operation(
         snapshot_id: str,
-        operation: Annotated[str, Field(min_length=1, max_length=500)],
+        operation: str,
         ctx: Context,
         expanded: bool = False,
     ) -> ToolResult:
@@ -632,34 +488,21 @@ def build_server(
             encoded,
         )
         payload = result.model_dump(mode="json")
-        limit = 256 * 1024 if expanded else 32 * 1024
-        if len(json.dumps(payload, ensure_ascii=False).encode()) > limit:
-            raise CapabilityError(
-                "operation packet exceeds byte budget; request expanded=true"
-                if not expanded
-                else "expanded operation packet exceeds 256 KiB; no signature was truncated"
-            )
         return ToolResult(
             content="Public API contract and evidence; effective behavior may remain unresolved.",
             structured_content=payload,
         )
 
-    @mcp.tool(
-        annotations=READ_ONLY,
-        output_schema={
-            **TypeAdapter(value_paths.ValuePathPage | CapabilityUnavailable).json_schema(),
-            "type": "object",
-        },
-    )
+    @register(mcp, READ_ONLY)
     @request_deadline
     async def inspect_value_paths(
         snapshot_id: str,
-        operation: Annotated[str, Field(min_length=1, max_length=500)],
-        formal: Annotated[str, Field(min_length=1, max_length=500)],
-        exact_input: value_paths.ExactPrimitive,
+        operation: str,
+        formal: str,
+        exact_input: Packet,
         ctx: Context,
         standard_builtins: bool = False,
-        limit: Annotated[int, Field(ge=1, le=50)] = 20,
+        limit: int = 20,
         cursor: str | None = None,
     ) -> ToolResult:
         """Inspect cited value-summary paths for one public formal and exact primitive input.
@@ -678,17 +521,15 @@ def build_server(
         resolved = json.loads(await storage(served.generation.repository.resolve(operation)))
         try:
             result = await served.workers.run(
-                lambda: bounded(
-                    value_paths.inspect(
-                        served.generation,
-                        snapshot_id,
-                        resolved["access_path"],
-                        formal,
-                        exact_input,
-                        standard_builtins,
-                        limit,
-                        cursor,
-                    )
+                lambda: value_paths.inspect(
+                    served.generation,
+                    snapshot_id,
+                    resolved["access_path"],
+                    formal,
+                    exact_input,
+                    standard_builtins,
+                    limit,
+                    cursor,
                 )
             )
             return ToolResult(
@@ -697,15 +538,15 @@ def build_server(
         except ops.OperationError as exc:
             raise CapabilityError(str(exc)) from exc
 
-    @mcp.tool(annotations=READ_ONLY)
+    @register(mcp, READ_ONLY)
     @request_deadline
     async def find_operations(
         library: str,
-        where: ops.Where,
+        where: Packet,
         ctx: Context,
-        limit: Annotated[int, Field(ge=1, le=50)] = 20,
+        limit: int = 20,
         cursor: str | None = None,
-    ) -> ops.OperationSet:
+    ) -> Packet:
         """Every public operation matching all the given facet terms (exact values), plus
         optional kind and path prefix. Exhaustive over this generation; `complete` is false when
         some operation that does not match has incomplete rows for a facet you used (a class
@@ -721,19 +562,19 @@ def build_server(
         def render():
             result = json.loads(raw)
             result["note"] = ops.NOTE_FIND
-            return bounded(ops.OperationSet.model_validate(result))
+            return ops.OperationSet.model_validate(result)
 
         return await served.workers.run(render)
 
-    @mcp.tool(annotations=READ_ONLY)
+    @register(mcp, READ_ONLY)
     @request_deadline
     async def search_operations(
         library: str,
-        query: Annotated[str, Field(min_length=1, max_length=4000)],
+        query: str,
         ctx: Context,
-        where: ops.Where | None = None,
-        limit: Annotated[int, Field(ge=1, le=10)] = 5,
-    ) -> ops.OperationHits:
+        where: Packet | None = None,
+        limit: int = 5,
+    ) -> Packet:
         """Public operations ranked for a coding task (lexical and vector views, fused), within
         an optional facet filter. Ranked discovery, not exhaustive: confirm with get_operation."""
         served = ctx.lifespan_context["served"]
@@ -745,6 +586,12 @@ def build_server(
     async def capability(snapshot_id: str, capability_id: str, ctx: Context) -> str:
         """A capability brief as Markdown."""
         served = ctx.lifespan_context["served"]
+        request = await served.workers.run(
+            lambda: Contract("GetCapabilityRequest").model_validate(
+                {"snapshot_id": snapshot_id, "capability_id": capability_id}
+            )
+        )
+        snapshot_id, capability_id = request.snapshot_id, request.capability_id
         if snapshot_id != served.generation.snapshot_id:
             raise CapabilityError("snapshot differs from the pinned generation")
         if missing := unavailable(served, "briefs"):

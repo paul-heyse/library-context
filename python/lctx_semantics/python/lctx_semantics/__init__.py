@@ -15,6 +15,11 @@ from ._native import (
     probe_implies,
     serving_schemas,
     validate_projection_ipc,
+    wire_decode,
+    wire_schema,
+    wire_tool,
+    wire_tool_result,
+    wire_versions,
 )
 
 __all__ = [
@@ -28,4 +33,9 @@ __all__ = [
     "probe_implies",
     "serving_schemas",
     "validate_projection_ipc",
+    "wire_decode",
+    "wire_schema",
+    "wire_tool",
+    "wire_tool_result",
+    "wire_versions",
 ]

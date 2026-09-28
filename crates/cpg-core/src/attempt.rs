@@ -126,7 +126,7 @@ pub struct Published {
 /// 103: builtin binding-preserving descriptors no longer write the decorator boundary.
 /// 104: summaries neither start in nor compose through a decorated function (ADR-0064).
 /// 105: call-transfer return claims graded after summaries with claim-keyed discharges (ADR-0064).
-pub const COMPILER_OUTPUT_VERSION: u32 = 108;
+pub const COMPILER_OUTPUT_VERSION: u32 = 109;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -177,7 +177,11 @@ pub fn compiler_digest() -> Digest {
     // The compiler's own sources (the holistic assessment's A2(e); `build.rs`).
     queries.push(("compiler_sources", SOURCE_DIGEST.to_owned()));
     // The one public-path authority (the holistic assessment's A1): seeds resolve by it.
-    for relation in cpg_schema::public::all() {
+    for relation in cpg_schema::public::all()
+        .into_iter()
+        .chain(cpg_schema::public::candidate_relations())
+        .chain(cpg_schema::public::member_relations())
+    {
         queries.push((relation.name, relation.sql));
     }
     queries.push((
@@ -1329,6 +1333,30 @@ async fn finish(
         .await?;
         behavior
     };
+    write_analysis::<cpg_schema::catalog::CatalogSurfaces>(
+        &ctx,
+        root,
+        snapshot_id,
+        &catalog.surfaces,
+        &mut written,
+    )
+    .await?;
+    write_analysis::<cpg_schema::catalog::CatalogConfigurations>(
+        &ctx,
+        root,
+        snapshot_id,
+        &catalog.configurations,
+        &mut written,
+    )
+    .await?;
+    write_analysis::<cpg_schema::catalog::CatalogFieldLinks>(
+        &ctx,
+        root,
+        snapshot_id,
+        &catalog.field_links,
+        &mut written,
+    )
+    .await?;
     write_analysis::<cpg_schema::catalog::CatalogConstructors>(
         &ctx,
         root,

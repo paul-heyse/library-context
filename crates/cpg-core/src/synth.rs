@@ -57,7 +57,7 @@ use crate::{CoreError, sql};
 /// cite the exact mention that anchors them as `scope` evidence (R1 F1). 18: a brief's members
 /// are every public path of its seed, own and inherited, with `own` (the holistic assessment's A1).
 /// 19: an unfollowed transfer is an explicit unproved alternative, including alongside a witness.
-pub const TEMPLATE_VERSION: i64 = 20;
+pub const TEMPLATE_VERSION: i64 = 21;
 
 /// The §11.1 cap on a brief document: 2,048 tokens. The embedder counts tokens with the served
 /// model's tokenizer (slice 1.6); here a declared proxy of four bytes per token. An over-cap
@@ -256,6 +256,7 @@ enum Form {
     ClassMethod,
     StaticMethod,
     Property,
+    Unresolved,
 }
 
 /// One assertion before its id: its content and supports.
@@ -639,26 +640,39 @@ pub async fn run(
         form: Form,
         text: Option<String>,
     }
+    let surface_rows: Vec<cpg_schema::catalog::CatalogSurfacesRow> = sql::fetch(
+        ctx,
+        &cpg_schema::query::Relation {
+            name: "synthesis_catalog_surfaces",
+            deps: <cpg_schema::catalog::CatalogSurfaces as cpg_schema::Table>::DEPS,
+            sql: "SELECT * FROM catalog_surfaces".into(),
+        },
+        sql::Params::new(),
+    )
+    .await?;
     let mut decls: BTreeMap<Id, Decl> = BTreeMap::new();
     for r in over::<DeclarationRow>(ctx, declarations_relation(), seeds.iter().copied()).await? {
         let docstring = r
             .docstring_start_byte
             .zip(r.docstring_end_byte)
             .map(|(s, e)| (s as usize, e as usize));
-        let decorators = r.decorators.unwrap_or_default();
-        let has = |d: &str| decorators.split(',').any(|x| x == d);
+        let surface: Vec<_> = surface_rows
+            .iter()
+            .filter(|s| s.declaration_node_id == r.node_id)
+            .collect();
         let form = if r.kind == DeclarationKind::Class {
             Form::Class
+        } else if !surface.is_empty() && surface.iter().any(|s| s.admission != "body_preserved") {
+            Form::Unresolved
         } else if r.parent_kind != Some(DeclarationKind::Class) {
             Form::Function
-        } else if has("staticmethod") {
-            Form::StaticMethod
-        } else if has("classmethod") {
-            Form::ClassMethod
-        } else if has("property") || has("cached_property") {
-            Form::Property
         } else {
-            Form::Method
+            match surface.first().and_then(|s| s.binding_mode.as_deref()) {
+                Some("static") => Form::StaticMethod,
+                Some("class") => Form::ClassMethod,
+                Some("property") => Form::Property,
+                _ => Form::Method,
+            }
         };
         decls.insert(
             r.node_id,
@@ -1016,8 +1030,13 @@ pub async fn run(
                 )
             };
             let text = match form {
+                Form::Unresolved => format!(
+                    "Source API `{access_path}`{also}; effective invocation remains unresolved."
+                ),
                 Form::Function => format!("Call it as `{access_path}`{also}."),
-                Form::Class => format!("Construct one by calling `{access_path}`{also}."),
+                Form::Class => format!(
+                    "Source class `{access_path}`{also}; its attributed constructor contracts describe the declared parameters."
+                ),
                 Form::Method => member("A method", "call", "on an instance"),
                 Form::ClassMethod => {
                     member("A class method", "call", "on the class or an instance")

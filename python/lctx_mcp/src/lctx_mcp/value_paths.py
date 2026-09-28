@@ -7,15 +7,13 @@ to an operation-wide verdict.
 
 from __future__ import annotations
 
-import base64
-import hashlib
 import json
-from typing import Annotated, Literal, Protocol
+from typing import Protocol
 
 from lctx_semantics import SemanticExecutor
-from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from lctx_mcp.operations import OperationError
+from lctx_mcp.wire import Contract, Packet
 
 
 class NativeGeneration(Protocol):
@@ -31,124 +29,25 @@ class NativeGeneration(Protocol):
     def condition_graph(self) -> SemanticExecutor | None: ...
 
 
-class ExactPrimitive(BaseModel):
-    """An exact query-supplied builtin primitive, distinct from a Python type hint."""
-
-    model_config = ConfigDict(strict=True, extra="forbid")
-
-    kind: Literal["none", "bool", "int", "str"]
-    value: bool | int | Annotated[str, Field(max_length=500)] | None
-
-    @model_validator(mode="after")
-    def matching_value(self) -> ExactPrimitive:
-        expected = {"none": type(None), "bool": bool, "int": int, "str": str}[self.kind]
-        if type(self.value) is not expected:
-            raise ValueError(f"{self.kind} requires an exact {expected.__name__} value")
-        return self
-
-    def native(self) -> tuple[str, str]:
-        if self.kind == "none":
-            return self.kind, ""
-        if self.kind == "bool":
-            return self.kind, "true" if self.value else "false"
-        return self.kind, str(self.value)
+ExactPrimitive = Contract("ExactPrimitive")
 
 
-class ProofStep(BaseModel):
-    kind: str
-    evidence_id: str
-    condition_id: str
+ProofStep = Contract("ProofStep")
 
 
-class ValueLinkEvidence(BaseModel):
-    link_id: str
-    path: str | None
-    start_byte: int
-    end_byte: int
+ValueLinkEvidence = Contract("ValueLinkEvidence")
 
 
-class TheoryWork(BaseModel):
-    """Native per-path work; pair count is a preflight upper bound, not visited pairs."""
-
-    links_examined: int
-    assignments_applied: int
-    bdd_preflight_pairs: int
-    peak_bdd_nodes: int
+TheoryWork = Contract("TheoryWork")
 
 
-class ValuePath(BaseModel):
-    summary_id: str
-    source_flow_fact_id: str
-    source_origin_id: str
-    source_verdict: str
-    condition_id: str
-    steps: list[ProofStep]
-    exact_input_result: Literal["refuted_under_model", "compatible_under_model", "unknown"]
-    value_links: list[ValueLinkEvidence]
-    boundary_reason: str | None
-    theory_work: TheoryWork
+ValuePath = Contract("ValuePath")
 
 
-class OpenBoundary(BaseModel):
-    source_flow_fact_id: str
-    source_origin_id: str
-    condition_id: str
-    reason: str
+OpenBoundary = Contract("OpenBoundary")
 
 
-class ValuePathPage(BaseModel):
-    snapshot_id: str
-    generation: str
-    operation: str
-    formal: str
-    exact_input: ExactPrimitive
-    standard_builtins: bool
-    paths: list[ValuePath]
-    boundaries: list[OpenBoundary]
-    total_rows: int
-    examined_rows: int
-    theory_work: TheoryWork
-    truncated: bool
-    next_cursor: str | None
-    note: str = (
-        "A refutation applies only to its cited summary path under the exact input model. "
-        "Compatibility means only a satisfiable model after checked value links, not a "
-        "concrete execution. Unknown and absent paths do not establish absence."
-    )
-
-
-def _query_hash(
-    gen: NativeGeneration,
-    operation: str,
-    formal: str,
-    exact: ExactPrimitive,
-    standard_builtins: bool,
-) -> str:
-    request = {
-        "snapshot": gen.snapshot_id,
-        "generation": gen.key,
-        "operation": operation,
-        "formal": formal,
-        "exact": exact.model_dump(),
-        "standard_builtins": standard_builtins,
-    }
-    body = json.dumps(request, sort_keys=True, separators=(",", ":")).encode()
-    return hashlib.sha256(body).hexdigest()[:32]
-
-
-def _offset(gen: NativeGeneration, query_hash: str, cursor: str | None) -> int:
-    if cursor is None:
-        return 0
-    try:
-        data = json.loads(base64.b64decode(cursor.encode(), altchars=b"-_", validate=True))
-        if data["generation"] != gen.key or data["query"] != query_hash:
-            raise OperationError("cursor belongs to another generation or query")
-        offset = data["offset"]
-        if type(offset) is not int or offset < 0:
-            raise ValueError("invalid offset")
-    except (KeyError, TypeError, ValueError) as e:
-        raise OperationError("invalid value-path cursor") from e
-    return offset
+ValuePathPage = Contract("ValuePathPage")
 
 
 def inspect(
@@ -156,81 +55,29 @@ def inspect(
     snapshot_id: str,
     operation: str,
     formal: str,
-    exact: ExactPrimitive,
+    exact: Packet,
     standard_builtins: bool,
     limit: int,
     cursor: str | None,
-) -> ValuePathPage:
-    """One bounded native page, with no operation-wide negative claim."""
+) -> Packet:
+    """Transport one typed request; Rust owns validation, cursor and page semantics."""
     if snapshot_id != gen.snapshot_id:
         raise OperationError(f"this server serves snapshot {gen.snapshot_id}, not {snapshot_id}")
-    if not 1 <= limit <= 50:
-        raise OperationError("limit must be between 1 and 50")
-    # PostgreSQL resolved this spelling before the native worker was submitted.
-    path = operation
-    query_hash = _query_hash(gen, path, formal, exact, standard_builtins)
-    offset = _offset(gen, query_hash, cursor)
-    kind, value = exact.native()
     native = gen.condition_graph
     if native is None:
         raise OperationError("this generation has no native semantic index")
-    try:
-        rows, open_rows, total, truncated, work = native.inspect_value_paths(
-            path, formal, kind, value, standard_builtins, offset, limit
-        )
-    except ValueError as e:
-        raise OperationError(str(e)) from e
-    next_cursor = None
-    if truncated:
-        body = {"generation": gen.key, "query": query_hash, "offset": offset + work}
-        next_cursor = base64.urlsafe_b64encode(
-            json.dumps(body, sort_keys=True, separators=(",", ":")).encode()
-        ).decode()
-    page_work = TheoryWork(
-        links_examined=sum(row[7][0] for row in rows),
-        assignments_applied=sum(row[7][1] for row in rows),
-        bdd_preflight_pairs=sum(row[7][2] for row in rows),
-        peak_bdd_nodes=max((row[7][3] for row in rows), default=0),
-    )
-    return ValuePathPage(
-        snapshot_id=gen.snapshot_id,
-        generation=gen.key,
-        operation=path,
+    request = dict(
+        snapshot_id=snapshot_id,
+        operation=operation,
         formal=formal,
-        exact_input=exact,
+        exact_input=exact.model_dump(),
         standard_builtins=standard_builtins,
-        paths=[
-            ValuePath(
-                summary_id=row[0],
-                source_flow_fact_id=row[8],
-                source_origin_id=row[9],
-                source_verdict=row[1],
-                condition_id=row[2],
-                steps=[ProofStep(kind=s[0], evidence_id=s[1], condition_id=s[2]) for s in row[3]],
-                exact_input_result=row[4],
-                value_links=[
-                    ValueLinkEvidence(link_id=e[0], path=e[1], start_byte=e[2], end_byte=e[3])
-                    for e in row[5]
-                ],
-                boundary_reason=row[6],
-                theory_work=TheoryWork(
-                    links_examined=row[7][0],
-                    assignments_applied=row[7][1],
-                    bdd_preflight_pairs=row[7][2],
-                    peak_bdd_nodes=row[7][3],
-                ),
-            )
-            for row in rows
-        ],
-        boundaries=[
-            OpenBoundary(
-                source_flow_fact_id=r[0], source_origin_id=r[1], condition_id=r[2], reason=r[3]
-            )
-            for r in open_rows
-        ],
-        total_rows=total,
-        examined_rows=work,
-        theory_work=page_work,
-        truncated=truncated,
-        next_cursor=next_cursor,
+        limit=limit,
+        cursor=cursor,
     )
+    try:
+        return ValuePathPage.model_validate_json(
+            native.inspect_value_page(gen.key, json.dumps(request))
+        )
+    except ValueError as exc:
+        raise OperationError(str(exc)) from exc

@@ -320,9 +320,12 @@ reasoning, and every step is cited.
   decorated set serves behavior admission and unread-premise withholding. A store-free unit test
   covers each resolution's refusals independently; `transferpkg` covers the source cases
   ([review](../../design_review/reviews/design_review_descriptor-exemption_2026-09-27.md)).
-  Only an exact,
-  unconditional identity store composes with later field reads; a guarded store retains its direct
-  claim. Receiver narrowing requires an exclusive exact identity chain. Unknown receiver scope
+  **PR2 correction (Implemented and focused Tested, 2026-09-28; ADR-0074):** the shared
+  surface owner now supplies descriptor admission. Cross-method association requires the catalog
+  kernel’s supported constructor, exact formal/receiver/field and reader link. Its fate remains
+  `unknown` (`scope_boundary`, or the more specific `call_transfer`) because intervening mutation
+  is unproved. Unsupported plain-class and guarded stores retain their direct claims without
+  fabricated reader fates. Receiver narrowing requires an exclusive exact identity chain. Unknown receiver scope
   blocks field/singleton negatives, and a rebound or conditional global construction is not a
   uniquely resolved singleton. General alias, decorator and deferred-execution interpretation is
   still outside the implemented model.
@@ -483,6 +486,6 @@ question; "when it runs" versus "when called" for coroutines and generators is S
   (`semantic:unreachable-not-established`). `unreachable_in_context` keeps its meaning: the
   checker never binds it.
 
-> Decision: ADR-0045, ADR-0024, ADR-0028, ADR-0051, ADR-0064
+> Decision: ADR-0045, ADR-0024, ADR-0028, ADR-0051, ADR-0064, ADR-0074
 
 ---

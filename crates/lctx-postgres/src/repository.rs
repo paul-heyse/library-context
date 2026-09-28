@@ -16,7 +16,6 @@ use cpg_schema::{
 use futures::TryStreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
-use sha2::{Digest as _, Sha256};
 use sqlx::{PgConnection, Row, ValueRef};
 use std::{collections::BTreeSet, path::PathBuf};
 
@@ -57,45 +56,10 @@ impl PinnedGeneration {
         Ok(())
     }
 }
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct Where {
-    #[serde(default)]
-    pub facets: Vec<FacetTerm>,
-    #[serde(default)]
-    pub kind: Option<String>,
-    #[serde(default)]
-    pub path_prefix: Option<String>,
-}
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct FacetTerm {
-    pub facet: String,
-    pub value: String,
-}
-impl Where {
-    pub fn validate(&self) -> Result<(), Error> {
-        use cpg_schema::codebook::{Codebook, OperationFacet};
-        if self.facets.len() > 10
-            || self.path_prefix.as_ref().is_some_and(|s| s.len() > 2000)
-            || self
-                .kind
-                .as_ref()
-                .is_some_and(|s| !matches!(s.as_str(), "function" | "method" | "class"))
-            || self.facets.iter().any(|t| {
-                t.value.is_empty()
-                    || t.value.len() > 2000
-                    || !OperationFacet::all().iter().any(|f| f.text() == t.facet)
-            })
-        {
-            return Err(Error::Request("invalid operation filter".into()));
-        }
-        Ok(())
-    }
-    fn hash(&self) -> Result<String, Error> {
-        Ok(hex(Sha256::digest(
-            serde_json::to_vec(self).map_err(|_| corrupt("filter encoding"))?,
-        )))
+pub use cpg_schema::wire::{FacetTerm, Where};
+impl From<cpg_schema::wire::WireError> for Error {
+    fn from(e: cpg_schema::wire::WireError) -> Self {
+        Self::Request(e.to_string())
     }
 }
 #[derive(Serialize, Deserialize)]
@@ -360,7 +324,7 @@ async fn check_terms(
 ) -> Result<(), Error> {
     for term in &filter.facets {
         let invalid:bool=sqlx::query_scalar("SELECT NOT EXISTS(SELECT FROM lctx_serving.operation_facets WHERE generation_digest=$1 AND facet=$2 AND value=$3) AND NOT EXISTS(SELECT FROM lctx_serving.operations o WHERE generation_digest=$1 AND NOT EXISTS(SELECT FROM lctx_serving.operation_facet_status s WHERE s.generation_digest=$1 AND s.node_id=o.node_id AND s.facet=$2 AND s.verdict='established'))")
-            .bind(generation.id.0.as_slice()).bind(&term.facet).bind(&term.value).fetch_one(&mut *conn).await?;
+            .bind(generation.id.0.as_slice()).bind(term.facet.as_str()).bind(term.value.as_str()).fetch_one(&mut *conn).await?;
         if invalid {
             return Err(Error::Request(format!(
                 "no operation has {} = {:?} in this generation",
@@ -375,10 +339,10 @@ async fn classify(
     generation: &PinnedGeneration,
     filter: &Where,
 ) -> Result<Vec<sqlx::postgres::PgRow>, Error> {
-    let facets: Vec<_> = filter.facets.iter().map(|t| t.facet.clone()).collect();
-    let values: Vec<_> = filter.facets.iter().map(|t| t.value.clone()).collect();
+    let facets: Vec<_> = filter.facets.iter().map(|t| t.facet.as_str()).collect();
+    let values: Vec<_> = filter.facets.iter().map(|t| t.value.as_str()).collect();
     let rows=sqlx::query("WITH terms AS (SELECT * FROM unnest($4::text[],$5::text[]) AS t(facet,value)) SELECT o.node_id, NOT EXISTS(SELECT FROM terms t WHERE NOT EXISTS(SELECT FROM lctx_serving.operation_facets f WHERE f.generation_digest=$1 AND f.node_id=o.node_id AND f.facet=t.facet AND f.value=t.value AND f.verdict IN ('established','conditional'))) matched, NOT EXISTS(SELECT FROM terms t WHERE NOT EXISTS(SELECT FROM lctx_serving.operation_facets f WHERE f.generation_digest=$1 AND f.node_id=o.node_id AND f.facet=t.facet AND f.value=t.value) AND EXISTS(SELECT FROM lctx_serving.operation_facet_status s WHERE s.generation_digest=$1 AND s.node_id=o.node_id AND s.facet=t.facet AND s.verdict='established')) opened FROM lctx_serving.operations o WHERE o.generation_digest=$1 AND ($2::text IS NULL OR EXISTS(SELECT FROM lctx_serving.operation_facets k WHERE k.generation_digest=$1 AND k.node_id=o.node_id AND k.facet='kind' AND k.value=$2)) AND ($3::text IS NULL OR EXISTS(SELECT FROM lctx_serving.public_paths p WHERE p.generation_digest=$1 AND p.node_id=o.node_id AND left(p.access_path,length($3))=$3)) ORDER BY o.access_path COLLATE \"C\",o.node_id LIMIT 200001")
-        .bind(generation.id.0.as_slice()).bind(&filter.kind).bind(&filter.path_prefix).bind(facets).bind(values).fetch_all(conn).await?;
+        .bind(generation.id.0.as_slice()).bind(filter.kind.as_ref().map(|v|v.as_str())).bind(filter.path_prefix.as_ref().map(|v|v.as_str())).bind(facets).bind(values).fetch_all(conn).await?;
     if rows.len() > contract::MAX_RELATION_ROWS {
         return Err(refused("operation universe row budget").into());
     }

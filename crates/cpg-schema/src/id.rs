@@ -36,6 +36,22 @@ macro_rules! id_type {
             }
         }
 
+        impl Default for $name { fn default()->Self { Self::ZERO } }
+        impl serde::Serialize for $name {
+            fn serialize<S:serde::Serializer>(&self,s:S)->Result<S::Ok,S::Error>{s.serialize_str(&self.hex())}
+        }
+        impl<'de> serde::Deserialize<'de> for $name {
+            fn deserialize<D:serde::Deserializer<'de>>(d:D)->Result<Self,D::Error>{
+                let s=<String as serde::Deserialize>::deserialize(d)?;
+                Self::from_hex(&s).ok_or_else(||serde::de::Error::custom(concat!("invalid ",stringify!($name))))
+            }
+        }
+        impl schemars::JsonSchema for $name {
+            fn schema_name()->std::borrow::Cow<'static,str>{stringify!($name).into()}
+            fn json_schema(_: &mut schemars::SchemaGenerator)->schemars::Schema {
+                schemars::json_schema!({"type":"string","minLength":2*$len,"maxLength":2*$len,"pattern":"^[0-9a-fA-F]+$"})
+            }
+        }
         impl std::fmt::Debug for $name {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 write!(f, "{}({})", stringify!($name), self.hex())

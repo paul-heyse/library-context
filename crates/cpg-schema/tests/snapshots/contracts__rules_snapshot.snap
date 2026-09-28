@@ -66,6 +66,8 @@ key:function_implementations
   SELECT snapshot_id, function_node_id, count(*) AS n FROM function_implementations GROUP BY snapshot_id, function_node_id HAVING count(*) > 1
 key:record_fields
   SELECT snapshot_id, class_node_id, ordinal, fact_id, count(*) AS n FROM record_fields GROUP BY snapshot_id, class_node_id, ordinal, fact_id HAVING count(*) > 1
+key:record_field_syntax
+  SELECT snapshot_id, class_node_id, name, fact_id, count(*) AS n FROM record_field_syntax GROUP BY snapshot_id, class_node_id, name, fact_id HAVING count(*) > 1
 key:documents
   SELECT snapshot_id, node_id, fact_id, count(*) AS n FROM documents GROUP BY snapshot_id, node_id, fact_id HAVING count(*) > 1
 key:passages
@@ -176,6 +178,12 @@ key:catalog_type_args
   SELECT snapshot_id, parent_term_id, role, ordinal, count(*) AS n FROM catalog_type_args GROUP BY snapshot_id, parent_term_id, role, ordinal HAVING count(*) > 1
 key:catalog_type_observations
   SELECT snapshot_id, source_fact_id, count(*) AS n FROM catalog_type_observations GROUP BY snapshot_id, source_fact_id HAVING count(*) > 1
+key:catalog_surfaces
+  SELECT snapshot_id, declaration_node_id, ordinal, count(*) AS n FROM catalog_surfaces GROUP BY snapshot_id, declaration_node_id, ordinal HAVING count(*) > 1
+key:catalog_configurations
+  SELECT snapshot_id, field_id, source_fact_id, count(*) AS n FROM catalog_configurations GROUP BY snapshot_id, field_id, source_fact_id HAVING count(*) > 1
+key:catalog_field_links
+  SELECT snapshot_id, link_id, count(*) AS n FROM catalog_field_links GROUP BY snapshot_id, link_id HAVING count(*) > 1
 key:public_paths
   SELECT snapshot_id, node_id, access_path, count(*) AS n FROM public_paths GROUP BY snapshot_id, node_id, access_path HAVING count(*) > 1
 key:return_completion_certificates
@@ -401,7 +409,7 @@ catalog-code:catalog_parameters.provider_kind
 catalog-code:catalog_parameters.default_state
   SELECT "default_state" FROM catalog_parameters WHERE "default_state" NOT IN ('absent', 'literal_none', 'literal', 'source_expression', 'optional_expression_unavailable', 'unknown')
 catalog-code:catalog_evidence.role
-  SELECT "role" FROM catalog_evidence WHERE "role" NOT IN ('declares')
+  SELECT "role" FROM catalog_evidence WHERE "role" NOT IN ('declares', 'surface', 'configuration', 'reader')
 catalog-code:catalog_types.kind
   SELECT "kind" FROM catalog_types WHERE "kind" NOT IN ('class_instance', 'class_object', 'type_of', 'typed_dict', 'union', 'intersection', 'callable', 'overload', 'bound_method', 'generic', 'tuple', 'literal', 'type_var', 'param_spec', 'type_var_tuple', 'module', 'any', 'never', 'none', 'type_alias', 'self_type', 'annotated', 'unpack', 'type_guard', 'param_list', 'special_form', 'other', 'truncated')
 catalog-code:catalog_type_args.role
@@ -410,6 +418,22 @@ catalog-code:catalog_type_args.parameter_kind
   SELECT "parameter_kind" FROM catalog_type_args WHERE "parameter_kind" NOT IN ('positional_only', 'positional_or_keyword', 'var_positional', 'keyword_only', 'var_keyword')
 catalog-code:catalog_type_observations.role
   SELECT "role" FROM catalog_type_observations WHERE "role" NOT IN ('parameter', 'return', 'call_result', 'argument', 'raised')
+catalog-code:catalog_surfaces.binding_mode
+  SELECT "binding_mode" FROM catalog_surfaces WHERE "binding_mode" NOT IN ('class', 'static', 'property')
+catalog-code:catalog_surfaces.accessor_role
+  SELECT "accessor_role" FROM catalog_surfaces WHERE "accessor_role" NOT IN ('getter', 'setter', 'deleter', 'cached_getter')
+catalog-code:catalog_surfaces.protocol
+  SELECT "protocol" FROM catalog_surfaces WHERE "protocol" NOT IN ('context_manager', 'async_context_manager')
+catalog-code:catalog_surfaces.registration
+  SELECT "registration" FROM catalog_surfaces WHERE "registration" NOT IN ('tool', 'resource', 'prompt')
+catalog-code:catalog_surfaces.admission
+  SELECT "admission" FROM catalog_surfaces WHERE "admission" NOT IN ('body_preserved', 'withheld')
+catalog-code:catalog_configurations.record_kind
+  SELECT "record_kind" FROM catalog_configurations WHERE "record_kind" NOT IN ('dataclass', 'attrs', 'pydantic', 'typed_dict', 'named_tuple')
+catalog-code:catalog_configurations.default_state
+  SELECT "default_state" FROM catalog_configurations WHERE "default_state" NOT IN ('absent', 'literal_none', 'literal', 'source_expression', 'optional_expression_unavailable', 'unknown', 'factory_expression')
+catalog-code:catalog_field_links.kind
+  SELECT "kind" FROM catalog_field_links WHERE "kind" NOT IN ('declared_parameter', 'exact_storage', 'exact_reader')
 catalog-unselected:return_completion_certificates
   SELECT snapshot_id FROM return_completion_certificates WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
 catalog-unselected:model_context_protocols
@@ -606,6 +630,18 @@ ref:catalog_constructors.ancestry_fact_id->facts
   SELECT f.ancestry_fact_id AS value FROM catalog_constructors f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.ancestry_fact_id = r.k WHERE f.ancestry_fact_id IS NOT NULL
 ref:catalog_constructors.signature_id->catalog_signatures
   SELECT f.signature_id AS value FROM catalog_constructors f LEFT ANTI JOIN (SELECT signature_id AS k FROM catalog_signatures) r ON f.signature_id = r.k WHERE f.signature_id IS NOT NULL
+ref:catalog_surfaces.source_fact_id->facts
+  SELECT f.source_fact_id AS value FROM catalog_surfaces f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.source_fact_id = r.k WHERE f.source_fact_id IS NOT NULL
+ref:catalog_configurations.source_fact_id->facts
+  SELECT f.source_fact_id AS value FROM catalog_configurations f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.source_fact_id = r.k WHERE f.source_fact_id IS NOT NULL
+ref:catalog_configurations.syntax_fact_id->facts
+  SELECT f.syntax_fact_id AS value FROM catalog_configurations f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.syntax_fact_id = r.k WHERE f.syntax_fact_id IS NOT NULL
+ref:catalog_configurations.term_id->catalog_types
+  SELECT f.term_id AS value FROM catalog_configurations f LEFT ANTI JOIN (SELECT term_id AS k FROM catalog_types) r ON f.term_id = r.k WHERE f.term_id IS NOT NULL
+ref:catalog_field_links.source_fact_id->facts
+  SELECT f.source_fact_id AS value FROM catalog_field_links f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.source_fact_id = r.k WHERE f.source_fact_id IS NOT NULL
+ref:catalog_field_links.signature_id->catalog_signatures
+  SELECT f.signature_id AS value FROM catalog_field_links f LEFT ANTI JOIN (SELECT signature_id AS k FROM catalog_signatures) r ON f.signature_id = r.k WHERE f.signature_id IS NOT NULL
 ref:catalog_bindings.member_id->catalog_members
   SELECT f.member_id AS value FROM catalog_bindings f LEFT ANTI JOIN (SELECT member_id AS k FROM catalog_members) r ON f.member_id = r.k WHERE f.member_id IS NOT NULL
 ref:catalog_bindings.source_fact_id->facts
@@ -1804,6 +1840,10 @@ fact:record_fields
   SELECT t.fact_id FROM record_fields t LEFT ANTI JOIN facts f ON f.fact_id = t.fact_id AND f.table_name = 'record_fields'
 fact-payload:record_fields
   SELECT f.fact_id FROM facts f LEFT ANTI JOIN record_fields t ON t.fact_id = f.fact_id WHERE f.table_name = 'record_fields'
+fact:record_field_syntax
+  SELECT t.fact_id FROM record_field_syntax t LEFT ANTI JOIN facts f ON f.fact_id = t.fact_id AND f.table_name = 'record_field_syntax'
+fact-payload:record_field_syntax
+  SELECT f.fact_id FROM facts f LEFT ANTI JOIN record_field_syntax t ON t.fact_id = f.fact_id WHERE f.table_name = 'record_field_syntax'
 fact:documents
   SELECT t.fact_id FROM documents t LEFT ANTI JOIN facts f ON f.fact_id = t.fact_id AND f.table_name = 'documents'
 fact-payload:documents
@@ -1893,7 +1933,7 @@ fact:boundaries
 fact-payload:boundaries
   SELECT f.fact_id FROM facts f LEFT ANTI JOIN boundaries t ON t.fact_id = f.fact_id WHERE f.table_name = 'boundaries'
 fact:table-name
-  SELECT table_name FROM facts WHERE table_name NOT IN ('source_files', 'context_modules', 'context_definitions', 'context_parameters', 'context_class_mro', 'declarations', 'export_syntax', 'public_names', 'parameter_syntax', 'parameter_docs', 'pysa_functions', 'parameter_semantics', 'class_ancestry', 'pysa_classes', 'call_syntax', 'arguments', 'syntax_nodes', 'scopes', 'bindings', 'references', 'reference_resolutions', 'type_terms', 'type_term_args', 'type_observations', 'function_implementations', 'record_fields', 'documents', 'passages', 'code_blocks', 'doc_links', 'mentions', 'doc_components', 'doc_component_attributes', 'pysa_calls', 'flow_uses', 'flow_definitions', 'flow_reaching', 'flow_values', 'flow_value_calls', 'flow_regions', 'flow_tests', 'flow_test_leaves', 'flow_test_types', 'flow_attribute_loads', 'conditions', 'condition_nodes', 'condition_literals', 'boundaries')
+  SELECT table_name FROM facts WHERE table_name NOT IN ('source_files', 'context_modules', 'context_definitions', 'context_parameters', 'context_class_mro', 'declarations', 'export_syntax', 'public_names', 'parameter_syntax', 'parameter_docs', 'pysa_functions', 'parameter_semantics', 'class_ancestry', 'pysa_classes', 'call_syntax', 'arguments', 'syntax_nodes', 'scopes', 'bindings', 'references', 'reference_resolutions', 'type_terms', 'type_term_args', 'type_observations', 'function_implementations', 'record_fields', 'record_field_syntax', 'documents', 'passages', 'code_blocks', 'doc_links', 'mentions', 'doc_components', 'doc_component_attributes', 'pysa_calls', 'flow_uses', 'flow_definitions', 'flow_reaching', 'flow_values', 'flow_value_calls', 'flow_regions', 'flow_tests', 'flow_test_leaves', 'flow_test_types', 'flow_attribute_loads', 'conditions', 'condition_nodes', 'condition_literals', 'boundaries')
 codebook:facts.origin
   SELECT origin FROM facts WHERE origin IS NOT NULL AND origin NOT IN (0, 1, 2, 3, 4)
 codebook:facts.extraction_mode
@@ -3158,6 +3198,10 @@ ref:type_observations.subject_node_id->nodes
   SELECT f.subject_node_id AS value FROM type_observations f LEFT ANTI JOIN (SELECT node_id FROM nodes WHERE node_kind IN (3, 2, 4, 5, 10)) r ON f.subject_node_id = r.node_id WHERE f.subject_node_id IS NOT NULL
 ref:type_observations.term_node_id->nodes
   SELECT f.term_node_id AS value FROM type_observations f LEFT ANTI JOIN (SELECT node_id FROM nodes WHERE node_kind IN (14)) r ON f.term_node_id = r.node_id WHERE f.term_node_id IS NOT NULL
+ref:record_field_syntax.class_node_id->nodes
+  SELECT f.class_node_id AS value FROM record_field_syntax f LEFT ANTI JOIN (SELECT node_id FROM nodes WHERE node_kind IN (1)) r ON f.class_node_id = r.node_id WHERE f.class_node_id IS NOT NULL
+ref:record_field_syntax.module_node_id->nodes
+  SELECT f.module_node_id AS value FROM record_field_syntax f LEFT ANTI JOIN (SELECT node_id FROM nodes WHERE node_kind IN (0)) r ON f.module_node_id = r.node_id WHERE f.module_node_id IS NOT NULL
 ref:record_fields.class_node_id->nodes
   SELECT f.class_node_id AS value FROM record_fields f LEFT ANTI JOIN (SELECT node_id FROM nodes WHERE node_kind IN (1)) r ON f.class_node_id = r.node_id WHERE f.class_node_id IS NOT NULL
 ref:record_fields.module_node_id->nodes

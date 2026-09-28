@@ -1088,8 +1088,8 @@ pub async fn run(
         row.value = p.reason.clone();
         claim(&mut stage2, row, &ModelCondition::always(), *op);
     }
-    // A parameter stored to its receiver's field, then read by any method of a relative: the
-    // value's fate there, stated under the read's own condition (in that method's places).
+    // Preserve a bounded field association only for the shared catalog's exact formal,
+    // receiver field and reader. This is not a temporal value-identity proof across methods.
     let mut field_origins: BTreeMap<(Id, String), Vec<&cpg_schema::behavior::ValueFlowsRow>> =
         BTreeMap::new();
     for v in &flow.value_flows {
@@ -1127,21 +1127,43 @@ pub async fn run(
         if field.contains('.') || field.contains('[') {
             continue;
         }
-        let family: BTreeSet<Id> = std::iter::once(*class)
-            .chain(flow.relatives.get(class).into_iter().flatten().copied())
+        let fields: BTreeSet<_> = catalog
+            .configurations
+            .iter()
+            .filter(|f| f.class_node_id == *class && f.name == field)
+            .map(|f| f.field_id)
             .collect();
-        for c in &family {
+        let readers: BTreeSet<_> = catalog
+            .field_links
+            .iter()
+            .filter(|l| {
+                fields.contains(&l.field_id)
+                    && l.kind == "exact_reader"
+                    && l.formal_node_id == store.parameter_node_id
+                    && l.formal_node_id.is_some()
+            })
+            .filter_map(|l| l.reader_node_id)
+            .collect();
+        if readers.is_empty() {
+            continue;
+        }
+        for c in [class] {
             for v in field_origins
                 .get(&(*c, field.to_owned()))
                 .into_iter()
                 .flatten()
             {
+                if !readers.contains(&v.function_node_id) {
+                    continue;
+                }
                 let via = flow
                     .qualified
                     .get(&v.function_node_id)
                     .cloned()
                     .unwrap_or_default();
                 let mut row = store.clone();
+                row.verdict = Verdict::Unknown;
+                row.boundary_reason = Some(BoundaryReason::ScopeBoundary);
                 row.transfer = Some(FlowTransfer::of(v.identity, v.through_call));
                 row.depth = 2;
                 row.site_node_id = None;
@@ -1192,7 +1214,7 @@ pub async fn run(
                     FlowSink::Raise => row.kind = BehaviorKind::RaisesWhen,
                 }
                 row.value = Some(format!(
-                    "via {place} in {via}{}:{}",
+                    "field association only; intervening mutation unproved: {place} in {via}{}:{}",
                     row.callee_text
                         .as_deref()
                         .map(|t| format!(", into {t}"))

@@ -1417,6 +1417,12 @@ async fn briefs_are_synthesized_from_findings_and_verbatim_evidence() {
             20,
             "1d2879178a1913822fbad7abbc5d1c5271d50613a97d47eda62f20c48b4bb9e0",
         ),
+        // Shared surface admission and bounded construction wording (ADR-0074).
+        (
+            109,
+            21,
+            "6a836b23d3b23a0ed6d92e198669dd2a7ec41da4872b8684f59aa5e6fee45ccd",
+        ),
     ];
     // Texts, and every identity column of Stage F's tables (slice 1.5 review F6).
     let mut output = format!(

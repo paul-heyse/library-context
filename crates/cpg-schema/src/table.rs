@@ -20,6 +20,8 @@ pub const FAMILY_KEY: &str = "lctx.family";
 pub trait Table {
     /// The Delta table name.
     const NAME: &'static str;
+    /// Exact direct-table scan dependency; distinct from a derived relation's inputs.
+    const DEPS: &'static [&'static str] = &[Self::NAME];
     const FAMILY: FactFamily;
     type Row;
     fn schema() -> SchemaRef;
@@ -147,6 +149,7 @@ macro_rules! table {
     (
         $(#[$meta:meta])*
         $table:ident, $row:ident = $name:literal,
+        $(row_derives = [$($rowderive:path),* $(,)?],)?
         family = $family:ident,
         key = [$($key:ident),+ $(,)?],
         checks = [$(($cname:literal, $cexpr:literal)),* $(,)?],
@@ -154,6 +157,7 @@ macro_rules! table {
     ) => {
         #[doc = concat!("A row of `", $name, "`.")]
         #[derive(Debug, Clone, PartialEq)]
+        $(#[derive($($rowderive),*)])?
         pub struct $row { $($(#[$fmeta])* pub $field: $ty),+ }
 
         impl $row {

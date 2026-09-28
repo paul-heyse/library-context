@@ -12,32 +12,8 @@ Nothing here decides semantics: every fate, facet and verdict was computed at co
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from lctx_mcp.wire import Contract
 
-from pydantic import BaseModel, Field
-
-from lctx_mcp.retrieval import RetrievalMetadata
-
-# The facet names, as the `operation_facet` codebook spells them: `specs/serving/facets.json`
-# holds them for both languages (`test_the_facet_names_are_the_codebook's`).
-FacetName = Literal[
-    "parameter",
-    "parameter_type",
-    "returns",
-    "raises",
-    "decorator",
-    "async",
-    "delegates_to",
-    "forwards_to",
-    "hands_off_to",
-    "takes_from",
-    "module",
-    "kind",
-    "reads_setting",
-]
-UNKNOWN_CAP = 50
-# Rows whose verdict lets them match; an `unknown` row puts its operation in `unknown` instead.
-MATCHING = frozenset({"established", "conditional"})
 NOTE_FIND = (
     "Exhaustive over the materialized facets of this generation. `complete` is true only when "
     "every operation that does not match has complete rows for every facet asked "
@@ -56,314 +32,73 @@ class OperationError(ValueError):
     """An invalid request (an unknown operation, snapshot, facet value or cursor)."""
 
 
-class FacetTerm(BaseModel):
-    """One term of a conjunction: an operation has this facet with exactly this value."""
-
-    facet: FacetName
-    value: Annotated[str, Field(min_length=1, max_length=500)]
+FacetTerm = Contract("FacetTerm")
 
 
-class Where(BaseModel):
-    """A conjunction of terms; no negation (Stage 1 makes no negative claims)."""
-
-    facets: list[FacetTerm] = Field(default_factory=list, max_length=10)
-    kind: Literal["function", "method", "class"] | None = None
-    path_prefix: Annotated[str, Field(max_length=500)] | None = None
+Where = Contract("Where")
 
 
-class Discharge(BaseModel):
-    """One member origin of a call-transfer claim (ADR-0064): the finite summary that proves
-    it, or why it stays open. A claim is established or conditional only when every member is
-    proved; an open member is never a negative conclusion."""
-
-    origin_id: str
-    proof_kind: str
-    decision: Literal["proved", "open"]
-    summary_id: str | None
-    reason: str | None
+Discharge = Contract("Discharge")
 
 
-class Fate(BaseModel):
-    """What one behavior row states, with its verdict and where it is shown."""
-
-    kind: str
-    transfer: Literal["identity", "derived", "call"] | None
-    condition_scope_id: str
-    parameter: str | None
-    callee: str | None
-    target: str | None
-    value: str | None
-    depth: int
-    conditional: bool
-    verdict: str
-    # Why the verdict is `unknown`: `override_dispatch`, `ambiguous_binding`,
-    # `outside_provider_model`, `dynamic_access`; none when established or conditional.
-    boundary_reason: str | None
-    # The condition in condition_scope_id's places (none: always).
-    condition: str | None
-    # A callee outside the release, as written.
-    callee_text: str | None
-    # When a setting is read: `import`, `construction`, `snapshot` or `per_call`.
-    phase: str | None
-    # The premise a negative claim rests on (`place_claims` / `negative_premises`).
-    premise_key: str | None
-    occurrences: int
-    path: str | None
-    line: int | None
-    site_text: str | None
-    # A call-transfer claim's discharge evidence, one entry per member origin (ADR-0064).
-    discharges: list[Discharge] = []
+Fate = Contract("Fate")
 
 
-class ParameterRecord(BaseModel):
-    """A parameter's fates. With none, it is "never read" only if an `is_read` fate says
-    `refuted_under_model`; otherwise its other channels are not analyzed."""
-
-    name: str
-    fates: list[Fate]
-    note: str | None
+ParameterRecord = Contract("ParameterRecord")
 
 
-class SettingRead(BaseModel):
-    """One read of a singleton's field, at its resolved key."""
-
-    reader: str | None
-    phase: str
-    path: str | None
-    line: int
-    spelled: str
-    condition: str | None
+SettingRead = Contract("SettingRead")
 
 
-class FieldRecord(BaseModel):
-    """A singleton's field: where it is read, and whether "never read" is refuted."""
-
-    name: str
-    reads: list[SettingRead]
-    # The claim "never read" (none: the field is read, or no claim is made about it).
-    never_read: str | None
+FieldRecord = Contract("FieldRecord")
 
 
-class FacetValue(BaseModel):
-    """A materialized facet value and its own verdict, independent of facet completeness."""
-
-    value: str
-    verdict: str
+FacetValue = Contract("FacetValue")
 
 
-class CatalogMember(BaseModel):
-    member_id: str
-    brief_status: str
-    brief_reason: str | None
-    access_path: str
-    owner_path: str
-    operation_node_id: str | None
-    kind: str
-    resolution: str
+CatalogMember = Contract("CatalogMember")
 
 
-class CatalogBinding(BaseModel):
-    member_id: str
-    binding_id: str
-    declaration_node_id: str | None
-    source_fact_id: str
-    role: str
-    own: bool
-    defining_path: str | None
+CatalogBinding = Contract("CatalogBinding")
 
 
-class CatalogParameter(BaseModel):
-    signature_id: str
-    ordinal: int
-    formal_node_id: str | None
-    name: str | None
-    kind: str | None
-    required: bool | None
-    syntax_fact_id: str | None
-    semantics_fact_id: str | None
-    provider_name: str | None
-    provider_kind: str | None
-    annotation_text: str | None
-    provider_annotation: str | None
-    default_state: str
-    default_text: str | None
-    literal_json: str | None
-    documentation: str | None
-    reason: str | None
+CatalogParameter = Contract("CatalogParameter")
 
 
-class CatalogSignature(BaseModel):
-    signature_id: str
-    callable_node_id: str
-    declaration_node_id: str | None
-    constructor_class_id: str | None
-    module_node_id: str
-    function_key: str | None
-    signature_index: int | None
-    role: str
-    form: str
-    source_fact_id: str
-    reason: str | None
-    return_annotation: str | None
-    docstring: str | None
-    parameters: list[CatalogParameter]
+CatalogSignature = Contract("CatalogSignature")
 
 
-class CatalogEvidence(BaseModel):
-    evidence_id: str
-    subject_node_id: str
-    source_fact_id: str
-    source_digest: str
-    path: str
-    start_byte: int
-    end_byte: int
-    role: str
-    text: str
+CatalogEvidence = Contract("CatalogEvidence")
 
 
-class CatalogType(BaseModel):
-    term_id: str
-    source_fact_id: str
-    kind: str
-    display: str
-    detail: str | None
-    class_module: str | None
-    class_key: str | None
-    variable: str | None
+CatalogType = Contract("CatalogType")
 
 
-class CatalogTypeArgument(BaseModel):
-    parent_term_id: str
-    role: str
-    ordinal: int
-    child_term_id: str
-    source_fact_id: str
-    name: str | None
-    parameter_kind: str | None
-    required: bool | None
+CatalogTypeArgument = Contract("CatalogTypeArgument")
 
 
-class CatalogTypeObservation(BaseModel):
-    source_fact_id: str
-    subject_node_id: str
-    role: str
-    declared: bool
-    term_id: str
+CatalogTypeObservation = Contract("CatalogTypeObservation")
 
 
-class CatalogConstructor(BaseModel):
-    class_node_id: str
-    signature_id: str
-    own: bool
-    ancestry_fact_id: str | None
+CatalogConstructor = Contract("CatalogConstructor")
 
 
-class CatalogRecord(BaseModel):
-    member: CatalogMember
-    constructors: list[CatalogConstructor]
-    bindings: list[CatalogBinding]
-    signatures: list[CatalogSignature]
-    evidence: list[CatalogEvidence]
-    type_observations: list[CatalogTypeObservation]
-    types: list[CatalogType]
-    type_arguments: list[CatalogTypeArgument]
-    effective_surface: str
-    basis: str
+CatalogRecord = Contract("CatalogRecord")
 
 
-class AmbiguousOperation(BaseModel):
-    snapshot_id: str
-    generation: str
-    resolution: Literal["ambiguous"]
-    requested: str
-    choices: list[CatalogMember]
+AmbiguousOperation = Contract("AmbiguousOperation")
 
 
-class Operation(BaseModel):
-    """One public operation, whole."""
-
-    snapshot_id: str
-    generation: str
-    operation_id: str | None
-    member_id: str | None = None
-    resolution: str | None = None
-    capabilities: dict[str, bool] = Field(default_factory=dict)
-    catalog: CatalogRecord | None = None
-    access_path: str
-    own_paths: list[str]
-    inherited_paths: list[str]
-    kind: str
-    is_method: bool | None
-    qualified_name: str
-    module: str
-    docstring_summary: str | None
-    behavior_status: str
-    boundary_reason: str | None
-    status_reason: str | None
-    capability_id: str | None
-    facets: dict[str, list[FacetValue]]
-    # The facets whose rows are not complete for this operation, with why.
-    incomplete_facets: dict[str, str]
-    parameters: list[ParameterRecord]
-    unbound_parameter_fates: list[Fate] = Field(default_factory=list)
-    delegates: list[Fate]
-    handoffs: list[Fate]
-    # Settings the operation reads in its own body (Stage 2), each with its phase and condition.
-    reads: list[Fate] = Field(default_factory=list)
-    # A class's controls are its constructor's: the `__init__` record, when one is public.
-    constructor: Operation | None = None
-    # A module-global singleton this class backs (`fastmcp.settings`), and its fields.
-    singleton_of: str | None = None
-    fields: list[FieldRecord] = Field(default_factory=list)
+Operation = Contract("Operation")
 
 
-class OperationRef(BaseModel):
-    """An operation as a list shows it."""
-
-    operation_id: str
-    access_path: str
-    kind: str
-    docstring_summary: str | None
-    behavior_status: str
+OperationRef = Contract("OperationRef")
 
 
-class OperationSet(BaseModel):
-    """`find_operations`' answer."""
-
-    snapshot_id: str
-    generation: str
-    matches: list[OperationRef]
-    total: int
-    complete: bool
-    unknown: list[OperationRef]
-    unknown_total: int
-    unknown_truncated: bool
-    truncated: bool
-    next_cursor: str | None
-    note: str
+OperationSet = Contract("OperationSet")
 
 
-class OperationHit(BaseModel):
-    """One ranked operation."""
-
-    operation_id: str
-    access_path: str
-    kind: str
-    docstring_summary: str | None
-    relevance: float
-    rank_source: str
-    promoted: bool
+OperationHit = Contract("OperationHit")
 
 
-class OperationHits(BaseModel):
-    retrieval: RetrievalMetadata
-
-    """`search_operations`' answer."""
-
-    snapshot_id: str
-    generation: str
-    mode: Literal["hybrid", "lexical-only"]
-    degraded_reason: str | None
-    ranked_discovery: bool
-    hits: list[OperationHit]
-    note: str
+OperationHits = Contract("OperationHits")

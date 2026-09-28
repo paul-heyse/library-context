@@ -61,6 +61,36 @@ pub const REFERENCES: &[Reference] = &[
         &[("catalog_signatures", "signature_id")],
     ),
     r(
+        "catalog_surfaces",
+        "source_fact_id",
+        &[("facts", "fact_id")],
+    ),
+    r(
+        "catalog_configurations",
+        "source_fact_id",
+        &[("facts", "fact_id")],
+    ),
+    r(
+        "catalog_configurations",
+        "syntax_fact_id",
+        &[("facts", "fact_id")],
+    ),
+    r(
+        "catalog_configurations",
+        "term_id",
+        &[("catalog_types", "term_id")],
+    ),
+    r(
+        "catalog_field_links",
+        "source_fact_id",
+        &[("facts", "fact_id")],
+    ),
+    r(
+        "catalog_field_links",
+        "signature_id",
+        &[("catalog_signatures", "signature_id")],
+    ),
+    r(
         "catalog_bindings",
         "member_id",
         &[("catalog_members", "member_id")],

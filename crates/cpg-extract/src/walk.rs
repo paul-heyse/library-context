@@ -11,7 +11,7 @@ use cpg_schema::id::{Id, IdHasher, kind};
 use cpg_schema::tables::{
     Arguments, ArgumentsRow, CallSyntax, CallSyntaxRow, Declarations, DeclarationsRow,
     ExportSyntax, ExportSyntaxRow, ParameterDocs, ParameterDocsRow, ParameterSyntax,
-    ParameterSyntaxRow, SyntaxNodes, SyntaxNodesRow,
+    ParameterSyntaxRow, RecordFieldSyntax, RecordFieldSyntaxRow, SyntaxNodes, SyntaxNodesRow,
 };
 use pyrefly_python::module_name::ModuleName;
 use ruff_python_ast::name::Name;
@@ -46,6 +46,7 @@ pub(crate) struct ModuleCtx<'s> {
 #[derive(Default)]
 pub(crate) struct WalkOut {
     pub declarations: Vec<DeclarationsRow>,
+    pub record_field_syntax: Vec<RecordFieldSyntaxRow>,
     pub export_syntax: Vec<ExportSyntaxRow>,
     pub parameter_syntax: Vec<ParameterSyntaxRow>,
     pub parameter_docs: Vec<ParameterDocsRow>,
@@ -651,14 +652,50 @@ impl Walker<'_, '_> {
             .iter()
             .map(|d| trailing_name(&d.expression))
             .collect();
-        self.declaration(
+        let class_node_id = self.declaration(
             &c.name,
             DeclarationKind::Class,
             c.range(),
             c.name.range(),
             &c.body,
             decorators,
-        )
+        );
+        for statement in &c.body {
+            let (target, annotation, value) = match statement {
+                Stmt::AnnAssign(a) => (
+                    a.target.as_ref(),
+                    Some(a.annotation.as_ref()),
+                    a.value.as_deref(),
+                ),
+                Stmt::Assign(a) if a.targets.len() == 1 => {
+                    (&a.targets[0], None, Some(a.value.as_ref()))
+                }
+                _ => continue,
+            };
+            let Expr::Name(name) = target else { continue };
+            let (start_byte, end_byte) = span(statement.range());
+            let row = fact_row!(
+                self.sink,
+                RecordFieldSyntax,
+                ruff(),
+                RecordFieldSyntaxRow {
+                    snapshot_id: Id::ZERO,
+                    fact_id: Id::ZERO,
+                    field_node_id: cpg_schema::id::recipe::field(class_node_id, name.id.as_str()),
+                    class_node_id,
+                    module_node_id: self.ctx.module_node_id,
+                    name: name.id.to_string(),
+                    start_byte,
+                    end_byte,
+                    annotation_text: annotation.map(|a| self.text(a.range())),
+                    value_text: value.map(|v| self.text(v.range())),
+                    value_start_byte: value.map(|v| span(v.range()).0),
+                    value_end_byte: value.map(|v| span(v.range()).1),
+                }
+            );
+            self.out.record_field_syntax.push(row);
+        }
+        class_node_id
     }
 
     fn call(&mut self, c: &ExprCall) -> Id {

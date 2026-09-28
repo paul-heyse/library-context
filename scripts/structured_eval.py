@@ -34,13 +34,14 @@ from lctx_mcp import operations as ops
 from lctx_mcp import value_paths
 from lctx_mcp.generation import Generation
 from lctx_mcp.server import Capability, Served, search
+from lctx_mcp.wire import Packet
 from postgres_session import DEFAULT_CONFIG, session
 
 WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 SOURCE = re.compile(r"^(?P<path>[^:]+):(?P<start>\d+)(?:-(?P<end>\d+))?$")
 
 
-def _fate_line(f: ops.Fate) -> str:
+def _fate_line(f: Packet) -> str:
     where = f"{f.path}:{f.line}" if f.path else "?"
     parts = [f"`{f.kind}`"]
     if f.callee:
@@ -78,7 +79,7 @@ async def _operation(gen: Generation, spelling: str) -> list[str]:
     return await _render(gen, op, spelling)
 
 
-async def _render(gen: Generation, op: ops.Operation, spelling: str | None = None) -> list[str]:
+async def _render(gen: Generation, op: Packet, spelling: str | None = None) -> list[str]:
     spelling = spelling or op.access_path
     out = [
         f"- **`{spelling}`** → `{op.access_path}` ({op.kind}), status **{op.behavior_status}**"
@@ -131,7 +132,7 @@ async def _render(gen: Generation, op: ops.Operation, spelling: str | None = Non
     return out
 
 
-def _served_lines(op: ops.Operation) -> set[tuple[str, int]]:
+def _served_lines(op: Packet) -> set[tuple[str, int]]:
     """Every (path, line) a served record of this operation cites."""
     fates = [f for p in op.parameters for f in p.fates] + op.delegates + op.handoffs + op.reads
     lines = {(f.path, f.line) for f in fates if f.path and f.line}

@@ -61,3 +61,5 @@ pub mod serving_projection;
 pub mod serving_support;
 
 pub mod postgres_report;
+
+pub mod wire;

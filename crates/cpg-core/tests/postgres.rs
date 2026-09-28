@@ -525,8 +525,8 @@ budget = 6
     let report = cpg_core::postgres_read::report(&role, &store, id, source.generation())
         .await
         .unwrap();
-    // Projection3 adds nine catalog relations to the operational report.
-    assert_eq!(report.json["rows"].as_array().unwrap().len(), 60);
+    // Projection4 adds three specificity relations to the existing operational report.
+    assert_eq!(report.json["rows"].as_array().unwrap().len(), 63);
     assert_eq!(
         report.json["diagnostics"]["captured_profiles"]
             .as_array()

@@ -7,13 +7,12 @@ from dataclasses import dataclass
 import numpy as np
 import pyarrow as pa
 import pyarrow.ipc as ipc
-from lctx_semantics import SemanticExecutor, native_files
+from lctx_semantics import SemanticExecutor, native_files, wire_versions
 from lctx_storage import PinnedRepository
 
 from lctx_mcp.embedder import Spec
 
-FORMAT = 13
-KERNEL_FORMAT = 1
+_, _, FORMAT, KERNEL_FORMAT = wire_versions()
 _CONDITION_FILES, _SURFACE_FILES, _SUMMARY_FILES, _LIMITS = native_files()
 NATIVE_IPC_FILES = (
     frozenset(_CONDITION_FILES) | frozenset(_SURFACE_FILES) | frozenset(_SUMMARY_FILES)

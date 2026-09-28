@@ -155,3 +155,16 @@ Psycopg/SQLAlchemy, native ADBC and pgrx remain uninstalled. SeaQuery is a trans
 implementation dependency, not an application query owner. PG15 admits the two declared report views, a closed expression policy and generation-qualified key joins; unsupported expressions remain local. Conditional triggers remain in the [PostgreSQL plan](plans/postgresql-integration-plan_2026-09-27.md#7-later-capabilities-and-adoption-triggers).
 Operation/configuration: [PostgreSQL runbook](postgresql.md). Focused and integrated results:
 [PG8–PG11 evidence](design_review/evidence/2026-09-27_postgresql-expansion/implementation.md).
+
+### Catalog wire contracts (ADR-0073), 2026-09-28
+
+Schemars **1.2.2**, direct `std`/`derive`, and Rust jsonschema **0.58.2**, dev-only with
+`default-features=false`, were source-verified from the registry `Cargo.toml` (Schemars local
+registry; jsonschema exact crate archive). Context7 supplied API routes; source supplied pins.
+Offline validation uses explicit draft2020-12 and annotation-only formats. Family pins are
+unchanged. Focused schema/native controls passed; complete qualification is recorded by forward-plan PR2.
+
+| Dependency | Direct pin/features | Verified | Source and scope |
+|---|---|---|---|
+| schemars | =1.2.2; std, derive; default-features=false | 2026-09-28 | Registry Cargo.toml and generated input/output schema controls; PR2 wire and existing format owners |
+| jsonschema | =0.58.2; dev-only, default-features=false | 2026-09-28 | Registry Cargo.toml; offline conformance for shared fixtures and existing DTOs |

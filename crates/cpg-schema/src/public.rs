@@ -35,30 +35,11 @@ pub const PATH_KINDS: &[DeclarationKind] = &[
     DeclarationKind::Class,
 ];
 
-fn public_paths_sql() -> String {
-    let dunders = DUNDER_MEMBERS
-        .iter()
-        .map(|d| format!("'{d}'"))
-        .collect::<Vec<_>>()
-        .join(", ");
+/// The common MRO/shadowing policy. `classes` supplies candidate class identities; consumers
+/// either retain every source observation or select `pick = 1` for the preferred public path.
+fn member_ctes() -> String {
     format!(
-        "WITH exported AS ( \
-           SELECT access_path, node_id, export_node_id, snapshot_id FROM ( \
-             SELECT e.access_path, e.declaration_node_id AS node_id, e.export_node_id, \
-                    e.snapshot_id, row_number() OVER (PARTITION BY e.access_path \
-                      ORDER BY s.is_stub, e.declaration_node_id, e.export_node_id) AS pick \
-             FROM exports e JOIN declarations d ON d.node_id = e.declaration_node_id \
-             JOIN source_files s ON s.module_node_id = d.module_node_id \
-             WHERE strpos(e.access_path, '._') = 0 AND NOT starts_with(e.access_path, '_')) \
-           WHERE pick = 1), \
-         direct AS ( \
-           SELECT x.snapshot_id, x.node_id, x.access_path, x.export_node_id, d.kind, true AS own \
-           FROM exported x JOIN declarations d ON d.node_id = x.node_id \
-           WHERE d.kind IN ({kinds})), \
-         classes AS ( \
-           SELECT x.snapshot_id, x.node_id AS class_node_id, x.access_path, x.export_node_id \
-           FROM exported x JOIN declarations c ON c.node_id = x.node_id AND c.kind = {class}), \
-         chain AS ( \
+        "         chain AS ( \
            SELECT class_node_id, class_node_id AS entry, -1 AS ordinal FROM classes \
            UNION ALL \
            SELECT c.class_node_id, t.ancestor_node_id, a.ordinal FROM classes c \
@@ -86,18 +67,53 @@ fn public_paths_sql() -> String {
            SELECT class_node_id, name, min(ordinal) AS ordinal FROM defs \
            GROUP BY class_node_id, name), \
          members AS ( \
-           SELECT d.class_node_id, d.node_id, d.name, d.kind, d.ordinal FROM defs d \
+           SELECT d.class_node_id, d.node_id, d.name, d.kind, d.ordinal, d.pick FROM defs d \
            JOIN nearest n ON n.class_node_id = d.class_node_id AND n.name = d.name \
              AND n.ordinal = d.ordinal \
            LEFT JOIN blocked k ON k.class_node_id = d.class_node_id \
            LEFT ANTI JOIN rebound r ON r.class_node_id = d.class_node_id \
              AND r.name = d.name AND r.ordinal <= d.ordinal \
-           WHERE d.pick = 1 AND (k.ordinal IS NULL OR d.ordinal < k.ordinal)), \
+           WHERE (k.ordinal IS NULL OR d.ordinal < k.ordinal))",
+        class = DeclarationKind::Class.code(),
+        mro = AncestryRelation::Mro.code(),
+        class_scope = LexicalScopeKind::Class.code(),
+        definitions = codes(&[
+            BindingKind::FunctionDef,
+            BindingKind::ClassDef,
+            BindingKind::AnnotationOnly
+        ]),
+    )
+}
+
+fn public_paths_sql() -> String {
+    let dunders = DUNDER_MEMBERS
+        .iter()
+        .map(|d| format!("'{d}'"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "WITH exported AS ( \
+           SELECT access_path, node_id, export_node_id, snapshot_id FROM ( \
+             SELECT e.access_path, e.declaration_node_id AS node_id, e.export_node_id, \
+                    e.snapshot_id, row_number() OVER (PARTITION BY e.access_path \
+                      ORDER BY s.is_stub, e.declaration_node_id, e.export_node_id) AS pick \
+             FROM exports e JOIN declarations d ON d.node_id = e.declaration_node_id \
+             JOIN source_files s ON s.module_node_id = d.module_node_id \
+             WHERE strpos(e.access_path, '._') = 0 AND NOT starts_with(e.access_path, '_')) \
+           WHERE pick = 1), \
+         direct AS ( \
+           SELECT x.snapshot_id, x.node_id, x.access_path, x.export_node_id, d.kind, true AS own \
+           FROM exported x JOIN declarations d ON d.node_id = x.node_id \
+           WHERE d.kind IN ({kinds})), \
+         classes AS ( \
+           SELECT x.snapshot_id, x.node_id AS class_node_id, x.access_path, x.export_node_id \
+           FROM exported x JOIN declarations c ON c.node_id = x.node_id AND c.kind = {class}), \
+         {member_ctes}, \
          methods AS ( \
            SELECT c.snapshot_id, m.node_id, c.access_path || '.' || m.name AS access_path, \
                   c.export_node_id, m.kind, m.ordinal = -1 AS own \
            FROM members m JOIN classes c ON c.class_node_id = m.class_node_id \
-           WHERE m.kind IN ({kinds}) \
+           WHERE m.pick = 1 AND m.kind IN ({kinds}) \
              AND (NOT starts_with(m.name, '_') OR m.name IN ({dunders}))), \
          paths AS (SELECT * FROM direct UNION ALL SELECT * FROM methods), \
          ranked AS ( \
@@ -111,13 +127,7 @@ fn public_paths_sql() -> String {
          FROM ranked ORDER BY node_id, access_path",
         kinds = codes(PATH_KINDS),
         class = DeclarationKind::Class.code(),
-        mro = AncestryRelation::Mro.code(),
-        class_scope = LexicalScopeKind::Class.code(),
-        definitions = codes(&[
-            BindingKind::FunctionDef,
-            BindingKind::ClassDef,
-            BindingKind::AnnotationOnly
-        ]),
+        member_ctes = member_ctes(),
     )
 }
 
@@ -169,4 +179,14 @@ crate::relations! {
             r.fact_id AS declaration_fact_id, r.pick AS source_rank FROM public_names p LEFT JOIN ranked r \
             ON r.module_node_id = p.origin_module_node_id AND r.qualified_name = p.origin_path",
             crate::derived::KEYED, crate::derived::ranked_declarations_sql());
+}
+
+crate::query_row! { pub struct MemberObservationRow {
+    class_node_id:crate::Id, node_id:crate::Id, ordinal:i64
+} }
+crate::relations! {
+    inventory member_relations;
+    member_observations="catalog_member_observations",
+      deps=["declarations","ancestry_targets","class_ancestry","scopes","bindings","provider_node_map"],
+      sql=format!("WITH classes AS (SELECT DISTINCT node_id AS class_node_id FROM declarations WHERE kind={}), {} SELECT DISTINCT class_node_id,node_id,ordinal FROM members ORDER BY class_node_id,ordinal,node_id",DeclarationKind::Class.code(),member_ctes());
 }

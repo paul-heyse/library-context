@@ -231,10 +231,9 @@ def test_a_class_carries_its_constructor(generation: Path, pg_serving) -> None:
 def test_the_facet_names_are_the_codebook_s() -> None:
     """One authority for the facet vocabulary (increment 3's deep review, F4)."""
     import json
-    from typing import get_args
 
     spec = json.loads((Path(__file__).parents[3] / "specs/serving/facets.json").read_text())
-    assert list(get_args(ops.FacetName)) == spec["facets"]
+    assert ops.FacetTerm.model_json_schema()["$defs"]["FacetName"]["enum"] == spec["facets"]
 
 
 def test_a_class_without_a_public_constructor_could_match_any_parameter(

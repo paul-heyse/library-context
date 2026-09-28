@@ -8,6 +8,13 @@ use cpg_schema::{id::Id, serving_projection::corrupt};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
+fn packet<T: serde::de::DeserializeOwned + serde::Serialize>(value: Value) -> Result<Value, Error> {
+    let typed: T =
+        serde_json::from_value(value).map_err(|_| corrupt("hydrated packet contract"))?;
+    let value = serde_json::to_value(typed).map_err(|_| corrupt("packet encoding"))?;
+    check_response(&value)?;
+    Ok(value)
+}
 fn id(text: &str) -> Result<Vec<u8>, Error> {
     Ok(Id::from_hex(text)
         .ok_or_else(|| Error::Request("invalid entity identity".into()))?
@@ -118,6 +125,34 @@ async fn catalog_record(
     subjects.extend(ids(&parameters, "formal_node_id")?);
     subjects.sort();
     subjects.dedup();
+    let surfaces = budget
+        .fetch(
+            conn,
+            generation,
+            "catalog_surfaces",
+            Some("declaration_node_id"),
+            &subjects,
+        )
+        .await?;
+    let configurations = budget
+        .fetch(
+            conn,
+            generation,
+            "catalog_configurations",
+            Some("class_node_id"),
+            &subjects,
+        )
+        .await?;
+    let field_links = budget
+        .fetch(
+            conn,
+            generation,
+            "catalog_field_links",
+            Some("class_node_id"),
+            &subjects,
+        )
+        .await?;
+    subjects.extend(ids(&configurations, "field_id")?);
     let observations = budget
         .fetch(
             conn,
@@ -128,6 +163,7 @@ async fn catalog_record(
         )
         .await?;
     let mut term_ids = ids(&observations, "term_id")?;
+    term_ids.extend(ids(&configurations, "term_id")?);
     let mut visited = BTreeSet::new();
     let mut types = Vec::new();
     let mut type_args = Vec::new();
@@ -182,7 +218,7 @@ async fn catalog_record(
     }
     Ok(
         json!({"member":member,"bindings":bindings,"constructors":constructors,"signatures":signatures,"evidence":evidence,
-        "type_observations":observations,"types":types,"type_arguments":type_args,
+        "type_observations":observations,"types":types,"type_arguments":type_args,"surfaces":surfaces,"configurations":configurations,"field_links":field_links,
         "effective_surface":"unresolved","basis":"source and attributed provider observations"}),
     )
 }
@@ -223,7 +259,7 @@ impl ServingStore {
             let result = json!({"snapshot_id":snapshot,"generation":generation.generation(),
                 "resolution":"ambiguous","requested":operation,"choices":members});
             lease.complete();
-            return Ok(result);
+            return packet::<cpg_schema::wire::AmbiguousOperation>(result);
         }
         let member = members.first();
         let fallback_resolution = if member.is_none() {
@@ -290,7 +326,7 @@ impl ServingStore {
             result["capabilities"] = json!(generation.manifest.capabilities);
             check_response(&result)?;
             lease.complete();
-            return Ok(result);
+            return packet::<cpg_schema::wire::Operation>(result);
         }
         let selected_operation = singleton_class
             .as_deref()
@@ -609,7 +645,7 @@ impl ServingStore {
         }
         check_response(&result)?;
         lease.complete();
-        Ok(result)
+        packet::<cpg_schema::wire::Operation>(result)
     }
     pub async fn get_capability(
         &self,
@@ -859,7 +895,7 @@ impl ServingStore {
         let result = Value::Object(record);
         check_response(&result)?;
         lease.complete();
-        Ok(result)
+        packet::<cpg_schema::wire::Capability>(result)
     }
     pub async fn hit_records(
         &self,

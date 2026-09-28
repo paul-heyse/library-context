@@ -148,7 +148,7 @@ async def test_unknown_libraries_ids_and_snapshots_are_tool_errors(
             (
                 "get_capability",
                 {"snapshot_id": snapshot, "capability_id": "zz"},
-                "invalid entity identity",
+                "invalid CapabilityId",
             ),
             ("search_capabilities", {"library": LIBRARY, "query": ""}, None),
             ("search_capabilities", {"library": LIBRARY, "query": "x", "limit": 11}, None),

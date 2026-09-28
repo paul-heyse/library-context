@@ -76,6 +76,36 @@ pub async fn populate(
     out: &mut BehaviorRows,
     stages: &mut Stages,
 ) -> Result<(), CoreError> {
+    let facts = load_population(ctx, out).await?;
+    derive_population(facts, snapshot_id, contracts, out)?;
+    stages.mark("catalog: operations, facets and documents");
+    if let Some(embedder) = embedder {
+        let spec = embedder.spec();
+        let spec_hash = spec.hash();
+        let texts: Vec<String> = out.documents.iter().map(|d| d.text.clone()).collect();
+        embeddings
+            .texts(embedder, &texts, crate::embed::Usage::Operation)
+            .await?;
+        for d in &mut out.documents {
+            d.spec_hash = Some(spec_hash);
+            d.input_hash = Some(crate::embed::input_hash(&spec.document_text(&d.text)));
+        }
+        stages.mark("catalog: embed operation documents");
+    }
+    Ok(())
+}
+
+struct PopulationFacts {
+    sources: Vec<OperationSourceRow>,
+    parameters_of: BTreeMap<Id, Vec<lctx_analytics::pass_b::SeedParameter>>,
+    qualified: BTreeMap<Id, String>,
+    attributes: Vec<(Id, cpg_schema::concept_attributes::ConceptAttributesRow)>,
+    texts: BTreeMap<Id, String>,
+}
+async fn load_population(
+    ctx: &SessionContext,
+    out: &BehaviorRows,
+) -> Result<PopulationFacts, CoreError> {
     let sources: Vec<OperationSourceRow> =
         sql::fetch(ctx, &b::operation_sources(), sql::Params::new()).await?;
     let callables: Vec<_> = sources
@@ -84,6 +114,52 @@ pub async fn populate(
         .map(|s| s.node_id)
         .collect();
     let parameters_of = crate::analyze::seed_parameters(ctx, &callables).await?;
+    let partners: BTreeSet<_> = out
+        .behaviors
+        .iter()
+        .filter_map(|r| r.callee_node_id)
+        .collect();
+    let qualified: BTreeMap<_, _> = sql::fetch::<QualifiedRow>(
+        ctx,
+        &qualified_names(),
+        sql::Params::new().ids("ids", partners.iter().copied()),
+    )
+    .await?
+    .into_iter()
+    .map(|r| (r.node_id, r.qualified_name))
+    .collect();
+    let attributes = crate::analyze::collect_attributes(ctx, &callables).await?;
+    let modules: BTreeSet<Id> = sources.iter().map(|s| s.module_node_id).collect();
+    let texts: BTreeMap<Id, String> = sql::fetch::<TextRow>(
+        ctx,
+        &module_texts(),
+        sql::Params::new().ids("ids", modules.iter().copied()),
+    )
+    .await?
+    .into_iter()
+    .filter_map(|r| r.text.map(|t| (r.module_node_id, t)))
+    .collect();
+    Ok(PopulationFacts {
+        sources,
+        parameters_of,
+        qualified,
+        attributes,
+        texts,
+    })
+}
+fn derive_population(
+    facts: PopulationFacts,
+    snapshot_id: Id,
+    contracts: &Contracts,
+    out: &mut BehaviorRows,
+) -> Result<(), CoreError> {
+    let PopulationFacts {
+        sources,
+        parameters_of,
+        qualified,
+        attributes,
+        texts,
+    } = facts;
     if out.operations.is_empty() {
         out.operations = sources
             .iter()
@@ -102,20 +178,6 @@ pub async fn populate(
             })
             .collect();
     }
-    let partners: BTreeSet<_> = out
-        .behaviors
-        .iter()
-        .filter_map(|r| r.callee_node_id)
-        .collect();
-    let qualified: BTreeMap<_, _> = sql::fetch::<QualifiedRow>(
-        ctx,
-        &qualified_names(),
-        sql::Params::new().ids("ids", partners.iter().copied()),
-    )
-    .await?
-    .into_iter()
-    .map(|r| (r.node_id, r.qualified_name))
-    .collect();
     let paths: BTreeMap<_, _> = sources
         .iter()
         .map(|s| (s.node_id, s.access_path.clone()))
@@ -164,7 +226,6 @@ pub async fn populate(
             }
         }
     }
-    let attributes = crate::analyze::collect_attributes(ctx, &callables).await?;
     let mut declared: BTreeMap<Id, Vec<(OperationFacet, String)>> = BTreeMap::new();
     for (node, attribute) in attributes {
         let (facet, value) = attribute
@@ -360,19 +421,8 @@ pub async fn populate(
             });
         }
     }
-    stages.mark("catalog: operations and facets");
 
     // Documents: the signature-and-docstring view and the source-body view of each callable.
-    let modules: BTreeSet<Id> = sources.iter().map(|s| s.module_node_id).collect();
-    let texts: BTreeMap<Id, String> = sql::fetch::<TextRow>(
-        ctx,
-        &module_texts(),
-        sql::Params::new().ids("ids", modules.iter().copied()),
-    )
-    .await?
-    .into_iter()
-    .filter_map(|r| r.text.map(|t| (r.module_node_id, t)))
-    .collect();
     for s in sources.iter() {
         let names: Vec<&str> = parameters_of
             .get(&s.node_id)
@@ -408,23 +458,10 @@ pub async fn populate(
             }
         }
     }
-    if let Some(embedder) = embedder {
-        let spec = embedder.spec();
-        let spec_hash = spec.hash();
-        let texts: Vec<String> = out.documents.iter().map(|d| d.text.clone()).collect();
-        embeddings
-            .texts(embedder, &texts, crate::embed::Usage::Operation)
-            .await?;
-        for d in &mut out.documents {
-            d.spec_hash = Some(spec_hash);
-            d.input_hash = Some(crate::embed::input_hash(&spec.document_text(&d.text)));
-        }
-        stages.mark("catalog: embed operation documents");
-    }
     Ok(())
 }
 
-#[derive(Default)]
+#[derive(Default, Clone, Debug, PartialEq)]
 pub struct Contracts {
     pub members: Vec<CatalogMembersRow>,
     pub constructors: Vec<CatalogConstructorsRow>,
@@ -435,6 +472,9 @@ pub struct Contracts {
     pub types: Vec<CatalogTypesRow>,
     pub type_args: Vec<CatalogTypeArgsRow>,
     pub type_observations: Vec<CatalogTypeObservationsRow>,
+    pub surfaces: Vec<CatalogSurfacesRow>,
+    pub configurations: Vec<CatalogConfigurationsRow>,
+    pub field_links: Vec<CatalogFieldLinksRow>,
 }
 
 async fn rows<T: Table>(ctx: &SessionContext) -> Result<Vec<T::Row>, CoreError>
@@ -443,7 +483,7 @@ where
 {
     let relation = cpg_schema::query::Relation {
         name: T::NAME,
-        deps: &[],
+        deps: T::DEPS,
         sql: format!("SELECT * FROM {}", T::NAME),
     };
     sql::fetch(ctx, &relation, sql::Params::new()).await
@@ -457,7 +497,10 @@ fn member_id(export: Id, path: &str) -> Id {
 }
 
 /// Exact literal decoding never evaluates Python. Unrecognized spelling remains an expression.
-fn default_value(text: Option<&str>, required: Option<bool>) -> (String, Option<String>) {
+pub(crate) fn default_value(
+    text: Option<&str>,
+    required: Option<bool>,
+) -> (String, Option<String>) {
     let Some(text) = text else {
         return (
             match required {
@@ -469,14 +512,7 @@ fn default_value(text: Option<&str>, required: Option<bool>) -> (String, Option<
             None,
         );
     };
-    let value = match text.trim() {
-        "None" => Some(serde_json::Value::Null),
-        "True" => Some(serde_json::Value::Bool(true)),
-        "False" => Some(serde_json::Value::Bool(false)),
-        s => serde_json::from_str::<serde_json::Value>(s)
-            .ok()
-            .filter(|v| v.is_string() || v.is_number()),
-    };
+    let value = crate::surface::literal(text);
     match value {
         Some(v) => (
             if v.is_null() {
@@ -499,28 +535,188 @@ pub async fn contracts(
     roots: &[String],
     public: &[PublicPathsRow],
 ) -> Result<Contracts, CoreError> {
-    let declarations = rows::<raw::Declarations>(ctx).await?;
-    let source = rows::<raw::SourceFiles>(ctx).await?;
-    let names = rows::<raw::PublicNames>(ctx).await?;
-    let candidates: Vec<cpg_schema::public::ExportCandidateRow> = sql::fetch(
-        ctx,
-        &cpg_schema::public::export_candidates(),
-        sql::Params::new(),
-    )
-    .await?;
-    let signatures = rows::<derived::Signatures>(ctx).await?;
-    let parameters = rows::<derived::Parameters>(ctx).await?;
-    let syntax = rows::<raw::ParameterSyntax>(ctx).await?;
-    let semantics = rows::<raw::ParameterSemantics>(ctx).await?;
-    let docs = rows::<raw::ParameterDocs>(ctx).await?;
-    let functions = rows::<raw::PysaFunctions>(ctx).await?;
-    let synthetic = rows::<derived::SyntheticCallables>(ctx).await?;
-    let classes = rows::<raw::PysaClasses>(ctx).await?;
-    let class_map = rows::<derived::ProviderClassMap>(ctx).await?;
-    let ancestry = rows::<raw::ClassAncestry>(ctx).await?;
-    let ancestry_targets = rows::<derived::AncestryTargets>(ctx).await?;
-    let scopes = rows::<raw::Scopes>(ctx).await?;
-    let lexical_bindings = rows::<raw::Bindings>(ctx).await?;
+    let facts = load_facts(ctx).await?;
+    derive_contracts(&facts, snapshot_id, roots, public)
+}
+
+/// Complete immutable input set. Membership and missing observations are dependencies too.
+#[derive(Clone, Default)]
+pub struct CatalogFacts {
+    pub declarations: Vec<<raw::Declarations as Table>::Row>,
+    pub source: Vec<<raw::SourceFiles as Table>::Row>,
+    pub names: Vec<<raw::PublicNames as Table>::Row>,
+    pub signatures: Vec<<derived::Signatures as Table>::Row>,
+    pub parameters: Vec<<derived::Parameters as Table>::Row>,
+    pub syntax: Vec<<raw::ParameterSyntax as Table>::Row>,
+    pub semantics: Vec<<raw::ParameterSemantics as Table>::Row>,
+    pub docs: Vec<<raw::ParameterDocs as Table>::Row>,
+    pub functions: Vec<<raw::PysaFunctions as Table>::Row>,
+    pub synthetic: Vec<<derived::SyntheticCallables as Table>::Row>,
+    pub classes: Vec<<raw::PysaClasses as Table>::Row>,
+    pub class_map: Vec<<derived::ProviderClassMap as Table>::Row>,
+    pub ancestry: Vec<<raw::ClassAncestry as Table>::Row>,
+    pub ancestry_targets: Vec<<derived::AncestryTargets as Table>::Row>,
+    pub scopes: Vec<<raw::Scopes as Table>::Row>,
+    pub lexical_bindings: Vec<<raw::Bindings as Table>::Row>,
+    pub observations: Vec<<raw::TypeObservations as Table>::Row>,
+    pub terms: Vec<<raw::TypeTerms as Table>::Row>,
+    pub args: Vec<<raw::TypeTermArgs as Table>::Row>,
+    pub candidates: Vec<cpg_schema::public::ExportCandidateRow>,
+    pub member_observations: Vec<cpg_schema::public::MemberObservationRow>,
+    pub releases: Vec<raw::ReleasesRow>,
+    pub field_syntax: Vec<raw::RecordFieldSyntaxRow>,
+    pub record_fields: Vec<raw::RecordFieldsRow>,
+    pub nodes: Vec<raw::SyntaxNodesRow>,
+    pub references: Vec<raw::ReferencesRow>,
+    pub resolutions: Vec<raw::ReferenceResolutionsRow>,
+    pub roots: Vec<crate::flow_model::NameRootRow>,
+    pub descriptors: Vec<crate::flow_model::DescriptorRow>,
+}
+pub async fn load_facts(ctx: &SessionContext) -> Result<CatalogFacts, CoreError> {
+    Ok(CatalogFacts {
+        declarations: rows::<raw::Declarations>(ctx).await?,
+        source: rows::<raw::SourceFiles>(ctx).await?,
+        names: rows::<raw::PublicNames>(ctx).await?,
+        signatures: rows::<derived::Signatures>(ctx).await?,
+        parameters: rows::<derived::Parameters>(ctx).await?,
+        syntax: rows::<raw::ParameterSyntax>(ctx).await?,
+        semantics: rows::<raw::ParameterSemantics>(ctx).await?,
+        docs: rows::<raw::ParameterDocs>(ctx).await?,
+        functions: rows::<raw::PysaFunctions>(ctx).await?,
+        synthetic: rows::<derived::SyntheticCallables>(ctx).await?,
+        classes: rows::<raw::PysaClasses>(ctx).await?,
+        class_map: rows::<derived::ProviderClassMap>(ctx).await?,
+        ancestry: rows::<raw::ClassAncestry>(ctx).await?,
+        ancestry_targets: rows::<derived::AncestryTargets>(ctx).await?,
+        scopes: rows::<raw::Scopes>(ctx).await?,
+        lexical_bindings: rows::<raw::Bindings>(ctx).await?,
+        observations: rows::<raw::TypeObservations>(ctx).await?,
+        terms: rows::<raw::TypeTerms>(ctx).await?,
+        args: rows::<raw::TypeTermArgs>(ctx).await?,
+        releases: rows::<raw::Releases>(ctx).await?,
+        field_syntax: rows::<raw::RecordFieldSyntax>(ctx).await?,
+        record_fields: rows::<raw::RecordFields>(ctx).await?,
+        nodes: rows::<raw::SyntaxNodes>(ctx).await?,
+        references: rows::<raw::References>(ctx).await?,
+        resolutions: rows::<raw::ReferenceResolutions>(ctx).await?,
+        roots: sql::fetch(ctx, &crate::flow_model::roots(), sql::Params::new()).await?,
+        descriptors: sql::fetch(ctx, &crate::flow_model::descriptors(), sql::Params::new()).await?,
+        member_observations: sql::fetch(
+            ctx,
+            &cpg_schema::public::member_observations(),
+            sql::Params::new(),
+        )
+        .await?,
+        candidates: sql::fetch(
+            ctx,
+            &cpg_schema::public::export_candidates(),
+            sql::Params::new(),
+        )
+        .await?,
+    })
+}
+
+/// Reusable, immutable indexes owned with their exact input rows. No ambient invalidation.
+#[derive(Clone, Default)]
+struct CatalogIndex {
+    source_groups: BTreeMap<(Id, String), Vec<usize>>,
+    signature_parameters: BTreeMap<Id, Vec<usize>>,
+    members: BTreeMap<Id, Vec<usize>>,
+    type_children: BTreeMap<Id, Vec<Id>>,
+    ancestry: BTreeMap<Id, usize>,
+}
+impl CatalogIndex {
+    fn new(facts: &CatalogFacts) -> Self {
+        let mut out = Self::default();
+        for (i, d) in facts.declarations.iter().enumerate() {
+            out.source_groups
+                .entry((d.module_node_id, d.qualified_name.clone()))
+                .or_default()
+                .push(i);
+        }
+        for (i, p) in facts.parameters.iter().enumerate() {
+            out.signature_parameters
+                .entry(p.signature_node_id)
+                .or_default()
+                .push(i);
+        }
+        for (i, m) in facts.member_observations.iter().enumerate() {
+            out.members.entry(m.class_node_id).or_default().push(i);
+        }
+        for a in &facts.args {
+            out.type_children
+                .entry(a.parent_node_id)
+                .or_default()
+                .push(a.child_node_id);
+        }
+        for (i, a) in facts.ancestry.iter().enumerate() {
+            out.ancestry.insert(a.fact_id, i);
+        }
+        out
+    }
+}
+#[derive(Clone)]
+pub struct PreparedCatalog {
+    facts: Arc<CatalogFacts>,
+    index: CatalogIndex,
+}
+impl PreparedCatalog {
+    pub fn new(facts: CatalogFacts) -> Self {
+        let index = CatalogIndex::new(&facts);
+        Self {
+            facts: Arc::new(facts),
+            index,
+        }
+    }
+    pub fn facts(&self) -> &CatalogFacts {
+        &self.facts
+    }
+    pub fn derive(
+        &self,
+        snapshot: Id,
+        roots: &[String],
+        public: &[PublicPathsRow],
+    ) -> Result<Contracts, CoreError> {
+        derive_indexed(&self.facts, &self.index, snapshot, roots, public)
+    }
+}
+
+/// Pure catalog derivation: no database, embedding, acquisition or ambient provider reads.
+pub fn derive_contracts(
+    facts: &CatalogFacts,
+    snapshot_id: Id,
+    roots: &[String],
+    public: &[PublicPathsRow],
+) -> Result<Contracts, CoreError> {
+    derive_indexed(facts, &CatalogIndex::new(facts), snapshot_id, roots, public)
+}
+fn derive_indexed(
+    facts: &CatalogFacts,
+    index: &CatalogIndex,
+    snapshot_id: Id,
+    roots: &[String],
+    public: &[PublicPathsRow],
+) -> Result<Contracts, CoreError> {
+    let declarations = &facts.declarations;
+    let source = &facts.source;
+    let names = &facts.names;
+    let signatures = &facts.signatures;
+    let parameters = &facts.parameters;
+    let syntax = &facts.syntax;
+    let semantics = &facts.semantics;
+    let docs = &facts.docs;
+    let functions = &facts.functions;
+    let synthetic = &facts.synthetic;
+    let classes = &facts.classes;
+    let class_map = &facts.class_map;
+    let ancestry = &facts.ancestry;
+    let ancestry_targets = &facts.ancestry_targets;
+    let scopes = &facts.scopes;
+    let lexical_bindings = &facts.lexical_bindings;
+    let observations = &facts.observations;
+    let terms = &facts.terms;
+    let args = &facts.args;
+    let candidates = &facts.candidates;
     let by_decl: BTreeMap<_, _> = declarations.iter().map(|r| (r.node_id, r)).collect();
     let by_file: BTreeMap<_, _> = source.iter().map(|r| (r.module_node_id, r)).collect();
     let by_syntax: BTreeMap<_, _> = syntax.iter().map(|r| (r.fact_id, r)).collect();
@@ -533,14 +729,16 @@ pub async fn contracts(
     {
         chains.insert(class.node_id, vec![(-1, Some(class.node_id), None)]);
     }
-    for target in &ancestry_targets {
+    for target in ancestry_targets {
         let Some(class) = target.class_node_id else {
             continue;
         };
-        let Some(a) = ancestry.iter().find(|a| {
-            a.fact_id == target.ancestry_fact_id
-                && a.relation == cpg_schema::codebook::AncestryRelation::Mro
-        }) else {
+        let Some(a) = index
+            .ancestry
+            .get(&target.ancestry_fact_id)
+            .map(|i| &ancestry[*i])
+            .filter(|a| a.relation == cpg_schema::codebook::AncestryRelation::Mro)
+        else {
             continue;
         };
         chains.entry(class).or_default().push((
@@ -600,10 +798,16 @@ pub async fn contracts(
             .get(&path.node_id)
             .ok_or_else(|| CoreError::Analysis("public declaration missing".into()))?;
         // Expand the source declaration group before its preferred representative was chosen.
-        for candidate in declarations.iter().filter(|d| {
-            d.module_node_id == declaration.module_node_id
-                && d.qualified_name == declaration.qualified_name
-        }) {
+        for candidate in index
+            .source_groups
+            .get(&(
+                declaration.module_node_id,
+                declaration.qualified_name.clone(),
+            ))
+            .into_iter()
+            .flatten()
+            .map(|i| &declarations[*i])
+        {
             selected.insert(candidate.node_id);
             let role = if candidate.is_overload {
                 "overload"
@@ -710,7 +914,7 @@ pub async fn contracts(
     // preferred path. A .pyi-only member remains inspectable as a source observation.
     let name_by_fact: BTreeMap<_, _> = names.iter().map(|n| (n.fact_id, n)).collect();
     let mut class_candidates = Vec::new();
-    for candidate in &candidates {
+    for candidate in candidates {
         let Some(class) = candidate
             .declaration_node_id
             .and_then(|id| by_decl.get(&id).copied())
@@ -740,69 +944,65 @@ pub async fn contracts(
         if !visited_classes.insert((path.clone(), class)) {
             continue;
         }
-        let mut hidden = BTreeSet::new();
-        for (_, ancestor, _) in &chains[&class] {
-            let Some(ancestor) = ancestor.filter(|a| by_decl.contains_key(a)) else {
-                break;
+        for observation in index
+            .members
+            .get(&class)
+            .into_iter()
+            .flatten()
+            .map(|i| &facts.member_observations[*i])
+        {
+            let Some(d) = by_decl.get(&observation.node_id).copied() else {
+                continue;
             };
-            hidden.extend(rebound(ancestor));
-            let mut declared = BTreeSet::new();
-            for d in declarations.iter().filter(|d| {
-                d.parent_node_id == Some(ancestor)
-                    && (!d.name.starts_with('_')
-                        || cpg_schema::public::DUNDER_MEMBERS.contains(&d.name.as_str()))
-            }) {
-                if hidden.contains(d.name.as_str()) {
-                    continue;
-                }
-                declared.insert(d.name.as_str());
-                let access_path = format!("{path}.{}", d.name);
-                if d.kind == DeclarationKind::Class {
-                    class_candidates.push((access_path.clone(), d.node_id, export));
-                }
-                if !catalog::under_roots(&access_path, roots) {
-                    continue;
-                }
-                let member =
-                    members
-                        .entry(access_path.clone())
-                        .or_insert_with(|| CatalogMembersRow {
-                            snapshot_id,
-                            member_id: member_id(export, &access_path),
-                            access_path,
-                            owner_path: path.clone(),
-                            operation_node_id: None,
-                            kind: d.kind.text().into(),
-                            resolution: "source_known_effective_unresolved".into(),
-                            brief_status: "not_requested".into(),
-                            brief_reason: None,
-                        });
-                selected.insert(d.node_id);
-                let role = if d.is_overload {
-                    "overload"
-                } else if by_file[&d.module_node_id].is_stub {
-                    "stub_source"
-                } else if member.operation_node_id == Some(d.node_id) {
-                    "selected_source"
-                } else {
-                    "source_alternative"
-                };
-                out.bindings.push(CatalogBindingsRow {
-                    snapshot_id,
-                    member_id: member.member_id,
-                    binding_id: IdHasher::new("public-binding")
-                        .id(member.member_id)
-                        .id(d.fact_id)
-                        .str(role)
-                        .finish_id(),
-                    declaration_node_id: Some(d.node_id),
-                    source_fact_id: d.fact_id,
-                    role: role.into(),
-                    own: ancestor == class,
-                    defining_path: Some(d.qualified_name.clone()),
-                });
+            if d.name.starts_with('_')
+                && !cpg_schema::public::DUNDER_MEMBERS.contains(&d.name.as_str())
+            {
+                continue;
             }
-            hidden.extend(declared);
+            let access_path = format!("{path}.{}", d.name);
+            if d.kind == DeclarationKind::Class {
+                class_candidates.push((access_path.clone(), d.node_id, export));
+            }
+            if !catalog::under_roots(&access_path, roots) {
+                continue;
+            }
+            let member = members
+                .entry(access_path.clone())
+                .or_insert_with(|| CatalogMembersRow {
+                    snapshot_id,
+                    member_id: member_id(export, &access_path),
+                    access_path,
+                    owner_path: path.clone(),
+                    operation_node_id: None,
+                    kind: d.kind.text().into(),
+                    resolution: "source_known_effective_unresolved".into(),
+                    brief_status: "not_requested".into(),
+                    brief_reason: None,
+                });
+            selected.insert(d.node_id);
+            let role = if d.is_overload {
+                "overload"
+            } else if by_file[&d.module_node_id].is_stub {
+                "stub_source"
+            } else if member.operation_node_id == Some(d.node_id) {
+                "selected_source"
+            } else {
+                "source_alternative"
+            };
+            out.bindings.push(CatalogBindingsRow {
+                snapshot_id,
+                member_id: member.member_id,
+                binding_id: IdHasher::new("public-binding")
+                    .id(member.member_id)
+                    .id(d.fact_id)
+                    .str(role)
+                    .finish_id(),
+                declaration_node_id: Some(d.node_id),
+                source_fact_id: d.fact_id,
+                role: role.into(),
+                own: observation.ordinal == -1,
+                defining_path: Some(d.qualified_name.clone()),
+            });
         }
     }
     // Select the first declared/provider constructor along each class's reported MRO.
@@ -891,9 +1091,12 @@ pub async fn contracts(
             return_annotation: None,
             docstring: d.docstring.clone(),
         });
-        for p in parameters
-            .iter()
-            .filter(|p| p.signature_node_id == signature_id)
+        for p in index
+            .signature_parameters
+            .get(&signature_id)
+            .into_iter()
+            .flatten()
+            .map(|i| &parameters[*i])
         {
             let syn = p.syntax_fact_id.and_then(|id| by_syntax.get(&id).copied());
             let sem = p
@@ -1050,13 +1253,11 @@ pub async fn contracts(
             },
         )
         .collect();
+    crate::surface::derive(facts, &selected, snapshot_id, &mut out)?;
     let mut typed_subjects = selected.clone();
     typed_subjects.extend(out.parameters.iter().filter_map(|p| p.formal_node_id));
-    let observations = rows::<raw::TypeObservations>(ctx).await?;
-    let terms = rows::<raw::TypeTerms>(ctx).await?;
-    let args = rows::<raw::TypeTermArgs>(ctx).await?;
     let mut by_term: BTreeMap<Id, &raw::TypeTermsRow> = BTreeMap::new();
-    for term in &terms {
+    for term in terms {
         if let Some(prior) = by_term.get(&term.node_id) {
             let mut same = (*prior).clone();
             same.fact_id = term.fact_id;
@@ -1073,7 +1274,7 @@ pub async fn contracts(
         }
         by_term.insert(term.node_id, term);
     }
-    let mut reachable = BTreeSet::new();
+    let mut reachable: BTreeSet<_> = out.configurations.iter().map(|f| f.term_id).collect();
     for o in observations
         .iter()
         .filter(|o| typed_subjects.contains(&o.subject_node_id))
@@ -1088,16 +1289,12 @@ pub async fn contracts(
             term_id: o.term_node_id,
         });
     }
-    loop {
-        let before = reachable.len();
-        let children: Vec<_> = args
-            .iter()
-            .filter(|a| reachable.contains(&a.parent_node_id))
-            .map(|a| a.child_node_id)
-            .collect();
-        reachable.extend(children);
-        if reachable.len() == before {
-            break;
+    let mut pending: Vec<_> = reachable.iter().copied().collect();
+    while let Some(parent) = pending.pop() {
+        for child in index.type_children.get(&parent).into_iter().flatten() {
+            if reachable.insert(*child) {
+                pending.push(*child);
+            }
         }
     }
     for term in &reachable {
@@ -1194,6 +1391,77 @@ pub async fn contracts(
             text: text.into(),
         });
     }
+    // Preserve exact original snippets for each new observation and association.
+    let mut citations = Vec::new();
+    for row in &out.surfaces {
+        if let Some(n) = facts.nodes.iter().find(|n| n.fact_id == row.source_fact_id) {
+            citations.push((
+                row.declaration_node_id,
+                n.fact_id,
+                n.module_node_id,
+                n.start_byte,
+                n.end_byte,
+                "surface",
+            ));
+        }
+    }
+    for row in &out.configurations {
+        if let Some(n) = facts
+            .field_syntax
+            .iter()
+            .find(|n| Some(n.fact_id) == row.syntax_fact_id)
+        {
+            citations.push((
+                row.field_id,
+                n.fact_id,
+                n.module_node_id,
+                n.start_byte,
+                n.end_byte,
+                "configuration",
+            ));
+        }
+    }
+    for row in &out.field_links {
+        if let Some(n) = facts.nodes.iter().find(|n| n.fact_id == row.source_fact_id) {
+            citations.push((
+                row.field_id,
+                n.fact_id,
+                n.module_node_id,
+                n.start_byte,
+                n.end_byte,
+                "reader",
+            ));
+        }
+    }
+    for (subject, fact, module, start, end, role) in citations {
+        let f = by_file
+            .get(&module)
+            .ok_or_else(|| CoreError::Analysis("catalog citation module absent".into()))?;
+        let Some(text) = f.text.as_deref() else {
+            continue;
+        };
+        let text = text
+            .get(start as usize..end as usize)
+            .ok_or_else(|| CoreError::Analysis("catalog citation span".into()))?;
+        out.evidence.push(CatalogEvidenceRow {
+            snapshot_id,
+            evidence_id: IdHasher::new("catalog-specificity-evidence")
+                .id(subject)
+                .id(fact)
+                .str(role)
+                .finish_id(),
+            subject_node_id: subject,
+            source_fact_id: fact,
+            source_digest: f.content_digest,
+            path: f.path.clone(),
+            start_byte: start,
+            end_byte: end,
+            role: role.into(),
+            text: text.into(),
+        });
+    }
+    out.evidence.sort_by_key(|e| e.evidence_id);
+    out.evidence.dedup_by_key(|e| e.evidence_id);
     out.members = members.into_values().collect();
     out.bindings.sort_by_key(|b| (b.member_id, b.binding_id));
     out.bindings.dedup_by_key(|b| (b.member_id, b.binding_id));
@@ -1233,6 +1501,9 @@ pub async fn validate(
         }};
     }
     check!(cpg_schema::findings::PublicPaths, public);
+    check!(CatalogSurfaces, expected.surfaces);
+    check!(CatalogConfigurations, expected.configurations);
+    check!(CatalogFieldLinks, expected.field_links);
     check!(CatalogBindings, expected.bindings);
     check!(CatalogSignatures, expected.signatures);
     check!(CatalogConstructors, expected.constructors);

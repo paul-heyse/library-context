@@ -41,8 +41,9 @@ use cpg_schema::tables::{
     FlowTestLeaves, FlowTestTypes, FlowTests, FlowUses, FlowValueCalls, FlowValues,
     FunctionImplementations, Mentions, ParameterDocs, ParameterSemantics, ParameterSyntax,
     Passages, Producers, ProducersRow, PublicNames, PysaCalls, PysaClasses, PysaFunctions,
-    RecordFields, ReferenceResolutions, References, Releases, ReleasesRow, Runs, RunsRow, Scopes,
-    SourceFiles, SourceFilesRow, SyntaxNodes, TypeObservations, TypeTermArgs, TypeTerms,
+    RecordFieldSyntax, RecordFields, ReferenceResolutions, References, Releases, ReleasesRow, Runs,
+    RunsRow, Scopes, SourceFiles, SourceFilesRow, SyntaxNodes, TypeObservations, TypeTermArgs,
+    TypeTerms,
 };
 use pyrefly::commands::coverage::collect::is_public_name;
 use pyrefly::export::exports::ExportLocation;
@@ -819,6 +820,9 @@ fn run_release(
         walked.declarations.extend(module_walk.declarations);
         walked.export_syntax.extend(module_walk.export_syntax);
         walked.parameter_syntax.extend(module_walk.parameter_syntax);
+        walked
+            .record_field_syntax
+            .extend(module_walk.record_field_syntax);
         walked.parameter_docs.extend(module_walk.parameter_docs);
         walked.call_syntax.extend(module_walk.call_syntax);
         walked.arguments.extend(module_walk.arguments);
@@ -1044,6 +1048,7 @@ fn run_release(
     dedup_by_fact(&mut walked.declarations, |r| r.fact_id);
     dedup_by_fact(&mut walked.export_syntax, |r| r.fact_id);
     dedup_by_fact(&mut walked.parameter_syntax, |r| r.fact_id);
+    dedup_by_fact(&mut walked.record_field_syntax, |r| r.fact_id);
     dedup_by_fact(&mut walked.parameter_docs, |r| r.fact_id);
     dedup_by_fact(&mut walked.call_syntax, |r| r.fact_id);
     dedup_by_fact(&mut walked.arguments, |r| r.fact_id);
@@ -1122,6 +1127,10 @@ fn run_release(
             ExportSyntax::to_sorted_batch(&walked.export_syntax)?,
         ),
         (PublicNames::NAME, PublicNames::to_sorted_batch(&public)?),
+        (
+            RecordFieldSyntax::NAME,
+            RecordFieldSyntax::to_sorted_batch(&walked.record_field_syntax)?,
+        ),
         (
             ParameterSyntax::NAME,
             ParameterSyntax::to_sorted_batch(&walked.parameter_syntax)?,

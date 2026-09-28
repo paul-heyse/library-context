@@ -277,17 +277,21 @@ async fn the_flow_ir_follows_fallbacks_settings_and_fields() {
         reads.contains("| log_level | 0     |"),
         "an import-time read: {reads}"
     );
-    // A constructor parameter stored to a field reaches what another method does with it.
+    // Plain class stores remain available, but without a supported record-field association
+    // they cannot imply cross-method value identity (ADR-0074).
     let session = behaviors_of(&ctx, "bpkg.Session.__init__").await;
-    assert!(
-        session.contains("via self.name in bpkg.service.Session.call, into logger.info"),
-        "{session}"
-    );
-    assert!(
-        session.contains("via self._prior in bpkg.service.Session.adopt")
-            && session.contains("equals(self._mode,\"pinned\")"),
-        "{session}"
-    );
+    for field in ["self.name", "self._prior", "self._mode"] {
+        assert!(session.contains(field), "{session}");
+    }
+    assert!(!session.contains(" in bpkg.service.Session."), "{session}");
+    let cross_method = table(
+        &ctx,
+        "SELECT count(*) AS rows FROM behaviors b JOIN operations o \
+         ON o.node_id = b.operation_node_id WHERE o.access_path = 'bpkg.Session.__init__' \
+         AND b.depth = 2",
+    )
+    .await;
+    assert!(cross_method.contains("| 0    |"), "{cross_method}");
     // A log-only parameter derives into the logging call, and nothing else.
     let start = behaviors_of(&ctx, "bpkg.start").await;
     assert!(

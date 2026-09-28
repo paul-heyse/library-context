@@ -394,8 +394,8 @@ fn empty_source_version(
         capabilities: cpg_schema::catalog::Capabilities::for_profile(
             cpg_schema::catalog::CompileProfile::Behavioral,
         ),
-        format: 3,
-        bundle_format: 13,
+        format: contract::FORMAT,
+        bundle_format: contract::BUNDLE_FORMAT,
         context: ServingContext {
             library: "empty".into(),
             requirement: requirement.into(),
@@ -413,7 +413,7 @@ fn empty_source_version(
         relations,
         artifacts,
     };
-    let outer = serde_json::json!({"format":13,"capabilities":m.capabilities,"library":m.context.library,"requirement":m.context.requirement,"summary":m.context.summary,"snapshot_id":m.snapshot_id,"content_digest":m.snapshot_digest,"compiler_digest":m.compiler_digest,"condition_kernel_format":1,"entry_value_effect_digest":m.entry_value_effect_digest,"spec_hash":null,"files":files,"projection_generation":m.generation().unwrap(),"projection":m});
+    let outer = serde_json::json!({"format":contract::BUNDLE_FORMAT,"capabilities":m.capabilities,"library":m.context.library,"requirement":m.context.requirement,"summary":m.context.summary,"snapshot_id":m.snapshot_id,"content_digest":m.snapshot_digest,"compiler_digest":m.compiler_digest,"condition_kernel_format":1,"entry_value_effect_digest":m.entry_value_effect_digest,"spec_hash":null,"files":files,"projection_generation":m.generation().unwrap(),"projection":m});
     std::fs::write(
         root.join("MANIFEST.json"),
         serde_json::to_vec(&outer).unwrap(),
@@ -613,7 +613,7 @@ async fn published_pilot_import_and_repository_queries() {
     );
     if let Some(cursor) = page["next_cursor"].as_str() {
         let filter = lctx_postgres::repository::Where {
-            path_prefix: Some("different".into()),
+            path_prefix: Some(cpg_schema::wire::Text::new("different".into()).unwrap()),
             ..Default::default()
         };
         assert!(
@@ -1224,4 +1224,99 @@ async fn publication_refuses_conflicts_and_incomplete_stored_content() {
         );
         importer.close().await;
     }
+}
+
+#[tokio::test]
+#[ignore = "explicit real PostgreSQL catalog specificity check"]
+async fn catalog_specificity_import_and_typed_hydration() {
+    let root = std::env::var_os("LCTX_CATALOG_PROJECTION")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| {
+            let base = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../build/pr1-catalog-fixture");
+            base.join(
+                std::fs::read_to_string(base.join("CURRENT"))
+                    .expect("run catalog fixture")
+                    .trim(),
+            )
+        });
+    let source = lctx_postgres::import::Source::open(&root).unwrap();
+    let f = Fixture::start().await;
+    let artifacts = tempfile::tempdir().unwrap();
+    let mut config = f.config.clone();
+    config.role = Role::Importer;
+    config.statement_timeout_seconds = 30;
+    config.url = config.url.replace("lctx_serving:", "lctx_importer:");
+    let importer = config.open_importer().await.unwrap();
+    importer
+        .import(source.clone(), artifacts.path().to_owned())
+        .await
+        .unwrap();
+    let mut config = f.config.clone();
+    config.statement_timeout_seconds = 30;
+    let reader = config.open_serving().await.unwrap();
+    let pinned = reader
+        .pin(
+            &source.manifest().context.library,
+            Some(source.generation()),
+            None,
+        )
+        .await
+        .unwrap();
+    let packet = reader
+        .get_operation(
+            &pinned,
+            &pinned.manifest().snapshot_id,
+            "catalogpkg.Options",
+        )
+        .await
+        .unwrap();
+    let typed: cpg_schema::wire::Operation = serde_json::from_value(packet.clone()).unwrap();
+    let catalog = typed.catalog.unwrap();
+    let field = catalog
+        .configurations
+        .iter()
+        .find(|f| f.name == "left")
+        .unwrap();
+    assert_eq!(field.literal_json.as_deref(), Some("\"http\""));
+    assert!(
+        catalog
+            .field_links
+            .iter()
+            .any(|l| l.field_id == field.field_id && l.kind == "exact_storage")
+    );
+    assert!(
+        catalog
+            .evidence
+            .iter()
+            .any(|e| e.subject_node_id == field.field_id
+                && e.role == "configuration"
+                && e.text.contains("'http'"))
+    );
+    let schema = cpg_schema::wire::schema("Operation", true).unwrap();
+    let validator = jsonschema::options().offline().build(&schema).unwrap();
+    assert!(
+        validator.is_valid(&packet),
+        "{:?}",
+        validator
+            .iter_errors(&packet)
+            .map(|e| e.to_string())
+            .collect::<Vec<_>>()
+    );
+    let mut forged = packet;
+    forged["catalog"]["configurations"][0]["default_state"] = serde_json::json!("invented");
+    assert!(serde_json::from_value::<cpg_schema::wire::Operation>(forged.clone()).is_err());
+    assert!(!validator.is_valid(&forged));
+    let setter = reader
+        .get_operation(
+            &pinned,
+            &pinned.manifest().snapshot_id,
+            "catalogpkg.Descriptors.value",
+        )
+        .await
+        .unwrap();
+    // Declaration alternatives are retained; the normalizer never chooses one accessor by row order.
+    assert!(setter["catalog"].is_object() || setter["resolution"] == "ambiguous");
+    reader.close().await;
+    importer.close().await;
 }

@@ -126,7 +126,7 @@ fn encode(value: impl serde::Serialize) -> PyResult<String> {
 fn filter(value: &str) -> PyResult<Where> {
     let filter: Where = serde_json::from_str(value)
         .map_err(|_| PyValueError::new_err("invalid operation filter"))?;
-    filter.validate().map_err(error)?;
+    filter.validate().map_err(|e| error(e.into()))?;
     Ok(filter)
 }
 #[pymethods]

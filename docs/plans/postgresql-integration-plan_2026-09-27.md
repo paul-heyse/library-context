@@ -51,11 +51,13 @@ migrations 202609270001/2, one shared cache writer, `used_embeddings`/`embedding
 snapshot-local receipts, operational CLI and reconciled discovery. Compiler 106/extractor 33,
 catalog 7/template 20 and bundle FORMAT 10 were the pre-expansion baseline, with full 4096 vectors.
 The completed PG17 checkpoint used compiler 107, FORMAT 12 / projection 2 and standard 1024.
-Product PR1 subsequently advances compiler108/extractor34, FORMAT13/projection3 and migration009
-under ADR-0072; its current qualification belongs to the forward plan §1/§6.2 and the runbook.
+Product PR1 deployed compiler108/extractor34, FORMAT13/projection3 and migration009 under ADR-0072.
+PR2 implements compiler109/extractor35/template21, FORMAT14/projection4 and additive migration010
+under ADR-0073/0074; qualification and operator deployment belong to the forward plan §1/§6.2
+and the runbook. Behavior-model catalog7 and the 1024 embedding specification are unchanged.
 Online serving
 retains native/lexical state and a PostgreSQL pin; relational maps and dense Python vector scans have been removed.
-**Accepted product extension, implementation Proposed (ADR-0073):** the
+**Product extension: PR2 foundation Implemented; PR3–PR5 remain Proposed (ADR-0073/0074):** the
 [forward plan PR2–PR5](behavioral-model-forward-plan_2026-09-24.md#30-consolidated-execution) owns
 shared Rust wire schemas, nominal IDs, typed catalog hydration, pure derivations and selective
 SQLx checking. These build on the qualified PG foundation and do not reopen PG0–PG17 or select
@@ -96,16 +98,17 @@ the actual selected revisions/features; optional alternatives below remain condi
 | pyo3-async-runtimes 0.29.0 | Async Rust serving operations→Python awaitables with existing PyO3 0.29.2 | One configured process runtime, lifespan-owned SQLx pool. Qualify cancellation, Python 3.14/native build and connection reuse |
 | Existing bm25s/native executor | Keep lexical scoring, RRF/name-promotion owner and pure native semantic evaluation | No PostgreSQL `ts_rank` substitution, duplicate fusion owner or SQL-side behavioral interpreter |
 
-**Catalog contract adoption (accepted target; implementation Proposed, ADR-0073).** Schemars
-wire-schema generation and offline Rust `jsonschema` dev conformance belong to `cpg-schema` and
-the product boundary, not the PG schema generator. Stable SQLx reads use checked static/file
+**Catalog contract foundation Implemented (ADR-0073/0074), 2026-09-28.** Schemars1.2.2
+wire-schema generation and offline Rust `jsonschema`0.58.2 dev conformance belong to `cpg-schema`
+and existing format owners, including PG configuration/policy/diagnostic DTOs. Migration010 adds
+surface/configuration/field-link projections; inventory-derived hydration validates complete Rust
+packets before the Python boundary. All six existing MCP tools use those shared contracts. Stable SQLx reads use checked static/file
 queries as PR4 touches them; `query_as`/`FromRow` alone is runtime decoding. Keep migrated
 disposable-database offline checks and real nullability/type-override controls. Preserve the
 inventory-driven dynamic hydration adapter, shared Arrow codecs and existing leases/budgets.
 Domain IDs keep canonical bytes; validating conversion and membership are separate from a
 transparent codec. `Json<T>` is for genuinely variable JSON, not core relational dimensions.
-Exact direct pins/features are qualified during product implementation; this documentation update
-changes no installed stack. [§14.11](../design/sections/api-and-evidence-product.md#section-14-11)
+Exact direct pins/features and current qualification are recorded in the pins page and forward plan. [§14.11](../design/sections/api-and-evidence-product.md#section-14-11)
 owns catalog library policy and conditional Salsa/Ascent/cache/representation candidates.
 
 Optional compatible paths stay explicit rather than becoming default dependencies:
@@ -807,7 +810,7 @@ no new register or full-gate-per-slice workflow is introduced.
 | CLI/README/runbook, PG12–PG16 | Concrete import/select/reconcile/serve configuration, readiness, resource limits, availability, backups/rebuild/rollback and retained artifact policy |
 | Design map/AGENTS, PG8–PG16 | Correct runtime/dependency routes and command surfaces as they change; pure native and two-plan ownership remain clear |
 | Reviews and STATUS | Reviews keep dated evidence/source IDs and link §6.1 for status. STATUS links current work without duplicating a finding register |
-| Catalog product target, ADR-0073 | Forward-plan PR2–PR5/§6.2 own wire schema/typed hydration/SQLx extension and CLF status; §14.7/§14.11 own meaning. This plan retains PG mechanisms and storage-specific triggers; no renewed deployment or dependency installation claim |
+| Catalog product target, ADR-0073 | PR2 implements shared wire/typed hydration and migration010; forward-plan §6.2 owns qualification and CLF status. PR3–PR5 retain new product semantics and selective SQLx extension; §14.7/§14.11 own meaning. This plan retains PG mechanisms and storage-specific triggers |
 
 This planning revision does not edit accepted ADR rationale or present new targets as implemented.
 PG8 settles binding changes before dependent production work; it does not reopen the settled

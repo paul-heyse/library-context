@@ -1,0 +1,22 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table catalog_field_links
+family findings
+key snapshot_id, link_id
+check ordinal: ordinal >= 0
+check reader: (kind = 'exact_reader' AND reader_node_id IS NOT NULL) OR (kind <> 'exact_reader' AND reader_node_id IS NULL)
+@lctx.family=findings
+@lctx.table=catalog_field_links
+snapshot_id: FixedSizeBinary(16) NOT NULL
+link_id: FixedSizeBinary(16) NOT NULL
+field_id: FixedSizeBinary(16) NOT NULL
+class_node_id: FixedSizeBinary(16) NOT NULL
+signature_id: FixedSizeBinary(16) NOT NULL
+ordinal: Int64 NOT NULL
+formal_node_id: FixedSizeBinary(16) NULL
+reader_node_id: FixedSizeBinary(16) NULL
+source_fact_id: FixedSizeBinary(16) NOT NULL
+kind: Utf8 NOT NULL
+reason: Utf8 NULL

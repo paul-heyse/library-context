@@ -24,7 +24,7 @@ pub fn qwen_spec() -> Spec {
 
 /// An embeddings request (the holistic assessment's D3): a struct, so its key order is its field
 /// order whatever `serde_json` features the build enables (DataFusion turns on `preserve_order`).
-#[derive(Serialize)]
+#[derive(Serialize, schemars::JsonSchema)]
 struct EmbeddingsRequest<'a> {
     model: &'a str,
     input: &'a [String],
@@ -33,7 +33,7 @@ struct EmbeddingsRequest<'a> {
 }
 
 /// A tokenize request: the model and one prompt.
-#[derive(Serialize)]
+#[derive(Serialize, schemars::JsonSchema)]
 struct TokenizeRequest<'a> {
     model: &'a str,
     prompt: &'a str,
@@ -50,19 +50,19 @@ pub fn request_body(spec: &Spec, request_texts: &[String]) -> Vec<u8> {
     .expect("a request serializes")
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, schemars::JsonSchema)]
 struct Embeddings {
     model: String,
     data: Vec<Datum>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, schemars::JsonSchema)]
 struct Datum {
     index: usize,
     embedding: Vec<f64>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, schemars::JsonSchema)]
 struct Tokenized {
     count: usize,
 }
@@ -177,5 +177,54 @@ impl Embedder for VllmEmbedder {
                 .await?;
             parse_embeddings(&self.spec, request_texts.len(), &bytes).map_err(CoreError::Embed)
         })
+    }
+}
+
+/// Exact vendor-facing DTO schemas; input is a response received from the service.
+pub fn vendor_schema(name: &str) -> Option<serde_json::Value> {
+    use cpg_schema::wire::schema_for;
+    Some(match name {
+        "EmbeddingsRequest" => schema_for::<EmbeddingsRequest<'static>>(true),
+        "TokenizeRequest" => schema_for::<TokenizeRequest<'static>>(true),
+        "EmbeddingsResponse" => schema_for::<Embeddings>(false),
+        "TokenizeResponse" => schema_for::<Tokenized>(false),
+        _ => return None,
+    })
+}
+#[cfg(test)]
+mod dto_contract_tests {
+    use super::*;
+    #[test]
+    fn vendor_shapes_and_committed_request_bytes_conform() {
+        for name in [
+            "EmbeddingsRequest",
+            "TokenizeRequest",
+            "EmbeddingsResponse",
+            "TokenizeResponse",
+        ] {
+            assert!(
+                jsonschema::options()
+                    .offline()
+                    .build(&vendor_schema(name).unwrap())
+                    .is_ok()
+            );
+        }
+        let request = request_body(&qwen_spec(), &["hello".into()]);
+        let schema = vendor_schema("EmbeddingsRequest").unwrap();
+        assert!(
+            jsonschema::options()
+                .offline()
+                .build(&schema)
+                .unwrap()
+                .is_valid(&serde_json::from_slice(&request).unwrap())
+        );
+        let response = serde_json::json!({"count":3});
+        let validator = jsonschema::options()
+            .offline()
+            .build(&vendor_schema("TokenizeResponse").unwrap())
+            .unwrap();
+        assert!(validator.is_valid(&response));
+        assert!(!validator.is_valid(&serde_json::json!({"count":"3"})));
+        assert!(serde_json::from_value::<Tokenized>(serde_json::json!({"count":"3"})).is_err());
     }
 }

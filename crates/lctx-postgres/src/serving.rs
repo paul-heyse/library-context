@@ -13,7 +13,7 @@ pub const STAGING_BYTES: usize = 16 * 1024 * 1024;
 pub const IMPORT_BUFFER_BYTES: usize = 128 * 1024 * 1024;
 pub const TEST_IMAGE: &str = include_str!("../../../specs/postgres-vector-image.txt");
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Role {
     Importer,
@@ -28,7 +28,7 @@ impl Role {
     }
 }
 
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct RoleConfig {
     pub format: u32,
@@ -271,7 +271,7 @@ pub struct ServingStore {
 pub struct ImportStore {
     pub(crate) pool: PgPool,
 }
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct ServingHealth {
     pub role: String,
     pub extension: &'static str,

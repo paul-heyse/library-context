@@ -41,8 +41,8 @@ pub const NATIVE_FILES: &[&str] = &[
     "flow_test_value_links",
 ];
 
-pub const FORMAT: u32 = 3;
-pub const BUNDLE_FORMAT: u32 = 13;
+pub const FORMAT: u32 = 4;
+pub const BUNDLE_FORMAT: u32 = 14;
 pub fn artifact_names() -> Vec<String> {
     artifacts_for(&crate::catalog::Capabilities::for_profile(
         crate::catalog::CompileProfile::Behavioral,
@@ -60,7 +60,7 @@ pub fn artifacts_for(capabilities: &crate::catalog::Capabilities) -> Vec<String>
 pub fn definition_digest() -> String {
     // Explicit struct order is invariant under serde_json's optional preserve_order feature.
     // Preserve the compiler's original encoding while making standalone wheels agree with it.
-    #[derive(Serialize)]
+    #[derive(Serialize, schemars::JsonSchema)]
     struct Relation {
         name: &'static str,
         schema: String,
@@ -68,7 +68,7 @@ pub fn definition_digest() -> String {
         codes: Vec<(String, &'static str)>,
         vocabularies: Vec<(String, Vec<&'static str>)>,
     }
-    #[derive(Serialize)]
+    #[derive(Serialize, schemars::JsonSchema)]
     struct Definition {
         format: u32,
         validation_version: u32,
@@ -102,7 +102,7 @@ pub fn definition_digest() -> String {
         .collect();
     let definition = Definition {
         format: FORMAT,
-        validation_version: 1,
+        validation_version: 2,
         relations,
         links: foreign_keys(),
         native_files: NATIVE_FILES,
@@ -117,7 +117,7 @@ pub const MAX_RELATION_ROWS: usize = 200_000;
 pub const MAX_RELATION_BYTES: usize = 128 * 1024 * 1024;
 
 /// Stable error categories cross the service boundary; underlying SQL and credentials do not.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum FailureKind {
     Unavailable,
@@ -150,14 +150,14 @@ pub fn refused(message: impl Into<String>) -> ProjectionError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct RelationReceipt {
     pub schema_digest: String,
     pub rows: u64,
     pub content_digest: String,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ArtifactReceipt {
     pub sha256: String,
@@ -181,7 +181,7 @@ pub fn relation_requested(capabilities: &crate::catalog::Capabilities, name: &st
                 "briefs" | "assertions" | "supports" | "lexical_text" | "vectors"
             )))
 }
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ServingContext {
     pub library: String,
@@ -190,7 +190,7 @@ pub struct ServingContext {
 }
 
 /// Context rendered by MCP, derived once from the canonical published snapshot.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CoverageSummary {
     pub coverage: BTreeMap<String, BTreeMap<String, BTreeMap<String, u64>>>,
@@ -202,7 +202,7 @@ pub struct CoverageSummary {
     pub slot_sections: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Manifest {
     pub capabilities: crate::catalog::Capabilities,
@@ -659,6 +659,9 @@ pub fn receipt(
 pub fn unique_key(name: &str) -> Option<&'static str> {
     Some(match name {
         "catalog_members" => "member_id",
+        "catalog_surfaces" => "declaration_node_id,ordinal",
+        "catalog_configurations" => "field_id,source_fact_id",
+        "catalog_field_links" => "link_id",
         "catalog_constructors" => "class_node_id,signature_id",
         "catalog_bindings" => "member_id,binding_id",
         "catalog_signatures" => "signature_id",
@@ -689,6 +692,18 @@ pub fn unique_key(name: &str) -> Option<&'static str> {
 }
 pub fn foreign_keys() -> Vec<(&'static str, &'static str, &'static str, &'static str)> {
     vec![
+        (
+            "catalog_configurations",
+            "term_id",
+            "catalog_types",
+            "term_id",
+        ),
+        (
+            "catalog_field_links",
+            "signature_id,ordinal",
+            "catalog_parameters",
+            "signature_id,ordinal",
+        ),
         (
             "catalog_members",
             "operation_node_id",
@@ -826,6 +841,14 @@ pub fn validate_relations(
     }
     let mut links = foreign_keys();
     links.push(("supports", "assertion_id", "assertions", "assertion_id"));
+    // Configurations preserve provider alternatives, so this is membership rather than a SQL
+    // foreign key to a unique field row. Both bundle and database read-back use this validator.
+    links.push((
+        "catalog_field_links",
+        "field_id,class_node_id",
+        "catalog_configurations",
+        "field_id,class_node_id",
+    ));
     for (table, field, parent, target) in links {
         let parents: BTreeSet<_> = keys(&tables[parent], target)?
             .into_iter()

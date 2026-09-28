@@ -15,9 +15,10 @@ dependency context, `walk.rs`, `pysa_map.rs`, `public.rs`, `lexical.rs`, `types.
 `crates/cpg-core/tests/compile.rs`. Pins are in [`docs/pins.md`](../../pins.md); the map is in the
 [architecture README](../README.md).
 
-**Product extension, Proposed under ADR-0071:** bounded field default/factory associations and
-package/deployment metadata in [§14.4–§14.6](api-and-evidence-product.md#section-14-4) are the next
-extraction additions. [§14.10](api-and-evidence-product.md#section-14-10) separates mandatory catalog
+**PR2 field syntax Implemented, 2026-09-28:** the existing Ruff parse records class-field
+annotation/default expressions and spans in `record_field_syntax`; pure catalog derivation joins
+provider record declarations without executing defaults or factories. Package/deployment metadata
+in [§14.4–§14.6](api-and-evidence-product.md#section-14-4) remains Proposed under PR3. [§14.10](api-and-evidence-product.md#section-14-10) separates mandatory catalog
 construction from selected analysis profiles. Static acquisition/extraction remains non-executing;
 any opt-in surface observation or executable product task is a separately attributed isolated lane.
 
@@ -201,9 +202,9 @@ inspecting a failure, never for a reader.
 Unmapped rows stay in the derived table with a null node and, where one applies, a reason
 column. No inner join drops them.
 
-**Accepted catalog target, implementation Proposed (ADR-0073).** The mandatory catalog's
-internal sequence separates exact fact loading and indexes from pure contract/option/scenario
-derivation, followed by existing materialization/embedding/publication. Inputs include truthful
+**PR2 catalog boundary Implemented (ADR-0073), 2026-09-28.** The mandatory catalog's
+internal sequence separates exact fact loading and immutable prepared indexes from pure contract/option
+derivation, followed by materialization/embedding/publication. PR3 scenarios extend those inputs. Inputs include truthful
 scanned relations, membership, missing lookups, coverage and policy context. The
 [§14.3 owner](api-and-evidence-product.md#section-14-3) defines these boundaries; suitable bulk joins
 remain in DataFusion. This refines `cpg-core::catalog`, not acquisition or analyzer ownership,

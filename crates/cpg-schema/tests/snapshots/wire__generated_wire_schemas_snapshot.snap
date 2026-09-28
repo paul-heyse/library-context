@@ -1,0 +1,3809 @@
+---
+source: crates/cpg-schema/tests/wire.rs
+expression: "serde_json::to_string_pretty(&schemas).unwrap()"
+---
+{
+  "find_operations.input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "FindOperationsRequest",
+    "type": "object",
+    "properties": {
+      "library": {
+        "$ref": "#/$defs/Text1To500"
+      },
+      "where": {
+        "$ref": "#/$defs/Where"
+      },
+      "limit": {
+        "$ref": "#/$defs/Limit50Default20",
+        "default": 20
+      },
+      "cursor": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/Text0To2048"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      }
+    },
+    "additionalProperties": false,
+    "required": [
+      "library",
+      "where"
+    ],
+    "$defs": {
+      "Text1To500": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 500
+      },
+      "Where": {
+        "type": "object",
+        "properties": {
+          "facets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/FacetTerm"
+            },
+            "maxItems": 10,
+            "default": []
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/OperationKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "path_prefix": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Text0To500"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "FacetTerm": {
+        "type": "object",
+        "properties": {
+          "facet": {
+            "$ref": "#/$defs/FacetName"
+          },
+          "value": {
+            "$ref": "#/$defs/Text1To500"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "facet",
+          "value"
+        ]
+      },
+      "FacetName": {
+        "type": "string",
+        "enum": [
+          "parameter",
+          "parameter_type",
+          "returns",
+          "raises",
+          "decorator",
+          "async",
+          "delegates_to",
+          "forwards_to",
+          "hands_off_to",
+          "takes_from",
+          "module",
+          "kind",
+          "reads_setting"
+        ]
+      },
+      "OperationKind": {
+        "type": "string",
+        "enum": [
+          "function",
+          "method",
+          "class"
+        ]
+      },
+      "Text0To500": {
+        "type": "string",
+        "minLength": 0,
+        "maxLength": 500
+      },
+      "Limit50Default20": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 50
+      },
+      "Text0To2048": {
+        "type": "string",
+        "minLength": 0,
+        "maxLength": 2048
+      }
+    }
+  },
+  "find_operations.output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "FindOperationsResponse",
+    "oneOf": [
+      {
+        "type": "object",
+        "properties": {
+          "result_kind": {
+            "type": "string",
+            "const": "results"
+          }
+        },
+        "$ref": "#/$defs/OperationSet",
+        "required": [
+          "result_kind"
+        ]
+      }
+    ],
+    "$defs": {
+      "SnapshotId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "GenerationDigest": {
+        "type": "string",
+        "minLength": 64,
+        "maxLength": 64,
+        "pattern": "^[0-9a-fA-F]{64}$"
+      },
+      "OperationRef": {
+        "type": "object",
+        "properties": {
+          "operation_id": {
+            "$ref": "#/$defs/OperationId"
+          },
+          "access_path": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "docstring_summary": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "behavior_status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation_id",
+          "access_path",
+          "kind",
+          "docstring_summary",
+          "behavior_status"
+        ]
+      },
+      "OperationId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "Nullablestring": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "OperationSet": {
+        "type": "object",
+        "properties": {
+          "snapshot_id": {
+            "$ref": "#/$defs/SnapshotId"
+          },
+          "generation": {
+            "$ref": "#/$defs/GenerationDigest"
+          },
+          "matches": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/OperationRef"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "complete": {
+            "type": "boolean"
+          },
+          "unknown": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/OperationRef"
+            }
+          },
+          "unknown_total": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "unknown_truncated": {
+            "type": "boolean"
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "next_cursor": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "snapshot_id",
+          "generation",
+          "matches",
+          "total",
+          "complete",
+          "unknown",
+          "unknown_total",
+          "unknown_truncated",
+          "truncated",
+          "next_cursor",
+          "note"
+        ]
+      }
+    },
+    "type": "object"
+  },
+  "get_capability.input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "GetCapabilityRequest",
+    "type": "object",
+    "properties": {
+      "snapshot_id": {
+        "$ref": "#/$defs/SnapshotId"
+      },
+      "capability_id": {
+        "$ref": "#/$defs/CapabilityId"
+      }
+    },
+    "additionalProperties": false,
+    "required": [
+      "snapshot_id",
+      "capability_id"
+    ],
+    "$defs": {
+      "SnapshotId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "CapabilityId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      }
+    }
+  },
+  "get_capability.output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "GetCapabilityResponse",
+    "oneOf": [
+      {
+        "type": "object",
+        "properties": {
+          "result_kind": {
+            "type": "string",
+            "const": "capability"
+          }
+        },
+        "$ref": "#/$defs/Capability",
+        "required": [
+          "result_kind"
+        ]
+      },
+      {
+        "type": "object",
+        "properties": {
+          "result_kind": {
+            "type": "string",
+            "const": "unavailable"
+          }
+        },
+        "$ref": "#/$defs/CapabilityUnavailable",
+        "required": [
+          "result_kind"
+        ]
+      }
+    ],
+    "$defs": {
+      "SnapshotId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "GenerationDigest": {
+        "type": "string",
+        "minLength": 64,
+        "maxLength": 64,
+        "pattern": "^[0-9a-fA-F]{64}$"
+      },
+      "CapabilityId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "Nullablestring": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "Assertion": {
+        "type": "object",
+        "properties": {
+          "assertion_id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "section": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "text": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "applicable_case": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "conditions": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "limitations": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "supports": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/Support"
+            }
+          }
+        },
+        "required": [
+          "assertion_id",
+          "kind",
+          "section",
+          "status",
+          "text",
+          "applicable_case",
+          "conditions",
+          "limitations",
+          "supports"
+        ]
+      },
+      "Support": {
+        "type": "object",
+        "properties": {
+          "role": {
+            "type": "string"
+          },
+          "finding_id": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "finding_kind": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "evidence_id": {
+            "$ref": "#/$defs/NullableEvidenceId"
+          },
+          "finding": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/FindingSupport"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "role",
+          "finding_id",
+          "finding_kind",
+          "evidence_id",
+          "finding"
+        ]
+      },
+      "NullableEvidenceId": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/EvidenceId"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "EvidenceId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "FindingSupport": {
+        "type": "object",
+        "properties": {
+          "finding_id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "evidence_status": {
+            "type": "string"
+          },
+          "subject_node_id": {
+            "type": "string"
+          },
+          "related_node_id": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "invocation_id": {
+            "type": "string"
+          },
+          "model_id": {
+            "type": "string"
+          },
+          "method": {
+            "type": "string"
+          },
+          "parameters": {
+            "type": "string"
+          },
+          "completion": {
+            "type": "string"
+          },
+          "stop_reason": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "witnesses_omitted": {
+            "type": "boolean"
+          },
+          "witnesses": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/FindingWitness"
+            }
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/FindingMember"
+            }
+          },
+          "attributes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/ConceptAttribute"
+            }
+          },
+          "attribute_incidences": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/AttributeIncidence"
+            }
+          },
+          "source_resolution": {
+            "$ref": "#/$defs/FindingSupportSourceResolution"
+          }
+        },
+        "required": [
+          "finding_id",
+          "kind",
+          "evidence_status",
+          "subject_node_id",
+          "related_node_id",
+          "invocation_id",
+          "model_id",
+          "method",
+          "parameters",
+          "completion",
+          "stop_reason",
+          "witnesses_omitted",
+          "witnesses",
+          "members",
+          "attributes",
+          "attribute_incidences",
+          "source_resolution"
+        ]
+      },
+      "FindingWitness": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "step": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "call_site_node_id": {
+            "type": "string"
+          },
+          "callee_node_id": {
+            "type": "string"
+          },
+          "arc_kind": {
+            "type": "string"
+          },
+          "modality": {
+            "type": "string"
+          },
+          "phase": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "source_fact_id": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "source_path": {
+            "type": "string"
+          },
+          "start_byte": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "end_byte": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "path",
+          "step",
+          "call_site_node_id",
+          "callee_node_id",
+          "arc_kind",
+          "modality",
+          "phase",
+          "source_fact_id",
+          "source_path",
+          "start_byte",
+          "end_byte"
+        ]
+      },
+      "FindingMember": {
+        "type": "object",
+        "properties": {
+          "role": {
+            "type": "string"
+          },
+          "ordinal": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "node_id": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "cited_fact_id": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "attribute_id": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "fact_table": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "fact_model_id": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "label": {
+            "$ref": "#/$defs/Nullablestring"
+          }
+        },
+        "required": [
+          "role",
+          "ordinal",
+          "node_id",
+          "cited_fact_id",
+          "attribute_id",
+          "fact_table",
+          "fact_model_id",
+          "label"
+        ]
+      },
+      "ConceptAttribute": {
+        "type": "object",
+        "properties": {
+          "attribute_id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "symbol": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "parameter_kind": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "type_term_id": {
+            "$ref": "#/$defs/NullableTypeTermId"
+          },
+          "class_module": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "class_key": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "target_node_id": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "modality": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "phase": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "producer_modality": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "producer_phase": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "display": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "attribute_id",
+          "kind",
+          "symbol",
+          "parameter_kind",
+          "type_term_id",
+          "class_module",
+          "class_key",
+          "target_node_id",
+          "modality",
+          "phase",
+          "producer_modality",
+          "producer_phase",
+          "display"
+        ]
+      },
+      "NullableTypeTermId": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/TypeTermId"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "TypeTermId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "AttributeIncidence": {
+        "type": "object",
+        "properties": {
+          "finding_id": {
+            "type": "string"
+          },
+          "incidence_id": {
+            "type": "string"
+          },
+          "attribute_id": {
+            "type": "string"
+          },
+          "object_node_id": {
+            "type": "string"
+          },
+          "source_fact_id": {
+            "type": "string"
+          },
+          "fact_table": {
+            "type": "string"
+          },
+          "fact_model_id": {
+            "type": "string"
+          },
+          "site_node_id": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "edge_id": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "other_site_node_id": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "other_edge_id": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "consumer_formal_id": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "other_fact_id": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "other_fact_table": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "other_fact_model_id": {
+            "$ref": "#/$defs/Nullablestring"
+          }
+        },
+        "required": [
+          "finding_id",
+          "incidence_id",
+          "attribute_id",
+          "object_node_id",
+          "source_fact_id",
+          "fact_table",
+          "fact_model_id",
+          "site_node_id",
+          "edge_id",
+          "other_site_node_id",
+          "other_edge_id",
+          "consumer_formal_id",
+          "other_fact_id",
+          "other_fact_table",
+          "other_fact_model_id"
+        ]
+      },
+      "FindingSupportSourceResolution": {
+        "type": "string",
+        "enum": [
+          "source_span",
+          "fact_only",
+          "unavailable"
+        ]
+      },
+      "Evidence": {
+        "type": "object",
+        "properties": {
+          "evidence_id": {
+            "$ref": "#/$defs/EvidenceId"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "path": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "start_byte": {
+            "$ref": "#/$defs/Nullableint64"
+          },
+          "end_byte": {
+            "$ref": "#/$defs/Nullableint64"
+          },
+          "text": {
+            "$ref": "#/$defs/Nullablestring"
+          }
+        },
+        "required": [
+          "evidence_id",
+          "kind",
+          "path",
+          "start_byte",
+          "end_byte",
+          "text"
+        ]
+      },
+      "Nullableint64": {
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "int64"
+      },
+      "Capability": {
+        "type": "object",
+        "properties": {
+          "library": {
+            "type": "string"
+          },
+          "snapshot_id": {
+            "$ref": "#/$defs/SnapshotId"
+          },
+          "generation": {
+            "$ref": "#/$defs/GenerationDigest"
+          },
+          "capability_id": {
+            "$ref": "#/$defs/CapabilityId"
+          },
+          "title": {
+            "type": "string"
+          },
+          "access_path": {
+            "type": "string"
+          },
+          "public_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "documentation_only": {
+            "type": "boolean"
+          },
+          "review_state": {
+            "type": "string"
+          },
+          "outcome": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "outcome_status": {
+            "type": "string"
+          },
+          "assertions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/Assertion"
+            }
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/Evidence"
+            }
+          },
+          "sections_absent": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "library",
+          "snapshot_id",
+          "generation",
+          "capability_id",
+          "title",
+          "access_path",
+          "public_paths",
+          "documentation_only",
+          "review_state",
+          "outcome",
+          "outcome_status",
+          "assertions",
+          "evidence",
+          "sections_absent"
+        ]
+      },
+      "CapabilityUnavailableStatus": {
+        "type": "string",
+        "enum": [
+          "unavailable"
+        ]
+      },
+      "CapabilityUnavailableReason": {
+        "type": "string",
+        "enum": [
+          "not_requested"
+        ]
+      },
+      "CapabilityUnavailable": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "$ref": "#/$defs/CapabilityUnavailableStatus",
+            "default": "unavailable"
+          },
+          "reason": {
+            "$ref": "#/$defs/CapabilityUnavailableReason",
+            "default": "not_requested"
+          },
+          "capability": {
+            "type": "string"
+          },
+          "snapshot_id": {
+            "$ref": "#/$defs/SnapshotId"
+          },
+          "generation": {
+            "$ref": "#/$defs/GenerationDigest"
+          }
+        },
+        "required": [
+          "status",
+          "reason",
+          "capability",
+          "snapshot_id",
+          "generation"
+        ]
+      }
+    },
+    "type": "object"
+  },
+  "get_operation.input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "GetOperationRequest",
+    "type": "object",
+    "properties": {
+      "snapshot_id": {
+        "$ref": "#/$defs/SnapshotId"
+      },
+      "operation": {
+        "$ref": "#/$defs/Text1To500"
+      },
+      "expanded": {
+        "type": "boolean",
+        "default": false
+      }
+    },
+    "additionalProperties": false,
+    "required": [
+      "snapshot_id",
+      "operation"
+    ],
+    "$defs": {
+      "SnapshotId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "Text1To500": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 500
+      }
+    }
+  },
+  "get_operation.output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "GetOperationResponse",
+    "oneOf": [
+      {
+        "type": "object",
+        "properties": {
+          "result_kind": {
+            "type": "string",
+            "const": "operation"
+          }
+        },
+        "$ref": "#/$defs/Operation",
+        "required": [
+          "result_kind"
+        ]
+      },
+      {
+        "type": "object",
+        "properties": {
+          "result_kind": {
+            "type": "string",
+            "const": "ambiguous"
+          }
+        },
+        "$ref": "#/$defs/AmbiguousOperation",
+        "required": [
+          "result_kind"
+        ]
+      }
+    ],
+    "$defs": {
+      "SnapshotId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "GenerationDigest": {
+        "type": "string",
+        "minLength": 64,
+        "maxLength": 64,
+        "pattern": "^[0-9a-fA-F]{64}$"
+      },
+      "NullableOperationId": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/OperationId"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "OperationId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "PublicMemberId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "CatalogRecord": {
+        "type": "object",
+        "properties": {
+          "surfaces": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/CatalogSurfacesRow"
+            }
+          },
+          "configurations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/CatalogConfigurationsRow"
+            }
+          },
+          "field_links": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/CatalogFieldLinksRow"
+            }
+          },
+          "member": {
+            "$ref": "#/$defs/CatalogMembersRow"
+          },
+          "constructors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/CatalogConstructorsRow"
+            }
+          },
+          "bindings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/CatalogBindingsRow"
+            }
+          },
+          "signatures": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/CatalogSignature"
+            }
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/CatalogEvidenceRow"
+            }
+          },
+          "type_observations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/CatalogTypeObservationsRow"
+            }
+          },
+          "types": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/CatalogTypesRow"
+            }
+          },
+          "type_arguments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/CatalogTypeArgsRow"
+            }
+          },
+          "effective_surface": {
+            "type": "string"
+          },
+          "basis": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "surfaces",
+          "configurations",
+          "field_links",
+          "member",
+          "constructors",
+          "bindings",
+          "signatures",
+          "evidence",
+          "type_observations",
+          "types",
+          "type_arguments",
+          "effective_surface",
+          "basis"
+        ]
+      },
+      "CatalogSurfacesRow": {
+        "description": "A row of `catalog_surfaces`.",
+        "type": "object",
+        "properties": {
+          "declaration_node_id": {
+            "$ref": "#/$defs/Id"
+          },
+          "ordinal": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "source_fact_id": {
+            "$ref": "#/$defs/Id"
+          },
+          "expression": {
+            "type": "string"
+          },
+          "related_node_id": {
+            "$ref": "#/$defs/NullableId"
+          },
+          "resolved_target": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "binding_mode": {
+            "$ref": "#/$defs/NullableBindingMode"
+          },
+          "accessor_role": {
+            "$ref": "#/$defs/NullableAccessorRole"
+          },
+          "protocol": {
+            "$ref": "#/$defs/NullableProtocolForm"
+          },
+          "registration": {
+            "$ref": "#/$defs/NullableRegistrationForm"
+          },
+          "admission": {
+            "$ref": "#/$defs/BodyAdmission"
+          },
+          "reason": {
+            "$ref": "#/$defs/Nullablestring"
+          }
+        },
+        "required": [
+          "declaration_node_id",
+          "ordinal",
+          "source_fact_id",
+          "expression",
+          "related_node_id",
+          "resolved_target",
+          "binding_mode",
+          "accessor_role",
+          "protocol",
+          "registration",
+          "admission",
+          "reason"
+        ]
+      },
+      "Id": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]+$"
+      },
+      "NullableId": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/Id"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "Nullablestring": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "NullableBindingMode": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/BindingMode"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "BindingMode": {
+        "type": "string",
+        "enum": [
+          "class",
+          "static",
+          "property"
+        ]
+      },
+      "NullableAccessorRole": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/AccessorRole"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "AccessorRole": {
+        "type": "string",
+        "enum": [
+          "getter",
+          "setter",
+          "deleter",
+          "cached_getter"
+        ]
+      },
+      "NullableProtocolForm": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/ProtocolForm"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "ProtocolForm": {
+        "type": "string",
+        "enum": [
+          "context_manager",
+          "async_context_manager"
+        ]
+      },
+      "NullableRegistrationForm": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/RegistrationForm"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "RegistrationForm": {
+        "type": "string",
+        "enum": [
+          "tool",
+          "resource",
+          "prompt"
+        ]
+      },
+      "BodyAdmission": {
+        "type": "string",
+        "enum": [
+          "body_preserved",
+          "withheld"
+        ]
+      },
+      "CatalogConfigurationsRow": {
+        "description": "A row of `catalog_configurations`.",
+        "type": "object",
+        "properties": {
+          "field_id": {
+            "$ref": "#/$defs/Id"
+          },
+          "class_node_id": {
+            "$ref": "#/$defs/Id"
+          },
+          "source_fact_id": {
+            "$ref": "#/$defs/Id"
+          },
+          "syntax_fact_id": {
+            "$ref": "#/$defs/NullableId"
+          },
+          "record_kind": {
+            "$ref": "#/$defs/RecordModel"
+          },
+          "name": {
+            "type": "string"
+          },
+          "ordinal": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "term_id": {
+            "$ref": "#/$defs/Id"
+          },
+          "alias": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "init": {
+            "$ref": "#/$defs/Nullableboolean"
+          },
+          "kw_only": {
+            "$ref": "#/$defs/Nullableboolean"
+          },
+          "required": {
+            "$ref": "#/$defs/Nullableboolean"
+          },
+          "read_only": {
+            "$ref": "#/$defs/Nullableboolean"
+          },
+          "annotation_text": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "default_state": {
+            "$ref": "#/$defs/FieldDefaultState"
+          },
+          "default_text": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "literal_json": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "factory_text": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "reason": {
+            "$ref": "#/$defs/Nullablestring"
+          }
+        },
+        "required": [
+          "field_id",
+          "class_node_id",
+          "source_fact_id",
+          "syntax_fact_id",
+          "record_kind",
+          "name",
+          "ordinal",
+          "term_id",
+          "alias",
+          "init",
+          "kw_only",
+          "required",
+          "read_only",
+          "annotation_text",
+          "default_state",
+          "default_text",
+          "literal_json",
+          "factory_text",
+          "reason"
+        ]
+      },
+      "RecordModel": {
+        "type": "string",
+        "enum": [
+          "dataclass",
+          "attrs",
+          "pydantic",
+          "typed_dict",
+          "named_tuple"
+        ]
+      },
+      "Nullableboolean": {
+        "type": [
+          "boolean",
+          "null"
+        ]
+      },
+      "FieldDefaultState": {
+        "type": "string",
+        "enum": [
+          "absent",
+          "literal_none",
+          "literal",
+          "source_expression",
+          "optional_expression_unavailable",
+          "unknown",
+          "factory_expression"
+        ]
+      },
+      "CatalogFieldLinksRow": {
+        "description": "A row of `catalog_field_links`.",
+        "type": "object",
+        "properties": {
+          "link_id": {
+            "$ref": "#/$defs/Id"
+          },
+          "field_id": {
+            "$ref": "#/$defs/Id"
+          },
+          "class_node_id": {
+            "$ref": "#/$defs/Id"
+          },
+          "signature_id": {
+            "$ref": "#/$defs/Id"
+          },
+          "ordinal": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "formal_node_id": {
+            "$ref": "#/$defs/NullableId"
+          },
+          "reader_node_id": {
+            "$ref": "#/$defs/NullableId"
+          },
+          "source_fact_id": {
+            "$ref": "#/$defs/Id"
+          },
+          "kind": {
+            "$ref": "#/$defs/FieldLinkKind"
+          },
+          "reason": {
+            "$ref": "#/$defs/Nullablestring"
+          }
+        },
+        "required": [
+          "link_id",
+          "field_id",
+          "class_node_id",
+          "signature_id",
+          "ordinal",
+          "formal_node_id",
+          "reader_node_id",
+          "source_fact_id",
+          "kind",
+          "reason"
+        ]
+      },
+      "FieldLinkKind": {
+        "type": "string",
+        "enum": [
+          "declared_parameter",
+          "exact_storage",
+          "exact_reader"
+        ]
+      },
+      "CatalogMembersRow": {
+        "description": "A row of `catalog_members`.",
+        "type": "object",
+        "properties": {
+          "member_id": {
+            "$ref": "#/$defs/Id"
+          },
+          "access_path": {
+            "type": "string"
+          },
+          "owner_path": {
+            "type": "string"
+          },
+          "operation_node_id": {
+            "$ref": "#/$defs/NullableId"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "resolution": {
+            "$ref": "#/$defs/BindingResolution"
+          },
+          "brief_status": {
+            "$ref": "#/$defs/BriefState"
+          },
+          "brief_reason": {
+            "$ref": "#/$defs/Nullablestring"
+          }
+        },
+        "required": [
+          "member_id",
+          "access_path",
+          "owner_path",
+          "operation_node_id",
+          "kind",
+          "resolution",
+          "brief_status",
+          "brief_reason"
+        ]
+      },
+      "BindingResolution": {
+        "type": "string",
+        "enum": [
+          "unresolved",
+          "source_known_effective_unresolved"
+        ]
+      },
+      "BriefState": {
+        "type": "string",
+        "enum": [
+          "not_requested",
+          "not_selected",
+          "skipped",
+          "available"
+        ]
+      },
+      "CatalogConstructorsRow": {
+        "description": "A row of `catalog_constructors`.",
+        "type": "object",
+        "properties": {
+          "class_node_id": {
+            "$ref": "#/$defs/Id"
+          },
+          "signature_id": {
+            "$ref": "#/$defs/Id"
+          },
+          "own": {
+            "type": "boolean"
+          },
+          "ancestry_fact_id": {
+            "$ref": "#/$defs/NullableId"
+          }
+        },
+        "required": [
+          "class_node_id",
+          "signature_id",
+          "own",
+          "ancestry_fact_id"
+        ]
+      },
+      "CatalogBindingsRow": {
+        "description": "A row of `catalog_bindings`.",
+        "type": "object",
+        "properties": {
+          "member_id": {
+            "$ref": "#/$defs/Id"
+          },
+          "binding_id": {
+            "$ref": "#/$defs/Id"
+          },
+          "declaration_node_id": {
+            "$ref": "#/$defs/NullableId"
+          },
+          "source_fact_id": {
+            "$ref": "#/$defs/Id"
+          },
+          "role": {
+            "$ref": "#/$defs/BindingRole"
+          },
+          "own": {
+            "type": "boolean"
+          },
+          "defining_path": {
+            "$ref": "#/$defs/Nullablestring"
+          }
+        },
+        "required": [
+          "member_id",
+          "binding_id",
+          "declaration_node_id",
+          "source_fact_id",
+          "role",
+          "own",
+          "defining_path"
+        ]
+      },
+      "BindingRole": {
+        "type": "string",
+        "enum": [
+          "selected_source",
+          "overload",
+          "shadowed_source",
+          "stub_source",
+          "source_alternative",
+          "provider_public_observation"
+        ]
+      },
+      "CatalogSignature": {
+        "description": "A row of `catalog_signatures`.",
+        "type": "object",
+        "properties": {
+          "signature_id": {
+            "$ref": "#/$defs/Id"
+          },
+          "callable_node_id": {
+            "$ref": "#/$defs/Id"
+          },
+          "declaration_node_id": {
+            "$ref": "#/$defs/NullableId"
+          },
+          "constructor_class_id": {
+            "$ref": "#/$defs/NullableId"
+          },
+          "module_node_id": {
+            "$ref": "#/$defs/Id"
+          },
+          "function_key": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "signature_index": {
+            "$ref": "#/$defs/Nullableint64"
+          },
+          "role": {
+            "$ref": "#/$defs/SignatureRole"
+          },
+          "form": {
+            "$ref": "#/$defs/SignatureForm"
+          },
+          "source_fact_id": {
+            "$ref": "#/$defs/Id"
+          },
+          "reason": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "return_annotation": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "docstring": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "parameters": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/CatalogParametersRow"
+            }
+          }
+        },
+        "required": [
+          "signature_id",
+          "callable_node_id",
+          "declaration_node_id",
+          "constructor_class_id",
+          "module_node_id",
+          "function_key",
+          "signature_index",
+          "role",
+          "form",
+          "source_fact_id",
+          "reason",
+          "return_annotation",
+          "docstring",
+          "parameters"
+        ]
+      },
+      "Nullableint64": {
+        "type": [
+          "integer",
+          "null"
+        ],
+        "format": "int64"
+      },
+      "SignatureRole": {
+        "type": "string",
+        "enum": [
+          "source",
+          "overload",
+          "provider_constructor"
+        ]
+      },
+      "SignatureForm": {
+        "type": "string",
+        "enum": [
+          "source_list",
+          "list",
+          "ellipsis",
+          "param_spec"
+        ]
+      },
+      "CatalogParametersRow": {
+        "description": "A row of `catalog_parameters`.",
+        "type": "object",
+        "properties": {
+          "signature_id": {
+            "$ref": "#/$defs/Id"
+          },
+          "ordinal": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "formal_node_id": {
+            "$ref": "#/$defs/NullableId"
+          },
+          "name": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "kind": {
+            "$ref": "#/$defs/NullableParameterKind"
+          },
+          "required": {
+            "$ref": "#/$defs/Nullableboolean"
+          },
+          "syntax_fact_id": {
+            "$ref": "#/$defs/NullableId"
+          },
+          "semantics_fact_id": {
+            "$ref": "#/$defs/NullableId"
+          },
+          "provider_name": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "provider_kind": {
+            "$ref": "#/$defs/NullableProviderParameterKind"
+          },
+          "annotation_text": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "provider_annotation": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "default_state": {
+            "$ref": "#/$defs/DefaultState"
+          },
+          "default_text": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "literal_json": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "documentation": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "reason": {
+            "$ref": "#/$defs/Nullablestring"
+          }
+        },
+        "required": [
+          "signature_id",
+          "ordinal",
+          "formal_node_id",
+          "name",
+          "kind",
+          "required",
+          "syntax_fact_id",
+          "semantics_fact_id",
+          "provider_name",
+          "provider_kind",
+          "annotation_text",
+          "provider_annotation",
+          "default_state",
+          "default_text",
+          "literal_json",
+          "documentation",
+          "reason"
+        ]
+      },
+      "NullableParameterKind": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/ParameterKind"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "ParameterKind": {
+        "type": "string",
+        "enum": [
+          "positional_only",
+          "positional_or_keyword",
+          "var_positional",
+          "keyword_only",
+          "var_keyword"
+        ]
+      },
+      "NullableProviderParameterKind": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/ProviderParameterKind"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "ProviderParameterKind": {
+        "type": "string",
+        "enum": [
+          "positional_only",
+          "positional_or_keyword",
+          "var_positional",
+          "keyword_only",
+          "var_keyword"
+        ]
+      },
+      "DefaultState": {
+        "type": "string",
+        "enum": [
+          "absent",
+          "literal_none",
+          "literal",
+          "source_expression",
+          "optional_expression_unavailable",
+          "unknown"
+        ]
+      },
+      "CatalogEvidenceRow": {
+        "description": "A row of `catalog_evidence`.",
+        "type": "object",
+        "properties": {
+          "evidence_id": {
+            "$ref": "#/$defs/Id"
+          },
+          "subject_node_id": {
+            "$ref": "#/$defs/Id"
+          },
+          "source_fact_id": {
+            "$ref": "#/$defs/Id"
+          },
+          "source_digest": {
+            "$ref": "#/$defs/Digest"
+          },
+          "path": {
+            "type": "string"
+          },
+          "start_byte": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "end_byte": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "role": {
+            "$ref": "#/$defs/EvidenceRole"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "evidence_id",
+          "subject_node_id",
+          "source_fact_id",
+          "source_digest",
+          "path",
+          "start_byte",
+          "end_byte",
+          "role",
+          "text"
+        ]
+      },
+      "Digest": {
+        "type": "string",
+        "minLength": 64,
+        "maxLength": 64,
+        "pattern": "^[0-9a-fA-F]+$"
+      },
+      "EvidenceRole": {
+        "type": "string",
+        "enum": [
+          "declares",
+          "surface",
+          "configuration",
+          "reader"
+        ]
+      },
+      "CatalogTypeObservationsRow": {
+        "description": "A row of `catalog_type_observations`.",
+        "type": "object",
+        "properties": {
+          "source_fact_id": {
+            "$ref": "#/$defs/Id"
+          },
+          "subject_node_id": {
+            "$ref": "#/$defs/Id"
+          },
+          "role": {
+            "$ref": "#/$defs/TypeObservationRole"
+          },
+          "declared": {
+            "type": "boolean"
+          },
+          "term_id": {
+            "$ref": "#/$defs/Id"
+          }
+        },
+        "required": [
+          "source_fact_id",
+          "subject_node_id",
+          "role",
+          "declared",
+          "term_id"
+        ]
+      },
+      "TypeObservationRole": {
+        "type": "string",
+        "enum": [
+          "parameter",
+          "return",
+          "call_result",
+          "argument",
+          "raised"
+        ]
+      },
+      "CatalogTypesRow": {
+        "description": "A row of `catalog_types`.",
+        "type": "object",
+        "properties": {
+          "term_id": {
+            "$ref": "#/$defs/Id"
+          },
+          "source_fact_id": {
+            "$ref": "#/$defs/Id"
+          },
+          "kind": {
+            "$ref": "#/$defs/TypeKind"
+          },
+          "display": {
+            "type": "string"
+          },
+          "detail": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "class_module": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "class_key": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "variable": {
+            "$ref": "#/$defs/Nullablestring"
+          }
+        },
+        "required": [
+          "term_id",
+          "source_fact_id",
+          "kind",
+          "display",
+          "detail",
+          "class_module",
+          "class_key",
+          "variable"
+        ]
+      },
+      "TypeKind": {
+        "type": "string",
+        "enum": [
+          "class_instance",
+          "class_object",
+          "type_of",
+          "typed_dict",
+          "union",
+          "intersection",
+          "callable",
+          "overload",
+          "bound_method",
+          "generic",
+          "tuple",
+          "literal",
+          "type_var",
+          "param_spec",
+          "type_var_tuple",
+          "module",
+          "any",
+          "never",
+          "none",
+          "type_alias",
+          "self_type",
+          "annotated",
+          "unpack",
+          "type_guard",
+          "param_list",
+          "special_form",
+          "other",
+          "truncated"
+        ]
+      },
+      "CatalogTypeArgsRow": {
+        "description": "A row of `catalog_type_args`.",
+        "type": "object",
+        "properties": {
+          "parent_term_id": {
+            "$ref": "#/$defs/Id"
+          },
+          "role": {
+            "$ref": "#/$defs/TypeArgumentRole"
+          },
+          "ordinal": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "child_term_id": {
+            "$ref": "#/$defs/Id"
+          },
+          "source_fact_id": {
+            "$ref": "#/$defs/Id"
+          },
+          "name": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "parameter_kind": {
+            "$ref": "#/$defs/NullableTypeParameterKind"
+          },
+          "required": {
+            "$ref": "#/$defs/Nullableboolean"
+          }
+        },
+        "required": [
+          "parent_term_id",
+          "role",
+          "ordinal",
+          "child_term_id",
+          "source_fact_id",
+          "name",
+          "parameter_kind",
+          "required"
+        ]
+      },
+      "TypeArgumentRole": {
+        "type": "string",
+        "enum": [
+          "argument",
+          "member",
+          "parameter",
+          "return",
+          "element",
+          "variadic",
+          "signature",
+          "receiver",
+          "function",
+          "type_parameter",
+          "target",
+          "param_spec",
+          "bound",
+          "constraint",
+          "default"
+        ]
+      },
+      "NullableTypeParameterKind": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/TypeParameterKind"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "TypeParameterKind": {
+        "type": "string",
+        "enum": [
+          "positional_only",
+          "positional_or_keyword",
+          "var_positional",
+          "keyword_only",
+          "var_keyword"
+        ]
+      },
+      "NullableCapabilityId": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/CapabilityId"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "CapabilityId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "FacetValue": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string"
+          },
+          "verdict": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "verdict"
+        ]
+      },
+      "ParameterRecord": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "fates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/Fate"
+            }
+          },
+          "note": {
+            "$ref": "#/$defs/Nullablestring"
+          }
+        },
+        "required": [
+          "name",
+          "fates",
+          "note"
+        ]
+      },
+      "Fate": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "transfer": {
+            "$ref": "#/$defs/NullableFateTransfer"
+          },
+          "condition_scope_id": {
+            "type": "string"
+          },
+          "parameter": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "callee": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "target": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "value": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "depth": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "conditional": {
+            "type": "boolean"
+          },
+          "verdict": {
+            "type": "string"
+          },
+          "boundary_reason": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "condition": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "callee_text": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "phase": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "premise_key": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "occurrences": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "path": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "line": {
+            "$ref": "#/$defs/Nullableint64"
+          },
+          "site_text": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "discharges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/Discharge"
+            },
+            "default": []
+          }
+        },
+        "required": [
+          "kind",
+          "transfer",
+          "condition_scope_id",
+          "parameter",
+          "callee",
+          "target",
+          "value",
+          "depth",
+          "conditional",
+          "verdict",
+          "boundary_reason",
+          "condition",
+          "callee_text",
+          "phase",
+          "premise_key",
+          "occurrences",
+          "path",
+          "line",
+          "site_text",
+          "discharges"
+        ]
+      },
+      "NullableFateTransfer": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/FateTransfer"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "FateTransfer": {
+        "type": "string",
+        "enum": [
+          "identity",
+          "derived",
+          "call"
+        ]
+      },
+      "Discharge": {
+        "type": "object",
+        "properties": {
+          "origin_id": {
+            "type": "string"
+          },
+          "proof_kind": {
+            "type": "string"
+          },
+          "decision": {
+            "$ref": "#/$defs/DischargeDecision"
+          },
+          "summary_id": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "reason": {
+            "$ref": "#/$defs/Nullablestring"
+          }
+        },
+        "required": [
+          "origin_id",
+          "proof_kind",
+          "decision",
+          "summary_id",
+          "reason"
+        ]
+      },
+      "DischargeDecision": {
+        "type": "string",
+        "enum": [
+          "proved",
+          "open"
+        ]
+      },
+      "Operation": {
+        "type": "object",
+        "properties": {
+          "snapshot_id": {
+            "$ref": "#/$defs/SnapshotId"
+          },
+          "generation": {
+            "$ref": "#/$defs/GenerationDigest"
+          },
+          "operation_id": {
+            "$ref": "#/$defs/NullableOperationId"
+          },
+          "member_id": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/PublicMemberId"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "resolution": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          },
+          "capabilities": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "default": {}
+          },
+          "catalog": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/CatalogRecord"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "access_path": {
+            "type": "string"
+          },
+          "own_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "inherited_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "kind": {
+            "type": "string"
+          },
+          "is_method": {
+            "$ref": "#/$defs/Nullableboolean"
+          },
+          "qualified_name": {
+            "type": "string"
+          },
+          "module": {
+            "type": "string"
+          },
+          "docstring_summary": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "behavior_status": {
+            "type": "string"
+          },
+          "boundary_reason": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "status_reason": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "capability_id": {
+            "$ref": "#/$defs/NullableCapabilityId"
+          },
+          "facets": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/FacetValue"
+              }
+            }
+          },
+          "incomplete_facets": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "parameters": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/ParameterRecord"
+            }
+          },
+          "unbound_parameter_fates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/Fate"
+            },
+            "default": []
+          },
+          "delegates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/Fate"
+            }
+          },
+          "handoffs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/Fate"
+            }
+          },
+          "reads": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/Fate"
+            },
+            "default": []
+          },
+          "constructor": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Operation"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "singleton_of": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/FieldRecord"
+            },
+            "default": []
+          }
+        },
+        "required": [
+          "snapshot_id",
+          "generation",
+          "operation_id",
+          "member_id",
+          "resolution",
+          "capabilities",
+          "catalog",
+          "access_path",
+          "own_paths",
+          "inherited_paths",
+          "kind",
+          "is_method",
+          "qualified_name",
+          "module",
+          "docstring_summary",
+          "behavior_status",
+          "boundary_reason",
+          "status_reason",
+          "capability_id",
+          "facets",
+          "incomplete_facets",
+          "parameters",
+          "unbound_parameter_fates",
+          "delegates",
+          "handoffs",
+          "reads",
+          "constructor",
+          "singleton_of",
+          "fields"
+        ]
+      },
+      "FieldRecord": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "reads": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/SettingRead"
+            }
+          },
+          "never_read": {
+            "$ref": "#/$defs/Nullablestring"
+          }
+        },
+        "required": [
+          "name",
+          "reads",
+          "never_read"
+        ]
+      },
+      "SettingRead": {
+        "type": "object",
+        "properties": {
+          "reader": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "path": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "line": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "spelled": {
+            "type": "string"
+          },
+          "condition": {
+            "$ref": "#/$defs/Nullablestring"
+          }
+        },
+        "required": [
+          "reader",
+          "phase",
+          "path",
+          "line",
+          "spelled",
+          "condition"
+        ]
+      },
+      "AmbiguousOperationResolution": {
+        "type": "string",
+        "enum": [
+          "ambiguous"
+        ]
+      },
+      "AmbiguousOperation": {
+        "type": "object",
+        "properties": {
+          "snapshot_id": {
+            "$ref": "#/$defs/SnapshotId"
+          },
+          "generation": {
+            "$ref": "#/$defs/GenerationDigest"
+          },
+          "resolution": {
+            "$ref": "#/$defs/AmbiguousOperationResolution"
+          },
+          "requested": {
+            "type": "string"
+          },
+          "choices": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/CatalogMembersRow"
+            }
+          }
+        },
+        "required": [
+          "snapshot_id",
+          "generation",
+          "resolution",
+          "requested",
+          "choices"
+        ]
+      }
+    },
+    "type": "object"
+  },
+  "inspect_value_paths.input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "InspectValuePathsRequest",
+    "type": "object",
+    "properties": {
+      "snapshot_id": {
+        "$ref": "#/$defs/SnapshotId"
+      },
+      "operation": {
+        "$ref": "#/$defs/Text1To500"
+      },
+      "formal": {
+        "$ref": "#/$defs/Text1To500"
+      },
+      "exact_input": {
+        "$ref": "#/$defs/ExactPrimitive"
+      },
+      "standard_builtins": {
+        "type": "boolean",
+        "default": false
+      },
+      "limit": {
+        "$ref": "#/$defs/Limit50Default20",
+        "default": 20
+      },
+      "cursor": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/Text0To2048"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      }
+    },
+    "additionalProperties": false,
+    "required": [
+      "snapshot_id",
+      "operation",
+      "formal",
+      "exact_input"
+    ],
+    "$defs": {
+      "SnapshotId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "Text1To500": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 500
+      },
+      "ExactPrimitive": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "none"
+              },
+              "value": {
+                "type": "null"
+              }
+            },
+            "required": [
+              "kind",
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "bool"
+              },
+              "value": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "kind",
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "int"
+              },
+              "value": {
+                "type": "integer",
+                "format": "int64"
+              }
+            },
+            "required": [
+              "kind",
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "str"
+              },
+              "value": {
+                "$ref": "#/$defs/Text0To500"
+              }
+            },
+            "required": [
+              "kind",
+              "value"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "Text0To500": {
+        "type": "string",
+        "minLength": 0,
+        "maxLength": 500
+      },
+      "Limit50Default20": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 50
+      },
+      "Text0To2048": {
+        "type": "string",
+        "minLength": 0,
+        "maxLength": 2048
+      }
+    }
+  },
+  "inspect_value_paths.output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "InspectValuePathsResponse",
+    "oneOf": [
+      {
+        "type": "object",
+        "properties": {
+          "result_kind": {
+            "type": "string",
+            "const": "paths"
+          }
+        },
+        "$ref": "#/$defs/ValuePathPage",
+        "required": [
+          "result_kind"
+        ]
+      },
+      {
+        "type": "object",
+        "properties": {
+          "result_kind": {
+            "type": "string",
+            "const": "unavailable"
+          }
+        },
+        "$ref": "#/$defs/CapabilityUnavailable",
+        "required": [
+          "result_kind"
+        ]
+      }
+    ],
+    "$defs": {
+      "SnapshotId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "GenerationDigest": {
+        "type": "string",
+        "minLength": 64,
+        "maxLength": 64,
+        "pattern": "^[0-9a-fA-F]{64}$"
+      },
+      "ExactPrimitive": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "none"
+              },
+              "value": {
+                "type": "null"
+              }
+            },
+            "required": [
+              "kind",
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "bool"
+              },
+              "value": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "kind",
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "int"
+              },
+              "value": {
+                "type": "integer",
+                "format": "int64"
+              }
+            },
+            "required": [
+              "kind",
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "str"
+              },
+              "value": {
+                "$ref": "#/$defs/Text0To500"
+              }
+            },
+            "required": [
+              "kind",
+              "value"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "Text0To500": {
+        "type": "string",
+        "minLength": 0,
+        "maxLength": 500
+      },
+      "ValuePath": {
+        "type": "object",
+        "properties": {
+          "summary_id": {
+            "type": "string"
+          },
+          "source_flow_fact_id": {
+            "type": "string"
+          },
+          "source_origin_id": {
+            "type": "string"
+          },
+          "source_verdict": {
+            "type": "string"
+          },
+          "condition_id": {
+            "type": "string"
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/ProofStep"
+            }
+          },
+          "exact_input_result": {
+            "$ref": "#/$defs/ValuePathExactInputResult"
+          },
+          "value_links": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/ValueLinkEvidence"
+            }
+          },
+          "boundary_reason": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "theory_work": {
+            "$ref": "#/$defs/TheoryWork"
+          }
+        },
+        "required": [
+          "summary_id",
+          "source_flow_fact_id",
+          "source_origin_id",
+          "source_verdict",
+          "condition_id",
+          "steps",
+          "exact_input_result",
+          "value_links",
+          "boundary_reason",
+          "theory_work"
+        ]
+      },
+      "ProofStep": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "evidence_id": {
+            "$ref": "#/$defs/EvidenceId"
+          },
+          "condition_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "evidence_id",
+          "condition_id"
+        ]
+      },
+      "EvidenceId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "ValuePathExactInputResult": {
+        "type": "string",
+        "enum": [
+          "refuted_under_model",
+          "compatible_under_model",
+          "unknown"
+        ]
+      },
+      "ValueLinkEvidence": {
+        "type": "object",
+        "properties": {
+          "link_id": {
+            "type": "string"
+          },
+          "path": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "start_byte": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "end_byte": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "link_id",
+          "path",
+          "start_byte",
+          "end_byte"
+        ]
+      },
+      "Nullablestring": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "TheoryWork": {
+        "type": "object",
+        "properties": {
+          "links_examined": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "assignments_applied": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "bdd_preflight_pairs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "peak_bdd_nodes": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "links_examined",
+          "assignments_applied",
+          "bdd_preflight_pairs",
+          "peak_bdd_nodes"
+        ]
+      },
+      "OpenBoundary": {
+        "type": "object",
+        "properties": {
+          "source_flow_fact_id": {
+            "type": "string"
+          },
+          "source_origin_id": {
+            "type": "string"
+          },
+          "condition_id": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_flow_fact_id",
+          "source_origin_id",
+          "condition_id",
+          "reason"
+        ]
+      },
+      "ValuePathPage": {
+        "type": "object",
+        "properties": {
+          "snapshot_id": {
+            "$ref": "#/$defs/SnapshotId"
+          },
+          "generation": {
+            "$ref": "#/$defs/GenerationDigest"
+          },
+          "operation": {
+            "type": "string"
+          },
+          "formal": {
+            "type": "string"
+          },
+          "exact_input": {
+            "$ref": "#/$defs/ExactPrimitive"
+          },
+          "standard_builtins": {
+            "type": "boolean"
+          },
+          "paths": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/ValuePath"
+            }
+          },
+          "boundaries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/OpenBoundary"
+            }
+          },
+          "total_rows": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "examined_rows": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "theory_work": {
+            "$ref": "#/$defs/TheoryWork"
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "next_cursor": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "note": {
+            "type": "string",
+            "default": "A refutation applies only to its cited summary path under the exact input model. Compatibility means only a satisfiable model after checked value links, not a concrete execution. Unknown and absent paths do not establish absence."
+          }
+        },
+        "required": [
+          "snapshot_id",
+          "generation",
+          "operation",
+          "formal",
+          "exact_input",
+          "standard_builtins",
+          "paths",
+          "boundaries",
+          "total_rows",
+          "examined_rows",
+          "theory_work",
+          "truncated",
+          "next_cursor",
+          "note"
+        ]
+      },
+      "CapabilityUnavailableStatus": {
+        "type": "string",
+        "enum": [
+          "unavailable"
+        ]
+      },
+      "CapabilityUnavailableReason": {
+        "type": "string",
+        "enum": [
+          "not_requested"
+        ]
+      },
+      "CapabilityUnavailable": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "$ref": "#/$defs/CapabilityUnavailableStatus",
+            "default": "unavailable"
+          },
+          "reason": {
+            "$ref": "#/$defs/CapabilityUnavailableReason",
+            "default": "not_requested"
+          },
+          "capability": {
+            "type": "string"
+          },
+          "snapshot_id": {
+            "$ref": "#/$defs/SnapshotId"
+          },
+          "generation": {
+            "$ref": "#/$defs/GenerationDigest"
+          }
+        },
+        "required": [
+          "status",
+          "reason",
+          "capability",
+          "snapshot_id",
+          "generation"
+        ]
+      }
+    },
+    "type": "object"
+  },
+  "search_capabilities.input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "SearchCapabilitiesRequest",
+    "type": "object",
+    "properties": {
+      "library": {
+        "$ref": "#/$defs/Text1To500"
+      },
+      "query": {
+        "$ref": "#/$defs/Text1To4000"
+      },
+      "limit": {
+        "$ref": "#/$defs/Limit10Default5",
+        "default": 5
+      }
+    },
+    "additionalProperties": false,
+    "required": [
+      "library",
+      "query"
+    ],
+    "$defs": {
+      "Text1To500": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 500
+      },
+      "Text1To4000": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4000
+      },
+      "Limit10Default5": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10
+      }
+    }
+  },
+  "search_capabilities.output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "SearchCapabilitiesResponse",
+    "oneOf": [
+      {
+        "type": "object",
+        "properties": {
+          "result_kind": {
+            "type": "string",
+            "const": "results"
+          }
+        },
+        "$ref": "#/$defs/SearchResult",
+        "required": [
+          "result_kind"
+        ]
+      },
+      {
+        "type": "object",
+        "properties": {
+          "result_kind": {
+            "type": "string",
+            "const": "unavailable"
+          }
+        },
+        "$ref": "#/$defs/CapabilityUnavailable",
+        "required": [
+          "result_kind"
+        ]
+      }
+    ],
+    "$defs": {
+      "RetrievalMetadata": {
+        "type": "object",
+        "properties": {
+          "profile": {
+            "type": "string"
+          },
+          "requested_route": {
+            "$ref": "#/$defs/RetrievalMetadataRequestedRoute"
+          },
+          "actual_route": {
+            "$ref": "#/$defs/RetrievalMetadataActualRoute"
+          },
+          "fallback": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          },
+          "candidate_depth": {
+            "type": "integer",
+            "format": "int64",
+            "default": 0
+          },
+          "approximate": {
+            "type": "boolean",
+            "default": false
+          },
+          "routing_reason": {
+            "type": "string",
+            "default": "explicit_profile"
+          },
+          "admission": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "profile",
+          "requested_route",
+          "actual_route",
+          "fallback",
+          "candidate_depth",
+          "approximate",
+          "routing_reason",
+          "admission"
+        ]
+      },
+      "RetrievalMetadataRequestedRoute": {
+        "type": "string",
+        "enum": [
+          "exact",
+          "hnsw",
+          "mixed"
+        ]
+      },
+      "RetrievalMetadataActualRoute": {
+        "type": "string",
+        "enum": [
+          "exact",
+          "hnsw",
+          "lexical-only"
+        ]
+      },
+      "SnapshotId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "GenerationDigest": {
+        "type": "string",
+        "minLength": 64,
+        "maxLength": 64,
+        "pattern": "^[0-9a-fA-F]{64}$"
+      },
+      "SearchResultMode": {
+        "type": "string",
+        "enum": [
+          "hybrid",
+          "lexical-only"
+        ]
+      },
+      "Nullablestring": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "CoverageSummary": {
+        "description": "Context rendered by MCP, derived once from the canonical published snapshot.",
+        "type": "object",
+        "properties": {
+          "coverage": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "boundaries": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            }
+          },
+          "invocations": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            }
+          },
+          "briefs": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "integer",
+                "format": "uint64",
+                "minimum": 0
+              }
+            }
+          },
+          "unresolved_slots": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            }
+          },
+          "absent_slots": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            }
+          },
+          "slot_sections": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "coverage",
+          "boundaries",
+          "invocations",
+          "briefs",
+          "unresolved_slots",
+          "absent_slots",
+          "slot_sections"
+        ]
+      },
+      "Hit": {
+        "type": "object",
+        "properties": {
+          "capability_id": {
+            "$ref": "#/$defs/CapabilityId"
+          },
+          "title": {
+            "type": "string"
+          },
+          "outcome": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "outcome_status": {
+            "type": "string"
+          },
+          "relevance": {
+            "type": "number",
+            "format": "double"
+          },
+          "rank_source": {
+            "$ref": "#/$defs/RankSource"
+          },
+          "promoted": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "capability_id",
+          "title",
+          "outcome",
+          "outcome_status",
+          "relevance",
+          "rank_source",
+          "promoted"
+        ]
+      },
+      "CapabilityId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "RankSource": {
+        "type": "string",
+        "enum": [
+          "hybrid",
+          "lexical",
+          "vector",
+          "exact_symbol"
+        ]
+      },
+      "SearchResult": {
+        "type": "object",
+        "properties": {
+          "retrieval": {
+            "$ref": "#/$defs/RetrievalMetadata"
+          },
+          "library": {
+            "type": "string"
+          },
+          "snapshot_id": {
+            "$ref": "#/$defs/SnapshotId"
+          },
+          "generation": {
+            "$ref": "#/$defs/GenerationDigest"
+          },
+          "mode": {
+            "$ref": "#/$defs/SearchResultMode"
+          },
+          "degraded_reason": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "coverage": {
+            "$ref": "#/$defs/CoverageSummary"
+          },
+          "note": {
+            "type": "string"
+          },
+          "hits": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/Hit"
+            }
+          }
+        },
+        "required": [
+          "retrieval",
+          "library",
+          "snapshot_id",
+          "generation",
+          "mode",
+          "degraded_reason",
+          "coverage",
+          "note",
+          "hits"
+        ]
+      },
+      "CapabilityUnavailableStatus": {
+        "type": "string",
+        "enum": [
+          "unavailable"
+        ]
+      },
+      "CapabilityUnavailableReason": {
+        "type": "string",
+        "enum": [
+          "not_requested"
+        ]
+      },
+      "CapabilityUnavailable": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "$ref": "#/$defs/CapabilityUnavailableStatus",
+            "default": "unavailable"
+          },
+          "reason": {
+            "$ref": "#/$defs/CapabilityUnavailableReason",
+            "default": "not_requested"
+          },
+          "capability": {
+            "type": "string"
+          },
+          "snapshot_id": {
+            "$ref": "#/$defs/SnapshotId"
+          },
+          "generation": {
+            "$ref": "#/$defs/GenerationDigest"
+          }
+        },
+        "required": [
+          "status",
+          "reason",
+          "capability",
+          "snapshot_id",
+          "generation"
+        ]
+      }
+    },
+    "type": "object"
+  },
+  "search_operations.input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "SearchOperationsRequest",
+    "type": "object",
+    "properties": {
+      "library": {
+        "$ref": "#/$defs/Text1To500"
+      },
+      "query": {
+        "$ref": "#/$defs/Text1To4000"
+      },
+      "where": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/Where"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "limit": {
+        "$ref": "#/$defs/Limit10Default5",
+        "default": 5
+      }
+    },
+    "additionalProperties": false,
+    "required": [
+      "library",
+      "query"
+    ],
+    "$defs": {
+      "Text1To500": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 500
+      },
+      "Text1To4000": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4000
+      },
+      "Where": {
+        "type": "object",
+        "properties": {
+          "facets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/FacetTerm"
+            },
+            "maxItems": 10,
+            "default": []
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/OperationKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "path_prefix": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Text0To500"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "FacetTerm": {
+        "type": "object",
+        "properties": {
+          "facet": {
+            "$ref": "#/$defs/FacetName"
+          },
+          "value": {
+            "$ref": "#/$defs/Text1To500"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "facet",
+          "value"
+        ]
+      },
+      "FacetName": {
+        "type": "string",
+        "enum": [
+          "parameter",
+          "parameter_type",
+          "returns",
+          "raises",
+          "decorator",
+          "async",
+          "delegates_to",
+          "forwards_to",
+          "hands_off_to",
+          "takes_from",
+          "module",
+          "kind",
+          "reads_setting"
+        ]
+      },
+      "OperationKind": {
+        "type": "string",
+        "enum": [
+          "function",
+          "method",
+          "class"
+        ]
+      },
+      "Text0To500": {
+        "type": "string",
+        "minLength": 0,
+        "maxLength": 500
+      },
+      "Limit10Default5": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10
+      }
+    }
+  },
+  "search_operations.output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "SearchOperationsResponse",
+    "oneOf": [
+      {
+        "type": "object",
+        "properties": {
+          "result_kind": {
+            "type": "string",
+            "const": "results"
+          }
+        },
+        "$ref": "#/$defs/OperationHits",
+        "required": [
+          "result_kind"
+        ]
+      }
+    ],
+    "$defs": {
+      "RetrievalMetadata": {
+        "type": "object",
+        "properties": {
+          "profile": {
+            "type": "string"
+          },
+          "requested_route": {
+            "$ref": "#/$defs/RetrievalMetadataRequestedRoute"
+          },
+          "actual_route": {
+            "$ref": "#/$defs/RetrievalMetadataActualRoute"
+          },
+          "fallback": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          },
+          "candidate_depth": {
+            "type": "integer",
+            "format": "int64",
+            "default": 0
+          },
+          "approximate": {
+            "type": "boolean",
+            "default": false
+          },
+          "routing_reason": {
+            "type": "string",
+            "default": "explicit_profile"
+          },
+          "admission": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "profile",
+          "requested_route",
+          "actual_route",
+          "fallback",
+          "candidate_depth",
+          "approximate",
+          "routing_reason",
+          "admission"
+        ]
+      },
+      "RetrievalMetadataRequestedRoute": {
+        "type": "string",
+        "enum": [
+          "exact",
+          "hnsw",
+          "mixed"
+        ]
+      },
+      "RetrievalMetadataActualRoute": {
+        "type": "string",
+        "enum": [
+          "exact",
+          "hnsw",
+          "lexical-only"
+        ]
+      },
+      "SnapshotId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "GenerationDigest": {
+        "type": "string",
+        "minLength": 64,
+        "maxLength": 64,
+        "pattern": "^[0-9a-fA-F]{64}$"
+      },
+      "OperationHitsMode": {
+        "type": "string",
+        "enum": [
+          "hybrid",
+          "lexical-only"
+        ]
+      },
+      "Nullablestring": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "OperationHit": {
+        "type": "object",
+        "properties": {
+          "operation_id": {
+            "$ref": "#/$defs/OperationId"
+          },
+          "access_path": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "docstring_summary": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "relevance": {
+            "type": "number",
+            "format": "double"
+          },
+          "rank_source": {
+            "type": "string"
+          },
+          "promoted": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "operation_id",
+          "access_path",
+          "kind",
+          "docstring_summary",
+          "relevance",
+          "rank_source",
+          "promoted"
+        ]
+      },
+      "OperationId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "OperationHits": {
+        "type": "object",
+        "properties": {
+          "retrieval": {
+            "$ref": "#/$defs/RetrievalMetadata"
+          },
+          "snapshot_id": {
+            "$ref": "#/$defs/SnapshotId"
+          },
+          "generation": {
+            "$ref": "#/$defs/GenerationDigest"
+          },
+          "mode": {
+            "$ref": "#/$defs/OperationHitsMode"
+          },
+          "degraded_reason": {
+            "$ref": "#/$defs/Nullablestring"
+          },
+          "ranked_discovery": {
+            "type": "boolean"
+          },
+          "hits": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/OperationHit"
+            }
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "retrieval",
+          "snapshot_id",
+          "generation",
+          "mode",
+          "degraded_reason",
+          "ranked_discovery",
+          "hits",
+          "note"
+        ]
+      }
+    },
+    "type": "object"
+  }
+}

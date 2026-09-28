@@ -14,16 +14,15 @@ A score ranks briefs; it is never evidence that a brief fits the task.
 from __future__ import annotations
 
 import re
-from typing import Literal
 
 import bm25s
 import numpy as np
 import pyarrow as pa
 import pyarrow.ipc as ipc
-from pydantic import BaseModel
+
+from lctx_mcp.wire import Contract
 
 K = 60
-RankSource = Literal["hybrid", "lexical", "vector", "exact_symbol"]
 TOKEN = re.compile(r"[a-z0-9]+")
 
 
@@ -61,15 +60,7 @@ FUSION_BYTES = 128 * 1024 * 1024
 RANK_BYTES = 32 * 1024 * 1024
 
 
-class RetrievalMetadata(BaseModel):
-    profile: str
-    requested_route: Literal["exact", "hnsw", "mixed"]
-    actual_route: Literal["exact", "hnsw", "lexical-only"]
-    fallback: str | None = None
-    candidate_depth: int = 0
-    approximate: bool = False
-    routing_reason: str = "explicit_profile"
-    admission: str | None = None
+RetrievalMetadata = Contract("RetrievalMetadata")
 
 
 def identities(values: list[str]) -> np.ndarray:

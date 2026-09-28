@@ -25,6 +25,7 @@ fs-err.workspace = true
 futures.workspace = true
 parquet.workspace = true
 ruff_python_ast.workspace = true
+ruff_text_size.workspace = true
 ruff_python_parser.workspace = true
 ruff_python_stdlib.workspace = true
 serde.workspace = true
@@ -37,6 +38,7 @@ unicode-segmentation.workspace = true
 url.workspace = true
 
 [dev-dependencies]
+salsa.workspace = true
 sqlx.workspace = true
 cpg-extract = { path = "../cpg-extract" }
 insta.workspace = true
@@ -49,3 +51,7 @@ blake3.workspace = true
 
 [lints]
 workspace = true
+
+[[example]]
+name = "salsa_catalog_probe"
+path = "../../docs/design_review/evidence/2026-09-28_pr2/salsa_catalog_probe.rs"

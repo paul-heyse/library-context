@@ -2,10 +2,10 @@
 source: crates/cpg-extract/tests/identity.rs
 expression: "lines.join(\"\\n\")"
 ---
-producer_id 456bdae2250d9df4e4793110e8e35e35
+producer_id 255b5fbfaed2f309c4b5025fff41f8eb
 context_id  4324aa0fdc28105822be36fa3f145f0f
-run_id      eccea18c7c6e9e8053d0c9ee7f6e861c
-source_files[0] lcfix/__init__.py 88f1d865f4c2b2e3490e3c3579a4942f 9805e0fee4d4e37dab3607194910e594
-declarations[0] lcfix.core.Base 2fe0aee5c0c6aac9055d13dfccdfe2dc 4cec36822f2cbae6e275dd40ade5a758
-parameter_syntax[0] x 1d4d5d7f4548739c9381cdcee92e47b7 c36265a9b81eac4af4aad00e6d059527
-call_syntax[0] 267 cc40e52b37cb577c0f7867ffa1f0fb2e 2b5ec5889502c96e3ffd173fd8d9214b
+run_id      af5770fe5efe9a261c730f21cdee7033
+source_files[0] lcfix/__init__.py 88f1d865f4c2b2e3490e3c3579a4942f 0e2ee1459ce64889a8e8fd646bc46a53
+declarations[0] lcfix.core.Base 2fe0aee5c0c6aac9055d13dfccdfe2dc a9c0111d3bcc42f44f5fbbf80e57258f
+parameter_syntax[0] x 1d4d5d7f4548739c9381cdcee92e47b7 b925fc22552a1b8d69b50d79152d3b36
+call_syntax[0] 267 cc40e52b37cb577c0f7867ffa1f0fb2e 644036a8e9534cc7d73827bbbda4cf59

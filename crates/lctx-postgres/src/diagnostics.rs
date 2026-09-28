@@ -11,10 +11,10 @@ use cpg_schema::{
     serving_projection::{FailureKind, Manifest, corrupt},
 };
 use serde::Serialize;
-use serde_json::{Value, json};
+use serde_json::Value;
 use sqlx::{Connection, PgConnection};
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct Diagnostics {
     pub format: u32,
     pub database: &'static str,
@@ -23,8 +23,64 @@ pub struct Diagnostics {
     pub extension: Option<String>,
     pub schema_current: bool,
     pub failure: Option<String>,
-    pub pool: Value,
-    pub generation: Option<Value>,
+    pub pool: ConfiguredPool,
+    pub generation: Option<GenerationDiagnostic>,
+}
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct ConfiguredPool {
+    pub configured_total: u32,
+    pub provider_reserved: u32,
+    pub probe_connections: u32,
+}
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct LivePool {
+    pub connections: u32,
+    pub idle: usize,
+}
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct LiveDiagnostics {
+    pub format: u32,
+    pub generation: GenerationDiagnostic,
+    pub pool: LivePool,
+}
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+#[serde(untagged)]
+pub enum GenerationDiagnostic {
+    NotVisible {
+        generation: String,
+        publication: &'static str,
+        availability: &'static str,
+    },
+    Visible(Box<VisibleGeneration>),
+}
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct ProfileDiagnostic {
+    pub profile: String,
+    pub route: crate::profiles::Route,
+    pub available: bool,
+    pub admission: Option<String>,
+    pub failure: Option<String>,
+}
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct SelectionDiagnostic {
+    pub library: String,
+    pub profile: String,
+}
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct VisibleGeneration {
+    pub generation: String,
+    pub publication: String,
+    pub availability: String,
+    pub artifact_failure: Option<String>,
+    pub spec: Option<String>,
+    pub dimensions: i32,
+    pub relations: std::collections::BTreeMap<String, u64>,
+    pub artifact_count: usize,
+    /// PostgreSQL function-owned administrative payload; intentionally opaque to this Rust DTO.
+    pub import: Value,
+    pub selections: Vec<SelectionDiagnostic>,
+    pub profiles: Vec<ProfileDiagnostic>,
+    pub vector_partition_bytes: i64,
 }
 impl RoleConfig {
     pub async fn diagnose(&self, id: Option<Digest>, verify_artifacts: bool) -> Diagnostics {
@@ -36,7 +92,11 @@ impl RoleConfig {
             extension: None,
             schema_current: false,
             failure: None,
-            pool: json!({"configured_total":self.max_connections,"provider_reserved":self.provider_connections,"probe_connections":1}),
+            pool: ConfiguredPool {
+                configured_total: self.max_connections,
+                provider_reserved: self.provider_connections,
+                probe_connections: 1,
+            },
             generation: None,
         };
         let result=async {
@@ -74,12 +134,22 @@ impl ServingStore {
         let generation = generation_on(&mut tx, id, verify_artifacts).await?;
         tx.commit().await?;
         lease.complete();
-        Ok(
-            json!({"format":1,"generation":generation,"pool":{"connections":self.pool.size(),"idle":self.pool.num_idle()}}),
-        )
+        serde_json::to_value(LiveDiagnostics {
+            format: 1,
+            generation,
+            pool: LivePool {
+                connections: self.pool.size(),
+                idle: self.pool.num_idle(),
+            },
+        })
+        .map_err(|_| corrupt("diagnostic encoding").into())
     }
 }
-async fn generation_on(conn: &mut PgConnection, id: Digest, verify: bool) -> Result<Value, Error> {
+async fn generation_on(
+    conn: &mut PgConnection,
+    id: Digest,
+    verify: bool,
+) -> Result<GenerationDiagnostic, Error> {
     let row: Option<(String, String)> = sqlx::query_as(
         "SELECT state,canonical_manifest FROM lctx_serving.generations WHERE generation_digest=$1",
     )
@@ -87,9 +157,11 @@ async fn generation_on(conn: &mut PgConnection, id: Digest, verify: bool) -> Res
     .fetch_optional(&mut *conn)
     .await?;
     let Some((state, raw)) = row else {
-        return Ok(
-            json!({"generation":id.hex(),"publication":"not_visible","availability":"unchecked"}),
-        );
+        return Ok(GenerationDiagnostic::NotVisible {
+            generation: id.hex(),
+            publication: "not_visible",
+            availability: "unchecked",
+        });
     };
     let manifest: Manifest =
         serde_json::from_str(&raw).map_err(|_| corrupt("diagnostic manifest"))?;
@@ -137,16 +209,41 @@ async fn generation_on(conn: &mut PgConnection, id: Digest, verify: bool) -> Res
             admission::check(conn, &pinned).await
         }
         .await;
-        admissions.push(json!({"profile":pinned.profile.hex(),"route":pinned.policy.route,"available":check.is_ok(),"admission":check.as_ref().ok(),"failure":check.err().map(|e|e.to_string())}));
+        admissions.push(ProfileDiagnostic {
+            profile: pinned.profile.hex(),
+            route: pinned.policy.route,
+            available: check.is_ok(),
+            admission: check.as_ref().ok().cloned().flatten(),
+            failure: check.err().map(|e| e.to_string()),
+        });
     }
     let imports: Value = sqlx::query_scalar("SELECT lctx_serving.import_diagnostics($1)")
         .bind(id.0.as_slice())
         .fetch_one(&mut *conn)
         .await?;
     let storage:i64=sqlx::query_scalar("SELECT coalesce(sum(pg_total_relation_size(c.oid)),0)::bigint FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='lctx_serving' AND c.relkind='r' AND (c.relname LIKE 'v_'||$1||'%' OR c.relname LIKE 'o_'||$1||'%')").bind(&id.hex()[..48]).fetch_one(&mut *conn).await?;
-    Ok(
-        json!({"generation":id.hex(),"publication":state,"availability":availability,"artifact_failure":failure,"spec":manifest.spec_hash,"dimensions":manifest.dimensions,
-        "relations":manifest.relations.iter().map(|(n,r)|(n,r.rows)).collect::<std::collections::BTreeMap<_,_>>(),"artifact_count":manifest.artifacts.len(),"import":imports,
-        "selections":selections.into_iter().map(|(lib,p)|json!({"library":lib,"profile":hex(p)})).collect::<Vec<_>>(),"profiles":admissions,"vector_partition_bytes":storage}),
-    )
+    Ok(GenerationDiagnostic::Visible(Box::new(VisibleGeneration {
+        generation: id.hex(),
+        publication: state,
+        availability: availability.into(),
+        artifact_failure: failure,
+        spec: manifest.spec_hash,
+        dimensions: manifest.dimensions,
+        relations: manifest
+            .relations
+            .iter()
+            .map(|(n, r)| (n.clone(), r.rows))
+            .collect(),
+        artifact_count: manifest.artifacts.len(),
+        import: imports,
+        selections: selections
+            .into_iter()
+            .map(|(library, p)| SelectionDiagnostic {
+                library,
+                profile: hex(p),
+            })
+            .collect(),
+        profiles: admissions,
+        vector_partition_bytes: storage,
+    })))
 }

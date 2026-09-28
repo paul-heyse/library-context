@@ -1,0 +1,12 @@
+[package]
+name = "pr2-salsa-persistence-probe"
+version = "0.0.0"
+edition = "2024"
+publish = false
+[workspace]
+[dependencies]
+salsa = { version = "=0.28.2", default-features = false, features = ["macros", "inventory", "salsa_unstable", "persistence"] }
+salsa-macro-rules = "=0.28.2"
+salsa-macros = "=0.28.2"
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"

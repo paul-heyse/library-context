@@ -689,6 +689,16 @@ pub(crate) async fn validate_stored(
 async fn check_indexes(conn: &mut PgConnection, id: &Digest) -> Result<(), Error> {
     let definitions = [
         (
+            "catalog_configuration_class",
+            "catalog_configurations",
+            "generation_digest, class_node_id",
+        ),
+        (
+            "catalog_field_link_class",
+            "catalog_field_links",
+            "generation_digest, class_node_id",
+        ),
+        (
             "operation_order",
             "operations",
             "generation_digest, access_path COLLATE \"C\", node_id",
@@ -766,7 +776,9 @@ fn recovery_envelope(
     }
     let value: Value = serde_json::from_str(raw).map_err(|_| corrupt("recovery manifest"))?;
     let current = match (value["format"].as_u64(), value["bundle_format"].as_u64()) {
-        (Some(3), Some(13)) => {
+        (Some(f), Some(b))
+            if f == u64::from(contract::FORMAT) && b == u64::from(contract::BUNDLE_FORMAT) =>
+        {
             let manifest: Manifest =
                 serde_json::from_str(raw).map_err(|_| corrupt("recovery current manifest"))?;
             manifest.validate()?;
@@ -775,7 +787,7 @@ fn recovery_envelope(
             }
             true
         }
-        (Some(2), Some(12)) => false,
+        (Some(2), Some(12)) | (Some(3), Some(13)) => false,
         _ => return Err(corrupt("unsupported retained manifest format").into()),
     };
     let artifacts: BTreeMap<String, contract::ArtifactReceipt> =

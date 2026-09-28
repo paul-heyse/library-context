@@ -244,7 +244,9 @@ that dated checkpoint does not establish current assembled Stage 3 acceptance.
 `mixed_embedding_specs_are_refused`, `serving_schema_digests_are_the_shared_known_answers`;
 2026-09-23 onward); the files marked below as later-stage are **Proposed**.
 
-**FORMAT 13 / projection FORMAT 3 (Implemented, 2026-09-28; ADR-0072).** Adds the mandatory
+**FORMAT 14 / projection FORMAT 4 (Implemented, 2026-09-28; ADR-0073/0074).** Adds attributed
+surface aspects, configuration fields and exact field links through additive migration010.
+FORMAT13/projection3 introduced the mandatory
 catalog and finite compile-profile/capability contract. Native artifacts are required exactly when
 native analysis is advertised; unselected analysis relations retain typed empty schemas. FORMAT12
 introduced release/coverage context; outer fields and file schema/row receipts must still agree.
@@ -364,7 +366,13 @@ transformations remain independent of database setup. Bounded driver reads const
 Arrow batches. `cpg-core::postgres_read` isolates the separate bounded provider read pool;
 PG15 owns admitted scans/federation, never application writes.
 
-**Accepted catalog-query target, implementation Proposed (ADR-0073).** PR4 extends SQLx checked
+**PR2 hydration contracts Implemented (ADR-0073/0074).** Inventory-derived reads assemble the
+complete shared Rust response before crossing into Python. New field links receive generation and
+field/class membership checks; Schemars also covers existing PG configuration, policy and diagnostic
+owners. Current readers reject legacy formats; recovery preserves formats2/12 and3/13 with an
+explicit matching-runtime requirement.
+
+**Remaining catalog-query target, Proposed (ADR-0073).** PR4 extends SQLx checked
 static/file queries and typed rows for stable generation/catalog reads. Runtime `query_as` is typed
 decoding, not compile-time database checking; offline metadata follows the migrated disposable
 schema, with real-PG controls for nullability and type overrides. Inventory-driven dynamic hydration stays derived
@@ -393,7 +401,7 @@ all consumers migrate. This is one mutable reuse service plus immutable per-snap
 records the foundation. PG12–PG15 add import, exact queries, retrieval qualification and reports;
 [query integration evidence](../../design_review/evidence/2026-09-28_postgresql-query/README.md) bounds those checks. PG16/PG17 local exact rollout/recovery and assembled acceptance passed;
 [operations evidence](../../design_review/evidence/2026-09-28_postgresql-operations/README.md) bounds the claim.
-`cpg-schema::serving_projection` owns FORMAT 3 manifests, all FORMAT 13 relation receipts,
+`cpg-schema::serving_projection` owns FORMAT 4 manifests, all FORMAT 14 relation receipts,
 native/lexical artifact identities and generation-local constraints. `serving_support` is shared
 by publication, file loading and import. Full content digests exclude physical row order/COPY
 batching, locations and retrieval profiles; multiplicity/nulls/float bits remain significant.

@@ -5,7 +5,6 @@ from pathlib import Path
 import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
-from pydantic import ValidationError
 from support import load_native as load
 
 from lctx_mcp.operations import OperationError
@@ -13,11 +12,11 @@ from lctx_mcp.value_paths import ExactPrimitive, inspect
 
 
 def test_exact_primitive_rejects_cross_kind_values() -> None:
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValueError):
         ExactPrimitive(kind="int", value=True)
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValueError):
         ExactPrimitive(kind="none", value="None")
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValueError):
         ExactPrimitive(kind="str", value="x" * 501)
 
 

@@ -1,5 +1,7 @@
 """Input data for condition-safe transfer projection; never executed."""
 
+from dataclasses import dataclass
+
 
 def opaque(value):
     return object()
@@ -45,6 +47,17 @@ def through_decorated(value):
 
 class Holder:
     def __init__(self, flag, other, value):
+        self.value = value
+
+    def read(self, flag, other):
+        return self.value if flag else ([self.value] if other else opaque(self.value))
+
+
+@dataclass(init=False)
+class RecordHolder:
+    value: object
+
+    def __init__(self, value):
         self.value = value
 
     def read(self, flag, other):

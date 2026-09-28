@@ -469,15 +469,17 @@ owns typed requirement states, bounded implementation packets and independent ev
 catalog contracts, optional semantic capability loading and versioned migration. Contracts below
 also retain existing behavioral queries and semantic research.
 
-**Accepted wire target, implementation Proposed (ADR-0073):**
-[§14.7/§14.9](api-and-evidence-product.md#section-14-7) select Rust-owned requests, contextual witnesses
-and typed envelopes, with generated Schemars input/output schemas on a thin FastMCP `Tool` adapter.
-Its `run` explicitly validates through Rust before effects, retains current lifetime/deadline/error
-contracts and returns structured results. Migrate tools without deleting compatible query scope;
-remove duplicate semantic Pydantic declarations and string-key packet construction after consumer
-migration, while retaining presentation models. MCP listing/invocation conformance is required;
-the current Pydantic/FunctionTool routes remain implemented until migration. CLF/F01 stays open
-in [forward-plan §6.2](../../plans/behavioral-model-forward-plan_2026-09-24.md#62-product-target-findings-and-recommendation-disposition).
+**PR2 wire contracts Implemented (ADR-0073), 2026-09-28:**
+[§14.7/§14.9](api-and-evidence-product.md#section-14-7) own the Rust requests and complete nested
+current packets. All six existing tools use generated Schemars input/output schemas through a thin
+FastMCP `Tool`; the capability resource uses the same request/response owner. Rust validates before
+effects and after final tagging/default insertion. Native work detaches from the GIL inside the
+bounded worker/deadline envelope; cancellation keeps its admitted slot until completion. Generic
+Python packet views serve presentation only; migrated semantic Pydantic declarations and Python
+value-path cursor decisions are removed. `get_operation` enforces 32 KiB by default and 256 KiB with
+`expanded=true`, refusing rather than truncating signature contracts. New PR4 classifier semantics
+and PR5 tools remain Proposed; [forward-plan §6.2](../../plans/behavioral-model-forward-plan_2026-09-24.md#62-product-target-findings-and-recommendation-disposition)
+owns qualification and finding disposition.
 
 > Decision: ADR-0071, ADR-0072, ADR-0073
 
