@@ -1,0 +1,137 @@
+[
+  {
+    "name": "calibration-unfiltered-0",
+    "query": "register a Python function as a tool",
+    "operations": true,
+    "stratum": "unfiltered"
+  },
+  {
+    "name": "calibration-unfiltered-1",
+    "query": "connect an HTTP client to a remote MCP server",
+    "operations": true,
+    "stratum": "unfiltered"
+  },
+  {
+    "name": "calibration-unfiltered-2",
+    "query": "validate a tool argument with a custom type",
+    "operations": true,
+    "stratum": "unfiltered"
+  },
+  {
+    "name": "calibration-unfiltered-3",
+    "query": "return an image from a tool",
+    "operations": true,
+    "stratum": "unfiltered"
+  },
+  {
+    "name": "calibration-unfiltered-4",
+    "query": "expose a read only resource",
+    "operations": true,
+    "stratum": "unfiltered"
+  },
+  {
+    "name": "calibration-unfiltered-5",
+    "query": "handle client disconnection during a request",
+    "operations": true,
+    "stratum": "unfiltered"
+  },
+  {
+    "name": "calibration-unfiltered-6",
+    "query": "compose multiple server providers",
+    "operations": true,
+    "stratum": "unfiltered"
+  },
+  {
+    "name": "calibration-unfiltered-7",
+    "query": "configure authentication for a server",
+    "operations": true,
+    "stratum": "unfiltered"
+  },
+  {
+    "name": "calibration-broad-0",
+    "query": "apply middleware to a tool request",
+    "operations": true,
+    "stratum": "broad",
+    "where": {
+      "path_prefix": "fastmcp.server"
+    }
+  },
+  {
+    "name": "calibration-broad-1",
+    "query": "list available server capabilities",
+    "operations": true,
+    "stratum": "broad",
+    "where": {
+      "path_prefix": "fastmcp.server"
+    }
+  },
+  {
+    "name": "calibration-broad-2",
+    "query": "read structured content from tool output",
+    "operations": true,
+    "stratum": "broad",
+    "where": {
+      "path_prefix": "fastmcp.server"
+    }
+  },
+  {
+    "name": "calibration-broad-3",
+    "query": "manage the server lifespan",
+    "operations": true,
+    "stratum": "broad",
+    "where": {
+      "path_prefix": "fastmcp.server"
+    }
+  },
+  {
+    "name": "calibration-broad-4",
+    "query": "propagate request context to a dependency",
+    "operations": true,
+    "stratum": "broad",
+    "where": {
+      "path_prefix": "fastmcp.server"
+    }
+  },
+  {
+    "name": "calibration-broad-5",
+    "query": "limit the duration of a tool call",
+    "operations": true,
+    "stratum": "broad",
+    "where": {
+      "path_prefix": "fastmcp.server"
+    }
+  },
+  {
+    "name": "calibration-broad-6",
+    "query": "report progress to the client",
+    "operations": true,
+    "stratum": "broad",
+    "where": {
+      "path_prefix": "fastmcp.server"
+    }
+  },
+  {
+    "name": "calibration-broad-7",
+    "query": "provide a resource template",
+    "operations": true,
+    "stratum": "broad",
+    "where": {
+      "path_prefix": "fastmcp.server"
+    }
+  },
+  {
+    "name": "calibration-brief",
+    "query": "choose a server transport",
+    "operations": false,
+    "stratum": "unfiltered"
+  },
+  {
+    "name": "calibration-selective",
+    "query": "create server instance",
+    "operations": true,
+    "stratum": "selective",
+    "where": {
+      "path_prefix": "fastmcp.server.server.FastMCP"
+    }
+  }
+]

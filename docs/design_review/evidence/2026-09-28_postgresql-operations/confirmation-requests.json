@@ -1,0 +1,137 @@
+[
+  {
+    "name": "confirmation-unfiltered-0",
+    "query": "add a tool with annotations",
+    "operations": true,
+    "stratum": "unfiltered"
+  },
+  {
+    "name": "confirmation-unfiltered-1",
+    "query": "use an HTTP transport with credentials",
+    "operations": true,
+    "stratum": "unfiltered"
+  },
+  {
+    "name": "confirmation-unfiltered-2",
+    "query": "customize argument validation errors",
+    "operations": true,
+    "stratum": "unfiltered"
+  },
+  {
+    "name": "confirmation-unfiltered-3",
+    "query": "include binary media in tool results",
+    "operations": true,
+    "stratum": "unfiltered"
+  },
+  {
+    "name": "confirmation-unfiltered-4",
+    "query": "publish a resource for client access",
+    "operations": true,
+    "stratum": "unfiltered"
+  },
+  {
+    "name": "confirmation-unfiltered-5",
+    "query": "cancel work when a session closes",
+    "operations": true,
+    "stratum": "unfiltered"
+  },
+  {
+    "name": "confirmation-unfiltered-6",
+    "query": "mount another MCP server",
+    "operations": true,
+    "stratum": "unfiltered"
+  },
+  {
+    "name": "confirmation-unfiltered-7",
+    "query": "restrict server access with a token",
+    "operations": true,
+    "stratum": "unfiltered"
+  },
+  {
+    "name": "confirmation-broad-0",
+    "query": "intercept tool execution in middleware",
+    "operations": true,
+    "stratum": "broad",
+    "where": {
+      "path_prefix": "fastmcp.server"
+    }
+  },
+  {
+    "name": "confirmation-broad-1",
+    "query": "discover registered tools and resources",
+    "operations": true,
+    "stratum": "broad",
+    "where": {
+      "path_prefix": "fastmcp.server"
+    }
+  },
+  {
+    "name": "confirmation-broad-2",
+    "query": "decode a structured response from a tool",
+    "operations": true,
+    "stratum": "broad",
+    "where": {
+      "path_prefix": "fastmcp.server"
+    }
+  },
+  {
+    "name": "confirmation-broad-3",
+    "query": "initialize resources during server startup",
+    "operations": true,
+    "stratum": "broad",
+    "where": {
+      "path_prefix": "fastmcp.server"
+    }
+  },
+  {
+    "name": "confirmation-broad-4",
+    "query": "access the active client session",
+    "operations": true,
+    "stratum": "broad",
+    "where": {
+      "path_prefix": "fastmcp.server"
+    }
+  },
+  {
+    "name": "confirmation-broad-5",
+    "query": "enforce a timeout on request execution",
+    "operations": true,
+    "stratum": "broad",
+    "where": {
+      "path_prefix": "fastmcp.server"
+    }
+  },
+  {
+    "name": "confirmation-broad-6",
+    "query": "send a progress notification",
+    "operations": true,
+    "stratum": "broad",
+    "where": {
+      "path_prefix": "fastmcp.server"
+    }
+  },
+  {
+    "name": "confirmation-broad-7",
+    "query": "register a parameterized resource",
+    "operations": true,
+    "stratum": "broad",
+    "where": {
+      "path_prefix": "fastmcp.server"
+    }
+  },
+  {
+    "name": "confirmation-brief",
+    "query": "configure a client transport",
+    "operations": false,
+    "stratum": "unfiltered"
+  },
+  {
+    "name": "confirmation-selective",
+    "query": "construct a new MCP application",
+    "operations": true,
+    "stratum": "selective",
+    "where": {
+      "path_prefix": "fastmcp.server.server.FastMCP"
+    }
+  }
+]
