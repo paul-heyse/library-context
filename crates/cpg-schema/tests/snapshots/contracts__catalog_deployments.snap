@@ -1,0 +1,15 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table catalog_deployments
+family findings
+key snapshot_id, deployment_id
+@lctx.family=findings
+@lctx.table=catalog_deployments
+snapshot_id: FixedSizeBinary(16) NOT NULL
+deployment_id: FixedSizeBinary(16) NOT NULL
+span_id: FixedSizeBinary(16) NOT NULL
+ordinal: Int64 NOT NULL
+derivation: Utf8 NOT NULL
+detail: Utf8 NOT NULL

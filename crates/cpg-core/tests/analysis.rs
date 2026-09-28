@@ -1423,6 +1423,12 @@ async fn briefs_are_synthesized_from_findings_and_verbatim_evidence() {
             21,
             "6a836b23d3b23a0ed6d92e198669dd2a7ec41da4872b8684f59aa5e6fee45ccd",
         ),
+        // Original contextual evidence adds independent roots; brief synthesis is retained.
+        (
+            110,
+            21,
+            "6a836b23d3b23a0ed6d92e198669dd2a7ec41da4872b8684f59aa5e6fee45ccd",
+        ),
     ];
     // Texts, and every identity column of Stage F's tables (slice 1.5 review F6).
     let mut output = format!(

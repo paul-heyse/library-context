@@ -9,7 +9,7 @@ and the disposition of known defects.
 
 | Responsibility | Owner | Source entry / adjacent consumer |
 |---|---|---|
-| API/evidence product target and Context7 differentiation | [Product target (§14)](sections/api-and-evidence-product.md) | Catalog and ordered contracts under ADR-0072; shared Rust wire schemas, isolated derivations and bounded surface/configuration links Implemented under ADR-0073/0074; comparative acceptance open |
+| API/evidence product target and Context7 differentiation | [Product target (§14)](sections/api-and-evidence-product.md) | Catalog and ordered contracts under ADR-0072; shared Rust wire schemas, isolated derivations and bounded surface/configuration links Implemented under ADR-0073/0074, original contextual evidence under ADR-0076; comparative acceptance open |
 | Scope, binding decisions, dependency family, deferrals | [DESIGN §1, §2, §7, §13](DESIGN.md) | Every owner below; ADRs govern its §B sections |
 | Fact authority, identity, codebooks, coverage, graph catalog | [Facts and identity (§3–§3.8)](sections/facts-and-identity.md) | [cpg-schema](../../crates/cpg-schema/src/lib.rs); extraction produces these contracts, codebooks stay append-only |
 | Catalog wire contracts and library adoption | [Query §14.7](sections/api-and-evidence-product.md#section-14-7), [library policy §14.11](sections/api-and-evidence-product.md#section-14-11) | PR2 Implemented under ADR-0073: shared current requests/packets, nominal IDs, Schemars and offline conformance; PR4 classifier and conditional engines retain named consumers |

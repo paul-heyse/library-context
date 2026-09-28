@@ -77,8 +77,29 @@ pub async fn cached_session(ctx: &SessionContext) -> Result<SessionContext, Core
         .unwrap_or_default();
     for name in names {
         let df = ctx.table(name.as_str()).await?;
-        let schema = Arc::new(df.schema().as_arrow().clone());
-        let partitions = df.collect_partitioned().await?;
+        // Relation identity belongs to the registered name. Table-level Arrow metadata
+        // is not a column constraint, and conflicts when the optimizer combines empty
+        // relations in a UNION. Keep field metadata, normalize only this transient cache.
+        let schema = Arc::new(
+            df.schema()
+                .as_arrow()
+                .clone()
+                .with_metadata(Default::default()),
+        );
+        let partitions = df
+            .collect_partitioned()
+            .await?
+            .into_iter()
+            .map(|partition| {
+                partition
+                    .into_iter()
+                    .map(|mut batch| {
+                        batch.schema_metadata_mut().clear();
+                        batch
+                    })
+                    .collect()
+            })
+            .collect::<Vec<Vec<_>>>();
         cache.register_table(
             name.as_str(),
             Arc::new(MemTable::try_new(schema, partitions)?),
@@ -87,12 +108,11 @@ pub async fn cached_session(ctx: &SessionContext) -> Result<SessionContext, Core
     Ok(cache)
 }
 
-/// [`validate`], with each rule's cost, so a stage report can name what dominates. Violations and
-/// costs come back in `rules()` order, whatever order the rules finished in.
-pub async fn validate_costed(
-    ctx: &SessionContext,
+/// Shared relational diagnostics over a fully registered session. Also used when typed
+/// catalog construction refuses malformed raw input before publication's full validation.
+pub(crate) async fn relational_costed(
+    cache: &SessionContext,
 ) -> Result<(Vec<Violation>, Vec<RuleCost>), CoreError> {
-    let cache = cached_session(ctx).await?;
     let mut results: Vec<(usize, Option<Violation>, RuleCost)> =
         futures::stream::iter(rules().into_iter().enumerate())
             .map(|(i, rule)| {
@@ -113,6 +133,16 @@ pub async fn validate_costed(
         violations.extend(v);
         costs.push(c);
     }
+    Ok((violations, costs))
+}
+
+/// [`validate`], with each rule's cost, so a stage report can name what dominates. Violations and
+/// costs come back in `rules()` order, whatever order the rules finished in.
+pub async fn validate_costed(
+    ctx: &SessionContext,
+) -> Result<(Vec<Violation>, Vec<RuleCost>), CoreError> {
+    let cache = cached_session(ctx).await?;
+    let (mut violations, costs) = relational_costed(&cache).await?;
     let selected: Vec<cpg_schema::catalog::CatalogCompilationRow> = sql::fetch(
         &cache,
         &cpg_schema::query::Relation {

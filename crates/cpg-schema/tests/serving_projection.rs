@@ -56,8 +56,8 @@ fn full_manifest_identity_rejects_missing_relations_and_mixed_spec() {
         capabilities: cpg_schema::catalog::Capabilities::for_profile(
             cpg_schema::catalog::CompileProfile::Behavioral,
         ),
-        format: 4,
-        bundle_format: 14,
+        format: cpg_schema::serving_projection::FORMAT,
+        bundle_format: cpg_schema::serving_projection::BUNDLE_FORMAT,
         context: cpg_schema::serving_projection::ServingContext {
             library: "fixture".into(),
             requirement: "fixture==1".into(),
@@ -156,6 +156,6 @@ fn ipc_shared_buffers_and_slices_have_the_same_logical_budget() {
 fn definition_encoding_is_independent_of_serde_json_map_features() {
     assert_eq!(
         cpg_schema::serving_projection::definition_digest(),
-        "d80632970fa412b011452de744c3e48ab5743b61c5a8eb044971f139baaf0fe3"
+        "2bf46c425829451404bbdc7aeeccf821660b8d7cf96c92a0efeb6dfc118feffd"
     );
 }

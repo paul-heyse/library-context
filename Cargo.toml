@@ -88,6 +88,10 @@ base64 = "=0.22.1"
 # The docs family (CPG slice C5, docs/pins.md): markdown-rs, MDX constructs and byte offsets
 # (probe P5).
 markdown = "=1.0.0"
+# PR3: pure Python packaging metadata parsers (ADR-0076).
+pep508_rs = { version = "=0.9.2", default-features = false }
+mailparse = "=0.17.0"
+rust-ini = { version = "=0.21.3", default-features = false }
 getrandom = "=0.3.4"
 # H1 (the library-leverage review): utility crates already in the graph at exactly these versions
 # (Pyrefly, delta-rs, uv tooling), so none adds a version; `docs/pins.md` "Utility crates".

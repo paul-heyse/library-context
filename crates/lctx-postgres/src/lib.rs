@@ -3,7 +3,9 @@
 pub mod admission;
 mod cache;
 pub mod diagnostics;
+mod evidence;
 mod hydration;
+pub use evidence::EvidenceOptions;
 pub mod import;
 mod mixed_qualification;
 pub mod operations;

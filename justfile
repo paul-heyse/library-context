@@ -176,7 +176,7 @@ postgres-test-setup:
 # Real database semantics; pure model tests do not require a running service.
 test-postgres: py-fixture
     @docker image inspect "$(cat specs/postgres-vector-image.txt)" >/dev/null || { echo 'blocked: run just postgres-test-setup'; exit 2; }
-    LCTX_TEST_PROJECTION="$PWD/build/py-fixture/$(cat build/py-fixture/CURRENT)" INSTA_UPDATE=no cargo nextest run --release -p cpg-core --test postgres -p lctx-postgres --test serving --run-ignored only --test-threads 2 --no-fail-fast --success-output immediate -E 'not test(captured_reference_parity)'
+    LCTX_TEST_PROJECTION="$PWD/build/py-fixture/$(cat build/py-fixture/CURRENT)" INSTA_UPDATE=no cargo nextest run --release -p cpg-core --test postgres --test catalog_evidence -p lctx-postgres --test serving --run-ignored only --test-threads 2 --no-fail-fast --success-output immediate -E 'not test(captured_reference_parity)'
     LCTX_POSTGRES_TEST=1 uv run pytest tests/scripts/test_postgres_serving.py
 
 # Explicit comparison with a previously frozen, same-input reference answer capture.

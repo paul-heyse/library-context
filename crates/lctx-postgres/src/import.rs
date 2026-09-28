@@ -787,7 +787,7 @@ fn recovery_envelope(
             }
             true
         }
-        (Some(2), Some(12)) | (Some(3), Some(13)) => false,
+        (Some(2), Some(12)) | (Some(3), Some(13)) | (Some(4), Some(14)) => false,
         _ => return Err(corrupt("unsupported retained manifest format").into()),
     };
     let artifacts: BTreeMap<String, contract::ArtifactReceipt> =

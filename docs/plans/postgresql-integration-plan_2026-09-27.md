@@ -57,7 +57,11 @@ under ADR-0073/0074; qualification and operator deployment belong to the forward
 and the runbook. Behavior-model catalog7 and the 1024 embedding specification are unchanged.
 Online serving
 retains native/lexical state and a PostgreSQL pin; relational maps and dense Python vector scans have been removed.
-**Product extension: PR2 foundation Implemented; PR3–PR5 remain Proposed (ADR-0073/0074):** the
+PR3 adds compiler110/extractor36, FORMAT15/projection5/wire2 and additive migration011 under
+ADR-0076: original Binary/bytea evidence, contextual scenarios/deployment and typed bounded
+expansion. Qualification and operator cutover are tracked by the same product plan/runbook.
+
+**Product extension: PR2 foundation Implemented; PR3 Implemented/Tested and deployed; PR4–PR5 Proposed (ADR-0073/0074/0076):** the
 [forward plan PR2–PR5](behavioral-model-forward-plan_2026-09-24.md#30-consolidated-execution) owns
 shared Rust wire schemas, nominal IDs, typed catalog hydration, pure derivations and selective
 SQLx checking. These build on the qualified PG foundation and do not reopen PG0–PG17 or select

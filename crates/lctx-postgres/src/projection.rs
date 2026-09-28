@@ -10,7 +10,7 @@ use cpg_schema::{
 /// COPY targets a temporary staging table. real[] is checked and cast to vector(1024) on INSERT.
 pub fn staging_type(t: &DataType) -> Result<&'static str, ProjectionError> {
     Ok(match t {
-        DataType::FixedSizeBinary(16 | 32) => "bytea",
+        DataType::FixedSizeBinary(16 | 32) | DataType::Binary => "bytea",
         DataType::Utf8 => "text",
         DataType::Int64 => "bigint",
         DataType::Boolean => "boolean",
@@ -58,14 +58,29 @@ pub fn catalog_ddl() -> Result<String, ProjectionError> {
 pub fn specificity_ddl() -> Result<String, ProjectionError> {
     relation_ddl_for(2)
 }
+pub fn evidence_ddl() -> Result<String, ProjectionError> {
+    relation_ddl_for(3)
+}
 fn relation_ddl_for(increment: u8) -> Result<String, ProjectionError> {
+    let evidence = |name: &str| {
+        matches!(
+            name,
+            "catalog_artifacts"
+                | "catalog_spans"
+                | "catalog_scenarios"
+                | "catalog_deployments"
+                | "catalog_associations"
+        )
+    };
     let selected = |name: &str| match increment {
+        3 => evidence(name),
         2 => matches!(
             name,
             "catalog_surfaces" | "catalog_configurations" | "catalog_field_links"
         ),
         1 => {
             name.starts_with("catalog_")
+                && !evidence(name)
                 && !matches!(
                     name,
                     "catalog_surfaces" | "catalog_configurations" | "catalog_field_links"
@@ -190,6 +205,18 @@ pub(crate) fn decode_schema(
     for field in schema.fields() {
         let col = field.name().as_str();
         columns.push(match field.data_type() {
+            DataType::Binary => {
+                let mut b = arrow_array::builder::BinaryBuilder::new();
+                for row in rows {
+                    let value: Option<Vec<u8>> =
+                        row.try_get(col).map_err(|_| corrupt("blob decode"))?;
+                    match value {
+                        Some(v) => b.append_value(v),
+                        None => b.append_null(),
+                    };
+                }
+                Arc::new(b.finish())
+            }
             DataType::FixedSizeBinary(width) => {
                 let mut b = FixedSizeBinaryBuilder::with_capacity(rows.len(), *width);
                 for row in rows {

@@ -91,7 +91,7 @@ pub fn admitted_descriptor(
 
 /// Resolve the root through lexical observations, then append syntactic attribute segments.
 /// Any conflicting root or local variable keeps the effective target unresolved.
-fn resolved(expr: &Expr, module: Id, base: i64, facts: &CatalogFacts) -> Option<String> {
+pub(crate) fn resolved(expr: &Expr, module: Id, base: i64, facts: &CatalogFacts) -> Option<String> {
     match expr {
         Expr::Call(c) => resolved(&c.func, module, base, facts),
         Expr::Attribute(a) => Some(format!(

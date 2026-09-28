@@ -225,18 +225,51 @@ impl PinnedRepository {
             encode(store.resolve(&pinned, &operation).await.map_err(error)?)
         })
     }
+    #[pyo3(signature=(snapshot,operation,expanded=false,evidence_limit=20,evidence_cursor=None))]
     fn get_operation<'py>(
         &self,
         py: Python<'py>,
         snapshot: String,
         operation: String,
+        expanded: bool,
+        evidence_limit: u32,
+        evidence_cursor: Option<String>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let store = self.store.clone();
         let pinned = self.pinned.clone();
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             encode(
                 store
-                    .get_operation(&pinned, &snapshot, &operation)
+                    .get_operation_with_evidence(
+                        &pinned,
+                        &snapshot,
+                        &operation,
+                        &lctx_postgres::EvidenceOptions {
+                            expanded,
+                            limit: evidence_limit,
+                            cursor: evidence_cursor,
+                        },
+                    )
+                    .await
+                    .map_err(error)?,
+            )
+        })
+    }
+    fn get_evidence<'py>(&self, py: Python<'py>, request: String) -> PyResult<Bound<'py, PyAny>> {
+        let request: cpg_schema::wire::GetEvidenceRequest =
+            serde_json::from_str(&request).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let store = self.store.clone();
+        let pinned = self.pinned.clone();
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            encode(
+                store
+                    .get_evidence(
+                        &pinned,
+                        &request.snapshot_id.storage().hex(),
+                        request.evidence,
+                        request.cursor.as_ref().map(|c| c.as_str()),
+                        request.expanded,
+                    )
                     .await
                     .map_err(error)?,
             )

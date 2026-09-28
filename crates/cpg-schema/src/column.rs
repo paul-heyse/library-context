@@ -25,6 +25,31 @@ use crate::id::{Digest, Id};
 /// Field metadata key naming a column's codebook.
 pub const CODEBOOK_KEY: &str = "lctx.codebook";
 
+/// Opaque original bytes. Never lossy-decoded into an evidence citation.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Blob(pub Vec<u8>);
+impl ArrowColumn for Blob {
+    fn data_type() -> DataType {
+        DataType::Binary
+    }
+    fn nullable() -> bool {
+        false
+    }
+    fn array<'a>(values: impl ExactSizeIterator<Item = &'a Self>) -> ArrayRef {
+        Arc::new(arrow_array::BinaryArray::from_iter_values(
+            values.map(|v| v.0.as_slice()),
+        ))
+    }
+    fn read(array: &dyn Array, i: usize) -> Result<Self, ArrowError> {
+        present(array, i)?;
+        let array = array
+            .as_any()
+            .downcast_ref::<arrow_array::BinaryArray>()
+            .ok_or_else(|| ArrowError::CastError("expected Binary".into()))?;
+        Ok(Self(array.value(i).to_vec()))
+    }
+}
+
 pub trait ArrowColumn: Sized {
     fn data_type() -> DataType;
     fn nullable() -> bool;

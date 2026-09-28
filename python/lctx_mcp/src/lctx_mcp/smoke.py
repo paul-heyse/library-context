@@ -67,6 +67,15 @@ async def smoke(
             record = result.structured_content or {}
             if record.get("capabilities") != capabilities or not record.get("catalog"):
                 raise RuntimeError("catalog contract/capabilities missing from operation packet")
+            references = record["catalog"].get("evidence_page", {}).get("items", [])
+            if references:
+                evidence = await client.call_tool(
+                    "get_evidence",
+                    {"snapshot_id": manifest["snapshot_id"], "evidence": references[0]["evidence"]},
+                )
+                packet = evidence.structured_content or {}
+                if packet.get("result_kind") != "evidence" or not packet.get("content"):
+                    raise RuntimeError("original evidence did not hydrate through MCP")
         if not capabilities["briefs"]:
             result = await client.call_tool(
                 "search_capabilities", {"library": manifest["library"], "query": "catalog"}

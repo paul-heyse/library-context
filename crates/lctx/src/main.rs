@@ -108,8 +108,12 @@ enum Cmd {
         reinstall: bool,
     },
     /// Acquire, then Stage A, extract, derive, validate and publish.
+    DeploymentIdentity { name: String },
     Compile {
         name: String,
+        /// Explicit receipts produced by scripts/deployment_check.py; never executes their source.
+        #[arg(long)]
+        evidence_observations: Vec<PathBuf>,
         /// Catalog contracts by default; behavioral adds the retained analysis and brief pipeline.
         #[arg(long, value_enum, default_value = "catalog")]
         profile: Profile,
@@ -507,6 +511,7 @@ fn compile(
     techniques: cpg_core::analyze::Techniques,
     profile: Profile,
     public_roots: Vec<String>,
+    evidence_observations: Vec<PathBuf>,
 ) -> anyhow::Result<()> {
     let runtime = tokio::runtime::Runtime::new()?;
     let snapshot = random_id()?;
@@ -581,6 +586,7 @@ fn compile(
             );
         }
         let mut output = extract(&input)?;
+        cpg_extract::observations::attach(&input, &mut output, &evidence_observations)?;
         let extracted = started.elapsed();
         if let Some(db) = &pg {
             for (index, stage) in output.stages.iter().enumerate() {
@@ -997,8 +1003,17 @@ fn run() -> anyhow::Result<()> {
             }
             Ok(())
         }
+        Cmd::DeploymentIdentity { name } => {
+            let input = library::acquired(&libraries.join(&name), &envs.join(&name), Id::ZERO)?;
+            println!(
+                "{}",
+                serde_json::to_string(&cpg_extract::observations::identity(&input)?)?
+            );
+            Ok(())
+        }
         Cmd::Compile {
             name,
+            evidence_observations,
             profile,
             public_root,
             store,
@@ -1024,6 +1039,7 @@ fn run() -> anyhow::Result<()> {
                 cpg_core::analyze::Techniques::parse(&analytics).map_err(|e| anyhow::anyhow!(e))?,
                 profile,
                 public_root,
+                evidence_observations,
             )
         }
         Cmd::Bundle {

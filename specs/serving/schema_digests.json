@@ -250,5 +250,25 @@
   "catalog_field_links": {
     "form": "[{\"metadata\":[],\"name\":\"link_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"field_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"class_node_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"signature_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"ordinal\",\"nullable\":false,\"type\":\"int64\"},{\"metadata\":[],\"name\":\"formal_node_id\",\"nullable\":true,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"reader_node_id\",\"nullable\":true,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"source_fact_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"kind\",\"nullable\":false,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"reason\",\"nullable\":true,\"type\":\"utf8\"}]",
     "digest": "eb863ea06ed04fdc4f18571c4ea3a89eefb5e132e42a566726280ac9828def80"
+  },
+  "catalog_artifacts": {
+    "form": "[{\"metadata\":[],\"name\":\"artifact_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"release_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"path\",\"nullable\":false,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"source_kind\",\"nullable\":false,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"source_digest\",\"nullable\":false,\"type\":\"fixed_size_binary(32)\"},{\"metadata\":[],\"name\":\"byte_len\",\"nullable\":false,\"type\":\"int64\"},{\"metadata\":[],\"name\":\"body\",\"nullable\":false,\"type\":\"binary\"},{\"metadata\":[],\"name\":\"alignment\",\"nullable\":false,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"provenance\",\"nullable\":false,\"type\":\"utf8\"}]",
+    "digest": "2433bff5a346becad88d803bf168a0ce067dee6148b87ee46afd65156f83c6f5"
+  },
+  "catalog_spans": {
+    "form": "[{\"metadata\":[],\"name\":\"span_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"artifact_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"start_byte\",\"nullable\":false,\"type\":\"int64\"},{\"metadata\":[],\"name\":\"end_byte\",\"nullable\":false,\"type\":\"int64\"},{\"metadata\":[],\"name\":\"extraction\",\"nullable\":false,\"type\":\"utf8\"}]",
+    "digest": "c8ed27c9c0a482370c30fe3498b428d1704036d4bc58a2f6618ea81f3e8aec33"
+  },
+  "catalog_scenarios": {
+    "form": "[{\"metadata\":[],\"name\":\"scenario_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"primary_span_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"detail\",\"nullable\":false,\"type\":\"utf8\"}]",
+    "digest": "ecad0551b3735f4b63971a4df1d0feaf08dfb3b536801ec9c1d5234a8d230dd9"
+  },
+  "catalog_deployments": {
+    "form": "[{\"metadata\":[],\"name\":\"deployment_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"span_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"ordinal\",\"nullable\":false,\"type\":\"int64\"},{\"metadata\":[],\"name\":\"derivation\",\"nullable\":false,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"detail\",\"nullable\":false,\"type\":\"utf8\"}]",
+    "digest": "6dcb79ff4552eb358d100208cb29aaee063607f26b85739c44c2e46a12aaacad"
+  },
+  "catalog_associations": {
+    "form": "[{\"metadata\":[],\"name\":\"association_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"member_id\",\"nullable\":true,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"release_id\",\"nullable\":true,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"evidence_id\",\"nullable\":false,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"evidence_kind\",\"nullable\":false,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"role\",\"nullable\":false,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"basis\",\"nullable\":false,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"site_id\",\"nullable\":true,\"type\":\"fixed_size_binary(16)\"},{\"metadata\":[],\"name\":\"intent\",\"nullable\":false,\"type\":\"utf8\"},{\"metadata\":[],\"name\":\"support\",\"nullable\":false,\"type\":\"utf8\"}]",
+    "digest": "dd3bcb81b765fc950a37dae1e0bfe27536ff4e63b98ceecb5ca334852025aa09"
   }
 }

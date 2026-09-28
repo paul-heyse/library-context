@@ -1541,6 +1541,7 @@ macro_rules! for_each_table {
             $crate::tables::Producers,
             $crate::tables::Releases,
             $crate::tables::Distributions,
+            $crate::evidence::CapturedArtifacts,
             $crate::tables::SourceFiles,
             $crate::tables::ContextModules,
             $crate::tables::ContextDefinitions,

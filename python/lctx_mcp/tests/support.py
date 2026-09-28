@@ -92,9 +92,9 @@ class PgFixture:
     def load(self, spec=None):
         return load_pinned(self.pinned, json.loads(self.pinned.descriptor()), self.inputs, spec)
 
-    def operation(self, gen, snapshot, operation):
+    def operation(self, gen, snapshot, operation, *, expanded=False):
         return ops.Operation.model_validate_json(
-            self.call(self.pinned.get_operation, snapshot, operation)
+            self.call(self.pinned.get_operation, snapshot, operation, expanded)
         )
 
     def find(self, gen, where, limit, cursor):

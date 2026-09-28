@@ -2,6 +2,10 @@
 use super::*;
 pub fn schema(name: &str, output: bool) -> Result<serde_json::Value, WireError> {
     match name {
+        "TaskReceipt" => Ok(schema_for::<crate::evidence::TaskReceipt>(output)),
+        "GetEvidenceRequest" => Ok(schema_for::<GetEvidenceRequest>(output)),
+        "GetEvidenceResponse" => Ok(schema_for::<GetEvidenceResponse>(output)),
+        "EvidenceResult" => Ok(schema_for::<EvidenceResult>(output)),
         "Requirement" => Ok(schema_for::<Requirement>(output)),
         "RequirementResult" => Ok(schema_for::<RequirementResult>(output)),
         "EmbeddingSpec" => Ok(schema_for::<crate::embedding_spec::Spec>(output)),
@@ -81,6 +85,10 @@ pub fn decode(name: &str, raw: &str) -> Result<String, WireError> {
         return Err(WireError("resource_refused: wire byte budget".into()));
     }
     match name {
+        "TaskReceipt" => normalize::<crate::evidence::TaskReceipt>(raw),
+        "GetEvidenceRequest" => normalize::<GetEvidenceRequest>(raw),
+        "GetEvidenceResponse" => normalize::<GetEvidenceResponse>(raw),
+        "EvidenceResult" => normalize::<EvidenceResult>(raw),
         "Requirement" => normalize::<Requirement>(raw),
         "RequirementResult" => normalize::<RequirementResult>(raw),
         "EmbeddingSpec" => normalize::<crate::embedding_spec::Spec>(raw),

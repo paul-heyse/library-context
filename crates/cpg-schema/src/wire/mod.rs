@@ -15,12 +15,14 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwn
 use std::{borrow::Cow, collections::BTreeMap, fmt};
 
 mod dispatch;
+mod evidence;
 mod responses;
 mod vocabulary;
 pub use dispatch::{decode, schema};
+pub use evidence::*;
 pub use responses::*;
 pub use vocabulary::*;
-pub const FORMAT: u32 = 1;
+pub const FORMAT: u32 = 2;
 pub const RESPONSE_BYTES: usize = 8 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -131,6 +133,9 @@ nominal_id!(PublicMemberId, crate::Id, 32);
 nominal_id!(BindingId, crate::Id, 32);
 nominal_id!(SignatureId, crate::Id, 32);
 nominal_id!(EvidenceId, crate::Id, 32);
+nominal_id!(SpanId, crate::Id, 32);
+nominal_id!(ScenarioId, crate::Id, 32);
+nominal_id!(DeploymentId, crate::Id, 32);
 nominal_id!(TypeTermId, crate::Id, 32);
 nominal_id!(SnapshotId, crate::Id, 32);
 nominal_id!(CapabilityId, crate::Id, 32);
@@ -327,6 +332,10 @@ pub struct GetOperationRequest {
     pub operation: Text<1, 500>,
     #[serde(default)]
     pub expanded: bool,
+    #[serde(default)]
+    pub evidence_limit: Limit<50, 20>,
+    #[serde(default)]
+    pub evidence_cursor: Option<Text<0, 2048>>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -400,6 +409,7 @@ pub enum SearchOperationsResponse {
 
 pub fn tool_contract(name: &str) -> Result<(&'static str, &'static str), WireError> {
     match name {
+        "get_evidence" => Ok(("GetEvidenceRequest", "GetEvidenceResponse")),
         "get_operation" => Ok(("GetOperationRequest", "GetOperationResponse")),
         "get_capability" => Ok(("GetCapabilityRequest", "GetCapabilityResponse")),
         "search_capabilities" => Ok(("SearchCapabilitiesRequest", "SearchCapabilitiesResponse")),
@@ -430,6 +440,7 @@ pub fn tool_result(name: &str, raw: &str, expanded: bool) -> Result<String, Wire
         match name {
             "get_operation" if value["resolution"] == "ambiguous" => "ambiguous",
             "get_operation" => "operation",
+            "get_evidence" => "evidence",
             "get_capability" => "capability",
             "inspect_value_paths" => "paths",
             _ => "results",
@@ -440,7 +451,7 @@ pub fn tool_result(name: &str, raw: &str, expanded: bool) -> Result<String, Wire
         .ok_or_else(|| WireError("expected response object".into()))?
         .insert("result_kind".into(), kind.into());
     let encoded = decode(tool_contract(name)?.1, &serde_json::to_string(&value)?)?;
-    let limit = if name == "get_operation" {
+    let limit = if matches!(name, "get_operation" | "get_evidence") {
         if expanded { 256 * 1024 } else { 32 * 1024 }
     } else {
         RESPONSE_BYTES

@@ -128,7 +128,7 @@ def test_lookup_keeps_each_facet_value_verdict_separate_from_completeness(
     pg_serving,
 ) -> None:
     gen = pg_serving.load()
-    op = pg_serving.operation(gen, gen.snapshot_id, "pkg.configure")
+    op = pg_serving.operation(gen, gen.snapshot_id, "pkg.configure", expanded=True)
     unknown = next(f for f in op.facets["delegates_to"] if f.value == "pkg.controls.Registry.add")
     assert unknown.verdict == "unknown"
     assert any(f.verdict == "established" for f in op.facets["delegates_to"])

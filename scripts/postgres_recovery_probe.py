@@ -28,7 +28,11 @@ async def probe(config: Path, receipt: Path):
                     manifest["format"],
                     manifest["bundle_format"],
                     generation["runtime_admission"],
-                ) not in {(2, 12, "legacy_runtime_required"), (3, 13, "legacy_runtime_required")}:
+                ) not in {
+                    (2, 12, "legacy_runtime_required"),
+                    (3, 13, "legacy_runtime_required"),
+                    (4, 14, "legacy_runtime_required"),
+                }:
                     raise RuntimeError("unrecognized legacy generation")
                 results.append(
                     {

@@ -50,6 +50,8 @@ async def stdout_lines(args: list[str]) -> list[str]:
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.DEVNULL,
+        # tools/list carries full schemas; this is a transport framing control, not a packet budget.
+        limit=1024 * 1024,
         env={**os.environ, "FASTMCP_CHECK_FOR_UPDATES": "off"},
     )
     assert process.stdin is not None and process.stdout is not None

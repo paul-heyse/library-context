@@ -467,6 +467,7 @@ fn corpus_input(dir: &Path, s: Id, extra: &[(&str, &str)]) -> ExtractInput {
             version: "1.0".to_owned(),
             artifact_sha256: Vec::new(),
             record_digest: cpg_schema::id::Digest::ZERO,
+            metadata: Vec::new(),
         }],
         owners: ["pkg/__init__.py", "pkg/core.py"]
             .into_iter()
@@ -506,6 +507,8 @@ fn source() -> cpg_extract::library::Source {
         examples_exclude: vec![],
         tests: vec!["tests/**/*.py".to_owned()],
         tests_exclude: vec![],
+        assets: vec![],
+        assets_exclude: vec![],
     }
 }
 
@@ -1841,7 +1844,8 @@ async fn all_techniques_guard() {
     // format-2 spec identity (the word-overlap test oracle retains its own 64-dimension model),
     // then compiler108 catalog contracts and explicit enrichment capabilities (ADR-0072),
     // then compiler109 ordered surface/configuration contracts and shared admission (ADR-0074).
-    const GUARD: &str = "90356b2d77755fddc8cd53c613842ae71d0e6327b76d3a39ea546e5bad95cfeb";
+    // Compiler110/extractor36: original contextual evidence and verified metadata (ADR-0076).
+    const GUARD: &str = "7bf39413ea7d470c2d7f2fb77c4d44aff28a58fdbc472cd319eaf38417002114";
     assert_eq!(digest, GUARD, "the all-techniques guard moved");
 }
 

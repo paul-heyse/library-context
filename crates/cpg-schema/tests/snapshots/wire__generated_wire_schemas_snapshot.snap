@@ -940,6 +940,850 @@ expression: "serde_json::to_string_pretty(&schemas).unwrap()"
     },
     "type": "object"
   },
+  "get_evidence.input": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "GetEvidenceRequest",
+    "type": "object",
+    "properties": {
+      "snapshot_id": {
+        "$ref": "#/$defs/SnapshotId"
+      },
+      "evidence": {
+        "$ref": "#/$defs/EvidenceRef"
+      },
+      "cursor": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/Text0To2048"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "expanded": {
+        "type": "boolean",
+        "default": false
+      }
+    },
+    "additionalProperties": false,
+    "required": [
+      "snapshot_id",
+      "evidence"
+    ],
+    "$defs": {
+      "SnapshotId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "EvidenceRef": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "span"
+              },
+              "id": {
+                "$ref": "#/$defs/SpanId"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "scenario"
+              },
+              "id": {
+                "$ref": "#/$defs/ScenarioId"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "deployment"
+              },
+              "id": {
+                "$ref": "#/$defs/DeploymentId"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "SpanId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "ScenarioId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "DeploymentId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "Text0To2048": {
+        "type": "string",
+        "minLength": 0,
+        "maxLength": 2048
+      }
+    }
+  },
+  "get_evidence.output": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "GetEvidenceResponse",
+    "oneOf": [
+      {
+        "type": "object",
+        "properties": {
+          "result_kind": {
+            "type": "string",
+            "const": "evidence"
+          }
+        },
+        "$ref": "#/$defs/EvidenceResult",
+        "required": [
+          "result_kind"
+        ]
+      }
+    ],
+    "$defs": {
+      "SnapshotId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "GenerationDigest": {
+        "type": "string",
+        "minLength": 64,
+        "maxLength": 64,
+        "pattern": "^[0-9a-fA-F]{64}$"
+      },
+      "EvidenceRef": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "span"
+              },
+              "id": {
+                "$ref": "#/$defs/SpanId"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "scenario"
+              },
+              "id": {
+                "$ref": "#/$defs/ScenarioId"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "deployment"
+              },
+              "id": {
+                "$ref": "#/$defs/DeploymentId"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "SpanId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "ScenarioId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "DeploymentId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "ScenarioDetail": {
+        "type": "object",
+        "properties": {
+          "spans": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/Id"
+            }
+          },
+          "context": {
+            "$ref": "#/$defs/ContextStatus"
+          },
+          "intent": {
+            "$ref": "#/$defs/Intent"
+          },
+          "checks": {
+            "$ref": "#/$defs/Checks"
+          },
+          "requirements": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/ContextRequirement"
+            }
+          },
+          "extraction": {
+            "type": "string"
+          },
+          "analysis_module": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Id"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "option_bindings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/OptionBinding"
+            }
+          },
+          "omitted_options": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          },
+          "omitted_requirements": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "spans",
+          "context",
+          "intent",
+          "checks",
+          "requirements",
+          "extraction",
+          "analysis_module",
+          "option_bindings",
+          "omitted_options",
+          "omitted_requirements"
+        ]
+      },
+      "Id": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]+$"
+      },
+      "ContextStatus": {
+        "type": "string",
+        "enum": [
+          "complete",
+          "context_dependent",
+          "truncated",
+          "refused"
+        ]
+      },
+      "Intent": {
+        "type": "string",
+        "enum": [
+          "demonstration",
+          "assertion_test",
+          "expected_failure",
+          "skip_xfail",
+          "mixed",
+          "unknown"
+        ]
+      },
+      "Checks": {
+        "type": "object",
+        "properties": {
+          "parse": {
+            "$ref": "#/$defs/CheckStatus"
+          },
+          "binding": {
+            "$ref": "#/$defs/CheckStatus"
+          },
+          "environment": {
+            "$ref": "#/$defs/CheckStatus"
+          },
+          "execution": {
+            "$ref": "#/$defs/CheckStatus"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "parse",
+          "binding",
+          "environment",
+          "execution"
+        ]
+      },
+      "CheckStatus": {
+        "type": "string",
+        "enum": [
+          "passed",
+          "failed",
+          "not_run",
+          "blocked"
+        ]
+      },
+      "ContextRequirement": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "expression": {
+            "type": "string"
+          },
+          "evidence": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Id"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "expression",
+          "evidence"
+        ]
+      },
+      "OptionBinding": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "$ref": "#/$defs/Id"
+          },
+          "ordinal": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "keyword": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": "string"
+          },
+          "expression": {
+            "type": "string"
+          },
+          "span_id": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Id"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "coordinate_space": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "site_id",
+          "ordinal",
+          "keyword",
+          "kind",
+          "expression",
+          "span_id",
+          "coordinate_space"
+        ]
+      },
+      "DeploymentDetail": {
+        "type": "object",
+        "properties": {
+          "distribution": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "field": {
+            "type": "string"
+          },
+          "original": {
+            "type": "string"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "extras": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "marker": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "constraint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "interpretation": {
+            "$ref": "#/$defs/CheckStatus"
+          },
+          "diagnostic": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "environment_digest": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Digest"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lock_digest": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Digest"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "task": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/TaskObservation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "referenced_path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "distribution",
+          "version",
+          "field",
+          "original",
+          "name",
+          "extras",
+          "marker",
+          "constraint",
+          "interpretation",
+          "diagnostic",
+          "environment_digest",
+          "lock_digest",
+          "task",
+          "referenced_path"
+        ]
+      },
+      "Digest": {
+        "type": "string",
+        "minLength": 64,
+        "maxLength": 64,
+        "pattern": "^[0-9a-fA-F]+$"
+      },
+      "TaskObservation": {
+        "type": "object",
+        "properties": {
+          "target_artifact": {
+            "$ref": "#/$defs/Id"
+          },
+          "receipt": {
+            "$ref": "#/$defs/TaskReceipt"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "target_artifact",
+          "receipt"
+        ]
+      },
+      "TaskReceipt": {
+        "type": "object",
+        "properties": {
+          "format": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "policy": {
+            "type": "string"
+          },
+          "task": {
+            "type": "string"
+          },
+          "runner_sha256": {
+            "type": "string"
+          },
+          "source_path": {
+            "type": "string"
+          },
+          "source_sha256": {
+            "type": "string"
+          },
+          "environment": {
+            "$ref": "#/$defs/DeploymentEnvironment"
+          },
+          "command": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tool": {
+            "type": "string"
+          },
+          "arguments": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          "elapsed_ms": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          },
+          "timeout_seconds": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "execution": {
+            "$ref": "#/$defs/CheckStatus"
+          },
+          "tools": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "result": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "diagnostic": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "format",
+          "policy",
+          "task",
+          "runner_sha256",
+          "source_path",
+          "source_sha256",
+          "environment",
+          "command",
+          "tool",
+          "arguments",
+          "elapsed_ms",
+          "timeout_seconds",
+          "execution",
+          "tools",
+          "result",
+          "diagnostic"
+        ]
+      },
+      "DeploymentEnvironment": {
+        "type": "object",
+        "properties": {
+          "release_id": {
+            "$ref": "#/$defs/Id"
+          },
+          "lock_digest": {
+            "$ref": "#/$defs/Digest"
+          },
+          "environment_digest": {
+            "$ref": "#/$defs/Digest"
+          },
+          "runtime_digest": {
+            "$ref": "#/$defs/Digest"
+          },
+          "interpreter_digest": {
+            "$ref": "#/$defs/Digest"
+          },
+          "python_version": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "requirement": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/$defs/Digest"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "release_id",
+          "lock_digest",
+          "environment_digest",
+          "runtime_digest",
+          "interpreter_digest",
+          "python_version",
+          "platform",
+          "requirement",
+          "metadata"
+        ]
+      },
+      "OriginalContent": {
+        "type": "object",
+        "properties": {
+          "span_id": {
+            "$ref": "#/$defs/Id"
+          },
+          "artifact_id": {
+            "$ref": "#/$defs/Id"
+          },
+          "release_id": {
+            "$ref": "#/$defs/Id"
+          },
+          "source_digest": {
+            "$ref": "#/$defs/Digest"
+          },
+          "path": {
+            "type": "string"
+          },
+          "source_kind": {
+            "type": "string"
+          },
+          "alignment": {
+            "$ref": "#/$defs/Alignment"
+          },
+          "provenance": {
+            "type": "string"
+          },
+          "span_start": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "span_end": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "chunk_start": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "chunk_end": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "text": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "bytes_base64": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "complete": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "span_id",
+          "artifact_id",
+          "release_id",
+          "source_digest",
+          "path",
+          "source_kind",
+          "alignment",
+          "provenance",
+          "span_start",
+          "span_end",
+          "chunk_start",
+          "chunk_end",
+          "text",
+          "bytes_base64",
+          "complete"
+        ]
+      },
+      "Alignment": {
+        "type": "string",
+        "enum": [
+          "exact",
+          "mapped_with_evidence",
+          "other",
+          "unknown"
+        ]
+      },
+      "EvidenceResult": {
+        "type": "object",
+        "properties": {
+          "snapshot_id": {
+            "$ref": "#/$defs/SnapshotId"
+          },
+          "generation": {
+            "$ref": "#/$defs/GenerationDigest"
+          },
+          "evidence": {
+            "$ref": "#/$defs/EvidenceRef"
+          },
+          "scenario": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ScenarioDetail"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "deployment": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/DeploymentDetail"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "metadata_omitted": {
+            "type": "boolean"
+          },
+          "content": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/OriginalContent"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "snapshot_id",
+          "generation",
+          "evidence",
+          "scenario",
+          "deployment",
+          "metadata_omitted",
+          "content",
+          "next_cursor"
+        ]
+      }
+    },
+    "type": "object"
+  },
   "get_operation.input": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "title": "GetOperationRequest",
@@ -954,6 +1798,21 @@ expression: "serde_json::to_string_pretty(&schemas).unwrap()"
       "expanded": {
         "type": "boolean",
         "default": false
+      },
+      "evidence_limit": {
+        "$ref": "#/$defs/Limit50Default20",
+        "default": 20
+      },
+      "evidence_cursor": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/Text0To2048"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
       }
     },
     "additionalProperties": false,
@@ -972,6 +1831,16 @@ expression: "serde_json::to_string_pretty(&schemas).unwrap()"
         "type": "string",
         "minLength": 1,
         "maxLength": 500
+      },
+      "Limit50Default20": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 50
+      },
+      "Text0To2048": {
+        "type": "string",
+        "minLength": 0,
+        "maxLength": 2048
       }
     }
   },
@@ -1044,6 +1913,15 @@ expression: "serde_json::to_string_pretty(&schemas).unwrap()"
       "CatalogRecord": {
         "type": "object",
         "properties": {
+          "evidence_page": {
+            "$ref": "#/$defs/EvidencePage"
+          },
+          "demonstrations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/EvidenceResult"
+            }
+          },
           "surfaces": {
             "type": "array",
             "items": {
@@ -1083,12 +1961,6 @@ expression: "serde_json::to_string_pretty(&schemas).unwrap()"
               "$ref": "#/$defs/CatalogSignature"
             }
           },
-          "evidence": {
-            "type": "array",
-            "items": {
-              "$ref": "#/$defs/CatalogEvidenceRow"
-            }
-          },
           "type_observations": {
             "type": "array",
             "items": {
@@ -1115,6 +1987,8 @@ expression: "serde_json::to_string_pretty(&schemas).unwrap()"
           }
         },
         "required": [
+          "evidence_page",
+          "demonstrations",
           "surfaces",
           "configurations",
           "field_links",
@@ -1122,12 +1996,902 @@ expression: "serde_json::to_string_pretty(&schemas).unwrap()"
           "constructors",
           "bindings",
           "signatures",
-          "evidence",
           "type_observations",
           "types",
           "type_arguments",
           "effective_surface",
           "basis"
+        ]
+      },
+      "EvidencePage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/EvidenceAssociation"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "demonstrations": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          },
+          "negative": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          },
+          "context_dependent": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "next_cursor",
+          "demonstrations",
+          "negative",
+          "context_dependent"
+        ]
+      },
+      "EvidenceAssociation": {
+        "type": "object",
+        "properties": {
+          "subject": {
+            "$ref": "#/$defs/AssociationSubject"
+          },
+          "association_id": {
+            "$ref": "#/$defs/Id"
+          },
+          "evidence": {
+            "$ref": "#/$defs/EvidenceRef"
+          },
+          "role": {
+            "type": "string"
+          },
+          "basis": {
+            "type": "string"
+          },
+          "intent": {
+            "$ref": "#/$defs/Intent"
+          },
+          "site_id": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Id"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "support": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/AssociationSupport"
+            }
+          }
+        },
+        "required": [
+          "subject",
+          "association_id",
+          "evidence",
+          "role",
+          "basis",
+          "intent",
+          "site_id",
+          "support"
+        ]
+      },
+      "AssociationSubject": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "member_id": {
+                "$ref": "#/$defs/Id"
+              },
+              "kind": {
+                "type": "string",
+                "const": "member"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "member_id"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "release_id": {
+                "$ref": "#/$defs/Id"
+              },
+              "kind": {
+                "type": "string",
+                "const": "release"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "release_id"
+            ]
+          }
+        ]
+      },
+      "Id": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]+$"
+      },
+      "EvidenceRef": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "span"
+              },
+              "id": {
+                "$ref": "#/$defs/SpanId"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "scenario"
+              },
+              "id": {
+                "$ref": "#/$defs/ScenarioId"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "deployment"
+              },
+              "id": {
+                "$ref": "#/$defs/DeploymentId"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "SpanId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "ScenarioId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "DeploymentId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "Intent": {
+        "type": "string",
+        "enum": [
+          "demonstration",
+          "assertion_test",
+          "expected_failure",
+          "skip_xfail",
+          "mixed",
+          "unknown"
+        ]
+      },
+      "AssociationSupport": {
+        "type": "object",
+        "properties": {
+          "edge_id": {
+            "$ref": "#/$defs/Id"
+          },
+          "fact_id": {
+            "$ref": "#/$defs/Id"
+          },
+          "support_fact_id": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Id"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "target_id": {
+            "$ref": "#/$defs/Id"
+          },
+          "modality": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "unresolved_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "context_span_id": {
+            "$ref": "#/$defs/Id"
+          },
+          "analysis_module": {
+            "$ref": "#/$defs/Id"
+          },
+          "start_byte": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "end_byte": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "coordinate_space": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "edge_id",
+          "fact_id",
+          "support_fact_id",
+          "target_id",
+          "modality",
+          "phase",
+          "unresolved_reason",
+          "context_span_id",
+          "analysis_module",
+          "start_byte",
+          "end_byte",
+          "coordinate_space"
+        ]
+      },
+      "EvidenceResult": {
+        "type": "object",
+        "properties": {
+          "snapshot_id": {
+            "$ref": "#/$defs/SnapshotId"
+          },
+          "generation": {
+            "$ref": "#/$defs/GenerationDigest"
+          },
+          "evidence": {
+            "$ref": "#/$defs/EvidenceRef"
+          },
+          "scenario": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ScenarioDetail"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "deployment": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/DeploymentDetail"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "metadata_omitted": {
+            "type": "boolean"
+          },
+          "content": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/OriginalContent"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "snapshot_id",
+          "generation",
+          "evidence",
+          "scenario",
+          "deployment",
+          "metadata_omitted",
+          "content",
+          "next_cursor"
+        ]
+      },
+      "ScenarioDetail": {
+        "type": "object",
+        "properties": {
+          "spans": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/Id"
+            }
+          },
+          "context": {
+            "$ref": "#/$defs/ContextStatus"
+          },
+          "intent": {
+            "$ref": "#/$defs/Intent"
+          },
+          "checks": {
+            "$ref": "#/$defs/Checks"
+          },
+          "requirements": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/ContextRequirement"
+            }
+          },
+          "extraction": {
+            "type": "string"
+          },
+          "analysis_module": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Id"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "option_bindings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/OptionBinding"
+            }
+          },
+          "omitted_options": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          },
+          "omitted_requirements": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "spans",
+          "context",
+          "intent",
+          "checks",
+          "requirements",
+          "extraction",
+          "analysis_module",
+          "option_bindings",
+          "omitted_options",
+          "omitted_requirements"
+        ]
+      },
+      "ContextStatus": {
+        "type": "string",
+        "enum": [
+          "complete",
+          "context_dependent",
+          "truncated",
+          "refused"
+        ]
+      },
+      "Checks": {
+        "type": "object",
+        "properties": {
+          "parse": {
+            "$ref": "#/$defs/CheckStatus"
+          },
+          "binding": {
+            "$ref": "#/$defs/CheckStatus"
+          },
+          "environment": {
+            "$ref": "#/$defs/CheckStatus"
+          },
+          "execution": {
+            "$ref": "#/$defs/CheckStatus"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "parse",
+          "binding",
+          "environment",
+          "execution"
+        ]
+      },
+      "CheckStatus": {
+        "type": "string",
+        "enum": [
+          "passed",
+          "failed",
+          "not_run",
+          "blocked"
+        ]
+      },
+      "ContextRequirement": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "expression": {
+            "type": "string"
+          },
+          "evidence": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Id"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "expression",
+          "evidence"
+        ]
+      },
+      "OptionBinding": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "$ref": "#/$defs/Id"
+          },
+          "ordinal": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "keyword": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": "string"
+          },
+          "expression": {
+            "type": "string"
+          },
+          "span_id": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Id"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "coordinate_space": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "site_id",
+          "ordinal",
+          "keyword",
+          "kind",
+          "expression",
+          "span_id",
+          "coordinate_space"
+        ]
+      },
+      "DeploymentDetail": {
+        "type": "object",
+        "properties": {
+          "distribution": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "field": {
+            "type": "string"
+          },
+          "original": {
+            "type": "string"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "extras": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "marker": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "constraint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "interpretation": {
+            "$ref": "#/$defs/CheckStatus"
+          },
+          "diagnostic": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "environment_digest": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Digest"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lock_digest": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Digest"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "task": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/TaskObservation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "referenced_path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "distribution",
+          "version",
+          "field",
+          "original",
+          "name",
+          "extras",
+          "marker",
+          "constraint",
+          "interpretation",
+          "diagnostic",
+          "environment_digest",
+          "lock_digest",
+          "task",
+          "referenced_path"
+        ]
+      },
+      "Digest": {
+        "type": "string",
+        "minLength": 64,
+        "maxLength": 64,
+        "pattern": "^[0-9a-fA-F]+$"
+      },
+      "TaskObservation": {
+        "type": "object",
+        "properties": {
+          "target_artifact": {
+            "$ref": "#/$defs/Id"
+          },
+          "receipt": {
+            "$ref": "#/$defs/TaskReceipt"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "target_artifact",
+          "receipt"
+        ]
+      },
+      "TaskReceipt": {
+        "type": "object",
+        "properties": {
+          "format": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "policy": {
+            "type": "string"
+          },
+          "task": {
+            "type": "string"
+          },
+          "runner_sha256": {
+            "type": "string"
+          },
+          "source_path": {
+            "type": "string"
+          },
+          "source_sha256": {
+            "type": "string"
+          },
+          "environment": {
+            "$ref": "#/$defs/DeploymentEnvironment"
+          },
+          "command": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tool": {
+            "type": "string"
+          },
+          "arguments": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          "elapsed_ms": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          },
+          "timeout_seconds": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "execution": {
+            "$ref": "#/$defs/CheckStatus"
+          },
+          "tools": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "result": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "diagnostic": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "format",
+          "policy",
+          "task",
+          "runner_sha256",
+          "source_path",
+          "source_sha256",
+          "environment",
+          "command",
+          "tool",
+          "arguments",
+          "elapsed_ms",
+          "timeout_seconds",
+          "execution",
+          "tools",
+          "result",
+          "diagnostic"
+        ]
+      },
+      "DeploymentEnvironment": {
+        "type": "object",
+        "properties": {
+          "release_id": {
+            "$ref": "#/$defs/Id"
+          },
+          "lock_digest": {
+            "$ref": "#/$defs/Digest"
+          },
+          "environment_digest": {
+            "$ref": "#/$defs/Digest"
+          },
+          "runtime_digest": {
+            "$ref": "#/$defs/Digest"
+          },
+          "interpreter_digest": {
+            "$ref": "#/$defs/Digest"
+          },
+          "python_version": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "requirement": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/$defs/Digest"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "release_id",
+          "lock_digest",
+          "environment_digest",
+          "runtime_digest",
+          "interpreter_digest",
+          "python_version",
+          "platform",
+          "requirement",
+          "metadata"
+        ]
+      },
+      "OriginalContent": {
+        "type": "object",
+        "properties": {
+          "span_id": {
+            "$ref": "#/$defs/Id"
+          },
+          "artifact_id": {
+            "$ref": "#/$defs/Id"
+          },
+          "release_id": {
+            "$ref": "#/$defs/Id"
+          },
+          "source_digest": {
+            "$ref": "#/$defs/Digest"
+          },
+          "path": {
+            "type": "string"
+          },
+          "source_kind": {
+            "type": "string"
+          },
+          "alignment": {
+            "$ref": "#/$defs/Alignment"
+          },
+          "provenance": {
+            "type": "string"
+          },
+          "span_start": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "span_end": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "chunk_start": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "chunk_end": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "text": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "bytes_base64": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "complete": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "span_id",
+          "artifact_id",
+          "release_id",
+          "source_digest",
+          "path",
+          "source_kind",
+          "alignment",
+          "provenance",
+          "span_start",
+          "span_end",
+          "chunk_start",
+          "chunk_end",
+          "text",
+          "bytes_base64",
+          "complete"
+        ]
+      },
+      "Alignment": {
+        "type": "string",
+        "enum": [
+          "exact",
+          "mapped_with_evidence",
+          "other",
+          "unknown"
         ]
       },
       "CatalogSurfacesRow": {
@@ -1186,12 +2950,6 @@ expression: "serde_json::to_string_pretty(&schemas).unwrap()"
           "admission",
           "reason"
         ]
-      },
-      "Id": {
-        "type": "string",
-        "minLength": 32,
-        "maxLength": 32,
-        "pattern": "^[0-9a-fA-F]+$"
       },
       "NullableId": {
         "anyOf": [
@@ -1802,67 +3560,6 @@ expression: "serde_json::to_string_pretty(&schemas).unwrap()"
           "source_expression",
           "optional_expression_unavailable",
           "unknown"
-        ]
-      },
-      "CatalogEvidenceRow": {
-        "description": "A row of `catalog_evidence`.",
-        "type": "object",
-        "properties": {
-          "evidence_id": {
-            "$ref": "#/$defs/Id"
-          },
-          "subject_node_id": {
-            "$ref": "#/$defs/Id"
-          },
-          "source_fact_id": {
-            "$ref": "#/$defs/Id"
-          },
-          "source_digest": {
-            "$ref": "#/$defs/Digest"
-          },
-          "path": {
-            "type": "string"
-          },
-          "start_byte": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "end_byte": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "role": {
-            "$ref": "#/$defs/EvidenceRole"
-          },
-          "text": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "evidence_id",
-          "subject_node_id",
-          "source_fact_id",
-          "source_digest",
-          "path",
-          "start_byte",
-          "end_byte",
-          "role",
-          "text"
-        ]
-      },
-      "Digest": {
-        "type": "string",
-        "minLength": 64,
-        "maxLength": 64,
-        "pattern": "^[0-9a-fA-F]+$"
-      },
-      "EvidenceRole": {
-        "type": "string",
-        "enum": [
-          "declares",
-          "surface",
-          "configuration",
-          "reader"
         ]
       },
       "CatalogTypeObservationsRow": {

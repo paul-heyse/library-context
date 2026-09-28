@@ -11,6 +11,7 @@ pub mod derive;
 pub mod diff;
 pub mod embed;
 pub mod entry_links;
+pub mod evidence;
 pub mod flow_model;
 pub mod postgres;
 pub mod snapshot;

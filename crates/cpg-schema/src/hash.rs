@@ -7,6 +7,11 @@ use crate::id::{Digest, Id, IdHasher};
 pub trait HashField {
     fn hash_into(&self, h: &mut IdHasher);
 }
+impl HashField for crate::column::Blob {
+    fn hash_into(&self, h: &mut IdHasher) {
+        h.bytes(&self.0);
+    }
+}
 
 impl HashField for Id {
     fn hash_into(&self, h: &mut IdHasher) {

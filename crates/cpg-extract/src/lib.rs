@@ -13,6 +13,8 @@ mod flow;
 mod lexical;
 pub mod library;
 pub mod logging;
+pub mod metadata;
+pub mod observations;
 mod public;
 mod pysa_map;
 mod syntax;
@@ -76,6 +78,39 @@ pub use config::{
 use facts::{FactSink, Provenance, Surface, dedup_by_fact, fact_row};
 use pysa_map::{Here, Locator, ModuleRefs, PysaOut};
 use walk::{ModuleCtx, span};
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "explicit captured artifact provenance"
+)]
+fn capture(
+    snapshot_id: Id,
+    release_id: Id,
+    context_id: Id,
+    path: &str,
+    source_kind: &str,
+    bytes: &[u8],
+    alignment: &str,
+    provenance: &str,
+    observations: &[cpg_schema::evidence::DeploymentDetail],
+) -> Result<cpg_schema::evidence::CapturedArtifactsRow, ExtractError> {
+    let source_digest = cpg_schema::id::content_digest(bytes);
+    Ok(cpg_schema::evidence::CapturedArtifactsRow {
+        snapshot_id,
+        artifact_id: cpg_schema::evidence::artifact_id(release_id, path, source_digest),
+        release_id,
+        context_id,
+        path: path.into(),
+        source_kind: source_kind.into(),
+        source_digest,
+        byte_len: bytes.len() as i64,
+        body: cpg_schema::column::Blob(bytes.to_vec()),
+        alignment: alignment.into(),
+        provenance: provenance.into(),
+        observations: serde_json::to_string(observations)
+            .map_err(|e| ExtractError::Library(e.to_string()))?,
+    })
+}
 
 /// The fact families this producer declares (coverage rows exist for each, per module).
 pub const FAMILIES: [FactFamily; 7] = [
@@ -294,7 +329,7 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
             .into_iter()
             .filter(|f| input.profile.behavioral() || *f != FactFamily::Flow)
             .collect::<Vec<_>>(),
-        Some((&corpus.documents, &vocabulary)),
+        Some((&corpus.documents, &vocabulary, &corpus.assets)),
     )?;
     merge(library, corpus_out)
 }
@@ -344,7 +379,7 @@ fn merge(a: ExtractOutput, b: ExtractOutput) -> Result<ExtractOutput, ExtractErr
 fn run_release(
     input: &ExtractInput,
     families: &[FactFamily],
-    documents: Option<(&[PathBuf], &docs::Vocabulary)>,
+    documents: Option<(&[PathBuf], &docs::Vocabulary, &[PathBuf])>,
 ) -> Result<(ExtractOutput, docs::Vocabulary), ExtractError> {
     let mut stages = Stages::new();
     let cfg = config::pyrefly_config(input)?;
@@ -980,7 +1015,72 @@ fn run_release(
 
     // A corpus's documents (C5), recognized against the library's vocabulary.
     let mut docs_out = docs::DocsOut::default();
-    if let Some((documents, vocabulary)) = documents {
+    let mut captured = Vec::new();
+    for source in &input.release.files {
+        let bytes = fs_err::read(source)?;
+        if std::str::from_utf8(&bytes).is_err() {
+            let path = source
+                .strip_prefix(&input.release.root)
+                .map_err(|_| ExtractError::RelativePath(source.clone()))?
+                .display()
+                .to_string();
+            captured.push(capture(
+                input.snapshot_id,
+                input.release.release_id,
+                context.id,
+                &path,
+                "invalid_python",
+                &bytes,
+                "unknown",
+                "Original source was not valid UTF-8; no parse or execution claimed.",
+                &[],
+            )?);
+        }
+    }
+    if let ReleaseOrigin::Library(library) = &input.release.origin {
+        for dist in &library.distributions {
+            for (path, bytes) in &dist.metadata {
+                let mut observations = if path.ends_with("/METADATA") {
+                    metadata::metadata(bytes)
+                } else {
+                    metadata::entry_points(bytes)
+                };
+                for row in &mut observations {
+                    if row
+                        .distribution
+                        .as_ref()
+                        .is_some_and(|d| library::normalize(d) != dist.name)
+                        || row.version.as_ref().is_some_and(|v| v != &dist.version)
+                    {
+                        row.interpretation = cpg_schema::evidence::CheckStatus::Failed;
+                        row.diagnostic =
+                            Some("metadata disagrees with installed distribution identity".into());
+                    }
+                    row.distribution = Some(dist.name.clone());
+                    row.version = Some(dist.version.clone());
+                    row.environment_digest = Some(context.environment_digest);
+                    row.lock_digest = Some(library.lock_digest);
+                }
+                captured.push(capture(
+                    input.snapshot_id,
+                    input.release.release_id,
+                    context.id,
+                    path,
+                    "distribution_metadata",
+                    bytes,
+                    "exact",
+                    &format!(
+                        "installed RECORD {} {} {}",
+                        dist.name,
+                        dist.version,
+                        dist.record_digest.hex()
+                    ),
+                    &observations,
+                )?);
+            }
+        }
+    }
+    if let Some((documents, vocabulary, assets)) = documents {
         for path in documents {
             let rel = path
                 .strip_prefix(&input.release.root)
@@ -988,6 +1088,22 @@ fn run_release(
                 .display()
                 .to_string();
             let bytes = fs_err::read(path)?;
+            captured.push(capture(
+                input.snapshot_id,
+                input.release.release_id,
+                context.id,
+                &rel,
+                "document",
+                &bytes,
+                "mapped_with_evidence",
+                &match &input.release.origin {
+                    ReleaseOrigin::Corpus { label, .. } => {
+                        format!("explicit pinned source mapping: {label}")
+                    }
+                    _ => "source mapping unavailable".into(),
+                },
+                &[],
+            )?);
             let c = docs::document(
                 &mut sink,
                 input.release.release_id,
@@ -1005,6 +1121,27 @@ fn run_release(
                 c.reason,
                 c.detail,
             );
+        }
+        for path in assets {
+            let rel = path
+                .strip_prefix(&input.release.root)
+                .map_err(|_| ExtractError::RelativePath(path.clone()))?
+                .display()
+                .to_string();
+            let bytes = fs_err::read(path)?;
+            if !captured.iter().any(|a| a.path == rel) {
+                captured.push(capture(
+                    input.snapshot_id,
+                    input.release.release_id,
+                    context.id,
+                    &rel,
+                    "configuration",
+                    &bytes,
+                    "mapped_with_evidence",
+                    "selected pinned source configuration",
+                    &metadata::configuration(&rel, &bytes),
+                )?);
+            }
         }
         stages.mark("extract: documents");
     }
@@ -1093,6 +1230,10 @@ fn run_release(
         (Runs::NAME, Runs::to_sorted_batch(&runs)?),
         (Contexts::NAME, Contexts::to_sorted_batch(&contexts)?),
         (Producers::NAME, Producers::to_sorted_batch(&producers)?),
+        (
+            cpg_schema::evidence::CapturedArtifacts::NAME,
+            cpg_schema::evidence::CapturedArtifacts::to_sorted_batch(&captured)?,
+        ),
         (Releases::NAME, Releases::to_sorted_batch(&releases)?),
         (
             Distributions::NAME,

@@ -52,9 +52,9 @@ async def test_real_mcp_listing_and_call_use_native_contracts():
     received = []
 
     @register(mcp, annotations)
-    async def get_operation(snapshot_id, operation, expanded, ctx):
+    async def get_operation(snapshot_id, operation, expanded, evidence_limit, evidence_cursor, ctx):
         """Contract transport control."""
-        received.append((snapshot_id, operation, expanded))
+        received.append((snapshot_id, operation, expanded, evidence_limit, evidence_cursor))
         return {
             "snapshot_id": snapshot_id,
             "generation": "11" * 32,
@@ -71,7 +71,7 @@ async def test_real_mcp_listing_and_call_use_native_contracts():
         result = await client.call_tool(
             "get_operation", {"snapshot_id": "AB" * 16, "operation": "pkg.member"}
         )
-        assert received == [("ab" * 16, "pkg.member", False)]
+        assert received == [("ab" * 16, "pkg.member", False, 20, None)]
         assert result.structured_content is not None
         assert result.structured_content["result_kind"] == "ambiguous"
         for extra in [{"unexpected": True}, {"expanded": 1}]:

@@ -427,6 +427,8 @@ async fn pg_published_bundle_replays_every_byte_after_database_stops() {
                 examples_exclude: vec![],
                 tests: vec![],
                 tests_exclude: vec![],
+                assets: vec![],
+                assets_exclude: vec![],
             },
             &input,
         )
@@ -525,8 +527,8 @@ budget = 6
     let report = cpg_core::postgres_read::report(&role, &store, id, source.generation())
         .await
         .unwrap();
-    // Projection4 adds three specificity relations to the existing operational report.
-    assert_eq!(report.json["rows"].as_array().unwrap().len(), 63);
+    // Projection5 adds five contextual evidence relations.
+    assert_eq!(report.json["rows"].as_array().unwrap().len(), 68);
     assert_eq!(
         report.json["diagnostics"]["captured_profiles"]
             .as_array()

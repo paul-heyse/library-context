@@ -154,6 +154,11 @@ pub fn serving_files() -> Vec<crate::bundle::ServingFile> {
         file::<CatalogSurfaces>(),
         file::<CatalogConfigurations>(),
         file::<CatalogFieldLinks>(),
+        file::<crate::evidence::CatalogArtifacts>(),
+        file::<crate::evidence::CatalogSpans>(),
+        file::<crate::evidence::CatalogScenarios>(),
+        file::<crate::evidence::CatalogDeployments>(),
+        file::<crate::evidence::CatalogAssociations>(),
     ]
 }
 
@@ -205,6 +210,41 @@ pub fn vocabulary(relation: &str, field: &str) -> Option<Vec<&'static str>> {
         Codebook, ParameterKind, RecordKind, TypeArgRole, TypeRole, TypeTermKind,
     };
     Some(match (relation, field) {
+        ("catalog_artifacts", "alignment") => {
+            vec!["exact", "mapped_with_evidence", "other", "unknown"]
+        }
+        ("catalog_associations", "evidence_kind") => vec!["span", "scenario", "deployment"],
+        ("catalog_associations", "role") => vec![
+            "declares",
+            "surface",
+            "configuration",
+            "reader",
+            "documents",
+            "demonstrates",
+            "invokes",
+            "tests_failure",
+            "suggests",
+            "observes",
+        ],
+        ("catalog_associations", "basis") => vec![
+            "source_fact",
+            "resolved_target",
+            "candidate_targets",
+            "exact_textual_reference",
+            "ambiguous_textual_mention",
+            "same_document_passage",
+            "owning_distribution",
+            "task_observation",
+            "release_distribution",
+            "explicit_config_reference",
+        ],
+        ("catalog_associations", "intent") => vec![
+            "demonstration",
+            "assertion_test",
+            "expected_failure",
+            "skip_xfail",
+            "unknown",
+        ],
         ("catalog_surfaces", "binding_mode") => vec!["class", "static", "property"],
         ("catalog_surfaces", "accessor_role") => {
             vec!["getter", "setter", "deleter", "cached_getter"]

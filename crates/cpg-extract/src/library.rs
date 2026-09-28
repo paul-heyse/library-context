@@ -37,6 +37,8 @@ pub struct Distribution {
     /// sha256 (hex) of every artifact the lock records for this version, sorted.
     pub artifact_sha256: Vec<String>,
     pub record_digest: Digest,
+    /// Exact metadata bytes verified in the same RECORD pass as Python input.
+    pub metadata: Vec<(String, Vec<u8>)>,
 }
 
 /// The library an acquired release came from.
@@ -85,12 +87,9 @@ pub fn analyzer_readable(path: &str) -> bool {
 
 /// The distribution name a requirement names: the text before any extras, specifier or marker.
 pub fn requirement_name(requirement: &str) -> String {
-    normalize(
-        requirement
-            .split(|c: char| "[<>=!~ ;(@".contains(c))
-            .next()
-            .unwrap_or_default(),
-    )
+    crate::metadata::requirement(requirement)
+        .map(|r| r.name.to_string())
+        .unwrap_or_default()
 }
 
 fn read(path: &Path) -> Result<String, ExtractError> {
@@ -135,6 +134,7 @@ fn parse_definition(text: &str) -> Result<Definition, String> {
     let p: PyProject = toml::from_str(text).map_err(|e| e.to_string())?;
     let [requirement] = <[String; 1]>::try_from(p.project.dependencies)
         .map_err(|_| "[project] dependencies must be one requirement".to_owned())?;
+    crate::metadata::requirement(&requirement)?;
     let release: Vec<String> = p.tool.lctx.release.iter().map(|r| normalize(r)).collect();
     if release.is_empty() {
         return Err("[tool.lctx] release must name distributions".to_owned());
@@ -380,10 +380,14 @@ pub fn acquired(
         let record_bytes = fs_err::read(dist_info.join("RECORD"))
             .map_err(|e| fail(format!("{}: {e}", dist_info.display())))?;
         let in_release = release.contains(dist);
+        let mut metadata = Vec::new();
         let entries = record_entries(&record_bytes)
             .map_err(|e| fail(format!("{}/RECORD: {e}", dist_info.display())))?;
         for (path, hash) in entries {
-            if !analyzer_readable(&path) {
+            let metadata_file = ["METADATA", "entry_points.txt"]
+                .iter()
+                .any(|name| site_packages.join(&path) == dist_info.join(name));
+            if !analyzer_readable(&path) && !metadata_file {
                 continue;
             }
             let expected =
@@ -395,6 +399,10 @@ pub fn acquired(
                 return Err(fail(format!(
                     "{dist}: {path} does not match its RECORD sha256; {remedy}"
                 )));
+            }
+            if metadata_file {
+                metadata.push((path, bytes));
+                continue;
             }
             owners.insert(path.clone(), dist.clone());
             if in_release {
@@ -412,6 +420,7 @@ pub fn acquired(
             version: version.clone(),
             artifact_sha256: locked.get(dist).map(|(_, a)| a.clone()).unwrap_or_default(),
             record_digest: content_digest(&record_bytes),
+            metadata,
         });
     }
     files.sort();
@@ -505,6 +514,11 @@ pub struct Source {
     /// Also what excludes a directory link under the tests (ADR-0018).
     #[serde(default)]
     pub tests_exclude: Vec<String>,
+    /// Original launch/config files, retained without executing or importing them.
+    #[serde(default)]
+    pub assets: Vec<String>,
+    #[serde(default)]
+    pub assets_exclude: Vec<String>,
 }
 
 /// The declared `[tool.lctx.source]`, checked as Stage A checks it; `None` when not declared. Its
@@ -705,6 +719,13 @@ pub fn corpus(
         &source.examples_exclude,
     )?;
     let tests = pick(tree, &walked, "tests", &source.tests, &source.tests_exclude)?;
+    let assets = pick(
+        tree,
+        &walked,
+        "assets",
+        &source.assets,
+        &source.assets_exclude,
+    )?;
     // A module has one role (ADR-0015): a file both keys select is refused, not ranked.
     if let Some(both) = examples.iter().find(|f| tests.contains(f)) {
         return Err(fail(format!(
@@ -737,16 +758,24 @@ pub fn corpus(
         ReleaseOrigin::Library(l) => Some(l.clone()),
         ReleaseOrigin::Tree { .. } | ReleaseOrigin::Corpus { .. } => None,
     };
+    let mut captured = documents.clone();
+    captured.extend(assets.iter().cloned());
+    captured.sort();
+    captured.dedup();
     let release = Release::corpus(
         tree.to_path_buf(),
         &label,
-        &documents,
+        &captured,
         usage,
         &analyzer_files,
         environment,
         library.release.release_id,
     )?;
-    Ok(crate::config::CorpusInput { release, documents })
+    Ok(crate::config::CorpusInput {
+        release,
+        documents,
+        assets,
+    })
 }
 
 #[cfg(test)]
@@ -871,6 +900,8 @@ mod corpus_identity_tests {
             examples_exclude: vec![],
             tests: vec![],
             tests_exclude: vec![],
+            assets: vec![],
+            assets_exclude: vec![],
         }
     }
 

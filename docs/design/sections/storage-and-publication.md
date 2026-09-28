@@ -244,8 +244,12 @@ that dated checkpoint does not establish current assembled Stage 3 acceptance.
 `mixed_embedding_specs_are_refused`, `serving_schema_digests_are_the_shared_known_answers`;
 2026-09-23 onward); the files marked below as later-stage are **Proposed**.
 
-**FORMAT 14 / projection FORMAT 4 (Implemented, 2026-09-28; ADR-0073/0074).** Adds attributed
-surface aspects, configuration fields and exact field links through additive migration010.
+**FORMAT 15 / projection FORMAT 5 (Implemented; qualification pending, 2026-09-28; ADR-0076).**
+Adds independently rooted original artifacts (`Binary` body / PG `bytea`), spans, contextual
+scenarios, deployment observations and typed site associations through additive migration011.
+Shared canonical/import/read-back validators check identities, original-byte bounds, option
+expressions and original task receipt equality. FORMAT14/projection4 introduced attributed
+surface aspects, configuration fields and exact field links through migration010.
 FORMAT13/projection3 introduced the mandatory
 catalog and finite compile-profile/capability contract. Native artifacts are required exactly when
 native analysis is advertised; unselected analysis relations retain typed empty schemas. FORMAT12
@@ -401,7 +405,7 @@ all consumers migrate. This is one mutable reuse service plus immutable per-snap
 records the foundation. PG12–PG15 add import, exact queries, retrieval qualification and reports;
 [query integration evidence](../../design_review/evidence/2026-09-28_postgresql-query/README.md) bounds those checks. PG16/PG17 local exact rollout/recovery and assembled acceptance passed;
 [operations evidence](../../design_review/evidence/2026-09-28_postgresql-operations/README.md) bounds the claim.
-`cpg-schema::serving_projection` owns FORMAT 4 manifests, all FORMAT 14 relation receipts,
+`cpg-schema::serving_projection` owns FORMAT 5 manifests, all FORMAT 15 relation receipts,
 native/lexical artifact identities and generation-local constraints. `serving_support` is shared
 by publication, file loading and import. Full content digests exclude physical row order/COPY
 batching, locations and retrieval profiles; multiplicity/nulls/float bits remain significant.

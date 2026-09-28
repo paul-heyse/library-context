@@ -370,6 +370,35 @@ pub async fn decorated(ctx: &SessionContext) -> Result<BTreeSet<Id>, CoreError> 
     ))
 }
 
+fn name_roots_sql(modules: &str) -> String {
+    format!(
+        "SELECT r.module_node_id, r.start_byte, r.end_byte, b.kind AS binding_kind, \
+                    b.name AS binding_name, b.module_node_id AS binding_module_node_id, \
+                    sc.kind AS binding_scope_kind, \
+                    COALESCE(e.resolved_module, e.imported_module) AS imported_module, \
+                    e.imported_name, rr.builtin_name \
+             FROM references r \
+             JOIN ({release}) m ON m.module_node_id = r.module_node_id \
+             JOIN reference_resolutions rr ON rr.reference_id = r.node_id \
+             JOIN bindings b ON b.node_id = rr.binding_id \
+             JOIN scopes sc ON sc.node_id = b.scope_id \
+             LEFT JOIN export_syntax e ON e.node_id = b.site_node_id \
+             UNION ALL \
+             SELECT r.module_node_id, r.start_byte, r.end_byte, {implicit} AS binding_kind, \
+                    rr.builtin_name AS binding_name, r.module_node_id AS binding_module_node_id, \
+                    {module_scope} AS binding_scope_kind, CAST(NULL AS VARCHAR), \
+                    CAST(NULL AS VARCHAR), rr.builtin_name \
+             FROM references r \
+             JOIN ({release}) m ON m.module_node_id = r.module_node_id \
+             JOIN reference_resolutions rr ON rr.reference_id = r.node_id \
+             WHERE rr.builtin_name IS NOT NULL \
+             ORDER BY 1, 2, 3, 4, 5",
+        release = modules,
+        implicit = BindingKind::Implicit.code(),
+        module_scope = LexicalScopeKind::Module.code(),
+    )
+}
+
 fn release_modules() -> String {
     format!(
         "SELECT module_node_id FROM source_files WHERE role = {}",
@@ -532,32 +561,11 @@ cpg_schema::relations! {
     /// Each name reference with the binding our resolution gives it, and an import's source.
     roots = "flow_model_roots",
         deps = ["references", "reference_resolutions", "bindings", "scopes", "export_syntax"],
-        sql = format!(
-            "SELECT r.module_node_id, r.start_byte, r.end_byte, b.kind AS binding_kind, \
-                    b.name AS binding_name, b.module_node_id AS binding_module_node_id, \
-                    sc.kind AS binding_scope_kind, \
-                    COALESCE(e.resolved_module, e.imported_module) AS imported_module, \
-                    e.imported_name, rr.builtin_name \
-             FROM references r \
-             JOIN ({release}) m ON m.module_node_id = r.module_node_id \
-             JOIN reference_resolutions rr ON rr.reference_id = r.node_id \
-             JOIN bindings b ON b.node_id = rr.binding_id \
-             JOIN scopes sc ON sc.node_id = b.scope_id \
-             LEFT JOIN export_syntax e ON e.node_id = b.site_node_id \
-             UNION ALL \
-             SELECT r.module_node_id, r.start_byte, r.end_byte, {implicit} AS binding_kind, \
-                    rr.builtin_name AS binding_name, r.module_node_id AS binding_module_node_id, \
-                    {module_scope} AS binding_scope_kind, CAST(NULL AS VARCHAR), \
-                    CAST(NULL AS VARCHAR), rr.builtin_name \
-             FROM references r \
-             JOIN ({release}) m ON m.module_node_id = r.module_node_id \
-             JOIN reference_resolutions rr ON rr.reference_id = r.node_id \
-             WHERE rr.builtin_name IS NOT NULL \
-             ORDER BY 1, 2, 3, 4, 5",
-            release = release_modules(),
-            implicit = BindingKind::Implicit.code(),
-            module_scope = LexicalScopeKind::Module.code(),
-        );
+        sql = name_roots_sql(&release_modules());
+    /// Catalog evidence also consumes usage modules; behavior roots remain release scoped.
+    all_roots = "catalog_all_name_roots",
+        deps = ["references", "reference_resolutions", "bindings", "scopes", "export_syntax", "source_files"],
+        sql = name_roots_sql("SELECT DISTINCT module_node_id FROM source_files");
     modules = "flow_model_modules",
         deps = ["source_files"],
         sql = format!(

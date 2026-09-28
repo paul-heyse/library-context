@@ -30,7 +30,7 @@ def receipt(name: str, table: pa.Table) -> dict:
                 body += b"\x00"
                 continue
             body += b"\x01"
-            if pa.types.is_fixed_size_binary(field.type):
+            if pa.types.is_fixed_size_binary(field.type) or pa.types.is_binary(field.type):
                 body += framed(value)
             elif pa.types.is_string(field.type):
                 body += framed(value.encode())

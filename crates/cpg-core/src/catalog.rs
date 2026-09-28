@@ -463,6 +463,7 @@ fn derive_population(
 
 #[derive(Default, Clone, Debug, PartialEq)]
 pub struct Contracts {
+    pub contextual: crate::evidence::EvidenceRows,
     pub members: Vec<CatalogMembersRow>,
     pub constructors: Vec<CatalogConstructorsRow>,
     pub bindings: Vec<CatalogBindingsRow>,
@@ -536,7 +537,11 @@ pub async fn contracts(
     public: &[PublicPathsRow],
 ) -> Result<Contracts, CoreError> {
     let facts = load_facts(ctx).await?;
-    derive_contracts(&facts, snapshot_id, roots, public)
+    let mut contracts = derive_contracts(&facts, snapshot_id, roots, public)?;
+    let evidence = crate::evidence::load(ctx).await?;
+    contracts.contextual = crate::evidence::PreparedEvidence::new(&facts, &evidence)
+        .derive(snapshot_id, &contracts)?;
+    Ok(contracts)
 }
 
 /// Complete immutable input set. Membership and missing observations are dependencies too.
@@ -599,7 +604,7 @@ pub async fn load_facts(ctx: &SessionContext) -> Result<CatalogFacts, CoreError>
         nodes: rows::<raw::SyntaxNodes>(ctx).await?,
         references: rows::<raw::References>(ctx).await?,
         resolutions: rows::<raw::ReferenceResolutions>(ctx).await?,
-        roots: sql::fetch(ctx, &crate::flow_model::roots(), sql::Params::new()).await?,
+        roots: sql::fetch(ctx, &crate::flow_model::all_roots(), sql::Params::new()).await?,
         descriptors: sql::fetch(ctx, &crate::flow_model::descriptors(), sql::Params::new()).await?,
         member_observations: sql::fetch(
             ctx,
@@ -1502,6 +1507,26 @@ pub async fn validate(
     }
     check!(cpg_schema::findings::PublicPaths, public);
     check!(CatalogSurfaces, expected.surfaces);
+    check!(
+        cpg_schema::evidence::CatalogArtifacts,
+        expected.contextual.artifacts
+    );
+    check!(
+        cpg_schema::evidence::CatalogSpans,
+        expected.contextual.spans
+    );
+    check!(
+        cpg_schema::evidence::CatalogScenarios,
+        expected.contextual.scenarios
+    );
+    check!(
+        cpg_schema::evidence::CatalogDeployments,
+        expected.contextual.deployments
+    );
+    check!(
+        cpg_schema::evidence::CatalogAssociations,
+        expected.contextual.associations
+    );
     check!(CatalogConfigurations, expected.configurations);
     check!(CatalogFieldLinks, expected.field_links);
     check!(CatalogBindings, expected.bindings);

@@ -32,6 +32,7 @@ fn generated_wire_schemas_snapshot() {
         "search_capabilities",
         "get_capability",
         "get_operation",
+        "get_evidence",
         "find_operations",
         "search_operations",
         "inspect_value_paths",

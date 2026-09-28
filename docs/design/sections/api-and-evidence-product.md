@@ -215,6 +215,8 @@ not attribute reading `title` to `t`. No general heap analysis is required.
 
 ## §14.5 Evidence, scenarios and useful relationships
 
+> Decision: ADR-0076
+
 Each evidence item names artifact digest, source kind, revision/release alignment, span or stable
 document anchor, original bytes and extraction method. An association names its subject and role:
 declares, documents, demonstrates, invokes, tests a failure, or suggests a candidate. Exact symbol
@@ -233,12 +235,32 @@ Use independent status dimensions, not a single quality ladder:
 
 - extraction/context: complete excerpt, context-dependent, truncated/refused;
 - checks: parse/binding/environment/execution each `passed`, `failed`, `not_run` or `blocked`;
-- intent/outcome: demonstration, assertion/test, expected failure, skip/xfail, unknown;
+- intent/outcome: demonstration, assertion/test, expected failure, skip/xfail, mixed, unknown;
 - execution observation, if any: exact environment, selected inputs, result and limits.
 
 An example parsed successfully is not an executed example. A passing test that expects an exception
 is not a successful-use recipe. Default packets prefer relevant positive demonstrations; negative
 cases appear as caveats with their intent. Missing runnable examples are disclosed, not fabricated.
+
+**PR3 Implemented and Tested (2026-09-28); qualification is recorded in the forward plan.** `cpg-core::evidence` consumes
+immutable acquired/catalog/coverage observations through its own pure pass. Five canonical
+relations separate original artifacts, byte spans, scenarios, deployment records and associations.
+Release-level package metadata is associated once with its compiled release. Serving returns
+explicit release subjects alongside member subjects, without implying API-specific requirements.
+Associations preserve provider edge/fact identity, modality, invocation phase and site coordinates;
+a singleton candidate does not become a resolved invocation. Python/MDX synthetic coordinates are
+explicitly separate from original fences. Enclosing functions/classes, module and import references,
+original argument expressions and unresolved test parameters survive compilation. Mixed scenarios
+keep per-site intent; expected-failure context stops at deferred bodies and excludes manager headers.
+Parse status comes from declared extraction coverage, including recovered syntax errors.
+
+Wire2 replaces the old unbounded `catalog.evidence` body list with `evidence_page` and up to two
+admitted demonstrations. References use nominal span/scenario/deployment IDs. `get_evidence`
+returns generation-qualified original bytes, source identity and context in 32 KiB default or
+256 KiB expanded packets. Metadata admission precedes body reads. Oversized typed detail is explicitly marked
+`metadata_omitted`; its primary original span remains independently readable and paginated.
+Canonical metadata is preserved. Optional demonstrations retain their reference when omitted. Cursors bind target, generation and representation.
+Pagination does not upgrade context/execution status or turn a partial source into a runnable recipe.
 
 **Independent evidence roots.** API contracts, options, scenarios and relationships seed the existing
 closure mechanism alongside behavioral claims and briefs. Export original code/docs and their
@@ -260,6 +282,8 @@ Persist routes needed by product queries; no arbitrary graph traversal or compos
 
 ## §14.6 Deployment evidence and reproducible use
 
+> Decision: ADR-0076
+
 Deployment is a first-product feature, not a synonym for our own PostgreSQL runbook. Acquire exact
 distribution metadata (`Requires-Python`, `Requires-Dist` and markers, `Provides-Extra`, entry
 points), selected environment/lock identity, and pinned source configuration/docs. Reuse existing
@@ -272,6 +296,22 @@ transport/setup relationships and required external services. Environment-variab
 source observations; they do not establish deployment necessity or acceptable production values.
 Never capture the operator's actual secret values. Shell/config examples remain source data and are
 not executed by indexing or by a search request.
+
+**PR3 Implemented and Tested (2026-09-28); qualification is recorded in the forward plan.** Acquisition verifies METADATA and
+entry-point bytes against RECORD before parsing. `pep508_rs::Requirement<url::Url>`, raw UTF-8
+mailparse headers and case-sensitive rust-ini preserve conditional requirements, duplicate fields,
+extras and interpretation failures. Selected JSON configuration fields and their explicit relative
+Python source references are observations; effective CLI acceptance remains unchecked. Distribution
+ownership and first-party release membership are separate association bases.
+
+The explicit `scripts/deployment_check.py` policy runs the selected original FastMCP config server
+in a disposable copy of the pinned environment, through its programmatic entry point and CLI. It
+performs actual MCP listing and `add(2,3)` interaction, owns subprocess groups, and bounds time and
+output. Receipts record source/runner hashes, command, exact lock, interpreter and runtime-file
+digests, selected inputs and observed outcome. `lctx compile --evidence-observations PATH` verifies
+these explicit inputs; stale receipts are refused and failed outcomes remain attributed. Compilation
+and requests never execute examples. These checks use the full locked extras environment and do
+not prove minimal installation, arbitrary transports, services or platforms.
 
 A deployment section returns the supported release/Python range, declared package or extra,
 original launch/config excerpt, relevant public APIs/options, external prerequisites and validation
@@ -287,7 +327,7 @@ provisioner or mandatory library-wide runtime probing.
 
 ## §14.7 Query semantics and customizable requirements
 
-> Decision: ADR-0071, ADR-0073
+> Decision: ADR-0071, ADR-0073, ADR-0076
 
 One finite typed request/classification contract lives in Rust. PostgreSQL performs relational
 selection; the existing pure condition kernel supplies any supported semantic decision. MCP
@@ -421,7 +461,7 @@ exact stays selected until the existing physical admission process independently
 
 ## §14.9 Agent interface and bounded implementation packet
 
-> Decision: ADR-0071, ADR-0073
+> Decision: ADR-0071, ADR-0073, ADR-0076
 
 Evolve existing tools and add only missing product actions. These are **target** contracts; current
 MCP schemas remain implemented until the versioned migration lands.
@@ -446,7 +486,8 @@ does not authorize deleting the underlying query capability.
 | `find_operations` | Exhaustive selection over the supported catalog predicate domain, coverage/counts and stable pagination |
 | `get_operation` | Resolve public member/path/declaration unambiguously and return the bounded implementation packet |
 | `browse_library` (new) | Deterministic module/class/member outline, supported facets and scoped counts; discover the usable query vocabulary |
-| `search_evidence` / `get_evidence` (new) | Independent docs, scenarios and deployment material plus pinned original excerpts and evidence expansion |
+| `get_evidence` (PR3) | Generation-qualified typed span/scenario/deployment expansion with bounded original-byte pages |
+| `search_evidence` (PR5) | Independent documentation, scenario and deployment discovery |
 | `compare_operations` (new, thin composition) | At most five named candidate APIs against the same requirements; reuse classifier and packet sections, no new inference |
 | Existing brief and native semantic tools | Optional enrichments with explicit generation capability availability; preserve honest failure/unknown behavior |
 
@@ -527,7 +568,7 @@ merely because the earlier external sketch shows one arrow. Old processes keep t
 
 ## §14.11 Library fit, retained work and exclusions
 
-> Decision: ADR-0071, ADR-0073, ADR-0074
+> Decision: ADR-0071, ADR-0073, ADR-0076, ADR-0074
 
 **PR2 library foundation Implemented (2026-09-28); conditional additions remain Proposed.** Reuse Ruff/Pyrefly/ty,
 Arrow/DataFusion/Delta, SQLx/pgpq/pgvector, existing graph/condition kernels, PyO3 async lifetime,
@@ -723,4 +764,4 @@ The existing fast editable environment remains the development path; no wheel or
 is introduced. Full formatting/integrated checks wait for the complete authorized implementation
 scope; focused checks follow each functional boundary.
 
-> Decision: ADR-0071, ADR-0073
+> Decision: ADR-0071, ADR-0073, ADR-0076

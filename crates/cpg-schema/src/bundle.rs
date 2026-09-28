@@ -861,6 +861,7 @@ pub fn type_grammar(t: &DataType) -> Result<String, String> {
         DataType::Float32 => "float32".to_owned(),
         DataType::Float64 => "float64".to_owned(),
         DataType::Utf8 => "utf8".to_owned(),
+        DataType::Binary => "binary".to_owned(),
         DataType::FixedSizeBinary(n) => format!("fixed_size_binary({n})"),
         DataType::List(f) => format!("list({})", child(f)?),
         DataType::FixedSizeList(f, n) => format!("fixed_size_list({}, {n})", child(f)?),

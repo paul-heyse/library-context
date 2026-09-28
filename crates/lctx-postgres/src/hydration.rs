@@ -195,15 +195,7 @@ async fn catalog_record(
         term_ids = ids(&args, "child_term_id")?;
         type_args.extend(args);
     }
-    let evidence = budget
-        .fetch(
-            conn,
-            generation,
-            "catalog_evidence",
-            Some("subject_node_id"),
-            &subjects,
-        )
-        .await?;
+    // Original bodies are now selected and expanded through typed evidence references.
     let params = grouped(parameters, "signature_id");
     for signature in &mut signatures {
         let mut parameters = group(
@@ -217,8 +209,9 @@ async fn catalog_record(
         signature.insert("parameters".into(), json!(parameters));
     }
     Ok(
-        json!({"member":member,"bindings":bindings,"constructors":constructors,"signatures":signatures,"evidence":evidence,
+        json!({"member":member,"bindings":bindings,"constructors":constructors,"signatures":signatures,
         "type_observations":observations,"types":types,"type_arguments":type_args,"surfaces":surfaces,"configurations":configurations,"field_links":field_links,
+        "evidence_page":cpg_schema::wire::EvidencePage::default(),"demonstrations":[],
         "effective_surface":"unresolved","basis":"source and attributed provider observations"}),
     )
 }
@@ -229,6 +222,21 @@ impl ServingStore {
         generation: &PinnedGeneration,
         snapshot: &str,
         operation: &str,
+    ) -> Result<Value, Error> {
+        self.get_operation_with_evidence(
+            generation,
+            snapshot,
+            operation,
+            &crate::EvidenceOptions::default(),
+        )
+        .await
+    }
+    pub async fn get_operation_with_evidence(
+        &self,
+        generation: &PinnedGeneration,
+        snapshot: &str,
+        operation: &str,
+        options: &crate::EvidenceOptions,
     ) -> Result<Value, Error> {
         generation.check_snapshot(snapshot)?;
         let mut lease = QueryLease::acquire(&self.pool).await?;
@@ -324,6 +332,8 @@ impl ServingStore {
                 "delegates":[],"handoffs":[],"reads":[],"constructor":null,"singleton_of":null,"fields":[]});
             result["catalog"] = catalog.unwrap_or(Value::Null);
             result["capabilities"] = json!(generation.manifest.capabilities);
+            crate::evidence::enrich(&mut lease.connection, generation, &mut result, options)
+                .await?;
             check_response(&result)?;
             lease.complete();
             return packet::<cpg_schema::wire::Operation>(result);
@@ -643,6 +653,7 @@ impl ServingStore {
                 result["resolution"] = json!("singleton_class");
             }
         }
+        crate::evidence::enrich(&mut lease.connection, generation, &mut result, options).await?;
         check_response(&result)?;
         lease.complete();
         packet::<cpg_schema::wire::Operation>(result)

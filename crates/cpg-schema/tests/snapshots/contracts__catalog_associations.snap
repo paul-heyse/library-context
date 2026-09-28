@@ -1,0 +1,20 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table catalog_associations
+family findings
+key snapshot_id, association_id
+@lctx.family=findings
+@lctx.table=catalog_associations
+snapshot_id: FixedSizeBinary(16) NOT NULL
+association_id: FixedSizeBinary(16) NOT NULL
+member_id: FixedSizeBinary(16) NULL
+release_id: FixedSizeBinary(16) NULL
+evidence_id: FixedSizeBinary(16) NOT NULL
+evidence_kind: Utf8 NOT NULL
+role: Utf8 NOT NULL
+basis: Utf8 NOT NULL
+site_id: FixedSizeBinary(16) NULL
+intent: Utf8 NOT NULL
+support: Utf8 NOT NULL

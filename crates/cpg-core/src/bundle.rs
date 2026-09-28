@@ -532,6 +532,18 @@ fn rebuild(a: &ArrayRef, field: &FieldRef) -> Result<ArrayRef, CoreError> {
     let n = a.len();
     let null = |i: usize| a.is_null(i);
     let built: ArrayRef = match field.data_type() {
+        DataType::Binary => {
+            let values = a.as_binary::<i32>();
+            let mut builder = arrow_array::builder::BinaryBuilder::new();
+            for i in 0..n {
+                if null(i) {
+                    builder.append_null();
+                } else {
+                    builder.append_value(values.value(i));
+                }
+            }
+            Arc::new(builder.finish())
+        }
         DataType::FixedSizeBinary(width) => {
             let v = a.as_fixed_size_binary();
             let mut b = FixedSizeBinaryBuilder::with_capacity(n, *width);

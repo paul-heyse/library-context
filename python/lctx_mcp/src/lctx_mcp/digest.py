@@ -32,6 +32,8 @@ def type_grammar(t: pa.DataType) -> str:
             return name
     if pa.types.is_string(t):
         return "utf8"
+    if pa.types.is_binary(t):
+        return "binary"
     if pa.types.is_fixed_size_binary(t):
         return f"fixed_size_binary({t.byte_width})"
     if pa.types.is_fixed_size_list(t):

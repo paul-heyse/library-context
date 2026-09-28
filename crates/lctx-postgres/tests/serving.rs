@@ -581,10 +581,14 @@ async fn published_pilot_import_and_repository_queries() {
     );
     for op in page["matches"].as_array().unwrap() {
         let result = reader
-            .get_operation(
+            .get_operation_with_evidence(
                 &pinned,
                 &pinned.manifest().snapshot_id,
                 op["access_path"].as_str().unwrap(),
+                &lctx_postgres::EvidenceOptions {
+                    expanded: true,
+                    ..Default::default()
+                },
             )
             .await
             .unwrap();
@@ -1285,14 +1289,25 @@ async fn catalog_specificity_import_and_typed_hydration() {
             .iter()
             .any(|l| l.field_id == field.field_id && l.kind == "exact_storage")
     );
-    assert!(
-        catalog
-            .evidence
-            .iter()
-            .any(|e| e.subject_node_id == field.field_id
-                && e.role == "configuration"
-                && e.text.contains("'http'"))
-    );
+    let mut original_field = false;
+    for reference in &catalog.evidence_page.items {
+        let evidence = reader
+            .get_evidence(
+                &pinned,
+                &pinned.manifest().snapshot_id,
+                reference.evidence.clone(),
+                None,
+                false,
+            )
+            .await
+            .unwrap();
+        original_field |= evidence["content"].as_array().unwrap().iter().any(|span| {
+            span["text"]
+                .as_str()
+                .is_some_and(|text| text.contains("'http'"))
+        });
+    }
+    assert!(original_field, "configuration source remains expandable");
     let schema = cpg_schema::wire::schema("Operation", true).unwrap();
     let validator = jsonschema::options().offline().build(&schema).unwrap();
     assert!(

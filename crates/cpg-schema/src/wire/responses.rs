@@ -198,6 +198,8 @@ pub type CatalogConfiguration = crate::catalog::CatalogConfigurationsRow;
 pub type CatalogFieldLink = crate::catalog::CatalogFieldLinksRow;
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct CatalogRecord {
+    pub evidence_page: super::EvidencePage,
+    pub demonstrations: Vec<super::EvidenceResult>,
     pub surfaces: Vec<CatalogSurface>,
     pub configurations: Vec<CatalogConfiguration>,
     pub field_links: Vec<CatalogFieldLink>,
@@ -205,7 +207,6 @@ pub struct CatalogRecord {
     pub constructors: Vec<CatalogConstructor>,
     pub bindings: Vec<CatalogBinding>,
     pub signatures: Vec<CatalogSignature>,
-    pub evidence: Vec<CatalogEvidence>,
     pub type_observations: Vec<CatalogTypeObservation>,
     pub types: Vec<CatalogType>,
     pub type_arguments: Vec<CatalogTypeArgument>,

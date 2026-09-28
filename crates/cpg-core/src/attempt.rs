@@ -126,7 +126,7 @@ pub struct Published {
 /// 103: builtin binding-preserving descriptors no longer write the decorator boundary.
 /// 104: summaries neither start in nor compose through a decorated function (ADR-0064).
 /// 105: call-transfer return claims graded after summaries with claim-keyed discharges (ADR-0064).
-pub const COMPILER_OUTPUT_VERSION: u32 = 109;
+pub const COMPILER_OUTPUT_VERSION: u32 = 110;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -701,14 +701,27 @@ async fn finish(
         crate::sql::Params::new().texts("roots", &inputs.public_roots),
     )
     .await?;
-    let mut catalog =
-        crate::catalog::contracts(&ctx, snapshot_id, &inputs.public_roots, &public).await?;
     // Every analysis table exists for validators and retained consumers. Unselected producers
     // leave typed empty tables; the compilation row records why, independently of row counts.
     macro_rules! initialize { ($($t:ty),+) => { $(
         ctx.register_batch(<$t as Table>::NAME, <$t as Table>::to_batch(&[])?)?;
     )+ }; }
     cpg_schema::for_each_analysis_table!(initialize);
+    let mut catalog =
+        match crate::catalog::contracts(&ctx, snapshot_id, &inputs.public_roots, &public).await {
+            Ok(catalog) => catalog,
+            Err(error) => {
+                // Keep named invariant diagnostics for malformed inputs that strict typed decoding
+                // cannot consume. The successful path retains one full publication validation.
+                let cache = crate::validate::cached_session(&ctx).await?;
+                let (violations, _) = crate::validate::relational_costed(&cache).await?;
+                return Err(if violations.is_empty() {
+                    error
+                } else {
+                    CoreError::Invalid(violations)
+                });
+            }
+        };
     write_analysis::<cpg_schema::catalog::CatalogCompilation>(
         &ctx,
         root,
@@ -1333,6 +1346,23 @@ async fn finish(
         .await?;
         behavior
     };
+    macro_rules! contextual {
+        ($table:ty, $field:ident) => {
+            write_analysis::<$table>(
+                &ctx,
+                root,
+                snapshot_id,
+                &catalog.contextual.$field,
+                &mut written,
+            )
+            .await?;
+        };
+    }
+    contextual!(cpg_schema::evidence::CatalogArtifacts, artifacts);
+    contextual!(cpg_schema::evidence::CatalogSpans, spans);
+    contextual!(cpg_schema::evidence::CatalogScenarios, scenarios);
+    contextual!(cpg_schema::evidence::CatalogDeployments, deployments);
+    contextual!(cpg_schema::evidence::CatalogAssociations, associations);
     write_analysis::<cpg_schema::catalog::CatalogSurfaces>(
         &ctx,
         root,

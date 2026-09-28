@@ -14,6 +14,8 @@ key:releases
   SELECT snapshot_id, release_id, count(*) AS n FROM releases GROUP BY snapshot_id, release_id HAVING count(*) > 1
 key:distributions
   SELECT snapshot_id, context_id, name, count(*) AS n FROM distributions GROUP BY snapshot_id, context_id, name HAVING count(*) > 1
+key:captured_artifacts
+  SELECT snapshot_id, artifact_id, count(*) AS n FROM captured_artifacts GROUP BY snapshot_id, artifact_id HAVING count(*) > 1
 key:source_files
   SELECT snapshot_id, module_name, path, fact_id, count(*) AS n FROM source_files GROUP BY snapshot_id, module_name, path, fact_id HAVING count(*) > 1
 key:context_modules
@@ -184,6 +186,16 @@ key:catalog_configurations
   SELECT snapshot_id, field_id, source_fact_id, count(*) AS n FROM catalog_configurations GROUP BY snapshot_id, field_id, source_fact_id HAVING count(*) > 1
 key:catalog_field_links
   SELECT snapshot_id, link_id, count(*) AS n FROM catalog_field_links GROUP BY snapshot_id, link_id HAVING count(*) > 1
+key:catalog_artifacts
+  SELECT snapshot_id, artifact_id, count(*) AS n FROM catalog_artifacts GROUP BY snapshot_id, artifact_id HAVING count(*) > 1
+key:catalog_spans
+  SELECT snapshot_id, span_id, count(*) AS n FROM catalog_spans GROUP BY snapshot_id, span_id HAVING count(*) > 1
+key:catalog_scenarios
+  SELECT snapshot_id, scenario_id, count(*) AS n FROM catalog_scenarios GROUP BY snapshot_id, scenario_id HAVING count(*) > 1
+key:catalog_deployments
+  SELECT snapshot_id, deployment_id, count(*) AS n FROM catalog_deployments GROUP BY snapshot_id, deployment_id HAVING count(*) > 1
+key:catalog_associations
+  SELECT snapshot_id, association_id, count(*) AS n FROM catalog_associations GROUP BY snapshot_id, association_id HAVING count(*) > 1
 key:public_paths
   SELECT snapshot_id, node_id, access_path, count(*) AS n FROM public_paths GROUP BY snapshot_id, node_id, access_path HAVING count(*) > 1
 key:return_completion_certificates
@@ -434,6 +446,16 @@ catalog-code:catalog_configurations.default_state
   SELECT "default_state" FROM catalog_configurations WHERE "default_state" NOT IN ('absent', 'literal_none', 'literal', 'source_expression', 'optional_expression_unavailable', 'unknown', 'factory_expression')
 catalog-code:catalog_field_links.kind
   SELECT "kind" FROM catalog_field_links WHERE "kind" NOT IN ('declared_parameter', 'exact_storage', 'exact_reader')
+catalog-code:catalog_artifacts.alignment
+  SELECT "alignment" FROM catalog_artifacts WHERE "alignment" NOT IN ('exact', 'mapped_with_evidence', 'other', 'unknown')
+catalog-code:catalog_associations.evidence_kind
+  SELECT "evidence_kind" FROM catalog_associations WHERE "evidence_kind" NOT IN ('span', 'scenario', 'deployment')
+catalog-code:catalog_associations.role
+  SELECT "role" FROM catalog_associations WHERE "role" NOT IN ('declares', 'surface', 'configuration', 'reader', 'documents', 'demonstrates', 'invokes', 'tests_failure', 'suggests', 'observes')
+catalog-code:catalog_associations.basis
+  SELECT "basis" FROM catalog_associations WHERE "basis" NOT IN ('source_fact', 'resolved_target', 'candidate_targets', 'exact_textual_reference', 'ambiguous_textual_mention', 'same_document_passage', 'owning_distribution', 'task_observation', 'release_distribution', 'explicit_config_reference')
+catalog-code:catalog_associations.intent
+  SELECT "intent" FROM catalog_associations WHERE "intent" NOT IN ('demonstration', 'assertion_test', 'expected_failure', 'skip_xfail', 'unknown')
 catalog-unselected:return_completion_certificates
   SELECT snapshot_id FROM return_completion_certificates WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
 catalog-unselected:model_context_protocols

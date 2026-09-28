@@ -469,6 +469,8 @@ def build_server(
         operation: str,
         ctx: Context,
         expanded: bool = False,
+        evidence_limit: int = 20,
+        evidence_cursor: str | None = None,
     ) -> ToolResult:
         """One public operation, whole, by any public spelling (or its id): its paths, facets,
         each parameter's fates (forwarded, literal, raises-when, unfollowed) with verdicts and
@@ -476,7 +478,11 @@ def build_server(
         Established and conditional fates are may-behavior admitted by the model, not concrete
         execution witnesses. A negative fate requires complete coverage under the model."""
         served = ctx.lifespan_context["served"]
-        encoded = await storage(served.generation.repository.get_operation(snapshot_id, operation))
+        encoded = await storage(
+            served.generation.repository.get_operation(
+                snapshot_id, operation, expanded, evidence_limit, evidence_cursor
+            )
+        )
         model = (
             ops.AmbiguousOperation
             if json.loads(encoded).get("resolution") == "ambiguous"
@@ -491,6 +497,36 @@ def build_server(
         return ToolResult(
             content="Public API contract and evidence; effective behavior may remain unresolved.",
             structured_content=payload,
+        )
+
+    @register(mcp, READ_ONLY)
+    @request_deadline
+    async def get_evidence(
+        snapshot_id: str,
+        evidence: dict,
+        ctx: Context,
+        cursor: str | None = None,
+        expanded: bool = False,
+    ) -> ToolResult:
+        """Open a typed evidence reference in the pinned generation. Returns original source,
+        context and check status. Follow the cursor for remaining bytes; a page is not a
+        standalone executable example. No source is fetched or executed during this request."""
+        served = ctx.lifespan_context["served"]
+        encoded = await storage(
+            served.generation.repository.get_evidence(
+                json.dumps(
+                    {
+                        "snapshot_id": snapshot_id,
+                        "evidence": evidence,
+                        "cursor": cursor,
+                        "expanded": expanded,
+                    }
+                )
+            )
+        )
+        return ToolResult(
+            content="Pinned original evidence and explicit context.",
+            structured_content=json.loads(encoded),
         )
 
     @register(mcp, READ_ONLY)

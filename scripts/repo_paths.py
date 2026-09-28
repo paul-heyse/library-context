@@ -22,8 +22,6 @@ def local_skill(root: Path, path: Path) -> bool:
     ignored = entry if (root / entry).is_symlink() else relative
     return (
         relative.parts[2] in names
-        and subprocess.run(
-            ["git", "check-ignore", "-q", "--", str(ignored)], cwd=root
-        ).returncode
+        and subprocess.run(["git", "check-ignore", "-q", "--", str(ignored)], cwd=root).returncode
         == 0
     )

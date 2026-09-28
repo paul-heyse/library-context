@@ -1,17 +1,243 @@
 [
-  {"contract":"GetOperationRequest","tool":"get_operation","valid":true,"input":{"snapshot_id":"ABABABABABABABABABABABABABABABAB","operation":"pkg.member"}},
-  {"contract":"GetOperationRequest","tool":"get_operation","valid":false,"input":{"snapshot_id":"abababababababababababababababab","operation":"pkg.member","expanded":1}},
-  {"contract":"GetOperationRequest","tool":"get_operation","valid":false,"input":{"snapshot_id":"abababababababababababababababab","operation":"pkg.member","extra":true}},
-  {"contract":"GetCapabilityRequest","tool":"get_capability","valid":true,"input":{"snapshot_id":"abababababababababababababababab","capability_id":"cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"}},
-  {"contract":"GetCapabilityRequest","tool":"get_capability","valid":false,"input":{"snapshot_id":"abababababababababababababababab","capability_id":"not-an-id"}},
-  {"contract":"SearchCapabilitiesRequest","tool":"search_capabilities","valid":true,"input":{"library":"example","query":"register a tool"}},
-  {"contract":"SearchCapabilitiesRequest","tool":"search_capabilities","valid":false,"input":{"library":"example","query":"","limit":0}},
-  {"contract":"FindOperationsRequest","tool":"find_operations","valid":true,"input":{"library":"example","where":{"facets":[{"facet":"parameter","value":"key"}]}}},
-  {"contract":"FindOperationsRequest","tool":"find_operations","valid":false,"input":{"library":"example","where":{"facets":[{"facet":"invented","value":"key"}]}}},
-  {"contract":"FindOperationsRequest","tool":"find_operations","valid":false,"input":{"library":"example","where":{"kind":"invented"}}},
-  {"contract":"SearchOperationsRequest","tool":"search_operations","valid":true,"input":{"library":"example","query":"HTTP configuration","where":{"kind":"method"}}},
-  {"contract":"SearchOperationsRequest","tool":"search_operations","valid":false,"input":{"library":"example","query":"HTTP configuration","limit":11}},
-  {"contract":"InspectValuePathsRequest","tool":"inspect_value_paths","valid":true,"input":{"snapshot_id":"abababababababababababababababab","operation":"pkg.member","formal":"value","exact_input":{"kind":"none","value":null}}},
-  {"contract":"InspectValuePathsRequest","tool":"inspect_value_paths","valid":false,"input":{"snapshot_id":"abababababababababababababababab","operation":"pkg.member","formal":"value","exact_input":{"kind":"int","value":true}}},
-  {"contract":"InspectValuePathsRequest","tool":"inspect_value_paths","valid":false,"input":{"snapshot_id":"abababababababababababababababab","operation":"pkg.member","formal":"value","exact_input":{"kind":"int","value":1.0}},"schema_valid":true}
+  {
+    "contract": "GetOperationRequest",
+    "tool": "get_operation",
+    "valid": true,
+    "input": {
+      "snapshot_id": "ABABABABABABABABABABABABABABABAB",
+      "operation": "pkg.member"
+    }
+  },
+  {
+    "contract": "GetOperationRequest",
+    "tool": "get_operation",
+    "valid": false,
+    "input": {
+      "snapshot_id": "abababababababababababababababab",
+      "operation": "pkg.member",
+      "expanded": 1
+    }
+  },
+  {
+    "contract": "GetOperationRequest",
+    "tool": "get_operation",
+    "valid": false,
+    "input": {
+      "snapshot_id": "abababababababababababababababab",
+      "operation": "pkg.member",
+      "extra": true
+    }
+  },
+  {
+    "contract": "GetCapabilityRequest",
+    "tool": "get_capability",
+    "valid": true,
+    "input": {
+      "snapshot_id": "abababababababababababababababab",
+      "capability_id": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+    }
+  },
+  {
+    "contract": "GetCapabilityRequest",
+    "tool": "get_capability",
+    "valid": false,
+    "input": {
+      "snapshot_id": "abababababababababababababababab",
+      "capability_id": "not-an-id"
+    }
+  },
+  {
+    "contract": "SearchCapabilitiesRequest",
+    "tool": "search_capabilities",
+    "valid": true,
+    "input": {
+      "library": "example",
+      "query": "register a tool"
+    }
+  },
+  {
+    "contract": "SearchCapabilitiesRequest",
+    "tool": "search_capabilities",
+    "valid": false,
+    "input": {
+      "library": "example",
+      "query": "",
+      "limit": 0
+    }
+  },
+  {
+    "contract": "FindOperationsRequest",
+    "tool": "find_operations",
+    "valid": true,
+    "input": {
+      "library": "example",
+      "where": {
+        "facets": [
+          {
+            "facet": "parameter",
+            "value": "key"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "contract": "FindOperationsRequest",
+    "tool": "find_operations",
+    "valid": false,
+    "input": {
+      "library": "example",
+      "where": {
+        "facets": [
+          {
+            "facet": "invented",
+            "value": "key"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "contract": "FindOperationsRequest",
+    "tool": "find_operations",
+    "valid": false,
+    "input": {
+      "library": "example",
+      "where": {
+        "kind": "invented"
+      }
+    }
+  },
+  {
+    "contract": "SearchOperationsRequest",
+    "tool": "search_operations",
+    "valid": true,
+    "input": {
+      "library": "example",
+      "query": "HTTP configuration",
+      "where": {
+        "kind": "method"
+      }
+    }
+  },
+  {
+    "contract": "SearchOperationsRequest",
+    "tool": "search_operations",
+    "valid": false,
+    "input": {
+      "library": "example",
+      "query": "HTTP configuration",
+      "limit": 11
+    }
+  },
+  {
+    "contract": "InspectValuePathsRequest",
+    "tool": "inspect_value_paths",
+    "valid": true,
+    "input": {
+      "snapshot_id": "abababababababababababababababab",
+      "operation": "pkg.member",
+      "formal": "value",
+      "exact_input": {
+        "kind": "none",
+        "value": null
+      }
+    }
+  },
+  {
+    "contract": "InspectValuePathsRequest",
+    "tool": "inspect_value_paths",
+    "valid": false,
+    "input": {
+      "snapshot_id": "abababababababababababababababab",
+      "operation": "pkg.member",
+      "formal": "value",
+      "exact_input": {
+        "kind": "int",
+        "value": true
+      }
+    }
+  },
+  {
+    "contract": "InspectValuePathsRequest",
+    "tool": "inspect_value_paths",
+    "valid": false,
+    "input": {
+      "snapshot_id": "abababababababababababababababab",
+      "operation": "pkg.member",
+      "formal": "value",
+      "exact_input": {
+        "kind": "int",
+        "value": 1.0
+      }
+    },
+    "schema_valid": true
+  },
+  {
+    "contract": "GetEvidenceRequest",
+    "valid": true,
+    "input": {
+      "snapshot_id": "11111111111111111111111111111111",
+      "evidence": {
+        "kind": "span",
+        "id": "22222222222222222222222222222222"
+      }
+    }
+  },
+  {
+    "contract": "GetEvidenceRequest",
+    "valid": true,
+    "input": {
+      "snapshot_id": "11111111111111111111111111111111",
+      "evidence": {
+        "kind": "scenario",
+        "id": "22222222222222222222222222222222"
+      }
+    }
+  },
+  {
+    "contract": "GetEvidenceRequest",
+    "valid": true,
+    "input": {
+      "snapshot_id": "11111111111111111111111111111111",
+      "evidence": {
+        "kind": "deployment",
+        "id": "22222222222222222222222222222222"
+      }
+    }
+  },
+  {
+    "contract": "GetEvidenceRequest",
+    "valid": false,
+    "input": {
+      "snapshot_id": "11111111111111111111111111111111",
+      "evidence": {
+        "kind": "source",
+        "id": "22222222222222222222222222222222"
+      }
+    }
+  },
+  {
+    "contract": "GetEvidenceRequest",
+    "valid": false,
+    "input": {
+      "snapshot_id": "11111111111111111111111111111111",
+      "evidence": {
+        "kind": "span",
+        "id": "2222222222222222222222222222222222222222222222222222222222222222"
+      }
+    }
+  },
+  {
+    "contract": "GetEvidenceRequest",
+    "valid": false,
+    "input": {
+      "snapshot_id": "11111111111111111111111111111111",
+      "evidence": {
+        "kind": "span",
+        "id": "22222222222222222222222222222222",
+        "extra": 0
+      }
+    }
+  }
 ]

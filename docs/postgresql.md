@@ -310,30 +310,54 @@ the separate saved-answer parity comparison; retained inputs and commands are in
 [PG12–PG15 evidence](design_review/evidence/2026-09-28_postgresql-query/README.md).
 
 
-### PR2 catalog deployment
+### Original evidence and deployment observations
+
+**Implemented; PR3 qualification in progress, 2026-09-28 (ADR-0076).** Bundle15/projection5,
+wire2 and migration011 add original Binary/bytea artifacts, contextual scenarios, deployment
+observations and typed site associations. Delta remains canonical. `get_operation` returns
+bounded evidence references; `get_evidence` pages original source. Its `metadata_omitted` flag
+reports oversized detail while preserving primary-source access. No source executes during reads.
+
+Run task observations explicitly before compiling with their receipts:
+
+```sh
+uv run python scripts/deployment_check.py --source SOURCE_CHECKOUT --out build/task-checks
+target/release/lctx compile fastmcp --profile catalog --store STORE \
+  --evidence-observations build/task-checks/programmatic.json \
+  --evidence-observations build/task-checks/cli.json
+```
+
+The fixed policy uses the pinned upstream `examples/fastmcp_config/server.py`, a disposable locked
+environment, and real MCP list/add interactions for programmatic and CLI-entry-point launch.
+Receipts bind source, runner, interpreter/runtime, lock and metadata digests, exact commands,
+inputs and observed outcomes. A changed runner/environment/source requires fresh observations;
+failed tasks remain explicit failures. An all-extras task pass does not prove a minimal install.
+No wheel is built: product native modules remain editable fastdev artifacts.
+
+The schema010 source/runtime/protected backup is retained under `build/pr3-baseline/`; its
+matching-runtime restore passed. Migration011 and current operator selection are tracked in
+[PR3 qualification](design_review/evidence/2026-09-28_pr3/README.md).
+
+### Current PR3 catalog deployment
 
 **Implemented and Tested, 2026-09-28:** explicit `lctx db migrate`/`db check` applied additive
-migration010. Both live FastMCP4.0.5 profiles imported, reconciled and served through stdio MCP
-using the editable runtime. The selected behavioral generation is
-`e50090b2c724518f0caf0283d272364fb9f9eb9bafc4183831391723ea007336`, with exact profile
-`ff645e4a55461d3041fa4dbbd56f01d90da07b74a55040ec350933ac23ef4586`.
-The ready catalog-only generation is `ddb9fbcb23fb11ad9e5c7ef7ff4b0261b3fd547a02a0336504be67060423150d`.
-All four older ready generations and their artifacts remain retained.
+migration011. Both final live FastMCP4.0.5 profiles imported, reconciled and served through stdio MCP
+using the editable runtime, including original evidence and both current SHA-bound task observations.
+The selected behavioral generation is `d874d3694612e12d99272f699fe474e5cce9758cb5cf860dd49cbd52fccd58b2`,
+with exact profile `ff645e4a55461d3041fa4dbbd56f01d90da07b74a55040ec350933ac23ef4586`.
+Catalog-only `0b2fe1205720f3291853671629935afc8137f968437f7a0be66e5be81effce74` is ready. All six older ready generations and artifacts remain retained.
 
-`build/pr2-operator-cutover/current.dump` plus protected receipt/artifacts contains 81 tables and
-all six ready generations. The disposable restore passed in 21.61 s, preserving legacy content,
-serving both current profiles and restoring the exact behavioral selection. The retained schema009
-runtime/source/native modules and protected baseline dump/receipt/artifacts are at
-`build/pr2-baseline-8334c86/source/`; the matching-runtime restore passed before cutover. Its CLI was
-reconstructed from 8334c86 because the original executable was absent; the native modules were
-preserved directly. Runtime checksum receipts distinguish those paths.
+`build/pr3-operator-cutover/current.dump` plus protected receipt/artifacts contains 86 tables and
+eight ready generations. Its disposable restore passed in 28.59 s, preserving legacy content,
+serving both current profiles and restoring the exact behavioral selection. The schema010 baseline
+at `build/pr3-baseline/` preserves source `5aebab4`, reconstructed matching CLI, saved native modules,
+runtime checksums and protected dump/receipt/artifacts. Its matching-runtime restore passed in 21.41 s.
 
-Keep the prior PR1 populated dump at `build/pr1-operator-cutover/current.dump` and schema008
-rollback assets at `build/postgresql-pr1-baseline-a6c9fcf/`, alongside the older PG baselines.
-Use each runtime only with its matching restored schema; do not reverse migrations or relax current
-reader checks. The temporary controlled embedding service was stopped after both live operator
-smokes. Start `just embed-serve` when live query embeddings are needed. The
-[PR2 evidence](design_review/evidence/2026-09-28_pr2/README.md) owns receipts and qualification limits.
+Keep PR2/PR1 populated dumps and matching baseline runtimes, alongside the older PG recovery assets.
+Use each runtime with its matching restored schema; do not reverse migrations or relax reader checks.
+The temporary controlled embedding service stopped after live operator checks. Start `just embed-serve`
+for live query embeddings. [PR3 evidence](design_review/evidence/2026-09-28_pr3/README.md) owns receipts
+and qualification limits. General evidence search/browse and classifier/journey work remain PR4–PR5.
 
 ### Complete recovery and diagnostics
 
@@ -352,8 +376,8 @@ inspection and is not a recovery point. Daily backups remain an operator respons
 `postgres_backup.py restore-drill ARCHIVE` creates only an owned disposable PG18/vector database.
 It compares all logical rows and the receipt's complete inventory before mutations; verifies
 sequences/event writes; relocates every retained artifact with old paths unavailable; reconciles and
-serves current bundle14 catalog and behavioral generations; and restores the recorded selection with
-an explicit exact profile. Retained bundle12/13 rows, exact manifest bytes and artifacts are verified as
+serves current bundle15 catalog and behavioral generations; and restores the recorded selection with
+an explicit exact profile. Retained bundle12/13/14 rows, exact manifest bytes and artifacts are verified as
 preserved with `legacy_runtime_required`; they are not admitted to the new reader. An incompatible
 selected pointer fails usable-serving recovery rather than choosing another generation. The 15-minute RTO includes verification and usable serving.
 Logical restore never inherits ANN admission. A compatible historical receipt uses the retained

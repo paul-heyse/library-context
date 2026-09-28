@@ -46,7 +46,7 @@ async def test_catalog_contract_without_native_or_briefs(catalog_serving):
             "var_keyword",
         ]
         assert formals[1].default_text == '"ok"'
-        assert operation.catalog.evidence and operation.catalog.type_observations
+        assert operation.catalog.evidence_page["items"] and operation.catalog.type_observations
         assert operation.catalog.member.brief_status == "not_requested"
         missing = await client.call_tool(
             "search_capabilities", {"library": fixture.library, "query": "ordinary"}
@@ -88,4 +88,16 @@ async def test_catalog_contract_without_native_or_briefs(catalog_serving):
         inherited = ops.Operation.model_validate(inherited.structured_content)
         assert inherited.catalog is not None
         assert any(not c.own and c.ancestry_fact_id for c in inherited.catalog.constructors)
-        assert any("class _PrivateConfig" in e.text for e in inherited.catalog.evidence)
+        originals = []
+        for item in inherited.catalog.evidence_page["items"]:
+            opened = await client.call_tool(
+                "get_evidence",
+                {
+                    "snapshot_id": snapshot,
+                    "evidence": item.evidence.model_dump(mode="json"),
+                    "expanded": True,
+                },
+            )
+            assert opened.structured_content is not None
+            originals.extend(c.get("text") or "" for c in opened.structured_content["content"])
+        assert any("class _PrivateConfig" in text for text in originals)

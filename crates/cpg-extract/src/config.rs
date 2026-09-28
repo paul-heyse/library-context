@@ -28,7 +28,7 @@ pub const PYREFLY_PATCH_SHA256: &str =
 pub const RUFF_LINE: &str = "ruff crates 0.0.11";
 /// Bumped by hand whenever the mapping changes output for the same inputs (it changes
 /// `producer_id`). The variant and id snapshots are what show such a change (DESIGN §4.0).
-pub const EXTRACTOR_OUTPUT_VERSION: u32 = 35;
+pub const EXTRACTOR_OUTPUT_VERSION: u32 = 36;
 /// The driver thread's stack. Part of the producer config: a deeper solve could overflow a smaller
 /// stack, which is a SIGSEGV rather than a panic (review F8).
 pub const DRIVER_STACK_BYTES: usize = 512 << 20;
@@ -212,6 +212,7 @@ pub struct CorpusInput {
     pub release: Release,
     /// Selected documents, absolute, under `release.root`, sorted.
     pub documents: Vec<PathBuf>,
+    pub assets: Vec<PathBuf>,
 }
 
 /// Hooks the tests use to show the driver's contracts can fail (review F1, F6).

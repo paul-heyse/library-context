@@ -41,8 +41,8 @@ pub const NATIVE_FILES: &[&str] = &[
     "flow_test_value_links",
 ];
 
-pub const FORMAT: u32 = 4;
-pub const BUNDLE_FORMAT: u32 = 14;
+pub const FORMAT: u32 = 5;
+pub const BUNDLE_FORMAT: u32 = 15;
 pub fn artifact_names() -> Vec<String> {
     artifacts_for(&crate::catalog::Capabilities::for_profile(
         crate::catalog::CompileProfile::Behavioral,
@@ -590,6 +590,14 @@ pub fn receipt(
                 }
                 h.update([1]);
                 match array.data_type() {
+                    DataType::Binary => frame(
+                        &mut h,
+                        array
+                            .as_any()
+                            .downcast_ref::<arrow_array::BinaryArray>()
+                            .unwrap()
+                            .value(row),
+                    ),
                     DataType::FixedSizeBinary(_) => frame(
                         &mut h,
                         array
@@ -658,6 +666,11 @@ pub fn receipt(
 
 pub fn unique_key(name: &str) -> Option<&'static str> {
     Some(match name {
+        "catalog_artifacts" => "artifact_id",
+        "catalog_spans" => "span_id",
+        "catalog_scenarios" => "scenario_id",
+        "catalog_deployments" => "deployment_id",
+        "catalog_associations" => "association_id",
         "catalog_members" => "member_id",
         "catalog_surfaces" => "declaration_node_id,ordinal",
         "catalog_configurations" => "field_id,source_fact_id",
@@ -692,6 +705,25 @@ pub fn unique_key(name: &str) -> Option<&'static str> {
 }
 pub fn foreign_keys() -> Vec<(&'static str, &'static str, &'static str, &'static str)> {
     vec![
+        (
+            "catalog_spans",
+            "artifact_id",
+            "catalog_artifacts",
+            "artifact_id",
+        ),
+        (
+            "catalog_scenarios",
+            "primary_span_id",
+            "catalog_spans",
+            "span_id",
+        ),
+        ("catalog_deployments", "span_id", "catalog_spans", "span_id"),
+        (
+            "catalog_associations",
+            "member_id",
+            "catalog_members",
+            "member_id",
+        ),
         (
             "catalog_configurations",
             "term_id",
@@ -839,6 +871,7 @@ pub fn validate_relations(
             }
         }
     }
+    crate::evidence::validate_projection(tables)?;
     let mut links = foreign_keys();
     links.push(("supports", "assertion_id", "assertions", "assertion_id"));
     // Configurations preserve provider alternatives, so this is membership rather than a SQL
