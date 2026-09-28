@@ -3,23 +3,26 @@
 Read Git objects at an explicit commit, never working-tree additions. B and C use the same
 read/search surface; C supplies the separately pinned structured product tools as well.
 """
+
 from __future__ import annotations
 
 import argparse
 import hashlib
 import json
-from pathlib import Path
 import subprocess
+from pathlib import Path
 
 from fastmcp import FastMCP
+
 from lctx_mcp.retrieval import Lexical
 
 SUFFIXES = {".py", ".pyi", ".md", ".mdx", ".rst", ".toml", ".yaml", ".yml", ".json", ".txt"}
 
 
 def git(source: Path, *args: str) -> bytes:
-    return subprocess.run(["git", "-C", str(source), *args], check=True,
-                          capture_output=True, timeout=60).stdout
+    return subprocess.run(
+        ["git", "-C", str(source), *args], check=True, capture_output=True, timeout=60
+    ).stdout
 
 
 class Evidence:
@@ -51,39 +54,57 @@ class Evidence:
         for path, text in self.files.items():
             lines = text.splitlines()
             for offset in range(0, len(lines), 60):
-                self.chunks.append((path, offset + 1, "\n".join(lines[offset:offset + 80])))
+                self.chunks.append((path, offset + 1, "\n".join(lines[offset : offset + 80])))
         self.index = Lexical([path + "\n" + text for path, _, text in self.chunks])
 
     def inventory(self) -> dict:
         files = {p: hashlib.sha256(t.encode()).hexdigest() for p, t in self.files.items()}
-        return {"commit": self.commit, "files": files,
-                "sha256": hashlib.sha256(json.dumps(files, sort_keys=True).encode()).hexdigest(),
-                "basis": "original Git blobs; plain text; no derived API relationships"}
+        return {
+            "commit": self.commit,
+            "files": files,
+            "sha256": hashlib.sha256(json.dumps(files, sort_keys=True).encode()).hexdigest(),
+            "basis": "original Git blobs; plain text; no derived API relationships",
+        }
 
     def search(self, query: str, limit: int = 8) -> dict:
         if not 1 <= limit <= 20 or not query.strip() or len(query) > 4096:
             raise ValueError("query/limit outside bounds")
         scores = self.index.scores(query)
-        ranked = sorted(range(len(scores)), key=lambda i: (-float(scores[i]), self.chunks[i][0], self.chunks[i][1]))
+        ranked = sorted(
+            range(len(scores)),
+            key=lambda i: (-float(scores[i]), self.chunks[i][0], self.chunks[i][1]),
+        )
         result = []
         for i in ranked:
             if scores[i] <= 0 or len(result) == limit:
                 break
             path, start, text = self.chunks[i]
-            result.append({"path": path, "line": start, "text": text[:6000],
-                           "truncated": len(text) > 6000, "commit": self.commit})
+            result.append(
+                {
+                    "path": path,
+                    "line": start,
+                    "text": text[:6000],
+                    "truncated": len(text) > 6000,
+                    "commit": self.commit,
+                }
+            )
         return {"results": result, "complete": False, "basis": "ranked original evidence"}
 
     def read(self, path: str, start: int = 1, lines: int = 80) -> dict:
         if path not in self.files or start < 1 or not 1 <= lines <= 200:
             raise ValueError("unknown original path or invalid line range")
         original = self.files[path].splitlines()
-        text = "\n".join(original[start - 1:start - 1 + lines])
+        text = "\n".join(original[start - 1 : start - 1 + lines])
         if len(text.encode()) > 32768:
             raise ValueError("source range exceeds budget; request fewer lines")
-        return {"commit": self.commit, "path": path, "start": start,
-                "end": min(len(original), start - 1 + lines), "text": text,
-                "sha256": hashlib.sha256(self.files[path].encode()).hexdigest()}
+        return {
+            "commit": self.commit,
+            "path": path,
+            "start": start,
+            "end": min(len(original), start - 1 + lines),
+            "text": text,
+            "sha256": hashlib.sha256(self.files[path].encode()).hexdigest(),
+        }
 
 
 def server(evidence: Evidence) -> FastMCP:
