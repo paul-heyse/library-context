@@ -236,6 +236,16 @@ def rewrite_links(
             relative = Path(
                 posixpath.normpath(posixpath.join(page.path.parent.as_posix(), unquote(url.path)))
             )
+            if local_skill(root, root / relative):
+                tag = re.sub(r"\s" + attr + r'="[^"]*"', "", tag, count=1)
+                tag = (
+                    tag[:-1]
+                    + ' title="Local capability reference; available in the operator checkout" '
+                    'class="local-reference">'
+                )
+                if attr == "href":
+                    tag += '<span class="local-reference-label">[local reference] </span>'
+                continue
             checked(root, relative)
             # Renderer files and already published paths need no source transport.
             if relative in published or (site / relative).is_file():
@@ -248,16 +258,6 @@ def rewrite_links(
             if source.suffix == ".html" and (root / source.with_suffix(".md")).is_file():
                 source = source.with_suffix(".md")
             original = checked(root, source)
-            if local_skill(root, original):
-                tag = re.sub(r"\s" + attr + r'="[^"]*"', "", tag, count=1)
-                tag = (
-                    tag[:-1]
-                    + ' title="Local capability reference; available in the operator checkout" '
-                    'class="local-reference">'
-                )
-                if attr == "href":
-                    tag += '<span class="local-reference-label">[local reference] </span>'
-                continue
             exists_in_git = source.as_posix() in tracked or any(
                 name.startswith(source.as_posix().rstrip("/") + "/") for name in tracked
             )

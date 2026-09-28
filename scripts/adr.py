@@ -267,11 +267,11 @@ def lint(root: Path, *, check_git: bool = True) -> list[str]:
             elif a.id not in by_id[other].refs("supersedes"):
                 err(a, f"{other} does not list {a.id} in `supersedes`")
         for old in a.refs("supersedes"):
-            # A retired predecessor is provenance, recovered from Git (ADR-0042), but only an
-            # accepted replacement can hold the decisions it retired.
+            # A retired predecessor is provenance, recovered from Git (ADR-0042). An accepted
+            # replacement may itself have a retained successor; that chain is checked above.
             if old in by_id and a.id not in by_id[old].refs("superseded-by"):
                 err(a, f"{old} does not name {a.id} in `superseded-by`")
-            elif old not in by_id and a.status != "accepted":
+            elif old not in by_id and a.status not in {"accepted", "superseded"}:
                 err(
                     a,
                     f"supersedes retired {old} but is {a.status}; accept it before retiring {old}",

@@ -259,6 +259,15 @@ def test_only_an_accepted_record_may_replace_a_retired_one(root: Path) -> None:
     run(root, "index")
     assert adr.lint(root, check_git=False) == []
 
+    run(root, "supersede", "ADR-0002", "successor")
+    successor = root / "docs" / "adr" / "0003-successor.md"
+    adr.set_field(successor, "design", "[§B1]")
+    adr.set_field(successor, "status", "accepted")
+    decide(root, "ADR-0003")
+    design.write_text(design.read_text().replace("> Decision: ADR-0002\n", ""))
+    run(root, "index")
+    assert adr.lint(root, check_git=False) == []
+
 
 def test_supersede_rejects_a_missing_live_predecessor(root: Path) -> None:
     with pytest.raises(SystemExit, match="no such ADR"):

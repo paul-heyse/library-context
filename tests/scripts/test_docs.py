@@ -167,6 +167,23 @@ def test_clean_checkout_optional_skills_are_declared_and_ignored(root, settings)
     assert "[local reference]" in result and "href=" not in result
 
 
+def test_shared_skill_symlink_stays_a_local_reference(root, settings, tmp_path):
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    skills = root / ".claude/skills"
+    skills.mkdir(parents=True)
+    (skills / "README.md").write_text("[shared](example/SKILL.md)")
+    (root / ".gitignore").write_text("/.claude/skills/*\n!/.claude/skills/README.md\n")
+    outside = tmp_path.parent / (tmp_path.name + "-shared")
+    outside.mkdir(exist_ok=True)
+    (outside / "SKILL.md").write_text("Not publication input")
+    (skills / "example").symlink_to(outside, target_is_directory=True)
+    result = rewrite(root, settings, '<a href="../.claude/skills/example/SKILL.html">shared</a>')
+    assert "[local reference]" in result and "href=" not in result
+    (root / "escape").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(ValueError, match="escapes"):
+        rewrite(root, settings, '<a href="../escape/SKILL.md">secret</a>')
+
+
 @pytest.mark.parametrize("failure", ["missing", "wrong"])
 def test_tools_fail_actionably(monkeypatch, settings, failure):
     def fake(*args, **kwargs):
