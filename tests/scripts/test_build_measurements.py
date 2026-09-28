@@ -68,7 +68,7 @@ def test_variants_preserve_mold_and_isolate_cache(
 
     assert stable["CARGO_ENCODED_RUSTFLAGS"] == "-C\x1flink-arg=-fuse-ld=mold"
     assert stable["RUSTC_WRAPPER"] == ""
-    assert stable["CARGO_INCREMENTAL"] == "0"
+    assert "CARGO_INCREMENTAL" not in stable
     assert "RUSTFLAGS" not in nightly
     assert nightly["CARGO_ENCODED_RUSTFLAGS"].endswith("\x1f-Zthreads=4")
     assert nightly["CARGO_BUILD_JOBS"] == "8"

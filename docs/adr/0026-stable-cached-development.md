@@ -1,10 +1,10 @@
 ---
 id: ADR-0026
 title: Use stable cached builds and the main working tree for development
-status: accepted
+status: superseded
 date: 2026-09-24
 supersedes: [ADR-0001]
-superseded-by: null
+superseded-by: ADR-0075
 design: [§1.2]
 evidence: Implemented
 revisit: Two representative paired runs show a materially faster or less memory-hungry stable configuration, or cache reuse is ineffective in ordinary development.

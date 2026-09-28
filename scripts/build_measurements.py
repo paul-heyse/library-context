@@ -33,8 +33,8 @@ MIN_FREE_GIB = 200
 EDIT_FILE = Path("crates/cpg-flow/src/lib.rs")
 ENCODED_SEPARATOR = "\x1f"
 VARIANTS = {
-    "stable": ("1.98.1", False, 32, 1),
-    "stable-cache": ("1.98.1", True, 32, 1),
+    "stable": ("1.98.1", False, 16, 1),
+    "stable-cache": ("1.98.1", True, 16, 1),
     "nightly-32x1": (NIGHTLY, True, 32, 1),
     "nightly-16x2": (NIGHTLY, True, 16, 2),
     "nightly-8x4": (NIGHTLY, True, 8, 4),
@@ -219,7 +219,7 @@ def variant_env(campaign: Path, variant: str, trial: int) -> dict[str, str]:
         env.pop(key, None)
     env["RUSTUP_TOOLCHAIN"] = toolchain
     env["CARGO_BUILD_JOBS"] = str(jobs)
-    env["CARGO_INCREMENTAL"] = "0"
+    # Keep workspace/dependency incremental policy from the captured manifest.
     env["CARGO_TARGET_DIR"] = str(campaign / "targets" / variant / f"trial-{trial}")
     flags = ["-C", "link-arg=-fuse-ld=mold"]
     if toolchain == NIGHTLY:
@@ -233,7 +233,7 @@ def variant_env(campaign: Path, variant: str, trial: int) -> dict[str, str]:
             raise ValueError("sccache is unavailable")
         env["RUSTC_WRAPPER"] = wrapper
         env["SCCACHE_DIR"] = str(campaign / "cache" / variant)
-        env["SCCACHE_CACHE_SIZE"] = "32G"
+        env["SCCACHE_CACHE_SIZE"] = "100G"
         socket_id = hashlib.sha256(f"{campaign}:{variant}".encode()).hexdigest()[:16]
         env["SCCACHE_SERVER_UDS"] = f"/tmp/lctx-perf-{socket_id}.sock"
     else:

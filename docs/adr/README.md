@@ -12,7 +12,6 @@ The [architecture map](../design/README.md) and its section owners own contracts
 | [ADR-0015](0015-source-text-in-delta.md) | Every analyzed module's text and role are stored in the snapshot | 2026-09-23 | [§3.2](../design/sections/facts-and-identity.md#section-3-2), [§3.5](../design/sections/facts-and-identity.md#section-3-5), [§4.0](../design/sections/acquisition-and-extraction.md#section-4-0), [§8](../design/sections/validation-and-evaluation.md#section-8) | Tested |  |
 | [ADR-0016](0016-jemalloc-global-allocator.md) | The binaries use jemalloc as their global allocator | 2026-09-23 | [§4.3](../design/sections/acquisition-and-extraction.md#section-4-3) | Measured |  |
 | [ADR-0018](0018-corpus-selection-semantics.md) | Corpus selection reads the fetched tree without following links, with globset syntax | 2026-09-23 | [§4.0](../design/sections/acquisition-and-extraction.md#section-4-0) | Tested |  |
-| [ADR-0026](0026-stable-cached-development.md) | Use stable cached builds and the main working tree for development | 2026-09-24 | [§1.2](../design/DESIGN.md#section-1-2) | Implemented | ADR-0001 |
 | [ADR-0040](0040-architecture-change-scenarios.md) | Review architecture through change scenarios and repository-owned foundations | 2026-09-25 | [§1.2](../design/DESIGN.md#section-1-2), [§2](../design/DESIGN.md#section-2) | Implemented | ADR-0023 |
 | [ADR-0041](0041-architectural-documentation.md) | Publish a focused architectural collection with derived navigation and search | 2026-09-25 | [§2](../design/DESIGN.md#section-2) | Proposed |  |
 | [ADR-0042](0042-documentation-lifecycle.md) | Keep a current documentation working set; Git holds retired records | 2026-09-25 | [§2](../design/DESIGN.md#section-2) | Tested |  |
@@ -43,6 +42,7 @@ The [architecture map](../design/README.md) and its section owners own contracts
 | [ADR-0072](0072-catalog-compile-profiles.md) | Compile the public catalog by default and compose explicit optional capabilities | 2026-09-28 | [§14.3](../design/sections/api-and-evidence-product.md#section-14-3), [§14.4](../design/sections/api-and-evidence-product.md#section-14-4), [§14.13](../design/sections/api-and-evidence-product.md#section-14-13) | Proposed |  |
 | [ADR-0073](0073-catalog-wire-contracts.md) | Own catalog wire contracts in Rust and isolate catalog derivations | 2026-09-28 | [§B2](../design/DESIGN.md#section-b2), [§B13](../design/DESIGN.md#section-b13), [§3.4](../design/sections/facts-and-identity.md#section-3-4), [§4.1](../design/sections/acquisition-and-extraction.md#section-4-1), [§6.5](../design/sections/storage-and-publication.md#section-6-5), [§8](../design/sections/validation-and-evaluation.md#section-8), [§11.3](../design/sections/synthesis-and-serving.md#section-11-3), [§13](../design/DESIGN.md#section-13), [§14.3](../design/sections/api-and-evidence-product.md#section-14-3), [§14.7](../design/sections/api-and-evidence-product.md#section-14-7), [§14.9](../design/sections/api-and-evidence-product.md#section-14-9), [§14.10](../design/sections/api-and-evidence-product.md#section-14-10), [§14.11](../design/sections/api-and-evidence-product.md#section-14-11), [§14.13](../design/sections/api-and-evidence-product.md#section-14-13) | Proposed |  |
 | [ADR-0074](0074-catalog-surface-associations.md) | Normalize public surfaces and preserve exact configuration associations | 2026-09-28 | [§3.9](../design/sections/behavior-model.md#section-3-9), [§14.3](../design/sections/api-and-evidence-product.md#section-14-3), [§14.4](../design/sections/api-and-evidence-product.md#section-14-4), [§14.11](../design/sections/api-and-evidence-product.md#section-14-11) | Proposed |  |
+| [ADR-0075](0075-incremental-workspace-builds.md) | Use incremental workspace builds and cached optimized dependencies | 2026-09-28 | [§1.2](../design/DESIGN.md#section-1-2) | Implemented | [ADR-0026](0026-stable-cached-development.md) |
 
 ## Proposed: open choices, not accepted decisions
 
@@ -52,5 +52,11 @@ The [architecture map](../design/README.md) and its section owners own contracts
 | [ADR-0024](0024-condition-kernel.md) | Use bounded decision diagrams for behavioral conditions | 2026-09-24 | [§B10](../design/DESIGN.md#section-b10), [§3.9](../design/sections/behavior-model.md#section-3-9), [§9.9](../design/sections/behavioral-analysis.md#section-9-9) | Proposed |  |
 | [ADR-0025](0025-bounded-semantic-serving.md) | Serve bounded semantic queries through an in-process Rust extension | 2026-09-24 | [§B13](../design/DESIGN.md#section-b13), [§11.3](../design/sections/synthesis-and-serving.md#section-11-3) | Proposed |  |
 | [ADR-0028](0028-call-result-provenance.md) | Retain nested call provenance for value transfers | 2026-09-25 | [§B5](../design/DESIGN.md#section-b5), [§3.9](../design/sections/behavior-model.md#section-3-9), [§9.9](../design/sections/behavioral-analysis.md#section-9-9) | Proposed |  |
+
+## Superseded, still in the tree
+
+| ADR | Title | Date | Governs | Evidence | Replaces |
+|---|---|---|---|---|---|
+| [ADR-0026](0026-stable-cached-development.md) | Use stable cached builds and the main working tree for development | 2026-09-24 | [§1.2](../design/DESIGN.md#section-1-2) | Implemented | ADR-0001 |
 
 Unlinked identifiers under *Replaces* are retired records. Their surviving meaning is in the records above; recover the text from Git ([historical recovery](../README.md#historical-recovery)).

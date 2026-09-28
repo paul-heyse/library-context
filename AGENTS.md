@@ -26,7 +26,7 @@ The pilot library is FastMCP 4.0.5. Every analyzed library, the pilot included, 
 project under `libraries/<name>/`, acquired and compiled by `lctx` (ADR-0046); the project's own
 environment is never an analysis input.
 
-This is a personal project with one operator. Process is deliberately light (ADR-0026). Keep
+This is a personal project with one operator. Process is deliberately light (ADR-0075). Keep
 it that way: before adding a hook, gate, register or new document type, check that it has a
 real consumer.
 
@@ -91,8 +91,10 @@ The Rust toolchain is pinned to 1.98.1 in `rust-toolchain.toml`. The machine def
 nightly, so don't pass `+nightly` or `+stable` to cargo in this workspace. Python is 3.14.7 via
 `uv`; run Python tools as `uv run …`. The type checker is **pyrefly**, not pyright or mypy.
 
-The repository's `.cargo/config.toml` sets 16 Cargo jobs, `sccache` as the compiler wrapper,
-and incremental compilation off so the compiler cache can store workspace crates. Stable rustc
+The repository's `.cargo/config.toml` sets 16 Cargo jobs and `sccache` as the compiler wrapper.
+Cargo profiles use workspace O2 with incremental compilation in dev and release, and imported
+dependencies O3 without incremental compilation, including path dependencies (ADR-0075).
+Keep the release test workflow and its target artifacts; do not routinely run `cargo clean`. Stable rustc
 uses one frontend thread by default; do not add nightly `-Zthreads` flags to the development
 loop. Keep Clang and mold as the linker route. Avoid changing `CARGO_TARGET_DIR`, rustflags,
 or worktrees during ordinary development because those changes disrupt build reuse. For an

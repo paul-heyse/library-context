@@ -130,7 +130,29 @@ allow_attributes_without_reason = "warn"
 
 # Debug info for the DataFusion + delta-rs graph fills disks quickly.
 [profile.dev]
+opt-level = 2
+incremental = true
 debug = 0
+
+[profile.dev.package."*"]
+opt-level = 3
+incremental = false
+
+[profile.dev.build-override]
+opt-level = 2
 
 [profile.test]
 debug = 0
+
+[profile.release]
+opt-level = 2
+# The daily test loop uses release; retain workspace edit/rebuild state here too.
+incremental = true
+codegen-units = 16
+
+[profile.release.package."*"]
+opt-level = 3
+incremental = false
+
+[profile.release.build-override]
+opt-level = 2

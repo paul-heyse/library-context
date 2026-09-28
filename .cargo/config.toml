@@ -1,7 +1,6 @@
 [build]
 jobs = 16
 rustc-wrapper = "sccache"
-incremental = false
 
 # Ordinary builds never introspect an ambient database; sqlx-check opts in explicitly.
 [env]
