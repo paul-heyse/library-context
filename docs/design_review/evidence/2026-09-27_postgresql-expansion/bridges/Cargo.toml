@@ -1,0 +1,27 @@
+[package]
+name = "lctx-pg-bridge-qualification"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+arrow-array = "=59.3.0"
+arrow-schema = "=59.3.0"
+datafusion = { version = "=55.1.0", default-features = false, features = ["sql"], optional = true }
+datafusion-federation = { version = "=0.5.7", optional = true }
+datafusion-table-providers-postgres = { git = "https://github.com/CaptainEureka/datafusion-table-providers", rev = "33095588fcdd17301a5d1c340dcd66cd60e41ec8", optional = true }
+datafusion-table-providers-adbc = { git = "https://github.com/CaptainEureka/datafusion-table-providers", rev = "33095588fcdd17301a5d1c340dcd66cd60e41ec8", optional = true }
+adbc_core = { version = "=0.24.0", optional = true }
+adbc_driver_manager = { version = "=0.24.0", optional = true }
+adbc_ffi = { version = "=0.24.0", optional = true }
+r2d2_adbc = { version = "=0.3.0", optional = true }
+pgpq = "=0.12.0"
+datafusion-postgres = { git = "https://github.com/datafusion-contrib/datafusion-postgres", rev = "eda0da032ed8d6003b5041fce67c1e5b2f101876", optional = true }
+adbc-driver-datafusion = { git = "https://github.com/adbc-drivers/datafusion", rev = "3d24e0f3ad8bf914b9d2a48d0151fc313b8ae28c", optional = true }
+sqlx = { version = "=0.9.0", default-features = false, features = ["postgres", "runtime-tokio", "tls-rustls-ring-native-roots"] }
+deltalake = { git = "https://github.com/delta-io/delta-rs", rev = "58f07cd62bfbce3649a7e1c87c696288068ae184", default-features = false, features = ["datafusion", "rustls"], optional = true }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+bytes = "1"
+secrecy = "0.10"

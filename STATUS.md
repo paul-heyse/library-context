@@ -20,13 +20,17 @@ _Updated 2026-09-27 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
   [Plan](docs/plans/postgresql-integration-plan_2026-09-27.md),
   [runbook](docs/postgresql.md), [evidence](docs/design_review/evidence/2026-09-27_postgresql/README.md).
   ADR-0065/0066/0067 are accepted; F1–F10 remain consumer-triggered future capabilities.
+- **PostgreSQL expansion reviewed:** [target review](docs/design_review/reviews/design_review_postgresql-expanded-architecture_2026-09-27.md)
+  owns PGE/F01–F05 pending plan revision. 1024 is the operator-selected standard; proposed PG
+  serving/pgvector/COPY/federation retains canonical Delta. Product, deployment and plans unchanged.
 - **Versions:** compiler **106**, extractor **33**, template **20**, catalog **7**, FORMAT **10**.
   `used_embeddings`/`embedding_uses` are schema migrations; use fresh stores under ADR-0048.
   Prior binary/lockfile and baseline artifacts remain under `build/postgresql-baseline-5e62353/`.
 
 ## Last verified (2026-09-27)
 
-`CARGO_TARGET_DIR=/home/paul/library-context/target`, `RUST_MIN_STACK=16777216`.
+Product rows retain prior PG0–PG7 receipts; full product gates were **not_run** for this design review.
+Product target `/home/paul/library-context/target`; expansion probes use a separate cache target.
 
 | Command | Outcome and scope |
 |---|---|
@@ -36,10 +40,13 @@ _Updated 2026-09-27 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
 | Offline `lctx bundle`; two concurrent compiles; restore/rollback controls | **passed:** live bundle all 52 files byte-equal; concurrent/cold IPC and content parity; 472 backed-up events restored; prior binary/store works |
 | Bogus-DSN offline build; stale `.sqlx`; credential/permission/TLS controls | **passed:** offline build and expected negative-control rejections |
 | `lctx db migrate/check/status` | **passed:** 180006, `lctx_app`, current schema; migration is idempotent |
-| `just docs-check`; scoped same publisher | **failed:** supplied external review lacks H1; **passed:** 146 canonical pages excluding only that unchanged input |
+| Isolated `cargo metadata/check`; bridge `run.py --providers` | **passed:** compatible family, combined provider/federation/Delta build, real PG18.6 COPY and representative reads; [bounded evidence](docs/design_review/evidence/2026-09-27_postgresql-expansion/README.md) |
+| `just docs-check`; scoped same publisher | **failed:** supplied external review lacks H1; **passed:** 150 canonical pages excluding only that unchanged input |
 
 ## Known boundaries and next
 
+- Next PostgreSQL step: revise the existing plan and decision owners from the expansion review;
+  native ADBC, expanded serving and ANN remain unqualified. No further dimension-quality gate.
 - PostgreSQL acceptance does not complete Stage 3. The [forward-plan findings](docs/plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-findings)
   own PGS/PGK dispositions; W9 is tested closed for its cache defect, while arbitrary endpoint
   attestation stays deferred under W16. No Python database client or future search stack is installed.
