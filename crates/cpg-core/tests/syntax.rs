@@ -509,6 +509,43 @@ fn source() -> cpg_extract::library::Source {
     }
 }
 
+#[test]
+fn catalog_profile_applies_to_corpus_and_library() {
+    use cpg_schema::codebook::{CoverageStatus, FactFamily};
+    let dir = tempfile::tempdir().unwrap();
+    let mut input = corpus_input(dir.path(), Id([71; 16]), &[]);
+    input.profile = cpg_schema::catalog::CompileProfile::Catalog;
+    let out = extract(&input).unwrap();
+    let coverage = out.table("coverage").unwrap();
+    let family = coverage
+        .column_by_name("fact_family")
+        .unwrap()
+        .as_any()
+        .downcast_ref::<Int16Array>()
+        .unwrap();
+    let status = coverage
+        .column_by_name("status")
+        .unwrap()
+        .as_any()
+        .downcast_ref::<Int16Array>()
+        .unwrap();
+    let mut flow = 0;
+    for row in 0..coverage.num_rows() {
+        if family.value(row) == FactFamily::Flow.code() {
+            assert_eq!(status.value(row), CoverageStatus::NotRequested.code());
+            flow += 1;
+        }
+    }
+    assert_eq!(flow, out.table("source_files").unwrap().num_rows());
+    assert_eq!(out.table("flow_values").unwrap().num_rows(), 0);
+    assert_eq!(
+        out.table("producers").unwrap().num_rows(),
+        1,
+        "corpus and library must use the same profiled producer"
+    );
+    assert_eq!(out.table("runs").unwrap().num_rows(), 2);
+}
+
 /// C5 (DESIGN §3.2 `docs`): a corpus run beside the library run. The documents the selection
 /// keeps, their passages, code blocks and links, the mentions of the library's API by class, and
 /// each document's coverage.
@@ -1801,8 +1838,9 @@ async fn all_techniques_guard() {
     // the behavior scan graded from their decisions (ADR-0064), then the committed catalog's
     // remaining Logger levels (catalog content, format 7), then compiler106's snapshot-local
     // consumed vector values and consumer inventory (ADR-0068/0067), then compiler107
-    // format-2 spec identity (the word-overlap test oracle retains its own 64-dimension model).
-    const GUARD: &str = "355fd67d85428a8e7ea94bbb564a0e4732ca67979499c8f5d87e1813cf4f5495";
+    // format-2 spec identity (the word-overlap test oracle retains its own 64-dimension model),
+    // then compiler108 catalog contracts and explicit enrichment capabilities (ADR-0072).
+    const GUARD: &str = "334f6c3218bce20217665b95ee10644a85079383a2190454156b2c0b8a2fb135";
     assert_eq!(digest, GUARD, "the all-techniques guard moved");
 }
 

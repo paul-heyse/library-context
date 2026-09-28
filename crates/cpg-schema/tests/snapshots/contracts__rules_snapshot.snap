@@ -156,6 +156,26 @@ key:graph_gaps
   SELECT snapshot_id, gap_fact_id, count(*) AS n FROM graph_gaps GROUP BY snapshot_id, gap_fact_id HAVING count(*) > 1
 key:edge_kinds
   SELECT snapshot_id, edge_kind, count(*) AS n FROM edge_kinds GROUP BY snapshot_id, edge_kind HAVING count(*) > 1
+key:catalog_compilation
+  SELECT snapshot_id, count(*) AS n FROM catalog_compilation GROUP BY snapshot_id HAVING count(*) > 1
+key:catalog_members
+  SELECT snapshot_id, member_id, count(*) AS n FROM catalog_members GROUP BY snapshot_id, member_id HAVING count(*) > 1
+key:catalog_bindings
+  SELECT snapshot_id, member_id, binding_id, count(*) AS n FROM catalog_bindings GROUP BY snapshot_id, member_id, binding_id HAVING count(*) > 1
+key:catalog_signatures
+  SELECT snapshot_id, signature_id, count(*) AS n FROM catalog_signatures GROUP BY snapshot_id, signature_id HAVING count(*) > 1
+key:catalog_constructors
+  SELECT snapshot_id, class_node_id, signature_id, count(*) AS n FROM catalog_constructors GROUP BY snapshot_id, class_node_id, signature_id HAVING count(*) > 1
+key:catalog_parameters
+  SELECT snapshot_id, signature_id, ordinal, count(*) AS n FROM catalog_parameters GROUP BY snapshot_id, signature_id, ordinal HAVING count(*) > 1
+key:catalog_evidence
+  SELECT snapshot_id, evidence_id, count(*) AS n FROM catalog_evidence GROUP BY snapshot_id, evidence_id HAVING count(*) > 1
+key:catalog_types
+  SELECT snapshot_id, term_id, count(*) AS n FROM catalog_types GROUP BY snapshot_id, term_id HAVING count(*) > 1
+key:catalog_type_args
+  SELECT snapshot_id, parent_term_id, role, ordinal, count(*) AS n FROM catalog_type_args GROUP BY snapshot_id, parent_term_id, role, ordinal HAVING count(*) > 1
+key:catalog_type_observations
+  SELECT snapshot_id, source_fact_id, count(*) AS n FROM catalog_type_observations GROUP BY snapshot_id, source_fact_id HAVING count(*) > 1
 key:public_paths
   SELECT snapshot_id, node_id, access_path, count(*) AS n FROM public_paths GROUP BY snapshot_id, node_id, access_path HAVING count(*) > 1
 key:return_completion_certificates
@@ -362,6 +382,260 @@ key:embedding_uses
   SELECT snapshot_id, spec_hash, input_hash, count(*) AS n FROM embedding_uses GROUP BY snapshot_id, spec_hash, input_hash HAVING count(*) > 1
 key:assertion_policy
   SELECT snapshot_id, assertion_kind, evidence_status, count(*) AS n FROM assertion_policy GROUP BY snapshot_id, assertion_kind, evidence_status HAVING count(*) > 1
+catalog-code:catalog_compilation.profile
+  SELECT "profile" FROM catalog_compilation WHERE "profile" NOT IN ('catalog', 'behavioral')
+catalog-code:catalog_members.resolution
+  SELECT "resolution" FROM catalog_members WHERE "resolution" NOT IN ('unresolved', 'source_known_effective_unresolved')
+catalog-code:catalog_members.brief_status
+  SELECT "brief_status" FROM catalog_members WHERE "brief_status" NOT IN ('not_requested', 'not_selected', 'skipped', 'available')
+catalog-code:catalog_bindings.role
+  SELECT "role" FROM catalog_bindings WHERE "role" NOT IN ('selected_source', 'overload', 'shadowed_source', 'stub_source', 'source_alternative', 'provider_public_observation')
+catalog-code:catalog_signatures.role
+  SELECT "role" FROM catalog_signatures WHERE "role" NOT IN ('source', 'overload', 'provider_constructor')
+catalog-code:catalog_signatures.form
+  SELECT "form" FROM catalog_signatures WHERE "form" NOT IN ('source_list', 'list', 'ellipsis', 'param_spec')
+catalog-code:catalog_parameters.kind
+  SELECT "kind" FROM catalog_parameters WHERE "kind" NOT IN ('positional_only', 'positional_or_keyword', 'var_positional', 'keyword_only', 'var_keyword')
+catalog-code:catalog_parameters.provider_kind
+  SELECT "provider_kind" FROM catalog_parameters WHERE "provider_kind" NOT IN ('positional_only', 'positional_or_keyword', 'var_positional', 'keyword_only', 'var_keyword')
+catalog-code:catalog_parameters.default_state
+  SELECT "default_state" FROM catalog_parameters WHERE "default_state" NOT IN ('absent', 'literal_none', 'literal', 'source_expression', 'optional_expression_unavailable', 'unknown')
+catalog-code:catalog_evidence.role
+  SELECT "role" FROM catalog_evidence WHERE "role" NOT IN ('declares')
+catalog-code:catalog_types.kind
+  SELECT "kind" FROM catalog_types WHERE "kind" NOT IN ('class_instance', 'class_object', 'type_of', 'typed_dict', 'union', 'intersection', 'callable', 'overload', 'bound_method', 'generic', 'tuple', 'literal', 'type_var', 'param_spec', 'type_var_tuple', 'module', 'any', 'never', 'none', 'type_alias', 'self_type', 'annotated', 'unpack', 'type_guard', 'param_list', 'special_form', 'other', 'truncated')
+catalog-code:catalog_type_args.role
+  SELECT "role" FROM catalog_type_args WHERE "role" NOT IN ('argument', 'member', 'parameter', 'return', 'element', 'variadic', 'signature', 'receiver', 'function', 'type_parameter', 'target', 'param_spec', 'bound', 'constraint', 'default')
+catalog-code:catalog_type_args.parameter_kind
+  SELECT "parameter_kind" FROM catalog_type_args WHERE "parameter_kind" NOT IN ('positional_only', 'positional_or_keyword', 'var_positional', 'keyword_only', 'var_keyword')
+catalog-code:catalog_type_observations.role
+  SELECT "role" FROM catalog_type_observations WHERE "role" NOT IN ('parameter', 'return', 'call_result', 'argument', 'raised')
+catalog-unselected:return_completion_certificates
+  SELECT snapshot_id FROM return_completion_certificates WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:model_context_protocols
+  SELECT snapshot_id FROM model_context_protocols WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:source_context_sites
+  SELECT snapshot_id FROM source_context_sites WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:call_executions
+  SELECT snapshot_id FROM call_executions WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:source_call_bindings
+  SELECT snapshot_id FROM source_call_bindings WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:source_call_normals
+  SELECT snapshot_id FROM source_call_normals WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:source_call_header_steps
+  SELECT snapshot_id FROM source_call_header_steps WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:source_body_completions
+  SELECT snapshot_id FROM source_body_completions WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:source_body_steps
+  SELECT snapshot_id FROM source_body_steps WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:source_body_release_inputs
+  SELECT snapshot_id FROM source_body_release_inputs WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:model_frame_exits
+  SELECT snapshot_id FROM model_frame_exits WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:model_frame_exit_arguments
+  SELECT snapshot_id FROM model_frame_exit_arguments WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:model_frame_exit_steps
+  SELECT snapshot_id FROM model_frame_exit_steps WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:call_execution_steps
+  SELECT snapshot_id FROM call_execution_steps WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:modeled_action_assessments
+  SELECT snapshot_id FROM modeled_action_assessments WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:modeled_action_postconditions
+  SELECT snapshot_id FROM modeled_action_postconditions WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:source_context_value_identities
+  SELECT snapshot_id FROM source_context_value_identities WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:source_context_arguments
+  SELECT snapshot_id FROM source_context_arguments WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:concept_attributes
+  SELECT snapshot_id FROM concept_attributes WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:concept_incidences
+  SELECT snapshot_id FROM concept_incidences WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:argument_flows
+  SELECT snapshot_id FROM argument_flows WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:guards
+  SELECT snapshot_id FROM guards WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:parameter_reads
+  SELECT snapshot_id FROM parameter_reads WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:handoffs
+  SELECT snapshot_id FROM handoffs WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:delegations
+  SELECT snapshot_id FROM delegations WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:value_flows
+  SELECT snapshot_id FROM value_flows WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:flow_reach_boundaries
+  SELECT snapshot_id FROM flow_reach_boundaries WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:value_flow_contributions
+  SELECT snapshot_id FROM value_flow_contributions WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:analysis_conditions
+  SELECT snapshot_id FROM analysis_conditions WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:analysis_condition_nodes
+  SELECT snapshot_id FROM analysis_condition_nodes WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:value_flow_predecessor_candidates
+  SELECT snapshot_id FROM value_flow_predecessor_candidates WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:value_flow_predecessor_compatibility
+  SELECT snapshot_id FROM value_flow_predecessor_compatibility WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:modeled_assignment_return_paths
+  SELECT snapshot_id FROM modeled_assignment_return_paths WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:summary_components
+  SELECT snapshot_id FROM summary_components WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:source_parameter_identities
+  SELECT snapshot_id FROM source_parameter_identities WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:source_modeled_identities
+  SELECT snapshot_id FROM source_modeled_identities WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:summary_flows
+  SELECT snapshot_id FROM summary_flows WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:summary_flow_steps
+  SELECT snapshot_id FROM summary_flow_steps WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:summary_boundaries
+  SELECT snapshot_id FROM summary_boundaries WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:summary_origin_coverage
+  SELECT snapshot_id FROM summary_origin_coverage WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:behavior_discharges
+  SELECT snapshot_id FROM behavior_discharges WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:flow_test_value_links
+  SELECT snapshot_id FROM flow_test_value_links WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:model_targets
+  SELECT snapshot_id FROM model_targets WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:model_applications
+  SELECT snapshot_id FROM model_applications WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:model_formal_paths
+  SELECT snapshot_id FROM model_formal_paths WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:model_argument_bindings
+  SELECT snapshot_id FROM model_argument_bindings WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:modeled_callback_sites
+  SELECT snapshot_id FROM modeled_callback_sites WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:modeled_resource_sites
+  SELECT snapshot_id FROM modeled_resource_sites WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:modeled_transfer_sites
+  SELECT snapshot_id FROM modeled_transfer_sites WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:modeled_exact_value_transfers
+  SELECT snapshot_id FROM modeled_exact_value_transfers WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:modeled_argument_evaluations
+  SELECT snapshot_id FROM modeled_argument_evaluations WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:expression_evaluations
+  SELECT snapshot_id FROM expression_evaluations WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:expression_evaluation_steps
+  SELECT snapshot_id FROM expression_evaluation_steps WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:modeled_effect_sites
+  SELECT snapshot_id FROM modeled_effect_sites WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:model_transfers
+  SELECT snapshot_id FROM model_transfers WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:model_effects
+  SELECT snapshot_id FROM model_effects WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:model_callbacks
+  SELECT snapshot_id FROM model_callbacks WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:model_resources
+  SELECT snapshot_id FROM model_resources WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:model_exceptions
+  SELECT snapshot_id FROM model_exceptions WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:modeled_exception_sites
+  SELECT snapshot_id FROM modeled_exception_sites WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:exit_sites
+  SELECT snapshot_id FROM exit_sites WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:return_exit_statuses
+  SELECT snapshot_id FROM return_exit_statuses WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:return_exit_steps
+  SELECT snapshot_id FROM return_exit_steps WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:return_entry_statuses
+  SELECT snapshot_id FROM return_entry_statuses WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:return_entry_steps
+  SELECT snapshot_id FROM return_entry_steps WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:statement_completions
+  SELECT snapshot_id FROM statement_completions WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:statement_completion_steps
+  SELECT snapshot_id FROM statement_completion_steps WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:handler_clauses
+  SELECT snapshot_id FROM handler_clauses WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:handler_types
+  SELECT snapshot_id FROM handler_types WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:modeled_exception_handler_candidates
+  SELECT snapshot_id FROM modeled_exception_handler_candidates WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:modeled_exception_handler_walks
+  SELECT snapshot_id FROM modeled_exception_handler_walks WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:handler_actions
+  SELECT snapshot_id FROM handler_actions WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:handler_return_none_sites
+  SELECT snapshot_id FROM handler_return_none_sites WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:modeled_exception_return_none_paths
+  SELECT snapshot_id FROM modeled_exception_return_none_paths WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:flow_test_exact_origins
+  SELECT snapshot_id FROM flow_test_exact_origins WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:field_accesses
+  SELECT snapshot_id FROM field_accesses WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:ambient_reads
+  SELECT snapshot_id FROM ambient_reads WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:dynamic_accesses
+  SELECT snapshot_id FROM dynamic_accesses WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:raise_sites
+  SELECT snapshot_id FROM raise_sites WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:singletons
+  SELECT snapshot_id FROM singletons WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:negative_premises
+  SELECT snapshot_id FROM negative_premises WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:behaviors
+  SELECT snapshot_id FROM behaviors WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:behavior_steps
+  SELECT snapshot_id FROM behavior_steps WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:analysis_invocations
+  SELECT snapshot_id FROM analysis_invocations WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:findings
+  SELECT snapshot_id FROM findings WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:finding_members
+  SELECT snapshot_id FROM finding_members WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:witnesses
+  SELECT snapshot_id FROM witnesses WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:evidence
+  SELECT snapshot_id FROM evidence WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:assertions
+  SELECT snapshot_id FROM assertions WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:assertion_support
+  SELECT snapshot_id FROM assertion_support WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:briefs
+  SELECT snapshot_id FROM briefs WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:brief_assertions
+  SELECT snapshot_id FROM brief_assertions WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:brief_members
+  SELECT snapshot_id FROM brief_members WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+catalog-unselected:brief_documents
+  SELECT snapshot_id FROM brief_documents WHERE EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'catalog')
+semantic:catalog-brief-state
+  SELECT m.member_id FROM catalog_members m CROSS JOIN catalog_compilation c WHERE (m.brief_status = 'not_requested') <> (c.profile = 'catalog') OR (m.brief_status = 'skipped') <> (m.brief_reason IS NOT NULL) OR (m.brief_status = 'available') <> EXISTS (SELECT 1 FROM briefs b WHERE b.seed_node_id = m.operation_node_id)
+ref:catalog_constructors.class_node_id->nodes
+  SELECT f.class_node_id AS value FROM catalog_constructors f LEFT ANTI JOIN (SELECT node_id AS k FROM nodes) r ON f.class_node_id = r.k WHERE f.class_node_id IS NOT NULL
+ref:catalog_constructors.ancestry_fact_id->facts
+  SELECT f.ancestry_fact_id AS value FROM catalog_constructors f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.ancestry_fact_id = r.k WHERE f.ancestry_fact_id IS NOT NULL
+ref:catalog_constructors.signature_id->catalog_signatures
+  SELECT f.signature_id AS value FROM catalog_constructors f LEFT ANTI JOIN (SELECT signature_id AS k FROM catalog_signatures) r ON f.signature_id = r.k WHERE f.signature_id IS NOT NULL
+ref:catalog_bindings.member_id->catalog_members
+  SELECT f.member_id AS value FROM catalog_bindings f LEFT ANTI JOIN (SELECT member_id AS k FROM catalog_members) r ON f.member_id = r.k WHERE f.member_id IS NOT NULL
+ref:catalog_bindings.source_fact_id->facts
+  SELECT f.source_fact_id AS value FROM catalog_bindings f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.source_fact_id = r.k WHERE f.source_fact_id IS NOT NULL
+ref:catalog_bindings.declaration_node_id->nodes
+  SELECT f.declaration_node_id AS value FROM catalog_bindings f LEFT ANTI JOIN (SELECT node_id AS k FROM nodes) r ON f.declaration_node_id = r.k WHERE f.declaration_node_id IS NOT NULL
+ref:catalog_members.operation_node_id->operations
+  SELECT f.operation_node_id AS value FROM catalog_members f LEFT ANTI JOIN (SELECT node_id AS k FROM operations) r ON f.operation_node_id = r.k WHERE f.operation_node_id IS NOT NULL
+ref:catalog_parameters.signature_id->catalog_signatures
+  SELECT f.signature_id AS value FROM catalog_parameters f LEFT ANTI JOIN (SELECT signature_id AS k FROM catalog_signatures) r ON f.signature_id = r.k WHERE f.signature_id IS NOT NULL
+ref:catalog_parameters.syntax_fact_id->facts
+  SELECT f.syntax_fact_id AS value FROM catalog_parameters f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.syntax_fact_id = r.k WHERE f.syntax_fact_id IS NOT NULL
+ref:catalog_parameters.semantics_fact_id->facts
+  SELECT f.semantics_fact_id AS value FROM catalog_parameters f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.semantics_fact_id = r.k WHERE f.semantics_fact_id IS NOT NULL
+ref:catalog_signatures.source_fact_id->facts
+  SELECT f.source_fact_id AS value FROM catalog_signatures f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.source_fact_id = r.k WHERE f.source_fact_id IS NOT NULL
+ref:catalog_evidence.source_fact_id->facts
+  SELECT f.source_fact_id AS value FROM catalog_evidence f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.source_fact_id = r.k WHERE f.source_fact_id IS NOT NULL
+ref:catalog_evidence.subject_node_id->nodes
+  SELECT f.subject_node_id AS value FROM catalog_evidence f LEFT ANTI JOIN (SELECT node_id AS k FROM nodes) r ON f.subject_node_id = r.k WHERE f.subject_node_id IS NOT NULL
+ref:catalog_type_observations.term_id->catalog_types
+  SELECT f.term_id AS value FROM catalog_type_observations f LEFT ANTI JOIN (SELECT term_id AS k FROM catalog_types) r ON f.term_id = r.k WHERE f.term_id IS NOT NULL
+ref:catalog_type_observations.source_fact_id->facts
+  SELECT f.source_fact_id AS value FROM catalog_type_observations f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.source_fact_id = r.k WHERE f.source_fact_id IS NOT NULL
+ref:catalog_type_args.parent_term_id->catalog_types
+  SELECT f.parent_term_id AS value FROM catalog_type_args f LEFT ANTI JOIN (SELECT term_id AS k FROM catalog_types) r ON f.parent_term_id = r.k WHERE f.parent_term_id IS NOT NULL
+ref:catalog_type_args.child_term_id->catalog_types
+  SELECT f.child_term_id AS value FROM catalog_type_args f LEFT ANTI JOIN (SELECT term_id AS k FROM catalog_types) r ON f.child_term_id = r.k WHERE f.child_term_id IS NOT NULL
+ref:catalog_types.source_fact_id->facts
+  SELECT f.source_fact_id AS value FROM catalog_types f LEFT ANTI JOIN (SELECT fact_id AS k FROM facts) r ON f.source_fact_id = r.k WHERE f.source_fact_id IS NOT NULL
 ref:facts.run_id->runs
   SELECT f.run_id AS value FROM facts f LEFT ANTI JOIN (SELECT run_id AS k FROM runs) r ON f.run_id = r.k WHERE f.run_id IS NOT NULL
 ref:runs.release_id->releases
@@ -734,8 +1008,8 @@ ref:summary_flow_steps.summary_id->summary_flows
   SELECT f.summary_id AS value FROM summary_flow_steps f LEFT ANTI JOIN (SELECT summary_id AS k FROM summary_flows) r ON f.summary_id = r.k WHERE f.summary_id IS NOT NULL
 ref:summary_flow_steps.evidence_id->flow_values|reference_resolutions|syntax_nodes|call_syntax|call_targets|model_transfers|model_targets|bindings|flow_regions|flow_reaching|flow_test_value_links|context_parameters|flow_tests|references|context_definitions|context_modules|context_class_mro|declarations|scopes|parameter_syntax|summary_flows|source_parameter_identities|source_modeled_identities|model_frame_exits|source_call_normals|source_context_value_identities|source_context_sites
   SELECT f.evidence_id AS value FROM summary_flow_steps f LEFT ANTI JOIN (SELECT fact_id AS k FROM flow_values UNION ALL SELECT fact_id AS k FROM reference_resolutions UNION ALL SELECT fact_id AS k FROM syntax_nodes UNION ALL SELECT fact_id AS k FROM call_syntax UNION ALL SELECT pysa_fact_id AS k FROM call_targets UNION ALL SELECT rule_id AS k FROM model_transfers UNION ALL SELECT model_id AS k FROM model_targets UNION ALL SELECT fact_id AS k FROM bindings UNION ALL SELECT fact_id AS k FROM flow_regions UNION ALL SELECT fact_id AS k FROM flow_reaching UNION ALL SELECT link_id AS k FROM flow_test_value_links UNION ALL SELECT fact_id AS k FROM context_parameters UNION ALL SELECT fact_id AS k FROM flow_tests UNION ALL SELECT fact_id AS k FROM references UNION ALL SELECT fact_id AS k FROM context_definitions UNION ALL SELECT fact_id AS k FROM context_modules UNION ALL SELECT fact_id AS k FROM context_class_mro UNION ALL SELECT fact_id AS k FROM declarations UNION ALL SELECT fact_id AS k FROM scopes UNION ALL SELECT fact_id AS k FROM parameter_syntax UNION ALL SELECT summary_id AS k FROM summary_flows UNION ALL SELECT identity_id AS k FROM source_parameter_identities UNION ALL SELECT identity_id AS k FROM source_modeled_identities UNION ALL SELECT frame_exit_id AS k FROM model_frame_exits UNION ALL SELECT certificate_id AS k FROM source_call_normals UNION ALL SELECT identity_id AS k FROM source_context_value_identities UNION ALL SELECT site_id AS k FROM source_context_sites) r ON f.evidence_id = r.k WHERE f.evidence_id IS NOT NULL
-ref:summary_flow_steps.condition_id->analysis_conditions
-  SELECT f.condition_id AS value FROM summary_flow_steps f LEFT ANTI JOIN (SELECT condition_id AS k FROM analysis_conditions) r ON f.condition_id = r.k WHERE f.condition_id IS NOT NULL
+ref:summary_flow_steps.condition_id->analysis_conditions|conditions
+  SELECT f.condition_id AS value FROM summary_flow_steps f LEFT ANTI JOIN (SELECT condition_id AS k FROM analysis_conditions UNION ALL SELECT condition_id AS k FROM conditions) r ON f.condition_id = r.k WHERE f.condition_id IS NOT NULL
 ref:summary_boundaries.function_node_id->declarations
   SELECT f.function_node_id AS value FROM summary_boundaries f LEFT ANTI JOIN (SELECT node_id AS k FROM declarations) r ON f.function_node_id = r.k WHERE f.function_node_id IS NOT NULL
 ref:summary_boundaries.parameter_node_id->parameter_syntax
@@ -2375,7 +2649,7 @@ semantic:evidence-text-bytes
 semantic:public-path-exported
   SELECT p.node_id, p.access_path FROM public_paths p LEFT ANTI JOIN (SELECT q.node_id, q.access_path FROM public_paths q JOIN declarations d ON d.node_id = q.node_id AND d.kind = q.kind JOIN exports e ON e.export_node_id = q.export_node_id AND (q.access_path = e.access_path OR q.access_path = e.access_path || '.' || d.name)) ok ON ok.node_id = p.node_id AND ok.access_path = p.access_path
 semantic:behavior-covers-public
-  SELECT p.node_id FROM (SELECT DISTINCT node_id FROM public_paths) p LEFT JOIN operations o ON o.node_id = p.node_id WHERE o.node_id IS NULL OR (o.kind = 2) <> (o.behavior_status = 4)
+  SELECT p.node_id FROM (SELECT DISTINCT node_id FROM public_paths) p LEFT JOIN operations o ON o.node_id = p.node_id WHERE o.node_id IS NULL OR (EXISTS (SELECT 1 FROM catalog_compilation WHERE profile = 'behavioral') AND (o.kind = 2) <> (o.behavior_status = 4))
 semantic:behavior-of-an-operation
   SELECT b.operation_node_id AS node_id FROM behaviors b LEFT ANTI JOIN operations o ON o.node_id = b.operation_node_id UNION ALL SELECT f.node_id FROM operation_facets f LEFT ANTI JOIN operations o ON o.node_id = f.node_id
 semantic:call-transfer-discharged
@@ -2403,7 +2677,7 @@ semantic:public-path-one-node
 semantic:public-path-preferred
   SELECT node_id FROM public_paths GROUP BY node_id HAVING sum(CASE WHEN preferred THEN 1 ELSE 0 END) <> 1
 semantic:public-path-own
-  SELECT p.node_id, p.access_path FROM public_paths p JOIN declarations d ON d.node_id = p.node_id JOIN (SELECT DISTINCT export_node_id, declaration_node_id FROM exports) e ON e.export_node_id = p.export_node_id WHERE p.own <> COALESCE(e.declaration_node_id = p.node_id OR e.declaration_node_id = d.parent_node_id, false)
+  SELECT p.node_id, p.access_path FROM public_paths p JOIN declarations d ON d.node_id = p.node_id JOIN (SELECT DISTINCT export_node_id, declaration_node_id FROM exports) e ON e.export_node_id = p.export_node_id GROUP BY p.node_id, p.access_path, p.own HAVING p.own <> bool_or(COALESCE(e.declaration_node_id = p.node_id OR e.declaration_node_id = d.parent_node_id, false))
 semantic:brief-member-public
   SELECT m.brief_id, m.access_path FROM brief_members m JOIN briefs b ON b.brief_id = m.brief_id LEFT ANTI JOIN public_paths p ON p.node_id = b.seed_node_id AND p.node_id = m.declaration_node_id AND p.access_path = m.access_path AND p.export_node_id = m.export_node_id AND p.own = m.own UNION ALL SELECT b.brief_id, p.access_path FROM briefs b JOIN public_paths p ON p.node_id = b.seed_node_id LEFT ANTI JOIN brief_members m ON m.brief_id = b.brief_id AND m.access_path = p.access_path
 semantic:brief-cites-analysis

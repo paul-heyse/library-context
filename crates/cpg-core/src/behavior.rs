@@ -23,13 +23,10 @@ use cpg_schema::behavior::{
 };
 use cpg_schema::codebook::{
     AnalyticMethod, BehaviorKind, BoundaryReason, Codebook, CoverageStatus, DeclarationKind,
-    ExtractionMode, FindingKind, FlowSink, FlowTransfer, MemberRole, Modality,
-    ValueClass, Verdict,
+    ExtractionMode, FindingKind, FlowSink, FlowTransfer, MemberRole, Modality, ValueClass, Verdict,
 };
 use cpg_schema::condition_kernel::{BoundedCondition as ModelCondition, KernelBoundary};
-use cpg_schema::findings::{
-    AnalysisInvocationsRow, FindingMembersRow, recipe as findings,
-};
+use cpg_schema::findings::{AnalysisInvocationsRow, FindingMembersRow, recipe as findings};
 use cpg_schema::id::{Digest, Id, content_digest};
 use cpg_schema::table::Table;
 use datafusion::prelude::SessionContext;
@@ -80,13 +77,6 @@ struct SurfaceParameters<'a> {
 }
 
 cpg_schema::query_row! {
-    struct QualifiedRow {
-        node_id: Id,
-        qualified_name: String,
-    }
-}
-
-cpg_schema::query_row! {
     struct TextRow {
         module_node_id: Id,
         text: Option<String>,
@@ -95,12 +85,6 @@ cpg_schema::query_row! {
 
 cpg_schema::relations! {
     inventory relations;
-    /// Declarations' qualified names (`$ids`).
-    qualified_names = "behavior_qualified_names",
-        deps = ["declarations"],
-        sql = "SELECT node_id, qualified_name FROM declarations \
-               WHERE array_has($ids, node_id) ORDER BY node_id"
-            .to_owned();
     /// Modules' texts (`$ids`), release and usage alike.
     module_texts = "behavior_module_texts",
         deps = ["source_files"],
@@ -1488,7 +1472,15 @@ pub async fn run(
         });
     }
 
-    crate::catalog::populate(ctx, embeddings, snapshot_id, analysis.embedder.as_deref(), catalog,
-        &mut out, stages).await?;
+    crate::catalog::populate(
+        ctx,
+        embeddings,
+        snapshot_id,
+        analysis.embedder.as_deref(),
+        catalog,
+        &mut out,
+        stages,
+    )
+    .await?;
     Ok(out)
 }

@@ -181,9 +181,11 @@ table!(
 
 /// Attributed declaration candidates before any winner filter. `keyed` must be in scope.
 pub(crate) fn ranked_declarations_sql() -> String {
-    format!("SELECT d.node_id, d.fact_id, d.module_node_id, d.qualified_name, {} AS pick \
+    format!(
+        "SELECT d.node_id, d.fact_id, d.module_node_id, d.qualified_name, {} AS pick \
         FROM declarations d LEFT JOIN keyed k ON k.node_id = d.node_id",
-        seed_rank("d.module_node_id, d.qualified_name"))
+        seed_rank("d.module_node_id, d.qualified_name")
+    )
 }
 
 impl Derived for Exports {

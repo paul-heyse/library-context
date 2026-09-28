@@ -1411,6 +1411,12 @@ async fn briefs_are_synthesized_from_findings_and_verbatim_evidence() {
             20,
             "1d2879178a1913822fbad7abbc5d1c5271d50613a97d47eda62f20c48b4bb9e0",
         ),
+        // Mandatory catalog and explicit profile retain behavioral synthesis (ADR-0072).
+        (
+            108,
+            20,
+            "1d2879178a1913822fbad7abbc5d1c5271d50613a97d47eda62f20c48b4bb9e0",
+        ),
     ];
     // Texts, and every identity column of Stage F's tables (slice 1.5 review F6).
     let mut output = format!(

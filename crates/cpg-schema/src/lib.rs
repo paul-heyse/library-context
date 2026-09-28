@@ -4,9 +4,9 @@
 //! snapshot-tested (`tests/`); DESIGN.md does not repeat them.
 
 pub mod behavior;
-pub mod catalog;
 pub mod bundle;
 pub mod call_execution;
+pub mod catalog;
 pub mod codebook;
 pub mod column;
 pub mod communities;

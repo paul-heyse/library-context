@@ -53,7 +53,9 @@ fn full_manifest_identity_rejects_missing_relations_and_mixed_spec() {
         .map(|f| (f.name.to_owned(), receipt(f.name, 1024, &[]).unwrap()))
         .collect();
     let mut m = Manifest {
-        capabilities: cpg_schema::catalog::Capabilities::for_profile(cpg_schema::catalog::CompileProfile::Behavioral),
+        capabilities: cpg_schema::catalog::Capabilities::for_profile(
+            cpg_schema::catalog::CompileProfile::Behavioral,
+        ),
         format: 3,
         bundle_format: 13,
         context: cpg_schema::serving_projection::ServingContext {
@@ -86,6 +88,30 @@ fn full_manifest_identity_rejects_missing_relations_and_mixed_spec() {
             .collect(),
     };
     let first = m.generation().unwrap();
+    let mut catalog = m.clone();
+    catalog.capabilities = cpg_schema::catalog::Capabilities::for_profile(
+        cpg_schema::catalog::CompileProfile::Catalog,
+    );
+    catalog.catalog_digest = None;
+    catalog.kernel_format = None;
+    catalog.entry_value_effect_digest = None;
+    let names = cpg_schema::serving_projection::artifacts_for(&catalog.capabilities);
+    catalog.artifacts.retain(|name, _| names.contains(name));
+    assert!(
+        catalog.generation().is_ok(),
+        "catalog does not require native closure"
+    );
+    catalog.capabilities.native_value_paths = true;
+    assert!(
+        catalog.generation().is_err(),
+        "advertised native closure must be complete"
+    );
+    catalog.capabilities.native_value_paths = false;
+    catalog.relations.get_mut("briefs").unwrap().rows = 1;
+    assert!(
+        catalog.generation().is_err(),
+        "unadvertised enrichment cannot leak rows"
+    );
     m.artifacts.get_mut("operations.arrow").unwrap().bytes = 3;
     assert_ne!(first, m.generation().unwrap());
     m.spec_hash = None;
@@ -130,6 +156,6 @@ fn ipc_shared_buffers_and_slices_have_the_same_logical_budget() {
 fn definition_encoding_is_independent_of_serde_json_map_features() {
     assert_eq!(
         cpg_schema::serving_projection::definition_digest(),
-        "3cf5543cc6682554f92c1b9e36e0c7e7149df5874d1c81ceacb63fbb362734a5"
+        "125833ed9f0a401d9b195d312c26ca5dfe41ad1f8fcec8c5946ea95bccb28492"
     );
 }

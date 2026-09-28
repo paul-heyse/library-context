@@ -273,7 +273,10 @@ impl Report {
 
 /// The library run, then the corpus run when one is declared (C5), merged into one attempt.
 fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
-    let families: Vec<_> = FAMILIES.into_iter().filter(|f| input.profile.behavioral() || *f != FactFamily::Flow).collect();
+    let families: Vec<_> = FAMILIES
+        .into_iter()
+        .filter(|f| input.profile.behavioral() || *f != FactFamily::Flow)
+        .collect();
     let (library, vocabulary) = run_release(input, &families, None)?;
     let Some(corpus) = &input.corpus else {
         return Ok(library);
@@ -286,7 +289,10 @@ fn run(input: &ExtractInput) -> Result<ExtractOutput, ExtractError> {
     };
     let (corpus_out, _) = run_release(
         &corpus_input,
-        &CORPUS_FAMILIES.into_iter().filter(|f| input.profile.behavioral() || *f != FactFamily::Flow).collect::<Vec<_>>(),
+        &CORPUS_FAMILIES
+            .into_iter()
+            .filter(|f| input.profile.behavioral() || *f != FactFamily::Flow)
+            .collect::<Vec<_>>(),
         Some((&corpus.documents, &vocabulary)),
     )?;
     merge(library, corpus_out)
@@ -947,8 +953,14 @@ fn run_release(
     let mut txn = txn;
     if !input.profile.behavioral() {
         for m in &modules {
-            report.cover(&sink, m.node_id, FactFamily::Flow, CoverageStatus::NotRequested,
-                Some(BoundaryReason::NotRequested), Some("catalog profile".into()));
+            report.cover(
+                &sink,
+                m.node_id,
+                FactFamily::Flow,
+                CoverageStatus::NotRequested,
+                Some(BoundaryReason::NotRequested),
+                Some("catalog profile".into()),
+            );
         }
     }
     let mut context_out = context::context_facts(

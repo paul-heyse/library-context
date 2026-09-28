@@ -63,7 +63,7 @@ class DynamicSettings:
     def joined(self, parts):
         return getattr(self, "".join(parts))
 
-dynamic_settings = DynamicSettings()
+_dynamic_settings = DynamicSettings()
 "#,
     )
     .unwrap();
@@ -140,6 +140,16 @@ assert any(k.endswith("aliased_only]") and not v["holds"] for k, v in claims.ite
 assert any(k.endswith("unread_only]") and v["holds"] for k, v in claims.items()), claims
 with served_bundle(Path(sys.argv[1])) as pg:
     operation = pg.operation(pg.load(), generation.snapshot_id, "probe.Settings")
+    singleton = pg.operation(pg.load(), generation.snapshot_id, "probe.settings")
+    assert singleton.operation_id == operation.operation_id
+    assert singleton.access_path == "probe.settings" and singleton.resolution == "singleton_class"
+    assert singleton.fields == operation.fields
+    assert singleton.catalog.constructors == operation.catalog.constructors
+    by_member = pg.operation(pg.load(), generation.snapshot_id, "member:" + singleton.member_id)
+    assert by_member.operation_id == singleton.operation_id
+    private = pg.operation(pg.load(), generation.snapshot_id, "probe._dynamic_settings")
+    assert private.constructor is not None and private.catalog is not None
+    assert private.catalog.member.access_path == "probe.DynamicSettings"
 fields = {field.name: field.never_read for field in operation.fields}
 assert "probe.settings" == operation.singleton_of, operation
 assert fields["qualified_only"].startswith("unknown (not refuted)"), fields

@@ -143,7 +143,7 @@ async def test_unknown_libraries_ids_and_snapshots_are_tool_errors(
         snapshot = structured(found)["snapshot_id"]
         cases = [
             ("search_capabilities", {"library": "numpy", "query": "x"}, "serves"),
-            ("get_capability", {"snapshot_id": "00" * 16, "capability_id": "ff" * 16}, "search"),
+            ("get_capability", {"snapshot_id": "00" * 16, "capability_id": "ff" * 16}, "pinned"),
             ("get_capability", {"snapshot_id": snapshot, "capability_id": "ff" * 16}, "no cap"),
             (
                 "get_capability",

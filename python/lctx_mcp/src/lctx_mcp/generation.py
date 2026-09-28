@@ -83,12 +83,16 @@ def load(
             client_spec is not None and spec.hash != client_spec.hash
         ):
             raise GenerationError("query embedding spec differs from the pinned generation")
-    native = SemanticExecutor.from_ipc(
-        KERNEL_FORMAT,
-        manifest["snapshot_id"],
-        manifest["entry_value_effect_digest"],
-        [(name, inputs[name]) for name in sorted(NATIVE_IPC_FILES)],
-    ) if manifest["capabilities"]["native_value_paths"] else None
+    native = (
+        SemanticExecutor.from_ipc(
+            KERNEL_FORMAT,
+            manifest["snapshot_id"],
+            manifest["entry_value_effect_digest"],
+            [(name, inputs[name]) for name in sorted(NATIVE_IPC_FILES)],
+        )
+        if manifest["capabilities"]["native_value_paths"]
+        else None
+    )
 
     def lexical(name: str, key: str) -> tuple[np.ndarray, list[str]]:
         table = ipc.open_file(pa.BufferReader(inputs[name])).read_all()

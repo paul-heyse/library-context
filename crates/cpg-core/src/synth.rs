@@ -2017,10 +2017,22 @@ pub async fn run(
 
         // A selected synthesis may legitimately find no admissible documentation brief.
         // Keep the Outcome validator strict; the mandatory catalog still exposes this API.
-        let has_outcome = drafts.iter().any(|d| d.kind == AssertionKind::Outcome && d.text.is_some()
-            && (!d.evidence.is_empty() || !d.findings.is_empty()));
-        let analysis_backed = drafts.iter().flat_map(|d| &d.findings).any(|(_, _, _, k)| ANALYSIS_BACKED.contains(k));
-        if !has_outcome && !analysis_backed { out.skipped.insert(seed, "no admissible outcome or analysis-backed finding".into()); continue; }
+        let has_outcome = drafts.iter().any(|d| {
+            d.kind == AssertionKind::Outcome
+                && d.text.is_some()
+                && (!d.evidence.is_empty() || !d.findings.is_empty())
+        });
+        let analysis_backed = drafts
+            .iter()
+            .flat_map(|d| &d.findings)
+            .any(|(_, _, _, k)| ANALYSIS_BACKED.contains(k));
+        if !has_outcome && !analysis_backed {
+            out.skipped.insert(
+                seed,
+                "no admissible outcome or analysis-backed finding".into(),
+            );
+            continue;
+        }
         // Assertions, ordered by section then draft order.
         let mut ordered: Vec<(usize, Draft)> = drafts.into_iter().enumerate().collect();
         ordered.sort_by_key(|(i, d)| (section_of(d.kind).code(), *i));

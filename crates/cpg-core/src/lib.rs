@@ -4,8 +4,8 @@
 pub mod analyze;
 pub mod attempt;
 pub mod behavior;
-pub mod catalog;
 pub mod bundle;
+pub mod catalog;
 pub mod delta;
 pub mod derive;
 pub mod diff;

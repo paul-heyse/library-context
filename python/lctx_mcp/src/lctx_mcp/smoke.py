@@ -47,7 +47,32 @@ async def smoke(
     import pyarrow.ipc as ipc
 
     briefs = ipc.open_file(str(generation / "briefs.arrow")).read_all().to_pylist()
+    operations = ipc.open_file(str(generation / "operations.arrow")).read_all().to_pylist()
+    capabilities = manifest["capabilities"]
     async with Client(transport) as client:
+        page = await client.call_tool(
+            "find_operations", {"library": manifest["library"], "where": {}, "limit": 3}
+        )
+        if not page.structured_content:
+            raise RuntimeError("operation discovery returned no structured result")
+        for operation in sorted(operations, key=lambda row: row["access_path"])[:3]:
+            result = await client.call_tool(
+                "get_operation",
+                {
+                    "snapshot_id": manifest["snapshot_id"],
+                    "operation": operation["access_path"],
+                    "expanded": True,
+                },
+            )
+            record = result.structured_content or {}
+            if record.get("capabilities") != capabilities or not record.get("catalog"):
+                raise RuntimeError("catalog contract/capabilities missing from operation packet")
+        if not capabilities["briefs"]:
+            result = await client.call_tool(
+                "search_capabilities", {"library": manifest["library"], "query": "catalog"}
+            )
+            if (result.structured_content or {}).get("reason") != "not_requested":
+                raise RuntimeError("unselected briefs must return not_requested")
         for brief in briefs:
             found = await client.call_tool(
                 "search_capabilities",
@@ -80,7 +105,10 @@ async def smoke(
                 f"smoke: {brief['access_path']}: found first ({hits[0]['rank_source']}, "
                 f"{result['mode']}), {len(card['assertions'])} assertions"
             )
-    print(f"smoke: passed ({len(briefs)} briefs, generation {manifest['generation']})")
+    print(
+        f"smoke: passed ({min(3, len(operations))} catalog packets, {len(briefs)} briefs, "
+        f"generation {manifest['generation']})"
+    )
     return 0
 
 

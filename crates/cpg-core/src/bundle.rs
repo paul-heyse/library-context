@@ -93,9 +93,22 @@ fn section_of(expr: &str) -> String {
 
 /// Each served file's query, sorted by its key; `lexical_text` is computed after the others.
 fn query(name: &str) -> Option<String> {
-    if let Some(file) = cpg_schema::catalog::serving_files().into_iter().find(|f| f.name == name) {
-        let columns = file.schema.fields().iter().map(|f| format!("\"{}\"", f.name())).collect::<Vec<_>>().join(", ");
-        return Some(format!("SELECT {columns} FROM {} ORDER BY {}", file.name, file.key.join(", ")));
+    if let Some(file) = cpg_schema::catalog::serving_files()
+        .into_iter()
+        .find(|f| f.name == name)
+    {
+        let columns = file
+            .schema
+            .fields()
+            .iter()
+            .map(|f| format!("\"{}\"", f.name()))
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Some(format!(
+            "SELECT {columns} FROM {} ORDER BY {}",
+            file.name,
+            file.key.join(", ")
+        ));
     }
     Some(match name {
         "briefs" => format!(
@@ -927,10 +940,19 @@ pub async fn build(ctx: &SessionContext, out: &Path) -> Result<Generation, CoreE
         None => (None, 0),
     };
 
-    let selection = counted(ctx, "SELECT profile, count(*) FROM catalog_compilation GROUP BY profile").await?;
-    let [(profile, 1)] = selection.as_slice() else { return Err(bad("exactly one catalog compilation selection is required")); };
-    let profile = match profile[0].as_str() { "catalog" => cpg_schema::catalog::CompileProfile::Catalog,
-        "behavioral" => cpg_schema::catalog::CompileProfile::Behavioral, _ => return Err(bad("unknown compile profile")) };
+    let selection = counted(
+        ctx,
+        "SELECT profile, count(*) FROM catalog_compilation GROUP BY profile",
+    )
+    .await?;
+    let [(profile, 1)] = selection.as_slice() else {
+        return Err(bad("exactly one catalog compilation selection is required"));
+    };
+    let profile = match profile[0].as_str() {
+        "catalog" => cpg_schema::catalog::CompileProfile::Catalog,
+        "behavioral" => cpg_schema::catalog::CompileProfile::Behavioral,
+        _ => return Err(bad("unknown compile profile")),
+    };
     let capabilities = cpg_schema::catalog::Capabilities::for_profile(profile);
     let served: Vec<ServingFile> = files(dimensions);
     let mut projection_batches = BTreeMap::new();
@@ -938,10 +960,15 @@ pub async fn build(ctx: &SessionContext, out: &Path) -> Result<Generation, CoreE
     let mut projection_artifacts = BTreeMap::new();
     let mut built: Vec<(&'static str, Vec<u8>, usize, String)> = Vec::new();
     for file in &served {
-        let batch = match (query(file.name), file.name) {
-            (Some(q), _) => normalized(ctx, &q, &file.schema).await?,
-            (None, "operation_text") => operation_text(ctx, &file.schema).await?,
-            (None, _) => lexical(ctx, &file.schema).await?,
+        let batch = if !cpg_schema::serving_projection::relation_requested(&capabilities, file.name)
+        {
+            RecordBatch::new_empty(file.schema.clone())
+        } else {
+            match (query(file.name), file.name) {
+                (Some(q), _) => normalized(ctx, &q, &file.schema).await?,
+                (None, "operation_text") => operation_text(ctx, &file.schema).await?,
+                (None, _) => lexical(ctx, &file.schema).await?,
+            }
         };
         let bounded_support = file.name.starts_with("support_")
             || matches!(
@@ -1043,9 +1070,15 @@ pub async fn build(ctx: &SessionContext, out: &Path) -> Result<Generation, CoreE
         snapshot_digest: ids[1].clone(),
         compiler_digest: ids[2].clone(),
         projection_digest: cpg_schema::serving_projection::definition_digest(),
-        catalog_digest: capabilities.native_value_paths.then(|| cpg_schema::models::Catalog::committed_digest().hex()),
-        kernel_format: capabilities.native_value_paths.then_some(cpg_schema::condition_kernel::KERNEL_FORMAT),
-        entry_value_effect_digest: capabilities.native_value_paths.then(|| crate::entry_links::digest().hex()),
+        catalog_digest: capabilities
+            .native_value_paths
+            .then(|| cpg_schema::models::Catalog::committed_digest().hex()),
+        kernel_format: capabilities
+            .native_value_paths
+            .then_some(cpg_schema::condition_kernel::KERNEL_FORMAT),
+        entry_value_effect_digest: capabilities
+            .native_value_paths
+            .then(|| crate::entry_links::digest().hex()),
         capabilities: capabilities.clone(),
         spec_hash: spec_hash.clone(),
         dimensions,
@@ -1117,12 +1150,8 @@ pub async fn bundle(root: &Path, snapshot_id: Id, out: &Path) -> Result<Generati
 pub fn verify(dir: &Path) -> Result<Value, CoreError> {
     let manifest: Value = serde_json::from_str(&fs_err::read_to_string(dir.join("MANIFEST.json"))?)
         .map_err(|e| bad(format!("MANIFEST.json: {e}")))?;
-    if manifest["format"].as_u64() != Some(FORMAT)
-        || manifest["condition_kernel_format"].as_u64()
-            != Some(u64::from(cpg_schema::condition_kernel::KERNEL_FORMAT))
-    {
-        return Err(bad("manifest or condition kernel format mismatch"));
-    }
+    // Capability-specific kernel admission belongs to the shared projection manifest. A
+    // catalog-only generation deliberately has no kernel format or native artifact closure.
     let projection: cpg_schema::serving_projection::Manifest =
         serde_json::from_value(manifest["projection"].clone()).map_err(|e| bad(e.to_string()))?;
     projection

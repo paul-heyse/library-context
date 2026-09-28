@@ -94,8 +94,11 @@ class CapabilityUnavailable(BaseModel):
 def unavailable(served: Served, capability: str) -> CapabilityUnavailable | None:
     if served.generation.manifest["capabilities"][capability]:
         return None
-    return CapabilityUnavailable(capability=capability, snapshot_id=served.generation.snapshot_id,
-                                 generation=served.generation.key)
+    return CapabilityUnavailable(
+        capability=capability,
+        snapshot_id=served.generation.snapshot_id,
+        generation=served.generation.key,
+    )
 
 
 class SearchResult(BaseModel):
@@ -545,31 +548,51 @@ def build_server(
 
     mcp = FastMCP("lctx", instructions=INSTRUCTIONS, lifespan=lifespan, mask_error_details=True)
 
-    @mcp.tool(annotations=READ_ONLY)
+    @mcp.tool(
+        annotations=READ_ONLY,
+        output_schema={
+            **TypeAdapter(SearchResult | CapabilityUnavailable).json_schema(),
+            "type": "object",
+        },
+    )
     @request_deadline
     async def search_capabilities(
         library: str,
         query: Annotated[str, Field(min_length=1, max_length=4000)],
         ctx: Context,
         limit: Annotated[int, Field(ge=1, le=10)] = 5,
-    ) -> SearchResult | CapabilityUnavailable:
+    ) -> ToolResult:
         """Find capability briefs for a coding task in a library: ranked hits with their outcome
         and its evidence status. Read a hit whole with get_capability."""
         served = ctx.lifespan_context["served"]
         _check(served, library)
         missing = unavailable(served, "briefs")
-        return missing if missing is not None else await search(served, library, query, limit)
+        result = missing if missing is not None else await search(served, library, query, limit)
+        return ToolResult(
+            content=result.model_dump_json(), structured_content=result.model_dump(mode="json")
+        )
 
-    @mcp.tool(annotations=READ_ONLY)
+    @mcp.tool(
+        annotations=READ_ONLY,
+        output_schema={
+            **TypeAdapter(Capability | CapabilityUnavailable).json_schema(),
+            "type": "object",
+        },
+    )
     @request_deadline
-    async def get_capability(snapshot_id: str, capability_id: str, ctx: Context) -> Capability | CapabilityUnavailable:
+    async def get_capability(snapshot_id: str, capability_id: str, ctx: Context) -> ToolResult:
         """One capability brief, whole: every section's statements with their evidence status,
         their supports, and the verbatim evidence they cite."""
         served = ctx.lifespan_context["served"]
         if snapshot_id != served.generation.snapshot_id:
             raise CapabilityError("snapshot is not the pinned one")
         missing = unavailable(served, "briefs")
-        return missing if missing is not None else await hydrate(served, snapshot_id, capability_id)
+        result = (
+            missing if missing is not None else await hydrate(served, snapshot_id, capability_id)
+        )
+        return ToolResult(
+            content=result.model_dump_json(), structured_content=result.model_dump(mode="json")
+        )
 
     def _check(served: Served, library: str) -> None:
         if library != served.generation.library:
@@ -577,9 +600,13 @@ def build_server(
                 f"this server serves {served.generation.library!r}, not {library!r}"
             )
 
-    @mcp.tool(annotations=READ_ONLY, output_schema={
-        **TypeAdapter(ops.Operation | ops.AmbiguousOperation).json_schema(), "type": "object"
-    })
+    @mcp.tool(
+        annotations=READ_ONLY,
+        output_schema={
+            **TypeAdapter(ops.Operation | ops.AmbiguousOperation).json_schema(),
+            "type": "object",
+        },
+    )
     @request_deadline
     async def get_operation(
         snapshot_id: str,
@@ -594,7 +621,11 @@ def build_server(
         execution witnesses. A negative fate requires complete coverage under the model."""
         served = ctx.lifespan_context["served"]
         encoded = await storage(served.generation.repository.get_operation(snapshot_id, operation))
-        model = ops.AmbiguousOperation if json.loads(encoded).get("resolution") == "ambiguous" else ops.Operation
+        model = (
+            ops.AmbiguousOperation
+            if json.loads(encoded).get("resolution") == "ambiguous"
+            else ops.Operation
+        )
         result = await decode_model(
             served,
             model,
@@ -603,12 +634,23 @@ def build_server(
         payload = result.model_dump(mode="json")
         limit = 256 * 1024 if expanded else 32 * 1024
         if len(json.dumps(payload, ensure_ascii=False).encode()) > limit:
-            raise CapabilityError("operation packet exceeds byte budget; request expanded=true" if not expanded
-                                  else "expanded operation packet exceeds 256 KiB; no signature was truncated")
-        return ToolResult(content="Public API contract and evidence; effective behavior may remain unresolved.",
-                          structured_content=payload)
+            raise CapabilityError(
+                "operation packet exceeds byte budget; request expanded=true"
+                if not expanded
+                else "expanded operation packet exceeds 256 KiB; no signature was truncated"
+            )
+        return ToolResult(
+            content="Public API contract and evidence; effective behavior may remain unresolved.",
+            structured_content=payload,
+        )
 
-    @mcp.tool(annotations=READ_ONLY)
+    @mcp.tool(
+        annotations=READ_ONLY,
+        output_schema={
+            **TypeAdapter(value_paths.ValuePathPage | CapabilityUnavailable).json_schema(),
+            "type": "object",
+        },
+    )
     @request_deadline
     async def inspect_value_paths(
         snapshot_id: str,
@@ -619,7 +661,7 @@ def build_server(
         standard_builtins: bool = False,
         limit: Annotated[int, Field(ge=1, le=50)] = 20,
         cursor: str | None = None,
-    ) -> value_paths.ValuePathPage | CapabilityUnavailable:
+    ) -> ToolResult:
         """Inspect cited value-summary paths for one public formal and exact primitive input.
         A refuted path is excluded only under that input model. A compatible path has a
         satisfiable Boolean model after checked value links, not a concrete execution. Other
@@ -629,10 +671,13 @@ def build_server(
             raise CapabilityError("snapshot is not the pinned one")
         missing = unavailable(served, "native_value_paths")
         if missing is not None:
-            return missing
+            return ToolResult(
+                content=missing.model_dump_json(),
+                structured_content=missing.model_dump(mode="json"),
+            )
         resolved = json.loads(await storage(served.generation.repository.resolve(operation)))
         try:
-            return await served.workers.run(
+            result = await served.workers.run(
                 lambda: bounded(
                     value_paths.inspect(
                         served.generation,
@@ -645,6 +690,9 @@ def build_server(
                         cursor,
                     )
                 )
+            )
+            return ToolResult(
+                content=result.model_dump_json(), structured_content=result.model_dump(mode="json")
             )
         except ops.OperationError as exc:
             raise CapabilityError(str(exc)) from exc

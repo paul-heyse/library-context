@@ -391,7 +391,9 @@ fn empty_source_version(
         files.insert(file.name.into(),serde_json::json!({"file":name,"sha256":hash,"rows":0,"schema_digest":relations[file.name].schema_digest}));
     }
     let m = Manifest {
-        capabilities: cpg_schema::catalog::Capabilities::for_profile(cpg_schema::catalog::CompileProfile::Behavioral),
+        capabilities: cpg_schema::catalog::Capabilities::for_profile(
+            cpg_schema::catalog::CompileProfile::Behavioral,
+        ),
         format: 3,
         bundle_format: 13,
         context: ServingContext {

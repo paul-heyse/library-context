@@ -4,7 +4,7 @@
 
 ## §14 Purpose, status and decision
 
-**Accepted target; implementation Proposed, 2026-09-28.** This is the comprehensive replacement
+**Accepted target; PR1 catalog implemented, remaining product scope Proposed, 2026-09-28.** This is the comprehensive replacement
 product target under ADR-0071. It replaces general behavioral-model completion as the route to a
 first useful release. It preserves sound behavioral analysis as one source of evidence. It does
 not declare Stage 3 finished or certify an advantage over Context7.
@@ -91,6 +91,8 @@ the general analysis substrate.
 
 ## §14.3 Responsibilities and representation flow
 
+> Decision: ADR-0071, ADR-0072
+
 ```mermaid
 flowchart TD
   A[Pinned library sources, metadata, docs and examples] --> B[Existing Rust extraction]
@@ -126,6 +128,8 @@ silently fetches a mutable current website to replace the pinned bytes.
 <a id="section-14-4"></a>
 
 ## §14.4 Public API and configuration contracts
+
+> Decision: ADR-0071, ADR-0072
 
 **Public identity.** Introduce a `PublicMember` identity over the snapshot's public exposure
 (exposed owner/name and access path), independent of later binding interpretation. Binding/access
@@ -529,13 +533,21 @@ required for a broad superiority claim. The earlier semantic suite retains its o
 
 ## §14.13 Migration and immediate implementation priority
 
-**PR0–PR1 decision (ADR-0072; implementation tracked in the forward plan).** Catalog compilation
+**PR1: Implemented, Tested and deployed (2026-09-28); PR0 implemented with comparative admission blocked.**
+The [catalog evidence](../../design_review/evidence/2026-09-28_catalog/README.md) records the full gate,
+both live profiles, explicit operator cutover and populated restore. Catalog compilation
 is the default; explicit behavioral compilation enriches the same catalog. Preserve existing and
 specified additive capabilities, query contracts, data structures, tests and future scope.
 Deprioritization changes sequencing, not retention. One schema-owned capability inventory governs
 optional outputs through publication, PG import, native/MCP loading and recovery. Dotted roots
 remain supported; source alternatives retain roles rather than fabricated runtime possibilities.
-Existing analytics parameters and behavioral evaluation freezes remain unchanged.
+Existing analytics parameters and behavioral evaluation freezes remain unchanged. Catalog/projection
+contracts are schema-owned; source equality is checked by shared publication validation. Constructor
+associations retain their defining class and inherited MRO fact. Member identity and optional brief
+rendering status are independent. Recovery preserves legacy rows and exact manifest/artifact bytes
+under a bounded transport envelope; it admits only compatible generations to current-runtime serving.
+An incompatible selected pointer blocks usable recovery. Rollback uses the separately restored old
+schema and matching retained runtime, without weakening schema checks.
 
 > Decision: ADR-0072
 
@@ -551,8 +563,9 @@ fixed duplicated view lists and rank payloads that discard witnesses; anonymous 
 requirement evidence. Preserve historical migrations and stable fact IDs; introduce versioned
 new contracts and explicit compatibility errors. Replace a consumer only after its new path works.
 
-No runtime code, dependency pin, operator database, current embedding spec or stored generation
-changes merely because this target is recorded. Implementation must follow this migration route.
+PR1 advances compiler108/extractor34 and bundle13/projection3 with additive migration009.
+Pinned libraries and the 1024 embedding specification are unchanged; old generations stay immutable.
+Explicit operator cutover passed; both current profiles are ready and the enriched profile is selected.
 The existing fast editable environment remains the development path; no wheel or packaging project
 is introduced. Full formatting/integrated checks wait for the complete authorized implementation
 scope; focused checks follow each functional boundary.

@@ -86,6 +86,61 @@ fn raw_version(
     .tables
 }
 
+/// Semantic validator cases explicitly request enrichment; raw publication defaults to catalog.
+async fn compile_behavior(
+    root: &Path,
+    snapshot: Id,
+    raw: &[(&'static str, RecordBatch)],
+    seed: &str,
+) {
+    let declarations = &raw
+        .iter()
+        .find(|(name, _)| *name == "declarations")
+        .unwrap()
+        .1;
+    let strings = |name: &str| {
+        declarations
+            .column_by_name(name)
+            .unwrap()
+            .as_any()
+            .downcast_ref::<arrow_array::StringArray>()
+            .unwrap()
+    };
+    let row = strings("name")
+        .iter()
+        .position(|name| name == Some(seed))
+        .unwrap();
+    let qualified = strings("qualified_name").value(row);
+    let module = qualified.rsplit_once('.').unwrap().0;
+    let analysis = Analysis {
+        embedding_cache: None,
+        config: AnalyticsConfig::parse(&format!(
+            r#"
+version = 1
+[subsystem]
+module_prefixes = ["{module}"]
+public_roots = ["{module}"]
+[seeds]
+primary = ["{qualified}"]
+distractors = []
+[pass_a]
+max_depth = 2
+max_vertices = 128
+max_edges = 512
+max_witnesses = 3
+[briefs]
+budget = 1
+"#
+        ))
+        .unwrap(),
+        embedder: None,
+        techniques: Techniques::default(),
+    };
+    compile_analyzed(root, snapshot, raw, Some(&analysis))
+        .await
+        .unwrap();
+}
+
 async fn text(ctx: &SessionContext, statement: &str) -> String {
     let batches = sql::query(ctx, statement)
         .await
@@ -1086,9 +1141,13 @@ async fn published_test_type_link_tamper_is_rejected() {
 async fn explicit_exit_sites_have_regions_and_reject_a_doctored_span() {
     let root = tempfile::tempdir().unwrap();
     let snapshot = Id([54; 16]);
-    compile(root.path(), snapshot, &raw("flow_shapes", snapshot))
-        .await
-        .unwrap();
+    compile_behavior(
+        root.path(),
+        snapshot,
+        &raw("flow_shapes", snapshot),
+        "fallback",
+    )
+    .await;
     let (_, ctx) = published(root.path(), snapshot).await.unwrap().unwrap();
     assert!(
         count(
@@ -1984,9 +2043,13 @@ budget = 1
 async fn handler_type_status_is_pinned_or_explicitly_unknown() {
     let root = tempfile::tempdir().unwrap();
     let snapshot = Id([56; 16]);
-    compile(root.path(), snapshot, &raw("handler_shapes", snapshot))
-        .await
-        .unwrap();
+    compile_behavior(
+        root.path(),
+        snapshot,
+        &raw("handler_shapes", snapshot),
+        "plain_raise",
+    )
+    .await;
     let (_, ctx) = published(root.path(), snapshot).await.unwrap().unwrap();
     assert_eq!(
         count(
@@ -2565,9 +2628,13 @@ budget = 1
 async fn handler_clauses_and_actions_are_structural_and_validated() {
     let root = tempfile::tempdir().unwrap();
     let snapshot = Id([55; 16]);
-    compile(root.path(), snapshot, &raw("flow_shapes", snapshot))
-        .await
-        .unwrap();
+    compile_behavior(
+        root.path(),
+        snapshot,
+        &raw("flow_shapes", snapshot),
+        "fallback",
+    )
+    .await;
     let (_, ctx) = published(root.path(), snapshot).await.unwrap().unwrap();
     assert_eq!(
         count(
@@ -2621,20 +2688,14 @@ async fn handler_clauses_and_actions_are_structural_and_validated() {
 async fn model_target_requires_its_cited_pinned_definition() {
     let root = tempfile::tempdir().unwrap();
     let snapshot = Id([48; 16]);
-    compile(root.path(), snapshot, &raw("flow_shapes", snapshot))
-        .await
-        .unwrap();
+    compile_behavior(
+        root.path(),
+        snapshot,
+        &raw("flow_shapes", snapshot),
+        "fallback",
+    )
+    .await;
     let (_, ctx) = published(root.path(), snapshot).await.unwrap().unwrap();
-    assert_eq!(
-        count(&ctx, "SELECT count(*) FROM summary_origin_coverage").await,
-        0,
-        "extraction-only compilation does not request behavioral coverage"
-    );
-    assert_eq!(
-        count(&ctx, "SELECT count(*) FROM flow_test_value_links").await,
-        0,
-        "extraction-only compilation does not request entry proofs"
-    );
     assert!(cpg_core::validate::validate(&ctx).await.unwrap().is_empty());
     let forged = ModelTargets::to_batch(&[ModelTargetsRow {
         snapshot_id: snapshot,
@@ -5811,6 +5872,8 @@ fn every_rule_is_exercised_or_declared_an_edit_guard() {
         "no-parallel",
         "lineage",
         "finite",
+        "catalog-code",
+        "catalog-unselected",
     ];
     let names: Vec<String> = cpg_schema::rules::rules()
         .into_iter()
@@ -5829,6 +5892,7 @@ fn every_rule_is_exercised_or_declared_an_edit_guard() {
         include_str!("graph.rs"),
         include_str!("syntax.rs"),
         include_str!("analysis.rs"),
+        include_str!("catalog.rs"),
     ] {
         for kind in &kinds {
             for (at, _) in source.match_indices(&format!("\"{kind}:")) {

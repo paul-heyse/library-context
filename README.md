@@ -4,8 +4,9 @@ Target: compile pinned Python libraries into an API and evidence catalog that he
 find, configure and use built-in features with precise, inspectable support. Existing Rust facts and
 bounded behavioral analyses, Arrow/DataFusion/Delta and PostgreSQL serving provide the foundation.
 The [replacement product design](docs/design/sections/api-and-evidence-product.md) is an accepted
-target; its new API/evidence capabilities and Context7 differentiation remain to be implemented
-and measured.
+target. Catalog compilation and ordered API contracts are implemented, with behavioral enrichment
+available explicitly. Surface/configuration, contextual evidence and typed selection remain in
+the forward plan; Context7 differentiation is not yet measured.
 
 The project is in active design and implementation. [STATUS](STATUS.md) owns the current
 checkpoint and remaining qualification. Accepted architecture includes labeled targets.

@@ -49,7 +49,7 @@ def test_populated_recovery_and_corruption_refusal(pg_serving, tmp_path):
     )
     assert result.returncode == 0, result.stderr
     receipt = json.loads(archive.with_suffix(".dump.json").read_text())
-    assert receipt["format"] == 2
+    assert receipt["format"] == 3
     assert [g["generation"] for g in receipt["inventory"]["generations"]] == [pg_serving.generation]
     assert all(not name.split(".")[1].startswith(("v_", "o_")) for name in receipt["tables"])
     restored = subprocess.run(
@@ -59,7 +59,7 @@ def test_populated_recovery_and_corruption_refusal(pg_serving, tmp_path):
     outcome = json.loads(restored.stdout)
     assert outcome["outcome"] == "passed" and outcome["rto_passed"]
     assert outcome["serving"]["generations"][0]["native_loaded"]
-    missing = {**receipt, "inventory": {"format": 1, "generations": []}}
+    missing = {**receipt, "inventory": {"format": 2, "generations": []}}
     receipt_path = archive.with_suffix(".dump.json")
     receipt_path.write_text(json.dumps(missing))
     omitted = subprocess.run(

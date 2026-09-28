@@ -191,7 +191,7 @@ def backup(config, archive):
         )
         tables = roots(session)
         state = fingerprints(session, tables)
-        inventory: dict = {"format": 1, "generations": []}
+        inventory: dict = {"format": 2, "generations": []}
         if "lctx_serving.generations" in tables and int(
             session.one("SELECT count(*) FROM lctx_serving.generations WHERE state='ready';")
         ):
@@ -255,7 +255,7 @@ def backup(config, archive):
         with archive.open("rb") as source:
             checksum = hashlib.file_digest(source, "sha256").hexdigest()
         result = dict(
-            format=2,
+            format=3,
             fingerprint_algorithm="sha256-sorted-row-sha256-v2",
             sha256=checksum,
             tables=state,
@@ -288,7 +288,7 @@ def backup(config, archive):
             json.dumps(
                 {
                     "outcome": "passed",
-                    "receipt_format": 2,
+                    "receipt_format": 3,
                     "ready_generations": len(inventory["generations"]),
                     "tables": len(state),
                     "seconds": time.monotonic() - started,
@@ -308,10 +308,13 @@ def restore(archive):
     protected(receipt)
     expected = json.loads(receipt.read_text())
     if (
-        expected.get("format") != 2
+        expected.get("format") != 3
+        or expected.get("inventory", {}).get("format") != 2
         or expected["fingerprint_algorithm"] != "sha256-sorted-row-sha256-v2"
     ):
-        raise RuntimeError("unsupported recovery receipt")
+        raise RuntimeError(
+            "unsupported recovery receipt; schema008 receipts require the retained pre-PR1 runtime"
+        )
     image = (ROOT / "specs/postgres-vector-image.txt").read_text().strip()
     if expected["image"] != image:
         raise RuntimeError("recovery image pin mismatch")
@@ -320,6 +323,12 @@ def restore(archive):
             raise RuntimeError("backup checksum mismatch")
     artifact_root = archive.with_suffix(archive.suffix + ".artifacts")
     for gen in expected["inventory"]["generations"]:
+        raw = gen["canonical_manifest"]
+        if (
+            hashlib.sha256(raw.encode()).hexdigest() != gen["generation"]
+            or json.loads(raw) != gen["manifest"]
+        ):
+            raise RuntimeError("recovery canonical manifest identity mismatch")
         for artifact in gen["artifacts"]:
             verify_file(artifact_target(artifact_root, artifact), artifact)
     container = run(
@@ -474,7 +483,8 @@ def restore(archive):
                 command,
                 input=(
                     "UPDATE lctx_serving.artifact_locations SET location='/nonexistent/"
-                    "lctx-recovery/'||encode(generation_digest,'hex')||'/'||name;"
+                    "lctx-recovery/'||encode(generation_digest,'hex')||'/'||name||'/'||"
+                    "encode(sha256(convert_to(location,'UTF8')),'hex');"
                 ),
                 capture_output=True,
             )
@@ -521,8 +531,21 @@ def restore(archive):
                     ],
                     capture_output=True,
                 )
-                run([*cli, "reconcile", "--generation", gen["generation"]], capture_output=True)
+                if gen["runtime_admission"] == "current":
+                    run([*cli, "reconcile", "--generation", gen["generation"]], capture_output=True)
+                elif gen["runtime_admission"] != "legacy_runtime_required":
+                    raise RuntimeError("unknown recovery runtime admission")
             for selected in expected["selections"]:
+                selected_generation = next(
+                    g
+                    for g in expected["inventory"]["generations"]
+                    if g["generation"] == selected["generation"]
+                )
+                if selected_generation["runtime_admission"] != "current":
+                    raise RuntimeError(
+                        "selected generation needs retained runtime; "
+                        "current serving recovery is unavailable"
+                    )
                 run(
                     [
                         *cli,
@@ -553,6 +576,7 @@ def restore(archive):
                     "outcome": "passed",
                     "tables": len(actual),
                     "serving": probe,
+                    "all_generations_preserved": True,
                     "dump_restore_seconds": dump_seconds,
                     "restore_seconds": elapsed,
                     "rto_seconds": 900,

@@ -35,15 +35,16 @@ order and the grounding rules below are **Implemented** and **Tested** (2026-09-
 - each rule rejects an injected violation in `the_analysis_rules_reject_their_violations`; the
   status rule, a floor and a ceiling, has three cases.
 
-**Accepted replacement target, implementation Proposed (ADR-0071):** [§14](api-and-evidence-product.md)
-adds mandatory API/evidence catalog construction and optional valid briefs. Existing synthesis
-validators still govern every emitted brief; absence of an admissible Outcome will omit the brief
-instead of blocking a valid catalog. Original evidence gets independent catalog roots.
+**PR1 Implemented and Tested, 2026-09-28 (ADR-0072):** [§14](api-and-evidence-product.md)
+adds mandatory API catalog construction and optional valid briefs. Existing synthesis validators
+still govern every emitted brief; absence of an admissible Outcome omits the brief with an explicit
+reason while preserving the valid catalog. Original declaration evidence has independent catalog
+roots. Broader contextual evidence remains PR3 work.
 
 Briefs are one rendering of the analysis. Behavioral claims served through the operation tools
 (§11.3) come from the behavior relations directly, not from briefs.
 
-> Decision: ADR-0005, ADR-0067, ADR-0049, ADR-0071
+> Decision: ADR-0005, ADR-0067, ADR-0049, ADR-0071, ADR-0072
 
 
 ### §10.1 Findings
@@ -463,9 +464,10 @@ FTS and changed lexical policy require a named capability beyond the selected ro
 ### §11.3 FastMCP contract
 
 **Target overlay, Proposed (ADR-0071):** [§14.7–§14.10](api-and-evidence-product.md#section-14-7)
-owns typed requirement states, bounded implementation packets, independent evidence/browsing,
-optional semantic capability loading and versioned migration. Contracts below describe existing
-behavior or retained semantic research; they do not claim those product additions are implemented.
+owns typed requirement states, bounded implementation packets and independent evidence/browsing.
+**PR1 Implemented and Tested, 2026-09-28 (ADR-0072):** ordered
+catalog contracts, optional semantic capability loading and versioned migration. Contracts below
+also retain existing behavioral queries and semantic research.
 
 - **Package.** `python/lctx_mcp`. It depends on `fastmcp` 4.0.x, `pyarrow` (the generation
   reader), `numpy`, `bm25s` and `httpx2`, never on vLLM, Delta or the compiler; versions are in
@@ -474,9 +476,16 @@ behavior or retained semantic research; they do not claim those product addition
 - **Startup checks (Implemented, 2026-09-28).** The lifespan opens `lctx_storage` with read-only
   credentials and pins one ready full generation/profile. Rust checks schema/extension/history,
   canonical manifest identity and digest-checked artifacts. Python checks the query embedding
-  spec and initializes only native/lexical consumers. Context includes library, requirement and
+  spec and initializes lexical consumers, plus native analysis only when advertised. Context includes library, requirement and
   complete coverage. Missing database/artifact or incompatible format fails explicitly; there is
   no file fallback. SQLx and native work own separate bounded lifetimes.
+
+- **Catalog packets (Implemented and Tested, 2026-09-28).** `get_operation` accepts stable public
+  member IDs and returns explicit choices for ambiguous declaration IDs. Its `catalog` section
+  carries ordered source/provider signatures, constructor associations, binding roles and original
+  source/type evidence. Default/expanded response limits are 32/256 KiB with explicit refusal,
+  never signature truncation. Brief and native tools return typed `not_requested` when unselected;
+  empty results or missing fates do not establish absence.
 
 - **State.** The generation is exposed through `ctx.lifespan_context`. One generation per
   process.

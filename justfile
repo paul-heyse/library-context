@@ -55,6 +55,7 @@ structured-eval generation stage embed_url="":
 # The generation the lctx_mcp tests serve: analysis_shapes with fake vectors, into build/py-fixture
 py-fixture:
     LCTX_PY_FIXTURE="$PWD/build/py-fixture" INSTA_UPDATE=no cargo nextest run --release -p cpg-core --no-fail-fast -E 'test(writes_the_python_fixture_generation)' --status-level none --final-status-level fail
+    LCTX_CATALOG_FIXTURE="$PWD/build/pr1-catalog-fixture" INSTA_UPDATE=no cargo nextest run --release -p cpg-core --test catalog --no-fail-fast --status-level none --final-status-level fail
 
 # Pinned-family single-version check + cargo-deny sources/licenses + the Pyrefly fork (ADR-0046)
 deps:
@@ -80,16 +81,16 @@ fixtures-check:
 
 # The real-library oracle (ADR-0046): acquire the FastMCP pilot from libraries/fastmcp, then
 # extract, derive, validate and publish a snapshot into build/store. First run needs the network.
-pilot store="build/store" log="build/pilot.log" serving_config="":
+pilot store="build/store" log="build/pilot.log" serving_config="" profile="catalog":
     cargo build --release -p lctx --quiet
-    target/release/lctx compile fastmcp --store {{store}} --embedder fake | tee {{log}}
+    target/release/lctx compile fastmcp --store {{store}} --embedder fake --profile {{profile}} | tee {{log}}
     target/release/lctx serving import-bundle --bundle "$(grep '^generation ' {{log}} | cut -d' ' -f2)"
     uv run python -m lctx_mcp.smoke "$(grep '^generation ' {{log}} | cut -d' ' -f2)" --embedder fake {{ if serving_config != "" { "--config " + serving_config } else { "" } }}
 
 # The same compile with live vectors: needs `just embed-serve` running (else `blocked`)
-pilot-live store="build/store" log="build/pilot-live.log" serving_config="":
+pilot-live store="build/store" log="build/pilot-live.log" serving_config="" profile="catalog":
     cargo build --release -p lctx --quiet
-    target/release/lctx compile fastmcp --store {{store}} --embedder vllm | tee {{log}}
+    target/release/lctx compile fastmcp --store {{store}} --embedder vllm --profile {{profile}} | tee {{log}}
     target/release/lctx serving import-bundle --bundle "$(grep '^generation ' {{log}} | cut -d' ' -f2)"
     uv run python -m lctx_mcp.smoke "$(grep '^generation ' {{log}} | cut -d' ' -f2)" --embedder vllm {{ if serving_config != "" { "--config " + serving_config } else { "" } }}
 

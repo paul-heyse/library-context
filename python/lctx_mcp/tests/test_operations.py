@@ -43,7 +43,14 @@ def test_a_parameter_never_read_is_refuted_only_under_its_premise(
     review's R1). Every refutation served cites its parameter premise."""
     gen = pg_serving.load()
     op = pg_serving.operation(gen, gen.snapshot_id, "pkg.Catalog.add_tool")
-    for p in op.parameters:
+    parameters = {p.name: p for p in op.parameters}
+    assert set(parameters) == {"self", "fn", "name", "tags", "title"}
+    # The source contract now includes the receiver. Behavioral premises cover explicit
+    # inputs; retaining the receiver must not fabricate an unused/abstract-body verdict.
+    receiver = parameters.pop("self")
+    assert receiver.fates == []
+    assert receiver.note and "never read this as unused" in receiver.note
+    for p in parameters.values():
         claims = [f for f in p.fates if f.kind == "is_read"]
         assert claims, p.name
         assert (claims[0].verdict, claims[0].boundary_reason) == ("unknown", "abstract_body")

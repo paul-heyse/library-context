@@ -244,8 +244,11 @@ that dated checkpoint does not establish current assembled Stage 3 acceptance.
 `mixed_embedding_specs_are_refused`, `serving_schema_digests_are_the_shared_known_answers`;
 2026-09-23 onward); the files marked below as later-stage are **Proposed**.
 
-**FORMAT 12 (Implemented, 2026-09-28).** Binds release/coverage context in projection FORMAT 2;
-outer fields and file schema/row receipts must agree. FORMAT 11 adds standard 1024/spec format 2 and the full
+**FORMAT 13 / projection FORMAT 3 (Implemented, 2026-09-28; ADR-0072).** Adds the mandatory
+catalog and finite compile-profile/capability contract. Native artifacts are required exactly when
+native analysis is advertised; unselected analysis relations retain typed empty schemas. FORMAT12
+introduced release/coverage context; outer fields and file schema/row receipts must still agree.
+FORMAT 11 adds standard 1024/spec format 2 and the full
 projection manifest with shared Rust schema/closure validation (ADR-0068). FORMAT 9's internal callable/formal
 metadata remains, so nested callee proofs can load without adding private operations to
 discovery. FORMAT 10 adds claim-keyed `behavior_discharges` and native citation admission
@@ -336,13 +339,14 @@ formats are not implicitly accepted.
 
 > Decision: ADR-0067, ADR-0068, ADR-0070, ADR-0049
 
-**Accepted product target, implementation Proposed (ADR-0071):**
-[§14.10](api-and-evidence-product.md#section-14-10) extends the existing generation manifest with
-catalog/evidence contracts and explicit optional capabilities. Product facts and original evidence
-are independent roots; rebuild boundaries reuse canonical inputs. Existing runtime FORMAT12 and
-projection2 remain current until that versioned migration is implemented.
+**PR1 Implemented and Tested, 2026-09-28 (ADR-0072):**
+[§14.13](api-and-evidence-product.md#section-14-13) records the mandatory catalog, original declaration
+evidence roots and explicit optional capabilities. Migration009 installs nine relational catalog
+projections; shared schema validation governs publication, import and recovery. Current readers
+refuse legacy formats; backup preserves their exact transport/artifact closure for the retained
+matching runtime. Contextual scenario/deployment evidence and broader product records remain Proposed.
 
-> Decision: ADR-0071
+> Decision: ADR-0071, ADR-0072
 
 <a id="section-6-5"></a>
 
@@ -379,7 +383,7 @@ all consumers migrate. This is one mutable reuse service plus immutable per-snap
 records the foundation. PG12–PG15 add import, exact queries, retrieval qualification and reports;
 [query integration evidence](../../design_review/evidence/2026-09-28_postgresql-query/README.md) bounds those checks. PG16/PG17 local exact rollout/recovery and assembled acceptance passed;
 [operations evidence](../../design_review/evidence/2026-09-28_postgresql-operations/README.md) bounds the claim.
-`cpg-schema::serving_projection` owns FORMAT 2 manifests, all FORMAT 12 relation receipts,
+`cpg-schema::serving_projection` owns FORMAT 3 manifests, all FORMAT 13 relation receipts,
 native/lexical artifact identities and generation-local constraints. `serving_support` is shared
 by publication, file loading and import. Full content digests exclude physical row order/COPY
 batching, locations and retrieval profiles; multiplicity/nulls/float bits remain significant.

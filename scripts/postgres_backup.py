@@ -184,10 +184,16 @@ def main() -> None:
         else:
             receipt = args.archive.with_suffix(args.archive.suffix + ".json")
             protected(receipt)
-            if json.loads(receipt.read_text()).get("format") == 2:
+            version = json.loads(receipt.read_text()).get("format")
+            if version == 3:
                 from postgres_recovery import restore
 
                 restore(args.archive)
+            elif version == 2:
+                raise RuntimeError(
+                    "schema008 receipt requires retained pre-PR1 recovery scripts, CLI "
+                    "and Python/native runtime"
+                )
             else:
                 legacy_restore_drill(args.archive)
     except (OSError, RuntimeError, subprocess.SubprocessError) as error:

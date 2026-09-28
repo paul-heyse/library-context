@@ -11,7 +11,8 @@ The pieces:
 - **Extraction:** Pyrefly (a pinned, minimally patched fork) and Ruff 0.0.11 crates, both linked
   in-process over one parse (ADR-0046). The one exception is the flow facts: `cpg-flow` reads ty's
   semantic index over a second parse, joined by byte range (ADR-0046, ADR-0045). The
-  Pyrefly CLI is only a parity-test oracle.
+  Pyrefly CLI is only a parity-test oracle. Catalog compilation is the default (ADR-0072);
+  `--profile behavioral` explicitly requests the flow provider and retained behavioral enrichment.
 - **Facts:** Arrow schemas are the contract, DataFusion constructs and validates the facts, and
   Delta stores them. `lctx-postgres` owns rebuildable PostgreSQL projections and transactional
   cache/operation services; canonical publication remains Delta-owned (ADR-0067/0068).

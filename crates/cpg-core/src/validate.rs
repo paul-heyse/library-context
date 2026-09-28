@@ -113,34 +113,47 @@ pub async fn validate_costed(
         violations.extend(v);
         costs.push(c);
     }
-    let selected: Vec<cpg_schema::catalog::CatalogCompilationRow> = sql::fetch(&cache,
-        &cpg_schema::query::Relation { name: "validation_profile", deps: &["catalog_compilation"],
-            sql: "SELECT * FROM catalog_compilation".into() }, sql::Params::new()).await?;
-    if selected.len() != 1 { return Err(CoreError::Analysis("one catalog compilation profile required".into())); }
+    let selected: Vec<cpg_schema::catalog::CatalogCompilationRow> = sql::fetch(
+        &cache,
+        &cpg_schema::query::Relation {
+            name: "validation_profile",
+            deps: &["catalog_compilation"],
+            sql: "SELECT * FROM catalog_compilation".into(),
+        },
+        sql::Params::new(),
+    )
+    .await?;
+    if selected.len() != 1 {
+        return Err(CoreError::Analysis(
+            "one catalog compilation profile required".into(),
+        ));
+    }
     violations.extend(crate::catalog::validate(&cache, &selected[0]).await?);
-    if selected[0].profile == "behavioral" {
+    // Extracted facts retain their validity obligations even when optional analysis is absent.
+    // Catalog extraction emits no Flow rows, but retained raw-fact callers can supply them.
     violations.extend(validate_condition_graph(&cache).await?);
     violations.extend(validate_test_type_links(&cache).await?);
-    violations.extend(validate_entry_proofs(&cache).await?);
-    violations.extend(validate_models(&cache).await?);
-    violations.extend(validate_source_contexts(&cache).await?);
-    let (expressions, completions) = match crate::summaries::execution(&cache).await {
-        Ok(prepared) => (Ok(prepared.expressions), Ok(prepared.completions)),
-        Err(error) => (Err(error.to_string()), Err(error.to_string())),
-    };
-    violations.extend(validate_exit_sites(&cache, completions).await?);
-    violations.extend(validate_actions(&cache).await?);
-    violations.extend(validate_handlers(&cache).await?);
-    violations.extend(validate_value_flow_contributions(&cache).await?);
-    violations.extend(validate_value_flow_predecessor_candidates(&cache).await?);
-    violations.extend(validate_value_flow_predecessor_compatibility(&cache).await?);
-    violations.extend(validate_modeled_exact_value_transfers(&cache).await?);
-    violations.extend(validate_expression_evaluations(&cache, expressions).await?);
-    violations.extend(validate_modeled_argument_evaluations(&cache).await?);
-    violations.extend(validate_modeled_assignment_return_paths(&cache).await?);
-    violations.extend(validate_summary_flows(&cache).await?);
-    violations.extend(validate_summary_components(&cache).await?);
-    violations.extend(validate_concept_attributes(&cache).await?);
+    if selected[0].profile == "behavioral" {
+        violations.extend(validate_entry_proofs(&cache).await?);
+        violations.extend(validate_models(&cache).await?);
+        violations.extend(validate_source_contexts(&cache).await?);
+        let (expressions, completions) = match crate::summaries::execution(&cache).await {
+            Ok(prepared) => (Ok(prepared.expressions), Ok(prepared.completions)),
+            Err(error) => (Err(error.to_string()), Err(error.to_string())),
+        };
+        violations.extend(validate_exit_sites(&cache, completions).await?);
+        violations.extend(validate_actions(&cache).await?);
+        violations.extend(validate_handlers(&cache).await?);
+        violations.extend(validate_value_flow_contributions(&cache).await?);
+        violations.extend(validate_value_flow_predecessor_candidates(&cache).await?);
+        violations.extend(validate_value_flow_predecessor_compatibility(&cache).await?);
+        violations.extend(validate_modeled_exact_value_transfers(&cache).await?);
+        violations.extend(validate_expression_evaluations(&cache, expressions).await?);
+        violations.extend(validate_modeled_argument_evaluations(&cache).await?);
+        violations.extend(validate_modeled_assignment_return_paths(&cache).await?);
+        violations.extend(validate_summary_flows(&cache).await?);
+        violations.extend(validate_summary_components(&cache).await?);
+        violations.extend(validate_concept_attributes(&cache).await?);
     }
     violations.extend(validate_embedding_receipts(&cache).await?);
     Ok((violations, costs))

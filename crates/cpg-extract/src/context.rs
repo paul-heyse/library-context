@@ -197,41 +197,39 @@ pub(crate) fn context_facts(
     let referenced = refs.referenced.borrow().clone();
     let mut modeled_classes: BTreeSet<(String, String)> = BTreeSet::new();
     if input.profile.behavioral() {
-    let catalog = Catalog::committed().map_err(ExtractError::Context)?;
-    modeled_classes =
-        cpg_schema::summary_contract::ExactRuntimeException::ALL
+        let catalog = Catalog::committed().map_err(ExtractError::Context)?;
+        modeled_classes = cpg_schema::summary_contract::ExactRuntimeException::ALL
             .iter()
             .map(|exception| {
                 let (module, name) = exception.class();
                 (module.to_owned(), name.to_owned())
             })
             .collect();
-    if let Some(anchor) = anchor {
-        for exception in cpg_schema::summary_contract::ExactRuntimeException::ALL {
-            let (module, _) = exception.class();
-            if !handles.contains_key(module) {
-                let handle = txn
-                    .import_handle(anchor, ModuleName::from_str(module), None)
-                    .finding()
-                    .ok_or_else(|| {
-                        ExtractError::Context(format!(
-                            "runtime exception module {module} does not resolve"
-                        ))
-                    })?;
-                handles.insert(module.to_owned(), handle);
-            }
-        }
-    }
-    for compiled in &catalog.models {
-        for rule in &compiled.model.rules {
-            for name in rule.context_classes() {
-                if let Some((module, qualified)) = name.rsplit_once('.') {
-                    modeled_classes.insert((module.to_owned(), qualified.to_owned()));
+        if let Some(anchor) = anchor {
+            for exception in cpg_schema::summary_contract::ExactRuntimeException::ALL {
+                let (module, _) = exception.class();
+                if !handles.contains_key(module) {
+                    let handle = txn
+                        .import_handle(anchor, ModuleName::from_str(module), None)
+                        .finding()
+                        .ok_or_else(|| {
+                            ExtractError::Context(format!(
+                                "runtime exception module {module} does not resolve"
+                            ))
+                        })?;
+                    handles.insert(module.to_owned(), handle);
                 }
             }
         }
-    }
-
+        for compiled in &catalog.models {
+            for rule in &compiled.model.rules {
+                for name in rule.context_classes() {
+                    if let Some((module, qualified)) = name.rsplit_once('.') {
+                        modeled_classes.insert((module.to_owned(), qualified.to_owned()));
+                    }
+                }
+            }
+        }
     }
 
     let list: Vec<Handle> = handles.values().cloned().collect();

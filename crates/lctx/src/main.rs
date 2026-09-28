@@ -287,11 +287,16 @@ fn flow_file(
 }
 
 #[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
-enum Profile { Catalog, Behavioral }
+enum Profile {
+    Catalog,
+    Behavioral,
+}
 impl Profile {
     fn schema(self) -> cpg_schema::catalog::CompileProfile {
-        match self { Self::Catalog => cpg_schema::catalog::CompileProfile::Catalog,
-            Self::Behavioral => cpg_schema::catalog::CompileProfile::Behavioral }
+        match self {
+            Self::Catalog => cpg_schema::catalog::CompileProfile::Catalog,
+            Self::Behavioral => cpg_schema::catalog::CompileProfile::Behavioral,
+        }
     }
 }
 
@@ -545,9 +550,14 @@ fn compile(
         let acquired = started.elapsed();
         let config_path = library_dir.join("analytics.toml");
         let public_roots = if config_path.exists() {
-            anyhow::ensure!(public_roots.is_empty(), "--public-root conflicts with analytics.toml roots");
+            anyhow::ensure!(
+                public_roots.is_empty(),
+                "--public-root conflicts with analytics.toml roots"
+            );
             lctx_analytics::config::AnalyticsConfig::public_roots(&config_path)?
-        } else { public_roots };
+        } else {
+            public_roots
+        };
         cpg_schema::catalog::validate_roots(&public_roots).map_err(anyhow::Error::msg)?;
         let mut input = library::acquired(library_dir, env_dir, snapshot)?;
         input.profile = profile.schema();
@@ -603,10 +613,19 @@ fn compile(
         } else {
             None
         };
-        let inputs = cpg_core::catalog::CompileInputs { public_roots, profile: profile.schema(),
-            embedding_cache: pg.clone(), embedder };
+        let inputs = cpg_core::catalog::CompileInputs {
+            public_roots,
+            profile: profile.schema(),
+            embedding_cache: pg.clone(),
+            embedder,
+        };
         let published = runtime.block_on(cpg_core::attempt::compile_catalog(
-            store, snapshot, tables, &inputs, analysis.as_ref()))?;
+            store,
+            snapshot,
+            tables,
+            &inputs,
+            analysis.as_ref(),
+        ))?;
         if let Some(db) = &pg {
             if let Err(error) = runtime.block_on(async {
                 db.event(
@@ -751,28 +770,37 @@ fn compile_fixture(
     };
     let mut output = extract(&input)?;
     let analysis = if profile == Profile::Behavioral {
-    let seed = seed.ok_or_else(|| anyhow::anyhow!("--profile behavioral requires --seed"))?;
-    let config = lctx_analytics::config::AnalyticsConfig::parse(&format!(
-        "version = 1\n[subsystem]\nmodule_prefixes = [\"{package}\"]\n\
+        let seed = seed.ok_or_else(|| anyhow::anyhow!("--profile behavioral requires --seed"))?;
+        let config = lctx_analytics::config::AnalyticsConfig::parse(&format!(
+            "version = 1\n[subsystem]\nmodule_prefixes = [\"{package}\"]\n\
          public_roots = [\"{package}\"]\n[seeds]\nprimary = [{seed:?}]\ndistractors = []\n\
          [pass_a]\nmax_depth = 2\nmax_vertices = 128\nmax_edges = 512\nmax_witnesses = 3\n\
          [briefs]\nbudget = 1\n"
-    ))
-    .map_err(|e| anyhow::anyhow!("analytics config: {e}"))?;
-    let analysis = cpg_core::analyze::Analysis {
-        embedding_cache: None,
-        config,
-        embedder: None,
-        techniques: cpg_core::analyze::Techniques::default(),
+        ))
+        .map_err(|e| anyhow::anyhow!("analytics config: {e}"))?;
+        let analysis = cpg_core::analyze::Analysis {
+            embedding_cache: None,
+            config,
+            embedder: None,
+            techniques: cpg_core::analyze::Techniques::default(),
+        };
+        Some(analysis)
+    } else {
+        anyhow::ensure!(seed.is_none(), "--seed requires --profile behavioral");
+        None
     };
-    Some(analysis) } else { anyhow::ensure!(seed.is_none(), "--seed requires --profile behavioral"); None };
     let runtime = tokio::runtime::Runtime::new()?;
     let tables = std::mem::take(&mut output.tables);
     let published = runtime.block_on(cpg_core::attempt::compile_catalog(
         store,
         snapshot,
         tables,
-        &cpg_core::catalog::CompileInputs { public_roots: vec![package.into()], profile: profile.schema(), embedder: None, embedding_cache: None },
+        &cpg_core::catalog::CompileInputs {
+            public_roots: vec![package.into()],
+            profile: profile.schema(),
+            embedder: None,
+            embedding_cache: None,
+        },
         analysis.as_ref(),
     ))?;
     let generation = runtime.block_on(cpg_core::bundle::bundle(
@@ -980,21 +1008,24 @@ fn run() -> anyhow::Result<()> {
             generations,
             analytics,
         } => {
-            anyhow::ensure!(profile == Profile::Behavioral || analytics == "default",
-                "--analytics requires --profile behavioral");
+            anyhow::ensure!(
+                profile == Profile::Behavioral || analytics == "default",
+                "--analytics requires --profile behavioral"
+            );
             compile(
-            cli.database_config.as_deref(),
-            &libraries.join(&name),
-            &envs.join(&name),
-            &sources.join(&name),
-            &absolute(&store)?,
-            reinstall,
-            embedder_of(embedder, &embed_url),
-            &absolute(&generations)?,
-            cpg_core::analyze::Techniques::parse(&analytics).map_err(|e| anyhow::anyhow!(e))?,
-            profile, public_root,
-        )
-        },
+                cli.database_config.as_deref(),
+                &libraries.join(&name),
+                &envs.join(&name),
+                &sources.join(&name),
+                &absolute(&store)?,
+                reinstall,
+                embedder_of(embedder, &embed_url),
+                &absolute(&generations)?,
+                cpg_core::analyze::Techniques::parse(&analytics).map_err(|e| anyhow::anyhow!(e))?,
+                profile,
+                public_root,
+            )
+        }
         Cmd::Bundle {
             store,
             snapshot,

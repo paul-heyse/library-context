@@ -21,6 +21,14 @@ extraction additions. [§14.10](api-and-evidence-product.md#section-14-10) separ
 construction from selected analysis profiles. Static acquisition/extraction remains non-executing;
 any opt-in surface observation or executable product task is a separately attributed isolated lane.
 
+**PR1 Implemented and Tested, 2026-09-28:** `catalog` is the default extraction/compile profile;
+`behavioral` explicitly enables ty flow facts and the behavioral model context. The profile applies
+to both library and corpus extraction and enters run identity. Unselected flow coverage is
+`not_requested`, not complete or empty evidence. Public roots are validated dotted paths; no
+acceptance-task list restricts the public universe.
+
+> Decision: ADR-0072
+
 ## §4 Pipeline
 
 

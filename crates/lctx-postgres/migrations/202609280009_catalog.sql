@@ -193,6 +193,7 @@ CREATE TABLE lctx_serving.catalog_constructors (
  "class_node_id" bytea NOT NULL CHECK (octet_length("class_node_id") = 16),
  "signature_id" bytea NOT NULL CHECK (octet_length("signature_id") = 16),
  "own" boolean NOT NULL,
+ "ancestry_fact_id" bytea CHECK (octet_length("ancestry_fact_id") = 16),
  PRIMARY KEY (generation_digest,row_ordinal),
  UNIQUE (generation_digest,class_node_id,signature_id)
 );

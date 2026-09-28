@@ -203,19 +203,18 @@ async fn class_facets_and_their_completeness_are_data() {
     )
     .await;
     assert!(
-        facets.contains("| bpkg.Point      | 4     | dataclass"),
+        facets.contains("| bpkg.Point        | 4     | dataclass"),
         "{facets}"
     );
     assert!(
-        facets.contains("| bpkg.Plain      | 0     | name"),
+        facets.contains("| bpkg.Plain        | 0     | name"),
         "{facets}"
     );
     assert!(
-        facets.contains("| bpkg.Configured | 0     | name"),
+        facets.contains("| bpkg.Configured   | 0     | name"),
         "an inherited public __init__ counts: {facets}"
     );
-    // A class with no public constructor says its parameters are not analyzed (4), never
-    // complete by silence.
+    // The provider-generated dataclass constructor now supplies an ordered parameter contract.
     let point = table(
         &ctx,
         "SELECT s.facet, s.verdict FROM operation_facet_status s \
@@ -223,7 +222,7 @@ async fn class_facets_and_their_completeness_are_data() {
          WHERE o.access_path = 'bpkg.Point' AND s.facet IN (0, 1, 4) ORDER BY 1",
     )
     .await;
-    assert!(point.contains("| 0     | 4       |"), "{point}");
+    assert!(point.contains("| 0     | 0       |"), "{point}");
     assert!(point.contains("| 4     | 0       |"), "{point}");
 }
 

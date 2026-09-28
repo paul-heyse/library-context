@@ -50,7 +50,10 @@ policy; the native semantic executor remains pure. PostgreSQL is not the canonic
 migrations 202609270001/2, one shared cache writer, `used_embeddings`/`embedding_uses`, exact
 snapshot-local receipts, operational CLI and reconciled discovery. Compiler 106/extractor 33,
 catalog 7/template 20 and bundle FORMAT 10 were the pre-expansion baseline, with full 4096 vectors.
-The current tree uses compiler 107, FORMAT 12 / projection 2 and standard 1024. Online serving
+The completed PG17 checkpoint used compiler 107, FORMAT 12 / projection 2 and standard 1024.
+Product PR1 subsequently advances compiler108/extractor34, FORMAT13/projection3 and migration009
+under ADR-0072; its current qualification belongs to the forward plan §1/§6.2 and the runbook.
+Online serving
 retains native/lexical state and a PostgreSQL pin; relational maps and dense Python vector scans have been removed.
 [Initial qualification](../design_review/evidence/2026-09-27_postgresql/README.md) is historical
 acceptance of that scope, not evidence for PG8–PG17.

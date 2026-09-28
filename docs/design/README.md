@@ -9,7 +9,7 @@ and the disposition of known defects.
 
 | Responsibility | Owner | Source entry / adjacent consumer |
 |---|---|---|
-| API/evidence product target and Context7 differentiation | [Product target (§14)](sections/api-and-evidence-product.md) | Replacement target, recommendation dispositions, contracts and comparative exit; implementation Proposed |
+| API/evidence product target and Context7 differentiation | [Product target (§14)](sections/api-and-evidence-product.md) | Catalog and ordered contracts implemented under ADR-0072; remaining product scope Proposed; comparative acceptance open |
 | Scope, binding decisions, dependency family, deferrals | [DESIGN §1, §2, §7, §13](DESIGN.md) | Every owner below; ADRs govern its §B sections |
 | Fact authority, identity, codebooks, coverage, graph catalog | [Facts and identity (§3–§3.8)](sections/facts-and-identity.md) | [cpg-schema](../../crates/cpg-schema/src/lib.rs); extraction produces these contracts, codebooks stay append-only |
 | Pinned acquisition, extraction and fact construction | [Acquisition and extraction (§4)](sections/acquisition-and-extraction.md) | [cpg-extract](../../crates/cpg-extract/src/lib.rs), [lctx](../../crates/lctx/src/main.rs); external analysis environments are explicit inputs |

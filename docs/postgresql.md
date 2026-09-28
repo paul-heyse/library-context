@@ -188,7 +188,7 @@ snapshot fingerprints; PG7 receipts retain their original image and tables.
 
 ## PG12–PG15 publication and query operations
 
-**Implemented and deployed, 2026-09-28.** The operator database now runs migrations 001–008.
+**Implemented and deployed, 2026-09-28.** PG17 completed migrations001–008; product PR1 now adds009.
 The live 1024 FastMCP generation is selected with exact retrieval; no ANN class met its calibration
 benefit/plan gates. Serving config reserves two of its six connections for the provider and four
 for SQLx; importer has two, and the application cache pool has six. Budgets are per process.
@@ -202,7 +202,8 @@ binary, native/Python sources, config, artifacts and dumps in
 `build/postgresql-pg8-baseline-6403b60/`. Never pair a schema007 rollback database with the current
 schema008 runtime. Daily backup remains an operator action; no scheduler was installed.
 
-Projection FORMAT 2 / bundle FORMAT 12 binds release and coverage context to content identity.
+Current projection FORMAT3 / bundle FORMAT13 binds release/coverage context and explicit catalog/
+behavioral capabilities to content identity (ADR-0072). Retained PG17 generations use FORMAT2/12.
 Re-export compatible canonical snapshots with `lctx bundle`; this does not re-embed their vectors.
 After the coordinated explicit `lctx db migrate`/`lctx db check`, publication uses:
 
@@ -300,14 +301,30 @@ and the configured server statement deadline; uncertain drain closes the pool. T
 CancelRequest and drains before releasing capacity, quarantining an unconfirmed slot. A cancellation
 response does not claim instantaneous server/CPU termination.
 
-`just pilot STORE LOG [SERVING_CONFIG]` and `pilot-live` now explicitly import the produced bundle
+`just pilot STORE LOG [SERVING_CONFIG] [PROFILE]` and `pilot-live` explicitly import the produced bundle
 and smoke-test that pinned PostgreSQL generation without selecting it. Their configured database
-must already be migrated. Offline scoring references can be read without PostgreSQL, while online
+must already be migrated. `PROFILE` defaults to `catalog`; `behavioral` exercises retained enrichment. Offline scoring references can be read without PostgreSQL, while online
 ranking/structured evaluation use `--config` and the same pinned repository. `just test-postgres`
 builds its own canonical fixture. `just test-postgres-reference PROJECTION REFERENCE_JSON` runs
 the separate saved-answer parity comparison; retained inputs and commands are in the
 [PG12–PG15 evidence](design_review/evidence/2026-09-28_postgresql-query/README.md).
 
+
+### PR1 catalog deployment
+
+**Implemented and Tested, 2026-09-28:** `lctx db migrate`/`db check` applied additive migration009.
+Both live FastMCP4.0.5 catalog and behavioral generations were imported, reconciled and served through
+stdio MCP by the final editable runtime. The selected enriched generation is
+`2081c10e6ef2e803c832b19e04f595a2ff6cf0f26822461ac89a1122b9823ab4`, with exact profile `ff645e4a…`.
+The ready catalog-only generation is `115529089522683876f095aa4b21819938aab138260ecb43fdbcc5f522e5193a`.
+Both old ready generations and their artifacts remain retained.
+
+`build/pr1-operator-cutover/current.dump` plus its protected receipt/artifacts contains 78 tables and
+all four ready generations. Its disposable restore passed in 12.49 s, preserving legacy bytes,
+serving both current profiles and restoring the captured enriched selection. Prior schema008
+rollback assets and their 35-file checksum receipt remain at `build/postgresql-pr1-baseline-a6c9fcf/`.
+Do not open the schema009 database with the old runtime. See the
+[catalog qualification](design_review/evidence/2026-09-28_catalog/README.md) for commands and bounds.
 
 ### Complete recovery and diagnostics
 
@@ -317,7 +334,7 @@ publication, artifact availability, selections and profile admission. Startup lo
 optional diagnostic queries do not become serving prerequisites. The importer configuration
 selects the database; `--verify-artifacts` explicitly hashes retained files.
 
-Backup receipt format 2 uses one exported snapshot for pg_dump, streaming logical-root table
+PR1 backup receipt format 3 (inventory2) uses one exported snapshot for pg_dump, streaming logical-root table
 fingerprints, ready manifests and selections. It copies each required native/lexical artifact into
 `ARCHIVE.artifacts/SHA256/NAME`. The completion receipt appears only after checksums and fsync.
 Keep the dump, JSON receipt and artifact directory together. Incomplete output is retained for
@@ -325,11 +342,16 @@ inspection and is not a recovery point. Daily backups remain an operator respons
 
 `postgres_backup.py restore-drill ARCHIVE` creates only an owned disposable PG18/vector database.
 It compares all logical rows and the receipt's complete inventory before mutations; verifies
-sequences/event writes; relocates artifacts with old paths unavailable; reconciles every ready
-generation; restores the recorded selected generation with an explicit exact profile; and enters
-least-privilege MCP/native lifespans. The 15-minute RTO includes verification and usable serving.
+sequences/event writes; relocates every retained artifact with old paths unavailable; reconciles and
+serves current bundle13 catalog and behavioral generations; and restores the recorded selection with
+an explicit exact profile. Retained bundle12 rows, exact manifest bytes and artifacts are verified as
+preserved with `legacy_runtime_required`; they are not admitted to the new reader. An incompatible
+selected pointer fails usable-serving recovery rather than choosing another generation. The 15-minute RTO includes verification and usable serving.
 Logical restore never inherits ANN admission. A compatible historical receipt uses the retained
-legacy restore verifier; old-schema operation requires the matching retained binary/native/config.
+legacy restore verifier; schema008 receipt2 requires the retained pre-PR1 recovery scripts and
+matching binary/Python/native runtime against a separately restored database. Never bypass migration
+checks to pair the old runtime with schema009. The PR1 baseline is retained under
+`build/postgresql-pr1-baseline-a6c9fcf/`; rollback captures its pre-cutover history only.
 
 Finite index/analyze maintenance uses a 300-second limit, 256 MiB maintenance memory and two
 parallel workers. Normal serving limits stay at 30 seconds. Retain all ready generations and

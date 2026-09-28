@@ -1,5 +1,8 @@
 //! Mandatory public contract catalog (ADR-0072). Canonical rows, never authored knowledge.
-use crate::{id::{Digest, Id}, table::table};
+use crate::{
+    id::{Digest, Id},
+    table::table,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -11,9 +14,14 @@ pub enum CompileProfile {
 }
 impl CompileProfile {
     pub fn name(self) -> &'static str {
-        match self { Self::Catalog => "catalog", Self::Behavioral => "behavioral" }
+        match self {
+            Self::Catalog => "catalog",
+            Self::Behavioral => "behavioral",
+        }
     }
-    pub fn behavioral(self) -> bool { self == Self::Behavioral }
+    pub fn behavioral(self) -> bool {
+        self == Self::Behavioral
+    }
 }
 
 /// Capability presence is selected and validated, never inferred from nonempty rows.
@@ -27,28 +35,41 @@ pub struct Capabilities {
 }
 impl Capabilities {
     pub fn for_profile(profile: CompileProfile) -> Self {
-        Self { catalog: true, behavioral_claims: profile.behavioral(),
-            native_value_paths: profile.behavioral(), briefs: profile.behavioral() }
+        Self {
+            catalog: true,
+            behavioral_claims: profile.behavioral(),
+            native_value_paths: profile.behavioral(),
+            briefs: profile.behavioral(),
+        }
     }
     pub fn valid(&self) -> bool {
-        self.catalog && (!self.native_value_paths || self.behavioral_claims)
+        self.catalog
+            && (!self.native_value_paths || self.behavioral_claims)
             && (!self.briefs || self.behavioral_claims)
     }
 }
 
 pub fn validate_roots(roots: &[String]) -> Result<(), String> {
-    if roots.is_empty() { return Err("at least one explicit public root is required".into()); }
+    if roots.is_empty() {
+        return Err("at least one explicit public root is required".into());
+    }
     for root in roots {
         if !root.split('.').all(|part| {
             let mut chars = part.chars();
-            chars.next().is_some_and(|c| c == '_' || c.is_ascii_alphabetic())
+            chars
+                .next()
+                .is_some_and(|c| c == '_' || c.is_ascii_alphabetic())
                 && chars.all(|c| c == '_' || c.is_ascii_alphanumeric())
-        }) { return Err(format!("{root:?} is not a dotted Python public root")); }
+        }) {
+            return Err(format!("{root:?} is not a dotted Python public root"));
+        }
     }
     Ok(())
 }
 pub fn under_roots(path: &str, roots: &[String]) -> bool {
-    roots.iter().any(|root| path == root || path.strip_prefix(root).is_some_and(|s| s.starts_with('.')))
+    roots
+        .iter()
+        .any(|root| path == root || path.strip_prefix(root).is_some_and(|s| s.starts_with('.')))
 }
 
 table!(
@@ -105,14 +126,30 @@ table!(
 pub fn serving_files() -> Vec<crate::bundle::ServingFile> {
     use crate::Table;
     fn file<T: Table>() -> crate::bundle::ServingFile {
-        crate::bundle::ServingFile { name: T::NAME,
-            schema: std::sync::Arc::new(arrow_schema::Schema::new(T::schema().fields().iter()
-                .filter(|f| f.name() != "snapshot_id").cloned().collect::<Vec<_>>())),
-            key: &T::key()[1..] }
+        crate::bundle::ServingFile {
+            name: T::NAME,
+            schema: std::sync::Arc::new(arrow_schema::Schema::new(
+                T::schema()
+                    .fields()
+                    .iter()
+                    .filter(|f| f.name() != "snapshot_id")
+                    .cloned()
+                    .collect::<Vec<_>>(),
+            )),
+            key: &T::key()[1..],
+        }
     }
-    vec![file::<CatalogMembers>(), file::<CatalogBindings>(), file::<CatalogSignatures>(),
-        file::<CatalogParameters>(), file::<CatalogEvidence>(), file::<CatalogTypes>(),
-        file::<CatalogTypeArgs>(), file::<CatalogTypeObservations>(), file::<CatalogConstructors>()]
+    vec![
+        file::<CatalogMembers>(),
+        file::<CatalogBindings>(),
+        file::<CatalogSignatures>(),
+        file::<CatalogParameters>(),
+        file::<CatalogEvidence>(),
+        file::<CatalogTypes>(),
+        file::<CatalogTypeArgs>(),
+        file::<CatalogTypeObservations>(),
+        file::<CatalogConstructors>(),
+    ]
 }
 
 table!(
@@ -159,16 +196,37 @@ mod tests {
 
 /// Finite wire vocabularies, shared by canonical validation, IPC import and PostgreSQL DDL.
 pub fn vocabulary(relation: &str, field: &str) -> Option<Vec<&'static str>> {
-    use crate::codebook::{Codebook, ParameterKind, TypeRole, TypeTermKind, TypeArgRole};
+    use crate::codebook::{Codebook, ParameterKind, TypeArgRole, TypeRole, TypeTermKind};
     Some(match (relation, field) {
         ("catalog_compilation", "profile") => vec!["catalog", "behavioral"],
-        ("catalog_members", "brief_status") => vec!["not_requested", "not_selected", "skipped", "available"],
-        ("catalog_members", "resolution") => vec!["unresolved", "source_known_effective_unresolved"],
-        ("catalog_bindings", "role") => vec!["selected_source", "overload", "shadowed_source", "stub_source", "source_alternative", "provider_public_observation"],
+        ("catalog_members", "brief_status") => {
+            vec!["not_requested", "not_selected", "skipped", "available"]
+        }
+        ("catalog_members", "resolution") => {
+            vec!["unresolved", "source_known_effective_unresolved"]
+        }
+        ("catalog_bindings", "role") => vec![
+            "selected_source",
+            "overload",
+            "shadowed_source",
+            "stub_source",
+            "source_alternative",
+            "provider_public_observation",
+        ],
         ("catalog_signatures", "role") => vec!["source", "overload", "provider_constructor"],
         ("catalog_signatures", "form") => vec!["source_list", "list", "ellipsis", "param_spec"],
-        ("catalog_parameters", "default_state") => vec!["absent", "literal_none", "literal", "source_expression", "optional_expression_unavailable", "unknown"],
-        ("catalog_parameters", "kind" | "provider_kind") | ("catalog_type_args", "parameter_kind") => ParameterKind::all().iter().map(|v| v.text()).collect(),
+        ("catalog_parameters", "default_state") => vec![
+            "absent",
+            "literal_none",
+            "literal",
+            "source_expression",
+            "optional_expression_unavailable",
+            "unknown",
+        ],
+        ("catalog_parameters", "kind" | "provider_kind")
+        | ("catalog_type_args", "parameter_kind") => {
+            ParameterKind::all().iter().map(|v| v.text()).collect()
+        }
         ("catalog_evidence", "role") => vec!["declares"],
         ("catalog_types", "kind") => TypeTermKind::all().iter().map(|v| v.text()).collect(),
         ("catalog_type_observations", "role") => TypeRole::all().iter().map(|v| v.text()).collect(),
@@ -179,14 +237,24 @@ pub fn vocabulary(relation: &str, field: &str) -> Option<Vec<&'static str>> {
 
 /// Tables produced in both profiles. Everything else in the analysis family is enrichment.
 pub fn mandatory_table(name: &str) -> bool {
-    name.starts_with("catalog_") || matches!(name, "public_paths" | "operations" | "operation_facets"
-        | "operation_facet_status" | "operation_documents" | "embedding_specs"
-        | "used_embeddings" | "embedding_uses" | "assertion_policy")
+    name.starts_with("catalog_")
+        || matches!(
+            name,
+            "public_paths"
+                | "operations"
+                | "operation_facets"
+                | "operation_facet_status"
+                | "operation_documents"
+                | "embedding_specs"
+                | "used_embeddings"
+                | "embedding_uses"
+                | "assertion_policy"
+        )
 }
 
 table!(
     /// A class exposure's constructor signatures, including attributed inherited contracts.
     CatalogConstructors, CatalogConstructorsRow = "catalog_constructors", family = Findings,
     key = [snapshot_id, class_node_id, signature_id], checks = [],
-    { snapshot_id: Id, class_node_id: Id, signature_id: Id, own: bool }
+    { snapshot_id: Id, class_node_id: Id, signature_id: Id, own: bool, ancestry_fact_id: Option<Id> }
 );

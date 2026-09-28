@@ -44,45 +44,147 @@ fn pick(row: &Object, fields: &[&str]) -> Object {
         .collect()
 }
 
-async fn catalog_record(conn: &mut sqlx::PgConnection, generation: &PinnedGeneration,
-    budget: &mut Hydration, member: &Object) -> Result<Value, Error> {
-    let members = vec![id(member["member_id"].as_str().ok_or_else(|| corrupt("catalog member identity"))?)?];
-    let bindings = budget.fetch(conn, generation, "catalog_bindings", Some("member_id"), &members).await?;
+async fn catalog_record(
+    conn: &mut sqlx::PgConnection,
+    generation: &PinnedGeneration,
+    budget: &mut Hydration,
+    member: &Object,
+    singleton_class: Option<&str>,
+) -> Result<Value, Error> {
+    let members = vec![id(member["member_id"]
+        .as_str()
+        .ok_or_else(|| corrupt("catalog member identity"))?)?];
+    let bindings = budget
+        .fetch(
+            conn,
+            generation,
+            "catalog_bindings",
+            Some("member_id"),
+            &members,
+        )
+        .await?;
     let mut declarations = ids(&bindings, "declaration_node_id")?;
-    if let Some(node) = member["operation_node_id"].as_str() { declarations.push(id(node)?); }
-    declarations.sort(); declarations.dedup();
-    let constructors = budget.fetch(conn, generation, "catalog_constructors", Some("class_node_id"), &declarations).await?;
-    let mut signatures = budget.fetch(conn, generation, "catalog_signatures", Some("callable_node_id"), &declarations).await?;
-    signatures.extend(budget.fetch(conn, generation, "catalog_signatures", Some("signature_id"), &ids(&constructors, "signature_id")?).await?);
-    signatures.sort_by(|a,b| a["signature_id"].as_str().cmp(&b["signature_id"].as_str()));
-    signatures.dedup_by(|a,b| a["signature_id"] == b["signature_id"]);
-    let parameters = budget.fetch(conn, generation, "catalog_parameters", Some("signature_id"), &ids(&signatures,"signature_id")?).await?;
+    if let Some(node) = member["operation_node_id"].as_str() {
+        declarations.push(id(node)?);
+    }
+    if let Some(node) = singleton_class {
+        declarations.push(id(node)?);
+    }
+    declarations.sort();
+    declarations.dedup();
+    let constructors = budget
+        .fetch(
+            conn,
+            generation,
+            "catalog_constructors",
+            Some("class_node_id"),
+            &declarations,
+        )
+        .await?;
+    let mut signatures = budget
+        .fetch(
+            conn,
+            generation,
+            "catalog_signatures",
+            Some("callable_node_id"),
+            &declarations,
+        )
+        .await?;
+    signatures.extend(
+        budget
+            .fetch(
+                conn,
+                generation,
+                "catalog_signatures",
+                Some("signature_id"),
+                &ids(&constructors, "signature_id")?,
+            )
+            .await?,
+    );
+    signatures.sort_by(|a, b| a["signature_id"].as_str().cmp(&b["signature_id"].as_str()));
+    signatures.dedup_by(|a, b| a["signature_id"] == b["signature_id"]);
+    let parameters = budget
+        .fetch(
+            conn,
+            generation,
+            "catalog_parameters",
+            Some("signature_id"),
+            &ids(&signatures, "signature_id")?,
+        )
+        .await?;
     let mut subjects = declarations.clone();
     subjects.extend(ids(&signatures, "declaration_node_id")?);
+    subjects.extend(ids(&signatures, "constructor_class_id")?);
     subjects.extend(ids(&parameters, "formal_node_id")?);
-    subjects.sort(); subjects.dedup();
-    let observations = budget.fetch(conn, generation, "catalog_type_observations", Some("subject_node_id"), &subjects).await?;
-    let mut term_ids = ids(&observations,"term_id")?;
+    subjects.sort();
+    subjects.dedup();
+    let observations = budget
+        .fetch(
+            conn,
+            generation,
+            "catalog_type_observations",
+            Some("subject_node_id"),
+            &subjects,
+        )
+        .await?;
+    let mut term_ids = ids(&observations, "term_id")?;
     let mut visited = BTreeSet::new();
-    let mut types = Vec::new(); let mut type_args = Vec::new();
+    let mut types = Vec::new();
+    let mut type_args = Vec::new();
     while !term_ids.is_empty() {
         term_ids.retain(|id| visited.insert(id.clone()));
-        if term_ids.is_empty() { break; }
-        types.extend(budget.fetch(conn, generation, "catalog_types", Some("term_id"), &term_ids).await?);
-        let args = budget.fetch(conn, generation, "catalog_type_args", Some("parent_term_id"), &term_ids).await?;
-        term_ids = ids(&args,"child_term_id")?;
+        if term_ids.is_empty() {
+            break;
+        }
+        types.extend(
+            budget
+                .fetch(
+                    conn,
+                    generation,
+                    "catalog_types",
+                    Some("term_id"),
+                    &term_ids,
+                )
+                .await?,
+        );
+        let args = budget
+            .fetch(
+                conn,
+                generation,
+                "catalog_type_args",
+                Some("parent_term_id"),
+                &term_ids,
+            )
+            .await?;
+        term_ids = ids(&args, "child_term_id")?;
         type_args.extend(args);
     }
-    let evidence = budget.fetch(conn, generation, "catalog_evidence", Some("subject_node_id"), &subjects).await?;
+    let evidence = budget
+        .fetch(
+            conn,
+            generation,
+            "catalog_evidence",
+            Some("subject_node_id"),
+            &subjects,
+        )
+        .await?;
     let params = grouped(parameters, "signature_id");
     for signature in &mut signatures {
-        let mut parameters = group(&params, signature["signature_id"].as_str().ok_or_else(|| corrupt("signature identity"))?).to_vec();
+        let mut parameters = group(
+            &params,
+            signature["signature_id"]
+                .as_str()
+                .ok_or_else(|| corrupt("signature identity"))?,
+        )
+        .to_vec();
         parameters.sort_by_key(|p| p["ordinal"].as_i64());
         signature.insert("parameters".into(), json!(parameters));
     }
-    Ok(json!({"member":member,"bindings":bindings,"constructors":constructors,"signatures":signatures,"evidence":evidence,
+    Ok(
+        json!({"member":member,"bindings":bindings,"constructors":constructors,"signatures":signatures,"evidence":evidence,
         "type_observations":observations,"types":types,"type_arguments":type_args,
-        "effective_surface":"unresolved","basis":"source and attributed provider observations"}))
+        "effective_surface":"unresolved","basis":"source and attributed provider observations"}),
+    )
 }
 
 impl ServingStore {
@@ -102,9 +204,21 @@ impl ServingStore {
             "SELECT member_id FROM lctx_serving.catalog_members WHERE generation_digest=$1 AND (access_path=$2 OR member_id=$3 OR operation_node_id=$4) ORDER BY access_path COLLATE \"C\",member_id LIMIT 101")
             .bind(generation.id.0.as_slice()).bind(spelling).bind(member_id).bind(legacy)
             .fetch_all(&mut *lease.connection).await?;
-        if member_ids.len() > 100 { return Err(cpg_schema::serving_projection::refused("public member choice budget").into()); }
+        if member_ids.len() > 100 {
+            return Err(
+                cpg_schema::serving_projection::refused("public member choice budget").into(),
+            );
+        }
         let member_ids: Vec<_> = member_ids.into_iter().map(|r| r.0).collect();
-        let members = catalog_budget.fetch(&mut lease.connection, generation, "catalog_members", Some("member_id"), &member_ids).await?;
+        let members = catalog_budget
+            .fetch(
+                &mut lease.connection,
+                generation,
+                "catalog_members",
+                Some("member_id"),
+                &member_ids,
+            )
+            .await?;
         if members.len() > 1 {
             let result = json!({"snapshot_id":snapshot,"generation":generation.generation(),
                 "resolution":"ambiguous","requested":operation,"choices":members});
@@ -112,10 +226,58 @@ impl ServingStore {
             return Ok(result);
         }
         let member = members.first();
-        let catalog = if let Some(member) = member {
-            Some(catalog_record(&mut lease.connection, generation, &mut catalog_budget, member).await?)
-        } else { None };
-        if let Some(member) = member && member["operation_node_id"].is_null() {
+        let fallback_resolution = if member.is_none() {
+            Some(resolve_on(&mut lease.connection, generation, operation).await?)
+        } else {
+            None
+        };
+        let fallback_members = if let Some(resolved) = &fallback_resolution {
+            let ids: Vec<(Vec<u8>,)> = sqlx::query_as("SELECT member_id FROM lctx_serving.catalog_members WHERE generation_digest=$1 AND access_path=$2 AND operation_node_id=$3")
+                .bind(generation.id.0.as_slice()).bind(&resolved.access_path).bind(id(&resolved.operation_id)?).fetch_all(&mut *lease.connection).await?;
+            catalog_budget
+                .fetch(
+                    &mut lease.connection,
+                    generation,
+                    "catalog_members",
+                    Some("member_id"),
+                    &ids.into_iter().map(|r| r.0).collect::<Vec<_>>(),
+                )
+                .await?
+        } else {
+            Vec::new()
+        };
+        let singleton_class: Option<String> = if member
+            .is_some_and(|m| m["operation_node_id"].is_null())
+            && generation.manifest.capabilities.behavioral_claims
+        {
+            let rows: Vec<(Vec<u8>,)> = sqlx::query_as("SELECT DISTINCT class_node_id FROM lctx_serving.singletons WHERE generation_digest=$1 AND global=$2 ORDER BY class_node_id LIMIT 2")
+                .bind(generation.id.0.as_slice()).bind(member.and_then(|m| m["access_path"].as_str()).unwrap_or(spelling)).fetch_all(&mut *lease.connection).await?;
+            if rows.len() > 1 {
+                return Err(Error::Request("ambiguous singleton class".into()));
+            }
+            rows.first()
+                .map(|r| Id(r.0.clone().try_into().expect("validated class ID")).hex())
+        } else {
+            None
+        };
+        let catalog = if let Some(member) = member.or_else(|| fallback_members.first()) {
+            Some(
+                catalog_record(
+                    &mut lease.connection,
+                    generation,
+                    &mut catalog_budget,
+                    member,
+                    singleton_class.as_deref(),
+                )
+                .await?,
+            )
+        } else {
+            None
+        };
+        if let Some(member) = member
+            && member["operation_node_id"].is_null()
+            && singleton_class.is_none()
+        {
             let mut result = json!({"snapshot_id":snapshot,"generation":generation.generation(),
                 "operation_id":null,"member_id":member["member_id"],"access_path":member["access_path"],
                 "resolution":member["resolution"],"kind":member["kind"],"is_method":null,
@@ -130,8 +292,15 @@ impl ServingStore {
             lease.complete();
             return Ok(result);
         }
-        let selected_operation = member.and_then(|m| m["operation_node_id"].as_str()).unwrap_or(operation);
-        let resolved = resolve_on(&mut lease.connection, generation, selected_operation).await?;
+        let selected_operation = singleton_class
+            .as_deref()
+            .or_else(|| member.and_then(|m| m["operation_node_id"].as_str()))
+            .unwrap_or(operation);
+        let resolved = if let Some(resolved) = fallback_resolution {
+            resolved
+        } else {
+            resolve_on(&mut lease.connection, generation, selected_operation).await?
+        };
         let mut budget = Hydration::new();
         let selected = vec![id(&resolved.operation_id)?];
         let initial = budget
@@ -145,17 +314,38 @@ impl ServingStore {
             .await?;
         let mut requested = selected.clone();
         let mut constructor = None;
-        if initial.first().is_some_and(|o| o["kind"] == "class") && let Some(contract) = &catalog {
-            let signature_ids: BTreeSet<_> = contract["constructors"].as_array().into_iter().flatten()
-                .filter_map(|c| c["signature_id"].as_str()).collect();
-            let callable_ids: BTreeSet<_> = contract["signatures"].as_array().into_iter().flatten()
+        if initial.first().is_some_and(|o| o["kind"] == "class")
+            && let Some(contract) = &catalog
+        {
+            let signature_ids: BTreeSet<_> = contract["constructors"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|c| c["signature_id"].as_str())
+                .collect();
+            let callable_ids: BTreeSet<_> = contract["signatures"]
+                .as_array()
+                .into_iter()
+                .flatten()
                 .filter(|s| signature_ids.contains(s["signature_id"].as_str().unwrap_or("")))
-                .filter_map(|s| s["callable_node_id"].as_str()).collect();
+                .filter_map(|s| s["callable_node_id"].as_str())
+                .collect();
             if callable_ids.len() == 1 {
                 let callable = *callable_ids.first().expect("one constructor");
                 let candidate = id(callable)?;
-                if !budget.fetch(&mut lease.connection, generation, "operations", Some("node_id"), std::slice::from_ref(&candidate)).await?.is_empty() {
-                    constructor = Some(callable.to_owned()); requested.push(candidate);
+                if !budget
+                    .fetch(
+                        &mut lease.connection,
+                        generation,
+                        "operations",
+                        Some("node_id"),
+                        std::slice::from_ref(&candidate),
+                    )
+                    .await?
+                    .is_empty()
+                {
+                    constructor = Some(callable.to_owned());
+                    requested.push(candidate);
                 }
             }
         }
@@ -300,11 +490,17 @@ impl ServingStore {
             own.sort_by(|a, b| a.as_str().cmp(&b.as_str()));
             inherited.sort_by(|a, b| a.as_str().cmp(&b.as_str()));
             let mut facet_map: BTreeMap<String, Vec<Value>> = BTreeMap::new();
-            let mut parameters: Vec<(String, Vec<Value>)> = catalog.as_ref()
-                .and_then(|c| c["signatures"].as_array()).into_iter().flatten()
+            let mut parameters: Vec<(String, Vec<Value>)> = catalog
+                .as_ref()
+                .and_then(|c| c["signatures"].as_array())
+                .into_iter()
+                .flatten()
                 .flat_map(|s| s["parameters"].as_array().into_iter().flatten())
-                .filter_map(|p| p["name"].as_str()).collect::<BTreeSet<_>>()
-                .into_iter().map(|name| (name.to_owned(), Vec::new())).collect();
+                .filter_map(|p| p["name"].as_str())
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .map(|name| (name.to_owned(), Vec::new()))
+                .collect();
             for f in group(&facets, node) {
                 let name = f["facet"].as_str().expect("facet");
                 facet_map
@@ -407,6 +603,9 @@ impl ServingStore {
             result["member_id"] = member["member_id"].clone();
             result["access_path"] = member["access_path"].clone();
             result["resolution"] = member["resolution"].clone();
+            if singleton_class.is_some() {
+                result["resolution"] = json!("singleton_class");
+            }
         }
         check_response(&result)?;
         lease.complete();

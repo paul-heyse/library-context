@@ -1,4 +1,4 @@
-"""Serve every recovered generation through the actual editable native/SQLx boundary."""
+"""Serve current recovered generations; report preserved legacy generations explicitly."""
 
 from __future__ import annotations
 
@@ -24,7 +24,21 @@ async def probe(config: Path, receipt: Path):
         for generation in expected["inventory"]["generations"]:
             manifest = generation["manifest"]
             if manifest["bundle_format"] != 13:
-                raise RuntimeError("legacy generation requires the retained pre-PR1 runtime and a separate receipt")
+                if (
+                    manifest["format"],
+                    manifest["bundle_format"],
+                    generation["runtime_admission"],
+                ) != (2, 12, "legacy_runtime_required"):
+                    raise RuntimeError("unrecognized legacy generation")
+                results.append(
+                    {
+                        "generation": generation["generation"],
+                        "serving": "not_run",
+                        "reason": "legacy_runtime_required",
+                        "preservation": "passed",
+                    }
+                )
+                continue
             pinned = await repository.pin(manifest["context"]["library"], generation["generation"])
             descriptor = json.loads(pinned.descriptor())
             if descriptor["manifest"] != manifest:
@@ -64,6 +78,11 @@ async def probe(config: Path, receipt: Path):
             )
         selections = []
         for selected in expected["selections"]:
+            if any(
+                g["generation"] == selected["generation"] and g["runtime_admission"] != "current"
+                for g in expected["inventory"]["generations"]
+            ):
+                raise RuntimeError("selected generation requires retained runtime")
             pinned = await repository.pin(selected["library"])
             descriptor = json.loads(pinned.descriptor())
             if (

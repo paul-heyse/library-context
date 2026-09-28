@@ -523,6 +523,9 @@ pub(crate) async fn collect_attributes(
     ctx: &SessionContext,
     callables: &[Id],
 ) -> Result<Vec<(Id, cpg_schema::concept_attributes::ConceptAttributesRow)>, CoreError> {
+    if callables.is_empty() {
+        return Ok(Vec::new());
+    }
     let by = concepts::attributes_of(
         Id::ZERO,
         &collect(

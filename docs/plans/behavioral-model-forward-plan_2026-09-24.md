@@ -4,18 +4,29 @@
 stays stable for existing links. The [target design §14](../design/sections/api-and-evidence-product.md)
 replaces general behavioral completion as the first-product target. This plan owns PR0–PR6 and
 current finding disposition; the PostgreSQL plan retains completed deployment and conditional
-storage work. No runtime change or product superiority is claimed by this planning revision.
+storage work. PR0–PR1 functional scope is implemented under ADR-0072; PR1 is qualified and deployed.
+PR0 comparative admission remains blocked; product differentiation remains unqualified.
 
 ## 1. Current state and qualification boundary
 
 **Implemented baseline, source-inspected 2026-09-28:** `739f9df` contains pinned extraction, rich
 canonical facts, partial behavioral analysis, operation/brief tools and completed PG0–PG17 local
 exact deployment. Compiler107, extractor33, template20, catalog7, bundle FORMAT12/projection2,
-standard1024 and operator schema008 remain unchanged. Historical PostgreSQL qualification is in
+standard1024 and operator schema008 describe that retained baseline. PR1 advances compiler108,
+extractor34 and bundle FORMAT13/projection3; additive migration009 is deployed. Historical PostgreSQL qualification is in
 [its evidence](../design_review/evidence/2026-09-28_postgresql-operations/README.md); it does not
 measure product differentiation.
 
-**New target: Proposed implementation.** Build a mandatory public API/evidence catalog with complete
+**Current PR1: Implemented, Tested and deployed (2026-09-28).** Catalog compilation is the default,
+with behavioral enrichment explicit. Ordered source/provider contracts, stable public members and
+original declaration evidence publish through versioned projections. `just test-all` passed:
+446 Rust, 184 Python, 18 real-PG Rust and 2 PG Python tests plus all named lint/dependency/schema checks.
+Both live-embedding FastMCP profiles passed import/stdio MCP serving. The operator selects the enriched
+generation `2081c10e…` with exact retrieval; the populated 78-table/four-generation restore passed in 12.49 s.
+[Catalog evidence](../design_review/evidence/2026-09-28_catalog/README.md) records scope and commands.
+**PR0: Implemented; comparison blocked.** Protocol/runner controls pass; twelve A/B/C admission
+attempts are unscored because exact-release/material parity is unestablished. Confirmation remains
+sealed and unexecuted. PR2–PR6 remain Proposed. The complete target is a mandatory public API/evidence catalog with complete
 contracts, typed options, contextual scenarios, deployment evidence, structured search and bounded
 implementation packets. Existing facts provide much of the content; targeted surface normalization,
 record-field expressions/links and package metadata are genuine new work. No broad new analysis
@@ -24,15 +35,16 @@ assesses R01–R08 and the additional obligations.
 
 | Boundary | Current state | Next obligation |
 |---|---|---|
-| Product construction | Public paths and operation construction depend on optional analysis; useful no-brief publication is not independent | PR1 mandatory catalog/capability manifest |
-| Contract and evidence | Facts richer than responses; signature reconstruction, seed-oriented usage and assertion-rooted evidence lose useful content | PR1–PR3 product records and closure |
+| Product construction | Catalog-only and enriched profiles publish/serve/restore through real PG/MCP; full gate and operator cutover passed | PR2–PR5 task-specific product delivery |
+| Contract and evidence | Ordered contracts and original declaration evidence available; contextual examples/deployment and exact option links remain incomplete | PR2–PR3 product records and closure |
 | Retrieval/customization | Exact PG/BM25 works; strict facets hide unknowns and entity ranks omit winning units | PR4 typed requirement states and addressable evidence |
 | Deployment details | Pinned source/docs/environment available; no complete package/extras requirement projection | PR3 attributed package/setup evidence |
 | Comparative value | No controlled Context7 comparison | PR0 protocol/baselines; PR6 confirmation; parity leaves objective open |
 | Existing semantic Stage 3 | Functionally incomplete; earlier tests retain their scope | Research backlog, except defects affecting exposed claims must be fixed or withheld |
 
-**Next:** PR0 task/contract inventory and baseline feasibility, then PR1's catalog/signature vertical
-slice. Read §3.0, not the retained semantic queue, for current execution. General all-channel proof,
+**Next:** PR2 surface/configuration specificity, then PR3 contextual scenarios/deployment. Resolve
+PR0 independent parity/admission before any comparative scoring. Read §3.0, not the retained semantic queue,
+for current execution. General all-channel proof,
 new logger models, ontology work, ANN tuning and wheel builds are off the first-product critical path.
 Fast editable uv/native and cached Cargo development remain the workflow.
 
@@ -125,14 +137,15 @@ its questions, unmet exits and sealed heldout; it is not repurposed as the new c
 
 ## 3. Product execution queue
 
-Functional implementation is **not started by this design task**. PR0–PR6 are dependency-ordered
-vertical slices. Each uses targeted compile/functional controls; formatting and integrated gates
+PR0–PR1 functional implementation is complete; its qualification and comparative admission are
+reported in §1 and §6.2. PR2–PR6 remain dependency-ordered proposed vertical slices.
+Each uses targeted compile/functional controls; formatting and integrated gates
 wait until the authorized functional scope is complete. No extra hook, register or build system.
 
 
 ### 3.0 Consolidated execution
 
-**Current queue: PR0–PR6, Proposed.** The old P0–P7/S1–S7 labels below are research identifiers,
+**Current queue: PR2–PR6 (Proposed); PR0 comparative admission remains blocked.** The old P0–P7/S1–S7 labels below are research identifiers,
 not product packages. The target's response budgets and comparison thresholds are frozen in PR0
 before outcomes; the design does not claim they have passed.
 
@@ -168,7 +181,7 @@ and integrated gates wait for the full PR0–PR1 functional scope.
 | PR0.1 | Evaluation/schema inventory maps R01–R08 and deployment journeys to facts and missing work | Acceptance APIs never restrict the public universe |
 | PR0.2 | Freeze 24 development and separately sealed 24 confirmation tasks, protocol and rubric | Gold/heldout unchanged; confirmation answers isolated |
 | PR0.3 | Check Context7 release/material parity; A Context7, B original evidence, C B plus structure | Unavailable parity blocks comparisons, not PR1 |
-| PR0.4–5 | Minimal subprocess runner, immutable receipts, four-stratum A/B development smoke | No confirmation execution or superiority claim |
+| PR0.4–5 | Isolated API function-tool runner, immutable receipts, four-stratum A/B development smoke | No confirmation execution or superiority claim |
 | PR1.1 | Mandatory roots/provenance; catalog default, behavioral opt-in; optional flow/model context | Dotted/overlapping/member roots; explicit not-requested coverage |
 | PR1.2 | Public candidates before export/path selection; stable exposure IDs and declaration roles | Aliases/inheritance/overloads/stubs retained; ambiguity returns choices |
 | PR1.3 | Ordered signatures and provider constructors | All kinds, zero-formal/ParamSpec, overloads, defaults/provenance |
@@ -950,16 +963,41 @@ controls. They do not establish positive ANN admission, larger-corpus scaling or
 **Single current owner.** AP refers to the
 [target review](../design_review/reviews/design_review_api-evidence-product_2026-09-28.md).
 R01–R08 are external recommendation IDs, not claims of defects independently demonstrated by them.
-All rows are **open; target accepted, implementation Proposed** on 2026-09-28.
+AP/F01 is **closed at Tested strength, 2026-09-28**. AP/F02–F06 remain **open** with their
+broader PR2–PR6 obligations; the PR1 portion of API contracts and packet exposure is implemented.
 
 | Finding / recommendations | Responsible owner and package | Closure evidence |
 |---|---|---|
-| AP/F01 mandatory catalog and optional capabilities; R01 | `cpg-core` orchestration, schema manifest, native lifetime; PR1 | No-analysis/no-brief API available; corrupt advertised capability fails; same contract through restore |
+| AP/F01 mandatory catalog and optional capabilities; R01 | `cpg-core` orchestration, schema manifest, native lifetime; PR1; **closed, Tested** | [Catalog evidence](../design_review/evidence/2026-09-28_catalog/README.md): mandatory/corrupt-capability controls, full gate, both live profiles through PG/MCP, matching catalog contracts, current/legacy recovery and deployed exact selection |
 | AP/F02 complete API/surface/option identity; R02–R04 | schema/extraction/catalog/hydration; PR1/PR2 | Ordered signatures, overload/property/inherited/generated forms, defaults, exact field links and removal of duplicate invocation classifier |
 | AP/F03 evidence/scenario/deployment closure; R05 plus deployment addition | acquisition/catalog/bundle; PR3 | Non-seed context-preserving and negative-intent examples; package/extras source distinction; generation-qualified evidence survives PG/MCP/recovery |
 | AP/F04 typed custom selection and joint applicability; R07 | Rust request/classifier/semantic owner; PR4 | Scoped absence, variant quantifiers, contradiction/conflict precedence, mutually exclusive features and stable group cursors |
 | AP/F05 retrieval-unit identity and family composition; R06 | schema view catalog, embed/retrieval/fusion; PR4 | Winning-unit round-trip, class/doc coverage, duplicate stability and held-constant baseline; shared token admission retained |
 | AP/F06 product exposure and comparative acceptance; R02/R08 | MCP packet/browse/evidence tools and evaluation; PR0/PR5/PR6 | Bounded useful packet and independent matched-condition gain; full failures/costs recorded; no semantic-suite relabeling |
+
+PR0 execution findings come from the [evaluation review](../design_review/reviews/design_review_pr0-evaluation_2026-09-28.md); PR1 findings come from the [implementation review](../design_review/reviews/design_review_pr1-implementation_2026-09-28.md).
+
+| Finding | Owner / current disposition | Evidence and remaining boundary |
+|---|---|---|
+| EVAL/F01 tool/context isolation | `scripts/product_eval.py`; repaired API tool loop, live qualification open | Generic CLI overrides removed; only condition MCP schemas reach a fresh stateless conversation. Twelve focused protocol/original-Git-evidence tests passed; no live model execution |
+| EVAL/F02 telemetry and terminal receipts | Evaluation runner; repaired at focused Tested strength; live qualification open | Frozen response-model identity and complete usage required; preflight failures persist receipts; unknown paid usage is nullable, never zero-filled |
+| EVAL/F03 confirmation admission | Independent evaluation; blocked | Sealed 24-task candidate retained; distinctness/material parity and pre-feature timing are not independently admitted. Implementation began before seal. No plaintext opened by implementation and no confirmation execution |
+| EVAL/F04 population/hash membership | Evaluation runner; focused repair passed | Deployment tasks counted within implementation stratum; protocol/development hashes required. Full comparative acceptance remains PR6 |
+| PR1/F01 corpus profile | `cpg-extract`; closed at focused Tested strength | `cargo test --release -p cpg-core --test syntax catalog_profile_applies_to_corpus_and_library -- --nocapture` passed; both runs share catalog producer and NotRequested flow coverage |
+| PR1/F02 candidates/constructors | `cpg-core::catalog`, PG hydration; closed at focused Tested strength | Canonical candidate/constructor controls passed. `uv run pytest python/lctx_mcp/tests/test_catalog.py -q` passed real PG/FastMCP child-constructor hydration including private owner evidence; bounded review accepted |
+| PR1/F03 singleton composition | PG hydration; closed at focused Tested strength | `cargo test --release -p cpg-core --test resolved_attribute_access -- --nocapture` passed real PG/PyO3 hydration plus Python model validation for public, no-member and member-ID singleton routes. This receipt is not itself a FastMCP Client roundtrip; bounded review accepted |
+
+PR0 final A/B/C development smoke admission produced twelve **blocked**, unscored receipts under
+`build/product-eval/pr0-pr1-final-smoke/`. Exact FastMCP4.0.5 Context7 material parity is unestablished;
+model/API execution is not qualified. This blocks comparisons, not catalog implementation.
+Neither sealed-candidate creation nor protocol checks imply product superiority.
+
+Recovery controls are **Tested (2026-09-28)** in the [catalog evidence](../design_review/evidence/2026-09-28_catalog/README.md): retained schema008/runtime restore passed;
+disposable008→009 mixed restore passed in 7.34 s with selected-legacy/corrupt-artifact refusal controls.
+Final `just test-all`, real-library pilots and operator cutover passed. Final-runtime import/reconcile
+and live stdio MCP serving passed for both profiles. The deployed backup preserves two current and
+two legacy ready generations; its 78-table restore served the current profiles and restored the exact
+enriched selection in 12.49 s. Legacy serving requires the separately retained matching runtime.
 
 ## 7. Deferred, each with a trigger
 

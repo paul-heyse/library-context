@@ -41,3 +41,13 @@ class Child(Base):
 class Config:
     count: int
     title: str = "sample"
+
+class ChildConfig(Config):
+    pass
+
+@dataclass
+class _PrivateConfig:
+    value: int
+
+class PublicConfig(_PrivateConfig):
+    pass

@@ -255,6 +255,7 @@ class CatalogConstructor(BaseModel):
     class_node_id: str
     signature_id: str
     own: bool
+    ancestry_fact_id: str | None
 
 
 class CatalogRecord(BaseModel):

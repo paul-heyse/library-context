@@ -1,0 +1,28 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table catalog_parameters
+family findings
+key snapshot_id, signature_id, ordinal
+check ordinal: ordinal >= 0
+@lctx.family=findings
+@lctx.table=catalog_parameters
+snapshot_id: FixedSizeBinary(16) NOT NULL
+signature_id: FixedSizeBinary(16) NOT NULL
+ordinal: Int64 NOT NULL
+formal_node_id: FixedSizeBinary(16) NULL
+name: Utf8 NULL
+kind: Utf8 NULL
+required: Boolean NULL
+syntax_fact_id: FixedSizeBinary(16) NULL
+semantics_fact_id: FixedSizeBinary(16) NULL
+provider_name: Utf8 NULL
+provider_kind: Utf8 NULL
+annotation_text: Utf8 NULL
+provider_annotation: Utf8 NULL
+default_state: Utf8 NOT NULL
+default_text: Utf8 NULL
+literal_json: Utf8 NULL
+documentation: Utf8 NULL
+reason: Utf8 NULL

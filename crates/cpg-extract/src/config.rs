@@ -430,13 +430,18 @@ pub(crate) fn producer(profile: cpg_schema::catalog::CompileProfile) -> Producer
         "pyrefly 1.3.1 {PYREFLY_REV} (patch sha256 {PYREFLY_PATCH_SHA256}); {RUFF_LINE}; flow: {}",
         cpg_flow::PROVIDER
     );
-    let config = format!("threads=inline; stack_bytes={DRIVER_STACK_BYTES}; profile={}", profile.name());
+    let config = format!(
+        "threads=inline; stack_bytes={DRIVER_STACK_BYTES}; profile={}",
+        profile.name()
+    );
     let build = format!("{}/{EXTRACTOR_OUTPUT_VERSION}", env!("CARGO_PKG_VERSION"));
     // Context facts now retain classes named by committed model rules. Changing those bytes can
     // change extraction output even when the Rust mapping and release bytes are unchanged.
     let mut build_hash = IdHasher::new("extractor-build");
     build_hash.str(&build).str(profile.name());
-    if profile.behavioral() { build_hash.bytes(cpg_schema::models::Catalog::committed_digest().bytes()); }
+    if profile.behavioral() {
+        build_hash.bytes(cpg_schema::models::Catalog::committed_digest().bytes());
+    }
     let build_digest = build_hash.finish_digest();
     let config_digest = content_digest(config.as_bytes());
     let id = cpg_schema::id::recipe::producer(TOOL, &revision, build_digest);

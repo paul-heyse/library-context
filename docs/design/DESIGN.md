@@ -31,7 +31,7 @@ version (skill brief, probe or pinned source), not that our code uses it yet.
 
 ### §1.1 Objective and the promise
 
-**Accepted target, implementation Proposed (ADR-0071, 2026-09-28).** A pinned Python library
+**Accepted target; PR1 catalog Implemented, remaining product scope Proposed (ADR-0071/0072, 2026-09-28).** A pinned Python library
 compiles into an **API and evidence catalog for feature discovery and correct use**. A coding agent
 can identify a built-in feature, select its public invocation/configuration, inspect original examples
 and deployment details, and follow precise evidence and uncertainty. The comprehensive target is
@@ -43,19 +43,20 @@ name their supported domain and coverage; ranked discovery is not exhaustive; un
 and unresolved behavior are local, explicit states. Briefs are optional renderings. No generative
 model runs in compilation or the query path (§B11).
 
-**Implemented baseline:** existing operation/brief tools, bounded native semantic queries and PG
-serving. Complete API packets, public-member normalization, contextual evidence/deployment search,
-typed per-requirement states and catalog-only readiness are **Proposed**, not current capabilities.
+**Implemented and Tested, 2026-09-28:** catalog-only readiness, ordered source/provider API contracts,
+stable public members, declaration evidence and optional behavioral/brief tools through PG serving.
+Broader effective-surface normalization, contextual evidence/deployment search and typed
+per-requirement states remain **Proposed**.
 [§11.3](sections/synthesis-and-serving.md#section-11-3) describes current tools and
 [§14.9](sections/api-and-evidence-product.md#section-14-9) owns their replacement target.
 
-> Decision: ADR-0071, ADR-0025
+> Decision: ADR-0071, ADR-0072, ADR-0025
 
 <a id="section-1-2"></a>
 
 ### §1.2 Increments
 
-**Accepted sequencing, implementation Proposed (ADR-0071).** The
+**Accepted sequencing; PR0–PR1 implemented, comparative admission open (ADR-0071/0072).** The
 [forward plan §3.0](../plans/behavioral-model-forward-plan_2026-09-24.md#30-consolidated-execution)
 owns PR0–PR6: task/baseline freeze, mandatory catalog/contracts, bounded surface/options,
 scenarios/deployment, typed retrieval, agent usability and comparative confirmation.
@@ -67,7 +68,7 @@ Remaining Stage 3–5 work is deferred research unless an exposed claim or named
 No former semantic exit is relabeled passed.
 
 The CPG precedes its analytics (ADR-0067). Canonical facts keep their identity and provenance;
-mandatory catalog construction will be independent of optional analysis. Libraries remain pinned
+mandatory catalog construction is independent of optional analysis. Libraries remain pinned
 uv projects (ADR-0046). ADR-0040 owns review cadence. ADR-0026's current-tree, stable target and
 fast editable development loop remains unchanged; no wheel project is selected.
 
