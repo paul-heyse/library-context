@@ -1,6 +1,6 @@
 # Status
 
-_Updated 2026-09-29 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
+_Updated 2026-09-29 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main; detailed P0–P2 execution accepted._
 
 ## Restart checkpoint: semantic model phases 0–2
 
@@ -44,14 +44,23 @@ Earlier domain/capture/producer/runtime receipts remain in plan §4.2.
 
 ## Resume here
 
-1. **P0 / lctx-model:** complete whole-call binding/root composition and stability-evidenced formal
-   substitution; coordinated resources (including total Ruff traversal work), exact coverage and
-   production admission; then assembled P0 review. Local opaque rebasing is now implemented.
-2. **P1 / store/runtime/CLI:** installation verification/reset, service classification, provider
-   lease/stream integration, hard PostgreSQL cutover and Delta deletion. Qualify cancellation and
-   transport/finalization failures; current focused lifecycle controls do not cover these.
-3. **P2 / producers:** migrate every raw relation/field in plan §4.1.2, integrate acquisition/facts
-   assembly and frontier admission, delete old authority, and rebuild owned state from pinned inputs.
+The operator accepted the detailed remaining execution on 2026-09-29; [cutover plan
+§4.1.1](docs/plans/semantic-model-cutover-plan_2026-09-29.md#411-detailed-remaining-execution-order)
+owns the package order, controls and focused commands, and records the operator decisions:
+downstream crates/modules stay dormant but compiling, `cpg-schema` survives P2, behavioral
+dependency context defers to P4.
 
-Follow plan §4.1.1 dependency order. Run formatting and integrated gates only after all authorized
-functional scope is implemented; bounded review acceptance does not qualify the enclosing architecture.
+1. **P0:** R1 reserved batches and bounded writer → R2 charged validators → K1 contract amendments
+   (ADR-0089 draft) → D0 stage contributions/handoffs → C1–C6 declarations, call-site facts, owner
+   rule, stability witnesses, whole-call composition, old-semantics deletion → R3 Ruff work bound →
+   D1 facts frontier contract → E1 stage-bound subset → X0 assembled P0 review.
+2. **P1:** P1.1–P1.13 CLI quiesce, partition/Delta removal (ADR-0090), service baseline, generated
+   install/check/reset, attempt-owned lifecycle, catalog, provider fork and sessions, CLI, ops,
+   operator-confirmed database transition.
+3. **P2:** A0 provider framework → A1–A16 producer groups → B1–B3 assembler, attachment/determinism,
+   fixture corpus → Dc `compile --through facts` → C1x–C3x selective deletion → Q qualification.
+
+Execution is native with bounded `design-reviewer` reviews on the named slices. Pushing the fork,
+the operator-database transition and deleting `build/` runtime copies are confirmed at the time.
+Run formatting and integrated gates only after all authorized functional scope is implemented;
+bounded review acceptance does not qualify the enclosing architecture.

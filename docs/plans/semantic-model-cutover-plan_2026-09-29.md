@@ -60,7 +60,10 @@ Keys and foreign keys are generation-qualified; local cyclic references are supp
 tables and keys before references. Semantic and physical schema digests are distinct from producer
 and content digests.
 
-Lifecycle: staging → sealed → validated → published; failed and retired are terminal. Selection is a
+Lifecycle: staging → sealed → validated → published. Failed is a stored terminal state permitting
+only abort; abort and retirement remove the schema and all registry state atomically, so retired is
+terminal by absence. Each attempt owns a lifecycle connection holding its attempt lock; an
+interrupted attempt is listed and can only be aborted. Selection is a
 separate pointer. Sealing waits for writes and removes writer access before stored-content validation.
 A receipt binds sealed content to the complete required validator set. Publication changes state and
 grants atomically. A reader validates model/schema identity and holds a lease for its lifetime.
@@ -152,40 +155,191 @@ partition migration or upfront ablation is authorized. Independent behavior cont
 
 ### 4.1.1 Detailed remaining execution order
 
-The operator accepted this remaining execution refinement on 2026-09-29, starting from `04a99a6`.
-ADR-0085–0087 remain governing; ADR-0088 records the selected chunk-preservation policy. All packages
-are one functional implementation scope. Compile/focused checks accompany slices; formatting and the
-integrated gate wait for the complete scope. No package is complete merely because it is listed here.
+The operator accepted this refinement of the remaining phase 0–2 work on 2026-09-29, starting
+from `7aa7a30`. It replaces the earlier P0-A…P2-C rows. ADR-0085–0088 remain governing. All
+packages are one functional scope: each commit carries a compile check and its focused command
+(prefixed `python3 scripts/build_environment.py --`); formatting and the integrated gate wait for
+the complete scope. No package is complete merely because it is listed here. Execution is native
+in the working session, with `design-reviewer` reviews on the high-risk slices named below and
+assembled reviews at the P0 and P0–P2 exits.
 
-| Sequence | Executable contract and owner | Exit evidence / deletion |
-|---|---|---|
-| P0-A | Input/source metadata plus canonical 1 MiB ArtifactChunk relationships; complete-content verifier, input manifest, acquisition/distribution/use/corpus boundaries | Empty, non-UTF-8 and >64 MiB readback; corrupt/missing/duplicate/misplaced/noncanonical refusal; source changes during capture abort |
-| P0-B | Qualified assertions contain context/condition/modality/approximation; concrete typed supports contain invocation/surface/evidence/origin/mode/fidelity; representative syntax, lexical, symbol/type, call, flow, document and deployment domains | Same proposition may gain supports without strengthening; equal key/conflicting payload refuses; all actual shapes lower through typed/Arrow/PG; no future entity references or opaque relationship JSON |
-| P0-C | Port pure call/binding/place/BDD/transfer/control/selection/verdict/derivation policies to nominal types | Full alternative completeness, receiver Unknown, complete binding sets, identity-only path extension, retained opaque guards, stable merge keys, typed premises; C04–C12 controls; later producer/consumer findings remain open |
-| P0-D | Validated stage read/write capabilities; one writer, required inputs, cycle checks; fresh catalogs sharing one attempt runtime; exact provider/family/scope matrix and scope/input validation | Undeclared reads/writes and catalog leakage refuse. Complete-empty/Partial/Unavailable/NotRequested remain distinct. Required unexpected failure aborts. Production facts admission requires complete model/schedule/coverage receipts; subset cannot advertise facts |
-| P0-D resources | Shared reservations for producer batches, indexes, validator state, COPY, wire conversion and Arrow/typed overlap; model/store use library-neutral budget interface | Preserve 64 GiB default and eight compute partitions with explicit overrides; 4096-row/8 MiB transfer targets, admitted oversized-row reservation; fail without publication; measure parser/runtime overhead separately |
-| P0-E | Real pinned extraction → typed source/module/occurrence/assertion/support/coverage → permanent codecs/COPY/sealed validation/readback | Disposable subset conformance harness cannot select or claim complete facts; assembled independent P0 design/target review before scaling; later lifecycle and C04/C13 consumer closure stay open |
-| P1-A | Generated install/check/reset and live schema/type/null/key/ref/check/index/grant verification; service-only installation owner | Fresh/repeated install cannot recreate legacy partition/serving schemas. Preserve embedding cache and attempt/event telemetry for current operations consumer; remove snapshot/bundle discovery. Offline transition copies only retained service data |
-| P1-B | Lifecycle lock order: installation coordination → selection where relevant → generation → relations. Exact sealed/admission receipts; atomic publish/grants; explicit selection | Atomic abort/retire removes schema and generation registry/receipts/events; selected/leased refuses. AlreadyAbsent only when all owned runtime objects absent; orphan state is inconsistent. Interrupted attempts abort, never repair into publication |
-| P1-C | Generation-bound provider sessions and streams, pre-decode digests/admission, lease/pool lifetime, terminal loss and cancellation | Pin survives different selection; no reconnect/substitution; cancel/drain or quarantine. Extend owned provider fork's row-only batching with byte bounds and reservation hooks; update exact pin; no unrestricted discovery/federation |
-| P1-D | CLI model/store/generation/query over protected database configuration | Quiesce identified project readers; remove Delta dependencies/persistence/bootstrap, partitions, bundles, adapters, old flags/IDs and runnable downstream closure in Phase 1. Retain only pure raw definitions/producers needed by P2. Compilation explicitly unavailable until complete new producers exist |
-| P2-A | Migrate acquisition/source → Ruff syntax/lexical → Pyrefly symbols/signatures/calls/types → ty flow → documents → deployment/receipts | Each group completes §4.1.2 field dispositions, typed bounded producer bundles and independent controls, then deletes old schema/hash authority. Shared Pyrefly/Ruff parse, ty second parse and pinned acquisition retained; no captured code execution |
-| P2-B | One assembler attaches by indexed source/span/kind/role, preserves alternatives/support, validates coverage/input ownership, writes typed batches and seals/validates/publishes | Catalog profile records flow NotRequested; behavioral adds flow facts, not analyses. Compile through facts never auto-selects. Beyond-facts requests fail before work. No normalized consensus or fabricated higher-layer output |
-| P2-C | Delete cpg-schema and obsolete model/identity/condition authority after final consumers move; remove enumerated obsolete runtime copies | Rebuild both pinned profiles and fixture corpus; input order/transport batching invariance; original bytes retained; independent fixtures/oracles/protected benchmarks/services preserved; surviving downstream obligations carried to P3–P5 |
+**Operator decisions (2026-09-29).**
+
+1. **Downstream stays dormant but compiling.** `lctx-analytics`, `lctx-embed`, `python/*`,
+   `cpg-schema`, the P3–P5 modules of `cpg-core` (analyze, behavior, flow_model, summaries,
+   entry_links, catalog, catalog_domains, evidence, surface, synth, usage, retrieval, embed,
+   bundle format code) and of `lctx-postgres` (serving, repository, selection, retrieval,
+   hydration, evidence, evidence_search, packet, journeys, journey_cursor, profiles, diagnostics,
+   report, import, projection) stay workspace members and keep compiling. Only their
+   Delta/snapshot entry points are cut; no path runs them in P0–P2. Tests that no longer compile
+   move to a non-target `tests/dormant/` directory with a header naming the removed runtime and
+   owner; compilable tests needing removed runtime carry `#[ignore = "suspended: P<n> <layer>"]`.
+   Conversion or deletion is P3–P5 scope.
+2. **`cpg-schema` is not deleted in P2.** P2-C is selective: `cpg-extract` and `cpg-flow` stop
+   depending on it; each surviving module records its dormant consumer and retiring phase (§5).
+3. **Behavioral dependency context defers to P4.** Modeled-class and runtime-exception context
+   requests are a recorded obligation (§6). P2 behavioral is catalog facts plus ty flow facts.
+4. **P0–P2's own scope still pivots hard.** Delta, the `lctx_store` partition kernel,
+   legacy-ID/parity adapters, old raw extraction and the runnable old orchestration/CLI go.
+
+**Execution decisions (override only by operator decision).**
+
+| # | Decision |
+|---|---|
+| T1 | Shared vocabulary uses declared stage contributions: `Stage.contributes` plus attempt-owned handoffs. Contributors hand rows to the relation's single writer, which deduplicates across batches; the schedule orders writer after contributors. Keeps one writer per relation without an all-in-memory assembler |
+| T2 | Resource slices R1/R2 precede new contract work, so budget-taking `Batch::new/read` and `Invariant.create` signatures land before new tests |
+| T3 | Contract amendments land in P0 (K1): `ProviderModule` (Artifact/Bundled/Unresolved) replaces `ProviderSymbol.module: String` and `TypeVariable.module`; `PlaceRoot::Local{scope, name}` (code 8), because reaching requires one place shared by a use and all its definitions; DESIGN §15.4 amended |
+| T4 | Composition policy: Yield/Raise yield a typed `UnsupportedControlFlow` obligation; substitutable guards are `IsNone`/`IsValue` only; unwitnessed formal guards keep refusing; the pure `discharge`/`Meter` policy is ported so its expectations stay executable |
+| T5 | `FactFamily` codes 0, 5, 6, 11 and 12 leave the enum with their numbers reserved: documented, never reused, never renumbered |
+| T6 | Capture takes the complete analyzer-readable input closure (site-packages `.py`/`.pyi`/`py.typed`/`.pth`, dist-info METADATA/entry_points/RECORD, selected corpus files). Derived blocks and receipts live under a reserved `_lctx/` namespace in the frozen copy; a stale `_lctx_blocks/` in a source tree is refused |
+| T7 | Only an Exact span match attaches. Other outcomes write a `SubjectBoundary` retaining candidates plus Partial coverage with appended reasons `AttachmentAmbiguous`/`AttachmentUnmatched`; dependent facts are counted, never guessed |
+| T8 | Test-operand typing is decoupled from ty: Pyrefly types every test-position load; the leaf-to-type join is P3 |
+| T9 | Partial facts publish with disclosure and a structured reason; a required provider failure aborts; compile never selects |
+| T10 | `failed` is a stored terminal state permitting only abort; abort and retire remove schema and all registry state atomically. Each attempt owns a lifecycle connection holding an attempt advisory lock, so interrupted attempts list as `Interrupted` and can never publish. Lock order: installation → selection row → generation → attempt → relations |
+| T11 | One service baseline migration (`lctx_cache.*`, `lctx_ops.attempts/events`) replaces migrations 0001–0013; legacy history is refused. The operator database moves offline: new database, retained-service copy, rename, archive kept |
+| T12 | The 21 dormant `query_file!` entries stay frozen in `.sqlx`; `cache.rs` uses runtime queries; `sqlx-check`/`sqlx-prepare` leave `test-all` until P5; `lctx_serving` is not installed |
+| T13 | Provider sessions use a bound pool of N (default 2) one-shot connections, each holding its own lease and checking digests and live columns before any scan. Transport loss or a failed cancellation drain is terminal (`Lost`); a confirmed drain returns the connection. Federation is removed; reference-column indexes wait for measurement |
+| T14 | ADR-0089 (written at K1/D0, before code) records T1, T3, T6 and T7. ADR-0090 (P1.4) supersedes ADR-0002 for the delta-rs family removal. Composition, admission and lifecycle policies amend DESIGN §15.4/§15.6/§15.8/§15.11 in place |
+
+**Confirmed-at-time steps.** Never executed on plan acceptance alone: pushing the provider-fork
+commit (P1.9), the operator-database transition (P1.13), deleting `build/` runtime copies (C3x,
+after an inventory) and dropping the retired database.
+
+**Order.** P0: R1 → R2 → K1 → D0 → C1 → C2 → C3 → C4 → C5 → C6 → R3 → D1 → E1 → X0. P1: P1.1 →
+P1.13. P2: A0 → A1–A2 → A3–A5 → A6–A11 → A12–A14 → A15 → A16 → B1 → B2 → B3 → Dc → C1x → C2x →
+C3x → Q. Bounded reviews follow C5 (C4+C5), R3 (R1–R3), P1.7, P1.10, A8 (A6–A8) and B2.
+
+**Review focus.** Failure modes owned by a named test: (1) composition over every alternative ×
+signature variant, never one merged invocation (C5); (2) NotRequested, Unavailable, Partial and
+complete-empty stay distinct from producer to `generation show` (D1, P1.7, B1); (3) shuffled order
+and transport batch size leave content digests unchanged (B2); (4) a pinned reader never
+reconnects to another generation or sees it vanish under selection change or retire (P1.7,
+P1.10); (5) acquisition never writes into the captured tree and a change during capture aborts (A2).
+
+#### Phase 0 remainder
+
+| ID | Deliverable | Controls (pre-written; each positive has a negative twin) | Focused command |
+|---|---|---|---|
+| R1 | Reserved batches and bounded writer: derived `HeapSize::heap_bytes` and `Record::encoded_bytes_hint`; `Batch::new/read(.., &ResourceBudget)` reserve before encoding and hold the reservation; `domain/batching.rs` `BatchWriter<R>` with `TransferLimits` (4096 rows, 8 MiB, 64 MiB row) and a reserved id→digest map; `trait StageSink` and `StageOutput<S>` in `stages.rs`; `GenerationAttempt: StageSink`; `GenerationStore::copy`/`pin` take the budget; duplicated read constants removed | 10 000 rows → 4096/4096/1808; three 3 MiB rows → 2/1; 20 MiB row alone, 70 MiB refused; equal cross-flush duplicate once, conflicting one refused; drop returns reservation to 0; short budget refuses before encoding; empty declared output written | `lctx-model` `domain_resources`, `domain`, doc; `lctx-postgres` `generation_stages`, `generations` |
+| R2 | Charged validator state: `Invariant.create` takes `&ResourceBudget`; `domain/charged.rs` (`ChargedMap`, `ChargedSet`); every check converted incl. generated support checks and `GuardIndex`/`ScopeIndex`/`TypeIndex`; 1M/3M cardinality caps removed; `validate(g, &budget)` reserves read buffers | Tiny budget → `Resource`, generation stays sealed, abort cleans, funded retry passes, reservation 0 | `domain_resources` + affected suites; `lctx-postgres` `generations` |
+| K1 | T3 amendments plus ADR-0089 draft | Bundled vs artifact module symbols distinct; unresolved never equals resolved; two definitions of local `x` share a Place, sibling scopes differ; existing calls/types/flow/guard fixtures and PG readbacks pass | `domain_calls`, `domain_types`, `domain_flow`, `domain_guard_rebase` (model and PG) |
+| D0 | T1 stage contract: `Stage.contributes` and `Stage.coverage` in the schedule digest; contributor→writer ordering; attempt-owned handoffs readable only by `ReadPermit<R>`; pure `MemoryGeneration: StageSink` with PG-equal content digests | Self-contribution and late contributor refused; undeclared handoff read refused; handoff released after last reader; lexical fixture digest equals PG | `domain_stages`, `domain_memory`; PG `generation_stages` |
+| C1 | `domain/declarations.rs`: `SymbolDeclaration` and `ParameterDeclaration` L0 assertions (kind match, containment, 1:1, context, native-provider support); stored `ArgumentKind`, `CallSyntax`, `CallArgument`; binder over call syntax; missing link → `NoSourceDeclaration`, never name matching | `def f(a, b=1)` accepted; parameter outside def, duplicate mappings, class→def, foreign provider, context mismatch refused; `f(x, y=z)` has two arguments; missing/outside/mis-kinded argument refused | `domain_declarations`, `domain_calls`; PG `domain_declarations` |
+| C2 | C04/C10: `PhaseGroup`, `site_facts` over direct non-Potential alternatives, `SiteTargets::admitted` (Summary uses site facts), `NativeCallee`, `normalize_site` via `classify_receiver` only | Agreement unique; cross-provider f/g not unique; `C()` New+Init unique per phase; `x()` Call+Init no Summary; `map(f, xs)` f excluded, binding refused; incomplete no Summary; empty list Unresolved; `C.method(obj, x)`/static None, unknown ambiguous, `obj.m(x)` Bound; old admission matrix re-expressed | `domain_calls` |
+| C3 | C12 owner rule: `domain/occurrence_owner.rs` `OwnerTable::build` stack sweep, per-item oracle, budgeted; fixture `semantic_owner` | Default-arg call → module, body call → def, decorator → module, class body → class, lambda, comprehension, return annotation → module; shuffled equals oracle; tiny budget refuses | `domain_owner`; `cpg-extract` `typed_owner` |
+| C4 | `Predicate::BoundGuard`; `conditions/stability.rs` `StabilityWitness` (parameter-only reaching) and `GuardSubstitution`; `substitute_call_guards`; formal/receiver operands only after `BoundGuard` | `timeout is None` witnessed → BoundGuard; reassigned formal → `ConditionTransferUnsupported`; Unbound/truthiness/attribute/default refused; catalog → NotRequested; local guard conditional; stored refusals; `InvokedGuard→formal` still refused | `domain_stability`, `domain_guard_rebase`; PG `domain_stability` |
+| C5 | C05–C07: `domain/composition.rs` `compose_call`/`compose_site` over every admitted alternative × variant; one `map_root`; condition = caller ∧ substituted callee; `CallCompositionStep` derivation; `Modality::weakest`, `Approximation::join`; fixture `semantic_composition` | Twenty pre-written answers, incl. derived caller/callee paths, `update(t, k, v)` caller-owned mutation, raise/yield obligations, missing witness refused, `collect` projections, receiver path, Selection row, two targets → two candidates, oversized condition → limit obligation | `domain_composition`, `domain_transfer`, `domain_paths`; PG `domain_composition`; review |
+| C6 | Re-express binder, path, place, transfer-key, discharge and C03 stage expectations; then delete old `calls`, `transfer`, `vocab`, `obligation`, `projection`, `relations`, `stage`, `derivation`, `condition/`, `id::recipes`, `lctx_id_v2`, their tests and `cpg-core/tests/model_policies.rs`, `cpg-schema/tests/obligation_mapping.rs`. Keep `decl/`, `id.rs`, `legacy::ID_TAG_V1`; `ddl.rs` goes in P1.2 | Re-expressed tests pass first; workspace compiles | named suites; `cargo check --workspace --all-targets` |
+| R3 | Ruff total-work bound: source bytes admitted before traversal; every `SourceOrderVisitor::visit_*` counts and short-circuits once halted; `SyntaxWork` reported | 50 000 statements at nodes=10 → ≤ depth residual; 50 000-element list bounded; 300 levels → depth refusal; 17 MiB over 16 MiB → zero callbacks and `ResourceRefused` | `cpg-extract` `typed_limits`, `typed_conformance`; review R1–R3 |
+| D1 | `domain/admission.rs`: `Frontier`, `FamilyRequirement`, `FrontierContract::facts` (facts relations reference only facts relations), `preflight`, `expected_coverage`, `reconcile`, `AdmissionCheck` → privately constructed `FactsAdmission`; T5 codes; `facts_relations()`/`analysis_relations()` | Four-artifact input: catalog Flow NotRequested, behavioral requested; missing/extra/duplicate rows, attempted catalog Flow, all-Unavailable required family, Complete-with-Partial refused; empty complete scope accepted; subset fails preflight; compile-fail doctest | `domain_admission`, `domain_stages`, doc |
+| E1 | P0-E: permanent `SyntaxProvider`; `typed_stages.rs` capture and syntax stages over `StageSink`; `typed_conformance` on the stage-bound path; ignored `typed_subset_envelope` over pinned fastmcp input → dated evidence folder (Measured) or `blocked` | Subset refused as facts and unselectable; relocation determinism; changed text refused; tiny budget publishes nothing | `cpg-extract` `typed_conformance` |
+
+**P0 exit (X0).** Assembled P0 design/target review of `7aa7a30..HEAD` (scenarios: P2
+multi-provider producers, P3 equivalence and views, P4 SCC composition, mid-cutover contract
+change, facts frontier refusing a higher layer, budget exhaustion, Unavailable/NotRequested
+providers; G1–G8, CI-G1–G3). Exit requires dated receipts for every slice; C03, C05, C06, C07,
+C10 and C12 closed at contract level; C04 closed except cross-provider equivalence and SQL views
+(P3); C08/C09 re-confirmed; C11's one-predicate-one-atom check → A14; C13 consumer side → P4/P5;
+C01/C02 → P1; input-validation F02 closed or narrowed to P1.9; review Accept or corrected Revise;
+handoff.
+
+#### Phase 1
+
+Every commit leaves `cargo check --workspace --all-targets` passing with dormant code compiling.
+
+| ID | Deliverable | Controls | Focused command |
+|---|---|---|---|
+| P1.1 | Quiesce the old CLI: trim `Cmd`, delete `parity`/`rebuild`/`serving` handlers, `db.rs` → `runs.rs`, drop `lctx`'s analytics/embed dependencies, `compile` exits 3 before work, `lctx_mcp` entry points exit 3, pilot recipes removed | Compile exits 3 without invoking uv; library/acquire/flow still work | `lctx` `acquire`; `just build-features` |
+| P1.2 | Remove partition kernel and parity adapters: `lctx-model/src/ddl.rs`, `lctx-postgres/src/store.rs`, `cpg-core/src/{store_read,postgres_read,parity}.rs` and tests; `legacy.rs` trimmed to `ID_TAG_V1`/`IdHasher::new` | Remaining model suites pass | `domain`, `decl_sample` |
+| P1.3 | Remove Delta runtime and orchestration: `delta`, `snapshot`, `attempt`, `rebuild`, `stage_cache`, `diff`, `derive`; `producer.rs` for dormant `analyze`; bundle Delta entry points; Delta `CoreError` variants; uncompilable dormant tests → `tests/dormant/`; operations discovery half; justfile and Python skips (`test_flow_soundness.py` stays live) | Dormant crates compile; skips report not_run | `cpg-core` `model_runtime`, `dependency_audit`; pytest flow oracle |
+| P1.4 | Drop delta-rs family and federation (pin-check; ADR-0090): workspace manifests, `build.rs` engines, `family_smoke`, logging filters, `deny.toml`, `check_family.py`, pins, skill selection, Delta ast-grep rules, AGENTS.md, DESIGN §B7/§B9/§7 | Family check passes; no `deltalake` in the tree | `just build-features`; `check_family.py`; its pytest |
+| P1.5 | Service baseline (T11/T12): single baseline migration; `Error::LegacyHistory`; `OwnerPool::verify` (non-superuser owner without CREATEROLE/BYPASSRLS or runtime-role membership); `roles.rs`; runtime cache queries; `testing` feature `DisposableDatabase`; all generation PG tests install as the owner | Fresh baseline only services; repeated migrate no-op; legacy history refused unchanged; cache round trip; attempts/events; grant matrix; superuser install refused | `lctx-postgres` `services`, `generations`, `generation_stages`, domain suites; `typed_conformance` |
+| P1.6 | Generated install/check/reset: pure `Lowering` phases and physical digest; templated control DDL; `store check` compares live `pg_catalog` descriptors against in-transaction shadow schemas for every state, roles and ACLs, unexpected objects and orphans; `store reset --confirm` drops only inventoried objects | Owner required; digest mismatch; clean in every state; each injected drift reported; reset refuses live lease/attempt, spares services and unrelated schemas, reinstalls | `lctx-postgres` `installation` |
+| P1.7 | Attempt-owned lifecycle (T10, uses D1): `begin(writer, &mut Execution, &FrontierContract, budget)` typestates; `planned_outputs`, `stage_outcomes`, `admissions`, `failures`, `failed` state; validate runs `AdmissionCheck`; publish requires planned = written outputs and a matching admission, atomically with grants; select requires facts; reader grants on control tables | Late write vs seal (50×); failed validation abort-only; failed publication atomic under three faults; interrupted attempt never published; live abort Busy; lease vs retire (50×); select vs retire; atomic retire under fault; no deadlock; subset `begin` refused without registry row | `lctx-model` `domain_admission`; `lctx-postgres` `lifecycle`, `generation_stages`, `generations`; review (C01) |
+| P1.8 | `GenerationCatalog` list/show: state, frontier, profile, digests, coverage summary, reader count, writer liveness | Fields per state; two leases counted; reader cannot mutate | `lctx-postgres` `generation_catalog` |
+| P1.9 | Owned provider fork (T13): byte-bounded row chunks, `MemoryReservation` hooks, one-shot bound pools with drain-and-return and `lost`, nullable-list narrowing. Operator confirms the push; then rev, patch, pins row, `just build-features` | Fork `bounded_chunks` | fork crate test |
+| P1.10 | Driver-neutral lease protocol in `lctx-postgres`; `cpg-core/src/generation_read.rs` `GenerationSession` and `InspectionSession`; `GenerationTable` with exact schema and closed filter pushdown (C02) | Readback fidelity incl. 65 MiB and empty; pushdown; digest/column mismatch before scan; pin survives selection; lease blocks retire; byte bounds and reservation refusal; cancellation drains to the same backends; transport loss terminal; stage registration | `cpg-core` `generation_read`, `model_runtime`; review |
+| P1.11 | CLI: `--database` replaces `--database-config` (discovery kept; sibling files select roles); `model describe`, `store install/check/reset`, `generation list/show/select/clear-selection/retire/abort`, read-only `query --generation`, `compile` stub, `runs`; exit codes 0/1/2/3 | Binary against a disposable database: describe text/json, store commands, generation commands, conformance select refused, DDL query refused, compile 3, discovery | `lctx` `store_cli` |
+| P1.12 | Ops: `postgres_transition.py` (plan/prepare/switch/drop-retired) with a disposable control; bootstrap provider/owner pool sizes and validation timeout; backup table list; justfile PostgreSQL recipes; `docs/postgresql.md`, AGENTS.md, DESIGN §6/§B7/§15.11, §8 evidence | Transition control | `LCTX_POSTGRES_TEST=1` pytest |
+| P1.13 | Operator-confirmed transition: quiesce readers, rehearse from the real archive, then plan/prepare/switch; fingerprints equal, `store check` clean, `runs list`; record receipts, delete the tool, handoff | Fingerprints equal | operator-run |
+
+**P1 exit.** No `deltalake`, `buoyant_kernel` or `datafusion-federation` in `Cargo.lock`; no
+Delta, snapshot, partition, parity, `lctx_id_v2` or old CLI code; only the service baseline and
+generated store are installed by the service owner; `store check` clean in every state and
+drift-sensitive; lifecycle and provider-session suites pass; CLI exposes only target and retained
+commands; the operator database is transitioned or explicitly deferred.
+
+#### Phase 2
+
+Providers run as typed stages; each producer group deletes its own old row emission from
+`run_release` in the same commit, so no relation is ever written twice. An old test goes only
+with its independent replacement. Each stage processes the library input and then the corpus;
+each Pyrefly session is dropped before the next opens. Provider indices never leave a provider.
+
+| Stage | Profiles / effect | Sole-writer outputs | Contributes |
+|---|---|---|---|
+| `acquire` | both / Acquisition | package, release, input, origin, acquisition, corpus, distribution, verification, artifact, chunk, ownership, unowned, use, derived artifact, environment fingerprint | — |
+| `pyrefly` | both / Extraction | Module, Occurrence; syntax, lexical, symbol, signature, declaration, call and type records | attribution vocabulary, qualifications, evidence, literals, conditions, subject boundaries, attachment outcomes |
+| `ty_flow` | behavioral / Extraction | flow records, evaluation atoms, predicates, place parts, flow call paths | vocabulary, conditions, literal sets |
+| `documents` | both / Extraction | document records | vocabulary |
+| `deployment` | both / Extraction | report values/collections, reported environments, task reports and observations, deployment observations | vocabulary |
+| `assemble` | both / Pure | contributed vocabulary relations, `ProviderCoverage`, `CoverageScope` | — |
+
+Catalog profile: `ty_flow` is not scheduled and `assemble` writes Flow NotRequested for every
+expected scope. `ty_flow` declares lexical and import-alias inputs; `documents` declares public
+name and declaration inputs; the Ruff-vs-Pysa call and `__all__` comparisons stay inside `pyrefly`.
+
+| ID | Deliverable | Controls | Focused command |
+|---|---|---|---|
+| A0 | Provider framework: `ProviderStage`, `StageContext` (emit, contribute, handoffs, attacher, captured inputs, budget); big-stack provider thread, bounded channel to an async pump holding `StageAccess`; `Provider` build digest over lockfile, provider sources and Pyrefly patch (F11); `Attacher`; `cpg-core/src/facts.rs` `compile_facts<S: StageSink>`; fixture-corpus skeleton | Undeclared emit/contribute/read refused; panic aborts; reservations 0; order preserved | `cpg-extract` `bundle`; `cpg-core` `facts_driver` |
+| A1 | Acquisition model: source roles, `UnownedArtifact`, `DerivedArtifact`, `EnvironmentFingerprint`; exactly-one ownership class | Double class, orphan derivation and `_lctx/` originals refused | `domain_input` (model and PG) |
+| A2 | T6 acquisition: pure inventory, full closure capture, `_lctx/` namespace, `acquire` stage; delete tree writes, `release_rows`, old `capture()` and corpus id hashing | Tree byte-identical before/after; namespace collision and stale blocks refused; location independence; environment dependence; RECORD tamper; change during capture aborts | `cpg-extract` `acquisition`, `capture` |
+| A3 | Syntax model: placement/field, `SyntaxDetail`, declaration (+decorators), import alias, `__all__`, parameter syntax, class field syntax, `SubjectBoundary`, attachment outcome/candidates, appended obligation codes | Text derivable from bytes; foreign optional subject and scopeless boundary refused | `domain_syntax`, `domain_coverage`; PG `domain_syntax` |
+| A4 | `pyrefly` phase 1: complete typed syntax (replaces string paths), declarations, imports, parameters, class fields, call syntax, parse/undecodable coverage, `__all__` boundary; delete `walk.rs`/`syntax.rs` rows | syntax_shapes, unicode_bom offsets, dunder_all; distinct with-items | `typed_syntax_shapes` |
+| A5 | Lexical records from the recognizer; delete `lexical.rs` rows | static_branches, lexical_shapes | `typed_lexical` |
+| A6 | Symbol model: symbol, dependency module, function/class traits, ancestry (base/MRO), annotations, public names, parameter docs, symbol sequences | Cyclic MRO; untraced ≠ traced; display-only annotation not structural | `domain_symbols` (model and PG) |
+| A7 | Calls amendment: provider call site, receiver class and traits, `Overrides`, native unresolved reason | Overrides never direct in `site_facts` | `domain_calls` (model and PG) |
+| A8 | Type completion: remaining term arms, roles, parameter lists, test operand, function bodies, record fields | Truncated nesting display-only; record flags round-trip | `domain_types` (model and PG); review A6–A8 |
+| A9 | Symbols producer incl. declaration links and dependency context (referenced ∪ exported; `Catalog`/runtime-exception reads deleted) | Pysa CLI `harness`; `keys`; public_shapes | `typed_symbols`, `harness` |
+| A10 | Calls producer via `normalize_site`; call boundaries; `variants` as known answers | pysa_variants, `map`, `C()`, missing range boundary | `typed_calls` |
+| A11 | Types producer incl. T8; delete `pysa_map`/`types`/`context`/`public` rows | type_shapes, type_guard operands | `typed_types` |
+| A12 | Flow model and kernel: test, leaf, call path/step, attribute load, value path records; `CondGraph<L>`; bounded `Diagram::from_graph` | Independent truth tables; malformed graph; limits → boundary | `domain_flow`, `domain_conditions`; PG `domain_flow` |
+| A13 | `cpg-flow` off `cpg-schema`: provider-local leaves and condition graphs; no BDD, id hasher or predicate keys; structural known answers replace insta snapshots | Distinct occurrences and with-items; opaque synthetic predicates | `cpg-flow` `flow_shapes`, `call_paths`; `cargo tree -p cpg-flow -i cpg-schema` empty |
+| A14 | `ty_flow` stage: exact attachment, Places, atoms, canonical BDDs; `lctx flow` retargeted; `cpg-extract/src/flow.rs` deleted | flow_shapes, call paths, type_guard, runtime resolution; index permutation identity (F05); C11 one predicate → one atom per generation; no DNF/literal writes; Python flow oracle | `typed_flow`; `test_flow_soundness.py` |
+| A15 | `documents` stage with materialized block digest check; delete `docs.rs` rows | docs_shapes, semantic_documents, corrupt block | `typed_documents` |
+| A16 | `deployment` stage: metadata, entry points, configuration, receipts, fingerprint; malformed receipts retained as Failed interpretation with Partial coverage; delete `metadata`/`observations` rows | semantic_deployment, malformed receipt, identity mismatch | `typed_deployment` |
+| B1 | Assembler: vocabulary writer, exact coverage matrix into `AdmissionCheck` through P1.7 `begin`, required failure aborts, Partial reasons | Missing/extra row refused; profiles differ only in Flow | `cpg-core` `facts_admission`; PG `facts_generation` |
+| B2 | Attachment scalar-oracle matrix (names, attributes, subscripts, same-span kinds, decorators, f-strings, BOM, `.py`/`.pyi`, forced Ambiguous/Unmatched/BudgetExceeded) and determinism (shuffle, 4096/1/97-row batches, relocation, repeats, ambient refusal) | Equal content digests | `attachment_oracle`, `determinism`; review |
+| B3 | Fixture-corpus runner in `cpg-core/tests/fixture_corpus.rs`: listing equals registered cases; both profiles in memory; three cases also PG with equal digests; re-homed raw known answers; P3–P5 obligation pointers; `just fixture-corpus` | Unregistered fixture fails | `fixture_corpus` |
+| Dc | `lctx compile <library> --through facts --profile catalog\|behavioral --database <cfg>`: other frontiers refused before side effects; digest check; acquire → capture → schedule → publish; availability report; never selects | `--through analysis` side-effect free; injected required failure leaves no registry row | `lctx` `compile_facts` |
+| C1x | Remove the extraction husk (`extract`, `run_release`, `ExtractOutput`, `FactSink`, `fact_row!`, `write_ipc`, `lctx-extract` binary, legacy ids/recipes, cpg-schema dependencies) | Gates below | workspace check |
+| C2x | Selective pruning; dormant-test answers re-homed or recorded as obligations with the Git revision; regenerate the surviving `cpg-schema` module → consumer → phase map into §5 | Gates below | workspace check |
+| C3x | §4.1.2 dispositions with evidence, §4.2, §5, §6, DESIGN §15 labels, AGENTS.md, ADR-0089 accepted; operator-confirmed `build/` runtime-copy deletion from an inventory | docs and ADR lint | `just docs-check` |
+
+**Gates.** `rg` over `crates/cpg-extract` and `crates/cpg-flow` finds no `cpg_schema`,
+`FactSink`, `fact_row!`, `IdHasher`, `recipe::`, `ExtractOutput`, `write_ipc`,
+`BoundedCondition`, `condition_kernel`, `ConditionLiteral`, `_lctx_blocks` or `lctx_id`;
+`cargo tree -i cpg-schema` excludes both crates; `cargo tree -i deltalake` is empty;
+`scripts/check_family.py` passes; `cargo check --workspace --all-targets` passes.
 
 Operator interface (no legacy aliases): `model describe --format text|json`; `store install|check|reset`;
 `generation list|show|select|clear-selection|retire|abort`; `query --generation <id> <SQL>`; and
 `compile <library> --through facts --profile catalog|behavioral`. Database commands take
 `--database <protected-config-path>` and preserve environment/default config discovery. Query is
 read-only. Inspection exposes actual profile/frontier, coverage and contract/content digests.
-Embedding/analytics/bundle/old-store arguments leave facts compile. Installation/reset touches only
-inventoried project-owned semantic objects and retained service contracts, not unrelated data.
+Embedding/analytics/bundle/old-store arguments leave facts compile; compile is explicitly
+unavailable (exit 3) between P1.1 and Dc. Installation/reset touches only inventoried
+project-owned semantic objects and retained service contracts, not unrelated data.
 
-Qualification after all functional packages: `just fmt` once, updated complete `just test-all`
-(real PG and compile-fail included), both facts pilots, fixture corpus, `just docs-check`, assembled
-Phase 0–2 review and handoff. Suspended analysis/catalog/MCP gates remain explicitly not_run.
-Content equality excludes telemetry, timestamps and generation IDs. No incremental cache or new
-reasoning engine is added. A capability's deletion does not close its retained obligation.
+Qualification (Q) after all functional packages: `just fmt` once; updated complete `just test-all`
+(real PG, compile-fail doctests, fixture corpus, flow oracle); facts pilots for both profiles on
+fastmcp, with a repeated behavioral run giving an identical content digest, per-stage time and
+peak RSS, frontier `facts`, no automatic selection and profile-correct Flow coverage;
+`just docs-check`; assembled P0–P2 review; handoff. Suspended gates are reported not_run:
+semantic-soundness script, MCP smoke, structured evaluation, sqlx check and dormant
+catalog/analysis/serving suites. Content equality excludes telemetry, timestamps and generation
+IDs. No incremental cache or new reasoning engine is added. A capability's deletion does not close
+its retained obligation.
 
 ### 4.1.2 Raw-field migration inventory
 
@@ -456,11 +610,11 @@ assembled review; none of these bounded receipts establishes enclosing architect
 
 **Restart checkpoint (2026-09-29):** stopped at the user's requested boundary after completing the guard and transaction corrections. No phase exit is qualified. The old production pipeline remains active; representative domain fixtures do not establish producer migration. Resume from the next paragraph, preserving §4.1.1 order. Formatting, integrated gates and pilots remain not_run until the authorized functional scope is complete.
 
-**Next / still open:** whole-call binding/root composition and stability-evidenced formal substitution; complete call producer/normalization integration; occurrence ownership; coordinated allocation accounting (including total Ruff traversal work); exact coverage
-and full production frontier admission; production capture/assembler integration and assembled P0-E review.
-Then finish generated installation verification/reset, provider lease/stream integration, service
-classification, store/CLI cutover and Delta deletion in P1; migrate every raw producer/field in §4.1.2
-and reconstruct owned state in P2. Earlier Phase 0 receipts do not qualify this target.
+**Next / still open:** the §4.1.1 packages in order, starting at R1 (reserved batches and the
+bounded writer). Whole-call composition, stability-witnessed substitution, call-site facts,
+occurrence ownership, coordinated allocation (including total Ruff traversal work), the facts
+frontier contract and the stage-bound production subset complete P0; P1 and P2 follow their
+tables. Earlier Phase 0 receipts do not qualify this target.
 
 ## 5. Deletion and preservation obligations
 
@@ -469,12 +623,25 @@ No legacy adapter inventory is maintained. Preserve fixtures, oracles, protected
 isolation and unrelated operational services. Git retains removed implementation. Old runtime readers
 must be quiesced before replacing or retiring project state.
 
+Downstream code owned by P3–P5 is not deleted in P0–P2 (operator decision 1 in §4.1.1). It stays a
+compiling workspace member without a runnable path; tests needing removed runtime are ignored with
+an owner or moved to a non-target `tests/dormant/` directory. `cpg-schema` survives P2: P2-C
+removes only what loses its last consumer, and C2x records each surviving module's dormant consumer
+and retiring phase here. `cpg-extract` and `cpg-flow` must not depend on it after C1x.
+
 ## 6. Deferred capability obligations
 
 Phase 4 retains finite summaries/discharge, completion/evaluation, frame exits and call execution,
 context protocols/values, modeled identities/actions, behavioral reachability, communities/PageRank,
 FCA/RCA and optional kNN wherever their existing consumer remains. Retirement needs consumer evidence
 and an explicit decision; deleting old code during reconstruction does not retire these obligations.
+
+Also retained for Phase 4: behavioral-profile dependency context for authored-model classes and
+exact runtime exceptions (deferred from P2 by operator decision 3); the producer build digest's
+authored-model catalog component; scenario, option-binding, association, requirement and check
+conclusions, whose raw inputs P2 records must carry. Phase 3 owns cross-provider symbol
+equivalence, stored call bindings and SQL policy views (C04 remainder), stored occurrence
+ownership and the test-leaf to operand-type join.
 
 ## 7. Tooling, pins, skills and documents
 
@@ -518,7 +685,7 @@ has the following separate finding namespace (2026-09-29):
 | Source finding | Current disposition | Owner and closure evidence |
 |---|---|---|
 | input-validation F01/F03/F04/F05 | addressed within reviewed slice | `lctx-model` input/source invariants; real PG manifest/span/cross-input ownership refusals and multi-distribution positive; reviewer source reinspection accepted |
-| input-validation F02 | open, P0.3/P1 | model/store/producer coordinated memory accounting including conversion copies and invariant state; large-input measured envelope and refusal controls required; server row admission and per-row COPY alone are partial |
+| input-validation F02 | open → §4.1.1 R1–R3, P1.9 | model/store/producer coordinated memory accounting including conversion copies and invariant state; large-input measured envelope and refusal controls required; server row admission and per-row COPY alone are partial |
 
 
 This table owns the current disposition of the review's findings. Each closes by construction in the
@@ -598,23 +765,23 @@ reinspected corrections and reran seven controls on 2026-09-29. P2/P3 and C04 cl
 ### Core review findings
 
 All findings from the [core review](../design_review/reviews/design_review_cutover-core_2026-09-29.md)
-remain open; acceptance requires implementation plus focused evidence and the P0.6 review.
+remain open; acceptance requires implementation plus focused evidence and the assembled P0 exit review (§4.1.1 X0).
 
 | Finding | Owner and closure |
 |---|---|
-| C01 | P1.2/P1.3: schema-per-generation retirement, reader lease and select/retire concurrency controls |
-| C02 | P1.3: reader rejects model/physical digest mismatch before decoding |
-| C03 | P0.5: typed model membership and sole stage writer authority, including self-cycle refusal |
-| C04 | P0.4/P2/P3: attributed direct/potential/higher-order alternatives; one normalization owner |
-| C05 | P0.4: paths compose only through identity; map complete binding sets and boundary outputs |
-| C06 | P0.4: preserve opaque local guards; refuse unsupported substitution rather than erase conditions |
-| C07 | P0.4: typed ControlInfluence and Selection with separate value-transfer meaning |
-| C08 | P0.4: transfer key excludes merged condition; stable derivation references |
-| C09 | P0.4: scope-boundary unknown; approximation obligation; rendering budget separate |
-| C10 | P0.4: receiver Unknown and one classification policy |
-| C11 | P0.2/P2: acyclic source identities, typed syntax kinds and structural occurrence discriminators |
-| C12 | P0.4/P2.3: indexed region join with scalar oracle and unresolved ambiguity |
-| C13 | P0.3/P3–P5: derivation targets follow typed references and generated view grants |
+| C01 | P1.7 (lifecycle), P1.10 (lease): schema-per-generation retirement, reader lease and select/retire concurrency controls |
+| C02 | P1.10: reader rejects model/physical digest mismatch before decoding |
+| C03 | D0, C6: typed model membership and sole stage writer authority, including self-cycle refusal |
+| C04 | C2, A7/A10, P3 (equivalence, views): attributed direct/potential/higher-order alternatives; one normalization owner |
+| C05 | C5: paths compose only through identity; map complete binding sets and boundary outputs |
+| C06 | C4, C5: preserve opaque local guards; refuse unsupported substitution rather than erase conditions |
+| C07 | C5: typed ControlInfluence and Selection with separate value-transfer meaning |
+| C08 | X0 re-confirmation: transfer key excludes merged condition; stable derivation references |
+| C09 | X0 re-confirmation: scope-boundary unknown; approximation obligation; rendering budget separate |
+| C10 | C2: receiver Unknown and one classification policy |
+| C11 | C1, A3–A4, A14, B2: acyclic source identities, typed syntax kinds and structural occurrence discriminators |
+| C12 | C3, B2: indexed region join with scalar oracle and unresolved ambiguity |
+| C13 | implemented derivation contract; P4/P5 consumers: derivation targets follow typed references and generated view grants |
 | C14 | P0.1: DESIGN §15.1 assigns provider registration to cpg-core and PostgreSQL effects to lctx-postgres |
 
 ## 9. Risks
