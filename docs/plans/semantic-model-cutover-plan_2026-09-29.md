@@ -606,6 +606,14 @@ Retired answers, recoverable at 9912598:
 - projection digests → P3/P5;
 - legacy-ID side relations: retired (hard pivot) |
 | C5r residuals: `cargo test --release -p lctx-model --test domain_composition`; `-p lctx-postgres --test domain_composition`; workspace check | passed 2026-09-29: `Entry{self}` gives `obj.x` for `C.m(obj, v)` and the site for `obj.run()`; a `Receiver` root is refused; a closure-read root composes `Disjoint`; delivery into an unresolved method's receiver → `UnresolvedTarget`; the stored foreign-output mutation is refused (C4/C5 review R1–R5) |
+| R3: `cargo test --release -p cpg-extract --test typed_limits --test typed_conformance --test typed_owner`; workspace check | passed 2026-09-29 (`typed_limits` parses with the pinned Ruff 0.0.11 parser):
+- 50,000 `x = 1` statements with nodes=10 emit 10 and stop the owned statement loop (residual ≤ depth);
+- a 50,000-element list emits 10, costs exactly 49,993 residual returns and never descends past depth 4;
+- 300 nested lists are refused at the depth bound with the visitor stack ≤ 257, while 100 levels reach 103;
+- 17 MiB against 16 MiB is refused by `admit` and by `emit` with zero work and no sink call, while exactly 16 MiB is admitted;
+- a 20-callback cap refuses at 21.
+
+Every refusal is `SyntaxError::Refused` with reason `ResourceRefused`. Default limits emit the full counts; the conformance fixture emission is unchanged |
 | `just fmt`, `just test-all`, facts pilots | not_run: functional scope incomplete |
 
 Independent bounded reviewers accepted artifact/capture/acquisition corrections and the
@@ -719,7 +727,7 @@ has the following separate finding namespace (2026-09-29):
 | Source finding | Current disposition | Owner and closure evidence |
 |---|---|---|
 | input-validation F01/F03/F04/F05 | addressed within reviewed slice | `lctx-model` input/source invariants; real PG manifest/span/cross-input ownership refusals and multi-distribution positive; reviewer source reinspection accepted |
-| input-validation F02 | open → §4.1.1 R1–R3, P1.9 | model/store/producer coordinated memory accounting including conversion copies and invariant state; large-input measured envelope and refusal controls required; server row admission and per-row COPY alone are partial |
+| input-validation F02 | narrowed (R1–R3, pending their bounded review) → P1.9, E1 | Addressed: R1 reserves batch encoding/decoding and bounds transfer batches; R2 charges every invariant's state; R3 admits source size before parsing and bounds total traversal work (emitted nodes, depth, callbacks, measured residual). Remaining: P1.9 provider row chunks drawing on the reservation, and the E1 measured large-input envelope |
 
 
 This table owns the current disposition of the review's findings. Each closes by construction in the

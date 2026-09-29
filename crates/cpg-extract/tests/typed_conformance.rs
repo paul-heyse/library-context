@@ -132,7 +132,9 @@ fn extract_inner(captured: Captured) -> Extracted {
             let error = typed_syntax::emit(&ast,&text,SyntaxInvocation { source: &changed,..invocation() },SyntaxLimits::default(),|_| panic!("changed content emitted")).unwrap_err();
             assert!(error.to_string().contains("differs from captured"));
             let mut count = 0;
-            assert!(typed_syntax::emit(&ast,&text,invocation(),SyntaxLimits { nodes: 2,depth: 256 },|_| { count += 1; Ok(()) }).is_err());
+            let refused = typed_syntax::emit(&ast,&text,invocation(),SyntaxLimits { nodes: 2,..SyntaxLimits::default() },|_| { count += 1; Ok(()) }).unwrap_err();
+            assert!(matches!(refused,typed_syntax::SyntaxError::Refused { limit: typed_syntax::SyntaxLimit::Nodes,work } if work.emitted == 2));
+            assert_eq!(refused.reason(),Some(ObligationKind::ResourceRefused));
             assert_eq!(count,2);
             let mut count = 0;
             assert!(typed_syntax::emit(&ast,&text,invocation(),SyntaxLimits::default(),|_| { count += 1; Err(ModelError::Invalid("sink refused".into())) }).is_err());

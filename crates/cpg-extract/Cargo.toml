@@ -46,6 +46,7 @@ walkdir.workspace = true
 tikv-jemallocator.workspace = true
 
 [dev-dependencies]
+ruff_python_parser.workspace = true
 lctx-postgres = { path = "../lctx-postgres" }
 sqlx.workspace = true
 tokio.workspace = true

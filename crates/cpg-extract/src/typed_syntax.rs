@@ -5,8 +5,11 @@
 //! and publishes only after the generation's shared invariants succeed. No legacy row or ID
 //! enters this boundary. Emission is incremental; any callback/refusal aborts the attempt.
 use lctx_model::domain::{ContentHash, ModelError, Record, assertion::*, attribution::*, source::*};
-use ruff_python_ast::{AnyNodeRef, ExprContext, ModModule, NodeKind};
-use ruff_python_ast::visitor::source_order::{SourceOrderVisitor, TraversalSignal};
+use ruff_python_ast::{Alias, AnyNodeRef, Arguments, BoolOp, BytesLiteral, CmpOp, Comprehension, Decorator, ElifElseClause, ExceptHandler, Expr,
+    ExprContext, FString, Identifier, InterpolatedStringElement, Keyword, MatchCase, Mod, ModModule, NodeKind, Operator, Parameter,
+    ParameterWithDefault, Parameters, Pattern, PatternArguments, PatternKeyword, Singleton, Stmt, StringLiteral, TString, TypeParam,
+    TypeParams, UnaryOp, WithItem};
+use ruff_python_ast::visitor::source_order::{self, SourceOrderVisitor, TraversalSignal};
 use ruff_text_size::Ranged;
 
 /// One structural occurrence and, for name/identifier leaves, its qualified observation.
@@ -24,45 +27,88 @@ pub struct SyntaxInvocation<'a> {
     pub surface: &'a ProviderSurface,
 }
 
-/// Deterministic emission/depth refusal bounds, independent of display limits.
-/// Ruff can still dispatch later siblings after refusal; this is not a total traversal-work bound.
+/// Deterministic refusal bounds on one artifact's syntax traversal, independent of display limits.
+/// The source is admitted before parsing, which bounds the tree and so also the residual
+/// callbacks Ruff makes into a halted visitor: one immediate return per remaining child slot.
 #[derive(Debug, Clone, Copy)]
-pub struct SyntaxLimits { pub nodes: usize, pub depth: usize }
+pub struct SyntaxLimits { pub nodes: usize, pub depth: usize, pub source_bytes: usize, pub callbacks: usize }
 impl Default for SyntaxLimits {
-    fn default() -> Self { Self { nodes: 1_000_000, depth: 256 } }
+    fn default() -> Self { Self { nodes: 1_000_000, depth: 256, source_bytes: 16 << 20, callbacks: 8_000_000 } }
+}
+/// The traversal work of one emission: nodes emitted, visitor callbacks before the traversal
+/// halted, residual callbacks after it halted, and the deepest structural path entered.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SyntaxWork { pub emitted: usize, pub callbacks: usize, pub residual: usize, pub deepest: usize }
+/// The bound that refused an artifact.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SyntaxLimit { SourceBytes, Nodes, Depth, Callbacks }
+#[derive(Debug, thiserror::Error)]
+pub enum SyntaxError {
+    /// A declared bound refused the artifact; its coverage is `Unavailable(ResourceRefused)`.
+    #[error("syntax {limit:?} limit refused the artifact ({work:?})")]
+    Refused { limit: SyntaxLimit, work: SyntaxWork },
+    #[error(transparent)]
+    Model(#[from] ModelError),
+}
+impl SyntaxError {
+    /// The coverage reason of a refusal; other errors abort the attempt.
+    pub fn reason(&self) -> Option<ObligationKind> { matches!(self, Self::Refused { .. }).then_some(ObligationKind::ResourceRefused) }
+}
+
+/// Admit an artifact before it is handed to the provider: an oversized source is refused, never parsed.
+pub fn admit(source: &SourceArtifact, limits: SyntaxLimits) -> Result<(), SyntaxError> {
+    match usize::try_from(source.byte_len) {
+        Ok(bytes) if bytes <= limits.source_bytes => Ok(()),
+        _ => Err(SyntaxError::Refused { limit: SyntaxLimit::SourceBytes, work: SyntaxWork::default() }),
+    }
 }
 
 pub fn emit(
     ast: &ModModule, text: &str, invocation: SyntaxInvocation<'_>, limits: SyntaxLimits,
     mut output: impl FnMut(SyntaxEvent) -> Result<(), ModelError>,
-) -> Result<usize, ModelError> {
+) -> Result<SyntaxWork, SyntaxError> {
+    if limits.nodes == 0 || limits.depth == 0 || limits.depth > 256 || limits.callbacks == 0 {
+        return Err(invalid("invalid syntax traversal limits").into());
+    }
+    admit(invocation.source, limits)?;
+    if text.len() > limits.source_bytes { return Err(SyntaxError::Refused { limit: SyntaxLimit::SourceBytes, work: SyntaxWork::default() }); }
     if invocation.source.content != ContentHash::of(text.as_bytes())
         || usize::try_from(invocation.source.byte_len).ok() != Some(text.len()) {
-        return Err(invalid("analyzer text differs from captured artifact"));
+        return Err(invalid("analyzer text differs from captured artifact").into());
     }
     if invocation.run.input != invocation.source.input
         || invocation.run.context != invocation.qualification.context
         || invocation.surface.provider != invocation.run.provider
         || invocation.surface.family != FactFamily::Syntax {
-        return Err(invalid("syntax invocation attribution differs from its input/context/provider/family"));
-    }
-    if limits.nodes == 0 || limits.depth == 0 || limits.depth > 256 {
-        return Err(invalid("invalid syntax traversal limits"));
+        return Err(invalid("syntax invocation attribution differs from its input/context/provider/family").into());
     }
     let mut visitor = Emitter { invocation, output: &mut output, limits, path: vec![],
-        children: vec![0], count: 0, error: None, text };
+        children: vec![0], work: SyntaxWork::default(), error: None, text };
     let root = AnyNodeRef::from(ast);
     if visitor.enter_node(root).is_traverse() { visitor.visit_body(&ast.body); }
     visitor.leave_node(root);
-    match visitor.error { Some(error) => Err(error), None => Ok(visitor.count) }
+    match visitor.error {
+        Some(Halt::Limit(limit)) => Err(SyntaxError::Refused { limit, work: visitor.work }),
+        Some(Halt::Model(error)) => Err(error.into()),
+        None => Ok(visitor.work),
+    }
 }
 fn invalid(message: &str) -> ModelError { ModelError::Invalid(message.into()) }
 
+/// Why the traversal halted.
+enum Halt { Limit(SyntaxLimit), Model(ModelError) }
 struct Emitter<'a, F> {
     invocation: SyntaxInvocation<'a>, output: &'a mut F, limits: SyntaxLimits,
-    path: Vec<i32>, children: Vec<i32>, count: usize, error: Option<ModelError>, text: &'a str,
+    path: Vec<i32>, children: Vec<i32>, work: SyntaxWork, error: Option<Halt>, text: &'a str,
 }
 impl<F: FnMut(SyntaxEvent) -> Result<(), ModelError>> Emitter<'_, F> {
+    /// Count one callback; `true` when the traversal has halted and the callback must return.
+    fn halted(&mut self) -> bool {
+        if self.error.is_some() { self.work.residual += 1; return true; }
+        self.work.callbacks += 1;
+        if self.work.callbacks > self.limits.callbacks { self.error = Some(Halt::Limit(SyntaxLimit::Callbacks)); return true; }
+        false
+    }
     fn event(&self, node: AnyNodeRef<'_>) -> Result<SyntaxEvent, ModelError> {
         let range = node.range();
         let start = usize::from(range.start()); let end = usize::from(range.end());
@@ -99,19 +145,28 @@ impl<F: FnMut(SyntaxEvent) -> Result<(), ModelError>> Emitter<'_, F> {
         Ok(SyntaxEvent { occurrence, observation })
     }
 }
+/// Every dispatch point counts as one callback and returns at once after a halt, so a refused
+/// artifact costs at most one call per remaining child slot, never a deeper descent.
+macro_rules! bounded {
+    ($($method:ident: $node:ty => $walk:ident;)+) => { $(
+        fn $method(&mut self, node: &'tree $node) {
+            if self.halted() { return; }
+            source_order::$walk(self, node);
+        }
+    )+ };
+}
 impl<'tree, F: FnMut(SyntaxEvent) -> Result<(), ModelError>> SourceOrderVisitor<'tree> for Emitter<'_, F> {
     fn enter_node(&mut self, node: AnyNodeRef<'tree>) -> TraversalSignal {
         // Ruff calls leave_node even after Skip, so every entry owns a balanced stack frame.
         let ordinal = *self.children.last().expect("root counter");
         self.path.push(ordinal); self.children.push(0);
         if self.error.is_some() { return TraversalSignal::Skip; }
-        if self.count >= self.limits.nodes || self.path.len() > self.limits.depth {
-            self.error = Some(invalid("syntax emission/depth limit exceeded"));
-            return TraversalSignal::Skip;
-        }
+        self.work.deepest = self.work.deepest.max(self.path.len());
+        if self.path.len() > self.limits.depth { self.error = Some(Halt::Limit(SyntaxLimit::Depth)); return TraversalSignal::Skip; }
+        if self.work.emitted >= self.limits.nodes { self.error = Some(Halt::Limit(SyntaxLimit::Nodes)); return TraversalSignal::Skip; }
         match self.event(node).and_then(&mut self.output) {
-            Ok(()) => { self.count += 1; TraversalSignal::Traverse }
-            Err(error) => { self.error = Some(error); TraversalSignal::Skip }
+            Ok(()) => { self.work.emitted += 1; TraversalSignal::Traverse }
+            Err(error) => { self.error = Some(Halt::Model(error)); TraversalSignal::Skip }
         }
     }
     fn leave_node(&mut self, _: AnyNodeRef<'tree>) {
@@ -119,9 +174,50 @@ impl<'tree, F: FnMut(SyntaxEvent) -> Result<(), ModelError>> SourceOrderVisitor<
         let next = self.children.last_mut().expect("parent counter");
         match next.checked_add(1) {
             Some(value) => *next = value,
-            None if self.error.is_none() => self.error = Some(invalid("syntax child ordinal overflow")),
+            None if self.error.is_none() => self.error = Some(Halt::Model(invalid("syntax child ordinal overflow"))),
             None => {},
         }
+    }
+    /// The one sibling loop the visitor owns stops outright after a halt.
+    fn visit_body(&mut self, body: &'tree [Stmt]) {
+        for stmt in body {
+            if self.halted() { return; }
+            source_order::walk_stmt(self, stmt);
+        }
+    }
+    fn visit_singleton(&mut self, _: &'tree Singleton) { self.halted(); }
+    bounded! {
+        visit_mod: Mod => walk_module;
+        visit_stmt: Stmt => walk_stmt;
+        visit_annotation: Expr => walk_annotation;
+        visit_expr: Expr => walk_expr;
+        visit_decorator: Decorator => walk_decorator;
+        visit_bool_op: BoolOp => walk_bool_op;
+        visit_operator: Operator => walk_operator;
+        visit_unary_op: UnaryOp => walk_unary_op;
+        visit_cmp_op: CmpOp => walk_cmp_op;
+        visit_comprehension: Comprehension => walk_comprehension;
+        visit_except_handler: ExceptHandler => walk_except_handler;
+        visit_arguments: Arguments => walk_arguments;
+        visit_parameters: Parameters => walk_parameters;
+        visit_parameter: Parameter => walk_parameter;
+        visit_parameter_with_default: ParameterWithDefault => walk_parameter_with_default;
+        visit_keyword: Keyword => walk_keyword;
+        visit_alias: Alias => walk_alias;
+        visit_with_item: WithItem => walk_with_item;
+        visit_type_params: TypeParams => walk_type_params;
+        visit_type_param: TypeParam => walk_type_param;
+        visit_match_case: MatchCase => walk_match_case;
+        visit_pattern: Pattern => walk_pattern;
+        visit_pattern_arguments: PatternArguments => walk_pattern_arguments;
+        visit_pattern_keyword: PatternKeyword => walk_pattern_keyword;
+        visit_elif_else_clause: ElifElseClause => walk_elif_else_clause;
+        visit_f_string: FString => walk_f_string;
+        visit_interpolated_string_element: InterpolatedStringElement => walk_interpolated_string_element;
+        visit_t_string: TString => walk_t_string;
+        visit_string_literal: StringLiteral => walk_string_literal;
+        visit_bytes_literal: BytesLiteral => walk_bytes_literal;
+        visit_identifier: Identifier => walk_identifier;
     }
 }
 
