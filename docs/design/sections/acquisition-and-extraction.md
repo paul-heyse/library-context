@@ -243,7 +243,7 @@ everything below happens in one process.
 | ty's semantic index through `cpg-flow` (`ty-flow`) | `native_traversal` | the `flow` family (§3.2) |
 
 **The flow provider** (ADR-0046, ADR-0045). `cpg-flow` links the ty/ruff 0.0.14 line, a declared
-extra dependency family confined to that crate (ADR-0002). It parses each release module a second
+extra dependency family confined to that crate (ADR-0090). It parses each release module a second
 time, from the text Pyrefly read with every `TYPE_CHECKING` name token renamed to a same-length
 sentinel, so no byte range moves. **Pyrefly's parse stays the parse of record:** every syntax id,
 span and fact outside the `flow` family comes from it, and flow facts join ours by module and

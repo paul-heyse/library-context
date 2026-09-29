@@ -77,7 +77,7 @@ dependencies = ["ty_python_core", "ruff_python_ast 0.0.14"]
 
 
 def test_the_declared_flow_family_is_allowed_in_its_scope(tmp_path: Path) -> None:
-    """ADR-0002's declared extra family: ruff/ty 0.0.14 only under `cpg-flow` (ADR-0022)."""
+    """ADR-0090's declared extra family: ruff/ty 0.0.14 only under `cpg-flow` (ADR-0022)."""
     lock = tmp_path / "Cargo.lock"
     lock.write_text(LOCK + EXTRA)
     assert check_family.duplicates(lock) == {}

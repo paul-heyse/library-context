@@ -28,10 +28,10 @@ The pieces:
   semantic index over a second parse, joined by byte range (ADR-0046, ADR-0045). The
   Pyrefly CLI is only a parity-test oracle. Catalog compilation is the default (ADR-0078);
   `--profile behavioral` explicitly requests the flow provider and retained behavioral enrichment.
-- **Facts:** Arrow schemas are the contract, DataFusion constructs and validates the facts, and
-  Delta stores them. `lctx-postgres` owns rebuildable PostgreSQL projections and transactional
-  cache/operation services. Delta remains the implemented canonical store until cutover phase 1
-  moves every relation into PostgreSQL generations (ADR-0086).
+- **Facts:** the typed model (`lctx-model::domain`) is the contract and PostgreSQL generations
+  store it (ADR-0086); `lctx-postgres` owns the generation store and the retained
+  cache/operation services. The Delta store was removed in cutover phase 1 (P1.3/P1.4). Until
+  phase 2 publishes facts, only conformance generations exist.
 - **Behavior:** conditions are bounded BDDs over evaluation atoms (biodivine-lib-bdd), with
   pinned models and finite summaries composed over petgraph SCCs; five verdicts, never a null.
 - **Analytics:** petgraph, leiden-rs and our own FCA/RCA.
@@ -79,7 +79,7 @@ real consumer.
 | `docs/design_review/reviews/` | Review outputs: evidence, never authority; kept while a finding they supply is open |
 | `docs/design_review/evidence/` | Probes, spikes and investigations behind decisions, one `YYYY-MM-DD_<topic>/` folder each with a README; raw outputs and binaries through Git LFS; never venvs or `target/`. Put probes here, not in the session scratchpad |
 | `docs/pins.md` | Every pin, with dated verification |
-| `crates/` | The single Rust workspace. `cpg-schema` holds the authoritative Arrow contracts, derivations, rules and the graph registry (`graph.rs`: the `nodes`/`edges` catalogs, ADR-0086; the cutover replaces this crate with `lctx-model`); `cpg-extract` (Stage A in `library.rs`, extraction, the dependency context in `context.rs`), `cpg-core` (Delta, the `lctx_id` UDF, derive, validate, publish, flow model), `cpg-flow` (ty flow facts), `lctx-analytics` (passes, FCA/RCA, communities, summaries; Arrow in/out, no store), `lctx-embed` (compile-time embedding client), `lctx-postgres` (SQLx effects, migrations, projection codecs and role pools) and `lctx` (the CLI). Further crates are added as increments need them (ADR-0046) |
+| `crates/` | The single Rust workspace. `cpg-schema` holds the authoritative Arrow contracts, derivations, rules and the graph registry (`graph.rs`: the `nodes`/`edges` catalogs, ADR-0086; the cutover replaces this crate with `lctx-model`); `cpg-extract` (Stage A in `library.rs`, extraction, the dependency context in `context.rs`), `cpg-core` (the stage runtime helpers, session and legacy `lctx_id` UDF, and the dormant analysis, catalog and serving code; generation reads arrive at P1.10), `cpg-flow` (ty flow facts), `lctx-analytics` (passes, FCA/RCA, communities, summaries; Arrow in/out, no store), `lctx-embed` (compile-time embedding client), `lctx-postgres` (SQLx effects, migrations, projection codecs and role pools) and `lctx` (the CLI). Further crates are added as increments need them (ADR-0046) |
 | `python/` | `lctx_mcp` (the FastMCP server over one pinned generation) , `lctx_semantics` (the pure PyO3 native executor) and `lctx_storage` (explicit asynchronous PostgreSQL service lifetime) |
 | `eval/` | `behavior/` pre-registered question sets, `gold/` evaluation-only gold extract and freeze, `heldout/` sealed until increment 5 |
 | `libraries/` | One committed uv project per analyzed library (`pyproject.toml` with `[tool.lctx] release`, `.python-version`, `uv.lock`); `libraries/README.md` has the add/upgrade procedure (ADR-0046). Environments go to `build/envs/` (gitignored) |
@@ -98,7 +98,7 @@ real consumer.
 | Inspect a generation | Arrives with plan P1.11 (`lctx query --generation <id> "SQL"`); the Delta `lctx query` is retired |
 | Add or upgrade a library | `lctx library init <name> --requirement '<req>'`; upgrade with `uv lock --project libraries/<name> --upgrade-package <dist>` (`libraries/README.md`) |
 | Format (mutating) | `just fmt`, once at the end of the scope (above) |
-| Dependency policy | `just deps`: one version each of Arrow/DataFusion/object_store/delta-rs/ruff/pyrefly/blake3, cargo-deny, and the Pyrefly fork check (tag + patch, classified env reads) |
+| Dependency policy | `just deps`: one version each of Arrow/DataFusion/object_store/ruff/pyrefly/blake3, cargo-deny, and the Pyrefly fork check (tag + patch, classified env reads) |
 | Decisions | `just adr new <slug> --title "…"`, `just adr supersede ADR-NNNN <slug>`, `just adr index`, `just adr lint`, `just adr revisit` |
 | Documentation changes | `just docs-test` for publisher/resolver changes; `just docs-check` for publication. First run: `just bootstrap-docs`; preview: `just docs-serve`. No product gate solely for docs. |
 | Tools present? | `just doctor` |
@@ -133,7 +133,6 @@ Improvements there reach every selecting repo; process skills remain local. Set
 The library capability skills under `.claude/skills/` are pinned, offline indexes. Use them
 **before** writing against an API, rather than relying on memory:
 - `datafusion` (DataFusion, Arrow, object_store)
-- `deltalake` (this repo's exact delta-rs git profile)
 - `rust-graphs` (petgraph plus rustworkx-core, leiden-rs, graphops and others: which library, how
   to reach it from a petgraph graph, and each one's silent failures)
 - `pyrefly-ruff`. It indexes ruff crates 0.0.13, but we link 0.0.11 (Pyrefly's line). The deltas are
@@ -179,8 +178,8 @@ capability is absent.
   tests and publication. Don't write test-only copies.
 - **Fixtures** go under `fixtures/python/<case>/`. Intentional syntax-error cases go under
   an `_invalid/` subdirectory there.
-- **Delta tests** go through Delta (the table provider or a scan), never a raw Parquet directory
-  scan.
+- **Store tests** go through the generation store against real disposable PostgreSQL 18, never
+  around it.
 
 ## Reporting
 

@@ -690,6 +690,13 @@ Removed:
 Justfile: `py-fixture` removed; `py-check` no longer depends on it; `test-postgres` now runs the generation-store suites without the dormant serving binary.
 
 Python: `lctx_mcp` tests needing a served generation or an entry point, `test_semantic_soundness.py` and `test_postgres_serving.py` report skipped (not_run); `test_flow_soundness.py` and the pure `lctx_mcp` tests run |
+| P1.4: `just build-features`; `uv run python scripts/check_family.py Cargo.lock`; `uv run pytest tests/scripts/test_check_family.py -q`; `cargo test --release -p cpg-schema --test family_smoke`; `-p cpg-extract --lib logging`; `just adr lint`; `cargo check --workspace --all-targets` | passed 2026-09-29.
+
+`Cargo.lock` holds no `deltalake`, `buoyant_kernel` or `datafusion-federation`.
+
+ADR-0090 supersedes ADR-0002, which is deleted, and DESIGN §B7/§B9/§7 are amended. The owned fork got commit `790726d` (common's defaults opt-in), pushed to `paul-heyse/datafusion-table-providers` `lctx/df55-bounded-pool`; the pin was bumped and the patch regenerated.
+
+Also updated: `deny.toml` sources, the family-check patterns, the logging filter, `build.rs` engines, `family_smoke` (now Arrow→DataFusion SQL), the Delta ast-grep rules and their tests (removed), the `deltalake` skill (deselected and synced), the pins rows and the AGENTS.md Delta lines. The Delta mentions in the legacy DESIGN sections (§3–§14) are swept at P1.12/C3x. `just deps` is deferred to Q |
 | `just fmt`, `just test-all`, facts pilots | not_run: functional scope incomplete |
 
 Independent bounded reviewers accepted artifact/capture/acquisition corrections and the

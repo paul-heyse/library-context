@@ -1,6 +1,6 @@
 """Fail if a pinned-family crate resolves to more than one version in a lockfile.
 
-The pinned family is DESIGN §7 / ADR-0002. Two Arrows (or DataFusions) in one
+The pinned family is DESIGN §7 / ADR-0090. Two Arrows (or DataFusions) in one
 dependency graph compile, but their types are incompatible at every boundary,
 which is the failure Initial_plan §7.4 warns about. This reads Cargo.lock
 directly so dev-dependencies count too.
@@ -17,15 +17,14 @@ from collections import defaultdict
 from pathlib import Path
 
 FAMILY = re.compile(
-    r"^(arrow(-.+)?|parquet|datafusion(-.+)?|object_store|deltalake(-.+)?"
-    r"|buoyant_kernel(_.+)?|delta_kernel(_.+)?|petgraph"
+    r"^(arrow(-.+)?|parquet|datafusion(-.+)?|object_store|petgraph"
     # Analyzers (ADR-0012): two ruff versions would split the AST types Pyrefly shares.
     r"|ruff_.+|pyrefly(_.+)?|tsp_types|blake3"
     # The flow provider's line (ADR-0022, ADR-0012 amendment).
     r"|ty_.+|salsa(-.+)?)$"
 )
 
-# Declared extra families (ADR-0002 amendment, 2026-09-24): a second version of a family crate is
+# Declared extra families (ADR-0090, restating the 2026-09-24 ADR-0002 amendment): a second version of a family crate is
 # allowed only in the declared scope. Each entry: the crates it covers (a pattern), the one extra
 # version, the exact versions its own dependencies must hold, and the only packages that may depend
 # on it from outside the family itself.

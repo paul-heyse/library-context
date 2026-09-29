@@ -1,12 +1,8 @@
-//! The binaries' log subscriber (H1 O1): Pyrefly, delta-kernel and DataFusion (its `log` records,
-//! through the tracing-log bridge) report through it, to stderr.
+//! The binaries' log subscriber (H1 O1): Pyrefly and DataFusion (its `log` records, through the
+//! tracing-log bridge) report through it, to stderr.
 
-/// `warn`, except where delta-rs warns about the known Binary-statistics limit: its writer, once
-/// per Binary column per write (256 lines per pilot compile), and its scan's stats projection, per
-/// table whose `snapshot_id` has no min/max. That limit is documented (§4.3) and designed around
-/// (per-commit reads, ADR-0017), so those lines would only bury the warnings the subscriber exists
-/// to show (H1 review F6).
-pub const DEFAULT_LOG_FILTER: &str = "warn,deltalake_core::writer::stats=error,deltalake_core::kernel::snapshot::stats_projection=error,deltalake_core::operations::merge=error";
+/// `warn`. The delta-rs statistics filters left with the Delta store (cutover plan P1.4).
+pub const DEFAULT_LOG_FILTER: &str = "warn";
 
 /// Install the subscriber. `LCTX_LOG` replaces [`DEFAULT_LOG_FILTER`] (`LCTX_LOG=debug`); it
 /// changes output only, never an identity.
@@ -24,13 +20,8 @@ mod tests {
     use super::DEFAULT_LOG_FILTER;
 
     #[test]
-    fn the_default_filter_parses_and_quiets_the_known_stats_warning() {
+    fn the_default_filter_parses_and_shows_warnings() {
         let filter = tracing_subscriber::EnvFilter::try_new(DEFAULT_LOG_FILTER).unwrap();
-        let shown = filter.to_string();
-        assert!(
-            shown.contains("deltalake_core::writer::stats=error"),
-            "{shown}"
-        );
-        assert!(shown.contains("warn"), "{shown}");
+        assert_eq!(filter.to_string(), "warn");
     }
 }

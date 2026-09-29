@@ -5,7 +5,6 @@ enabled = [
   "ast-grep-ripgrep",
   "datafusion",
   "datafusion-tracing",
-  "deltalake",
   "fastmcp",
   "pyomo-and-solvers",
   "pyrefly-ruff",

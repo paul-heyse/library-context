@@ -1,5 +1,5 @@
 //! The locked identity of the engines the compiler's output depends on (DataFusion, Arrow,
-//! Parquet, object_store, delta-rs and its kernel), read from the workspace `Cargo.lock`, so the
+//! Parquet, object_store and the BDD kernel), read from the workspace `Cargo.lock`, so the
 //! compiler digest follows what is built rather than a hand-kept string (slice-2 review F4).
 //!
 //! And the digest of the compiler's own sources (the holistic assessment's A2(e)): every `.rs`
@@ -38,9 +38,7 @@ fn rust_files(root: &std::path::Path, dir: &std::path::Path, out: &mut Vec<Strin
 const ENGINES: &[&str] = &[
     "arrow-array",
     "biodivine-lib-bdd",
-    "buoyant_kernel",
     "datafusion",
-    "deltalake-core",
     "object_store",
     "parquet",
 ];

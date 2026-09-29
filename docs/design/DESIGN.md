@@ -400,25 +400,22 @@ Obligations replace boundary-reason encodings. Invocations record their input in
 
 <a id="section-b7"></a>
 
-### §B7 Delta canonical store, published by a `snapshots` append
+### §B7 PostgreSQL generations are the canonical store
 
-**Implemented and Tested.**
-
-- Fact tables are append-only Delta tables, one per fact family.
-- A snapshot becomes visible only through one append to `snapshots`, made after validation passes.
-- Readers resolve table versions through that row, open only the pinned commit's files and filter
-  by `snapshot_id` ([§6](sections/storage-and-publication.md#section-6)).
-
-**Accepted target, implementation Proposed (ADR-0086, 2026-09-29; cutover phase 1).** PostgreSQL 18
-replaces Delta as the single relational store.
-- Every relation is list-partitioned by `generation_id`, with generated constraints.
-- An attempt writes staging partitions by binary COPY.
-- Publication is one transaction after the database constraints and the DataFusion semantic
-  validators pass.
-- Published partitions are read-only by privilege.
+**Accepted target (ADR-0086, 2026-09-29); implementation in progress (cutover phase 1).**
+PostgreSQL 18 is the single relational store.
+- Each generation owns an ordinary schema generated from the typed model, with keys, references
+  and generated constraints.
+- An attempt writes by binary COPY.
+- Publication happens after the database constraints and the model's validators pass over the
+  stored, sealed contents.
+- Published relations are read-only by privilege.
 - Readers pin one generation ([§15.11](sections/semantic-model.md#section-15-11)).
 
-Until phase 1 exits, the Delta contract above is the implemented store.
+**Implemented so far:** conformance generations with stage-bound attempts, sealing, validation,
+publication and leases (plan §4.2). The production lifecycle, installation checks and provider
+sessions are plan P1.5–P1.11. The Delta store was removed at P1.3/P1.4; until phase 2 publishes
+facts, no product generation exists.
 
 > Decision: ADR-0086
 
@@ -447,11 +444,11 @@ Until phase 1 exits, the Delta contract above is the implemented store.
 
 **Tested** (§7).
 
-DataFusion, Arrow/Parquet, object_store and delta-rs each resolve to exactly one version in the
-core workspace. An extra family is allowed only when declared with its scope, and no type crosses
-its boundary (§7).
+DataFusion, Arrow/Parquet and object_store each resolve to exactly one version in the core
+workspace; there is no delta-rs and no DataFusion federation. An extra family is allowed only when
+declared with its scope, and no type crosses its boundary (§7).
 
-> Decision: ADR-0002
+> Decision: ADR-0090
 
 <a id="section-b10"></a>
 
@@ -639,16 +636,16 @@ Owner: [Storage and publication](sections/storage-and-publication.md#section-6).
 
 ## §7 Pinned dependency family
 
-**Tested** (`cpg-schema` `family_smoke` writes Delta and queries it through DataFusion;
+**Tested** (`cpg-schema` `family_smoke` queries Arrow batches through DataFusion SQL;
 `just deps` checks single versions, the declared extra families and the Pyrefly fork).
 
-DataFusion, Arrow/Parquet, object_store and delta-rs resolve to exactly one version each in the
-core workspace (§B9). Extra families are allowed only when declared in `scripts/check_family.py`
+DataFusion, Arrow/Parquet and object_store resolve to exactly one version each in the core
+workspace (§B9). The owned PostgreSQL table-provider fork is pinned by revision without federation. Extra families are allowed only when declared in `scripts/check_family.py`
 with their scope; the `cpg-flow` ty/ruff 0.0.14 line with salsa pinned exactly is the one in use.
 [`docs/pins.md`](../pins.md) is authoritative for every pin and its dated verification, and the
 `pin-check` skill governs changes.
 
-> Decision: ADR-0002
+> Decision: ADR-0090
 
 ---
 

@@ -7,7 +7,6 @@ The [architecture map](../design/README.md) and its section owners own contracts
 
 | ADR | Title | Date | Governs | Evidence | Replaces |
 |---|---|---|---|---|---|
-| [ADR-0002](0002-rust-dependency-family.md) | Pin DataFusion 55.1 / Arrow 59.3 / delta-rs git 58f07cd6 as one family | 2026-09-22 | [§B9](../design/DESIGN.md#section-b9), [§7](../design/DESIGN.md#section-7) | Tested |  |
 | [ADR-0005](0005-programmatic-insight-synthesis.md) | Insight synthesis is programmatic; LLM interpretation deferred behind a measured gap | 2026-09-22 | [§B10](../design/DESIGN.md#section-b10), [§B11](../design/DESIGN.md#section-b11), [§9](../design/sections/analytics.md#section-9), [§10](../design/sections/synthesis-and-serving.md#section-10) | Proposed |  |
 | [ADR-0015](0015-source-text-in-delta.md) | Every analyzed module's text and role are stored in the snapshot | 2026-09-23 | [§3.2](../design/sections/facts-and-identity.md#section-3-2), [§3.5](../design/sections/facts-and-identity.md#section-3-5), [§4.0](../design/sections/acquisition-and-extraction.md#section-4-0), [§8](../design/sections/validation-and-evaluation.md#section-8) | Tested |  |
 | [ADR-0016](0016-jemalloc-global-allocator.md) | The binaries use jemalloc as their global allocator | 2026-09-23 | [§4.3](../design/sections/acquisition-and-extraction.md#section-4-3) | Measured |  |
@@ -49,6 +48,7 @@ The [architecture map](../design/README.md) and its section owners own contracts
 | [ADR-0087](0087-clean-semantic-reconstruction.md) | Reconstruct semantic layers without compatibility paths | 2026-09-29 | [§15](../design/sections/semantic-model.md#section-15), [§1.2](../design/DESIGN.md#section-1-2) | Proposed | ADR-0084 |
 | [ADR-0088](0088-canonical-artifact-chunks.md) | Preserve complete artifacts as canonical bounded chunks | 2026-09-29 | [§15.3](../design/sections/semantic-model.md#section-15-3) | Tested |  |
 | [ADR-0089](0089-stage-contributions-and-input-closure.md) | Assemble attributed facts through declared stage contributions over a captured input closure | 2026-09-29 | [§15.3](../design/sections/semantic-model.md#section-15-3), [§15.4](../design/sections/semantic-model.md#section-15-4), [§15.11](../design/sections/semantic-model.md#section-15-11) | Proposed |  |
+| [ADR-0090](0090-datafusion-family-without-delta.md) | Pin DataFusion 55.1 / Arrow 59.3 as one family, without delta-rs or federation | 2026-09-29 | [§B9](../design/DESIGN.md#section-b9), [§7](../design/DESIGN.md#section-7) | Tested | ADR-0002 |
 
 ## Proposed: open choices, not accepted decisions
 

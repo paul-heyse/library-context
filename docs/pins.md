@@ -3,7 +3,7 @@
 Every pin with how and when it was last verified. Change a pin with the
 `pin-check` skill: read the primary source; product pin changes run `just deps` and the
 tests, and add a dated row here. Design authority for the Rust family is
-DESIGN §7 / ADR-0002. A row without a date is not verified.
+DESIGN §7 / ADR-0090. A row without a date is not verified.
 
 ## Rust
 
@@ -11,11 +11,9 @@ DESIGN §7 / ADR-0002. A row without a date is not verified.
 |---|---|---|---|
 | toolchain | nightly-2026-09-29 (`rust-toolchain.toml`); manifest minimum remains 1.98.1 | 2026-09-28 | `rustc -Vv`: 1.101.0-nightly, c1070d69382b8d2f2eb65119c738a77d9e324c9e, LLVM 23.1.1; `cargo -V`: 1.101.0-nightly (3d7cf6e93). Installed rustfmt/Clippy; ADR-0079 |
 | allocative | 0.3.6 with local upstream never-type backport (`third_party/allocative`) | 2026-09-28 | Published manifest/source and upstream commit `9711293c6de502d50583cafb12e4a7b764094d3a`; eight-line duplicate impl/obsolete feature removal, ADR-0079 |
-| datafusion | =55.1.0 | 2026-09-22 | `family_smoke` passed; single version in `Cargo.lock` |
+| datafusion | =55.1.0 | 2026-09-29 | `family_smoke` (Arrow batches queried by DataFusion SQL) passed; single version in `Cargo.lock`. The delta-rs family and `datafusion-federation` were removed with the Delta store (plan P1.4, ADR-0090) |
 | arrow-*, parquet | =59.3.0; `parquet` is a direct dependency since H1 P6 (`default-features = false, features = ["zstd"]`: the codec was already compiled) | 2026-09-23 | same; `data_files_are_zstd` |
 | object_store | 0.13.2, held by `Cargo.lock` (no crate depends on it directly, so a workspace pin would pin nothing; H1 O2) and kept single by `check_family.py` | 2026-09-23 | `Cargo.lock`; `cargo shear` in `just deps` |
-| deltalake | git 58f07cd62bfbce3649a7e1c87c696288068ae184, features `datafusion`,`rustls` | 2026-09-22 | same; matches `.claude/skills/deltalake` capture profile |
-| buoyant_kernel | 0.25.1, git 8ba063f8f84fec222000f66d40d70911d7c79675 (branch `buoyant/main`, pinned by `Cargo.lock` only) | 2026-09-22 | `Cargo.lock`; matches the skill's kernel pin |
 | petgraph | =0.8.3, default features (no `rayon`, `serde-1`): the §5 adapter and Pass A in `lctx-analytics` (increment 1 slice 1.4) | 2026-09-23 | resolves; `lctx-analytics` tests (shuffled arcs give identical adjacency; parallel arcs and isolates kept) |
 | reqwest | =0.12.28, `default-features = false`: the compile-time embedding client over plain HTTP to the local vLLM service (`lctx-embed`, DESIGN §11.1) | 2026-09-23 | already in `Cargo.lock` at this version (object_store), no feature added and no package added; MIT OR Apache-2.0; `lctx-embed` tests (stub service) |
 | sha2 | =0.10.9 in `cpg-core`: the embedding spec hash and input hashes (SHA-256, so Python recomputes them) | 2026-09-23 | already a workspace pin (Stage A's `RECORD` hashes) |
@@ -46,7 +44,7 @@ DataFusion) before it became a direct dependency, so none adds a version; `just 
 | csv | =1.4.0: `RECORD` read as CSV (PEP 376 quotes a path holding `,` or `"`) | 2026-09-23 | same; Unlicense OR MIT; `a_quoted_record_path_is_verified` |
 | clap | =4.6.7, `derive`: the `lctx` and `lctx-extract` command lines (no `env` reads) | 2026-09-23 | same; MIT OR Apache-2.0; the CLI parse tests and `compile_honours_reinstall` |
 | tikv-jemallocator | =0.7.0 (jemalloc 5.3.1): the binaries' global allocator, Linux/macOS (ADR-0016) | 2026-09-23 | same (Pyrefly's Linux/macOS dependency, already compiled; its CLI uses it); MIT/Apache-2.0, C source BSD-2-Clause; the allocator spike's 16 runs and H1's pilots |
-| tracing-subscriber | =0.3.23, `env-filter` (defaults `fmt`, `tracing-log` already on): the binaries' stderr log subscriber, `LCTX_LOG` (H1 O1) | 2026-09-23 | same; MIT; `LCTX_LOG=debug lctx query …` prints delta-kernel and DataFusion records |
+| tracing-subscriber | =0.3.23, `env-filter` (defaults `fmt`, `tracing-log` already on): the binaries' stderr log subscriber, `LCTX_LOG` (H1 O1) | 2026-09-23 | same; MIT; `LCTX_LOG=debug lctx flow …` prints Pyrefly and DataFusion records |
 | fs-err | =3.3.1: filesystem calls whose errors name their path (`cpg-extract`, `cpg-core`, `lctx`; H1 O3) | 2026-09-23 | same; MIT OR Apache-2.0; `an_io_error_names_its_path` |
 | anyhow | =1.0.104: `lctx`'s error type, printed as the whole chain (H1 O4) | 2026-09-23 | same; MIT OR Apache-2.0 |
 
@@ -131,7 +129,7 @@ Each analyzed library pins itself in `libraries/<name>/` (`pyproject.toml`, `.py
 | cargo-hakari | 0.9.39 | 2026-09-28 | `cargo hakari --version`; exact-release upstream configuration source and generated CLI feature union; `just build-features` / `just deps` (ADR-0079) |
 | sccache | 0.17.0 (required by `.cargo/config.toml`) | 2026-09-24 | `sccache --version`; cache wrapper; target-environment effect tested 2026-09-28 (cache evidence) |
 | cargo-insta | 1.48.0 | 2026-09-22 | `just doctor` |
-| cargo-deny | 0.20.2 (does not see dev-only duplicates; see ADR-0002) | 2026-09-22 | tested with a synthetic duplicate |
+| cargo-deny | 0.20.2 (sees dev-only duplicates only for named crates; see ADR-0090) | 2026-09-22 | tested with a synthetic duplicate |
 | ast-grep | 0.45.3 | 2026-09-22 | `just doctor` |
 | just | 1.58.0 | 2026-09-22 | `just --version` |
 
@@ -158,9 +156,8 @@ is `just docs-test` plus `just docs-check` ([publishing operations](publishing.m
 | bytes | =1.12.1 | Shared SQLx/pgpq COPY buffer type; existing resolved version, now direct |
 | pgpq | =0.12.0 | Exact registry manifest, Arrow 59 native; real binary COPY and declared Arrow reconstruction |
 | pyo3-async-runtimes | =0.29.0, defaults off, `tokio-runtime`; existing PyO3 =0.29.2 | Exact registry API/manifest, `uv sync` native wheel build; one lazy configured two-worker Tokio runtime |
-| datafusion-federation | =0.5.7, direct `sql` integration | 2026-09-28: registry manifest and final product-provider controls with DataFusion 55.1 / Arrow 59.3 |
 | async-trait | =0.1.92 | 2026-09-28: existing resolved registry release, now direct for DataFusion provider traits |
-| datafusion-table-providers-postgres | Owned fork `paul-heyse/datafusion-table-providers`, rev `e6fc4c40ec0ffdb7c89371371b18c5f819cc79a9`, defaults off, `federation` | Based on `CaptainEureka` migration `33095588fcdd17301a5d1c340dcd66cd60e41ec8`; 2026-09-28: declared schema reads, stream ownership, cancellation with capacity quarantine, per-pool metrics; actual PG18 pushed/local/coherence/cancellation controls passed; patch in `third_party/datafusion-table-providers-df55.patch` |
+| datafusion-table-providers-postgres | Owned fork `paul-heyse/datafusion-table-providers`, branch `lctx/df55-bounded-pool`, rev `790726de06007ea657444d8d48e3ce05350352a9`, defaults off, no `federation` (the workspace entry for `common` now disables its defaults) | Based on `CaptainEureka` migration `33095588fcdd17301a5d1c340dcd66cd60e41ec8`. 2026-09-29: the new checkout's manifests read (version 0.13.1); `cargo check -p datafusion-table-providers-postgres --no-default-features` in the fork; `Cargo.lock` holds no `datafusion-federation`; patch regenerated in `third_party/datafusion-table-providers-df55.patch`. 2026-09-28 (rev `e6fc4c4`): declared schema reads, stream ownership, cancellation with capacity quarantine, per-pool metrics, PG18 controls. The provider is unused in the workspace until P1.10 |
 | tokio-postgres | =0.7.18 | Provider-only configuration adapter; exact registry manifest. SQLx retains application write/transaction ownership |
 
 Psycopg/SQLAlchemy, native ADBC and pgrx remain uninstalled. SeaQuery 1.0.2 is also a direct dependency of the semantic generation DDL lowering

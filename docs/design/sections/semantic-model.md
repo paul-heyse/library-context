@@ -25,11 +25,10 @@ engine and the store-side frontier enforcement (P1.7). Exact contracts, commands
 in cutover plan §4.2; finding dispositions are in §8. No phase is release-qualified. The store,
 facts producers and later capabilities are **Proposed** until their phases land.
 
-**Current state.** Until each layer cuts over, the implemented pipeline is the legacy one described
-by §3–§14:
-- `cpg-schema` contracts;
-- the Delta canonical store;
-- bundle import into PostgreSQL serving.
+**Current state.** The Delta canonical store and its compile orchestration were removed in cutover
+phase 1 (P1.3/P1.4). The legacy `cpg-schema` contracts and the analysis, catalog and serving code
+described by §3–§14 remain dormant until phases 3–5 rebuild them; until phase 2 publishes facts,
+no product generation exists.
 
 **Execution owner.** The [semantic model cutover plan](../../plans/semantic-model-cutover-plan_2026-09-29.md)
 owns the execution order, qualification and deletion obligations.

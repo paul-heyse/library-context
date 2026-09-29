@@ -1,12 +1,12 @@
-# cargo-deny policy: allowed sources (crates.io plus only the pinned delta-rs
-# and kernel git repos) and licenses.
+# cargo-deny policy: allowed sources (crates.io plus only the pinned git forks)
+# and licenses.
 #
 # The pinned-family single-version rule (DESIGN §7) is NOT here: it lives in
 # scripts/check_family.py, which reads Cargo.lock directly. cargo-deny could do
 # it (0.20.2 does catch dev-only duplicates with `multiple-versions-include-dev`,
 # corrected 2026-09-23 by the library-leverage review), but only for crates it is
 # told by name: the family is 78 crates today, and an upgrade adds sub-crates a
-# name list would miss. The script's patterns cover them (ADR-0002 amendment).
+# name list would miss. The script's patterns cover them (ADR-0090).
 
 [graph]
 all-features = false
@@ -22,10 +22,8 @@ wildcards = "allow"
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-git = [
-    "https://github.com/delta-io/delta-rs",
     # Owned DF55 provider and bounded pool patch (ADR-0068).
     "https://github.com/paul-heyse/datafusion-table-providers",
-    "https://github.com/buoyant-data/delta-kernel-rs",
     # Pyrefly fork (ADR-0012) and the lsp-types fork Pyrefly depends on.
     "https://github.com/paul-heyse/pyrefly",
     "https://github.com/yangdanny97/lsp-types",
@@ -46,7 +44,7 @@ allow = [
     "ISC",
     "Unicode-DFS-2016",
     "BSL-1.0",
-    # delta-rs and DataFusion as normal dependencies (cpg-core).
+    # DataFusion and its dependencies (cpg-core).
     "BSD-3-Clause",
     "bzip2-1.0.6",
     "MPL-2.0",
