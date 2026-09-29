@@ -409,6 +409,8 @@ Focused evidence (2026-09-29; Cargo commands prefixed by `python3 scripts/build_
 | `cargo test --release -p lctx-model --test domain_flow --test domain_transfer` | passed before F01: two flow and six transfer controls after composite-subject expansion |
 | `cargo test --release -p lctx-postgres --test domain_flow` | passed after F01: real PG18 good/foreign-place-root conformance cases |
 | `just docs-check` | passed: 193 canonical pages and zero link errors after MDX source-reference correction |
+| `cargo test --release -p lctx-model --test domain_types --test domain_assertions` | passed after type F01: four type and three assertion controls, including 20 opaque-fidelity combinations |
+| `cargo test --release -p lctx-postgres --test domain_types` | passed after F01: real PG18 modeled good/foreign-owner and nested truncated structural rejection/display-only acceptance |
 | `just fmt`, `just test-all`, facts pilots | not_run: functional scope incomplete |
 
 Independent bounded reviewers accepted artifact/capture/acquisition corrections and the
@@ -437,7 +439,9 @@ assembled review; none of these bounded receipts establishes enclosing architect
 
 **Representative raw flow (Implemented; focused Tested, 2026-09-29):** nominal uses/definitions refer to shared occurrences and places; qualified use/definition/reaching/value/region observations carry generated supports. An explicit Unbound target differs from absent coverage; raw identity cannot pass through an unresolved call. Shared validation includes transitive Place roots and same-source event/scope/value geometry, independently of broad coverage authorization. The [bounded flow review](../design_review/reviews/design_review_semantic-flow_2026-09-29.md) accepted F01's correction. These are contract fixtures; full ty emission, call steps, tests/type leaves and P2 field parity remain open.
 
-**Next / still open:** remaining representative type/deployment domain families
+**Representative type contracts (Implemented; focused Tested, 2026-09-29):** structural terms reuse nominal native symbols and lossless literals; provider/context/module/anchor/slot/origin/kind identify type variables. Ordered sequence membership is digest-checked. Recursive restrictions and alternate presentations remain qualified relationships outside variable identity. Shared support validation checks transitive native owners and requires DisplayOnly when any dependency is opaque/truncated. The [bounded type review](../design_review/reviews/design_review_semantic-types_2026-09-29.md) accepted F01's correction. Model controls and real PG18 four-case readback/refusal pass; complete native type forms and Pyrefly producer migration remain P2 work.
+
+**Next / still open:** remaining representative deployment domain family
 and whole-call binding/root composition and opaque caller rebasing; complete call producer/normalization integration; occurrence ownership; coordinated allocation accounting; exact coverage
 and full production frontier admission; production capture/assembler integration and assembled P0-E review.
 Then finish generated installation verification/reset, provider lease/stream integration, service
@@ -556,6 +560,12 @@ reinspected corrections and reran seven controls on 2026-09-29. P2/P3 and C04 cl
 |---|---|---|
 | [transfer-contract F01](../design_review/reviews/design_review_semantic-transfer-contract_2026-09-29.md#F01) | `lctx-model::domain::assertion` | closed (bounded): populated call site shares endpoint scope/acquisition checks; local/corpus positives and unrelated/artifact-scope refusals, real PG18 publication refusal, independent reinspection |
 | [nominal-derivation F01](../design_review/reviews/design_review_semantic-nominal-derivation_2026-09-29.md#F01) | model derivation/derive/common invariant | closed (bounded): retain source step and conditional conclusion-to-source edge; self and mutually dependent explicit steps refuse; model and real PG18 independently rerun |
+
+### Type contract review findings
+
+| Finding | Responsible component | Current disposition and evidence |
+|---|---|---|
+| [type F01](../design_review/reviews/design_review_semantic-types_2026-09-29.md#F01) | type/support validation and attribution derive | closed (bounded): transitive opaque/truncated dependency requires DisplayOnly; direct/nested model matrix and real PG18 refusal/acceptance, independent reinspection |
 
 ### Core review findings
 

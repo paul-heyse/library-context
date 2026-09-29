@@ -80,7 +80,7 @@ fn expand_assertion(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
             type Assertion = #name;
             fn assertion(&self) -> ::lctx_model::domain::Id<#name> { self.assertion }
             fn attribution(&self) -> ::lctx_model::domain::assertion::SupportAttribution {
-                ::lctx_model::domain::assertion::SupportAttribution { run: self.run, surface: self.surface, evidence: self.evidence }
+                ::lctx_model::domain::assertion::SupportAttribution { run: self.run, surface: self.surface, evidence: self.evidence, fidelity: self.fidelity }
             }
         }
     })

@@ -21,7 +21,8 @@ _Updated 2026-09-29 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
   provider/context cannot authorize a foreign input. Explicit corpus membership remains required.
 - **Codec allocation:** borrowed key hashing and streamed borrowed Arrow encoding remove intermediate
   key/payload copies; builders retain known row preallocation. Full accounting/RSS remains open.
-- **Still open:** representative type/deployment domains; whole-call/root composition and opaque
+- **Types:** structural terms, recursive restrictions and native-owner/fidelity checks pass model and PG18 controls.
+- **Still open:** representative deployment domain; whole-call/root composition and opaque
   rebasing; coordinated resources (including total syntax traversal work), complete coverage/admission
   and assembled P0 review; P1 provider/store/CLI cutover and Delta deletion; full P2 producer migration.
 - **Authorized scope:** model/store/facts. Downstream runtime suspends at P1 until P3–5.
@@ -39,7 +40,7 @@ Cargo commands use `python3 scripts/build_environment.py --`. All receipts are b
 | `cargo test --release -p lctx-model --test domain_documents` | passed: three after enclosing-heading correction |
 | `cargo test --release -p lctx-model --test domain_coverage` | passed: input/corpus ownership matrix |
 | `cargo test --release -p lctx-model --test domain_flow` | passed: three after cross-file structure correction |
-| `cargo test --release -p lctx-model --test domain_flow --test domain_transfer` | passed before flow correction: two + six composite-subject controls |
+| `cargo test --release -p lctx-model --test domain_types --test domain_assertions`; `cargo test --release -p lctx-postgres --test domain_types` | passed: four + three model controls and real PG18 four-case type test |
 | `cargo test --release -p lctx-model --doc` | passed after codec change: seven positive/seven negative; one old ignored |
 | `cargo test --release -p lctx-postgres --test domain_lexical` | passed: real PG18 good/foreign-value cases |
 | `cargo test --release -p lctx-postgres --test domain_coverage --test domain_documents` | passed: real PG18 good/foreign scope/span cases |
@@ -54,6 +55,6 @@ Review acceptance is bounded; complete raw-field parity and enclosing architectu
 
 ## Next
 
-Finish P0 type/deployment contracts, whole-call composition/rebasing, resource/coverage admission
+Finish P0 deployment contracts, whole-call composition/rebasing, resource/coverage admission
 and assembled review. Then execute the plan's P1 hard cutover and P2 migration/deletion sequence.
 Integrated gates wait until all authorized functional scope is implemented.
