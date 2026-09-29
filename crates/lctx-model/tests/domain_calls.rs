@@ -58,7 +58,7 @@ fn actual(n: i64,kind: ArgumentKind,name: Option<&str>) -> Actual {
 fn complete_alternatives_precede_policies_and_higher_order_never_becomes_direct() {
     let fixture = Fixture::new(); let f = &fixture;
     let (resolution,_) = CallResolution::new(&f.qualification,f.target.site,f.channel.id(),CallPhase::Call,true,&[f.target.clone()]).unwrap();
-    let set = TargetSet::new(&resolution,&f.qualification,&f.channel,vec![f.candidate()]).unwrap();
+    let set = SiteTargets::new(vec![TargetSet::new(&resolution,&f.qualification,&f.channel,vec![f.candidate()]).unwrap()]).unwrap();
     assert_eq!(set.admitted(CallPolicy::Summary),vec![f.target.id()]);
     assert_eq!(set.admitted(CallPolicy::Invocation),vec![f.target.id()]);
     let unresolved = CallDestination::Unresolved { reason: ObligationKind::UnresolvedTarget };
@@ -67,9 +67,9 @@ fn complete_alternatives_precede_policies_and_higher_order_never_becomes_direct(
     let (resolution,_) = CallResolution::new(&f.qualification,f.target.site,f.channel.id(),CallPhase::Call,true,&[f.target.clone(),unknown.clone()]).unwrap();
     assert!(TargetSet::new(&resolution,&f.qualification,&f.channel,vec![f.candidate()]).is_err(),"a filtered set cannot claim unique resolution");
     let supports = [support];
-    let set = TargetSet::new(&resolution,&f.qualification,&f.channel,vec![f.candidate(),CallCandidate {
+    let set = SiteTargets::new(vec![TargetSet::new(&resolution,&f.qualification,&f.channel,vec![f.candidate(),CallCandidate {
         target: &unknown,qualification: &f.qualification,destination: &unresolved,symbol: None,receiver: &f.receiver,supports: &supports,
-    }]).unwrap();
+    }]).unwrap()]).unwrap();
     assert!(set.admitted(CallPolicy::Summary).is_empty());
     assert_eq!(set.admitted(CallPolicy::Dataflow),vec![f.target.id()]);
     let channel = CallChannel::HigherOrder { argument_index: 0 };
@@ -77,7 +77,7 @@ fn complete_alternatives_precede_policies_and_higher_order_never_becomes_direct(
     let support = CallTargetSupport { assertion: higher.id(),..f.support.clone() };
     let (resolution,_) = CallResolution::new(&f.qualification,higher.site,channel.id(),CallPhase::Call,true,&[higher.clone()]).unwrap();
     let supports = [support];
-    let set = TargetSet::new(&resolution,&f.qualification,&channel,vec![CallCandidate { target: &higher,supports: &supports,..f.candidate() }]).unwrap();
+    let set = SiteTargets::new(vec![TargetSet::new(&resolution,&f.qualification,&channel,vec![CallCandidate { target: &higher,supports: &supports,..f.candidate() }]).unwrap()]).unwrap();
     for policy in [CallPolicy::Invocation,CallPolicy::Dataflow,CallPolicy::Summary] { assert!(set.admitted(policy).is_empty()); }
     assert_eq!(set.admitted(CallPolicy::Association),vec![higher.id()]);
     let arrow = Batch::new(&f.model,vec![higher.clone(),unknown], &budget()).unwrap();
@@ -174,7 +174,7 @@ fn binding_context_and_receiver_varargs_are_explicit() {
     assert!(bind(input(&other)).is_err());
     let mut f = Fixture::new(); f.qualification.modality = Modality::Potential; f.target.qualification = f.qualification.id(); f.support.assertion = f.target.id();
     let (resolution,_) = CallResolution::new(&f.qualification,f.target.site,f.channel.id(),CallPhase::Call,true,&[f.target.clone()]).unwrap();
-    let set = TargetSet::new(&resolution,&f.qualification,&f.channel,vec![f.candidate()]).unwrap();
+    let set = SiteTargets::new(vec![TargetSet::new(&resolution,&f.qualification,&f.channel,vec![f.candidate()]).unwrap()]).unwrap();
     assert!(set.admitted(CallPolicy::Dataflow).is_empty());
     assert!(set.admitted(CallPolicy::Invocation).is_empty());
     assert_eq!(set.admitted(CallPolicy::Association),vec![f.target.id()]);

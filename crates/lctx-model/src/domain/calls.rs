@@ -210,7 +210,7 @@ fn resolve_parameters(signature: &Signature, members: &[SignatureParameter], sha
     }).collect()
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, DomainCode)]
 #[repr(i16)]
 pub enum CallPhase { Call = 0, New = 1, Init = 2, Decorator = 3, PropertyGet = 4, PropertySet = 5, Definition = 6 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
@@ -632,14 +632,119 @@ impl<'a> TargetSet<'a> {
         if alternative_digest(&ids) != resolution.alternatives { return Err(invalid("policy input omits call alternatives")); }
         Ok(Self { resolution,qualification,channel,candidates })
     }
-    pub fn admitted(&self, policy: CallPolicy) -> Vec<Id<CallTarget>> {
-        self.candidates.iter().filter(|candidate| policy.admits(self,candidate)).map(|candidate| candidate.target.id()).collect()
+}
+
+/// Phases that together form one invocation event at a site: constructing `C()` runs `__new__`
+/// and then `__init__`. Every other phase is its own group.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum PhaseGroup { Call, Construct, Decorator, Property, Definition }
+impl PhaseGroup {
+    pub fn of(phase: CallPhase) -> Self {
+        match phase {
+            CallPhase::Call => Self::Call, CallPhase::New | CallPhase::Init => Self::Construct,
+            CallPhase::Decorator => Self::Decorator, CallPhase::PropertyGet | CallPhase::PropertySet => Self::Property,
+            CallPhase::Definition => Self::Definition,
+        }
     }
+}
+/// What every resolution at one site jointly says (C04). Only direct, non-potential alternatives
+/// count. The site is unique when one phase group is present, each of its phases names one symbol
+/// and no alternative is unresolved; differing symbols are a disagreement (cross-provider
+/// equivalence is a later relationship). It is complete only if every direct resolution is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SiteFacts {
+    pub targets: BTreeMap<CallPhase, BTreeSet<Id<ProviderSymbol>>>, pub group: Option<PhaseGroup>,
+    pub unique: bool, pub complete: bool, pub disagreement: bool, pub unresolved: bool,
+}
+pub fn site_facts(sets: &[TargetSet<'_>]) -> SiteFacts {
+    let mut targets: BTreeMap<CallPhase, BTreeSet<Id<ProviderSymbol>>> = BTreeMap::new();
+    let (mut unresolved, mut complete) = (false, true);
+    for set in sets.iter().filter(|set| matches!(set.channel, CallChannel::Direct)) {
+        complete &= set.resolution.complete;
+        for candidate in set.candidates.iter().filter(|c| c.qualification.modality != Modality::Potential) {
+            match candidate.destination {
+                CallDestination::Resolved { symbol } => { targets.entry(candidate.target.phase).or_default().insert(*symbol); },
+                CallDestination::Unresolved { .. } => unresolved = true,
+            }
+        }
+    }
+    let groups: BTreeSet<_> = targets.keys().map(|phase| PhaseGroup::of(*phase)).collect();
+    let disagreement = targets.values().any(|symbols| symbols.len() > 1);
+    SiteFacts { group: (groups.len() == 1).then(|| *groups.first().expect("one group")),
+        unique: groups.len() == 1 && !disagreement && !unresolved, complete: complete && !targets.is_empty(), disagreement, unresolved, targets }
+}
+/// Every resolution at one site. Policies are asked here, never of one resolution alone, so
+/// uniqueness cannot be decided from a filtered or partial view of the site.
+pub struct SiteTargets<'a> { sets: Vec<TargetSet<'a>>, facts: SiteFacts }
+impl<'a> SiteTargets<'a> {
+    pub fn new(sets: Vec<TargetSet<'a>>) -> Result<Self,ModelError> {
+        let first = sets.first().ok_or_else(|| invalid("a call site needs at least one resolution"))?;
+        let (site, context) = (first.resolution.site, first.qualification.context);
+        if sets.iter().any(|set| set.resolution.site != site || set.qualification.context != context) {
+            return Err(invalid("site targets mix call sites or analysis contexts"));
+        }
+        let facts = site_facts(&sets);
+        Ok(Self { sets, facts })
+    }
+    pub fn facts(&self) -> &SiteFacts { &self.facts }
+    pub fn admitted(&self, policy: CallPolicy) -> Vec<Id<CallTarget>> {
+        self.sets.iter().flat_map(|set| set.candidates.iter().filter(move |candidate| policy.admits(set, candidate, &self.facts)).map(|c| c.target.id())).collect()
+    }
+}
+
+/// One provider-native callee report for a call site, before normalization.
+#[derive(Debug, Clone)]
+pub struct NativeCallee {
+    pub phase: CallPhase, pub channel: CallChannel, pub destination: CallDestination,
+    pub receiver: ReceiverEvidence, pub implicit: bool, pub modality: Modality,
+}
+/// The typed rows one site normalizes to: one resolution per (channel, phase) with its complete
+/// alternative membership.
+#[derive(Debug, Default)]
+pub struct NormalizedSite {
+    pub qualifications: Vec<AssertionQualification>, pub channels: Vec<CallChannel>, pub destinations: Vec<CallDestination>,
+    pub receivers: Vec<Receiver>, pub targets: Vec<CallTarget>, pub resolutions: Vec<CallResolution>, pub members: Vec<CallResolutionMember>,
+}
+/// Normalize one provider's callee reports for a site. Receivers are classified only by
+/// `classify_receiver`. A (channel, phase) group is complete only when the provider says so in
+/// `complete`; absence of further callees never implies completeness. An empty report, or an
+/// explicit `unresolved` remainder, adds an unresolved direct call alternative.
+pub fn normalize_site(base: &AssertionQualification, site: Id<Occurrence>, callees: &[NativeCallee],
+    complete: &BTreeSet<(Id<CallChannel>, CallPhase)>, unresolved: Option<ObligationKind>) -> Result<NormalizedSite,ModelError> {
+    let mut groups: BTreeMap<(i64, CallPhase), (CallChannel, Vec<CallTarget>)> = BTreeMap::new();
+    let mut site_rows = NormalizedSite::default();
+    let mut add = |channel: &CallChannel, phase: CallPhase, destination: CallDestination, receiver: Receiver, implicit: bool, modality: Modality, rows: &mut NormalizedSite| {
+        let qualification = AssertionQualification { modality, ..base.clone() };
+        let target = CallTarget { qualification: qualification.id(), site, destination: destination.id(), channel: channel.id(), phase, receiver: receiver.id(), implicit };
+        let order = match channel { CallChannel::Direct => -1, CallChannel::HigherOrder { argument_index } => *argument_index };
+        groups.entry((order, phase)).or_insert_with(|| (channel.clone(), Vec::new())).1.push(target);
+        if !rows.qualifications.contains(&qualification) { rows.qualifications.push(qualification); }
+        if !rows.channels.contains(channel) { rows.channels.push(channel.clone()); }
+        if !rows.destinations.contains(&destination) { rows.destinations.push(destination); }
+        if !rows.receivers.contains(&receiver) { rows.receivers.push(receiver); }
+    };
+    for callee in callees {
+        add(&callee.channel, callee.phase, callee.destination.clone(), classify_receiver(callee.receiver), callee.implicit, callee.modality, &mut site_rows);
+    }
+    if callees.is_empty() || unresolved.is_some() {
+        let reason = unresolved.unwrap_or(ObligationKind::UnresolvedTarget);
+        add(&CallChannel::Direct, CallPhase::Call, CallDestination::Unresolved { reason }, Receiver::Unknown { reason: ObligationKind::AmbiguousBinding },
+            false, base.modality, &mut site_rows);
+    }
+    if !site_rows.qualifications.contains(base) { site_rows.qualifications.push(base.clone()); }
+    for (_, (channel, targets)) in groups {
+        let phase = targets[0].phase;
+        let has_unresolved = targets.iter().any(|t| site_rows.destinations.iter().any(|d| d.id() == t.destination && matches!(d, CallDestination::Unresolved { .. })));
+        let claimed = complete.contains(&(channel.id(), phase)) && !has_unresolved;
+        let (resolution, members) = CallResolution::new(base, site, channel.id(), phase, claimed, &targets)?;
+        site_rows.targets.extend(targets); site_rows.resolutions.push(resolution); site_rows.members.extend(members);
+    }
+    Ok(site_rows)
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CallPolicy { Invocation, Dataflow, Summary, Usage, Association }
 impl CallPolicy {
-    fn admits(self, set: &TargetSet<'_>, candidate: &CallCandidate<'_>) -> bool {
+    fn admits(self, set: &TargetSet<'_>, candidate: &CallCandidate<'_>, site: &SiteFacts) -> bool {
         let target = candidate.target; let qualified = candidate.qualification;
         let ordinary_modality = matches!(qualified.modality,Modality::Definite|Modality::Candidate);
         let origin = |wanted| candidate.supports.iter().any(|support| support.origin == wanted);
@@ -650,7 +755,8 @@ impl CallPolicy {
             Self::Invocation => direct && ordinary_modality && origin(Origin::AnalyzerAssertion)
                 && matches!(target.phase,CallPhase::Call|CallPhase::PropertyGet|CallPhase::PropertySet),
             Self::Dataflow => direct && ordinary_modality && callable && flow_phase,
-            Self::Summary => direct && callable && flow_phase && set.resolution.complete && set.candidates.len() == 1
+            Self::Summary => direct && callable && matches!(target.phase,CallPhase::Call|CallPhase::New|CallPhase::Init)
+                && site.unique && site.complete
                 && set.qualification.modality == Modality::Definite && set.qualification.approximation == Approximation::Exact
                 && qualified.modality == Modality::Definite && qualified.approximation == Approximation::Exact
                 && !matches!(candidate.receiver,Receiver::Unknown { .. }),
