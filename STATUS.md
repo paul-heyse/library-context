@@ -12,7 +12,8 @@ _Updated 2026-09-29 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
   Arrow codecs, subtype references, model validation and typed scheduling. Source/provider/support/
   coverage subset round-trips through ordinary PostgreSQL generation schemas. Content manifests,
   acquisition/verification/ownership, source bounds and invocation family membership have sealed
-  model-owned invariants. Indexed occurrence attachment preserves ambiguity.
+  model-owned invariants. Indexed occurrence attachment preserves ambiguity. Batches deduplicate
+  in place and canonical readback shares Arrow buffers; resource qualification remains open.
 - **Store foundation:** COPY, write-draining seal, stored validation, atomic publication, pool-bound
   reader leases, selection/retirement and failed-attempt cleanup. Not wired into compiler/CLI.
 - **Still open:** remaining domain families and implementation of the 57-family raw-field inventory, semantic policies,

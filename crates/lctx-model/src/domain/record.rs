@@ -1,4 +1,4 @@
-use std::{any::TypeId, collections::HashMap, sync::Arc};
+use std::{any::TypeId, sync::Arc};
 use arrow_array::RecordBatch;
 use arrow_schema::{DataType, Field as ArrowField, Schema, SchemaRef};
 use super::{ContentHash, Id, Key, ModelError, ValidatedModel};
@@ -116,26 +116,30 @@ pub trait Record: Sized + Clone + PartialEq + std::fmt::Debug + Send + Sync + 's
 #[derive(Debug)]
 pub struct Batch<R: Record> { rows: Vec<R>, arrow: RecordBatch }
 impl<R: Record> Batch<R> {
-    pub fn new(model: &ValidatedModel, rows: Vec<R>) -> Result<Self, ModelError> {
+    pub fn new(model: &ValidatedModel, mut rows: Vec<R>) -> Result<Self, ModelError> {
         model.require::<R>()?;
-        let mut unique = HashMap::new();
-        let mut canonical = Vec::new();
-        for row in rows {
-            row.validate()?;
-            let key = row.key();
-            if let Some(old) = unique.get(&key) {
-                if old != &row { return Err(ModelError::Conflict(R::NAME)); }
-            } else {
-                unique.insert(key, row.clone());
-                canonical.push(row);
-            }
-        }
-        canonical.sort_by_key(Record::id);
-        let arrow = R::encode(&canonical)?;
-        Ok(Self { rows: canonical, arrow })
+        for row in &rows { row.validate()?; }
+        rows.sort_unstable_by_key(Record::id);
+        let mut conflict = false;
+        rows.dedup_by(|a, b| {
+            if a.id() != b.id() { return false; }
+            conflict |= a != b;
+            true
+        });
+        if conflict { return Err(ModelError::Conflict(R::NAME)); }
+        let arrow = R::encode(&rows)?;
+        Ok(Self { rows, arrow })
     }
     pub fn read(model: &ValidatedModel, arrow: &RecordBatch) -> Result<Self, ModelError> {
-        Self::new(model, R::decode(arrow)?)
+        model.require::<R>()?;
+        let rows = R::decode(arrow)?;
+        if rows.windows(2).all(|pair| pair[0].id() < pair[1].id()) {
+            // A canonical stored batch already has the correct physical representation.
+            // Share its Arrow buffers instead of constructing another encoded copy.
+            Ok(Self { rows, arrow: arrow.clone() })
+        } else {
+            Self::new(model, rows)
+        }
     }
     pub fn rows(&self) -> &[R] { &self.rows }
     pub fn arrow(&self) -> &RecordBatch { &self.arrow }

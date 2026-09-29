@@ -11,6 +11,7 @@ fn production_records_round_trip_explicit_schema() {
     let batch = Batch::new(&model, vec![source.clone()]).unwrap();
     let roundtrip = Batch::<SourceArtifact>::read(&model, batch.arrow()).unwrap();
     assert_eq!(roundtrip.rows(), &[source]);
+    assert!(std::sync::Arc::ptr_eq(&roundtrip.arrow().columns()[0], &batch.arrow().columns()[0]));
     let context = AnalysisContext { python_version: "3.14".into(), python_platform: "linux".into(), search_path: vec!["src".into(), "stubs".into()], site_package_path: vec![], config_digest: ContentHash::of(b"config"), environment_digest: ContentHash::of(b"env"), lock_digest: None };
     let batch = Batch::new(&model, vec![context.clone()]).unwrap();
     assert_eq!(Batch::<AnalysisContext>::read(&model, batch.arrow()).unwrap().rows(), &[context]);

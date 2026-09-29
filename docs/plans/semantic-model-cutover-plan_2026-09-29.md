@@ -349,6 +349,9 @@ and has an independent scalar oracle; normalized ownership remains open.
 The [bounded input review](../design_review/reviews/design_review_semantic-input-validation_2026-09-29.md)
 accepted its corrections by source inspection. Coordinated allocation budgets, provider-stream
 integration and the complete validator manifest remain open.
+Typed batches now deduplicate in place, record encoders borrow payload fields, and canonical typed
+readback shares Arrow buffers. Focused domain/PG/doc controls passed after this allocation reduction;
+it does not establish a measured memory envelope or close input-validation F02.
 
 **Still open:** implement the raw-field mappings in §4.1.2 and remaining domain families; P0.4 remaining semantic policies and normalized
 ownership; stage runtime/session enforcement; bounded large-table reads; complete store/CLI commands;

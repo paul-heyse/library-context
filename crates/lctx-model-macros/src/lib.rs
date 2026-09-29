@@ -72,6 +72,7 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
     let name = &input.ident;
     let key_name = format_ident!("{}Key", name);
     let physical = format_ident!("__{}Physical", name);
+    let physical_ref = format_ident!("__{}PhysicalRef", name);
     let vis = &input.vis;
     let semantic_source = semantic_source.map(|expr| quote!(#expr)).unwrap_or_else(|| quote!(b""));
     let validation = validator.map(|v| quote! { #v(self)?; });
@@ -89,6 +90,12 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
         struct #physical {
             id: ::lctx_model::domain::Id<#name>,
             #(#names: #types,)*
+        }
+        #[derive(::lctx_model::domain::__private::serde::Serialize)]
+        #[serde(crate = "::lctx_model::domain::__private::serde")]
+        struct #physical_ref<'a> {
+            id: ::lctx_model::domain::Id<#name>,
+            #(#names: &'a #types,)*
         }
         impl ::lctx_model::domain::Record for #name {
             type Key = #key_name;
@@ -109,9 +116,9 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
                 Ok(())
             }
             fn encode(rows: &[Self]) -> Result<::lctx_model::domain::__private::RecordBatch, ::lctx_model::domain::ModelError> {
-                let physical = rows.iter().map(|row| #physical {
+                let physical = rows.iter().map(|row| #physical_ref {
                     id: <Self as ::lctx_model::domain::Record>::id(row),
-                    #(#names: row.#names.clone(),)*
+                    #(#names: &row.#names,)*
                 }).collect::<Vec<_>>();
                 ::lctx_model::domain::__private::serde_arrow::to_record_batch(
                     Self::schema().fields(), &physical
