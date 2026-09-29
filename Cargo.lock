@@ -4459,11 +4459,10 @@ dependencies = [
  "cpg-schema",
  "fs-err",
  "getrandom 0.3.4",
- "lctx-analytics",
- "lctx-embed",
  "lctx-workspace-hack",
  "serde_json",
  "tempfile",
+ "thiserror 2.0.20",
  "tikv-jemallocator",
  "tokio",
 ]

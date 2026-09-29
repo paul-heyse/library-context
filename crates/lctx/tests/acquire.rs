@@ -147,18 +147,26 @@ fn reinstall_rebuilds_every_package() {
     assert_eq!(args.last().map(String::as_str), Some("--reinstall"));
 }
 
-/// `compile --reinstall` reaches `uv sync --reinstall` (H1 C4: the hand parser accepted the flag
-/// and `compile` dropped it). The stub environment is not a real one, so the compile stops at
-/// Stage A; the recorded `uv` call is the assertion.
+/// Until cutover phase 2, `compile` is unavailable: it exits 3 before doing any work, so neither
+/// `uv` nor `git` runs, whatever arguments the retired pipeline accepted (plan P1.1).
 #[test]
-fn compile_honours_reinstall() {
-    let (_, args, _, _) = run_with(
-        &["compile", "demo", "--store", "/nonexistent-store"],
-        &["--reinstall", "--embedder", "none"],
-        "",
-    );
-    assert_eq!(args.first().map(String::as_str), Some("sync"));
-    assert_eq!(args.last().map(String::as_str), Some("--reinstall"));
+fn compile_is_unavailable_and_never_acquires() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(dir.path()).unwrap();
+    stub(&root);
+    stub_git(&root);
+    let path = format!("{}:{}", root.display(), std::env::var("PATH").unwrap_or_default());
+    for extra in [&[][..], &["--store", "/nonexistent-store", "--reinstall", "--embedder", "none"][..]] {
+        let output = Command::new(env!("CARGO_BIN_EXE_lctx"))
+            .args(["compile", "demo"]).args(extra)
+            .arg("--libraries").arg(root.join("libraries"))
+            .env("PATH", &path).env("STUB_OUT", &root)
+            .output().unwrap();
+        assert_eq!(output.status.code(), Some(3), "{}", String::from_utf8_lossy(&output.stderr));
+        assert!(String::from_utf8_lossy(&output.stderr).contains("unavailable until cutover phase 2"));
+    }
+    assert!(!root.join("args").exists(), "uv never ran");
+    assert!(!root.join("git-args").exists(), "git never ran");
 }
 
 #[test]

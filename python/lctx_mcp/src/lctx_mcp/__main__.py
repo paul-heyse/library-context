@@ -8,10 +8,20 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 from pathlib import Path
 
 
+UNAVAILABLE = 3
+
+
 def main(argv: list[str] | None = None) -> None:
+    """Serving is suspended by the semantic-model cutover until phase 5 (plan P1.1)."""
+    print("lctx-mcp: unavailable until cutover phase 5 serves typed generations", file=sys.stderr)
+    raise SystemExit(UNAVAILABLE)
+
+
+def serve(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="lctx-mcp", description=__doc__)
     parser.add_argument(
         "--config", type=Path, default=Path.home() / ".config/library-context/postgres-serving.json"

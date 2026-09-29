@@ -96,20 +96,8 @@ fixtures-check:
     uv run python -c 'import ast,sys; [ast.parse(open(f,"rb").read(), f) for f in sys.argv[1:]]' "${files[@]}"
     echo "fixtures-check: ${#files[@]} files parse"
 
-# The real-library oracle (ADR-0046): acquire the FastMCP pilot from libraries/fastmcp, then
-# extract, derive, validate and publish a snapshot into build/store. First run needs the network.
-pilot store="build/store" log="build/pilot.log" serving_config="" profile="catalog":
-    cargo build --release -p lctx --quiet
-    target/release/lctx compile fastmcp --store {{store}} --embedder fake --profile {{profile}} | tee {{log}}
-    target/release/lctx serving import-bundle --bundle "$(grep '^generation ' {{log}} | cut -d' ' -f2)"
-    uv run python -m lctx_mcp.smoke "$(grep '^generation ' {{log}} | cut -d' ' -f2)" --embedder fake {{ if serving_config != "" { "--config " + serving_config } else { "" } }}
-
-# The same compile with live vectors: needs `just embed-serve` running (else `blocked`)
-pilot-live store="build/store" log="build/pilot-live.log" serving_config="" profile="catalog":
-    cargo build --release -p lctx --quiet
-    target/release/lctx compile fastmcp --store {{store}} --embedder vllm --profile {{profile}} | tee {{log}}
-    target/release/lctx serving import-bundle --bundle "$(grep '^generation ' {{log}} | cut -d' ' -f2)"
-    uv run python -m lctx_mcp.smoke "$(grep '^generation ' {{log}} | cut -d' ' -f2)" --embedder vllm {{ if serving_config != "" { "--config " + serving_config } else { "" } }}
+# `just pilot` (the Delta compile, serving import and MCP smoke) is retired with the old pipeline
+# (plan P1.1). The facts pilots for both profiles return at plan Q.
 
 # The embedding service (DESIGN §11.1, ADR-0080): the gpu-stack SM120 wheel from services/vllm
 # project, serving Qwen3-Embedding-8B at its pinned revision on the local GPU

@@ -660,6 +660,14 @@ Envelope (Measured, [evidence](../design_review/evidence/2026-09-29_p0e-subset-e
 - a refutation under partial coverage is Unknown(`IncompleteCoverage`);
 - a Candidate composed flow is Unknown while its Definite twin is Established (P0 exit F01; C09) |
 | X0: assembled P0 exit review ([report](../design_review/reviews/design_review_p0-exit_2026-09-29.md)) | **Accept scoped** 2026-09-29 after the F01 re-inspection at `7595557`. Scenarios 1, 2 (routed to P3), 4, 6 and 7 are accepted at contract level, Implemented and focused-Tested. Excluded: scenario 3 (the P4 composition engine; P0 exit F03 with composition F04/F06/F07; trigger: P4 engine design or the first `compose_site` caller outside tests) and scenario 5's store-side enforcement (P0 exit F02, P1.7). The reviewer ran `cargo test --release -p lctx-model` (159 passed, 1 ignored) and the F01 suites; PG suites rely on the dated receipts above. Review acceptance is not release qualification |
+| P1.1: `cargo test --release -p lctx`; `python -m lctx_mcp`, `python -m lctx_mcp.smoke`, `lctx flow`, `lctx compile`; `just build-features`; `cargo check --workspace --all-targets` | passed 2026-09-29:
+- `compile` exits 3 with any retired arguments, and neither the `uv` nor the `git` stub runs;
+- retired commands no longer parse;
+- `acquire` controls pass (frozen, config-free, hermetic source fetch);
+- `lctx flow` prints its JSON;
+- both MCP entry points exit 3;
+- no Hakari change;
+- the workspace compiles, with `lctx-analytics`/`lctx-embed` still members |
 | `just fmt`, `just test-all`, facts pilots | not_run: functional scope incomplete |
 
 Independent bounded reviewers accepted artifact/capture/acquisition corrections and the

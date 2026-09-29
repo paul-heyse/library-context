@@ -1,66 +1,60 @@
 # Status
 
-_Updated 2026-09-29 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main; detailed P0–P2 execution accepted._
+_Updated 2026-09-29 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main; phase 0 accepted (scoped), phase 1 started._
 
-## Restart checkpoint: semantic model phases 0–2
+## Restart checkpoint: semantic model cutover
 
 - **Accepted target:** ADR-0085 typed definitions, ADR-0086 immutable PostgreSQL generations,
-  ADR-0087 no compatibility, ADR-0088 canonical chunks. **No phase exit is qualified.**
-- Stopped at the user's restart boundary after completing local guard and transaction corrections.
-  [Cutover plan §4.2](docs/plans/semantic-model-cutover-plan_2026-09-29.md#42-execution-status)
-  owns detailed implementation/verification limits; §8 owns findings. Phase 0 remains reopened.
-- **Implemented foundation:** nominal records/sums/assertions, generated Arrow/PG lowerings,
-  captured inputs/chunks, occurrence BDDs, qualified calls, transfers, derivations and attachments.
-- **Stage/store:** one execution-bound sink; exact successful output receipts, including empty output.
-  Generation transactions acknowledge rollback on refusal; active COPY explicitly aborts first.
-  Failed finalization remains unconfirmed. Explicit reader release acknowledges unlock/close.
-- **Representative domains:** lexical, document, raw flow, structural type and deployment records
-  preserve attributed alternatives, transitive source ownership and opaque/display-only fidelity.
-  These are contract fixtures, not complete migrated producers. Bounded reviews accepted corrections.
-- **Guards:** typed invocation origins preserve distinct/nested caller sites; shared construction and
-  stored checks refuse unsupported formal/receiver rebasing. Source checks follow the full lineage.
-- **Ownership/allocation:** shared assertion/coverage scope policy; borrowed identity hashing and
-  streamed codecs remove known intermediates. Complete allocation/RSS accounting remains open.
-- **Authorized scope:** model/store/facts; downstream runtime suspends at P1 until P3–5.
-  The old pipeline remains active. No compatibility adapter or old-ID bridge was introduced.
+  ADR-0087 no compatibility, ADR-0088 canonical chunks, ADR-0089 stage contributions and input
+  closure. [Cutover plan §4.1.1](docs/plans/semantic-model-cutover-plan_2026-09-29.md) owns the order;
+  §4.2 owns dated receipts; §8 owns finding dispositions.
+- **Phase 0 is complete and its exit review is Accept scoped** (2026-09-29,
+  [P0 exit review](docs/design_review/reviews/design_review_p0-exit_2026-09-29.md), F01 re-inspected
+  at `7595557`). It excludes the P4 composition engine (P0 exit F03, composition F04/F06/F07) and
+  store-side frontier enforcement (P0 exit F02, P1.7). No phase is release-qualified.
+- **Phase 0 contracts (Implemented, focused-Tested):**
+  - resources: reserved batches, charged validators, the Ruff traversal bound (R1–R3);
+  - stages and `MemoryGeneration` (D0); declarations, call-site facts and the owner rule (C1–C3);
+  - witnessed whole-call composition with `Entry` ports (C4–C5r); old semantics deleted (C6);
+  - the facts frontier and admission (D1);
+  - modality-aware verdicts (X0 F01);
+  - the capture and syntax subset (E1), measured in
+    [evidence](docs/design_review/evidence/2026-09-29_p0e-subset-envelope/README.md).
+- **P1.1 (committed with this handoff):** `lctx` keeps `library`, `acquire`,
+  `deployment-identity`, `flow` and `runs`, and `compile` exits 3. Removed: the Delta, serving and
+  parity commands, the `lctx-analytics`/`lctx-embed` dependencies and the pilot recipes.
+  `lctx_mcp` and its smoke check exit 3.
 
 ## Focused verification (2026-09-29)
 
-Cargo commands use `python3 scripts/build_environment.py --`; receipts are bounded.
-Earlier domain/capture/producer/runtime receipts remain in plan §4.2.
+Cargo commands use `python3 scripts/build_environment.py --`; per-slice receipts: plan §4.2.
 
 | Command | Outcome |
 |---|---|
-| `cargo test --release -p lctx-model --test domain_types --test domain_assertions` | passed: four type and three assertion controls |
-| `cargo test --release -p lctx-postgres --test domain_types` | passed: real PG18 four-case type test |
-| `cargo test --release -p lctx-model --test domain_deployment` | passed: three controls |
-| `cargo test --release -p lctx-postgres --test domain_deployment` | passed: three-case contract and two-reader release controls |
-| `cargo test --release -p lctx-model --test domain_guard_rebase` | passed after F02: five controls |
-| `cargo test --release -p lctx-postgres --test domain_guard_rebase` | passed after F02: real PG18 eight-case test |
-| `cargo test --release -p lctx-postgres --test domain_guard_rebase --test domain_transfer --test generation_stages --test generations` | passed after rollback/COPY correction: five tests incl. active COPY refusal and 65 MiB; before final guard F02, separately rerun above |
-| `cargo check -p lctx-postgres`; `cargo check -p cpg-extract -p cpg-core` | passed; final guard F02 subsequently compiled by its tests |
-| `just docs-check` | passed: 197 canonical pages, zero link errors |
-| `just fmt`, `just test-all`, facts pilots | not_run: functional scope incomplete |
+| `cargo test --release -p lctx-model` (all suites, incl. admission, composition, verdicts) | passed at `7595557` |
+| `-p lctx-postgres --test domain_composition --test domain_stability --test generations --test generation_stages` | passed (real PG18), at the slices that last changed them |
+| `-p cpg-extract --test typed_conformance --test typed_limits --test typed_owner` | passed at `c4c7cba` (incl. PG18 conformance generation) |
+| `cargo test --release -p lctx` (P1.1 working tree) | passed: 5 unit, 5 `acquire` incl. compile exits 3 and never runs `uv`/`git` |
+| `lctx_mcp`, `lctx_mcp.smoke`, `lctx flow`, `lctx compile`; `just build-features` (P1.1) | exit 3, exit 3, JSON, exit 3; no Hakari change |
+| `cargo check --workspace --all-targets` | passed on the P1.1 tree |
+| `just fmt`, `just test-all`, `just docs-check`, facts pilots | not_run: functional scope incomplete (P0–P2) |
+
+## Known open items
+
+- P0 exit F02 (frontier-scoped schemas; typed `Frontier` read refusal) and F07 (typed store
+  failures) are written into P1.7's controls. C01 and C02 are routed to P1.7/P1.10.
+- Input-validation F02 is narrowed to A0, P1.9/P1.10 and Q. Other routed findings (resource review, composition review, P0 exit F03–F08) are in plan §8.
+- Two concurrent rust-analyzer flychecks deadlock on build-unit locks (hung twice on 2026-09-29 and
+  terminated). If builds hang with no `rustc` running, look for them.
 
 ## Resume here
 
-The operator accepted the detailed remaining execution on 2026-09-29; [cutover plan
-§4.1.1](docs/plans/semantic-model-cutover-plan_2026-09-29.md#411-detailed-remaining-execution-order)
-owns the package order, controls and focused commands, and records the operator decisions:
-downstream crates/modules stay dormant but compiling, `cpg-schema` survives P2, behavioral
-dependency context defers to P4.
-
-1. **P0:** R1 reserved batches and bounded writer → R2 charged validators → K1 contract amendments
-   (ADR-0089 draft) → D0 stage contributions/handoffs → C1–C6 declarations, call-site facts, owner
-   rule, stability witnesses, whole-call composition, old-semantics deletion → R3 Ruff work bound →
-   D1 facts frontier contract → E1 stage-bound subset → X0 assembled P0 review.
-2. **P1:** P1.1–P1.13 CLI quiesce, partition/Delta removal (ADR-0090), service baseline, generated
-   install/check/reset, attempt-owned lifecycle, catalog, provider fork and sessions, CLI, ops,
-   operator-confirmed database transition.
-3. **P2:** A0 provider framework → A1–A16 producer groups → B1–B3 assembler, attachment/determinism,
-   fixture corpus → Dc `compile --through facts` → C1x–C3x selective deletion → Q qualification.
-
-Execution is native with bounded `design-reviewer` reviews on the named slices. Pushing the fork,
-the operator-database transition and deleting `build/` runtime copies are confirmed at the time.
-Run formatting and integrated gates only after all authorized functional scope is implemented;
-bounded review acceptance does not qualify the enclosing architecture.
+1. P1.2–P1.13 in plan order.
+   - P1.2 removes the partition kernel and parity adapters, P1.3 the Delta runtime, and P1.4 the
+     delta-rs family (ADR-0090 supersedes ADR-0002).
+   - Then the service baseline, generated install/check/reset, the attempt-owned lifecycle (with P0
+     exit F02/F07), the catalog, the provider fork and sessions, the CLI, ops, and the operator
+     database transition.
+   - The operator authorized the fork push, the database transition and `build/` copy deletion
+     without further confirmation (2026-09-29).
+2. P2 (A0 … C3x), then Q qualification. The bounded reviews named in §4.1.1 continue.

@@ -133,6 +133,12 @@ async def smoke(
 
 
 def main(argv: list[str] | None = None) -> None:
+    """The smoke check is suspended with serving until cutover phase 5 (plan P1.1)."""
+    print("lctx_mcp.smoke: unavailable until cutover phase 5 serves typed generations", file=sys.stderr)
+    sys.exit(3)
+
+
+def run(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="lctx_mcp.smoke", description=__doc__)
     parser.add_argument("generation", type=Path)
     parser.add_argument(

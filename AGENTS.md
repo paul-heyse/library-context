@@ -94,8 +94,8 @@ real consumer.
 |---|---|
 | During a design/implementation phase | Compile checks (`cargo check`/`cargo build` on the touched crates) and targeted tests or probes for the scope just implemented. No formatting, linting or integrated gate after a slice or commit. |
 | After all functional scope in the plan is implemented | `just fmt`, then `just test-all`: fmt-check, clippy `-D warnings`, release-profile nextest, pytest + pyrefly, rules, ADR/agent lint, fixture parsing, `just deps` and `just gold` |
-| The real library, end to end | `just pilot`: `lctx compile fastmcp` (release build) into `build/store`, printing rows and per-stage time and peak RSS. Run at the integrated end; report `not_run` for interim slices. |
-| Inspect a published snapshot | `target/release/lctx query --store build/store --snapshot <hex> "SQL"` (read-only; every table by name at its recorded version) |
+| The real library, end to end | Unavailable during the cutover: `lctx compile` exits 3 until phase 2's `--through facts`; the facts pilots return at plan Q. Report `not_run`. |
+| Inspect a generation | Arrives with plan P1.11 (`lctx query --generation <id> "SQL"`); the Delta `lctx query` is retired |
 | Add or upgrade a library | `lctx library init <name> --requirement '<req>'`; upgrade with `uv lock --project libraries/<name> --upgrade-package <dist>` (`libraries/README.md`) |
 | Format (mutating) | `just fmt`, once at the end of the scope (above) |
 | Dependency policy | `just deps`: one version each of Arrow/DataFusion/object_store/delta-rs/ruff/pyrefly/blake3, cargo-deny, and the Pyrefly fork check (tag + patch, classified env reads) |
@@ -162,7 +162,7 @@ capability is absent.
 
 - **During implementation, only compile checks and targeted tests.** Validate each new piece of
   scope with a compile check and the focused tests or probes that exercise it. Integrated tests
-  (`just test`, `just check`, `just test-all`, `just pilot`) wait until all functional scope in
+  (`just test`, `just check`, `just test-all`, facts pilots) wait until all functional scope in
   the plan is implemented; repeat them only for a failure or a subsequent material change.
 - **No formatting or linting until all functional scope is implemented.** Don't run `just fmt`,
   `cargo fmt`, `ruff format`, `cargo clippy`, `ruff check` or `pyrefly check` mid-plan: they add
