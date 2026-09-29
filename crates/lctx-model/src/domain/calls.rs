@@ -248,10 +248,130 @@ pub struct CallTarget {
     #[model(key)] pub implicit: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ArgumentKind { Positional, Starred, Keyword, DoubleStarred, Implicit }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
+#[repr(i16)]
+pub enum ArgumentKind { Positional = 0, Starred = 1, Keyword = 2, DoubleStarred = 3, Implicit = 4 }
+/// A producer's view of one argument before it becomes a stored `CallArgument`.
 #[derive(Debug, Clone)]
 pub struct Actual { pub occurrence: Id<Occurrence>,pub kind: ArgumentKind,pub keyword: Option<String> }
+
+/// A provider's syntax for one call site: its callee expression and complete ordered argument list.
+/// Arguments are relationship rows; the digest fixes their membership and order.
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[model(name = "call_syntax", invariants = call_syntax_invariants)]
+#[assertion(support = CallSyntaxSupport, name = "call_syntax_supports", family = FactFamily::Syntax, subjects(site, callee))]
+pub struct CallSyntax {
+    #[model(key)] pub qualification: Id<AssertionQualification>,
+    #[model(key)] pub site: Id<Occurrence>,
+    #[model(key)] pub callee: Id<Occurrence>,
+    #[model(key)] pub arguments: ContentHash,
+    #[model(key)] pub in_annotation: bool,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[model(name = "call_arguments", validate = validate_argument)]
+pub struct CallArgument {
+    #[model(key)] pub call: Id<CallSyntax>,
+    #[model(key)] pub ordinal: i64,
+    pub kind: ArgumentKind,
+    pub keyword: Option<String>,
+    pub value: Id<Occurrence>,
+}
+fn validate_argument(row: &CallArgument) -> Result<(),ModelError> {
+    if row.ordinal < 0 || (row.kind == ArgumentKind::Keyword) != row.keyword.is_some() || row.keyword.as_deref() == Some("") {
+        return Err(invalid("call argument needs a nonnegative ordinal and a keyword exactly when keyword-passed"));
+    }
+    Ok(())
+}
+#[derive(Default)]
+struct ArgumentDigest { sink: Option<KeySink>, count: i64 }
+impl ArgumentDigest {
+    fn push(&mut self, kind: ArgumentKind, keyword: &Option<String>, value: Id<Occurrence>) {
+        let sink = self.sink.get_or_insert_with(|| KeySink::new("call-arguments"));
+        self.count.encode(sink); kind.encode(sink); keyword.encode(sink); value.encode(sink);
+        self.count += 1;
+    }
+    fn finish(self) -> ContentHash {
+        let mut sink = self.sink.unwrap_or_else(|| KeySink::new("call-arguments"));
+        self.count.encode(&mut sink); sink.finish()
+    }
+}
+impl CallSyntax {
+    pub fn new(qualification: Id<AssertionQualification>, site: Id<Occurrence>, callee: Id<Occurrence>, in_annotation: bool, actuals: &[Actual])
+        -> Result<(Self, Vec<CallArgument>),ModelError> {
+        let mut digest = ArgumentDigest::default();
+        for actual in actuals { digest.push(actual.kind, &actual.keyword, actual.occurrence); }
+        let call = Self { qualification, site, callee, arguments: digest.finish(), in_annotation };
+        let arguments = actuals.iter().enumerate().map(|(ordinal, actual)| CallArgument { call: call.id(), ordinal: ordinal as i64,
+            kind: actual.kind, keyword: actual.keyword.clone(), value: actual.occurrence }).collect::<Vec<_>>();
+        for argument in &arguments { argument.validate()?; }
+        Ok((call, arguments))
+    }
+    /// The complete ordered arguments of this call, or a refusal if any is missing or foreign.
+    pub fn actuals(&self, arguments: &[CallArgument]) -> Result<Vec<Actual>,ModelError> {
+        let mut digest = ArgumentDigest::default();
+        for (ordinal, argument) in arguments.iter().enumerate() {
+            if argument.call != self.id() || argument.ordinal != ordinal as i64 { return Err(invalid("call arguments are foreign or out of order")); }
+            digest.push(argument.kind, &argument.keyword, argument.value);
+        }
+        if digest.finish() != self.arguments { return Err(invalid("call arguments differ from the call's declared membership")); }
+        Ok(arguments.iter().map(|a| Actual { occurrence: a.value, kind: a.kind, keyword: a.keyword.clone() }).collect())
+    }
+}
+fn call_syntax_invariants() -> Vec<Invariant> {
+    vec![Invariant { name: "call_syntax_membership", inputs: vec![ValidationInput::of::<Occurrence>(&["id"]),
+        ValidationInput::of::<CallSyntax>(&["id"]), ValidationInput::of::<CallArgument>(&["call","ordinal"])],
+        create: std::sync::Arc::new(|budget| Box::new(CallSyntaxCheck { charge: StateCharge::new(budget,"call_syntax_membership"),..Default::default() })) }]
+}
+type Span = (Id<SourceArtifact>, i64, i64, bool);
+#[derive(Default)]
+struct CallSyntaxCheck {
+    charge: StateCharge, occurrences: ChargedMap<Id<Occurrence>, Span>,
+    expected: ChargedMap<Id<CallSyntax>, (ContentHash, Id<Occurrence>)>, current: Option<(Id<CallSyntax>, ArgumentDigest)>,
+}
+impl CallSyntaxCheck {
+    fn span(&self, id: Id<Occurrence>) -> Result<Span,ModelError> { self.occurrences.get(&id).copied().ok_or_else(|| invalid("call syntax occurrence absent")) }
+    fn inside(&self, child: Id<Occurrence>, site: Id<Occurrence>) -> Result<(),ModelError> {
+        let ((source, start, end, _), (site_source, site_start, site_end, _)) = (self.span(child)?, self.span(site)?);
+        if source != site_source || start < site_start || end > site_end { return Err(invalid("call syntax part lies outside its call site")); }
+        Ok(())
+    }
+    fn flush(&mut self) -> Result<(),ModelError> {
+        if let Some((call, digest)) = self.current.take() {
+            let (expected, _) = self.expected.remove(&mut self.charge, &call).ok_or_else(|| invalid("call arguments name an absent or repeated call"))?;
+            if digest.finish() != expected { return Err(invalid("call arguments differ from the call's declared membership")); }
+        }
+        Ok(())
+    }
+}
+impl InvariantCheck for CallSyntaxCheck {
+    fn visit(&mut self, relation: &str, batch: &arrow_array::RecordBatch) -> Result<(),ModelError> {
+        if relation == Occurrence::NAME { for row in Occurrence::decode(batch)? {
+            let call = row.syntax_kind == SyntaxKind::ExprCall || row.role == OccurrenceRole::Call;
+            self.occurrences.insert(&mut self.charge, row.id(), (row.source, row.start, row.end, call))?;
+        } }
+        else if relation == CallSyntax::NAME { for row in CallSyntax::decode(batch)? {
+            if !self.span(row.site)?.3 { return Err(invalid("call syntax site is not a call occurrence")); }
+            self.inside(row.callee, row.site)?;
+            self.expected.insert(&mut self.charge, row.id(), (row.arguments, row.site))?;
+        } }
+        else if relation == CallArgument::NAME { for row in CallArgument::decode(batch)? {
+            if self.current.as_ref().is_none_or(|(call, _)| *call != row.call) { self.flush()?; self.current = Some((row.call, ArgumentDigest::default())); }
+            let site = self.expected.get(&row.call).ok_or_else(|| invalid("call argument names an absent call"))?.1;
+            self.inside(row.value, site)?;
+            let (_, digest) = self.current.as_mut().expect("current call");
+            if row.ordinal != digest.count { return Err(invalid("call arguments have gaps or repeats")); }
+            digest.push(row.kind, &row.keyword, row.value);
+        } }
+        else { return Err(invalid("undeclared call syntax input")); }
+        Ok(())
+    }
+    fn finish(mut self: Box<Self>) -> Result<(),ModelError> {
+        self.flush()?;
+        let empty = ArgumentDigest::default().finish();
+        if self.expected.values().any(|(digest, _)| *digest != empty) { return Err(invalid("call syntax is missing arguments")); }
+        Ok(())
+    }
+}
 /// Call-shape binding does not evaluate defaults or certify normal completion. A Default source
 /// names the definition-time slot; value transfer needs its separately proven value/certificate.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -290,10 +410,13 @@ pub struct BindingInput<'a> {
     pub signature_qualification: &'a AssertionQualification, pub destination: &'a CallDestination, pub channel: &'a CallChannel,
     pub receiver: &'a Receiver, pub signature: &'a Signature,
     pub parameters: &'a [SignatureParameter], pub shapes: &'a BTreeMap<Id<ParameterShape>,ParameterShape>,
-    pub actuals: &'a [Actual],
+    /// The call's syntax and its complete ordered argument set; a partial set refuses.
+    pub call: &'a CallSyntax, pub arguments: &'a [CallArgument],
 }
 pub fn bind(input: BindingInput<'_>) -> Result<BoundCall,ObligationKind> {
-    let BindingInput { target,qualification,signature_qualification,destination,channel,receiver,signature,parameters,shapes,actuals } = input;
+    let BindingInput { target,qualification,signature_qualification,destination,channel,receiver,signature,parameters,shapes,call,arguments } = input;
+    if call.site != target.site { return Err(ObligationKind::MissingEvidence); }
+    let actuals = &call.actuals(arguments).map_err(|_| ObligationKind::MissingEvidence)?;
     if target.qualification != qualification.id() || signature.qualification != signature_qualification.id()
         || qualification.context != signature_qualification.context
         || target.destination != destination.id() || target.channel != channel.id() || target.receiver != receiver.id()

@@ -10,6 +10,7 @@ pub mod flow;
 pub mod types;
 pub mod deployment;
 pub mod calls;
+pub mod declarations;
 pub mod transfer;
 pub mod derivation;
 pub mod artifact;
@@ -163,6 +164,9 @@ pub fn model() -> Result<ValidatedModel, ModelError> {
         Relation::of::<CallChannel>(), Relation::of::<CallDestination>(), Relation::of::<Receiver>(),
         Relation::of::<CallTarget>(), Relation::of::<CallTargetSupport>(),
         Relation::of::<CallResolution>(), Relation::of::<CallResolutionMember>(), Relation::of::<CallResolutionSupport>(),
+        Relation::of::<CallSyntax>(), Relation::of::<CallSyntaxSupport>(), Relation::of::<CallArgument>(),
+        Relation::of::<declarations::SymbolDeclaration>(), Relation::of::<declarations::SymbolDeclarationSupport>(),
+        Relation::of::<declarations::ParameterDeclaration>(), Relation::of::<declarations::ParameterDeclarationSupport>(),
         Relation::of::<AssertionQualification>(), Relation::of::<ProviderSurface>(), Relation::of::<Evidence>(),
         Relation::of::<Literal>(), Relation::of::<LiteralSet>(), Relation::of::<LiteralSetMember>(),
         Relation::of::<PlaceRoot>(), Relation::of::<PathSegment>(), Relation::of::<AccessPath>(), Relation::of::<Place>(),

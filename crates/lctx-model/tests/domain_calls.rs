@@ -38,6 +38,10 @@ impl Fixture {
     }
     fn candidate(&self) -> CallCandidate<'_> { CallCandidate { target: &self.target,qualification: &self.qualification,
         destination: &self.destination,symbol: Some(&self.symbol),receiver: &self.receiver,supports: std::slice::from_ref(&self.support) } }
+    /// The call's syntax and complete ordered arguments, asserted by the fixture's qualification.
+    fn call(&self, actuals: &[Actual]) -> (CallSyntax,Vec<CallArgument>) {
+        CallSyntax::new(self.qualification.id(),self.target.site,occurrence(99).id(),false,actuals).unwrap()
+    }
     fn signature(&self, parameters: &[ParameterShape]) -> (Signature,Vec<SignatureParameter>,BTreeMap<Id<ParameterShape>,ParameterShape>) {
         let (signature,members) = Signature::new(&self.qualification,self.symbol.id(),0,SignatureForm::List,parameters).unwrap();
         (signature,members,parameters.iter().map(|p| (p.id(),p.clone())).collect())
@@ -87,10 +91,10 @@ fn binder_requires_whole_variant_and_preserves_all_formals_without_inventing_val
         shape("args",ParameterKind::VarPositional,false),shape("flag",ParameterKind::KeywordOnly,false),shape("kwargs",ParameterKind::VarKeyword,false)];
     let (signature,members,shapes) = f.signature(&definitions);
     let args = [actual(1,ArgumentKind::Positional,None)];
-    let bind_with = |parameters: &[SignatureParameter], actuals: &[Actual]| bind(BindingInput {
+    let bind_with = |parameters: &[SignatureParameter], actuals: &[Actual]| { let (call,arguments) = f.call(actuals); bind(BindingInput {
         target: &f.target,qualification: &f.qualification,signature_qualification: &f.qualification,destination: &f.destination,channel: &f.channel,receiver: &f.receiver,
-        signature: &signature,parameters,shapes: &shapes,actuals,
-    });
+        signature: &signature,parameters,shapes: &shapes,call: &call,arguments: &arguments,
+    }) };
     let bound = bind_with(&members,&args).unwrap();
     assert_eq!(bound.bindings().len(),5);
     assert_eq!(bound.bindings().iter().filter(|b| b.source == BindingSource::Default).count(),2);
@@ -109,7 +113,7 @@ fn binder_requires_whole_variant_and_preserves_all_formals_without_inventing_val
     assert!(bind_with(&crossed,&args).is_err());
     let (empty,empty_members,empty_shapes) = f.signature(&[]);
     assert!(bind(BindingInput { target: &f.target,qualification: &f.qualification,signature_qualification: &f.qualification,destination: &f.destination,channel: &f.channel,receiver: &f.receiver,
-        signature: &empty,parameters: &empty_members,shapes: &empty_shapes,actuals: &[] }).is_ok(),"a declared zero-argument signature is different from missing parameters");
+        signature: &empty,parameters: &empty_members,shapes: &empty_shapes,call: &f.call(&[]).0,arguments: &f.call(&[]).1 }).is_ok(),"a declared zero-argument signature is different from missing parameters");
 }
 
 #[test]
@@ -125,7 +129,7 @@ fn receiver_classification_refuses_incomplete_evidence_and_missing_actuals() {
     let mut f = Fixture::new(); f.receiver = classify_receiver(base); f.target.receiver = f.receiver.id();
     let (signature,members,shapes) = f.signature(&[shape("self",ParameterKind::PositionalOnly,true)]);
     assert_eq!(bind(BindingInput { target: &f.target,qualification: &f.qualification,signature_qualification: &f.qualification,destination: &f.destination,channel: &f.channel,receiver: &f.receiver,
-        signature: &signature,parameters: &members,shapes: &shapes,actuals: &[] }).unwrap_err(),ObligationKind::AmbiguousBinding);
+        signature: &signature,parameters: &members,shapes: &shapes,call: &f.call(&[]).0,arguments: &f.call(&[]).1 }).unwrap_err(),ObligationKind::AmbiguousBinding);
 }
 
 #[test]
@@ -161,10 +165,10 @@ fn stored_membership_checks_refuse_missing_parameters_and_missing_call_alternati
 fn binding_context_and_receiver_varargs_are_explicit() {
     let mut f = Fixture::new(); f.receiver = Receiver::Bound { actual: occurrence(0).id() }; f.target.receiver = f.receiver.id();
     let (signature,members,shapes) = f.signature(&[shape("args",ParameterKind::VarPositional,false)]);
-    let arguments = [actual(1,ArgumentKind::Positional,None)];
+    let (call,arguments) = f.call(&[actual(1,ArgumentKind::Positional,None)]);
     let input = |qualification| BindingInput { target: &f.target,qualification: &f.qualification,
         signature_qualification: qualification,destination: &f.destination,channel: &f.channel,receiver: &f.receiver,
-        signature: &signature,parameters: &members,shapes: &shapes,actuals: &arguments };
+        signature: &signature,parameters: &members,shapes: &shapes,call: &call,arguments: &arguments };
     assert_eq!(bind(input(&f.qualification)).unwrap().bindings().len(),2,"bound receiver and explicit value both reach args");
     let other = AssertionQualification { modality: Modality::Potential,..f.qualification.clone() };
     assert!(bind(input(&other)).is_err());
@@ -211,14 +215,14 @@ fn binder_checks_shape_lookup_identity_and_retains_aggregate_coordinates() {
     shapes.insert(required.id(),ParameterShape { required: false,..required });
     assert_eq!(bind(BindingInput { target: &f.target,qualification: &f.qualification,signature_qualification: &f.qualification,
         destination: &f.destination,channel: &f.channel,receiver: &f.receiver,signature: &signature,parameters: &members,
-        shapes: &shapes,actuals: &[] }).unwrap_err(),ObligationKind::MissingEvidence);
+        shapes: &shapes,call: &f.call(&[]).0,arguments: &f.call(&[]).1 }).unwrap_err(),ObligationKind::MissingEvidence);
     let (signature,members,shapes) = f.signature(&[shape("kwargs",ParameterKind::VarKeyword,false)]);
     let mut bindings = vec![];
     for name in ["left","right"] {
         let args = [actual(1,ArgumentKind::Keyword,Some(name))];
         let bound = bind(BindingInput { target: &f.target,qualification: &f.qualification,signature_qualification: &f.qualification,
             destination: &f.destination,channel: &f.channel,receiver: &f.receiver,signature: &signature,parameters: &members,
-            shapes: &shapes,actuals: &args }).unwrap();
+            shapes: &shapes,call: &f.call(&args).0,arguments: &f.call(&args).1 }).unwrap();
         assert_eq!(bound.bindings()[0].kind,BindingKind::Kwargs);
         assert_eq!(bound.bindings()[0].projection,BindingProjection::Keyword { name: name.into() });
         bindings.push(bound.bindings().to_vec());
@@ -229,7 +233,7 @@ fn binder_checks_shape_lookup_identity_and_retains_aggregate_coordinates() {
     let args = [actual(1,ArgumentKind::Positional,None),actual(2,ArgumentKind::Implicit,None)];
     let bound = bind(BindingInput { target: &f.target,qualification: &f.qualification,signature_qualification: &f.qualification,
         destination: &f.destination,channel: &f.channel,receiver: &f.receiver,signature: &signature,parameters: &members,
-        shapes: &shapes,actuals: &args }).unwrap();
+        shapes: &shapes,call: &f.call(&args).0,arguments: &f.call(&args).1 }).unwrap();
     assert_eq!(bound.bindings().iter().map(|binding| binding.kind.clone()).collect::<Vec<_>>(),
         vec![BindingKind::Receiver,BindingKind::Varargs,BindingKind::Implicit]);
     for (index,binding) in bound.bindings().iter().enumerate() {
