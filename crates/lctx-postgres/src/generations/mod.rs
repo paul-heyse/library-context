@@ -1,6 +1,10 @@
 //! Immutable generation schemas lowered exclusively from a validated semantic model (ADR-0086).
 mod codec;
 mod ddl;
+mod install;
+mod verify;
+pub use install::ResetInventory;
+pub use verify::{CheckReport, Finding, FindingKind};
 use std::{collections::BTreeSet, sync::{Arc,Mutex}};
 use arrow_array::RecordBatch;
 use bytes::BytesMut;
@@ -27,6 +31,7 @@ pub enum Error {
     #[error("secure generation randomness unavailable")] Random,
     #[error("generation has orphaned registry or schema objects; explicit repair is required")] Orphaned,
     #[error("conformance subset cannot be selected as a production facts generation")] Frontier,
+    #[error("reset requires the database name as confirmation")] Confirmation,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CleanupOutcome { Removed, AlreadyAbsent }
@@ -38,28 +43,46 @@ impl GenerationId {
     }
     pub fn hex(self) -> String { self.0.iter().map(|b| format!("{b:02x}")).collect() }
     pub fn schema(self) -> String { format!("lctx_g{}", self.hex()) }
+    /// The generation a `lctx_g<32 hex>` schema name belongs to.
+    pub fn from_schema(name: &str) -> Option<Self> {
+        let hex = name.strip_prefix("lctx_g").filter(|h| h.len() == 32 && h.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')))?;
+        let mut bytes = [0; 16];
+        for (i, byte) in bytes.iter_mut().enumerate() { *byte = u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).ok()?; }
+        Some(Self(bytes))
+    }
     fn lock(self) -> i64 { i64::from_le_bytes(self.0[..8].try_into().expect("eight bytes")) }
 }
 #[derive(Clone)]
 pub struct GenerationStore { owner: PgPool, model: Arc<ValidatedModel>, physical: ContentHash }
 impl GenerationStore {
-    /// Roles are provisioned by the existing PostgreSQL bootstrap, not by schema lowering.
-    /// Install or confirm the store as the verified service owner (cutover plan P1.5).
+    /// Install or confirm the store as the verified service owner (cutover plan P1.5/P1.6). Roles
+    /// are provisioned by the bootstrap, not by schema lowering. An installation made from a
+    /// different model or lowering is refused, never altered; `reset` replaces it.
+    ///
+    /// Only a verified owner can install:
+    /// ```compile_fail
+    /// # async fn f(pool: sqlx::PgPool, model: std::sync::Arc<lctx_model::domain::ValidatedModel>) {
+    /// lctx_postgres::generations::GenerationStore::install(pool, model).await;
+    /// # }
+    /// ```
     pub async fn install(owner: crate::OwnerPool, model: Arc<ValidatedModel>) -> Result<Self, Error> {
         let owner = owner.pool().clone();
-        let physical = ddl::digest(&model);
-        transaction(&owner,async |tx| {
-        sqlx::query("SELECT pg_advisory_xact_lock(1279476824,0)").execute(&mut *tx).await?;
-        sqlx::raw_sql(include_str!("control.sql")).execute(&mut *tx).await?;
-        let existing: Option<(Vec<u8>, Vec<u8>)> = sqlx::query_as("SELECT model_digest, physical_digest FROM lctx_model_store.installation WHERE singleton FOR UPDATE").fetch_optional(&mut *tx).await?;
-        if let Some((m, p)) = existing {
-            if m != model.digest().0 || p != physical.0 { return Err(Error::Contract); }
-        } else {
-            sqlx::query("INSERT INTO lctx_model_store.installation VALUES (true,$1,$2)").bind(model.digest().0.to_vec()).bind(physical.0.to_vec()).execute(&mut *tx).await?;
-        }
-        Ok(())
+        let physical = ddl::physical_digest(&model);
+        transaction(&owner, async |tx| {
+            sqlx::query("SELECT pg_advisory_xact_lock(1279476824,0)").execute(&mut *tx).await?;
+            install::control(tx, &model, physical).await
         }).await?;
         Ok(Self { owner, model, physical })
+    }
+    /// Compare the live store with a shadow install of this binary's lowering (`store check`).
+    pub async fn check(owner: &crate::OwnerPool, model: &ValidatedModel) -> Result<CheckReport, Error> { verify::check(owner, model).await }
+    /// What `reset` would drop, without changing anything.
+    pub async fn reset_plan(owner: &crate::OwnerPool) -> Result<ResetInventory, Error> { install::plan(owner).await }
+    /// Drop every inventoried generation schema and the control schema, then install `model`.
+    /// `confirm` must name the database. Refused with `Busy` while any generation is leased or
+    /// in a lifecycle transaction.
+    pub async fn reset(owner: crate::OwnerPool, model: Arc<ValidatedModel>, confirm: &str) -> Result<(ResetInventory, Self), Error> {
+        install::reset(owner, model, confirm).await
     }
     pub fn model(&self) -> &ValidatedModel { &self.model }
     pub fn physical_digest(&self) -> ContentHash { self.physical }
@@ -89,10 +112,7 @@ impl GenerationStore {
         sqlx::query("INSERT INTO lctx_model_store.generations(id,state,model_digest,physical_digest,producer_digest,profile,frontier,schedule_digest) VALUES($1,'staging',$2,$3,$4,$5,'conformance',$6)")
             .bind(g.0.to_vec()).bind(self.model.digest().0.to_vec()).bind(self.physical.0.to_vec()).bind(producer.0.to_vec()).bind(profile)
             .bind(schedule.map(|d| d.0.to_vec())).execute(&mut *tx).await?;
-        sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {}", quoted(&g.schema())))).execute(&mut *tx).await?;
-        let generated = ddl::generate(&self.model, g);
-        for sql in generated.tables.into_iter().chain(generated.views) { sqlx::query(sqlx::AssertSqlSafe(sql)).execute(&mut *tx).await?; }
-        sqlx::raw_sql(sqlx::AssertSqlSafe(format!("GRANT USAGE ON SCHEMA {s} TO lctx_importer; GRANT INSERT ON ALL TABLES IN SCHEMA {s} TO lctx_importer", s=quoted(&g.schema())))).execute(&mut *tx).await?;
+        execute(&mut *tx, self.lowering(g).phase("staging")).await?;
         Ok(g)
         }).await
     }
@@ -109,7 +129,7 @@ impl GenerationStore {
         for relation in self.model.relations() {
             sqlx::query(sqlx::AssertSqlSafe(format!("LOCK TABLE {} IN ACCESS EXCLUSIVE MODE", qualified(g, relation.name())))).execute(&mut *tx).await?;
         }
-        sqlx::query(sqlx::AssertSqlSafe(format!("REVOKE ALL ON ALL TABLES IN SCHEMA {} FROM lctx_importer", quoted(&g.schema())))).execute(&mut *tx).await?;
+        execute(&mut *tx, self.lowering(g).phase("sealed")).await?;
         if let Some(schedule) = schedule {
             for (stage, relation) in outputs {
                 sqlx::query("INSERT INTO lctx_model_store.stage_receipts VALUES($1,$2,$3,$4)")
@@ -128,7 +148,7 @@ impl GenerationStore {
         self.lock_installation(&mut tx).await?;
         lock(&mut tx, g, false).await?;
         state(&mut tx, g, "sealed", &self.model, self.physical).await?;
-        for sql in ddl::generate(&self.model, g).references { sqlx::query(sqlx::AssertSqlSafe(sql)).execute(&mut *tx).await?; }
+        execute(&mut *tx, self.lowering(g).phase("validated")).await?;
         let mut content = KeySink::new("generation-content");
         for relation in self.model.relations() {
             let mut rows = relation.content();
@@ -186,7 +206,7 @@ impl GenerationStore {
                 || receipt.try_get::<Vec<u8>, _>("model_digest")? != self.model.digest().0
                 || receipt.try_get::<Vec<u8>, _>("physical_digest")? != self.physical.0 { return Err(Error::Contract); }
         }
-        sqlx::raw_sql(sqlx::AssertSqlSafe(format!("GRANT USAGE ON SCHEMA {s} TO lctx_serving; GRANT SELECT ON ALL TABLES IN SCHEMA {s} TO lctx_serving", s=quoted(&g.schema())))).execute(&mut *tx).await?;
+        execute(&mut *tx, self.lowering(g).phase("published")).await?;
         transition(&mut tx, g, "published").await?;
         Ok(())
         }).await
@@ -243,6 +263,7 @@ impl GenerationStore {
         Ok(CleanupOutcome::Removed)
         }).await
     }
+    fn lowering(&self, g: GenerationId) -> ddl::Lowering { ddl::lower(&self.model, g, &g.schema(), ddl::CONTROL) }
     async fn lock_installation(&self, connection: &mut PgConnection) -> Result<(), Error> {
         sqlx::query("SELECT pg_advisory_xact_lock_shared(1279476824,0)").execute(&mut *connection).await?;
         let compatible: Option<bool> = sqlx::query_scalar("SELECT model_digest=$1 AND physical_digest=$2 FROM lctx_model_store.installation WHERE singleton")
@@ -457,6 +478,10 @@ async fn lock(connection: &mut PgConnection, g: GenerationId, shared: bool) -> R
 async fn transition(connection: &mut PgConnection, g: GenerationId, next: &str) -> Result<(), Error> {
     sqlx::query("UPDATE lctx_model_store.generations SET state=$2 WHERE id=$1").bind(g.0.to_vec()).bind(next).execute(&mut *connection).await?;
     sqlx::query("INSERT INTO lctx_model_store.events(generation_id,state) VALUES($1,$2)").bind(g.0.to_vec()).bind(next).execute(connection).await?; Ok(())
+}
+async fn execute(connection: &mut PgConnection, statements: Vec<String>) -> Result<(), Error> {
+    for sql in statements { sqlx::query(sqlx::AssertSqlSafe(sql)).execute(&mut *connection).await?; }
+    Ok(())
 }
 fn quoted(name: &str) -> String { format!("\"{}\"", name.replace('"', "\"\"")) }
 fn qualified(g: GenerationId, relation: &str) -> String { format!("{}.{}", quoted(&g.schema()), quoted(relation)) }

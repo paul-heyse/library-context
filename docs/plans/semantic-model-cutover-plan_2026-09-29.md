@@ -706,6 +706,20 @@ Migrations 0001–0013 are replaced by `202609300014_service_baseline.sql`: `lct
 The `testing` feature's `DisposableDatabase` provisions as production does: `lctx_migrator` owns database `lctx`, with runtime CONNECT/TEMP grants and a read-only `lctx_serving`. Every generation PG test and `typed_conformance` install through it.
 
 The dormant `tests/serving.rs` database tests are `#[ignore = "suspended: P5 serving …"]`; its pure role-configuration test moved to `services`. The operator database still carries the old history and is refused until P1.13 |
+| P1.6: `cargo test --release -p lctx-postgres --test installation`, `--doc`, and the P1.5 suites again; `-p cpg-extract --test typed_conformance`; `-p lctx-model --test domain_stages --test domain_admission`; `cargo check --workspace --all-targets` | passed 2026-09-29 (installation 7, the compile-fail install doctest, and every earlier suite unchanged).
+
+`generations/ddl.rs` is a pure `Lowering` over (model, generation, schema, control). Its phases are staging (schema, tables, views, writer grants), sealed (revokes the writer's table privileges and schema USAGE), validated (references) and published (reader grants), and the lifecycle executes exactly these. `control.sql` is a template: `{control}` names the schema, and the state, profile and frontier CHECK lists render from `STATES`, `Profile::ALL` and `Frontier::ALL`, which drops the undeclared `normalized`/`analysis`/`serving` frontiers. The physical digest covers the rendered control and every phase.
+
+`GenerationStore::check` compares each live schema's catalog descriptors (owner, ACL, columns, constraints, indexes, views, functions, triggers, policies, types) with a shadow install of its state, and the control schema with a shadow control. Names are normalized first, and the transaction always rolls back. It also checks:
+- roles: login, no elevated attribute, no membership edge, a read-only reader;
+- database ownership and exactly the provisioned CONNECT/TEMPORARY grants;
+- the service migration history;
+- owner-owned schemas and `public` objects;
+- orphans in both directions.
+
+It holds the installation lock exclusively rather than relying on a REPEATABLE READ snapshot, because `pg_get_*def` and `format_type` read the latest catalog.
+
+`reset_plan`/`reset(owner, model, confirm)` inventory only owner-owned `lctx_g<32 hex>` schemas and the control schema. A wrong confirmation, a leased generation or a generation in a lifecycle transaction is refused before any change; the attempt-lock refusal lands with P1.7's lifecycle connection. Controls: 20 drift mutations (8 inside generation schemas, 2 on published generations, 2 orphans, 8 store-wide), each detected, with a final clean check after all reverts |
 | `just fmt`, `just test-all`, facts pilots | not_run: functional scope incomplete |
 
 Independent bounded reviewers accepted artifact/capture/acquisition corrections and the

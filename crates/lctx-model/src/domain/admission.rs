@@ -13,6 +13,7 @@ use super::{*, attribution::*, charged::{ChargedMap, ChargedVec, StateCharge}, i
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Frontier { Conformance, Facts }
 impl Frontier {
+    pub const ALL: [Self; 2] = [Self::Conformance, Self::Facts];
     pub fn name(self) -> &'static str { match self { Self::Conformance => "conformance", Self::Facts => "facts" } }
 }
 /// The captured artifacts a family is stated over.

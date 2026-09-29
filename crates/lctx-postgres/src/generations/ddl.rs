@@ -1,11 +1,58 @@
-//! PostgreSQL is a lowering of the validated domain, never a public table specification.
-use lctx_model::domain::{ContentHash, Scalar, ValidatedModel};
+//! PostgreSQL is a lowering of the validated domain, never a public table specification. The
+//! lowering is pure: one model, generation, schema name and control schema name always give the
+//! same statements, so a shadow install is a faithful reference for `store check` (plan P1.6).
+use lctx_model::domain::{ContentHash, Scalar, ValidatedModel, admission::Frontier, stages::Profile};
 use sea_query::{ColumnDef, ColumnType, Expr, ForeignKey, Index, PostgresQueryBuilder, Table};
-use super::GenerationId;
+use super::{GenerationId, quoted};
 
-pub(super) struct Ddl { pub tables: Vec<String>, pub references: Vec<String>, pub views: Vec<String> }
-pub(super) fn generate(model: &ValidatedModel, generation: GenerationId) -> Ddl {
-    let schema = generation.schema();
+/// The stable control schema of an installed store.
+pub(super) const CONTROL: &str = "lctx_model_store";
+/// Lifecycle states in the order a generation passes through them.
+pub(super) const STATES: [&str; 4] = ["staging", "sealed", "validated", "published"];
+
+/// The statements that give a generation its physical form, grouped by the lifecycle transition
+/// that executes them.
+pub(super) struct Lowering {
+    pub schema: String,
+    pub tables: Vec<String>,
+    pub views: Vec<String>,
+    pub grant_staging: Vec<String>,
+    pub revoke_writer: Vec<String>,
+    pub references: Vec<String>,
+    pub grant_reader: Vec<String>,
+}
+impl Lowering {
+    /// Entering `state`: staging creates the schema, tables, views and writer grants; sealing
+    /// revokes the writer; validation adds references; publication grants the reader.
+    pub fn phase(&self, state: &str) -> Vec<String> {
+        match state {
+            "staging" => std::iter::once(format!("CREATE SCHEMA {}", quoted(&self.schema)))
+                .chain(self.tables.iter().chain(&self.views).chain(&self.grant_staging).cloned()).collect(),
+            "sealed" => self.revoke_writer.clone(),
+            "validated" => self.references.clone(),
+            "published" => self.grant_reader.clone(),
+            _ => Vec::new(),
+        }
+    }
+    /// Every statement a generation in `state` has executed, in order.
+    pub fn through(&self, state: &str) -> Vec<String> {
+        let end = STATES.iter().position(|s| *s == state).map_or(0, |i| i + 1);
+        STATES[..end].iter().flat_map(|s| self.phase(s)).collect()
+    }
+}
+
+/// The control schema DDL named `control`, with CHECK lists rendered from the lifecycle and the
+/// model's enums.
+pub(super) fn control(control: &str) -> String {
+    let list = |names: &mut dyn Iterator<Item = &str>| names.map(|n| format!("'{n}'")).collect::<Vec<_>>().join(",");
+    include_str!("control.sql").replace("{control}", &quoted(control))
+        .replace("{states}", &list(&mut STATES.into_iter()))
+        .replace("{profiles}", &list(&mut Profile::ALL.iter().map(|p| p.name())))
+        .replace("{frontiers}", &list(&mut Frontier::ALL.iter().map(|f| f.name())))
+}
+
+pub(super) fn lower(model: &ValidatedModel, generation: GenerationId, schema: &str, control: &str) -> Lowering {
+    let schema = schema.to_owned();
     let mut tables = Vec::new();
     let mut references = Vec::new();
     for relation in model.relations() {
@@ -35,7 +82,7 @@ pub(super) fn generate(model: &ValidatedModel, generation: GenerationId) -> Ddl 
             };
             let size = if field.list() {
                 table.check(Expr::cust(format!("CASE WHEN array_ndims({column_name}) > 1 THEN FALSE ELSE (COALESCE(array_lower({column_name},1),1)=1 AND array_position({column_name},NULL) IS NULL) END")));
-                if field.scalar() == Scalar::Text { format!("lctx_model_store.text_array_wire_bytes({column_name})") }
+                if field.scalar() == Scalar::Text { format!("{}.text_array_wire_bytes({column_name})", quoted(control)) }
                 else { format!("20::bigint + COALESCE(cardinality({column_name}),0)::bigint * {}", scalar_width + 4) }
             } else if matches!(field.scalar(), Scalar::Text | Scalar::Binary) {
                 format!("COALESCE(octet_length({column_name}),0)::bigint")
@@ -83,29 +130,38 @@ pub(super) fn generate(model: &ValidatedModel, generation: GenerationId) -> Ddl 
         }
         tables.push(table.to_string(PostgresQueryBuilder));
     }
-    Ddl { tables, references, views: derivation_views(model,generation) }
+    let s = quoted(&schema);
+    Lowering {
+        views: derivation_views(model, &schema),
+        grant_staging: vec![format!("GRANT USAGE ON SCHEMA {s} TO lctx_importer"), format!("GRANT INSERT ON ALL TABLES IN SCHEMA {s} TO lctx_importer")],
+        revoke_writer: vec![format!("REVOKE ALL ON ALL TABLES IN SCHEMA {s} FROM lctx_importer"), format!("REVOKE USAGE ON SCHEMA {s} FROM lctx_importer")],
+        grant_reader: vec![format!("GRANT USAGE ON SCHEMA {s} TO lctx_serving"), format!("GRANT SELECT ON ALL TABLES IN SCHEMA {s} TO lctx_serving")],
+        schema, tables, references,
+    }
 }
-pub(super) fn digest(model: &ValidatedModel) -> ContentHash {
-    let ddl = generate(model, GenerationId([0;16]));
-    ContentHash::of(format!("{}\n{}", include_str!("control.sql"), ddl.tables.into_iter().chain(ddl.references).chain(ddl.views).collect::<Vec<_>>().join(";\n")).as_bytes())
+/// The physical digest covers the control DDL and every phase of a generation's lowering.
+pub(super) fn physical_digest(model: &ValidatedModel) -> ContentHash {
+    let g = GenerationId([0; 16]);
+    let lowering = lower(model, g, &g.schema(), CONTROL);
+    ContentHash::of(format!("{}\n{}", control(CONTROL), lowering.through("published").join(";\n")).as_bytes())
 }
 
 fn literal(text: &str) -> String { format!("'{}'",text.replace('\'',"''")) }
 /// Explanation targets and premise roles are projected from nominal model fields. No separately
 /// maintained target registry, copied evidence table, or executable relation-name payload is used.
-fn derivation_views(model: &ValidatedModel,generation: GenerationId) -> Vec<String> {
+fn derivation_views(model: &ValidatedModel, schema: &str) -> Vec<String> {
     let mut derivations = Vec::new(); let mut premises = Vec::new();
     for source in model.relations() {
         let Some(rule) = source.derivation() else { continue; };
         let (target,column) = rule.conclusion.as_ref().map_or((source.name(),"id"),|c| (c.target().1,c.name()));
-        let table = super::qualified(generation,source.name()); let source_name = literal(source.name());
-        derivations.push(format!("SELECT generation_id,id AS derivation_id,{source_name}::text AS source_relation,{}::text AS rule,{}::text AS conclusion_relation,{} AS conclusion_id FROM {table}",literal(rule.rule),literal(target),super::quoted(column)));
+        let table = format!("{}.{}", quoted(schema), quoted(source.name())); let source_name = literal(source.name());
+        derivations.push(format!("SELECT generation_id,id AS derivation_id,{source_name}::text AS source_relation,{}::text AS rule,{}::text AS conclusion_relation,{} AS conclusion_id FROM {table}",literal(rule.rule),literal(target),quoted(column)));
         for premise in &rule.premises {
-            let column = super::quoted(premise.name());
+            let column = quoted(premise.name());
             premises.push(format!("SELECT generation_id,id AS derivation_id,{source_name}::text AS source_relation,{}::text AS role,{}::text AS premise_relation,{column} AS premise_id FROM {table} WHERE {column} IS NOT NULL",literal(premise.name()),literal(premise.target().1)));
         }
     }
     if derivations.is_empty() { return Vec::new(); }
     [("derivations",derivations),("derivation_premises",premises)].into_iter()
-        .map(|(name,parts)| format!("CREATE VIEW {} AS {}",super::qualified(generation,name),parts.join(" UNION ALL "))).collect()
+        .map(|(name,parts)| format!("CREATE VIEW {}.{} AS {}",quoted(schema),quoted(name),parts.join(" UNION ALL "))).collect()
 }

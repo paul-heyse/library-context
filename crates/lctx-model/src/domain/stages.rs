@@ -10,6 +10,7 @@ pub enum ProviderOutcome { Complete, Partial, Unavailable, Failed, NotRequested 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Profile { Catalog, Behavioral }
 impl Profile {
+    pub const ALL: [Self; 2] = [Self::Catalog, Self::Behavioral];
     pub fn name(self) -> &'static str { match self { Self::Catalog => "catalog", Self::Behavioral => "behavioral" } }
 }
 /// Effects are declared by the producer, never inferred from the relations it writes.

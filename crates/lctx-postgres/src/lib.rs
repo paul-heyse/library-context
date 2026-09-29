@@ -271,27 +271,8 @@ impl Store {
         self.pool.close().await;
     }
     pub async fn check(&self) -> Result<(), Error> {
-        let present: Option<String> =
-            sqlx::query_scalar("SELECT to_regclass('public._sqlx_migrations')::text")
-                .fetch_one(&self.pool)
-                .await?;
-        if present.is_none() {
-            return Err(Error::Schema);
-        }
-        let rows: Vec<(i64, bool, Vec<u8>)> = sqlx::query_as(
-            "SELECT version, success, checksum FROM public._sqlx_migrations ORDER BY version",
-        )
-        .fetch_all(&self.pool)
-        .await?;
-        let expected: Vec<_> = MIGRATOR
-            .iter()
-            .filter(|m| !m.migration_type.is_down_migration())
-            .collect();
-        if rows.len() != expected.len()
-            || rows.iter().zip(expected).any(|((v, ok, digest), m)| {
-                *v != m.version || !ok || digest.as_slice() != m.checksum.as_ref()
-            })
-        {
+        let mut connection = self.pool.acquire().await?;
+        if !history_current(&mut connection).await? {
             return Err(Error::Schema);
         }
         Ok(())
@@ -309,6 +290,20 @@ impl Store {
             idle_connections: self.pool.num_idle(),
         })
     }
+}
+
+/// Whether the applied migration history is exactly the service baseline this binary declares.
+pub(crate) async fn history_current(connection: &mut sqlx::PgConnection) -> Result<bool, sqlx::Error> {
+    let present: Option<String> = sqlx::query_scalar("SELECT to_regclass('public._sqlx_migrations')::text")
+        .fetch_one(&mut *connection).await?;
+    if present.is_none() {
+        return Ok(false);
+    }
+    let rows: Vec<(i64, bool, Vec<u8>)> = sqlx::query_as("SELECT version, success, checksum FROM public._sqlx_migrations ORDER BY version")
+        .fetch_all(&mut *connection).await?;
+    let expected: Vec<_> = MIGRATOR.iter().filter(|m| !m.migration_type.is_down_migration()).collect();
+    Ok(rows.len() == expected.len()
+        && rows.iter().zip(expected).all(|((v, ok, digest), m)| *v == m.version && *ok && digest.as_slice() == m.checksum.as_ref()))
 }
 
 /// The runtime roles a service owner must never be joined to.

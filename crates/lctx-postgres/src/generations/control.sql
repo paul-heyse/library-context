@@ -1,63 +1,67 @@
-CREATE SCHEMA IF NOT EXISTS lctx_model_store;
-REVOKE ALL ON SCHEMA lctx_model_store FROM PUBLIC;
+-- The control schema template (cutover plan P1.6). `{control}` names the schema; the CHECK lists
+-- `{states}`, `{profiles}` and `{frontiers}` are rendered from the lifecycle and the model enums,
+-- so the physical digest changes with them. Installed once per store; `store check` renders it
+-- into a shadow schema and compares the two catalogs.
+CREATE SCHEMA {control};
+REVOKE ALL ON SCHEMA {control} FROM PUBLIC;
 -- Binary array framing plus uncompressed element lengths, used by generated admission checks.
-CREATE OR REPLACE FUNCTION lctx_model_store.text_array_wire_bytes(value text[]) RETURNS bigint
+CREATE FUNCTION {control}.text_array_wire_bytes(value text[]) RETURNS bigint
 LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
     SELECT 20::bigint + COALESCE(sum(4::bigint + COALESCE(octet_length(element), 0)), 0)::bigint
     FROM unnest(value) AS element
 $$;
-CREATE TABLE IF NOT EXISTS lctx_model_store.installation (
+CREATE TABLE {control}.installation (
     singleton boolean PRIMARY KEY CHECK(singleton),
     model_digest bytea NOT NULL CHECK(octet_length(model_digest)=32),
     physical_digest bytea NOT NULL CHECK(octet_length(physical_digest)=32)
 );
-CREATE TABLE IF NOT EXISTS lctx_model_store.generations (
+CREATE TABLE {control}.generations (
     id bytea PRIMARY KEY CHECK(octet_length(id)=16),
-    state text NOT NULL CHECK(state IN ('staging','sealed','validated','published')),
+    state text NOT NULL CHECK(state IN ({states})),
     model_digest bytea NOT NULL CHECK(octet_length(model_digest)=32),
     physical_digest bytea NOT NULL CHECK(octet_length(physical_digest)=32),
     producer_digest bytea NOT NULL CHECK(octet_length(producer_digest)=32),
     schedule_digest bytea CHECK(octet_length(schedule_digest)=32),
     content_digest bytea CHECK(octet_length(content_digest)=32),
-    profile text NOT NULL CHECK(profile IN ('catalog','behavioral')),
-    frontier text NOT NULL CHECK(frontier IN ('conformance','facts','normalized','analysis','serving')),
+    profile text NOT NULL CHECK(profile IN ({profiles})),
+    frontier text NOT NULL CHECK(frontier IN ({frontiers})),
     created_at timestamptz NOT NULL DEFAULT now(),
     CHECK(state NOT IN ('validated','published') OR content_digest IS NOT NULL)
 );
-CREATE TABLE IF NOT EXISTS lctx_model_store.receipts (
-    generation_id bytea NOT NULL REFERENCES lctx_model_store.generations(id),
+CREATE TABLE {control}.receipts (
+    generation_id bytea NOT NULL REFERENCES {control}.generations(id),
     relation_name text NOT NULL,
     row_count bigint NOT NULL CHECK(row_count>=0),
     content_digest bytea NOT NULL CHECK(octet_length(content_digest)=32),
     PRIMARY KEY(generation_id,relation_name)
 );
-CREATE TABLE IF NOT EXISTS lctx_model_store.validation_receipts (
-    generation_id bytea NOT NULL REFERENCES lctx_model_store.generations(id),
+CREATE TABLE {control}.validation_receipts (
+    generation_id bytea NOT NULL REFERENCES {control}.generations(id),
     validator_name text NOT NULL,
     content_digest bytea NOT NULL CHECK(octet_length(content_digest)=32),
     model_digest bytea NOT NULL CHECK(octet_length(model_digest)=32),
     physical_digest bytea NOT NULL CHECK(octet_length(physical_digest)=32),
     PRIMARY KEY(generation_id,validator_name)
 );
-CREATE TABLE IF NOT EXISTS lctx_model_store.stage_receipts (
-    generation_id bytea NOT NULL REFERENCES lctx_model_store.generations(id),
+CREATE TABLE {control}.stage_receipts (
+    generation_id bytea NOT NULL REFERENCES {control}.generations(id),
     stage_name text NOT NULL,
     relation_name text NOT NULL,
     schedule_digest bytea NOT NULL CHECK(octet_length(schedule_digest)=32),
     PRIMARY KEY(generation_id,stage_name,relation_name)
 );
-CREATE TABLE IF NOT EXISTS lctx_model_store.selection (
+CREATE TABLE {control}.selection (
     singleton boolean PRIMARY KEY CHECK(singleton),
-    generation_id bytea REFERENCES lctx_model_store.generations(id)
+    generation_id bytea REFERENCES {control}.generations(id)
 );
-INSERT INTO lctx_model_store.selection VALUES(true,NULL) ON CONFLICT DO NOTHING;
-CREATE TABLE IF NOT EXISTS lctx_model_store.events (
+INSERT INTO {control}.selection VALUES(true,NULL);
+CREATE TABLE {control}.events (
     ordinal bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    generation_id bytea NOT NULL REFERENCES lctx_model_store.generations(id),
-    state text NOT NULL,
+    generation_id bytea NOT NULL REFERENCES {control}.generations(id),
+    state text NOT NULL CHECK(state IN ({states})),
     at timestamptz NOT NULL DEFAULT now()
 );
-REVOKE ALL ON ALL TABLES IN SCHEMA lctx_model_store FROM PUBLIC;
-GRANT USAGE ON SCHEMA lctx_model_store TO lctx_importer,lctx_serving;
-GRANT SELECT ON lctx_model_store.generations TO lctx_importer,lctx_serving;
-GRANT SELECT ON lctx_model_store.installation TO lctx_importer,lctx_serving;
+REVOKE ALL ON ALL TABLES IN SCHEMA {control} FROM PUBLIC;
+GRANT USAGE ON SCHEMA {control} TO lctx_importer,lctx_serving;
+GRANT SELECT ON {control}.generations TO lctx_importer,lctx_serving;
+GRANT SELECT ON {control}.installation TO lctx_importer,lctx_serving;
