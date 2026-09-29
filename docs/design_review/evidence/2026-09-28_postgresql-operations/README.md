@@ -1,6 +1,6 @@
 # PostgreSQL PG16–PG17 deployment and recovery evidence
 
-Dated 2026-09-28. [PG16/PG17](../../../plans/postgresql-integration-plan_2026-09-27.md)
+Dated 2026-09-28. [PG16/PG17](../../../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-workstream)
 owns execution; [forward §6.1](../../../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-findings)
 owns findings. ADR-0070 binds physical ANN admission, mixed routing and complete recovery.
 Stage 3 semantic acceptance and arbitrary remote endpoint attestation are excluded.

@@ -324,71 +324,6 @@ async fn pg_reconciliation_repairs_missing_observations_and_stale_discovery() {
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "requires explicit PostgreSQL fixture setup; included by just test-postgres"]
-async fn pg_legacy_import_readmission_resume_and_conflict() {
-    use cpg_schema::{
-        embedding::{EmbeddingCache, EmbeddingCacheRow},
-        table::Table,
-    };
-    let f = Fixture::start().await;
-    let dir = tempfile::tempdir().unwrap();
-    let fake = FakeEmbedder::new();
-    let texts = [
-        "legacy admitted request".to_owned(),
-        "inactive without original text".to_owned(),
-    ];
-    let rows: Vec<_> = texts
-        .iter()
-        .map(|text| EmbeddingCacheRow {
-            spec_hash: fake.spec().hash(),
-            input_hash: cpg_core::embed::input_hash(text),
-            model: fake.spec().model.clone(),
-            vector: fake.vector(text),
-        })
-        .collect();
-    let batch = EmbeddingCache::to_batch(&rows).unwrap();
-    let table = cpg_core::delta::create::<EmbeddingCache>(dir.path())
-        .await
-        .unwrap();
-    cpg_core::delta::append(table, batch, Id([41; 16]))
-        .await
-        .unwrap();
-    let table = cpg_core::delta::open_verified::<EmbeddingCache>(dir.path())
-        .await
-        .unwrap();
-    let version = table.version().unwrap();
-    let first = cpg_core::postgres::legacy::import(&f.app, dir.path(), version, &fake, &texts[..1])
-        .await
-        .unwrap();
-    let retry = cpg_core::postgres::legacy::import(&f.app, dir.path(), version, &fake, &texts[..1])
-        .await
-        .unwrap();
-    assert_eq!(first.imported, 1);
-    assert_eq!(first.inactive_without_request, 1);
-    assert_eq!(first.import_digest, retry.import_digest);
-    sqlx::query("DELETE FROM lctx_cache.embedding_values")
-        .execute(&f.admin)
-        .await
-        .unwrap();
-    f.app
-        .admit(
-            fake.spec(),
-            &[CacheValue {
-                input_hash: rows[0].input_hash,
-                vector: rows[0].vector.iter().map(|v| -v).collect(),
-                admitted_tokens: 1,
-            }],
-        )
-        .await
-        .unwrap();
-    assert!(
-        cpg_core::postgres::legacy::import(&f.app, dir.path(), version, &fake, &texts[..1])
-            .await
-            .is_err()
-    );
-}
-
-#[tokio::test(flavor = "multi_thread")]
-#[ignore = "requires explicit PostgreSQL fixture setup; included by just test-postgres"]
 async fn pg_published_bundle_replays_every_byte_after_database_stops() {
     use cpg_core::{
         analyze::{Analysis, Techniques},
@@ -527,21 +462,14 @@ budget = 6
     let report = cpg_core::postgres_read::report(&role, &store, id, source.generation())
         .await
         .unwrap();
-    // Projection5 adds five contextual evidence relations.
-    assert_eq!(report.json["rows"].as_array().unwrap().len(), 68);
+    // Projection6 adds domains and retrieval relations and removes old operation text/vectors.
+    assert_eq!(report.json["rows"].as_array().unwrap().len(), 72);
     assert_eq!(
         report.json["diagnostics"]["captured_profiles"]
             .as_array()
             .unwrap()
             .len(),
         1
-    );
-    assert_eq!(
-        report.json["diagnostics"]["captured_profile_attempts"]
-            .as_array()
-            .unwrap()
-            .len(),
-        0
     );
     assert_eq!(
         report.json["diagnostics"]["captured_selections"]

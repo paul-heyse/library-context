@@ -126,7 +126,7 @@ pub struct Published {
 /// 103: builtin binding-preserving descriptors no longer write the decorator boundary.
 /// 104: summaries neither start in nor compose through a decorated function (ADR-0064).
 /// 105: call-transfer return claims graded after summaries with claim-keyed discharges (ADR-0064).
-pub const COMPILER_OUTPUT_VERSION: u32 = 110;
+pub const COMPILER_OUTPUT_VERSION: u32 = 111;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -889,8 +889,8 @@ async fn finish(
             HandlerTypes, Handoffs, ModeledArgumentEvaluations, ModeledAssignmentReturnPaths,
             ModeledExactValueTransfers, ModeledExceptionHandlerCandidates,
             ModeledExceptionHandlerWalks, ModeledExceptionReturnNonePaths, NegativePremises,
-            OperationDocuments, OperationFacetStatus, OperationFacets, Operations, ParameterReads,
-            RaiseSites, ReturnExitStatuses, ReturnExitSteps, Singletons, StatementCompletionSteps,
+            OperationFacetStatus, OperationFacets, Operations, ParameterReads, RaiseSites,
+            ReturnExitStatuses, ReturnExitSteps, Singletons, StatementCompletionSteps,
             StatementCompletions, SummaryBoundaries, SummaryComponents, SummaryFlowSteps,
             SummaryFlows, ValueFlowContributions, ValueFlowPredecessorCandidates,
             ValueFlowPredecessorCompatibility, ValueFlows,
@@ -1297,8 +1297,6 @@ async fn finish(
             w,
         )
         .await?;
-        write_analysis::<OperationDocuments>(&ctx, root, snapshot_id, &behavior.documents, w)
-            .await?;
         behavior
     } else {
         let mut behavior = crate::behavior::BehaviorRows::default();
@@ -1336,14 +1334,6 @@ async fn finish(
             &mut written,
         )
         .await?;
-        write_analysis::<cpg_schema::behavior::OperationDocuments>(
-            &ctx,
-            root,
-            snapshot_id,
-            &behavior.documents,
-            &mut written,
-        )
-        .await?;
         behavior
     };
     macro_rules! contextual {
@@ -1363,6 +1353,14 @@ async fn finish(
     contextual!(cpg_schema::evidence::CatalogScenarios, scenarios);
     contextual!(cpg_schema::evidence::CatalogDeployments, deployments);
     contextual!(cpg_schema::evidence::CatalogAssociations, associations);
+    write_analysis::<cpg_schema::selection::catalog::CatalogSelectionDomains>(
+        &ctx,
+        root,
+        snapshot_id,
+        &catalog.domains,
+        &mut written,
+    )
+    .await?;
     write_analysis::<cpg_schema::catalog::CatalogSurfaces>(
         &ctx,
         root,

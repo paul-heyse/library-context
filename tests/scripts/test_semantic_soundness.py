@@ -27,7 +27,7 @@ from lctx_storage import open_repository
 
 from lctx_mcp import operations as ops
 from lctx_mcp.wire import Packet
-from postgres_expand import write_secret
+from postgres_bootstrap import write_secret
 from postgres_test_support import database
 
 ROOT = Path(__file__).resolve().parents[2]

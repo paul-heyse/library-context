@@ -223,7 +223,7 @@ impl ImportStore {
         let mut lease = QueryLease::acquire(&self.pool).await?;
         let mut guard = lock(&id).acquire(&mut *lease.connection).await?;
         let raw:String=sqlx::query_scalar("SELECT canonical_manifest FROM lctx_serving.generations WHERE generation_digest=$1 AND state='ready'").bind(id.0.as_slice()).fetch_one(guard.as_mut()).await?;
-        let (_, artifacts, _) = recovery_envelope(&raw, &id)?;
+        let (_, artifacts) = recovery_envelope(&raw, &id)?;
         let owned = artifacts.clone();
         let locations = tokio::task::spawn_blocking(move || {
             let root = fs_err::canonicalize(root).map_err(io_error)?;
@@ -287,10 +287,10 @@ impl ImportStore {
                 return Err(refused("recovery manifest budget").into());
             }
             let id = Digest(id.try_into().map_err(|_| corrupt("recovery identity"))?);
-            let (manifest, receipts, current) = recovery_envelope(&raw, &id)?;
+            let (manifest, receipts) = recovery_envelope(&raw, &id)?;
             let paths = verify_artifact_locations(&mut tx, &id, &receipts).await?;
             let artifacts=paths.into_iter().map(|(name,path)| {let r=&receipts[&name];serde_json::json!({"name":name,"location":path,"sha256":r.sha256,"bytes":r.bytes,"format":r.format})}).collect::<Vec<_>>();
-            generations.push(serde_json::json!({"generation":id.hex(),"manifest":manifest,"canonical_manifest":raw,"runtime_admission":if current {"current"} else {"legacy_runtime_required"},"artifacts":artifacts}));
+            generations.push(serde_json::json!({"generation":id.hex(),"manifest":manifest,"canonical_manifest":raw,"artifacts":artifacts}));
         }
         tx.commit().await?;
         lease.complete();
@@ -770,26 +770,17 @@ pub(crate) async fn verify_locations(
 fn recovery_envelope(
     raw: &str,
     id: &Digest,
-) -> Result<(Value, BTreeMap<String, contract::ArtifactReceipt>, bool), Error> {
+) -> Result<(Value, BTreeMap<String, contract::ArtifactReceipt>), Error> {
     if hex(Sha256::digest(raw.as_bytes())) != id.hex() {
         return Err(corrupt("recovery manifest identity").into());
     }
     let value: Value = serde_json::from_str(raw).map_err(|_| corrupt("recovery manifest"))?;
-    let current = match (value["format"].as_u64(), value["bundle_format"].as_u64()) {
-        (Some(f), Some(b))
-            if f == u64::from(contract::FORMAT) && b == u64::from(contract::BUNDLE_FORMAT) =>
-        {
-            let manifest: Manifest =
-                serde_json::from_str(raw).map_err(|_| corrupt("recovery current manifest"))?;
-            manifest.validate()?;
-            if manifest.generation()? != id.hex() {
-                return Err(corrupt("noncanonical current manifest").into());
-            }
-            true
-        }
-        (Some(2), Some(12)) | (Some(3), Some(13)) | (Some(4), Some(14)) => false,
-        _ => return Err(corrupt("unsupported retained manifest format").into()),
-    };
+    let manifest: Manifest =
+        serde_json::from_str(raw).map_err(|_| corrupt("current recovery manifest"))?;
+    manifest.validate()?;
+    if manifest.generation()? != id.hex() {
+        return Err(corrupt("noncanonical recovery manifest").into());
+    }
     let artifacts: BTreeMap<String, contract::ArtifactReceipt> =
         serde_json::from_value(value["artifacts"].clone())
             .map_err(|_| corrupt("recovery artifacts"))?;
@@ -810,7 +801,7 @@ fn recovery_envelope(
             return Err(refused("recovery artifact bytes").into());
         }
     }
-    Ok((value, artifacts, current))
+    Ok((value, artifacts))
 }
 
 fn verify_artifact_receipt(receipt: &contract::ArtifactReceipt, bytes: &[u8]) -> Result<(), Error> {
@@ -882,20 +873,16 @@ async fn verify_artifact_locations(
 mod recovery_tests {
     use super::*;
     #[test]
-    fn retained_envelope_preserves_bytes_without_admitting_old_runtime() {
-        let bytes = b"retained artifact";
-        let mut value = serde_json::json!({"format":2,"bundle_format":12,"legacy_field":"kept",
-            "artifacts":{"operations.arrow":{"sha256":hex(Sha256::digest(bytes)),"bytes":bytes.len(),"format":1}}});
-        let raw = serde_json::to_string(&value).unwrap();
-        let id = Digest(Sha256::digest(raw.as_bytes()).into());
-        let (retained, artifacts, current) = recovery_envelope(&raw, &id).unwrap();
-        assert_eq!(retained, value);
-        assert!(!current);
-        assert!(verify_artifact_receipt(&artifacts["operations.arrow"], bytes).is_ok());
-        assert!(verify_artifact_receipt(&artifacts["operations.arrow"], b"corrupt").is_err());
-        assert!(recovery_envelope(&(raw + " "), &id).is_err());
-        value["format"] = serde_json::json!(4);
-        let raw = value.to_string();
+    fn recovery_rejects_obsolete_formats_and_corrupt_artifacts() {
+        let bytes = b"artifact";
+        let receipt = contract::ArtifactReceipt {
+            sha256: hex(Sha256::digest(bytes)),
+            bytes: bytes.len() as u64,
+            format: 1,
+        };
+        assert!(verify_artifact_receipt(&receipt, bytes).is_ok());
+        assert!(verify_artifact_receipt(&receipt, b"corrupt").is_err());
+        let raw = serde_json::json!({"format":2,"bundle_format":12}).to_string();
         assert!(recovery_envelope(&raw, &Digest(Sha256::digest(raw.as_bytes()).into())).is_err());
     }
 }

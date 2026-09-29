@@ -13,8 +13,8 @@ gates were in progress independently and are not certified here.
 
 The accepted owners are [storage §§6.4–6.5](../../design/sections/storage-and-publication.md),
 [serving §§11.2–11.4](../../design/sections/synthesis-and-serving.md),
-the then-current ADR-0069 (now carried by [ADR-0070](../../adr/0070-postgresql-recovery-and-index-admission.md)) and the
-[PG12–PG15 execution contract](../../plans/postgresql-integration-plan_2026-09-27.md).
+the then-current ADR-0069 (now carried by [ADR-0070](../../adr/0078-current-design-cutover.md)) and the
+[PG12–PG15 execution contract](../../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-workstream).
 The current finding disposition owner is
 [forward-plan §6.1](../../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-findings).
 

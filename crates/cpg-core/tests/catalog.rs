@@ -1,6 +1,8 @@
 //! Catalog-only publication must not need a brief, flow pass or native semantic closure.
 use cpg_schema::{Id, catalog::CompileProfile};
 use std::path::Path;
+#[path = "catalog/pr4.rs"]
+mod pr4;
 
 #[tokio::test]
 async fn catalog_profile_publishes_original_contracts_without_native_analysis() {
@@ -369,6 +371,7 @@ async fn catalog_profile_publishes_original_contracts_without_native_analysis() 
     );
     assert!(manifest["condition_kernel_format"].is_null());
     assert_eq!(cpg_core::bundle::verify(&generation.dir).unwrap(), manifest);
+    pr4::check(&ctx, snapshot, &generation, &destination).await;
     // Exercise each generated catalog rule family and the optional-rendering invariant over
     // the production validators. Restore the original provider after each forged relation.
     for (rule_name, table, query) in [

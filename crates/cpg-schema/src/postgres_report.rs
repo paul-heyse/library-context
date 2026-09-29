@@ -11,7 +11,6 @@ pub enum View {
     ProjectionState,
     Profiles,
     Selections,
-    ProfileAttempts,
 }
 impl View {
     pub fn name(self) -> &'static str {
@@ -24,17 +23,15 @@ impl View {
             Self::ProjectionState => "captured_projection_state",
             Self::Profiles => "captured_profiles",
             Self::Selections => "captured_selections",
-            Self::ProfileAttempts => "captured_profile_attempts",
         }
     }
-    pub const MUTABLE: [Self; 7] = [
+    pub const MUTABLE: [Self; 6] = [
         Self::Events,
         Self::Publications,
         Self::Imports,
         Self::ProjectionState,
         Self::Profiles,
         Self::Selections,
-        Self::ProfileAttempts,
     ];
     pub fn immutable(self) -> bool {
         matches!(self, Self::GenerationRelations | Self::OperationOutline)
@@ -80,13 +77,6 @@ impl View {
                 ("compiler_digest", Id(32), false),
                 ("library", Text, false),
                 ("state", Text, false),
-            ],
-            Self::ProfileAttempts => vec![
-                ("generation_digest", Id(32), false),
-                ("profile_digest", Id(32), false),
-                ("attempt_id", Int, false),
-                ("recorded_at_us", Int, false),
-                ("qualification", Text, false),
             ],
             Self::Profiles => vec![
                 ("generation_digest", Id(32), false),

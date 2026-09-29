@@ -68,7 +68,7 @@
   {
     "contract": "FindOperationsRequest",
     "tool": "find_operations",
-    "valid": true,
+    "valid": false,
     "input": {
       "library": "example",
       "where": {
@@ -111,7 +111,7 @@
   {
     "contract": "SearchOperationsRequest",
     "tool": "search_operations",
-    "valid": true,
+    "valid": false,
     "input": {
       "library": "example",
       "query": "HTTP configuration",
@@ -123,7 +123,7 @@
   {
     "contract": "SearchOperationsRequest",
     "tool": "search_operations",
-    "valid": false,
+    "valid": true,
     "input": {
       "library": "example",
       "query": "HTTP configuration",
@@ -238,6 +238,132 @@
         "id": "22222222222222222222222222222222",
         "extra": 0
       }
+    }
+  },
+  {
+    "contract": "Selection",
+    "valid": true,
+    "input": {}
+  },
+  {
+    "contract": "Selection",
+    "valid": true,
+    "input": {
+      "requirements": [
+        {
+          "predicate": "declares_parameter",
+          "name": "x"
+        }
+      ]
+    }
+  },
+  {
+    "contract": "Selection",
+    "valid": false,
+    "input": {
+      "requirements": null
+    }
+  },
+  {
+    "contract": "Selection",
+    "valid": false,
+    "input": {
+      "requirements": [
+        {
+          "predicate": "declares_parameter",
+          "name": "x"
+        },
+        {
+          "predicate": "declares_parameter",
+          "name": "x"
+        },
+        {
+          "predicate": "declares_parameter",
+          "name": "x"
+        },
+        {
+          "predicate": "declares_parameter",
+          "name": "x"
+        },
+        {
+          "predicate": "declares_parameter",
+          "name": "x"
+        },
+        {
+          "predicate": "declares_parameter",
+          "name": "x"
+        },
+        {
+          "predicate": "declares_parameter",
+          "name": "x"
+        },
+        {
+          "predicate": "declares_parameter",
+          "name": "x"
+        },
+        {
+          "predicate": "declares_parameter",
+          "name": "x"
+        },
+        {
+          "predicate": "declares_parameter",
+          "name": "x"
+        },
+        {
+          "predicate": "declares_parameter",
+          "name": "x"
+        },
+        {
+          "predicate": "declares_parameter",
+          "name": "x"
+        },
+        {
+          "predicate": "declares_parameter",
+          "name": "x"
+        },
+        {
+          "predicate": "declares_parameter",
+          "name": "x"
+        },
+        {
+          "predicate": "declares_parameter",
+          "name": "x"
+        },
+        {
+          "predicate": "declares_parameter",
+          "name": "x"
+        },
+        {
+          "predicate": "declares_parameter",
+          "name": "x"
+        }
+      ]
+    }
+  },
+  {
+    "contract": "FindOperationsRequest",
+    "valid": false,
+    "input": {
+      "library": "fastmcp",
+      "where": {},
+      "selection": {}
+    }
+  },
+  {
+    "contract": "FindOperationsRequest",
+    "valid": true,
+    "input": {
+      "library": "fastmcp",
+      "selection": {},
+      "limit": 100
+    }
+  },
+  {
+    "contract": "FindOperationsRequest",
+    "valid": false,
+    "input": {
+      "library": "fastmcp",
+      "limit": 101
     }
   }
 ]

@@ -11,7 +11,7 @@ lychee = "0.24.2"
 
 [publication]
 entrypoints = ["README.md", "docs/README.md", "docs/design/README.md", "STATUS.md", "AGENTS.md", "docs/publishing.md"]
-current_work = ["docs/plans/behavioral-model-forward-plan_2026-09-24.md", "docs/plans/postgresql-integration-plan_2026-09-27.md"]
+current_work = ["docs/plans/behavioral-model-forward-plan_2026-09-24.md"]
 exclude = ["docs/external-review-postgresl-options.md", "docs/external-review-pathway-working-product.md"]
 assets = []
 

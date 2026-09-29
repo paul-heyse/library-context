@@ -97,6 +97,8 @@ pub enum CoreError {
     Analysis(String),
     #[error("embedding: {0}")]
     Embed(String),
+    #[error("embedding service: {0}")]
+    EmbeddingService(String),
     #[error("bundle: {0}")]
     Bundle(String),
     #[error("validation failed, nothing published: {}", summary(.0))]
@@ -110,3 +112,7 @@ pub enum CoreError {
 pub mod postgres_read;
 
 pub mod surface;
+
+pub mod catalog_domains;
+
+pub mod retrieval;

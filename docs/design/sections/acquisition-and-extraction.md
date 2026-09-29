@@ -28,7 +28,7 @@ to both library and corpus extraction and enters run identity. Unselected flow c
 `not_requested`, not complete or empty evidence. Public roots are validated dotted paths; no
 acceptance-task list restricts the public universe.
 
-> Decision: ADR-0072
+> Decision: ADR-0078
 
 ## §4 Pipeline
 
@@ -208,7 +208,7 @@ derivation, followed by materialization/embedding/publication. PR3 scenarios ext
 scanned relations, membership, missing lookups, coverage and policy context. The
 [§14.3 owner](api-and-evidence-product.md#section-14-3) defines these boundaries; suitable bulk joins
 remain in DataFusion. This refines `cpg-core::catalog`, not acquisition or analyzer ownership,
-and preserves the mandatory-catalog/optional-analysis profile boundary from ADR-0072.
+and preserves the mandatory-catalog/optional-analysis profile boundary from ADR-0078.
 
 > Decision: ADR-0046, ADR-0067, ADR-0073
 

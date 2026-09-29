@@ -1056,7 +1056,8 @@ text = "find_operations(kind='method', facets=[parameter = raise_on_error]): whi
 kind = "find"
 operations = []
 stage = 2
-request = { tool = "find_operations", where = { kind = "method", facets = [{ facet = "parameter", value = "raise_on_error" }] } }
+# Request encoding migrated to wire3; question and expected evidence unchanged.
+request = { tool = "find_operations", selection = { requirements = [{ predicate = "member_kind", kind = "method" }, { predicate = "facet_membership", facet = "parameter", value = "raise_on_error" }] } }
 
   [[question.item]]
   id = "Q22.a"

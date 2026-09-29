@@ -36,7 +36,7 @@ PostgreSQL database. Choose them by that direction, rather than installing the e
 
 Current owners are [storage/publication §6](../../design/sections/storage-and-publication.md),
 [synthesis/serving §§10–11](../../design/sections/synthesis-and-serving.md), the
-[PostgreSQL plan](../../plans/postgresql-integration-plan_2026-09-27.md), and the
+[PostgreSQL plan](../../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-workstream), and the
 [forward plan](../../plans/behavioral-model-forward-plan_2026-09-24.md).
 The [evidence index](../evidence/2026-09-27_postgresql-expansion/README.md) distinguishes each
 tested boundary from unresolved integration work. All observations below are dated 2026-09-27.
@@ -272,7 +272,7 @@ separate column; historical PG0–PG7 acceptance is not reversed.
 These are target-design gaps, not claims that unimplemented features currently return bad answers.
 **Disposition transferred 2026-09-27:** the [forward plan §6.1](../../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-findings)
 is the single current status owner for **PGE/F01–F05**. The updated
-[PostgreSQL plan](../../plans/postgresql-integration-plan_2026-09-27.md) owns PG8–PG17's detailed
+[PostgreSQL plan](../../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-workstream) owns PG8–PG17's detailed
 work and acceptance. The findings below retain this review's dated evidence and corrections;
 planning does not establish implementation or closure.
 

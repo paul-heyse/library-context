@@ -13,7 +13,7 @@ pytestmark = pytest.mark.anyio
 
 @pytest.fixture(scope="module")
 def catalog_serving():
-    current = Path("build/pr1-catalog-fixture/CURRENT")
+    current = Path("build/catalog-fixture/CURRENT")
     if not current.exists():
         pytest.skip("targeted catalog fixture not built")
     with served_bundle(Path(current.read_text().strip())) as fixture:

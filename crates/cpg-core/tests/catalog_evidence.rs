@@ -1,4 +1,6 @@
 //! Original evidence is useful without brief seeds and survives canonical publication.
+#[path = "catalog/selection_evidence.rs"]
+mod selection_evidence;
 use cpg_schema::{Id, Table, catalog::CompileProfile, evidence::*, query::QueryRow};
 use std::path::Path;
 async fn rows<T: Table>(ctx: &datafusion::prelude::SessionContext) -> Vec<T::Row>
@@ -268,6 +270,13 @@ async fn original_contexts_independent_roots_and_pure_rebuild() {
     let normalized = cpg_core::evidence::PreparedEvidence::new(&metadata_facts, &with_metadata)
         .derive(snapshot, &catalog)
         .unwrap();
+    selection_evidence::check(
+        &metadata_facts,
+        &with_metadata,
+        &catalog,
+        &normalized,
+        snapshot,
+    );
     let scoped: Vec<_> = normalized
         .associations
         .iter()

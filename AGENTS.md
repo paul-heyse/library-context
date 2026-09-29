@@ -11,7 +11,7 @@ The pieces:
 - **Extraction:** Pyrefly (a pinned, minimally patched fork) and Ruff 0.0.11 crates, both linked
   in-process over one parse (ADR-0046). The one exception is the flow facts: `cpg-flow` reads ty's
   semantic index over a second parse, joined by byte range (ADR-0046, ADR-0045). The
-  Pyrefly CLI is only a parity-test oracle. Catalog compilation is the default (ADR-0072);
+  Pyrefly CLI is only a parity-test oracle. Catalog compilation is the default (ADR-0078);
   `--profile behavioral` explicitly requests the flow provider and retained behavioral enrichment.
 - **Facts:** Arrow schemas are the contract, DataFusion constructs and validates the facts, and
   Delta stores them. `lctx-postgres` owns rebuildable PostgreSQL projections and transactional
@@ -37,9 +37,7 @@ real consumer.
    (`docs/plans/behavioral-model-forward-plan_2026-09-24.md`): §1 current state and qualification
    boundary, §3.0 product PR0–PR6 queue and §6 findings. The retained Stage 3–5 sequence is a
    research backlog, activated only by a product task or an exposed-claim defect. It coordinates product sequencing and owns
-   finding disposition. For PostgreSQL work also read the distinct detailed plan
-   `docs/plans/postgresql-integration-plan_2026-09-27.md`; forward-plan §3.4 owns its relationship
-   to the product queue and retained Stage 3–5 research, and §6.1 owns PostgreSQL finding status.
+   finding disposition. For PostgreSQL work, §3.4 owns integration, §6.1 finding status and §7 conditional adoption.
 3. For design questions, follow **owner → decision → open work**:
    - start at the architecture map `docs/design/README.md` and read the owning section in
      `docs/design/DESIGN.md` (scope, §B1–§B14) or `docs/design/sections/` plus adjacent consumers;
@@ -57,7 +55,7 @@ real consumer.
 |---|---|
 | `docs/design/DESIGN.md`, `docs/design/sections/` | Architectural collection; stable § IDs. DESIGN §2 holds §B1–§B14 |
 | `docs/README.md`, `docs/publishing.md` | Task routes and isolated documentation commands; site navigation/search is derived |
-| `docs/plans/` | Behavioral-model forward plan plus the operator-requested PostgreSQL implementation plan, with distinct ownership; finished or superseded plans are removed once their obligations move |
+| `docs/plans/` | One current product/research forward plan; finished or superseded plans are removed once their obligations move |
 | `docs/adr/` | Current decision records (accepted and open proposals), a generated index, and `TEMPLATE.md` |
 | `docs/design_review/design_principles/` | The layered design standard, declared in `standard.toml`: six foundations (FP-01–06), architectural judgments A1–A3, supporting rules DP-01–24 and gates G1–G8, the CI profile, and the repository binding (ADR-0040) |
 | `docs/design_review/reviews/` | Review outputs: evidence, never authority; kept while a finding they supply is open |
@@ -188,6 +186,13 @@ capability is absent.
   with a trigger (binding §4).
   Record the responsible component and closure evidence; link from follow-up reviews and STATUS.
   A decision being accepted does not establish implementation or verified closure.
+
+## Design-phase cutover
+
+After validating a change, fully pivot to the current design (ADR-0078). Rebuild project stores
+and projections from pinned inputs; remove obsolete generations, runtime copies, rollback assets
+and compatibility-only paths. Do not add old-format readers or retain historical runtime records
+without a named current consumer. Quiesce project readers before replacing their state.
 
 ## Git
 

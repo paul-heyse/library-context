@@ -1845,7 +1845,9 @@ async fn all_techniques_guard() {
     // then compiler108 catalog contracts and explicit enrichment capabilities (ADR-0072),
     // then compiler109 ordered surface/configuration contracts and shared admission (ADR-0074).
     // Compiler110/extractor36: original contextual evidence and verified metadata (ADR-0076).
-    const GUARD: &str = "7bf39413ea7d470c2d7f2fb77c4d44aff28a58fdbc472cd319eaf38417002114";
+    // Compiler111/extractor37: scoped selection domains and typed primitive literals (ADR-0077).
+    // PR4/F16 canonically orders nested selection contexts and fact-evidence sets.
+    const GUARD: &str = "e14c90bd8c46bfc110dd0363b9b57fbe22581045a4d5c34802a46b38c829d2a2";
     assert_eq!(digest, GUARD, "the all-techniques guard moved");
 }
 

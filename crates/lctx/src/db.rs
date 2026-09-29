@@ -32,20 +32,6 @@ pub enum Command {
         #[arg(long, default_value = "build/generations")]
         generations: PathBuf,
     },
-    /// Import only legacy vectors whose exact request texts can be re-admitted.
-    ImportCache {
-        #[arg(long)]
-        store: PathBuf,
-        #[arg(long)]
-        version: u64,
-        /// JSON array of exact request texts reconstructed from pinned inputs.
-        #[arg(long)]
-        requests: PathBuf,
-        #[arg(long, value_enum)]
-        embedder: crate::EmbedderChoice,
-        #[arg(long, default_value = "http://127.0.0.1:8000")]
-        embed_url: String,
-    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -200,27 +186,6 @@ pub async fn command(command: Command, config: Option<&Path>) -> anyhow::Result<
                 snapshots.len(),
                 locations.len()
             );
-        }
-        Command::ImportCache {
-            store,
-            version,
-            requests,
-            embedder,
-            embed_url,
-        } => {
-            db.check().await?;
-            let embedder = crate::embedder_of(embedder, &embed_url)
-                .context("cache import needs a tokenizer/spec, not --embedder none")?;
-            let texts: Vec<String> = serde_json::from_slice(&std::fs::read(requests)?)?;
-            let imported = cpg_core::postgres::legacy::import(
-                &db,
-                &crate::absolute(&store)?,
-                version,
-                embedder.as_ref(),
-                &texts,
-            )
-            .await?;
-            println!("{}", serde_json::to_string_pretty(&imported)?);
         }
     }
     db.close().await;

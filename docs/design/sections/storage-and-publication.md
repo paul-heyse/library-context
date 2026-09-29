@@ -221,7 +221,7 @@ that dated checkpoint does not establish current assembled Stage 3 acceptance.
   ([plan W15](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition), RF/F16).
 - **A schema change is a reviewed migration.** It shows as a changed contract snapshot, is
   accepted by reading the `.snap.new` and is named as a migration in its commit. In practice it
-  needs a fresh store. The old store can be moved aside temporarily for rollback; the new compile
+  needs a fresh store. The replacement is validated before cutover, then the old store is deleted; the new compile
   produces its own `embedding_specs` and current snapshot. Historical snapshot reads and keeping
   the old binary are not supported requirements.
 - **A change to a table's CHECK set is a migration** in the same way, because the open-time verify
@@ -244,27 +244,21 @@ that dated checkpoint does not establish current assembled Stage 3 acceptance.
 `mixed_embedding_specs_are_refused`, `serving_schema_digests_are_the_shared_known_answers`;
 2026-09-23 onward); the files marked below as later-stage are **Proposed**.
 
-**FORMAT 15 / projection FORMAT 5 (Implemented; qualification pending, 2026-09-28; ADR-0076).**
-Adds independently rooted original artifacts (`Binary` body / PG `bytea`), spans, contextual
-scenarios, deployment observations and typed site associations through additive migration011.
-Shared canonical/import/read-back validators check identities, original-byte bounds, option
-expressions and original task receipt equality. FORMAT14/projection4 introduced attributed
-surface aspects, configuration fields and exact field links through migration010.
-FORMAT13/projection3 introduced the mandatory
-catalog and finite compile-profile/capability contract. Native artifacts are required exactly when
-native analysis is advertised; unselected analysis relations retain typed empty schemas. FORMAT12
-introduced release/coverage context; outer fields and file schema/row receipts must still agree.
-FORMAT 11 adds standard 1024/spec format 2 and the full
-projection manifest with shared Rust schema/closure validation (ADR-0068). FORMAT 9's internal callable/formal
-metadata remains, so nested callee proofs can load without adding private operations to
-discovery. FORMAT 10 adds claim-keyed `behavior_discharges` and native citation admission
-(ADR-0064). The executable `cpg_schema::bundle::files` list is authoritative. General
-channel/proof support and typed semantic queries remain the forward plan S6 target; older
-formats are not implicitly accepted.
+**FORMAT16 / projection FORMAT6 / wire3 (Implemented and bounded Tested under the live-embedding waiver, 2026-09-28; ADR-0077/0078).**
+The mandatory catalog contains original artifacts, spans, contextual scenarios, deployment observations,
+typed site associations, surface/configuration contracts and scoped selection domains. Immutable retrieval
+units/fragments, subjects, vectors and receipts are generation artifacts derived from those facts.
+The schema-owned renderer also validates supplied units against canonical content and ownership.
+The executable `cpg_schema::bundle::files` inventory is authoritative. Native artifacts are required
+exactly when behavioral analysis is advertised; unselected analysis relations have typed empty schemas.
+Only the current format is accepted; regeneration replaces historical-format recovery.
 
-- **Derivation.** The generation is built **only after** the `snapshots` append succeeds, by
-  reading the published snapshot at its recorded versions, including `used_embeddings`. That is
-  its one derivation path. Rebuilding a generation from Delta gives byte-identical files.
+- **Derivation.** A generation is built **only after** canonical `snapshots` publication. Its
+  complete inputs are the published snapshot at recorded versions (including exact canonical
+  vector receipts) and the selected immutable retrieval realization and complete file receipt.
+  Replaying those inputs produces byte-identical files without a live cache or embedder. Changed
+  rendering/specification or resolved token admission may produce another explicitly identified
+  realization and generation over the same snapshot; snapshot identity alone is not sufficient.
 - **Bundle.** It is a directory `generations/<key>/` of Arrow IPC files, with declared schemas
   from `cpg-schema` (`cpg_schema::bundle`). Codebook values are served as their text. The files:
   - `briefs`, with each brief's Outcome and its status;
@@ -288,16 +282,19 @@ formats are not implicitly accepted.
     lower-casing, then ASCII letter-and-digit runs, identical in Rust and Python, with shared
     known answers in `specs/serving/tokens.json`;
   - `embedding_spec` and `vectors` (§11.1), whose vector type is `fixed_size_list(float32 not null
-    "item", D)`, `D` the spec's dimensions. The spec comes from the snapshot's `embedding_specs`
-    row, and each document's key is `(spec_hash, input_hash)`;
+    "item", D)`, `D` the selected spec's dimensions. Canonical and retrieval receipts must agree
+    on any consumed vector space; each document's key is `(spec_hash, input_hash)`;
   - the behavior and summary files: `operations`, `operation_facets`, `operation_facet_status`,
-    `callable_parameters`, `operation_text`, `operation_vectors`, `behaviors`, `singletons`,
+    `callable_parameters`, `behaviors`, `singletons`,
     `ambient_reads`, `place_claims`, `conditions`, `condition_nodes`, `analysis_conditions`,
     `analysis_condition_nodes`, `summary_flows`, `summary_flow_steps`, `summary_boundaries`,
     `flow_test_leaves` and `flow_test_value_links`. Their meaning is owned by
     [§3.9](behavior-model.md#section-3-9), [§9.9](behavioral-analysis.md#section-9-9) and
     [§11](synthesis-and-serving.md#section-11); `cpg_schema::bundle::files` declares the list,
     keys and schemas and is authoritative.
+  - `retrieval_units`, `retrieval_subjects`, `retrieval_fragments`, `retrieval_vectors` and
+    `retrieval_receipt` hold schema-rendered addressable evidence and exact-spec vector receipts.
+    They are independently materialized from the canonical catalog and validated against it.
   - Usage patterns are `usage_pattern` assertions in `assertions` and `evidence`, so no separate
     served file exists.
   - **Proposed** additions: `concepts`, `concept_members` and `vocabulary` (the forward plan's
@@ -317,7 +314,7 @@ formats are not implicitly accepted.
   - The **portable generation key** is the first 16 hex digits of the SHA-256 of the manifest without its
     key. It moves with any file, and with the snapshot's provenance. The separate full projection
     digest binds logical rows, schemas, context and artifacts for PostgreSQL pins/cursors.
-- **Normalization**, so a rebuild is byte-identical:
+- **Normalization**, so replay of the same complete inputs is byte-identical:
   - each file is one query, sorted by its declared key;
   - every column is cast to its declared type and rebuilt through a builder, so no view type,
     scan metadata or byte under a null slot reaches the file;
@@ -336,30 +333,34 @@ formats are not implicitly accepted.
   full ready generation/profile digest at startup. An existing server or cursor never changes
   when the pointer moves. Portable directory keys are export identities, not online selectors.
 
-- **Derived search indexes** (an FTS table, any ANN index) are rebuilt from the generation's Arrow
-  files, keyed by the generation key, outside the byte-identical manifest.
+- **Proposed derived indexes.** FTS/ANN, if selected by a future consumer, rebuild from the
+  current generation and bind its content/physical realization. Neither is a current route.
 - **Native projection.** The Python loader forwards checked IPC bytes to the Rust executor, which
   validates `cpg-schema`'s exact serving schemas and decodes named columns. The focused
   finalizer-bearing generation and schema-drift controls passed; integrated qualification is
   pending ([plan W1](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
 
-> Decision: ADR-0067, ADR-0068, ADR-0070, ADR-0049
+> Decision: ADR-0067, ADR-0077, ADR-0078, ADR-0049
 
-**PR1 Implemented and Tested, 2026-09-28 (ADR-0072):**
-[§14.13](api-and-evidence-product.md#section-14-13) records the mandatory catalog, original declaration
-evidence roots and explicit optional capabilities. Migration009 installs nine relational catalog
-projections; shared schema validation governs publication, import and recovery. Current readers
-refuse legacy formats; backup preserves their exact transport/artifact closure for the retained
-matching runtime. Contextual scenario/deployment evidence and broader product records remain Proposed.
+**Accepted target, 2026-09-28 (ADR-0078):** current formats only. After validating a fresh
+replacement, quiesce readers and delete superseded stores, generations, matching runtimes and
+rollback assets. Reconstruction from pinned inputs replaces mixed-version recovery.
 
-> Decision: ADR-0071, ADR-0072
+**Mandatory catalog Implemented and bounded Tested under the PR4 live-embedding waiver, 2026-09-28.**
+[§14.13](api-and-evidence-product.md#section-14-13) records original evidence and explicit optional
+capabilities. Shared schema validation governs publication, import and current reconstruction.
+Retrieval artifacts use a complete file-content receipt as their immutable identity; an atomic current
+selection identifies the materialization for cold reconstruction. Publication validates snapshot identity
+before selecting it. Old runtimes, records and compatibility adapters have no recovery consumer.
+
+> Decision: ADR-0071, ADR-0078
 
 <a id="section-6-5"></a>
 
 ### §6.5 PostgreSQL services and capability adoption
 
-**Implemented and Tested, 2026-09-27.** The
-[PostgreSQL implementation plan](../../plans/postgresql-integration-plan_2026-09-27.md)
+**Implemented and bounded Tested, 2026-09-28; live embedding waived for PR4.** The
+[PostgreSQL workstream](../../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-workstream)
 owns deployment and qualification. The [forward plan §6](../../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-findings)
 owns review dispositions. [Operating instructions](../../postgresql.md) cover the deployed service.
 
@@ -373,10 +374,9 @@ PG15 owns admitted scans/federation, never application writes.
 **PR2 hydration contracts Implemented (ADR-0073/0074).** Inventory-derived reads assemble the
 complete shared Rust response before crossing into Python. New field links receive generation and
 field/class membership checks; Schemars also covers existing PG configuration, policy and diagnostic
-owners. Current readers reject legacy formats; recovery preserves formats2/12 and3/13 with an
-explicit matching-runtime requirement.
+owners. Current readers accept the current format only; obsolete state is rebuilt after validation.
 
-**Remaining catalog-query target, Proposed (ADR-0073).** PR4 extends SQLx checked
+**Catalog-query implementation (ADR-0073/0077; bounded Tested under the PR4 live-embedding waiver).** PR4 extends SQLx checked
 static/file queries and typed rows for stable generation/catalog reads. Runtime `query_as` is typed
 decoding, not compile-time database checking; offline metadata follows the migrated disposable
 schema, with real-PG controls for nullability and type overrides. Inventory-driven dynamic hydration stays derived
@@ -400,12 +400,9 @@ embedding spec are sufficient for replay; bundle/rebuild never contacts PostgreS
 embedder. Initial adoption removes the former global Delta cache writer/read exceptions after
 all consumers migrate. This is one mutable reuse service plus immutable per-snapshot inputs.
 
-**Projection publication (Implemented; focused controls Tested, 2026-09-28).**
-[Bounded evidence](../../design_review/evidence/2026-09-27_postgresql-expansion/implementation.md)
-records the foundation. PG12–PG15 add import, exact queries, retrieval qualification and reports;
-[query integration evidence](../../design_review/evidence/2026-09-28_postgresql-query/README.md) bounds those checks. PG16/PG17 local exact rollout/recovery and assembled acceptance passed;
-[operations evidence](../../design_review/evidence/2026-09-28_postgresql-operations/README.md) bounds the claim.
-`cpg-schema::serving_projection` owns FORMAT 5 manifests, all FORMAT 15 relation receipts,
+**Projection publication (Implemented, 2026-09-28).** The [current evidence](../../design_review/evidence/2026-09-28_pr4/README.md)
+records code, PG/MCP and reconstruction qualification independently of the live-embedding waiver.
+`cpg-schema::serving_projection` owns FORMAT 6 manifests, all FORMAT 16 relation receipts,
 native/lexical artifact identities and generation-local constraints. `serving_support` is shared
 by publication, file loading and import. Full content digests exclude physical row order/COPY
 batching, locations and retrieval profiles; multiplicity/nulls/float bits remain significant.
@@ -415,8 +412,9 @@ SQLx/pgpq COPY targets bounded temporary staging, then validated INSERT because 
 accept COPY FROM. A row-lock barrier freezes loading before validation; ready rows cannot mutate.
 Serving roles see ready generations only. Production COPY import freezes a transport recipe,
 reconciles atomic batch receipts and validates stored rows before promotion. Rust repositories
-serve pinned exact queries; HNSW requires separate qualification and explicit selection. Profile qualification
-and artifact locations are outside immutable projection identity. Canonical Delta never rolls back
+serve pinned exact queries. No ANN implementation/admission path remains; future adoption must
+qualify the current content and physical realization. Profile and artifact locations remain
+outside immutable projection identity. Canonical Delta never rolls back
 because a serving import fails.
 
 **Deployment boundary.** Reuse PG18 with pinned pgvector 0.8.6 in the locked `lctx_ext` schema.
@@ -451,18 +449,11 @@ Future review events preserve exact subject revision and become explicit attribu
 inputs when used. Later SQL serving remains an immutable projection. Both need their own
 consumer, replay and failure evidence; neither is silently enabled by installing PostgreSQL.
 
-> Decision: ADR-0068, ADR-0070, ADR-0067, ADR-0073
+> Decision: ADR-0078, ADR-0067, ADR-0073
 
 
-**Implemented; focused controls Tested (2026-09-28; ADR-0070).** Projection FORMAT 2 / bundle FORMAT 12 binds
-release identity and complete coverage context. PG12 validates stored projection rows before
-readiness; PG13 preserves exact query/native contracts; PG14 qualifies separately selected
-exact/HNSW profiles; PG15 admits bounded provider expressions and coherent operational reports.
-Implementation and qualification remain separately tracked in the PostgreSQL plan.
-
-**Implemented and Tested (2026-09-28; ADR-0070):** physical-index ANN admission, mixed exact/ANN
-routing, complete artifact-bearing recovery receipts and bounded operational diagnostics are
-available. The deployed live generation uses exact retrieval; no ANN class passed calibration.
-Restore/reindex invalidation and complete recovery through MCP serving passed. The
-[operations evidence](../../design_review/evidence/2026-09-28_postgresql-operations/README.md) records
-measured costs and the numerical-oracle boundary. Positive ANN admission remains conditional.
+**Current-only replacement (Implemented, 2026-09-28; ADR-0078).** Validate both current profiles and
+current-format reconstruction, quiesce project readers/writers, replace the operator state, then
+remove superseded stores, generations, runtime copies and backups. Old-format readers and mixed
+exact/ANN routes are removed. The forward plan owns dated deployment completion and any remaining
+qualification boundary; current backup/reconstruction controls do not establish historical recovery.

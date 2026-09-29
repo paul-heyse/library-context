@@ -23,18 +23,6 @@ pub enum Command {
         #[arg(long, default_value = "build/serving-artifacts")]
         artifacts: PathBuf,
     },
-    /// Install indexes without activating any retrieval profile.
-    BuildHnsw {
-        #[arg(long,value_parser=parse_digest)]
-        generation: Digest,
-    },
-    /// Execute a frozen independent-reference pack; failed profiles remain unselectable.
-    QualifyHnsw {
-        #[arg(long)]
-        pack: PathBuf,
-        #[arg(long)]
-        serving_config: PathBuf,
-    },
     Status {
         #[arg(long,value_parser=parse_digest)]
         generation: Option<Digest>,
@@ -117,8 +105,6 @@ pub async fn command(
     let result=async {
         match cmd {
             Command::Import{artifacts,..}|Command::ImportBundle{artifacts,..}=>println!("{}",serde_json::to_string_pretty(&db.import(prepared.expect("prepared import"),artifacts).await?)?),
-            Command::BuildHnsw{generation}=>{db.build_hnsw(generation).await?;println!("HNSW indexes built; no profile selected");},
-            Command::QualifyHnsw{pack,serving_config}=>{use std::io::Read;let mut bytes=Vec::new();std::fs::File::open(pack)?.take(128*1024*1024+1).read_to_end(&mut bytes)?;anyhow::ensure!(bytes.len()<=128*1024*1024,"qualification pack byte budget");let reader=RoleConfig::load(&serving_config)?.open_serving().await?;let report=db.qualify_hnsw(&reader,&bytes).await;reader.close().await;let report=report?;println!("{}",serde_json::to_string_pretty(&report)?);anyhow::ensure!(report["passed"]==true || (report["phase"]=="calibration" && !report["chosen_policy"].is_null()),"ANN profile failed qualification; exact remains available");},
             Command::Status{..}=>unreachable!("diagnostic path runs before normal schema admission"),
             Command::RelocateArtifacts{generation,artifacts}=>println!("{}",serde_json::to_string_pretty(&db.relocate_artifacts(generation,artifacts).await?)?),
             Command::RecoveryInventory{snapshot}=>println!("{}",serde_json::to_string(&db.recovery_inventory(&snapshot).await?)?),

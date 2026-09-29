@@ -40,22 +40,25 @@ from lctx_mcp.generation import Generation, load
 from lctx_mcp.retrieval import (
     Lexical,
     RetrievalMetadata,
+    UnitLexical,
+    fuse_families,
     fuse_legs,
     identities,
     lexical_rank,
+    unit_vector_rows,
     vector_legs,
 )
 from lctx_mcp.wire import REQUEST_SECONDS, Contract, Packet, register
 
 INSTRUCTIONS = (
-    "A behavioral model of one pinned Python library's whole public surface, compiled from its "
-    "code, docs, examples and tests. find_operations answers exhaustively over typed facets "
-    "(parameters, types, direct raises, decorators, and what an operation forwards to, delegates "
-    "to or hands off to), saying whether the answer is complete; search_operations ranks "
-    "operations for a task; get_operation reads one whole, each fate with its verdict and source "
-    "line. Capability briefs cover a curated subset: search_capabilities, get_capability. "
-    "'established' and 'conditional' admit may-behavior under the stated model; they do not "
-    "prove that an execution exists. A negative verdict needs complete may-analysis. "
+    "A version-pinned API and evidence catalog of one Python library. find_operations classifies "
+    "typed requirements into supported, unresolved and conflicting groups; contradicted members "
+    "are excluded and counted. Discovery includes all three groups; strict mode admits supported "
+    "members only. search_operations ranks eligible public members and returns addressable "
+    "winning evidence units. get_operation reads a public member's complete declared contracts; "
+    "get_evidence expands original evidence and retrieval units. Capability briefs and behavioral "
+    "enrichment are available only when advertised. 'established' and 'conditional' admit "
+    "may-behavior under the stated model; they do not prove that an execution exists. "
     "'unknown' and 'not_analyzed' are never 'no'. inspect_value_paths evaluates an exact "
     "primitive against individual cited value paths; its refutation is path-local only. "
     "A relevance score ranks; it is not proof."
@@ -155,7 +158,7 @@ class NativeWorkers:
 class Served:
     generation: Generation
     lexical: Lexical | None
-    operation_lexical: Lexical | None
+    unit_lexical: UnitLexical
     embedder: Embedder | None
     workers: NativeWorkers
 
@@ -165,7 +168,7 @@ def serve(generation: Generation, embedder: Embedder | None, workers: NativeWork
     return Served(
         generation,
         Lexical(state.brief_text) if state.brief_text else None,
-        Lexical(state.operation_text) if state.operation_text else None,
+        UnitLexical(state.unit_fragments, state.unit_subjects),
         embedder,
         workers,
     )
@@ -206,22 +209,19 @@ async def search(
     library: str,
     query: str,
     limit: int,
-    where: Packet | None = None,
-    operations: bool = False,
 ):
     gen = served.generation
     if library != gen.library:
         raise CapabilityError(f"this server serves {gen.library!r}, not {library!r}")
-    where_json = where.model_dump_json() if where else None
-    raw_scope = await storage(gen.repository.search_scope(query, operations, where_json))
+    raw_scope = await storage(gen.repository.search_scope(query))
 
     def decode_scope():
         scope = json.loads(raw_scope)
         return identities(scope["eligible"]), identities(scope["promoted"])
 
     eligible, promoted = await served.workers.run(decode_scope)
-    lexical = served.operation_lexical if operations else served.lexical
-    ids = gen.lexical_state.operation_ids if operations else gen.lexical_state.brief_ids
+    lexical = served.lexical
+    ids = gen.lexical_state.brief_ids
     legs = [
         await served.workers.run(lambda: lexical_rank(ids, lexical.scores(query), eligible))
         if lexical
@@ -234,13 +234,9 @@ async def search(
         actual_route="lexical-only",
     )
     reason = None
-    relation = "operation_vectors" if operations else "vectors"
+    relation = "vectors"
     if gen.manifest["relations"][relation]["rows"] == 0:
-        reason = (
-            "this generation has no operation vectors"
-            if operations
-            else "this generation has no vectors"
-        )
+        reason = "this generation has no vectors"
     elif served.embedder is None:
         reason = "no query embedder is configured"
     else:
@@ -252,43 +248,30 @@ async def search(
             reason = f"the embedding service failed: {exc}"
         else:
             raw_metadata, raw = await storage(
-                gen.repository.vector_ranks(
-                    query_vector, served.embedder.spec.hash, operations, where_json, limit
-                )
+                gen.repository.vector_ranks(query_vector, served.embedder.spec.hash, limit)
             )
             metadata = RetrievalMetadata.model_validate_json(raw_metadata)
-            legs.extend(await served.workers.run(vector_legs, raw))
+            legs.extend(
+                await served.workers.run(vector_legs, raw, gen.repository.brief_rank_schema())
+            )
     ranked = await served.workers.run(fuse_legs, legs, promoted, limit)
-    raw_rows = await storage(gen.repository.hit_records([row[0] for row in ranked], operations))
+    raw_rows = await storage(gen.repository.hit_records([row[0] for row in ranked], False))
 
     def render():
         rows = json.loads(raw_rows)
         hits: list[Packet | Packet] = []
         for (identity, relevance, source, exact), row in zip(ranked, rows, strict=True):
-            if operations:
-                hits.append(
-                    ops.OperationHit(
-                        operation_id=identity,
-                        access_path=row["access_path"],
-                        kind=row["kind"],
-                        docstring_summary=row["docstring_summary"],
-                        relevance=relevance,
-                        rank_source=source,
-                        promoted=exact,
-                    )
+            hits.append(
+                Hit(
+                    capability_id=identity,
+                    title=row["title"],
+                    outcome=row["outcome"],
+                    outcome_status=row["outcome_status"],
+                    relevance=relevance,
+                    rank_source=source,
+                    promoted=exact,
                 )
-            else:
-                hits.append(
-                    Hit(
-                        capability_id=identity,
-                        title=row["title"],
-                        outcome=row["outcome"],
-                        outcome_status=row["outcome_status"],
-                        relevance=relevance,
-                        rank_source=source,
-                        promoted=exact,
-                    )
-                )
+            )
         common = dict(
             snapshot_id=gen.snapshot_id,
             generation=gen.key,
@@ -297,15 +280,52 @@ async def search(
             retrieval=metadata,
             hits=hits,
         )
-        if operations:
-            return ops.OperationHits.model_validate(
-                {**common, "ranked_discovery": True, "note": ops.NOTE_SEARCH}
-            )
         return SearchResult.model_validate(
             {**common, "library": gen.library, "coverage": gen.summary, "note": NOTE}
         )
 
     return await served.workers.run(render)
+
+
+@request_deadline
+async def search_members(
+    served: Served,
+    query: str,
+    selection: Packet | None = None,
+    limit: int = 20,
+    cursor: str | None = None,
+) -> Packet:
+    """Rank the immutable contextual selection and preserve addressable winners."""
+    prepared = await storage(
+        served.generation.repository.prepare_selection(
+            selection.model_dump_json() if selection is not None else "{}", query
+        )
+    )
+    scope = await served.workers.run(lambda: json.loads(prepared.scope()))
+    winners = await served.workers.run(served.unit_lexical.winners, query, set(scope["eligible"]))
+    channel_state = "lexical-only"
+    if (
+        served.embedder is not None
+        and served.generation.manifest["relations"]["retrieval_vectors"]["rows"]
+    ):
+        try:
+            vector = (await served.embedder.embed([served.embedder.spec.query_text(query)]))[0]
+        except EmbedderError:
+            channel_state = "lexical-only:embedding-unavailable"
+        else:
+            import hashlib
+
+            channel_state = (
+                "vector:"
+                + hashlib.sha256(np.asarray(vector, dtype="<f4").tobytes()).hexdigest()
+                + ":"
+                + served.embedder.spec.hash
+            )
+            raw = await storage(prepared.vectors(vector, served.embedder.spec.hash))
+            winners.extend(await served.workers.run(unit_vector_rows, raw, prepared.rank_schema()))
+    ranked = await served.workers.run(fuse_families, winners, set(scope["promoted"]))
+    raw = await storage(prepared.finish(json.dumps(ranked), channel_state, limit, cursor))
+    return await served.workers.run(lambda: Contract("SelectionResults").model_validate_json(raw))
 
 
 async def hydrate(served: Served, snapshot_id: str, capability_id: str) -> Packet:
@@ -578,29 +598,25 @@ def build_server(
     @request_deadline
     async def find_operations(
         library: str,
-        where: Packet,
         ctx: Context,
+        selection: Packet | None = None,
         limit: int = 20,
         cursor: str | None = None,
     ) -> Packet:
-        """Every public operation matching all the given facet terms (exact values), plus
-        optional kind and path prefix. Exhaustive over this generation; `complete` is false when
-        some operation that does not match has incomplete rows for a facet you used (a class
-        without a public constructor, a behavior scan that met a boundary, a facet that is never
-        complete such as `raises`), and those operations are listed in `unknown`. Positive
-        behavior facets are may-behavior under the model. No negation."""
+        """Classify public members against up to sixteen conjunctive requirements.
+        Discovery returns supported, unresolved and conflicting groups; strict returns supported.
+        Coverage and joint applicability are explicit. Each group has its own cursor.
+        Typed facet predicates preserve their stated may-behavior semantics."""
         served = ctx.lifespan_context["served"]
         _check(served, library)
-        raw = await storage(
-            served.generation.repository.find_operations(where.model_dump_json(), limit, cursor)
+        prepared = await storage(
+            served.generation.repository.prepare_selection(
+                selection.model_dump_json() if selection is not None else "{}", ""
+            )
         )
-
-        def render():
-            result = json.loads(raw)
-            result["note"] = ops.NOTE_FIND
-            return ops.OperationSet.model_validate(result)
-
-        return await served.workers.run(render)
+        return await served.workers.run(
+            lambda: Contract("SelectionResults").model_validate_json(prepared.page(limit, cursor))
+        )
 
     @register(mcp, READ_ONLY)
     @request_deadline
@@ -608,14 +624,16 @@ def build_server(
         library: str,
         query: str,
         ctx: Context,
-        where: Packet | None = None,
-        limit: int = 5,
+        selection: Packet | None = None,
+        limit: int = 20,
+        cursor: str | None = None,
     ) -> Packet:
-        """Public operations ranked for a coding task (lexical and vector views, fused), within
-        an optional facet filter. Ranked discovery, not exhaustive: confirm with get_operation."""
+        """Rank eligible public members across API/options, source, scenarios and documentation.
+        Each result retains the actual winning units for get_evidence expansion. Ranking never
+        proves a requirement; selection outcomes and joint applicability remain explicit."""
         served = ctx.lifespan_context["served"]
         _check(served, library)
-        return await search(served, library, query, limit, where, operations=True)
+        return await search_members(served, query, selection, limit, cursor)
 
     @mcp.resource("capability://{snapshot_id}/{capability_id}", mime_type="text/markdown")
     @request_deadline

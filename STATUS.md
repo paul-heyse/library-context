@@ -1,38 +1,30 @@
 # Status
 
-_Updated 2026-09-28 under the [handoff skill](.claude/skills/handoff/SKILL.md); work is on `main`._
+_Updated 2026-09-28 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared `main`._
 
 ## Product checkpoint
 
-- **PR3 Implemented, Tested and deployed:** original artifacts/spans, contextual scenarios, attributed package/configuration/task evidence, and bounded typed `get_evidence`/`get_operation` expansion. Independent pure evidence derivation composes with the catalog. [ADR-0076](docs/adr/0076-catalog-contextual-evidence.md), [product owner](docs/design/sections/api-and-evidence-product.md).
-- **Libraries:** pep508_rs0.9.2 with explicit URL values, mailparse0.17.0 and rust-ini0.21.3 interpret preserved source metadata. Schemars/dev jsonschema remain shared contract tools. Salsa stays evidence-only; Ascent retains S4. [PR3 evidence](docs/design_review/evidence/2026-09-28_pr3/README.md).
-- **Current versions:** compiler110, extractor36, template21, behavior-model catalog7, bundle15/projection5/wire2, migration011; standard1024 unchanged. Delta remains canonical; PG remains rebuildable.
-- **Single execution/disposition owner:** [forward plan §3.0/§6.2](docs/plans/behavioral-model-forward-plan_2026-09-24.md#30-consolidated-execution). AP/F03, CLF/F02 and PR3/F01–F08 are closed at bounded Tested strength. CLF/F01/F03 retain PR4–PR5 extension/reuse obligations.
-- **Fidelity:** context, intent and parse/binding/environment/execution status stay separate. Release metadata is not copied into per-operation requirements. No minimal-install or arbitrary-task inference. Existing/additive behavioral/query scope remains; Stage3 is incomplete.
-- **PR0 comparison blocked:** release/material parity and independent confirmation admission remain unresolved. The sealed candidate remains unexecuted; no Context7 superiority claim.
-- **Operator schema011:** both final live profiles ready; behavioral `d874d369…` selected with exact profile `ff645e4a…`. Six legacy generations/artifacts retained. `build/pr3-operator-cutover/current.dump` restored all 86 tables/eight generations and current serving in 28.59 s. ANN stays unadmitted.
-- **Preserved recovery:** `build/pr3-baseline/` contains schema010 source `5aebab4`, reconstructed matching CLI, saved native modules, checksums and protected dump/receipt/artifacts. Matching-runtime restore passed in 21.41 s. All earlier recovery assets remain; never reverse-migrate or bypass reader checks.
-- **Development:** Workspace Cargo profiles use O2 with incremental dev/release builds; imported dependencies use O3 without incremental compilation ([ADR-0075](docs/adr/0075-incremental-workspace-builds.md)). Shared host sccache budget is 100 GiB. These operator edits remain preserved; the PR3 gate exercised the current settings without a build-performance claim. The root editable native environment remains; fastdev only. The temporary controlled vLLM service stopped after live operator verification.
+- **PR4 completed at bounded Tested strength, with the operator's embedding waiver.** Contextual typed selection, four retrieval families, addressable winning units and shared Rust classification/rank validation are implemented. [Product owner](docs/design/sections/api-and-evidence-product.md), ADR-0077/0078.
+- **Current formats:** compiler111, extractor37, template21, catalog7, bundle16/projection6/wire3, migration012. Standard1024 remains the embedding contract; pins are unchanged.
+- **Operator pivot completed:** exactly two current ready profiles; behavioral selected. Default store/generation paths point to the validated publication. Obsolete generations, stores, runtime copies, rollback dumps, old readers/ANN code and backup-dependent upgrade tooling are removed. Delta remains canonical; PostgreSQL is rebuildable.
+- **Review accepted:** [PR4 review](docs/design_review/reviews/design_review_pr4-selection-retrieval_2026-09-28.md). [Forward plan §6.2](docs/plans/behavioral-model-forward-plan_2026-09-24.md#62-product-target-findings-and-recommendation-disposition) owns bounded closure of AP/F04/F05 and PR4/F01–F18.
+- **Packet limit:** two behavioral packets explicitly exceed 256 KiB; every winning original remains accessible and verified. PR5 owns optional enrichment pagination/omission usability work.
+- **PR0 comparison blocked:** exact-release/material parity and independent confirmation admission remain unresolved. Confirmation stays sealed; no comparative superiority claim.
+- General semantic Stage3 remains incomplete and outside this product gate. PR5–PR6 remain Proposed.
 
 ## Verification boundary
 
-Library skills now use one shared live store, selected by `.config/library-skills.toml` for both runtimes (`just skills-sync`). Fourteen skills remain selected; improvements propagate without copying between repos. Process skills stay local.
+[PR4 evidence](docs/design_review/evidence/2026-09-28_pr4/README.md) owns commands and current receipts.
 
-| PR3 command / evidence, 2026-09-28 | Outcome and scope |
+| Command, 2026-09-28 | Outcome and scope |
 |---|---|
-| `just fmt`; focused Rust/schema/PG/runner controls | **passed:** original and failed-parse context, negative/deferred/override intent, provider ordering, receipts, Binary round trip and bounded expansion. Nine schema/identity snapshots were inspected before acceptance as the declared migration |
-| `just test-all` | **passed:** 465 Rust, 191 Python, 20 real-PG Rust and two PG Python tests; all lint/policy/SQLx legs. [Complete log](docs/design_review/evidence/2026-09-28_pr3/raw/test-all.log) includes explicit selection/skips |
-| `deployment_check.py ... --out build/pr3-qualified-tasks` | **passed:** final SHA-bound isolated programmatic and CLI stdio listing/call; both actual results are 5 |
-| `pilot_probe.py build/pr3-qualified-pilots build/pr3-qualified-tasks`; `compare_profiles.py`; `evidence_probe.py` | **passed:** both fresh live profiles through real PG/MCP, all seventeen catalog relation multisets match with explicit citation normalization, original-byte pagination/task receipts; two-profile/86-table restore 20.23 s |
-| `recovery_probe.py build/pr3-mixed-recovery`; `operator_cutover.py ... build/pr3-operator-cutover` | **passed:** disposable010→011 and operator populated recovery; all eight generations preserved, selected-legacy/corrupt-artifact refusals; current profiles served and exact selection restored |
-| `just docs-test`; `just adr index`; `just adr lint` | **passed:** 39 documentation-tool tests and 42 ADR records; shared-skill publication and retained ADR-chain regressions repaired |
-| `just docs-check`; `git diff --check` | **passed:** 173 canonical pages, zero offline link errors; patch whitespace clean |
-| Incremental/cache policy | Prior operator policy controls retained. PR3's complete gate used the current Cargo settings; build/cache benchmarking **not_run** |
-| Shared skills migration (2026-09-28) | Selection check and `python3 scripts/check_agents.py` **passed**; shared lookup/runtime checks passed with no new broken links. Product builds/tests **not_run** for this tooling change |
+| `just fmt`; `just test-all` plus localized guard repair and remaining gate components | **passed after repair, composite receipt:** 474 ordinary Rust tests accounted for, 191 Python, 19 real-PG Rust, two real-PG Python, lints/types/rules/dependencies/gold/SQLx/ADR checks. The original full invocation had one expected-output guard failure; its focused rerun passed |
+| Packet-budget follow-up and current bootstrap checks | **passed:** one Rust boundary test, 16 affected Python tests, scoped Clippy; three real-PG Python checks, Ruff and Pyrefly |
+| `deployment_check.py ... --out build/pr4-qualified-tasks` | **passed:** isolated programmatic and CLI stdio tasks both returned 5 |
+| `pilot_probe.py ...`; `compare_profiles.py ...`; operator cutover/cleanup | **passed:** both fresh profiles through real PG/MCP, 18-relation catalog parity, 88-table reconstruction, current operator serving and obsolete-state deletion |
+| `just docs-check`; `just fmt-check`; `git diff --check` | **passed:** 168 canonical pages, zero documentation errors; formatting and whitespace checks passed |
+| Live embedding/hybrid testing | **not_run:** explicit operator waiver for the critical GPU benchmark; benchmark service unchanged |
 
 ## Next
 
-1. PR4: typed requirements, contextual eligibility and addressable retrieval units, using PR2/PR3 contracts.
-2. PR5 journeys/browse and qualified rebuilds; PR0 independent parity/admission before PR6 comparison. Retained research activates only for a selected product task or exposed-claim defect.
-
-The [PostgreSQL plan](docs/plans/postgresql-integration-plan_2026-09-27.md) retains completed PG0–PG17 and conditional mechanisms. The [runbook](docs/postgresql.md) owns current operations; the [PR3 review](docs/design_review/reviews/design_review_pr3-implementation_2026-09-28.md) owns the bounded architectural assessment. Concurrent shared-skill edits are preserved separately from PR3.
+PR5 agent journeys, bounded packet usability and coarse rebuild/reuse qualification. PR0 independent parity/admission precedes comparative scoring. The [forward plan](docs/plans/behavioral-model-forward-plan_2026-09-24.md) is the single execution/adoption owner; the [PostgreSQL runbook](docs/postgresql.md) owns current commands. Completed PR1–PR3 records and the completed PostgreSQL plan are retired; surviving findings/triggers remain in the forward plan.

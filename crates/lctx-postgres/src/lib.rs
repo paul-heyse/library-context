@@ -1,17 +1,14 @@
 //! SQLx owns PostgreSQL effects; neither connections nor operational rows are semantic inputs.
 
-pub mod admission;
 mod cache;
 pub mod diagnostics;
 mod evidence;
 mod hydration;
 pub use evidence::EvidenceOptions;
 pub mod import;
-mod mixed_qualification;
 pub mod operations;
 pub mod profiles;
 pub mod projection;
-pub mod qualification;
 pub mod report;
 pub mod repository;
 pub mod retrieval;
@@ -397,3 +394,5 @@ mod schema_tests {
         assert_eq!(after.digest().unwrap(), digest);
     }
 }
+
+pub mod selection;

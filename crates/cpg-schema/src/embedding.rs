@@ -1,7 +1,6 @@
 //! Exact consumed-vector receipts and their canonical byte recipes (ADR-0068/0067).
 //! PostgreSQL reuses immutable winners across attempts. Ordinary snapshot-local Delta tables
 //! preserve every consumed vector independently of that mutable service's availability.
-//! The historical EmbeddingCache declaration is retained only for explicit legacy import.
 
 use crate::hash::HashField;
 use crate::id::Digest;
@@ -93,19 +92,5 @@ table!(
         input_hash: Digest,
         /// Bitmask: operation documents = 1, E0 = 2, brief documents = 4.
         usage_mask: i64,
-    }
-);
-
-table!(
-    /// One cached vector: the spec and request text that produced it, and the served model.
-    EmbeddingCache, EmbeddingCacheRow = "embedding_cache",
-    family = EmbeddingCache,
-    key = [spec_hash, input_hash],
-    checks = [],
-    {
-        spec_hash: Digest,
-        input_hash: Digest,
-        vector: Vec<f32>,
-        model: String,
     }
 );

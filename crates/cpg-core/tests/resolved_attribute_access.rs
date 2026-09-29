@@ -145,7 +145,7 @@ with served_bundle(Path(sys.argv[1])) as pg:
     assert singleton.access_path == "probe.settings" and singleton.resolution == "singleton_class"
     assert singleton.fields == operation.fields
     assert singleton.catalog.constructors == operation.catalog.constructors
-    by_member = pg.operation(pg.load(), generation.snapshot_id, "member:" + singleton.member_id)
+    by_member = pg.operation(pg.load(), generation.snapshot_id, singleton.member_id)
     assert by_member.operation_id == singleton.operation_id
     private = pg.operation(pg.load(), generation.snapshot_id, "probe._dynamic_settings")
     assert private.constructor is not None and private.catalog is not None

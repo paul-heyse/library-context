@@ -1,8 +1,8 @@
 # PG8–PG11 implementation evidence
 
 **2026-09-27.** This page records the bounded foundation slice under
-[ADR-0068](../../../adr/0068-postgresql-serving-and-standard-embeddings.md) and the
-[PostgreSQL plan](../../../plans/postgresql-integration-plan_2026-09-27.md).
+[ADR-0068](../../../adr/0078-current-design-cutover.md) and the
+[PostgreSQL plan](../../../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-workstream).
 The forward plan §6.1 owns finding disposition. Production import/promotion, PostgreSQL MCP
 query cutover, ANN and admitted federation remain PG12–PG17.
 
@@ -42,7 +42,7 @@ are under gitignored `build/`; backups/configuration contain credentials and are
 | `cargo test --release -p lctx-postgres --test serving` | **passed:** real PG18 role/RLS invisibility, generation FKs, concurrent writer/freeze barrier, ready immutability, binary COPY/pgvector/Arrow round trips, empty schemas and malformed types; TLS/config/budget controls |
 | Focused `cpg-core` provider pool test | **passed:** actual PostgreSQL provider and SQLx connections share a three-connection budget with one provider reservation |
 | `LCTX_POSTGRES_TEST=1 uv run pytest tests/scripts/test_postgres_serving.py -q` | **passed:** concurrent awaitables, actual blocked-query cancellation, Python heartbeat, server-side drain before reuse, close/idempotence and sanitized errors |
-| `uv run python scripts/postgres_expand.py`; `lctx db migrate/check/status` | **passed:** operator performed administrator provisioning; subsequent explicit migrations/checks report server 180006, `lctx_app`, current schema. Installed serving credentials also open/check/close successfully |
+| Administrator extension/role provisioning (now owned by `scripts/postgres_bootstrap.py`); `lctx db migrate/check/status` | **passed:** operator performed administrator provisioning; subsequent explicit migrations/checks report server 180006, `lctx_app`, current schema. Installed serving credentials also open/check/close successfully |
 | PG7 baseline and expanded `postgres_backup.py restore-drill` drills | **passed:** separate disposable restores compare every recorded table fingerprint; preserved two-migration PG7 baseline and four-migration expanded schema remain distinct |
 
 The real cold pilot exposed two cross-boundary defects, both corrected with focused regressions:

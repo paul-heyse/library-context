@@ -19,7 +19,6 @@
 //!   it is not established, its boundary reason.
 //! - **`behavior_steps`**: each behavior's call path, hop by hop with its modality (the review's
 //!   F6): what `explain` returns and what `semantic:established-needs-definite-path` reads.
-//! - **`operation_documents`**: the texts `search_operations` embeds, one row per view and chunk.
 //!
 //! All are analysis tables (ADR-0019): computed from the snapshot, the analytics config and the
 //! compiler, never extracted, so they carry no `fact_id` and are not coverage units. What stands in
@@ -28,15 +27,15 @@
 
 use crate::codebook::{
     ArgumentKind, BehaviorKind, BoundaryReason, Codebook, CompletionKind, DeclarationKind,
-    DischargeDecision, DischargeProofKind, DynamicKind, EmbeddingView, ExactRuntimeException,
-    ExactValueOrigin, ExitSiteKind, FlowCallLinkStatus, FlowSink, HandlerTypeStatus,
-    ImplicitReceiver, InvocationPhase, Modality, ModelArgumentStatus, ModelCallbackAction,
-    ModelChannelCoverage, ModelEffectKind, ModelEffectSubjectStatus, ModelExceptionAction,
-    ModelExit, ModelPathKind, ModelPathRole, ModelResourceAction, ModelResourceSourceStatus,
-    ModelSchemaKind, ModelTransferEndpointStatus, ModelTransferKind,
-    ModeledArgumentEvaluationStatus, ModeledHandlerClassMatch, OperationFacet, Origin,
-    ParameterKind, PremiseKind, ReadPhase, SourceRole, SummaryChannel, SummaryFlowKind,
-    SummaryFlowStepKind, SummarySubjectKind, SyntaxKind, TestValueLinkOrigin, ValueClass, Verdict,
+    DischargeDecision, DischargeProofKind, DynamicKind, ExactRuntimeException, ExactValueOrigin,
+    ExitSiteKind, FlowCallLinkStatus, FlowSink, HandlerTypeStatus, ImplicitReceiver,
+    InvocationPhase, Modality, ModelArgumentStatus, ModelCallbackAction, ModelChannelCoverage,
+    ModelEffectKind, ModelEffectSubjectStatus, ModelExceptionAction, ModelExit, ModelPathKind,
+    ModelPathRole, ModelResourceAction, ModelResourceSourceStatus, ModelSchemaKind,
+    ModelTransferEndpointStatus, ModelTransferKind, ModeledArgumentEvaluationStatus,
+    ModeledHandlerClassMatch, OperationFacet, Origin, ParameterKind, PremiseKind, ReadPhase,
+    SourceRole, SummaryChannel, SummaryFlowKind, SummaryFlowStepKind, SummarySubjectKind,
+    SyntaxKind, TestValueLinkOrigin, ValueClass, Verdict,
 };
 use crate::id::{Digest, Id, IdHasher};
 use crate::table::table;
@@ -1790,24 +1789,6 @@ table!(
         holds: bool,
         boundary_reason: Option<BoundaryReason>,
         reason: Option<String>,
-    }
-);
-
-table!(
-    /// The texts `search_operations` embeds (ADR-0010 amendment, 2026-09-24): one row per view and
-    /// chunk, with the cache key once embedded. Every view shares the snapshot's one spec.
-    OperationDocuments, OperationDocumentsRow = "operation_documents",
-    family = Findings,
-    key = [snapshot_id, node_id, embedding_view, chunk],
-    checks = [("chunk_nonnegative", "chunk >= 0")],
-    {
-        snapshot_id: Id,
-        node_id: Id,
-        embedding_view: EmbeddingView,
-        chunk: i64,
-        text: String,
-        spec_hash: Option<Digest>,
-        input_hash: Option<Digest>,
     }
 );
 

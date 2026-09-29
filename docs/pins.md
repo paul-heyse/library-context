@@ -140,7 +140,7 @@ CI. Verified 2026-09-25 with `mdbook --version`, `pagefind --version` and `lyche
 Python retains `.python-version`; isolated script tests use pytest from `uv.lock`. Qualification
 is `just docs-test` plus `just docs-check` ([publishing operations](publishing.md)).
 
-## PostgreSQL services (ADR-0068; source and focused verification 2026-09-27)
+## PostgreSQL services (ADR-0078; pins verified 2026-09-27, current setup tested 2026-09-28)
 
 | Component | Pin / enabled features | Verification |
 |---|---|---|
@@ -151,8 +151,8 @@ is `just docs-test` plus `just docs-check` ([publishing operations](publishing.m
 | tracing | =0.1.44 (already resolved family; now direct for cache telemetry) | registry manifest and Cargo.lock; matches capability skill |
 | Backup tools | pg_dump / pg_restore 18.6 | `pg_dump --version`; `pg_restore --version`; disposable restore drill |
 | pgvector Rust | =0.4.2, defaults off, `sqlx` | Exact registry manifest: SQLx 0.9 adapter; real PG18 type, width and signed-zero round trip |
-| pgvector extension | 0.8.6; Ubuntu package `postgresql-18-pgvector=0.8.6-1.pgdg24.04+2` | Administrator expansion script and real disposable schema/version assertions; extension lives in `lctx_ext` |
-| Extension test image | `pgvector/pgvector:0.8.6-pg18-trixie@sha256:78bf48b801e792f99e3ac62b5036fd3876e9be48afda16c1e331af1c75ceb2ff` | Docker pull/digest, `specs/postgres-vector-image.txt`; PG7 image retained for rollback |
+| pgvector extension | 0.8.6; Ubuntu package `postgresql-18-pgvector=0.8.6-1.pgdg24.04+2` | Current bootstrap and real disposable schema/version assertions; extension lives in `lctx_ext` |
+| Extension test image | `pgvector/pgvector:0.8.6-pg18-trixie@sha256:78bf48b801e792f99e3ac62b5036fd3876e9be48afda16c1e331af1c75ceb2ff` | Docker pull/digest, `specs/postgres-vector-image.txt`; the plain PostgreSQL image serves current cache/operations tests |
 | bytes | =1.12.1 | Shared SQLx/pgpq COPY buffer type; existing resolved version, now direct |
 | pgpq | =0.12.0 | Exact registry manifest, Arrow 59 native; real binary COPY and declared Arrow reconstruction |
 | pyo3-async-runtimes | =0.29.0, defaults off, `tokio-runtime`; existing PyO3 =0.29.2 | Exact registry API/manifest, `uv sync` native wheel build; one lazy configured two-worker Tokio runtime |
@@ -162,7 +162,7 @@ is `just docs-test` plus `just docs-check` ([publishing operations](publishing.m
 | tokio-postgres | =0.7.18 | Provider-only configuration adapter; exact registry manifest. SQLx retains application write/transaction ownership |
 
 Psycopg/SQLAlchemy, native ADBC and pgrx remain uninstalled. SeaQuery is a transitive provider
-implementation dependency, not an application query owner. PG15 admits the two declared report views, a closed expression policy and generation-qualified key joins; unsupported expressions remain local. Conditional triggers remain in the [PostgreSQL plan](plans/postgresql-integration-plan_2026-09-27.md#7-later-capabilities-and-adoption-triggers).
+implementation dependency, not an application query owner. PG15 admits the two declared report views, a closed expression policy and generation-qualified key joins; unsupported expressions remain local. Conditional triggers remain in the [PostgreSQL plan](plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-adoption).
 Operation/configuration: [PostgreSQL runbook](postgresql.md). Focused and integrated results:
 [PG8–PG11 evidence](design_review/evidence/2026-09-27_postgresql-expansion/implementation.md).
 

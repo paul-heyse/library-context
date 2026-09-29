@@ -51,9 +51,7 @@ impl FakeEmbedder {
                 served_dtype: "float32".to_owned(),
                 pooling: "none".to_owned(),
                 query_template: "Instruct: {task_description}\nQuery:{query}".to_owned(),
-                query_task: "Given a coding task, retrieve capability briefs of a Python \
-                             library that solve it"
-                    .to_owned(),
+                query_task: "Given a coding task, retrieve relevant Python library APIs, capability briefs, configuration options, source code, usage examples, and documentation.".to_owned(),
                 document_template: "{text}".to_owned(),
                 dimensions: 1024,
                 output_dtype: "float32".to_owned(),
@@ -198,7 +196,10 @@ impl Session {
             let texts: Vec<String> = chunk.iter().map(|k| (*unique[k]).clone()).collect();
             let mut tokens = Vec::with_capacity(texts.len());
             for text in &texts {
-                let count = embedder.count_tokens(text).await?;
+                let count = embedder
+                    .count_tokens(text)
+                    .await
+                    .map_err(|e| CoreError::EmbeddingService(e.to_string()))?;
                 if count > spec.max_document_tokens as usize {
                     return Err(CoreError::Embed(format!(
                         "a document request is {count} tokens, over the {}-token cap",
@@ -207,7 +208,10 @@ impl Session {
                 }
                 tokens.push(count as u32);
             }
-            let vectors = embedder.embed(&texts).await?;
+            let vectors = embedder
+                .embed(&texts)
+                .await
+                .map_err(|e| CoreError::EmbeddingService(e.to_string()))?;
             if vectors.len() != texts.len() {
                 return Err(CoreError::Embed(
                     "embedding response count mismatch".to_owned(),

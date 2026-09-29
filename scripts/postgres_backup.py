@@ -2,15 +2,11 @@
 """Back up the application database, or verify a backup in a disposable PG18 instance."""
 
 import argparse
-import hashlib
 import json
 import os
 import subprocess
-import time
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
-
-from postgres_check import call
 
 TABLES = (
     "public._sqlx_migrations",
@@ -63,105 +59,6 @@ def fingerprints(query, tables=TABLES) -> dict[str, dict[str, object]]:
     }
 
 
-def legacy_restore_drill(archive: Path) -> None:
-    protected(archive)
-    receipt = archive.with_suffix(archive.suffix + ".json")
-    protected(receipt)
-    expected = json.loads(receipt.read_text())
-    with archive.open("rb") as stream:
-        digest = hashlib.file_digest(stream, "sha256").hexdigest()
-    if digest != expected["sha256"]:
-        raise SystemExit("backup checksum mismatch")
-    image = expected.get(
-        "image",
-        "postgres:"
-        + (Path(__file__).resolve().parent.parent / "specs/postgres-image.txt").read_text().strip(),
-    )
-    allowed = {
-        "postgres:"
-        + (Path(__file__).resolve().parent.parent / "specs/postgres-image.txt").read_text().strip(),
-        (Path(__file__).resolve().parent.parent / "specs/postgres-vector-image.txt")
-        .read_text()
-        .strip(),
-    }
-    if image not in allowed:
-        raise RuntimeError("backup image is not one of the declared recovery pins")
-    call(["docker", "image", "inspect", image], stdout=subprocess.DEVNULL)
-    started = time.monotonic()
-    container = call(
-        ["docker", "run", "--rm", "--detach", "--env", "POSTGRES_PASSWORD=fixture-only", image],
-        capture_output=True,
-    ).stdout.strip()
-    try:
-        for _ in range(120):
-            ready = subprocess.run(
-                ["docker", "exec", container, "pg_isready", "-h", "127.0.0.1", "-U", "postgres"],
-                capture_output=True,
-                check=False,
-            )
-            if ready.returncode == 0:
-                break
-            time.sleep(0.25)
-        else:
-            raise RuntimeError("disposable restore PostgreSQL did not become ready")
-        command = [
-            "docker",
-            "exec",
-            "-i",
-            container,
-            "psql",
-            "-X",
-            "-qAt",
-            "-U",
-            "postgres",
-            "-v",
-            "ON_ERROR_STOP=1",
-        ]
-        call(
-            command,
-            input=(
-                "CREATE ROLE lctx_app LOGIN; CREATE ROLE lctx_migrator LOGIN; "
-                "CREATE ROLE lctx_importer LOGIN; CREATE ROLE lctx_serving LOGIN;"
-            ),
-            capture_output=True,
-        )
-        call(["docker", "cp", str(archive), f"{container}:/tmp/lctx.dump"], capture_output=True)
-        call(
-            [
-                "docker",
-                "exec",
-                container,
-                "pg_restore",
-                "-U",
-                "postgres",
-                "--dbname=postgres",
-                "--exit-on-error",
-                "/tmp/lctx.dump",
-            ],
-            capture_output=True,
-        )
-        actual = fingerprints(
-            lambda sql: call(command, input=sql, capture_output=True).stdout.strip(),
-            expected["tables"],
-        )
-        if actual != expected["tables"]:
-            raise RuntimeError(
-                "restored tables differ: "
-                + ", ".join(t for t in expected["tables"] if actual[t] != expected["tables"][t])
-            )
-        print(
-            json.dumps(
-                {
-                    "outcome": "passed",
-                    "tables": actual,
-                    "restore_seconds": time.monotonic() - started,
-                }
-            )
-        )
-    finally:
-        call(["docker", "rm", "--force", container], stdout=subprocess.DEVNULL)
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=["backup", "restore-drill"])
@@ -189,13 +86,10 @@ def main() -> None:
                 from postgres_recovery import restore
 
                 restore(args.archive)
-            elif version == 2:
-                raise RuntimeError(
-                    "schema008 receipt requires retained pre-PR1 recovery scripts, CLI "
-                    "and Python/native runtime"
-                )
             else:
-                legacy_restore_drill(args.archive)
+                raise RuntimeError(
+                    "unsupported backup format; rebuild the current design from pinned inputs"
+                )
     except (OSError, RuntimeError, subprocess.SubprocessError) as error:
         # Driver/utility error text can contain credentials, identifiers or row payloads.
         reason = str(error) if isinstance(error, RuntimeError) else type(error).__name__

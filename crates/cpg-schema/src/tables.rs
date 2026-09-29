@@ -1171,6 +1171,8 @@ table!(
         /// What the kind leaves open: a literal as displayed, a module or alias name, a `def`'s
         /// name, a type variable's name, the `Any` or `Never` style, the variant for `other`.
         detail: Option<String>,
+        /// Exact JSON primitive from the provider value; never parsed from display text.
+        literal_json: Option<String>,
         /// The term's class as a typed (module ref, class key) pair (§4.2.3): an instance, a class
         /// object, a `TypedDict`, `Self`.
         class_module: Option<String>,

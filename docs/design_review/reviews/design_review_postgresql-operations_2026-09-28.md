@@ -2,7 +2,7 @@
 
 Date: 2026-09-28. Tier **design**, purpose **target**, assembled PG16–PG17 scope and adjacent
 PG12–PG15 consumers. Core standard 3.0, code-intelligence profile 1.1 and repository binding apply.
-[ADR-0070](../../adr/0070-postgresql-recovery-and-index-admission.md) governs the accepted changes.
+[ADR-0070](../../adr/0078-current-design-cutover.md) governs the accepted changes.
 [Forward-plan §6.1](../../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-findings)
 owns current finding status. [Evidence](../evidence/2026-09-28_postgresql-operations/README.md)
 separates focused tests, measurement and deployment acceptance.

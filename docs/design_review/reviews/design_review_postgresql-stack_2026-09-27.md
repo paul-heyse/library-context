@@ -148,7 +148,7 @@ the earlier storage review's F01–F04.
 
 Current disposition for both reviews has transferred to the
 [forward plan §6.1](../../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-findings);
-the [PostgreSQL implementation plan](../../plans/postgresql-integration-plan_2026-09-27.md)
+the [PostgreSQL implementation plan](../../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-workstream)
 owns work packages. The findings below remain dated assessment evidence, not completion claims.
 
 <a id="F01"></a>
@@ -350,7 +350,7 @@ are justified only when they settle a real bulk-import/serving decision.
 ## 11. Authority changes and dispositions
 
 This report recommends a stack; it does not accept a storage pivot. Subsequent product work
-is described in the [PostgreSQL plan](../../plans/postgresql-integration-plan_2026-09-27.md).
+is described in the [PostgreSQL plan](../../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-workstream).
 The [earlier storage review §11](design_review_postgresql-storage_2026-09-27.md#11-authority-changes-and-dispositions)
 owns the adoption route, including affected §B7/§B12/§B13/§B14 and ADR-0043/ADR-0047 cache
 contracts. Both reviews retain dated source findings; their current disposition now lives in

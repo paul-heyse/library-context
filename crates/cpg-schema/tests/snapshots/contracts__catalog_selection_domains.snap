@@ -1,0 +1,13 @@
+---
+source: crates/cpg-schema/tests/contracts.rs
+expression: text
+---
+table catalog_selection_domains
+family findings
+key snapshot_id, member_id
+@lctx.family=findings
+@lctx.table=catalog_selection_domains
+snapshot_id: FixedSizeBinary(16) NOT NULL
+member_id: FixedSizeBinary(16) NOT NULL
+domain_id: FixedSizeBinary(16) NOT NULL
+detail: Utf8 NOT NULL

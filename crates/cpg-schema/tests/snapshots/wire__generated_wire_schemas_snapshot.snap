@@ -11,11 +11,19 @@ expression: "serde_json::to_string_pretty(&schemas).unwrap()"
       "library": {
         "$ref": "#/$defs/Text1To500"
       },
-      "where": {
-        "$ref": "#/$defs/Where"
+      "selection": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/Selection"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
       },
       "limit": {
-        "$ref": "#/$defs/Limit50Default20",
+        "$ref": "#/$defs/Limit100Default20",
         "default": 20
       },
       "cursor": {
@@ -32,8 +40,7 @@ expression: "serde_json::to_string_pretty(&schemas).unwrap()"
     },
     "additionalProperties": false,
     "required": [
-      "library",
-      "where"
+      "library"
     ],
     "$defs": {
       "Text1To500": {
@@ -41,54 +48,632 @@ expression: "serde_json::to_string_pretty(&schemas).unwrap()"
         "minLength": 1,
         "maxLength": 500
       },
-      "Where": {
+      "Selection": {
+        "description": "Up to sixteen conjunctive predicates. Any-applicable is existential; all-applicable\nneeds nonempty closed all-positive evidence or a clean counterexample. Default discovery\nretains unresolved/conflicting candidates. Require-compatible intersects the entire conjunction.",
         "type": "object",
         "properties": {
-          "facets": {
+          "requirements": {
             "type": "array",
             "items": {
-              "$ref": "#/$defs/FacetTerm"
+              "$ref": "#/$defs/Requirement"
             },
-            "maxItems": 10,
+            "maxItems": 16,
             "default": []
           },
-          "kind": {
-            "anyOf": [
-              {
-                "$ref": "#/$defs/OperationKind"
-              },
-              {
-                "type": "null"
-              }
-            ]
+          "mode": {
+            "$ref": "#/$defs/SelectionMode",
+            "default": "discovery"
           },
-          "path_prefix": {
-            "anyOf": [
-              {
-                "$ref": "#/$defs/Text0To500"
-              },
-              {
-                "type": "null"
-              }
-            ]
+          "joint": {
+            "$ref": "#/$defs/JointPolicy",
+            "default": "independent_records"
           }
         },
         "additionalProperties": false
       },
-      "FacetTerm": {
-        "type": "object",
-        "properties": {
-          "facet": {
-            "$ref": "#/$defs/FacetName"
+      "Requirement": {
+        "oneOf": [
+          {
+            "description": "Behavioral may-facet evidence; unknown and not-analyzed never prove absence.",
+            "type": "object",
+            "properties": {
+              "facet": {
+                "$ref": "#/$defs/FacetName"
+              },
+              "value": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "facet_membership"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "facet",
+              "value"
+            ]
           },
-          "value": {
-            "$ref": "#/$defs/Text1To500"
+          {
+            "description": "Exact public access path; aliases retain separate member identities.",
+            "type": "object",
+            "properties": {
+              "path": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "public_path"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "path"
+            ]
+          },
+          {
+            "description": "Exact owning module, attributed by the exposure source.",
+            "type": "object",
+            "properties": {
+              "module": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "public_module"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "module"
+            ]
+          },
+          {
+            "description": "Exact qualified class owner of this member.",
+            "type": "object",
+            "properties": {
+              "path": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "class_owner"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "path"
+            ]
+          },
+          {
+            "description": "Declared public member category.",
+            "type": "object",
+            "properties": {
+              "kind": {
+                "$ref": "#/$defs/MemberKind"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "member_kind"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "kind"
+            ]
+          },
+          {
+            "description": "A recognized binding or protocol surface; opaque decorators remain unresolved.",
+            "type": "object",
+            "properties": {
+              "form": {
+                "$ref": "#/$defs/InvocationForm"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "invocation_form"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "form"
+            ]
+          },
+          {
+            "description": "Named declaration across applicable signature variants, not arbitrary keyword acceptance.",
+            "type": "object",
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "declares_parameter"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "name"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "kind": {
+                "$ref": "#/$defs/ParameterMatchKind"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "parameter_kind"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "name",
+              "kind"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "parameter_required"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "name",
+              "required"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "state": {
+                "$ref": "#/$defs/DefaultMatchState"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "parameter_default_state"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "name",
+              "state"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "value": {
+                "$ref": "#/$defs/ExactPrimitive"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "parameter_default"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "name",
+              "value"
+            ]
+          },
+          {
+            "description": "Structural declared type matching without implicit subtype or runtime-value inference.",
+            "type": "object",
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "type": {
+                "$ref": "#/$defs/StructuralType"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "parameter_type"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "name",
+              "type"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "declares_configuration_field"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "name"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "path": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "configuration_owner"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "path"
+            ]
+          },
+          {
+            "description": "Object settings versus per-call parameter records; does not establish shared runtime state.",
+            "type": "object",
+            "properties": {
+              "scope": {
+                "$ref": "#/$defs/ConfigurationScopeKind"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "configuration_scope"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "scope"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "model": {
+                "$ref": "#/$defs/RecordModel"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "configuration_record_kind"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "model"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "value": {
+                "$ref": "#/$defs/ExactPrimitive"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "configuration_default"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "name",
+              "value"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "value": {
+                "$ref": "#/$defs/ExactPrimitive"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "configuration_literal"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "name",
+              "value"
+            ]
+          },
+          {
+            "description": "An exact cited field link at its typed formal or reader endpoint.",
+            "type": "object",
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "kind": {
+                "$ref": "#/$defs/FieldRelationship"
+              },
+              "target": {
+                "$ref": "#/$defs/FieldTarget"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "configuration_relationship"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "name",
+              "kind",
+              "target"
+            ]
+          },
+          {
+            "description": "Attributed role, target and fidelity; candidate targets never become resolved edges.",
+            "type": "object",
+            "properties": {
+              "role": {
+                "$ref": "#/$defs/RelationRole"
+              },
+              "target": {
+                "$ref": "#/$defs/RelationTarget"
+              },
+              "fidelity": {
+                "$ref": "#/$defs/RelationFidelity"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "relationship"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "role",
+              "target",
+              "fidelity"
+            ]
+          },
+          {
+            "description": "Original scenario intent, independent of its checks or execution status.",
+            "type": "object",
+            "properties": {
+              "intent": {
+                "$ref": "#/$defs/Intent"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "scenario_intent"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "intent"
+            ]
+          },
+          {
+            "description": "One explicit check axis: parse, binding, environment or execution.",
+            "type": "object",
+            "properties": {
+              "check": {
+                "$ref": "#/$defs/ScenarioCheck"
+              },
+              "status": {
+                "$ref": "#/$defs/CheckStatus"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "scenario_check"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "check",
+              "status"
+            ]
+          },
+          {
+            "description": "Alignment of evidence associated with this member, not all artifacts in its release.",
+            "type": "object",
+            "properties": {
+              "alignment": {
+                "$ref": "#/$defs/Alignment"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "source_alignment"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "alignment"
+            ]
+          },
+          {
+            "description": "Exact version for the named owning distribution. Absence without closure is unknown.",
+            "type": "object",
+            "properties": {
+              "distribution": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "version": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "release_version"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "distribution",
+              "version"
+            ]
+          },
+          {
+            "description": "Declared metadata value, exact configuration pointer, or original launch text; no installability or execution inference.",
+            "type": "object",
+            "properties": {
+              "field": {
+                "$ref": "#/$defs/DeploymentField"
+              },
+              "name": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "deployment_declaration"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "field",
+              "name"
+            ]
           }
-        },
-        "additionalProperties": false,
-        "required": [
-          "facet",
-          "value"
         ]
       },
       "FacetName": {
@@ -109,12 +694,130 @@ expression: "serde_json::to_string_pretty(&schemas).unwrap()"
           "reads_setting"
         ]
       },
-      "OperationKind": {
+      "Quantifier": {
+        "type": "string",
+        "enum": [
+          "any_applicable",
+          "all_applicable"
+        ]
+      },
+      "MemberKind": {
         "type": "string",
         "enum": [
           "function",
           "method",
-          "class"
+          "class",
+          "property",
+          "module",
+          "variable",
+          "unknown"
+        ]
+      },
+      "InvocationForm": {
+        "type": "string",
+        "enum": [
+          "function",
+          "method",
+          "class",
+          "static",
+          "property",
+          "context_manager",
+          "async_context_manager"
+        ]
+      },
+      "ParameterMatchKind": {
+        "type": "string",
+        "enum": [
+          "positional_only",
+          "positional",
+          "var_args",
+          "keyword_only",
+          "var_kwargs"
+        ]
+      },
+      "DefaultMatchState": {
+        "type": "string",
+        "enum": [
+          "absent",
+          "literal_none",
+          "literal",
+          "source_expression",
+          "optional_expression_unavailable",
+          "unknown",
+          "factory_expression"
+        ]
+      },
+      "ExactPrimitive": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "none"
+              },
+              "value": {
+                "type": "null"
+              }
+            },
+            "required": [
+              "kind",
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "bool"
+              },
+              "value": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "kind",
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "int"
+              },
+              "value": {
+                "type": "integer",
+                "format": "int64"
+              }
+            },
+            "required": [
+              "kind",
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "str"
+              },
+              "value": {
+                "$ref": "#/$defs/Text0To500"
+              }
+            },
+            "required": [
+              "kind",
+              "value"
+            ],
+            "additionalProperties": false
+          }
         ]
       },
       "Text0To500": {
@@ -122,10 +825,433 @@ expression: "serde_json::to_string_pretty(&schemas).unwrap()"
         "minLength": 0,
         "maxLength": 500
       },
-      "Limit50Default20": {
+      "StructuralType": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "term": {
+                "$ref": "#/$defs/TypeTermId"
+              },
+              "operator": {
+                "type": "string",
+                "const": "canonical_term"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "operator",
+              "term"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "category": {
+                "$ref": "#/$defs/TypeKind"
+              },
+              "operator": {
+                "type": "string",
+                "const": "category"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "operator",
+              "category"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "module": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "name": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "operator": {
+                "type": "string",
+                "const": "nominal_identity"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "operator",
+              "module",
+              "name"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "term": {
+                "$ref": "#/$defs/TypeTermId"
+              },
+              "operator": {
+                "type": "string",
+                "const": "declared_union_member"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "operator",
+              "term"
+            ]
+          }
+        ]
+      },
+      "TypeTermId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "TypeKind": {
+        "type": "string",
+        "enum": [
+          "class_instance",
+          "class_object",
+          "type_of",
+          "typed_dict",
+          "union",
+          "intersection",
+          "callable",
+          "overload",
+          "bound_method",
+          "generic",
+          "tuple",
+          "literal",
+          "type_var",
+          "param_spec",
+          "type_var_tuple",
+          "module",
+          "any",
+          "never",
+          "none",
+          "type_alias",
+          "self_type",
+          "annotated",
+          "unpack",
+          "type_guard",
+          "param_list",
+          "special_form",
+          "other",
+          "truncated"
+        ]
+      },
+      "ConfigurationScopeKind": {
+        "type": "string",
+        "enum": [
+          "object",
+          "per_call"
+        ]
+      },
+      "RecordModel": {
+        "type": "string",
+        "enum": [
+          "dataclass",
+          "attrs",
+          "pydantic",
+          "typed_dict",
+          "named_tuple"
+        ]
+      },
+      "FieldRelationship": {
+        "type": "string",
+        "enum": [
+          "declared_parameter",
+          "exact_storage",
+          "exact_reader"
+        ]
+      },
+      "FieldTarget": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "node": {
+                "$ref": "#/$defs/Id"
+              },
+              "kind": {
+                "type": "string",
+                "const": "node"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "node"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "signature": {
+                "$ref": "#/$defs/SignatureId"
+              },
+              "ordinal": {
+                "type": "integer",
+                "format": "uint32",
+                "minimum": 0
+              },
+              "kind": {
+                "type": "string",
+                "const": "parameter"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "signature",
+              "ordinal"
+            ]
+          }
+        ]
+      },
+      "Id": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]+$"
+      },
+      "SignatureId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "RelationRole": {
+        "type": "string",
+        "enum": [
+          "declares",
+          "surface",
+          "configuration",
+          "reader",
+          "documents",
+          "demonstrates",
+          "invokes",
+          "tests_failure",
+          "suggests",
+          "observes"
+        ]
+      },
+      "RelationTarget": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "node": {
+                "$ref": "#/$defs/Id"
+              },
+              "kind": {
+                "type": "string",
+                "const": "declaration"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "node"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "member": {
+                "$ref": "#/$defs/PublicMemberId"
+              },
+              "kind": {
+                "type": "string",
+                "const": "member"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "member"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "evidence": {
+                "$ref": "#/$defs/EvidenceRef"
+              },
+              "kind": {
+                "type": "string",
+                "const": "evidence"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "evidence"
+            ]
+          }
+        ]
+      },
+      "PublicMemberId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "EvidenceRef": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "span"
+              },
+              "id": {
+                "$ref": "#/$defs/SpanId"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "scenario"
+              },
+              "id": {
+                "$ref": "#/$defs/ScenarioId"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "deployment"
+              },
+              "id": {
+                "$ref": "#/$defs/DeploymentId"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "SpanId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "ScenarioId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "DeploymentId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "RelationFidelity": {
+        "type": "string",
+        "enum": [
+          "source_fact",
+          "resolved_target",
+          "candidate_targets",
+          "exact_textual_reference",
+          "ambiguous_textual_mention",
+          "same_document_passage",
+          "owning_distribution",
+          "task_observation",
+          "release_distribution",
+          "explicit_config_reference"
+        ]
+      },
+      "Intent": {
+        "type": "string",
+        "enum": [
+          "demonstration",
+          "assertion_test",
+          "expected_failure",
+          "skip_xfail",
+          "mixed",
+          "unknown"
+        ]
+      },
+      "ScenarioCheck": {
+        "type": "string",
+        "enum": [
+          "parse",
+          "binding",
+          "environment",
+          "execution"
+        ]
+      },
+      "CheckStatus": {
+        "type": "string",
+        "enum": [
+          "passed",
+          "failed",
+          "not_run",
+          "blocked"
+        ]
+      },
+      "Alignment": {
+        "type": "string",
+        "enum": [
+          "exact",
+          "mapped_with_evidence",
+          "other",
+          "unknown"
+        ]
+      },
+      "DeploymentField": {
+        "type": "string",
+        "enum": [
+          "requires_dist",
+          "provides_extra",
+          "requires_python",
+          "entry_point",
+          "launch",
+          "configuration"
+        ]
+      },
+      "SelectionMode": {
+        "type": "string",
+        "enum": [
+          "discovery",
+          "strict"
+        ]
+      },
+      "JointPolicy": {
+        "type": "string",
+        "enum": [
+          "independent_records",
+          "require_compatible"
+        ]
+      },
+      "Limit100Default20": {
         "type": "integer",
         "minimum": 1,
-        "maximum": 50
+        "maximum": 100
       },
       "Text0To2048": {
         "type": "string",
@@ -143,10 +1269,10 @@ expression: "serde_json::to_string_pretty(&schemas).unwrap()"
         "properties": {
           "result_kind": {
             "type": "string",
-            "const": "results"
+            "const": "selected"
           }
         },
-        "$ref": "#/$defs/OperationSet",
+        "$ref": "#/$defs/SelectionResults",
         "required": [
           "result_kind"
         ]
@@ -165,11 +1291,52 @@ expression: "serde_json::to_string_pretty(&schemas).unwrap()"
         "maxLength": 64,
         "pattern": "^[0-9a-fA-F]{64}$"
       },
-      "OperationRef": {
+      "SelectionGroup": {
         "type": "object",
         "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/CandidateSelection"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          },
+          "page_complete": {
+            "type": "boolean"
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "page_complete",
+          "next_cursor"
+        ]
+      },
+      "CandidateSelection": {
+        "type": "object",
+        "properties": {
+          "member_id": {
+            "$ref": "#/$defs/PublicMemberId"
+          },
           "operation_id": {
-            "$ref": "#/$defs/OperationId"
+            "anyOf": [
+              {
+                "$ref": "#/$defs/OperationId"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "access_path": {
             "type": "string"
@@ -177,20 +1344,46 @@ expression: "serde_json::to_string_pretty(&schemas).unwrap()"
           "kind": {
             "type": "string"
           },
-          "docstring_summary": {
-            "$ref": "#/$defs/Nullablestring"
+          "outcome": {
+            "$ref": "#/$defs/SelectionOutcome"
           },
-          "behavior_status": {
-            "type": "string"
+          "requirements": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/RequirementResult"
+            }
+          },
+          "joint": {
+            "$ref": "#/$defs/JointApplicability"
+          },
+          "ranking": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/RankedMember"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           }
         },
         "required": [
+          "member_id",
           "operation_id",
           "access_path",
           "kind",
-          "docstring_summary",
-          "behavior_status"
+          "outcome",
+          "requirements",
+          "joint",
+          "ranking"
         ]
+      },
+      "PublicMemberId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
       },
       "OperationId": {
         "type": "string",
@@ -198,13 +1391,2004 @@ expression: "serde_json::to_string_pretty(&schemas).unwrap()"
         "maxLength": 32,
         "pattern": "^[0-9a-fA-F]{32}$"
       },
-      "Nullablestring": {
-        "type": [
-          "string",
-          "null"
+      "SelectionOutcome": {
+        "type": "string",
+        "enum": [
+          "supported",
+          "contradicted",
+          "unresolved",
+          "conflicting"
         ]
       },
-      "OperationSet": {
+      "RequirementResult": {
+        "type": "object",
+        "properties": {
+          "requirement": {
+            "$ref": "#/$defs/Requirement"
+          },
+          "outcome": {
+            "$ref": "#/$defs/SelectionOutcome"
+          },
+          "witnesses": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/RequirementWitness"
+            }
+          },
+          "coverage": {
+            "$ref": "#/$defs/SelectionCoverage"
+          },
+          "reason": {
+            "$ref": "#/$defs/SelectionReason"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "requirement",
+          "outcome",
+          "witnesses",
+          "coverage",
+          "reason"
+        ]
+      },
+      "Requirement": {
+        "oneOf": [
+          {
+            "description": "Behavioral may-facet evidence; unknown and not-analyzed never prove absence.",
+            "type": "object",
+            "properties": {
+              "facet": {
+                "$ref": "#/$defs/FacetName"
+              },
+              "value": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "facet_membership"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "facet",
+              "value",
+              "quantifier"
+            ]
+          },
+          {
+            "description": "Exact public access path; aliases retain separate member identities.",
+            "type": "object",
+            "properties": {
+              "path": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "public_path"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "path",
+              "quantifier"
+            ]
+          },
+          {
+            "description": "Exact owning module, attributed by the exposure source.",
+            "type": "object",
+            "properties": {
+              "module": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "public_module"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "module",
+              "quantifier"
+            ]
+          },
+          {
+            "description": "Exact qualified class owner of this member.",
+            "type": "object",
+            "properties": {
+              "path": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "class_owner"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "path",
+              "quantifier"
+            ]
+          },
+          {
+            "description": "Declared public member category.",
+            "type": "object",
+            "properties": {
+              "kind": {
+                "$ref": "#/$defs/MemberKind"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "member_kind"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "kind",
+              "quantifier"
+            ]
+          },
+          {
+            "description": "A recognized binding or protocol surface; opaque decorators remain unresolved.",
+            "type": "object",
+            "properties": {
+              "form": {
+                "$ref": "#/$defs/InvocationForm"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "invocation_form"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "form",
+              "quantifier"
+            ]
+          },
+          {
+            "description": "Named declaration across applicable signature variants, not arbitrary keyword acceptance.",
+            "type": "object",
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "declares_parameter"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "name",
+              "quantifier"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "kind": {
+                "$ref": "#/$defs/ParameterMatchKind"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "parameter_kind"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "name",
+              "kind",
+              "quantifier"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "parameter_required"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "name",
+              "required",
+              "quantifier"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "state": {
+                "$ref": "#/$defs/DefaultMatchState"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "parameter_default_state"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "name",
+              "state",
+              "quantifier"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "value": {
+                "$ref": "#/$defs/ExactPrimitive"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "parameter_default"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "name",
+              "value",
+              "quantifier"
+            ]
+          },
+          {
+            "description": "Structural declared type matching without implicit subtype or runtime-value inference.",
+            "type": "object",
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "type": {
+                "$ref": "#/$defs/StructuralType"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "parameter_type"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "name",
+              "type",
+              "quantifier"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "declares_configuration_field"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "name",
+              "quantifier"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "path": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "configuration_owner"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "path",
+              "quantifier"
+            ]
+          },
+          {
+            "description": "Object settings versus per-call parameter records; does not establish shared runtime state.",
+            "type": "object",
+            "properties": {
+              "scope": {
+                "$ref": "#/$defs/ConfigurationScopeKind"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "configuration_scope"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "scope",
+              "quantifier"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "model": {
+                "$ref": "#/$defs/RecordModel"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "configuration_record_kind"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "model",
+              "quantifier"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "value": {
+                "$ref": "#/$defs/ExactPrimitive"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "configuration_default"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "name",
+              "value",
+              "quantifier"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "value": {
+                "$ref": "#/$defs/ExactPrimitive"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "configuration_literal"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "name",
+              "value",
+              "quantifier"
+            ]
+          },
+          {
+            "description": "An exact cited field link at its typed formal or reader endpoint.",
+            "type": "object",
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "kind": {
+                "$ref": "#/$defs/FieldRelationship"
+              },
+              "target": {
+                "$ref": "#/$defs/FieldTarget"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "configuration_relationship"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "name",
+              "kind",
+              "target",
+              "quantifier"
+            ]
+          },
+          {
+            "description": "Attributed role, target and fidelity; candidate targets never become resolved edges.",
+            "type": "object",
+            "properties": {
+              "role": {
+                "$ref": "#/$defs/RelationRole"
+              },
+              "target": {
+                "$ref": "#/$defs/RelationTarget"
+              },
+              "fidelity": {
+                "$ref": "#/$defs/RelationFidelity"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "relationship"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "role",
+              "target",
+              "fidelity",
+              "quantifier"
+            ]
+          },
+          {
+            "description": "Original scenario intent, independent of its checks or execution status.",
+            "type": "object",
+            "properties": {
+              "intent": {
+                "$ref": "#/$defs/Intent"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "scenario_intent"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "intent",
+              "quantifier"
+            ]
+          },
+          {
+            "description": "One explicit check axis: parse, binding, environment or execution.",
+            "type": "object",
+            "properties": {
+              "check": {
+                "$ref": "#/$defs/ScenarioCheck"
+              },
+              "status": {
+                "$ref": "#/$defs/CheckStatus"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "scenario_check"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "check",
+              "status",
+              "quantifier"
+            ]
+          },
+          {
+            "description": "Alignment of evidence associated with this member, not all artifacts in its release.",
+            "type": "object",
+            "properties": {
+              "alignment": {
+                "$ref": "#/$defs/Alignment"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "source_alignment"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "alignment",
+              "quantifier"
+            ]
+          },
+          {
+            "description": "Exact version for the named owning distribution. Absence without closure is unknown.",
+            "type": "object",
+            "properties": {
+              "distribution": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "version": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "release_version"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "distribution",
+              "version",
+              "quantifier"
+            ]
+          },
+          {
+            "description": "Declared metadata value, exact configuration pointer, or original launch text; no installability or execution inference.",
+            "type": "object",
+            "properties": {
+              "field": {
+                "$ref": "#/$defs/DeploymentField"
+              },
+              "name": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "deployment_declaration"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "field",
+              "name",
+              "quantifier"
+            ]
+          }
+        ]
+      },
+      "FacetName": {
+        "type": "string",
+        "enum": [
+          "parameter",
+          "parameter_type",
+          "returns",
+          "raises",
+          "decorator",
+          "async",
+          "delegates_to",
+          "forwards_to",
+          "hands_off_to",
+          "takes_from",
+          "module",
+          "kind",
+          "reads_setting"
+        ]
+      },
+      "Text1To500": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 500
+      },
+      "Quantifier": {
+        "type": "string",
+        "enum": [
+          "any_applicable",
+          "all_applicable"
+        ]
+      },
+      "MemberKind": {
+        "type": "string",
+        "enum": [
+          "function",
+          "method",
+          "class",
+          "property",
+          "module",
+          "variable",
+          "unknown"
+        ]
+      },
+      "InvocationForm": {
+        "type": "string",
+        "enum": [
+          "function",
+          "method",
+          "class",
+          "static",
+          "property",
+          "context_manager",
+          "async_context_manager"
+        ]
+      },
+      "ParameterMatchKind": {
+        "type": "string",
+        "enum": [
+          "positional_only",
+          "positional",
+          "var_args",
+          "keyword_only",
+          "var_kwargs"
+        ]
+      },
+      "DefaultMatchState": {
+        "type": "string",
+        "enum": [
+          "absent",
+          "literal_none",
+          "literal",
+          "source_expression",
+          "optional_expression_unavailable",
+          "unknown",
+          "factory_expression"
+        ]
+      },
+      "ExactPrimitive": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "none"
+              },
+              "value": {
+                "type": "null"
+              }
+            },
+            "required": [
+              "kind",
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "bool"
+              },
+              "value": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "kind",
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "int"
+              },
+              "value": {
+                "type": "integer",
+                "format": "int64"
+              }
+            },
+            "required": [
+              "kind",
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "str"
+              },
+              "value": {
+                "$ref": "#/$defs/Text0To500"
+              }
+            },
+            "required": [
+              "kind",
+              "value"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "Text0To500": {
+        "type": "string",
+        "minLength": 0,
+        "maxLength": 500
+      },
+      "StructuralType": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "term": {
+                "$ref": "#/$defs/TypeTermId"
+              },
+              "operator": {
+                "type": "string",
+                "const": "canonical_term"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "operator",
+              "term"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "category": {
+                "$ref": "#/$defs/TypeKind"
+              },
+              "operator": {
+                "type": "string",
+                "const": "category"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "operator",
+              "category"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "module": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "name": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "operator": {
+                "type": "string",
+                "const": "nominal_identity"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "operator",
+              "module",
+              "name"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "term": {
+                "$ref": "#/$defs/TypeTermId"
+              },
+              "operator": {
+                "type": "string",
+                "const": "declared_union_member"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "operator",
+              "term"
+            ]
+          }
+        ]
+      },
+      "TypeTermId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "TypeKind": {
+        "type": "string",
+        "enum": [
+          "class_instance",
+          "class_object",
+          "type_of",
+          "typed_dict",
+          "union",
+          "intersection",
+          "callable",
+          "overload",
+          "bound_method",
+          "generic",
+          "tuple",
+          "literal",
+          "type_var",
+          "param_spec",
+          "type_var_tuple",
+          "module",
+          "any",
+          "never",
+          "none",
+          "type_alias",
+          "self_type",
+          "annotated",
+          "unpack",
+          "type_guard",
+          "param_list",
+          "special_form",
+          "other",
+          "truncated"
+        ]
+      },
+      "ConfigurationScopeKind": {
+        "type": "string",
+        "enum": [
+          "object",
+          "per_call"
+        ]
+      },
+      "RecordModel": {
+        "type": "string",
+        "enum": [
+          "dataclass",
+          "attrs",
+          "pydantic",
+          "typed_dict",
+          "named_tuple"
+        ]
+      },
+      "FieldRelationship": {
+        "type": "string",
+        "enum": [
+          "declared_parameter",
+          "exact_storage",
+          "exact_reader"
+        ]
+      },
+      "FieldTarget": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "node": {
+                "$ref": "#/$defs/Id"
+              },
+              "kind": {
+                "type": "string",
+                "const": "node"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "node"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "signature": {
+                "$ref": "#/$defs/SignatureId"
+              },
+              "ordinal": {
+                "type": "integer",
+                "format": "uint32",
+                "minimum": 0
+              },
+              "kind": {
+                "type": "string",
+                "const": "parameter"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "signature",
+              "ordinal"
+            ]
+          }
+        ]
+      },
+      "Id": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]+$"
+      },
+      "SignatureId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "RelationRole": {
+        "type": "string",
+        "enum": [
+          "declares",
+          "surface",
+          "configuration",
+          "reader",
+          "documents",
+          "demonstrates",
+          "invokes",
+          "tests_failure",
+          "suggests",
+          "observes"
+        ]
+      },
+      "RelationTarget": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "node": {
+                "$ref": "#/$defs/Id"
+              },
+              "kind": {
+                "type": "string",
+                "const": "declaration"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "node"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "member": {
+                "$ref": "#/$defs/PublicMemberId"
+              },
+              "kind": {
+                "type": "string",
+                "const": "member"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "member"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "evidence": {
+                "$ref": "#/$defs/EvidenceRef"
+              },
+              "kind": {
+                "type": "string",
+                "const": "evidence"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "evidence"
+            ]
+          }
+        ]
+      },
+      "EvidenceRef": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "span"
+              },
+              "id": {
+                "$ref": "#/$defs/SpanId"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "scenario"
+              },
+              "id": {
+                "$ref": "#/$defs/ScenarioId"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "deployment"
+              },
+              "id": {
+                "$ref": "#/$defs/DeploymentId"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "SpanId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "ScenarioId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "DeploymentId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "RelationFidelity": {
+        "type": "string",
+        "enum": [
+          "source_fact",
+          "resolved_target",
+          "candidate_targets",
+          "exact_textual_reference",
+          "ambiguous_textual_mention",
+          "same_document_passage",
+          "owning_distribution",
+          "task_observation",
+          "release_distribution",
+          "explicit_config_reference"
+        ]
+      },
+      "Intent": {
+        "type": "string",
+        "enum": [
+          "demonstration",
+          "assertion_test",
+          "expected_failure",
+          "skip_xfail",
+          "mixed",
+          "unknown"
+        ]
+      },
+      "ScenarioCheck": {
+        "type": "string",
+        "enum": [
+          "parse",
+          "binding",
+          "environment",
+          "execution"
+        ]
+      },
+      "CheckStatus": {
+        "type": "string",
+        "enum": [
+          "passed",
+          "failed",
+          "not_run",
+          "blocked"
+        ]
+      },
+      "Alignment": {
+        "type": "string",
+        "enum": [
+          "exact",
+          "mapped_with_evidence",
+          "other",
+          "unknown"
+        ]
+      },
+      "DeploymentField": {
+        "type": "string",
+        "enum": [
+          "requires_dist",
+          "provides_extra",
+          "requires_python",
+          "entry_point",
+          "launch",
+          "configuration"
+        ]
+      },
+      "RequirementWitness": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "context": {
+                "$ref": "#/$defs/SelectionContext"
+              },
+              "basis": {
+                "$ref": "#/$defs/EvidenceBasis"
+              },
+              "evidence": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/WitnessEvidence"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "const": "positive"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "context",
+              "basis",
+              "evidence"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "context": {
+                "$ref": "#/$defs/SelectionContext"
+              },
+              "basis": {
+                "$ref": "#/$defs/EvidenceBasis"
+              },
+              "evidence": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/WitnessEvidence"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "const": "negative"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "context",
+              "basis",
+              "evidence"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "context": {
+                "$ref": "#/$defs/SelectionContext"
+              },
+              "basis": {
+                "$ref": "#/$defs/EvidenceBasis"
+              },
+              "positive": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/WitnessEvidence"
+                }
+              },
+              "negative": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/WitnessEvidence"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "const": "conflict"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "context",
+              "basis",
+              "positive",
+              "negative"
+            ]
+          }
+        ]
+      },
+      "SelectionContext": {
+        "description": "A context is admissible by construction; an absent runtime instance is never a wildcard.",
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "member": {
+                "$ref": "#/$defs/PublicMemberId"
+              },
+              "kind": {
+                "type": "string",
+                "const": "member"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "member"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "member": {
+                "$ref": "#/$defs/PublicMemberId"
+              },
+              "binding": {
+                "$ref": "#/$defs/BindingId"
+              },
+              "kind": {
+                "type": "string",
+                "const": "binding"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "member",
+              "binding"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "member": {
+                "$ref": "#/$defs/PublicMemberId"
+              },
+              "binding": {
+                "$ref": "#/$defs/BindingId"
+              },
+              "signature": {
+                "$ref": "#/$defs/SignatureId"
+              },
+              "kind": {
+                "type": "string",
+                "const": "signature"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "member",
+              "binding",
+              "signature"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "member": {
+                "$ref": "#/$defs/PublicMemberId"
+              },
+              "owner": {
+                "$ref": "#/$defs/Id"
+              },
+              "scope": {
+                "$ref": "#/$defs/ConfigurationScopeKind"
+              },
+              "kind": {
+                "type": "string",
+                "const": "configuration"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "member",
+              "owner",
+              "scope"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "member": {
+                "$ref": "#/$defs/PublicMemberId"
+              },
+              "scenario": {
+                "$ref": "#/$defs/ScenarioId"
+              },
+              "kind": {
+                "type": "string",
+                "const": "scenario"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "member",
+              "scenario"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "member": {
+                "$ref": "#/$defs/PublicMemberId"
+              },
+              "span": {
+                "$ref": "#/$defs/SpanId"
+              },
+              "kind": {
+                "type": "string",
+                "const": "source"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "member",
+              "span"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "release": {
+                "$ref": "#/$defs/Id"
+              },
+              "kind": {
+                "type": "string",
+                "const": "release"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "release"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "member": {
+                "$ref": "#/$defs/PublicMemberId"
+              },
+              "binding": {
+                "$ref": "#/$defs/BindingId"
+              },
+              "signature": {
+                "$ref": "#/$defs/SignatureId"
+              },
+              "owner": {
+                "$ref": "#/$defs/Id"
+              },
+              "instance": {
+                "$ref": "#/$defs/Id"
+              },
+              "evaluation": {
+                "$ref": "#/$defs/Id"
+              },
+              "model": {
+                "$ref": "#/$defs/Digest"
+              },
+              "kind": {
+                "type": "string",
+                "const": "runtime"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "member",
+              "binding",
+              "signature",
+              "owner",
+              "instance",
+              "evaluation",
+              "model"
+            ]
+          }
+        ]
+      },
+      "BindingId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "Digest": {
+        "type": "string",
+        "minLength": 64,
+        "maxLength": 64,
+        "pattern": "^[0-9a-fA-F]+$"
+      },
+      "EvidenceBasis": {
+        "type": "string",
+        "enum": [
+          "source_declaration",
+          "provider_declaration",
+          "bounded_model",
+          "observed_scenario"
+        ]
+      },
+      "WitnessEvidence": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/Id"
+              },
+              "kind": {
+                "type": "string",
+                "const": "fact"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/EvidenceId"
+              },
+              "kind": {
+                "type": "string",
+                "const": "catalog"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/Id"
+              },
+              "field": {
+                "$ref": "#/$defs/Id"
+              },
+              "signature": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Id"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "ordinal": {
+                "type": "integer",
+                "format": "uint32",
+                "minimum": 0
+              },
+              "formal": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Id"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "reader": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Id"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "relationship": {
+                "$ref": "#/$defs/FieldRelationship"
+              },
+              "kind": {
+                "type": "string",
+                "const": "field_link"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "id",
+              "field",
+              "signature",
+              "ordinal",
+              "formal",
+              "reader",
+              "relationship"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/Id"
+              },
+              "role": {
+                "$ref": "#/$defs/RelationRole"
+              },
+              "fidelity": {
+                "$ref": "#/$defs/RelationFidelity"
+              },
+              "target": {
+                "$ref": "#/$defs/RelationTarget"
+              },
+              "edge": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Id"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "modality": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "phase": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "const": "association"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "id",
+              "role",
+              "fidelity",
+              "target",
+              "edge",
+              "modality",
+              "phase"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "evidence": {
+                "$ref": "#/$defs/EvidenceRef"
+              },
+              "kind": {
+                "type": "string",
+                "const": "original"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "evidence"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/Id"
+              },
+              "kind": {
+                "type": "string",
+                "const": "domain"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "facet": {
+                "type": "string"
+              },
+              "value": {
+                "type": "string"
+              },
+              "verdict": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "const": "facet"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "facet",
+              "value",
+              "verdict"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "facet": {
+                "type": "string"
+              },
+              "verdict": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "const": "facet_coverage"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "facet",
+              "verdict"
+            ]
+          }
+        ]
+      },
+      "EvidenceId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "SelectionCoverage": {
+        "type": "object",
+        "properties": {
+          "corpus_complete": {
+            "type": "boolean"
+          },
+          "analyzer_complete": {
+            "type": "boolean"
+          },
+          "evaluation_complete": {
+            "type": "boolean"
+          },
+          "examined": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          },
+          "total": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "minimum": 0
+          },
+          "closure": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/WitnessEvidence"
+            }
+          }
+        },
+        "required": [
+          "corpus_complete",
+          "analyzer_complete",
+          "evaluation_complete",
+          "examined",
+          "total",
+          "closure"
+        ]
+      },
+      "SelectionReason": {
+        "type": "string",
+        "enum": [
+          "witness",
+          "counterexample",
+          "closed_absence",
+          "no_applicable_domain",
+          "incomplete_domain",
+          "comparable_conflict",
+          "incompatible_contexts",
+          "missing_context",
+          "resource_refused"
+        ]
+      },
+      "JointApplicability": {
+        "type": "string",
+        "enum": [
+          "independent_records",
+          "compatible_modeled_context",
+          "demonstrated_combination",
+          "contradictory_modeled_context",
+          "not_established"
+        ]
+      },
+      "RankedMember": {
+        "type": "object",
+        "properties": {
+          "member_id": {
+            "$ref": "#/$defs/PublicMemberId"
+          },
+          "score": {
+            "type": "number",
+            "format": "double"
+          },
+          "promoted": {
+            "type": "boolean"
+          },
+          "winners": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/Winner"
+            }
+          }
+        },
+        "required": [
+          "member_id",
+          "score",
+          "promoted",
+          "winners"
+        ]
+      },
+      "Winner": {
+        "type": "object",
+        "properties": {
+          "member_id": {
+            "$ref": "#/$defs/PublicMemberId"
+          },
+          "family": {
+            "$ref": "#/$defs/Family"
+          },
+          "channel": {
+            "$ref": "#/$defs/Channel"
+          },
+          "unit_id": {
+            "$ref": "#/$defs/RetrievalUnitId"
+          },
+          "fragment_id": {
+            "$ref": "#/$defs/Id"
+          },
+          "score": {
+            "type": "number",
+            "format": "double"
+          },
+          "rank": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "member_id",
+          "family",
+          "channel",
+          "unit_id",
+          "fragment_id",
+          "score",
+          "rank"
+        ]
+      },
+      "Family": {
+        "type": "string",
+        "enum": [
+          "api_options",
+          "documentation_deployment",
+          "scenario",
+          "source"
+        ]
+      },
+      "Channel": {
+        "type": "string",
+        "enum": [
+          "lexical",
+          "vector"
+        ]
+      },
+      "RetrievalUnitId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "RetrievalMetadata": {
+        "type": "object",
+        "properties": {
+          "profile": {
+            "type": "string"
+          },
+          "requested_route": {
+            "$ref": "#/$defs/RetrievalMetadataRequestedRoute"
+          },
+          "actual_route": {
+            "$ref": "#/$defs/RetrievalMetadataActualRoute"
+          },
+          "fallback": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          },
+          "candidate_depth": {
+            "type": "integer",
+            "format": "int64",
+            "default": 0
+          },
+          "approximate": {
+            "type": "boolean",
+            "default": false
+          },
+          "routing_reason": {
+            "type": "string",
+            "default": "explicit_profile"
+          },
+          "admission": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "profile",
+          "requested_route",
+          "actual_route",
+          "fallback",
+          "candidate_depth",
+          "approximate",
+          "routing_reason",
+          "admission"
+        ]
+      },
+      "RetrievalMetadataRequestedRoute": {
+        "type": "string",
+        "enum": [
+          "exact",
+          "hnsw",
+          "mixed"
+        ]
+      },
+      "RetrievalMetadataActualRoute": {
+        "type": "string",
+        "enum": [
+          "exact",
+          "hnsw",
+          "lexical-only"
+        ]
+      },
+      "SelectionResults": {
         "type": "object",
         "properties": {
           "snapshot_id": {
@@ -213,54 +3397,50 @@ expression: "serde_json::to_string_pretty(&schemas).unwrap()"
           "generation": {
             "$ref": "#/$defs/GenerationDigest"
           },
-          "matches": {
-            "type": "array",
-            "items": {
-              "$ref": "#/$defs/OperationRef"
-            }
+          "supported": {
+            "$ref": "#/$defs/SelectionGroup"
           },
-          "total": {
+          "unresolved": {
+            "$ref": "#/$defs/SelectionGroup"
+          },
+          "conflicting": {
+            "$ref": "#/$defs/SelectionGroup"
+          },
+          "contradicted_count": {
             "type": "integer",
-            "format": "int64"
+            "format": "uint64",
+            "minimum": 0
           },
-          "complete": {
+          "ranked_discovery": {
             "type": "boolean"
           },
-          "unknown": {
-            "type": "array",
-            "items": {
-              "$ref": "#/$defs/OperationRef"
-            }
-          },
-          "unknown_total": {
+          "policy_revision": {
             "type": "integer",
-            "format": "int64"
+            "format": "uint32",
+            "minimum": 0
           },
-          "unknown_truncated": {
-            "type": "boolean"
-          },
-          "truncated": {
-            "type": "boolean"
-          },
-          "next_cursor": {
-            "$ref": "#/$defs/Nullablestring"
-          },
-          "note": {
-            "type": "string"
+          "retrieval": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/RetrievalMetadata"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           }
         },
         "required": [
           "snapshot_id",
           "generation",
-          "matches",
-          "total",
-          "complete",
-          "unknown",
-          "unknown_total",
-          "unknown_truncated",
-          "truncated",
-          "next_cursor",
-          "note"
+          "supported",
+          "unresolved",
+          "conflicting",
+          "contradicted_count",
+          "ranked_discovery",
+          "policy_revision",
+          "retrieval"
         ]
       }
     },
@@ -949,7 +4129,7 @@ expression: "serde_json::to_string_pretty(&schemas).unwrap()"
         "$ref": "#/$defs/SnapshotId"
       },
       "evidence": {
-        "$ref": "#/$defs/EvidenceRef"
+        "$ref": "#/$defs/EvidenceTarget"
       },
       "cursor": {
         "anyOf": [
@@ -978,6 +4158,17 @@ expression: "serde_json::to_string_pretty(&schemas).unwrap()"
         "minLength": 32,
         "maxLength": 32,
         "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "EvidenceTarget": {
+        "description": "Retrieval artifacts are a serving target, not a new canonical evidence kind.",
+        "anyOf": [
+          {
+            "$ref": "#/$defs/EvidenceRef"
+          },
+          {
+            "$ref": "#/$defs/RetrievalTarget"
+          }
+        ]
       },
       "EvidenceRef": {
         "oneOf": [
@@ -1052,6 +4243,33 @@ expression: "serde_json::to_string_pretty(&schemas).unwrap()"
         "maxLength": 32,
         "pattern": "^[0-9a-fA-F]{32}$"
       },
+      "RetrievalTarget": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "retrieval_unit"
+              },
+              "id": {
+                "$ref": "#/$defs/RetrievalUnitId"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "RetrievalUnitId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
       "Text0To2048": {
         "type": "string",
         "minLength": 0,
@@ -1072,6 +4290,19 @@ expression: "serde_json::to_string_pretty(&schemas).unwrap()"
           }
         },
         "$ref": "#/$defs/EvidenceResult",
+        "required": [
+          "result_kind"
+        ]
+      },
+      {
+        "type": "object",
+        "properties": {
+          "result_kind": {
+            "type": "string",
+            "const": "retrieval_unit"
+          }
+        },
+        "$ref": "#/$defs/RetrievalEvidenceResult",
         "required": [
           "result_kind"
         ]
@@ -1778,6 +5009,251 @@ expression: "serde_json::to_string_pretty(&schemas).unwrap()"
           "deployment",
           "metadata_omitted",
           "content",
+          "next_cursor"
+        ]
+      },
+      "RetrievalUnitHeader": {
+        "type": "object",
+        "properties": {
+          "unit_id": {
+            "$ref": "#/$defs/RetrievalUnitId"
+          },
+          "family": {
+            "$ref": "#/$defs/Family"
+          },
+          "title": {
+            "type": "string"
+          },
+          "subjects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/Subject"
+            }
+          },
+          "anchors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/Anchor"
+            }
+          },
+          "metadata_omitted": {
+            "description": "Header lists and title are bounded; originals remain reachable through continuation.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "unit_id",
+          "family",
+          "title",
+          "subjects",
+          "anchors",
+          "metadata_omitted"
+        ]
+      },
+      "RetrievalUnitId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "Family": {
+        "type": "string",
+        "enum": [
+          "api_options",
+          "documentation_deployment",
+          "scenario",
+          "source"
+        ]
+      },
+      "Subject": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "member"
+              },
+              "id": {
+                "$ref": "#/$defs/PublicMemberId"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "release"
+              },
+              "id": {
+                "$ref": "#/$defs/Id"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "PublicMemberId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "Anchor": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "evidence": {
+                "$ref": "#/$defs/EvidenceRef"
+              },
+              "kind": {
+                "type": "string",
+                "const": "original"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "evidence"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "evidence": {
+                "$ref": "#/$defs/EvidenceId"
+              },
+              "kind": {
+                "type": "string",
+                "const": "catalog"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "evidence"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "fact_id": {
+                "$ref": "#/$defs/Id"
+              },
+              "kind": {
+                "type": "string",
+                "const": "declaration"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "fact_id"
+            ]
+          }
+        ]
+      },
+      "EvidenceId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "Fragment": {
+        "type": "object",
+        "properties": {
+          "fragment_id": {
+            "$ref": "#/$defs/Id"
+          },
+          "unit_id": {
+            "$ref": "#/$defs/RetrievalUnitId"
+          },
+          "family": {
+            "$ref": "#/$defs/Family"
+          },
+          "ordinal": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "rendering_revision": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "text": {
+            "type": "string"
+          },
+          "content_digest": {
+            "$ref": "#/$defs/Digest"
+          }
+        },
+        "required": [
+          "fragment_id",
+          "unit_id",
+          "family",
+          "ordinal",
+          "rendering_revision",
+          "text",
+          "content_digest"
+        ]
+      },
+      "RetrievalEvidenceResult": {
+        "type": "object",
+        "properties": {
+          "snapshot_id": {
+            "$ref": "#/$defs/SnapshotId"
+          },
+          "generation": {
+            "$ref": "#/$defs/GenerationDigest"
+          },
+          "unit": {
+            "$ref": "#/$defs/RetrievalUnitHeader"
+          },
+          "fragment": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Fragment"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "original": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/EvidenceResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "snapshot_id",
+          "generation",
+          "unit",
+          "fragment",
+          "original",
           "next_cursor"
         ]
       }
@@ -3619,6 +7095,9 @@ expression: "serde_json::to_string_pretty(&schemas).unwrap()"
           "detail": {
             "$ref": "#/$defs/Nullablestring"
           },
+          "literal_json": {
+            "$ref": "#/$defs/Nullablestring"
+          },
           "class_module": {
             "$ref": "#/$defs/Nullablestring"
           },
@@ -3635,6 +7114,7 @@ expression: "serde_json::to_string_pretty(&schemas).unwrap()"
           "kind",
           "display",
           "detail",
+          "literal_json",
           "class_module",
           "class_key",
           "variable"
@@ -5185,10 +8665,21 @@ expression: "serde_json::to_string_pretty(&schemas).unwrap()"
       "query": {
         "$ref": "#/$defs/Text1To4000"
       },
-      "where": {
+      "selection": {
         "anyOf": [
           {
-            "$ref": "#/$defs/Where"
+            "$ref": "#/$defs/Selection"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "cursor": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/Text0To2048"
           },
           {
             "type": "null"
@@ -5197,8 +8688,8 @@ expression: "serde_json::to_string_pretty(&schemas).unwrap()"
         "default": null
       },
       "limit": {
-        "$ref": "#/$defs/Limit10Default5",
-        "default": 5
+        "$ref": "#/$defs/Limit100Default20",
+        "default": 20
       }
     },
     "additionalProperties": false,
@@ -5217,54 +8708,632 @@ expression: "serde_json::to_string_pretty(&schemas).unwrap()"
         "minLength": 1,
         "maxLength": 4000
       },
-      "Where": {
+      "Selection": {
+        "description": "Up to sixteen conjunctive predicates. Any-applicable is existential; all-applicable\nneeds nonempty closed all-positive evidence or a clean counterexample. Default discovery\nretains unresolved/conflicting candidates. Require-compatible intersects the entire conjunction.",
         "type": "object",
         "properties": {
-          "facets": {
+          "requirements": {
             "type": "array",
             "items": {
-              "$ref": "#/$defs/FacetTerm"
+              "$ref": "#/$defs/Requirement"
             },
-            "maxItems": 10,
+            "maxItems": 16,
             "default": []
           },
-          "kind": {
-            "anyOf": [
-              {
-                "$ref": "#/$defs/OperationKind"
-              },
-              {
-                "type": "null"
-              }
-            ]
+          "mode": {
+            "$ref": "#/$defs/SelectionMode",
+            "default": "discovery"
           },
-          "path_prefix": {
-            "anyOf": [
-              {
-                "$ref": "#/$defs/Text0To500"
-              },
-              {
-                "type": "null"
-              }
-            ]
+          "joint": {
+            "$ref": "#/$defs/JointPolicy",
+            "default": "independent_records"
           }
         },
         "additionalProperties": false
       },
-      "FacetTerm": {
-        "type": "object",
-        "properties": {
-          "facet": {
-            "$ref": "#/$defs/FacetName"
+      "Requirement": {
+        "oneOf": [
+          {
+            "description": "Behavioral may-facet evidence; unknown and not-analyzed never prove absence.",
+            "type": "object",
+            "properties": {
+              "facet": {
+                "$ref": "#/$defs/FacetName"
+              },
+              "value": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "facet_membership"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "facet",
+              "value"
+            ]
           },
-          "value": {
-            "$ref": "#/$defs/Text1To500"
+          {
+            "description": "Exact public access path; aliases retain separate member identities.",
+            "type": "object",
+            "properties": {
+              "path": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "public_path"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "path"
+            ]
+          },
+          {
+            "description": "Exact owning module, attributed by the exposure source.",
+            "type": "object",
+            "properties": {
+              "module": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "public_module"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "module"
+            ]
+          },
+          {
+            "description": "Exact qualified class owner of this member.",
+            "type": "object",
+            "properties": {
+              "path": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "class_owner"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "path"
+            ]
+          },
+          {
+            "description": "Declared public member category.",
+            "type": "object",
+            "properties": {
+              "kind": {
+                "$ref": "#/$defs/MemberKind"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "member_kind"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "kind"
+            ]
+          },
+          {
+            "description": "A recognized binding or protocol surface; opaque decorators remain unresolved.",
+            "type": "object",
+            "properties": {
+              "form": {
+                "$ref": "#/$defs/InvocationForm"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "invocation_form"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "form"
+            ]
+          },
+          {
+            "description": "Named declaration across applicable signature variants, not arbitrary keyword acceptance.",
+            "type": "object",
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "declares_parameter"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "name"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "kind": {
+                "$ref": "#/$defs/ParameterMatchKind"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "parameter_kind"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "name",
+              "kind"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "parameter_required"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "name",
+              "required"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "state": {
+                "$ref": "#/$defs/DefaultMatchState"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "parameter_default_state"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "name",
+              "state"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "value": {
+                "$ref": "#/$defs/ExactPrimitive"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "parameter_default"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "name",
+              "value"
+            ]
+          },
+          {
+            "description": "Structural declared type matching without implicit subtype or runtime-value inference.",
+            "type": "object",
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "type": {
+                "$ref": "#/$defs/StructuralType"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "parameter_type"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "name",
+              "type"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "declares_configuration_field"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "name"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "path": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "configuration_owner"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "path"
+            ]
+          },
+          {
+            "description": "Object settings versus per-call parameter records; does not establish shared runtime state.",
+            "type": "object",
+            "properties": {
+              "scope": {
+                "$ref": "#/$defs/ConfigurationScopeKind"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "configuration_scope"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "scope"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "model": {
+                "$ref": "#/$defs/RecordModel"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "configuration_record_kind"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "model"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "value": {
+                "$ref": "#/$defs/ExactPrimitive"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "configuration_default"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "name",
+              "value"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "value": {
+                "$ref": "#/$defs/ExactPrimitive"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "configuration_literal"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "name",
+              "value"
+            ]
+          },
+          {
+            "description": "An exact cited field link at its typed formal or reader endpoint.",
+            "type": "object",
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "kind": {
+                "$ref": "#/$defs/FieldRelationship"
+              },
+              "target": {
+                "$ref": "#/$defs/FieldTarget"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "configuration_relationship"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "name",
+              "kind",
+              "target"
+            ]
+          },
+          {
+            "description": "Attributed role, target and fidelity; candidate targets never become resolved edges.",
+            "type": "object",
+            "properties": {
+              "role": {
+                "$ref": "#/$defs/RelationRole"
+              },
+              "target": {
+                "$ref": "#/$defs/RelationTarget"
+              },
+              "fidelity": {
+                "$ref": "#/$defs/RelationFidelity"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "relationship"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "role",
+              "target",
+              "fidelity"
+            ]
+          },
+          {
+            "description": "Original scenario intent, independent of its checks or execution status.",
+            "type": "object",
+            "properties": {
+              "intent": {
+                "$ref": "#/$defs/Intent"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "scenario_intent"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "intent"
+            ]
+          },
+          {
+            "description": "One explicit check axis: parse, binding, environment or execution.",
+            "type": "object",
+            "properties": {
+              "check": {
+                "$ref": "#/$defs/ScenarioCheck"
+              },
+              "status": {
+                "$ref": "#/$defs/CheckStatus"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "scenario_check"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "check",
+              "status"
+            ]
+          },
+          {
+            "description": "Alignment of evidence associated with this member, not all artifacts in its release.",
+            "type": "object",
+            "properties": {
+              "alignment": {
+                "$ref": "#/$defs/Alignment"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "source_alignment"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "alignment"
+            ]
+          },
+          {
+            "description": "Exact version for the named owning distribution. Absence without closure is unknown.",
+            "type": "object",
+            "properties": {
+              "distribution": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "version": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "release_version"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "distribution",
+              "version"
+            ]
+          },
+          {
+            "description": "Declared metadata value, exact configuration pointer, or original launch text; no installability or execution inference.",
+            "type": "object",
+            "properties": {
+              "field": {
+                "$ref": "#/$defs/DeploymentField"
+              },
+              "name": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "deployment_declaration"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "field",
+              "name"
+            ]
           }
-        },
-        "additionalProperties": false,
-        "required": [
-          "facet",
-          "value"
         ]
       },
       "FacetName": {
@@ -5285,12 +9354,130 @@ expression: "serde_json::to_string_pretty(&schemas).unwrap()"
           "reads_setting"
         ]
       },
-      "OperationKind": {
+      "Quantifier": {
+        "type": "string",
+        "enum": [
+          "any_applicable",
+          "all_applicable"
+        ]
+      },
+      "MemberKind": {
         "type": "string",
         "enum": [
           "function",
           "method",
-          "class"
+          "class",
+          "property",
+          "module",
+          "variable",
+          "unknown"
+        ]
+      },
+      "InvocationForm": {
+        "type": "string",
+        "enum": [
+          "function",
+          "method",
+          "class",
+          "static",
+          "property",
+          "context_manager",
+          "async_context_manager"
+        ]
+      },
+      "ParameterMatchKind": {
+        "type": "string",
+        "enum": [
+          "positional_only",
+          "positional",
+          "var_args",
+          "keyword_only",
+          "var_kwargs"
+        ]
+      },
+      "DefaultMatchState": {
+        "type": "string",
+        "enum": [
+          "absent",
+          "literal_none",
+          "literal",
+          "source_expression",
+          "optional_expression_unavailable",
+          "unknown",
+          "factory_expression"
+        ]
+      },
+      "ExactPrimitive": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "none"
+              },
+              "value": {
+                "type": "null"
+              }
+            },
+            "required": [
+              "kind",
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "bool"
+              },
+              "value": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "kind",
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "int"
+              },
+              "value": {
+                "type": "integer",
+                "format": "int64"
+              }
+            },
+            "required": [
+              "kind",
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "str"
+              },
+              "value": {
+                "$ref": "#/$defs/Text0To500"
+              }
+            },
+            "required": [
+              "kind",
+              "value"
+            ],
+            "additionalProperties": false
+          }
         ]
       },
       "Text0To500": {
@@ -5298,10 +9485,438 @@ expression: "serde_json::to_string_pretty(&schemas).unwrap()"
         "minLength": 0,
         "maxLength": 500
       },
-      "Limit10Default5": {
+      "StructuralType": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "term": {
+                "$ref": "#/$defs/TypeTermId"
+              },
+              "operator": {
+                "type": "string",
+                "const": "canonical_term"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "operator",
+              "term"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "category": {
+                "$ref": "#/$defs/TypeKind"
+              },
+              "operator": {
+                "type": "string",
+                "const": "category"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "operator",
+              "category"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "module": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "name": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "operator": {
+                "type": "string",
+                "const": "nominal_identity"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "operator",
+              "module",
+              "name"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "term": {
+                "$ref": "#/$defs/TypeTermId"
+              },
+              "operator": {
+                "type": "string",
+                "const": "declared_union_member"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "operator",
+              "term"
+            ]
+          }
+        ]
+      },
+      "TypeTermId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "TypeKind": {
+        "type": "string",
+        "enum": [
+          "class_instance",
+          "class_object",
+          "type_of",
+          "typed_dict",
+          "union",
+          "intersection",
+          "callable",
+          "overload",
+          "bound_method",
+          "generic",
+          "tuple",
+          "literal",
+          "type_var",
+          "param_spec",
+          "type_var_tuple",
+          "module",
+          "any",
+          "never",
+          "none",
+          "type_alias",
+          "self_type",
+          "annotated",
+          "unpack",
+          "type_guard",
+          "param_list",
+          "special_form",
+          "other",
+          "truncated"
+        ]
+      },
+      "ConfigurationScopeKind": {
+        "type": "string",
+        "enum": [
+          "object",
+          "per_call"
+        ]
+      },
+      "RecordModel": {
+        "type": "string",
+        "enum": [
+          "dataclass",
+          "attrs",
+          "pydantic",
+          "typed_dict",
+          "named_tuple"
+        ]
+      },
+      "FieldRelationship": {
+        "type": "string",
+        "enum": [
+          "declared_parameter",
+          "exact_storage",
+          "exact_reader"
+        ]
+      },
+      "FieldTarget": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "node": {
+                "$ref": "#/$defs/Id"
+              },
+              "kind": {
+                "type": "string",
+                "const": "node"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "node"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "signature": {
+                "$ref": "#/$defs/SignatureId"
+              },
+              "ordinal": {
+                "type": "integer",
+                "format": "uint32",
+                "minimum": 0
+              },
+              "kind": {
+                "type": "string",
+                "const": "parameter"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "signature",
+              "ordinal"
+            ]
+          }
+        ]
+      },
+      "Id": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]+$"
+      },
+      "SignatureId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "RelationRole": {
+        "type": "string",
+        "enum": [
+          "declares",
+          "surface",
+          "configuration",
+          "reader",
+          "documents",
+          "demonstrates",
+          "invokes",
+          "tests_failure",
+          "suggests",
+          "observes"
+        ]
+      },
+      "RelationTarget": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "node": {
+                "$ref": "#/$defs/Id"
+              },
+              "kind": {
+                "type": "string",
+                "const": "declaration"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "node"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "member": {
+                "$ref": "#/$defs/PublicMemberId"
+              },
+              "kind": {
+                "type": "string",
+                "const": "member"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "member"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "evidence": {
+                "$ref": "#/$defs/EvidenceRef"
+              },
+              "kind": {
+                "type": "string",
+                "const": "evidence"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "evidence"
+            ]
+          }
+        ]
+      },
+      "PublicMemberId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "EvidenceRef": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "span"
+              },
+              "id": {
+                "$ref": "#/$defs/SpanId"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "scenario"
+              },
+              "id": {
+                "$ref": "#/$defs/ScenarioId"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "deployment"
+              },
+              "id": {
+                "$ref": "#/$defs/DeploymentId"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "SpanId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "ScenarioId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "DeploymentId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "RelationFidelity": {
+        "type": "string",
+        "enum": [
+          "source_fact",
+          "resolved_target",
+          "candidate_targets",
+          "exact_textual_reference",
+          "ambiguous_textual_mention",
+          "same_document_passage",
+          "owning_distribution",
+          "task_observation",
+          "release_distribution",
+          "explicit_config_reference"
+        ]
+      },
+      "Intent": {
+        "type": "string",
+        "enum": [
+          "demonstration",
+          "assertion_test",
+          "expected_failure",
+          "skip_xfail",
+          "mixed",
+          "unknown"
+        ]
+      },
+      "ScenarioCheck": {
+        "type": "string",
+        "enum": [
+          "parse",
+          "binding",
+          "environment",
+          "execution"
+        ]
+      },
+      "CheckStatus": {
+        "type": "string",
+        "enum": [
+          "passed",
+          "failed",
+          "not_run",
+          "blocked"
+        ]
+      },
+      "Alignment": {
+        "type": "string",
+        "enum": [
+          "exact",
+          "mapped_with_evidence",
+          "other",
+          "unknown"
+        ]
+      },
+      "DeploymentField": {
+        "type": "string",
+        "enum": [
+          "requires_dist",
+          "provides_extra",
+          "requires_python",
+          "entry_point",
+          "launch",
+          "configuration"
+        ]
+      },
+      "SelectionMode": {
+        "type": "string",
+        "enum": [
+          "discovery",
+          "strict"
+        ]
+      },
+      "JointPolicy": {
+        "type": "string",
+        "enum": [
+          "independent_records",
+          "require_compatible"
+        ]
+      },
+      "Text0To2048": {
+        "type": "string",
+        "minLength": 0,
+        "maxLength": 2048
+      },
+      "Limit100Default20": {
         "type": "integer",
         "minimum": 1,
-        "maximum": 10
+        "maximum": 100
       }
     }
   },
@@ -5314,16 +9929,2058 @@ expression: "serde_json::to_string_pretty(&schemas).unwrap()"
         "properties": {
           "result_kind": {
             "type": "string",
-            "const": "results"
+            "const": "selected"
           }
         },
-        "$ref": "#/$defs/OperationHits",
+        "$ref": "#/$defs/SelectionResults",
         "required": [
           "result_kind"
         ]
       }
     ],
     "$defs": {
+      "SnapshotId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "GenerationDigest": {
+        "type": "string",
+        "minLength": 64,
+        "maxLength": 64,
+        "pattern": "^[0-9a-fA-F]{64}$"
+      },
+      "SelectionGroup": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/CandidateSelection"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          },
+          "page_complete": {
+            "type": "boolean"
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "page_complete",
+          "next_cursor"
+        ]
+      },
+      "CandidateSelection": {
+        "type": "object",
+        "properties": {
+          "member_id": {
+            "$ref": "#/$defs/PublicMemberId"
+          },
+          "operation_id": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/OperationId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "access_path": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "outcome": {
+            "$ref": "#/$defs/SelectionOutcome"
+          },
+          "requirements": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/RequirementResult"
+            }
+          },
+          "joint": {
+            "$ref": "#/$defs/JointApplicability"
+          },
+          "ranking": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/RankedMember"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "member_id",
+          "operation_id",
+          "access_path",
+          "kind",
+          "outcome",
+          "requirements",
+          "joint",
+          "ranking"
+        ]
+      },
+      "PublicMemberId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "OperationId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "SelectionOutcome": {
+        "type": "string",
+        "enum": [
+          "supported",
+          "contradicted",
+          "unresolved",
+          "conflicting"
+        ]
+      },
+      "RequirementResult": {
+        "type": "object",
+        "properties": {
+          "requirement": {
+            "$ref": "#/$defs/Requirement"
+          },
+          "outcome": {
+            "$ref": "#/$defs/SelectionOutcome"
+          },
+          "witnesses": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/RequirementWitness"
+            }
+          },
+          "coverage": {
+            "$ref": "#/$defs/SelectionCoverage"
+          },
+          "reason": {
+            "$ref": "#/$defs/SelectionReason"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "requirement",
+          "outcome",
+          "witnesses",
+          "coverage",
+          "reason"
+        ]
+      },
+      "Requirement": {
+        "oneOf": [
+          {
+            "description": "Behavioral may-facet evidence; unknown and not-analyzed never prove absence.",
+            "type": "object",
+            "properties": {
+              "facet": {
+                "$ref": "#/$defs/FacetName"
+              },
+              "value": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "facet_membership"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "facet",
+              "value",
+              "quantifier"
+            ]
+          },
+          {
+            "description": "Exact public access path; aliases retain separate member identities.",
+            "type": "object",
+            "properties": {
+              "path": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "public_path"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "path",
+              "quantifier"
+            ]
+          },
+          {
+            "description": "Exact owning module, attributed by the exposure source.",
+            "type": "object",
+            "properties": {
+              "module": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "public_module"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "module",
+              "quantifier"
+            ]
+          },
+          {
+            "description": "Exact qualified class owner of this member.",
+            "type": "object",
+            "properties": {
+              "path": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "class_owner"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "path",
+              "quantifier"
+            ]
+          },
+          {
+            "description": "Declared public member category.",
+            "type": "object",
+            "properties": {
+              "kind": {
+                "$ref": "#/$defs/MemberKind"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "member_kind"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "kind",
+              "quantifier"
+            ]
+          },
+          {
+            "description": "A recognized binding or protocol surface; opaque decorators remain unresolved.",
+            "type": "object",
+            "properties": {
+              "form": {
+                "$ref": "#/$defs/InvocationForm"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "invocation_form"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "form",
+              "quantifier"
+            ]
+          },
+          {
+            "description": "Named declaration across applicable signature variants, not arbitrary keyword acceptance.",
+            "type": "object",
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "declares_parameter"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "name",
+              "quantifier"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "kind": {
+                "$ref": "#/$defs/ParameterMatchKind"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "parameter_kind"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "name",
+              "kind",
+              "quantifier"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "parameter_required"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "name",
+              "required",
+              "quantifier"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "state": {
+                "$ref": "#/$defs/DefaultMatchState"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "parameter_default_state"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "name",
+              "state",
+              "quantifier"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "value": {
+                "$ref": "#/$defs/ExactPrimitive"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "parameter_default"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "name",
+              "value",
+              "quantifier"
+            ]
+          },
+          {
+            "description": "Structural declared type matching without implicit subtype or runtime-value inference.",
+            "type": "object",
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "type": {
+                "$ref": "#/$defs/StructuralType"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "parameter_type"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "name",
+              "type",
+              "quantifier"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "declares_configuration_field"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "name",
+              "quantifier"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "path": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "configuration_owner"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "path",
+              "quantifier"
+            ]
+          },
+          {
+            "description": "Object settings versus per-call parameter records; does not establish shared runtime state.",
+            "type": "object",
+            "properties": {
+              "scope": {
+                "$ref": "#/$defs/ConfigurationScopeKind"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "configuration_scope"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "scope",
+              "quantifier"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "model": {
+                "$ref": "#/$defs/RecordModel"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "configuration_record_kind"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "model",
+              "quantifier"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "value": {
+                "$ref": "#/$defs/ExactPrimitive"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "configuration_default"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "name",
+              "value",
+              "quantifier"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "value": {
+                "$ref": "#/$defs/ExactPrimitive"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "configuration_literal"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "name",
+              "value",
+              "quantifier"
+            ]
+          },
+          {
+            "description": "An exact cited field link at its typed formal or reader endpoint.",
+            "type": "object",
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "kind": {
+                "$ref": "#/$defs/FieldRelationship"
+              },
+              "target": {
+                "$ref": "#/$defs/FieldTarget"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "configuration_relationship"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "name",
+              "kind",
+              "target",
+              "quantifier"
+            ]
+          },
+          {
+            "description": "Attributed role, target and fidelity; candidate targets never become resolved edges.",
+            "type": "object",
+            "properties": {
+              "role": {
+                "$ref": "#/$defs/RelationRole"
+              },
+              "target": {
+                "$ref": "#/$defs/RelationTarget"
+              },
+              "fidelity": {
+                "$ref": "#/$defs/RelationFidelity"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "relationship"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "role",
+              "target",
+              "fidelity",
+              "quantifier"
+            ]
+          },
+          {
+            "description": "Original scenario intent, independent of its checks or execution status.",
+            "type": "object",
+            "properties": {
+              "intent": {
+                "$ref": "#/$defs/Intent"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "scenario_intent"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "intent",
+              "quantifier"
+            ]
+          },
+          {
+            "description": "One explicit check axis: parse, binding, environment or execution.",
+            "type": "object",
+            "properties": {
+              "check": {
+                "$ref": "#/$defs/ScenarioCheck"
+              },
+              "status": {
+                "$ref": "#/$defs/CheckStatus"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "scenario_check"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "check",
+              "status",
+              "quantifier"
+            ]
+          },
+          {
+            "description": "Alignment of evidence associated with this member, not all artifacts in its release.",
+            "type": "object",
+            "properties": {
+              "alignment": {
+                "$ref": "#/$defs/Alignment"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "source_alignment"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "alignment",
+              "quantifier"
+            ]
+          },
+          {
+            "description": "Exact version for the named owning distribution. Absence without closure is unknown.",
+            "type": "object",
+            "properties": {
+              "distribution": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "version": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "release_version"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "distribution",
+              "version",
+              "quantifier"
+            ]
+          },
+          {
+            "description": "Declared metadata value, exact configuration pointer, or original launch text; no installability or execution inference.",
+            "type": "object",
+            "properties": {
+              "field": {
+                "$ref": "#/$defs/DeploymentField"
+              },
+              "name": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "quantifier": {
+                "$ref": "#/$defs/Quantifier",
+                "default": "any_applicable"
+              },
+              "predicate": {
+                "type": "string",
+                "const": "deployment_declaration"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "predicate",
+              "field",
+              "name",
+              "quantifier"
+            ]
+          }
+        ]
+      },
+      "FacetName": {
+        "type": "string",
+        "enum": [
+          "parameter",
+          "parameter_type",
+          "returns",
+          "raises",
+          "decorator",
+          "async",
+          "delegates_to",
+          "forwards_to",
+          "hands_off_to",
+          "takes_from",
+          "module",
+          "kind",
+          "reads_setting"
+        ]
+      },
+      "Text1To500": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 500
+      },
+      "Quantifier": {
+        "type": "string",
+        "enum": [
+          "any_applicable",
+          "all_applicable"
+        ]
+      },
+      "MemberKind": {
+        "type": "string",
+        "enum": [
+          "function",
+          "method",
+          "class",
+          "property",
+          "module",
+          "variable",
+          "unknown"
+        ]
+      },
+      "InvocationForm": {
+        "type": "string",
+        "enum": [
+          "function",
+          "method",
+          "class",
+          "static",
+          "property",
+          "context_manager",
+          "async_context_manager"
+        ]
+      },
+      "ParameterMatchKind": {
+        "type": "string",
+        "enum": [
+          "positional_only",
+          "positional",
+          "var_args",
+          "keyword_only",
+          "var_kwargs"
+        ]
+      },
+      "DefaultMatchState": {
+        "type": "string",
+        "enum": [
+          "absent",
+          "literal_none",
+          "literal",
+          "source_expression",
+          "optional_expression_unavailable",
+          "unknown",
+          "factory_expression"
+        ]
+      },
+      "ExactPrimitive": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "none"
+              },
+              "value": {
+                "type": "null"
+              }
+            },
+            "required": [
+              "kind",
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "bool"
+              },
+              "value": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "kind",
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "int"
+              },
+              "value": {
+                "type": "integer",
+                "format": "int64"
+              }
+            },
+            "required": [
+              "kind",
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "str"
+              },
+              "value": {
+                "$ref": "#/$defs/Text0To500"
+              }
+            },
+            "required": [
+              "kind",
+              "value"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "Text0To500": {
+        "type": "string",
+        "minLength": 0,
+        "maxLength": 500
+      },
+      "StructuralType": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "term": {
+                "$ref": "#/$defs/TypeTermId"
+              },
+              "operator": {
+                "type": "string",
+                "const": "canonical_term"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "operator",
+              "term"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "category": {
+                "$ref": "#/$defs/TypeKind"
+              },
+              "operator": {
+                "type": "string",
+                "const": "category"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "operator",
+              "category"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "module": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "name": {
+                "$ref": "#/$defs/Text1To500"
+              },
+              "operator": {
+                "type": "string",
+                "const": "nominal_identity"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "operator",
+              "module",
+              "name"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "term": {
+                "$ref": "#/$defs/TypeTermId"
+              },
+              "operator": {
+                "type": "string",
+                "const": "declared_union_member"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "operator",
+              "term"
+            ]
+          }
+        ]
+      },
+      "TypeTermId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "TypeKind": {
+        "type": "string",
+        "enum": [
+          "class_instance",
+          "class_object",
+          "type_of",
+          "typed_dict",
+          "union",
+          "intersection",
+          "callable",
+          "overload",
+          "bound_method",
+          "generic",
+          "tuple",
+          "literal",
+          "type_var",
+          "param_spec",
+          "type_var_tuple",
+          "module",
+          "any",
+          "never",
+          "none",
+          "type_alias",
+          "self_type",
+          "annotated",
+          "unpack",
+          "type_guard",
+          "param_list",
+          "special_form",
+          "other",
+          "truncated"
+        ]
+      },
+      "ConfigurationScopeKind": {
+        "type": "string",
+        "enum": [
+          "object",
+          "per_call"
+        ]
+      },
+      "RecordModel": {
+        "type": "string",
+        "enum": [
+          "dataclass",
+          "attrs",
+          "pydantic",
+          "typed_dict",
+          "named_tuple"
+        ]
+      },
+      "FieldRelationship": {
+        "type": "string",
+        "enum": [
+          "declared_parameter",
+          "exact_storage",
+          "exact_reader"
+        ]
+      },
+      "FieldTarget": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "node": {
+                "$ref": "#/$defs/Id"
+              },
+              "kind": {
+                "type": "string",
+                "const": "node"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "node"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "signature": {
+                "$ref": "#/$defs/SignatureId"
+              },
+              "ordinal": {
+                "type": "integer",
+                "format": "uint32",
+                "minimum": 0
+              },
+              "kind": {
+                "type": "string",
+                "const": "parameter"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "signature",
+              "ordinal"
+            ]
+          }
+        ]
+      },
+      "Id": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]+$"
+      },
+      "SignatureId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "RelationRole": {
+        "type": "string",
+        "enum": [
+          "declares",
+          "surface",
+          "configuration",
+          "reader",
+          "documents",
+          "demonstrates",
+          "invokes",
+          "tests_failure",
+          "suggests",
+          "observes"
+        ]
+      },
+      "RelationTarget": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "node": {
+                "$ref": "#/$defs/Id"
+              },
+              "kind": {
+                "type": "string",
+                "const": "declaration"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "node"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "member": {
+                "$ref": "#/$defs/PublicMemberId"
+              },
+              "kind": {
+                "type": "string",
+                "const": "member"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "member"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "evidence": {
+                "$ref": "#/$defs/EvidenceRef"
+              },
+              "kind": {
+                "type": "string",
+                "const": "evidence"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "evidence"
+            ]
+          }
+        ]
+      },
+      "EvidenceRef": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "span"
+              },
+              "id": {
+                "$ref": "#/$defs/SpanId"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "scenario"
+              },
+              "id": {
+                "$ref": "#/$defs/ScenarioId"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "deployment"
+              },
+              "id": {
+                "$ref": "#/$defs/DeploymentId"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "SpanId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "ScenarioId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "DeploymentId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "RelationFidelity": {
+        "type": "string",
+        "enum": [
+          "source_fact",
+          "resolved_target",
+          "candidate_targets",
+          "exact_textual_reference",
+          "ambiguous_textual_mention",
+          "same_document_passage",
+          "owning_distribution",
+          "task_observation",
+          "release_distribution",
+          "explicit_config_reference"
+        ]
+      },
+      "Intent": {
+        "type": "string",
+        "enum": [
+          "demonstration",
+          "assertion_test",
+          "expected_failure",
+          "skip_xfail",
+          "mixed",
+          "unknown"
+        ]
+      },
+      "ScenarioCheck": {
+        "type": "string",
+        "enum": [
+          "parse",
+          "binding",
+          "environment",
+          "execution"
+        ]
+      },
+      "CheckStatus": {
+        "type": "string",
+        "enum": [
+          "passed",
+          "failed",
+          "not_run",
+          "blocked"
+        ]
+      },
+      "Alignment": {
+        "type": "string",
+        "enum": [
+          "exact",
+          "mapped_with_evidence",
+          "other",
+          "unknown"
+        ]
+      },
+      "DeploymentField": {
+        "type": "string",
+        "enum": [
+          "requires_dist",
+          "provides_extra",
+          "requires_python",
+          "entry_point",
+          "launch",
+          "configuration"
+        ]
+      },
+      "RequirementWitness": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "context": {
+                "$ref": "#/$defs/SelectionContext"
+              },
+              "basis": {
+                "$ref": "#/$defs/EvidenceBasis"
+              },
+              "evidence": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/WitnessEvidence"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "const": "positive"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "context",
+              "basis",
+              "evidence"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "context": {
+                "$ref": "#/$defs/SelectionContext"
+              },
+              "basis": {
+                "$ref": "#/$defs/EvidenceBasis"
+              },
+              "evidence": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/WitnessEvidence"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "const": "negative"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "context",
+              "basis",
+              "evidence"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "context": {
+                "$ref": "#/$defs/SelectionContext"
+              },
+              "basis": {
+                "$ref": "#/$defs/EvidenceBasis"
+              },
+              "positive": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/WitnessEvidence"
+                }
+              },
+              "negative": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/WitnessEvidence"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "const": "conflict"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "context",
+              "basis",
+              "positive",
+              "negative"
+            ]
+          }
+        ]
+      },
+      "SelectionContext": {
+        "description": "A context is admissible by construction; an absent runtime instance is never a wildcard.",
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "member": {
+                "$ref": "#/$defs/PublicMemberId"
+              },
+              "kind": {
+                "type": "string",
+                "const": "member"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "member"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "member": {
+                "$ref": "#/$defs/PublicMemberId"
+              },
+              "binding": {
+                "$ref": "#/$defs/BindingId"
+              },
+              "kind": {
+                "type": "string",
+                "const": "binding"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "member",
+              "binding"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "member": {
+                "$ref": "#/$defs/PublicMemberId"
+              },
+              "binding": {
+                "$ref": "#/$defs/BindingId"
+              },
+              "signature": {
+                "$ref": "#/$defs/SignatureId"
+              },
+              "kind": {
+                "type": "string",
+                "const": "signature"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "member",
+              "binding",
+              "signature"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "member": {
+                "$ref": "#/$defs/PublicMemberId"
+              },
+              "owner": {
+                "$ref": "#/$defs/Id"
+              },
+              "scope": {
+                "$ref": "#/$defs/ConfigurationScopeKind"
+              },
+              "kind": {
+                "type": "string",
+                "const": "configuration"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "member",
+              "owner",
+              "scope"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "member": {
+                "$ref": "#/$defs/PublicMemberId"
+              },
+              "scenario": {
+                "$ref": "#/$defs/ScenarioId"
+              },
+              "kind": {
+                "type": "string",
+                "const": "scenario"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "member",
+              "scenario"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "member": {
+                "$ref": "#/$defs/PublicMemberId"
+              },
+              "span": {
+                "$ref": "#/$defs/SpanId"
+              },
+              "kind": {
+                "type": "string",
+                "const": "source"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "member",
+              "span"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "release": {
+                "$ref": "#/$defs/Id"
+              },
+              "kind": {
+                "type": "string",
+                "const": "release"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "release"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "member": {
+                "$ref": "#/$defs/PublicMemberId"
+              },
+              "binding": {
+                "$ref": "#/$defs/BindingId"
+              },
+              "signature": {
+                "$ref": "#/$defs/SignatureId"
+              },
+              "owner": {
+                "$ref": "#/$defs/Id"
+              },
+              "instance": {
+                "$ref": "#/$defs/Id"
+              },
+              "evaluation": {
+                "$ref": "#/$defs/Id"
+              },
+              "model": {
+                "$ref": "#/$defs/Digest"
+              },
+              "kind": {
+                "type": "string",
+                "const": "runtime"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "member",
+              "binding",
+              "signature",
+              "owner",
+              "instance",
+              "evaluation",
+              "model"
+            ]
+          }
+        ]
+      },
+      "BindingId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "Digest": {
+        "type": "string",
+        "minLength": 64,
+        "maxLength": 64,
+        "pattern": "^[0-9a-fA-F]+$"
+      },
+      "EvidenceBasis": {
+        "type": "string",
+        "enum": [
+          "source_declaration",
+          "provider_declaration",
+          "bounded_model",
+          "observed_scenario"
+        ]
+      },
+      "WitnessEvidence": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/Id"
+              },
+              "kind": {
+                "type": "string",
+                "const": "fact"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/EvidenceId"
+              },
+              "kind": {
+                "type": "string",
+                "const": "catalog"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/Id"
+              },
+              "field": {
+                "$ref": "#/$defs/Id"
+              },
+              "signature": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Id"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "ordinal": {
+                "type": "integer",
+                "format": "uint32",
+                "minimum": 0
+              },
+              "formal": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Id"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "reader": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Id"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "relationship": {
+                "$ref": "#/$defs/FieldRelationship"
+              },
+              "kind": {
+                "type": "string",
+                "const": "field_link"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "id",
+              "field",
+              "signature",
+              "ordinal",
+              "formal",
+              "reader",
+              "relationship"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/Id"
+              },
+              "role": {
+                "$ref": "#/$defs/RelationRole"
+              },
+              "fidelity": {
+                "$ref": "#/$defs/RelationFidelity"
+              },
+              "target": {
+                "$ref": "#/$defs/RelationTarget"
+              },
+              "edge": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Id"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "modality": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "phase": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "const": "association"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "id",
+              "role",
+              "fidelity",
+              "target",
+              "edge",
+              "modality",
+              "phase"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "evidence": {
+                "$ref": "#/$defs/EvidenceRef"
+              },
+              "kind": {
+                "type": "string",
+                "const": "original"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "evidence"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/Id"
+              },
+              "kind": {
+                "type": "string",
+                "const": "domain"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "id"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "facet": {
+                "type": "string"
+              },
+              "value": {
+                "type": "string"
+              },
+              "verdict": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "const": "facet"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "facet",
+              "value",
+              "verdict"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "facet": {
+                "type": "string"
+              },
+              "verdict": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "const": "facet_coverage"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "facet",
+              "verdict"
+            ]
+          }
+        ]
+      },
+      "EvidenceId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
+      "SelectionCoverage": {
+        "type": "object",
+        "properties": {
+          "corpus_complete": {
+            "type": "boolean"
+          },
+          "analyzer_complete": {
+            "type": "boolean"
+          },
+          "evaluation_complete": {
+            "type": "boolean"
+          },
+          "examined": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          },
+          "total": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "minimum": 0
+          },
+          "closure": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/WitnessEvidence"
+            }
+          }
+        },
+        "required": [
+          "corpus_complete",
+          "analyzer_complete",
+          "evaluation_complete",
+          "examined",
+          "total",
+          "closure"
+        ]
+      },
+      "SelectionReason": {
+        "type": "string",
+        "enum": [
+          "witness",
+          "counterexample",
+          "closed_absence",
+          "no_applicable_domain",
+          "incomplete_domain",
+          "comparable_conflict",
+          "incompatible_contexts",
+          "missing_context",
+          "resource_refused"
+        ]
+      },
+      "JointApplicability": {
+        "type": "string",
+        "enum": [
+          "independent_records",
+          "compatible_modeled_context",
+          "demonstrated_combination",
+          "contradictory_modeled_context",
+          "not_established"
+        ]
+      },
+      "RankedMember": {
+        "type": "object",
+        "properties": {
+          "member_id": {
+            "$ref": "#/$defs/PublicMemberId"
+          },
+          "score": {
+            "type": "number",
+            "format": "double"
+          },
+          "promoted": {
+            "type": "boolean"
+          },
+          "winners": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/Winner"
+            }
+          }
+        },
+        "required": [
+          "member_id",
+          "score",
+          "promoted",
+          "winners"
+        ]
+      },
+      "Winner": {
+        "type": "object",
+        "properties": {
+          "member_id": {
+            "$ref": "#/$defs/PublicMemberId"
+          },
+          "family": {
+            "$ref": "#/$defs/Family"
+          },
+          "channel": {
+            "$ref": "#/$defs/Channel"
+          },
+          "unit_id": {
+            "$ref": "#/$defs/RetrievalUnitId"
+          },
+          "fragment_id": {
+            "$ref": "#/$defs/Id"
+          },
+          "score": {
+            "type": "number",
+            "format": "double"
+          },
+          "rank": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "member_id",
+          "family",
+          "channel",
+          "unit_id",
+          "fragment_id",
+          "score",
+          "rank"
+        ]
+      },
+      "Family": {
+        "type": "string",
+        "enum": [
+          "api_options",
+          "documentation_deployment",
+          "scenario",
+          "source"
+        ]
+      },
+      "Channel": {
+        "type": "string",
+        "enum": [
+          "lexical",
+          "vector"
+        ]
+      },
+      "RetrievalUnitId": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 32,
+        "pattern": "^[0-9a-fA-F]{32}$"
+      },
       "RetrievalMetadata": {
         "type": "object",
         "properties": {
@@ -5391,113 +12048,59 @@ expression: "serde_json::to_string_pretty(&schemas).unwrap()"
           "lexical-only"
         ]
       },
-      "SnapshotId": {
-        "type": "string",
-        "minLength": 32,
-        "maxLength": 32,
-        "pattern": "^[0-9a-fA-F]{32}$"
-      },
-      "GenerationDigest": {
-        "type": "string",
-        "minLength": 64,
-        "maxLength": 64,
-        "pattern": "^[0-9a-fA-F]{64}$"
-      },
-      "OperationHitsMode": {
-        "type": "string",
-        "enum": [
-          "hybrid",
-          "lexical-only"
-        ]
-      },
-      "Nullablestring": {
-        "type": [
-          "string",
-          "null"
-        ]
-      },
-      "OperationHit": {
+      "SelectionResults": {
         "type": "object",
         "properties": {
-          "operation_id": {
-            "$ref": "#/$defs/OperationId"
-          },
-          "access_path": {
-            "type": "string"
-          },
-          "kind": {
-            "type": "string"
-          },
-          "docstring_summary": {
-            "$ref": "#/$defs/Nullablestring"
-          },
-          "relevance": {
-            "type": "number",
-            "format": "double"
-          },
-          "rank_source": {
-            "type": "string"
-          },
-          "promoted": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "operation_id",
-          "access_path",
-          "kind",
-          "docstring_summary",
-          "relevance",
-          "rank_source",
-          "promoted"
-        ]
-      },
-      "OperationId": {
-        "type": "string",
-        "minLength": 32,
-        "maxLength": 32,
-        "pattern": "^[0-9a-fA-F]{32}$"
-      },
-      "OperationHits": {
-        "type": "object",
-        "properties": {
-          "retrieval": {
-            "$ref": "#/$defs/RetrievalMetadata"
-          },
           "snapshot_id": {
             "$ref": "#/$defs/SnapshotId"
           },
           "generation": {
             "$ref": "#/$defs/GenerationDigest"
           },
-          "mode": {
-            "$ref": "#/$defs/OperationHitsMode"
+          "supported": {
+            "$ref": "#/$defs/SelectionGroup"
           },
-          "degraded_reason": {
-            "$ref": "#/$defs/Nullablestring"
+          "unresolved": {
+            "$ref": "#/$defs/SelectionGroup"
+          },
+          "conflicting": {
+            "$ref": "#/$defs/SelectionGroup"
+          },
+          "contradicted_count": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
           },
           "ranked_discovery": {
             "type": "boolean"
           },
-          "hits": {
-            "type": "array",
-            "items": {
-              "$ref": "#/$defs/OperationHit"
-            }
+          "policy_revision": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
           },
-          "note": {
-            "type": "string"
+          "retrieval": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/RetrievalMetadata"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           }
         },
         "required": [
-          "retrieval",
           "snapshot_id",
           "generation",
-          "mode",
-          "degraded_reason",
+          "supported",
+          "unresolved",
+          "conflicting",
+          "contradicted_count",
           "ranked_discovery",
-          "hits",
-          "note"
+          "policy_revision",
+          "retrieval"
         ]
       }
     },

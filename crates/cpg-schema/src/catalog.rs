@@ -143,6 +143,7 @@ pub fn serving_files() -> Vec<crate::bundle::ServingFile> {
     }
     vec![
         file::<CatalogMembers>(),
+        file::<crate::selection::catalog::CatalogSelectionDomains>(),
         file::<CatalogBindings>(),
         file::<CatalogSignatures>(),
         file::<CatalogParameters>(),
@@ -167,7 +168,7 @@ table!(
     CatalogTypes, CatalogTypesRow = "catalog_types", row_derives = [serde::Serialize, serde::Deserialize, schemars::JsonSchema], family = Findings,
     key = [snapshot_id, term_id], checks = [],
     { #[serde(skip)] snapshot_id: Id, term_id: Id, source_fact_id: Id, #[serde(deserialize_with="crate::wire::decode_type_kind")] #[schemars(with="crate::wire::TypeKind")] kind: String, display: String,
-      #[serde(deserialize_with="crate::wire::required_nullable")] #[schemars(with="crate::wire::Nullable<String>")] detail: Option<String>, #[serde(deserialize_with="crate::wire::required_nullable")] #[schemars(with="crate::wire::Nullable<String>")] class_module: Option<String>, #[serde(deserialize_with="crate::wire::required_nullable")] #[schemars(with="crate::wire::Nullable<String>")] class_key: Option<String>, #[serde(deserialize_with="crate::wire::required_nullable")] #[schemars(with="crate::wire::Nullable<String>")] variable: Option<String> }
+      #[serde(deserialize_with="crate::wire::required_nullable")] #[schemars(with="crate::wire::Nullable<String>")] detail: Option<String>, #[serde(deserialize_with="crate::wire::required_nullable")] #[schemars(with="crate::wire::Nullable<String>")] literal_json: Option<String>, #[serde(deserialize_with="crate::wire::required_nullable")] #[schemars(with="crate::wire::Nullable<String>")] class_module: Option<String>, #[serde(deserialize_with="crate::wire::required_nullable")] #[schemars(with="crate::wire::Nullable<String>")] class_key: Option<String>, #[serde(deserialize_with="crate::wire::required_nullable")] #[schemars(with="crate::wire::Nullable<String>")] variable: Option<String> }
 );
 table!(
     CatalogTypeArgs, CatalogTypeArgsRow = "catalog_type_args", row_derives = [serde::Serialize, serde::Deserialize, schemars::JsonSchema], family = Findings,
@@ -313,7 +314,6 @@ pub fn mandatory_table(name: &str) -> bool {
                 | "operations"
                 | "operation_facets"
                 | "operation_facet_status"
-                | "operation_documents"
                 | "embedding_specs"
                 | "used_embeddings"
                 | "embedding_uses"

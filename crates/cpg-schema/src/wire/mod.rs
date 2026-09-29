@@ -22,7 +22,7 @@ pub use dispatch::{decode, schema};
 pub use evidence::*;
 pub use responses::*;
 pub use vocabulary::*;
-pub const FORMAT: u32 = 2;
+pub const FORMAT: u32 = 3;
 pub const RESPONSE_BYTES: usize = 8 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -193,70 +193,6 @@ pub struct FacetTerm {
     pub facet: FacetName,
     pub value: Text<1, 500>,
 }
-#[derive(Debug, Clone, Default, Serialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct Where {
-    #[serde(default)]
-    #[schemars(length(max = 10))]
-    pub facets: Vec<FacetTerm>,
-    pub kind: Option<OperationKind>,
-    pub path_prefix: Option<Text<0, 500>>,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum OperationKind {
-    Function,
-    Method,
-    Class,
-}
-impl OperationKind {
-    pub fn as_str(&self) -> &str {
-        match self {
-            Self::Function => "function",
-            Self::Method => "method",
-            Self::Class => "class",
-        }
-    }
-}
-impl Where {
-    pub fn validate(&self) -> Result<(), WireError> {
-        if self.facets.len() > 10 {
-            Err(WireError("at most ten facets".into()))
-        } else {
-            Ok(())
-        }
-    }
-    pub fn hash(&self) -> Result<String, WireError> {
-        use sha2::Digest;
-        Ok(sha2::Sha256::digest(serde_json::to_vec(self)?)
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect())
-    }
-}
-impl<'de> Deserialize<'de> for Where {
-    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        #[derive(Deserialize)]
-        #[serde(deny_unknown_fields)]
-        struct Input {
-            #[serde(default)]
-            facets: Vec<FacetTerm>,
-            #[serde(default)]
-            kind: Option<OperationKind>,
-            #[serde(default)]
-            path_prefix: Option<Text<0, 500>>,
-        }
-        let i = Input::deserialize(d)?;
-        if i.facets.len() > 10 {
-            return Err(serde::de::Error::custom("at most ten facets"));
-        }
-        Ok(Self {
-            facets: i.facets,
-            kind: i.kind,
-            path_prefix: i.path_prefix,
-        })
-    }
-}
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(
     tag = "kind",
@@ -355,9 +291,10 @@ pub struct InspectValuePathsRequest {
 #[serde(deny_unknown_fields)]
 pub struct FindOperationsRequest {
     pub library: Text<1, 500>,
-    pub r#where: Where,
     #[serde(default)]
-    pub limit: Limit<50, 20>,
+    pub selection: Option<Selection>,
+    #[serde(default)]
+    pub limit: Limit<100, 20>,
     #[serde(default)]
     pub cursor: Option<Text<0, 2048>>,
 }
@@ -367,9 +304,11 @@ pub struct SearchOperationsRequest {
     pub library: Text<1, 500>,
     pub query: Text<1, 4000>,
     #[serde(default)]
-    pub r#where: Option<Where>,
+    pub selection: Option<Selection>,
     #[serde(default)]
-    pub limit: Limit<10, 5>,
+    pub cursor: Option<Text<0, 2048>>,
+    #[serde(default)]
+    pub limit: Limit<100, 20>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -399,12 +338,12 @@ pub enum InspectValuePathsResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "result_kind", rename_all = "snake_case")]
 pub enum FindOperationsResponse {
-    Results(OperationSet),
+    Selected(SelectionResults),
 }
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "result_kind", rename_all = "snake_case")]
 pub enum SearchOperationsResponse {
-    Results(OperationHits),
+    Selected(SelectionResults),
 }
 
 pub fn tool_contract(name: &str) -> Result<(&'static str, &'static str), WireError> {
@@ -438,8 +377,12 @@ pub fn tool_result(name: &str, raw: &str, expanded: bool) -> Result<String, Wire
         "unavailable"
     } else {
         match name {
+            "find_operations" | "search_operations" if value.get("supported").is_some() => {
+                "selected"
+            }
             "get_operation" if value["resolution"] == "ambiguous" => "ambiguous",
             "get_operation" => "operation",
+            "get_evidence" if value.get("unit").is_some() => "retrieval_unit",
             "get_evidence" => "evidence",
             "get_capability" => "capability",
             "inspect_value_paths" => "paths",
@@ -514,8 +457,8 @@ mod tests {
             validator("ExactPrimitive", false)
                 .is_valid(&serde_json::json!({"kind":"int","value":1.0}))
         );
-        assert!(decode("Where", r#"{"unknown":true}"#).is_err());
-        assert!(!validator("Where", false).is_valid(&serde_json::json!({"unknown":true})));
+        assert!(decode("Selection", r#"{"unknown":true}"#).is_err());
+        assert!(!validator("Selection", false).is_valid(&serde_json::json!({"unknown":true})));
     }
     #[test]
     fn wire_nominal_ids_are_hex_and_never_change_hashes() {
@@ -546,11 +489,15 @@ mod tests {
             validator(output, true);
         }
         let decoded: serde_json::Value = serde_json::from_str(
-            &decode("FindOperationsRequest", r#"{"library":"demo","where":{}}"#).unwrap(),
+            &decode(
+                "FindOperationsRequest",
+                r#"{"library":"demo","selection":{}}"#,
+            )
+            .unwrap(),
         )
         .unwrap();
         assert_eq!(decoded["limit"], 20);
-        assert_eq!(decoded["where"]["facets"], serde_json::json!([]));
+        assert_eq!(decoded["selection"]["requirements"], serde_json::json!([]));
         let bad = serde_json::json!({"library":"demo","query":"x","surprise":true});
         assert!(decode("SearchCapabilitiesRequest", &bad.to_string()).is_err());
         assert!(!validator("SearchCapabilitiesRequest", false).is_valid(&bad));

@@ -112,6 +112,7 @@ fn span(r: TextRange) -> (i64, i64) {
 struct Term {
     kind: TypeTermKind,
     detail: Option<String>,
+    literal_json: Option<String>,
     class: Option<(String, String)>,
     variable: Option<String>,
     /// A source-anchored variable's scope anchor: module, start, end.
@@ -133,6 +134,7 @@ impl Term {
         Self {
             kind,
             detail: None,
+            literal_json: None,
             class: None,
             variable: None,
             anchor: None,
@@ -370,8 +372,16 @@ impl Builder<'_, '_> {
                     t.class = Some(self.class_ref(e.class.class_object()));
                     t
                 }
-                Lit::Str(_) | Lit::Int(_) | Lit::Bool(_) | Lit::Bytes(_) => {
-                    Term::new(K::Literal).detail(ty.to_string())
+                value @ (Lit::Str(_) | Lit::Int(_) | Lit::Bool(_) | Lit::Bytes(_)) => {
+                    let mut term = Term::new(K::Literal).detail(ty.to_string());
+                    let primitive = match value {
+                        Lit::Str(v) => Some(serde_json::Value::String(v.to_string())),
+                        Lit::Int(v) => v.as_i64().map(serde_json::Value::from),
+                        Lit::Bool(v) => Some(serde_json::Value::Bool(*v)),
+                        Lit::Bytes(_) | Lit::Enum(_) => None,
+                    };
+                    term.literal_json = primitive.map(|v| v.to_string());
+                    term
                 }
             },
             Type::LiteralString(_) => Term::new(K::Literal).detail("LiteralString"),
@@ -731,6 +741,7 @@ impl Builder<'_, '_> {
                 kind: t.kind,
                 display,
                 detail: t.detail,
+                literal_json: t.literal_json,
                 class_module,
                 class_key,
                 variable: t.variable,

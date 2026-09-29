@@ -11,7 +11,7 @@ contradiction or dependency requires it; the whole corpus is not the default rea
 | Change schemas or identity | [Facts and identity](design/sections/facts-and-identity.md) → [schema owner](../crates/cpg-schema/src/lib.rs) → governing ADR |
 | Change serving, retrieval or embeddings | [Synthesis and serving](design/sections/synthesis-and-serving.md) → [storage and publication §6.4](design/sections/storage-and-publication.md) |
 | Build the differentiated API/evidence product | [Target design §14](design/sections/api-and-evidence-product.md) → [current PR0–PR6 queue](plans/behavioral-model-forward-plan_2026-09-24.md#30-consolidated-execution) |
-| Deploy or integrate PostgreSQL | [PostgreSQL plan](plans/postgresql-integration-plan_2026-09-27.md) → [storage §6.5](design/sections/storage-and-publication.md#section-6-5); [forward plan §3.4](plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-workstream) coordinates sequencing and §6.1 owns finding status |
+| Deploy or integrate PostgreSQL | [PostgreSQL workstream](plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-workstream) → [storage §6.5](design/sections/storage-and-publication.md#section-6-5); [forward plan §3.4](plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-workstream) coordinates sequencing and §6.1 owns finding status |
 | Review a design or implementation | [Review skill](../.claude/skills/design-review/SKILL.md) → [repository binding](design_review/design_principles/binding/library-context.md) |
 | Research a library capability | [Pins](pins.md) → [local capability skills](../.claude/skills/README.md) → Context7, then the `library-research` route |
 | Understand why a decision was made | Owner section's `> Decision:` line → [ADR index](adr/README.md) |
@@ -21,8 +21,8 @@ contradiction or dependency requires it; the whole corpus is not the default rea
 
 The architectural collection owns accepted contracts and labeled targets. Current ADRs own
 rationale and open choices; the forward plan owns product sequencing and the current disposition
-of scheduled findings. The operator-requested PostgreSQL plan owns that workstream's detailed
-implementation/deployment. Retained reviews hold dated evidence for open findings; STATUS links
+of scheduled findings. PostgreSQL integration and conditional adoption share that forward plan; the runbook owns
+operator commands. Retained reviews hold dated evidence for open findings; STATUS links
 the current checkpoint. Executable declarations own detailed implementation contracts.
 
 The site derives navigation and search from the retained working set. **Current** is the default:

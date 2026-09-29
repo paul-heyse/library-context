@@ -15,7 +15,7 @@ use testcontainers_modules::{
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let path = std::env::args()
         .nth(1)
-        .ok_or("supply the pilot operation_vectors.arrow path")?;
+        .ok_or("supply the pilot retrieval_vectors.arrow path")?;
     let reader = FileReader::try_new(std::fs::File::open(path)?, None)?;
     let schema = reader.schema();
     let batches = reader.collect::<Result<Vec<_>, _>>()?;
@@ -32,22 +32,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ))
     .await?;
     use sqlx::Connection;
-    sqlx::raw_sql("CREATE SCHEMA lctx_ext; CREATE EXTENSION vector WITH SCHEMA lctx_ext VERSION '0.8.6'; SET search_path=pg_catalog,lctx_ext; CREATE TEMP TABLE stage(node_id bytea,embedding_view text,chunk bigint,input_hash bytea,vector real[]);").execute(&mut conn).await?;
+    sqlx::raw_sql("CREATE SCHEMA lctx_ext; CREATE EXTENSION vector WITH SCHEMA lctx_ext VERSION '0.8.6'; SET search_path=pg_catalog,lctx_ext; CREATE TEMP TABLE stage(fragment_id bytea,input_hash bytea,vector real[]);").execute(&mut conn).await?;
     for scale in [1, 10] {
         let repeated = vec![&original; scale];
         let batch = concat_batches(&schema, repeated)?;
-        let expected = receipt("operation_vectors", 1024, std::slice::from_ref(&batch))?;
+        let expected = receipt("retrieval_vectors", 1024, std::slice::from_ref(&batch))?;
         let start = std::time::Instant::now();
         for offset in (0..batch.num_rows()).step_by(1024) {
             let slice = batch.slice(offset, (batch.num_rows() - offset).min(1024));
-            let bytes = copy_bytes("operation_vectors", 1024, &slice)?;
+            let bytes = copy_bytes("retrieval_vectors", 1024, &slice)?;
             let mut copy = conn.copy_in_raw("COPY stage FROM STDIN BINARY").await?;
             copy.send(bytes.freeze()).await?;
             copy.finish().await?;
         }
-        let rows=sqlx::query("SELECT node_id,embedding_view,chunk,input_hash,vector::lctx_ext.vector(1024) vector FROM stage").fetch_all(&mut conn).await?;
-        let returned = decode_rows("operation_vectors", 1024, &rows)?;
-        assert_eq!(expected, receipt("operation_vectors", 1024, &[returned])?);
+        let rows = sqlx::query(
+            "SELECT fragment_id,input_hash,vector::lctx_ext.vector(1024) vector FROM stage",
+        )
+        .fetch_all(&mut conn)
+        .await?;
+        let returned = decode_rows("retrieval_vectors", 1024, &rows)?;
+        assert_eq!(expected, receipt("retrieval_vectors", 1024, &[returned])?);
         let rss = std::fs::read_to_string("/proc/self/status")?
             .lines()
             .find(|l| l.starts_with("VmHWM:"))

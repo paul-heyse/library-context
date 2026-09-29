@@ -41,8 +41,8 @@ pub const NATIVE_FILES: &[&str] = &[
     "flow_test_value_links",
 ];
 
-pub const FORMAT: u32 = 5;
-pub const BUNDLE_FORMAT: u32 = 15;
+pub const FORMAT: u32 = 6;
+pub const BUNDLE_FORMAT: u32 = 16;
 pub fn artifact_names() -> Vec<String> {
     artifacts_for(&crate::catalog::Capabilities::for_profile(
         crate::catalog::CompileProfile::Behavioral,
@@ -53,7 +53,15 @@ pub fn artifacts_for(capabilities: &crate::catalog::Capabilities) -> Vec<String>
         .iter()
         .copied()
         .filter(|_| capabilities.native_value_paths)
-        .chain(["lexical_text", "operation_text", "embedding_spec"])
+        .chain([
+            "lexical_text",
+            "embedding_spec",
+            "retrieval_units",
+            "retrieval_subjects",
+            "retrieval_fragments",
+            "retrieval_vectors",
+            "retrieval_receipt",
+        ])
         .map(|s| format!("{s}.arrow"))
         .collect()
 }
@@ -286,6 +294,7 @@ impl Manifest {
             }
         }
         validate_relations(self.dimensions, tables)?;
+        crate::retrieval::validate_snapshot(tables, &self.snapshot_id)?;
         for batch in &tables["embedding_spec"] {
             let hashes = batch
                 .column_by_name("spec_hash")
@@ -671,7 +680,10 @@ pub fn unique_key(name: &str) -> Option<&'static str> {
         "catalog_scenarios" => "scenario_id",
         "catalog_deployments" => "deployment_id",
         "catalog_associations" => "association_id",
+        "retrieval_units" => "unit_id",
+        "retrieval_fragments" | "retrieval_vectors" => "fragment_id",
         "catalog_members" => "member_id",
+        "catalog_selection_domains" => "member_id",
         "catalog_surfaces" => "declaration_node_id,ordinal",
         "catalog_configurations" => "field_id,source_fact_id",
         "catalog_field_links" => "link_id",
@@ -692,10 +704,8 @@ pub fn unique_key(name: &str) -> Option<&'static str> {
         "evidence" => "evidence_id",
         "public_paths" => "access_path",
         "lexical_text" => "brief_id",
-        "operation_text" => "node_id",
         "operation_facet_status" => "node_id,facet",
         "vectors" => "brief_id,chunk",
-        "operation_vectors" => "node_id,embedding_view,chunk",
         "embedding_spec" => "spec_hash",
         "support_attribute_incidences" => "finding_id,incidence_id",
         "support_witnesses" => "finding_id,path,step",
@@ -705,6 +715,36 @@ pub fn unique_key(name: &str) -> Option<&'static str> {
 }
 pub fn foreign_keys() -> Vec<(&'static str, &'static str, &'static str, &'static str)> {
     vec![
+        (
+            "catalog_selection_domains",
+            "member_id",
+            "catalog_members",
+            "member_id",
+        ),
+        (
+            "retrieval_fragments",
+            "unit_id",
+            "retrieval_units",
+            "unit_id",
+        ),
+        (
+            "retrieval_subjects",
+            "unit_id",
+            "retrieval_units",
+            "unit_id",
+        ),
+        (
+            "retrieval_subjects",
+            "member_id",
+            "catalog_members",
+            "member_id",
+        ),
+        (
+            "retrieval_vectors",
+            "fragment_id",
+            "retrieval_fragments",
+            "fragment_id",
+        ),
         (
             "catalog_spans",
             "artifact_id",
@@ -818,8 +858,6 @@ pub fn foreign_keys() -> Vec<(&'static str, &'static str, &'static str, &'static
         ("public_paths", "node_id", "operations", "node_id"),
         ("operation_facets", "node_id", "operations", "node_id"),
         ("operation_facet_status", "node_id", "operations", "node_id"),
-        ("operation_text", "node_id", "operations", "node_id"),
-        ("operation_vectors", "node_id", "operations", "node_id"),
         ("behaviors", "operation_node_id", "operations", "node_id"),
         ("operations", "brief_id", "briefs", "brief_id"),
     ]
@@ -872,6 +910,8 @@ pub fn validate_relations(
         }
     }
     crate::evidence::validate_projection(tables)?;
+    crate::selection::catalog::validate_projection(tables)?;
+    crate::retrieval::validate_projection(tables)?;
     let mut links = foreign_keys();
     links.push(("supports", "assertion_id", "assertions", "assertion_id"));
     // Configurations preserve provider alternatives, so this is membership rather than a SQL
@@ -985,4 +1025,27 @@ pub fn rank_schema() -> arrow_schema::SchemaRef {
         Field::new("rank", DataType::UInt32, false),
         Field::new("score", DataType::Float64, false),
     ]))
+}
+
+/// Decode a canonical flat table projected without its snapshot column. Shared by validators.
+pub fn projected_rows<T: crate::Table>(
+    tables: &BTreeMap<String, Vec<RecordBatch>>,
+) -> Result<Vec<T::Row>, ProjectionError>
+where
+    T::Row: crate::query::QueryRow,
+{
+    use crate::query::QueryRow;
+    let mut out = Vec::new();
+    for batch in tables
+        .get(T::NAME)
+        .ok_or_else(|| corrupt("missing canonical projection"))?
+    {
+        let ids = vec![crate::Id::ZERO; batch.num_rows()];
+        let mut columns = vec![<crate::Id as crate::column::ArrowColumn>::array(ids.iter())];
+        columns.extend(batch.columns().iter().cloned());
+        let batch = RecordBatch::try_new(T::schema(), columns)
+            .map_err(|_| corrupt("canonical projection schema"))?;
+        out.extend(T::Row::read_batch(&batch).map_err(|_| corrupt("canonical projection codec"))?);
+    }
+    Ok(out)
 }

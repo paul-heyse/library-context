@@ -157,6 +157,7 @@ impl RoleConfig {
             return Err(Error::Config("serving credentials required"));
         }
         Ok(ServingStore {
+            cpu_slots: std::sync::Arc::new(tokio::sync::Semaphore::new(2)),
             pool: self.pool().await?,
         })
     }
@@ -267,6 +268,7 @@ pub(crate) async fn check_extension(conn: &mut PgConnection) -> Result<(), Error
 #[derive(Clone)]
 pub struct ServingStore {
     pub(crate) pool: PgPool,
+    cpu_slots: std::sync::Arc<tokio::sync::Semaphore>,
 }
 pub struct ImportStore {
     pub(crate) pool: PgPool,
@@ -280,6 +282,23 @@ pub struct ServingHealth {
     pub idle_connections: usize,
 }
 impl ServingStore {
+    /// Two CPU jobs per repository lifetime. Cancellation retains admission until work ends.
+    pub async fn run_cpu<T: Send + 'static>(
+        &self,
+        work: impl FnOnce() -> Result<T, Error> + Send + 'static,
+    ) -> Result<T, Error> {
+        let permit = self
+            .cpu_slots
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| cpg_schema::serving_projection::refused("native CPU capacity"))?;
+        tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            work()
+        })
+        .await
+        .map_err(|_| Error::Integrity("native CPU task failed"))?
+    }
     pub async fn check(&self) -> Result<ServingHealth, Error> {
         let mut lease = QueryLease::acquire(&self.pool).await?;
         check_connection(&mut lease.connection).await?;

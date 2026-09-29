@@ -1429,6 +1429,12 @@ async fn briefs_are_synthesized_from_findings_and_verbatim_evidence() {
             21,
             "6a836b23d3b23a0ed6d92e198669dd2a7ec41da4872b8684f59aa5e6fee45ccd",
         ),
+        // PR4 source domains and typed literals change run-qualified evidence identities.
+        (
+            111,
+            21,
+            "855fa15abfa9fedf5a52bee00ca3b0aa00b1ce38ae9ce8eeded5bdc629aeea74",
+        ),
     ];
     // Texts, and every identity column of Stage F's tables (slice 1.5 review F6).
     let mut output = format!(
@@ -1803,11 +1809,6 @@ async fn the_analysis_rules_reject_their_violations() {
         ),
         (
             "semantic:embedding-use-receipt",
-            "used_embeddings",
-            "SELECT * FROM used_embeddings_published LIMIT 0",
-        ),
-        (
-            "semantic:operation-vector-cached",
             "used_embeddings",
             "SELECT * FROM used_embeddings_published LIMIT 0",
         ),

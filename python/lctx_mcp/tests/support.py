@@ -21,7 +21,7 @@ from lctx_mcp import operations as ops
 from lctx_mcp.generation import NATIVE_IPC_FILES
 from lctx_mcp.generation import load as load_pinned
 from lctx_mcp.server import Capability, build_server
-from postgres_expand import write_secret
+from postgres_bootstrap import write_secret
 from postgres_test_support import ROOT, database
 from projection_reference import ReferenceBundle
 
@@ -97,12 +97,11 @@ class PgFixture:
             self.call(self.pinned.get_operation, snapshot, operation, expanded)
         )
 
-    def find(self, gen, where, limit, cursor):
+    def find(self, gen, selection, limit, cursor):
         result = json.loads(
-            self.call(self.pinned.find_operations, where.model_dump_json(), limit, cursor)
+            self.call(self.pinned.find_operations, selection.model_dump_json(), limit, cursor)
         )
-        result["note"] = ops.NOTE_FIND
-        return ops.OperationSet.model_validate(result)
+        return ops.SelectionResults.model_validate(result)
 
     def capability(self, capability_id):
         return Capability.model_validate_json(

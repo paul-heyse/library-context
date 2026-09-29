@@ -108,7 +108,7 @@ class SchemaTool(Tool):
                 decoded = json.loads(wire_decode(self._request, json.dumps(arguments)))
             except ValueError as exc:
                 raise ValidationError(str(exc)) from exc
-            for key in ("where", "exact_input"):
+            for key in ("exact_input", "selection"):
                 if isinstance(decoded.get(key), dict):
                     decoded[key] = Packet(decoded[key])
             return decoded

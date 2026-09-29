@@ -31,9 +31,8 @@ retains its original evidence strength; design adoption is not finding closure.
 
 ### What changes relative to the external review
 
-- PR1 is now implemented and qualified for catalog-only and enriched PG/MCP/recovery paths. Its
-  [dated evidence](../evidence/2026-09-28_catalog/README.md) is historical evidence here, not a fresh
-  test run. This review does not reopen the repaired profile, constructor or singleton findings.
+- PR1 is now implemented and qualified for catalog-only and enriched PG/MCP/recovery paths. Its prior dated evidence is recoverable from Git, not a fresh test run;
+  [PR4 evidence](../evidence/2026-09-28_pr4/README.md) owns current qualification. This review does not reopen the repaired profile, constructor or singleton findings.
 - MCP already publishes machine-readable schemas, including the operation/ambiguity result union.
   Schemars would remove independent contract definitions, not introduce schema discovery for the
   first time. See [server.py](../../../python/lctx_mcp/src/lctx_mcp/server.py), `get_operation`.

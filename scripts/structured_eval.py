@@ -33,7 +33,7 @@ from pathlib import Path
 from lctx_mcp import operations as ops
 from lctx_mcp import value_paths
 from lctx_mcp.generation import Generation
-from lctx_mcp.server import Capability, Served, search
+from lctx_mcp.server import Capability, Served, search_members
 from lctx_mcp.wire import Packet
 from postgres_session import DEFAULT_CONFIG, session
 
@@ -185,26 +185,23 @@ async def _marks(gen: Generation, question: dict, item: dict, root: str, extra: 
 async def _request(served: Served, request: dict) -> list[str]:
     """A pre-registered `find_operations` or `search_operations` request, answered."""
     gen = served.generation
+    selection = ops.Selection.model_validate(request.get("selection", {}))
     if request["tool"] == "find_operations":
-        result = json.loads(
-            await gen.repository.find_operations(
-                ops.Where.model_validate(request["where"]).model_dump_json(), 50
-            )
+        page = ops.SelectionResults.model_validate_json(
+            await gen.repository.find_operations(selection.model_dump_json(), 50)
         )
-        found = ops.OperationSet.model_validate({**result, "note": ops.NOTE_FIND})
-        lines = [
-            f"- `find_operations({request['where']})`: {found.total} match(es), "
-            f"complete **{found.complete}**, {found.unknown_total} could still match"
-        ]
-        lines += [f"  - match `{m.access_path}` ({m.behavior_status})" for m in found.matches]
-        lines += [f"  - could match `{u.access_path}`" for u in found.unknown[:10]]
-        return lines
-    hits = await search(served, gen.library, request["query"], 10, operations=True)
-    lines = [f"- `search_operations({request['query']!r})`, mode {hits.mode}:"]
-    lines += [
-        f"  {i + 1}. `{h.access_path}` ({h.rank_source}, {h.relevance})"
-        for i, h in enumerate(hits.hits)
+    else:
+        page = await search_members(served, request["query"], selection, 10)
+    lines = [
+        f"- `{request['tool']}`: {page.supported.total} supported, "
+        f"{page.unresolved.total} unresolved, {page.conflicting.total} conflicting; "
+        f"{page.contradicted_count} contradicted"
     ]
+    for name in ("supported", "unresolved", "conflicting"):
+        group = getattr(page, name)
+        lines.extend(
+            f"  - {name}: `{item.access_path}` (joint {item.joint})" for item in group.items
+        )
     return lines
 
 

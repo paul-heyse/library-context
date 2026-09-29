@@ -2,11 +2,11 @@
 
 **2026-09-27 · Change / conformance · Final decision: Accept scoped after correction.** This is a
 fresh bounded review of the
-implementation under [ADR-0068](../../adr/0068-postgresql-serving-and-standard-embeddings.md),
+implementation under [ADR-0068](../../adr/0078-current-design-cutover.md),
 at `de2343c` plus the uncommitted PG9–PG11 tree. It retains the initial findings and records their
 correction recheck below; current disposition belongs in the
 [forward plan §6.1](../../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-findings).
-The [PostgreSQL plan](../../plans/postgresql-integration-plan_2026-09-27.md) owns execution.
+The [PostgreSQL plan](../../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-workstream) owns execution.
 
 ## 1. Scope, owners and change scenarios
 

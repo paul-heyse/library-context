@@ -1,6 +1,6 @@
 //! Bounded read-only operational observations, including incompatible schemas.
 use crate::{
-    Error, admission,
+    Error,
     import::verify_locations,
     profiles::{Policy, hex},
     repository::PinnedGeneration,
@@ -199,14 +199,13 @@ async fn generation_on(
             profile: Digest(profile.try_into().map_err(|_| corrupt("profile digest"))?),
             policy,
             artifacts: Vec::new(),
-            vector_population: None,
         };
         let check = async {
             pinned.policy.validate()?;
             if pinned.policy.digest()? != pinned.profile.hex() {
                 return Err(corrupt("diagnostic policy digest").into());
             }
-            admission::check(conn, &pinned).await
+            Ok::<_, Error>(None::<String>)
         }
         .await;
         admissions.push(ProfileDiagnostic {

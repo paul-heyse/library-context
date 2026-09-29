@@ -481,6 +481,7 @@ macro_rules! for_each_analysis_table {
     ($mac:ident) => {
         $mac!(
             $crate::catalog::CatalogCompilation,
+            $crate::selection::catalog::CatalogSelectionDomains,
             $crate::catalog::CatalogMembers,
             $crate::catalog::CatalogBindings,
             $crate::catalog::CatalogSignatures,
@@ -585,7 +586,6 @@ macro_rules! for_each_analysis_table {
             $crate::behavior::NegativePremises,
             $crate::behavior::Behaviors,
             $crate::behavior::BehaviorSteps,
-            $crate::behavior::OperationDocuments,
             $crate::findings::AnalysisInvocations,
             $crate::findings::Findings,
             $crate::findings::FindingMembers,

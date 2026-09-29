@@ -313,7 +313,7 @@ def restore(archive):
         or expected["fingerprint_algorithm"] != "sha256-sorted-row-sha256-v2"
     ):
         raise RuntimeError(
-            "unsupported recovery receipt; schema008 receipts require the retained pre-PR1 runtime"
+            "unsupported recovery receipt; regenerate obsolete state with the current runtime"
         )
     image = (ROOT / "specs/postgres-vector-image.txt").read_text().strip()
     if expected["image"] != image:
@@ -450,16 +450,14 @@ def restore(archive):
             session.close()
         if actual != expected["tables"]:
             raise RuntimeError("restored logical table fingerprints differ")
-        if "lctx_serving.profile_attempts" in actual:
+        if "lctx_serving.import_attempts" in actual:
             run(
                 command,
                 input=(
-                    "DO $$ BEGIN IF nextval(pg_get_serial_sequence('lctx_serving.profil"
-                    "e_attempts','attempt_id')) <= (SELECT coalesce(max(attempt_id),0) "
-                    "FROM lctx_serving.profile_attempts) OR nextval(pg_get_serial_seque"
-                    "nce('lctx_serving.import_attempts','attempt_id')) <= (SELECT coale"
-                    "sce(max(attempt_id),0) FROM lctx_serving.import_attempts) THEN RAI"
-                    "SE EXCEPTION 'recovered sequence is behind'; END IF; END $$;"
+                    "DO $$ BEGIN IF nextval(pg_get_serial_sequence("
+                    "'lctx_serving.import_attempts','attempt_id')) <= "
+                    "(SELECT coalesce(max(attempt_id),0) FROM lctx_serving.import_attempts) "
+                    "THEN RAISE EXCEPTION 'recovered sequence is behind'; END IF; END $$;"
                 ),
                 capture_output=True,
             )
@@ -531,21 +529,8 @@ def restore(archive):
                     ],
                     capture_output=True,
                 )
-                if gen["runtime_admission"] == "current":
-                    run([*cli, "reconcile", "--generation", gen["generation"]], capture_output=True)
-                elif gen["runtime_admission"] != "legacy_runtime_required":
-                    raise RuntimeError("unknown recovery runtime admission")
+                run([*cli, "reconcile", "--generation", gen["generation"]], capture_output=True)
             for selected in expected["selections"]:
-                selected_generation = next(
-                    g
-                    for g in expected["inventory"]["generations"]
-                    if g["generation"] == selected["generation"]
-                )
-                if selected_generation["runtime_admission"] != "current":
-                    raise RuntimeError(
-                        "selected generation needs retained runtime; "
-                        "current serving recovery is unavailable"
-                    )
                 run(
                     [
                         *cli,

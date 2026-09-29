@@ -58,9 +58,6 @@ impl ServingStore {
                 View::Profiles => {
                     "SELECT generation_digest,profile_digest,true ready,policy::text,qualification::text FROM lctx_serving.retrieval_profiles WHERE generation_digest=$3 AND $1::text IS NOT NULL AND $2::bytea IS NOT NULL AND $4::bytea IS NOT NULL LIMIT 100001"
                 }
-                View::ProfileAttempts => {
-                    "SELECT generation_digest,profile_digest,attempt_id,(extract(epoch FROM recorded_at)*1000000)::bigint recorded_at_us,qualification::text FROM lctx_serving.profile_attempts WHERE generation_digest=$3 AND $1::text IS NOT NULL AND $2::bytea IS NOT NULL AND $4::bytea IS NOT NULL ORDER BY attempt_id LIMIT 100001"
-                }
                 View::Selections => {
                     "SELECT library,generation_digest,profile_digest FROM lctx_serving.selections WHERE library=(SELECT library FROM lctx_report.projection_state($3)) AND $1::text IS NOT NULL AND $2::bytea IS NOT NULL AND $4::bytea IS NOT NULL"
                 }

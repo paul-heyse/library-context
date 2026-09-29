@@ -242,11 +242,11 @@ impl ServingStore {
         let mut lease = QueryLease::acquire(&self.pool).await?;
         let mut catalog_budget = Hydration::new();
         let spelling = operation.trim();
-        let member_id = spelling.strip_prefix("member:").map(id).transpose()?;
-        let legacy = Id::from_hex(spelling).map(|id| id.0.to_vec());
+        let member_id = Id::from_hex(spelling).map(|id| id.0.to_vec());
+        let operation_id = member_id.clone();
         let member_ids: Vec<(Vec<u8>,)> = sqlx::query_as(
             "SELECT member_id FROM lctx_serving.catalog_members WHERE generation_digest=$1 AND (access_path=$2 OR member_id=$3 OR operation_node_id=$4) ORDER BY access_path COLLATE \"C\",member_id LIMIT 101")
-            .bind(generation.id.0.as_slice()).bind(spelling).bind(member_id).bind(legacy)
+            .bind(generation.id.0.as_slice()).bind(spelling).bind(member_id).bind(operation_id)
             .fetch_all(&mut *lease.connection).await?;
         if member_ids.len() > 100 {
             return Err(
@@ -336,7 +336,9 @@ impl ServingStore {
                 .await?;
             check_response(&result)?;
             lease.complete();
-            return packet::<cpg_schema::wire::Operation>(result);
+            let result = packet::<cpg_schema::wire::Operation>(result)?;
+            crate::evidence::check_operation_packet(&result, options.expanded, 32)?;
+            return Ok(result);
         }
         let selected_operation = singleton_class
             .as_deref()
@@ -656,7 +658,9 @@ impl ServingStore {
         crate::evidence::enrich(&mut lease.connection, generation, &mut result, options).await?;
         check_response(&result)?;
         lease.complete();
-        packet::<cpg_schema::wire::Operation>(result)
+        let result = packet::<cpg_schema::wire::Operation>(result)?;
+        crate::evidence::check_operation_packet(&result, options.expanded, 32)?;
+        Ok(result)
     }
     pub async fn get_capability(
         &self,

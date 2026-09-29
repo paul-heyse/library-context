@@ -4,7 +4,7 @@ The follow-up [PostgreSQL stack assessment](design_review_postgresql-stack_2026-
 examines the external Cornucopia/Rust-Postgres proposal and refines the library recommendation.
 This report retains the storage-scope analysis and adoption findings F01–F04. Current
 disposition has transferred to the [forward plan §6.1](../../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-findings);
-the [PostgreSQL plan](../../plans/postgresql-integration-plan_2026-09-27.md) owns detailed work.
+the [PostgreSQL plan](../../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-workstream) owns detailed work.
 
 ## 1. Scope, outcome and coverage
 
@@ -511,7 +511,7 @@ gates for this review.
 ## 11. Authority changes and dispositions
 
 No ADR was accepted by this assessment. The subsequent
-[PostgreSQL plan](../../plans/postgresql-integration-plan_2026-09-27.md) now owns detailed
+[PostgreSQL plan](../../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-workstream) now owns detailed
 adoption work; [forward plan §6.1](../../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-findings)
 owns current finding disposition. ADR-0065 is a proposal; this dated assessment is not closure.
 

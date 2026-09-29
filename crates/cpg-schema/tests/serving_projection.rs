@@ -156,6 +156,6 @@ fn ipc_shared_buffers_and_slices_have_the_same_logical_budget() {
 fn definition_encoding_is_independent_of_serde_json_map_features() {
     assert_eq!(
         cpg_schema::serving_projection::definition_digest(),
-        "2bf46c425829451404bbdc7aeeccf821660b8d7cf96c92a0efeb6dfc118feffd"
+        "1130c1cc95996d2efa2a08eb9ac12c1639b12ad42f8fa26809910db911ac7260"
     );
 }

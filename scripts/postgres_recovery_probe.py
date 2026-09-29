@@ -1,4 +1,4 @@
-"""Serve current recovered generations; report preserved legacy generations explicitly."""
+"""Serve only current-format recovered generations and validate their selection."""
 
 from __future__ import annotations
 
@@ -24,25 +24,7 @@ async def probe(config: Path, receipt: Path):
         for generation in expected["inventory"]["generations"]:
             manifest = generation["manifest"]
             if manifest["bundle_format"] != FORMAT:
-                if (
-                    manifest["format"],
-                    manifest["bundle_format"],
-                    generation["runtime_admission"],
-                ) not in {
-                    (2, 12, "legacy_runtime_required"),
-                    (3, 13, "legacy_runtime_required"),
-                    (4, 14, "legacy_runtime_required"),
-                }:
-                    raise RuntimeError("unrecognized legacy generation")
-                results.append(
-                    {
-                        "generation": generation["generation"],
-                        "serving": "not_run",
-                        "reason": "legacy_runtime_required",
-                        "preservation": "passed",
-                    }
-                )
-                continue
+                raise RuntimeError("obsolete generation format; rebuild current state")
             pinned = await repository.pin(manifest["context"]["library"], generation["generation"])
             descriptor = json.loads(pinned.descriptor())
             if descriptor["manifest"] != manifest:
@@ -50,7 +32,7 @@ async def probe(config: Path, receipt: Path):
             state = await workers.run(load, pinned, descriptor, await pinned.inputs(), None)
             await workers.run(serve, state, None, workers)
             operations = json.loads(await pinned.find_operations("{}", 1))
-            scope = json.loads(await pinned.search_scope("", True))
+            scope = json.loads((await pinned.prepare_selection()).scope())
             if scope["eligible"]:
                 answer = json.loads(
                     await pinned.get_operation(manifest["snapshot_id"], scope["eligible"][0])
@@ -67,7 +49,7 @@ async def probe(config: Path, receipt: Path):
             ) as client:
                 response = await client.call_tool(
                     "find_operations",
-                    {"library": manifest["context"]["library"], "where": {}, "limit": 1},
+                    {"library": manifest["context"]["library"], "selection": {}, "limit": 1},
                 )
                 if not response.structured_content:
                     raise RuntimeError("recovered MCP lifespan/read failed")
@@ -82,11 +64,6 @@ async def probe(config: Path, receipt: Path):
             )
         selections = []
         for selected in expected["selections"]:
-            if any(
-                g["generation"] == selected["generation"] and g["runtime_admission"] != "current"
-                for g in expected["inventory"]["generations"]
-            ):
-                raise RuntimeError("selected generation requires retained runtime")
             pinned = await repository.pin(selected["library"])
             descriptor = json.loads(pinned.descriptor())
             if (

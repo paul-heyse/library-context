@@ -122,26 +122,30 @@ async def execute(args):
             await select(generations[0])
             a = await stack.enter_async_context(client("none"))
             first = (
-                await a.call_tool("find_operations", {"library": library, "where": {}, "limit": 1})
+                await a.call_tool(
+                    "find_operations", {"library": library, "selection": {}, "limit": 1}
+                )
             ).structured_content
-            if not first or not first.get("next_cursor"):
+            if not first or not first["supported"].get("next_cursor"):
                 raise RuntimeError("rollover fixture needs a continuation cursor")
-            cursor = first["next_cursor"]
+            cursor = first["supported"]["next_cursor"]
             continuation = (
                 await a.call_tool(
                     "find_operations",
-                    {"library": library, "where": {}, "limit": 1, "cursor": cursor},
+                    {"library": library, "selection": {}, "limit": 1, "cursor": cursor},
                 )
             ).structured_content
             await select(generations[1])
             b = await stack.enter_async_context(client(args.embedder))
             second = (
-                await b.call_tool("find_operations", {"library": library, "where": {}, "limit": 1})
+                await b.call_tool(
+                    "find_operations", {"library": library, "selection": {}, "limit": 1}
+                )
             ).structured_content
             repeated = (
                 await a.call_tool(
                     "find_operations",
-                    {"library": library, "where": {}, "limit": 1, "cursor": cursor},
+                    {"library": library, "selection": {}, "limit": 1, "cursor": cursor},
                 )
             ).structured_content
             if (
@@ -153,7 +157,7 @@ async def execute(args):
                 raise RuntimeError("selected rollover changed an existing pin/cursor")
             rejected = await b.call_tool(
                 "find_operations",
-                {"library": library, "where": {}, "limit": 1, "cursor": cursor},
+                {"library": library, "selection": {}, "limit": 1, "cursor": cursor},
                 raise_on_error=False,
             )
             if not rejected.is_error:
@@ -167,8 +171,8 @@ async def execute(args):
                 async def search_one(i, sem=sem, samples=samples):
                     request = requests[i % len(requests)]
                     params = {"library": library, "query": request["query"], "limit": 10}
-                    if request.get("where"):
-                        params["where"] = request["where"]
+                    if request.get("selection"):
+                        params["selection"] = request["selection"]
                     async with sem:
                         start = time.monotonic()
                         answer = await b.call_tool(
@@ -190,7 +194,7 @@ async def execute(args):
                     }
                 )
             scope = json.loads(
-                await (await repository.pin(library, generations[1])).search_scope("", True)
+                (await (await repository.pin(library, generations[1])).prepare_selection()).scope()
             )
             entity = scope["eligible"][0]
             for multiplier in (1, 10):

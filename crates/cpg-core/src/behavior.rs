@@ -11,15 +11,13 @@
 //! 4. `operation_facets` for `find_operations`: FCA's declared attributes of each callable
 //!    (`concepts::attributes_sql`, the one authority for them), its kind, module and async, and
 //!    whom it delegates to, forwards to and hands off to.
-//! 5. `operation_documents`: each callable's signature-and-docstring view and its source-body
-//!    view, cut into windows at line ends, embedded through the cache when an embedder is set.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use cpg_schema::behavior::{
     self as b, ArgumentFlows, ArgumentFlowsRow, BehaviorStepsRow, BehaviorsRow, DelegationsRow,
-    Guards, GuardsRow, HandoffsRow, OperationDocumentsRow, OperationFacetStatusRow,
-    OperationFacetsRow, OperationSourceRow, OperationsRow, ParameterReads, ParameterReadsRow,
+    Guards, GuardsRow, HandoffsRow, OperationFacetStatusRow, OperationFacetsRow,
+    OperationSourceRow, OperationsRow, ParameterReads, ParameterReadsRow,
 };
 use cpg_schema::codebook::{
     AnalyticMethod, BehaviorKind, BoundaryReason, Codebook, CoverageStatus, DeclarationKind,
@@ -57,7 +55,6 @@ pub struct BehaviorRows {
     pub facet_status: Vec<OperationFacetStatusRow>,
     pub behaviors: Vec<BehaviorsRow>,
     pub steps: Vec<BehaviorStepsRow>,
-    pub documents: Vec<OperationDocumentsRow>,
     pub invocations: Vec<AnalysisInvocationsRow>,
 }
 

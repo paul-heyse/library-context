@@ -3,38 +3,34 @@
 **Status:** Active replacement product plan; **Revised 2026-09-28** under ADR-0071. The filename
 stays stable for existing links. The [target design §14](../design/sections/api-and-evidence-product.md)
 replaces general behavioral completion as the first-product target. This plan owns PR0–PR6 and
-current finding disposition; the PostgreSQL plan retains completed deployment and conditional
-storage work. PR0–PR3 functional scope is implemented under ADR-0072/0073/0074/0076; PR3 is Tested
-and deployed, including the complete code gate and populated recovery.
+current finding disposition, including PostgreSQL adoption triggers. PR0–PR4 functional scope is
+implemented under ADR-0078/0073/0074/0076/0077; current qualification is recorded below.
 PR0 comparative admission remains blocked; product differentiation remains unqualified.
 ADR-0073/0074/0076 foundations are implemented through PR3; PR4–PR5 extend these contracts. This plan §6.2 owns CLF/F01–F03 alongside AP findings; §7 owns conditional adoption.
 
 ## 1. Current state and qualification boundary
 
-**Implemented baseline, source-inspected 2026-09-28:** `739f9df` contains pinned extraction, rich
-canonical facts, partial behavioral analysis, operation/brief tools and completed PG0–PG17 local
-exact deployment. Compiler107, extractor33, template20, catalog7, bundle FORMAT12/projection2,
-standard1024 and operator schema008 describe that retained baseline. PR1 advances compiler108,
-extractor34 and bundle FORMAT13/projection3; additive migration009 is deployed. Historical PostgreSQL qualification is in
-[its evidence](../design_review/evidence/2026-09-28_postgresql-operations/README.md); it does not
-measure product differentiation.
+**PR4 Implemented and bounded Tested (2026-09-28).** Compiler111/extractor37,
+template21, behavior-model catalog7, bundle16/projection6/wire3 and migration012 provide contextual
+selection, addressable retrieval units, shared Rust classification and exact member/family ranks.
+Source contracts, scoped domain closure and original evidence remain canonical. Request-local
+preparation is shared by lexical/vector eligibility and promotion; bounded CPU work holds no
+PostgreSQL lease. Only current formats and exact profiles are supported. The assembled
+[PR4 review](../design_review/reviews/design_review_pr4-selection-retrieval_2026-09-28.md) accepts
+source structure and named focused controls; the [PR4 evidence](../design_review/evidence/2026-09-28_pr4/README.md)
+owns integrated outcomes. Both fresh profiles passed PG/MCP and eighteen-relation catalog parity;
+current reconstruction covered 88 relations. The operator now serves only the two validated current
+profiles, with behavioral selected. Obsolete stores, generations, runtime copies and rollback
+assets are deleted under ADR-0078. The code gate passed through a documented localized repair and
+continuation; later packet/bootstrap changes have focused receipts.
 
-**Current PR3: Implemented, Tested and deployed (2026-09-28).** Compiler110/extractor36,
-template21, behavior-model catalog7, bundle15/projection5/wire2 and migration011 add original
-artifacts/spans, contextual scenarios, attributed package/configuration/task evidence and bounded
-`get_evidence`/`get_operation` references. A separate pure evidence owner composes with PR2's catalog.
-The complete `just test-all` passed 465 Rust, 191 Python, 20 real-PG Rust and two PG Python tests,
-with every lint/policy/SQLx leg. Both final live FastMCP profiles passed PG/MCP; all seventeen catalog
-relation multisets matched after explicit run-qualified citation normalization. Current and mixed
-recovery passed. Operator migration011, both imports/reconciliation/original evidence and explicit
-behavioral selection passed; the populated restore preserved 86 tables and all eight generations
-in 28.59 s. [PR3 evidence](../design_review/evidence/2026-09-28_pr3/README.md) owns commands,
-corrections and bounds. The schema010 source/CLI/native modules, protected backup and all six prior
-generations are preserved under `build/pr3-baseline/`; matching-runtime restore passed. Earlier
-[PR2 evidence](../design_review/evidence/2026-09-28_pr2/README.md) retains its supported-surface baseline.
+**Qualification waiver:** the operator requested no embedding-related PR4 tests while a critical
+GPU benchmark runs. Real-library pilots and serving use `--embedder none`. Live embedding and
+hybrid ranking qualification are **not_run**, not inferred from deterministic controls.
+
 **PR0: Implemented; comparison blocked.** Protocol/runner controls pass; twelve A/B/C admission
 attempts are unscored because exact-release/material parity is unestablished. Confirmation remains
-sealed and unexecuted. PR4–PR6 remain Proposed. The complete target is a mandatory public API/evidence catalog with complete
+sealed and unexecuted. PR5–PR6 remain Proposed. The complete target is a mandatory public API/evidence catalog with complete
 contracts, typed options, contextual scenarios, deployment evidence, structured search and bounded
 implementation packets. Existing facts provide much of the content; targeted surface normalization,
 record-field expressions/links and package metadata are genuine new work. No broad new analysis
@@ -45,85 +41,39 @@ assesses R01–R08 and the additional obligations.
 jsonschema0.58.2 dev conformance, nominal IDs, explicit catalog inputs and typed hydration are in use.
 The evidence-only Salsa0.28.2 roots and DTO persistence probes passed; no production engine/cache
 is added. Ascent retains the S4 recursive-summary consumer. Selective SQLx checking and the new
-contextual classifier remain PR4; conditional library adoption remains §7.
+contextual classifier are implemented in PR4; conditional library adoption remains §7.
 
 | Boundary | Current state | Next obligation |
 |---|---|---|
-| Product construction | Catalog-only and enriched profiles publish/serve/restore through real PG/MCP; full gate and operator cutover passed | PR4–PR5 delivery |
-| Contract and evidence | Ordered contracts plus typed original scenarios, package declarations and observed tasks available | PR4 eligibility and PR5 journeys |
-| Retrieval/customization | Exact PG/BM25 works; strict facets hide unknowns and entity ranks omit winning units | PR4 typed requirement states and addressable evidence |
+| Product construction | Both profiles share the tested catalog and current-format PG/MCP paths; current reconstruction and cutover passed | PR5 journeys |
+| Contract and evidence | Ordered contracts, contextual selection and typed originals/package declarations/observed tasks available | PR5 journeys |
+| Retrieval/customization | Typed states, joint context, exact family ranks and winning-unit expansion implemented | PR5 journeys and packet usability |
 | Deployment details | Attributed package/extras, launch/config source and fixed-policy task evidence available | PR4–PR5 deployment customization and journeys |
 | Comparative value | No controlled Context7 comparison | PR0 protocol/baselines; PR6 confirmation; parity leaves objective open |
 | Existing semantic Stage 3 | Functionally incomplete; earlier tests retain their scope | Research backlog, except defects affecting exposed claims must be fixed or withheld |
 
-**Next:** PR4 typed requirements and evidence retrieval. Resolve
+**Next:** PR5 journeys and bounded packet usability. Two oversized behavioral packets refuse
+explicitly while winning-unit original evidence remains accessible; PR5 may page or omit optional
+enrichment through a typed contract. Resolve
 PR0 independent parity/admission before any comparative scoring. Read §3.0, not the retained semantic queue,
 for current execution. General all-channel proof,
 new logger models, ontology work, ANN tuning and wheel builds are off the first-product critical path.
 Fast editable uv/native and cached Cargo development remain the workflow.
 
-The following checkpoint and diagnostic remain historical evidence for open semantic findings;
-they are not current product acceptance or an instruction to resume the old sequence.
+### 1.1 Retained semantic qualification boundary
 
-### 1.1 Operator-requested checkpoint (2026-09-27)
+**Unqualified research scope, current boundary 2026-09-28.** The PR4 code gate includes retained
+behavioral regression controls, and both fresh profiles compile and serve. These results do not
+establish the frozen Stage 3 exit. The current [PR4 evidence](../design_review/evidence/2026-09-28_pr4/README.md)
+replaces obsolete checkpoint receipts and generation inventories as the code/runtime qualification
+owner. Prior runtime generations and matching recovery assets have been deleted.
 
-All Cargo/native commands use `CARGO_TARGET_DIR=/home/paul/library-context/target` rather than
-this shell's inherited sibling-project target. The full gate uses `RUST_MIN_STACK=16777216`.
-
-| Command | Outcome and exact scope |
-|---|---|
-| `just fmt`; `uv sync --frozen --reinstall-package lctx-semantics` | **passed:** accumulated Rust/Python formatting and lint repairs; native102 rebuilt in 31.05 s (`/tmp/lctx-stage3-checkpoint-native102-final.log`). Compiler101 changes scheduler progress; compiler102 repairs repeated pinned observations. No additional Arrow columns. |
-| `just test-all` | **passed:** 429/429 release Rust tests in 102.945 s, rebuilt fixture, 148/148 Python tests in 42.65 s, Pyrefly, strict Clippy/Ruff, seven rule suites, ADR/agent lint, 83 fixture parses, dependency/fork/shear and gold checks. Snapshot updates disabled. `/tmp/lctx-stage3-checkpoint-test-all8.log`. The all-techniques guard and output ledger now cover compiler102/template20. |
-| Checkpoint corrections | **failed, corrected:** compilation/lint and stale fixture/validator/contract expectations; repeated-context binding and duplicate-fact withholding; the all-techniques query digest; and the schema SQL regression test location required by the rule scan. Nine output snapshots were inspected before acceptance. The snapshot-generation run used `INSTA_FORCE_PASS=1` and is not qualification. The final gate above has no overrides allowing failures. |
-| RCA freeze alignment | **passed:** the existing ADR-0058 typed RCA policy is now recorded by the variant-policy digest. ADR-0021's dated amendment discloses the correction; no target, threshold, selection parameter or other analytics parameter changes. The frozen-parameter test and `just gold` pass. |
-| Fresh `just pilot build/store-stage3-checkpoint-2026-09-27` | **passed for real extraction, compilation, publication and serving smoke with fake vectors:** snapshot `8b4fb9ab6dcaa3698c27018593553129`, generation `cdcf4b4e519e8b79`, 20 briefs. The initial attempt failed on repeated `json.dumps.obj` observations; compiler102 repairs that existing binding contract. `/tmp/lctx-stage3-checkpoint-pilot2.log`; live embedding **not_run**. |
-| Read-only `lctx query` over that snapshot | **passed:** 16,825 behaviors: 3,023 established, 2,031 conditional, 18 refuted, 11,753 unknown. Unknown reasons include 6,353 `call_transfer`, 2,436 `outside_provider_model`, 2,018 `override_dispatch`, 730 `missing_evidence`, 176 `scope_boundary`, 39 `abstract_body`, one `runtime_unreachable`. The 18 refuted rows are product data, not a rating of the five frozen negative evaluation items. The raw signature catalog still contains two independently attributed observations of every `json.dumps` formal. |
-| `just docs-check` | **passed:** 135 canonical pages, ADR/agent lint and offline link/fragment checks. Corrected a stale dated STATUS link in the existing expression-completion review; no new design review was run. |
-
-**Measured checkpoint cost:** 32.5 s extraction, 204.0 s total, 107.25 s validation and
-4,258 MiB peak reported RSS. This was a shared-machine run with concurrent test compilation,
-not a controlled regression or engine comparison. The validation cost remains a target for S8
-measurement; no cost improvement is claimed.
-
-This is qualification of the implemented checkpoint, not completion of S1–S8. Live embedding,
-all-channel semantic requests and the frozen Stage 3 exit rule are not established by fixture
-providers or the ordinary pilot. Work stops after this checkpoint as requested.
-
-### 1.2 Stage 3 baseline diagnostic (2026-09-27; not qualification)
-
-The qualified unknown→partial rubric rule and the evaluation-only requests were committed
-before any Stage 3 packet was read (`2c6a59c`). Then
-`uv run python scripts/structured_eval.py build/generations/cdcf4b4e519e8b79 eval/behavior/fastmcp-4.0.5.toml --stage 3 --requests eval/behavior/fastmcp-4.0.5.requests.toml --out build/structured/stage3-baseline-diagnostic.md`
-**passed** (the packet was written). The reading below is the author's informal diagnostic of the
-checkpoint generation. It is not the S8 assessment, and it does not rate the exit.
-
-| Question | Positives, informal reading | Notes |
-|---|---|---|
-| Q01 | a–f partial; b, e and f only through the `FunctionTool.from_function` request | g (negative) not claimed |
-| Q03 | a, b, d, e partial; f absent | d was *present* at Stage 2: the store is now `unknown`/`missing_evidence`. c, g not claimed |
-| Q05 | a, b, e, f partial; c, d absent | b regressed like Q03.d. No re-raise row is served for `call_tool` (cause not investigated). g not claimed |
-| Q09 | a–e partial; f borderline | Both `inspect_value_paths` requests return no path and no boundary. g not claimed |
-
-About 19 of 23 positives read as partial. None reads as present, and no negative is claimed.
-The numeric threshold is not the binding risk. Four findings affect the remaining queue:
-
-1. **Decorator over-withholding.**
-   - `flow.decorated` (`cpg-core::flow_model`) counts any decorator syntax. The behavior
-     post-pass then makes every behavior of that operation or hop `unknown`/`outside_provider_model`
-     ("a decorator may replace the callable binding").
-   - This covers builtin `@classmethod`, `@staticmethod` and `@property`.
-   - Against the last format-6 generation (`7219df40ce349931`), 914 shared rows moved from
-     established/conditional to this reason; 2,436 rows carry it now.
-   - It hides `FunctionTool.from_function` and `TaskConfig.from_bool` (Q01.b/c/e/f).
-2. **Approximation withholding.** 612 shared rows moved to `missing_evidence`. These include
-   the settings-snapshot stores behind Q03.d and Q05.b.
-3. **Field-insensitive smear.** `from_function` builds `metadata = ToolMeta(...)` and then reads
-   fields. So every option `derives` into every `metadata.*` sink: `title` into
-   `str(...)@352` and `ValueError@317`, for example. These rows are `unknown`, but they are the
-   main *misleading* risk for Q01.a/e.
-4. **Pilot composition is nearly absent.** There are 26 `summary_flows` rows, all at depth 0,
-   and nothing discharges behaviors (`cpg-core::behavior` marks every `through_call` value
-   `call_transfer`).
+The research backlog in §3.0.1 and findings in §6 retain their unmet obligations: claim-specific
+coverage, call/handler/exit composition, field precision, operation-wide semantic requests and
+independent source/runtime challenges. Reassess Q01/Q03/Q05/Q09 against a fresh current generation
+only when that scope is selected. The evaluation-only rubric remains frozen; the confirmation and
+heldout material remain sealed. Earlier informal partial-credit counts are not current acceptance.
+No semantic finding is closed by retiring historical checkpoint records.
 
 ## 2. Product target and principles
 
@@ -153,8 +103,8 @@ its questions, unmet exits and sealed heldout; it is not repurposed as the new c
 
 ## 3. Product execution queue
 
-PR0–PR3 functional implementation is complete; qualification and comparative admission are
-reported in §1 and §6.2. PR4–PR6 remain dependency-ordered proposed vertical slices.
+PR0–PR4 functional implementation is complete; qualification and comparative admission are
+reported in §1 and §6.2. PR5–PR6 remain dependency-ordered proposed vertical slices.
 Each uses targeted compile/functional controls; formatting and integrated gates
 wait until the authorized functional scope is complete. No extra hook, register or build system.
 
@@ -168,7 +118,7 @@ query scope remain. §6.2 owns the scheduled CLF findings; §7 retains library a
 
 ### 3.0 Consolidated execution
 
-**Current queue: PR4–PR6 (Proposed); PR3 is complete and PR0 comparison remains blocked.** The old P0–P7/S1–S7 labels below are research identifiers,
+**Current queue: PR5–PR6 (Proposed); PR4 is complete within its embedding waiver. PR0 comparison remains blocked.** The old P0–P7/S1–S7 labels below are research identifiers,
 not product packages. The target's response budgets and comparison thresholds are frozen in PR0
 before outcomes; the design does not claim they have passed.
 
@@ -194,7 +144,7 @@ weakening evidence or declaring an unavailable capability implemented.
 
 #### Catalog contract and derivation integration (ADR-0073)
 
-**PR2/PR3 steps Implemented and Tested; PR4–PR5 steps Proposed, 2026-09-28.** These refine existing PR2–PR5, not a
+**PR2–PR4 steps Implemented; PR5 Proposed, 2026-09-28.** These refine existing PR2–PR5, not a
 parallel workstream. Do not implement the whole classifier before its evidence or change PR0
 evaluation freezes. The [library policy §14.11](../design/sections/api-and-evidence-product.md#section-14-11)
 owns selected versus conditional mechanisms; exact direct pins/features follow pin-check during
@@ -221,114 +171,89 @@ wait for the full authorized functional scope. Changes in schema/projection mean
 migration and existing import/restore controls; pure wire/newtype changes do not automatically imply
 a canonical data migration. Comparison admission and the PR6 objective remain independent.
 
-#### PR3 detailed execution (2026-09-28)
+<a id="pr4-execution"></a>
 
-**Implemented, Tested and deployed (2026-09-28); ADR-0076.** Original context and deployment evidence
-compose through PR2's pure boundary. Exact-ID `get_evidence` is advanced from PR5 by operator
-choice; search/browse/classifier/ranking remain PR4–PR5. Fastdev only. Compile/focused functional
-checks precede any formatting, integrated gates, live profiles or documentation checks.
+#### PR4 detailed execution (2026-09-28)
 
-| Order | Deliverable and owner | Acceptance |
+**Completed, bounded Tested under the embedding waiver, ADR-0077/0078 (2026-09-28).**
+Default discovery, both-profile serving, current reconstruction and operator cutover passed.
+[Current receipts](../design_review/evidence/2026-09-28_pr4/README.md) record the composite gate,
+focused repairs and deletion outcomes. No broad product or live-embedding qualification is claimed. **Operator correction, 2026-09-28; ADR-0078:** validate the current design, then fully
+replace prior runtime state. Remove compatibility-only code, historical generations and rollback
+assets after qualification. Fresh current-schema reconstruction replaces mixed-version recovery.
+
+| Order / owner | Deliverable | Acceptance and removal obligation |
 |---|---|---|
-| PR3.1 | Schema identities/statuses/roots and ADR-0076 | Integrity distinct from release alignment; mixed intent and source coordinates explicit |
-| PR3.2 | Verified metadata and selected original document/config acquisition | RECORD mismatch fails; optional interpretation failures retain bytes; input identity follows membership/content |
-| PR3.3 | Original artifact/span and synthetic Markdown origin linkage | Unicode/CRLF/indented fences and failed parses retain original bytes |
-| PR3.4 | Separate pure scenario owner composed with catalog | Non-seed APIs, enclosing context, site intent, unresolved fixtures and prior mutation |
-| PR3.5 | Pure package/extra/entry-point/launch/config derivation | Declared, installed and task-checked knowledge separate |
-| PR3.6 | Explicit deployment-check runner and receipt inputs | Actual programmatic and CLI/config MCP interactions; failed/stale observations retained/refused appropriately |
-| PR3.7 | Canonical closure, bundle15/projection5, Binary codec and migration011 | Fresh reconstruction, independent roots, import/restore and both-profile parity |
-| PR3.8 | Typed get_evidence plus bounded get_operation reference pages | 32/256 KiB budgets, byte-safe continuation, real MCP schemas/cancellation |
-| PR3.9 | Final review, fmt/test-all, live profiles, recovery and cutover | Preserved baseline runtime/backup; scoped dated outcomes |
+| PR4.1 — decision/baseline | Record current contracts and freeze development retrieval measurements | No confirmation/heldout access; baseline artifacts only while actively needed |
+| PR4.2 — schema/catalog | Finite typed requirements, scoped domains/closure, tagged witnesses and four-state group envelopes | Maximum16 conjunctive terms; 500-scalar selectors; unknown decorators/ParamSpec cannot prove absence; preserve five behavioral verdicts |
+| PR4.3 — pure selection | Comparable-context conflict, existential/universal rules and whole-conjunction intersection | Cross-overload positive/negative is not conflict; clean universal counterexample; nonvacuous empty domain; pairwise-overlap/no-global-intersection control; no demonstrated-combination emission from current task receipts |
+| PR4.4 — pure retrieval | Canonical inputs to immutable units/fragments/vector plan through one finite view catalog | Classes/properties/configuration, source/scenario/docs/deployment; many-to-many subjects; original references; lexical availability despite token refusal; same snapshot supports two specs |
+| PR4.5 — PostgreSQL | Add migration012, typed stable SQLx reads, unit/fragment projections and winning-unit rank IPC | Membership, nullability, relation closure, budgets; `.sqlx` prepared against migrated real PG; current format only; remove historical-format branches |
+| PR4.6 — native/ranking | Request-local prepared selection, family/channel winners and full-spec embedding migration | One eligibility computation, no lease during embedding; deduplicate before BM25 statistics; RRF60 within/across families, exact-symbol primary order, stable ties; preserve both channel winners |
+| PR4.7 — existing MCP tools | Typed find/search groups/cursors and retrieval-unit expansion in get_evidence | Rust nested assembly and witness validation;20 default/100 maximum per group; independent continuation bound to generation/request/policy/channel; migrate callers to selection; remove compatibility-only where adapter |
+| PR4.8 — qualification | Fresh assembled design review, then formatting/full code/docs gates | Independent arithmetic oracle, shared contract/MCP controls, no anonymous ranks/fixed view masks/duplicate eligibility on migrated path |
+| PR4.9 — deployment | Both profiles, current reconstruction and clean operator cutover; live embeddings waived | Canonical/catalog parity; exact remains selected; remove obsolete generations, runtime copies, backups and compatibility code after validation |
 
-Compiler110/extractor36/wire2; behavior model catalog7 and brief template21 unchanged.
-Wire2 replaces `catalog.evidence` bodies with typed `evidence_page` references and bounded inline
-`demonstrations`; source expansion is `get_evidence`. Existing catalog evidence remains canonical.
-The schema010 source/CLI/native modules, backup receipt and all six ready generations are preserved
-in `build/pr3-baseline/`. All nine steps passed at the boundaries recorded in
-[PR3 evidence](../design_review/evidence/2026-09-28_pr3/README.md): focused controls, complete gate,
-both final live profiles, seventeen-relation parity, original-byte MCP and populated/mixed recovery.
-Operator schema011 selects the current behavioral generation with the exact profile; six older
-generations remain retained. Generalized tasks, full metadata browsing and PR4–PR6 stay open.
-Schemars/dev jsonschema remain shared contract tools. New packaging parsers are pep508_rs0.9.2
-(explicit url::Url, no environment expansion), mailparse0.17.0 raw UTF-8 headers and rust-ini0.21.3
-(case-sensitive, no quote/escape rewriting). No resolver, general execution engine or production cache.
-§6.2 closes AP/F03, CLF/F02 and PR3/F01–F08 at bounded Tested strength from those receipts.
+**Operator qualification waiver (2026-09-28):** skip embedding-related testing for PR4 because a
+critical GPU benchmark owns the machine. No GPU service is to be interrupted. Both real-library
+profiles, PG/MCP, current reconstruction and cutover use `--embedder none`; live embedding
+conformance and hybrid ranking are **not_run**, not inferred from deterministic fixtures. This
+waiver replaces the live-embedding prerequisite in PR4.9 without changing the embedding contract.
 
-#### PR2 detailed execution (2026-09-28)
+Predicate coverage includes public path/module/class/kind/invocation; parameter name/kind/required/
+default and structural type identity/category/nominal/union membership; configuration owner/scope/
+field/default/literal domain/exact field relationships; attributed relation target/fidelity; scenario
+intent and separate parse/binding/environment/execution; source/release alignment; declared package,
+extra, entry-point and launch/config requirements. Release-wide declarations remain release-scoped.
+Descriptors own supported arguments, dependencies, quantifiers and closure meanings.
 
-**Authorized implementation; ADR-0073/0074.** All current MCP contracts migrate in PR2, including
-nested behavioral packets and the capability resource. PR4 retains new classifier semantics and
-PR5 new product tools. Existing/spec'd additive capabilities remain. Fastdev only, no wheels.
-Targeted functional checks precede formatting and integrated qualification of the entire scope.
+Closure distinguishes corpus coverage, analyzer coverage, evaluation completion and page completion.
+Same-context conflicts require comparable subject/predicate/binding/signature/configuration/release/
+basis-model keys. Any clean positive supports existential selection absent relevant conflict;
+closed all-negative refutes. A clean applicable counterexample refutes universal selection; closed
+nonempty all-positive supports. Complete empty domains refute; missing coverage remains unresolved.
+Candidate precedence is contradiction, conflict, unresolved, supported. Joint compatibility requires
+one whole-conjunction context, not merely pairwise overlap; conditions compose only within the same
+evaluation identity and bounded refusal remains unresolved.
 
-| Order | Owner and deliverable | Acceptance / deletion |
-|---|---|---|
-| PR2.1 | Schema/domain owners: ordered normalization, exact option associations; ADR-0074 | Source/effective/registration aspects and attribution stay separate |
-| PR2.2 | cpg-schema: nominal IDs, strict requests, full typed responses, separate Schemars input/output schemas; offline jsonschema conformance | Actual hex encoding, Unicode limits, null/default/union controls; canonical bytes unchanged |
-| PR2.3 | catalog: exact loader, immutable indexed inputs, pure derivation, materialization; truthful dependencies | Pure known answers, deterministic alternatives, membership/absence/evidence changes; remove mixed derivation |
-| PR2.4 | One resolved ordered surface normalizer reused by catalog, admission and synthesis | Aliases/shadowing/order/accessors/registration; delete trailing-name classifier; opaque wrappers remain unknown |
-| PR2.5 | Extraction/catalog/behavior: Python literal/default/factory source; supported fields and exact formal-field-reader links | Two-field no-leakage, aliases/init/kw-only, mutation/conversion refusal; retain unsupported expressions |
-| PR2.6 | Canonical/bundle/PG/native: new records, validators and typed hydration; versions compiler109/extractor35/template21/model-catalog7/bundle14/projection4, migration010 | Original evidence and both profiles survive import/restore; no edits to deployed migrations |
-| PR2.7 | Native/MCP: all six tools and resource use shared contracts; typed value-path pages/cursors | Real listing/call and nested output parity, cancellation/lease/budgets; delete duplicate semantic Python definitions |
-| PR2.8 | Existing format owners: embedding specs, manifests/receipts, policies, protected config, reports and fixed vendor DTO conformance | Input/output schemas, synthetic credentials, unchanged canonical digests, opaque payloads explicit |
-| PR2.9 | Evidence only: Salsa0.28.2 same-pinned-facts roots experiment versus clean/prepared-index derivation, persistence compatibility and provenance | Equality/events/time/memory; no production adoption or family upgrade. Ascent remains S4 |
-| PR2.10 | Final review, fmt/test-all, both live profiles/PG/MCP/restore, docs and operator cutover | Preserved baseline runtime/assets; dated outcomes and scoped finding closure |
+Retrieval units and original occurrences are distinct from fragment renderings and exact-spec vector
+receipts. Four families contribute at most one best lexical and one best vector winner per member;
+explanations retain at most eight actual winners and never substitute a globally deduplicated
+occurrence belonging to another member. Full eligible ranks precede final page limits. The query
+instruction becomes: “Given a coding task, retrieve relevant Python library APIs, capability briefs,
+configuration options, source code, usage examples, and documentation.” All affected vectors,
+including briefs, follow full-spec invalidation. New content invalidates ANN admission.
 
-Direct libraries: Schemars1.2.2 std/derive; jsonschema0.58.2 dev-only default-features=false,
-offline references and explicit format policy. Compile-fail doctests suffice for ordinary nominal
-wrappers; trybuild stays conditional. SQLx and Python ranking/rendering ownership remain.
-Production helpers never perform source acquisition, embedding, PG effects or hidden reads.
-Publication validation reconstructs from fresh canonical inputs, with independent known answers.
-This table is the execution owner. The behavioral model catalog stays at FORMAT7: PR2 changes
-canonical catalog tables and wire contracts, not the independently authored behavior-model format.
-PR2.1–PR2.10 are **Implemented and Tested**, 2026-09-28: focused controls, source conformance
-review, complete `just test-all`, both live profiles, catalog parity, disposable recovery, operator
-cutover and populated restore passed. [PR2 evidence](../design_review/evidence/2026-09-28_pr2/README.md)
-records commands, retained failures and qualification bounds. Salsa remains evidence-only; PR3 is
-qualified above. PR4–PR5 extensions, general semantic completion and comparative product admission
-remain separate obligations.
-[Evidence](../design_review/evidence/2026-09-28_pr2/README.md) records the exact commands, failures
-and successful reruns. The [implementation review](../design_review/reviews/design_review_pr2-implementation_2026-09-28.md)
-accepts scoped source conformance; it does not certify general semantics or comparative value.
+Use existing Schemars/jsonschema, SQLx, DataFusion/Arrow, BDD and BM25S; add no solver, ORM, cache or
+publication framework. Remove migrated matched/opened classification, duplicate eligibility,
+anonymous rank metadata, literal Python Arrow schemas, fixed-view masks and current operation-document
+retrieval writes/reads only after consumers move. Preserve required facet semantics as typed predicates; delete compatibility adapters and obsolete assets.
 
-#### PR0–PR1 detailed execution (2026-09-28)
+Implemented formats: compiler111, extractor37 (typed primitive literal output), template21, catalog7, wire3,
+bundle16/projection6 and migration012; version ranking policy explicitly. `just fmt`, `just test-all`,
+`just docs-check` and real pilots wait until all functional scope is implemented. Code qualification
+alone does not close live embedding/recovery or comparative product acceptance. AP/F04 and AP/F05
+are closed at bounded Tested strength by the current integrated evidence under the live-embedding
+waiver; CLF/F01 and CLF/F03 retain their PR5 obligations.
 
-**Authorized implementation; ADR-0072.** Catalog is the default profile; behavioral compilation
-enriches the same catalog. Retain existing/spec'd additive queries, structures, implementations,
-tests and obligations. No wheel work. Targeted functional checks accompany each step; formatting
-and integrated gates wait for the full PR0–PR1 functional scope.
+#### Completed product foundations
 
-| Order | Owner and implementation | Acceptance / retained boundary |
-|---|---|---|
-| PR0.1 | Evaluation/schema inventory maps R01–R08 and deployment journeys to facts and missing work | Acceptance APIs never restrict the public universe |
-| PR0.2 | Freeze 24 development and separately sealed 24 confirmation tasks, protocol and rubric | Gold/heldout unchanged; confirmation answers isolated |
-| PR0.3 | Check Context7 release/material parity; A Context7, B original evidence, C B plus structure | Unavailable parity blocks comparisons, not PR1 |
-| PR0.4–5 | Isolated API function-tool runner, immutable receipts, four-stratum A/B development smoke | No confirmation execution or superiority claim |
-| PR1.1 | Mandatory roots/provenance; catalog default, behavioral opt-in; optional flow/model context | Dotted/overlapping/member roots; explicit not-requested coverage |
-| PR1.2 | Public candidates before export/path selection; stable exposure IDs and declaration roles | Aliases/inheritance/overloads/stubs retained; ambiguity returns choices |
-| PR1.3 | Ordered signatures and provider constructors | All kinds, zero-formal/ParamSpec, overloads, defaults/provenance |
-| PR1.4 | Mandatory discovery and independent raw evidence roots | Classes/undocumented/wrapped contracts; retained supported facets |
-| PR1.5 | Finite capability/artifact contract through publication/import/native/MCP/recovery | Not-requested, empty, unknown and corrupt differ; native closure indivisible |
-| PR1.6 | Canonical/PG projections, migration009, SQLx batch hydration, bounded packets | No facet-derived signatures/arbitrary resolver winner; explicit size refusal |
-| PR1.7 | Same catalog with retained enrichment, then final qualification/operator cutover | Both profiles restored/served; legacy assets retained; no implicit live downgrade |
+**Implemented and bounded Tested, 2026-09-28.** PR1 made the version-pinned catalog mandatory and
+behavioral enrichment explicit. PR2 added ordered surface normalization, exact configuration-field
+associations, shared Rust wire schemas and pure derivation. PR3 added original artifacts/spans,
+contextual scenarios, attributed package declarations and isolated task receipts. ADR-0073/0074/0076
+own these current decisions; the PR4 gate exercises their retained implementation. Completed
+execution logs and obsolete runtime recovery instructions are removed from the current working set.
 
-**Preservation inventory.** Declared parameter/type/return/decorator/module/kind and source async
-queries belong to catalog. Fates, delegation/value paths, conditions and negative-claim proof retain
-analysis dependencies. Brief tools retain explicit capability state. PR2 normalization/configuration
-and PR3 scenarios/deployment are implemented and tested; PR4 requirements/retrieval and PR5 browsing
-remain scheduled. Prior
-action/effect/role/exact-input contracts and schema-backed extensions remain in the retained queue.
+The [Salsa experiments](../design_review/evidence/2026-09-28_pr2/README.md) remain evidence-only for
+§7's conditional adoption. No production incremental engine or new cache is selected. Packaging
+interpretation still uses pep508_rs, mailparse and rust-ini over preserved originals; no general
+execution engine or environment resolver is inferred.
 
-**Qualification.** Focused root/candidate/signature/evidence/optional-capability/corruption tests
-precede final formatting, full code/docs gates, real catalog and enriched pilots, four C development
-smoke trials, disposable migration/import/selection/restore and explicit operator migration. Preserve
-old CLI/Python/native assets for old-format recovery. AP/F01 needs end-to-end evidence;
-AP/F02 and AP/F03 are closed by bounded PR2/PR3 qualification; AP/F06 retains PR5–PR6 obligations.
-PR1 implies neither comparative nor semantic completion.
-
-**Usability checkpoint:** PR1 already exposes ordinary API contracts; PR2–PR5 progressively add the
-specificity required by the selected core journeys. Pilot use need not wait for all confirmation runs.
-The final differentiated-product claim still requires PR6; the frozen semantic exit is independent.
+**PR0 remains blocked.** The frozen 24 development tasks, separate sealed candidate and protocol
+retain their independent admission requirements. Twelve A/B/C development attempts were unscored
+because exact-release/material parity was unestablished. No implementation session opens the
+confirmation material or claims comparative superiority. §6.2 owns EVAL/F01–F04.
 
 **Deferred research contract, retained for traceability.** Everything until §3.4 below is
 unscheduled unless a product task or exposed-claim defect activates it. Earlier phrases such as
@@ -387,7 +312,7 @@ keeps target acceptance separate from implementation scope and certificate corre
 | S5 | Compose claim-specific source/model/callee/handler/exit coverage and discharge only matching origins. Remove unconditional strongest-transfer pruning; preserve kind/condition alternatives through value flows and receiver consumers. Move existing RCA attributes to typed meaning/modality/evidence and one renderer; reject unknown forms | behavior_shapes part 2, positive/open siblings, empty complete channels, transfer/lambda/decorator controls, candidate/definite RCA and relabeling invariance. Transfer and source parameter-identity repair implemented with focused source/Delta/native controls. Current typed RCA/Pass C repair implemented and focused Tested (2026-09-27); claim-specific coverage and assembled qualification remain open |
 | S6 | FORMAT 9 structural proofs/coverage/support; typed effect, role and exact-entry-input conjunctions on existing operation queries. Rust canonicalizes and evaluates; Python adapts. Conditions/scopes of conjoined witnesses must be compatible. Partition matched/excluded/source-open/unexamined; preserve path-local inspection. Delete FORMAT 8/native adjacency interpretation | FORMAT 9 callable support and bounded value/source-normal closure are implemented. Native actions/defaults/postconditions/invocations, full raw-source evidence closure and compatible effect/role/exact-input semantic queries remain open; matched/excluded/source-open/unexamined partitions must stay distinct |
 | S7 | Extend isolated CPython/Hypothesis comparisons to actual compiler completion, summaries, coverage and served results; use release binaries. CrossHair distinguishes exhaustive/bounded/counterexample; Pysa TITO uses real rules and pinned Pyrefly on identical source. Close original W5 work/node, W7 reach-work and W12 pair-work default-cap producer→Delta→native traces | Independent challenges accompany S2–S6. Original default-cap traces are separate from injected limits. Open |
-| S8 | After S1–S7: fmt, test-all including all-techniques digest, fresh-store pilot, structured Stage 3 packet with semantic queries, clean-wheel query, controlled live W9/W16 replay/conformance, cost measurements, assembled target review, docs-check and handoff | Current checkpoint fmt, full tests, all-techniques digest and ordinary fresh pilot are recorded in §1.1. S8 remains open until functional completion, semantic exit assessment, clean-wheel/live checks, controlled costs and assembled review; frozen exit rule unchanged |
+| S8 | After S1–S7: fmt, test-all including all-techniques digest, fresh-store pilot, structured Stage 3 packet with semantic queries, clean-wheel query, controlled live W9/W16 replay/conformance, cost measurements, assembled target review, docs-check and handoff | The current code/runtime receipt and its semantic boundary are recorded in §1.1. S8 remains open until functional completion, semantic exit assessment, clean-wheel/live checks, controlled costs and assembled review; frozen exit rule unchanged |
 
 **Done bar (operator, 2026-09-27): exit-driven.** A step closes on its named acceptance, plus
 what Q01/Q03/Q05/Q09, `behavior_shapes` part 2 and the largest pilot `call_transfer` sources
@@ -398,7 +323,7 @@ phase ends with a handoff; full gates run only at P7, apart from one diagnostic 
 
 | Phase | Work (S-step) | Key acceptance |
 |---|---|---|
-| P0 | Rubric rule, evaluation-only requests, packet digests and guard (done, `2c6a59c`); baseline diagnostic (§1.2); these amendments; S6.0: the extension owns the native file list and row caps (`native_files()`). The remaining `ipc_input` positional tuples convert to cpg-schema rows with P6.1's loader extension | Guard test; no product semantics changed |
+| P0 | Rubric rule, evaluation-only requests, packet digests and guard (done, `2c6a59c`); frozen evaluation-only rubric; S6.0: the extension owns the native file list and row caps (`native_files()`). The remaining `ipc_input` positional tuples convert to cpg-schema rows with P6.1's loader extension | Guard test; no product semantics changed |
 | P0.7 | **Precision repair (operator, 2026-09-27).** Builtin descriptor exemption from decorator withholding (compiler 103; behavior-model §"Value flows and call transfers"). The `missing_evidence` shift is diagnosed as ty's AMBIGUOUS reachability inside or after `try`, `with` and loops over unknown iterables. F07 withholds it deliberately; a precise repair needs completion-kernel reachability certificates for non-return sinks (§7) | `transferpkg.Descriptors` positives; stacked and shadowed `classmethod` stay withheld |
 | P1 | **S5a discharge (ADR-0064; target review F01–F07 adopted).** (1) The summary producer refuses decorated local targets and decorated bases using `flow_model`'s one predicate (F02, a live defect). (2) Pure `summaries::discharge` decide and grade. Claim-keyed `behavior_discharges(behavior_id, origin_id, proof_kind, summary_id?, reason?)`; membership from the `flow_model` merge; an all-members grade after the merge (F03); proofs discharge certified value approximation (F04). Replace `semantic:call-transfer-never-established` and add sibling closure (F06). Validator equality from the existing finite outcome. Generation export, native citation admission and Python citation rendering | **Implemented and focused Tested (2026-09-27, compiler 104–105, FORMAT 10; `220a0c8` and the P1.2 commit):** `through_decorated` has no summary; `through_sink` is established and cites its summary; `twice` stays open with both siblings cited; order invariance is set-based; a doctored native generation is refused; the CPython harness checks discharged returns. The P1 change review is open. Pilot unchanged by construction (review O1) |
 | P2 | **S7 foundation.** `lctx compile-fixture`; a composed Hypothesis/`sys.monitoring` harness against served results; the original W5/W7/W12 default-cap fixtures with no injected limits; `just oracles` | Each cap reason traced through Delta, bundle and native |
@@ -758,54 +683,23 @@ catalog digest in `compiler_digest`; no model cites `.claude/skills/`.
 
 ### 3.4 PostgreSQL deployment and integration workstream
 
-**PG0–PG17 completed for supported local exact deployment, 2026-09-28; Implemented, Tested and Measured.** The distinct
-[PostgreSQL plan](postgresql-integration-plan_2026-09-27.md) owns detailed packages, contracts,
-deployment and acceptance. PG0–PG7 supplies SQLx/cache/exact receipts, PG18 operations and canonical
-discovery. The [expanded review](../design_review/reviews/design_review_postgresql-expanded-architecture_2026-09-27.md)
-now selects standard 1024 embeddings, immutable PG relational serving, pgvector, Rust async serving,
-pgpq COPY and qualified DataFusion read views/federation. Old F2/F3(vector)/F5(selected bridge)
-consumer triggers are met; their implementation no longer waits for a generic size/bottleneck threshold.
+**Implemented, 2026-09-28.** PostgreSQL is the rebuildable transactional/cache and online serving
+owner; Delta and immutable receipts remain canonical (ADR-0067/0068). SQLx owns effects, pgpq owns
+COPY encoding, and the maintained DataFusion provider exposes admitted read-only reports. Fixed
+PR4 reads use checked SQLx queries; inventory-driven hydration remains validated against the
+shared projection declarations. No second query/semantic owner is introduced.
 
-[ADR-0068](../adr/0068-postgresql-serving-and-standard-embeddings.md) supersedes 0065/0066 for the
-expanded target; ADR-0067 retains canonical Delta/receipt authority. PG8 amends design owners before
-production changes. Canonical Delta/receipt authority and the pure native semantic kernel remain;
-no PostgreSQL-only canonical store, Python ORM or new network protocol service is implied.
+PR4's current-only contract (ADR-0078) replaces the former retain-all recovery policy. After current
+validation, clean operator replacement removes obsolete generations, artifacts, runtimes and
+backups. Current-format reconstruction is tested; reverse migrations, compatibility readers and
+historical rollback are not supported. Exact ranking is the sole supported profile. Standard1024
+remains the embedding contract; PR4 live qualification is explicitly waived in §1.
 
-| Order relative to this plan | PostgreSQL work | Dependency / boundary |
-|---|---|---|
-| Completed before Stage 3 P7 | PG0–PG7 initial deployment/cache/receipt/operations and acceptance | Preserve historical receipts and current canonical stores; this did not complete Stage 3 |
-| Preserved migration foundation | PG8 successor decisions, baseline preservation, contract/consumer/deletion inventory and acceptance criteria | ADR-0068 accepted; current binary/locks/config and checksummed PG7 dump preserved; PG7 and expanded-schema disposable restore drills passed. Frozen evaluation inputs retained |
-| Before new 1024 generations | PG9 spec/client/launcher migration; PG10 selected root libraries, owned provider fork, PG extension/roles/tooling; PG11 projection/codec/native contracts | Implemented with focused functional evidence: standard spec and fresh live generations, maintained immutable provider fork, local extension/roles, shared manifest/validation and async lifespan. Slice code gate, fresh pilot and bounded review passed; [evidence](../design_review/evidence/2026-09-27_postgresql-expansion/implementation.md). PG12–PG17 are now complete for the local exact route |
-| Before PG online serving cutover | PG12 COPY/staged import/ready transaction → PG13 exact repository/hydration/async MCP → PG14 exact vector ranks and explicit HNSW profile | Full evidence and unknown coverage precede ranked discovery; keep Python lexical/fusion policy and pure native evaluation |
-| Alongside query integration | PG15 restricted read-only DataFusion views and concrete operator federation report | Uses PG10–PG12 contracts; qualify codecs/pushdown/read views. Mutable coherent reports materialize under one transaction, not independent pooled scans |
-| End of expanded PostgreSQL scope | PG16 diagnostics/cutover/restore/rebuild/deletion → PG17 full code gate, fresh pilot/live 1024 conformance, exact/ANN controls, costs and assembled review | Completed with code gate, fresh fake/live pilots, measured exact/ANN comparison, deployed rollover and 15.31-second populated restore. ANN was refused; native ADBC and other conditional paths are not requirements |
-| Stage 4/5 named consumers | Add their declared concept/model/evidence projections through PG11–PG13 boundaries; F1 frozen review events when workflow is selected | Semantic work does not wait on optional protocol/ORM/ADBC/FTS features. Serving/schema acceptance follows the stage's actual output contract |
-
-The initial work preserved baseline `5e623535ed0ad836b633e5788cd6c3ea1765a248` under
-`build/postgresql-baseline-5e62353/`. The expansion preserves a new current baseline in PG8 rather
-than overwriting it. Compiler-affecting source and external SQL are inventoried; changed schema,
-spec and content identities require fresh stores and separately named outputs. Existing 4096
-artifacts retain identity and a compatible rollback reader; they are never cast/relabelled as 1024.
-W15's fresh-store policy continues, while durable PG operational history uses explicit migrations.
-
-The 1024 choice changes vector geometry and derived analytics outputs by a new spec, not by retuning
-analytics thresholds, model semantics, question targets or sealed heldout data. PG14's exact/ANN
-retrieval profiles explicitly record any changed ranking semantics; historical results remain
-attributed to their original spec/profile. Stage 3's frozen questions and exit rule stay unchanged.
-W9's exact-cache defect stays closed on its recorded evidence; the new spec has fresh correctness
-checks in PGE/F01. Arbitrary endpoint attestation remains W16's deferred boundary.
-
-PostgreSQL integration is now the completed storage/serving foundation for product PR0–PR6.
-ADR-0073's wire contracts, typed hydration and selective SQLx checking are PR2–PR5 product work,
-not reopened PG0–PG17 deployment. The PostgreSQL plan retains storage/driver-specific conditional
-triggers; this plan §7 owns catalog engines and representations. No ORM or provider-family change
-is implied by generated wire schemas.
-Channel/default/completion work resumes only for a named product task or exposed-claim defect.
-Any later Stage 3 packet uses the selected qualified generation and supported backend in the
-editable development environment; distribution packaging retains a separate future trigger and
-the unchanged semantic rubric still governs that packet. PG17 does not replace Stage 3 P7,
-Q01/Q03/Q05/Q09 or the retained all-channel completion obligations. Current
-finding status, including all PGE items, lives only in [§6.1](#postgresql-findings).
+The [runbook](../postgresql.md) owns operator commands; [storage §6.5](../design/sections/storage-and-publication.md#section-6-5)
+and [serving §11.4](../design/sections/synthesis-and-serving.md#section-11-4) own contracts. §6.1 owns
+finding disposition and [§7](#postgresql-adoption) carries the surviving F1/F4/F6–F13 adoption
+triggers from the retired completed plan. Product PR5–PR6 extends these owners. Semantic research
+retains its independent exits and starts only for a selected task or exposed-claim defect.
 
 ## 4. Stages 4 and 5
 
@@ -927,7 +821,7 @@ the validation lane asks whether the analysis admits what really executes.
 | Pysa, CrossHair, Hypothesis + `sys.monitoring` | **Oracles** (order 8) | Pysa's call graph is Pyrefly's, so only its TITO result is independent |
 | PyStemmer, DataFusion `WITH RECURSIVE` (compile time), schemars | Stage 4 adopt | schemars only if Rust needs request types |
 | Graph-FCA | Stage 5 offline spike | Never in the pipeline |
-| PostgreSQL serving/pgvector/pgpq/qualified federation and Rust async boundary | **Implemented, Tested and Measured; local exact route accepted** | Exact pins/features and feature-set qualification in the [PostgreSQL plan §2](postgresql-integration-plan_2026-09-27.md#2-stack-and-feature-policy); 1024 is selected, admitted adapter/runtime controls passed; ANN remains inactive after measured refusal |
+| PostgreSQL serving/pgvector/pgpq/qualified federation and Rust async boundary | **Implemented, Tested and Measured; local exact route accepted** | Exact pins/features in [pins](../pins.md); 1024 is selected, current exact serving follows §3.4; ANN machinery is removed |
 
 Avoid: crepe, DDlog, cozo, differential-dataflow; LinkML, OWL/RDF stacks, taxonomy induction,
 BERTopic or UMAP in the pipeline; rust-bert, ort, fastembed.
@@ -1024,9 +918,9 @@ modeled-finalizer positive and independent runtime identity controls pass. Compl
 | **W10 · [RFU/F04](../design_review/reviews/design_review_library-fit-reasoning-followup_2026-09-25.md#F04)** | Attribute schema, `lctx-analytics::concepts`, Stage F | Typed semantic attribute keys replace English identity/parsing. Separate object incidences preserve source facts, call modality/phase and both handoff endpoints; one renderer serves synthesis/facets. Publication and FORMAT 9 enforce cited supporter/pair closure | **Implemented; focused Tested (2026-09-27, compiler 88/template 20)**: source→Delta→serving, parallel/candidate/definite/relabeling controls and malformed support refusals passed. [Bounded review §19](../design_review/reviews/design_review_stage3-channel-contracts_2026-09-26.md#19-bounded-implementation-follow-up-typed-current-fcarca-and-handoff-support) F09/F10 corrected; integrated acceptance pending. New behavioral FCA and technique retention stay Stage 4.7 | Semantic IDs and finding membership survive display changes; implication supporters and retained handoff pairs have attributed evidence. Source validation checks the retained subset, not full lattice completeness |
 | **W11 · [RF/F03](../design_review/reviews/design_review_library-fit-reasoning_2026-09-25.md#F03), [RF/F04](../design_review/reviews/design_review_library-fit-reasoning_2026-09-25.md#F04), [RF/F12](../design_review/reviews/design_review_library-fit-reasoning_2026-09-25.md#F12)** | `condition_kernel`, `primitive_theory`, validation lane | F04 exact string membership and non-bool integer equality are implemented (`True in {1}` remains unknown). F03 cube factoring retains the equality proof; exact-input assessment uses bounded restriction and proof-link minimization. F12 has a ten-atom truth-table control and a recorded CPython 3.14.7 finite-literal lowering matrix. Synthetic and real-source Delta/native/MCP controls keep membership and equality refutations path-local; source-origin cases beyond the focused fixture and operation-wide Q09 remain | **Partial, targeted tests passed** (`96081b7`, `dd3bdcf`, `0db9eb9`, `7d02b42` plus 2026-09-26 CPython/native matrix): literal theory, cube/restriction, ten-atom truth table, independent finite-literal controls and native two-path refutations; a real source-origin Delta/MCP round trip passed on 2026-09-26; broader source lowering and operation-wide Q09 remain open | F04: a `transport.py`-shaped fixture with the bool/int control. F03: an over-budget DNF factor now factors with the equality gate; existing theory fixtures unchanged. F12: truth tables over ≤10 atoms in kernel tests; order 8 records disagreements as fixtures |
 | **W12 · [RF/F06](../design_review/reviews/design_review_library-fit-reasoning_2026-09-25.md#F06)** | `lctx-analytics::summaries` | ADR-0053's SCC value worklist retains origin-specific proofs, depth and pair-work refusals. ADR-0057 adds bounded simultaneous BDD substitution, normalized source-ordered arguments, required-formal checks and shared whole-control-group admission. Closed expressions supply exact Boolean values separately from completion; direct-formal forwarding still requires a caller-fixed linked guard | **Partial, targeted tests passed (2026-09-26):** finite/no-base SCC, origin/shuffle/low-cap controls; real three-argument and reversed-keyword value paths; opposing, missing-required and raising arguments stay open. The pure multi-control contract passes, but a real later callee predicate remains unknown until call-specific stability is established. New default expression-depth/work caps survive Delta/native; these do not close the original BDD/work/pair-cap obligations. [Foundation review](../design_review/reviews/design_review_stage3-foundations_2026-09-26.md). The origin-coverage review F01–F03 are corrected: call crossings and approximated summaries remain open, and witness omission is independent. The [semantic-frontier review](../design_review/reviews/design_review_stage3-semantic-frontier_2026-09-26.md) F01 is corrected by per-semantic-alternative refusal replacement. Compiler101 shares the queue/frontier/progress state, retains nondominated depth/expanded-proof-cost representatives and prevents a later limited witness from undoing the same alternative's success. Equal-cost witness alternatives do not drive recursion. Residual conjunction, other channels, engine comparison and pilot cost remain open | S4/S7: exact stable argument/predicate composition, per-origin default-cap traces, shuffled published bytes and measured pilot delta |
-| **W13 · [RF/F07](../design_review/reviews/design_review_library-fit-reasoning_2026-09-25.md#F07), [RF/F08](../design_review/reviews/design_review_library-fit-reasoning_2026-09-25.md#F08)** | `cpg-schema` recursive CTEs; `lctx-analytics::summaries` SCC | F07: unknown ancestry uses `UNION` over term id; the type layer uses `UNION` over function/term id. Both are set membership, so recursive distinct removes repeat paths without losing cited provenance. F08: [ADR-0052](../adr/0052-iterative-scc-schedule.md) chooses pinned petgraph's iterative `kosaraju_scc`; analytics retains canonical condensation ordering | **Focused functional controls passed (2026-09-26):** both type-term closures terminate on cyclic rows with unchanged membership/attributes, and real analytics concept/type-layer variants pass; a 30,000-edge SCC chain, order-independence and real component-order compile pass. The all-techniques digest passes at the current checkpoint; pilot timing is recorded in §1.1. Controlled cost comparison and assembled Stage 3 acceptance remain open | Cyclic type-term fixture terminates with unchanged identity; existing SCC and component-order tests; a recorded stack-safety decision |
+| **W13 · [RF/F07](../design_review/reviews/design_review_library-fit-reasoning_2026-09-25.md#F07), [RF/F08](../design_review/reviews/design_review_library-fit-reasoning_2026-09-25.md#F08)** | `cpg-schema` recursive CTEs; `lctx-analytics::summaries` SCC | F07: unknown ancestry uses `UNION` over term id; the type layer uses `UNION` over function/term id. Both are set membership, so recursive distinct removes repeat paths without losing cited provenance. F08: [ADR-0052](../adr/0052-iterative-scc-schedule.md) chooses pinned petgraph's iterative `kosaraju_scc`; analytics retains canonical condensation ordering | **Focused functional controls passed (2026-09-26):** both type-term closures terminate on cyclic rows with unchanged membership/attributes, and real analytics concept/type-layer variants pass; a 30,000-edge SCC chain, order-independence and real component-order compile pass. The all-techniques digest passes at the current checkpoint; current pilot timing is in the PR4 evidence. Controlled cost comparison and assembled Stage 3 acceptance remain open | Cyclic type-term fixture terminates with unchanged identity; existing SCC and component-order tests; a recorded stack-safety decision |
 | **W14 · [RF/F10](../design_review/reviews/design_review_library-fit-reasoning_2026-09-25.md#F10), [RF/F11](../design_review/reviews/design_review_library-fit-reasoning_2026-09-25.md#F11), [RF/F14](../design_review/reviews/design_review_library-fit-reasoning_2026-09-25.md#F14), [RF/F15](../design_review/reviews/design_review_library-fit-reasoning_2026-09-25.md#F15)** | `cpg-extract`, `cpg-flow`, `lctx-analytics` Pass B, `cpg-core` derivation | F10 resolved Pyrefly function flags/body kind are persisted and drive negative premises (schema migration); F11 ty settings come from run context and a virtual release root, with ty's implicit package-submodule definitions separately coded; F14 Pass B visited state includes suppression. F15 now transports all twenty SQL-only behavior table derivations directly through declared Arrow batches, strict casts and canonical sorting; pure semantic consumers retain typed rows | **Focused implementation passed**: F10 (`4921a27`, schema migration), F11 (`5044fee`, `e67dc76`, append-only codebook migration) and F14 (`df84905`). F15 trigger executed in this consolidation: focused source/model/native publication and reconstruction passed (2026-09-26); integrated qualification pending | F10: aliased-decorator and Protocol fixtures. F11: a provider operation actually affected by settings (e.g. resolution). F14: a fixture where the clean path is found second. F15: identical snapshots; independent rederivations kept |
-| **W15 · [RF/F16](../design_review/reviews/design_review_library-fit-reasoning_2026-09-25.md#F16)** | DESIGN §6.3; `cpg-core::delta` | §6.3 previously claimed merge migrations no code performs; `verify` rejects drift. [ADR-0048](../adr/0048-schema-rebuild-policy.md) chooses a fresh rebuild of the current library from pinned inputs for schema changes. Historical snapshot reads and retaining old binaries are not required; the old store may be held temporarily for rollback. Reuse the global embedding cache only after independent contract verification | **Policy implemented and Tested (2026-09-27).** The compiler102 pilot rebuilt a new store from pinned inputs, including `function_implementations` and subsequent migrations, and published/served its current generation (§1.1). Strict drift rejection remains covered by the full gate; live embedding reuse and assembled Stage 3 acceptance remain separate. Revisit only for a real historical-read consumer or unavailable pinned input | A fresh compile produces a current snapshot and `embedding_specs` with the new schema; old analysis tables are not copied; `verify` still refuses drift |
+| **W15 · [RF/F16](../design_review/reviews/design_review_library-fit-reasoning_2026-09-25.md#F16)** | DESIGN §6.3; `cpg-core::delta` | §6.3 previously claimed merge migrations no code performs; `verify` rejects drift. [ADR-0048](../adr/0048-schema-rebuild-policy.md) chooses a fresh rebuild of the current library from pinned inputs for schema changes. Historical snapshot reads and retaining old binaries are not required; ADR-0078 now requires deletion of the superseded store once the replacement is validated. Reuse the global embedding cache only after independent contract verification | **Policy implemented and Tested (2026-09-28).** Both PR4 profiles rebuilt current stores from pinned inputs, passed publication/PG/MCP/reconstruction, and replaced obsolete runtime assets (current PR4 evidence). Strict drift rejection remains covered by the full gate; live embedding reuse and assembled Stage 3 acceptance remain separate. Unavailable pinned input is an explicit reconstruction failure; historical-read support requires a new selected consumer | A fresh compile produces a current snapshot and `embedding_specs` with the new schema; old analysis tables are not copied; `verify` still refuses drift |
 | **W16 · [RFU/F08](../design_review/reviews/design_review_library-fit-reasoning-followup_2026-09-25.md#F08)** | Embedding spec, `just embed-serve`, Rust/Python clients | The controlled vLLM launch derives model, revision, tokenizer revision and dtype from the hashed spec. DESIGN §11.1 limits deployment-identity claims to that operator-controlled launch; an arbitrary endpoint's revision remains unverified even if model name, shape and spec hash match | **Controlled-launch qualification passed** (`2d48196` launch contract plus [PG live conformance/replay](../design_review/evidence/2026-09-27_postgresql/README.md), 2026-09-27); broader endpoint attestation remains **Deferred** until an external-endpoint guarantee has a consumer | A revision change moves launch configuration and cache identity together under the controlled launch; arbitrary endpoint identity is explicitly unsupported |
 
 Both reviews' tool-placement conclusions are in §5. W15's policy is decided by ADR-0048; the
@@ -1044,7 +938,7 @@ PGF the [foundations change review](../design_review/reviews/design_review_postg
 PGQ the [query integration review](../design_review/reviews/design_review_postgresql-query-integration_2026-09-28.md),
 and PGO the [operations review](../design_review/reviews/design_review_postgresql-operations_2026-09-28.md).
 PGE/F01–F05 and PGF/F01–F02 retain their stable source IDs here. The
-[PostgreSQL plan](postgresql-integration-plan_2026-09-27.md) owns detailed packages and acceptance;
+[PostgreSQL workstream](#postgresql-workstream) owns current integration;
 its traceability table is a work mapping, not a second disposition register. No finding closes
 through plan or ADR adoption alone; all original IDs retain their meaning.
 
@@ -1097,19 +991,19 @@ decorator execution or heap/value-survival proofs.
 CLF refers to the [catalog library-fit review](../design_review/reviews/design_review_catalog-library-fit_2026-09-28.md).
 Its PR2 corrections are implemented under ADR-0073/0074. **CLF/F02 is closed after PR3 composition; CLF/F01/F03 retain open PR4–PR5
 extension/reuse obligations** below; these do not imply an unfinished PR2 current-tool migration.
-The [PR2 review](../design_review/reviews/design_review_pr2-implementation_2026-09-28.md) supplies
-PR2/F01–F05; this table owns their disposition.
+PR2/F01–F05 and PR3/F01–F08 retain their stable IDs below; their completed source reviews
+and obsolete recovery records are retired. Current regression qualification belongs to PR4.
 
 | Finding / recommendations | Responsible owner and package | Closure evidence |
 |---|---|---|
-| AP/F01 mandatory catalog and optional capabilities; R01 | `cpg-core` orchestration, schema manifest, native lifetime; PR1; **closed, Tested** | [Catalog evidence](../design_review/evidence/2026-09-28_catalog/README.md): mandatory/corrupt-capability controls, full gate, both live profiles through PG/MCP, matching catalog contracts, current/legacy recovery and deployed exact selection |
-| AP/F02 complete API/surface/option identity; R02–R04 | schema/extraction/catalog/hydration; PR1/PR2; **closed, bounded Tested** | [PR2 evidence](../design_review/evidence/2026-09-28_pr2/README.md): source/PG/native controls, complete code gate, both live profiles, twelve-relation parity and deployed/populated recovery passed. Source-known/effective-unknown remains explicit; exact field links do not prove temporal value survival |
-| AP/F03 evidence/scenario/deployment closure; R05 plus deployment addition | acquisition/pure evidence/catalog/bundle; PR3; **closed, bounded Tested** | [PR3 evidence](../design_review/evidence/2026-09-28_pr3/README.md): original/non-seed/negative/deferred controls, declared/installed/observed separation, final task receipts, complete gate, both live profiles, bounded original-byte MCP and current/mixed/operator recovery |
-| AP/F04 typed custom selection and joint applicability; R07 | Rust request/classifier/semantic owner; PR4 | Scoped absence, variant quantifiers, contradiction/conflict precedence, mutually exclusive features and stable group cursors |
-| AP/F05 retrieval-unit identity and family composition; R06 | schema view catalog, embed/retrieval/fusion; PR4 | Winning-unit round-trip, class/doc coverage, duplicate stability and held-constant baseline; shared token admission retained |
+| AP/F01 mandatory catalog and optional capabilities; R01 | `cpg-core` orchestration, schema manifest, native lifetime; PR1; **closed, Tested** | Mandatory/corrupt-capability controls and both-profile catalog contracts. [PR4 evidence](../design_review/evidence/2026-09-28_pr4/README.md) owns current regression/serving/reconstruction qualification |
+| AP/F02 complete API/surface/option identity; R02–R04 | schema/extraction/catalog/hydration; PR1/PR2; **closed, bounded Tested** | Source/PG/native controls retain the supported surface and option contract; [PR4 evidence](../design_review/evidence/2026-09-28_pr4/README.md) owns current qualification. Source-known/effective-unknown remains explicit; exact field links do not prove temporal value survival |
+| AP/F03 evidence/scenario/deployment closure; R05 plus deployment addition | acquisition/pure evidence/catalog/bundle; PR3; **closed, bounded Tested** | Original/non-seed/negative/deferred controls and declared/installed/observed separation. [PR4 evidence](../design_review/evidence/2026-09-28_pr4/README.md) owns current task receipts, both-profile parity, original-byte expansion and reconstruction |
+| AP/F04 typed custom selection and joint applicability; R07 | Rust request/classifier/semantic owner; PR4; **closed, bounded Tested** | Scoped absence, variant quantifiers, contradiction/conflict precedence, joint context and stable cursors; current real-PG/MCP controls in [PR4 evidence](../design_review/evidence/2026-09-28_pr4/README.md) |
+| AP/F05 retrieval-unit identity and family composition; R06 | schema view catalog, embed/retrieval/fusion; PR4; **closed, bounded Tested under the live-embedding waiver** | Exact arithmetic/duplicate controls, four-family winning-unit/original round-trip, fixed lexical diagnostic, eighteen-relation profile parity and 88-table reconstruction. Live hybrid quality remains unqualified |
 | AP/F06 product exposure and comparative acceptance; R02/R08 | MCP packet/browse/evidence tools and evaluation; PR0/PR5/PR6 | Bounded useful packet and independent matched-condition gain; full failures/costs recorded; no semantic-suite relabeling |
-| [CLF/F01](../design_review/reviews/design_review_catalog-library-fit_2026-09-28.md#F01) repeated Rust/Python wire decisions | `cpg-schema` wire owner, native boundary, PG hydration and MCP; **open for future extensions**; PR2 current-tool migration Implemented/Tested → PR4 new classifier → PR5 new tools | All current tools, including PR3 `get_evidence`, and the resource share Rust requests/full packets; schema/Serde/native/MCP controls passed for nominal IDs, Unicode, unknown fields, null/defaults and unions; duplicate Python semantic definitions/cursors removed. PR4–PR5 must extend this owner without new duplication |
-| [CLF/F02](../design_review/reviews/design_review_catalog-library-fit_2026-09-28.md#F02) mixed catalog loading/derivation | `cpg-core::catalog`/`evidence`; **closed, bounded Tested** | Independent pure evidence inputs/indexes compose through the existing catalog owner. Known-answer and reversed provider/node/binding controls, independent roots, both-profile seventeen-relation content parity and real PG/MCP/recovery passed in [PR3 evidence](../design_review/evidence/2026-09-28_pr3/README.md). No production incremental engine or speed claim |
+| [CLF/F01](../design_review/reviews/design_review_catalog-library-fit_2026-09-28.md#F01) repeated Rust/Python wire decisions | `cpg-schema` wire owner, native boundary, PG hydration and MCP; **open for future extensions**; PR2 current-tool migration and PR4 classifier Implemented/Tested → PR5 new tools | All current tools, including PR3 `get_evidence`, and the resource share Rust requests/full packets; schema/Serde/native/MCP controls passed for nominal IDs, Unicode, unknown fields, null/defaults and unions; duplicate Python semantic definitions/cursors removed. PR5 must extend this owner without new duplication |
+| [CLF/F02](../design_review/reviews/design_review_catalog-library-fit_2026-09-28.md#F02) mixed catalog loading/derivation | `cpg-core::catalog`/`evidence`; **closed, bounded Tested** | Independent pure evidence inputs/indexes compose through the existing catalog owner. Known-answer and reversed provider/node/binding controls, independent roots, current both-profile parity and PG/MCP/reconstruction are tracked in [PR4 evidence](../design_review/evidence/2026-09-28_pr4/README.md). No production incremental engine or speed claim |
 | [CLF/F03](../design_review/reviews/design_review_catalog-library-fit_2026-09-28.md#F03) empty scanned dependencies | Catalog loader/schema relation declarations and rebuild owner; **open for PR5 reuse qualification**; PR2 declaration repair Implemented/Tested | Scanned tables name their dependencies; pure input changes and roots/profiles retain clean-output parity. Compile context owns provider/profile/policy identity and outer coverage. No production cache consumes these declarations; PR5 still needs complete rebuild/reuse qualification |
 | PR2/F01 construction/receiver/accessor overreach | `cpg-core::surface`; **closed, focused Tested** | Custom allocation/metaclass/descriptor/opaque wrapper/setter/operator/static-constructor refusals; exact two-field links and hydrated unknown cross-method fates passed |
 | PR2/F02 required nullable response presence | `cpg-schema::wire`; **closed, Tested** | Missing-key refusal and explicit null/default controls pass Rust schema/Serde and native/MCP; complete Rust suite passed |
@@ -1118,8 +1012,8 @@ PR2/F01–F05; this table owns their disposition.
 | PR2/F05 Delta constraint planning | Canonical schema/publication; **closed, Tested** | Explicit AND/OR reader-nullability invariant; both fresh live profiles now publish, import, serve and restore successfully |
 
 
-The [PR3 review](../design_review/reviews/design_review_pr3-implementation_2026-09-28.md) supplies
-PR3/F01–F08. All are **closed at bounded Tested strength (2026-09-28)** in [PR3 evidence](../design_review/evidence/2026-09-28_pr3/README.md).
+PR3/F01–F08 remain **closed at bounded Tested strength (2026-09-28)**. The current PR4 gate
+retains their controls; past generation/backup records are retired.
 
 | Finding | Responsible owner | Closure evidence |
 |---|---|---|
@@ -1130,9 +1024,35 @@ PR3/F01–F08. All are **closed at bounded Tested strength (2026-09-28)** in [PR
 | PR3/F05 receipt/typed detail disagreement | Shared schema validator | Original receipt equality and option-span byte checks; mutation refusal and live ingestion |
 | PR3/F06 release metadata Cartesian expansion | Schema/pure evidence/PG | Explicit exclusive release/member subjects; 88 release declarations among 85,167 associations, unchanged row cap; both profiles serve |
 | PR3/F07 early diagnostic and Arrow metadata conflict | Shared validator/attempt | Named invalid-input rules, transient table-metadata normalization preserving field metadata, complete code gate |
-| PR3/F08 provider-order leakage | Immutable evidence preparation | Source-coordinate ordering, reversed node/binding inputs and final seventeen-relation profile parity |
+| PR3/F08 provider-order leakage | Immutable evidence preparation | Source-coordinate ordering, reversed node/binding inputs and current eighteen-relation profile parity |
 
-PR0 execution findings come from the [evaluation review](../design_review/reviews/design_review_pr0-evaluation_2026-09-28.md); PR1 findings come from the [implementation review](../design_review/reviews/design_review_pr1-implementation_2026-09-28.md).
+The [PR4 review](../design_review/reviews/design_review_pr4-selection-retrieval_2026-09-28.md)
+supplies PR4/F01–F18. **Closed at bounded Tested strength, 2026-09-28.**
+The [current evidence](../design_review/evidence/2026-09-28_pr4/README.md) owns exact commands and
+qualification bounds, including the operator's live-embedding waiver.
+
+| Finding | Responsible owner | Settling evidence |
+|---|---|---|
+| PR4/F01 predicate-domain closure and comparable claims | Core domain derivation / schema selection | Scoped signature coverage, comparable conflicts, empty domains and universal counterexamples |
+| PR4/F02 active configuration ownership and endpoints | Schema adapter / wire | Shadowed owner, cross-field reader and generated parameter endpoint controls |
+| PR4/F03 attributed source/release scope | Core evidence / shared adapter | Exact scenario/deployment originals, unrelated artifact and failed interpretation controls |
+| PR4/F04 promotion and contradiction counts | Prepared selection / native assembly | Strict unresolved-name exclusion and preserved contradiction count |
+| PR4/F05 canonical retrieval rendering | Schema renderer/validator | Changed text, wrong existing member and provider-order mutation refusals |
+| PR4/F06 returned identity expansion | PG hydration/evidence | Raw member ID to record; actual winning unit to original bytes |
+| PR4/F07 full channel rank validation | Schema policy / native / PG | Independent float64 and BM25/family arithmetic; malformed rank refusal |
+| PR4/F08 body-free winner admission | Checked PG membership query | Foreign fragment refusal; exact tuple membership without body hydration |
+| PR4/F09 CPU admission and work limits | Native lifetime / schema adapter | Cancellation retains slots; concurrent I/O proceeds; oversized input refusal |
+| PR4/F10 complete retrieval realization identity | Core persistence/publication | Same-spec retry, two-spec replay, corrupt artifact and foreign snapshot refusal |
+| PR4/F11 pinned operand membership | Prepared catalog / dependency declaration | Foreign term, parameter and member operand refusal before classification |
+| PR4/F12 public method category | Schema predicate owner | Plain method versus module function and property controls |
+| PR4/F13 bounded unit header | Schema evidence / PG expansion | Explicit metadata omission preserves complete original continuation |
+| PR4/F14 request-scoped domain and typed input loading | Schema dependencies / checked PG projection | Canonical/projected state and witness equality; unloaded-domain refusal; real default/parameter/type selection; bounded transient and retained-input estimates |
+| PR4/F15 current architecture and decision ownership | Architecture sections / ADR-0077/0078 | Snapshot plus selected realization replay, current formats and Rust schemas, PG-required serving and exact-only routing; inherited clauses transferred, stale statements removed |
+| PR4/F16 deterministic selection-domain identity | Core domain derivation | Reverse-input regression failed before and passed after canonical context/evidence ordering; both profiles regenerated for final publication and reconstruction |
+| PR4/F17 complete operation-packet admission | Typed PG hydration/evidence | Exact boundary/one-byte-over controls for both limits; both profiles served, behavioral 28 hydrated/2 explicit refusals with all winning originals verified. Optional enrichment pagination remains a PR5 usability consideration |
+| PR4/F18 current-only fresh provisioning | PostgreSQL bootstrap/configuration | Four roles and separate protected configs, exact extension check, existing-deployment refusal and three real-PG Python controls; obsolete backup-dependent upgrade CLI and pending credential copy removed |
+
+PR0 execution findings come from the [evaluation review](../design_review/reviews/design_review_pr0-evaluation_2026-09-28.md). PR1 findings retain their stable IDs from the retired completed review.
 
 | Finding | Owner / current disposition | Evidence and remaining boundary |
 |---|---|---|
@@ -1149,12 +1069,8 @@ PR0 final A/B/C development smoke admission produced twelve **blocked**, unscore
 model/API execution is not qualified. This blocks comparisons, not catalog implementation.
 Neither sealed-candidate creation nor protocol checks imply product superiority.
 
-Recovery controls are **Tested (2026-09-28)** in the [catalog evidence](../design_review/evidence/2026-09-28_catalog/README.md): retained schema008/runtime restore passed;
-disposable008→009 mixed restore passed in 7.34 s with selected-legacy/corrupt-artifact refusal controls.
-Final `just test-all`, real-library pilots and operator cutover passed. Final-runtime import/reconcile
-and live stdio MCP serving passed for both profiles. The deployed backup preserves two current and
-two legacy ready generations; its 78-table restore served the current profiles and restored the exact
-enriched selection in 12.49 s. Legacy serving requires the separately retained matching runtime.
+Current reconstruction and operator replacement are qualified under PR4 and ADR-0078. Obsolete
+schema/runtime backups and their completed execution records have no current recovery obligation.
 
 ## 7. Deferred, each with a trigger
 
@@ -1182,8 +1098,8 @@ owns their semantic/lifecycle contracts and the source review §8 retains the co
 | strum/enum-map/serde_with/derive_more; imbl/rpds/ecow/small vectors | Repeated local construction or measured cloning/branching/allocation consumer; retain explicit persistent codebooks |
 | Slot maps/ECS/plugins/new syntax trees; uom/Symbolica/solvers; alternate serialization | Concrete mutable-lifecycle/parser/plugin, scientific execution or protocol consumer. No immediate catalog dependency; existing Arrow/Serde and supported parsers remain |
 
-SeaQuery, Cornucopia/driver alternatives and `postgres-types` stay with the PostgreSQL plan's
-F4 and PGK/F01 triggers and existing SQLx ownership; do not schedule them twice here. Any future
+SeaQuery, Cornucopia/driver alternatives and `postgres-types` follow the PostgreSQL triggers
+below and existing SQLx ownership; do not schedule them twice. Any future
 engine that changes ownership/lifecycle gets its own ADR and replaces a named mechanism behind
 the established boundary. Skill availability and transitive lockfile presence are not adoption.
 
@@ -1201,7 +1117,6 @@ the established boundary. Skill availability and transitive lockfile presence ar
 | Graph-FCA in the pipeline | An offline experiment yields templates the evaluation rates useful |
 | On-demand RCA at serve time | Materialized membership proves too coarse |
 | Lance / LanceDB or changed lexical/FTS policy | A named capability or measured limitation beyond qualified PG serving/pgvector; PostgreSQL F13. The old 4096/size trigger is replaced by PG8's successor decision; no automatic alternative installation |
-| PostgreSQL operator review, dynamic SQL, direct Python/ORM access, notifications/jobs, native ADBC, SQL/ADBC client protocols, pgrx and advanced topology | [PostgreSQL plan §7](postgresql-integration-plan_2026-09-27.md#7-later-capabilities-and-adoption-triggers) owns F1/F4/F6–F13 consumer triggers. Serving/vector/COPY/selected federation are completed PG8–PG17 scope; §6.1 owns finding status |
 | spaCy in compile | Regex directive tagging misses conditions the evaluation needs |
 | A neural reranker | An ADR under §B10 after a measured need |
 | Native-extension bodies | A pilot question needs one |
@@ -1213,6 +1128,32 @@ the established boundary. Skill availability and transitive lockfile presence ar
 | Role channel producer | An authored role meaning with a consumer |
 | F17 broader release/default/binding domains | A graded item or pilot bucket needs them |
 | Reachability certificates for non-return sinks under ty's AMBIGUOUS regions (`try` bodies, `with` exits, loops over unknown iterables): 730 pilot `missing_evidence` rows, including Q03.d and Q05.b | A graded item whose rating depends on it, or a completion-kernel extension that already covers the shape |
+
+<a id="postgresql-adoption"></a>
+
+### PostgreSQL adoption triggers
+
+**Proposed only when triggered.** The stable F IDs retain their original owners. Serving, exact
+pgvector ranks, COPY and admitted federation are implemented; library availability alone does
+not install another transport, query owner or service.
+
+| Package | Current route / trigger | Authority, lifecycle and acceptance |
+|---|---|---|
+| F1 Operator/manual-review workflow | Selected operator-facing review consumer under §10.4; existing operations plus projection contracts | Append exact-subject-revision events, provenance/idempotency and optimistic conflicts. Freeze a selected revision into canonical compiler inputs; never patch a published brief or infer approval from absence. Backup/restore and frozen-input replay |
+| F4 Dynamic SQL | Substantive typed variable joins/expressions beyond clear SQLx queries; not simple inventory hydration or the existence of PR4 predicates | SeaQuery+binder with allowlisted identifiers and bound values; null/array/adversarial SQL controls. Semantic predicate/witness authority stays in Rust; Stage 4 AST remains Rust→DataFusion |
+| F6 Direct Python workflow/SQLAlchemy | Python gains its own relational workflow, not just an MCP transport caller | Psycopg 3 default; one async pool owner; SQLAlchemy only for substantive Core/ORM ownership. Python 3.14 lifecycle/type controls, same Rust migration history |
+| F7 Notifications/durable jobs | Actual worker or polling-cost consumer | Durable rows/events are truth; LISTEN/NOTIFY is a reconnectable hint. Bound transactions, claiming/retry/idempotency and crash recovery before job scheduling |
+| F8 pgrx extension | Measured candidate-transfer cost cannot be handled by bounded fetch into the native executor | Separate PG18 extension crate/toolchain/runtime rules; pure shared kernel, explicit model/generation identity and refusal/evidence fidelity; no Tokio analysis engine in a PG backend |
+| F9 Canonical-store replacement | Agreed canonical PG-transaction requirement or measured whole-store bottleneck | Separate §B3/§B7 decision; complete writes/validators/IDs/publish/read/rebuild comparison and removed machinery. PGS/F03 stays deferred |
+| F10 Retention/advanced operations | ADR-0078 supplies current-only replacement and reconstruction; actual growth/pressure/recovery need selects further work | Replacement must protect live readers and referenced artifacts plus in-flight users until the validated cutover. Replicas/PITR/proxies need separate durability/read/session contracts; no automatic topology expansion |
+| F11 Native ADBC bulk reads | Representative PG15 row-conversion/transfer cost or a named columnar client favors it | Pin core/manager/FFI 0.24, r2d2_adbc 0.3 and compatible provider plus native PG driver artifact; qualify mappings (including numeric/opaque types), C ABI, blocking executor/pool health, transactions/cancellation and supported expressions. Replace the selected transport for that consumer rather than duplicate defaults |
+| F12 DataFusion client protocols | Named psql/BI or embedded ADBC client | Select datafusion-postgres family for PG-wire serving, or adbc-driver-datafusion for ADBC access. Reverify pins for the selected implementation; own authentication/exposed SQL/read-only limits/cancellation/session generation and operational port/artifact. Neither is a PG storage provider |
+| F13 PostgreSQL lexical/FTS or alternate vector engine | Named lexical/discovery capability or measured limitation of the qualified target | PostgreSQL FTS/trigram/extension scores require a new policy versus bm25s; LanceDB requires a new case versus PG serving, not the obsolete 4096 threshold. Preserve abstention/name promotion, evidence separation and predeclared retrieval criteria |
+
+PostgreSQL arrays, JSONB, constraints, indexes, CTEs, windows and transactions are available through
+SQLx without an ORM. `postgres-types` belongs to rust-postgres consumers, not SQLx codecs. PGK/F01
+requires a real driver/domain consumer and replacement evidence before Cornucopia adoption. Authored
+review events, if selected, remain provenance-bearing inputs; notification delivery is never truth.
 
 ## 8. Risks
 

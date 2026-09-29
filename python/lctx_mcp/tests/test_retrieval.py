@@ -84,3 +84,63 @@ def test_fusion_refuses_aggregate_budget_before_allocating(monkeypatch):
     monkeypatch.setattr(retrieval, "FUSION_BYTES", 100)
     with pytest.raises(ValueError, match="resource_refused"):
         fuse_legs([identities(["01" * 16])], identities([]), 1)
+
+
+def test_family_fusion_has_equal_family_weight_and_keeps_both_actual_units():
+    from lctx_mcp.retrieval import fuse_families
+
+    a, b, c = (f"{i:02x}" * 16 for i in (1, 2, 3))
+
+    def row(member, family, channel, rank, unit):
+        return dict(
+            member_id=member,
+            family=family,
+            channel=channel,
+            rank=rank,
+            score=0.5,
+            unit_id=unit,
+            fragment_id=unit,
+        )
+
+    rows = [
+        row(a, "api_options", "lexical", 1, a),
+        row(a, "api_options", "vector", 2, c),
+        row(b, "api_options", "lexical", 2, b),
+        row(b, "api_options", "vector", 1, b),
+        row(b, "source", "vector", 1, c),
+    ]
+    result = fuse_families(rows, set())
+    assert [r["member_id"] for r in result] == [b, a]
+    assert result[0]["score"] == pytest.approx(1 / 62 + 1 / 61)
+    assert result[1]["score"] == pytest.approx(1 / 61)
+    assert {w["unit_id"] for w in result[1]["winners"]} == {a, c}
+    assert fuse_families(list(reversed(rows)), set()) == result
+    assert fuse_families(rows, {c})[0] == dict(member_id=c, score=0.0, promoted=True, winners=[])
+
+
+def test_duplicate_documents_leave_corpus_scores_stable_and_keep_member_owned_occurrence():
+    import pyarrow as pa
+
+    from lctx_mcp.retrieval import UnitLexical
+
+    a, b, c = (bytes([i]) * 16 for i in (1, 2, 3))
+
+    def index(duplicate):
+        fragments = [
+            dict(unit_id=a, fragment_id=a, family="scenario", text="register tool"),
+            dict(unit_id=b, fragment_id=b, family="scenario", text="read resource"),
+        ]
+        subjects = [dict(unit_id=a, member_id=a), dict(unit_id=b, member_id=b)]
+        if duplicate:
+            fragments.append(
+                dict(unit_id=c, fragment_id=c, family="scenario", text="register tool")
+            )
+            subjects.append(dict(unit_id=c, member_id=c))
+        return UnitLexical(pa.Table.from_pylist(fragments), pa.Table.from_pylist(subjects))
+
+    original = index(False).winners("tool", {a.hex(), b.hex()})
+    duplicated = index(True).winners("tool", {a.hex(), b.hex()})
+    assert original == duplicated
+    alias = index(True).winners("tool", {c.hex()})
+    assert alias[0]["member_id"] == c.hex() and alias[0]["unit_id"] == c.hex()
+    assert alias[0]["score"] == original[0]["score"]

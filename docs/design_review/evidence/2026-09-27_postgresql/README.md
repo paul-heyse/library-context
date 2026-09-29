@@ -2,7 +2,7 @@
 
 **Tested and Measured, 2026-09-27; PG0–PG7 initial scope accepted.** This evidence qualifies the
 PostgreSQL service/cache/operations boundary. It does not complete Stage 3 semantics or its
-frozen evaluation. The [implementation plan](../../../plans/postgresql-integration-plan_2026-09-27.md)
+frozen evaluation. The [implementation plan](../../../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-workstream)
 owns conditional future work; the [forward plan](../../../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-findings)
 owns finding dispositions. [Operations](../../../postgresql.md) owns ongoing procedures.
 

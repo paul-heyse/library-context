@@ -66,8 +66,12 @@ impl Fixture {
         }
     }
     async fn generation(&self, n: u8) -> Vec<u8> {
-        let manifest =
-            format!("{{\"format\":1,\"bundle_format\":11,\"dimensions\":1024,\"test\":{n}}}");
+        let manifest = serde_json::json!({
+            "format": cpg_schema::serving_projection::FORMAT,
+            "bundle_format": cpg_schema::serving_projection::BUNDLE_FORMAT,
+            "dimensions": 1024, "test": n,
+        })
+        .to_string();
         sqlx::query_scalar("INSERT INTO lctx_serving.generations(generation_digest,canonical_manifest) VALUES (sha256(convert_to($1,'UTF8')),$1) RETURNING generation_digest").bind(manifest).fetch_one(&self.importer).await.unwrap()
     }
 }
@@ -224,7 +228,7 @@ async fn copy_codec_pgvector_and_empty_declared_schemas() {
     assert_eq!(empty.schema(), batch.schema());
     assert_eq!(empty.num_rows(), 0);
     // A non-embedded generation retains its declared empty width-zero vector schema.
-    for name in ["vectors", "operation_vectors"] {
+    for name in ["vectors", "retrieval_vectors"] {
         let empty = projection::decode_rows(name, 0, &[]).unwrap();
         let schema = cpg_schema::bundle::files(0)
             .into_iter()
@@ -363,7 +367,27 @@ fn empty_source_version(
     let mut artifacts = std::collections::BTreeMap::new();
     let mut files = serde_json::Map::new();
     for file in cpg_schema::bundle::files(0) {
-        let batch = RecordBatch::new_empty(file.schema.clone());
+        let batch = if file.name == "retrieval_receipt" {
+            let receipt = cpg_schema::retrieval::RetrievalReceipt {
+                snapshot_id: cpg_schema::wire::SnapshotId::from_storage(cpg_schema::Id([1; 16])),
+                input_digest: cpg_schema::IdHasher::new("retrieval-inputs-v1")
+                    .str("[]")
+                    .finish_digest(),
+                view_revision: cpg_schema::retrieval::VIEW_REVISION,
+                render_revision: cpg_schema::retrieval::RENDER_REVISION,
+                spec_hash: None,
+            };
+            RecordBatch::try_new(
+                file.schema.clone(),
+                vec![std::sync::Arc::new(arrow_array::StringArray::from(vec![
+                    serde_json::to_string(&receipt).unwrap(),
+                ]))],
+            )
+            .unwrap()
+        } else {
+            RecordBatch::new_empty(file.schema.clone())
+        };
+        let row_count = batch.num_rows();
         let mut raw = Vec::new();
         {
             let mut writer =
@@ -388,7 +412,7 @@ fn empty_source_version(
                 },
             );
         }
-        files.insert(file.name.into(),serde_json::json!({"file":name,"sha256":hash,"rows":0,"schema_digest":relations[file.name].schema_digest}));
+        files.insert(file.name.into(),serde_json::json!({"file":name,"sha256":hash,"rows":row_count,"schema_digest":relations[file.name].schema_digest}));
     }
     let m = Manifest {
         capabilities: cpg_schema::catalog::Capabilities::for_profile(
@@ -576,10 +600,10 @@ async fn published_pilot_import_and_repository_queries() {
         .await
         .unwrap();
     assert_eq!(
-        page["total"].as_u64().unwrap(),
-        source.manifest().relations["operations"].rows
+        page["supported"]["total"].as_u64().unwrap(),
+        source.manifest().relations["catalog_members"].rows
     );
-    for op in page["matches"].as_array().unwrap() {
+    for op in page["supported"]["items"].as_array().unwrap() {
         let result = reader
             .get_operation_with_evidence(
                 &pinned,
@@ -594,10 +618,7 @@ async fn published_pilot_import_and_repository_queries() {
             .unwrap();
         assert_eq!(result["operation_id"], op["operation_id"]);
     }
-    let scope = reader
-        .search_scope(&pinned, None, "transport", false)
-        .await
-        .unwrap();
+    let scope = reader.search_scope(&pinned, "transport").await.unwrap();
     for id in scope["eligible"].as_array().unwrap() {
         let result = reader
             .get_capability(
@@ -615,11 +636,11 @@ async fn published_pilot_import_and_repository_queries() {
             .await
             .is_err()
     );
-    if let Some(cursor) = page["next_cursor"].as_str() {
-        let filter = lctx_postgres::repository::Where {
-            path_prefix: Some(cpg_schema::wire::Text::new("different".into()).unwrap()),
-            ..Default::default()
-        };
+    if let Some(cursor) = page["supported"]["next_cursor"].as_str() {
+        let filter: cpg_schema::wire::Selection = serde_json::from_value(
+            serde_json::json!({"requirements":[{"predicate":"public_path","path":"different"}]}),
+        )
+        .unwrap();
         assert!(
             reader
                 .find_operations(&pinned, &filter, 20, Some(cursor))
@@ -706,7 +727,7 @@ async fn captured_reference_parity() {
         compare(expected, &actual, id);
     }
     for case in reference["find"].as_array().unwrap() {
-        let filter = serde_json::from_value(case["filter"].clone()).unwrap();
+        let filter = serde_json::from_value(case["selection"].clone()).unwrap();
         let actual = reader
             .find_operations(&pinned, &filter, 20, None)
             .await
@@ -718,8 +739,8 @@ async fn captured_reference_parity() {
 }
 
 #[tokio::test]
-#[ignore = "explicit exact-vector and ANN installation/qualification check"]
-async fn exact_ranks_and_ann_profile_isolation() {
+#[ignore = "explicit exact-vector arithmetic and addressable unit check"]
+async fn exact_ranks_and_profile_isolation() {
     use arrow_array::{Array, FixedSizeListArray, Float32Array};
     let root = std::path::PathBuf::from(std::env::var("LCTX_TEST_PROJECTION").unwrap());
     let source = lctx_postgres::import::Source::open(&root).unwrap();
@@ -747,17 +768,12 @@ async fn exact_ranks_and_ann_profile_isolation() {
         .unwrap();
     let mut query = vec![0.0f32; 1024];
     query[0] = 1.0;
-    for (operations, relation, key) in [
-        (false, "vectors", "brief_id"),
-        (true, "operation_vectors", "node_id"),
-    ] {
+    for (relation, key) in [("vectors", "brief_id")] {
         let ranks = reader
             .vector_ranks(
                 &pinned,
                 &query,
                 pinned.manifest().spec_hash.as_deref().unwrap(),
-                operations,
-                None,
                 10,
             )
             .await
@@ -848,45 +864,24 @@ async fn exact_ranks_and_ann_profile_isolation() {
         }
         assert_eq!(seen, expected.len());
     }
-    importer.build_hnsw(source.generation()).await.unwrap();
-    importer.build_hnsw(source.generation()).await.unwrap();
-    let ann =
-        cpg_schema::Digest::from_hex(&lctx_postgres::profiles::Policy::hnsw().digest().unwrap())
-            .unwrap();
     assert!(
         reader
             .pin(
                 &source.manifest().context.library,
                 Some(source.generation()),
-                Some(ann)
+                Some(cpg_schema::Digest([123; 32]))
             )
             .await
             .is_err()
     );
-    let bogus = serde_json::json!({"format":1,"generation":source.generation().hex(),"spec":source.manifest().spec_hash,"maximum_ann_p95_ms":1000.0,"cases":[{"name":"foreign","stratum":"selective","operations":true,"vector":query,"eligible":["ff".repeat(16)],"promoted":[],"lexical":[],"reference":{"signature_doc":[],"source_body":[]}}]});
-    assert!(
-        importer
-            .qualify_hnsw(&reader, &serde_json::to_vec(&bogus).unwrap())
-            .await
-            .is_err()
-    );
-    assert!(
-        reader
-            .pin(
-                &source.manifest().context.library,
-                Some(source.generation()),
-                Some(ann)
-            )
-            .await
-            .is_err()
-    );
+    pr4::unit_ranks(&reader, &pinned, &root).await;
     reader.close().await;
     importer.close().await;
 }
 
 #[tokio::test]
-#[ignore = "explicit real PostgreSQL physical admission and recovery controls"]
-async fn physical_admission_reindex_and_artifact_relocation() {
+#[ignore = "explicit real PostgreSQL artifact reconstruction controls"]
+async fn current_artifact_relocation_and_diagnostics() {
     use lctx_postgres::profiles::Policy;
     let source = lctx_postgres::import::Source::open(&std::path::PathBuf::from(
         std::env::var("LCTX_TEST_PROJECTION").unwrap(),
@@ -904,88 +899,11 @@ async fn physical_admission_reindex_and_artifact_relocation() {
         .import(source.clone(), first.path().to_owned())
         .await
         .unwrap();
-    importer.build_hnsw(source.generation()).await.unwrap();
     let id = source.generation();
-    let policy = Policy::mixed(1024, vec!["unfiltered".into()]);
-    let profile = cpg_schema::Digest::from_hex(&policy.digest().unwrap()).unwrap();
-    let realization: serde_json::Value =
-        sqlx::query_scalar("SELECT lctx_serving.index_realization($1)")
-            .bind(id.0.as_slice())
-            .fetch_one(&f.serving)
-            .await
-            .unwrap();
-    assert_eq!(realization["valid"], true);
-    assert!(
-        sqlx::query("SELECT lctx_serving.record_mixed_profile($1,$2,$3)")
-            .bind(id.0.as_slice())
-            .bind(policy.canonical().unwrap())
-            .bind(serde_json::json!({"passed":true,"phase":"confirmation"}))
-            .execute(&f.importer)
-            .await
-            .is_err()
-    );
-    // Synthetic measurement documents challenge the finite SQL transition and lifecycle.
-    // These are fixture controls, never evidence of real ANN recall or latency qualification.
-    let calibration = serde_json::json!({"fixture":true,"passed":false,"phase":"calibration","pack_sha256":"01".repeat(32),"chosen_policy":policy});
-    sqlx::query("SELECT lctx_serving.record_mixed_profile($1,$2,$3)")
-        .bind(id.0.as_slice())
-        .bind(policy.canonical().unwrap())
-        .bind(calibration)
-        .execute(&f.importer)
-        .await
-        .unwrap();
-    let run = serde_json::json!({"passed":true,"plans_passed":true,"ann_execution_passed":true,"recall_at_10":1.,"fused_recall_at_10":1.,"ann_p95_ms":1.,"exact_p95_ms":2.});
-    let confirmation = serde_json::json!({"fixture":true,"passed":true,"phase":"confirmation","runner":2,"generation":id.hex(),"profile":profile.hex(),"policy":policy,"pack_sha256":"02".repeat(32),"calibration_sha256":"01".repeat(32),"realization":realization,"exact_reference_passed":true,"classes":[{"class":"unfiltered","queries":8,"runs":[run,run]}]});
-    sqlx::query("SELECT lctx_serving.record_mixed_profile($1,$2,$3)")
-        .bind(id.0.as_slice())
-        .bind(policy.canonical().unwrap())
-        .bind(confirmation)
-        .execute(&f.importer)
-        .await
-        .unwrap();
-    let reader = f.config.open_serving().await.unwrap();
     let lib = &source.manifest().context.library;
-    importer.select(lib, id, profile).await.unwrap();
-    let pin = reader.pin(lib, Some(id), Some(profile)).await.unwrap();
-    assert_eq!(
-        reader.diagnostics(id, true).await.unwrap()["generation"]["availability"],
-        "available"
-    );
-    let index = format!("lctx_serving.o_{}_d_ann", &id.hex()[..48]);
-    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("REINDEX INDEX {index}")))
-        .execute(&f.admin)
-        .await
-        .unwrap();
-    let changed: serde_json::Value =
-        sqlx::query_scalar("SELECT lctx_serving.index_realization($1)")
-            .bind(id.0.as_slice())
-            .fetch_one(&f.serving)
-            .await
-            .unwrap();
-    assert_ne!(realization, changed);
-    assert!(reader.pin(lib, Some(id), Some(profile)).await.is_err());
-    assert!(importer.select(lib, id, profile).await.is_err());
-    assert_eq!(pin.generation(), id.hex());
-    // A retained reader must recheck physical admission on the actual ANN path.
-    // The small default fixture stays exact; the pilot control has >1024 vector entities.
-    let population:i64=sqlx::query_scalar("SELECT count(DISTINCT node_id) FROM lctx_serving.operation_vectors WHERE generation_digest=$1").bind(id.0.as_slice()).fetch_one(&f.serving).await.unwrap();
-    if population > 1024 {
-        let mut query = vec![0.0f32; 1024];
-        query[0] = 1.;
-        assert!(matches!(
-            reader
-                .vector_ranks(
-                    &pin,
-                    &query,
-                    source.manifest().spec_hash.as_deref().unwrap(),
-                    true,
-                    None,
-                    10
-                )
-                .await,
-            Err(lctx_postgres::Error::Admission(_))
-        ));
-    }
+    config.role = Role::Serving;
+    config.url = config.url.replace("lctx_importer:", "lctx_serving:");
+    let reader = config.open_serving().await.unwrap();
     let exact = cpg_schema::Digest::from_hex(&Policy::exact().digest().unwrap()).unwrap();
     importer.select(lib, id, exact).await.unwrap();
     importer
@@ -1237,7 +1155,7 @@ async fn catalog_specificity_import_and_typed_hydration() {
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| {
             let base = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../build/pr1-catalog-fixture");
+                .join("../../build/catalog-fixture");
             base.join(
                 std::fs::read_to_string(base.join("CURRENT"))
                     .expect("run catalog fixture")
@@ -1335,3 +1253,6 @@ async fn catalog_specificity_import_and_typed_hydration() {
     reader.close().await;
     importer.close().await;
 }
+
+#[path = "serving/pr4.rs"]
+mod pr4;

@@ -694,10 +694,12 @@ fn compile(
         }
         // Stage G (§6.4): the generation, from the published snapshot alone.
         let bundling = Instant::now();
-        let generation = runtime.block_on(cpg_core::bundle::bundle(
+        let generation = runtime.block_on(cpg_core::bundle::bundle_with_embedding(
             store,
             published.snapshot_id,
             generations,
+            inputs.embedder.as_deref(),
+            pg.clone(),
         ))?;
         if let Some(db) = &pg {
             if let Err(error) = runtime.block_on(db::record_generation(db, store, &generation.dir))

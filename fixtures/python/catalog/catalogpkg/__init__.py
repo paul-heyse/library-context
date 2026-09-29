@@ -208,3 +208,19 @@ class StaticConstructor:
     @staticmethod
     def __init__(receiver, incoming: int):
         receiver.value = incoming
+
+from typing import Literal
+
+def literal_controls(text: Literal["http", "stdio"], flag: Literal[True], count: Literal[7]):
+    return text
+
+# Rebinding a public class does not change the owner of a retained old alias.
+@dataclass
+class ReboundOptions:
+    old_field: int = 1
+
+RetainedOptions = ReboundOptions
+
+@dataclass
+class ReboundOptions:
+    new_field: str = "new"

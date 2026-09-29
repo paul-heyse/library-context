@@ -262,6 +262,34 @@ async fn read(
     Ok(result)
 }
 
+/// Bound the complete operation after typed assembly, even without evidence associations.
+/// `reserve` accounts for the enclosing wire discriminator or pending evidence metadata.
+pub(crate) fn check_operation_packet(
+    result: &Value,
+    expanded: bool,
+    reserve: usize,
+) -> Result<(), Error> {
+    let bytes = serde_json::to_vec(result)
+        .map_err(|_| corrupt("operation packet encoding"))?
+        .len();
+    let budget = if expanded { 256 * 1024 } else { 32 * 1024 };
+    if bytes.saturating_add(reserve) > budget {
+        let catalog_bytes = serde_json::to_vec(&result["catalog"])
+            .map_err(|_| corrupt("catalog packet encoding"))?
+            .len();
+        let mode = if expanded { "expanded" } else { "default" };
+        let action = if expanded {
+            "read original evidence through get_evidence using a returned retrieval unit"
+        } else {
+            "request expanded=true"
+        };
+        return Err(refused(format!(
+            "operation packet exceeds {mode} byte budget (operation={bytes}, catalog={catalog_bytes}, limit={budget}); {action}"
+        )).into());
+    }
+    Ok(())
+}
+
 pub(crate) async fn enrich(
     conn: &mut PgConnection,
     g: &PinnedGeneration,
@@ -358,10 +386,9 @@ pub(crate) async fn enrich(
         )?);
     }
     if page.items.is_empty() && offset < total {
-        return Err(refused(
-            "mandatory API contract leaves no evidence-reference budget; request expanded",
-        )
-        .into());
+        // `result` still contains the first association which could not fit. Refuse the
+        // assembled packet explicitly; neither signatures nor behavioral fates are truncated.
+        return check_operation_packet(result, options.expanded, 2048);
     }
     result["catalog"]["evidence_page"] = json!(page);
     let mut demonstrated = std::collections::BTreeSet::new();
@@ -409,4 +436,172 @@ pub(crate) async fn enrich(
             .push(json!(demo));
     }
     Ok(())
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UnitCursor {
+    generation: String,
+    unit: Id,
+    position: usize,
+    inner: Option<String>,
+    expanded: bool,
+}
+impl ServingStore {
+    pub async fn get_retrieval_unit(
+        &self,
+        g: &PinnedGeneration,
+        snapshot: &str,
+        unit: cpg_schema::wire::RetrievalUnitId,
+        raw_cursor: Option<&str>,
+        expanded: bool,
+    ) -> Result<Value, Error> {
+        use cpg_schema::{
+            retrieval::{Anchor, Unit},
+            wire::{RetrievalEvidenceResult, RetrievalUnitHeader},
+        };
+        g.check_snapshot(snapshot)?;
+        let mut cursor = UnitCursor {
+            generation: g.generation(),
+            unit: unit.storage(),
+            position: 0,
+            inner: None,
+            expanded,
+        };
+        if let Some(raw) = raw_cursor {
+            if raw.len() > 2048 {
+                return Err(Error::Request("unit cursor budget".into()));
+            }
+            cursor = serde_json::from_slice(
+                &URL_SAFE_NO_PAD
+                    .decode(raw)
+                    .map_err(|_| Error::Request("unit cursor".into()))?,
+            )
+            .map_err(|_| Error::Request("unit cursor".into()))?;
+            if cursor.generation != g.generation()
+                || cursor.unit != unit.storage()
+                || cursor.expanded != expanded
+            {
+                return Err(Error::Request(
+                    "unit cursor belongs to another generation or target".into(),
+                ));
+            }
+        }
+        let mut lease = QueryLease::acquire(&self.pool).await?;
+        let generation_id = g.id;
+        let unit_id = unit.storage();
+        let detail = sqlx::query_file_scalar!(
+            "queries/unit_detail.sql",
+            generation_id.0.as_slice(),
+            unit_id.0.as_slice()
+        )
+        .fetch_optional(&mut *lease.connection)
+        .await?;
+        let unit: Unit = serde_json::from_str(
+            &detail.ok_or_else(|| Error::Request("retrieval unit not in generation".into()))?,
+        )
+        .map_err(|_| corrupt("retrieval unit contract"))?;
+        let fragments = cpg_schema::retrieval::fragments(&unit, 4096)?;
+        if cursor.position > fragments.len() + unit.anchors.len() {
+            return Err(Error::Request("unit cursor position".into()));
+        }
+        let mut result = RetrievalEvidenceResult {
+            snapshot_id: cpg_schema::wire::SnapshotId::parse(snapshot)?,
+            generation: cpg_schema::wire::GenerationDigest::parse(&g.generation())?,
+            unit: RetrievalUnitHeader::from(&unit),
+            fragment: None,
+            original: None,
+            next_cursor: None,
+        };
+        if let Some(fragment) = fragments.get(cursor.position) {
+            result.fragment = Some(fragment.clone());
+            cursor.position += 1;
+        } else {
+            while let Some(anchor) = unit.anchors.get(cursor.position - fragments.len()) {
+                let reference = match anchor {
+                    Anchor::Original { evidence } => Some(evidence.clone()),
+                    Anchor::Catalog { evidence } => {
+                        let evidence_id = evidence.storage();
+                        let spans = sqlx::query_file_scalar!(
+                            "queries/unit_original_span.sql",
+                            generation_id.0.as_slice(),
+                            evidence_id.0.as_slice()
+                        )
+                        .fetch_all(&mut *lease.connection)
+                        .await?;
+                        if spans.is_empty() {
+                            return Err(
+                                corrupt("catalog unit original span closure missing").into()
+                            );
+                        }
+                        Some(EvidenceRef::Span(cpg_schema::wire::SpanId::from_storage(
+                            id(spans[0].clone())?,
+                        )))
+                    }
+                    Anchor::Declaration { .. } => None,
+                };
+                if let Some(reference) = reference {
+                    let original = read(
+                        &mut lease.connection,
+                        g,
+                        reference,
+                        cursor.inner.as_deref(),
+                        expanded,
+                        if expanded { 240 * 1024 } else { 24 * 1024 },
+                    )
+                    .await?;
+                    cursor.inner = original.next_cursor.clone();
+                    result.original = Some(original);
+                    if cursor.inner.is_none() {
+                        cursor.position += 1;
+                    }
+                    break;
+                }
+                cursor.position += 1;
+            }
+        }
+        if cursor.position < fragments.len() + unit.anchors.len() {
+            result.next_cursor =
+                Some(URL_SAFE_NO_PAD.encode(
+                    serde_json::to_vec(&cursor).map_err(|_| corrupt("unit cursor encoding"))?,
+                ));
+        }
+        let value = serde_json::to_value(result).map_err(|_| corrupt("unit expansion encode"))?;
+        if serde_json::to_vec(&value)
+            .map_err(|_| corrupt("unit expansion bytes"))?
+            .len()
+            > if expanded { 256 * 1024 } else { 32 * 1024 }
+        {
+            return Err(refused("unit expansion budget").into());
+        }
+        lease.complete();
+        Ok(value)
+    }
+}
+
+#[cfg(test)]
+mod packet_budget_tests {
+    use super::*;
+
+    #[test]
+    fn operation_packets_without_associations_obey_both_wire_limits() {
+        for (expanded, limit) in [(false, 32 * 1024), (true, 256 * 1024)] {
+            let mut packet = json!({"catalog":{}, "parameters":[], "payload":""});
+            let overhead = serde_json::to_vec(&packet).unwrap().len() + 32;
+            packet["payload"] = json!("x".repeat(limit - overhead));
+            assert!(check_operation_packet(&packet, expanded, 32).is_ok());
+            packet["payload"] = json!("x".repeat(limit - overhead + 1));
+            let error = check_operation_packet(&packet, expanded, 32)
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains("operation packet exceeds"));
+            assert!(error.contains("catalog=2"));
+            assert_eq!(error.contains("request expanded=true"), !expanded);
+            assert_eq!(error.contains("get_evidence"), expanded);
+            assert_eq!(
+                packet["payload"].as_str().unwrap().len(),
+                limit - overhead + 1
+            );
+        }
+    }
 }

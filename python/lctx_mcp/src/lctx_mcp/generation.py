@@ -27,8 +27,8 @@ class GenerationError(RuntimeError):
 class LexicalState:
     brief_ids: np.ndarray
     brief_text: list[str]
-    operation_ids: np.ndarray
-    operation_text: list[str]
+    unit_fragments: pa.Table
+    unit_subjects: pa.Table
 
 
 @dataclass(frozen=True)
@@ -99,7 +99,14 @@ def load(
         return ids, table.column("text").to_pylist()
 
     briefs, brief_text = lexical("lexical_text", "brief_id")
-    operations, operation_text = lexical("operation_text", "node_id")
     return Generation(
-        repository, descriptor, LexicalState(briefs, brief_text, operations, operation_text), native
+        repository,
+        descriptor,
+        LexicalState(
+            briefs,
+            brief_text,
+            ipc.open_file(pa.BufferReader(inputs["retrieval_fragments"])).read_all(),
+            ipc.open_file(pa.BufferReader(inputs["retrieval_subjects"])).read_all(),
+        ),
+        native,
     )

@@ -51,7 +51,7 @@ async def smoke(
     capabilities = manifest["capabilities"]
     async with Client(transport) as client:
         page = await client.call_tool(
-            "find_operations", {"library": manifest["library"], "where": {}, "limit": 3}
+            "find_operations", {"library": manifest["library"], "selection": {}, "limit": 3}
         )
         if not page.structured_content:
             raise RuntimeError("operation discovery returned no structured result")

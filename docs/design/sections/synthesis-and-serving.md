@@ -14,7 +14,7 @@ live in `crates/cpg-schema/src/findings.rs` (kinds, statuses, `ASSERTION_POLICY`
 embedding is `crates/cpg-core/src/embed.rs`, `crates/lctx-embed` and
 `specs/embedding/`; serving is `python/lctx_mcp` (tests under `python/lctx_mcp/tests/`) with the
 native executor in `python/lctx_semantics`. Rationale: ADR-0005 (programmatic synthesis),
-ADR-0068 (interface, retrieval, embeddings) and proposed ADR-0025 (native executor). See the
+ADR-0078 (interface, retrieval, embeddings) and proposed ADR-0025 (native executor). See the
 [architecture map](../README.md).
 
 ## §10 Synthesis and briefs
@@ -35,7 +35,7 @@ order and the grounding rules below are **Implemented** and **Tested** (2026-09-
 - each rule rejects an injected violation in `the_analysis_rules_reject_their_violations`; the
   status rule, a floor and a ceiling, has three cases.
 
-**PR1 Implemented and Tested, 2026-09-28 (ADR-0072):** [§14](api-and-evidence-product.md)
+**PR1 Implemented and Tested, 2026-09-28 (ADR-0078):** [§14](api-and-evidence-product.md)
 adds mandatory API catalog construction and optional valid briefs. Existing synthesis validators
 still govern every emitted brief; absence of an admissible Outcome omits the brief with an explicit
 reason while preserving the valid catalog. Original declaration evidence has independent catalog
@@ -44,7 +44,7 @@ roots. Broader contextual evidence remains PR3 work.
 Briefs are one rendering of the analysis. Behavioral claims served through the operation tools
 (§11.3) come from the behavior relations directly, not from briefs.
 
-> Decision: ADR-0005, ADR-0067, ADR-0049, ADR-0071, ADR-0072
+> Decision: ADR-0005, ADR-0067, ADR-0049, ADR-0071, ADR-0078
 
 
 ### §10.1 Findings
@@ -303,13 +303,13 @@ Repository text is treated as untrusted data. It is never an instruction to the 
 
 ## §11 Serving and agent interface
 
-**Label.** The interface, retrieval and embedding contracts are accepted (ADR-0068). Lines cite
+**Label.** The interface, retrieval and embedding contracts are accepted (ADR-0078). Lines cite
 their own evidence: vLLM and model behaviour was **Tested** against the pinned service on
 2026-09-22; the server and clients are **Implemented** and **Tested** as stated per section;
 the native semantic executor is **Proposed** (ADR-0025) with a partial implementation (§11.3).
 Pins are in `docs/pins.md`.
 
-> Decision: ADR-0046, ADR-0068
+> Decision: ADR-0046, ADR-0078
 
 
 ### §11.1 Embedding spec and vectors
@@ -335,29 +335,25 @@ the document token cap (2,048), format, source width, reduction and launch admis
 hashes is rejected (`semantic:one-embedding-spec`).
 - **Query template (query only):** `Instruct: {task_description}\nQuery:{query}`. There is no
   space after `Query:`. Documents take no prefix, so one spec identifies one vector space for
-  briefs and operation views alike.
-- **One query instruction.** `search_capabilities` and `search_operations` embed queries with the
-  spec's one instruction, which names capability briefs. A per-tool instruction would change
-  `spec_hash`, and so every cached key; it waits for its trigger, the structured evaluation
-  attributing operation-search misses to the wording.
-- **Documents.** The brief document is the deterministic projection in §10.3: outcome,
-  applicable case (when one exists), public APIs, controls, usage description and limits. The
-  limits are the capability's own (Limits-section kinds other than `analysis_boundary`); what
-  the analysis did not follow stays in the served brief, out of retrieval. Each public
-  callable's **views** (`operation_documents`: signature and docstring, and source body; ADR-0071)
-  are documents too. A view is a **column** (`operation_documents.embedding_view`,
-  `operation_vectors.embedding_view`), not part of the cache key, so two views with the same text
-  share one vector.
+  briefs and addressable retrieval fragments alike.
+- **One query instruction.** Both search tools use: “Given a coding task, retrieve relevant Python
+  library APIs, capability briefs, configuration options, source code, usage examples, and
+  documentation.” A change invalidates the full spec and all affected vectors, including briefs.
+- **Documents.** The brief document is the deterministic projection in §10.3. Addressable
+  retrieval fragments come from the schema-owned API/options, source, scenario and documentation/
+  deployment families ([§14.8](api-and-evidence-product.md#section-14-8)). Unit ownership and
+  original anchors are distinct from rendered text; identical text under one spec can reuse a
+  vector while every member retains its own evidence occurrence.
 - **Rejected responses:** wrong count, wrong index mapping, wrong length, non-finite values,
   norm ≠ 1 ± ε, model mismatch.
 
 **Token admission.** Every text embedded under the spec is admitted by the
 spec's tokenizer at or below the document token cap before its vector enters the cache. Byte
 limits (the 4-bytes-per-token proxy that chunks brief documents, and the 4,096-byte windows that
-cut views and E0 texts at line ends) only prepare texts; a byte window is **not** a guarantee of
+prepare retrieval fragments and E0 text) only prepare texts; a byte window is **not** a guarantee of
 staying under 2,048 tokens. **Implemented, source-inspected 2026-09-27:** brief documents use
-`embed_documents`; operation views and E0 use `embed_texts`; both call the same `fill_cache`,
-which counts missing texts through the tokenizer and rejects over-cap requests before insertion.
+`embed_documents`; retrieval fragments and E0 use the shared embedding session. Admission
+counts missing texts through the tokenizer and rejects over-cap requests before insertion.
 Focused controls include `every_cache_fill_entry_admits_with_the_tokenizer` and
 `completed_batches_survive_a_later_failure`; current qualification is owned by
 ([plan W9](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
@@ -367,7 +363,7 @@ Focused controls include `every_cache_fill_entry_admits_with_the_tokenizer` and
   since the service is local; 10 s connect and 300 s request timeouts).
 - Query-time vectors come from Python (`httpx2`, pydantic's continuation of `httpx`, which
   FastMCP already depends on).
-- **Conformance** (**Tested**; ADR-0068). Over the shared conformance inputs, both clients build
+- **Conformance** (**Tested**; ADR-0078). Over the shared conformance inputs, both clients build
   byte-identical request bodies (`specs/embedding/request_bodies.json`), apply the same rejections
   (`every_rejection_fires`) and judge responses alike, Rust by its serde types and Python by
   pydantic strict models, held to one corpus of 25 bodies (`specs/embedding/responses.json`;
@@ -397,7 +393,7 @@ The attempt retains exact returned values before any consumer uses them; later c
 those bytes even if the service becomes unavailable or its disposable cache is restored.
 `used_embeddings` and `embedding_uses` in Delta capture all operation, E0/kNN and brief inputs.
 Content identity includes exact value digests, and bundle replay reads the published snapshot
-alone. See [§6.5](storage-and-publication.md#section-6-5) and ADR-0068/0067.
+alone. See [§6.5](storage-and-publication.md#section-6-5) and ADR-0078/0067.
 
 `lctx compile --embedder vllm|fake` requires configured PostgreSQL. The deterministic fixture
 API has an explicit uncached route; database errors never select it. `--embedder none` and
@@ -406,9 +402,9 @@ remains separate from deterministic integration under [W9/W16](../../plans/behav
 
 ### §11.2 Retrieval
 
-**In-process, exact, over the pinned generation** (ADR-0068; `lctx_mcp.retrieval`;
-**Implemented** and **Tested** for file serving). The accepted PostgreSQL route preserves exact
-full ranks and the same lexical/fusion policy; HNSW is a separately qualified explicit profile.
+**In-process, exact, over the pinned generation** (ADR-0078; `lctx_mcp.retrieval`;
+**Implemented**, with focused **Tested** controls). PostgreSQL preserves exact full ranks.
+The current runtime admits only the exact profile (ADR-0078).
 
 1. **Lexical.** BM25 over `lexical_text`, scored by `bm25s` (`method="lucene"`, k1 1.5, b 0.75,
    numpy backend, `get_scores`) over our own tokenization: lower-cased runs of letters and digits.
@@ -434,7 +430,10 @@ full ranks and the same lexical/fusion policy; HNSW is a separately qualified ex
    vectors, or the service down), reported as `lexical-only` with its reason. Embedder failures
    are caught inside the search tool, never surfaced as a retry.
 
-`search_operations` applies the same fusion per operation view, labelled `ranked_discovery`.
+`search_operations` uses addressable retrieval units and family fusion under
+[§14.8](api-and-evidence-product.md#section-14-8): best member/family/channel ranks, RRF60 within
+families and equal family-rank RRF60 across families. Returned winners identify original evidence.
+Typed selection determines eligibility before either retrieval channel and exact-symbol promotion.
 
 **Registered parameters.** Tokenization, fusion, the brief-document template and every parameter
 above are registered. None changes on the strength of gold scores; a change needs an ADR with a
@@ -452,36 +451,35 @@ lower brief id and a promoted brief ranks first
 with its reason (`test_a_down_embedder_degrades_to_lexical_and_says_so`). The fixture's fake
 vectors carry no meaning, so ranking quality is an evaluation question, not a unit test.
 
-**Implemented PG route (2026-09-28; ADR-0068/0070).** pgvector stores standard full-float 1024 vectors. Exact
-requests rank all eligible entities per view before fusion; an index must not silently change
-this route. Explicit HNSW profiles declare generation/filter isolation, chunk aggregation,
-candidate/widening/underfill, numeric ties and qualification. Exact remains default; live ANN
-activation requires passing generation-specific recall/plan/latency criteria. LanceDB,
-FTS and changed lexical policy require a named capability beyond the selected route.
+**Implemented PG route (2026-09-28; ADR-0078/0077/0078).** pgvector stores standard full-float
+1024 vectors. Exact requests rank all eligible members before fusion, with a metadata-only
+membership query admitting each winning unit. ANN admission, qualification and old-format readers
+have been removed. Any future approximate route needs its own measured need and qualification.
 
-> Decision: ADR-0068, ADR-0070
+> Decision: ADR-0077, ADR-0078
 
 ### §11.3 FastMCP contract
 
-**Target overlay, Proposed (ADR-0071):** [§14.7–§14.10](api-and-evidence-product.md#section-14-7)
-owns typed requirement states, bounded implementation packets and independent evidence/browsing.
-**PR1 Implemented and Tested, 2026-09-28 (ADR-0072):** ordered
+**Product contracts (ADR-0071/0077):** [§14.7–§14.10](api-and-evidence-product.md#section-14-7)
+owns implemented typed selection and addressable retrieval; PR5 bounded implementation packets
+and independent evidence/browsing remain Proposed.
+**PR1 Implemented and Tested, 2026-09-28 (ADR-0078):** ordered
 catalog contracts, optional semantic capability loading and versioned migration. Contracts below
 also retain existing behavioral queries and semantic research.
 
 **PR2 wire contracts Implemented (ADR-0073), 2026-09-28:**
 [§14.7/§14.9](api-and-evidence-product.md#section-14-7) own the Rust requests and complete nested
-current packets. All six existing tools use generated Schemars input/output schemas through a thin
+current packets. All seven existing tools use generated Schemars input/output schemas through a thin
 FastMCP `Tool`; the capability resource uses the same request/response owner. Rust validates before
 effects and after final tagging/default insertion. Native work detaches from the GIL inside the
 bounded worker/deadline envelope; cancellation keeps its admitted slot until completion. Generic
 Python packet views serve presentation only; migrated semantic Pydantic declarations and Python
 value-path cursor decisions are removed. `get_operation` enforces 32 KiB by default and 256 KiB with
-`expanded=true`, refusing rather than truncating signature contracts. New PR4 classifier semantics
-and PR5 tools remain Proposed; [forward-plan §6.2](../../plans/behavioral-model-forward-plan_2026-09-24.md#62-product-target-findings-and-recommendation-disposition)
+`expanded=true`, refusing rather than truncating signature contracts. PR4 classifier semantics are Implemented;
+PR5 tools remain Proposed; [forward-plan §6.2](../../plans/behavioral-model-forward-plan_2026-09-24.md#62-product-target-findings-and-recommendation-disposition)
 owns qualification and finding disposition.
 
-> Decision: ADR-0071, ADR-0072, ADR-0073
+> Decision: ADR-0071, ADR-0078, ADR-0073
 
 - **Package.** `python/lctx_mcp`. It depends on `fastmcp` 4.0.x, `pyarrow` (the generation
   reader), `numpy`, `bm25s` and `httpx2`, never on vLLM, Delta or the compiler; versions are in
@@ -504,7 +502,7 @@ owns qualification and finding disposition.
 - **State.** The generation is exposed through `ctx.lifespan_context`. One generation per
   process.
 
-**Tools** (all typed pydantic inputs, object outputs, never bare lists, and
+**Tools** (Rust-owned Schemars/Serde inputs and object outputs, never bare lists, and
 `ToolAnnotations(read_only_hint=True, idempotent_hint=True, open_world_hint=False)`):
 
 | Tool | Parameters | Output | State |
@@ -512,8 +510,9 @@ owns qualification and finding disposition.
 | `search_capabilities` | library, query (1–4000 chars), limit (1–10) | `SearchResult`: snapshot, generation key, mode (hybrid or lexical-only), coverage summary, hits (brief id, title, outcome, outcome `evidence_status`, relevance score, rank source, promoted flag) | Implemented, Tested |
 | `get_capability` | snapshot_id, capability_id | `Capability`: all §10.3 sections, evidence and statuses | Implemented, Tested |
 | `get_operation` | snapshot_id, operation (a public path or id, or a module-global singleton's name, which resolves to its class) | `Operation`: paths, signature, docstring summary, facets and which are incomplete, each parameter's fates (forwards, derives, stores, returns, raises, tests, is-read claims) with verdicts, conditions and lines, delegations, handoffs, settings read with their phase, a class's constructor record, a singleton's fields (their reads and never-read claims), boundaries, the brief id if any | Implemented, Tested |
-| `find_operations` | library, `where`, limit (1–50), cursor | `OperationSet`: matches, `complete`, the operations that could still match, `truncated`, next cursor. Never vectors | Implemented (facet terms), Tested; semantic terms Proposed |
-| `search_operations` | library, query, optional `where`, limit (1–10) | `OperationHits`: ranked, per-view RRF, labelled `ranked_discovery` | Implemented, Tested |
+| `find_operations` | library, typed `selection` (default discovery), limit (1–100, default 20), cursor | `SelectionResults`: independently paged supported, unresolved and conflicting groups; contradiction count, contextual witnesses and joint applicability | Implemented; focused Tested |
+| `search_operations` | library, query, typed `selection`, limit (1–100, default 20), cursor | Ranked selection groups with addressable winning units, exact route and channel/policy metadata | Implemented; focused Tested |
+| `get_evidence` | snapshot_id, tagged evidence reference, limit, cursor | Original evidence or retrieval-unit header with bounded subjects/anchors and paged original bytes | Implemented; focused Tested |
 | `inspect_value_paths` | snapshot_id, operation, formal, exact primitive input, limit (1–50), cursor | A page of cited value-summary paths with path-local assessments, link operand spans and work counters | Implemented, Tested (native, path-local) |
 | `lookup_concepts` | text, limit | Candidate concepts with labels and scope notes | Proposed (Stage 4) |
 | `explain` | snapshot_id, claim id | The rule id, premises and source spans | Proposed (Stage 4) |
@@ -566,37 +565,24 @@ support closure in every form:
   finalizer-bearing generation check remain
   ([plan W1](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
 
-**`find_operations` semantics.** **`where`** is a conjunction of terms, with **no negation**
-(a NOT would read absent facts as false). Implemented terms:
-- `{facet, value}`: exact equality on an `operation_facets` row;
-- `{kind}`: function, method or class;
-- `{path_prefix}`.
+**Selection semantics (Implemented, 2026-09-28; ADR-0077).** `selection` is a conjunction of at
+most sixteen typed requirements. The shared Rust classifier owns coverage, existential/universal
+quantification, comparable-context conflict and whole-conjunction context intersection. Missing
+facts remain unresolved unless a scoped domain establishes absence. A positive witness does not
+establish complete coverage. Supported, unresolved and conflicting groups retain actual contextual
+witnesses; contradictions are excluded and counted. Strict mode returns supported members only.
+[§14.7](api-and-evidence-product.md#section-14-7) owns the complete contract.
 
-An unknown facet is invalid params. An unknown **value** is invalid params only where every
-operation's rows for that facet are complete, and the error names close values; elsewhere
-absence is not known, and the answer is empty with `complete = false`.
+Behavioral facets retain their five verdicts and per-operation completeness from
+`operation_facet_status`. Class parameter facets use public constructor contracts; direct raises,
+usage shapes and open calls do not establish complete absence. Selection consumes these facts
+without converting unknown into false or changing the source verdict.
 
-**Completeness is served data**, not a class Python decides (**Implemented** and **Tested**):
-- `operation_facet_status` holds, per operation and facet, `established` when its rows are
-  complete, or the verdict and why they are not:
-  - a class's `parameter` and `parameter_type` are its public constructor's (its own or inherited
-    `__init__` path), and without one they are `not_analyzed`;
-  - `returns` does not apply to a class;
-  - `raises` is never complete (only a typed `raise` directly in the body is a row);
-  - `forwards_to` and `delegates_to` take the operation's `behavior_status`;
-  - `hands_off_to` and `takes_from` are never complete (two usage shapes only).
-  Facet names are held to the codebook by `specs/serving/facets.json`.
-- `operation_facets` rows carry a verdict. Only `established` and `conditional` rows **match**. An
-  `unknown` row (a path through an override-open call) leaves its operation open.
-- **An operation hides a possible match** when, for every term, it matches or is open (its rows
-  are incomplete, or its row is `unknown`), and it is not a match. `complete` is true exactly when
-  no operation in the universe hides one.
-- `unknown` lists the hiding operations, capped at 50, with a count and a flag. It is evidence, not
-  a bound. **`complete` is never "not truncated"**: truncation has its own flag.
-
-**Cursor and snapshot.** The cursor is opaque and binds the generation key, the request's
-canonical hash and an offset. A cursor from another generation or request is invalid params.
-Every result names its `snapshot_id`.
+**Cursor and snapshot.** Each opaque group cursor binds the generation, canonical request,
+retrieval policy and channel availability. Groups continue independently. Every candidate has a
+public member ID, an optional behavioral operation ID and separate aliases. Raw member IDs can
+be passed to `get_operation`; winning unit IDs can be passed to `get_evidence`. Metadata omission,
+original-evidence pagination and classification coverage remain separate.
 
 **Proposed Stage 3 semantic terms** (ADR-0025): `{effect}`, `{role}` and
 `{compatible_with: <typed condition>}`. The condition grammar is closed and canonicalized by
@@ -616,7 +602,7 @@ generation/query-bound cursor. Row, depth and pair-work budgets have the same un
 behavior.
 
 **Accepted consolidation target (Proposed implementation, 2026-09-26).** The expanded contract
-uses FORMAT 9 through a current-store/generation rebuild (ADR-0048). The callable-support
+uses the current bundle contract through a complete store/generation rebuild (ADR-0048/0078). The callable-support
 subset is **Implemented (2026-09-27)**: private/nested formals validate callee controls without
 entering public lookup. Flow fates also carry typed transfer and the scope that owns their condition;
 Python preserves these fields instead of inferring transfer from presentation text. The remaining
@@ -628,7 +614,7 @@ Typed effect/role terms and conjunctions of exact entry-formal primitive binding
 and canonicalized by Rust. Python remains a protocol/rendering adapter. Shared typed proof
 admission replaces shape-specific native rules, with full bounded source support. Coverage,
 truncation and omitted evidence remain separate. The existing path-inspection API remains
-path-local. FORMAT 8 is no longer accepted.
+path-local. Only the current format is accepted.
 
 The channel contract additionally separates complete empty results from unanalyzed emptiness.
 Conjoined semantic terms require compatible conditions and subject/phase scopes. Structural proof
@@ -683,7 +669,7 @@ row storing its rule id and proof height. Under ADR-0025 the native executor may
 stored witness links at request time, retaining their row ids and reporting a boundary if the
 depth budget is reached.
 
-> Decision: ADR-0068, ADR-0070, ADR-0025, ADR-0046, ADR-0049, ADR-0071
+> Decision: ADR-0078, ADR-0025, ADR-0046, ADR-0049, ADR-0071
 
 
 **Accepted frame-completion target, implementation in progress (ADR-0063).** Every modeled normal-call obligation,
@@ -698,10 +684,10 @@ mutation controls pass. Typed Normal postconditions remain independent of actual
 
 ### §11.4 PostgreSQL serving and conditional workflows
 
-**PG12–PG17 Implemented, Tested and Measured for local exact serving, 2026-09-28.**
-Operator migration008, two-generation rollover and populated recovery passed. ANN activation
-remains conditional after real calibration failed plan/latency benefit gates.
-The [PostgreSQL plan](../../plans/postgresql-integration-plan_2026-09-27.md) owns execution;
+**Implemented and bounded Tested, 2026-09-28; live embedding waived for PR4.** Current-format PostgreSQL
+serving uses exact ranking and explicit generation pinning. PR4 replaces obsolete runtime state
+after validation; no historical reader or ANN activation path remains.
+The [PostgreSQL workstream](../../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-workstream) owns execution;
 [§6.5](storage-and-publication.md#section-6-5) owns effects and physical storage.
 
 `cpg-schema` declares manifests, relation shapes/keys and complete support validation once.
@@ -722,8 +708,7 @@ or reader-unsafe ready-generation deletion is introduced. Exact semantic selecti
 unknowns, coverage and the five verdicts. SQL selects materialized facts; native Rust interprets
 bounded semantics. Ranked retrieval never defines the exhaustive operation universe.
 
-PG14 owns exact ranks and qualified pgvector HNSW profiles; Python retains lexical scoring and
-registered fusion. PG15 owns admitted DataFusion predicates and coherent read views. Independently
+PostgreSQL owns exact scores/ranks; Python retains lexical scoring and family fusion, and native assembly validates the shared ranking contract. Old fixed-view ANN code is removed; future adoption requires current-content qualification. PG15 owns admitted DataFusion predicates and coherent read views. Independently
 pooled mutable reads are not one snapshot; the initial coherent report materializes under one
 bounded read-only repeatable-read transaction.
 
@@ -732,17 +717,11 @@ Psycopg 3/SQLAlchemy only for a distinct Python-owned domain; pgrx only for a me
 kernel consumer; ADBC/protocol/notification/FTS/topology features only at the plan's named triggers.
 None adds a second migration owner or changes model/evaluation meaning.
 
-> Decision: ADR-0068, ADR-0070
+> Decision: ADR-0078
 
-**Implemented; focused controls Tested (2026-09-28; ADR-0070).** Projection FORMAT 2 / bundle FORMAT 12 binds
-release identity and complete coverage context. PG12 validates stored projection rows before
-readiness; PG13 preserves exact query/native contracts; PG14 qualifies separately selected
-exact/HNSW profiles; PG15 admits bounded provider expressions and coherent operational reports.
-Implementation and qualification remain separately tracked in the PostgreSQL plan.
-
-**Implemented and Tested (2026-09-28; ADR-0070):** physical-index ANN admission, mixed exact/ANN
-routing, complete artifact-bearing recovery receipts and bounded operational diagnostics are
-available. The deployed live generation uses exact retrieval; no ANN class passed calibration.
-Restore/reindex invalidation and complete recovery through MCP serving passed. The
-[operations evidence](../../design_review/evidence/2026-09-28_postgresql-operations/README.md) records
-measured costs and the numerical-oracle boundary. Positive ANN admission remains conditional.
+**PR4 Implemented and bounded Tested under the live-embedding waiver (2026-09-28; ADR-0077/0078).** Bundle16/projection6/wire3
+bind the mandatory catalog, explicit optional capabilities, contextual selection and addressable retrieval.
+Publication/import validate stored rows and complete artifact closure before readiness. Exact is the sole
+current vector route; old ANN admission/routing and historical-runtime recovery code are removed.
+Current-format reconstruction, typed selection, native CPU admission, winning-unit references and full
+code/live qualification remain separately reported in the forward plan and PR4 evidence.

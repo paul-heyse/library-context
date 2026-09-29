@@ -162,6 +162,8 @@ key:edge_kinds
   SELECT snapshot_id, edge_kind, count(*) AS n FROM edge_kinds GROUP BY snapshot_id, edge_kind HAVING count(*) > 1
 key:catalog_compilation
   SELECT snapshot_id, count(*) AS n FROM catalog_compilation GROUP BY snapshot_id HAVING count(*) > 1
+key:catalog_selection_domains
+  SELECT snapshot_id, member_id, count(*) AS n FROM catalog_selection_domains GROUP BY snapshot_id, member_id HAVING count(*) > 1
 key:catalog_members
   SELECT snapshot_id, member_id, count(*) AS n FROM catalog_members GROUP BY snapshot_id, member_id HAVING count(*) > 1
 key:catalog_bindings
@@ -370,8 +372,6 @@ key:behaviors
   SELECT snapshot_id, behavior_id, count(*) AS n FROM behaviors GROUP BY snapshot_id, behavior_id HAVING count(*) > 1
 key:behavior_steps
   SELECT snapshot_id, behavior_id, step, count(*) AS n FROM behavior_steps GROUP BY snapshot_id, behavior_id, step HAVING count(*) > 1
-key:operation_documents
-  SELECT snapshot_id, node_id, embedding_view, chunk, count(*) AS n FROM operation_documents GROUP BY snapshot_id, node_id, embedding_view, chunk HAVING count(*) > 1
 key:analysis_invocations
   SELECT snapshot_id, invocation_id, count(*) AS n FROM analysis_invocations GROUP BY snapshot_id, invocation_id HAVING count(*) > 1
 key:findings
@@ -2510,8 +2510,6 @@ codebook:behaviors.phase
   SELECT phase FROM behaviors WHERE phase IS NOT NULL AND phase NOT IN (0, 1, 2, 3)
 codebook:behavior_steps.modality
   SELECT modality FROM behavior_steps WHERE modality IS NOT NULL AND modality NOT IN (0, 1, 2)
-codebook:operation_documents.embedding_view
-  SELECT embedding_view FROM operation_documents WHERE embedding_view IS NOT NULL AND embedding_view NOT IN (0, 1)
 codebook:analysis_invocations.extraction_mode
   SELECT extraction_mode FROM analysis_invocations WHERE extraction_mode IS NOT NULL AND extraction_mode NOT IN (0, 1, 2, 3, 4, 5, 6, 7, 8)
 codebook:analysis_invocations.method
@@ -2672,10 +2670,8 @@ semantic:document-vector-cached
   SELECT d.brief_id, d.chunk FROM brief_documents d LEFT ANTI JOIN used_embeddings c ON c.spec_hash = d.spec_hash AND c.input_hash = d.input_hash WHERE d.input_hash IS NOT NULL
 semantic:embedding-use-receipt
   SELECT u.input_hash FROM embedding_uses u LEFT ANTI JOIN used_embeddings v ON v.snapshot_id=u.snapshot_id AND v.spec_hash=u.spec_hash AND v.input_hash=u.input_hash UNION ALL SELECT v.input_hash FROM used_embeddings v LEFT ANTI JOIN embedding_uses u ON v.snapshot_id=u.snapshot_id AND v.spec_hash=u.spec_hash AND v.input_hash=u.input_hash
-semantic:operation-vector-cached
-  SELECT d.node_id FROM operation_documents d LEFT ANTI JOIN used_embeddings v ON v.snapshot_id=d.snapshot_id AND v.spec_hash=d.spec_hash AND v.input_hash=d.input_hash WHERE d.input_hash IS NOT NULL
 semantic:embedding-consumer-attribution
-  SELECT d.input_hash FROM operation_documents d LEFT ANTI JOIN embedding_uses u ON u.snapshot_id=d.snapshot_id AND u.spec_hash=d.spec_hash AND u.input_hash=d.input_hash AND (u.usage_mask & 1)=1 WHERE d.input_hash IS NOT NULL UNION ALL SELECT d.input_hash FROM brief_documents d LEFT ANTI JOIN embedding_uses u ON u.snapshot_id=d.snapshot_id AND u.spec_hash=d.spec_hash AND u.input_hash=d.input_hash AND (u.usage_mask & 4)=4 WHERE d.input_hash IS NOT NULL
+  SELECT d.input_hash FROM brief_documents d LEFT ANTI JOIN embedding_uses u ON u.snapshot_id=d.snapshot_id AND u.spec_hash=d.spec_hash AND u.input_hash=d.input_hash AND (u.usage_mask & 4)=4 WHERE d.input_hash IS NOT NULL
 semantic:one-embedding-spec
   SELECT count(*) AS specs FROM embedding_specs HAVING count(*) > 1
 semantic:documented-parameter-cites-its-doc

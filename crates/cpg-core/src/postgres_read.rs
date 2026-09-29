@@ -792,7 +792,7 @@ pub async fn report(
         writer.write_batches(&batches.iter().collect::<Vec<_>>())?;writer.finish()?;
         let rows:serde_json::Value=serde_json::from_slice(&writer.into_inner()).map_err(|_|crate::CoreError::Bundle("report JSON encoding".into()))?;
         let mut diagnostics=serde_json::Map::new();
-        for view in [View::ProjectionState,View::Profiles,View::Selections,View::ProfileAttempts] {
+        for view in [View::ProjectionState,View::Profiles,View::Selections] {
             let mut writer=datafusion::arrow::json::ArrayWriter::new(Vec::new());
             writer.write_batches(&capture.tables[view.name()].iter().collect::<Vec<_>>())?;writer.finish()?;
             diagnostics.insert(view.name().into(),serde_json::from_slice(&writer.into_inner()).map_err(|_|crate::CoreError::Bundle("report diagnostics encoding".into()))?);

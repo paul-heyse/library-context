@@ -819,24 +819,9 @@ pub fn files(dimensions: i32) -> Vec<ServingFile> {
             ],
             &["place_key"],
         ),
-        file(
-            "operation_text",
-            vec![id("node_id", false), utf8("text", false)],
-            &["node_id"],
-        ),
-        file(
-            "operation_vectors",
-            vec![
-                id("node_id", false),
-                utf8("embedding_view", false),
-                int("chunk", false),
-                digest("input_hash", false),
-                Field::new("vector", vector_type(dimensions), false),
-            ],
-            &["node_id", "embedding_view", "chunk"],
-        ),
     ];
     out.extend(crate::catalog::serving_files());
+    out.extend(crate::retrieval::files(dimensions));
     out
 }
 

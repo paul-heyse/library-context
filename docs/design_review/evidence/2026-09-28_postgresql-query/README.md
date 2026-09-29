@@ -1,6 +1,6 @@
 # PostgreSQL PG12–PG15 query integration evidence
 
-Dated 2026-09-28. The [PostgreSQL plan](../../../plans/postgresql-integration-plan_2026-09-27.md)
+Dated 2026-09-28. The [PostgreSQL plan](../../../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-workstream)
 owns scope; [forward-plan §6.1](../../../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-findings)
 owns findings. ADR-0069 binds the context/query contract. These receipts qualify the bounded
 implementation; PG16 operator rollover/recovery and PG17 assembled live ANN/cost acceptance remain

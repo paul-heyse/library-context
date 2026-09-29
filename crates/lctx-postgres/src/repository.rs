@@ -8,13 +8,12 @@ use crate::{
 };
 use arrow_array::{Array, BooleanArray, FixedSizeBinaryArray, Int64Array, StringArray};
 use arrow_schema::DataType;
-use base64::{Engine as _, engine::general_purpose::URL_SAFE};
 use cpg_schema::{
     id::{Digest, Id},
     serving_projection::{self as contract, Manifest, corrupt, refused},
 };
 use futures::TryStreamExt;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::{Map, Value, json};
 use sqlx::{PgConnection, Row, ValueRef};
 use std::{collections::BTreeSet, path::PathBuf};
@@ -28,7 +27,6 @@ pub struct PinnedGeneration {
     pub(crate) policy: Policy,
     pub(crate) profile: Digest,
     pub(crate) artifacts: Vec<(String, PathBuf)>,
-    pub(crate) vector_population: Option<u64>,
 }
 impl PinnedGeneration {
     pub fn id(&self) -> Digest {
@@ -56,18 +54,10 @@ impl PinnedGeneration {
         Ok(())
     }
 }
-pub use cpg_schema::wire::{FacetTerm, Where};
 impl From<cpg_schema::wire::WireError> for Error {
     fn from(e: cpg_schema::wire::WireError) -> Self {
         Self::Request(e.to_string())
     }
-}
-#[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Cursor {
-    g: String,
-    h: String,
-    o: u64,
 }
 #[derive(Debug, Clone, Serialize)]
 pub struct ResolvedOperation {
@@ -119,20 +109,13 @@ impl ServingStore {
             return Err(corrupt("profile identity").into());
         }
         let artifacts = verify_locations(&mut lease.connection, &id, &manifest).await?;
-        let vector_population = if policy.route == crate::profiles::Route::Mixed {
-            Some(crate::admission::universe(&mut lease.connection, id).await?)
-        } else {
-            None
-        };
         let pinned = PinnedGeneration {
             id,
             manifest,
             profile,
             policy,
             artifacts,
-            vector_population,
         };
-        crate::admission::check(&mut lease.connection, &pinned).await?;
         lease.complete();
         Ok(pinned)
     }
@@ -149,107 +132,33 @@ impl ServingStore {
     pub async fn find_operations(
         &self,
         generation: &PinnedGeneration,
-        filter: &Where,
+        selection: &cpg_schema::wire::Selection,
         limit: u32,
         cursor: Option<&str>,
     ) -> Result<Value, Error> {
-        filter.validate()?;
-        if !(1..=50).contains(&limit) {
-            return Err(Error::Request("limit must be 1 through 50".into()));
-        }
-        let hash = filter.hash()?;
-        let offset = if let Some(cursor) = cursor {
-            if cursor.len() > 2048 {
-                return Err(Error::Request("invalid cursor".into()));
-            }
-            let value: Cursor = serde_json::from_slice(
-                &URL_SAFE
-                    .decode(cursor)
-                    .map_err(|_| Error::Request("invalid cursor".into()))?,
-            )
-            .map_err(|_| Error::Request("invalid cursor".into()))?;
-            if value.g != generation.id.hex()
-                || value.h != hash
-                || value.o > contract::MAX_RELATION_ROWS as u64
-            {
-                return Err(Error::Request(
-                    "cursor belongs to another generation or request".into(),
-                ));
-            }
-            value.o
-        } else {
-            0
-        };
-        let mut lease = QueryLease::acquire(&self.pool).await?;
-        check_terms(&mut lease.connection, generation, filter).await?;
-        let rows = classify(&mut lease.connection, generation, filter).await?;
-        let mut matches = Vec::new();
-        let mut unknown = Vec::new();
-        let mut total = 0;
-        let mut unknown_total = 0;
-        for row in rows {
-            let matched: bool = row.try_get("matched")?;
-            let opened: bool = row.try_get("opened")?;
-            if matched {
-                if total >= offset && matches.len() < (limit as usize) {
-                    matches.push(row.try_get::<Vec<u8>, _>("node_id")?);
-                }
-                total += 1;
-            } else if opened {
-                unknown_total += 1;
-                if unknown.len() < 50 {
-                    unknown.push(row.try_get::<Vec<u8>, _>("node_id")?);
-                }
-            }
-        }
-        let next = offset + matches.len() as u64;
-        let more = next < total;
-        let next_cursor = if more {
-            Some(
-                URL_SAFE.encode(
-                    serde_json::to_vec(&Cursor {
-                        g: generation.id.hex(),
-                        h: hash,
-                        o: next,
-                    })
-                    .map_err(|_| corrupt("cursor encoding"))?,
-                ),
-            )
-        } else {
-            None
-        };
-        let matches = operation_refs(&mut lease.connection, generation, &matches).await?;
-        let unknown = operation_refs(&mut lease.connection, generation, &unknown).await?;
-        let result = json!({"snapshot_id":generation.manifest.snapshot_id,"generation":generation.id.hex(),"matches":matches,"total":total,"complete":unknown_total==0,"unknown":unknown,"unknown_total":unknown_total,"unknown_truncated":unknown_total>50,"truncated":more,"next_cursor":next_cursor});
-        check_response(&result)?;
-        lease.complete();
-        Ok(result)
+        let prepared = self.prepare_selection(generation, selection, "").await?;
+        let generation = generation.clone();
+        let cursor = cursor.map(str::to_owned);
+        self.run_cpu(move || prepared.page(&generation, limit, cursor.as_deref()))
+            .await
     }
     /// Exact eligibility and name promotion, without retaining a lease during embedding/fusion.
     pub async fn search_scope(
         &self,
         generation: &PinnedGeneration,
-        filter: Option<&Where>,
         query: &str,
-        operations: bool,
     ) -> Result<Value, Error> {
         let mut lease = QueryLease::acquire(&self.pool).await?;
-        let mut eligible = Vec::new();
-        let promoted: Vec<Vec<u8>>;
-        if operations {
-            let filter = filter.cloned().unwrap_or_default();
-            filter.validate()?;
-            check_terms(&mut lease.connection, generation, &filter).await?;
-            for row in classify(&mut lease.connection, generation, &filter).await? {
-                if row.try_get::<bool, _>("matched")? {
-                    eligible.push(hex(row.try_get::<Vec<u8>, _>("node_id")?));
-                }
-            }
-            promoted=sqlx::query_scalar("SELECT node_id FROM lctx_serving.public_paths WHERE generation_digest=$1 AND access_path=$2").bind(generation.id.0.as_slice()).bind(query.trim()).fetch_all(&mut *lease.connection).await?;
-        } else {
-            eligible=sqlx::query_scalar::<_,Vec<u8>>("SELECT brief_id FROM lctx_serving.briefs WHERE generation_digest=$1 ORDER BY brief_id").bind(generation.id.0.as_slice()).fetch_all(&mut *lease.connection).await?.into_iter().map(hex).collect();
-            promoted=sqlx::query_scalar("SELECT brief_id FROM lctx_serving.symbol_map WHERE generation_digest=$1 AND symbol=$2 ORDER BY brief_id").bind(generation.id.0.as_slice()).bind(query.trim()).fetch_all(&mut *lease.connection).await?;
-        }
+        let eligible: Vec<String> = sqlx::query_scalar::<_, Vec<u8>>(
+            "SELECT brief_id FROM lctx_serving.briefs WHERE generation_digest=$1 ORDER BY brief_id",
+        )
+        .bind(generation.id.0.as_slice())
+        .fetch_all(&mut *lease.connection)
+        .await?
+        .into_iter()
+        .map(hex)
+        .collect();
+        let promoted: Vec<Vec<u8>> = sqlx::query_scalar("SELECT brief_id FROM lctx_serving.symbol_map WHERE generation_digest=$1 AND symbol=$2 ORDER BY brief_id").bind(generation.id.0.as_slice()).bind(query.trim()).fetch_all(&mut *lease.connection).await?;
         if eligible.len() > contract::MAX_RELATION_ROWS {
             return Err(refused("search eligibility row budget").into());
         }
@@ -264,31 +173,6 @@ impl ServingStore {
         lease.complete();
         Ok(result)
     }
-}
-fn operation_ref(row: &sqlx::postgres::PgRow) -> Result<Value, Error> {
-    Ok(
-        json!({"operation_id":hex(row.try_get::<Vec<u8>,_>("node_id")?),"access_path":row.try_get::<String,_>("access_path")?,"kind":row.try_get::<String,_>("kind")?,"docstring_summary":row.try_get::<Option<String>,_>("docstring_summary")?,"behavior_status":row.try_get::<String,_>("behavior_status")?}),
-    )
-}
-async fn operation_refs(
-    conn: &mut PgConnection,
-    generation: &PinnedGeneration,
-    ids: &[Vec<u8>],
-) -> Result<Vec<Value>, Error> {
-    let mut stream=sqlx::query("SELECT node_id,access_path,kind,docstring_summary,behavior_status FROM lctx_serving.operations WHERE generation_digest=$1 AND node_id=ANY($2) ORDER BY access_path COLLATE \"C\",node_id").bind(generation.id.0.as_slice()).bind(ids).fetch(conn);
-    let mut out = Vec::new();
-    let mut bytes = 0usize;
-    while let Some(row) = stream.try_next().await? {
-        let value = operation_ref(&row)?;
-        bytes += serde_json::to_vec(&value)
-            .map_err(|_| corrupt("operation reference serialization"))?
-            .len();
-        if bytes > RESPONSE_BYTES {
-            return Err(refused("operation page response byte budget").into());
-        }
-        out.push(value);
-    }
-    Ok(out)
 }
 pub(crate) async fn resolve_on(
     conn: &mut PgConnection,
@@ -317,38 +201,6 @@ pub(crate) async fn resolve_on(
         access_path: path,
     })
 }
-async fn check_terms(
-    conn: &mut PgConnection,
-    generation: &PinnedGeneration,
-    filter: &Where,
-) -> Result<(), Error> {
-    for term in &filter.facets {
-        let invalid:bool=sqlx::query_scalar("SELECT NOT EXISTS(SELECT FROM lctx_serving.operation_facets WHERE generation_digest=$1 AND facet=$2 AND value=$3) AND NOT EXISTS(SELECT FROM lctx_serving.operations o WHERE generation_digest=$1 AND NOT EXISTS(SELECT FROM lctx_serving.operation_facet_status s WHERE s.generation_digest=$1 AND s.node_id=o.node_id AND s.facet=$2 AND s.verdict='established'))")
-            .bind(generation.id.0.as_slice()).bind(term.facet.as_str()).bind(term.value.as_str()).fetch_one(&mut *conn).await?;
-        if invalid {
-            return Err(Error::Request(format!(
-                "no operation has {} = {:?} in this generation",
-                term.facet, term.value
-            )));
-        }
-    }
-    Ok(())
-}
-async fn classify(
-    conn: &mut PgConnection,
-    generation: &PinnedGeneration,
-    filter: &Where,
-) -> Result<Vec<sqlx::postgres::PgRow>, Error> {
-    let facets: Vec<_> = filter.facets.iter().map(|t| t.facet.as_str()).collect();
-    let values: Vec<_> = filter.facets.iter().map(|t| t.value.as_str()).collect();
-    let rows=sqlx::query("WITH terms AS (SELECT * FROM unnest($4::text[],$5::text[]) AS t(facet,value)) SELECT o.node_id, NOT EXISTS(SELECT FROM terms t WHERE NOT EXISTS(SELECT FROM lctx_serving.operation_facets f WHERE f.generation_digest=$1 AND f.node_id=o.node_id AND f.facet=t.facet AND f.value=t.value AND f.verdict IN ('established','conditional'))) matched, NOT EXISTS(SELECT FROM terms t WHERE NOT EXISTS(SELECT FROM lctx_serving.operation_facets f WHERE f.generation_digest=$1 AND f.node_id=o.node_id AND f.facet=t.facet AND f.value=t.value) AND EXISTS(SELECT FROM lctx_serving.operation_facet_status s WHERE s.generation_digest=$1 AND s.node_id=o.node_id AND s.facet=t.facet AND s.verdict='established')) opened FROM lctx_serving.operations o WHERE o.generation_digest=$1 AND ($2::text IS NULL OR EXISTS(SELECT FROM lctx_serving.operation_facets k WHERE k.generation_digest=$1 AND k.node_id=o.node_id AND k.facet='kind' AND k.value=$2)) AND ($3::text IS NULL OR EXISTS(SELECT FROM lctx_serving.public_paths p WHERE p.generation_digest=$1 AND p.node_id=o.node_id AND left(p.access_path,length($3))=$3)) ORDER BY o.access_path COLLATE \"C\",o.node_id LIMIT 200001")
-        .bind(generation.id.0.as_slice()).bind(filter.kind.as_ref().map(|v|v.as_str())).bind(filter.path_prefix.as_ref().map(|v|v.as_str())).bind(facets).bind(values).fetch_all(conn).await?;
-    if rows.len() > contract::MAX_RELATION_ROWS {
-        return Err(refused("operation universe row budget").into());
-    }
-    Ok(rows)
-}
-
 pub(crate) type Object = Map<String, Value>;
 /// One request-wide ledger includes all selected support relations, not just each query.
 pub(crate) struct Hydration {

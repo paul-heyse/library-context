@@ -50,7 +50,7 @@ per-requirement states remain **Proposed**.
 [§11.3](sections/synthesis-and-serving.md#section-11-3) describes current tools and
 [§14.9](sections/api-and-evidence-product.md#section-14-9) owns their replacement target.
 
-> Decision: ADR-0071, ADR-0072, ADR-0025
+> Decision: ADR-0071, ADR-0078, ADR-0025
 
 <a id="section-1-2"></a>
 
@@ -457,18 +457,19 @@ ADR-0024's open proposal.
 
 - The Delta store is authoritative for facts, findings and assertions. The serving generation
   ([§6.4](sections/storage-and-publication.md#section-6-4)) is a derived, immutable projection,
-  built only from a published snapshot and rebuildable byte-for-byte; any search index is derived
-  from it in turn.
+  built from a published snapshot plus its selected immutable retrieval realization. Complete
+  inputs replay byte-for-byte; changed rendering/specification can yield another identified
+  realization over the same snapshot. Any future search index derives from that generation.
 - No cross-store transactions: the generation manifest names the snapshot it came from.
 
-> Decision: ADR-0067
+> Decision: ADR-0067, ADR-0077
 
 <a id="section-b13"></a>
 
 ### §B13 FastMCP pins one immutable generation; Rust owns PostgreSQL effects
 
-**Implemented and Tested for local PostgreSQL exact serving, 2026-09-28** (ADR-0068/0070;
-[qualification](../design_review/evidence/2026-09-28_postgresql-operations/README.md)). The native
+**Implemented and bounded Tested under the live-embedding waiver, 2026-09-28** (ADR-0077/0078;
+[current evidence](../design_review/evidence/2026-09-28_pr4/README.md)). The native
 semantic executor remains **Partially implemented** under a **Proposed** decision (ADR-0025).
 
 - `lctx_mcp` serves the §1.1 operations from exactly one pinned, immutable generation per process,
@@ -482,12 +483,12 @@ semantic executor remains **Partially implemented** under a **Proposed** decisio
   negative or `complete` claim; no semantic decision is duplicated in Python. Today it provides
   path-local value inspection only; admission and decoding defects are plan items W1–W3.
 
-- **Accepted target, implementation Proposed (ADR-0073):** generated input/output schemas and
+- **Implemented (ADR-0073/0077):** generated input/output schemas and
   typed Rust decoding/envelopes replace duplicate semantic Python declarations through the
   [§14.9 Tool adapter](sections/api-and-evidence-product.md#section-14-9). Existing generation,
   lifetime, budgets and cancellation ownership remain; custom Tool validation is explicit.
 
-> Decision: ADR-0068, ADR-0070, ADR-0025, ADR-0073
+> Decision: ADR-0078, ADR-0025, ADR-0073
 
 <a id="section-b14"></a>
 
@@ -502,14 +503,16 @@ semantic executor remains **Partially implemented** under a **Proposed** decisio
 - PostgreSQL reuses one immutable winner per `spec_hash + input_hash`. An attempt retains each
   exact value before operation/E0/brief consumption and publishes snapshot-local Delta receipts
   for all consumed values, including analytics-only inputs. Value digests enter content identity.
-- Generations copy vectors from the selected snapshot. Rebuild and serving remain independent
-  of PostgreSQL. Current file serving is independent; the accepted PG runtime pins a ready
-  projection/profile for its lifespan. Database discovery cannot authorize an unpublished snapshot.
+- Canonical vectors replay from the selected snapshot; addressable retrieval fragments have a
+  complete immutable materialization receipt. Current reconstruction needs no live cache/provider.
+  Online MCP explicitly requires PostgreSQL and pins a ready generation/exact profile for its
+  lifespan. Database discovery cannot authorize an unpublished snapshot. PR4 live embedding
+  qualification is operator-waived; no current hybrid-quality claim follows from fixture controls.
 - [§6.5](sections/storage-and-publication.md#section-6-5) owns database effects and conditional
-  capabilities. The [PostgreSQL plan](../plans/postgresql-integration-plan_2026-09-27.md) owns
+  capabilities. The [PostgreSQL workstream](../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-workstream) owns
   current qualification; W9/W16 retain live-client and endpoint-identity boundaries.
 
-> Decision: ADR-0068, ADR-0067
+> Decision: ADR-0078, ADR-0067
 
 ---
 
@@ -678,7 +681,7 @@ owns the scheduling triggers.
 - **General alias analysis (points-to).** Flow runs over bounded places and summaries (§3.9, §9.9).
 - **SCC condensation on projections.** If needed, it is built from SCC membership keeping every
   arc's evidence, never from petgraph's `condensation`, which merges parallel edges (§9).
-- **Lance/LanceDB.** pgvector is selected for the accepted exact/ANN projection; an alternative
+- **Lance/LanceDB.** pgvector is selected for the current exact projection; an alternative
   needs a named capability beyond that qualified route and an isolated workspace, Arrow IPC as the only interface and a derived index outside the byte-identical
   generation, because Lance writes are not byte-reproducible.
 - **A recursion engine (Ascent/datafrog).** A same-state finite-base relation probe found no

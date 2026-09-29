@@ -2,7 +2,7 @@
 use cpg_schema::{id::Digest, serving_projection::FailureKind};
 use lctx_postgres::{
     Error,
-    repository::{PinnedGeneration, Where},
+    repository::PinnedGeneration,
     serving::{RoleConfig, ServingStore},
 };
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
@@ -111,6 +111,7 @@ fn _storage(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("StorageError", m.py().get_type::<StorageError>())?;
     m.add_class::<Repository>()?;
     m.add_class::<PinnedRepository>()?;
+    m.add_class::<PreparedSelectionHandle>()?;
     m.add_function(wrap_pyfunction!(open_repository, m)?)?;
     Ok(())
 }
@@ -123,12 +124,7 @@ struct PinnedRepository {
 fn encode(value: impl serde::Serialize) -> PyResult<String> {
     serde_json::to_string(&value).map_err(|_| PyValueError::new_err("response encoding"))
 }
-fn filter(value: &str) -> PyResult<Where> {
-    let filter: Where = serde_json::from_str(value)
-        .map_err(|_| PyValueError::new_err("invalid operation filter"))?;
-    filter.validate().map_err(|e| error(e.into()))?;
-    Ok(filter)
-}
+
 #[pymethods]
 impl PinnedRepository {
     #[pyo3(signature=(verify_artifacts=false))]
@@ -261,18 +257,34 @@ impl PinnedRepository {
         let store = self.store.clone();
         let pinned = self.pinned.clone();
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            encode(
-                store
-                    .get_evidence(
-                        &pinned,
-                        &request.snapshot_id.storage().hex(),
-                        request.evidence,
-                        request.cursor.as_ref().map(|c| c.as_str()),
-                        request.expanded,
-                    )
-                    .await
-                    .map_err(error)?,
-            )
+            let result = match request.evidence {
+                cpg_schema::wire::EvidenceTarget::Original(reference) => {
+                    store
+                        .get_evidence(
+                            &pinned,
+                            request.snapshot_id.hex().as_str(),
+                            reference,
+                            request.cursor.as_ref().map(|c| c.as_str()),
+                            request.expanded,
+                        )
+                        .await
+                }
+                cpg_schema::wire::EvidenceTarget::Retrieval(
+                    cpg_schema::wire::RetrievalTarget::RetrievalUnit(unit),
+                ) => {
+                    store
+                        .get_retrieval_unit(
+                            &pinned,
+                            request.snapshot_id.hex().as_str(),
+                            unit,
+                            request.cursor.as_ref().map(|c| c.as_str()),
+                            request.expanded,
+                        )
+                        .await
+                }
+            }
+            .map_err(error)?;
+            encode(result)
         })
     }
     fn get_capability<'py>(
@@ -292,68 +304,82 @@ impl PinnedRepository {
             )
         })
     }
-    #[pyo3(signature=(where_json,limit=20,cursor=None))]
+    #[pyo3(signature=(selection_json="{}".to_owned(),query="".to_owned()))]
+    fn prepare_selection<'py>(
+        &self,
+        py: Python<'py>,
+        selection_json: String,
+        query: String,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let selection: cpg_schema::wire::Selection = serde_json::from_str(&selection_json)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let store = self.store.clone();
+        let pinned = self.pinned.clone();
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let prepared = store
+                .prepare_selection(&pinned, &selection, &query)
+                .await
+                .map_err(error)?;
+            Ok(PreparedSelectionHandle {
+                store,
+                pinned,
+                prepared,
+            })
+        })
+    }
+    #[pyo3(signature=(selection_json,limit=20,cursor=None))]
     fn find_operations<'py>(
         &self,
         py: Python<'py>,
-        where_json: String,
+        selection_json: String,
         limit: u32,
         cursor: Option<String>,
     ) -> PyResult<Bound<'py, PyAny>> {
-        let filter = filter(&where_json)?;
+        let selection: cpg_schema::wire::Selection = serde_json::from_str(&selection_json)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
         let store = self.store.clone();
         let pinned = self.pinned.clone();
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             encode(
                 store
-                    .find_operations(&pinned, &filter, limit, cursor.as_deref())
+                    .find_operations(&pinned, &selection, limit, cursor.as_deref())
                     .await
                     .map_err(error)?,
             )
         })
     }
-    #[pyo3(signature=(query,operations,where_json=None))]
-    fn search_scope<'py>(
-        &self,
-        py: Python<'py>,
-        query: String,
-        operations: bool,
-        where_json: Option<String>,
-    ) -> PyResult<Bound<'py, PyAny>> {
-        let filter = where_json.as_deref().map(filter).transpose()?;
+    #[pyo3(signature=(query))]
+    fn search_scope<'py>(&self, py: Python<'py>, query: String) -> PyResult<Bound<'py, PyAny>> {
         let store = self.store.clone();
         let pinned = self.pinned.clone();
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            encode(
-                store
-                    .search_scope(&pinned, filter.as_ref(), &query, operations)
-                    .await
-                    .map_err(error)?,
-            )
+            encode(store.search_scope(&pinned, &query).await.map_err(error)?)
         })
     }
-    #[pyo3(signature=(query,spec,operations,where_json=None,limit=10))]
+    #[pyo3(signature=(query,spec,limit=10))]
     fn vector_ranks<'py>(
         &self,
         py: Python<'py>,
         query: Vec<f32>,
         spec: String,
-        operations: bool,
-        where_json: Option<String>,
         limit: u32,
     ) -> PyResult<Bound<'py, PyAny>> {
-        let filter = where_json.as_deref().map(filter).transpose()?;
         let store = self.store.clone();
         let pinned = self.pinned.clone();
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             let result = store
-                .vector_ranks(&pinned, &query, &spec, operations, filter.as_ref(), limit)
+                .vector_ranks(&pinned, &query, &spec, limit)
                 .await
                 .map_err(error)?;
             let metadata = encode(result.metadata)?;
             Python::attach(|py| Ok((metadata, PyBytes::new(py, &result.ipc).unbind())))
         })
     }
+    fn brief_rank_schema<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
+        let bytes = lctx_postgres::retrieval::rank_schema_ipc().map_err(error)?;
+        Ok(PyBytes::new(py, &bytes))
+    }
+
     fn hit_records<'py>(
         &self,
         py: Python<'py>,
@@ -366,6 +392,94 @@ impl PinnedRepository {
             encode(
                 store
                     .hit_records(&pinned, &entities, operations)
+                    .await
+                    .map_err(error)?,
+            )
+        })
+    }
+}
+
+/// Immutable request-local handle. Holds no query lease and cannot be constructed from Python.
+#[pyclass(module = "lctx_storage", frozen)]
+struct PreparedSelectionHandle {
+    store: ServingStore,
+    pinned: Arc<PinnedGeneration>,
+    prepared: lctx_postgres::selection::PreparedSelection,
+}
+#[pymethods]
+impl PreparedSelectionHandle {
+    fn scope(&self, py: Python<'_>) -> PyResult<String> {
+        py.detach(|| encode(self.prepared.scope()))
+    }
+    fn rank_schema<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
+        Ok(PyBytes::new(
+            py,
+            &lctx_postgres::selection::encode_winners(&[]).map_err(error)?,
+        ))
+    }
+    #[pyo3(signature=(limit=20,cursor=None))]
+    fn page(&self, py: Python<'_>, limit: u32, cursor: Option<String>) -> PyResult<String> {
+        py.detach(|| {
+            encode(
+                self.prepared
+                    .page(&self.pinned, limit, cursor.as_deref())
+                    .map_err(error)?,
+            )
+        })
+    }
+    fn vectors<'py>(
+        &self,
+        py: Python<'py>,
+        query: Vec<f32>,
+        spec: String,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let store = self.store.clone();
+        let pinned = self.pinned.clone();
+        let prepared = self.prepared.clone();
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let bytes = store
+                .selection_vectors(&pinned, &prepared, &query, &spec)
+                .await
+                .map_err(error)?;
+            Python::attach(|py| Ok(PyBytes::new(py, &bytes).unbind()))
+        })
+    }
+    #[pyo3(signature=(ranked_json,channel_state,limit=20,cursor=None))]
+    fn finish<'py>(
+        &self,
+        py: Python<'py>,
+        ranked_json: String,
+        channel_state: String,
+        limit: u32,
+        cursor: Option<String>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        if ranked_json.len() > 32 * 1024 * 1024 {
+            return Err(PyValueError::new_err(
+                "resource_refused: ranked input budget",
+            ));
+        }
+        let store = self.store.clone();
+        let pinned = self.pinned.clone();
+        let prepared = self.prepared.clone();
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let ranked = store
+                .run_cpu(move || {
+                    serde_json::from_str(&ranked_json).map_err(|_| {
+                        lctx_postgres::Error::Request("invalid ranked selection".into())
+                    })
+                })
+                .await
+                .map_err(error)?;
+            encode(
+                store
+                    .finish_selection_search(
+                        &pinned,
+                        &prepared,
+                        ranked,
+                        &channel_state,
+                        limit,
+                        cursor.as_deref(),
+                    )
                     .await
                     .map_err(error)?,
             )

@@ -95,7 +95,7 @@ the general analysis substrate.
 
 ## §14.3 Responsibilities and representation flow
 
-> Decision: ADR-0071, ADR-0072, ADR-0073, ADR-0074
+> Decision: ADR-0071, ADR-0078, ADR-0073, ADR-0074
 
 ```mermaid
 flowchart TD
@@ -151,14 +151,14 @@ separate source, binding, accessor, wrapper, protocol, registration and behavior
 aspects. Configuration declaration associations never imply unchanged runtime field storage;
 exact links require a supported constructor and receiver/field proof. Original expressions and
 named uncertainty remain available. `catalog_surfaces`, `catalog_configurations` and
-`catalog_field_links` preserve these records and source citations through bundle14/projection4.
+`catalog_field_links` preserve these records and source citations through the current bundle16/projection6.
 Storage proofs cover plain generated dataclasses and bounded direct constructors; reader links
 identify receiver-field accesses and leave intervening mutation unresolved. Provider metadata
 for attrs/Pydantic/NamedTuple/TypedDict never silently becomes a runtime-storage proof.
 All six existing MCP tools and the capability resource use the Rust wire owner under ADR-0073;
 new PR4 query semantics keep their own schedule.
 
-> Decision: ADR-0071, ADR-0072, ADR-0074
+> Decision: ADR-0071, ADR-0078, ADR-0074
 
 **Public identity.** Introduce a `PublicMember` identity over the snapshot's public exposure
 (exposed owner/name and access path), independent of later binding interpretation. Binding/access
@@ -327,14 +327,14 @@ provisioner or mandatory library-wide runtime probing.
 
 ## §14.7 Query semantics and customizable requirements
 
-> Decision: ADR-0071, ADR-0073, ADR-0076
+> Decision: ADR-0071, ADR-0073, ADR-0076, ADR-0077
 
 One finite typed request/classification contract lives in Rust. PostgreSQL performs relational
 selection; the existing pure condition kernel supplies any supported semantic decision. MCP
 validates/transports the same contract and does not restate its rules. Do not expose arbitrary SQL,
 an unconstrained predicate DSL or another general query planner.
 
-**PR2 wire foundation Implemented (ADR-0073); PR4 classification remains Proposed.** A focused `cpg-schema` module owns
+**PR4 Implemented and bounded Tested under the live-embedding waiver, 2026-09-28 (ADR-0077).** A focused `cpg-schema` module owns
 tagged request/requirement variants, quantifier/domain/operator enums, contextual witnesses and
 serializable result envelopes. Matching flat components derive from canonical table/query-row
 declarations; nesting and presentation differences use explicit typed adapters. Private nominal
@@ -359,8 +359,7 @@ overloads remain Rust/runtime obligations even when JSON is schema-valid.
 
 Version the wire contract and schema-generation settings; snapshot generated schemas with existing
 `insta`. A changed schema hash alone does not determine compatibility. The typed vocabulary begins
-with PR2; the complete PR4 classifier still depends on PR2/PR3 evidence. Existing facets keep an
-explicit scoped adapter during migration, without acquiring stronger joint-applicability meaning.
+with PR2; the PR4 classifier consumes the canonical declaration/evidence catalog. Behavioral facets remain typed predicates with their existing scoped meaning; the old request adapter is removed.
 
 Initial predicates cover public path/module/class/kind, invocation form, declared parameter name/
 kind/type/default, configuration field/domain/scope, explicit relationship kind/target, scenario
@@ -393,7 +392,7 @@ for the five behavioral verdicts. Native verdicts remain intact when cited. For 
 - A missing branch literal does not refute an option value. A test passing only proves its tested
   inputs/environment. A bounded or incomplete search cannot prove no implementation exists.
 
-`strict` admits supported requirements under the declared basis. `discovery` additionally returns
+`discovery` is the typed-request default. `strict` admits supported requirements under the declared basis. `discovery` additionally returns
 relevant unresolved candidates in a **separate group**, naming the unresolved requirements.
 Contradicted candidates are excluded from supported groups; explicit comparison can show why an
 alternative fails. Conflicting evidence is never auto-promoted. Sort/page groups independently so
@@ -405,6 +404,16 @@ produces a separate conflict group, then any unresolved requirement produces unr
 and only all-supported results enter the supported group. Requested joint applicability can downgrade
 an all-supported record match to unresolved or contradicted. Never select the best verdict across
 requirements or incompatible contexts.
+
+**Implemented request preparation (2026-09-28).** `Requirement` owns both table dependencies and
+consumed context-domain kinds. PostgreSQL projects complete selected domain objects while retaining
+the original canonical `domain_id`; unrequested domains are not loaded and cannot establish absence.
+Canonical publication validates the full record. Non-type parameter predicates do not load type
+observations. One pure classifier consumes full or projected inputs with identical witness identities.
+Transient per-relation conversion and request-wide retained-input estimates each have a 64 MiB
+admission bound; they may coexist and are not a measured process-memory ceiling. Aggregate rows,
+indexed work and returned evidence have separate bounds. Broad source/association requests may
+explicitly refuse at these limits; no whole-corpus capacity claim is implied.
 
 **Joint applicability** is a separate result: independent records, compatible modeled context,
 demonstrated combination, contradictory modeled context, or not established. Existing facets prove
@@ -423,7 +432,10 @@ by a silent lossy structural filter. Bounded ranked results never claim exhausti
 
 <a id="section-14-8"></a>
 
+
 ## §14.8 Retrieval units, witnesses and ranking
+
+> Decision: ADR-0077
 
 Make each retrieval unit independently addressable: stable unit ID, parent/associated subjects,
 evidence family, original source/fact references, rendering version, input digest and embedding
@@ -431,10 +443,14 @@ spec. A unit can reference several APIs; conceptual documentation and deployment
 no exact API link and remain searchable as evidence results. Avoid forcing every useful passage
 into a guessed `operation_id`.
 
+Retrieval artifacts are derived after canonical publication from immutable snapshot inputs; units,
+fragments and vectors have distinct identities. Identical family/rendered text is deduplicated before
+BM25 corpus statistics while preserving all original occurrences and member associations.
+
 One finite `cpg-schema` view catalog drives materialization, validation, import, ranking and
 qualification. Initial families are API/signature/options, source implementation, usage scenario,
 and documentation/deployment. Existing brief retrieval remains its own consumer. Include class,
-property and config-object units; the present operation document loop excludes classes. Source
+property and config-object units. The former operation-document projection is removed. Source
 windows carry enclosing identity/context for retrieval while citations retain exact original spans.
 
 Keep Qwen3, 1024 dimensions, exact PostgreSQL vector ranks, BM25 and exact-name behavior. Replace
@@ -446,16 +462,15 @@ rather than introducing an unqualified cross-spec reuse optimization.
 
 The rank result retains winning unit ID and supporting lexical/vector channel, plus score/rank
 metadata. Collapse duplicates deterministically within each family/API; use one best contribution
-per family and stable unit-ID ties. Then fuse family ranks with a versioned policy, preserving
-exact-symbol priority. Ten duplicate examples are not ten votes. Reserve an explicit evidence-type
+per family and stable unit-ID ties. Fuse lexical/vector ranks with RRF K60 within each family, rerank families, then fuse the four
+family ranks with equal-weight RRF K60. Exact-symbol priority is an explicit primary ordering. Ten duplicate examples are not ten votes. Reserve an explicit evidence-type
 budget for explanations; an explanation is the unit that actually matched, not a fresh similar
 passage fetched afterward. Distinguish a **ranking witness** from evidence that **establishes a
 requirement**; both can appear in one hit but have different roles.
 
-Do not alter the fixed-channel/bit-mask assumptions informally: evolve the rank schema, Python
-fusion metadata and qualifier together. Existing deployed migrations remain immutable; add a new
-migration for the expanded unit/view contract. New retrieval content invalidates ANN admissions;
-exact stays selected until the existing physical admission process independently qualifies it.
+The shared rank schema carries finite family/channel identities; old fixed-view masks and anonymous operation ranks are removed. Migration012 installs the expanded unit/view contract. Exact is the sole current route. A future ANN implementation must qualify the current content and physical realization under ADR-0078.
+
+The materialization receipt hashes every produced file, including embedding status/vector bytes; its immutable leaf is independent of the canonical snapshot and embedding-spec identity. Publication validates the snapshot binding before atomically selecting the current artifact for cold reconstruction. Unit headers bound subjects, anchors and title with an explicit `metadata_omitted` flag; continuation still visits every original anchor.
 
 <a id="section-14-9"></a>
 
@@ -475,7 +490,7 @@ survive actual MCP listing and invocation, not only a direct Python function cal
 
 PR2 removes the existing semantic Pydantic packet/request definitions and the Python value-path
 cursor/assembly decisions. Rust owns complete nested packets; Python retains lexical ranking and
-Markdown rendering. Future PR4/PR5 tools consume the same contracts. Preserve genuinely
+Markdown rendering. PR5 tools consume the same contracts. Preserve genuinely
 rendering-specific Python models. Generated Python domain classes are deferred until a concrete Python consumer
 needs them. Existing/spec'd additive tools and structures remain; deprecating a duplicate encoding
 does not authorize deleting the underlying query capability.
@@ -515,7 +530,7 @@ generates new recipes nor executes library code in the query path.
 
 ## §14.10 Publication, optional analyses and rebuild boundaries
 
-> Decision: ADR-0071, ADR-0072, ADR-0073
+> Decision: ADR-0071, ADR-0078, ADR-0073, ADR-0077
 
 Make public roots and API catalog construction mandatory product inputs independent of `Some(analysis)`.
 Use an explicit compile capability selection, initially `catalog` and the retained `behavioral`
@@ -565,6 +580,7 @@ rows first; then use the existing ready/selection transitions. Do not merge read
 merely because the earlier external sketch shows one arrow. Old processes keep their original pins.
 
 <a id="section-14-11"></a>
+
 
 ## §14.11 Library fit, retained work and exclusions
 
@@ -715,9 +731,10 @@ required for a broad superiority claim. The earlier semantic suite retains its o
 
 ## §14.13 Migration and immediate implementation priority
 
-**PR1: Implemented, Tested and deployed (2026-09-28); PR0 implemented with comparative admission blocked.**
-The [catalog evidence](../../design_review/evidence/2026-09-28_catalog/README.md) records the full gate,
-both live profiles, explicit operator cutover and populated restore. Catalog compilation
+**PR1–PR4 Implemented and bounded Tested, 2026-09-28; live embedding is waived for PR4.**
+The [current evidence](../../design_review/evidence/2026-09-28_pr4/README.md) owns code gates,
+both-profile PG/MCP, reconstruction and cutover outcomes, including the operator's live-embedding
+waiver. PR0 comparative admission remains blocked. Catalog compilation
 is the default; explicit behavioral compilation enriches the same catalog. Preserve existing and
 specified additive capabilities, query contracts, data structures, tests and future scope.
 Deprioritization changes sequencing, not retention. One schema-owned capability inventory governs
@@ -726,12 +743,15 @@ remain supported; source alternatives retain roles rather than fabricated runtim
 Existing analytics parameters and behavioral evaluation freezes remain unchanged. Catalog/projection
 contracts are schema-owned; source equality is checked by shared publication validation. Constructor
 associations retain their defining class and inherited MRO fact. Member identity and optional brief
-rendering status are independent. Recovery preserves legacy rows and exact manifest/artifact bytes
-under a bounded transport envelope; it admits only compatible generations to current-runtime serving.
-An incompatible selected pointer blocks usable recovery. Rollback uses the separately restored old
-schema and matching retained runtime, without weakening schema checks.
+rendering status are independent. Only the current runtime format is supported. Validate a fresh
+replacement, quiesce readers, replace the application state and delete superseded generations,
+runtime copies and rollback assets (ADR-0078).
 
-> Decision: ADR-0072
+> Decision: ADR-0078
+
+**Accepted target, 2026-09-28:** validate the replacement, then cut over completely and delete
+obsolete runtime state and compatibility paths. Current reconstruction is required; historical
+generation recovery is not a product obligation.
 
 The forward plan orders product packets PR0–PR6: freeze tasks/contract inventory; mandatory catalog
 and complete signatures; surface/options normalization; scenarios/deployment/evidence closure;
@@ -739,7 +759,7 @@ typed selection plus retrieval witnesses; bounded agent tools; then comparative 
 Each packet is a vertical slice across canonical facts, shared validators, versioned projection,
 PG import, native/MCP and focused product fixtures. R08 baseline work precedes feature tuning.
 
-**PR2 integration Implemented, Tested and deployed (ADR-0073/0074), later consumers Proposed:** PR2 establishes the
+**PR1–PR4 Implemented (ADR-0073/0074/0076/0077), PR5 Proposed:** PR2 establishes the
 small nominal-ID/wire foundation and load/index/derive boundary while implementing surface/options;
 PR3 uses those identities and pure inputs for scenarios/deployment. PR4 completes the contextual
 classifier, extends the shared typed packets and selected SQLx checking. PR5 adds schema-backed tools
@@ -750,16 +770,17 @@ owns the open CLF/F01–F03 corrections; acceptance of this target does not clos
 Required deletions/replacements: analysis-gated public-universe construction; facet-string signature
 reconstruction; trailing-decorator-name invocation classification; seed-only evidence eligibility;
 fixed duplicated view lists and rank payloads that discard witnesses; anonymous matches without
-requirement evidence. Preserve historical migrations and stable fact IDs; introduce versioned
+requirement evidence. Preserve stable fact identity within current contracts; introduce versioned
 new contracts and explicit compatibility errors. Replace a consumer only after its new path works.
 Also remove migrated duplicate Python semantic declarations, string-key packet construction and
 superseded mixed-effect catalog derivations. Keep presentation-only models and generic storage
 machinery where they still have a consumer.
 
-PR2 advances compiler109/extractor35/template21 and bundle14/projection4 with additive migration010.
+Current PR4 formats are compiler111/extractor37/template21, bundle16/projection6 and migration012.
 The behavior-model catalog stays at FORMAT7. Existing analysis-library pins and the 1024 embedding
-specification are unchanged; old generations stay immutable. PR2 qualification and operator cutover
-are reported by the forward plan and runbook; the earlier PR1 deployment is preserved for recovery.
+specification are unchanged. Current qualification and operator cutover are reported by the forward
+plan and runbook. Prior generations and matching recovery assets are deleted after the validated
+replacement becomes active; no historical runtime is retained.
 The existing fast editable environment remains the development path; no wheel or packaging project
 is introduced. Full formatting/integrated checks wait for the complete authorized implementation
 scope; focused checks follow each functional boundary.

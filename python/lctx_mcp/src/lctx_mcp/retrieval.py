@@ -73,18 +73,11 @@ def lexical_rank(ids: np.ndarray, scores: np.ndarray, eligible: np.ndarray) -> n
     return ids[np.lexsort((ids, -scores))]
 
 
-def vector_legs(raw: bytes) -> list[np.ndarray]:
+def vector_legs(raw: bytes, schema_ipc: bytes) -> list[np.ndarray]:
     if len(raw) > RANK_BYTES:
         raise ValueError("resource_refused: rank IPC byte budget")
     table = ipc.open_stream(pa.BufferReader(raw)).read_all()
-    expected = pa.schema(
-        [
-            pa.field("entity_id", pa.binary(16), False),
-            pa.field("view", pa.string(), False),
-            pa.field("rank", pa.uint32(), False),
-            pa.field("score", pa.float64(), False),
-        ]
-    )
+    expected = ipc.open_stream(pa.BufferReader(schema_ipc)).schema
     if table.schema != expected:
         raise ValueError("corrupt: rank schema")
     ids = np.frombuffer(b"".join(table.column("entity_id").to_pylist()), dtype="V16")
@@ -115,27 +108,143 @@ def fuse_legs(
         return []
     universe = np.unique(np.concatenate([*legs, promoted]))
     scores = np.zeros(len(universe), dtype=np.float64)
-    masks = np.zeros(len(universe), dtype=np.uint8)
+    lexical_seen = np.zeros(len(universe), dtype=np.bool_)
+    vector_seen = np.zeros(len(universe), dtype=np.bool_)
     for i, leg in enumerate(legs):
         indices = np.searchsorted(universe, leg)
         scores[indices] += 1.0 / (K + np.arange(1, len(leg) + 1, dtype=np.float64))
-        masks[indices] |= 1 << i
+        (lexical_seen if i == 0 else vector_seen)[indices] = True
     is_promoted = np.isin(universe, promoted, assume_unique=True)
-    scores[is_promoted] += 1.0
-    order = np.lexsort((universe, -scores))[:limit]
+    order = np.lexsort((universe, -scores, ~is_promoted))[:limit]
     out = []
     for i in order:
-        mask = int(masks[i])
         source = (
             "exact_symbol"
             if is_promoted[i]
             else "hybrid"
-            if mask & 1 and mask & ~1
+            if lexical_seen[i] and vector_seen[i]
             else "lexical"
-            if mask == 1
+            if lexical_seen[i]
             else "vector"
         )
         out.append(
             (universe[i].tobytes().hex(), round(float(scores[i]), 6), source, bool(is_promoted[i]))
         )
     return out
+
+
+class UnitLexical:
+    """Index unique family/text inputs; retain all addressable member occurrences."""
+
+    def __init__(self, fragments: pa.Table, subjects: pa.Table) -> None:
+        members: dict[bytes, set[str]] = {}
+        for row in subjects.to_pylist():
+            if row["member_id"] is not None:
+                members.setdefault(row["unit_id"], set()).add(row["member_id"].hex())
+        unique: dict[tuple[str, str], list[tuple[str, str, set[str]]]] = {}
+        for row in fragments.to_pylist():
+            unique.setdefault((row["family"], row["text"]), []).append(
+                (row["unit_id"].hex(), row["fragment_id"].hex(), members.get(row["unit_id"], set()))
+            )
+        self.families = {}
+        for family in sorted({key[0] for key in unique}):
+            keys = sorted(key for key in unique if key[0] == family)
+            self.families[family] = (
+                Lexical([key[1] for key in keys]),
+                [unique[key] for key in keys],
+            )
+
+    def winners(self, query: str, eligible: set[str]) -> list[dict]:
+        best: dict[tuple[str, str], dict] = {}
+        work = 0
+        for family, (index, occurrences) in self.families.items():
+            scores = index.scores(query)
+            for position in np.flatnonzero(scores > 0):
+                for unit, fragment, members in occurrences[int(position)]:
+                    for member in members & eligible:
+                        work += 1
+                        if work * 512 > FUSION_BYTES:
+                            raise ValueError("resource_refused: lexical occurrence budget")
+                        row = {
+                            "member_id": member,
+                            "family": family,
+                            "channel": "lexical",
+                            "unit_id": unit,
+                            "fragment_id": fragment,
+                            "score": float(scores[position]),
+                            "rank": 0,
+                        }
+                        key = (member, family)
+                        old = best.get(key)
+                        if old is None or (-row["score"], unit, fragment) < (
+                            -old["score"],
+                            old["unit_id"],
+                            old["fragment_id"],
+                        ):
+                            best[key] = row
+        result = sorted(best.values(), key=lambda r: (r["family"], -r["score"], r["member_id"]))
+        counts: dict[str, int] = {}
+        for row in result:
+            counts[row["family"]] = counts.get(row["family"], 0) + 1
+            row["rank"] = counts[row["family"]]
+        return result
+
+
+def unit_vector_rows(raw: bytes, schema_ipc: bytes) -> list[dict]:
+    if len(raw) > RANK_BYTES:
+        raise ValueError("resource_refused: unit rank IPC budget")
+    table = ipc.open_stream(pa.BufferReader(raw)).read_all()
+    expected = ipc.open_stream(pa.BufferReader(schema_ipc)).schema
+    if table.schema != expected:
+        raise ValueError("corrupt: addressable rank schema")
+    rows = table.to_pylist()
+    counts: dict[str, int] = {}
+    for row in rows:
+        for key in ("member_id", "unit_id", "fragment_id"):
+            row[key] = row[key].hex()
+        counts[row["family"]] = counts.get(row["family"], 0) + 1
+        if (
+            row["rank"] != counts[row["family"]]
+            or row["channel"] != "vector"
+            or not np.isfinite(row["score"])
+        ):
+            raise ValueError("corrupt: unit vector ranks")
+    return rows
+
+
+def fuse_families(rows: list[dict], promoted: set[str]) -> list[dict]:
+    """RRF within families, then equal-weight family ranks; exact paths sort first."""
+    if (len(rows) + len(promoted)) * 1024 > FUSION_BYTES:
+        raise ValueError("resource_refused: addressable fusion budget")
+    members = sorted({row["member_id"] for row in rows} | promoted)
+    if not members:
+        return []
+    positions = {member: i for i, member in enumerate(members)}
+    totals = np.zeros(len(members), dtype=np.float64)
+    witnesses: dict[str, list[dict]] = {member: [] for member in members}
+    seen = set()
+    for row in rows:
+        key = (row["member_id"], row["family"], row["channel"])
+        if key in seen or row["rank"] < 1:
+            raise ValueError("corrupt: duplicate member family channel")
+        seen.add(key)
+        witnesses[row["member_id"]].append(row)
+    for family in sorted({row["family"] for row in rows}):
+        selected = [row for row in rows if row["family"] == family]
+        indices = np.asarray([positions[row["member_id"]] for row in selected])
+        ranks = np.asarray([row["rank"] for row in selected], dtype=np.float64)
+        contributions = np.bincount(indices, weights=1.0 / (K + ranks), minlength=len(members))
+        available = np.flatnonzero(contributions > 0)
+        order = available[np.lexsort((available, -contributions[available]))]
+        totals[order] += 1.0 / (K + np.arange(1, len(order) + 1, dtype=np.float64))
+    exact = np.asarray([member in promoted for member in members])
+    order = np.lexsort((np.arange(len(members)), -totals, ~exact))
+    return [
+        {
+            "member_id": members[i],
+            "score": float(totals[i]),
+            "promoted": bool(exact[i]),
+            "winners": sorted(witnesses[members[i]], key=lambda r: (r["family"], r["channel"])),
+        }
+        for i in order
+    ]

@@ -22,13 +22,6 @@ pub enum AmbiguousOperationResolution {
     Ambiguous,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub enum OperationHitsMode {
-    #[serde(rename = "hybrid")]
-    Hybrid,
-    #[serde(rename = "lexical-only")]
-    LexicalOnly,
-}
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub enum CapabilityUnavailableStatus {
     #[serde(rename = "unavailable")]
     Unavailable,
@@ -273,57 +266,6 @@ pub struct Operation {
     pub singleton_of: Option<String>,
     #[serde(default)]
     pub fields: Vec<FieldRecord>,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct OperationRef {
-    pub operation_id: OperationId,
-    pub access_path: String,
-    pub kind: String,
-    #[serde(deserialize_with = "super::required_nullable")]
-    #[schemars(with = "super::Nullable<String>")]
-    pub docstring_summary: Option<String>,
-    pub behavior_status: String,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct OperationSet {
-    pub snapshot_id: SnapshotId,
-    pub generation: GenerationDigest,
-    pub matches: Vec<OperationRef>,
-    pub total: i64,
-    pub complete: bool,
-    pub unknown: Vec<OperationRef>,
-    pub unknown_total: i64,
-    pub unknown_truncated: bool,
-    pub truncated: bool,
-    #[serde(deserialize_with = "super::required_nullable")]
-    #[schemars(with = "super::Nullable<String>")]
-    pub next_cursor: Option<String>,
-    pub note: String,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct OperationHit {
-    pub operation_id: OperationId,
-    pub access_path: String,
-    pub kind: String,
-    #[serde(deserialize_with = "super::required_nullable")]
-    #[schemars(with = "super::Nullable<String>")]
-    pub docstring_summary: Option<String>,
-    pub relevance: f64,
-    pub rank_source: String,
-    pub promoted: bool,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct OperationHits {
-    pub retrieval: RetrievalMetadata,
-    pub snapshot_id: SnapshotId,
-    pub generation: GenerationDigest,
-    pub mode: OperationHitsMode,
-    #[serde(deserialize_with = "super::required_nullable")]
-    #[schemars(with = "super::Nullable<String>")]
-    pub degraded_reason: Option<String>,
-    pub ranked_discovery: bool,
-    pub hits: Vec<OperationHit>,
-    pub note: String,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct Hit {

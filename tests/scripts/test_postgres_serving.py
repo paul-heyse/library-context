@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from postgres_backup import connection_env
-from postgres_expand import write_secret
+from postgres_bootstrap import bootstrap_sql, configurations, write_secret
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("LCTX_POSTGRES_TEST") != "1", reason="explicit real PostgreSQL functional check"
@@ -25,6 +25,47 @@ def database(tmp_path):
 
     with provision(tmp_path) as fixture:
         yield fixture
+
+
+def test_current_bootstrap_split_credentials_and_existing_database_refusal(database, tmp_path):
+    _serving, command, call, _role, port = database
+    passwords = {
+        role: "ab" * 32 for role in ("lctx_app", "lctx_migrator", "lctx_importer", "lctx_serving")
+    }
+    folder = tmp_path / "fresh-configs"
+    folder.mkdir()
+    for name, config in configurations(passwords, int(port)).items():
+        path = folder / name
+        write_secret(path, config)
+        assert path.stat().st_mode & 0o777 == 0o600
+        url_keys = set(config) & {"url", "application_url", "migration_url"}
+        assert len(url_keys) == 1
+        connection = connection_env(config[next(iter(url_keys))])
+        user = call(
+            ["psql", "-X", "-qAt"], env=connection, input="SELECT current_user;"
+        ).stdout.strip()
+        assert user == connection["PGUSER"]
+    call(
+        [
+            str(ROOT / "target/release/lctx"),
+            "--database-config",
+            str(folder / "postgres.json"),
+            "db",
+            "check",
+        ]
+    )
+    with pytest.raises(subprocess.CalledProcessError) as refused:
+        call(command, input=bootstrap_sql(passwords))
+    assert "already exist" in refused.value.stderr
+    # Refusing an existing deployment cannot rotate or elevate any role.
+    assert (
+        call(
+            command,
+            input="SELECT count(*) FROM pg_roles WHERE rolname LIKE 'lctx_%' "
+            "AND (rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls);",
+        ).stdout.strip()
+        == "0"
+    )
 
 
 def test_async_lifetime_cancellation_and_sanitized_errors(database, tmp_path):

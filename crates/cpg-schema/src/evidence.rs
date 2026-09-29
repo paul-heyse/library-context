@@ -43,7 +43,9 @@ pub enum EvidenceKind {
     Scenario,
     Deployment,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(deny_unknown_fields)]
 #[serde(tag = "kind", content = "id", rename_all = "snake_case")]
 pub enum EvidenceRef {
@@ -502,27 +504,7 @@ pub fn validate(
 pub fn validate_projection(
     tables: &std::collections::BTreeMap<String, Vec<arrow_array::RecordBatch>>,
 ) -> Result<(), crate::serving_projection::ProjectionError> {
-    use crate::{Table, query::QueryRow, serving_projection::corrupt};
-    fn read<T: Table>(
-        tables: &std::collections::BTreeMap<String, Vec<arrow_array::RecordBatch>>,
-    ) -> Result<Vec<T::Row>, crate::serving_projection::ProjectionError>
-    where
-        T::Row: QueryRow,
-    {
-        let mut out = vec![];
-        for batch in tables
-            .get(T::NAME)
-            .ok_or_else(|| corrupt("missing evidence relation"))?
-        {
-            let ids = vec![Id::ZERO; batch.num_rows()];
-            let mut columns = vec![<Id as crate::column::ArrowColumn>::array(ids.iter())];
-            columns.extend(batch.columns().iter().cloned());
-            let canonical = arrow_array::RecordBatch::try_new(T::schema(), columns)
-                .map_err(|_| corrupt("evidence canonical codec"))?;
-            out.extend(T::Row::read_batch(&canonical).map_err(|_| corrupt("evidence row codec"))?);
-        }
-        Ok(out)
-    }
+    use crate::serving_projection::{corrupt, projected_rows as read};
     validate(
         &read::<CatalogArtifacts>(tables)?,
         &read::<CatalogSpans>(tables)?,

@@ -16,7 +16,7 @@
 
 The owning contracts are [storage §6.5](../../design/sections/storage-and-publication.md#section-6-5)
 and [serving §11.4](../../design/sections/synthesis-and-serving.md#section-11-4).
-The [PostgreSQL plan](../../plans/postgresql-integration-plan_2026-09-27.md) owns implementation
+The [PostgreSQL plan](../../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-workstream) owns implementation
 and qualification; the [forward plan §6.1](../../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-findings)
 owns the six findings from the storage and stack reviews. This review supplies source evidence,
 not a second status register or a claim that those findings have closed.
@@ -37,7 +37,7 @@ this bounded decision.
 | [`attempt`](../../../crates/cpg-core/src/attempt.rs), [`validate`](../../../crates/cpg-core/src/validate.rs) | Write receipt rows, validate canonical facts, incorporate receipt identity, then publish | The Delta `snapshots` append remains the publication event |
 | [`bundle`](../../../crates/cpg-core/src/bundle.rs) and pinned native/Python serving | Read exact values from the selected snapshot and serve a pinned generation | Bundle reconstruction has no PostgreSQL/provider dependency |
 | [`postgres::operations`](../../../crates/lctx-postgres/src/operations.rs), [`lctx::db`](../../../crates/lctx/src/db.rs) | Append observations; reconstruct discovery from canonical storage and verified manifests | Database discovery neither publishes a snapshot nor establishes a semantic verdict |
-| [`postgres::legacy`](../../../crates/cpg-core/src/postgres/legacy.rs) | Explicit read-only import of a selected historical Delta cache version | Retained legacy schema is migration input, not a second runtime cache mode |
+| `postgres::legacy` (removed by ADR-0078) | Explicit read-only import of a selected historical Delta cache version | Retained legacy schema is migration input, not a second runtime cache mode |
 
 The dependency direction is CLI → attempt/effect owners → schema contracts. Analytics still
 consumes Arrow inputs rather than a database handle. A new crate or generic storage interface
@@ -181,7 +181,7 @@ analytics-only values and conflicting restored cache state.
 ## 11. Authority changes and dispositions
 
 Historical ADR-0065/0066 (now superseded by
-[ADR-0068](../../adr/0068-postgresql-serving-and-standard-embeddings.md)) and
+[ADR-0068](../../adr/0078-current-design-cutover.md)) and
 [ADR-0067](../../adr/0067-canonical-snapshots-with-consumed-vector-receipts.md) provide the decision
 route for the new service/receipt boundaries and their affected predecessors. Accepted decisions
 do not establish implementation qualification. The architecture owners and final handoff must

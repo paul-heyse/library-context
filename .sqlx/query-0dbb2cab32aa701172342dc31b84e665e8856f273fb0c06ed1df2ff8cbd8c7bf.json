@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT detail FROM lctx_serving.retrieval_units\nWHERE generation_digest=$1 AND unit_id=$2\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "detail",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "lctx_serving.retrieval_units",
+            "name": "detail"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bytea",
+        "Bytea"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "0dbb2cab32aa701172342dc31b84e665e8856f273fb0c06ed1df2ff8cbd8c7bf"
+}

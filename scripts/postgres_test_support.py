@@ -8,7 +8,7 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
-from postgres_expand import provision_sql, write_secret
+from postgres_bootstrap import bootstrap_sql, configurations, provision_sql, write_secret
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -59,20 +59,18 @@ def database(tmp_path):
             ):
                 break
             time.sleep(0.25)
-        call(
-            command,
-            input=(
-                "CREATE ROLE lctx_app LOGIN PASSWORD 'fixture-only'; "
-                "CREATE ROLE lctx_migrator LOGIN PASSWORD 'fixture-only'; "
-                "CREATE DATABASE lctx OWNER lctx_migrator;"
-            ),
-        )
+        passwords = {
+            role: "ab" * 32
+            for role in ("lctx_app", "lctx_migrator", "lctx_importer", "lctx_serving")
+        }
+        call(command, input=bootstrap_sql(passwords))
         command += ["-d", "lctx"]
         call(
             command, input=provision_sql({r: "ab" * 32 for r in ("lctx_importer", "lctx_serving")})
         )
         config = tmp_path / "postgres.json"
-        url = f"postgres://lctx_app:fixture-only@127.0.0.1:{port}/lctx"
+        current_configs = configurations(passwords, int(port))
+        url = current_configs["postgres.json"]["application_url"]
         write_secret(
             config,
             dict(

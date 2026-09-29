@@ -3116,12 +3116,8 @@ fn semantic() -> Vec<Rule> {
             "SELECT u.input_hash FROM embedding_uses u LEFT ANTI JOIN used_embeddings v ON v.snapshot_id=u.snapshot_id AND v.spec_hash=u.spec_hash AND v.input_hash=u.input_hash UNION ALL SELECT v.input_hash FROM used_embeddings v LEFT ANTI JOIN embedding_uses u ON v.snapshot_id=u.snapshot_id AND v.spec_hash=u.spec_hash AND v.input_hash=u.input_hash".to_owned(),
         ),
         (
-            "semantic:operation-vector-cached",
-            "SELECT d.node_id FROM operation_documents d LEFT ANTI JOIN used_embeddings v ON v.snapshot_id=d.snapshot_id AND v.spec_hash=d.spec_hash AND v.input_hash=d.input_hash WHERE d.input_hash IS NOT NULL".to_owned(),
-        ),
-        (
             "semantic:embedding-consumer-attribution",
-            format!("SELECT d.input_hash FROM operation_documents d LEFT ANTI JOIN embedding_uses u ON u.snapshot_id=d.snapshot_id AND u.spec_hash=d.spec_hash AND u.input_hash=d.input_hash AND (u.usage_mask & {operation})={operation} WHERE d.input_hash IS NOT NULL UNION ALL SELECT d.input_hash FROM brief_documents d LEFT ANTI JOIN embedding_uses u ON u.snapshot_id=d.snapshot_id AND u.spec_hash=d.spec_hash AND u.input_hash=d.input_hash AND (u.usage_mask & {brief})={brief} WHERE d.input_hash IS NOT NULL", operation=crate::embedding::Usage::Operation as i64, brief=crate::embedding::Usage::Brief as i64),
+            format!("SELECT d.input_hash FROM brief_documents d LEFT ANTI JOIN embedding_uses u ON u.snapshot_id=d.snapshot_id AND u.spec_hash=d.spec_hash AND u.input_hash=d.input_hash AND (u.usage_mask & {brief})={brief} WHERE d.input_hash IS NOT NULL",brief=crate::embedding::Usage::Brief as i64),
         ),
         (
             // §6.4: a snapshot's documents share one spec; a generation never mixes vector spaces.

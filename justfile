@@ -63,7 +63,7 @@ structured-eval generation stage embed_url="":
 # The generation the lctx_mcp tests serve: analysis_shapes with fake vectors, into build/py-fixture
 py-fixture:
     LCTX_PY_FIXTURE="$PWD/build/py-fixture" INSTA_UPDATE=no cargo nextest run --release -p cpg-core --no-fail-fast -E 'test(writes_the_python_fixture_generation)' --status-level none --final-status-level fail
-    LCTX_CATALOG_FIXTURE="$PWD/build/pr1-catalog-fixture" INSTA_UPDATE=no cargo nextest run --release -p cpg-core --test catalog --no-fail-fast --status-level none --final-status-level fail
+    LCTX_CATALOG_FIXTURE="$PWD/build/catalog-fixture" INSTA_UPDATE=no cargo nextest run --release -p cpg-core --test catalog --no-fail-fast --status-level none --final-status-level fail
 
 # Pinned-family single-version check + cargo-deny sources/licenses + the Pyrefly fork (ADR-0046)
 deps:

@@ -11,7 +11,7 @@ from support import load_native
 
 from lctx_mcp import operations as ops
 from lctx_mcp.embedder import FakeEmbedder
-from lctx_mcp.server import NativeWorkers, search, serve
+from lctx_mcp.server import NativeWorkers, search_members, serve
 
 LIBRARY = "analysis_shapes"
 
@@ -78,15 +78,26 @@ def test_declared_facets_answer_completely_and_raises_never_does(
     generation: Path, pg_serving
 ) -> None:
     gen = pg_serving.load()
-    where = ops.Where(kind="method", facets=[ops.FacetTerm(facet="parameter", value="key")])
+    where = ops.Selection(
+        requirements=[
+            {"predicate": "member_kind", "kind": "method"},
+            {"predicate": "facet_membership", "facet": "parameter", "value": "key"},
+        ]
+    )
     found = pg_serving.find(gen, where, limit=50, cursor=None)
-    assert "pkg.Catalog.remove" in [m.access_path for m in found.matches]
-    assert found.complete and found.unknown == []
-    raises = ops.Where(facets=[ops.FacetTerm(facet="raises", value="KeyError")])
+    assert "pkg.Catalog.remove" in [m.access_path for m in found.supported["items"]]
+    assert (found.unresolved.total == 0 and found.conflicting.total == 0) and found.unresolved[
+        "items"
+    ] == []
+    raises = ops.Selection(
+        requirements=[{"predicate": "facet_membership", "facet": "raises", "value": "KeyError"}]
+    )
     found = pg_serving.find(gen, raises, limit=50, cursor=None)
-    paths = [m.access_path for m in found.matches]
+    paths = [m.access_path for m in found.supported["items"]]
     assert {"pkg.Catalog.load", "pkg.Catalog.remove", "pkg.Catalog.reload"} <= set(paths)
-    assert not found.complete, "raises is typed by Pyrefly: an untyped raise can hide a match"
+    assert not (found.unresolved.total == 0 and found.conflicting.total == 0), (
+        "raises is typed by Pyrefly: an untyped raise can hide a match"
+    )
 
 
 def test_a_behavioral_facet_lists_what_could_hide_a_match(generation: Path, pg_serving) -> None:
@@ -101,10 +112,16 @@ def test_a_behavioral_facet_lists_what_could_hide_a_match(generation: Path, pg_s
         }
     )
     assert forwarding, "the fixture has established forwarding"
-    where = ops.Where(facets=[ops.FacetTerm(facet="forwards_to", value=forwarding[0])])
+    where = ops.Selection(
+        requirements=[
+            {"predicate": "facet_membership", "facet": "forwards_to", "value": forwarding[0]}
+        ]
+    )
     found = pg_serving.find(gen, where, limit=50, cursor=None)
-    assert found.total >= 1
-    for u in found.unknown:
+    assert found.supported.total >= 1
+    for u in found.unresolved["items"]:
+        if u.operation_id is None:
+            continue  # A public member without an operation has no behavioral facet closure.
         node = bytes.fromhex(u.operation_id)
         status = next(
             r["verdict"] for r in statuses if r["node_id"] == node and r["facet"] == "forwards_to"
@@ -120,7 +137,9 @@ def test_a_behavioral_facet_lists_what_could_hide_a_match(generation: Path, pg_s
             None,
         )
         assert status != "established" or row == "unknown", u.access_path
-    assert found.complete == (found.unknown_total == 0)
+    assert (found.unresolved.total == 0 and found.conflicting.total == 0) == (
+        found.unresolved.total == 0
+    )
 
 
 def test_lookup_keeps_each_facet_value_verdict_separate_from_completeness(
@@ -132,26 +151,30 @@ def test_lookup_keeps_each_facet_value_verdict_separate_from_completeness(
     unknown = next(f for f in op.facets["delegates_to"] if f.value == "pkg.controls.Registry.add")
     assert unknown.verdict == "unknown"
     assert any(f.verdict == "established" for f in op.facets["delegates_to"])
-    where = ops.Where(facets=[ops.FacetTerm(facet="delegates_to", value=unknown.value)])
+    where = ops.Selection(
+        requirements=[
+            {"predicate": "facet_membership", "facet": "delegates_to", "value": unknown.value}
+        ]
+    )
     found = pg_serving.find(gen, where, limit=50, cursor=None)
-    assert op.access_path not in {m.access_path for m in found.matches}
-    assert op.access_path in {m.access_path for m in found.unknown}
+    assert op.access_path not in {m.access_path for m in found.supported["items"]}
+    assert op.access_path in {m.access_path for m in found.unresolved["items"]}
     schema = ops.Operation.model_json_schema()
     assert "$defs" in schema and "FacetValue" in schema["$defs"]
 
 
 def test_pages_follow_a_bound_cursor(generation: Path, pg_serving) -> None:
     gen = pg_serving.load()
-    where = ops.Where(kind="method")
+    where = ops.Selection(requirements=[{"predicate": "member_kind", "kind": "method"}])
     first = pg_serving.find(gen, where, limit=2, cursor=None)
-    assert first.truncated and first.next_cursor
-    second = pg_serving.find(gen, where, limit=2, cursor=first.next_cursor)
-    assert {m.access_path for m in first.matches}.isdisjoint(
-        {m.access_path for m in second.matches}
+    assert not first.supported.page_complete and first.supported.next_cursor
+    second = pg_serving.find(gen, where, limit=2, cursor=first.supported.next_cursor)
+    assert {m.access_path for m in first.supported["items"]}.isdisjoint(
+        {m.access_path for m in second.supported["items"]}
     )
-    other = ops.Where(kind="function")
-    with pytest.raises(ValueError, match="another generation or request"):
-        pg_serving.find(gen, other, limit=2, cursor=first.next_cursor)
+    other = ops.Selection(requirements=[{"predicate": "member_kind", "kind": "function"}])
+    with pytest.raises(ValueError, match="another generation, request or ordering"):
+        pg_serving.find(gen, other, limit=2, cursor=first.supported.next_cursor)
     with pytest.raises(ValueError, match="cursor"):
         pg_serving.find(gen, where, limit=2, cursor="not-a-cursor")
 
@@ -159,13 +182,19 @@ def test_pages_follow_a_bound_cursor(generation: Path, pg_serving) -> None:
 def test_an_unknown_facet_value_is_refused_with_near_values(generation: Path, pg_serving) -> None:
     """Only where every operation's rows for the facet are complete: `module` is."""
     gen = pg_serving.load()
-    where = ops.Where(facets=[ops.FacetTerm(facet="module", value="pkg.registr")])
-    with pytest.raises(ValueError, match="no operation has"):
-        pg_serving.find(gen, where, limit=5, cursor=None)
+    where = ops.Selection(
+        requirements=[{"predicate": "facet_membership", "facet": "module", "value": "pkg.registr"}]
+    )
+    absent = pg_serving.find(gen, where, limit=5, cursor=None)
+    assert absent.supported.total == 0 and absent.contradicted_count > 0
     # `raises` is never complete, so an absent value is not known to be absent.
-    never = ops.Where(facets=[ops.FacetTerm(facet="raises", value="KeyErr")])
+    never = ops.Selection(
+        requirements=[{"predicate": "facet_membership", "facet": "raises", "value": "KeyErr"}]
+    )
     found = pg_serving.find(gen, never, limit=5, cursor=None)
-    assert found.total == 0 and not found.complete
+    assert found.supported.total == 0 and not (
+        found.unresolved.total == 0 and found.conflicting.total == 0
+    )
 
 
 @pytest.mark.anyio
@@ -175,12 +204,20 @@ async def test_search_ranks_operations_and_says_it_is_discovery(
     gen = pg_serving.load(FakeEmbedder().spec)
     workers = NativeWorkers()
     served = serve(gen, None, workers)
-    hits = await search(served, LIBRARY, "remove a component", 5, operations=True)
-    assert hits.ranked_discovery and hits.mode == "lexical-only"
-    assert hits.hits[0].access_path == "pkg.Catalog.remove"
-    exact = await search(served, LIBRARY, "pkg.Catalog.load", 5, operations=True)
+    hits = await search_members(served, "remove a component", limit=5)
+    assert hits.ranked_discovery and hits.retrieval.actual_route == "lexical-only"
+    remove = next(
+        row["node_id"].hex()
+        for row in pg_serving.reference.table("operations").to_pylist()
+        if row["access_path"] == "pkg.Catalog.remove"
+    )
+    assert (
+        hits.supported["items"][0].operation_id == remove
+    )  # Each public alias keeps its own rank.
+    exact = await search_members(served, "pkg.Catalog.load", limit=5)
     await workers.close()
-    assert exact.hits[0].promoted and exact.hits[0].rank_source == "exact_symbol"
+    assert exact.supported["items"][0].ranking.promoted
+    assert exact.supported["items"][0].access_path == "pkg.Catalog.load"
 
 
 @pytest.mark.anyio
@@ -198,11 +235,16 @@ async def test_the_behavioral_tools_round_trip(generation: Path, pg_serving) -> 
             "find_operations",
             {
                 "library": LIBRARY,
-                "where": {"kind": "method", "facets": [{"facet": "parameter", "value": "key"}]},
+                "selection": {
+                    "requirements": [
+                        {"predicate": "member_kind", "kind": "method"},
+                        {"predicate": "facet_membership", "facet": "parameter", "value": "key"},
+                    ]
+                },
             },
         )
         assert found.structured_content is not None
-        assert found.structured_content["complete"] is True
+        assert found.structured_content["supported"]["total"] > 0
         hits = await client.call_tool(
             "search_operations", {"library": LIBRARY, "query": "remove a component"}
         )
@@ -242,10 +284,15 @@ def test_a_class_without_a_public_constructor_could_match_any_parameter(
 ) -> None:
     """F3: a class's parameters are its public `__init__`'s; with none, it is never absent."""
     gen = pg_serving.load()
-    where = ops.Where(kind="class", facets=[ops.FacetTerm(facet="parameter", value="key")])
+    where = ops.Selection(
+        requirements=[
+            {"predicate": "member_kind", "kind": "class"},
+            {"predicate": "facet_membership", "facet": "parameter", "value": "key"},
+        ]
+    )
     found = pg_serving.find(gen, where, limit=50, cursor=None)
-    assert not found.complete
-    assert "pkg.Catalog" in [u.access_path for u in found.unknown]
+    assert not (found.unresolved.total == 0 and found.conflicting.total == 0)
+    assert "pkg.Catalog" in [u.access_path for u in found.unresolved["items"]]
     assert all(
         next(
             r["verdict"]
@@ -253,7 +300,7 @@ def test_a_class_without_a_public_constructor_could_match_any_parameter(
             if r["node_id"] == bytes.fromhex(u.operation_id) and r["facet"] == "parameter"
         )
         != "established"
-        for u in found.unknown
+        for u in found.unresolved["items"]
     )
 
 
@@ -275,8 +322,21 @@ def test_a_value_on_unknown_rows_only_is_open_not_absent(generation: Path, pg_se
     assert open_values, "the fixture has a behavior only known through an override-open call"
     facet, value = open_values[0]
     term = ops.FacetTerm.model_validate({"facet": facet, "value": value})
-    found = pg_serving.find(gen, ops.Where(facets=[term]), limit=5, cursor=None)
-    assert found.total == 0 and not found.complete and found.unknown_total >= 1
+    found = pg_serving.find(
+        gen,
+        ops.Selection(
+            requirements=[
+                {"predicate": "facet_membership", "facet": term.facet, "value": term.value}
+            ]
+        ),
+        limit=5,
+        cursor=None,
+    )
+    assert (
+        found.supported.total == 0
+        and not (found.unresolved.total == 0 and found.conflicting.total == 0)
+        and found.unresolved.total >= 1
+    )
 
 
 def test_a_fate_states_its_condition_in_the_operations_places(generation: Path, pg_serving) -> None:

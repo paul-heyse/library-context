@@ -1986,6 +1986,7 @@ async fn a_generation_rebuilds_to_the_same_bytes() {
             "catalog_members",
             "catalog_parameters",
             "catalog_scenarios",
+            "catalog_selection_domains",
             "catalog_signatures",
             "catalog_spans",
             "catalog_surfaces",
@@ -2005,11 +2006,14 @@ async fn a_generation_rebuilds_to_the_same_bytes() {
             "model_frame_exits",
             "operation_facet_status",
             "operation_facets",
-            "operation_text",
-            "operation_vectors",
             "operations",
             "place_claims",
             "public_paths",
+            "retrieval_fragments",
+            "retrieval_receipt",
+            "retrieval_subjects",
+            "retrieval_units",
+            "retrieval_vectors",
             "return_completion_certificates",
             "singletons",
             "source_body_completions",
@@ -2146,6 +2150,14 @@ async fn writes_the_python_fixture_generation() {
     };
     let out = PathBuf::from(out);
     let (_dir, store) = compiled("fixture", false, false).await;
-    let g = bundle(&store, SNAPSHOT, &out).await.unwrap();
+    let g = cpg_core::bundle::bundle_with_embedding(
+        &store,
+        SNAPSHOT,
+        &out,
+        Some(&cpg_core::embed::FakeEmbedder::new()),
+        None,
+    )
+    .await
+    .unwrap();
     std::fs::write(out.join("CURRENT"), &g.key).unwrap();
 }

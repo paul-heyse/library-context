@@ -1,13 +1,12 @@
 //! Mandatory catalog assembly from canonical evidence; optional behavior enriches the same rows.
-use crate::behavior::{BehaviorRows, WINDOW_BYTES};
+use crate::behavior::BehaviorRows;
 use crate::{CoreError, sql};
 use cpg_schema::behavior::{
-    self as b, OperationDocumentsRow, OperationFacetStatusRow, OperationFacetsRow,
-    OperationSourceRow, OperationsRow,
+    self as b, OperationFacetStatusRow, OperationFacetsRow, OperationSourceRow, OperationsRow,
 };
 use cpg_schema::catalog::*;
 use cpg_schema::catalog::{self, CompileProfile};
-use cpg_schema::codebook::{BehaviorKind, DeclarationKind, EmbeddingView, OperationFacet, Verdict};
+use cpg_schema::codebook::{BehaviorKind, DeclarationKind, OperationFacet, Verdict};
 use cpg_schema::findings::PublicPathsRow;
 use cpg_schema::metrics::Stages;
 use cpg_schema::query::QueryRow;
@@ -53,12 +52,9 @@ impl CompileInputs {
     }
 }
 
-cpg_schema::query_row! { struct TextRow { module_node_id: Id, text: Option<String> } }
 cpg_schema::query_row! { struct QualifiedRow { node_id: Id, qualified_name: String } }
 cpg_schema::relations! {
     inventory relations;
-    module_texts = "catalog_module_texts", deps = ["source_files"],
-        sql = "SELECT DISTINCT module_node_id, text FROM source_files WHERE array_has($ids, module_node_id) ORDER BY module_node_id".into();
     qualified_names = "catalog_qualified_names", deps = ["declarations"],
         sql = "SELECT node_id, qualified_name FROM declarations WHERE array_has($ids, node_id) ORDER BY node_id".into();
 }
@@ -69,38 +65,23 @@ cpg_schema::relations! {
 )]
 pub async fn populate(
     ctx: &SessionContext,
-    embeddings: &mut crate::embed::Session,
+    _embeddings: &mut crate::embed::Session,
     snapshot_id: Id,
-    embedder: Option<&dyn crate::embed::Embedder>,
+    _embedder: Option<&dyn crate::embed::Embedder>,
     contracts: &Contracts,
     out: &mut BehaviorRows,
     stages: &mut Stages,
 ) -> Result<(), CoreError> {
     let facts = load_population(ctx, out).await?;
     derive_population(facts, snapshot_id, contracts, out)?;
-    stages.mark("catalog: operations, facets and documents");
-    if let Some(embedder) = embedder {
-        let spec = embedder.spec();
-        let spec_hash = spec.hash();
-        let texts: Vec<String> = out.documents.iter().map(|d| d.text.clone()).collect();
-        embeddings
-            .texts(embedder, &texts, crate::embed::Usage::Operation)
-            .await?;
-        for d in &mut out.documents {
-            d.spec_hash = Some(spec_hash);
-            d.input_hash = Some(crate::embed::input_hash(&spec.document_text(&d.text)));
-        }
-        stages.mark("catalog: embed operation documents");
-    }
+    stages.mark("catalog: operations and legacy facets");
     Ok(())
 }
 
 struct PopulationFacts {
     sources: Vec<OperationSourceRow>,
-    parameters_of: BTreeMap<Id, Vec<lctx_analytics::pass_b::SeedParameter>>,
     qualified: BTreeMap<Id, String>,
     attributes: Vec<(Id, cpg_schema::concept_attributes::ConceptAttributesRow)>,
-    texts: BTreeMap<Id, String>,
 }
 async fn load_population(
     ctx: &SessionContext,
@@ -113,7 +94,6 @@ async fn load_population(
         .filter(|s| s.kind != DeclarationKind::Class)
         .map(|s| s.node_id)
         .collect();
-    let parameters_of = crate::analyze::seed_parameters(ctx, &callables).await?;
     let partners: BTreeSet<_> = out
         .behaviors
         .iter()
@@ -129,22 +109,10 @@ async fn load_population(
     .map(|r| (r.node_id, r.qualified_name))
     .collect();
     let attributes = crate::analyze::collect_attributes(ctx, &callables).await?;
-    let modules: BTreeSet<Id> = sources.iter().map(|s| s.module_node_id).collect();
-    let texts: BTreeMap<Id, String> = sql::fetch::<TextRow>(
-        ctx,
-        &module_texts(),
-        sql::Params::new().ids("ids", modules.iter().copied()),
-    )
-    .await?
-    .into_iter()
-    .filter_map(|r| r.text.map(|t| (r.module_node_id, t)))
-    .collect();
     Ok(PopulationFacts {
         sources,
-        parameters_of,
         qualified,
         attributes,
-        texts,
     })
 }
 fn derive_population(
@@ -155,10 +123,8 @@ fn derive_population(
 ) -> Result<(), CoreError> {
     let PopulationFacts {
         sources,
-        parameters_of,
         qualified,
         attributes,
-        texts,
     } = facts;
     if out.operations.is_empty() {
         out.operations = sources
@@ -422,47 +388,12 @@ fn derive_population(
         }
     }
 
-    // Documents: the signature-and-docstring view and the source-body view of each callable.
-    for s in sources.iter() {
-        let names: Vec<&str> = parameters_of
-            .get(&s.node_id)
-            .map(|ps| ps.iter().map(|p| p.name.as_str()).collect())
-            .unwrap_or_default();
-        let signature = lctx_analytics::neighbours::api_text(
-            &s.access_path,
-            Some(&names.join(", ")),
-            s.docstring.as_deref(),
-        );
-        let body = texts
-            .get(&s.module_node_id)
-            .and_then(|t| t.get(s.start_byte as usize..s.end_byte as usize))
-            .unwrap_or_default()
-            .to_owned();
-        for (view, text) in [
-            (EmbeddingView::SignatureDoc, signature),
-            (EmbeddingView::SourceBody, body),
-        ] {
-            for (chunk, window) in lctx_analytics::neighbours::windows(&text, WINDOW_BYTES)
-                .into_iter()
-                .enumerate()
-            {
-                out.documents.push(OperationDocumentsRow {
-                    snapshot_id,
-                    node_id: s.node_id,
-                    embedding_view: view,
-                    chunk: chunk as i64,
-                    text: window.to_owned(),
-                    spec_hash: None,
-                    input_hash: None,
-                });
-            }
-        }
-    }
     Ok(())
 }
 
 #[derive(Default, Clone, Debug, PartialEq)]
 pub struct Contracts {
+    pub domains: Vec<cpg_schema::selection::catalog::CatalogSelectionDomainsRow>,
     pub contextual: crate::evidence::EvidenceRows,
     pub members: Vec<CatalogMembersRow>,
     pub constructors: Vec<CatalogConstructorsRow>,
@@ -541,6 +472,7 @@ pub async fn contracts(
     let evidence = crate::evidence::load(ctx).await?;
     contracts.contextual = crate::evidence::PreparedEvidence::new(&facts, &evidence)
         .derive(snapshot_id, &contracts)?;
+    contracts.domains = crate::catalog_domains::derive(&facts, &evidence, &contracts, snapshot_id)?;
     Ok(contracts)
 }
 
@@ -1313,6 +1245,7 @@ fn derive_indexed(
             kind: t.kind.text().into(),
             display: t.display.clone(),
             detail: t.detail.clone(),
+            literal_json: t.literal_json.clone(),
             class_module: t.class_module.clone(),
             class_key: t.class_key.clone(),
             variable: t.variable.clone(),
@@ -1506,6 +1439,10 @@ pub async fn validate(
         }};
     }
     check!(cpg_schema::findings::PublicPaths, public);
+    check!(
+        cpg_schema::selection::catalog::CatalogSelectionDomains,
+        expected.domains
+    );
     check!(CatalogSurfaces, expected.surfaces);
     check!(
         cpg_schema::evidence::CatalogArtifacts,
