@@ -3,16 +3,36 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
 
 SPEC = Path(__file__).resolve().parents[1] / "specs/embedding/qwen3-embedding-8b.json"
 PROJECT = Path(__file__).resolve().parents[1] / "services/vllm"
+CHECKPOINT = Path("/home/paul/wheelhouse/gpu-stack/models/Qwen3-Embedding-8B-NVFP4-r2")
+SERVER = "vllm 0.30.1rc1.dev286+g3d5f4d4cd.sm120.r2"
+
+
+def verify_checkpoint(spec: dict, checkpoint: Path = CHECKPOINT) -> None:
+    """Bind both weights and tokenizer to the published manifest and verify its files."""
+    manifest = (checkpoint / "SHA256SUMS").read_bytes()
+    revision = "sha256:" + hashlib.sha256(manifest).hexdigest()
+    if spec["revision"] != revision or spec["tokenizer_revision"] != revision:
+        raise ValueError("checkpoint manifest does not match the embedding spec")
+    for line in manifest.decode().splitlines():
+        expected, name = line.split(maxsplit=1)
+        path = checkpoint / name.removeprefix("*")
+        if not path.resolve().is_relative_to(checkpoint.resolve()):
+            raise ValueError("checkpoint manifest path escapes its directory")
+        with path.open("rb") as stream:
+            actual = hashlib.file_digest(stream, "sha256").hexdigest()
+        if actual != expected:
+            raise ValueError(f"checkpoint checksum mismatch: {path.name}")
 
 
 def launch_command(spec: dict, port: int) -> list[str]:
-    if spec["server"] != "vllm 0.30.0":
+    if spec["server"] != SERVER:
         raise ValueError(f"unsupported serving engine: {spec['server']}")
     if (
         spec["pooling"]
@@ -44,11 +64,7 @@ def launch_command(spec: dict, port: int) -> list[str]:
         "--frozen",
         "vllm",
         "serve",
-        spec["model"],
-        "--revision",
-        spec["revision"],
-        "--tokenizer-revision",
-        spec["tokenizer_revision"],
+        str(CHECKPOINT),
         "--served-model-name",
         spec["model"],
         "--runner",
@@ -58,7 +74,12 @@ def launch_command(spec: dict, port: int) -> list[str]:
         "--dtype",
         spec["served_dtype"],
         "--gpu-memory-utilization",
-        "0.80",
+        "0.85",
+        "--max-num-batched-tokens",
+        "16384",
+        "--no-enable-prefix-caching",
+        "--host",
+        "127.0.0.1",
         "--hf-overrides",
         json.dumps(
             {k: admission[k] for k in ("is_matryoshka", "matryoshka_dimensions")},
@@ -83,10 +104,20 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--print-command", action="store_true")
     args = parser.parse_args()
-    command = launch_command(json.loads(SPEC.read_text(encoding="utf-8")), args.port)
+    spec = json.loads(SPEC.read_text(encoding="utf-8"))
+    command = launch_command(spec, args.port)
     if args.print_command:
         print(json.dumps(command))
     else:
+        verify_checkpoint(spec)
+        os.environ.update(
+            CUDA_HOME="/usr/local/cuda-13.4",
+            CUDA_CACHE_MAXSIZE="4294967296",
+            VLLM_NO_USAGE_STATS="1",
+        )
+        # Role E is non-BI; an inherited reranker environment must not change it.
+        os.environ.pop("VLLM_BATCH_INVARIANT", None)
+        os.environ.pop("VLLM_BATCH_INVARIANT_ALLOW_AOT", None)
         os.execvp(command[0], command)
 
 

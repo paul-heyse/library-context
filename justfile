@@ -111,7 +111,7 @@ pilot-live store="build/store" log="build/pilot-live.log" serving_config="" prof
     target/release/lctx serving import-bundle --bundle "$(grep '^generation ' {{log}} | cut -d' ' -f2)"
     uv run python -m lctx_mcp.smoke "$(grep '^generation ' {{log}} | cut -d' ' -f2)" --embedder vllm {{ if serving_config != "" { "--config " + serving_config } else { "" } }}
 
-# The embedding service (DESIGN §11.1, ADR-0068): vLLM 0.30.0 from the locked services/vllm
+# The embedding service (DESIGN §11.1, ADR-0080): the gpu-stack SM120 wheel from services/vllm
 # project, serving Qwen3-Embedding-8B at its pinned revision on the local GPU
 embed-serve port="8000":
     uv run python scripts/embed_serve.py --port {{port}}

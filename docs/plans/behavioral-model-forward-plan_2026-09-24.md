@@ -24,9 +24,16 @@ profiles, with behavioral selected. Obsolete stores, generations, runtime copies
 assets are deleted under ADR-0078. The code gate passed through a documented localized repair and
 continuation; later packet/bootstrap changes have focused receipts.
 
-**Qualification waiver:** the operator requested no embedding-related PR4 tests while a critical
-GPU benchmark runs. Real-library pilots and serving use `--embedder none`. Live embedding and
-hybrid ranking qualification are **not_run**, not inferred from deterministic controls.
+**Embedding adoption, 2026-09-28 (ADR-0080):** the operator selected gpu-stack's published
+SM120 B3/r2 wheel and NVFP4-r2 checkpoint. Basic startup, tokenizer and production-client vector
+checks **passed** (three finite unit-normalized 1024-vectors); nine embedding launcher/client
+checks and the release CLI build **passed**. Re-embedding both existing compiler profiles is
+running in the background, with live state at `build/embedding-adoption/status.json`. The current
+served profiles remain the PR4 `--embedder none` publication until both replacements complete;
+current-only cutover and deletion of superseded runtime generations follow that completion.
+No benchmark is modified. Accuracy assessment, cosine comparisons, ranking evaluation and broad
+test suites are **not_run by explicit operator instruction**; the smoke receipt does not close
+those separate qualification boundaries. Next development planning awaits the operator's instructions.
 
 **PR0: Implemented; comparison blocked.** Protocol/runner controls pass; twelve A/B/C admission
 attempts are unscored because exact-release/material parity is unestablished. Confirmation remains
@@ -198,7 +205,9 @@ assets after qualification. Fresh current-schema reconstruction replaces mixed-v
 critical GPU benchmark owns the machine. No GPU service is to be interrupted. Both real-library
 profiles, PG/MCP, current reconstruction and cutover use `--embedder none`; live embedding
 conformance and hybrid ranking are **not_run**, not inferred from deterministic fixtures. This
-waiver replaces the live-embedding prerequisite in PR4.9 without changing the embedding contract.
+waiver replaced the live-embedding prerequisite in PR4.9. The subsequent ADR-0080 adoption
+is bounded to basic live embedding validation and background rebuild, as recorded in §1; it does
+not reopen accuracy, ranking or broad product gates.
 
 Predicate coverage includes public path/module/class/kind/invocation; parameter name/kind/required/
 default and structural type identity/category/nominal/union membership; configuration owner/scope/

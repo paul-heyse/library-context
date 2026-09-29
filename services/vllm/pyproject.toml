@@ -1,18 +1,40 @@
 [project]
 name = "lctx-vllm-service"
 version = "0.0.0"
-description = "The embedding service (DESIGN §11.1, ADR-0010 amendment): vLLM 0.30.0 serving Qwen3-Embedding-8B, locked so torch and CUDA are pinned with it. Never a dependency of the compiler or the server."
+description = "The isolated Qwen embedding service using the gpu-stack sm_120 wheel and pinned CUDA runtime."
 requires-python = "==3.14.*"
 dependencies = [
-    "vllm==0.30.0",
+    "vllm==0.30.1rc1.dev286+g3d5f4d4cd.sm120.r2",
+    "orjson>=3.10",
     "tilelang==0.1.12+z3.5.1",
     "z3-solver==5.1.0.0",
 ]
 
 [tool.uv]
 package = false
+prerelease = "if-necessary"
 # The local TileLang wheel is qualified for this Linux NVIDIA service.
 environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]
+override-dependencies = [
+    "torchaudio; sys_platform == 'never'",
+    "torch==2.14.0",
+    "torchvision==0.29.0",
+    "cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==13.4.2",
+]
 
 [tool.uv.sources]
 tilelang = { path = "../../docs/design_review/evidence/2026-09-24_z3-5-migration/tilelang-0.1.12+z3.5.1-cp38-abi3-linux_x86_64.whl" }
+vllm = { index = "gpu-stack" }
+torch = { index = "pytorch-cu132" }
+torchvision = { index = "pytorch-cu132" }
+
+[[tool.uv.index]]
+name = "gpu-stack"
+url = "file:///home/paul/wheelhouse/gpu-stack"
+format = "flat"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu132"
+url = "https://download.pytorch.org/whl/cu132"
+explicit = true

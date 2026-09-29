@@ -309,12 +309,13 @@ their own evidence: vLLM and model behaviour was **Tested** against the pinned s
 the native semantic executor is **Proposed** (ADR-0025) with a partial implementation (§11.3).
 Pins are in `docs/pins.md`.
 
-> Decision: ADR-0046, ADR-0078
+> Decision: ADR-0046, ADR-0078, ADR-0080
 
 
 ### §11.1 Embedding spec and vectors
 
-**Model.** Qwen3-Embedding-8B at a pinned revision (`docs/pins.md`), served by a **separate
+**Model (Implemented, 2026-09-28; ADR-0080).** The published gpu-stack
+Qwen3-Embedding-8B-NVFP4-r2 checkpoint (`docs/pins.md`), served by a **separate
 vLLM service** from the locked `services/vllm` project (`just embed-serve`: `vllm serve …
 --runner pooling --max-model-len 8192`). vLLM is never a dependency of the compiler's Python
 tools or of `lctx_mcp`; running it as its own service also keeps GPU use explicit.
@@ -323,16 +324,19 @@ tools or of `lctx_mcp`; running it as its own service also keeps GPU use explici
   normalization. Both clients send `dimensions=1024`. The launcher derives
   `is_matryoshka=true`, `matryoshka_dimensions=[1024]`, pooling `LAST`, activation and dimensions
   from the same spec. The operator selected this standard; no new dimension-quality gate applies.
-- **Footprint** (Measured, 2026-09-22): ~15.5 GiB of weights, ~27 GB of the RTX 5090 at 0.80
-  utilization, 85 s to start. This is why live GPU legs run only with the service started
-  deliberately and stopped afterwards.
+- **Deployment:** the SM120 B3/r2 wheel and role E settings use 0.85 GPU utilization,
+  16,384 batched tokens and disabled prefix caching. The operator controls service lifetime.
+  Local accuracy and performance comparisons are outside this adoption scope.
 
 **Spec.** One committed canonical JSON, `specs/embedding/qwen3-embedding-8b.json`, whose SHA-256
 is `spec_hash` (`cpg_schema::embedding_spec::Spec`, re-exported by `cpg_core::embed`; `the_committed_spec_is_its_canonical_form`). It covers
-the model and revision, tokenizer revision, vLLM version and served dtype (bfloat16), pooling,
+the model and revision, tokenizer revision, full vLLM wheel version and activation dtype (bfloat16), pooling,
 query instruction and template, document template, dimensions, output dtype, normalization and
 the document token cap (2,048), format, source width, reduction and launch admission. **One spec governs every vector** in a generation; mixing spec
-hashes is rejected (`semantic:one-embedding-spec`).
+hashes is rejected (`semantic:one-embedding-spec`). The NVFP4 spec binds both revision fields
+to the SHA-256 of the published checkpoint manifest, covering weights, tokenizer, configuration
+and provenance. The controlled launcher checks the manifest identity and all file checksums;
+local artifact revisions are not Hugging Face revision flags. NVFP4 vectors never reuse BF16 keys.
 - **Query template (query only):** `Instruct: {task_description}\nQuery:{query}`. There is no
   space after `Query:`. Documents take no prefix, so one spec identifies one vector space for
   briefs and addressable retrieval fragments alike.
@@ -368,7 +372,9 @@ Focused controls include `every_cache_fill_entry_admits_with_the_tokenizer` and
   (`every_rejection_fires`) and judge responses alike, Rust by its serde types and Python by
   pydantic strict models, held to one corpus of 25 bodies (`specs/embedding/responses.json`;
   `responses_are_judged_as_the_shared_corpus_says` in both suites). Against the live service they
-  agree to cosine ≥ 0.9995. vLLM is not bitwise deterministic across requests (identical inputs
+  agreed to cosine ≥ 0.9995 on the prior BF16 deployment; that is not an NVFP4 accuracy receipt.
+  NVFP4 adoption checks only the live output contract, by operator instruction.
+  vLLM is not bitwise deterministic across requests (identical inputs
   differed by up to 3.8e-3 in a component, Measured 2026-09-22), so an exact vector match is
   never the oracle. A stub service exercises the real HTTP path; an unreachable service is
   `blocked`, never faked.
@@ -378,7 +384,8 @@ Focused controls include `every_cache_fill_entry_admits_with_the_tokenizer` and
   retrieval mechanics only, never vector meaning.
 - **Deployment identity.** The spec hash identifies a declaration, not the running deployment.
   The operator-controlled `just embed-serve` launch derives model, model revision, tokenizer
-  revision and dtype from that hashed spec (focused launch test, 2026-09-25). Both clients still
+  revision and dtype from that hashed spec; local checkpoint files are checksum-verified
+  before startup (ADR-0080). Both clients still
   accept an arbitrary endpoint by model name plus vector shape; their spec-hash equality with a
   generation does not attest to that endpoint's deployed revision. The supported deployment
   identity claim is limited to the operator-controlled launch. An arbitrary endpoint is an

@@ -69,3 +69,29 @@ Temporary reconstruction dumps were deleted after verification. Current test fix
 selected generation each; acquisition inputs, build caches and unexecuted evaluation inputs remain
 inputs. The obsolete administrator upgrade CLI and duplicate pending credentials were removed;
 fresh bootstrap provisions current roles, pgvector and separate protected configs directly.
+
+## NVFP4 deployment adoption, 2026-09-28
+
+**Implemented and bounded Tested (ADR-0080).** The operator selected the published gpu-stack
+B3/r2 SM120 wheel and NVFP4-r2 checkpoint. This is basic working validation, not an accuracy or
+ranking assessment. The launcher verifies the manifest identity and every checkpoint checksum;
+new canonical spec `c7a04584c626a62efda4de0a2a9bf9852ff2730344821996c669acb37e1f4d16`
+separates the new vectors from prior BF16 keys. Keep the 1024/float32/MRL/L2 contract.
+
+| Command | Outcome and scope |
+|---|---|
+| `uv lock --project services/vllm`; `uv sync --project services/vllm --locked`; wheel SHA-256 and installed metadata check | **passed:** optimized r2 wheel, torch 2.14.0+cu132, CUDA runtime 13.4.2; the existing TileLang/Z3 pairing remains installed |
+| `uv run --no-sync pytest -q python/lctx_mcp/tests/test_embed_serve.py python/lctx_mcp/tests/test_embedder.py` | **passed:** nine targeted checks, including changed checkpoint/manifest refusal |
+| `python scripts/build_environment.py -- cargo build --release -p lctx` | **passed:** CLI includes the new canonical spec |
+| `uv run --no-sync python scripts/embed_serve.py` | **passed:** verified local checkpoint, controlled role E startup on loopback port 8000; the first launch compiled CUDA kernels |
+| `uv run --no-sync python docs/design_review/evidence/2026-09-28_pr4/embedding_smoke.py` | **passed:** health, served identity, three tokenizer admissions and production-client output validation; [receipt](raw/nvfp4-smoke.json) |
+| `just adr index`; `just adr lint` | **passed:** current decision index and record checks |
+| Accuracy assessment, live cosine conformance, ranking evaluation, benchmarks and `just test-all` | **not_run:** explicit operator instruction |
+
+The detached job `build/embedding-adoption/reembed.py` rebuilds behavioral then catalog with
+`--embedder vllm`, the existing task observations and a temporary pinned CLI hard link. This is a
+data update, not a test suite. `status.json`, `behavioral.log`, `catalog.log` and `service.log` in
+that directory own live progress. Successful completion reports `rebuilt_pending_current_only_cutover`;
+failures report the failed stage. Import/selection and retirement of superseded runtime assets remain
+pending completion of both builds. No old generation is retained as a recovery requirement and no
+benchmark artifact is removed. No local speedup, retrieval relevance or BF16-equivalence claim is made.

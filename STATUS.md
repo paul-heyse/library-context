@@ -5,7 +5,7 @@ _Updated 2026-09-28 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
 ## Product checkpoint
 
 - **PR4 completed at bounded Tested strength, with the operator's embedding waiver.** Contextual typed selection, four retrieval families, addressable winning units and shared Rust classification/rank validation are implemented. [Product owner](docs/design/sections/api-and-evidence-product.md), ADR-0077/0078.
-- **Current formats:** compiler111, extractor37, template21, catalog7, bundle16/projection6/wire3, migration012. Standard1024 remains the embedding contract; pins are unchanged.
+- **Current formats:** compiler111, extractor37, template21, catalog7, bundle16/projection6/wire3, migration012. Standard1024 remains the output contract; the NVFP4 service/spec pin changed under ADR-0080.
 - **Operator pivot completed:** exactly two current ready profiles; behavioral selected. Default store/generation paths point to the validated publication. Obsolete generations, stores, runtime copies, rollback dumps, old readers/ANN code and backup-dependent upgrade tooling are removed. Delta remains canonical; PostgreSQL is rebuildable.
 - **Review accepted:** [PR4 review](docs/design_review/reviews/design_review_pr4-selection-retrieval_2026-09-28.md). [Forward plan §6.2](docs/plans/behavioral-model-forward-plan_2026-09-24.md#62-product-target-findings-and-recommendation-disposition) owns bounded closure of AP/F04/F05 and PR4/F01–F18.
 - **Packet limit:** two behavioral packets explicitly exceed 256 KiB; every winning original remains accessible and verified. PR5 owns optional enrichment pagination/omission usability work.
@@ -23,11 +23,18 @@ _Updated 2026-09-28 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
 | `deployment_check.py ... --out build/pr4-qualified-tasks` | **passed:** isolated programmatic and CLI stdio tasks both returned 5 |
 | `pilot_probe.py ...`; `compare_profiles.py ...`; operator cutover/cleanup | **passed:** both fresh profiles through real PG/MCP, 18-relation catalog parity, 88-table reconstruction, current operator serving and obsolete-state deletion |
 | `just docs-check`; `just fmt-check`; `git diff --check` | **passed:** 168 canonical pages, zero documentation errors; formatting and whitespace checks passed |
-| Live embedding/hybrid testing | **not_run:** explicit operator waiver for the critical GPU benchmark; benchmark service unchanged |
+| NVFP4 basic live validation, `embedding_smoke.py`; focused embedding pytest; release CLI build | **passed:** three valid 1024-vectors, tokenizer/identity checks; nine tests and CLI build. Accuracy, ranking and broad tests **not_run** by operator instruction |
 
 - **Build environment implemented (ADR-0079):** dated nightly `2026-09-29`, workspace feature union, CLI-only Hakari, shared Cargo intermediates with fine-grain locking and local final targets. Default/foreign target exports are normalized; benchmark trials own both directories and retain their artifacts. An exact upstream allocative backport makes the pinned graph compile; no dependency version moved.
 - **Build validation, 2026-09-28:** release CLI and both native crates, forced editable reinstall/import (nightly + mold identified in the binaries), 13 focused Python tests, shared two-checkout/concurrent-warm probe, dependency checks and docs (168 pages) **passed**. The full `just test-all` **passed**: 475 ordinary Rust tests, 199 Python tests, 19 real-PG Rust tests, three real-PG Python tests, lints/types/rules and SQLx metadata. [Build evidence](docs/design_review/evidence/2026-09-28_cargo-cache/README.md) owns the bounded claims. Performance benchmarks and live embeddings **not_run**; existing benchmark data and service remain intact.
 
+## Embedding update in progress
+
+- **ADR-0080, 2026-09-28:** published NVFP4-r2 checkpoint and gpu-stack B3/r2 SM120 wheel installed and running at `http://127.0.0.1:8000`. Manifest/file checksums bind model and tokenizer; the new full spec prevents BF16 cache reuse. [Bounded receipt](docs/design_review/evidence/2026-09-28_pr4/raw/nvfp4-smoke.json).
+- **Background rebuild running:** `build/embedding-adoption/status.json` owns live state, with `behavioral.log`, `catalog.log`, `reembed.log`, `service.log` and PID files alongside it. The job has a temporary pinned CLI hard link, removed when it exits. Both profiles rebuild before current-only import/selection and obsolete-runtime deletion; the currently selected operator publication is still lexical-only. Benchmark artifacts are preserved.
+
 ## Next
+
+Finish current-only cutover after the background embedding rebuild succeeds. Further development planning awaits the operator's separate instructions; no accuracy assessment or broad gates are authorized for this adoption.
 
 PR5 agent journeys, bounded packet usability and coarse rebuild/reuse qualification. PR0 independent parity/admission precedes comparative scoring. The [forward plan](docs/plans/behavioral-model-forward-plan_2026-09-24.md) is the single execution/adoption owner; the [PostgreSQL runbook](docs/postgresql.md) owns current commands. Completed PR1–PR3 records and the completed PostgreSQL plan are retired; surviving findings/triggers remain in the forward plan.
