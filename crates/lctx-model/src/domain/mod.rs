@@ -1,5 +1,6 @@
 //! Typed domain authority. Physical layouts are lowerings of these definitions (ADR-0085).
 mod identity;
+mod ownership;
 mod model;
 mod record;
 pub mod source;

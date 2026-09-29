@@ -217,17 +217,13 @@ struct SupportCheck<A: Assertion, S: Support<Assertion=A>> {
     lexical_scopes: BTreeMap<Id<super::lexical::LexicalScope>,Id<Occurrence>>,
     bindings: BTreeMap<Id<super::lexical::BindingEvent>,Id<Occurrence>>,
     lexical_targets: BTreeMap<Id<super::lexical::LexicalTarget>,super::lexical::LexicalTarget>,
-    sources: BTreeMap<Id<SourceArtifact>, Id<InputRevision>>,
+    ownership: super::ownership::ScopeIndex,
     places: BTreeMap<Id<Place>,Place>, roots: BTreeMap<Id<PlaceRoot>,PlaceRoot>, transfers: BTreeMap<Id<TransferKey>,TransferKey>,
     occurrences: BTreeMap<Id<Occurrence>, Id<SourceArtifact>>,
-    modules: BTreeMap<Id<Module>, Id<SourceArtifact>>,
-    corpus: BTreeSet<(Id<InputRevision>, Id<InputRevision>)>,
     atoms: BTreeMap<Id<EvaluationAtom>, (Id<Occurrence>,Option<Id<Place>>)>,
     nodes: BTreeMap<Id<ConditionNode>, ConditionNode>,
     conditions: BTreeMap<Id<Condition>, BTreeSet<Id<SourceArtifact>>>,
     closure_visits: usize,
-    distributions: BTreeSet<(Id<InputRevision>, Id<Release>)>,
-    scopes: BTreeMap<Id<CoverageScope>, CoverageScope>,
     qualifications: BTreeMap<Id<AssertionQualification>, AssertionQualification>,
     runs: BTreeMap<Id<ProviderRun>, ProviderRun>,
     families: BTreeSet<(Id<ProviderRun>, FactFamily)>,
@@ -237,17 +233,11 @@ struct SupportCheck<A: Assertion, S: Support<Assertion=A>> {
 }
 impl<A: Assertion, S: Support<Assertion=A>> SupportCheck<A,S> {
     fn new() -> Self { Self { document_nodes: BTreeMap::new(), lexical_scopes: BTreeMap::new(), bindings: BTreeMap::new(), lexical_targets: BTreeMap::new(),
-        places: BTreeMap::new(), roots: BTreeMap::new(), transfers: BTreeMap::new(), sources: BTreeMap::new(), occurrences: BTreeMap::new(), modules: BTreeMap::new(),
-        corpus: BTreeSet::new(), distributions: BTreeSet::new(), scopes: BTreeMap::new(), qualifications: BTreeMap::new(),
+        places: BTreeMap::new(), roots: BTreeMap::new(), transfers: BTreeMap::new(), ownership: Default::default(), occurrences: BTreeMap::new(),
+        qualifications: BTreeMap::new(),
         atoms: BTreeMap::new(), nodes: BTreeMap::new(), conditions: BTreeMap::new(), closure_visits: 0,
         runs: BTreeMap::new(), families: BTreeSet::new(), surfaces: BTreeMap::new(), evidence: BTreeMap::new(),
         assertions: BTreeMap::new(), supported: BTreeSet::new(), marker: PhantomData } }
-    fn input(&self, source: Id<SourceArtifact>) -> Result<Id<InputRevision>, ModelError> {
-        self.sources.get(&source).copied().ok_or_else(|| invalid("assertion source missing"))
-    }
-    fn acquired(&self, run_input: Id<InputRevision>, source: Id<SourceArtifact>) -> Result<bool, ModelError> {
-        let input = self.input(source)?; Ok(input == run_input || self.corpus.contains(&(run_input,input)))
-    }
     fn source(&self, subject: Subject) -> Result<Option<Id<SourceArtifact>>, ModelError> {
         Ok(match subject {
             Subject::SourceSpan(id) => match self.evidence.get(&id) {
@@ -266,7 +256,7 @@ impl<A: Assertion, S: Support<Assertion=A>> SupportCheck<A,S> {
             },
             Subject::Artifact(id) => Some(id),
             Subject::Occurrence(id) => Some(*self.occurrences.get(&id).ok_or_else(|| invalid("assertion occurrence missing"))?),
-            Subject::Module(id) => Some(*self.modules.get(&id).ok_or_else(|| invalid("assertion module missing"))?),
+            Subject::Module(id) => Some(self.ownership.module_source(id)?),
             Subject::Scope(_) => None,
             Subject::Place(id) => {
                 let place = self.places.get(&id).ok_or_else(|| invalid("assertion place absent"))?;
@@ -291,33 +281,18 @@ impl<A: Assertion, S: Support<Assertion=A>> SupportCheck<A,S> {
             Ok(sources)
         } else { Ok(self.source(subject)?.into_iter().collect()) }
     }
-    fn within(&self, source: Id<SourceArtifact>, scope: &CoverageScope) -> Result<bool, ModelError> {
-        Ok(match scope {
-            CoverageScope::Artifact { artifact } => *artifact == source,
-            CoverageScope::Module { module } => self.modules.get(module) == Some(&source),
-            CoverageScope::Input { input } => self.acquired(*input,source)?,
-            CoverageScope::Release { release } => self.distributions.contains(&(self.input(source)?,*release)),
-        })
-    }
     fn check_support(&mut self, support: S) -> Result<(), ModelError> {
         let assertion = self.assertions.get(&support.assertion()).ok_or_else(|| invalid("supported assertion missing"))?;
         let q = self.qualifications.get(&assertion.qualification()).ok_or_else(|| invalid("assertion qualification missing"))?;
-        let scope = self.scopes.get(&q.scope).ok_or_else(|| invalid("assertion scope missing"))?;
+        let scope = self.ownership.scope(q.scope)?;
         let provenance = support.attribution();
         let run = self.runs.get(&provenance.run).ok_or_else(|| invalid("support invocation missing"))?;
         let surface = self.surfaces.get(&provenance.surface).ok_or_else(|| invalid("support surface missing"))?;
         if q.context != run.context || surface.provider != run.provider || surface.family != A::FAMILY
             || !self.families.contains(&(provenance.run,A::FAMILY)) { return Err(invalid("support disagrees with qualified assertion or invocation")); }
-        let owns_scope = match scope {
-            CoverageScope::Input { input } => *input == run.input,
-            CoverageScope::Artifact { artifact } => self.acquired(run.input,*artifact)?,
-            CoverageScope::Module { module } => self.acquired(run.input,*self.modules.get(module).ok_or_else(|| invalid("scope module missing"))?)?,
-            CoverageScope::Release { release } => self.distributions.contains(&(run.input,*release))
-                || self.corpus.iter().any(|(corpus,input)| *corpus == run.input && self.distributions.contains(&(*input,*release))),
-        };
-        if !owns_scope { return Err(invalid("support invocation does not own assertion scope")); }
+        if !self.ownership.owns_scope(run.input,scope)? { return Err(invalid("support invocation does not own assertion scope")); }
         for source in self.conditions.get(&q.condition).ok_or_else(|| invalid("assertion condition missing"))? {
-            if !self.acquired(run.input,*source)? || !self.within(*source,scope)? {
+            if !self.ownership.acquired(run.input,*source)? || !self.ownership.within(*source,scope)? {
                 return Err(invalid("condition evaluation crosses assertion scope or invocation input"));
             }
         }
@@ -327,7 +302,7 @@ impl<A: Assertion, S: Support<Assertion=A>> SupportCheck<A,S> {
                 if id != q.scope { return Err(invalid("assertion subject scope differs")); }
             } else {
                 for source in self.subject_sources(subject)? {
-                    if !self.within(source,scope)? || !self.acquired(run.input,source)? { return Err(invalid("assertion crosses declared scope or invocation input")); }
+                    if !self.ownership.within(source,scope)? || !self.ownership.acquired(run.input,source)? { return Err(invalid("assertion crosses declared scope or invocation input")); }
                     sources.insert(source);
                 }
             }
@@ -341,7 +316,7 @@ impl<A: Assertion, S: Support<Assertion=A>> SupportCheck<A,S> {
             }
         };
         if let Some(source) = source {
-            if !self.within(source,scope)? || !self.acquired(run.input,source)? || (!sources.is_empty() && !sources.contains(&source)) {
+            if !self.ownership.within(source,scope)? || !self.ownership.acquired(run.input,source)? || (!sources.is_empty() && !sources.contains(&source)) {
                 return Err(invalid("support evidence crosses assertion scope or input"));
             }
         }
@@ -350,10 +325,8 @@ impl<A: Assertion, S: Support<Assertion=A>> SupportCheck<A,S> {
 }
 impl<A: Assertion, S: Support<Assertion=A>> InvariantCheck for SupportCheck<A,S> {
     fn visit(&mut self, relation: &str, batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
-        if relation == SourceArtifact::NAME { for r in SourceArtifact::decode(batch)? { self.sources.insert(r.id(),r.input); } }
+        if self.ownership.visit(relation,batch)? {}
         else if relation == Occurrence::NAME { for r in Occurrence::decode(batch)? { self.occurrences.insert(r.id(),r.source); } }
-        else if relation == Module::NAME { for r in Module::decode(batch)? { self.modules.insert(r.id(),r.source); } }
-        else if relation == CorpusLibrary::NAME { for r in CorpusLibrary::decode(batch)? { self.corpus.insert((r.corpus,r.library)); } }
         else if relation == EvaluationAtom::NAME { for r in EvaluationAtom::decode(batch)? { self.atoms.insert(r.id(),(r.evaluation,r.operand)); } }
         else if relation == ConditionNode::NAME { for r in ConditionNode::decode(batch)? { self.nodes.insert(r.id(),r); } }
         else if relation == Condition::NAME {
@@ -372,8 +345,6 @@ impl<A: Assertion, S: Support<Assertion=A>> InvariantCheck for SupportCheck<A,S>
                 self.conditions.insert(r.id(),sources);
             }
         }
-        else if relation == InputDistribution::NAME { for r in InputDistribution::decode(batch)? { self.distributions.insert((r.input,r.release)); } }
-        else if relation == CoverageScope::NAME { for r in CoverageScope::decode(batch)? { self.scopes.insert(r.id(),r); } }
         else if relation == AssertionQualification::NAME { for r in AssertionQualification::decode(batch)? { self.qualifications.insert(r.id(),r); } }
         else if relation == ProviderRun::NAME { for r in ProviderRun::decode(batch)? { self.runs.insert(r.id(),r); } }
         else if relation == RunFamily::NAME { for r in RunFamily::decode(batch)? { self.families.insert((r.run,r.family)); } }
@@ -389,7 +360,7 @@ impl<A: Assertion, S: Support<Assertion=A>> InvariantCheck for SupportCheck<A,S>
         else if relation == A::NAME { for r in A::decode(batch)? { self.assertions.insert(r.id(),r); } }
         else if relation == S::NAME { for r in S::decode(batch)? { self.check_support(r)?; } }
         else { return Err(invalid("undeclared support validation input")); }
-        let entries = self.sources.len()+self.occurrences.len()+self.modules.len()+self.corpus.len()+self.distributions.len()+self.scopes.len()
+        let entries = self.ownership.entries()+self.occurrences.len()
             +self.qualifications.len()+self.runs.len()+self.families.len()+self.surfaces.len()+self.evidence.len()+self.assertions.len()+self.supported.len();
         if entries + self.document_nodes.len()+self.lexical_scopes.len()+self.bindings.len()+self.lexical_targets.len()+self.places.len()+self.roots.len()+self.transfers.len()+self.atoms.len()+self.nodes.len()+self.conditions.len() > 3_000_000 { return Err(invalid("support validation cardinality budget exceeded")); }
         Ok(())

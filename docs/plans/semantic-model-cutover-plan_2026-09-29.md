@@ -399,6 +399,9 @@ Focused evidence (2026-09-29; Cargo commands prefixed by `python3 scripts/build_
 | `cargo test --release -p lctx-postgres --test domain_lexical` | passed: real PG18 good/foreign-optional-value conformance cases |
 | `cargo test --release -p lctx-model --test domain_documents` | passed: three document shape/attribution controls, including corrected enclosing heading paths |
 | `cargo test --release -p lctx-postgres --test domain_documents` | passed: real PG18 good/foreign-optional-span conformance cases |
+| `cargo test --release -p lctx-model --test domain_coverage` | passed: scope/input/corpus ownership matrix |
+| `cargo test --release -p lctx-model --test domain_assertions --test domain_lexical --test domain_documents --test domain_transfer` | passed: 16 controls after ownership consolidation |
+| `cargo test --release -p lctx-postgres --test domain_coverage --test domain_documents` | passed: real PG18 good/foreign coverage and document cases |
 | `just fmt`, `just test-all`, facts pilots | not_run: functional scope incomplete |
 
 Independent bounded reviewers accepted artifact/capture/acquisition corrections and the
@@ -420,6 +423,8 @@ assembled review; none of these bounded receipts establishes enclosing architect
 **Representative lexical contracts (Implemented; focused Tested, 2026-09-29):** nominal scope, binding event and target records; qualified scope/binding/reference/resolution observations and generated supports. Optional subjects retain provenance. Shared checks enforce structural ancestry and same-source relationships while preserving independently attributed provider disagreement at a common ordinal. Real PG18 COPY/validation/readback covers the representative fixture and rejects a foreign optional value. These are contract fixtures; the raw lexical producer and complete field disposition remain P2 work.
 
 **Representative document contracts (Implemented; focused Tested, 2026-09-29):** source-span-backed passage/code/link/mention/component identities, qualified observations and generated supports, plus typed literal/expression/bare/spread attributes. Shared checks preserve cross-heading component parents and validate subtype, parent/depth, optional-span source ownership and code-content digests. Heading paths name enclosing headings. Model and real PG18 fixtures pass; raw document producer integration and all-field parity remain P2 work. The [bounded document review](../design_review/reviews/design_review_semantic-documents_2026-09-29.md) accepted this contract scope, without qualifying producer coverage or a phase exit.
+
+**Shared scope ownership (Implemented; focused Tested, 2026-09-29):** one `ScopeIndex` policy owns artifact/module/input/release containment and explicit direct corpus membership for both assertion supports and stored provider coverage. Matching provider/context no longer permits coverage for an unrelated input. The bounded [ownership review](../design_review/reviews/design_review_semantic-scope-ownership_2026-09-29.md) accepted the consolidation. The model matrix checks all four scope kinds with direct/corpus positive and foreign controls; real PG18 checks good and foreign input coverage. Production expected-matrix construction and complete facts admission remain open. Native Ruff traversal still has emission/depth limits, not a total-work termination bound.
 
 **Next / still open:** remaining representative type/flow/deployment domain families
 and whole-call binding/root composition and opaque caller rebasing; complete call producer/normalization integration; occurrence ownership; coordinated allocation accounting; exact coverage

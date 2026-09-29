@@ -119,7 +119,7 @@ pub enum CoverageStatus {
     Failed = 4,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "provider_coverage", validate = validate_coverage)]
+#[model(name = "provider_coverage", validate = validate_coverage, invariants = coverage_ownership_invariants)]
 pub struct ProviderCoverage {
     #[model(key)] pub scope: Id<CoverageScope>,
     #[model(key, provenance)] pub provider: Id<Provider>,
@@ -278,4 +278,40 @@ impl super::InvariantCheck for InvocationCheck {
         Ok(())
     }
     fn finish(self: Box<Self>) -> Result<(), ModelError> { self.validate_families() }
+}
+
+
+fn coverage_ownership_invariants() -> Vec<super::Invariant> {
+    let mut inputs = super::ownership::ScopeIndex::inputs();
+    inputs.extend([super::ValidationInput::of::<ProviderRun>(&["id"]),super::ValidationInput::of::<ProviderCoverage>(&["id"])]);
+    vec![super::Invariant { name: "coverage_scope_ownership",inputs,
+        create: std::sync::Arc::new(|| Box::new(CoverageOwnership::default())) }]
+}
+#[derive(Default)]
+struct CoverageOwnership {
+    ownership: super::ownership::ScopeIndex,
+    runs: BTreeMap<Id<ProviderRun>,Id<InputRevision>>,
+}
+impl super::InvariantCheck for CoverageOwnership {
+    fn visit(&mut self, relation: &str, batch: &arrow_array::RecordBatch) -> Result<(),ModelError> {
+        if self.ownership.visit(relation,batch)? { return Ok(()); }
+        if relation == ProviderRun::NAME {
+            for row in ProviderRun::decode(batch)? {
+                if self.runs.len() >= 1_000_000 { return Err(ModelError::Invalid("coverage ownership cardinality limit".into())); }
+                self.runs.insert(row.id(),row.input);
+            }
+        } else if relation == ProviderCoverage::NAME {
+            for row in ProviderCoverage::decode(batch)? {
+                let scope = self.ownership.scope(row.scope)?;
+                if let Some(run) = row.run {
+                    let input = self.runs.get(&run).ok_or_else(|| ModelError::Invalid("coverage invocation missing".into()))?;
+                    if !self.ownership.owns_scope(*input,scope)? {
+                        return Err(ModelError::Invalid("coverage invocation does not own its scope".into()));
+                    }
+                }
+            }
+        } else { return Err(ModelError::Invalid("undeclared coverage ownership input".into())); }
+        Ok(())
+    }
+    fn finish(self: Box<Self>) -> Result<(),ModelError> { Ok(()) }
 }
