@@ -1,10 +1,12 @@
 //! Immutable generation schemas lowered exclusively from a validated semantic model (ADR-0086).
+mod catalog;
 mod codec;
 mod ddl;
 mod install;
 mod lifecycle;
 mod receipts;
 mod verify;
+pub use catalog::{GenerationCatalog, GenerationDetail, GenerationState, GenerationSummary, ListFilter, Writer};
 pub use install::ResetInventory;
 pub use lifecycle::{GenerationAttempt, SealedAttempt, ValidatedAttempt};
 pub use verify::{CheckReport, Finding, FindingKind};

@@ -748,6 +748,19 @@ It holds the installation lock exclusively rather than relying on a REPEATABLE R
 - a subset schedule's `begin` is refused, with no registry row or schema;
 - a missing Deployment coverage row fails validation with class `frontier`;
 - failed and facts shapes `check` clean |
+| P1.8: `cargo test --release -p lctx-postgres --test generation_catalog --test lifecycle` | passed 2026-09-29 (catalog 2, lifecycle 11).
+
+`GenerationCatalog{list(ListFilter), show}` in `generations/catalog.rs` reads only the control schema and `pg_locks`, so the reader role runs it. It reports:
+- state, frontier, profile and selection;
+- the creation time;
+- the reader count: distinct holders of the shared generation lock;
+- the writer: Manual, Live (attempt lock held), Interrupted or Ended;
+- the model, physical, producer, schedule and content digests;
+- relation receipts with row counts;
+- a facts generation's admission contract and per-family availability;
+- a failed generation's from-state, class and detail.
+
+Controls: every state across both frontiers and all four writer kinds; a lost attempt turns Live into Interrupted and agrees with `interrupted()`; two leases count 2, then 1, then 0; the reader, even in an explicitly read-write transaction, gets 42501 on every control-table write. The lifecycle and catalog tests share `tests/support` fixtures |
 | `just fmt`, `just test-all`, facts pilots | not_run: functional scope incomplete |
 
 Independent bounded reviewers accepted artifact/capture/acquisition corrections and the
