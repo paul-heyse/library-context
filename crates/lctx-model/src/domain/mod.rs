@@ -26,6 +26,7 @@ pub mod resources;
 pub mod batching;
 pub mod charged;
 pub mod memory;
+pub mod occurrence_owner;
 pub mod obligation;
 
 pub use identity::{ArmId, ContentHash, ContentHasher, EvidenceBytes, Id, Key, KeySink};
