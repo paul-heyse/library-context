@@ -22,7 +22,8 @@ _Updated 2026-09-29 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
 - **Codec allocation:** borrowed key hashing and streamed borrowed Arrow encoding remove intermediate
   key/payload copies; builders retain known row preallocation. Full accounting/RSS remains open.
 - **Types:** structural terms, recursive restrictions and native-owner/fidelity checks pass model and PG18 controls.
-- **Still open:** representative deployment domain; whole-call/root composition and opaque
+- **Deployment:** typed reported values/collections and source checks pass model3/PG18 three-case controls; explicit lease release preserves two-reader exclusion.
+- **Still open:** whole-call/root composition and opaque
   rebasing; coordinated resources (including total syntax traversal work), complete coverage/admission
   and assembled P0 review; P1 provider/store/CLI cutover and Delta deletion; full P2 producer migration.
 - **Authorized scope:** model/store/facts. Downstream runtime suspends at P1 until P3–5.
@@ -30,12 +31,11 @@ _Updated 2026-09-29 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
 
 ## Focused verification (2026-09-29)
 
-Cargo commands use `python3 scripts/build_environment.py --`. All receipts are bounded.
+Cargo commands use `python3 scripts/build_environment.py --`; all receipts are bounded.
 
 | Command | Outcome |
 |---|---|
 | `cargo test --release -p lctx-model --test domain` | passed: 18 after codec preallocation correction |
-| `cargo test --release -p lctx-model --test domain --test domain_assertions --test domain_stages` | passed earlier: 17 + three + four stage/assertion controls |
 | `cargo test --release -p lctx-model --test domain_lexical` | passed: four, including two review corrections |
 | `cargo test --release -p lctx-model --test domain_documents` | passed: three after enclosing-heading correction |
 | `cargo test --release -p lctx-model --test domain_coverage` | passed: input/corpus ownership matrix |
@@ -55,6 +55,6 @@ Review acceptance is bounded; complete raw-field parity and enclosing architectu
 
 ## Next
 
-Finish P0 deployment contracts, whole-call composition/rebasing, resource/coverage admission
+Finish P0 whole-call composition/rebasing, resource/coverage admission
 and assembled review. Then execute the plan's P1 hard cutover and P2 migration/deletion sequence.
 Integrated gates wait until all authorized functional scope is implemented.

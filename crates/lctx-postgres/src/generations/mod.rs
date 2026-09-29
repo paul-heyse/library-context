@@ -337,6 +337,16 @@ async fn check_schedule(connection: &mut PgConnection, g: GenerationId, expected
 pub struct GenerationLease { connection: sqlx::pool::PoolConnection<sqlx::Postgres>, generation: GenerationId, model: Arc<ValidatedModel> }
 impl GenerationLease {
     pub fn generation(&self) -> GenerationId { self.generation }
+    /// Consume the reader and wait for server acknowledgment that its session lease is released.
+    /// Drop still closes the connection conservatively, but does not acknowledge lock release.
+    /// The connection remains close-on-drop on error or cancellation and is never pooled again.
+    pub async fn release(mut self) -> Result<(), Error> {
+        let released: bool = sqlx::query_scalar("SELECT pg_advisory_unlock_shared($1)")
+            .bind(self.generation.lock()).fetch_one(&mut *self.connection).await?;
+        if !released { return Err(Error::State); }
+        self.connection.close().await?;
+        Ok(())
+    }
     /// Visit bounded typed batches while borrowing the original leased connection.
     /// No connection reacquisition is permitted after a transport failure.
     pub async fn visit<R: Record>(&mut self, mut visitor: impl FnMut(Batch<R>) -> Result<(), Error>) -> Result<(), Error> {

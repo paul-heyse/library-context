@@ -411,6 +411,8 @@ Focused evidence (2026-09-29; Cargo commands prefixed by `python3 scripts/build_
 | `just docs-check` | passed: 193 canonical pages and zero link errors after MDX source-reference correction |
 | `cargo test --release -p lctx-model --test domain_types --test domain_assertions` | passed after type F01: four type and three assertion controls, including 20 opaque-fidelity combinations |
 | `cargo test --release -p lctx-postgres --test domain_types` | passed after F01: real PG18 modeled good/foreign-owner and nested truncated structural rejection/display-only acceptance |
+| `cargo test --release -p lctx-model --test domain_deployment` | passed: three report/membership/source controls |
+| `cargo test --release -p lctx-postgres --test domain_deployment` | passed after initial Busy failure and explicit-release correction: real PG18 three-case contract test plus two-reader retirement protection |
 | `just fmt`, `just test-all`, facts pilots | not_run: functional scope incomplete |
 
 Independent bounded reviewers accepted artifact/capture/acquisition corrections and the
@@ -441,8 +443,9 @@ assembled review; none of these bounded receipts establishes enclosing architect
 
 **Representative type contracts (Implemented; focused Tested, 2026-09-29):** structural terms reuse nominal native symbols and lossless literals; provider/context/module/anchor/slot/origin/kind identify type variables. Ordered sequence membership is digest-checked. Recursive restrictions and alternate presentations remain qualified relationships outside variable identity. Shared support validation checks transitive native owners and requires DisplayOnly when any dependency is opaque/truncated. The [bounded type review](../design_review/reviews/design_review_semantic-types_2026-09-29.md) accepted F01's correction. Model controls and real PG18 four-case readback/refusal pass; complete native type forms and Pyrefly producer migration remain P2 work.
 
-**Next / still open:** remaining representative deployment domain family
-and whole-call binding/root composition and opaque caller rebasing; complete call producer/normalization integration; occurrence ownership; coordinated allocation accounting; exact coverage
+**Representative deployment contracts (Implemented; focused Tested, 2026-09-29):** typed report values and digest-checked ordered/keyed collections preserve commands, tools, arguments and environment metadata. Reported environments and task results remain captured claims; receipt/target source ownership is independently checked. Full unsigned duration roundtrips without narrowing. Model controls and real PG18 good/foreign-target/missing-child cases pass. An observed asynchronous drop/retire race was corrected with consuming, acknowledged `GenerationLease::release`; two-reader controls retain Busy until both readers release. The [bounded deployment review](../design_review/reviews/design_review_semantic-deployment_2026-09-29.md) accepts this scope. Actual receipt parsing, verification, nested Scenario/OptionBinding relationships and complete field mapping remain P2 work; full reader/provider lifecycle remains P1.
+
+**Next / still open:** whole-call binding/root composition and opaque caller rebasing; complete call producer/normalization integration; occurrence ownership; coordinated allocation accounting; exact coverage
 and full production frontier admission; production capture/assembler integration and assembled P0-E review.
 Then finish generated installation verification/reset, provider lease/stream integration, service
 classification, store/CLI cutover and Delta deletion in P1; migrate every raw producer/field in §4.1.2
@@ -566,6 +569,12 @@ reinspected corrections and reran seven controls on 2026-09-29. P2/P3 and C04 cl
 | Finding | Responsible component | Current disposition and evidence |
 |---|---|---|
 | [type F01](../design_review/reviews/design_review_semantic-types_2026-09-29.md#F01) | type/support validation and attribution derive | closed (bounded): transitive opaque/truncated dependency requires DisplayOnly; direct/nested model matrix and real PG18 refusal/acceptance, independent reinspection |
+
+### Deployment and reader-release review findings
+
+| Finding | Responsible component | Current disposition and evidence |
+|---|---|---|
+| [deployment F01](../design_review/reviews/design_review_semantic-deployment_2026-09-29.md#F01) | `lctx-postgres::generations` | closed (bounded): consuming explicit release acknowledges unlock before cleanup; two-reader PG control retains Busy after first release and permits retirement after second; broader P1 lifecycle open |
 
 ### Core review findings
 
