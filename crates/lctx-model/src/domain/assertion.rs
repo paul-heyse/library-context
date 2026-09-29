@@ -60,7 +60,7 @@ fn validate_evidence(row: &Evidence) -> Result<(), ModelError> {
     Ok(())
 }
 #[derive(Debug, Clone, Copy)]
-pub enum Subject { DocumentNode { id: Id<super::documents::DocumentNode>, tag: i16 }, SourceSpan(Id<Evidence>), Occurrence(Id<Occurrence>), Artifact(Id<SourceArtifact>), Module(Id<Module>), Scope(Id<CoverageScope>), Place(Id<Place>), Transfer(Id<TransferKey>),
+pub enum Subject { FlowUse(Id<super::flow::FlowUse>), FlowDefinition(Id<super::flow::FlowDefinition>), ReachingDefinition(Id<super::flow::ReachingDefinition>), DocumentNode { id: Id<super::documents::DocumentNode>, tag: i16 }, SourceSpan(Id<Evidence>), Occurrence(Id<Occurrence>), Artifact(Id<SourceArtifact>), Module(Id<Module>), Scope(Id<CoverageScope>), Place(Id<Place>), Transfer(Id<TransferKey>),
     LexicalScope(Id<super::lexical::LexicalScope>), BindingEvent(Id<super::lexical::BindingEvent>), LexicalTarget(Id<super::lexical::LexicalTarget>) }
 impl From<Id<Occurrence>> for Subject { fn from(value: Id<Occurrence>) -> Self { Self::Occurrence(value) } }
 impl From<Id<SourceArtifact>> for Subject { fn from(value: Id<SourceArtifact>) -> Self { Self::Artifact(value) } }
@@ -84,6 +84,18 @@ impl<const C: i16> SubjectValue for ArmId<super::documents::DocumentNode,C> {
 impl SubjectValue for EvidenceSourceSpanId {
     fn inputs() -> Vec<ValidationInput> { vec![] }
     fn append_subjects(&self, subjects: &mut Vec<Subject>) { subjects.push(Subject::SourceSpan(self.id())); }
+}
+impl SubjectValue for Id<super::flow::FlowUse> {
+    fn inputs() -> Vec<ValidationInput> { vec![ValidationInput::of::<super::flow::FlowUse>(&["id"])] }
+    fn append_subjects(&self, subjects: &mut Vec<Subject>) { subjects.push(Subject::FlowUse(*self)); }
+}
+impl SubjectValue for Id<super::flow::FlowDefinition> {
+    fn inputs() -> Vec<ValidationInput> { vec![ValidationInput::of::<super::flow::FlowDefinition>(&["id"])] }
+    fn append_subjects(&self, subjects: &mut Vec<Subject>) { subjects.push(Subject::FlowDefinition(*self)); }
+}
+impl SubjectValue for Id<super::flow::ReachingDefinition> {
+    fn inputs() -> Vec<ValidationInput> { vec![ValidationInput::of::<super::flow::FlowDefinition>(&["id"]),ValidationInput::of::<super::flow::ReachingDefinition>(&["id"])] }
+    fn append_subjects(&self, subjects: &mut Vec<Subject>) { subjects.push(Subject::ReachingDefinition(*self)); }
 }
 impl<T: SubjectValue> SubjectValue for Option<T> {
     fn inputs() -> Vec<ValidationInput> { T::inputs() }
@@ -213,6 +225,9 @@ pub fn support_invariants<A: Assertion, S: Support<Assertion=A>>() -> Vec<Invari
     vec![Invariant { name: S::NAME,inputs,create: std::sync::Arc::new(|| Box::new(SupportCheck::<A,S>::new())) }]
 }
 struct SupportCheck<A: Assertion, S: Support<Assertion=A>> {
+    flow_uses: BTreeMap<Id<super::flow::FlowUse>,super::flow::FlowUse>,
+    flow_definitions: BTreeMap<Id<super::flow::FlowDefinition>,super::flow::FlowDefinition>,
+    reaching: BTreeMap<Id<super::flow::ReachingDefinition>,super::flow::ReachingDefinition>,
     document_nodes: BTreeMap<Id<super::documents::DocumentNode>,super::documents::DocumentNode>,
     lexical_scopes: BTreeMap<Id<super::lexical::LexicalScope>,Id<Occurrence>>,
     bindings: BTreeMap<Id<super::lexical::BindingEvent>,Id<Occurrence>>,
@@ -232,7 +247,7 @@ struct SupportCheck<A: Assertion, S: Support<Assertion=A>> {
     assertions: BTreeMap<Id<A>, A>, supported: BTreeSet<Id<A>>, marker: PhantomData<S>,
 }
 impl<A: Assertion, S: Support<Assertion=A>> SupportCheck<A,S> {
-    fn new() -> Self { Self { document_nodes: BTreeMap::new(), lexical_scopes: BTreeMap::new(), bindings: BTreeMap::new(), lexical_targets: BTreeMap::new(),
+    fn new() -> Self { Self { flow_uses: BTreeMap::new(),flow_definitions: BTreeMap::new(),reaching: BTreeMap::new(),document_nodes: BTreeMap::new(), lexical_scopes: BTreeMap::new(), bindings: BTreeMap::new(), lexical_targets: BTreeMap::new(),
         places: BTreeMap::new(), roots: BTreeMap::new(), transfers: BTreeMap::new(), ownership: Default::default(), occurrences: BTreeMap::new(),
         qualifications: BTreeMap::new(),
         atoms: BTreeMap::new(), nodes: BTreeMap::new(), conditions: BTreeMap::new(), closure_visits: 0,
@@ -270,17 +285,36 @@ impl<A: Assertion, S: Support<Assertion=A>> SupportCheck<A,S> {
                     PlaceRoot::Occurrence { occurrence } => Subject::Occurrence(*occurrence),
                 })?
             }
-            Subject::Transfer(_) => return Err(invalid("transfer has multiple source subjects")),
+            Subject::Transfer(_) | Subject::FlowUse(_) | Subject::FlowDefinition(_) | Subject::ReachingDefinition(_) => return Err(invalid("composite subject requires all sources")),
         })
     }
     fn subject_sources(&self, subject: Subject) -> Result<Vec<Id<SourceArtifact>>,ModelError> {
-        if let Subject::Transfer(id) = subject {
-            let transfer = self.transfers.get(&id).ok_or_else(|| invalid("assertion transfer key absent"))?;
-            let mut sources: Vec<_> = [self.source(Subject::Place(transfer.input))?,self.source(Subject::Place(transfer.output))?].into_iter().flatten().collect();
-            if let Some(site) = transfer.call_site { sources.extend(self.source(Subject::Occurrence(site))?); }
-            Ok(sources)
-        } else { Ok(self.source(subject)?.into_iter().collect()) }
+        let subjects = match subject {
+            Subject::Transfer(id) => {
+                let transfer = self.transfers.get(&id).ok_or_else(|| invalid("assertion transfer key absent"))?;
+                let mut subjects = vec![Subject::Place(transfer.input),Subject::Place(transfer.output)];
+                if let Some(site) = transfer.call_site { subjects.push(Subject::Occurrence(site)); }
+                subjects
+            },
+            Subject::FlowUse(id) => {
+                let event = self.flow_uses.get(&id).ok_or_else(|| invalid("flow use absent"))?;
+                vec![Subject::Occurrence(event.occurrence),Subject::Place(event.place)]
+            },
+            Subject::FlowDefinition(id) => {
+                let event = self.flow_definitions.get(&id).ok_or_else(|| invalid("flow definition absent"))?;
+                vec![Subject::Occurrence(event.occurrence),Subject::Place(event.place)]
+            },
+            Subject::ReachingDefinition(id) => match self.reaching.get(&id).ok_or_else(|| invalid("reaching definition absent"))? {
+                super::flow::ReachingDefinition::Bound { definition } => return self.subject_sources(Subject::FlowDefinition(*definition)),
+                super::flow::ReachingDefinition::Unbound => vec![],
+            },
+            other => vec![other],
+        };
+        let mut sources = Vec::new();
+        for subject in subjects { sources.extend(self.source(subject)?); }
+        Ok(sources)
     }
+
     fn check_support(&mut self, support: S) -> Result<(), ModelError> {
         let assertion = self.assertions.get(&support.assertion()).ok_or_else(|| invalid("supported assertion missing"))?;
         let q = self.qualifications.get(&assertion.qualification()).ok_or_else(|| invalid("assertion qualification missing"))?;
@@ -353,6 +387,9 @@ impl<A: Assertion, S: Support<Assertion=A>> InvariantCheck for SupportCheck<A,S>
         else if relation == PlaceRoot::NAME { for r in PlaceRoot::decode(batch)? { self.roots.insert(r.id(),r); } }
         else if relation == Place::NAME { for r in Place::decode(batch)? { self.places.insert(r.id(),r); } }
         else if relation == TransferKey::NAME { for r in TransferKey::decode(batch)? { self.transfers.insert(r.id(),r); } }
+        else if relation == super::flow::FlowUse::NAME { for r in super::flow::FlowUse::decode(batch)? { self.flow_uses.insert(r.id(),r); } }
+        else if relation == super::flow::FlowDefinition::NAME { for r in super::flow::FlowDefinition::decode(batch)? { self.flow_definitions.insert(r.id(),r); } }
+        else if relation == super::flow::ReachingDefinition::NAME { for r in super::flow::ReachingDefinition::decode(batch)? { self.reaching.insert(r.id(),r); } }
         else if relation == super::documents::DocumentNode::NAME { for r in super::documents::DocumentNode::decode(batch)? { self.document_nodes.insert(r.id(),r); } }
         else if relation == super::lexical::LexicalScope::NAME { for r in super::lexical::LexicalScope::decode(batch)? { self.lexical_scopes.insert(r.id(),r.owner); } }
         else if relation == super::lexical::BindingEvent::NAME { for r in super::lexical::BindingEvent::decode(batch)? { self.bindings.insert(r.id(),r.site); } }
@@ -362,7 +399,7 @@ impl<A: Assertion, S: Support<Assertion=A>> InvariantCheck for SupportCheck<A,S>
         else { return Err(invalid("undeclared support validation input")); }
         let entries = self.ownership.entries()+self.occurrences.len()
             +self.qualifications.len()+self.runs.len()+self.families.len()+self.surfaces.len()+self.evidence.len()+self.assertions.len()+self.supported.len();
-        if entries + self.document_nodes.len()+self.lexical_scopes.len()+self.bindings.len()+self.lexical_targets.len()+self.places.len()+self.roots.len()+self.transfers.len()+self.atoms.len()+self.nodes.len()+self.conditions.len() > 3_000_000 { return Err(invalid("support validation cardinality budget exceeded")); }
+        if entries + self.flow_uses.len()+self.flow_definitions.len()+self.reaching.len()+self.document_nodes.len()+self.lexical_scopes.len()+self.bindings.len()+self.lexical_targets.len()+self.places.len()+self.roots.len()+self.transfers.len()+self.atoms.len()+self.nodes.len()+self.conditions.len() > 3_000_000 { return Err(invalid("support validation cardinality budget exceeded")); }
         Ok(())
     }
     fn finish(self: Box<Self>) -> Result<(), ModelError> {

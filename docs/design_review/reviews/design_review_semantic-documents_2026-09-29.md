@@ -19,7 +19,7 @@ support in [`assertion.rs`](../../../crates/lctx-model/src/domain/assertion.rs),
 [`model tests`](../../../crates/lctx-model/tests/domain_documents.rs),
 [`shared fixture`](../../../crates/lctx-model/tests/fixtures/documents.rs),
 [`PG tests`](../../../crates/lctx-postgres/tests/domain_documents.rs) and
-[`guide.mdx`](../../../fixtures/python/semantic_documents/guide.mdx).
+`fixtures/python/semantic_documents/guide.mdx`.
 Adjacent evidence was the old [`document producer`](../../../crates/cpg-extract/src/docs.rs)
 and [`tables`](../../../crates/cpg-schema/src/tables.rs), plus existing source/evidence validation.
 Line references below identify the inspected version; concurrent changes can move them.

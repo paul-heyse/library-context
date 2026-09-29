@@ -6,6 +6,7 @@ mod record;
 pub mod source;
 pub mod lexical;
 pub mod documents;
+pub mod flow;
 pub mod calls;
 pub mod transfer;
 pub mod derivation;
@@ -116,12 +117,19 @@ pub fn model() -> Result<ValidatedModel, ModelError> {
     use source::*;
     use lexical::*;
     use documents::*;
+    use flow::*;
     use value::*;
     use conditions::*;
     use assertion::*;
     use calls::*;
     use transfer::*;
     ValidatedModel::validate(vec![
+        Relation::of::<FlowUse>(), Relation::of::<FlowDefinition>(), Relation::of::<ReachingDefinition>(),
+        Relation::of::<FlowUseObservation>(), Relation::of::<FlowUseSupport>(),
+        Relation::of::<FlowDefinitionObservation>(), Relation::of::<FlowDefinitionSupport>(),
+        Relation::of::<FlowReachingObservation>(), Relation::of::<FlowReachingSupport>(),
+        Relation::of::<FlowValueObservation>(), Relation::of::<FlowValueSupport>(),
+        Relation::of::<FlowRegionObservation>(), Relation::of::<FlowRegionSupport>(),
         Relation::of::<DocumentNode>(), Relation::of::<DocumentAttributeValue>(),
         Relation::of::<DocumentObservation>(), Relation::of::<DocumentSupport>(),
         Relation::of::<PassageObservation>(), Relation::of::<PassageSupport>(),

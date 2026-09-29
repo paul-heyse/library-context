@@ -405,6 +405,10 @@ Focused evidence (2026-09-29; Cargo commands prefixed by `python3 scripts/build_
 | `cargo test --release -p lctx-model --test domain` | passed: 18 controls after builder-reservation follow-up; owned/borrowed identity and unit/optional sum parity |
 | `cargo test --release -p lctx-model --doc` | passed after codec change: seven positive and seven compile-fail controls; one old ignored example |
 | `cargo test --release -p lctx-postgres --test generations` | passed after codec change: real PG18 lifecycle and 65 MiB chunk/corruption controls |
+| `cargo test --release -p lctx-model --test domain_flow` | passed after F01: three controls including the six-case broad-input structure matrix |
+| `cargo test --release -p lctx-model --test domain_flow --test domain_transfer` | passed before F01: two flow and six transfer controls after composite-subject expansion |
+| `cargo test --release -p lctx-postgres --test domain_flow` | passed after F01: real PG18 good/foreign-place-root conformance cases |
+| `just docs-check` | passed: 193 canonical pages and zero link errors after MDX source-reference correction |
 | `just fmt`, `just test-all`, facts pilots | not_run: functional scope incomplete |
 
 Independent bounded reviewers accepted artifact/capture/acquisition corrections and the
@@ -431,7 +435,9 @@ assembled review; none of these bounded receipts establishes enclosing architect
 
 **Codec allocation reduction (Implemented; focused Tested, 2026-09-29):** generated record identity hashes key fields by reference; explicit owned-key APIs remain available. Struct/sum encoders push borrowed physical rows into pinned serde_arrow builders, reserving known row capacity, without building an intermediate vector or cloning active sum payloads. Identity framing and schemas remain unchanged. Focused controls include all-unit/optional sums and a 1 MiB value; PG18 chunk readback still includes 65 MiB input. This removes known intermediates; it does not establish complete reservations or RSS limits. The [bounded codec review](../design_review/reviews/design_review_semantic-codec-allocation_2026-09-29.md) accepted the correction.
 
-**Next / still open:** remaining representative type/flow/deployment domain families
+**Representative raw flow (Implemented; focused Tested, 2026-09-29):** nominal uses/definitions refer to shared occurrences and places; qualified use/definition/reaching/value/region observations carry generated supports. An explicit Unbound target differs from absent coverage; raw identity cannot pass through an unresolved call. Shared validation includes transitive Place roots and same-source event/scope/value geometry, independently of broad coverage authorization. The [bounded flow review](../design_review/reviews/design_review_semantic-flow_2026-09-29.md) accepted F01's correction. These are contract fixtures; full ty emission, call steps, tests/type leaves and P2 field parity remain open.
+
+**Next / still open:** remaining representative type/deployment domain families
 and whole-call binding/root composition and opaque caller rebasing; complete call producer/normalization integration; occurrence ownership; coordinated allocation accounting; exact coverage
 and full production frontier admission; production capture/assembler integration and assembled P0-E review.
 Then finish generated installation verification/reset, provider lease/stream integration, service
@@ -461,6 +467,11 @@ owners. Phases 3–5 update their owners when implemented. No documentation labe
 without corresponding evidence.
 
 ## 8. Findings disposition
+
+| Source finding | Current disposition | Owner and closure evidence |
+|---|---|---|
+| [flow F01](../design_review/reviews/design_review_semantic-flow_2026-09-29.md) | addressed within reviewed slice | Flow source-structure invariant separates file geometry from input ownership; broad-input negatives for use/definition/region scope, definition value and value sink, plus acquired foreign Place-root positive; independent reinspection accepted |
+
 
 | Source finding | Current disposition | Owner and closure evidence |
 |---|---|---|
