@@ -96,6 +96,9 @@ pub enum Predicate {
     #[model(code = 5)] IsInstance { class_expression: String },
     #[model(code = 6)] TypeIs { class_expression: String },
     #[model(code = 7)] Opaque { text: String },
+    /// A callee-local guard instantiated at a caller evaluation. The source remains a typed
+    /// provenance dependency; this is not equality with a caller operand or an erased condition.
+    #[model(code = 8)] InvokedGuard { source: Id<super::conditions::EvaluationAtom> },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]

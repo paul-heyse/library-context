@@ -105,6 +105,7 @@ fn qualified_assertions_preserve_alternatives_and_require_typed_attribution() {
         let supporting = SyntaxSupport { assertion: asserted.id(),run: invocation.id(),..support.clone() };
         insert(&model,&mut batches,vec![source.clone(),other.clone(),foreign.clone()]);
         insert(&model,&mut batches,vec![occurrence.clone(),evaluation]);
+        insert(&model,&mut batches,vec![lctx_model::domain::value::Predicate::Truthy]);
         insert(&model,&mut batches,vec![atom]); insert(&model,&mut batches,nodes); insert(&model,&mut batches,vec![condition]);
         insert(&model,&mut batches,vec![scope]); insert(&model,&mut batches,vec![qualified]); insert(&model,&mut batches,vec![asserted]);
         insert(&model,&mut batches,vec![RunFamily { run: invocation.id(),family: FactFamily::Syntax }]);

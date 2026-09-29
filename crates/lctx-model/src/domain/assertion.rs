@@ -18,7 +18,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::marker::PhantomData;
 use crate::{Domain, DomainCode, DomainSum};
-use super::{*, attribution::*, source::*, input::*, conditions::*, value::{Place,PlaceRoot}, transfer::TransferKey};
+use super::{*, attribution::*, source::*, input::*, conditions::*, value::{Place,PlaceRoot,Predicate}, transfer::TransferKey};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
 #[repr(i16)]
@@ -221,7 +221,7 @@ pub fn support_invariants<A: Assertion, S: Support<Assertion=A>>() -> Vec<Invari
         ValidationInput::of::<SourceArtifact>(&["id"]), ValidationInput::of::<Occurrence>(&["id"]),
         ValidationInput::of::<Module>(&["id"]), ValidationInput::of::<CorpusLibrary>(&["id"]),
         ValidationInput::of::<PlaceRoot>(&["id"]), ValidationInput::of::<Place>(&["id"]),
-        ValidationInput::of::<EvaluationAtom>(&["id"]), ValidationInput::of::<ConditionNode>(&["id"]),
+        ValidationInput::of::<Predicate>(&["id"]), ValidationInput::of::<EvaluationAtom>(&["id"]), ValidationInput::of::<ConditionNode>(&["id"]),
         ValidationInput::of::<Condition>(&["id"]),
         ValidationInput::of::<InputDistribution>(&["id"]), ValidationInput::of::<CoverageScope>(&["id"]),
         ValidationInput::of::<AssertionQualification>(&["id"]), ValidationInput::of::<ProviderRun>(&["id"]),
@@ -244,7 +244,7 @@ struct SupportCheck<A: Assertion, S: Support<Assertion=A>> {
     ownership: super::ownership::ScopeIndex,
     places: BTreeMap<Id<Place>,Place>, roots: BTreeMap<Id<PlaceRoot>,PlaceRoot>, transfers: BTreeMap<Id<TransferKey>,TransferKey>,
     occurrences: BTreeMap<Id<Occurrence>, Id<SourceArtifact>>,
-    atoms: BTreeMap<Id<EvaluationAtom>, (Id<Occurrence>,Option<Id<Place>>)>,
+    guards: super::conditions::rebase::GuardIndex,
     nodes: BTreeMap<Id<ConditionNode>, ConditionNode>,
     conditions: BTreeMap<Id<Condition>, BTreeSet<Id<SourceArtifact>>>,
     closure_visits: usize,
@@ -259,7 +259,7 @@ impl<A: Assertion, S: Support<Assertion=A>> SupportCheck<A,S> {
     fn new() -> Self { Self { types: Default::default(),flow_uses: BTreeMap::new(),flow_definitions: BTreeMap::new(),reaching: BTreeMap::new(),document_nodes: BTreeMap::new(), lexical_scopes: BTreeMap::new(), bindings: BTreeMap::new(), lexical_targets: BTreeMap::new(),
         places: BTreeMap::new(), roots: BTreeMap::new(), transfers: BTreeMap::new(), ownership: Default::default(), occurrences: BTreeMap::new(),
         qualifications: BTreeMap::new(),
-        atoms: BTreeMap::new(), nodes: BTreeMap::new(), conditions: BTreeMap::new(), closure_visits: 0,
+        guards: Default::default(), nodes: BTreeMap::new(), conditions: BTreeMap::new(), closure_visits: 0,
         runs: BTreeMap::new(), families: BTreeSet::new(), surfaces: BTreeMap::new(), evidence: BTreeMap::new(),
         assertions: BTreeMap::new(), supported: BTreeSet::new(), marker: PhantomData } }
     fn source(&self, subject: Subject) -> Result<Option<Id<SourceArtifact>>, ModelError> {
@@ -374,9 +374,8 @@ impl<A: Assertion, S: Support<Assertion=A>> SupportCheck<A,S> {
 }
 impl<A: Assertion, S: Support<Assertion=A>> InvariantCheck for SupportCheck<A,S> {
     fn visit(&mut self, relation: &str, batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
-        if self.ownership.visit(relation,batch)? || self.types.visit_input(relation,batch)? {}
+        if self.ownership.visit(relation,batch)? || self.types.visit_input(relation,batch)? || self.guards.visit_input(relation,batch)? {}
         else if relation == Occurrence::NAME { for r in Occurrence::decode(batch)? { self.occurrences.insert(r.id(),r.source); } }
-        else if relation == EvaluationAtom::NAME { for r in EvaluationAtom::decode(batch)? { self.atoms.insert(r.id(),(r.evaluation,r.operand)); } }
         else if relation == ConditionNode::NAME { for r in ConditionNode::decode(batch)? { self.nodes.insert(r.id(),r); } }
         else if relation == Condition::NAME {
             for r in Condition::decode(batch)? {
@@ -386,9 +385,10 @@ impl<A: Assertion, S: Support<Assertion=A>> InvariantCheck for SupportCheck<A,S>
                 let mut sources = BTreeSet::new();
                 for id in closure {
                     if let ConditionNode::Branch { atom,.. } = &self.nodes[&id] {
-                        let (occurrence,operand) = self.atoms.get(atom).ok_or_else(|| invalid("condition atom missing"))?;
-                        sources.insert(*self.occurrences.get(occurrence).ok_or_else(|| invalid("condition evaluation occurrence missing"))?);
-                        if let Some(operand) = operand { sources.extend(self.source(Subject::Place(*operand))?); }
+                        for guard in self.guards.lineage(*atom)? {
+                            sources.insert(*self.occurrences.get(&guard.evaluation).ok_or_else(|| invalid("condition evaluation occurrence missing"))?);
+                            if let Some(operand) = guard.operand { sources.extend(self.source(Subject::Place(operand))?); }
+                        }
                     }
                 }
                 self.conditions.insert(r.id(),sources);
@@ -414,7 +414,7 @@ impl<A: Assertion, S: Support<Assertion=A>> InvariantCheck for SupportCheck<A,S>
         else { return Err(invalid("undeclared support validation input")); }
         let entries = self.ownership.entries()+self.occurrences.len()
             +self.qualifications.len()+self.runs.len()+self.families.len()+self.surfaces.len()+self.evidence.len()+self.assertions.len()+self.supported.len();
-        if entries + self.types.entries()+self.flow_uses.len()+self.flow_definitions.len()+self.reaching.len()+self.document_nodes.len()+self.lexical_scopes.len()+self.bindings.len()+self.lexical_targets.len()+self.places.len()+self.roots.len()+self.transfers.len()+self.atoms.len()+self.nodes.len()+self.conditions.len() > 3_000_000 { return Err(invalid("support validation cardinality budget exceeded")); }
+        if entries + self.types.entries()+self.flow_uses.len()+self.flow_definitions.len()+self.reaching.len()+self.document_nodes.len()+self.lexical_scopes.len()+self.bindings.len()+self.lexical_targets.len()+self.places.len()+self.roots.len()+self.transfers.len()+self.guards.entries()+self.nodes.len()+self.conditions.len() > 3_000_000 { return Err(invalid("support validation cardinality budget exceeded")); }
         Ok(())
     }
     fn finish(self: Box<Self>) -> Result<(), ModelError> {

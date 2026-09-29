@@ -413,6 +413,11 @@ Focused evidence (2026-09-29; Cargo commands prefixed by `python3 scripts/build_
 | `cargo test --release -p lctx-postgres --test domain_types` | passed after F01: real PG18 modeled good/foreign-owner and nested truncated structural rejection/display-only acceptance |
 | `cargo test --release -p lctx-model --test domain_deployment` | passed: three report/membership/source controls |
 | `cargo test --release -p lctx-postgres --test domain_deployment` | passed after initial Busy failure and explicit-release correction: real PG18 three-case contract test plus two-reader retirement protection |
+| `cargo test --release -p lctx-model --test domain_guard_rebase` | passed after guard F02: five controls, including direct/nested formal/receiver/local eligibility and ordinary unrebased positives |
+| `cargo test --release -p lctx-postgres --test domain_guard_rebase` | passed after guard F02: real PG18 eight-case source/eligibility matrix and typed origin readback |
+| `cargo test --release -p lctx-postgres --test domain_guard_rebase --test domain_transfer --test generation_stages --test generations` | passed after acknowledged rollback/COPY correction: five tests, including active-COPY budget refusal/success, immediate cleanup and 65 MiB; precedes final guard F02, separately rerun above |
+| `cargo check -p lctx-postgres`; `cargo check -p cpg-extract -p cpg-core` | passed after transaction/COPY and guard changes; final guard F02 subsequently compiled by the focused tests above; existing third-party future-incompatibility warnings remain |
+| `just docs-check` | passed at restart checkpoint: 197 canonical pages and zero link errors |
 | `just fmt`, `just test-all`, facts pilots | not_run: functional scope incomplete |
 
 Independent bounded reviewers accepted artifact/capture/acquisition corrections and the
@@ -445,7 +450,13 @@ assembled review; none of these bounded receipts establishes enclosing architect
 
 **Representative deployment contracts (Implemented; focused Tested, 2026-09-29):** typed report values and digest-checked ordered/keyed collections preserve commands, tools, arguments and environment metadata. Reported environments and task results remain captured claims; receipt/target source ownership is independently checked. Full unsigned duration roundtrips without narrowing. Model controls and real PG18 good/foreign-target/missing-child cases pass. An observed asynchronous drop/retire race was corrected with consuming, acknowledged `GenerationLease::release`; two-reader controls retain Busy until both readers release. The [bounded deployment review](../design_review/reviews/design_review_semantic-deployment_2026-09-29.md) accepts this scope. Actual receipt parsing, verification, nested Scenario/OptionBinding relationships and complete field mapping remain P2 work; full reader/provider lifecycle remains P1.
 
-**Next / still open:** whole-call binding/root composition and opaque caller rebasing; complete call producer/normalization integration; occurrence ownership; coordinated allocation accounting; exact coverage
+**Local guard rebasing (Implemented; focused Tested, 2026-09-29):** appended typed InvokedGuard predicates retain the original atom and every nested invocation; caller occurrences distinguish call sites. BDD simultaneous substitution preserves condition structure without existential elimination. Construction and stored validation share local operand eligibility, refuse formal/receiver rebasing without binding/stability evidence, and enforce bounded lineage/context checks. Support validation authorizes every origin evaluation and operand. Five model controls and a real PG18 eight-case matrix pass after the two corrections in the [bounded guard review](../design_review/reviews/design_review_semantic-guard-rebase_2026-09-29.md). This is a contract fixture, not whole-call substitution or a migrated producer.
+
+**Acknowledged transaction cleanup (Implemented; focused Tested, 2026-09-29):** the generation store awaits commit/rollback for completed operations and explicitly aborts active COPY before rollback on encoding/send/budget refusal. Failed finalization remains an unconfirmed outcome and quarantines the connection. This corrects the observed immediate-abort Busy failure; paired low/high COPY budget controls and adjacent lifecycle/transfer tests pass. The [bounded rollback review](../design_review/reviews/design_review_semantic-generation-rollback_2026-09-29.md) accepts the source correction. Cancellation retains SQLx drop cleanup; production cancellation, transport-failure injection and assembled provider lifecycle remain open.
+
+**Restart checkpoint (2026-09-29):** stopped at the user's requested boundary after completing the guard and transaction corrections. No phase exit is qualified. The old production pipeline remains active; representative domain fixtures do not establish producer migration. Resume from the next paragraph, preserving §4.1.1 order. Formatting, integrated gates and pilots remain not_run until the authorized functional scope is complete.
+
+**Next / still open:** whole-call binding/root composition and stability-evidenced formal substitution; complete call producer/normalization integration; occurrence ownership; coordinated allocation accounting (including total Ruff traversal work); exact coverage
 and full production frontier admission; production capture/assembler integration and assembled P0-E review.
 Then finish generated installation verification/reset, provider lease/stream integration, service
 classification, store/CLI cutover and Delta deletion in P1; migrate every raw producer/field in §4.1.2
@@ -575,6 +586,14 @@ reinspected corrections and reran seven controls on 2026-09-29. P2/P3 and C04 cl
 | Finding | Responsible component | Current disposition and evidence |
 |---|---|---|
 | [deployment F01](../design_review/reviews/design_review_semantic-deployment_2026-09-29.md#F01) | `lctx-postgres::generations` | closed (bounded): consuming explicit release acknowledges unlock before cleanup; two-reader PG control retains Busy after first release and permits retirement after second; broader P1 lifecycle open |
+
+### Guard and transaction correction findings
+
+| Finding | Responsible component | Current disposition and evidence |
+|---|---|---|
+| [guard F01](../design_review/reviews/design_review_semantic-guard-rebase_2026-09-29.md#F01) | model qualification/support validation | closed (bounded): qualification inputs match their handler; support keeps Predicate/GuardIndex; corrected real PG18 guard validation passes |
+| [guard F02](../design_review/reviews/design_review_semantic-guard-rebase_2026-09-29.md#F02) | model guard construction and stored invariant | closed (bounded): shared local-root policy rejects direct/nested formal/receiver wrappers; model five-test and PG18 eight-case controls pass, independent source reinspection accepted |
+| [rollback F01](../design_review/reviews/design_review_semantic-generation-rollback_2026-09-29.md#F01) | generation transaction/COPY boundary | closed (bounded): awaited rollback and active COPY abort; immediate cleanup and paired budget controls pass in the five-test PG18 suite; cancellation/transport injection remain P1 work |
 
 ### Core review findings
 

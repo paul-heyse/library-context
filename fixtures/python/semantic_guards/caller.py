@@ -1,0 +1,2 @@
+first = callee()
+second = callee()

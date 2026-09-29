@@ -1,13 +1,14 @@
 //! Occurrence-keyed conditions. The sole persisted truth representation is a reduced ordered BDD.
 pub(super) mod kernel;
 mod substitution;
+pub mod rebase;
 pub use kernel::{CondExpr, Diagram, FactorResult, KernelBoundary, RenderedCondition};
 use crate::{Domain, DomainSum};
 use super::{Id, ModelError, Record};
 use super::{source::Occurrence, attribution::AnalysisContext, value::{Place, Predicate}};
 
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "evaluation_atoms")]
+#[model(name = "evaluation_atoms", invariants = rebase::guard_invariants)]
 pub struct EvaluationAtom {
     #[model(key)] pub evaluation: Id<Occurrence>,
     #[model(key)] pub context: Id<AnalysisContext>,
