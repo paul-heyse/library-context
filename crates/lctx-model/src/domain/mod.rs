@@ -24,6 +24,7 @@ pub mod stages;
 pub mod resources;
 pub mod batching;
 pub mod charged;
+pub mod memory;
 pub mod obligation;
 
 pub use identity::{ArmId, ContentHash, ContentHasher, EvidenceBytes, Id, Key, KeySink};

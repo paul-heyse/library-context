@@ -25,8 +25,12 @@ async fn lexical_support_and_optional_subjects_survive_sealed_postgres_validatio
         // Exercise the same in-memory check before the independent persisted-content execution.
         assert_eq!(fixture.check(&BindingSupport::invariants()[0]).is_ok(), !foreign);
         let generation = store.create_conformance(ContentHash::of(b"lexical-contract"),"catalog").await.unwrap();
+        // The same rows also go to an in-memory generation, whose validation must agree with the store.
+        let memory = lctx_model::domain::memory::MemoryGeneration::conformance(&model, &budget());
         macro_rules! copy { ($($ty:ty),+ $(,)?) => { $(
-            store.copy(&writer,generation,&Batch::new(&model,fixture.rows::<$ty>(), &budget()).unwrap(), &budget()).await.unwrap();
+            let batch = Batch::new(&model,fixture.rows::<$ty>(), &budget()).unwrap();
+            store.copy(&writer,generation,&batch, &budget()).await.unwrap();
+            memory.put(&batch).unwrap();
         )+ }; }
         copy!(InputRevision,InputOrigin,InputAcquisition,AnalysisContext,Provider,ProviderRun,RunFamily,ProviderSurface,
             CoverageScope,ProviderCoverage,Condition,ConditionNode,AssertionQualification,SourceArtifact,ArtifactChunk,Occurrence,
@@ -35,10 +39,12 @@ async fn lexical_support_and_optional_subjects_survive_sealed_postgres_validatio
         store.seal(generation).await.unwrap();
         if foreign {
             assert!(matches!(store.validate(generation, &budget()).await, Err(Error::Model(_))));
+            assert!(memory.validate(&model, &budget()).is_err(), "the in-memory generation refuses the same contents");
             assert!(store.publish(generation).await.is_err());
             store.abort(generation).await.unwrap();
         } else {
-            store.validate(generation, &budget()).await.unwrap(); store.publish(generation).await.unwrap();
+            let digest = store.validate(generation, &budget()).await.unwrap(); store.publish(generation).await.unwrap();
+            assert_eq!(memory.validate(&model, &budget()).unwrap(), digest, "in-memory and stored content digests agree");
             let mut lease = store.pin(&reader,generation, budget()).await.unwrap();
             assert_eq!(lease.read::<BindingObservation>().await.unwrap().rows(),fixture.rows::<BindingObservation>());
             assert_eq!(lease.read::<LexicalResolution>().await.unwrap().rows(),fixture.rows::<LexicalResolution>());

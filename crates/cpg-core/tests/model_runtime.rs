@@ -6,12 +6,13 @@ use lctx_model::domain::{*,input::*,stages::*};
 async fn declared_stage_catalogs_are_fresh_and_reject_foreign_capabilities() {
     let model = model().unwrap();
     let schedule = Schedule::build(&model,vec![
-        Stage { name: "source",inputs: vec![],outputs: vec![RelationUse::of::<Package>()], profiles: vec![Profile::Catalog, Profile::Behavioral], effect: Effect::Pure, code: ContentHash::of(b"test-producer"), configuration: ContentHash::of(b"test-config") },
-        Stage { name: "consumer",inputs: vec![RelationUse::of::<Package>()],outputs: vec![RelationUse::of::<Release>()], profiles: vec![Profile::Catalog, Profile::Behavioral], effect: Effect::Pure, code: ContentHash::of(b"test-producer"), configuration: ContentHash::of(b"test-config") },
+        Stage { name: "source",inputs: vec![],outputs: vec![RelationUse::of::<Package>()], contributes: vec![], coverage: vec![], profiles: vec![Profile::Catalog, Profile::Behavioral], effect: Effect::Pure, code: ContentHash::of(b"test-producer"), configuration: ContentHash::of(b"test-config") },
+        Stage { name: "consumer",inputs: vec![RelationUse::of::<Package>()],outputs: vec![RelationUse::of::<Release>()], contributes: vec![], coverage: vec![], profiles: vec![Profile::Catalog, Profile::Behavioral], effect: Effect::Pure, code: ContentHash::of(b"test-producer"), configuration: ContentHash::of(b"test-config") },
     ],&[], Profile::Catalog).unwrap();
     let runtime = AttemptRuntime::new(RuntimeOptions::default()).unwrap();
     let mut execution = schedule.execute(); let mut source = execution.begin("source").unwrap();
-    source.write::<Package,_>(async |_| Ok(())).await.unwrap(); source.finish(ProviderOutcome::Complete).unwrap();
+    source.write::<Package,_>(async |_| Ok(())).await.unwrap();
+    source.retain(Arc::new(Batch::<Package>::new(&model,vec![], &budget()).unwrap())).unwrap(); source.finish(ProviderOutcome::Complete).unwrap();
     let consumer = execution.begin("consumer").unwrap(); let permit = consumer.read::<Package>().unwrap();
     let first = runtime.session(&consumer); let second = runtime.session(&consumer);
     let rows = Batch::new(&model,vec![Package { name: "demo".into() }], &budget()).unwrap();
@@ -24,7 +25,8 @@ async fn declared_stage_catalogs_are_fresh_and_reject_foreign_capabilities() {
         assert!(first.sql(sql).await.is_err(),"{sql}");
     }
     let mut another = schedule.execute(); let mut source = another.begin("source").unwrap();
-    source.write::<Package,_>(async |_| Ok(())).await.unwrap(); source.finish(ProviderOutcome::Complete).unwrap();
+    source.write::<Package,_>(async |_| Ok(())).await.unwrap();
+    source.retain(Arc::new(Batch::<Package>::new(&model,vec![], &budget()).unwrap())).unwrap(); source.finish(ProviderOutcome::Complete).unwrap();
     let different = another.begin("consumer").unwrap();
     assert!(second.register(&different.read::<Package>().unwrap(),table.clone()).is_err());
     second.register(&permit,table).unwrap();
@@ -32,7 +34,7 @@ async fn declared_stage_catalogs_are_fresh_and_reject_foreign_capabilities() {
 }
 #[tokio::test]
 async fn compute_and_external_reservations_share_one_attempt_pool() {
-    let model = model().unwrap(); let schedule = Schedule::build(&model,vec![Stage { name: "s",inputs: vec![],outputs: vec![RelationUse::of::<Package>()], profiles: vec![Profile::Catalog, Profile::Behavioral], effect: Effect::Pure, code: ContentHash::of(b"test-producer"), configuration: ContentHash::of(b"test-config") }],&[], Profile::Catalog).unwrap();
+    let model = model().unwrap(); let schedule = Schedule::build(&model,vec![Stage { name: "s",inputs: vec![],outputs: vec![RelationUse::of::<Package>()], contributes: vec![], coverage: vec![], profiles: vec![Profile::Catalog, Profile::Behavioral], effect: Effect::Pure, code: ContentHash::of(b"test-producer"), configuration: ContentHash::of(b"test-config") }],&[], Profile::Catalog).unwrap();
     let mut execution = schedule.execute(); let stage = execution.begin("s").unwrap();
     let limit = 32*1024*1024; // Includes DataFusion's 10 MiB sort-spill reservation.
     let runtime = AttemptRuntime::new(RuntimeOptions { memory_bytes: limit,partitions: 1 }).unwrap();

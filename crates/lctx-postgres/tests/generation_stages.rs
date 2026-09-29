@@ -18,7 +18,7 @@ async fn generation_sink_requires_its_execution_and_cannot_bypass_sealing_receip
     let model = Arc::new(ValidatedModel::validate(vec![Relation::of::<Package>()]).unwrap());
     let store = GenerationStore::install(owner.clone(), model.clone()).await.unwrap();
     let schedule = Schedule::build(&model, vec![Stage {
-        name: "packages", inputs: vec![], outputs: vec![RelationUse::of::<Package>()],
+        name: "packages", inputs: vec![], outputs: vec![RelationUse::of::<Package>()], contributes: vec![], coverage: vec![],
         profiles: vec![Profile::Catalog], effect: Effect::Extraction,
         code: ContentHash::of(b"package producer"), configuration: ContentHash::of(b"configuration"),
     }], &[RelationUse::of::<Package>()], Profile::Catalog).unwrap();

@@ -1,6 +1,7 @@
 //! Typed stage declarations are the sole writer authority.
-use std::{any::{Any, TypeId}, collections::{BTreeMap, BTreeSet, HashSet}, future::Future, pin::Pin};
-use super::{Batch, ContentHash, KeySink, ModelError, Record, ValidatedModel};
+use std::{any::{Any, TypeId}, collections::{BTreeMap, BTreeSet, HashMap, HashSet}, future::Future, pin::Pin, sync::Arc};
+use super::{Batch, ContentHash, Key, KeySink, ModelError, Record, ValidatedModel};
+use super::attribution::FactFamily;
 use super::batching::{BatchWriter, TransferLimits};
 use super::resources::ResourceBudget;
 
@@ -28,13 +29,21 @@ pub struct Stage {
     pub name: &'static str,
     pub inputs: Vec<RelationUse>,
     pub outputs: Vec<RelationUse>,
+    /// Shared vocabulary this stage hands to another stage's output (ADR-0089). The writer runs
+    /// after every contributor and emits each identity once.
+    pub contributes: Vec<RelationUse>,
+    /// Fact families whose provider coverage this stage reports.
+    pub coverage: Vec<FactFamily>,
     pub profiles: Vec<Profile>,
     pub effect: Effect,
     pub code: ContentHash,
     pub configuration: ContentHash,
 }
 #[derive(Debug)]
-pub struct Schedule { stages: Vec<Stage>, model: ContentHash, digest: ContentHash, profile: Profile }
+pub struct Schedule {
+    stages: Vec<Stage>, model: ContentHash, digest: ContentHash, profile: Profile,
+    dependencies: BTreeMap<&'static str, BTreeSet<&'static str>>, readers: HashMap<TypeId, usize>,
+}
 impl Schedule {
     pub fn build(model: &ValidatedModel, stages: Vec<Stage>, required: &[RelationUse], profile: Profile) -> Result<Self, ModelError> {
         let members: HashSet<_> = model.relations().iter().map(super::Relation::type_id).collect();
@@ -57,6 +66,16 @@ impl Schedule {
             if stage.inputs.iter().map(|r| r.type_id).collect::<HashSet<_>>().len() != stage.inputs.len() {
                 return Err(ModelError::Invalid(format!("duplicate input for {}", stage.name)));
             }
+            for r in &stage.contributes {
+                if !members.contains(&r.type_id) { return Err(ModelError::Invalid(format!("undeclared relation {}", r.name))); }
+                if stage.outputs.iter().any(|o| o.type_id == r.type_id) {
+                    return Err(ModelError::Invalid(format!("{} cannot contribute to its own output {}", stage.name, r.name)));
+                }
+            }
+            if stage.contributes.iter().map(|r| r.type_id).collect::<HashSet<_>>().len() != stage.contributes.len()
+                || stage.coverage.iter().collect::<BTreeSet<_>>().len() != stage.coverage.len() {
+                return Err(ModelError::Invalid(format!("duplicate contribution or coverage family for {}", stage.name)));
+            }
             for r in &stage.outputs {
                 if writers.insert(r.type_id, i).is_some() { return Err(ModelError::Invalid(format!("multiple writers for {}", r.name))); }
             }
@@ -64,15 +83,21 @@ impl Schedule {
         for r in required {
             if !members.contains(&r.type_id) || !writers.contains_key(&r.type_id) { return Err(ModelError::Invalid(format!("missing required writer {}", r.name))); }
         }
-        let mut dependencies = BTreeMap::new();
+        let mut dependencies: BTreeMap<usize, BTreeSet<usize>> = (0..stages.len()).map(|i| (i, BTreeSet::new())).collect();
+        let mut readers = HashMap::new();
         for (i, stage) in stages.iter().enumerate() {
-            let mut deps = BTreeSet::new();
             for r in &stage.inputs {
                 let writer = writers.get(&r.type_id).ok_or_else(|| ModelError::Invalid(format!("missing writer for {}", r.name)))?;
-                deps.insert(*writer);
+                dependencies.get_mut(&i).expect("stage index").insert(*writer);
+                *readers.entry(r.type_id).or_insert(0usize) += 1;
             }
-            dependencies.insert(i, deps);
+            for r in &stage.contributes {
+                let writer = writers.get(&r.type_id).ok_or_else(|| ModelError::Invalid(format!("contribution to {} has no writer", r.name)))?;
+                dependencies.get_mut(writer).expect("stage index").insert(i);
+            }
         }
+        let named: BTreeMap<_, _> = dependencies.iter()
+            .map(|(i, deps)| (stages[*i].name, deps.iter().map(|d| stages[*d].name).collect::<BTreeSet<_>>())).collect();
         let mut ordered = Vec::new();
         while !dependencies.is_empty() {
             let next = dependencies.iter().filter(|(_, deps)| deps.is_empty()).map(|(i, _)| *i)
@@ -91,10 +116,14 @@ impl Schedule {
             digest.part(b"configuration", &stage.configuration.0);
             let mut reads: Vec<_> = stage.inputs.iter().map(|r| r.name).collect(); reads.sort();
             let mut writes: Vec<_> = stage.outputs.iter().map(|r| r.name).collect(); writes.sort();
+            let mut contributes: Vec<_> = stage.contributes.iter().map(|r| r.name).collect(); contributes.sort();
             for name in reads { digest.part(b"read",name.as_bytes()); }
             for name in writes { digest.part(b"write",name.as_bytes()); }
+            for name in contributes { digest.part(b"contribute",name.as_bytes()); }
+            let mut coverage = stage.coverage.clone(); coverage.sort();
+            for family in coverage { Key::encode(&family, &mut digest); }
         }
-        Ok(Self { stages: ordered, model: model.digest(), digest: digest.finish(), profile })
+        Ok(Self { stages: ordered, model: model.digest(), digest: digest.finish(), profile, dependencies: named, readers })
     }
     pub fn stages(&self) -> &[Stage] { &self.stages }
     pub fn digest(&self) -> ContentHash { self.digest }
@@ -104,14 +133,22 @@ impl Schedule {
         static NEXT_ATTEMPT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         let identity = NEXT_ATTEMPT.try_update(std::sync::atomic::Ordering::Relaxed, std::sync::atomic::Ordering::Relaxed, |n| n.checked_add(1))
             .expect("attempt identity space exhausted");
-        Execution { schedule: self, completed: BTreeMap::new(), failed: false, identity: AttemptIdentity(identity), sink_bound: false }
+        Execution { schedule: self, completed: BTreeMap::new(), failed: false, identity: AttemptIdentity(identity), sink_bound: false,
+            handoffs: HashMap::new(), contributions: HashMap::new() }
     }
 }
 
 /// Attempt-local execution authority. A dropped or failed stage poisons the whole attempt.
+/// Handoffs keep a written relation's batches, and their reservations, for its declared readers;
+/// contributions keep shared vocabulary for its writer. Both are released when consumed.
 pub struct Execution<'s> {
     schedule: &'s Schedule, completed: BTreeMap<&'static str,ProviderOutcome>, failed: bool, identity: AttemptIdentity,
-    sink_bound: bool,
+    sink_bound: bool, handoffs: HashMap<TypeId, Handoff>, contributions: HashMap<TypeId, Vec<Shared>>,
+}
+type Shared = Arc<dyn Any + Send + Sync>;
+struct Handoff { batches: Vec<Shared>, readers: usize }
+fn shared<R: Record>(values: &[Shared]) -> Vec<Arc<Batch<R>>> {
+    values.iter().map(|value| value.clone().downcast::<Batch<R>>().expect("handoff entry matches its type id")).collect()
 }
 impl<'s> Execution<'s> {
     pub fn identity(&self) -> AttemptIdentity { self.identity }
@@ -128,11 +165,10 @@ impl<'s> Execution<'s> {
     pub fn begin(&mut self, name: &str) -> Result<StageAccess<'_, 's>, ModelError> {
         if self.failed || self.completed.contains_key(name) { return Err(ModelError::Invalid("stage already completed or attempt failed".into())); }
         let stage = self.schedule.stages.iter().find(|s| s.name == name).ok_or_else(|| ModelError::Invalid("stage is not scheduled".into()))?;
-        for input in &stage.inputs {
-            let writer = self.schedule.stages.iter().find(|s| s.outputs.iter().any(|r| r.type_id == input.type_id)).expect("validated writer");
-            if !self.completed.contains_key(writer.name) { return Err(ModelError::Invalid("stage input has not completed".into())); }
+        if self.schedule.dependencies[stage.name].iter().any(|dependency| !self.completed.contains_key(dependency)) {
+            return Err(ModelError::Invalid("stage input or contributor has not completed".into()));
         }
-        Ok(StageAccess { stage, execution: self, written: HashSet::new(), finished: false })
+        Ok(StageAccess { stage, execution: self, written: HashSet::new(), retained: HashSet::new(), finished: false })
     }
     pub fn finish(self) -> Result<ExecutionReceipt, ModelError> {
         if self.failed || self.completed.len() != self.schedule.stages.len() { return Err(ModelError::Invalid("attempt schedule incomplete or failed".into())); }
@@ -169,7 +205,7 @@ impl<R: Record> WritePermit<'_,R> {
     pub fn relation(&self) -> &'static str { R::NAME }
 }
 pub struct StageAccess<'e,'s> {
-    stage: &'s Stage, execution: &'e mut Execution<'s>, written: HashSet<TypeId>, finished: bool,
+    stage: &'s Stage, execution: &'e mut Execution<'s>, written: HashSet<TypeId>, retained: HashSet<TypeId>, finished: bool,
 }
 impl StageAccess<'_, '_> {
     pub fn identity(&self) -> StageIdentity { StageIdentity { attempt: self.execution.identity,stage: self.stage.name } }
@@ -191,9 +227,53 @@ impl StageAccess<'_, '_> {
         self.execution.failed = false;
         Ok(value)
     }
+    fn has(list: &[RelationUse], type_id: TypeId) -> bool { list.iter().any(|r| r.type_id == type_id) }
+    /// Keep a written output for the stages that declare it as input. Outputs without readers
+    /// are released at once.
+    pub fn retain<R: Record>(&mut self, batch: Arc<Batch<R>>) -> Result<(),ModelError> {
+        let id = TypeId::of::<R>();
+        if self.execution.failed || !Self::has(&self.stage.outputs, id) { return Err(ModelError::Invalid(format!("{} cannot hand off {}",self.stage.name,R::NAME))); }
+        self.retained.insert(id);
+        let Some(readers) = self.execution.schedule.readers.get(&id).copied() else { return Ok(()); };
+        self.execution.handoffs.entry(id).or_insert_with(|| Handoff { batches: Vec::new(), readers }).batches.push(batch);
+        Ok(())
+    }
+    /// The batches an earlier stage handed off for one of this stage's declared inputs.
+    pub fn handoff<R: Record>(&self) -> Result<Vec<Arc<Batch<R>>>,ModelError> {
+        let id = TypeId::of::<R>();
+        if self.execution.failed || !Self::has(&self.stage.inputs, id) { return Err(ModelError::Invalid(format!("{} cannot read {}",self.stage.name,R::NAME))); }
+        Ok(shared::<R>(&self.execution.handoffs.get(&id).ok_or_else(|| ModelError::Invalid(format!("{} was not handed off",R::NAME)))?.batches))
+    }
+    /// Hand shared vocabulary to the relation's writer, which runs after this stage.
+    pub fn contribute<R: Record>(&mut self, batch: Arc<Batch<R>>) -> Result<(),ModelError> {
+        let id = TypeId::of::<R>();
+        if self.execution.failed || !Self::has(&self.stage.contributes, id) { return Err(ModelError::Invalid(format!("{} cannot contribute {}",self.stage.name,R::NAME))); }
+        self.execution.contributions.entry(id).or_default().push(batch);
+        Ok(())
+    }
+    /// Take every contribution to one of this stage's outputs; the writer must merge them.
+    pub fn take_contributions<R: Record>(&mut self) -> Result<Vec<Arc<Batch<R>>>,ModelError> {
+        let id = TypeId::of::<R>();
+        if self.execution.failed || !Self::has(&self.stage.outputs, id) { return Err(ModelError::Invalid(format!("{} does not write {}",self.stage.name,R::NAME))); }
+        Ok(shared::<R>(&self.execution.contributions.remove(&id).unwrap_or_default()))
+    }
     pub fn finish(mut self, outcome: ProviderOutcome) -> Result<(),ModelError> {
         if self.execution.failed || outcome == ProviderOutcome::Failed || self.written.len() != self.stage.outputs.len() {
             return Err(ModelError::Invalid("stage outputs incomplete or stage failed".into()));
+        }
+        for output in &self.stage.outputs {
+            if self.execution.schedule.readers.contains_key(&output.type_id) && !self.retained.contains(&output.type_id) {
+                return Err(ModelError::Invalid(format!("{} has readers but was not handed off", output.name)));
+            }
+            if self.execution.contributions.contains_key(&output.type_id) {
+                return Err(ModelError::Invalid(format!("contributions to {} were not merged", output.name)));
+            }
+        }
+        for input in &self.stage.inputs {
+            if let Some(handoff) = self.execution.handoffs.get_mut(&input.type_id) {
+                handoff.readers -= 1;
+                if handoff.readers == 0 { self.execution.handoffs.remove(&input.type_id); }
+            }
         }
         self.execution.completed.insert(self.stage.name,outcome); self.finished = true; Ok(())
     }
@@ -212,16 +292,32 @@ pub trait StageSink: Sync {
 pub struct StageOutput<'o, 'e, 's, S: StageSink> {
     access: StageAccess<'e, 's>, sink: &'o S, model: &'o ValidatedModel, budget: ResourceBudget,
     limits: TransferLimits, outputs: Vec<(TypeId, Box<dyn PendingOutput<S>>)>,
+    contributions: Vec<(TypeId, Box<dyn PendingContribution>)>,
 }
 impl<'o, 'e, 's, S: StageSink> StageOutput<'o, 'e, 's, S> {
     pub fn new(access: StageAccess<'e, 's>, sink: &'o S, model: &'o ValidatedModel, budget: ResourceBudget, limits: TransferLimits) -> Result<Self, ModelError> {
         if access.execution.schedule.model != model.digest() {
             return Err(ModelError::Invalid("stage output model differs from its schedule".into()));
         }
-        Ok(Self { access, sink, model, budget, limits, outputs: Vec::new() })
+        Ok(Self { access, sink, model, budget, limits, outputs: Vec::new(), contributions: Vec::new() })
     }
     pub fn identity(&self) -> StageIdentity { self.access.identity() }
     pub fn read<R: Record>(&self) -> Result<ReadPermit<'_, R>, ModelError> { self.access.read::<R>() }
+    pub fn handoff<R: Record>(&self) -> Result<Vec<Arc<Batch<R>>>, ModelError> { self.access.handoff::<R>() }
+    /// Hand one row of shared vocabulary to its writer through a transfer-bounded writer.
+    pub fn contribute<R: Record>(&mut self, row: R) -> Result<(), ModelError> {
+        if !StageAccess::has(&self.access.stage.contributes, TypeId::of::<R>()) {
+            return Err(ModelError::Invalid(format!("{} cannot contribute {}", self.access.stage.name, R::NAME)));
+        }
+        if !self.contributions.iter().any(|(t, _)| *t == TypeId::of::<R>()) {
+            let writer = BatchWriter::<R>::new(&self.budget, self.limits)?;
+            self.contributions.push((TypeId::of::<R>(), Box::new(Contribution { writer })));
+        }
+        let entry = self.contributions.iter_mut().find(|(t, _)| *t == TypeId::of::<R>()).expect("inserted above");
+        let contribution = entry.1.as_any().downcast_mut::<Contribution<R>>().expect("contribution entry matches its type id");
+        if let Some(batch) = contribution.writer.push(self.model, row)? { self.access.contribute(Arc::new(batch))?; }
+        Ok(())
+    }
     /// Open a writer for one of the stage's declared outputs.
     pub fn declare<R: Record>(&mut self) -> Result<(), ModelError> {
         let declared = self.access.stage.outputs.iter().any(|r| r.type_id == TypeId::of::<R>());
@@ -238,8 +334,7 @@ impl<'o, 'e, 's, S: StageSink> StageOutput<'o, 'e, 's, S> {
             .ok_or_else(|| ModelError::Invalid(format!("{} has not declared output {}", stage, R::NAME)))?;
         let output = output.1.as_any().downcast_mut::<Output<R>>().expect("output entry matches its type id");
         if let Some(batch) = output.writer.push(self.model, row)? {
-            let sink = self.sink;
-            self.access.write::<R, _>(async |permit| sink.copy(permit, &batch).await).await?;
+            emit(&mut self.access, self.sink, batch).await?;
             output.written = true;
         }
         Ok(())
@@ -249,10 +344,29 @@ impl<'o, 'e, 's, S: StageSink> StageOutput<'o, 'e, 's, S> {
         if self.outputs.len() != self.access.stage.outputs.len() {
             return Err(ModelError::Invalid(format!("{} has undeclared outputs", self.access.stage.name)));
         }
+        for (_, contribution) in std::mem::take(&mut self.contributions) {
+            contribution.flush(self.model, &mut self.access)?;
+        }
         for (_, output) in std::mem::take(&mut self.outputs) {
             output.flush(self.model, &mut self.access, self.sink).await?;
         }
         self.access.finish(outcome)
+    }
+}
+/// Write one batch through the sink and keep it for the stage's declared readers.
+async fn emit<R: Record, S: StageSink>(access: &mut StageAccess<'_, '_>, sink: &S, batch: Batch<R>) -> Result<(), ModelError> {
+    access.write::<R, _>(async |permit| sink.copy(permit, &batch).await).await?;
+    access.retain(Arc::new(batch))
+}
+struct Contribution<R: Record> { writer: BatchWriter<R> }
+trait PendingContribution: Send {
+    fn as_any(&mut self) -> &mut dyn Any;
+    fn flush(self: Box<Self>, model: &ValidatedModel, access: &mut StageAccess<'_, '_>) -> Result<(), ModelError>;
+}
+impl<R: Record> PendingContribution for Contribution<R> {
+    fn as_any(&mut self) -> &mut dyn Any { self }
+    fn flush(self: Box<Self>, model: &ValidatedModel, access: &mut StageAccess<'_, '_>) -> Result<(), ModelError> {
+        match self.writer.finish(model)? { Some(batch) => access.contribute(Arc::new(batch)), None => Ok(()) }
     }
 }
 struct Output<R: Record> { writer: BatchWriter<R>, written: bool }
@@ -266,14 +380,19 @@ impl<R: Record, S: StageSink> PendingOutput<S> for Output<R> {
     fn flush<'x>(self: Box<Self>, model: &'x ValidatedModel, access: &'x mut StageAccess<'_, '_>, sink: &'x S)
         -> Pin<Box<dyn Future<Output = Result<(), ModelError>> + Send + 'x>> {
         Box::pin(async move {
-            let Output { writer, written } = *self;
+            let Output { mut writer, mut written } = *self;
+            // Contributed vocabulary merges into this stage's own output; equal rows appear once.
+            for batch in access.take_contributions::<R>()? {
+                for row in batch.rows() {
+                    if let Some(full) = writer.push(model, row.clone())? { emit(access, sink, full).await?; written = true; }
+                }
+            }
             let budget = writer.budget().clone();
-            let batch = match writer.finish(model)? {
-                Some(batch) => batch,
-                None if written => return Ok(()),
-                None => Batch::new(model, Vec::new(), &budget)?,
-            };
-            access.write::<R, _>(async |permit| sink.copy(permit, &batch).await).await
+            match writer.finish(model)? {
+                Some(batch) => emit(access, sink, batch).await,
+                None if written => Ok(()),
+                None => emit(access, sink, Batch::<R>::new(model, Vec::new(), &budget)?).await,
+            }
         })
     }
 }

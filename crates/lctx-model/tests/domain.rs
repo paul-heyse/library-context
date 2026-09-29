@@ -67,9 +67,9 @@ fn reference_and_provenance_are_orthogonal() {
 fn stages_refuse_self_cycles_missing_writers_and_unknown_relations() {
     let model = model().unwrap();
     let r = RelationUse::of::<Package>();
-    assert!(Schedule::build(&model, vec![Stage { name: "cycle", inputs: vec![r], outputs: vec![r], profiles: vec![Profile::Catalog, Profile::Behavioral], effect: Effect::Pure, code: ContentHash::of(b"test-producer"), configuration: ContentHash::of(b"test-config") }], &[r], Profile::Catalog).is_err());
+    assert!(Schedule::build(&model, vec![Stage { name: "cycle", inputs: vec![r], outputs: vec![r], contributes: vec![], coverage: vec![], profiles: vec![Profile::Catalog, Profile::Behavioral], effect: Effect::Pure, code: ContentHash::of(b"test-producer"), configuration: ContentHash::of(b"test-config") }], &[r], Profile::Catalog).is_err());
     assert!(Schedule::build(&model, vec![], &[r], Profile::Catalog).is_err());
-    let good = Stage { name: "packages", inputs: vec![], outputs: vec![r], profiles: vec![Profile::Catalog, Profile::Behavioral], effect: Effect::Pure, code: ContentHash::of(b"test-producer"), configuration: ContentHash::of(b"test-config") };
+    let good = Stage { name: "packages", inputs: vec![], outputs: vec![r], contributes: vec![], coverage: vec![], profiles: vec![Profile::Catalog, Profile::Behavioral], effect: Effect::Pure, code: ContentHash::of(b"test-producer"), configuration: ContentHash::of(b"test-config") };
     assert_eq!(Schedule::build(&model, vec![good.clone()], &[r], Profile::Catalog).unwrap().stages()[0].name, "packages");
     let mut second = good.clone(); second.name = "also_packages";
     assert!(Schedule::build(&model, vec![good, second], &[r], Profile::Catalog).is_err());

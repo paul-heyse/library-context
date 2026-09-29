@@ -70,6 +70,7 @@ impl<K: HeapSize, V: HeapSize> HeapSize for std::collections::BTreeMap<K, V> {
 }
 macro_rules! inline_only { ($($t:ty),*) => { $(impl HeapSize for $t {})* }; }
 inline_only!(ContentHash, bool, i16, i32, i64, u8, u16, u32, u64, usize, char);
+impl<const N: usize> HeapSize for [u8; N] {}
 /// A borrow owns no heap; the referent is accounted by its owner.
 impl<T: ?Sized> HeapSize for &T {}
 macro_rules! tuple_heap {
