@@ -1,0 +1,14 @@
+---
+source: crates/cpg-core/tests/dependency_audit.rs
+expression: report
+---
+[
+    "cpg_schema::behavior::behavior:modeled_argument_evaluations: undeclared [], declared but unscanned [\"analysis_conditions\", \"bindings\", \"flow_definitions\", \"flow_reaching\", \"flow_uses\", \"reference_resolutions\", \"references\", \"scopes\"]",
+    "cpg_schema::behavior::behavior:modeled_chain_arguments: undeclared [], declared but unscanned [\"analysis_conditions\", \"bindings\", \"flow_definitions\", \"flow_reaching\", \"flow_uses\", \"scopes\"]",
+    "cpg_schema::behavior::behavior:local_call_summary_flow_seeds: undeclared [], declared but unscanned [\"bindings\", \"scopes\"]",
+    "cpg_schema::behavior::behavior:local_call_arguments: undeclared [], declared but unscanned [\"analysis_conditions\", \"flow_definitions\", \"flow_reaching\", \"flow_uses\", \"parameter_syntax\", \"scopes\"]",
+    "cpg_schema::behavior::behavior:argument_flows: undeclared [\"call_syntax\", \"reference_resolutions\", \"references\"], declared but unscanned []",
+    "cpg_schema::behavior::behavior:handoffs: undeclared [\"call_syntax\"], declared but unscanned []",
+    "cpg_core::usage::usage_candidates: undeclared [\"code_blocks\", \"documents\"], declared but unscanned []",
+    "cpg_core::flow_model::flow_model_roots: undeclared [\"source_files\"], declared but unscanned []",
+]

@@ -163,7 +163,7 @@ pub async fn catalog(
     let producers = <Producers as Table>::Row::read_batch(&batch::<Producers>(&ctx).await?)?;
     let producer_matches = producers
         .iter()
-        .any(|p| p.tool == "lctx-compiler" && p.build_digest == crate::attempt::semantic_digest());
+        .any(|p| p.tool == "lctx-compiler" && p.build_digest == crate::attempt::producer_digest());
     let specs = cpg_schema::findings::EmbeddingSpecsRow::read_batch(
         &batch::<cpg_schema::findings::EmbeddingSpecs>(&ctx).await?,
     )?;

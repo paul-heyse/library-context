@@ -125,6 +125,26 @@ fn main() {
         semantic.update(&bytes);
     }
     semantic.update(found.join(";").as_bytes());
+    // Producer identity (review F11): every canonical producer's code, association and evidence
+    // included. Only serving-only realization code is outside it.
+    let mut producer = blake3::Hasher::new();
+    let mut excluded = Vec::new();
+    for file in &files {
+        if serving_only(file) {
+            excluded.push(file.clone());
+            continue;
+        }
+        let bytes = std::fs::read(root.join(file)).expect("producer source");
+        producer.update(file.as_bytes());
+        producer.update(&(bytes.len() as u64).to_le_bytes());
+        producer.update(&bytes);
+    }
+    producer.update(found.join(";").as_bytes());
+    println!(
+        "cargo:rustc-env=LCTX_PRODUCER_SOURCE_DIGEST={}",
+        producer.finalize().to_hex()
+    );
+    println!("cargo:rustc-env=LCTX_PRODUCER_EXCLUDED={}", excluded.join(";"));
     let mut association = blake3::Hasher::new();
     for file in [
         "crates/cpg-core/src/evidence.rs",
@@ -148,4 +168,17 @@ fn main() {
         h.finalize().to_hex()
     );
     println!("cargo:rustc-env=LCTX_SOURCE_FILES={}", files.join(";"));
+}
+
+/// Code that realizes serving artifacts from a published generation and never produces a
+/// canonical relation.
+fn serving_only(file: &str) -> bool {
+    matches!(
+        file,
+        "crates/cpg-schema/src/wire/journeys.rs"
+            | "crates/cpg-schema/src/wire/responses.rs"
+            | "crates/cpg-schema/src/wire/dispatch.rs"
+            | "crates/cpg-schema/src/retrieval.rs"
+    ) || file.starts_with("crates/cpg-core/src/bundle")
+        || file.starts_with("crates/cpg-core/src/retrieval")
 }

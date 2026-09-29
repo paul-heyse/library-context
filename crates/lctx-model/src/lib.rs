@@ -20,6 +20,7 @@ pub mod legacy;
 pub mod obligation;
 pub mod projection;
 pub mod relations;
+pub mod stage;
 pub mod transfer;
 pub mod vocab;
 

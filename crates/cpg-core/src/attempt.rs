@@ -175,6 +175,15 @@ pub fn semantic_digest() -> Digest {
     compiler_digest_for(env!("LCTX_SEMANTIC_SOURCE_DIGEST"))
 }
 
+/// Producer identity (DESIGN §15.3; review F11): every canonical producer's code. Recorded as
+/// the compiler producer's `build_digest`, so a canonical row names the code that produced it.
+pub fn producer_digest() -> Digest {
+    compiler_digest_for(env!("LCTX_PRODUCER_SOURCE_DIGEST"))
+}
+
+/// The files producer identity leaves out: serving-only realization code.
+pub const PRODUCER_EXCLUDED: &str = env!("LCTX_PRODUCER_EXCLUDED");
+
 pub fn compiler_digest() -> Digest {
     compiler_digest_for(SOURCE_DIGEST)
 }
@@ -1756,6 +1765,7 @@ mod tests {
             .unwrap();
         let mut found = Vec::new();
         for tree in [
+            "crates/lctx-model/src",
             "crates/cpg-core/src",
             "crates/lctx-analytics/src",
             "crates/cpg-schema/src",
@@ -1768,6 +1778,21 @@ mod tests {
         assert_eq!(found, hashed);
         assert!(hashed.contains(&"crates/cpg-core/src/synth.rs"));
         assert_eq!(SOURCE_DIGEST.len(), 64);
+    }
+
+    #[test]
+    fn producer_identity_covers_every_canonical_producer() {
+        let excluded: Vec<&str> = PRODUCER_EXCLUDED.split(';').filter(|f| !f.is_empty()).collect();
+        for file in &excluded {
+            assert!(
+                file.contains("/bundle") || file.contains("retrieval") || file.contains("/wire/"),
+                "{file} is excluded from producer identity but is not serving-only"
+            );
+        }
+        for producer in ["crates/cpg-core/src/evidence.rs", "crates/cpg-core/src/catalog_domains.rs"] {
+            assert!(!excluded.contains(&producer), "{producer} produces canonical relations");
+        }
+        assert_ne!(producer_digest(), compiler_digest());
     }
 
     #[test]
