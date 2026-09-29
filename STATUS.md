@@ -1,40 +1,34 @@
 # Status
 
-_Updated 2026-09-28 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared `main`._
+_Updated 2026-09-29 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared `main`._
 
 ## Product checkpoint
 
-- **PR4 completed at bounded Tested strength, with the operator's embedding waiver.** Contextual typed selection, four retrieval families, addressable winning units and shared Rust classification/rank validation are implemented. [Product owner](docs/design/sections/api-and-evidence-product.md), ADR-0077/0078.
-- **Current formats:** compiler111, extractor37, template21, catalog7, bundle16/projection6/wire3, migration012. Standard1024 remains the output contract; the NVFP4 service/spec pin changed under ADR-0080.
-- **Operator pivot completed:** exactly two current ready profiles; behavioral selected. Default store/generation paths point to the validated publication. Obsolete generations, stores, runtime copies, rollback dumps, old readers/ANN code and backup-dependent upgrade tooling are removed. Delta remains canonical; PostgreSQL is rebuildable.
-- **Review accepted:** [PR4 review](docs/design_review/reviews/design_review_pr4-selection-retrieval_2026-09-28.md). [Forward plan §6.2](docs/plans/behavioral-model-forward-plan_2026-09-24.md#62-product-target-findings-and-recommendation-disposition) owns bounded closure of AP/F04/F05 and PR4/F01–F18.
-- **Packet limit:** two behavioral packets explicitly exceed 256 KiB; every winning original remains accessible and verified. PR5 owns optional enrichment pagination/omission usability work.
-- **PR0 comparison blocked:** exact-release/material parity and independent confirmation admission remain unresolved. Confirmation stays sealed; no comparative superiority claim.
-- General semantic Stage3 remains incomplete and outside this product gate. PR5–PR6 remain Proposed.
+- **PR5 completed at bounded Tested strength.** Commit `35afc09` adds bounded invocation packets/sections, scoped browse/vocabulary, independent evidence search, ordered comparison and coarse catalog/retrieval rebuilds (ADR-0081). [Product owner](docs/design/sections/api-and-evidence-product.md).
+- **Current formats:** compiler112, extractor37, template21, catalog7, bundle16/projection6/wire4, migration012. Superseded public packet encodings are removed.
+- Complete cores and optional section continuation now serve the formerly oversized CLI/auth operations. Probe responses reached at most 34,100 bytes within the expanded 256 KiB bound; default admission remains 32 KiB.
+- **Rebuild qualification:** eight controls compare every canonical column, including provenance/evidence, across clean/reused runs and input/policy changes. Invalid disposable entries recompute. Pure-stage admission re-derives output; no CPU speedup is claimed.
+- **Review accepted at bounded source-inspected strength:** [PR5 review](docs/design_review/reviews/design_review_pr5-agent-journeys-rebuild_2026-09-29.md). [Forward-plan §6.2](docs/plans/behavioral-model-forward-plan_2026-09-24.md#62-product-target-findings-and-recommendation-disposition) owns PR5/F01–F04 and CLF/F01/F03 closure.
+- **Current-only operator pivot passed:** exactly two ready NVFP4 profiles; behavioral selected. Both default paths point to the validated current publication. Superseded runtime/artifact/fixture generations and stale pointers are removed; temporary reconstruction archives are deleted. All 58 protected benchmark files were unchanged.
+- **PR0 comparison blocked:** exact-release/material parity and independent confirmation admission remain unresolved. Confirmation stays sealed. PR6 comparative work remains Proposed; general semantic Stage3 remains incomplete and outside this product gate.
 
 ## Verification boundary
 
-[PR4 evidence](docs/design_review/evidence/2026-09-28_pr4/README.md) owns commands and current receipts.
+[PR5 evidence](docs/design_review/evidence/2026-09-28_pr5/README.md) owns commands and receipts.
 
-| Command, 2026-09-28 | Outcome and scope |
+| Command, 2026-09-29 | Outcome and scope |
 |---|---|
-| `just fmt`; `just test-all` plus localized guard repair and remaining gate components | **passed after repair, composite receipt:** 474 ordinary Rust tests accounted for, 191 Python, 19 real-PG Rust, two real-PG Python, lints/types/rules/dependencies/gold/SQLx/ADR checks. The original full invocation had one expected-output guard failure; its focused rerun passed |
-| Packet-budget follow-up and current bootstrap checks | **passed:** one Rust boundary test, 16 affected Python tests, scoped Clippy; three real-PG Python checks, Ruff and Pyrefly |
-| `deployment_check.py ... --out build/pr4-qualified-tasks` | **passed:** isolated programmatic and CLI stdio tasks both returned 5 |
-| `pilot_probe.py ...`; `compare_profiles.py ...`; operator cutover/cleanup | **passed:** both fresh profiles through real PG/MCP, 18-relation catalog parity, 88-table reconstruction, current operator serving and obsolete-state deletion |
-| `just docs-check`; `just fmt-check`; `git diff --check` | **passed:** 168 canonical pages, zero documentation errors; formatting and whitespace checks passed |
-| NVFP4 basic live validation, `embedding_smoke.py`; focused embedding pytest; release CLI build | **passed:** three valid 1024-vectors, tokenizer/identity checks; nine tests and CLI build. Accuracy, ranking and broad tests **not_run** by operator instruction |
+| `just fmt`; `just test-all` with localized reruns and remaining gate components | **passed, composite receipt:** 485 ordinary Rust tests accounted for, 204 Python, 19 real-PG Rust, three real-PG Python; types/lints/rules/dependencies/gold/SQLx/ADR checks. Initial failures and focused repairs remain explicit in the receipt |
+| `cargo nextest ... --test rebuild` with focused selectors | **passed:** eight controls; both profiles, membership/absence/coordinates/coverage/provider attribution/roots/policy, corrupt cache and retrieval boundary |
+| `deployment_check.py ... --out build/pr5-qualified-tasks` | **passed:** isolated pinned programmatic and CLI stdio tasks each returned 5 |
+| `pilot_probe.py build/pr5-qualified build/pr5-qualified-tasks --reuse-published` | **passed:** fresh catalog/behavioral compilation, 114 real MCP calls across both routes, and 88-relation reconstruction |
+| `operator_cutover.py ...`; `cleanup_current.py --apply` | **passed:** current serving, selection and reconstruction; obsolete runtime removal and benchmark preservation |
+| `just docs-check`; `just fmt-check`; `git diff --check` | **passed:** 173 canonical pages, zero documentation errors |
+| Accuracy assessment, comparative evaluation, sealed tasks, performance benchmarks | **not_run**, outside authorized scope; benchmark artifacts preserved |
 
-- **Build environment implemented (ADR-0079):** dated nightly `2026-09-29`, workspace feature union, CLI-only Hakari, shared Cargo intermediates with fine-grain locking and local final targets. Default/foreign target exports are normalized; benchmark trials own both directories and retain their artifacts. An exact upstream allocative backport makes the pinned graph compile; no dependency version moved.
-- **Build validation, 2026-09-28:** release CLI and both native crates, forced editable reinstall/import (nightly + mold identified in the binaries), 13 focused Python tests, shared two-checkout/concurrent-warm probe, dependency checks and docs (168 pages) **passed**. The full `just test-all` **passed**: 475 ordinary Rust tests, 199 Python tests, 19 real-PG Rust tests, three real-PG Python tests, lints/types/rules and SQLx metadata. [Build evidence](docs/design_review/evidence/2026-09-28_cargo-cache/README.md) owns the bounded claims. Performance benchmarks and live embeddings **not_run**; existing benchmark data and service remain intact.
+## Environment and next action
 
-## Embedding update in progress
-
-- **ADR-0080, 2026-09-28:** published NVFP4-r2 checkpoint and gpu-stack B3/r2 SM120 wheel installed and running at `http://127.0.0.1:8000`. Manifest/file checksums bind model and tokenizer; the new full spec prevents BF16 cache reuse. [Bounded receipt](docs/design_review/evidence/2026-09-28_pr4/raw/nvfp4-smoke.json).
-- **Background rebuild running:** `build/embedding-adoption/status.json` owns live state, with `behavioral.log`, `catalog.log`, `reembed.log`, `service.log` and PID files alongside it. The job has a temporary pinned CLI hard link, removed when it exits. Both profiles rebuild before current-only import/selection and obsolete-runtime deletion; the currently selected operator publication is still lexical-only. Benchmark artifacts are preserved.
-
-## Next
-
-Finish current-only cutover after the background embedding rebuild succeeds. Further development planning awaits the operator's separate instructions; no accuracy assessment or broad gates are authorized for this adoption.
-
-PR5 agent journeys, bounded packet usability and coarse rebuild/reuse qualification. PR0 independent parity/admission precedes comparative scoring. The [forward plan](docs/plans/behavioral-model-forward-plan_2026-09-24.md) is the single execution/adoption owner; the [PostgreSQL runbook](docs/postgresql.md) owns current commands. Completed PR1–PR3 records and the completed PostgreSQL plan are retired; surviving findings/triggers remain in the forward plan.
+- **ADR-0079:** dated nightly `2026-09-29`, workspace feature union, CLI-only Hakari, shared Cargo intermediates/fine-grain locking and local final targets. Existing benchmark data and directories remain intact. [Build evidence](docs/design_review/evidence/2026-09-28_cargo-cache/README.md).
+- **ADR-0080:** published NVFP4-r2 checkpoint and gpu-stack B3/r2 SM120 wheel run at `http://127.0.0.1:8000`; full spec binds model/tokenizer/runtime, standard1024 output. Basic live validation passed; current PR5 journeys use this runtime without accuracy claims.
+- Current runtime and commands are in the [PostgreSQL runbook](docs/postgresql.md). No prior generation or rollback copy is retained; accuracy/performance assessment was not run.
+- Next product work is PR6 under the [forward plan](docs/plans/behavioral-model-forward-plan_2026-09-24.md), subject to the unresolved PR0 comparison admission. The concurrent external graph-review document is preserved and is not part of this implementation.

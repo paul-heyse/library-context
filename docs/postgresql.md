@@ -242,21 +242,50 @@ inputs and observed outcomes. A changed runner/environment/source requires fresh
 failed tasks remain explicit failures. An all-extras task pass does not prove a minimal install.
 No wheel is built: product native modules remain editable fastdev artifacts.
 
-**Tested operator cutover, 2026-09-28.** Both current profiles passed real PG/MCP, catalog parity
-and current reconstruction with embeddings disabled. The database contains exactly two current
-ready generations. Behavioral is selected:
+**Tested operator cutover, 2026-09-29.** Both current profiles passed real PG/MCP on lexical-only
+and NVFP4 exact-vector routes, followed by 88-relation current reconstruction. The database
+contains exactly two current ready generations. Behavioral is selected:
 
-- Catalog: `bbbac7c4d106e487b47d33b2618d1ec47636905fee456d11157992e5be0ea7b8`.
-- Behavioral: `b87c881a3838e21ddf1399089631d2472cc4d476094b343059c44cec5d463630`.
+- Catalog: `64313f7b7d989ff1fb39fcd89a3ff291641910225c6b5a9344dd5382dff284f2`.
+- Behavioral: `272b6ec52fb2cace30437394d3cb8ec763e7149e94af599abfd936c4b7d16f96`.
 
-`build/store` and `build/generations` point to the current behavioral publication. Obsolete stores,
-generations, runtime copies, rollback dumps and upgrade credentials were removed after validation.
-The [PR4 evidence](design_review/evidence/2026-09-28_pr4/README.md) owns the exact receipts.
+`build/store` and `build/generations` point to the current behavioral publication under
+`build/pr5-qualified/behavioral/`. Superseded PR4/adoption runtime directories, obsolete artifacts,
+stale pointers and fixture generations were removed after validation. Temporary reconstruction
+archives were deleted. Cleanup verified 58 benchmark files unchanged.
+The [PR5 evidence](design_review/evidence/2026-09-28_pr5/README.md) owns exact receipts.
 
-Two enriched operation packets (`fastmcp.cli.cli.run` and `fastmcp.server.auth.JWTVerifier`) exceed
-the 256 KiB expanded budget and explicitly refuse; their catalog-profile packets fit. Their winning
-units still expose complete original bytes through `get_evidence`. PR5 owns any optional enrichment
-pagination/omission design; the current path neither truncates nor relabels that refusal.
+The formerly oversized `fastmcp.cli.cli.run` and `fastmcp.server.auth.JWTVerifier` now expose
+complete expanded cores and independently paged behavior. All probed final MCP responses fit their
+requested budget; the largest was 34,100 bytes. No accuracy or comparative-quality claim follows.
+
+### Bounded agent journeys and rebuilds
+
+**Implemented (ADR-0081, 2026-09-29).** Wire4 replaces the whole operation packet with a complete
+invocation core and independent optional sections. `get_operation` accepts
+`view={"kind":"section","section":"behavior"}` (also `relationships`, `fields`, `facets`,
+`evidence`) and an opaque continuation cursor. `expanded=true` raises the final MCP result limit
+from 32 KiB to 256 KiB. Required signatures are never truncated. `browse_library` supplies scoped
+ownership, vocabulary and facet counts; `search_evidence` discovers original units independently
+of an API; `compare_operations` applies one selection to one through five named candidates.
+
+Rebuild from captured canonical facts explicitly; these commands publish but do not select:
+
+```sh
+target/release/lctx rebuild catalog --store STORE --snapshot SNAPSHOT --out GENERATIONS
+# Behavioral input additionally requires its pinned analytics configuration:
+target/release/lctx rebuild catalog --store STORE --snapshot SNAPSHOT --out GENERATIONS \
+  --analytics-config libraries/fastmcp/analytics.toml --embedder vllm
+# Rebuild retrieval only, retaining the canonical snapshot:
+target/release/lctx rebuild retrieval --store STORE --snapshot SNAPSHOT --out GENERATIONS \
+  --embedder vllm
+```
+
+`--clean` on catalog rebuild forces recomputation for an equality oracle. Input/provider/profile,
+coverage, source/evidence, roots, semantic policy and full embedding identity control admission.
+Invalid disposable stage entries recompute; invalid canonical inputs refuse. The printed receipt
+reports actual stage outcomes. Cache admission re-derives pure output for comparison; no speedup
+is claimed. Import, reconcile, validate and explicitly select before removing superseded runtime.
 
 ### Complete recovery and diagnostics
 

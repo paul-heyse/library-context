@@ -4,7 +4,7 @@
 
 ## §14 Purpose, status and decision
 
-**Accepted target; PR1–PR5 implemented, PR5 qualification in progress, 2026-09-29.** This is the comprehensive replacement
+**Accepted target; PR1–PR5 implemented, PR5 bounded qualification passed, 2026-09-29.** This is the comprehensive replacement
 product target under ADR-0071. It replaces general behavioral-model completion as the route to a
 first useful release. It preserves sound behavioral analysis as one source of evidence. It does
 not declare Stage 3 finished or certify an advantage over Context7.
@@ -573,7 +573,7 @@ Separate semantic shape from current evidence binding only where their contracts
 An unchanged signature with moved spans or new attribution still needs current snapshot/fact IDs,
 source digests and citations. Do not exclude evidence-bearing fields from equality to increase
 cache hits. Compare reused outputs with a clean rebuild, including provenance and absence states.
-**Implemented, qualification in progress (2026-09-29).** `lctx rebuild catalog` reads a published
+**Implemented and bounded Tested (2026-09-29).** `lctx rebuild catalog` reads a published
 fact snapshot and validates a fresh publication; `lctx rebuild retrieval` keeps the canonical
 snapshot. Current-only Arrow stage artifacts bind complete scans and executable source identities.
 Cache admission re-derives its pure output and compares canonical batches, so even validly encoded
@@ -770,7 +770,7 @@ typed selection plus retrieval witnesses; bounded agent tools; then comparative 
 Each packet is a vertical slice across canonical facts, shared validators, versioned projection,
 PG import, native/MCP and focused product fixtures. R08 baseline work precedes feature tuning.
 
-**PR1–PR5 Implemented (ADR-0073/0074/0076/0077/0081), PR5 qualification in progress:** PR2 establishes the
+**PR1–PR5 Implemented (ADR-0073/0074/0076/0077/0081), PR5 bounded qualification passed:** PR2 establishes the
 small nominal-ID/wire foundation and load/index/derive boundary while implementing surface/options;
 PR3 uses those identities and pure inputs for scenarios/deployment. PR4 completes the contextual
 classifier, extends the shared typed packets and selected SQLx checking. PR5 adds schema-backed tools
