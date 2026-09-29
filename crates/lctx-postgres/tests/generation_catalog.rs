@@ -1,8 +1,8 @@
 //! The generation catalog against a disposable real PostgreSQL 18 (cutover plan P1.8): every
 //! state, frontier and writer liveness reported as stored, read by the reader role.
-use lctx_model::domain::{ContentHash, admission::Frontier, stages::Profile};
-use lctx_postgres::generations::{GenerationCatalog, GenerationState, GenerationStore, ListFilter, Writer};
-use lctx_postgres::testing::DisposableDatabase;
+use lctx_model::domain::{admission::{Availability, Frontier}, attribution::FactFamily, stages::Profile};
+use lctx_postgres::generations::{FailureClass, GenerationCatalog, GenerationState, GenerationStore, ListFilter, Writer};
+use lctx_postgres::testing::{DisposableDatabase, Harness};
 
 use lctx_postgres::testing::fixtures::*;
 
@@ -12,13 +12,16 @@ async fn the_catalog_reports_every_state_frontier_and_writer() {
     let facts = Facts::new();
     let store = GenerationStore::install(db.owner.clone(), facts.model.clone()).await.unwrap();
     let catalog = GenerationCatalog::new(db.reader.clone());
-    // Manual conformance generations in each state.
-    let staging = store.create_conformance(ContentHash::of(b"staging"), "behavioral").await.unwrap();
-    let sealed = store.create_conformance(ContentHash::of(b"sealed"), "catalog").await.unwrap();
-    store.seal(sealed).await.unwrap();
-    let validated = store.create_conformance(ContentHash::of(b"validated"), "catalog").await.unwrap();
-    store.seal(validated).await.unwrap();
-    store.validate(validated, &budget()).await.unwrap();
+    // Live conformance attempts in each unpublished state.
+    let staging_h = Harness::begin(&store, db.writer.clone(), Profile::Behavioral, budget()).await.unwrap();
+    let staging = staging_h.generation();
+    let mut sealed_h = Harness::begin(&store, db.writer.clone(), Profile::Catalog, budget()).await.unwrap();
+    let sealed = sealed_h.generation();
+    sealed_h.seal().await.unwrap();
+    let mut validated_h = Harness::begin(&store, db.writer.clone(), Profile::Catalog, budget()).await.unwrap();
+    let validated = validated_h.generation();
+    validated_h.seal().await.unwrap();
+    validated_h.validate(&budget()).await.unwrap();
     // Facts attempts: one published and selected, one live, one failed.
     let published = facts.published(&store, db.writer.clone()).await;
     store.select(published).await.unwrap();
@@ -29,8 +32,8 @@ async fn the_catalog_reports_every_state_frontier_and_writer() {
     let rows = catalog.list(&ListFilter::default()).await.unwrap();
     let row = |g| rows.iter().find(|r| r.id == g).unwrap();
     use GenerationState::*;
-    let expected = [(staging, Staging, Frontier::Conformance, Profile::Behavioral, Writer::Manual), (sealed, Sealed, Frontier::Conformance, Profile::Catalog, Writer::Manual),
-        (validated, Validated, Frontier::Conformance, Profile::Catalog, Writer::Manual), (published, Published, Frontier::Facts, Profile::Catalog, Writer::Ended),
+    let expected = [(staging, Staging, Frontier::Conformance, Profile::Behavioral, Writer::Live), (sealed, Sealed, Frontier::Conformance, Profile::Catalog, Writer::Live),
+        (validated, Validated, Frontier::Conformance, Profile::Catalog, Writer::Live), (published, Published, Frontier::Facts, Profile::Catalog, Writer::Ended),
         (live.generation(), Staging, Frontier::Facts, Profile::Catalog, Writer::Live), (failed, Failed, Frontier::Facts, Profile::Catalog, Writer::Ended)];
     assert_eq!(rows.len(), expected.len());
     for (g, state, frontier, profile, writer) in expected {
@@ -44,13 +47,14 @@ async fn the_catalog_reports_every_state_frontier_and_writer() {
     assert!(detail.content.is_some() && detail.schedule.is_some() && detail.failure.is_none());
     let (contract, availability) = detail.admission.expect("a published facts generation shows its admission");
     assert_eq!(contract, facts.contract().digest());
-    assert!(availability.contains(&("Deployment".to_owned(), "Complete".to_owned())) && availability.contains(&("Flow".to_owned(), "NotRequested".to_owned())));
+    assert!(availability.contains(&(FactFamily::Deployment, Availability::Complete)) && availability.contains(&(FactFamily::Flow, Availability::NotRequested)));
+    assert!(availability.contains(&(FactFamily::Syntax, Availability::NoScope)), "requested but scopeless stays distinct: {availability:?}");
     assert_eq!(detail.relations.iter().find(|(name, _)| name == "provider_coverage").map(|(_, n)| *n), Some(2));
     let detail = catalog.show(sealed).await.unwrap().unwrap();
-    assert!(detail.content.is_none() && detail.relations.is_empty() && detail.admission.is_none() && detail.schedule.is_none());
+    assert!(detail.content.is_none() && detail.relations.is_empty() && detail.admission.is_none());
     let detail = catalog.show(failed).await.unwrap().unwrap();
     let (from, class, message) = detail.failure.expect("a failed generation shows its failure");
-    assert_eq!((from.as_str(), class.as_str()), ("sealed", "frontier"));
+    assert_eq!((from, class), (GenerationState::Sealed, FailureClass::Frontier));
     assert!(message.contains("missing Deployment coverage"), "{message}");
     assert!(catalog.show(lctx_postgres::generations::GenerationId::from_schema("lctx_g00000000000000000000000000000000").unwrap()).await.unwrap().is_none());
     // The attempt is lost: its generation is interrupted, not live.
@@ -61,7 +65,13 @@ async fn the_catalog_reports_every_state_frontier_and_writer() {
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
     }
     assert_eq!(catalog.show(live.generation()).await.unwrap().unwrap().summary.writer, Writer::Interrupted);
-    assert_eq!(store.interrupted().await.unwrap(), [live.generation()], "the catalog and the store agree");
+    // Every attempt lost its connection; the catalog and the store agree on which are interrupted.
+    let mut lost = vec![staging, sealed, validated, live.generation()];
+    lost.sort_by_key(|g| g.hex());
+    assert_eq!(store.interrupted().await.unwrap(), lost);
+    let listed: Vec<_> = catalog.list(&ListFilter::default()).await.unwrap().into_iter().filter(|r| r.writer == Writer::Interrupted).map(|r| r.id).collect();
+    assert_eq!(listed.len(), 4);
+    drop((staging_h, sealed_h, validated_h));
 }
 
 #[tokio::test]

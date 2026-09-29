@@ -33,7 +33,7 @@ pub mod admission;
 
 pub use identity::{ArmId, ContentHash, ContentHasher, EvidenceBytes, Id, Key, KeySink};
 pub use model::{Invariant, InvariantCheck, ValidationInput, Relation, RelationContent, ValidatedModel};
-pub use record::{Arm, ArmField, Sum, SumRecord, Batch, Field, FieldValue, FlatValue, HeapSize, Record, Scalar};
+pub use record::{Arm, ArmField, Sum, SumRecord, Batch, Codebook, Field, FieldValue, FlatValue, HeapSize, Record, Scalar};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ModelError {
@@ -76,6 +76,9 @@ pub enum Infrastructure {
     Unconfirmed,
     /// The server refused a statement: a privilege, constraint or protocol refusal.
     Refused,
+    /// A lock or statement timeout, a deadlock or a serialization conflict: another holder was
+    /// in the way.
+    Contention,
     /// A generation's state or lock excluded the operation.
     State,
     /// The stored model, lowering or registry differs from this binary's.

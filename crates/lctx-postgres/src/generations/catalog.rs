@@ -1,9 +1,9 @@
 //! The generation catalog (cutover plan P1.8): what `lctx generation list|show` reports. It only
 //! reads the control schema and the server's lock table, so the reader role can run it; it never
 //! takes a lock, changes a registry row or reads a generation schema.
-use lctx_model::domain::{ContentHash, admission::Frontier, stages::Profile};
+use lctx_model::domain::{Codebook, ContentHash, admission::{Availability, Frontier}, attribution::FactFamily, stages::Profile};
 use sqlx::{PgPool, Row, postgres::PgRow};
-use super::{Error, GenerationId, ddl};
+use super::{Error, GenerationId, ddl, failure::FailureClass, locks};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum GenerationState { Staging, Sealed, Validated, Published, Failed }
@@ -15,11 +15,9 @@ impl GenerationState {
         [Self::Staging, Self::Sealed, Self::Validated, Self::Published, Self::Failed].into_iter().find(|s| s.name() == name).ok_or(Error::Contract)
     }
 }
-/// Whether an attempt still owns an unpublished generation.
+/// Whether its attempt still owns an unpublished generation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Writer {
-    /// A manual conformance generation: no attempt ever owned it.
-    Manual,
     /// Its attempt holds the attempt lock.
     Live,
     /// Its attempt is gone before publication or failure; it can only be aborted.
@@ -43,14 +41,14 @@ pub struct GenerationDetail {
     /// Receipted relations and their row counts, once validated.
     pub relations: Vec<(String, i64)>,
     /// A facts generation's admission: its contract digest and each family's availability.
-    pub admission: Option<(ContentHash, Vec<(String, String)>)>,
+    pub admission: Option<(ContentHash, Vec<(FactFamily, Availability)>)>,
     /// A failed generation's from-state, class and detail.
-    pub failure: Option<(String, String, String)>,
+    pub failure: Option<(GenerationState, FailureClass, String)>,
 }
 
 pub struct GenerationCatalog { pool: PgPool }
 
-const SUMMARY: &str = "SELECT g.id, g.state, g.frontier, g.profile, g.owned, g.created_at::text AS created_at, \
+const SUMMARY: &str = "SELECT g.id, g.state, g.frontier, g.profile, g.created_at::text AS created_at, \
     s.generation_id IS NOT NULL AS selected FROM lctx_model_store.generations g \
     LEFT JOIN lctx_model_store.selection s ON s.generation_id = g.id";
 
@@ -75,15 +73,22 @@ impl GenerationCatalog {
             .bind(g.0.to_vec()).fetch_one(&self.pool).await?;
         let relations = sqlx::query_as("SELECT relation_name, row_count FROM lctx_model_store.receipts WHERE generation_id = $1 ORDER BY relation_name COLLATE \"C\"")
             .bind(g.0.to_vec()).fetch_all(&self.pool).await?;
-        let admission: Option<(Vec<u8>, String)> = sqlx::query_as("SELECT contract_digest, availability FROM lctx_model_store.admissions WHERE generation_id = $1")
+        let contract: Option<Vec<u8>> = sqlx::query_scalar("SELECT contract_digest FROM lctx_model_store.admissions WHERE generation_id = $1")
             .bind(g.0.to_vec()).fetch_optional(&self.pool).await?;
-        let admission = admission.map(|(contract, availability)| -> Result<_, Error> {
-            let families = availability.split(';').filter(|p| !p.is_empty())
-                .map(|part| part.split_once('=').map(|(f, a)| (f.to_owned(), a.to_owned())).ok_or(Error::Contract)).collect::<Result<_, _>>()?;
-            Ok((digest(contract)?, families))
-        }).transpose()?;
-        let failure = sqlx::query_as("SELECT from_state, class, detail FROM lctx_model_store.failures WHERE generation_id = $1")
+        let admission = match contract {
+            Some(contract) => {
+                let rows: Vec<(i16, i16)> = sqlx::query_as("SELECT family, availability FROM lctx_model_store.admission_families WHERE generation_id = $1 ORDER BY family")
+                    .bind(g.0.to_vec()).fetch_all(&self.pool).await?;
+                let families = rows.into_iter().map(|(family, availability)| Ok((FactFamily::from_code(family).ok_or(Error::Contract)?,
+                    Availability::from_code(availability).ok_or(Error::Contract)?))).collect::<Result<_, Error>>()?;
+                Some((digest(contract)?, families))
+            },
+            None => None,
+        };
+        let failure: Option<(String, String, String)> = sqlx::query_as("SELECT from_state, class, detail FROM lctx_model_store.failures WHERE generation_id = $1")
             .bind(g.0.to_vec()).fetch_optional(&self.pool).await?;
+        let failure = failure.map(|(from, class, detail)| Ok::<_, Error>((GenerationState::parse(&from)?, FailureClass::parse(&class).ok_or(Error::Contract)?, detail)))
+            .transpose()?;
         Ok(Some(GenerationDetail { summary, model: digest(model)?, physical: digest(physical)?, producer: digest(producer)?,
             schedule: schedule.map(digest).transpose()?, content: content.map(digest).transpose()?, relations, admission, failure }))
     }
@@ -92,16 +97,9 @@ impl GenerationCatalog {
         let state = GenerationState::parse(&row.try_get::<String, _>("state")?)?;
         let frontier = ddl::frontier(&row.try_get::<String, _>("frontier")?).ok_or(Error::Contract)?;
         let profile = Profile::ALL.into_iter().find(|p| p.name() == row.try_get::<String, _>("profile").unwrap_or_default()).ok_or(Error::Contract)?;
-        // A lease holds the generation lock shared for its lifetime; an attempt holds its attempt
-        // lock exclusively. Both are bigint advisory locks: classid is the high half, objid the low.
-        let holders = |key: i64, mode: &'static str| sqlx::query_scalar::<_, i64>("SELECT count(DISTINCT pid) FROM pg_locks WHERE locktype = 'advisory' \
-            AND granted AND mode = $3 AND objsubid = 1 AND classid::bigint = $1 AND objid::bigint = $2")
-            .bind((key as u64 >> 32) as i64).bind((key as u64 & 0xffff_ffff) as i64).bind(mode);
-        let readers = holders(id.lock(), "ShareLock").fetch_one(&self.pool).await?;
-        let owned: bool = row.try_get("owned")?;
-        let writer = if !owned { Writer::Manual }
-            else if matches!(state, GenerationState::Published | GenerationState::Failed) { Writer::Ended }
-            else if holders(id.attempt_lock(), "ExclusiveLock").fetch_one(&self.pool).await? > 0 { Writer::Live }
+        let readers = locks::readers(&self.pool, id).await?;
+        let writer = if matches!(state, GenerationState::Published | GenerationState::Failed) { Writer::Ended }
+            else if locks::attempt_live(&self.pool, id).await? { Writer::Live }
             else { Writer::Interrupted };
         Ok(GenerationSummary { id, state, frontier, profile, selected: row.try_get("selected")?, created_at: row.try_get("created_at")?,
             readers: u32::try_from(readers).map_err(|_| Error::Codec("reader count".into()))?, writer })

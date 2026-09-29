@@ -207,6 +207,14 @@ pub enum Availability {
     /// Requested, but the inputs have no scope of its grain.
     NoScope,
 }
+impl Availability {
+    pub const ALL: [Self; 5] = [Self::Complete, Self::Partial, Self::Unavailable, Self::NotRequested, Self::NoScope];
+    /// The stored code. Append-only: a new availability takes the next code; none is renumbered.
+    pub fn code(self) -> i16 {
+        match self { Self::Complete => 0, Self::Partial => 1, Self::Unavailable => 2, Self::NotRequested => 3, Self::NoScope => 4 }
+    }
+    pub fn from_code(code: i16) -> Option<Self> { Self::ALL.into_iter().find(|a| a.code() == code) }
+}
 /// Proof that a sealed generation's coverage and stage outcomes meet its facts frontier. Only
 /// [`AdmissionCheck::finish`] constructs one.
 ///

@@ -2,12 +2,15 @@
 mod catalog;
 mod codec;
 mod ddl;
+mod failure;
 mod install;
 mod lease;
 mod lifecycle;
+pub(crate) mod locks;
 mod receipts;
 mod verify;
 pub use catalog::{GenerationCatalog, GenerationDetail, GenerationState, GenerationSummary, ListFilter, Writer};
+pub use failure::{Failure, FailureClass};
 pub use install::ResetInventory;
 pub use lease::{LeaseContract, LeaseDriver, LeaseParam};
 pub use lifecycle::{GenerationAttempt, SealedAttempt, ValidatedAttempt};
@@ -31,6 +34,8 @@ pub enum Error {
     #[error("PostgreSQL COPY abort failed after {operation}; cleanup is unconfirmed")]
     CopyAbort { operation: Box<Error>, #[source] source: sqlx::Error },
     #[error("generation state does not permit this operation")] State,
+    /// No generation with this id is registered: never created, aborted or retired.
+    #[error("no such generation")] Absent,
     #[error("generation model or physical schema differs from this binary")] Contract,
     #[error("generation has active readers or is selected")] Busy,
     #[error("codec: {0}")] Codec(String),
@@ -50,14 +55,15 @@ impl Error {
             Self::Database(error) => {
                 let code = error.as_database_error().and_then(|e| e.code()).unwrap_or_default();
                 match error {
-                    sqlx::Error::Io(_) | sqlx::Error::Tls(_) | sqlx::Error::Protocol(_) | sqlx::Error::PoolClosed | sqlx::Error::PoolTimedOut
-                        | sqlx::Error::WorkerCrashed => Infrastructure::Transport,
+                    sqlx::Error::Io(_) | sqlx::Error::Tls(_) | sqlx::Error::Protocol(_) | sqlx::Error::PoolClosed | sqlx::Error::WorkerCrashed => Infrastructure::Transport,
+                    sqlx::Error::PoolTimedOut => Infrastructure::Contention,
                     _ if code.starts_with("08") || code.starts_with("57P") => Infrastructure::Transport,
+                    _ if code == "55P03" || code == "57014" || code == "40P01" || code == "40001" => Infrastructure::Contention,
                     _ => Infrastructure::Refused,
                 }
             },
             Self::Commit(_) | Self::Rollback { .. } | Self::CopyAbort { .. } => Infrastructure::Unconfirmed,
-            Self::State | Self::Busy | Self::Orphaned | Self::Confirmation => Infrastructure::State,
+            Self::State | Self::Absent | Self::Busy | Self::Orphaned | Self::Confirmation => Infrastructure::State,
             Self::Contract | Self::Frontier(_) | Self::Model(_) | Self::Codec(_) => Infrastructure::Contract,
             Self::Random => Infrastructure::Io,
             Self::Driver { class, .. } => *class,
@@ -92,10 +98,6 @@ impl GenerationId {
         for (i, byte) in bytes.iter_mut().enumerate() { *byte = u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).ok()?; }
         Some(Self(bytes))
     }
-    /// The lock a lifecycle transition holds exclusively and a lease or copy holds shared.
-    fn lock(self) -> i64 { i64::from_le_bytes(self.0[..8].try_into().expect("eight bytes")) }
-    /// The lock an attempt's lifecycle connection holds for the attempt's lifetime (T10).
-    fn attempt_lock(self) -> i64 { i64::from_le_bytes(self.0[8..].try_into().expect("eight bytes")) }
 }
 #[derive(Clone)]
 pub struct GenerationStore { owner: PgPool, model: Arc<ValidatedModel>, physical: ContentHash, scopes: Arc<BTreeMap<Frontier, ddl::Scope>> }
@@ -113,7 +115,7 @@ impl GenerationStore {
     pub async fn install(owner: crate::OwnerPool, model: Arc<ValidatedModel>) -> Result<Self, Error> {
         let store = Self::assemble(owner.pool().clone(), model);
         transaction(&store.owner, async |tx| {
-            sqlx::query("SELECT pg_advisory_xact_lock(1279476824,0)").execute(&mut *tx).await?;
+            locks::installation_exclusive(tx).await?;
             install::control(tx, &store.model, store.physical).await
         }).await?;
         Ok(store)
@@ -131,44 +133,26 @@ impl GenerationStore {
     /// What `reset` would drop, without changing anything.
     pub async fn reset_plan(owner: &crate::OwnerPool) -> Result<ResetInventory, Error> { install::plan(owner).await }
     /// Drop every inventoried generation schema and the control schema, then install `model`.
-    /// `confirm` must name the database. Refused with `Busy` while any generation is leased or
-    /// in a lifecycle transaction.
+    /// `confirm` must name the database. Refused with `Busy` while any generation is leased, in
+    /// a lifecycle transaction or owned by a live attempt. Resumable: it removes one generation
+    /// per transaction, and a rerun finishes an interrupted reset.
     pub async fn reset(owner: crate::OwnerPool, model: Arc<ValidatedModel>, confirm: &str) -> Result<(ResetInventory, Self), Error> {
         install::reset(owner, model, confirm).await
     }
     pub fn model(&self) -> &ValidatedModel { &self.model }
     pub fn physical_digest(&self) -> ContentHash { self.physical }
-    /// Disposable subset evidence, advanced manually by the conformance calls below. It never
-    /// holds the facts frontier and is never selectable. Unlike an attempt, a refusal here rolls
-    /// back to the prior state.
-    pub async fn create_conformance(&self, producer: ContentHash, profile: &str) -> Result<GenerationId, Error> {
-        let g = GenerationId::new()?;
-        transaction(&self.owner, async |tx| self.create(tx, g, Frontier::Conformance, false, producer, profile, None).await).await?;
-        Ok(g)
-    }
-    /// Register a generation and lower its staging phase in the caller's transaction.
-    async fn create(&self, tx: &mut PgConnection, g: GenerationId, frontier: Frontier, owned: bool, producer: ContentHash, profile: &str,
-        schedule: Option<ContentHash>) -> Result<(), Error> {
+    /// Register a generation and lower its staging phase in the caller's transaction. Every
+    /// generation belongs to the attempt that registers it (store-lifecycle review F01).
+    async fn create(&self, tx: &mut PgConnection, g: GenerationId, frontier: Frontier, producer: ContentHash, profile: &str,
+        schedule: ContentHash) -> Result<(), Error> {
         if !matches!(profile, "catalog" | "behavioral") { return Err(Error::State); }
         self.lock_installation(tx).await?;
         let physical = self.scope(frontier)?.physical;
-        sqlx::query("INSERT INTO lctx_model_store.generations(id,state,owned,model_digest,physical_digest,producer_digest,profile,frontier,schedule_digest) \
-            VALUES($1,'staging',$2,$3,$4,$5,$6,$7,$8)")
-            .bind(g.0.to_vec()).bind(owned).bind(self.model.digest().0.to_vec()).bind(physical.0.to_vec()).bind(producer.0.to_vec()).bind(profile)
-            .bind(frontier.name()).bind(schedule.map(|d| d.0.to_vec())).execute(&mut *tx).await?;
+        sqlx::query("INSERT INTO lctx_model_store.generations(id,state,model_digest,physical_digest,producer_digest,profile,frontier,schedule_digest) \
+            VALUES($1,'staging',$2,$3,$4,$5,$6,$7)")
+            .bind(g.0.to_vec()).bind(self.model.digest().0.to_vec()).bind(physical.0.to_vec()).bind(producer.0.to_vec()).bind(profile)
+            .bind(frontier.name()).bind(schedule.0.to_vec()).execute(&mut *tx).await?;
         execute(tx, self.lowering(g, frontier)?.phase("staging")).await
-    }
-    /// Seal an unowned conformance generation: wait out writes, then revoke the writer.
-    pub async fn seal(&self, g: GenerationId) -> Result<(), Error> {
-        transaction(&self.owner, async |tx| self.seal_step(tx, g, false, None, &BTreeSet::new(), None).await).await
-    }
-    /// Validate an unowned conformance generation's stored, sealed contents. Callers cannot
-    /// submit a `valid=true` receipt. Read buffers and validator state are charged to `budget`.
-    pub async fn validate(&self, g: GenerationId, budget: &ResourceBudget) -> Result<ContentHash, Error> {
-        transaction(&self.owner, async |tx| self.validate_step(tx, g, false, budget, None).await).await.map(|(content, _)| content)
-    }
-    pub async fn publish(&self, g: GenerationId) -> Result<(), Error> {
-        transaction(&self.owner, async |tx| self.publish_step(tx, g, false, None).await).await
     }
     pub async fn select(&self, g: GenerationId) -> Result<(), Error> {
         transaction(&self.owner,async |mut tx| {
@@ -176,7 +160,7 @@ impl GenerationStore {
         sqlx::query("SELECT singleton FROM lctx_model_store.selection FOR UPDATE").execute(&mut *tx).await?;
         lock(&mut tx, g, true).await?;
         let registered = self.registered(&mut tx, g).await?;
-        if registered.state != "published" { return Err(Error::State); }
+        registered.expect("published")?;
         if registered.frontier != Frontier::Facts { return Err(Error::Frontier("only a facts generation can be selected".into())); }
         sqlx::query("UPDATE lctx_model_store.selection SET generation_id=$1 WHERE singleton").bind(g.0.to_vec()).execute(&mut *tx).await?;
         Ok(())
@@ -195,14 +179,16 @@ impl GenerationStore {
     /// Explicitly repair orphan objects only; ordinary cleanup refuses them.
     pub async fn repair_orphan(&self, g: GenerationId) -> Result<CleanupOutcome, Error> { self.cleanup(g, false, true).await }
     async fn cleanup(&self, g: GenerationId, published: bool, repair: bool) -> Result<CleanupOutcome, Error> {
-        transaction(&self.owner,async |mut tx| {
+        transaction(&self.owner, async |tx| self.cleanup_on(tx, g, published, repair).await).await
+    }
+    /// Remove a generation's schema and every control record in the caller's transaction. An
+    /// attempt aborts through its own lifecycle connection, which already holds its attempt lock.
+    async fn cleanup_on(&self, mut tx: &mut PgConnection, g: GenerationId, published: bool, repair: bool) -> Result<CleanupOutcome, Error> {
         self.lock_installation(&mut tx).await?;
         let selected: Option<Vec<u8>> = sqlx::query_scalar("SELECT generation_id FROM lctx_model_store.selection WHERE singleton FOR UPDATE").fetch_one(&mut *tx).await?;
         if selected.as_deref() == Some(&g.0) { return Err(Error::Busy); }
         // A live attempt holds its attempt lock; a lease or transition holds the generation lock.
-        let acquired: bool = sqlx::query_scalar("SELECT pg_try_advisory_xact_lock($1) AND pg_try_advisory_xact_lock($2)")
-            .bind(g.lock()).bind(g.attempt_lock()).fetch_one(&mut *tx).await?;
-        if !acquired { return Err(Error::Busy); }
+        if !locks::try_generation_exclusive(&mut tx, g).await? { return Err(Error::Busy); }
         let current: Option<String> = sqlx::query_scalar("SELECT state FROM lctx_model_store.generations WHERE id=$1").bind(g.0.to_vec()).fetch_optional(&mut *tx).await?;
         let schema: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname=$1)").bind(g.schema()).fetch_one(&mut *tx).await?;
         let residue: bool = sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT {}", CONTROL_RECORDS.iter()
@@ -223,7 +209,6 @@ impl GenerationStore {
         }
         sqlx::query("DELETE FROM lctx_model_store.generations WHERE id=$1").bind(g.0.to_vec()).execute(&mut *tx).await?;
         Ok(CleanupOutcome::Removed)
-        }).await
     }
     fn lowering(&self, g: GenerationId, frontier: Frontier) -> Result<ddl::Lowering, Error> {
         Ok(ddl::lower(&self.model, &self.scope(frontier)?.relations, g, &g.schema(), ddl::CONTROL))
@@ -236,31 +221,31 @@ impl GenerationStore {
     }
     /// A generation's registry row, after confirming its model and frontier-scoped lowering.
     async fn registered(&self, connection: &mut PgConnection, g: GenerationId) -> Result<Registered, Error> {
-        let row = sqlx::query("SELECT state,owned,model_digest,physical_digest,frontier FROM lctx_model_store.generations WHERE id=$1").bind(g.0.to_vec())
-            .fetch_optional(connection).await?.ok_or(Error::State)?;
+        let row = sqlx::query("SELECT state,model_digest,physical_digest,frontier FROM lctx_model_store.generations WHERE id=$1").bind(g.0.to_vec())
+            .fetch_optional(connection).await?.ok_or(Error::Absent)?;
         let frontier = ddl::frontier(&row.try_get::<String, _>("frontier")?).ok_or(Error::Contract)?;
         if row.try_get::<Vec<u8>, _>("model_digest")? != self.model.digest().0
             || row.try_get::<Vec<u8>, _>("physical_digest")? != self.scope(frontier)?.physical.0 { return Err(Error::Contract); }
-        Ok(Registered { state: row.try_get("state")?, owned: row.try_get("owned")?, frontier })
+        Ok(Registered { state: row.try_get("state")?, frontier })
     }
-    /// Attempt-owned generations whose attempt is gone: unpublished and not failed, with no
-    /// lifecycle connection holding their attempt lock. They can only be aborted.
+    /// Generations whose attempt is gone: unpublished and not failed, with no lifecycle
+    /// connection holding their attempt lock. They can only be aborted. Read from `pg_locks`
+    /// without taking any lock.
     pub async fn interrupted(&self) -> Result<Vec<GenerationId>, Error> {
         transaction(&self.owner, async |tx| {
             self.lock_installation(tx).await?;
-            let ids: Vec<Vec<u8>> = sqlx::query_scalar("SELECT id FROM lctx_model_store.generations WHERE owned AND state IN ('staging','sealed','validated') ORDER BY id")
+            let ids: Vec<Vec<u8>> = sqlx::query_scalar("SELECT id FROM lctx_model_store.generations WHERE state IN ('staging','sealed','validated') ORDER BY id")
                 .fetch_all(&mut *tx).await?;
             let mut interrupted = Vec::new();
             for id in ids {
                 let g = GenerationId(id.try_into().map_err(|_| Error::Codec("generation id length".into()))?);
-                let free: bool = sqlx::query_scalar("SELECT pg_try_advisory_xact_lock($1)").bind(g.attempt_lock()).fetch_one(&mut *tx).await?;
-                if free { interrupted.push(g); }
+                if !locks::attempt_live(&mut *tx, g).await? { interrupted.push(g); }
             }
             Ok(interrupted)
         }).await
     }
     async fn lock_installation(&self, connection: &mut PgConnection) -> Result<(), Error> {
-        sqlx::query("SELECT pg_advisory_xact_lock_shared(1279476824,0)").execute(&mut *connection).await?;
+        sqlx::query(locks::INSTALLATION_SHARED).execute(&mut *connection).await?;
         let compatible: Option<bool> = sqlx::query_scalar("SELECT model_digest=$1 AND physical_digest=$2 FROM lctx_model_store.installation WHERE singleton")
             .bind(self.model.digest().0.to_vec()).bind(self.physical.0.to_vec()).fetch_optional(connection).await?;
         if compatible != Some(true) { return Err(Error::Contract); } Ok(())
@@ -279,17 +264,14 @@ impl GenerationStore {
     pub fn lease_contract(&self, g: GenerationId) -> LeaseContract {
         LeaseContract::from_scopes(self.model.digest(), self.physical, self.scopes.iter().map(|(f, s)| (*f, (s.physical, s.columns.clone()))).collect(), g)
     }
-    /// Conformance writes charge COPY buffers to the caller's attempt budget.
-    pub async fn copy<R: Record>(&self, writer: &PgPool, g: GenerationId, batch: &Batch<R>, budget: &ResourceBudget) -> Result<(), Error> {
-        self.copy_attempt(writer, g, batch, None, budget).await
-    }
-    async fn copy_attempt<R: Record>(&self, writer: &PgPool, g: GenerationId, batch: &Batch<R>, schedule: Option<ContentHash>, budget: &ResourceBudget) -> Result<(), Error> {
+    /// An attempt's COPY, charged to its budget.
+    async fn copy_attempt<R: Record>(&self, writer: &PgPool, g: GenerationId, batch: &Batch<R>, schedule: ContentHash, budget: &ResourceBudget) -> Result<(), Error> {
         self.model.require::<R>()?;
         transaction(writer,async |mut tx| {
         self.lock_installation(&mut tx).await?;
         lock(&mut tx, g, true).await?;
         let registered = self.registered(&mut tx, g).await?;
-        if registered.state != "staging" { return Err(Error::State); }
+        registered.expect("staging")?;
         if !self.scope(registered.frontier)?.relations.contains(R::NAME) { return Err(Error::Frontier(format!("{} is outside this generation's frontier", R::NAME))); }
         check_schedule(&mut tx, g, schedule).await?;
         // Schema/encoder bookkeeping stays reserved for the COPY lifetime. The variable wire
@@ -348,21 +330,22 @@ fn copy_size(row: &RecordBatch, builders: &[EncoderBuilder]) -> Result<usize, Er
 }
 
 /// The control records a generation owns; cleanup removes them with its schema.
-const CONTROL_RECORDS: [&str; 8] = ["receipts", "validation_receipts", "stage_receipts", "planned_outputs", "stage_outcomes", "admissions", "failures", "events"];
+const CONTROL_RECORDS: [&str; 9] = ["receipts", "validation_receipts", "stage_receipts", "planned_outputs", "stage_outcomes", "admission_families",
+    "admissions", "failures", "events"];
 /// A registry row's lifecycle facts.
-struct Registered { state: String, owned: bool, frontier: Frontier }
+struct Registered { state: String, frontier: Frontier }
 impl Registered {
-    /// The state a step requires, and whether an attempt or a manual conformance call owns it.
-    fn expect(&self, state: &str, owned: bool) -> Result<(), Error> {
-        if self.state != state || self.owned != owned { return Err(Error::State); }
+    /// The state a step requires.
+    fn expect(&self, state: &str) -> Result<(), Error> {
+        if self.state != state { return Err(Error::State); }
         Ok(())
     }
 }
 
-async fn check_schedule(connection: &mut PgConnection, g: GenerationId, expected: Option<ContentHash>) -> Result<(), Error> {
-    let actual: Option<Vec<u8>> = sqlx::query_scalar("SELECT schedule_digest FROM lctx_model_store.generations WHERE id=$1")
+async fn check_schedule(connection: &mut PgConnection, g: GenerationId, expected: ContentHash) -> Result<(), Error> {
+    let actual: Vec<u8> = sqlx::query_scalar("SELECT schedule_digest FROM lctx_model_store.generations WHERE id=$1")
         .bind(g.0.to_vec()).fetch_one(connection).await?;
-    if actual.as_deref() != expected.as_ref().map(|d| d.0.as_slice()) { return Err(Error::Contract); }
+    if actual != expected.0 { return Err(Error::Contract); }
     Ok(())
 }
 

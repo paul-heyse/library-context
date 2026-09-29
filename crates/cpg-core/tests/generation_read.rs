@@ -9,6 +9,7 @@ use futures::StreamExt;
 use lctx_model::domain::{*, artifact::*, attribution::*, input::*, source::*, stages::*, transfer::TransferKey};
 use lctx_postgres::generations::{CleanupOutcome, Error as StoreError, GenerationId, GenerationStore};
 use lctx_postgres::roles::{Role, RoleConfig};
+use lctx_postgres::testing::Harness;
 use lctx_postgres::testing::{DisposableDatabase, fixtures::{Facts, budget}};
 
 /// A relation only another model has.
@@ -39,7 +40,7 @@ struct Rich { store: GenerationStore, generation: GenerationId, chunks: Vec<Arti
 async fn rich(db: &DisposableDatabase) -> Rich {
     let model = Arc::new(model().unwrap());
     let store = GenerationStore::install(db.owner.clone(), model.clone()).await.unwrap();
-    let g = store.create_conformance(ContentHash::of(b"provider"), "catalog").await.unwrap();
+    let mut g_h = Harness::begin(&store, db.writer.clone(), lctx_model::domain::stages::Profile::Catalog, budget()).await.unwrap(); let g = g_h.generation();
     let bytes: Vec<u8> = (0..65 * ARTIFACT_CHUNK_BYTES + 17).map(|i| ((i / ARTIFACT_CHUNK_BYTES + i) % 256) as u8).collect();
     let input = InputRevision::from_entries(vec![ManifestEntry { path: "evidence.bin".into(), content: ContentHash::of(&bytes), byte_len: bytes.len() as i64 }]).unwrap();
     let artifact = SourceArtifact::from_bytes(input.id(), "evidence.bin".into(), &bytes).unwrap();
@@ -48,12 +49,12 @@ async fn rich(db: &DisposableDatabase) -> Rich {
         site_package_path: vec![], config_digest: ContentHash::of(b"cfg"), environment_digest: input.manifest, lock_digest: None };
     let scopes = vec![CoverageScope::Input { input: input.id() }, CoverageScope::Artifact { artifact: artifact.id() }];
     let packages: Vec<Package> = ["alpha", "beta", "gamma"].iter().map(|n| Package { name: (*n).into() }).collect();
-    macro_rules! copy { ($rows:expr) => { store.copy(&db.writer, g, &Batch::new(&model, $rows, &budget()).unwrap(), &budget()).await.unwrap() }; }
+    macro_rules! copy { ($rows:expr) => { g_h.copy(&Batch::new(&model, $rows, &budget()).unwrap(), &budget()).await.unwrap() }; }
     copy!(vec![input]); copy!(vec![artifact]); copy!(vec![context.clone()]); copy!(scopes.clone()); copy!(packages.clone());
     for chunk in &chunks { copy!(vec![chunk.clone()]); }
-    store.seal(g).await.unwrap();
-    store.validate(g, &budget()).await.unwrap();
-    store.publish(g).await.unwrap();
+    g_h.seal().await.unwrap();
+    g_h.validate(&budget()).await.unwrap();
+    g_h.publish().await.unwrap();
     Rich { store, generation: g, chunks, context, scopes, packages }
 }
 
@@ -118,7 +119,7 @@ async fn digest_and_column_mismatch_rejected_before_scan() {
     let db = DisposableDatabase::start().await;
     let fixture = rich(&db).await;
     let model = Arc::new(model().unwrap());
-    let unpublished = fixture.store.create_conformance(ContentHash::of(b"staging"), "catalog").await.unwrap();
+    let unpublished_h = Harness::begin(&fixture.store, db.writer.clone(), lctx_model::domain::stages::Profile::Catalog, budget()).await.unwrap(); let unpublished = unpublished_h.generation();
     assert!(matches!(GenerationSession::open(&serving(&db), model.clone(), unpublished, options()).await, Err(ReadError::Store(StoreError::State))));
     let other = { let mut relations = model.relations().to_vec(); relations.push(Relation::of::<Probe>()); Arc::new(ValidatedModel::validate(relations).unwrap()) };
     assert!(matches!(GenerationSession::open(&serving(&db), other, fixture.generation, options()).await, Err(ReadError::Store(StoreError::Contract))),

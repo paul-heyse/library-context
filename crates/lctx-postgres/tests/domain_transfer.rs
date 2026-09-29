@@ -2,6 +2,7 @@
 use std::sync::Arc;
 use lctx_model::domain::{*,artifact::*,assertion::*,attribution::*,calls::*,conditions::*,input::*,source::*,transfer::*,value::*};
 use lctx_postgres::generations::{GenerationStore,Error};
+use lctx_postgres::testing::Harness;
 use lctx_postgres::testing::DisposableDatabase;
 
 #[tokio::test]
@@ -49,21 +50,21 @@ async fn transfer_control_selection_survive_postgres_and_cross_scope_call_site_r
         let alternative = branch.alternative(); let selection = branch.selection(&influence,&qualification).unwrap().unwrap();
         let support = TransferSupport { assertion: alternative.id(),run: run.id(),surface: surface.id(),evidence: evidence.id(),
             origin: Origin::DerivedAnalysis,mode: ExtractionMode::GraphAnalysis,fidelity: Fidelity::NormalizedStructural };
-        let g = store.create_conformance(ContentHash::of(b"transfer-fixture"),"behavioral").await.unwrap();
-        macro_rules! copy { ($($row:expr),+ $(,)?) => { $(store.copy(&writer,g,&Batch::new(&model,vec![$row.clone()], &budget()).unwrap(), &budget()).await.unwrap();)+ }; }
+        let mut g_h = Harness::begin(&store, writer.clone(), lctx_model::domain::stages::Profile::Behavioral, budget()).await.unwrap(); let g = g_h.generation();
+        macro_rules! copy { ($($row:expr),+ $(,)?) => { $(g_h.copy(&Batch::new(&model,vec![$row.clone()], &budget()).unwrap(), &budget()).await.unwrap();)+ }; }
         copy!(input,origin,acquisition,source,other,scope,context,provider,run,surface,module,symbol,path,predicate,atom,condition,qualification,
             influence,evidence,influence_evidence,control_support,key,alternative,selection,support,other_site,other_root,other_place);
-        macro_rules! copies { ($($rows:expr),+ $(,)?) => { $(store.copy(&writer,g,&Batch::new(&model,$rows.clone(), &budget()).unwrap(), &budget()).await.unwrap();)+ }; }
+        macro_rules! copies { ($($rows:expr),+ $(,)?) => { $(g_h.copy(&Batch::new(&model,$rows.clone(), &budget()).unwrap(), &budget()).await.unwrap();)+ }; }
         copies!(families,occurrences,roots,places,nodes);
-        store.copy(&writer,g,&Batch::new(&model,ArtifactChunk::split(&source,bytes).unwrap().collect(), &budget()).unwrap(), &budget()).await.unwrap();
-        store.copy(&writer,g,&Batch::new(&model,ArtifactChunk::split(&other,b"z").unwrap().collect(), &budget()).unwrap(), &budget()).await.unwrap();
-        store.seal(g).await.unwrap();
+        g_h.copy(&Batch::new(&model,ArtifactChunk::split(&source,bytes).unwrap().collect(), &budget()).unwrap(), &budget()).await.unwrap();
+        g_h.copy(&Batch::new(&model,ArtifactChunk::split(&other,b"z").unwrap().collect(), &budget()).unwrap(), &budget()).await.unwrap();
+        g_h.seal().await.unwrap();
         if boundary != 0 {
-            let error = store.validate(g, &budget()).await.unwrap_err();
+            let error = g_h.validate(&budget()).await.unwrap_err();
             assert!(matches!(error,Error::Model(_)) && error.to_string().contains("scope"),"{error}");
-            assert!(store.publish(g).await.is_err()); store.abort(g).await.unwrap();
+            assert!(g_h.publish().await.is_err()); g_h.abort().await.unwrap();
         } else {
-            store.validate(g, &budget()).await.unwrap(); store.publish(g).await.unwrap();
+            g_h.validate(&budget()).await.unwrap(); g_h.publish().await.unwrap();
             let mut lease = store.pin(&reader,g, budget()).await.unwrap();
             assert_eq!(lease.read::<TransferKey>().await.unwrap().rows(),&[key]);
             assert_eq!(lease.read::<TransferAlternative>().await.unwrap().rows(),&[alternative]);

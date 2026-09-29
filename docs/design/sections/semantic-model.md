@@ -415,7 +415,13 @@ is a separate pointer. Seal waits for active writes and revokes writer access. R
 inspect stored sealed contents; receipts bind the exact contents and complete validator set.
 Publication changes state and reader grants atomically. Readers verify digests and hold leases;
 retirement requires an unselected generation and exclusive access, then drops its schema atomically.
-A failed attempt publishes nothing and retry creates a new generation.
+Every generation belongs to the attempt that registers it: only that attempt advances it, its
+lifecycle connection holds the attempt lock until the attempt ends, and a refusal at any step records
+the generation failed (terminal, abort only) with a typed class. A failed attempt publishes nothing
+and retry creates a new generation; a generation whose attempt vanished is listed as interrupted.
+A facts generation lowers only the facts relations, and readers verify its digests and live columns
+before any scan. `store check` compares the live catalog with a rolled-back shadow lowering; `store
+reset` removes one generation per transaction and is resumable.
 
 **Compute.** DataFusion computes derivations and semantic validators over in-memory Arrow batches
 within an attempt. It reads published relations through the owned PostgreSQL table-provider fork,

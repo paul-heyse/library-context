@@ -1,6 +1,7 @@
 -- The control schema template (cutover plan P1.6/P1.7). `{control}` names the schema; the CHECK
--- lists `{lifecycle}`, `{profiles}`, `{frontiers}`, `{outcomes}` and `{classes}` are rendered from
--- the lifecycle, the model enums and the failure classes, so the physical digest changes with them. Installed once per store; `store check` renders it
+-- lists `{lifecycle}`, `{profiles}`, `{frontiers}`, `{outcomes}`, `{families}`, `{availabilities}`
+-- and `{classes}` are rendered from the lifecycle, the model's enums and codebooks and the failure
+-- classes, so the physical digest changes with them. Installed once per store; `store check` renders it
 -- into a shadow schema and compares the two catalogs.
 CREATE SCHEMA {control};
 REVOKE ALL ON SCHEMA {control} FROM PUBLIC;
@@ -17,13 +18,13 @@ CREATE TABLE {control}.installation (
 );
 CREATE TABLE {control}.generations (
     id bytea PRIMARY KEY CHECK(octet_length(id)=16),
+    -- Every generation is advanced only by the attempt that registered it, which holds its
+    -- attempt lock until it ends.
     state text NOT NULL CHECK(state IN ({lifecycle})),
-    -- An attempt-owned generation is advanced only by its attempt, which holds its attempt lock.
-    owned boolean NOT NULL,
     model_digest bytea NOT NULL CHECK(octet_length(model_digest)=32),
     physical_digest bytea NOT NULL CHECK(octet_length(physical_digest)=32),
     producer_digest bytea NOT NULL CHECK(octet_length(producer_digest)=32),
-    schedule_digest bytea CHECK(octet_length(schedule_digest)=32),
+    schedule_digest bytea NOT NULL CHECK(octet_length(schedule_digest)=32),
     content_digest bytea CHECK(octet_length(content_digest)=32),
     profile text NOT NULL CHECK(profile IN ({profiles})),
     frontier text NOT NULL CHECK(frontier IN ({frontiers})),
@@ -73,8 +74,14 @@ CREATE TABLE {control}.admissions (
     schedule_digest bytea NOT NULL CHECK(octet_length(schedule_digest)=32),
     coverage_digest bytea NOT NULL CHECK(octet_length(coverage_digest)=32),
     content_digest bytea NOT NULL CHECK(octet_length(content_digest)=32),
-    profile text NOT NULL CHECK(profile IN ({profiles})),
-    availability text NOT NULL
+    profile text NOT NULL CHECK(profile IN ({profiles}))
+);
+-- Each fact family's availability in an admitted generation, by codebook code.
+CREATE TABLE {control}.admission_families (
+    generation_id bytea NOT NULL REFERENCES {control}.admissions(generation_id),
+    family smallint NOT NULL CHECK(family IN ({families})),
+    availability smallint NOT NULL CHECK(availability IN ({availabilities})),
+    PRIMARY KEY(generation_id,family)
 );
 -- Why an attempt failed and the state it failed from; a failed generation permits only abort.
 CREATE TABLE {control}.failures (

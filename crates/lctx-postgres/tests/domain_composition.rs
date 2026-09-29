@@ -4,6 +4,7 @@ use fixture::{Fixture, Mutation};
 use lctx_model::domain::{*, artifact::*, assertion::*, attribution::*, calls::*, composition::*, conditions::{*, stability::*}, declarations::*,
     flow::*, input::*, lexical::*, source::*, transfer::*, value::*};
 use lctx_postgres::generations::{GenerationStore, Error};
+use lctx_postgres::testing::Harness;
 use lctx_postgres::testing::DisposableDatabase;
 
 #[tokio::test]
@@ -16,9 +17,9 @@ async fn composed_transfers_round_trip_and_mismatched_steps_refuse() {
     for (mutation, reason) in [(None, ""), (Some(Mutation::CalleeFromAnotherSymbol), "differ from the target's symbol"), (Some(Mutation::UnrestatedGuard), "restated at the call"), (Some(Mutation::ErasedCondition), "restated at the call"), (Some(Mutation::ForeignOutput), "not a caller-side place of the call")] {
         let mut fixture = Fixture::new();
         if let Some(mutation) = mutation { fixture.mutate(mutation); }
-        let generation = store.create_conformance(ContentHash::of(b"composition-contract"), "behavioral").await.unwrap();
+        let mut generation_h = Harness::begin(&store, writer.clone(), lctx_model::domain::stages::Profile::Behavioral, budget()).await.unwrap(); let generation = generation_h.generation();
         macro_rules! copy { ($($ty:ty),+ $(,)?) => { $(
-            store.copy(&writer, generation, &Batch::new(&model, fixture.rows::<$ty>(), &budget()).unwrap(), &budget()).await.unwrap();
+            generation_h.copy(&Batch::new(&model, fixture.rows::<$ty>(), &budget()).unwrap(), &budget()).await.unwrap();
         )+ }; }
         copy!(InputRevision, InputOrigin, InputAcquisition, AnalysisContext, Provider, ProviderRun, RunFamily, ProviderSurface, CoverageScope, ProviderCoverage,
             Condition, ConditionNode, AssertionQualification, SourceArtifact, ArtifactChunk, Module, ProviderModule, ProviderSymbol, Occurrence, LexicalScope,
@@ -27,16 +28,16 @@ async fn composed_transfers_round_trip_and_mismatched_steps_refuse() {
             Evidence, StabilityWitness, GuardSubstitution, SymbolDeclaration, SymbolDeclarationSupport, ParameterShape, Signature, SignatureParameter,
             SignatureSupport, ParameterDeclaration, ParameterDeclarationSupport, CallDestination, CallChannel, Receiver, CallTarget, CallTargetSupport,
             TransferKey, TransferAlternative, TransferSupport, ControlInfluence, ControlSupport, Selection, CallCompositionStep);
-        store.seal(generation).await.unwrap();
+        generation_h.seal().await.unwrap();
         if let Some(mutation) = mutation {
-            let error = store.validate(generation, &budget()).await.unwrap_err();
+            let error = generation_h.validate(&budget()).await.unwrap_err();
             assert!(matches!(error, Error::Model(_)) && error.to_string().contains(reason), "{mutation:?}: {error}");
-            store.abort(generation).await.unwrap();
+            generation_h.abort().await.unwrap();
             continue;
         }
-        let digest = store.validate(generation, &budget()).await.unwrap();
+        let digest = generation_h.validate(&budget()).await.unwrap();
         assert_eq!(fixture.validate().unwrap(), digest, "in-memory and stored validation agree");
-        store.publish(generation).await.unwrap();
+        generation_h.publish().await.unwrap();
         let mut lease = store.pin(&reader, generation, budget()).await.unwrap();
         let step = fixture.composed.records.step.clone().unwrap();
         assert_eq!(lease.read::<CallCompositionStep>().await.unwrap().rows(), &[step.clone()]);

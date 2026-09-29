@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use lctx_model::{Domain,domain::*};
 use lctx_postgres::generations::{GenerationStore,Error};
+use lctx_postgres::testing::Harness;
 use lctx_postgres::testing::DisposableDatabase;
 
 #[derive(Debug,Clone,PartialEq,Eq,Domain)]
@@ -32,26 +33,26 @@ async fn sealed_derivations_refuse_cross_source_cycles_and_expose_only_nominal_t
         let cyclic = case != 0;
         let a = Node { next: Some(b.id()),..a.clone() };
         let step = Step { name: "step".into(),result: b.id(),previous: if case == 1 { a.id() } else { c.id() } };
-        let g = store.create_conformance(ContentHash::of(b"proof-fixture"),"behavioral").await.unwrap();
-        store.copy(&writer,g,&Batch::new(&model,vec![a.clone(),b.clone(),c.clone()], &budget()).unwrap(), &budget()).await.unwrap();
-        store.copy(&writer,g,&Batch::new(&model,vec![step.clone()], &budget()).unwrap(), &budget()).await.unwrap();
+        let mut g_h = Harness::begin(&store, writer.clone(), lctx_model::domain::stages::Profile::Behavioral, budget()).await.unwrap(); let g = g_h.generation();
+        g_h.copy(&Batch::new(&model,vec![a.clone(),b.clone(),c.clone()], &budget()).unwrap(), &budget()).await.unwrap();
+        g_h.copy(&Batch::new(&model,vec![step.clone()], &budget()).unwrap(), &budget()).await.unwrap();
         let own = SelfStep { name: "s".into(),result: a.id(),previous: None };
         let left = LeftStep { name: "l".into(),result: a.id(),previous: None };
         let right = RightStep { name: "r".into(),result: c.id(),previous: None };
         let own = SelfStep { previous: (case == 2).then_some(own.id()),..own };
         let left = LeftStep { previous: Some(right.id()),..left };
         let right = RightStep { previous: (case == 3).then_some(left.id()),..right };
-        store.copy(&writer,g,&Batch::new(&model,vec![own], &budget()).unwrap(), &budget()).await.unwrap();
-        store.copy(&writer,g,&Batch::new(&model,vec![left], &budget()).unwrap(), &budget()).await.unwrap();
-        store.copy(&writer,g,&Batch::new(&model,vec![right], &budget()).unwrap(), &budget()).await.unwrap();
+        g_h.copy(&Batch::new(&model,vec![own], &budget()).unwrap(), &budget()).await.unwrap();
+        g_h.copy(&Batch::new(&model,vec![left], &budget()).unwrap(), &budget()).await.unwrap();
+        g_h.copy(&Batch::new(&model,vec![right], &budget()).unwrap(), &budget()).await.unwrap();
         let select = format!("SELECT conclusion_relation,conclusion_id FROM {}.derivations WHERE source_relation='proof_steps'",g.schema());
         assert!(sqlx::query(sqlx::AssertSqlSafe(select.clone())).fetch_all(&reader).await.is_err());
-        store.seal(g).await.unwrap();
+        g_h.seal().await.unwrap();
         if cyclic {
-            let error = store.validate(g, &budget()).await.unwrap_err(); assert!(matches!(error,Error::Model(_)) && error.to_string().contains("cyclic"),"{error}");
-            assert!(store.publish(g).await.is_err()); store.abort(g).await.unwrap();
+            let error = g_h.validate(&budget()).await.unwrap_err(); assert!(matches!(error,Error::Model(_)) && error.to_string().contains("cyclic"),"{error}");
+            assert!(g_h.publish().await.is_err()); g_h.abort().await.unwrap();
         } else {
-            store.validate(g, &budget()).await.unwrap(); store.publish(g).await.unwrap();
+            g_h.validate(&budget()).await.unwrap(); g_h.publish().await.unwrap();
             let _lease = store.pin(&reader,g, budget()).await.unwrap();
             let row: (String,Vec<u8>) = sqlx::query_as(sqlx::AssertSqlSafe(select)).fetch_one(&reader).await.unwrap();
             assert_eq!(row,(Node::NAME.into(),b.id().bytes().to_vec()));

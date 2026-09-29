@@ -54,13 +54,13 @@ impl LeaseContract {
     }
     async fn checked<D: LeaseDriver>(&self, driver: &mut D) -> Result<Frontier, Error> {
         let g = self.generation;
-        driver.text("SELECT 'locked' FROM (SELECT pg_advisory_xact_lock_shared(1279476824,0)) AS l", &[]).await?;
+        driver.text(super::locks::INSTALLATION_SHARED_TEXT, &[]).await?;
         let compatible = driver.text("SELECT (model_digest=$1 AND physical_digest=$2)::text FROM lctx_model_store.installation WHERE singleton",
             &[LeaseParam::Bytes(&self.model.0), LeaseParam::Bytes(&self.installation.0)]).await?;
         if compatible.as_deref() != Some("true") { return Err(Error::Contract); }
         driver.text("SELECT 'locked' FROM (SELECT pg_advisory_xact_lock_shared($1)) AS l", &[LeaseParam::Int(g.lock())]).await?;
         let registered = driver.text("SELECT state || ' ' || frontier || ' ' || encode(model_digest,'hex') || ' ' || encode(physical_digest,'hex') \
-            FROM lctx_model_store.generations WHERE id=$1", &[LeaseParam::Bytes(&g.0)]).await?.ok_or(Error::State)?;
+            FROM lctx_model_store.generations WHERE id=$1", &[LeaseParam::Bytes(&g.0)]).await?.ok_or(Error::Absent)?;
         let fields: Vec<&str> = registered.split(' ').collect();
         let [state, frontier, model, physical] = fields.as_slice() else { return Err(Error::Contract); };
         let frontier = ddl::frontier(frontier).ok_or(Error::Contract)?;

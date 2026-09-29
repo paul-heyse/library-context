@@ -1,9 +1,10 @@
 //! Generated install, `store check` and `store reset` against a disposable real PostgreSQL 18
 //! (cutover plan P1.6). Every drift is a pre-written mutation with the finding it must produce.
 use std::sync::Arc;
-use lctx_model::{Domain, domain::{ContentHash, Relation, ValidatedModel, model}};
+use lctx_model::{Domain, domain::{Relation, ValidatedModel, model}};
 use lctx_model::domain::resources::ResourceBudget;
-use lctx_postgres::{Config, OwnerPool, generations::{Error, FindingKind, GenerationId, GenerationStore}, testing::DisposableDatabase};
+use lctx_model::domain::{ModelError, stages::Profile};
+use lctx_postgres::{Config, OwnerPool, generations::{Error, FindingKind, GenerationId, GenerationStore}, testing::{DisposableDatabase, Harness, step_in_flight}};
 
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name = "reset_probes", semantic_source = include_bytes!("installation.rs"))]
@@ -25,22 +26,19 @@ async fn provisioned() -> (DisposableDatabase, tempfile::TempDir) {
     (db, dir)
 }
 async fn run(pool: &sqlx::PgPool, sql: &str) { sqlx::raw_sql(sqlx::AssertSqlSafe(sql.to_owned())).execute(pool).await.unwrap(); }
-async fn published(store: &GenerationStore) -> GenerationId {
-    let g = store.create_conformance(ContentHash::of(b"installation"), "catalog").await.unwrap();
-    store.seal(g).await.unwrap();
-    store.validate(g, &budget()).await.unwrap();
-    store.publish(g).await.unwrap();
-    g
+async fn harness(store: &GenerationStore, db: &DisposableDatabase) -> Harness {
+    Harness::begin(store, db.writer.clone(), Profile::Catalog, budget()).await.unwrap()
+}
+async fn published(store: &GenerationStore, db: &DisposableDatabase) -> GenerationId {
+    let mut g = harness(store, db).await;
+    g.seal().await.unwrap();
+    g.validate(&budget()).await.unwrap();
+    g.publish().await.unwrap();
+    g.generation()
 }
 async fn schemas(pool: &sqlx::PgPool) -> Vec<String> {
     sqlx::query_scalar("SELECT nspname::text FROM pg_namespace WHERE nspname NOT LIKE 'pg\\_%' AND nspname <> 'information_schema' ORDER BY 1")
         .fetch_all(pool).await.unwrap()
-}
-/// The session-level lock key a lifecycle transaction or lease holds for a generation.
-fn lock_key(g: GenerationId) -> i64 {
-    let hex = g.hex();
-    let bytes: Vec<u8> = (0..8).map(|i| u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).unwrap()).collect();
-    i64::from_le_bytes(bytes.try_into().unwrap())
 }
 
 #[tokio::test]
@@ -87,23 +85,26 @@ async fn check_clean_in_every_state() {
     let (db, _dir) = provisioned().await;
     let model = full();
     let store = GenerationStore::install(db.owner.clone(), model.clone()).await.unwrap();
-    let staging = store.create_conformance(ContentHash::of(b"staging"), "catalog").await.unwrap();
-    let sealed = store.create_conformance(ContentHash::of(b"sealed"), "behavioral").await.unwrap();
-    store.seal(sealed).await.unwrap();
-    let validated = store.create_conformance(ContentHash::of(b"validated"), "catalog").await.unwrap();
-    store.seal(validated).await.unwrap();
-    store.validate(validated, &budget()).await.unwrap();
-    let published = published(&store).await;
+    let mut staging = harness(&store, &db).await;
+    let mut sealed = Harness::begin(&store, db.writer.clone(), Profile::Behavioral, budget()).await.unwrap();
+    sealed.seal().await.unwrap();
+    let mut validated = harness(&store, &db).await;
+    validated.seal().await.unwrap();
+    validated.validate(&budget()).await.unwrap();
+    // A generation failed while staging keeps the sealed shape; one failed while sealed, too.
+    let mut failed = harness(&store, &db).await;
+    failed.fail(&ModelError::Invalid("control".into())).await.unwrap();
+    let published = published(&store, &db).await;
     let lease = store.pin(&db.reader, published, budget()).await.unwrap();
     let report = GenerationStore::check(&db.owner, &model).await.unwrap();
     assert!(report.clean(), "{:#?}", report.findings);
-    assert_eq!(report.generations, 4);
+    assert_eq!(report.generations, 5);
     assert!(!schemas(&db.superuser).await.iter().any(|s| s.starts_with("lctx_check_")), "shadows never survive a check");
     lease.release().await.unwrap();
-    store.abort(staging).await.unwrap();
+    staging.abort().await.unwrap();
     let report = GenerationStore::check(&db.owner, &model).await.unwrap();
     assert!(report.clean(), "{:#?}", report.findings);
-    assert_eq!(report.generations, 3);
+    assert_eq!(report.generations, 4);
 }
 
 #[tokio::test]
@@ -129,8 +130,8 @@ async fn check_detects_each_drift() {
         ("extra table", "CREATE TABLE {g}.drift_extra(id int)", FindingKind::Unexpected, "relation drift_extra"),
     ];
     for (case, sql, kind, subject) in staging_cases {
-        let g = store.create_conformance(ContentHash::of(case.as_bytes()), "catalog").await.unwrap();
-        let schema = g.schema();
+        let mut g = harness(&store, &db).await;
+        let schema = g.generation().schema();
         let check: String = sqlx::query_scalar("SELECT conname::text FROM pg_constraint WHERE conrelid = ($1 || '.packages')::regclass AND contype = 'c' ORDER BY 1 LIMIT 1")
             .bind(&schema).fetch_one(&owner).await.unwrap();
         // A sum relation's tag index backs its unique constraint; dropping the constraint drops it.
@@ -140,13 +141,13 @@ async fn check_detects_each_drift() {
         let (sql, subject) = (fill(sql), fill(subject));
         run(if case == "owner change" { &db.superuser } else { &owner }, &sql).await;
         expect(kind, &format!("{schema} {subject}"), case).await;
-        store.abort(g).await.unwrap();
+        g.abort().await.unwrap();
     }
     for (case, sql, subject) in [
         ("dropped FK", "ALTER TABLE {g}.{table} DROP CONSTRAINT {fk}", "constraint {table}.{fk}"),
         ("revoked grant", "REVOKE SELECT ON {g}.packages FROM lctx_serving", "relation packages"),
     ] {
-        let g = published(&store).await;
+        let g = published(&store, &db).await;
         let schema = g.schema();
         let (table, fk): (String, String) = sqlx::query_as("SELECT c.relname::text, k.conname::text FROM pg_constraint k JOIN pg_class c ON c.oid = k.conrelid \
             WHERE c.relnamespace = $1::regnamespace AND k.contype = 'f' ORDER BY 1, 2 LIMIT 1").bind(&schema).fetch_one(&owner).await.unwrap();
@@ -161,10 +162,12 @@ async fn check_detects_each_drift() {
     run(&owner, &format!("CREATE SCHEMA {}", orphan.schema())).await;
     expect(FindingKind::Orphan, &orphan.schema(), "orphan schema").await;
     run(&owner, &format!("DROP SCHEMA {}", orphan.schema())).await;
-    let registered = store.create_conformance(ContentHash::of(b"orphan registry"), "catalog").await.unwrap();
-    run(&owner, &format!("DROP SCHEMA {} CASCADE", registered.schema())).await;
-    expect(FindingKind::Orphan, &registered.schema(), "orphan registry").await;
-    store.repair_orphan(registered).await.unwrap();
+    let mut registered = harness(&store, &db).await;
+    run(&owner, &format!("DROP SCHEMA {} CASCADE", registered.generation().schema())).await;
+    expect(FindingKind::Orphan, &registered.generation().schema(), "orphan registry").await;
+    // The attempt cannot record a failure without its schema; ending it releases its lock.
+    let _ = registered.fail(&ModelError::Invalid("orphaned".into())).await;
+    store.repair_orphan(registered.generation()).await.unwrap();
     // Store-wide drifts: applied, detected, then reverted.
     let state_check: String = sqlx::query_scalar("SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'generations_state_check'")
         .fetch_one(&owner).await.unwrap();
@@ -199,21 +202,29 @@ async fn reset_refuses_live_lease_and_attempt() {
     let (db, _dir) = provisioned().await;
     let model = full();
     let store = GenerationStore::install(db.owner.clone(), model.clone()).await.unwrap();
-    let g = published(&store).await;
+    let g = published(&store, &db).await;
     let plan = GenerationStore::reset_plan(&db.owner).await.unwrap();
     assert_eq!((plan.database.as_str(), plan.schemas.clone(), plan.control), ("lctx", vec![g.schema()], true));
     let lease = store.pin(&db.reader, g, budget()).await.unwrap();
     assert!(matches!(GenerationStore::reset(db.owner.clone(), model.clone(), "lctx").await, Err(Error::Busy)));
     lease.release().await.unwrap();
     assert!(matches!(GenerationStore::reset(db.owner.clone(), model.clone(), "postgres").await, Err(Error::Confirmation)));
-    // A lifecycle transaction in flight holds the generation lock (P1.7 adds the attempt lock).
-    let mut transition = db.writer.begin().await.unwrap();
-    sqlx::query("SELECT pg_advisory_xact_lock_shared($1)").bind(lock_key(g)).execute(&mut *transition).await.unwrap();
+    // A live attempt owns its generation until it ends.
+    let mut live = harness(&store, &db).await;
     assert!(matches!(GenerationStore::reset(db.owner.clone(), model.clone(), "lctx").await, Err(Error::Busy)));
-    assert_eq!(GenerationStore::reset_plan(&db.owner).await.unwrap(), plan, "a refused reset changes nothing");
-    transition.commit().await.unwrap();
+    live.fail(&ModelError::Invalid("ended".into())).await.unwrap();
+    // A step in flight holds the installation lock shared: reset refuses promptly, never queues.
+    let step = step_in_flight(db.owner.pool()).await;
+    let started = std::time::Instant::now();
+    assert!(matches!(GenerationStore::reset(db.owner.clone(), model.clone(), "lctx").await, Err(Error::Busy)));
+    assert!(started.elapsed() < std::time::Duration::from_secs(3));
+    step.commit().await.unwrap();
+    let mut refused = plan.clone();
+    refused.schemas.push(live.generation().schema());
+    refused.schemas.sort();
+    assert_eq!(GenerationStore::reset_plan(&db.owner).await.unwrap(), refused, "a refused reset changes nothing");
     let (dropped, _) = GenerationStore::reset(db.owner.clone(), model.clone(), "lctx").await.unwrap();
-    assert_eq!(dropped, plan);
+    assert_eq!(dropped, refused);
     assert!(!schemas(&db.superuser).await.contains(&g.schema()));
 }
 
@@ -223,8 +234,10 @@ async fn reset_drops_only_inventoried_objects() {
     let model = full();
     let store = GenerationStore::install(db.owner.clone(), model.clone()).await.unwrap();
     let owner = db.owner.pool().clone();
-    let staging = store.create_conformance(ContentHash::of(b"staging"), "catalog").await.unwrap();
-    let published = published(&store).await;
+    let mut staging = harness(&store, &db).await;
+    staging.fail(&ModelError::Invalid("ended".into())).await.unwrap();
+    let staging = staging.generation();
+    let published = published(&store, &db).await;
     let orphan = GenerationId::from_schema("lctx_gabcdefabcdefabcdefabcdefabcdefab").unwrap();
     let foreign = "lctx_g00000000000000000000000000000001";
     run(&owner, &format!("CREATE SCHEMA {}; CREATE SCHEMA scratch; CREATE TABLE scratch.notes(id int); CREATE SCHEMA lctx_gfoo; \
@@ -252,16 +265,65 @@ async fn reset_reinstalls_new_model() {
     let (db, _dir) = provisioned().await;
     let (old, new) = (full(), extended());
     let before = GenerationStore::install(db.owner.clone(), old.clone()).await.unwrap();
-    published(&before).await;
+    published(&before, &db).await;
     let (_, after) = GenerationStore::reset(db.owner.clone(), new.clone(), "lctx").await.unwrap();
     assert_ne!(before.physical_digest(), after.physical_digest());
     let digests: (Vec<u8>, Vec<u8>) = sqlx::query_as("SELECT model_digest, physical_digest FROM lctx_model_store.installation").fetch_one(&db.superuser).await.unwrap();
     assert_eq!(digests, (new.digest().0.to_vec(), after.physical_digest().0.to_vec()));
-    assert!(matches!(before.create_conformance(ContentHash::of(b"stale"), "catalog").await, Err(Error::Contract)));
-    let g = published(&after).await;
+    assert!(matches!(Harness::begin(&before, db.writer.clone(), Profile::Catalog, budget()).await, Err(Error::Contract)));
+    let g = published(&after, &db).await;
     let probes: Option<String> = sqlx::query_scalar("SELECT to_regclass($1)::text").bind(format!("{}.reset_probes", g.schema())).fetch_one(&db.superuser).await.unwrap();
     assert!(probes.is_some(), "the new model's relation is lowered");
     assert!(GenerationStore::check(&db.owner, &new).await.unwrap().clean());
     let stale = GenerationStore::check(&db.owner, &old).await.unwrap();
     assert!(stale.findings.iter().any(|f| f.kind == FindingKind::Installation && f.subject == "lctx_model_store"));
+}
+
+#[tokio::test]
+async fn reset_is_phased_and_resumable() {
+    let (db, _dir) = provisioned().await;
+    let model = full();
+    let store = GenerationStore::install(db.owner.clone(), model.clone()).await.unwrap();
+    let mut generations = Vec::new();
+    for _ in 0..8 { generations.push(published(&store, &db).await); }
+    // An injected fault stops the reset between generations: at the last one in id order, which
+    // is the order reset removes them.
+    let stuck = *generations.iter().max_by_key(|g| g.hex()).unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE FUNCTION public.refuse_reset() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN \
+        IF OLD.generation_id = decode('{}', 'hex') THEN RAISE EXCEPTION 'injected reset fault'; END IF; RETURN OLD; END $$; \
+        CREATE TRIGGER refuse_reset BEFORE DELETE ON lctx_model_store.events FOR EACH ROW EXECUTE FUNCTION public.refuse_reset()", stuck.hex())))
+        .execute(&db.superuser).await.unwrap();
+    assert!(matches!(GenerationStore::reset(db.owner.clone(), model.clone(), "lctx").await, Err(Error::Database(_))));
+    assert!(matches!(harness_attempt(&store, &db).await, Err(Error::Contract)), "a withdrawn installation refuses every step");
+    let remaining = GenerationStore::reset_plan(&db.owner).await.unwrap();
+    assert_eq!(remaining.schemas, [stuck.schema()], "every generation before the fault is gone");
+    run(&db.superuser, "DROP TRIGGER refuse_reset ON lctx_model_store.events; DROP FUNCTION public.refuse_reset()").await;
+    // A rerun finishes, eight full-model generations within the server's default lock table.
+    GenerationStore::reset(db.owner.clone(), model.clone(), "lctx").await.unwrap();
+    assert!(GenerationStore::reset_plan(&db.owner).await.unwrap().schemas.is_empty());
+    assert!(GenerationStore::check(&db.owner, &model).await.unwrap().clean());
+}
+async fn harness_attempt(store: &GenerationStore, db: &DisposableDatabase) -> Result<Harness, Error> {
+    Harness::begin(store, db.writer.clone(), Profile::Catalog, budget()).await
+}
+
+#[tokio::test]
+async fn check_and_reset_refuse_busy_without_stalling_the_store() {
+    let (db, _dir) = provisioned().await;
+    let model = full();
+    let store = GenerationStore::install(db.owner.clone(), model.clone()).await.unwrap();
+    let g = published(&store, &db).await;
+    let step = step_in_flight(db.owner.pool()).await;
+    // A reader with production's short lock timeout pins while check waits to try again.
+    let reader = sqlx::postgres::PgPoolOptions::new().max_connections(1).connect_with(
+        db.url("lctx_serving").parse::<sqlx::postgres::PgConnectOptions>().unwrap().options([("lock_timeout", "1s")])).await.unwrap();
+    let (checked, lease) = tokio::join!(GenerationStore::check(&db.owner, &model), async {
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        store.pin(&reader, g, budget()).await
+    });
+    assert!(matches!(checked, Err(Error::Busy)));
+    let lease = lease.expect("a compatible shared request never queues behind check");
+    lease.release().await.unwrap();
+    step.commit().await.unwrap();
+    assert!(GenerationStore::check(&db.owner, &model).await.unwrap().clean());
 }

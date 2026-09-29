@@ -1,13 +1,11 @@
 //! Installing and resetting the generated store (cutover plan P1.6). Both run as the verified
-//! service owner under the exclusive installation lock, so no lifecycle transition, pin or copy
-//! (which take it shared) overlaps them.
+//! service owner under the exclusive installation lock, taken only by trying, so no lifecycle
+//! transition, pin or copy (which take it shared) overlaps them and none waits behind them.
 use std::sync::Arc;
 use lctx_model::domain::{ContentHash, ValidatedModel};
 use sqlx::PgConnection;
-use super::{Error, GenerationId, GenerationStore, ddl, quoted, transaction};
+use super::{CONTROL_RECORDS, Error, GenerationId, GenerationStore, ddl, locks, quoted, transaction};
 use crate::OwnerPool;
-
-const INSTALLATION_LOCK: &str = "SELECT pg_advisory_xact_lock(1279476824,0)";
 
 /// The objects a reset drops: owner-owned generation schemas (registered or orphaned) and the
 /// control schema. Services, unrelated schemas and objects of other roles are never inventoried.
@@ -57,32 +55,61 @@ async fn inventory(tx: &mut PgConnection) -> Result<(ResetInventory, Vec<Generat
 
 pub(super) async fn plan(owner: &OwnerPool) -> Result<ResetInventory, Error> {
     transaction(owner.pool(), async |tx| {
-        sqlx::query("SELECT pg_advisory_xact_lock_shared(1279476824,0)").execute(&mut *tx).await?;
+        sqlx::query(locks::INSTALLATION_SHARED).execute(&mut *tx).await?;
         Ok(inventory(tx).await?.0)
     }).await
 }
 
+/// Reset in phases (store-lifecycle review F02). A generation's cascade takes a lock per
+/// dependent object, about 2,500 for a full lowering, so dropping every generation in one
+/// transaction exhausts PostgreSQL's default lock table beyond a handful. Instead:
+/// 1. under the exclusive installation lock, confirm, refuse any lease, transition or live
+///    attempt, and withdraw the installation row, so every other step refuses until the reset
+///    finishes;
+/// 2. remove one generation, its schema and its control records per transaction;
+/// 3. replace the control schema and install `model`.
+///
+/// Each phase is idempotent, so a rerun finishes an interrupted reset.
 pub(super) async fn reset(owner: OwnerPool, model: Arc<ValidatedModel>, confirm: &str) -> Result<(ResetInventory, GenerationStore), Error> {
     let store = GenerationStore::assemble(owner.pool().clone(), model);
-    let inventory = transaction(&store.owner, async |tx| {
-        sqlx::query(INSTALLATION_LOCK).execute(&mut *tx).await?;
+    let pool = store.owner.clone();
+    let (inventory, generations) = transaction(&pool, async |tx| {
+        locks::installation_exclusive(tx).await?;
         let (inventory, generations) = inventory(tx).await?;
         if confirm != inventory.database { return Err(Error::Confirmation); }
-        // A lease holds its generation lock for the reader's lifetime, a lifecycle transaction
-        // for the transition, and a live attempt its attempt lock. Any of them keeps the store.
         for g in &generations {
-            let acquired: bool = sqlx::query_scalar("SELECT pg_try_advisory_xact_lock($1) AND pg_try_advisory_xact_lock($2)")
-                .bind(g.lock()).bind(g.attempt_lock()).fetch_one(&mut *tx).await?;
-            if !acquired { return Err(Error::Busy); }
+            if !locks::try_generation_exclusive(tx, *g).await? { return Err(Error::Busy); }
         }
-        for schema in &inventory.schemas {
-            sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {} CASCADE", quoted(schema)))).execute(&mut *tx).await?;
-        }
-        if inventory.control {
-            sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {} CASCADE", quoted(ddl::CONTROL)))).execute(&mut *tx).await?;
-        }
-        control(tx, &store.model, store.physical).await?;
-        Ok(inventory)
+        if registry(tx).await? { sqlx::query("DELETE FROM lctx_model_store.installation").execute(&mut *tx).await?; }
+        Ok((inventory, generations))
+    }).await?;
+    for g in generations {
+        transaction(&pool, async |tx| {
+            locks::installation_exclusive(tx).await?;
+            if !locks::try_generation_exclusive(tx, g).await? { return Err(Error::Busy); }
+            let owned: bool = sqlx::query_scalar("SELECT EXISTS (SELECT FROM pg_namespace WHERE nspname = $1 AND nspowner = (SELECT oid FROM pg_roles WHERE rolname = current_user))")
+                .bind(g.schema()).fetch_one(&mut *tx).await?;
+            if owned { sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {} CASCADE", quoted(&g.schema())))).execute(&mut *tx).await?; }
+            if registry(tx).await? {
+                sqlx::query("UPDATE lctx_model_store.selection SET generation_id = NULL WHERE generation_id = $1").bind(g.0.to_vec()).execute(&mut *tx).await?;
+                for table in CONTROL_RECORDS {
+                    sqlx::query(sqlx::AssertSqlSafe(format!("DELETE FROM lctx_model_store.{table} WHERE generation_id=$1"))).bind(g.0.to_vec()).execute(&mut *tx).await?;
+                }
+                sqlx::query("DELETE FROM lctx_model_store.generations WHERE id=$1").bind(g.0.to_vec()).execute(&mut *tx).await?;
+            }
+            Ok(())
+        }).await?;
+    }
+    transaction(&pool, async |tx| {
+        locks::installation_exclusive(tx).await?;
+        let control: bool = sqlx::query_scalar("SELECT EXISTS (SELECT FROM pg_namespace WHERE nspname = $1 AND nspowner = (SELECT oid FROM pg_roles WHERE rolname = current_user))")
+            .bind(ddl::CONTROL).fetch_one(&mut *tx).await?;
+        if control { sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {} CASCADE", quoted(ddl::CONTROL)))).execute(&mut *tx).await?; }
+        self::control(tx, &store.model, store.physical).await
     }).await?;
     Ok((inventory, store))
+}
+
+async fn registry(tx: &mut PgConnection) -> Result<bool, Error> {
+    Ok(sqlx::query_scalar("SELECT to_regclass('lctx_model_store.generations') IS NOT NULL").fetch_one(&mut *tx).await?)
 }

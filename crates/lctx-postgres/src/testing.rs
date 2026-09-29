@@ -45,8 +45,12 @@ impl DisposableDatabase {
         sqlx::raw_sql("REVOKE ALL ON DATABASE lctx FROM PUBLIC; GRANT CONNECT ON DATABASE lctx TO lctx_app, lctx_importer, lctx_serving;
             GRANT TEMP ON DATABASE lctx TO lctx_importer; ALTER ROLE lctx_serving SET default_transaction_read_only = on")
             .execute(&superuser).await.expect("runtime grants");
-        let connect = |role: &'static str| PgPool::connect_lazy(&url(role, "lctx")).expect("pool");
-        let owner = OwnerPool::verify(PgPool::connect(&url("lctx_migrator", "lctx")).await.expect("owner")).await.expect("verified owner");
+        // The runtime pools carry production's session limits, so a control that would stall a
+        // real store times out here too (store-lifecycle review F03).
+        let limited = |role: &str| url(role, "lctx").parse::<sqlx::postgres::PgConnectOptions>().expect("options")
+            .options([("lock_timeout", "10s"), ("statement_timeout", "300s"), ("idle_in_transaction_session_timeout", "60s")]);
+        let connect = |role: &'static str| PgPool::connect_lazy_with(limited(role));
+        let owner = OwnerPool::verify(PgPool::connect_with(limited("lctx_migrator")).await.expect("owner")).await.expect("verified owner");
         Self { _container: container, port, superuser, owner, writer: connect("lctx_importer"), reader: connect("lctx_serving"), app: connect("lctx_app") }
     }
     /// Apply the service baseline as the owner, as provisioning does before a store install.
@@ -77,6 +81,80 @@ impl DisposableDatabase {
                 "provider_connections": provider, "acquire_timeout_seconds": 10, "statement_timeout_seconds": 60, "lock_timeout_seconds": 10 }))?;
         }
         Ok(())
+    }
+}
+
+/// Open a transaction holding the installation lock shared, as every lifecycle step, copy and
+/// pin does first: a stand-in for a step in flight.
+pub async fn step_in_flight(pool: &sqlx::PgPool) -> sqlx::Transaction<'static, sqlx::Postgres> {
+    let mut tx = pool.begin().await.expect("transaction");
+    sqlx::query(crate::generations::locks::INSTALLATION_SHARED).execute(&mut *tx).await.expect("installation lock");
+    tx
+}
+
+/// A harness attempt driven one step at a time (feature `testing`). Every step keeps attempt
+/// semantics: the generation is lock-owned, and a refused step records it `failed` and ends the
+/// harness, after which every later step refuses with `State`.
+pub struct Harness { store: crate::generations::GenerationStore, generation: crate::generations::GenerationId, state: Option<HarnessState> }
+enum HarnessState {
+    Staging(crate::generations::GenerationAttempt),
+    Sealed(crate::generations::SealedAttempt),
+    Validated(crate::generations::ValidatedAttempt),
+}
+impl Harness {
+    pub async fn begin(store: &crate::generations::GenerationStore, writer: sqlx::PgPool, profile: lctx_model::domain::stages::Profile,
+        budget: lctx_model::domain::resources::ResourceBudget) -> Result<Self, crate::generations::Error> {
+        let attempt = store.begin_harness(writer, profile, budget).await?;
+        Ok(Self { store: store.clone(), generation: attempt.generation(), state: Some(HarnessState::Staging(attempt)) })
+    }
+    pub fn generation(&self) -> crate::generations::GenerationId { self.generation }
+    pub async fn copy<R: lctx_model::domain::Record>(&self, batch: &lctx_model::domain::Batch<R>, budget: &lctx_model::domain::resources::ResourceBudget)
+        -> Result<(), crate::generations::Error> {
+        match &self.state { Some(HarnessState::Staging(attempt)) => attempt.put(batch, budget).await, _ => Err(crate::generations::Error::State) }
+    }
+    pub async fn seal(&mut self) -> Result<(), crate::generations::Error> {
+        match self.state.take() {
+            Some(HarnessState::Staging(attempt)) => { self.state = Some(HarnessState::Sealed(attempt.seal_harness().await?)); Ok(()) },
+            other => { self.state = other; Err(crate::generations::Error::State) },
+        }
+    }
+    /// Validate charged to `budget`; a refusal records the generation failed.
+    pub async fn validate(&mut self, budget: &lctx_model::domain::resources::ResourceBudget) -> Result<lctx_model::domain::ContentHash, crate::generations::Error> {
+        match self.state.take() {
+            Some(HarnessState::Sealed(sealed)) => {
+                let validated = sealed.validate_with(budget).await?;
+                let content = validated.content();
+                self.state = Some(HarnessState::Validated(validated));
+                Ok(content)
+            },
+            other => { self.state = other; Err(crate::generations::Error::State) },
+        }
+    }
+    pub async fn publish(&mut self) -> Result<(), crate::generations::Error> {
+        match self.state.take() {
+            Some(HarnessState::Validated(validated)) => validated.publish().await.map(drop),
+            other => { self.state = other; Err(crate::generations::Error::State) },
+        }
+    }
+    /// End the attempt without a step (its lock is released); the generation can then be aborted.
+    pub async fn fail(&mut self, cause: &lctx_model::domain::ModelError) -> Result<(), crate::generations::Error> {
+        match self.state.take() {
+            Some(HarnessState::Staging(a)) => a.fail(cause).await.map(drop),
+            Some(HarnessState::Sealed(s)) => s.fail(cause).await.map(drop),
+            Some(HarnessState::Validated(v)) => v.fail(cause).await.map(drop),
+            None => Err(crate::generations::Error::State),
+        }
+    }
+    /// Remove the generation: through its own attempt while it lives, otherwise (failed or
+    /// interrupted) through the store.
+    pub async fn abort(&mut self) -> Result<crate::generations::CleanupOutcome, crate::generations::Error> {
+        use crate::generations::CleanupOutcome::Removed;
+        match self.state.take() {
+            Some(HarnessState::Staging(a)) => a.abort().await.map(|_| Removed),
+            Some(HarnessState::Sealed(s)) => s.abort().await.map(|_| Removed),
+            Some(HarnessState::Validated(v)) => v.abort().await.map(|_| Removed),
+            None => self.store.abort(self.generation).await,
+        }
     }
 }
 
@@ -132,14 +210,14 @@ pub mod fixtures {
             access.finish(ProviderOutcome::Complete).unwrap();
             (attempt, execution.finish().unwrap())
         }
-        /// A manual conformance generation, published.
+        /// A published harness generation holding one package.
         pub async fn published(&self, store: &GenerationStore, writer: &PgPool, name: &str) -> GenerationId {
-            let g = store.create_conformance(ContentHash::of(name.as_bytes()), "catalog").await.unwrap();
-            store.copy(writer, g, &Batch::new(&self.model, vec![Package { name: name.into() }], &budget()).unwrap(), &budget()).await.unwrap();
-            store.seal(g).await.unwrap();
-            store.validate(g, &budget()).await.unwrap();
-            store.publish(g).await.unwrap();
-            g
+            let mut harness = super::Harness::begin(store, writer.clone(), Profile::Catalog, budget()).await.unwrap();
+            harness.copy(&Batch::new(&self.model, vec![Package { name: name.into() }], &budget()).unwrap(), &budget()).await.unwrap();
+            harness.seal().await.unwrap();
+            harness.validate(&budget()).await.unwrap();
+            harness.publish().await.unwrap();
+            harness.generation()
         }
     }
 

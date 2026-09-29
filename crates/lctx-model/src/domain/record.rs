@@ -83,6 +83,11 @@ macro_rules! tuple_heap {
 }
 tuple_heap!(A); tuple_heap!(A, B); tuple_heap!(A, B, C); tuple_heap!(A, B, C, D); tuple_heap!(A, B, C, D, E);
 
+/// A stored codebook enum: each variant's append-only code, and back.
+pub trait Codebook: Sized {
+    fn code(&self) -> i16;
+    fn from_code(code: i16) -> Option<Self>;
+}
 pub trait FlatValue: FieldValue {}
 pub trait FieldValue: HeapSize {
     fn subtype() -> Option<i16> { None }

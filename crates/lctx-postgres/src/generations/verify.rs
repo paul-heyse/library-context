@@ -1,11 +1,13 @@
 //! `store check` (cutover plan P1.6): the live catalog against a shadow install of this binary's
 //! lowering, the provisioning contract (roles and database privileges) and the owner's inventory.
 //!
-//! The check holds the installation lock exclusively. Every lifecycle transition, pin and copy
+//! The check holds the installation lock exclusively, taken by trying so it refuses with `Busy`
+//! rather than queueing ahead of the store's work. Every lifecycle transition, pin and copy
 //! takes it shared, so nothing changes a generation while the check reads. A REPEATABLE READ
 //! snapshot would not suffice: `pg_get_*def` and `format_type` read the latest catalog, not the
 //! transaction snapshot. Shadows are created inside the check's transaction, which always rolls
-//! back.
+//! back; each generation shape is built and compared under its own savepoint, so the check holds
+//! the locks of one shape at a time.
 use std::collections::{BTreeMap, BTreeSet};
 use lctx_model::domain::ValidatedModel;
 use sqlx::{Connection, PgConnection};
@@ -64,7 +66,7 @@ pub(super) async fn check(owner: &OwnerPool, model: &ValidatedModel) -> Result<C
 }
 
 async fn inspect(tx: &mut PgConnection, model: &ValidatedModel) -> Result<CheckReport, Error> {
-    sqlx::query("SELECT pg_advisory_xact_lock(1279476824,0)").execute(&mut *tx).await?;
+    super::locks::installation_exclusive(tx).await?;
     let mut findings = Findings(Vec::new());
     roles(tx, &mut findings).await?;
     database(tx, &mut findings).await?;
@@ -114,9 +116,12 @@ async fn inspect(tx: &mut PgConnection, model: &ValidatedModel) -> Result<CheckR
         for (state, frontier) in registered.iter().map(|(_, state, frontier)| (state.as_str(), *frontier)).collect::<BTreeSet<_>>() {
             let schema = format!("lctx_check_{}_{state}", frontier.name());
             let lowering = ddl::lower(model, &scopes[&frontier].relations, SHADOW_GENERATION, &schema, SHADOW_CONTROL);
+            sqlx::query("SAVEPOINT shadow").execute(&mut *tx).await?;
             for sql in lowering.through(state) { sqlx::query(sqlx::AssertSqlSafe(sql)).execute(&mut *tx).await?; }
             let hex = SHADOW_GENERATION.hex();
             shadows.insert((state, frontier), describe(tx, &schema, &[(&schema, "<schema>"), (&hex, "<generation>"), (SHADOW_CONTROL, "<control>")]).await?);
+            // Rolling back to the savepoint drops the shadow and releases its locks.
+            sqlx::query("ROLLBACK TO SAVEPOINT shadow").execute(&mut *tx).await?;
         }
         for (g, state, frontier) in &registered {
             let (schema, hex) = (g.schema(), g.hex());

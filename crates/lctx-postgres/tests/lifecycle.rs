@@ -5,7 +5,7 @@ use lctx_postgres::generations::{CleanupOutcome, Error, GenerationStore};
 use lctx_postgres::testing::DisposableDatabase;
 use sqlx::PgPool;
 
-use lctx_postgres::testing::fixtures::*;
+use lctx_postgres::testing::{Harness, fixtures::*};
 
 #[tokio::test]
 async fn a_facts_generation_holds_only_facts_relations_and_publishes_with_its_admission() {
@@ -88,23 +88,32 @@ async fn late_write_vs_seal_race() {
     let db = DisposableDatabase::start().await;
     let small = Small::new();
     let store = GenerationStore::install(db.owner.clone(), small.model.clone()).await.unwrap();
+    // The attempt's own copies cannot overlap its seal: `seal` consumes the attempt. What can race
+    // it is a writer-role statement issued directly against the staging schema.
+    let late = Package { name: "late".into() };
     let mut outcomes = [0; 2];
     for i in 0..50 {
-        let g = store.create_conformance(ContentHash::of(format!("race {i}").as_bytes()), "catalog").await.unwrap();
-        let first = Batch::new(&small.model, vec![Package { name: "first".into() }], &budget()).unwrap();
-        let late = Batch::new(&small.model, vec![Package { name: "late".into() }], &budget()).unwrap();
-        store.copy(&db.writer, g, &first, &budget()).await.unwrap();
-        let copy_budget = budget();
-        let (write, seal) = tokio::join!(store.copy(&db.writer, g, &late, &copy_budget), store.seal(g));
-        seal.unwrap();
+        let mut harness = Harness::begin(&store, db.writer.clone(), Profile::Catalog, budget()).await.unwrap();
+        let g = harness.generation();
+        harness.copy(&Batch::new(&small.model, vec![Package { name: "first".into() }], &budget()).unwrap(), &budget()).await.unwrap();
+        let insert = format!("INSERT INTO {}.packages(id, name) VALUES ($1, 'late')", g.schema());
+        let (write, sealed) = tokio::join!(
+            async { stagger(i, true).await; sqlx::query(sqlx::AssertSqlSafe(insert.clone())).bind(late.id().bytes().to_vec()).execute(&db.writer).await },
+            async { stagger(i, false).await; harness.seal().await });
+        sealed.unwrap();
         let rows = count(&db, &format!("SELECT count(*) FROM {}.packages WHERE $1 IS NOT NULL", g.schema()), g).await;
         match write {
-            Ok(()) => { assert_eq!(rows, 2, "iteration {i}: a write that succeeded is sealed"); outcomes[0] += 1; },
-            Err(error) => { assert!(matches!(error, Error::State), "iteration {i}: {error}"); assert_eq!(rows, 1, "iteration {i}: a refused write left no row"); outcomes[1] += 1; },
+            Ok(_) => { assert_eq!(rows, 2, "iteration {i}: a write that succeeded is sealed"); outcomes[0] += 1; },
+            Err(error) => {
+                assert_eq!(error.as_database_error().and_then(|e| e.code()).as_deref(), Some("42501"), "iteration {i}: the sealed writer is revoked");
+                assert_eq!(rows, 1, "iteration {i}: a refused write left no row");
+                outcomes[1] += 1;
+            },
         }
-        store.abort(g).await.unwrap();
+        harness.abort().await.unwrap();
     }
     eprintln!("late write vs seal: {} written before the seal, {} refused after it", outcomes[0], outcomes[1]);
+    assert!(outcomes.iter().all(|n| *n > 0), "both orderings occur: {outcomes:?}");
 }
 
 #[tokio::test]
@@ -118,13 +127,12 @@ async fn failed_validation_is_terminal_and_abort_only() {
     let g = attempt.generation();
     let refused = attempt.seal(receipt).await.unwrap().validate().await;
     assert!(matches!(refused, Err(Error::Database(_))), "the reference fails when validation adds it");
-    let failure: (String, String) = sqlx::query_as("SELECT from_state, class FROM lctx_model_store.failures WHERE generation_id = decode($1, 'hex')")
+    let failure: (String, String, String) = sqlx::query_as("SELECT from_state, class, detail FROM lctx_model_store.failures WHERE generation_id = decode($1, 'hex')")
         .bind(g.hex()).fetch_one(&db.superuser).await.unwrap();
-    assert_eq!((failure.0.as_str(), failure.1.as_str()), ("sealed", "refused"));
+    assert_eq!((failure.0.as_str(), failure.1.as_str()), ("sealed", "invalid"), "a violated reference is invalid content");
+    assert!(failure.2.starts_with("SQLSTATE 23503 constraint ref_") && failure.2.contains("table releases"), "{}", failure.2);
     let report = GenerationStore::check(&db.owner, &small.model).await.unwrap();
     assert!(report.clean(), "{:#?}", report.findings);
-    assert!(matches!(store.validate(g, &budget()).await, Err(Error::State)));
-    assert!(matches!(store.publish(g).await, Err(Error::State)));
     assert!(matches!(store.select(g).await, Err(Error::State)));
     assert!(matches!(store.pin(&db.reader, g, budget()).await, Err(Error::State)));
     assert!(matches!(store.retire(g).await, Err(Error::State)), "a failed generation is aborted, never retired");
@@ -157,6 +165,28 @@ async fn failed_publication_is_atomic() {
 }
 
 #[tokio::test]
+async fn a_publication_fault_after_its_effects_undoes_them_all() {
+    let db = DisposableDatabase::start().await;
+    let facts = Facts::new();
+    let store = GenerationStore::install(db.owner.clone(), facts.model.clone()).await.unwrap();
+    // The fault fires on the last write of publication, after the admission rows and the grant.
+    sqlx::raw_sql("CREATE FUNCTION public.refuse_publication() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN \
+        IF NEW.state = 'published' THEN RAISE EXCEPTION 'injected publication fault'; END IF; RETURN NEW; END $$; \
+        CREATE TRIGGER refuse_publication BEFORE INSERT ON lctx_model_store.events FOR EACH ROW EXECUTE FUNCTION public.refuse_publication()")
+        .execute(&db.superuser).await.unwrap();
+    let (attempt, receipt) = facts.written(&store, db.writer.clone(), true).await;
+    let g = attempt.generation();
+    let validated = attempt.seal(receipt).await.unwrap().validate().await.unwrap();
+    assert!(matches!(validated.publish().await, Err(Error::Database(_))));
+    let granted: bool = sqlx::query_scalar("SELECT has_schema_privilege('lctx_serving', $1, 'USAGE')").bind(g.schema()).fetch_one(&db.superuser).await.unwrap();
+    let admitted = count(&db, "SELECT count(*) FROM lctx_model_store.admissions WHERE generation_id = decode($1, 'hex')", g).await
+        + count(&db, "SELECT count(*) FROM lctx_model_store.admission_families WHERE generation_id = decode($1, 'hex')", g).await;
+    assert_eq!((state(&db, g).await.as_deref(), granted, admitted), (Some("failed"), false, 0), "grant, admission and state were one transaction");
+    sqlx::raw_sql("DROP TRIGGER refuse_publication ON lctx_model_store.events; DROP FUNCTION public.refuse_publication()").execute(&db.superuser).await.unwrap();
+    store.abort(g).await.unwrap();
+}
+
+#[tokio::test]
 async fn interrupted_attempts_are_listed_never_published_and_failures_keep_their_class() {
     let db = DisposableDatabase::start().await;
     let small = Small::new();
@@ -171,8 +201,6 @@ async fn interrupted_attempts_are_listed_never_published_and_failures_keep_their
     assert_eq!(error.class(), Infrastructure::Transport, "{error}");
     assert_eq!(store.interrupted().await.unwrap(), [g]);
     assert_eq!(state(&db, g).await.as_deref(), Some("staging"));
-    assert!(matches!(store.seal(g).await, Err(Error::State)), "nothing but its attempt advances it");
-    assert!(matches!(store.publish(g).await, Err(Error::State)));
     store.abort(g).await.unwrap();
     // A copy whose writer transport is gone keeps its class through the stage sink.
     let writer = PgPool::connect(&db.url("lctx_importer")).await.unwrap();
@@ -184,8 +212,11 @@ async fn interrupted_attempts_are_listed_never_published_and_failures_keep_their
     let copied = access.write::<Package, _>(async |permit| attempt.copy(permit, &batch).await).await;
     assert!(matches!(copied, Err(ModelError::Infrastructure { class: Infrastructure::Transport, .. })), "{copied:?}");
     drop(access);
-    let id = attempt.fail("writer lost").await.unwrap();
+    let id = attempt.fail(&copied.unwrap_err()).await.unwrap();
     assert_eq!(state(&db, id).await.as_deref(), Some("failed"));
+    let class: String = sqlx::query_scalar("SELECT class FROM lctx_model_store.failures WHERE generation_id = decode($1, 'hex')").bind(id.hex())
+        .fetch_one(&db.superuser).await.unwrap();
+    assert_eq!(class, "transport", "the producer's failure keeps the class the stage saw");
     store.abort(id).await.unwrap();
     assert_eq!(Error::Commit(sqlx::Error::PoolClosed).class(), Infrastructure::Unconfirmed, "an unconfirmed commit is its own class");
 }
@@ -201,8 +232,13 @@ async fn a_live_attempt_cannot_be_aborted() {
     let sealed = attempt.seal(receipt).await.unwrap();
     assert!(matches!(store.abort(g).await, Err(Error::Busy)), "a sealed attempt still owns its generation");
     assert!(matches!(GenerationStore::reset(db.owner.clone(), small.model.clone(), "lctx").await, Err(Error::Busy)), "nor can a reset drop it");
-    assert_eq!(sealed.fail("abandoned").await.unwrap(), g);
+    assert_eq!(sealed.fail(&ModelError::Invalid("abandoned".into())).await.unwrap(), g);
     assert_eq!(store.abort(g).await.unwrap(), CleanupOutcome::Removed);
+    // T9: an attempt removes its own generation, with no registry row left behind.
+    let (attempt, _) = small.written(&store, db.writer.clone(), &["present"], vec![]).await;
+    let aborted = attempt.abort().await.unwrap();
+    assert_eq!(state(&db, aborted).await, None);
+    assert!(matches!(store.pin(&db.reader, aborted, budget()).await, Err(Error::Absent)), "an absent generation is not an unpublished one");
 }
 
 #[tokio::test]
@@ -222,7 +258,7 @@ async fn lease_vs_retire_race() {
                 store.retire(g).await.unwrap();
                 outcomes[0] += 1;
             },
-            (Err(Error::State), Ok(CleanupOutcome::Removed)) => outcomes[1] += 1,
+            (Err(Error::Absent), Ok(CleanupOutcome::Removed)) => outcomes[1] += 1,
             (lease, retired) => panic!("iteration {i}: lease {:?} with retire {retired:?}", lease.map(|_| ())),
         }
     }
@@ -248,7 +284,7 @@ async fn select_vs_retire_race() {
                 store.retire(g).await.unwrap();
                 outcomes[0] += 1;
             },
-            (Err(Error::State), Ok(CleanupOutcome::Removed)) => { assert_eq!(pointer, None, "iteration {i}: nothing selects a retired generation"); outcomes[1] += 1; },
+            (Err(Error::Absent), Ok(CleanupOutcome::Removed)) => { assert_eq!(pointer, None, "iteration {i}: nothing selects a retired generation"); outcomes[1] += 1; },
             (selected, retired) => panic!("iteration {i}: select {selected:?} with retire {retired:?}"),
         }
     }

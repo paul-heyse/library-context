@@ -4,6 +4,7 @@ use std::sync::Arc;
 use fixture::Fixture;
 use lctx_model::domain::{*,artifact::*,assertion::*,attribution::*,conditions::*,input::*,lexical::*,types::*,calls::{ProviderModule,ProviderSymbol},value::Literal,source::*};
 use lctx_postgres::generations::{GenerationStore,Error};
+use lctx_postgres::testing::Harness;
 use lctx_postgres::testing::DisposableDatabase;
 
 #[tokio::test]
@@ -22,22 +23,22 @@ async fn structural_types_and_recursive_variable_restrictions_roundtrip_without_
         assert_eq!(fixture.base.rows::<TypeVariable>(),vec![fixture.variable.clone()]);
         // Exercise the same in-memory check before the independent persisted-content execution.
         assert_eq!(fixture.base.check(&TypeSupport::invariants()[0]).is_ok(), valid);
-        let generation = store.create_conformance(ContentHash::of(b"type-contract"),"catalog").await.unwrap();
+        let mut generation_h = Harness::begin(&store, writer.clone(), lctx_model::domain::stages::Profile::Catalog, budget()).await.unwrap(); let generation = generation_h.generation();
         macro_rules! copy { ($($ty:ty),+ $(,)?) => { $(
-            store.copy(&writer,generation,&Batch::new(&model,fixture.base.rows::<$ty>(), &budget()).unwrap(), &budget()).await.unwrap();
+            generation_h.copy(&Batch::new(&model,fixture.base.rows::<$ty>(), &budget()).unwrap(), &budget()).await.unwrap();
         )+ }; }
         copy!(InputRevision,InputOrigin,InputAcquisition,AnalysisContext,Provider,ProviderRun,RunFamily,ProviderSurface,ProviderModule,
             CoverageScope,ProviderCoverage,Condition,ConditionNode,AssertionQualification,SourceArtifact,ArtifactChunk,Occurrence,
             LexicalScope,BindingEvent,LexicalTarget,LexicalScopeObservation,LexicalScopeSupport,BindingObservation,BindingSupport,
             ReferenceObservation,ReferenceSupport,LexicalResolution,LexicalResolutionSupport,Evidence,ProviderSymbol,Literal,TypeVariable,TypeTerm,TypeSequence,TypeSequenceMember,
             TypeObservation,TypeSupport,TypePresentation,TypePresentationSupport,TypeVariableRestriction,TypeRestrictionSupport);
-        store.seal(generation).await.unwrap();
+        generation_h.seal().await.unwrap();
         if !valid {
-            assert!(matches!(store.validate(generation, &budget()).await, Err(Error::Model(_))));
-            assert!(store.publish(generation).await.is_err());
-            store.abort(generation).await.unwrap();
+            assert!(matches!(generation_h.validate(&budget()).await, Err(Error::Model(_))));
+            assert!(generation_h.publish().await.is_err());
+            generation_h.abort().await.unwrap();
         } else {
-            store.validate(generation, &budget()).await.unwrap(); store.publish(generation).await.unwrap();
+            generation_h.validate(&budget()).await.unwrap(); generation_h.publish().await.unwrap();
             let mut lease = store.pin(&reader,generation, budget()).await.unwrap();
             assert_eq!(lease.read::<TypeObservation>().await.unwrap().rows(),fixture.base.rows::<TypeObservation>());
             assert_eq!(lease.read::<TypeVariableRestriction>().await.unwrap().rows(),fixture.base.rows::<TypeVariableRestriction>());

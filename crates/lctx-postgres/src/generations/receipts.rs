@@ -1,30 +1,28 @@
-//! Lifecycle steps shared by manual conformance generations and attempt-owned ones: sealing,
-//! stored-content validation with facts admission, publication and failure (cutover plan P1.7).
+//! The lifecycle steps an attempt runs on its lifecycle connection: sealing, stored-content
+//! validation with facts admission, publication and failure (cutover plan P1.7).
 //! Each runs inside its caller's transaction, under the installation lock and the exclusive
 //! generation lock, in the order installation → selection → generation → attempt → relations.
 use std::collections::{BTreeMap, BTreeSet};
-use lctx_model::domain::{ContentHash, KeySink, admission::{AdmissionCheck, FactsAdmission, Frontier, Preflight}, stages::{ExecutionReceipt, ProviderOutcome}};
+use lctx_model::domain::{Codebook, ContentHash, KeySink, admission::{AdmissionCheck, FactsAdmission, Frontier, Preflight}, stages::{ExecutionReceipt, ProviderOutcome}};
 use lctx_model::domain::resources::ResourceBudget;
 use sqlx::{PgConnection, Row};
-use super::{Error, GenerationId, GenerationStore, check_schedule, ddl, execute, lock, qualified, transition, visit_physical};
+use super::{Error, GenerationId, GenerationStore, check_schedule, ddl, execute, failure::Failure, lock, qualified, transition, visit_physical};
 
 /// A facts attempt's admission inputs: its preflight and its execution receipt.
 pub(super) struct Admitting<'a> { pub preflight: &'a Preflight, pub receipt: &'a ExecutionReceipt }
 
 impl GenerationStore {
-    pub(super) async fn seal_step(&self, tx: &mut PgConnection, g: GenerationId, owned: bool, schedule: Option<ContentHash>,
+    pub(super) async fn seal_step(&self, tx: &mut PgConnection, g: GenerationId, schedule: ContentHash,
         written: &BTreeSet<(&str, &str)>, outcomes: Option<&BTreeMap<&'static str, ProviderOutcome>>) -> Result<(), Error> {
         self.lock_installation(tx).await?;
         lock(tx, g, false).await?;
         let registered = self.registered(tx, g).await?;
-        registered.expect("staging", owned)?;
+        registered.expect("staging")?;
         check_schedule(tx, g, schedule).await?;
         self.revoke_writer(tx, g, registered.frontier).await?;
-        if let Some(schedule) = schedule {
-            for (stage, relation) in written {
-                sqlx::query("INSERT INTO lctx_model_store.stage_receipts VALUES($1,$2,$3,$4)")
-                    .bind(g.0.to_vec()).bind(stage).bind(relation).bind(schedule.0.to_vec()).execute(&mut *tx).await?;
-            }
+        for (stage, relation) in written {
+            sqlx::query("INSERT INTO lctx_model_store.stage_receipts VALUES($1,$2,$3,$4)")
+                .bind(g.0.to_vec()).bind(stage).bind(relation).bind(schedule.0.to_vec()).execute(&mut *tx).await?;
         }
         for (stage, outcome) in outcomes.into_iter().flatten() {
             sqlx::query("INSERT INTO lctx_model_store.stage_outcomes VALUES($1,$2,$3)")
@@ -42,12 +40,12 @@ impl GenerationStore {
     /// Receipt every held relation's stored content, run every invariant whose inputs the
     /// frontier holds and, for a facts generation, admission. Read buffers and validator state
     /// are charged to `budget`.
-    pub(super) async fn validate_step(&self, tx: &mut PgConnection, g: GenerationId, owned: bool, budget: &ResourceBudget,
+    pub(super) async fn validate_step(&self, tx: &mut PgConnection, g: GenerationId, budget: &ResourceBudget,
         admitting: Option<Admitting<'_>>) -> Result<(ContentHash, Option<FactsAdmission>), Error> {
         self.lock_installation(tx).await?;
         lock(tx, g, false).await?;
         let registered = self.registered(tx, g).await?;
-        registered.expect("sealed", owned)?;
+        registered.expect("sealed")?;
         let frontier = registered.frontier;
         if (frontier == Frontier::Facts) != admitting.is_some() {
             return Err(Error::Frontier("a facts generation, and only one, is validated with its admission".into()));
@@ -103,11 +101,11 @@ impl GenerationStore {
     }
     /// Publication binds the receipts, the validator set, the planned outputs and, for a facts
     /// generation, its admission, then grants the reader and changes state, atomically.
-    pub(super) async fn publish_step(&self, tx: &mut PgConnection, g: GenerationId, owned: bool, admission: Option<&FactsAdmission>) -> Result<(), Error> {
+    pub(super) async fn publish_step(&self, tx: &mut PgConnection, g: GenerationId, admission: Option<&FactsAdmission>) -> Result<(), Error> {
         self.lock_installation(tx).await?;
         lock(tx, g, false).await?;
         let registered = self.registered(tx, g).await?;
-        registered.expect("validated", owned)?;
+        registered.expect("validated")?;
         let frontier = registered.frontier;
         let (relations, invariants) = self.scoped(frontier)?;
         let physical = self.scope(frontier)?.physical;
@@ -120,7 +118,7 @@ impl GenerationStore {
             content.part(relation.name().as_bytes(), &receipt.try_get::<Vec<u8>, _>("content_digest")?);
         }
         let digest = content.finish();
-        let (stored, schedule, profile): (Vec<u8>, Option<Vec<u8>>, String) = sqlx::query_as("SELECT content_digest, schedule_digest, profile FROM lctx_model_store.generations WHERE id=$1")
+        let (stored, schedule, profile): (Vec<u8>, Vec<u8>, String) = sqlx::query_as("SELECT content_digest, schedule_digest, profile FROM lctx_model_store.generations WHERE id=$1")
             .bind(g.0.to_vec()).fetch_one(&mut *tx).await?;
         if stored != digest.0 { return Err(Error::Contract); }
         let validations = sqlx::query("SELECT validator_name,content_digest,model_digest,physical_digest FROM lctx_model_store.validation_receipts WHERE generation_id=$1 ORDER BY validator_name COLLATE \"C\"")
@@ -142,11 +140,14 @@ impl GenerationStore {
         match (frontier, admission) {
             (Frontier::Facts, Some(admission)) => {
                 if admission.model() != self.model.digest() || admission.content() != digest || admission.profile().name() != profile
-                    || schedule.as_deref() != Some(admission.schedule().0.as_slice()) { return Err(Error::Contract); }
-                let availability = admission.availability().iter().map(|(family, availability)| format!("{family:?}={availability:?}")).collect::<Vec<_>>().join(";");
-                sqlx::query("INSERT INTO lctx_model_store.admissions VALUES($1,$2,$3,$4,$5,$6,$7,$8)")
+                    || schedule != admission.schedule().0 { return Err(Error::Contract); }
+                sqlx::query("INSERT INTO lctx_model_store.admissions VALUES($1,$2,$3,$4,$5,$6,$7)")
                     .bind(g.0.to_vec()).bind(admission.contract().0.to_vec()).bind(admission.model().0.to_vec()).bind(admission.schedule().0.to_vec())
-                    .bind(admission.coverage().0.to_vec()).bind(admission.content().0.to_vec()).bind(profile).bind(availability).execute(&mut *tx).await?;
+                    .bind(admission.coverage().0.to_vec()).bind(admission.content().0.to_vec()).bind(profile).execute(&mut *tx).await?;
+                for (family, availability) in admission.availability() {
+                    sqlx::query("INSERT INTO lctx_model_store.admission_families VALUES($1,$2,$3)")
+                        .bind(g.0.to_vec()).bind(family.code()).bind(availability.code()).execute(&mut *tx).await?;
+                }
             },
             (Frontier::Facts, None) => return Err(Error::Frontier("a facts generation publishes only with its admission".into())),
             (Frontier::Conformance, Some(_)) => return Err(Error::Contract),
@@ -155,16 +156,16 @@ impl GenerationStore {
         execute(tx, self.lowering(g, frontier)?.phase("published")).await?;
         transition(tx, g, "published").await
     }
-    /// Record an attempt-owned generation `failed` from its current unpublished state. A
-    /// generation failed while staging loses its writer first.
-    pub(super) async fn fail_step(&self, tx: &mut PgConnection, g: GenerationId, class: &str, detail: &str) -> Result<(), Error> {
+    /// Record a generation `failed` from its current unpublished state. A generation failed while
+    /// staging loses its writer first.
+    pub(super) async fn fail_step(&self, tx: &mut PgConnection, g: GenerationId, failure: &Failure) -> Result<(), Error> {
         self.lock_installation(tx).await?;
         lock(tx, g, false).await?;
         let registered = self.registered(tx, g).await?;
-        if !registered.owned || !matches!(registered.state.as_str(), "staging" | "sealed" | "validated") { return Err(Error::State); }
+        if !matches!(registered.state.as_str(), "staging" | "sealed" | "validated") { return Err(Error::State); }
         if registered.state == "staging" { self.revoke_writer(tx, g, registered.frontier).await?; }
         sqlx::query("INSERT INTO lctx_model_store.failures VALUES($1,$2,$3,$4)")
-            .bind(g.0.to_vec()).bind(&registered.state).bind(class).bind(detail).execute(&mut *tx).await?;
+            .bind(g.0.to_vec()).bind(&registered.state).bind(failure.class.name()).bind(&failure.detail).execute(&mut *tx).await?;
         transition(tx, g, ddl::FAILED).await
     }
 }

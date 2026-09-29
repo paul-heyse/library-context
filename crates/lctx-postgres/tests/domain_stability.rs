@@ -3,6 +3,7 @@ use std::sync::Arc;
 use fixture::Fixture;
 use lctx_model::domain::{*, artifact::*, assertion::*, attribution::*, calls::*, conditions::{*, stability::*}, flow::*, input::*, lexical::*, source::*, value::*};
 use lctx_postgres::generations::{GenerationStore, Error};
+use lctx_postgres::testing::Harness;
 use lctx_postgres::testing::DisposableDatabase;
 
 #[tokio::test]
@@ -15,22 +16,22 @@ async fn witnessed_substitutions_round_trip_and_unsubstituted_bound_guards_refus
     for unsubstituted in [false, true] {
         let mut fixture = Fixture::new();
         if unsubstituted { fixture.put::<GuardSubstitution>(vec![]); }
-        let generation = store.create_conformance(ContentHash::of(b"stability-contract"), "behavioral").await.unwrap();
+        let mut generation_h = Harness::begin(&store, writer.clone(), lctx_model::domain::stages::Profile::Behavioral, budget()).await.unwrap(); let generation = generation_h.generation();
         macro_rules! copy { ($($ty:ty),+ $(,)?) => { $(
-            store.copy(&writer, generation, &Batch::new(&model, fixture.rows::<$ty>(), &budget()).unwrap(), &budget()).await.unwrap();
+            generation_h.copy(&Batch::new(&model, fixture.rows::<$ty>(), &budget()).unwrap(), &budget()).await.unwrap();
         )+ }; }
         copy!(InputRevision, InputOrigin, InputAcquisition, AnalysisContext, Provider, ProviderRun, RunFamily, ProviderSurface, CoverageScope, ProviderCoverage,
             Condition, ConditionNode, AssertionQualification, SourceArtifact, ArtifactChunk, Occurrence, LexicalScope, PlaceRoot, AccessPath, Place, Predicate,
             EvaluationAtom, FlowUse, FlowDefinition, ReachingDefinition, FlowDefinitionObservation, FlowDefinitionSupport, FlowReachingObservation,
             FlowReachingSupport, CallSyntax, CallSyntaxSupport, CallArgument, Evidence, StabilityWitness, GuardSubstitution);
-        store.seal(generation).await.unwrap();
+        generation_h.seal().await.unwrap();
         if unsubstituted {
-            assert!(matches!(store.validate(generation, &budget()).await, Err(Error::Model(_))));
-            store.abort(generation).await.unwrap();
+            assert!(matches!(generation_h.validate(&budget()).await, Err(Error::Model(_))));
+            generation_h.abort().await.unwrap();
         } else {
-            let digest = store.validate(generation, &budget()).await.unwrap();
+            let digest = generation_h.validate(&budget()).await.unwrap();
             assert_eq!(fixture.validate().unwrap(), digest, "in-memory and stored validation agree");
-            store.publish(generation).await.unwrap();
+            generation_h.publish().await.unwrap();
             let mut lease = store.pin(&reader, generation, budget()).await.unwrap();
             assert_eq!(lease.read::<GuardSubstitution>().await.unwrap().rows(), fixture.rows::<GuardSubstitution>());
             assert_eq!(lease.read::<StabilityWitness>().await.unwrap().rows(), fixture.rows::<StabilityWitness>());

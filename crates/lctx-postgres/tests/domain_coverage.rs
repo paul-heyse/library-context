@@ -5,6 +5,7 @@ use std::sync::Arc;
 use fixture::Fixture;
 use lctx_model::domain::{*,artifact::*,assertion::*,attribution::*,conditions::*,input::*,lexical::*,source::*};
 use lctx_postgres::generations::{GenerationStore,Error};
+use lctx_postgres::testing::Harness;
 use lctx_postgres::testing::DisposableDatabase;
 
 #[tokio::test]
@@ -27,21 +28,21 @@ async fn coverage_cannot_claim_a_foreign_input_even_with_matching_provider_and_c
         }
         // Exercise the same in-memory check before the independent persisted-content execution.
         assert_eq!(fixture.check(&ProviderCoverage::invariants()[0]).is_ok(), !foreign);
-        let generation = store.create_conformance(ContentHash::of(b"coverage-ownership"),"catalog").await.unwrap();
+        let mut generation_h = Harness::begin(&store, writer.clone(), lctx_model::domain::stages::Profile::Catalog, budget()).await.unwrap(); let generation = generation_h.generation();
         macro_rules! copy { ($($ty:ty),+ $(,)?) => { $(
-            store.copy(&writer,generation,&Batch::new(&model,fixture.rows::<$ty>(), &budget()).unwrap(), &budget()).await.unwrap();
+            generation_h.copy(&Batch::new(&model,fixture.rows::<$ty>(), &budget()).unwrap(), &budget()).await.unwrap();
         )+ }; }
         copy!(InputRevision,InputOrigin,InputAcquisition,AnalysisContext,Provider,ProviderRun,RunFamily,ProviderSurface,
             CoverageScope,ProviderCoverage,Condition,ConditionNode,AssertionQualification,SourceArtifact,ArtifactChunk,Occurrence,
             LexicalScope,BindingEvent,LexicalTarget,LexicalScopeObservation,LexicalScopeSupport,BindingObservation,BindingSupport,
             ReferenceObservation,ReferenceSupport,LexicalResolution,LexicalResolutionSupport,Evidence);
-        store.seal(generation).await.unwrap();
+        generation_h.seal().await.unwrap();
         if foreign {
-            assert!(matches!(store.validate(generation, &budget()).await, Err(Error::Model(_))));
-            assert!(store.publish(generation).await.is_err());
-            store.abort(generation).await.unwrap();
+            assert!(matches!(generation_h.validate(&budget()).await, Err(Error::Model(_))));
+            assert!(generation_h.publish().await.is_err());
+            generation_h.abort().await.unwrap();
         } else {
-            store.validate(generation, &budget()).await.unwrap(); store.publish(generation).await.unwrap();
+            generation_h.validate(&budget()).await.unwrap(); generation_h.publish().await.unwrap();
             let mut lease = store.pin(&reader,generation, budget()).await.unwrap();
             assert_eq!(lease.read::<BindingObservation>().await.unwrap().rows(),fixture.rows::<BindingObservation>());
             assert_eq!(lease.read::<LexicalResolution>().await.unwrap().rows(),fixture.rows::<LexicalResolution>());

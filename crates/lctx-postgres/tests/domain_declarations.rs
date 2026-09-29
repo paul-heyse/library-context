@@ -3,6 +3,7 @@ use std::sync::Arc;
 use fixture::Fixture;
 use lctx_model::domain::{*, artifact::*, assertion::*, attribution::*, calls::*, conditions::*, declarations::*, input::*, source::*};
 use lctx_postgres::generations::{GenerationStore, Error};
+use lctx_postgres::testing::Harness;
 use lctx_postgres::testing::DisposableDatabase;
 
 #[tokio::test]
@@ -15,23 +16,23 @@ async fn declaration_links_and_call_syntax_round_trip_and_refuse_stray_parameter
     for stray in [false, true] {
         let mut fixture = Fixture::new();
         if stray { fixture.set_parameters(vec![(fixture.members[0].id(), fixture.stray.id()), (fixture.members[1].id(), fixture.b.id())]); }
-        let generation = store.create_conformance(ContentHash::of(b"declaration-contract"), "catalog").await.unwrap();
+        let mut generation_h = Harness::begin(&store, writer.clone(), lctx_model::domain::stages::Profile::Catalog, budget()).await.unwrap(); let generation = generation_h.generation();
         macro_rules! copy { ($($ty:ty),+ $(,)?) => { $(
-            store.copy(&writer, generation, &Batch::new(&model, fixture.rows::<$ty>(), &budget()).unwrap(), &budget()).await.unwrap();
+            generation_h.copy(&Batch::new(&model, fixture.rows::<$ty>(), &budget()).unwrap(), &budget()).await.unwrap();
         )+ }; }
         copy!(InputRevision, InputOrigin, InputAcquisition, AnalysisContext, Provider, ProviderRun, RunFamily, ProviderSurface, CoverageScope,
             Condition, ConditionNode, AssertionQualification, SourceArtifact, ArtifactChunk, Occurrence, Module, ProviderModule, ProviderSymbol,
             ParameterShape, Signature, SignatureParameter, SignatureSupport, SymbolDeclaration, SymbolDeclarationSupport, ParameterDeclaration,
             ParameterDeclarationSupport, CallSyntax, CallSyntaxSupport, CallArgument, Evidence);
-        store.seal(generation).await.unwrap();
+        generation_h.seal().await.unwrap();
         if stray {
-            assert!(matches!(store.validate(generation, &budget()).await, Err(Error::Model(_))));
-            assert!(store.publish(generation).await.is_err());
-            store.abort(generation).await.unwrap();
+            assert!(matches!(generation_h.validate(&budget()).await, Err(Error::Model(_))));
+            assert!(generation_h.publish().await.is_err());
+            generation_h.abort().await.unwrap();
         } else {
-            let digest = store.validate(generation, &budget()).await.unwrap();
+            let digest = generation_h.validate(&budget()).await.unwrap();
             assert_eq!(fixture.validate().unwrap(), digest, "in-memory and stored validation agree");
-            store.publish(generation).await.unwrap();
+            generation_h.publish().await.unwrap();
             let mut lease = store.pin(&reader, generation, budget()).await.unwrap();
             assert_eq!(lease.read::<ParameterDeclaration>().await.unwrap().rows(), fixture.rows::<ParameterDeclaration>());
             assert_eq!(lease.read::<CallArgument>().await.unwrap().rows(), fixture.rows::<CallArgument>());

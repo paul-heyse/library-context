@@ -4,6 +4,7 @@ use std::sync::Arc;
 use fixture::Fixture;
 use lctx_model::domain::{*,artifact::*,assertion::*,attribution::*,conditions::*,input::*,lexical::*,flow::*,value::*,source::*};
 use lctx_postgres::generations::{GenerationStore,Error};
+use lctx_postgres::testing::Harness;
 use lctx_postgres::testing::DisposableDatabase;
 
 #[tokio::test]
@@ -19,9 +20,9 @@ async fn raw_flow_and_transitive_place_provenance_survive_sealed_validation() {
         if foreign { fixture.foreign_place(); }
         // Exercise the same in-memory check before the independent persisted-content execution.
         assert_eq!(fixture.base.check(&FlowDefinitionSupport::invariants()[0]).is_ok(), !foreign);
-        let generation = store.create_conformance(ContentHash::of(b"flow-contract"),"catalog").await.unwrap();
+        let mut generation_h = Harness::begin(&store, writer.clone(), lctx_model::domain::stages::Profile::Catalog, budget()).await.unwrap(); let generation = generation_h.generation();
         macro_rules! copy { ($($ty:ty),+ $(,)?) => { $(
-            store.copy(&writer,generation,&Batch::new(&model,fixture.base.rows::<$ty>(), &budget()).unwrap(), &budget()).await.unwrap();
+            generation_h.copy(&Batch::new(&model,fixture.base.rows::<$ty>(), &budget()).unwrap(), &budget()).await.unwrap();
         )+ }; }
         copy!(InputRevision,InputOrigin,InputAcquisition,AnalysisContext,Provider,ProviderRun,RunFamily,ProviderSurface,
             CoverageScope,ProviderCoverage,Condition,ConditionNode,AssertionQualification,SourceArtifact,ArtifactChunk,Occurrence,
@@ -29,13 +30,13 @@ async fn raw_flow_and_transitive_place_provenance_survive_sealed_validation() {
             ReferenceObservation,ReferenceSupport,LexicalResolution,LexicalResolutionSupport,Evidence,Module,PlaceRoot,Place,AccessPath,
             FlowUse,FlowDefinition,ReachingDefinition,FlowUseObservation,FlowUseSupport,FlowDefinitionObservation,FlowDefinitionSupport,
             FlowReachingObservation,FlowReachingSupport,FlowValueObservation,FlowValueSupport,FlowRegionObservation,FlowRegionSupport);
-        store.seal(generation).await.unwrap();
+        generation_h.seal().await.unwrap();
         if foreign {
-            assert!(matches!(store.validate(generation, &budget()).await, Err(Error::Model(_))));
-            assert!(store.publish(generation).await.is_err());
-            store.abort(generation).await.unwrap();
+            assert!(matches!(generation_h.validate(&budget()).await, Err(Error::Model(_))));
+            assert!(generation_h.publish().await.is_err());
+            generation_h.abort().await.unwrap();
         } else {
-            store.validate(generation, &budget()).await.unwrap(); store.publish(generation).await.unwrap();
+            generation_h.validate(&budget()).await.unwrap(); generation_h.publish().await.unwrap();
             let mut lease = store.pin(&reader,generation, budget()).await.unwrap();
             assert_eq!(lease.read::<FlowUse>().await.unwrap().rows(),fixture.base.rows::<FlowUse>());
             assert_eq!(lease.read::<FlowReachingObservation>().await.unwrap().rows(),fixture.base.rows::<FlowReachingObservation>());

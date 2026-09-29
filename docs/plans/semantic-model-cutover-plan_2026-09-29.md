@@ -719,7 +719,7 @@ The dormant `tests/serving.rs` database tests are `#[ignore = "suspended: P5 ser
 
 It holds the installation lock exclusively rather than relying on a REPEATABLE READ snapshot, because `pg_get_*def` and `format_type` read the latest catalog.
 
-`reset_plan`/`reset(owner, model, confirm)` inventory only owner-owned `lctx_g<32 hex>` schemas and the control schema. A wrong confirmation, a leased generation or a generation in a lifecycle transaction is refused before any change; the attempt-lock refusal lands with P1.7's lifecycle connection. Controls: 20 drift mutations (8 inside generation schemas, 2 on published generations, 2 orphans, 8 store-wide), each detected, with a final clean check after all reverts |
+`reset_plan`/`reset(owner, model, confirm)` inventory only owner-owned `lctx_g<32 hex>` schemas and the control schema. A wrong confirmation or a leased generation is refused before any change. (Corrected 2026-09-29, store-lifecycle review F06: the original "lifecycle transaction" twin held only a generation key, a lock state production never creates. Since the review corrections, a step in flight or a live attempt makes `reset` refuse `Busy` promptly; see the corrections receipt below.) Controls: 20 drift mutations (8 inside generation schemas, 2 on published generations, 2 orphans, 8 store-wide), each detected, with a final clean check after all reverts |
 | P1.7: `cargo test --release -p lctx-postgres --test lifecycle` and the P1.5/P1.6 suites (`services`, `installation`, `generations`, `generation_stages`, 13 `domain_*`) plus `--doc`; `-p cpg-extract --test typed_conformance --test typed_limits`; `-p lctx-model` (all suites); `cargo check --workspace --all-targets` | passed 2026-09-29 (lifecycle 11; every earlier suite unchanged).
 
 **Attempt-owned lifecycle (T10).** `begin(writer, &mut Execution, &FrontierContract, budget)` runs preflight before any store effect, then registers an `owned` facts generation. Its lifecycle connection takes the session attempt lock before the registry row is visible and keeps it until the attempt ends. `begin_conformance` does the same without the frontier. The typestates are `GenerationAttempt{copy, seal, fail}` → `SealedAttempt{validate, fail}` → `ValidatedAttempt{publish, fail}`. The public `seal`/`validate`/`publish` refuse attempt-owned generations, so they serve only manual conformance generations, where a refusal still rolls back.
@@ -739,7 +739,7 @@ It holds the installation lock exclusively rather than relying on a REPEATABLE R
 - a closed writer pool makes the stage copy return Transport;
 - an unconfirmed commit maps to Unconfirmed.
 
-**Races (both orderings occur, counted).** Late write vs seal: 50×. Lease vs retire: 50×. Select vs retire: 10× on facts generations.
+**Races (counted).** Late write vs seal: 50×. Lease vs retire: 50×, and select vs retire: 10× on facts generations, both asserting that both orderings occur. (Corrected 2026-09-29, review F06: the seal race counted but did not assert both orderings; it does since the corrections.)
 
 **Other controls:**
 - three publication faults, each atomic, leaving the generation failed with no reader grant and no admission;
@@ -802,6 +802,9 @@ and then takes the session lock.
 - a stage session registers a generation table through its read permit.
 
 The lifecycle fixtures moved into `lctx_postgres::testing::fixtures`. P0 exit F02 is closed at the reader for leases and provider tables (the `query` CLI is P1.11). C02 is closed |
+| Store-lifecycle review corrections (F01–F07): `cargo test --release -p lctx-postgres` for `services`, `installation`, `lifecycle`, `generation_catalog`, `generations`, `generation_stages`, the 13 `domain_*` suites and `--doc`, run twice; `-p cpg-core --test generation_read --test model_runtime`; `-p cpg-extract --test typed_conformance --test typed_limits`; `-p lctx-model` (all suites); `cargo check --workspace --all-targets` | passed 2026-09-29 (installation 9, lifecycle 12, catalog 2, generations 2, generation_read 9; the rest unchanged).
+
+Every generation is attempt-owned; the manual steps and `owned` are gone, and suites use the `testing` harness. Reset is phased and resumable. Operator commands try-lock. Failures carry SQLSTATE-aware classes. Availability is stored by codebook code. One `locks` module owns the keys and liveness. An attempt's end releases its lock with a confirmed round trip before closing: closing alone released it only when the backend exited, which made an immediate `abort`/`retire` flaky. Dispositions: §8, store-lifecycle review table |
 | `just fmt`, `just test-all`, facts pilots | not_run: functional scope incomplete |
 
 Independent bounded reviewers accepted artifact/capture/acquisition corrections and the
@@ -1040,13 +1043,31 @@ returned Revise on 2026-09-29 for one correction (F01). The review's §11 dispos
 | Finding | Responsible component | Current disposition and evidence |
 |---|---|---|
 | [F01](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F01) | `obligation::verdict`, §15.8 | closed (re-inspection at `7595557`, 2026-09-29, review "Re-inspection"): `VerdictInput.modality`; Candidate/Potential give Unknown(`NonDefiniteAlternative`, 50); refutation under partial coverage gives `IncompleteCoverage` (51); priority rationale documented; §15.8 amended. Controls: `a_candidate_or_potential_alternative_is_never_established_or_refuted` and the composition-to-verdict case (Candidate composed flow Unknown, Definite twin Established) |
-| [F02](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F02) | `lctx-postgres::generations`; P1.7/P1.10/P1.11 | open → P1.7: frontier-scoped schema and a typed `Frontier` read refusal (P1.7 controls) |
+| [F02](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F02) | `lctx-postgres::generations`; P1.7/P1.10/P1.11 | closed at store level (store-lifecycle review, 2026-09-29) and at the readers: leases and provider tables refuse with a typed `Frontier` (P1.10 `pin_survives_selection_change_and_frontier_is_enforced`); the `query` CLI mapping → P1.11 |
 | [F03](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F03) | `composition` | deferred → P4 with composition F04/F06/F07; trigger: P4 engine design or the first `compose_site` caller outside tests |
 | [F04](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F04) | `stages` | open → A0: batched outputs and contributed vocabulary dedup/refusal control |
 | [F05](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F05) | `ProviderCoverage`; B1 | open → B1 (catalog generation without a ty `Provider` row); D1 receipt wording corrected |
 | [F06](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F06) | model tests; P1.11 | open → P1.11: model and codebook snapshot from `model describe --format json` |
-| [F07](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F07) | `StageSink`/`GenerationAttempt::copy`; P1.7/P1.10 | open → P1.7 (typed store failure class, including an unconfirmed commit) and P1.10 (transport loss in provider sessions), each with an injected-failure control |
+| [F07](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F07) | `StageSink`/`GenerationAttempt::copy`; P1.7/P1.10 | closed: the in-memory class at P1.7; the persisted class with store-lifecycle review F04 (a producer's transport failure stores `transport`); provider-session transport loss at P1.10 (`transport_loss_is_terminal`) |
 | [F08](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F08) | `typed_syntax`; A4 | wording addressed (`admit` states the transitive-load limit); import policy → A4 |
+
+### P1 store-lifecycle review findings
+
+The bounded [store-lifecycle review](../design_review/reviews/design_review_p1-store-lifecycle_2026-09-29.md)
+of P1.5–P1.7 returned Revise on 2026-09-29 (F01, F02 required). Corrections landed with the
+review-corrections receipt in §4.2; re-inspection is pending.
+
+| Finding | Responsible component | Current disposition and evidence |
+|---|---|---|
+| [F01](../design_review/reviews/design_review_p1-store-lifecycle_2026-09-29.md#F01) | `generations`, `testing` | corrected, re-inspection pending: every generation is registered by an attempt that holds its attempt lock; the manual steps, `create_conformance` and `owned` are deleted; tests use the `testing`-only harness with attempt semantics; R2 is a new funded attempt with the stage path's digest; the catalog has no manual writer class |
+| [F02](../design_review/reviews/design_review_p1-store-lifecycle_2026-09-29.md#F02) | `install` | corrected, re-inspection pending: reset withdraws the installation, removes one generation per transaction and replaces control last; `reset_is_phased_and_resumable` resets eight full-model generations on a default server and finishes after an injected mid-reset fault. Provisioning note → P1.12 |
+| [F03](../design_review/reviews/design_review_p1-store-lifecycle_2026-09-29.md#F03) | `locks`, `verify`, `install`, `testing` | corrected: install, `check` and `reset` try the installation lock for about a second and refuse `Busy`; a concurrent pin under a 1 s lock timeout succeeds (`check_and_reset_refuse_busy_without_stalling_the_store`); test pools carry production session limits |
+| [F04](../design_review/reviews/design_review_p1-store-lifecycle_2026-09-29.md#F04) | `failure`, `lifecycle` | corrected: stored detail keeps SQLSTATE, constraint and table; class 23 → `invalid`, 53/54 → `limit`, timeouts and deadlocks → `contention`; `fail(&ModelError)`; `Error::Absent`; owned `abort` (T9) |
+| [F05](../design_review/reviews/design_review_p1-store-lifecycle_2026-09-29.md#F05) | `failure`, control schema, `catalog` | corrected: `admission_families` rows by codebook code (the derived `Codebook` trait) with an append-only `Availability` code; one `FailureClass` enum renders the CHECK; the catalog reads typed rows |
+| [F06](../design_review/reviews/design_review_p1-store-lifecycle_2026-09-29.md#F06) | tests; §4.2 | corrected: live-attempt and step-in-flight reset twins; a post-effect publication fault on a facts attempt; the seal race asserts both orderings; two receipt sentences corrected |
+| [F07](../design_review/reviews/design_review_p1-store-lifecycle_2026-09-29.md#F07) | `locks`, `lease` | corrected: one `locks` module owns the keys, the try-lock and the read-only `pg_locks` probe used by `interrupted()` and the catalog; `LeaseContract` is the lease terms P1.10 consumes |
+| [F08](../design_review/reviews/design_review_p1-store-lifecycle_2026-09-29.md#F08) | P3 frontier design | deferred; trigger: P3 frontier design |
+| [F09](../design_review/reviews/design_review_p1-store-lifecycle_2026-09-29.md#F09) | Dc / P1.11 `runs` | deferred; trigger: Dc or P1.11 `runs` |
 
 ### Core review findings
 
@@ -1057,8 +1078,8 @@ qualification. Findings routed to P1–P5 remain open.
 
 | Finding | Owner and closure |
 |---|---|
-| C01 | P1.7 (lifecycle), P1.10 (lease): schema-per-generation retirement, reader lease and select/retire concurrency controls |
-| C02 | P1.10: reader rejects model/physical digest mismatch before decoding |
+| C01 | lifecycle half closed (store-lifecycle review, 2026-09-29); lease half implemented at P1.10 (`lease_blocks_retire_close_releases`, `lease_vs_retire_race`), closure pending the P1.10 bounded review |
+| C02 | implemented at P1.10: a session refuses another model's digests or tampered live columns before any scan (`digest_and_column_mismatch_rejected_before_scan`); closure pending the P1.10 bounded review |
 | C03 | closed at contract level (P0 exit review, 2026-09-29): D0, C6. Owner: D0, C6: typed model membership and sole stage writer authority, including self-cycle refusal |
 | C04 | closed apart from P3 items (cross-provider equivalence, SQL views) and composition F04's admission token (P0 exit review). Owner: C2, A7/A10, P3 (equivalence, views): attributed direct/potential/higher-order alternatives; one normalization owner |
 | C05 | closed at contract level (P0 exit review): C5, C5r. Owner: C5, C5r: paths compose only through identity; map complete binding sets and boundary outputs; entry-value ports and total root map (C4/C5 review F02/F03) |

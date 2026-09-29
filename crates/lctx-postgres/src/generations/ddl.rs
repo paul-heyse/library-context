@@ -2,7 +2,9 @@
 //! lowering is pure: one model, generation, schema name and control schema name always give the
 //! same statements, so a shadow install is a faithful reference for `store check` (plan P1.6).
 use std::collections::{BTreeMap, BTreeSet};
-use lctx_model::domain::{ContentHash, Relation, Scalar, ValidatedModel, admission::{Frontier, FrontierContract}, stages::{Profile, ProviderOutcome}};
+use lctx_model::domain::{ContentHash, Relation, Scalar, ValidatedModel, admission::{Availability, Frontier, FrontierContract},
+    attribution::FactFamily, FieldValue, stages::{Profile, ProviderOutcome}};
+use super::failure::FailureClass;
 use sea_query::{ColumnDef, ColumnType, Expr, ForeignKey, Index, PostgresQueryBuilder, Table};
 use super::{GenerationId, quoted};
 
@@ -13,9 +15,7 @@ pub(super) const STATES: [&str; 4] = ["staging", "sealed", "validated", "publish
 /// The terminal state of a refused attempt. It keeps the physical shape of the state it failed
 /// from, with the writer revoked, and permits only abort.
 pub(super) const FAILED: &str = "failed";
-/// The stored classes of an attempt failure.
-pub(super) const FAILURE_CLASSES: [&str; 12] =
-    ["transport", "unconfirmed", "refused", "state", "contract", "io", "frontier", "resource", "limit", "invalid", "codec", "producer"];
+
 
 /// The relations one frontier's generations lower, and the physical digest of that lowering.
 #[derive(Debug, Clone)]
@@ -95,10 +95,13 @@ impl Lowering {
 /// model's enums.
 pub(super) fn control(control: &str) -> String {
     let list = |names: &mut dyn Iterator<Item = &str>| names.map(|n| format!("'{n}'")).collect::<Vec<_>>().join(",");
+    let codes = |codes: &mut dyn Iterator<Item = i16>| codes.map(|c| c.to_string()).collect::<Vec<_>>().join(",");
     include_str!("control.sql").replace("{control}", &quoted(control))
         .replace("{lifecycle}", &list(&mut STATES.into_iter().chain([FAILED])))
         .replace("{outcomes}", &ProviderOutcome::ALL.iter().map(|o| o.code().to_string()).collect::<Vec<_>>().join(","))
-        .replace("{classes}", &list(&mut FAILURE_CLASSES.into_iter()))
+        .replace("{classes}", &list(&mut FailureClass::ALL.iter().map(|c| c.name())))
+        .replace("{families}", &codes(&mut <FactFamily as FieldValue>::codes().iter().map(|(code, _)| *code)))
+        .replace("{availabilities}", &codes(&mut Availability::ALL.iter().map(|a| a.code())))
         .replace("{profiles}", &list(&mut Profile::ALL.iter().map(|p| p.name())))
         .replace("{frontiers}", &list(&mut Frontier::ALL.iter().map(|f| f.name())))
 }

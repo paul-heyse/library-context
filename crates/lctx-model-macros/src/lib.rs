@@ -323,6 +323,10 @@ fn expand_code(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
             const SCALAR: ::lctx_model::domain::Scalar = ::lctx_model::domain::Scalar::Int16;
             fn codes() -> &'static [(i16, &'static str)] { &[#((#codes, stringify!(#variants)),)*] }
         }
+        impl ::lctx_model::domain::Codebook for #name {
+            fn code(&self) -> i16 { match self { #(Self::#variants => #codes,)* } }
+            fn from_code(code: i16) -> Option<Self> { match code { #(#codes => Some(Self::#variants),)* _ => None } }
+        }
         impl ::lctx_model::domain::Key for #name {
             fn encode(&self, sink: &mut ::lctx_model::domain::KeySink) {
                 let code: i16 = match self { #(Self::#variants => #codes,)* };

@@ -2,6 +2,7 @@
 use std::sync::Arc;
 use lctx_model::domain::{*, artifact::*, assertion::*, attribution::*, calls::*, conditions::*, input::*, source::*};
 use lctx_postgres::generations::{GenerationStore,Error};
+use lctx_postgres::testing::Harness;
 use lctx_postgres::testing::DisposableDatabase;
 
 #[tokio::test]
@@ -38,31 +39,31 @@ async fn call_signature_membership_support_ownership_and_readback() {
     let target_support = CallTargetSupport { assertion: target.id(),run: run.id(),surface: call_surface.id(),evidence: evidence.id(),origin: Origin::AnalyzerAssertion,mode: ExtractionMode::NativeTraversal,fidelity: Fidelity::NativeStructural };
     let resolution_support = CallResolutionSupport { assertion: resolution.id(),run: run.id(),surface: call_surface.id(),evidence: evidence.id(),origin: Origin::AnalyzerAssertion,mode: ExtractionMode::NativeTraversal,fidelity: Fidelity::NativeStructural };
     for wrong_provider in [false,true] {
-        let g = store.create_conformance(ContentHash::of(b"call-fixture"),"catalog").await.unwrap();
-        macro_rules! copy { ($($row:expr),+ $(,)?) => { $(store.copy(&writer,g,&Batch::new(&model,vec![$row.clone()], &budget()).unwrap(), &budget()).await.unwrap();)+ }; }
+        let mut g_h = Harness::begin(&store, writer.clone(), lctx_model::domain::stages::Profile::Catalog, budget()).await.unwrap(); let g = g_h.generation();
+        macro_rules! copy { ($($row:expr),+ $(,)?) => { $(g_h.copy(&Batch::new(&model,vec![$row.clone()], &budget()).unwrap(), &budget()).await.unwrap();)+ }; }
         copy!(input,origin,acquisition,source,site,scope,context,provider,run,condition,qualification,module,symbol,signature,
             destination,channel,receiver,target,resolution,call_surface,signature_surface,evidence,signature_support,resolution_support);
-        store.copy(&writer,g,&Batch::new(&model,ArtifactChunk::split(&source,bytes).unwrap().collect(), &budget()).unwrap(), &budget()).await.unwrap();
-        store.copy(&writer,g,&Batch::new(&model,nodes.clone(), &budget()).unwrap(), &budget()).await.unwrap();
-        store.copy(&writer,g,&Batch::new(&model,families.clone(), &budget()).unwrap(), &budget()).await.unwrap();
-        store.copy(&writer,g,&Batch::new(&model,shapes.clone(), &budget()).unwrap(), &budget()).await.unwrap();
-        store.copy(&writer,g,&Batch::new(&model,parameters.clone(), &budget()).unwrap(), &budget()).await.unwrap();
-        store.copy(&writer,g,&Batch::new(&model,members.clone(), &budget()).unwrap(), &budget()).await.unwrap();
+        g_h.copy(&Batch::new(&model,ArtifactChunk::split(&source,bytes).unwrap().collect(), &budget()).unwrap(), &budget()).await.unwrap();
+        g_h.copy(&Batch::new(&model,nodes.clone(), &budget()).unwrap(), &budget()).await.unwrap();
+        g_h.copy(&Batch::new(&model,families.clone(), &budget()).unwrap(), &budget()).await.unwrap();
+        g_h.copy(&Batch::new(&model,shapes.clone(), &budget()).unwrap(), &budget()).await.unwrap();
+        g_h.copy(&Batch::new(&model,parameters.clone(), &budget()).unwrap(), &budget()).await.unwrap();
+        g_h.copy(&Batch::new(&model,members.clone(), &budget()).unwrap(), &budget()).await.unwrap();
         if wrong_provider {
             let other = Provider { tool: "other-namespace".into(),..provider.clone() };
             let (other_run,other_families) = ProviderRun::new(other.id(),context.id(),input.id(),context.config_digest,[FactFamily::Calls]).unwrap();
             let other_surface = ProviderSurface { provider: other.id(),..call_surface.clone() };
             let support = CallTargetSupport { run: other_run.id(),surface: other_surface.id(),..target_support.clone() };
             copy!(other,other_run,other_surface,support);
-            store.copy(&writer,g,&Batch::new(&model,other_families, &budget()).unwrap(), &budget()).await.unwrap();
+            g_h.copy(&Batch::new(&model,other_families, &budget()).unwrap(), &budget()).await.unwrap();
         } else { copy!(target_support); }
-        store.seal(g).await.unwrap();
+        g_h.seal().await.unwrap();
         if wrong_provider {
-            let error = store.validate(g, &budget()).await.unwrap_err();
+            let error = g_h.validate(&budget()).await.unwrap_err();
             assert!(matches!(error,Error::Model(_)) && error.to_string().contains("different provider"),"{error}");
-            assert!(store.publish(g).await.is_err()); store.abort(g).await.unwrap();
+            assert!(g_h.publish().await.is_err()); g_h.abort().await.unwrap();
         } else {
-            store.validate(g, &budget()).await.unwrap(); store.publish(g).await.unwrap();
+            g_h.validate(&budget()).await.unwrap(); g_h.publish().await.unwrap();
             let mut lease = store.pin(&reader,g, budget()).await.unwrap();
             assert_eq!(lease.read::<Signature>().await.unwrap().rows(),&[signature.clone()]);
             assert_eq!(lease.read::<SignatureParameter>().await.unwrap().rows(),Batch::new(&model,parameters.clone(), &budget()).unwrap().rows());

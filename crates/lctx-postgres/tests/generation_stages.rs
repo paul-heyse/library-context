@@ -2,6 +2,7 @@ use std::sync::Arc;
 use lctx_model::domain::{*, input::Package, stages::*};
 use lctx_model::domain::resources::ResourceBudget;
 use lctx_postgres::generations::{Error, GenerationStore};
+use lctx_postgres::testing::Harness;
 use lctx_postgres::testing::DisposableDatabase;
 
 #[tokio::test]
@@ -23,8 +24,6 @@ async fn generation_sink_requires_its_execution_and_cannot_bypass_sealing_receip
     let attempt = store.begin_conformance(writer.clone(), &mut execution, attempt_budget.clone()).await.unwrap();
     let generation = attempt.generation();
     assert!(store.begin_conformance(writer.clone(), &mut execution, attempt_budget.clone()).await.is_err(), "a sibling generation cannot share an execution");
-    assert!(matches!(store.copy(&writer, generation, &rows, &budget()).await, Err(Error::Contract)));
-    assert!(matches!(store.seal(generation).await, Err(Error::State)), "an attempt-owned generation is sealed only by its attempt");
 
     let mut foreign = schedule.execute();
     let mut foreign_stage = foreign.begin("packages").unwrap();
@@ -38,9 +37,7 @@ async fn generation_sink_requires_its_execution_and_cannot_bypass_sealing_receip
     stage.finish(ProviderOutcome::Complete).unwrap();
     let sealed = attempt.seal(execution.finish().unwrap()).await.unwrap();
     assert_eq!(sealed.generation(), generation);
-    assert!(matches!(store.validate(generation, &budget()).await, Err(Error::State)), "an attempt-owned generation advances only through its attempt");
     let validated = sealed.validate().await.unwrap();
-    assert!(matches!(store.publish(generation).await, Err(Error::State)));
     assert_eq!(validated.publish().await.unwrap(), generation);
     assert!(matches!(store.select(generation).await, Err(Error::Frontier(_))));
     let mut lease = store.pin(&reader, generation, budget()).await.unwrap();
@@ -71,7 +68,7 @@ async fn generation_sink_requires_its_execution_and_cannot_bypass_sealing_receip
     drop(blocker);
     assert_eq!(attempt_budget.reserved(), 0);
     assert!(matches!(store.abort(id).await, Err(Error::Busy)), "a live attempt cannot be aborted from outside");
-    assert_eq!(attempt.fail("resource refusal").await.unwrap(), id);
+    assert_eq!(attempt.fail(&ModelError::Invalid("resource refusal".into())).await.unwrap(), id);
     store.abort(id).await.unwrap();
 
     // Admit a small first row, then refuse a larger wire row during active COPY. The server
@@ -91,8 +88,7 @@ async fn generation_sink_requires_its_execution_and_cannot_bypass_sealing_receip
         assert_eq!(wire_budget.reserved(),0);
         let count: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {}.packages",id.schema()))).fetch_one(&owner).await.unwrap();
         assert_eq!(count,if admitted { 2 } else { 0 });
-        assert!(store.publish(id).await.is_err());
-        attempt.fail("wire control").await.unwrap();
+        attempt.fail(&ModelError::Invalid("wire control".into())).await.unwrap();
         store.abort(id).await.unwrap();
     }
 
@@ -134,23 +130,30 @@ async fn generation_sink_requires_its_execution_and_cannot_bypass_sealing_receip
     assert_eq!(count, 5000, "a repeated row is emitted once across transfer batches");
     let validated = sealed.validate().await.unwrap();
     assert_eq!(attempt_budget.reserved(), 0);
-    validated.fail("control complete").await.unwrap();
-    store.abort(id).await.unwrap();
+    let staged = validated.content();
+    validated.abort().await.unwrap();
 
-    // Validator state and read buffers are charged: on a manual conformance generation a tiny
-    // budget refuses and leaves the generation sealed, and a funded retry validates the same
-    // stored contents. (An attempt records the refusal as failed instead.)
-    let manual = store.create_conformance(ContentHash::of(b"charged validation"), "catalog").await.unwrap();
+    // Validator state and read buffers are charged. A tiny budget fails the attempt with class
+    // `resource`; nothing is repaired in place, and a new funded attempt over the same rows
+    // validates to the stage path's content digest.
     let rows = Batch::new(&model, (0..5000).map(|n| Package { name: format!("p{n}") }).collect(), &budget()).unwrap();
-    store.copy(&writer, manual, &rows, &budget()).await.unwrap();
-    store.seal(manual).await.unwrap();
+    let mut starved = Harness::begin(&store, writer.clone(), lctx_model::domain::stages::Profile::Catalog, budget()).await.unwrap();
+    starved.copy(&rows, &budget()).await.unwrap();
+    starved.seal().await.unwrap();
     let tiny = ResourceBudget::fixed(64 << 10).unwrap();
-    assert!(matches!(store.validate(manual, &tiny).await, Err(Error::Model(ModelError::Resource { .. }))));
+    assert!(matches!(starved.validate(&tiny).await, Err(Error::Model(ModelError::Resource { .. }))));
     assert_eq!(tiny.reserved(), 0);
-    assert!(matches!(store.publish(manual).await, Err(Error::State)), "a refused validation publishes nothing");
-    store.validate(manual, &attempt_budget).await.unwrap();
+    let class: String = sqlx::query_scalar("SELECT class FROM lctx_model_store.failures WHERE generation_id = decode($1, 'hex')")
+        .bind(starved.generation().hex()).fetch_one(&owner).await.unwrap();
+    assert_eq!(class, "resource");
+    assert!(matches!(starved.validate(&attempt_budget).await, Err(Error::State)), "a failed attempt is never retried in place");
+    starved.abort().await.unwrap();
+    let mut funded = Harness::begin(&store, writer.clone(), lctx_model::domain::stages::Profile::Catalog, budget()).await.unwrap();
+    funded.copy(&rows, &budget()).await.unwrap();
+    funded.seal().await.unwrap();
+    assert_eq!(funded.validate(&attempt_budget).await.unwrap(), staged);
     assert_eq!(attempt_budget.reserved(), 0);
-    store.abort(manual).await.unwrap();
+    funded.abort().await.unwrap();
 }
 
 /// A fresh attempt budget; these controls do not share reservations across batches.
