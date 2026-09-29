@@ -200,6 +200,8 @@ crate::codebook!(
         Derivation = 11 => "derivation",
         Finding = 12 => "finding",
         Invocation = 13 => "invocation",
+        /// The digest of a rendered canonical schema (DDL and templates).
+        Ddl = 14 => "ddl",
     }
 );
 
