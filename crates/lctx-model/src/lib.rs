@@ -6,9 +6,10 @@
 //! It performs no I/O and depends on neither `cpg-schema` nor `cpg-core`; `lctx-postgres` applies
 //! its DDL and `cpg-core` runs its stages.
 //!
-//! During the cutover (cutover plan §3.1) the shared primitives the legacy contracts also use live
-//! here, so legacy and new code share one `Id` type; `legacy` holds the temporary migration
-//! machinery and is deleted in phase 5.
+//! `domain` is the reconstructed typed authority under ADR-0085. Its production subset has focused
+//! Arrow/PostgreSQL evidence. The pre-reconstruction modules below still serve the old pipeline;
+//! their removal and semantic replacement remain open in cutover plan §4.2. No adapter connects the
+//! two execution paths, and the existence of this foundation does not establish phase completion.
 
 pub mod calls;
 pub mod condition;
@@ -33,3 +34,7 @@ pub mod __private {
     pub use arrow_array;
     pub use arrow_schema;
 }
+
+extern crate self as lctx_model;
+pub mod domain;
+pub use lctx_model_macros::{Domain, DomainCode, DomainSum};

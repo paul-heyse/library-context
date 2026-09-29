@@ -1,6 +1,6 @@
 [package]
 name = "lctx-model"
-description = "The declared semantic relation model: declarations, identity, vocabulary, policies and generated DDL (DESIGN §15, ADR-0082)."
+description = "Typed semantic definitions, nominal identity and generated physical contracts (DESIGN §15, ADR-0085)."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,6 +8,9 @@ publish.workspace = true
 
 # Pure: no DataFusion, SQLx or I/O (cutover plan §3.1). Depends on neither cpg-schema nor cpg-core.
 [dependencies]
+lctx-model-macros = { path = "../lctx-model-macros" }
+serde_arrow.workspace = true
+thiserror.workspace = true
 arrow-array.workspace = true
 arrow-schema.workspace = true
 arrow-row.workspace = true

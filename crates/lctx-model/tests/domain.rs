@@ -1,0 +1,152 @@
+use lctx_model::{Domain, domain::{Batch, ContentHash, Id, ModelError, Record, Relation, ValidatedModel, source::*, stages::*}};
+
+fn source() -> SourceArtifact {
+    let package = Package { name: "demo".into() };
+    let release = Release { package: package.id(), version: "1.0".into(), lock_digest: ContentHash::of(b"lock") };
+    SourceArtifact { release: release.id(), path: "demo.py".into(), content: ContentHash::of(b"x = 1") }
+}
+#[test]
+fn production_records_round_trip_explicit_schema() {
+    let model = model().unwrap();
+    let source = source();
+    let batch = Batch::new(&model, vec![source.clone()]).unwrap();
+    let roundtrip = Batch::<SourceArtifact>::read(&model, batch.arrow()).unwrap();
+    assert_eq!(roundtrip.rows(), &[source]);
+    let context = AnalysisContext { python_version: "3.14".into(), python_platform: "linux".into(), search_path: vec!["src".into(), "stubs".into()], site_package_path: vec![], config_digest: ContentHash::of(b"config"), environment_digest: ContentHash::of(b"env"), lock_digest: None };
+    let batch = Batch::new(&model, vec![context.clone()]).unwrap();
+    assert_eq!(Batch::<AnalysisContext>::read(&model, batch.arrow()).unwrap().rows(), &[context]);
+    assert!(Batch::<SourceArtifact>::new(&model, vec![]).unwrap().rows().is_empty());
+}
+#[test]
+fn source_kind_and_structural_roles_separate_identity() {
+    let py = source();
+    let mut stub = py.clone(); stub.path = "demo.pyi".into();
+    assert_ne!(py.id(), stub.id());
+    for path in ["/demo.py", "a/../demo.py", "a/./demo.py", "a//demo.py"] {
+        let mut invalid = py.clone(); invalid.path = path.into();
+        assert!(Batch::new(&model().unwrap(), vec![invalid]).is_err());
+    }
+    let a = Occurrence { source: py.id(), start: 0, end: 5, syntax_kind: SyntaxKind::WithItem, role: "item:0".into() };
+    let mut b = a.clone(); b.role = "item:1".into();
+    assert_ne!(a.id(), b.id());
+    let mut invalid = a.clone(); invalid.start = 6;
+    assert!(Batch::new(&model().unwrap(), vec![invalid]).is_err());
+}
+#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[model(name = "named_items")]
+struct NamedItem {
+    #[model(key)] name: String,
+    payload: String,
+}
+#[test]
+fn key_and_payload_conflicts_are_distinct() {
+    let model = ValidatedModel::validate(vec![Relation::of::<NamedItem>()]).unwrap();
+    let a = NamedItem { name: "a".into(), payload: "one".into() };
+    let b = NamedItem { name: "a".into(), payload: "two".into() };
+    assert_eq!(a.key(), b.key()); assert_eq!(a.id(), b.id());
+    assert!(matches!(Batch::new(&model, vec![a.clone(), b]), Err(ModelError::Conflict("named_items"))));
+    assert_eq!(Batch::new(&model, vec![a.clone(), a]).unwrap().rows().len(), 1);
+}
+#[test]
+fn reference_membership_is_checked_and_cycles_are_allowed() {
+    assert!(ValidatedModel::validate(vec![Relation::of::<Module>()]).is_err());
+    assert!(ValidatedModel::validate(vec![Relation::of::<Package>(), Relation::of::<Package>()]).is_err());
+    #[derive(Debug, Clone, PartialEq, Eq, Domain)]
+    #[model(name = "recursive_nodes")]
+    struct RecursiveNode { #[model(key)] name: String, parent: Option<Id<RecursiveNode>> }
+    assert!(ValidatedModel::validate(vec![Relation::of::<RecursiveNode>()]).is_ok());
+}
+#[test]
+fn reference_and_provenance_are_orthogonal() {
+    let model = model().unwrap();
+    let run = model.require::<SyntaxSupport>().unwrap().fields().iter().find(|f| f.name() == "run").unwrap();
+    assert!(run.is_provenance()); assert!(run.is_key());
+    assert_eq!(run.target().unwrap().1, ProviderRun::NAME);
+}
+#[test]
+fn stages_refuse_self_cycles_missing_writers_and_unknown_relations() {
+    let model = model().unwrap();
+    let r = RelationUse::of::<Package>();
+    assert!(Schedule::build(&model, vec![Stage { name: "cycle", inputs: vec![r], outputs: vec![r] }], &[r]).is_err());
+    assert!(Schedule::build(&model, vec![], &[r]).is_err());
+    let good = Stage { name: "packages", inputs: vec![], outputs: vec![r] };
+    assert_eq!(Schedule::build(&model, vec![good.clone()], &[r]).unwrap().stages()[0].name, "packages");
+    let mut second = good.clone(); second.name = "also_packages";
+    assert!(Schedule::build(&model, vec![good, second], &[r]).is_err());
+    assert!(Schedule::build(&model, vec![], &[RelationUse::of::<NamedItem>()]).is_err());
+}
+#[test]
+fn decoded_ids_and_physical_schemas_are_verified() {
+    use std::sync::Arc;
+    use arrow_array::{ArrayRef, FixedSizeBinaryArray, RecordBatch};
+    let model = model().unwrap();
+    let batch = Batch::new(&model, vec![source()]).unwrap();
+    let mut columns = batch.arrow().columns().to_vec();
+    columns[0] = Arc::new(FixedSizeBinaryArray::try_from_iter([[0_u8;16]].into_iter()).unwrap()) as ArrayRef;
+    let corrupt = RecordBatch::try_new(batch.arrow().schema(), columns).unwrap();
+    assert!(matches!(Batch::<SourceArtifact>::read(&model, &corrupt), Err(ModelError::Identity(_))));
+    assert!(Batch::<Module>::read(&model, batch.arrow()).is_err());
+}
+
+#[test]
+fn semantic_validation_revision_changes_model_but_not_arrow_schema() {
+    fn first(_: &Before) -> Result<(), ModelError> { Ok(()) }
+    fn second(row: &After) -> Result<(), ModelError> {
+        if row.name.is_empty() { return Err(ModelError::Invalid("empty".into())); } Ok(())
+    }
+    #[derive(Debug, Clone, PartialEq, Eq, Domain)]
+    #[model(name = "contracts", validate = first)]
+    struct Before { #[model(key)] name: String }
+    #[derive(Debug, Clone, PartialEq, Eq, Domain)]
+    #[model(name = "contracts", validate = second)]
+    struct After { #[model(key)] name: String }
+    assert_eq!(Before::schema(), After::schema());
+    let before = ValidatedModel::validate(vec![Relation::of::<Before>()]).unwrap();
+    let after = ValidatedModel::validate(vec![Relation::of::<After>()]).unwrap();
+    assert_ne!(before.digest(), after.digest());
+}
+
+#[test]
+fn tagged_sums_preserve_active_optional_null_and_reject_inactive_payloads() {
+    use lctx_model::DomainSum;
+    use std::sync::Arc;
+    use arrow_array::{ArrayRef, Int16Array, RecordBatch, StringArray};
+    #[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+    #[model(name = "observed_defaults")]
+    enum ObservedDefault {
+        #[model(code = 0)] Absent,
+        #[model(code = 1)] Present { rendered: Option<String> },
+    }
+    let model = ValidatedModel::validate(vec![Relation::of::<ObservedDefault>()]).unwrap();
+    let rows = vec![ObservedDefault::Absent, ObservedDefault::Present { rendered: None }, ObservedDefault::Present { rendered: Some("None".into()) }];
+    let batch = Batch::new(&model, rows).unwrap();
+    assert_eq!(Batch::<ObservedDefault>::read(&model, batch.arrow()).unwrap().rows(), batch.rows());
+    assert_ne!(ObservedDefault::Absent.id(), ObservedDefault::Present { rendered: None }.id());
+    let absent = Batch::new(&model, vec![ObservedDefault::Absent]).unwrap();
+    let mut columns = absent.arrow().columns().to_vec();
+    columns[2] = Arc::new(StringArray::from(vec!["illegal"])) as ArrayRef;
+    let malformed = RecordBatch::try_new(absent.arrow().schema(), columns).unwrap();
+    assert!(ObservedDefault::decode(&malformed).is_err());
+    let mut columns = absent.arrow().columns().to_vec();
+    columns[1] = Arc::new(Int16Array::from(vec![9])) as ArrayRef;
+    let unknown = RecordBatch::try_new(absent.arrow().schema(), columns).unwrap();
+    assert!(ObservedDefault::decode(&unknown).is_err());
+}
+
+#[test]
+fn subtype_references_require_the_right_arm() {
+    let source = source();
+    let module = Module { source: source.id(), qualified_name: "x".into() };
+    let module_scope = CoverageScope::Module { module: module.id() };
+    let release_scope = CoverageScope::Release { release: source.release };
+    assert!(CoverageScopeModuleId::of(&module_scope).is_ok());
+    assert!(CoverageScopeModuleId::of(&release_scope).is_err());
+    #[derive(Debug, Clone, PartialEq, Eq, Domain)]
+    #[model(name = "module_scope_links")]
+    struct ModuleScopeLink { #[model(key)] scope: CoverageScopeModuleId }
+    let mut relations = model().unwrap().relations().to_vec(); relations.push(Relation::of::<ModuleScopeLink>());
+    let model = ValidatedModel::validate(relations).unwrap();
+    let link = ModuleScopeLink { scope: CoverageScopeModuleId::of(&module_scope).unwrap() };
+    let batch = Batch::new(&model, vec![link.clone()]).unwrap();
+    assert_eq!(Batch::<ModuleScopeLink>::read(&model, batch.arrow()).unwrap().rows(), &[link]);
+}

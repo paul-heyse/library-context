@@ -1,0 +1,17 @@
+[package]
+name = "lctx-model-macros"
+description = "Bounded derivation of semantic keys and physical codecs from domain records"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { workspace = true, features = ["full"] }
+quote.workspace = true
+
+[lints]
+workspace = true
