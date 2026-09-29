@@ -1,0 +1,16 @@
+---
+source: crates/lctx-model/tests/derivation.rs
+expression: "format!(\"{};\\n\\n{};\\n\\n{}\", derivation::derivations_view(SOURCES, &CFG),\nderivation::premises_view(SOURCES, &CFG),\nderivation::derivations_view(&[], &CFG),)"
+---
+CREATE VIEW "lctx"."derivations" WITH (security_invoker = true) AS
+SELECT "generation_id", "step_id" AS derivation_id, 'compose_call' AS rule, 'composition_steps' AS source_relation, 'transfers' AS conclusion_relation, "conclusion_id" AS conclusion_id FROM "lctx"."composition_steps";
+
+CREATE VIEW "lctx"."derivation_premises" WITH (security_invoker = true) AS
+SELECT "generation_id", "step_id" AS derivation_id, 'caller_transfer' AS role, 'transfers' AS premise_relation, "caller_transfer_id" AS premise_id FROM "lctx"."composition_steps" WHERE "caller_transfer_id" IS NOT NULL
+UNION ALL
+SELECT "generation_id", "step_id" AS derivation_id, 'binding' AS role, 'transfers' AS premise_relation, "binding_id" AS premise_id FROM "lctx"."composition_steps" WHERE "binding_id" IS NOT NULL
+UNION ALL
+SELECT "generation_id", "step_id" AS derivation_id, 'callee_transfer' AS role, 'transfers' AS premise_relation, "callee_transfer_id" AS premise_id FROM "lctx"."composition_steps" WHERE "callee_transfer_id" IS NOT NULL;
+
+CREATE VIEW "lctx"."derivations" WITH (security_invoker = true) AS
+SELECT NULL::bytea AS "generation_id", NULL::bytea AS derivation_id, NULL::text AS rule, NULL::text AS source_relation, NULL::text AS conclusion_relation, NULL::bytea AS conclusion_id WHERE FALSE

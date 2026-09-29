@@ -4,7 +4,7 @@ expression: text
 ---
 CREATE TABLE "lctx"."codebook_id_kind" ("code" smallint PRIMARY KEY, "text" text NOT NULL UNIQUE);
 
-INSERT INTO "lctx"."codebook_id_kind" ("code", "text") VALUES (0, 'occurrence'), (1, 'entity'), (2, 'symbol_key'), (3, 'place'), (4, 'atom'), (5, 'condition'), (6, 'condition_node'), (7, 'call_target'), (8, 'call_binding'), (9, 'transfer'), (10, 'obligation'), (11, 'derivation'), (12, 'finding'), (13, 'invocation'), (14, 'ddl');
+INSERT INTO "lctx"."codebook_id_kind" ("code", "text") VALUES (0, 'occurrence'), (1, 'entity'), (2, 'symbol_key'), (3, 'place'), (4, 'atom'), (5, 'condition'), (6, 'condition_node'), (7, 'call_target'), (8, 'call_binding'), (9, 'transfer'), (10, 'obligation'), (11, 'derivation'), (12, 'finding'), (13, 'invocation'), (14, 'ddl'), (15, 'projection');
 
 GRANT SELECT ON "lctx"."codebook_id_kind" TO "lctx_serving";
 

@@ -202,6 +202,8 @@ crate::codebook!(
         Invocation = 13 => "invocation",
         /// The digest of a rendered canonical schema (DDL and templates).
         Ddl = 14 => "ddl",
+        /// The digest of a projection declaration.
+        Projection = 15 => "projection",
     }
 );
 
@@ -351,6 +353,31 @@ pub mod recipes {
         condition, CONDITION = Condition { root: Id }
     );
 
+    crate::recipe!(
+        /// A place: its root kind and root fields, and its canonical access path.
+        place, PLACE = Place {
+            root_kind: super::Code<crate::vocab::PlaceRootKind>,
+            owner: Option<Id>,
+            position: Option<i64>,
+            name: Option<&str>,
+            path: &str,
+        }
+    );
+
+    crate::recipe!(
+        /// A transfer (DESIGN §15.6): owner, in- and out-place, kind, condition, context and
+        /// provenance class.
+        transfer, TRANSFER = Transfer {
+            owner: Id,
+            input: Id,
+            output: Id,
+            kind: super::Code<crate::transfer::TransferKind>,
+            condition: Id,
+            context: Option<Id>,
+            provenance: super::Code<crate::transfer::ProvenanceClass>,
+        }
+    );
+
     /// Every recipe declared here, for validators and the UDF's known answers.
     pub const ALL: &[super::Recipe] = &[
         OCCURRENCE,
@@ -359,5 +386,7 @@ pub mod recipes {
         CONDITION_TERMINAL,
         CONDITION_NODE,
         CONDITION,
+        PLACE,
+        TRANSFER,
     ];
 }

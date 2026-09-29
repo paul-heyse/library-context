@@ -65,5 +65,9 @@ CodebookEntry {
             14,
             "ddl",
         ),
+        (
+            15,
+            "projection",
+        ),
     ],
 }

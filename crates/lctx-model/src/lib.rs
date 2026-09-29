@@ -10,12 +10,18 @@
 //! here, so legacy and new code share one `Id` type; `legacy` holds the temporary migration
 //! machinery and is deleted in phase 5.
 
+pub mod calls;
 pub mod condition;
 pub mod ddl;
 pub mod decl;
+pub mod derivation;
 pub mod id;
 pub mod legacy;
+pub mod obligation;
+pub mod projection;
 pub mod relations;
+pub mod transfer;
+pub mod vocab;
 
 pub use decl::codebook::Codebook;
 pub use id::{Digest, Id, IdHasher};
