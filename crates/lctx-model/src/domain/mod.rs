@@ -22,11 +22,12 @@ pub mod attribution;
 pub mod attachment;
 pub mod stages;
 pub mod resources;
+pub mod batching;
 pub mod obligation;
 
 pub use identity::{ArmId, ContentHash, ContentHasher, EvidenceBytes, Id, Key, KeySink};
 pub use model::{Invariant, InvariantCheck, ValidationInput, Relation, RelationContent, ValidatedModel};
-pub use record::{Arm, ArmField, Sum, SumRecord, Batch, Field, FieldValue, FlatValue, Record, Scalar};
+pub use record::{Arm, ArmField, Sum, SumRecord, Batch, Field, FieldValue, FlatValue, HeapSize, Record, Scalar};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ModelError {

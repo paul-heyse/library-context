@@ -52,7 +52,7 @@ struct Extracted {
 fn add<R: Record>(batches: &mut BTreeMap<&'static str,arrow_array::RecordBatch>, model: &ValidatedModel, rows: Vec<R>) {
     let mut combined = batches.get(R::NAME).map(|batch| R::decode(batch).unwrap()).unwrap_or_default();
     combined.extend(rows);
-    batches.insert(R::NAME,Batch::new(model,combined).unwrap().arrow().clone());
+    batches.insert(R::NAME,Batch::new(model,combined, &budget()).unwrap().arrow().clone());
 }
 fn relativize(value: &mut serde_json::Value, root: &Path) {
     match value {
@@ -185,7 +185,7 @@ async fn pinned_native_parse_typed_domain_and_postgres_conformance() {
     macro_rules! write_read { ($($ty:ty),+ $(,)?) => { $(
         if let Some(batch) = left.batches.get(<$ty>::NAME) {
             let rows = <$ty>::decode(batch).unwrap();
-            store.copy(&writer,generation,&Batch::new(&model,rows).unwrap()).await.unwrap();
+            store.copy(&writer,generation,&Batch::new(&model,rows, &budget()).unwrap(), &budget()).await.unwrap();
         }
     )+ }; }
     write_read!(InputRevision,InputOrigin,InputAcquisition,SourceArtifact,ArtifactChunk,Module,Occurrence,
@@ -193,10 +193,15 @@ async fn pinned_native_parse_typed_domain_and_postgres_conformance() {
         CoverageScope,AssertionQualification,Evidence,SyntaxObservation,SyntaxSupport,ProviderCoverage);
     store.seal(generation).await.unwrap(); store.validate(generation).await.unwrap(); store.publish(generation).await.unwrap();
     assert!(matches!(store.select(generation).await,Err(Error::Frontier)));
-    let mut lease = store.pin(&reader,generation).await.unwrap();
+    let mut lease = store.pin(&reader,generation, budget()).await.unwrap();
     assert_eq!(lease.read::<Occurrence>().await.unwrap().arrow(),&left.batches[Occurrence::NAME]);
     assert_eq!(lease.read::<SyntaxObservation>().await.unwrap().arrow(),&left.batches[SyntaxObservation::NAME]);
     assert_eq!(lease.read::<SyntaxSupport>().await.unwrap().arrow(),&left.batches[SyntaxSupport::NAME]);
     assert_eq!(lease.read::<ArtifactChunk>().await.unwrap().arrow(),&left.batches[ArtifactChunk::NAME]);
     assert_eq!(lease.read::<ProviderCoverage>().await.unwrap().arrow(),&left.batches[ProviderCoverage::NAME]);
+}
+
+/// A fresh attempt budget; these controls do not share reservations across batches.
+fn budget() -> lctx_model::domain::resources::ResourceBudget {
+    lctx_model::domain::resources::ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).unwrap()
 }

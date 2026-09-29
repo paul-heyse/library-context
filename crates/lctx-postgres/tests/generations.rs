@@ -22,9 +22,9 @@ struct BinaryEvidence {
 
 async fn copy_artifact(store: &GenerationStore, writer: &PgPool, generation: GenerationId,
     model: &ValidatedModel, artifact: &SourceArtifact, body: &[u8]) {
-    store.copy(writer, generation, &Batch::new(model, vec![artifact.clone()]).unwrap()).await.unwrap();
+    store.copy(writer, generation, &Batch::new(model, vec![artifact.clone()], &budget()).unwrap(), &budget()).await.unwrap();
     for chunk in ArtifactChunk::split(artifact, body).unwrap() {
-        store.copy(writer, generation, &Batch::new(model, vec![chunk]).unwrap()).await.unwrap();
+        store.copy(writer, generation, &Batch::new(model, vec![chunk], &budget()).unwrap(), &budget()).await.unwrap();
     }
 }
 
@@ -47,7 +47,7 @@ async fn immutable_generation_vertical_slice_and_lifecycle_refusals() {
     let store = GenerationStore::install(owner.clone(), model.clone()).await.unwrap();
     let producer_digest = ContentHash::of(b"producer-code");
     let g = store.create_conformance(producer_digest, "catalog").await.unwrap();
-    assert!(matches!(store.pin(&reader, g).await, Err(Error::State)));
+    assert!(matches!(store.pin(&reader, g, budget()).await, Err(Error::State)));
     assert!(matches!(store.publish(g).await, Err(Error::State)));
     let package = Package { name: "example".into() };
     let release = Release { package: package.id(), version: "1.0".into() };
@@ -81,13 +81,13 @@ async fn immutable_generation_vertical_slice_and_lifecycle_refusals() {
     let link = ModuleScopeLink { scope: CoverageScopeModuleId::of(&scope).unwrap() };
     let coverage = ProviderCoverage { scope: scope.id(), provider: provider.id(), context: context.id(), family: FactFamily::Syntax, run: Some(run.id()), status: CoverageStatus::CompleteUnderStatedModel, reason: None, diagnostic: None };
     let mut node = RecursiveNode { name: "self".into(), parent: None }; node.parent = Some(node.id());
-    macro_rules! copy { ($($row:expr),*) => { $(store.copy(&writer, g, &Batch::new(&model, vec![$row.clone()]).unwrap()).await.unwrap();)* }; }
+    macro_rules! copy { ($($row:expr),*) => { $(store.copy(&writer, g, &Batch::new(&model, vec![$row.clone()], &budget()).unwrap(), &budget()).await.unwrap();)* }; }
     let binary = BinaryEvidence { name: "invalid-utf8".into(), body: lctx_model::domain::EvidenceBytes(vec![0, 255, 128]) };
     copy!(binary, other_package, other_release, origin, acquisition, distribution, other_distribution, verified, other_verified, ownership, other_ownership, example_use, test_use, package, release, input, module, occurrence, provider, context, run, condition, qualification, surface, evidence, assertion, support, scope, coverage, link, node);
-    store.copy(&writer, g, &Batch::new(&model, nodes).unwrap()).await.unwrap();
+    store.copy(&writer, g, &Batch::new(&model, nodes, &budget()).unwrap(), &budget()).await.unwrap();
     copy_artifact(&store, &writer, g, &model, &source, b"x = 1").await;
     copy_artifact(&store, &writer, g, &model, &auxiliary, b"y = 2").await;
-    store.copy(&writer, g, &Batch::new(&model, run_families).unwrap()).await.unwrap();
+    store.copy(&writer, g, &Batch::new(&model, run_families, &budget()).unwrap(), &budget()).await.unwrap();
     // The server refuses oversized payloads even when a caller bypasses typed COPY.
     let oversized = sqlx::query(sqlx::AssertSqlSafe(format!("INSERT INTO {}.binary_evidence(id,name,body) VALUES($1,'oversized',decode(repeat('ff',67108864),'hex'))", g.schema())))
         .bind(vec![0u8;16]).execute(&writer).await;
@@ -104,24 +104,24 @@ async fn immutable_generation_vertical_slice_and_lifecycle_refusals() {
     let mut sealing = tokio::spawn(async move { seal_store.seal(g).await });
     assert!(tokio::time::timeout(std::time::Duration::from_millis(100), &mut sealing).await.is_err());
     tx.commit().await.unwrap(); sealing.await.unwrap().unwrap();
-    assert!(store.copy(&writer, g, &Batch::new(&model, vec![held]).unwrap()).await.is_err());
+    assert!(store.copy(&writer, g, &Batch::new(&model, vec![held], &budget()).unwrap(), &budget()).await.is_err());
     let late = sqlx::query(sqlx::AssertSqlSafe(format!("INSERT INTO {}.packages(id,name) VALUES($1,'late')",g.schema()))).bind(vec![0u8;16]).execute(&writer).await;
     assert!(late.is_err());
     let content = store.validate(g).await.unwrap();
     store.publish(g).await.unwrap();
-    let mut lease = store.pin(&reader, g).await.unwrap();
+    let mut lease = store.pin(&reader, g, budget()).await.unwrap();
     assert_eq!(lease.read::<BinaryEvidence>().await.unwrap().rows(), &[binary]);
-    assert_eq!(lease.read::<SourceArtifact>().await.unwrap().rows(), Batch::new(&model, vec![source, auxiliary.clone()]).unwrap().rows());
-    assert_eq!(lease.read::<ArtifactOwnership>().await.unwrap().rows(), Batch::new(&model, vec![ownership, other_ownership]).unwrap().rows());
-    assert_eq!(lease.read::<DistributionVerification>().await.unwrap().rows(), Batch::new(&model, vec![verified, other_verified]).unwrap().rows());
-    assert_eq!(lease.read::<ArtifactUse>().await.unwrap().rows(), Batch::new(&model, vec![example_use, test_use]).unwrap().rows());
+    assert_eq!(lease.read::<SourceArtifact>().await.unwrap().rows(), Batch::new(&model, vec![source, auxiliary.clone()], &budget()).unwrap().rows());
+    assert_eq!(lease.read::<ArtifactOwnership>().await.unwrap().rows(), Batch::new(&model, vec![ownership, other_ownership], &budget()).unwrap().rows());
+    assert_eq!(lease.read::<DistributionVerification>().await.unwrap().rows(), Batch::new(&model, vec![verified, other_verified], &budget()).unwrap().rows());
+    assert_eq!(lease.read::<ArtifactUse>().await.unwrap().rows(), Batch::new(&model, vec![example_use, test_use], &budget()).unwrap().rows());
     assert_eq!(lease.read::<AnalysisContext>().await.unwrap().rows(), &[context.clone()]);
     assert_eq!(lease.read::<SyntaxSupport>().await.unwrap().rows(), &[support]);
     assert_eq!(lease.read::<ModuleScopeLink>().await.unwrap().rows(), &[link]);
     assert_eq!(lease.read::<CoverageScope>().await.unwrap().rows(), &[scope]);
     assert_eq!(lease.read::<ProviderCoverage>().await.unwrap().rows(), &[coverage]);
     assert_eq!(lease.read::<RecursiveNode>().await.unwrap().rows(), &[node]);
-    assert!(matches!(store.pin(&reader, g).await, Err(Error::Database(sqlx::Error::PoolTimedOut))));
+    assert!(matches!(store.pin(&reader, g, budget()).await, Err(Error::Database(sqlx::Error::PoolTimedOut))));
     assert!(matches!(store.retire(g).await, Err(Error::Busy)));
     let next = store.create_conformance(producer_digest, "catalog").await.unwrap();
     store.seal(next).await.unwrap(); store.validate(next).await.unwrap(); store.publish(next).await.unwrap();
@@ -142,7 +142,7 @@ async fn immutable_generation_vertical_slice_and_lifecycle_refusals() {
             result => panic!("retirement failed: {result:?}"),
         }
     }
-    assert!(matches!(store.pin(&reader, g).await, Err(Error::State)));
+    assert!(matches!(store.pin(&reader, g, budget()).await, Err(Error::State)));
     assert_ne!(content,ContentHash::of(b""));
     assert_eq!(store.retire(g).await.unwrap(),CleanupOutcome::AlreadyAbsent);
     for table in ["generations","receipts","validation_receipts","events"] {
@@ -154,7 +154,7 @@ async fn immutable_generation_vertical_slice_and_lifecycle_refusals() {
     for case in ["changed", "missing", "extra", "duplicate", "span"] {
         let attempt = store.create_conformance(producer_digest, "catalog").await.unwrap();
         let original = SourceArtifact::from_bytes(input.id(), "example.py".into(), b"x = 1").unwrap();
-        store.copy(&writer, attempt, &Batch::new(&model, vec![input.clone()]).unwrap()).await.unwrap();
+        store.copy(&writer, attempt, &Batch::new(&model, vec![input.clone()], &budget()).unwrap(), &budget()).await.unwrap();
         copy_artifact(&store, &writer, attempt, &model, &auxiliary, b"y = 2").await;
         if case != "missing" {
             let artifact = if case == "changed" { SourceArtifact::from_bytes(input.id(), "example.py".into(), b"x = 2").unwrap() } else { original.clone() };
@@ -166,7 +166,7 @@ async fn immutable_generation_vertical_slice_and_lifecycle_refusals() {
         }
         if case == "span" {
             let out_of_bounds = Occurrence { source: original.id(), start: 0, end: 6, syntax_kind: SyntaxKind::ExprName, role: OccurrenceRole::Read, structural_path: vec![] };
-            store.copy(&writer, attempt, &Batch::new(&model, vec![out_of_bounds]).unwrap()).await.unwrap();
+            store.copy(&writer, attempt, &Batch::new(&model, vec![out_of_bounds], &budget()).unwrap(), &budget()).await.unwrap();
         }
         store.seal(attempt).await.unwrap();
         let error = store.validate(attempt).await.unwrap_err();
@@ -183,7 +183,7 @@ async fn immutable_generation_vertical_slice_and_lifecycle_refusals() {
     let crossed_verification = DistributionVerification { acquisition: crossed_acquisition.id(), release: release.id(), record_digest: ContentHash::of(b"other record"), artifact_sha256: vec![] };
     let original = SourceArtifact::from_bytes(input.id(), "example.py".into(), b"x = 1").unwrap();
     let crossed_ownership = ArtifactOwnership { artifact: original.id(), distribution: crossed_verification.id() };
-    macro_rules! copy_crossed { ($($row:expr),+ $(,)?) => { $(store.copy(&writer, crossed, &Batch::new(&model, vec![$row]).unwrap()).await.unwrap();)+ }; }
+    macro_rules! copy_crossed { ($($row:expr),+ $(,)?) => { $(store.copy(&writer, crossed, &Batch::new(&model, vec![$row], &budget()).unwrap(), &budget()).await.unwrap();)+ }; }
     copy_crossed!(input.clone(), empty_input, crossed_origin, crossed_acquisition, crossed_verification, package.clone(), release.clone(), crossed_ownership);
     copy_artifact(&store, &writer, crossed, &model, &original, b"x = 1").await;
     copy_artifact(&store, &writer, crossed, &model, &auxiliary, b"y = 2").await;
@@ -199,11 +199,11 @@ async fn immutable_generation_vertical_slice_and_lifecycle_refusals() {
         let scope = CoverageScope::Input { input: empty_input.id() };
         let outcome = ProviderCoverage { scope: scope.id(), provider: provider.id(), context: context.id(), family: FactFamily::Syntax,
             run: Some(invocation.id()), status: CoverageStatus::Failed, reason: Some(ObligationKind::NativeUnavailable), diagnostic: None };
-        macro_rules! copy_attempt { ($($row:expr),+ $(,)?) => { $(store.copy(&writer, attempt, &Batch::new(&model, vec![$row]).unwrap()).await.unwrap();)+ }; }
+        macro_rules! copy_attempt { ($($row:expr),+ $(,)?) => { $(store.copy(&writer, attempt, &Batch::new(&model, vec![$row], &budget()).unwrap(), &budget()).await.unwrap();)+ }; }
         copy_attempt!(empty_input, provider.clone(), context.clone(), invocation, scope);
         if case != "missing-family" {
             if case == "wrong-family" { memberships[0].family = FactFamily::Flow; }
-            store.copy(&writer, attempt, &Batch::new(&model, memberships).unwrap()).await.unwrap();
+            store.copy(&writer, attempt, &Batch::new(&model, memberships, &budget()).unwrap(), &budget()).await.unwrap();
         }
         if case == "failed-provider" { copy_attempt!(outcome); }
         store.seal(attempt).await.unwrap();
@@ -220,10 +220,10 @@ async fn immutable_generation_vertical_slice_and_lifecycle_refusals() {
     store.abort(damaged).await.unwrap();
     // Missing reference is caught against sealed stored contents, not a caller's batch receipt.
     let bad = store.create_conformance(producer_digest, "catalog").await.unwrap();
-    store.copy(&writer, bad, &Batch::new(&model, vec![release.clone()]).unwrap()).await.unwrap(); store.seal(bad).await.unwrap();
+    store.copy(&writer, bad, &Batch::new(&model, vec![release.clone()], &budget()).unwrap(), &budget()).await.unwrap(); store.seal(bad).await.unwrap();
     assert!(store.validate(bad).await.is_err()); assert!(store.publish(bad).await.is_err());
     assert_eq!(store.abort(bad).await.unwrap(),CleanupOutcome::Removed); assert_eq!(store.abort(bad).await.unwrap(),CleanupOutcome::AlreadyAbsent);
-    assert!(matches!(store.pin(&reader, bad).await, Err(Error::State)));
+    assert!(matches!(store.pin(&reader, bad, budget()).await, Err(Error::State)));
     let abandoned = store.create_conformance(producer_digest, "catalog").await.unwrap();
     store.abort(abandoned).await.unwrap();
     assert!(store.seal(abandoned).await.is_err());
@@ -244,9 +244,9 @@ async fn immutable_generation_vertical_slice_and_lifecycle_refusals() {
     assert!(matches!(store.repair_orphan(next).await,Err(Error::State)));
     let wrong_subtype = store.create_conformance(producer_digest, "catalog").await.unwrap();
     let wrong_scope = CoverageScope::Release { release: release.id() };
-    store.copy(&writer, wrong_subtype, &Batch::new(&model, vec![package]).unwrap()).await.unwrap();
-    store.copy(&writer, wrong_subtype, &Batch::new(&model, vec![release]).unwrap()).await.unwrap();
-    store.copy(&writer, wrong_subtype, &Batch::new(&model, vec![wrong_scope.clone()]).unwrap()).await.unwrap();
+    store.copy(&writer, wrong_subtype, &Batch::new(&model, vec![package], &budget()).unwrap(), &budget()).await.unwrap();
+    store.copy(&writer, wrong_subtype, &Batch::new(&model, vec![release], &budget()).unwrap(), &budget()).await.unwrap();
+    store.copy(&writer, wrong_subtype, &Batch::new(&model, vec![wrong_scope.clone()], &budget()).unwrap(), &budget()).await.unwrap();
     // FK checking is deliberately deferred until every staging table is loaded.
     sqlx::query(sqlx::AssertSqlSafe(format!("INSERT INTO {}.module_scope_links(id,scope) VALUES($1,$2)",wrong_subtype.schema())))
         .bind(vec![0u8;16]).bind(wrong_scope.id().bytes().to_vec()).execute(&writer).await.unwrap();
@@ -256,7 +256,7 @@ async fn immutable_generation_vertical_slice_and_lifecycle_refusals() {
     store.abort(wrong_subtype).await.unwrap();
     // A reader refuses a model mismatch before interpreting any physical values.
     sqlx::query("UPDATE lctx_model_store.generations SET model_digest=$1 WHERE id=decode($2,'hex')").bind(vec![0u8;32]).bind(next.hex()).execute(&owner).await.unwrap();
-    assert!(matches!(store.pin(&reader, next).await, Err(Error::Contract)));
+    assert!(matches!(store.pin(&reader, next, budget()).await, Err(Error::Contract)));
     owner.close().await; writer.close().await; reader.close().await;
 }
 
@@ -277,11 +277,11 @@ async fn chunked_evidence_round_trips_beyond_row_limit_and_sealed_corruption_ref
     let artifact = SourceArtifact::from_bytes(input.id(), "evidence.bin".into(), &bytes).unwrap();
     let empty = SourceArtifact::from_bytes(input.id(), "empty.bin".into(), b"").unwrap();
     let generation = store.create_conformance(ContentHash::of(b"chunk-test"), "catalog").await.unwrap();
-    store.copy(&writer, generation, &Batch::new(&model, vec![input]).unwrap()).await.unwrap();
+    store.copy(&writer, generation, &Batch::new(&model, vec![input], &budget()).unwrap(), &budget()).await.unwrap();
     copy_artifact(&store, &writer, generation, &model, &empty, b"").await;
     copy_artifact(&store, &writer, generation, &model, &artifact, &bytes).await;
     store.seal(generation).await.unwrap(); store.validate(generation).await.unwrap(); store.publish(generation).await.unwrap();
-    let mut lease = store.pin(&reader, generation).await.unwrap();
+    let mut lease = store.pin(&reader, generation, budget()).await.unwrap();
     assert!(lease.read::<ArtifactChunk>().await.is_err()); // convenience collection remains bounded
     let mut seen = std::collections::BTreeSet::new();
     let mut total = 0;
@@ -302,17 +302,17 @@ async fn chunked_evidence_round_trips_beyond_row_limit_and_sealed_corruption_ref
         let a = SourceArtifact::from_bytes(input.id(), "tiny.bin".into(), b"abc").unwrap();
         let b = SourceArtifact::from_bytes(input.id(), "other.bin".into(), b"xyz").unwrap();
         let g = store.create_conformance(ContentHash::of(b"invalid-chunk"), "catalog").await.unwrap();
-        store.copy(&writer, g, &Batch::new(&model, vec![input]).unwrap()).await.unwrap();
-        store.copy(&writer, g, &Batch::new(&model, vec![a.clone(), b.clone()]).unwrap()).await.unwrap();
+        store.copy(&writer, g, &Batch::new(&model, vec![input], &budget()).unwrap(), &budget()).await.unwrap();
+        store.copy(&writer, g, &Batch::new(&model, vec![a.clone(), b.clone()], &budget()).unwrap(), &budget()).await.unwrap();
         if case != "missing" {
             let mut chunk = ArtifactChunk::split(&a, b"abc").unwrap().next().unwrap();
             if case == "corrupt" { chunk.body.0[0] = 0; }
             if case == "noncanonical" { chunk.ordinal = 1; }
             if case == "misplaced" { chunk.artifact = b.id(); }
-            store.copy(&writer, g, &Batch::new(&model, vec![chunk]).unwrap()).await.unwrap();
+            store.copy(&writer, g, &Batch::new(&model, vec![chunk], &budget()).unwrap(), &budget()).await.unwrap();
         }
         if case != "misplaced" {
-            store.copy(&writer, g, &Batch::new(&model, ArtifactChunk::split(&b, b"xyz").unwrap().collect()).unwrap()).await.unwrap();
+            store.copy(&writer, g, &Batch::new(&model, ArtifactChunk::split(&b, b"xyz").unwrap().collect(), &budget()).unwrap(), &budget()).await.unwrap();
         }
         store.seal(g).await.unwrap();
         let error = store.validate(g).await.unwrap_err();
@@ -320,4 +320,9 @@ async fn chunked_evidence_round_trips_beyond_row_limit_and_sealed_corruption_ref
         assert!(error.to_string().contains("chunk"), "{case}: {error}");
         assert!(store.publish(g).await.is_err()); store.abort(g).await.unwrap();
     }
+}
+
+/// A fresh attempt budget; these controls do not share reservations across batches.
+fn budget() -> lctx_model::domain::resources::ResourceBudget {
+    lctx_model::domain::resources::ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).unwrap()
 }

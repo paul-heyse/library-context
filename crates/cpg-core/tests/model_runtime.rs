@@ -14,7 +14,7 @@ async fn declared_stage_catalogs_are_fresh_and_reject_foreign_capabilities() {
     source.write::<Package,_>(async |_| Ok(())).await.unwrap(); source.finish(ProviderOutcome::Complete).unwrap();
     let consumer = execution.begin("consumer").unwrap(); let permit = consumer.read::<Package>().unwrap();
     let first = runtime.session(&consumer); let second = runtime.session(&consumer);
-    let rows = Batch::new(&model,vec![Package { name: "demo".into() }]).unwrap();
+    let rows = Batch::new(&model,vec![Package { name: "demo".into() }], &budget()).unwrap();
     let table = Arc::new(MemTable::try_new(Package::schema(),vec![vec![rows.arrow().clone()]]).unwrap());
     first.register(&permit,table.clone()).unwrap();
     assert_eq!(first.sql("SELECT * FROM packages").await.unwrap().collect().await.unwrap()[0].num_rows(),1);
@@ -45,4 +45,9 @@ async fn compute_and_external_reservations_share_one_attempt_pool() {
     let rows = second.sql(query).await.unwrap().collect().await.unwrap();
     assert_eq!(rows.iter().map(|b| b.num_rows()).sum::<usize>(),20000);
     assert_eq!(runtime.budget().reserved(),0);
+}
+
+/// A fresh attempt budget; these controls do not share reservations across batches.
+fn budget() -> lctx_model::domain::resources::ResourceBudget {
+    lctx_model::domain::resources::ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).unwrap()
 }

@@ -76,7 +76,7 @@ fn complete_alternatives_precede_policies_and_higher_order_never_becomes_direct(
     let set = TargetSet::new(&resolution,&f.qualification,&channel,vec![CallCandidate { target: &higher,supports: &supports,..f.candidate() }]).unwrap();
     for policy in [CallPolicy::Invocation,CallPolicy::Dataflow,CallPolicy::Summary] { assert!(set.admitted(policy).is_empty()); }
     assert_eq!(set.admitted(CallPolicy::Association),vec![higher.id()]);
-    let arrow = Batch::new(&f.model,vec![higher.clone(),unknown]).unwrap();
+    let arrow = Batch::new(&f.model,vec![higher.clone(),unknown], &budget()).unwrap();
     assert_eq!(CallTarget::decode(arrow.arrow()).unwrap(),arrow.rows());
 }
 
@@ -135,7 +135,7 @@ fn stored_membership_checks_refuse_missing_parameters_and_missing_call_alternati
     let (signature,members,_) = f.signature(&params);
     let check_signature = |members: Vec<SignatureParameter>| {
         let invariant = Signature::invariants().remove(0); let mut check = (invariant.create)();
-        macro_rules! visit { ($ty:ty,$rows:expr) => { check.visit(<$ty>::NAME,Batch::new(&f.model,$rows).unwrap().arrow()).unwrap() }; }
+        macro_rules! visit { ($ty:ty,$rows:expr) => { check.visit(<$ty>::NAME,Batch::new(&f.model,$rows, &budget()).unwrap().arrow()).unwrap() }; }
         visit!(AssertionQualification,vec![f.qualification.clone()]); visit!(ProviderSymbol,vec![f.symbol.clone()]);
         visit!(ParameterShape,params.to_vec()); visit!(Signature,vec![signature.clone()]);
         // The stored validator scans this relation in its declared signature/ordinal order.
@@ -149,10 +149,10 @@ fn stored_membership_checks_refuse_missing_parameters_and_missing_call_alternati
     let (resolution,members) = CallResolution::new(&f.qualification,f.target.site,f.channel.id(),CallPhase::Call,true,&[f.target.clone()]).unwrap();
     for include in [true,false] {
         let invariant = CallResolution::invariants().remove(0); let mut check = (invariant.create)();
-        check.visit(AssertionQualification::NAME,Batch::new(&f.model,vec![f.qualification.clone()]).unwrap().arrow()).unwrap();
-        check.visit(CallTarget::NAME,Batch::new(&f.model,vec![f.target.clone()]).unwrap().arrow()).unwrap();
-        check.visit(CallResolution::NAME,Batch::new(&f.model,vec![resolution.clone()]).unwrap().arrow()).unwrap();
-        if include { check.visit(CallResolutionMember::NAME,Batch::new(&f.model,members.clone()).unwrap().arrow()).unwrap(); }
+        check.visit(AssertionQualification::NAME,Batch::new(&f.model,vec![f.qualification.clone()], &budget()).unwrap().arrow()).unwrap();
+        check.visit(CallTarget::NAME,Batch::new(&f.model,vec![f.target.clone()], &budget()).unwrap().arrow()).unwrap();
+        check.visit(CallResolution::NAME,Batch::new(&f.model,vec![resolution.clone()], &budget()).unwrap().arrow()).unwrap();
+        if include { check.visit(CallResolutionMember::NAME,Batch::new(&f.model,members.clone(), &budget()).unwrap().arrow()).unwrap(); }
         assert_eq!(check.finish().is_ok(),include);
     }
 }
@@ -184,17 +184,17 @@ fn native_signature_and_call_support_cannot_switch_provider_namespace() {
         for wrong in [false,true] {
             let invariant = ProviderSymbol::invariants().remove(0); let mut check = (invariant.create)();
             let run = if wrong { ProviderRun { provider: alien.id(),..f.run.clone() } } else { f.run.clone() };
-            macro_rules! visit { ($ty:ty,$rows:expr) => { check.visit(<$ty>::NAME,Batch::new(&f.model,$rows).unwrap().arrow()).unwrap() }; }
+            macro_rules! visit { ($ty:ty,$rows:expr) => { check.visit(<$ty>::NAME,Batch::new(&f.model,$rows, &budget()).unwrap().arrow()).unwrap() }; }
             visit!(ProviderSymbol,vec![f.symbol.clone()]); visit!(ProviderRun,vec![run.clone()]);
             visit!(CallDestination,vec![f.destination.clone()]); visit!(Signature,vec![signature.clone()]);
             visit!(CallTarget,vec![f.target.clone()]);
             let result = if call_support {
                 let support = CallTargetSupport { run: run.id(),..f.support.clone() };
-                check.visit(CallTargetSupport::NAME,Batch::new(&f.model,vec![support]).unwrap().arrow())
+                check.visit(CallTargetSupport::NAME,Batch::new(&f.model,vec![support], &budget()).unwrap().arrow())
             } else {
                 let support = SignatureSupport { assertion: signature.id(),run: run.id(),surface: f.support.surface,evidence: f.support.evidence,
                     origin: f.support.origin,mode: f.support.mode,fidelity: f.support.fidelity };
-                check.visit(SignatureSupport::NAME,Batch::new(&f.model,vec![support]).unwrap().arrow())
+                check.visit(SignatureSupport::NAME,Batch::new(&f.model,vec![support], &budget()).unwrap().arrow())
             };
             assert_eq!(result.is_ok(),!wrong);
             if wrong { assert!(result.unwrap_err().to_string().contains("different provider")); }
@@ -235,4 +235,9 @@ fn binder_checks_shape_lookup_identity_and_retains_aggregate_coordinates() {
     for (index,binding) in bound.bindings().iter().enumerate() {
         assert_eq!(binding.projection,BindingProjection::Positional { index: index as i64 });
     }
+}
+
+/// A fresh attempt budget; these controls do not share reservations across batches.
+fn budget() -> lctx_model::domain::resources::ResourceBudget {
+    lctx_model::domain::resources::ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).unwrap()
 }

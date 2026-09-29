@@ -30,7 +30,7 @@ async fn structural_types_and_recursive_variable_restrictions_roundtrip_without_
         assert_eq!(fixture.base.check(&TypeSupport::invariants()[0]).is_ok(), valid);
         let generation = store.create_conformance(ContentHash::of(b"type-contract"),"catalog").await.unwrap();
         macro_rules! copy { ($($ty:ty),+ $(,)?) => { $(
-            store.copy(&writer,generation,&Batch::new(&model,fixture.base.rows::<$ty>()).unwrap()).await.unwrap();
+            store.copy(&writer,generation,&Batch::new(&model,fixture.base.rows::<$ty>(), &budget()).unwrap(), &budget()).await.unwrap();
         )+ }; }
         copy!(InputRevision,InputOrigin,InputAcquisition,AnalysisContext,Provider,ProviderRun,RunFamily,ProviderSurface,
             CoverageScope,ProviderCoverage,Condition,ConditionNode,AssertionQualification,SourceArtifact,ArtifactChunk,Occurrence,
@@ -44,11 +44,16 @@ async fn structural_types_and_recursive_variable_restrictions_roundtrip_without_
             store.abort(generation).await.unwrap();
         } else {
             store.validate(generation).await.unwrap(); store.publish(generation).await.unwrap();
-            let mut lease = store.pin(&reader,generation).await.unwrap();
+            let mut lease = store.pin(&reader,generation, budget()).await.unwrap();
             assert_eq!(lease.read::<TypeObservation>().await.unwrap().rows(),fixture.base.rows::<TypeObservation>());
             assert_eq!(lease.read::<TypeVariableRestriction>().await.unwrap().rows(),fixture.base.rows::<TypeVariableRestriction>());
             assert_eq!(lease.read::<Literal>().await.unwrap().rows(),fixture.base.rows::<Literal>());
             lease.release().await.unwrap(); store.retire(generation).await.unwrap();
         }
     }
+}
+
+/// A fresh attempt budget; these controls do not share reservations across batches.
+fn budget() -> lctx_model::domain::resources::ResourceBudget {
+    lctx_model::domain::resources::ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).unwrap()
 }

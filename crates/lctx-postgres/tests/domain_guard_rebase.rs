@@ -31,7 +31,7 @@ async fn invoked_guards_retain_typed_origins_and_foreign_source_refusal() {
         assert_eq!(fixture.calls.len(),2);
         let generation = store.create_conformance(ContentHash::of(b"guard-contract"),"catalog").await.unwrap();
         macro_rules! copy { ($($ty:ty),+ $(,)?) => { $(
-            store.copy(&writer,generation,&Batch::new(&model,fixture.rows::<$ty>()).unwrap()).await.unwrap();
+            store.copy(&writer,generation,&Batch::new(&model,fixture.rows::<$ty>(), &budget()).unwrap(), &budget()).await.unwrap();
         )+ }; }
         copy!(InputRevision,InputOrigin,InputAcquisition,AnalysisContext,Provider,ProviderRun,RunFamily,ProviderSurface,
             CoverageScope,Condition,ConditionNode,AssertionQualification,SourceArtifact,ArtifactChunk,Evidence,Occurrence,
@@ -43,14 +43,19 @@ async fn invoked_guards_retain_typed_origins_and_foreign_source_refusal() {
             store.abort(generation).await.unwrap();
         } else {
             store.validate(generation).await.unwrap(); store.publish(generation).await.unwrap();
-            let mut lease = store.pin(&reader,generation).await.unwrap();
+            let mut lease = store.pin(&reader,generation, budget()).await.unwrap();
             assert_eq!(lease.read::<EvaluationAtom>().await.unwrap().rows(),fixture.rows::<EvaluationAtom>());
             assert_eq!(lease.read::<Predicate>().await.unwrap().rows(),fixture.rows::<Predicate>());
-            let other_lease = store.pin(&reader,generation).await.unwrap();
+            let other_lease = store.pin(&reader,generation, budget()).await.unwrap();
             lease.release().await.unwrap();
             assert!(matches!(store.retire(generation).await,Err(Error::Busy)));
             other_lease.release().await.unwrap();
             store.retire(generation).await.unwrap();
         }
     }
+}
+
+/// A fresh attempt budget; these controls do not share reservations across batches.
+fn budget() -> lctx_model::domain::resources::ResourceBudget {
+    lctx_model::domain::resources::ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).unwrap()
 }

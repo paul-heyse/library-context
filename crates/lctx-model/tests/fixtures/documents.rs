@@ -93,7 +93,7 @@ impl Fixture {
         f.put(values); f.put(attributes); f.put(attribute_supports);
         f
     }
-    pub fn put<R: Record>(&mut self, rows: Vec<R>) { self.batches.insert(R::NAME,Batch::new(&self.model,rows).unwrap().arrow().clone()); }
+    pub fn put<R: Record>(&mut self, rows: Vec<R>) { self.batches.insert(R::NAME,Batch::new(&self.model,rows, &budget()).unwrap().arrow().clone()); }
     pub fn rows<R: Record>(&self) -> Vec<R> { self.batches.get(R::NAME).map(|b| R::decode(b).unwrap()).unwrap_or_default() }
     pub fn check(&self, invariant: &Invariant) -> Result<(),ModelError> {
         let mut check = (invariant.create)();
@@ -105,4 +105,9 @@ impl Fixture {
         let mut rows = self.rows::<DocumentComponentObservation>(); rows.retain(|r| r.component != self.component.component); rows.push(self.component.clone()); self.put(rows);
         let mut supports = self.rows::<DocumentComponentSupport>(); supports.retain(|s| s.evidence != self.component_support.evidence); supports.push(self.component_support.clone()); self.put(supports);
     }
+}
+
+/// A fresh attempt budget; these controls do not share reservations across batches.
+fn budget() -> lctx_model::domain::resources::ResourceBudget {
+    lctx_model::domain::resources::ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).unwrap()
 }

@@ -15,7 +15,7 @@ fn document_structure_and_attribution_preserve_bytes_and_typed_attribute_variant
     assert_eq!(values.len(),4);
     assert!(values.iter().any(|v| matches!(v,DocumentAttributeValue::Spread { source } if source == "props")));
     assert!(values.iter().any(|v| matches!(v,DocumentAttributeValue::Expression { name,source } if name == "count" && source == "size")));
-    assert_eq!(DocumentAttributeValue::decode(Batch::new(&fixture.model,values.clone()).unwrap().arrow()).unwrap(),values);
+    assert_eq!(DocumentAttributeValue::decode(Batch::new(&fixture.model,values.clone(), &budget()).unwrap().arrow()).unwrap(),values);
 }
 
 #[test]
@@ -40,4 +40,9 @@ fn document_shapes_and_parent_depth_are_validated() {
     assert!(passage.validate().is_err());
     let invocation = Evidence::Invocation { run: fixture.rows::<lctx_model::domain::attribution::ProviderRun>()[0].id() };
     assert!(EvidenceSourceSpanId::of(&invocation).is_err());
+}
+
+/// A fresh attempt budget; these controls do not share reservations across batches.
+fn budget() -> lctx_model::domain::resources::ResourceBudget {
+    lctx_model::domain::resources::ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).unwrap()
 }

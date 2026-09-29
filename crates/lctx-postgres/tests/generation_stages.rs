@@ -22,13 +22,13 @@ async fn generation_sink_requires_its_execution_and_cannot_bypass_sealing_receip
         profiles: vec![Profile::Catalog], effect: Effect::Extraction,
         code: ContentHash::of(b"package producer"), configuration: ContentHash::of(b"configuration"),
     }], &[RelationUse::of::<Package>()], Profile::Catalog).unwrap();
-    let rows = Batch::new(&model, vec![Package { name: "example".into() }]).unwrap();
+    let rows = Batch::new(&model, vec![Package { name: "example".into() }], &budget()).unwrap();
     let mut execution = schedule.execute();
-    let budget = ResourceBudget::fixed(1 << 20).unwrap();
-    let attempt = store.begin_conformance(writer.clone(), &mut execution, budget.clone()).await.unwrap();
+    let attempt_budget = ResourceBudget::fixed(1 << 20).unwrap();
+    let attempt = store.begin_conformance(writer.clone(), &mut execution, attempt_budget.clone()).await.unwrap();
     let generation = attempt.generation();
-    assert!(store.begin_conformance(writer.clone(), &mut execution, budget.clone()).await.is_err(), "a sibling generation cannot share an execution");
-    assert!(matches!(store.copy(&writer, generation, &rows).await, Err(Error::Contract)));
+    assert!(store.begin_conformance(writer.clone(), &mut execution, attempt_budget.clone()).await.is_err(), "a sibling generation cannot share an execution");
+    assert!(matches!(store.copy(&writer, generation, &rows, &budget()).await, Err(Error::Contract)));
     assert!(matches!(store.seal(generation).await, Err(Error::Contract)));
 
     let mut foreign = schedule.execute();
@@ -39,20 +39,20 @@ async fn generation_sink_requires_its_execution_and_cannot_bypass_sealing_receip
 
     let mut stage = execution.begin("packages").unwrap();
     stage.write::<Package,_>(async |permit| attempt.copy(permit, &rows).await).await.unwrap();
-    assert_eq!(budget.reserved(), 0);
+    assert_eq!(attempt_budget.reserved(), 0);
     stage.finish(ProviderOutcome::Complete).unwrap();
     assert_eq!(attempt.seal(execution.finish().unwrap()).await.unwrap(), generation);
     store.validate(generation).await.unwrap();
     store.publish(generation).await.unwrap();
     assert!(matches!(store.select(generation).await, Err(Error::Frontier)));
-    let mut lease = store.pin(&reader, generation).await.unwrap();
+    let mut lease = store.pin(&reader, generation, budget()).await.unwrap();
     assert_eq!(lease.read::<Package>().await.unwrap().rows(), rows.rows());
     lease.release().await.unwrap();
     store.retire(generation).await.unwrap();
 
     // An identical schedule's receipt still cannot seal another execution's generation.
     let mut untouched = schedule.execute();
-    let abandoned = store.begin_conformance(writer.clone(), &mut untouched, budget.clone()).await.unwrap();
+    let abandoned = store.begin_conformance(writer.clone(), &mut untouched, attempt_budget.clone()).await.unwrap();
     let abandoned_id = abandoned.generation();
     let mut other = schedule.execute();
     let mut stage = other.begin("packages").unwrap();
@@ -61,24 +61,24 @@ async fn generation_sink_requires_its_execution_and_cannot_bypass_sealing_receip
     assert!(matches!(abandoned.seal(other.finish().unwrap()).await, Err(Error::Contract)));
     store.abort(abandoned_id).await.unwrap();
 
-    // No wire buffer may escape the shared budget; resource refusal poisons execution.
+    // No wire buffer may escape the shared attempt_budget; resource refusal poisons execution.
     let mut execution = schedule.execute();
-    let attempt = store.begin_conformance(writer.clone(), &mut execution, budget.clone()).await.unwrap();
+    let attempt = store.begin_conformance(writer.clone(), &mut execution, attempt_budget.clone()).await.unwrap();
     let id = attempt.generation();
-    let blocker = budget.reserve("other stage", budget.limit()).unwrap();
+    let blocker = attempt_budget.reserve("other stage", attempt_budget.limit()).unwrap();
     let mut stage = execution.begin("packages").unwrap();
     assert!(matches!(stage.write::<Package,_>(async |permit| attempt.copy(permit, &rows).await).await, Err(ModelError::Resource { .. })));
     drop(stage);
     assert!(execution.finish().is_err());
     drop(blocker);
-    assert_eq!(budget.reserved(), 0);
+    assert_eq!(attempt_budget.reserved(), 0);
     store.abort(id).await.unwrap();
 
     // Admit a small first row, then refuse a larger wire row during active COPY. The server
     // must acknowledge COPY abort and transaction rollback before the failure is returned.
     let large = Package { name: "a".repeat(4096) };
     let small = (0..1000).map(|n| Package { name: format!("small-{n}") }).find(|p| p.id() < large.id()).unwrap();
-    let wire_rows = Batch::new(&model,vec![small.clone(),large]).unwrap();
+    let wire_rows = Batch::new(&model,vec![small.clone(),large], &budget()).unwrap();
     assert_eq!(wire_rows.rows()[0],small);
     for admitted in [false,true] {
         let wire_budget = ResourceBudget::fixed(wire_rows.arrow().schema().fields().len()*4096 + if admitted { 32768 } else { 128 }).unwrap();
@@ -97,10 +97,10 @@ async fn generation_sink_requires_its_execution_and_cannot_bypass_sealing_receip
 
     for empty_write in [false, true] {
         let mut execution = schedule.execute();
-        let attempt = store.begin_conformance(writer.clone(), &mut execution, budget.clone()).await.unwrap();
+        let attempt = store.begin_conformance(writer.clone(), &mut execution, attempt_budget.clone()).await.unwrap();
         let id = attempt.generation();
         let mut stage = execution.begin("packages").unwrap();
-        let empty = Batch::<Package>::new(&model, vec![]).unwrap();
+        let empty = Batch::<Package>::new(&model, vec![], &budget()).unwrap();
         stage.write::<Package,_>(async |permit| {
             if empty_write { attempt.copy(permit, &empty).await?; }
             Ok(())
@@ -113,4 +113,27 @@ async fn generation_sink_requires_its_execution_and_cannot_bypass_sealing_receip
         } else { assert!(matches!(sealed, Err(Error::State)), "a successful no-op did not write an output"); }
         store.abort(id).await.unwrap();
     }
+
+    // The permanent writer path: transfer-bounded batches through the stage-bound sink, all
+    // charged to the attempt budget and released once the stage completes.
+    let mut execution = schedule.execute();
+    let attempt = store.begin_conformance(writer.clone(), &mut execution, attempt_budget.clone()).await.unwrap();
+    let id = attempt.generation();
+    let mut output = StageOutput::new(execution.begin("packages").unwrap(), &attempt, &model, attempt_budget.clone(),
+        lctx_model::domain::batching::TransferLimits::default()).unwrap();
+    output.declare::<Package>().unwrap();
+    for n in 0..5000 { output.push(Package { name: format!("p{n}") }).await.unwrap(); }
+    output.push(Package { name: "p0".into() }).await.unwrap();
+    output.finish(ProviderOutcome::Complete).await.unwrap();
+    assert_eq!(attempt_budget.reserved(), 0);
+    assert_eq!(attempt.seal(execution.finish().unwrap()).await.unwrap(), id);
+    store.validate(id).await.unwrap();
+    let count: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {}.packages", id.schema()))).fetch_one(&owner).await.unwrap();
+    assert_eq!(count, 5000, "a repeated row is emitted once across transfer batches");
+    store.abort(id).await.unwrap();
+}
+
+/// A fresh attempt budget; these controls do not share reservations across batches.
+fn budget() -> lctx_model::domain::resources::ResourceBudget {
+    lctx_model::domain::resources::ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).unwrap()
 }

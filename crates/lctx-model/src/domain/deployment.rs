@@ -12,6 +12,7 @@ pub enum CheckStatus { Passed = 0, Failed = 1, NotRun = 2, Blocked = 3 }
 pub struct Milliseconds(pub u64);
 impl Key for Milliseconds { fn encode(&self,sink: &mut KeySink) { sink.part(b"milliseconds-u64",&self.0.to_le_bytes()); } }
 impl FlatValue for Milliseconds {}
+impl HeapSize for Milliseconds {}
 impl FieldValue for Milliseconds { const SCALAR: Scalar = Scalar::Text; }
 impl serde::Serialize for Milliseconds {
     fn serialize<S: serde::Serializer>(&self,s: S) -> Result<S::Ok,S::Error> { s.serialize_str(&self.0.to_string()) }

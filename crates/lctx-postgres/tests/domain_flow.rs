@@ -27,7 +27,7 @@ async fn raw_flow_and_transitive_place_provenance_survive_sealed_validation() {
         assert_eq!(fixture.base.check(&FlowDefinitionSupport::invariants()[0]).is_ok(), !foreign);
         let generation = store.create_conformance(ContentHash::of(b"flow-contract"),"catalog").await.unwrap();
         macro_rules! copy { ($($ty:ty),+ $(,)?) => { $(
-            store.copy(&writer,generation,&Batch::new(&model,fixture.base.rows::<$ty>()).unwrap()).await.unwrap();
+            store.copy(&writer,generation,&Batch::new(&model,fixture.base.rows::<$ty>(), &budget()).unwrap(), &budget()).await.unwrap();
         )+ }; }
         copy!(InputRevision,InputOrigin,InputAcquisition,AnalysisContext,Provider,ProviderRun,RunFamily,ProviderSurface,
             CoverageScope,ProviderCoverage,Condition,ConditionNode,AssertionQualification,SourceArtifact,ArtifactChunk,Occurrence,
@@ -42,11 +42,16 @@ async fn raw_flow_and_transitive_place_provenance_survive_sealed_validation() {
             store.abort(generation).await.unwrap();
         } else {
             store.validate(generation).await.unwrap(); store.publish(generation).await.unwrap();
-            let mut lease = store.pin(&reader,generation).await.unwrap();
+            let mut lease = store.pin(&reader,generation, budget()).await.unwrap();
             assert_eq!(lease.read::<FlowUse>().await.unwrap().rows(),fixture.base.rows::<FlowUse>());
             assert_eq!(lease.read::<FlowReachingObservation>().await.unwrap().rows(),fixture.base.rows::<FlowReachingObservation>());
             assert_eq!(lease.read::<FlowDefinitionObservation>().await.unwrap().rows(),fixture.base.rows::<FlowDefinitionObservation>());
             lease.release().await.unwrap(); store.retire(generation).await.unwrap();
         }
     }
+}
+
+/// A fresh attempt budget; these controls do not share reservations across batches.
+fn budget() -> lctx_model::domain::resources::ResourceBudget {
+    lctx_model::domain::resources::ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).unwrap()
 }

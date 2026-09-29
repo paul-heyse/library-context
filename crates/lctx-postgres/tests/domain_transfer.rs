@@ -55,13 +55,13 @@ async fn transfer_control_selection_survive_postgres_and_cross_scope_call_site_r
         let support = TransferSupport { assertion: alternative.id(),run: run.id(),surface: surface.id(),evidence: evidence.id(),
             origin: Origin::DerivedAnalysis,mode: ExtractionMode::GraphAnalysis,fidelity: Fidelity::NormalizedStructural };
         let g = store.create_conformance(ContentHash::of(b"transfer-fixture"),"behavioral").await.unwrap();
-        macro_rules! copy { ($($row:expr),+ $(,)?) => { $(store.copy(&writer,g,&Batch::new(&model,vec![$row.clone()]).unwrap()).await.unwrap();)+ }; }
+        macro_rules! copy { ($($row:expr),+ $(,)?) => { $(store.copy(&writer,g,&Batch::new(&model,vec![$row.clone()], &budget()).unwrap(), &budget()).await.unwrap();)+ }; }
         copy!(input,origin,acquisition,source,other,scope,context,provider,run,surface,symbol,path,predicate,atom,condition,qualification,
             influence,evidence,influence_evidence,control_support,key,alternative,selection,support,other_site,other_root,other_place);
-        macro_rules! copies { ($($rows:expr),+ $(,)?) => { $(store.copy(&writer,g,&Batch::new(&model,$rows.clone()).unwrap()).await.unwrap();)+ }; }
+        macro_rules! copies { ($($rows:expr),+ $(,)?) => { $(store.copy(&writer,g,&Batch::new(&model,$rows.clone(), &budget()).unwrap(), &budget()).await.unwrap();)+ }; }
         copies!(families,occurrences,roots,places,nodes);
-        store.copy(&writer,g,&Batch::new(&model,ArtifactChunk::split(&source,bytes).unwrap().collect()).unwrap()).await.unwrap();
-        store.copy(&writer,g,&Batch::new(&model,ArtifactChunk::split(&other,b"z").unwrap().collect()).unwrap()).await.unwrap();
+        store.copy(&writer,g,&Batch::new(&model,ArtifactChunk::split(&source,bytes).unwrap().collect(), &budget()).unwrap(), &budget()).await.unwrap();
+        store.copy(&writer,g,&Batch::new(&model,ArtifactChunk::split(&other,b"z").unwrap().collect(), &budget()).unwrap(), &budget()).await.unwrap();
         store.seal(g).await.unwrap();
         if boundary != 0 {
             let error = store.validate(g).await.unwrap_err();
@@ -69,7 +69,7 @@ async fn transfer_control_selection_survive_postgres_and_cross_scope_call_site_r
             assert!(store.publish(g).await.is_err()); store.abort(g).await.unwrap();
         } else {
             store.validate(g).await.unwrap(); store.publish(g).await.unwrap();
-            let mut lease = store.pin(&reader,g).await.unwrap();
+            let mut lease = store.pin(&reader,g, budget()).await.unwrap();
             assert_eq!(lease.read::<TransferKey>().await.unwrap().rows(),&[key]);
             assert_eq!(lease.read::<TransferAlternative>().await.unwrap().rows(),&[alternative]);
             assert_eq!(lease.read::<TransferSupport>().await.unwrap().rows(),&[support]);
@@ -85,4 +85,9 @@ async fn transfer_control_selection_survive_postgres_and_cross_scope_call_site_r
                 ("influence".into(),ControlInfluence::NAME.into(),influence.id().bytes().to_vec())]);
         }
     }
+}
+
+/// A fresh attempt budget; these controls do not share reservations across batches.
+fn budget() -> lctx_model::domain::resources::ResourceBudget {
+    lctx_model::domain::resources::ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).unwrap()
 }

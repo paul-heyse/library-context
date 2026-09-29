@@ -7,7 +7,7 @@ fn context(version: &str) -> AnalysisContext {
         site_package_path: vec![], config_digest: ContentHash::of(b"config"), environment_digest: ContentHash::of(b"env"), lock_digest: None }
 }
 fn insert<R: Record>(model: &ValidatedModel, batches: &mut BTreeMap<&'static str,RecordBatch>, rows: Vec<R>) {
-    batches.insert(R::NAME, Batch::new(model, rows).unwrap().arrow().clone());
+    batches.insert(R::NAME, Batch::new(model, rows, &budget()).unwrap().arrow().clone());
 }
 fn check(invariant: &Invariant, batches: &BTreeMap<&str,RecordBatch>) -> Result<(),ModelError> {
     let mut check = (invariant.create)();
@@ -40,7 +40,7 @@ fn qualified_assertions_preserve_alternatives_and_require_typed_attribution() {
     let support = SyntaxSupport { assertion: assertion.id(),run: run.id(),surface: surface.id(),evidence: evidence.id(),origin: Origin::SourceObservation,mode: ExtractionMode::NativeTraversal,fidelity: Fidelity::NativeStructural };
     let mut repeated = support.clone(); repeated.mode = ExtractionMode::ReportDecode;
     assert_ne!(support.id(),repeated.id()); assert_eq!(support.assertion,repeated.assertion);
-    let roundtrip = Batch::new(&model, vec![support.clone(),repeated.clone()]).unwrap();
+    let roundtrip = Batch::new(&model, vec![support.clone(),repeated.clone()], &budget()).unwrap();
     assert_eq!(SyntaxSupport::decode(roundtrip.arrow()).unwrap(),roundtrip.rows());
     let mut base = BTreeMap::new();
     insert(&model,&mut base,nodes); insert(&model,&mut base,vec![condition]);
@@ -148,4 +148,9 @@ fn assertion_model_requires_its_concrete_support_companion() {
     let error = ValidatedModel::validate(without_support).unwrap_err();
     assert!(error.to_string().contains("requires companion relation syntax_supports"));
     ValidatedModel::validate(complete.relations().to_vec()).unwrap();
+}
+
+/// A fresh attempt budget; these controls do not share reservations across batches.
+fn budget() -> lctx_model::domain::resources::ResourceBudget {
+    lctx_model::domain::resources::ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).unwrap()
 }

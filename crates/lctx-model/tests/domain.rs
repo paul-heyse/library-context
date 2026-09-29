@@ -8,14 +8,14 @@ fn source() -> SourceArtifact {
 fn production_records_round_trip_explicit_schema() {
     let model = model().unwrap();
     let source = source();
-    let batch = Batch::new(&model, vec![source.clone()]).unwrap();
-    let roundtrip = Batch::<SourceArtifact>::read(&model, batch.arrow()).unwrap();
+    let batch = Batch::new(&model, vec![source.clone()], &budget()).unwrap();
+    let roundtrip = Batch::<SourceArtifact>::read(&model, batch.arrow(), &budget()).unwrap();
     assert_eq!(roundtrip.rows(), &[source]);
     assert!(std::sync::Arc::ptr_eq(&roundtrip.arrow().columns()[0], &batch.arrow().columns()[0]));
     let context = AnalysisContext { python_version: "3.14".into(), python_platform: "linux".into(), search_path: vec!["src".into(), "stubs".into()], site_package_path: vec![], config_digest: ContentHash::of(b"config"), environment_digest: ContentHash::of(b"env"), lock_digest: None };
-    let batch = Batch::new(&model, vec![context.clone()]).unwrap();
-    assert_eq!(Batch::<AnalysisContext>::read(&model, batch.arrow()).unwrap().rows(), &[context]);
-    assert!(Batch::<SourceArtifact>::new(&model, vec![]).unwrap().rows().is_empty());
+    let batch = Batch::new(&model, vec![context.clone()], &budget()).unwrap();
+    assert_eq!(Batch::<AnalysisContext>::read(&model, batch.arrow(), &budget()).unwrap().rows(), &[context]);
+    assert!(Batch::<SourceArtifact>::new(&model, vec![], &budget()).unwrap().rows().is_empty());
 }
 #[test]
 fn source_kind_and_structural_roles_separate_identity() {
@@ -24,13 +24,13 @@ fn source_kind_and_structural_roles_separate_identity() {
     assert_ne!(py.id(), stub.id());
     for path in ["/demo.py", "a/../demo.py", "a/./demo.py", "a//demo.py", "a\0b"] {
         let mut invalid = py.clone(); invalid.path = path.into();
-        assert!(Batch::new(&model().unwrap(), vec![invalid]).is_err());
+        assert!(Batch::new(&model().unwrap(), vec![invalid], &budget()).is_err());
     }
     let a = Occurrence { source: py.id(), start: 0, end: 5, syntax_kind: SyntaxKind::WithItem, role: OccurrenceRole::WithItem, structural_path: vec![0] };
     let mut b = a.clone(); b.structural_path = vec![1];
     assert_ne!(a.id(), b.id());
     let mut invalid = a.clone(); invalid.start = 6;
-    assert!(Batch::new(&model().unwrap(), vec![invalid]).is_err());
+    assert!(Batch::new(&model().unwrap(), vec![invalid], &budget()).is_err());
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name = "named_items")]
@@ -44,8 +44,8 @@ fn key_and_payload_conflicts_are_distinct() {
     let a = NamedItem { name: "a".into(), payload: "one".into() };
     let b = NamedItem { name: "a".into(), payload: "two".into() };
     assert_eq!(a.key(), b.key()); assert_eq!(a.id(), b.id());
-    assert!(matches!(Batch::new(&model, vec![a.clone(), b]), Err(ModelError::Conflict("named_items"))));
-    assert_eq!(Batch::new(&model, vec![a.clone(), a]).unwrap().rows().len(), 1);
+    assert!(matches!(Batch::new(&model, vec![a.clone(), b], &budget()), Err(ModelError::Conflict("named_items"))));
+    assert_eq!(Batch::new(&model, vec![a.clone(), a], &budget()).unwrap().rows().len(), 1);
 }
 #[test]
 fn reference_membership_is_checked_and_cycles_are_allowed() {
@@ -80,12 +80,12 @@ fn decoded_ids_and_physical_schemas_are_verified() {
     use std::sync::Arc;
     use arrow_array::{ArrayRef, FixedSizeBinaryArray, RecordBatch};
     let model = model().unwrap();
-    let batch = Batch::new(&model, vec![source()]).unwrap();
+    let batch = Batch::new(&model, vec![source()], &budget()).unwrap();
     let mut columns = batch.arrow().columns().to_vec();
     columns[0] = Arc::new(FixedSizeBinaryArray::try_from_iter([[0_u8;16]].into_iter()).unwrap()) as ArrayRef;
     let corrupt = RecordBatch::try_new(batch.arrow().schema(), columns).unwrap();
-    assert!(matches!(Batch::<SourceArtifact>::read(&model, &corrupt), Err(ModelError::Identity(_))));
-    assert!(Batch::<Module>::read(&model, batch.arrow()).is_err());
+    assert!(matches!(Batch::<SourceArtifact>::read(&model, &corrupt, &budget()), Err(ModelError::Identity(_))));
+    assert!(Batch::<Module>::read(&model, batch.arrow(), &budget()).is_err());
 }
 
 #[test]
@@ -119,10 +119,10 @@ fn tagged_sums_preserve_active_optional_null_and_reject_inactive_payloads() {
     }
     let model = ValidatedModel::validate(vec![Relation::of::<ObservedDefault>()]).unwrap();
     let rows = vec![ObservedDefault::Absent, ObservedDefault::Present { rendered: None }, ObservedDefault::Present { rendered: Some("None".into()) }];
-    let batch = Batch::new(&model, rows).unwrap();
-    assert_eq!(Batch::<ObservedDefault>::read(&model, batch.arrow()).unwrap().rows(), batch.rows());
+    let batch = Batch::new(&model, rows, &budget()).unwrap();
+    assert_eq!(Batch::<ObservedDefault>::read(&model, batch.arrow(), &budget()).unwrap().rows(), batch.rows());
     assert_ne!(ObservedDefault::Absent.id(), ObservedDefault::Present { rendered: None }.id());
-    let absent = Batch::new(&model, vec![ObservedDefault::Absent]).unwrap();
+    let absent = Batch::new(&model, vec![ObservedDefault::Absent], &budget()).unwrap();
     let mut columns = absent.arrow().columns().to_vec();
     columns[2] = Arc::new(StringArray::from(vec!["illegal"])) as ArrayRef;
     let malformed = RecordBatch::try_new(absent.arrow().schema(), columns).unwrap();
@@ -147,8 +147,8 @@ fn subtype_references_require_the_right_arm() {
     let mut relations = model().unwrap().relations().to_vec(); relations.push(Relation::of::<ModuleScopeLink>());
     let model = ValidatedModel::validate(relations).unwrap();
     let link = ModuleScopeLink { scope: CoverageScopeModuleId::of(&module_scope).unwrap() };
-    let batch = Batch::new(&model, vec![link.clone()]).unwrap();
-    assert_eq!(Batch::<ModuleScopeLink>::read(&model, batch.arrow()).unwrap().rows(), &[link]);
+    let batch = Batch::new(&model, vec![link.clone()], &budget()).unwrap();
+    assert_eq!(Batch::<ModuleScopeLink>::read(&model, batch.arrow(), &budget()).unwrap().rows(), &[link]);
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
@@ -165,8 +165,8 @@ fn binary_evidence_and_streamed_content_preserve_payload_and_batch_independence(
     let batch = Batch::new(&model, vec![
         BinaryEvidence { name: "invalid_utf8".into(), bytes: EvidenceBytes(vec![0, 255, 128, 0]), optional: None },
         BinaryEvidence { name: "empty".into(), bytes: EvidenceBytes(vec![]), optional: Some(EvidenceBytes(vec![])) },
-    ]).unwrap();
-    assert_eq!(Batch::<BinaryEvidence>::read(&model, batch.arrow()).unwrap().rows(), batch.rows());
+    ], &budget()).unwrap();
+    assert_eq!(Batch::<BinaryEvidence>::read(&model, batch.arrow(), &budget()).unwrap().rows(), batch.rows());
     let relation = model.require::<BinaryEvidence>().unwrap();
     let mut all = relation.content(); relation.hash_rows(batch.arrow(), &mut all).unwrap();
     let mut chunks = relation.content();
@@ -194,8 +194,8 @@ fn input_identity_is_content_based_and_acquisition_is_independent() {
     let origin = InputOrigin::Tree { label: "same label".into() };
     assert_ne!(InputAcquisition { input: first.id(), origin: origin.id() }.id(), InputAcquisition { input: changed.id(), origin: origin.id() }.id());
     let model = model().unwrap();
-    let origins = Batch::new(&model, vec![origin, InputOrigin::Installed { library: "demo".into(), requirement: "demo==1".into(), lock_digest: ContentHash::of(b"lock"), installer: None }, InputOrigin::Corpus { repository: "upstream".into(), revision: "commit".into() }]).unwrap();
-    assert_eq!(Batch::<InputOrigin>::read(&model, origins.arrow()).unwrap().rows(), origins.rows());
+    let origins = Batch::new(&model, vec![origin, InputOrigin::Installed { library: "demo".into(), requirement: "demo==1".into(), lock_digest: ContentHash::of(b"lock"), installer: None }, InputOrigin::Corpus { repository: "upstream".into(), revision: "commit".into() }], &budget()).unwrap();
+    assert_eq!(Batch::<InputOrigin>::read(&model, origins.arrow(), &budget()).unwrap().rows(), origins.rows());
     let artifact = SourceArtifact::from_bytes(first.id(), "a.py".into(), &[255, 0]).unwrap();
     assert!(lctx_model::domain::artifact::ArtifactChunk::split(&artifact, &[0, 0]).is_err());
 }
@@ -302,18 +302,18 @@ fn canonical_artifact_chunks_preserve_original_bytes_and_refuse_incomplete_proof
     assert_eq!(ArtifactChunk::split(&empty, b"").unwrap().count(), 0);
     ArtifactVerifier::new(&empty).unwrap().finish().unwrap();
     let model = model().unwrap();
-    let a = Batch::new(&model, chunks.clone()).unwrap();
-    let b = Batch::new(&model, chunks.into_iter().rev().collect()).unwrap();
+    let a = Batch::new(&model, chunks.clone(), &budget()).unwrap();
+    let b = Batch::new(&model, chunks.into_iter().rev().collect(), &budget()).unwrap();
     assert_eq!(a.rows(), b.rows());
     assert_eq!(ArtifactChunk::decode(a.arrow()).unwrap(), a.rows());
     // This is the actual model-owned cross-relation validator, not a test-only reconstruction.
     let invariant = SourceArtifact::invariants().remove(0);
     for missing in [false, true] {
         let mut check = (invariant.create)();
-        check.visit(SourceArtifact::NAME, Batch::new(&model, vec![artifact.clone(), empty.clone()]).unwrap().arrow()).unwrap();
+        check.visit(SourceArtifact::NAME, Batch::new(&model, vec![artifact.clone(), empty.clone()], &budget()).unwrap().arrow()).unwrap();
         if !missing {
             for chunk in ArtifactChunk::split(&artifact, &bytes).unwrap() {
-                check.visit(ArtifactChunk::NAME, Batch::new(&model, vec![chunk]).unwrap().arrow()).unwrap();
+                check.visit(ArtifactChunk::NAME, Batch::new(&model, vec![chunk], &budget()).unwrap().arrow()).unwrap();
             }
         }
         assert_eq!(check.finish().is_err(), missing);
@@ -358,7 +358,7 @@ fn corpus_uses_and_distribution_verification_cannot_cross_undeclared_inputs() {
     let link = CorpusLibrary { corpus: corpus.id(), library };
     let usage = ArtifactUse { artifact: source().id(), input: corpus.id(), role: SourceRole::Example };
     fn feed<R: Record>(model: &ValidatedModel, check: &mut dyn InvariantCheck, rows: Vec<R>) -> Result<(), ModelError> {
-        check.visit(R::NAME, Batch::new(model, rows)?.arrow())
+        check.visit(R::NAME, Batch::new(model, rows, &budget())?.arrow())
     }
     for linked in [false, true] {
         let mut check = (InputAcquisition::invariants()[0].create)();
@@ -399,8 +399,13 @@ fn borrowed_identity_and_streamed_codecs_preserve_owned_key_contracts() {
     let rows = vec![Payload::Empty,Payload::Text { value: "x".repeat(1 << 20),note: None },
         Payload::Text { value: "body".into(),note: Some("note".into()) }];
     for row in &rows { assert_eq!(row.id(),Id::of(&row.key())); }
-    let encoded = Batch::new(&m,rows).unwrap();
+    let encoded = Batch::new(&m,rows, &budget()).unwrap();
     assert_eq!(Payload::decode(encoded.arrow()).unwrap(),encoded.rows());
     let item = NamedItem { name: "key".repeat(1024),payload: "payload".into() };
     assert_eq!(item.id(),Id::of(&item.key()));
+}
+
+/// A fresh attempt budget; these controls do not share reservations across batches.
+fn budget() -> lctx_model::domain::resources::ResourceBudget {
+    lctx_model::domain::resources::ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).unwrap()
 }

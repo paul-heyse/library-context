@@ -243,6 +243,9 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
                 #(::lctx_model::domain::Key::encode(&self.#names, &mut sink);)*
                 sink.finish()
             }
+            fn heap_bytes(&self) -> usize {
+                0usize #(.saturating_add(::lctx_model::domain::HeapSize::heap_bytes(&self.#names)))*
+            }
             fn validate(&self) -> Result<(), ::lctx_model::domain::ModelError> {
                 #validation
                 Ok(())
@@ -305,6 +308,7 @@ fn expand_code(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
     }
     Ok(quote! {
         impl ::lctx_model::domain::FlatValue for #name {}
+        impl ::lctx_model::domain::HeapSize for #name {}
         impl ::lctx_model::domain::FieldValue for #name {
             const SCALAR: ::lctx_model::domain::Scalar = ::lctx_model::domain::Scalar::Int16;
             fn codes() -> &'static [(i16, &'static str)] { &[#((#codes, stringify!(#variants)),)*] }
@@ -411,6 +415,7 @@ fn expand_sum(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
     let visibility = &input.vis;
     let aliases: Vec<_> = variants.iter().map(|variant| format_ident!("{}{}Id", name, variant)).collect();
     let mut key_arms = Vec::new();
+    let mut heap_arms = Vec::new();
     let mut encode_arms = Vec::new();
     let mut decode_arms = Vec::new();
     let mut sum_arms = Vec::new();
@@ -420,6 +425,7 @@ fn expand_sum(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
             ::lctx_model::domain::Key::encode(&(#code as i16), sink);
             #(::lctx_model::domain::Key::encode(#names, sink);)*
         }});
+        heap_arms.push(quote! { Self::#variant { #(#names,)* } => 0usize #(.saturating_add(::lctx_model::domain::HeapSize::heap_bytes(#names)))* });
         let values: Vec<_> = physical_names.iter().map(|column| {
             if let Some((member, _, optional)) = fields.iter().find(|(_,c,_)| c == column) {
                 if *optional { quote! { #column: #member.as_ref() } } else { quote! { #column: Some(#member) } }
@@ -469,6 +475,7 @@ fn expand_sum(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
                 ::lctx_model::domain::Key::encode(self, &mut sink);
                 sink.finish()
             }
+            fn heap_bytes(&self) -> usize { match self { #(#heap_arms,)* } }
             fn fields() -> Vec<::lctx_model::domain::Field> { vec![::lctx_model::domain::Field::of::<i16>("kind", true, false), #(#descriptors,)*] }
             fn sum() -> Option<::lctx_model::domain::Sum> { Some(::lctx_model::domain::Sum { tag: "kind", arms: vec![#(#sum_arms,)*] }) }
             fn validate(&self) -> Result<(), ::lctx_model::domain::ModelError> { #validation Ok(()) }

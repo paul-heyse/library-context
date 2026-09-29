@@ -12,7 +12,7 @@ fn type_structure_keeps_large_literals_variable_identity_and_recursive_restricti
     assert!(views.iter().all(|v| v.term == f.term.id())); assert_ne!(views[0].id(),views[1].id());
     let mut renamed = f.variable.clone(); renamed.module = "unrelated".into(); assert_ne!(renamed.id(),f.variable.id());
     let literal = f.base.rows::<Literal>().into_iter().find(|v| matches!(v,Literal::Integer { .. })).unwrap();
-    assert_eq!(Literal::decode(Batch::new(&f.base.model,vec![literal.clone()]).unwrap().arrow()).unwrap(),vec![literal]);
+    assert_eq!(Literal::decode(Batch::new(&f.base.model,vec![literal.clone()], &budget()).unwrap().arrow()).unwrap(),vec![literal]);
     let restriction = f.base.rows::<TypeVariableRestriction>()[0].clone();
     let instance = f.base.rows::<TypeTerm>().into_iter().find(|t| t.id() == restriction.term).unwrap();
     assert!(matches!(instance,TypeTerm::ClassInstance { .. }),"recursive bound is a relationship, not key expansion");
@@ -47,4 +47,9 @@ fn opaque_type_leaves_cannot_be_promoted_to_structural_fidelity() {
             assert_eq!(result.is_ok(),fidelity == Fidelity::DisplayOnly,"{truncated}/{nested}/{fidelity:?}: {result:?}");
         }
     } }
+}
+
+/// A fresh attempt budget; these controls do not share reservations across batches.
+fn budget() -> lctx_model::domain::resources::ResourceBudget {
+    lctx_model::domain::resources::ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).unwrap()
 }

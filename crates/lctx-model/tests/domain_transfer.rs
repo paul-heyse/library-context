@@ -46,7 +46,7 @@ fn widening_conditions_keeps_stable_transfer_and_each_original_alternative() {
     assert!(TransferBranch::new(f.key.clone(),f.qualification.clone(),Diagram::always()).is_err());
     assert_eq!(compose_kinds(TransferKind::Identity,TransferKind::Identity),TransferKind::Identity);
     assert_eq!(compose_kinds(TransferKind::Derived,TransferKind::Identity),TransferKind::Derived);
-    let rows = Batch::new(&f.model,vec![f.branch().alternative()]).unwrap();
+    let rows = Batch::new(&f.model,vec![f.branch().alternative()], &budget()).unwrap();
     assert_eq!(TransferAlternative::decode(rows.arrow()).unwrap(),rows.rows());
 }
 #[test]
@@ -61,10 +61,10 @@ fn influence_selects_a_guarded_alternative_without_becoming_a_value_transfer() {
     let q = AssertionQualification { scope: wrong_scope.id(),..f.qualification.clone() };
     let other = ControlInfluence { qualification: q.id(),..influence.clone() };
     assert!(f.branch().selection(&other,&q).is_err());
-    let rows = Batch::new(&f.model,vec![selection]).unwrap(); assert_eq!(Selection::decode(rows.arrow()).unwrap(),rows.rows());
+    let rows = Batch::new(&f.model,vec![selection], &budget()).unwrap(); assert_eq!(Selection::decode(rows.arrow()).unwrap(),rows.rows());
 }
 fn insert<R: Record>(f: &Fixture, data: &mut BTreeMap<&'static str,arrow_array::RecordBatch>,rows: Vec<R>) {
-    data.insert(R::NAME,Batch::new(&f.model,rows).unwrap().arrow().clone());
+    data.insert(R::NAME,Batch::new(&f.model,rows, &budget()).unwrap().arrow().clone());
 }
 fn check(invariant: Invariant,data: &BTreeMap<&str,arrow_array::RecordBatch>) -> Result<(),ModelError> {
     let mut check = (invariant.create)();
@@ -183,4 +183,9 @@ fn ordinary_assertions_validate_guard_operand_sources_even_when_evaluation_is_lo
         if corpus { insert(&f,&mut data,vec![CorpusLibrary { corpus: f.input.id(),library: other_input.id() }]); }
         assert_eq!(check(SyntaxSupport::invariants().remove(0),&data).is_ok(),expected);
     }
+}
+
+/// A fresh attempt budget; these controls do not share reservations across batches.
+fn budget() -> lctx_model::domain::resources::ResourceBudget {
+    lctx_model::domain::resources::ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).unwrap()
 }

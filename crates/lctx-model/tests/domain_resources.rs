@@ -56,3 +56,110 @@ fn attachment_buffers_share_budget_and_ambiguity_owns_its_reservation() {
     let result = index.attach(&query,AttachmentBudget { visited_nodes: 0,alternatives: 3 }).unwrap();
     assert_eq!(result.value(),&Attachment::BudgetExceeded); assert_eq!(budget.reserved(),before);
 }
+
+mod batching {
+    use std::{future::Future, sync::Mutex, task::{Context, Poll, Waker}};
+    use lctx_model::domain::{*, batching::*, input::*, resources::*, source::*, stages::*};
+    fn ready<T>(future: impl Future<Output = T>) -> T {
+        match std::pin::pin!(future).as_mut().poll(&mut Context::from_waker(Waker::noop())) {
+            Poll::Ready(value) => value, Poll::Pending => panic!("test sink unexpectedly pending"),
+        }
+    }
+    fn sizes(writer: BatchWriter<Package>, model: &ValidatedModel, rows: impl IntoIterator<Item = Package>) -> Result<Vec<usize>, ModelError> {
+        let mut writer = writer; let mut sizes = Vec::new();
+        for row in rows { if let Some(batch) = writer.push(model, row)? { sizes.push(batch.rows().len()); } }
+        if let Some(batch) = writer.finish(model)? { sizes.push(batch.rows().len()); }
+        Ok(sizes)
+    }
+    /// Capacity is charged, so large names are built at their exact length.
+    fn named(bytes: usize, suffix: usize) -> Package {
+        let mut name = "a".repeat(bytes); name.push_str(&suffix.to_string()); name.shrink_to_fit(); Package { name }
+    }
+
+    #[test]
+    fn writer_flushes_at_row_and_byte_targets_and_admits_oversized_rows_alone() {
+        let model = model().unwrap(); let budget = ResourceBudget::fixed(1 << 30).unwrap();
+        let writer = || BatchWriter::<Package>::new(&budget, TransferLimits::default()).unwrap();
+        assert_eq!(sizes(writer(), &model, (0..10_000).map(|n| Package { name: format!("p{n}") })).unwrap(), [4096, 4096, 1808]);
+        assert_eq!(sizes(writer(), &model, (0..3).map(|n| named(3 << 20, n))).unwrap(), [2, 1]);
+        assert_eq!(sizes(writer(), &model, [named(8, 0), named(20 << 20, 1), named(8, 2)]).unwrap(), [1, 1, 1], "a 20 MiB row travels alone");
+        assert!(matches!(sizes(writer(), &model, [named(70 << 20, 0)]), Err(ModelError::Invalid(_))), "a 70 MiB row exceeds the row limit");
+        assert_eq!(budget.reserved(), 0);
+        assert!(BatchWriter::<Package>::new(&budget, TransferLimits { rows: 0, ..TransferLimits::default() }).is_err());
+        assert_eq!(sizes(BatchWriter::new(&budget, TransferLimits { rows: 1, ..TransferLimits::default() }).unwrap(), &model,
+            (0..3).map(|n| Package { name: format!("p{n}") })).unwrap(), [1, 1, 1]);
+    }
+
+    #[test]
+    fn writer_emits_equal_rows_once_and_refuses_conflicting_payloads_across_flushes() {
+        let model = model().unwrap(); let budget = ResourceBudget::fixed(1 << 30).unwrap();
+        let limits = TransferLimits { rows: 2, ..TransferLimits::default() };
+        let rows = (0..3).map(|n| Package { name: format!("p{n}") });
+        assert_eq!(sizes(BatchWriter::new(&budget, limits).unwrap(), &model, rows.clone().chain(rows)).unwrap(), [2, 1], "repeats after a flush are dropped");
+        let input = InputRevision::from_entries(vec![]).unwrap();
+        let artifact = SourceArtifact::from_bytes(input.id(), "x.py".into(), b"x").unwrap();
+        let mut writer = BatchWriter::<SourceArtifact>::new(&budget, TransferLimits { rows: 1, ..limits }).unwrap();
+        assert!(writer.push(&model, artifact.clone()).unwrap().is_none());
+        assert!(writer.push(&model, artifact.clone()).unwrap().is_none(), "equal row after admission is dropped");
+        let conflicting = SourceArtifact { byte_len: 2, ..artifact };
+        assert!(matches!(writer.push(&model, conflicting), Err(ModelError::Conflict(_))));
+        drop(writer); assert_eq!(budget.reserved(), 0);
+    }
+
+    #[test]
+    fn batches_hold_their_reservation_and_refuse_before_encoding() {
+        let model = model().unwrap(); let budget = ResourceBudget::fixed(1 << 30).unwrap();
+        let rows: Vec<_> = (0..100).map(|n| Package { name: format!("p{n}") }).collect();
+        let batch = Batch::new(&model, rows.clone(), &budget).unwrap();
+        assert!(batch.reserved() >= batch.arrow().get_array_memory_size());
+        assert_eq!(budget.reserved(), batch.reserved());
+        let read = Batch::<Package>::read(&model, batch.arrow(), &budget).unwrap();
+        assert_eq!(read.rows(), batch.rows()); assert_eq!(budget.reserved(), batch.reserved() + read.reserved());
+        drop(batch); drop(read); assert_eq!(budget.reserved(), 0);
+        let short = ResourceBudget::fixed(1024).unwrap();
+        assert!(matches!(Batch::new(&model, rows, &short), Err(ModelError::Resource { .. })));
+        assert_eq!(short.reserved(), 0);
+        let short = ResourceBudget::fixed(8 << 10).unwrap();
+        let mut writer = BatchWriter::<Package>::new(&short, TransferLimits::default()).unwrap();
+        let refused = (0..1000).try_for_each(|n| writer.push(&model, Package { name: format!("p{n}") }).map(drop));
+        assert!(matches!(refused, Err(ModelError::Resource { .. })), "pending rows are admitted before they are held");
+        drop(writer); assert_eq!(short.reserved(), 0);
+    }
+
+    struct Recorder(Mutex<Vec<(&'static str, usize)>>);
+    impl StageSink for Recorder {
+        fn copy<R: Record>(&self, permit: WritePermit<'_, R>, batch: &Batch<R>) -> impl Future<Output = Result<(), ModelError>> + Send {
+            self.0.lock().unwrap().push((permit.relation(), batch.rows().len()));
+            std::future::ready(Ok(()))
+        }
+    }
+    fn stage() -> Stage {
+        Stage { name: "inputs", inputs: vec![], outputs: vec![RelationUse::of::<Package>(), RelationUse::of::<Release>()],
+            profiles: vec![Profile::Catalog], effect: Effect::Extraction, code: ContentHash::of(b"producer"), configuration: ContentHash::of(b"config") }
+    }
+
+    #[test]
+    fn stage_output_streams_declared_outputs_and_writes_empty_ones_explicitly() {
+        let model = model().unwrap(); let budget = ResourceBudget::fixed(1 << 30).unwrap();
+        let schedule = Schedule::build(&model, vec![stage()], &[], Profile::Catalog).unwrap();
+        let sink = Recorder(Mutex::new(Vec::new()));
+        let mut execution = schedule.execute();
+        let mut output = StageOutput::new(execution.begin("inputs").unwrap(), &sink, &model, budget.clone(), TransferLimits::default()).unwrap();
+        output.declare::<Package>().unwrap();
+        assert!(output.declare::<Package>().is_err(), "an output is declared once");
+        assert!(output.declare::<SourceArtifact>().is_err(), "only stage outputs can be declared");
+        assert!(ready(output.push(Release { package: Package { name: "p".into() }.id(), version: "1".into() })).is_err(), "undeclared output");
+        output.declare::<Release>().unwrap();
+        for n in 0..5000 { ready(output.push(Package { name: format!("p{n}") })).unwrap(); }
+        ready(output.finish(ProviderOutcome::Complete)).unwrap();
+        assert_eq!(*sink.0.lock().unwrap(), [("packages", 4096), ("packages", 904), ("releases", 0)]);
+        assert_eq!(execution.finish().unwrap().outcomes()["inputs"], ProviderOutcome::Complete);
+        assert_eq!(budget.reserved(), 0);
+
+        let mut execution = schedule.execute();
+        let mut output = StageOutput::new(execution.begin("inputs").unwrap(), &sink, &model, budget.clone(), TransferLimits::default()).unwrap();
+        output.declare::<Package>().unwrap();
+        assert!(ready(output.finish(ProviderOutcome::Complete)).is_err(), "every stage output must be declared");
+        assert!(execution.finish().is_err(), "a refused stage output fails the attempt");
+    }
+}

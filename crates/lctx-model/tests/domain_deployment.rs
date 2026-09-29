@@ -7,7 +7,7 @@ fn reports_preserve_full_duration_and_separate_environment_claims_from_runtime()
     for name in ["report_collection_membership","report_collection_roles",TaskReportSupport::NAME,DeploymentSupport::NAME] {
         f.check(f.model.invariants().iter().find(|i| i.name == name).unwrap()).unwrap();
     }
-    let report = TaskReport::decode(Batch::new(&f.model,vec![f.report.clone()]).unwrap().arrow()).unwrap().remove(0);
+    let report = TaskReport::decode(Batch::new(&f.model,vec![f.report.clone()], &budget()).unwrap().arrow()).unwrap().remove(0);
     assert_eq!(report.elapsed_ms,Milliseconds(u64::MAX)); assert_eq!(report.execution,CheckStatus::Passed);
     let environment = &f.rows::<ReportedEnvironment>()[0];
     let context = &f.rows::<lctx_model::domain::attribution::AnalysisContext>()[0];
@@ -41,4 +41,9 @@ fn report_association_requires_captured_input_ownership() {
     f.observation.report = f.report.id(); f.support.assertion = f.observation.id();
     f.put(vec![f.report.clone()]); f.put(vec![f.observation.clone()]); f.put(vec![f.support.clone()]);
     f.check(&TaskReportSupport::invariants()[0]).unwrap();
+}
+
+/// A fresh attempt budget; these controls do not share reservations across batches.
+fn budget() -> lctx_model::domain::resources::ResourceBudget {
+    lctx_model::domain::resources::ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).unwrap()
 }

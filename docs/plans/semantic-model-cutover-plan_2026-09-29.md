@@ -201,9 +201,11 @@ assembled reviews at the P0 and P0–P2 exits.
 | T13 | Provider sessions use a bound pool of N (default 2) one-shot connections, each holding its own lease and checking digests and live columns before any scan. Transport loss or a failed cancellation drain is terminal (`Lost`); a confirmed drain returns the connection. Federation is removed; reference-column indexes wait for measurement |
 | T14 | ADR-0089 (written at K1/D0, before code) records T1, T3, T6 and T7. ADR-0090 (P1.4) supersedes ADR-0002 for the delta-rs family removal. Composition, admission and lifecycle policies amend DESIGN §15.4/§15.6/§15.8/§15.11 in place |
 
-**Confirmed-at-time steps.** Never executed on plan acceptance alone: pushing the provider-fork
-commit (P1.9), the operator-database transition (P1.13), deleting `build/` runtime copies (C3x,
-after an inventory) and dropping the retired database.
+**Operator-authorized steps.** The project is in its design phase; on 2026-09-29 the operator
+authorized executing these planned steps without a further prompt: pushing the provider-fork
+commit (P1.9), the operator-database transition (P1.13), deleting obsolete `build/` runtime copies
+(C3x, after an inventory) and dropping the retired database. Targets are still inspected first,
+and protected evidence, evaluation assets and unrelated services are preserved.
 
 **Order.** P0: R1 → R2 → K1 → D0 → C1 → C2 → C3 → C4 → C5 → C6 → R3 → D1 → E1 → X0. P1: P1.1 →
 P1.13. P2: A0 → A1–A2 → A3–A5 → A6–A11 → A12–A14 → A15 → A16 → B1 → B2 → B3 → Dc → C1x → C2x →
@@ -572,6 +574,9 @@ Focused evidence (2026-09-29; Cargo commands prefixed by `python3 scripts/build_
 | `cargo test --release -p lctx-postgres --test domain_guard_rebase --test domain_transfer --test generation_stages --test generations` | passed after acknowledged rollback/COPY correction: five tests, including active-COPY budget refusal/success, immediate cleanup and 65 MiB; precedes final guard F02, separately rerun above |
 | `cargo check -p lctx-postgres`; `cargo check -p cpg-extract -p cpg-core` | passed after transaction/COPY and guard changes; final guard F02 subsequently compiled by the focused tests above; existing third-party future-incompatibility warnings remain |
 | `just docs-check` | passed at restart checkpoint: 197 canonical pages and zero link errors |
+| R1: `cargo test --release -p lctx-model` | passed 2026-09-29: all suites and doctests after budgeted `Batch::new/read`; seven resource controls incl. 4096/4096/1808 and 2/1 flushes, lone 20 MiB row, refused 70 MiB row, cross-flush duplicate/conflict, pre-encoding refusal, explicit empty stage output |
+| R1: `cargo test --release -p lctx-postgres --test generation_stages --test generations` plus the ten `domain_*` PG suites | passed 2026-09-29: real PG18; `StageOutput` through `GenerationAttempt` writes 5000 rows in transfer batches, emits a repeated row once and returns the attempt budget to zero |
+| R1: `cargo test --release -p cpg-extract --test typed_conformance`; `-p cpg-core --test model_runtime`; `cargo check --workspace --all-targets` | passed 2026-09-29 |
 | `just fmt`, `just test-all`, facts pilots | not_run: functional scope incomplete |
 
 Independent bounded reviewers accepted artifact/capture/acquisition corrections and the

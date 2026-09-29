@@ -5,8 +5,8 @@ use std::{collections::BTreeSet, sync::{Arc,Mutex}};
 use arrow_array::RecordBatch;
 use bytes::BytesMut;
 use lctx_model::domain::{Batch, ContentHash, KeySink, ModelError, Record, Relation, ValidatedModel};
-use lctx_model::domain::stages::{AttemptIdentity, Execution, ExecutionReceipt, WritePermit};
-use lctx_model::domain::resources::{ResourceBudget, DEFAULT_MEMORY_BYTES};
+use lctx_model::domain::stages::{AttemptIdentity, Execution, ExecutionReceipt, StageSink, WritePermit};
+use lctx_model::domain::resources::{ResourceBudget, MAX_ROW_BYTES, TRANSFER_BYTES, TRANSFER_ROWS};
 use pgpq::encoders::{BuildEncoder, Encode, EncoderBuilder};
 use sqlx::{Connection, PgConnection, PgPool, Row, ValueRef};
 use futures::TryStreamExt;
@@ -245,7 +245,8 @@ impl GenerationStore {
             .bind(self.model.digest().0.to_vec()).bind(self.physical.0.to_vec()).fetch_optional(connection).await?;
         if compatible != Some(true) { return Err(Error::Contract); } Ok(())
     }
-    pub async fn pin(&self, reader: &PgPool, g: GenerationId) -> Result<GenerationLease, Error> {
+    /// Readers decode into the supplied budget for the lease's lifetime.
+    pub async fn pin(&self, reader: &PgPool, g: GenerationId, budget: ResourceBudget) -> Result<GenerationLease, Error> {
         // Keep the pool permit; closing on drop releases both the advisory lock and pool capacity.
         let mut connection = reader.acquire().await?;
         connection.close_on_drop();
@@ -256,10 +257,11 @@ impl GenerationStore {
         sqlx::query("SELECT pg_advisory_lock_shared($1)").bind(g.lock()).execute(&mut *tx).await?;
         Ok(())
         }).await?;
-        Ok(GenerationLease { connection, generation: g, model: self.model.clone() })
+        Ok(GenerationLease { connection, generation: g, model: self.model.clone(), budget })
     }
-    pub async fn copy<R: Record>(&self, writer: &PgPool, g: GenerationId, batch: &Batch<R>) -> Result<(), Error> {
-        self.copy_attempt(writer, g, batch, None, &ResourceBudget::fixed(DEFAULT_MEMORY_BYTES)?).await
+    /// Conformance writes charge COPY buffers to the caller's attempt budget.
+    pub async fn copy<R: Record>(&self, writer: &PgPool, g: GenerationId, batch: &Batch<R>, budget: &ResourceBudget) -> Result<(), Error> {
+        self.copy_attempt(writer, g, batch, None, budget).await
     }
     async fn copy_attempt<R: Record>(&self, writer: &PgPool, g: GenerationId, batch: &Batch<R>, schedule: Option<ContentHash>, budget: &ResourceBudget) -> Result<(), Error> {
         self.model.require::<R>()?;
@@ -346,6 +348,12 @@ impl GenerationAttempt {
     }
 }
 
+impl StageSink for GenerationAttempt {
+    fn copy<R: Record>(&self, permit: WritePermit<'_, R>, batch: &Batch<R>) -> impl Future<Output = Result<(), ModelError>> + Send {
+        GenerationAttempt::copy(self, permit, batch)
+    }
+}
+
 fn copy_size(row: &RecordBatch, builders: &[EncoderBuilder]) -> Result<usize, Error> {
     row.columns().iter().zip(builders).try_fold(2usize, |bytes, (column,builder)| {
         let encoder = builder.try_new(column.as_ref()).map_err(|e| Error::Codec(e.to_string()))?;
@@ -361,7 +369,7 @@ async fn check_schedule(connection: &mut PgConnection, g: GenerationId, expected
     Ok(())
 }
 
-pub struct GenerationLease { connection: sqlx::pool::PoolConnection<sqlx::Postgres>, generation: GenerationId, model: Arc<ValidatedModel> }
+pub struct GenerationLease { connection: sqlx::pool::PoolConnection<sqlx::Postgres>, generation: GenerationId, model: Arc<ValidatedModel>, budget: ResourceBudget }
 impl GenerationLease {
     pub fn generation(&self) -> GenerationId { self.generation }
     /// Consume the reader and wait for server acknowledgment that its session lease is released.
@@ -380,7 +388,7 @@ impl GenerationLease {
         self.connection.ping().await?;
         let relation = self.model.require::<R>()?;
         visit_physical(&mut self.connection, self.generation, relation, &["id"], |batch| {
-            visitor(Batch::read(&self.model, &batch)?)
+            visitor(Batch::read(&self.model, &batch, &self.budget)?)
         }).await
     }
     /// Convenience for small relations. Larger consumers must use `visit`.
@@ -389,16 +397,13 @@ impl GenerationLease {
         let mut bytes = 0usize;
         self.visit::<R>(|batch| {
             bytes = bytes.checked_add(batch.arrow().get_array_memory_size()).ok_or_else(|| Error::Codec("read budget overflow".into()))?;
-            if bytes > READ_BATCH_BYTES { return Err(Error::Codec("small-relation read budget exceeded; use visit".into())); }
+            if bytes > TRANSFER_BYTES { return Err(Error::Codec("small-relation read budget exceeded; use visit".into())); }
             rows.extend_from_slice(batch.rows());
             Ok(())
         }).await?;
-        Ok(Batch::new(&self.model, rows)?)
+        Ok(Batch::new(&self.model, rows, &self.budget)?)
     }
 }
-const READ_BATCH_ROWS: usize = 4096;
-const READ_BATCH_BYTES: usize = 8 * 1024 * 1024;
-const MAX_ROW_BYTES: usize = 64 * 1024 * 1024;
 
 async fn visit_physical(connection: &mut PgConnection, g: GenerationId, relation: &Relation, order: &[&str],
     mut visitor: impl FnMut(RecordBatch) -> Result<(), Error>) -> Result<(), Error> {
@@ -421,7 +426,7 @@ async fn visit_physical(connection: &mut PgConnection, g: GenerationId, relation
             }
         }
         if size > MAX_ROW_BYTES { return Err(Error::Codec("stored row exceeds read budget".into())); }
-        if !rows.is_empty() && (rows.len() == READ_BATCH_ROWS || bytes.saturating_add(size) > READ_BATCH_BYTES) {
+        if !rows.is_empty() && (rows.len() == TRANSFER_ROWS || bytes.saturating_add(size) > TRANSFER_BYTES) {
             visitor(codec::decode(relation, &rows)?)?;
             rows.clear(); bytes = 0;
         }

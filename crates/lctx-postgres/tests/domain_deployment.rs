@@ -27,7 +27,7 @@ async fn captured_reports_preserve_values_and_reject_incomplete_or_foreign_evide
         assert_eq!(fixture.check(&ReportCollection::invariants()[0]).is_ok(),!missing);
         let generation = store.create_conformance(ContentHash::of(b"deployment-contract"),"catalog").await.unwrap();
         macro_rules! copy { ($($ty:ty),+ $(,)?) => { $(
-            store.copy(&writer,generation,&Batch::new(&model,fixture.rows::<$ty>()).unwrap()).await.unwrap();
+            store.copy(&writer,generation,&Batch::new(&model,fixture.rows::<$ty>(), &budget()).unwrap(), &budget()).await.unwrap();
         )+ }; }
         copy!(InputRevision,InputOrigin,InputAcquisition,Package,Release,AnalysisContext,Provider,ProviderRun,RunFamily,ProviderSurface,
             CoverageScope,ProviderCoverage,Condition,ConditionNode,AssertionQualification,SourceArtifact,ArtifactChunk,Evidence,
@@ -39,16 +39,21 @@ async fn captured_reports_preserve_values_and_reject_incomplete_or_foreign_evide
             store.abort(generation).await.unwrap();
         } else {
             store.validate(generation).await.unwrap(); store.publish(generation).await.unwrap();
-            let mut lease = store.pin(&reader,generation).await.unwrap();
+            let mut lease = store.pin(&reader,generation, budget()).await.unwrap();
             assert_eq!(lease.read::<TaskReport>().await.unwrap().rows(),fixture.rows::<TaskReport>());
             assert_eq!(lease.read::<TaskReportObservation>().await.unwrap().rows(),fixture.rows::<TaskReportObservation>());
             assert_eq!(lease.read::<ReportedEnvironment>().await.unwrap().rows(),fixture.rows::<ReportedEnvironment>());
             assert_eq!(lease.read::<ReportValue>().await.unwrap().rows(),fixture.rows::<ReportValue>());
-            let other_lease = store.pin(&reader,generation).await.unwrap();
+            let other_lease = store.pin(&reader,generation, budget()).await.unwrap();
             lease.release().await.unwrap();
             assert!(matches!(store.retire(generation).await,Err(Error::Busy)));
             other_lease.release().await.unwrap();
             store.retire(generation).await.unwrap();
         }
     }
+}
+
+/// A fresh attempt budget; these controls do not share reservations across batches.
+fn budget() -> lctx_model::domain::resources::ResourceBudget {
+    lctx_model::domain::resources::ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).unwrap()
 }

@@ -1,6 +1,8 @@
 //! Typed stage declarations are the sole writer authority.
-use std::{any::TypeId, collections::{BTreeMap, BTreeSet, HashSet}};
-use super::{ContentHash, KeySink, ModelError, Record, ValidatedModel};
+use std::{any::{Any, TypeId}, collections::{BTreeMap, BTreeSet, HashSet}, future::Future, pin::Pin};
+use super::{Batch, ContentHash, KeySink, ModelError, Record, ValidatedModel};
+use super::batching::{BatchWriter, TransferLimits};
+use super::resources::ResourceBudget;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProviderOutcome { Complete, Partial, Unavailable, Failed, NotRequested }
@@ -197,3 +199,81 @@ impl StageAccess<'_, '_> {
     }
 }
 impl Drop for StageAccess<'_, '_> { fn drop(&mut self) { if !self.finished { self.execution.failed = true; } } }
+
+/// A generation sink that receives a stage's typed batches under that stage's write permits.
+/// PostgreSQL attempts and in-memory generations implement it; producers depend only on this.
+pub trait StageSink: Sync {
+    fn copy<R: Record>(&self, permit: WritePermit<'_, R>, batch: &Batch<R>) -> impl Future<Output = Result<(), ModelError>> + Send;
+}
+
+/// Streams one stage's declared outputs into a sink through transfer-bounded writers. Every
+/// declared output is written, explicitly empty when the stage produced no rows. Dropping it
+/// before `finish` fails the attempt, like dropping its `StageAccess`.
+pub struct StageOutput<'o, 'e, 's, S: StageSink> {
+    access: StageAccess<'e, 's>, sink: &'o S, model: &'o ValidatedModel, budget: ResourceBudget,
+    limits: TransferLimits, outputs: Vec<(TypeId, Box<dyn PendingOutput<S>>)>,
+}
+impl<'o, 'e, 's, S: StageSink> StageOutput<'o, 'e, 's, S> {
+    pub fn new(access: StageAccess<'e, 's>, sink: &'o S, model: &'o ValidatedModel, budget: ResourceBudget, limits: TransferLimits) -> Result<Self, ModelError> {
+        if access.execution.schedule.model != model.digest() {
+            return Err(ModelError::Invalid("stage output model differs from its schedule".into()));
+        }
+        Ok(Self { access, sink, model, budget, limits, outputs: Vec::new() })
+    }
+    pub fn identity(&self) -> StageIdentity { self.access.identity() }
+    pub fn read<R: Record>(&self) -> Result<ReadPermit<'_, R>, ModelError> { self.access.read::<R>() }
+    /// Open a writer for one of the stage's declared outputs.
+    pub fn declare<R: Record>(&mut self) -> Result<(), ModelError> {
+        let declared = self.access.stage.outputs.iter().any(|r| r.type_id == TypeId::of::<R>());
+        if !declared || self.outputs.iter().any(|(t, _)| *t == TypeId::of::<R>()) {
+            return Err(ModelError::Invalid(format!("{} cannot declare output {} twice or outside its stage", self.access.stage.name, R::NAME)));
+        }
+        let writer = BatchWriter::<R>::new(&self.budget, self.limits)?;
+        self.outputs.push((TypeId::of::<R>(), Box::new(Output { writer, written: false })));
+        Ok(())
+    }
+    pub async fn push<R: Record>(&mut self, row: R) -> Result<(), ModelError> {
+        let stage = self.access.stage.name;
+        let output = self.outputs.iter_mut().find(|(t, _)| *t == TypeId::of::<R>())
+            .ok_or_else(|| ModelError::Invalid(format!("{} has not declared output {}", stage, R::NAME)))?;
+        let output = output.1.as_any().downcast_mut::<Output<R>>().expect("output entry matches its type id");
+        if let Some(batch) = output.writer.push(self.model, row)? {
+            let sink = self.sink;
+            self.access.write::<R, _>(async |permit| sink.copy(permit, &batch).await).await?;
+            output.written = true;
+        }
+        Ok(())
+    }
+    /// Flush every declared output, then record the provider outcome for the stage.
+    pub async fn finish(mut self, outcome: ProviderOutcome) -> Result<(), ModelError> {
+        if self.outputs.len() != self.access.stage.outputs.len() {
+            return Err(ModelError::Invalid(format!("{} has undeclared outputs", self.access.stage.name)));
+        }
+        for (_, output) in std::mem::take(&mut self.outputs) {
+            output.flush(self.model, &mut self.access, self.sink).await?;
+        }
+        self.access.finish(outcome)
+    }
+}
+struct Output<R: Record> { writer: BatchWriter<R>, written: bool }
+trait PendingOutput<S: StageSink>: Send {
+    fn as_any(&mut self) -> &mut dyn Any;
+    fn flush<'x>(self: Box<Self>, model: &'x ValidatedModel, access: &'x mut StageAccess<'_, '_>, sink: &'x S)
+        -> Pin<Box<dyn Future<Output = Result<(), ModelError>> + Send + 'x>>;
+}
+impl<R: Record, S: StageSink> PendingOutput<S> for Output<R> {
+    fn as_any(&mut self) -> &mut dyn Any { self }
+    fn flush<'x>(self: Box<Self>, model: &'x ValidatedModel, access: &'x mut StageAccess<'_, '_>, sink: &'x S)
+        -> Pin<Box<dyn Future<Output = Result<(), ModelError>> + Send + 'x>> {
+        Box::pin(async move {
+            let Output { writer, written } = *self;
+            let budget = writer.budget().clone();
+            let batch = match writer.finish(model)? {
+                Some(batch) => batch,
+                None if written => return Ok(()),
+                None => Batch::new(model, Vec::new(), &budget)?,
+            };
+            access.write::<R, _>(async |permit| sink.copy(permit, &batch).await).await
+        })
+    }
+}

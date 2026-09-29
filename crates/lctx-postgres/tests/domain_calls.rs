@@ -44,22 +44,22 @@ async fn call_signature_membership_support_ownership_and_readback() {
     let resolution_support = CallResolutionSupport { assertion: resolution.id(),run: run.id(),surface: call_surface.id(),evidence: evidence.id(),origin: Origin::AnalyzerAssertion,mode: ExtractionMode::NativeTraversal,fidelity: Fidelity::NativeStructural };
     for wrong_provider in [false,true] {
         let g = store.create_conformance(ContentHash::of(b"call-fixture"),"catalog").await.unwrap();
-        macro_rules! copy { ($($row:expr),+ $(,)?) => { $(store.copy(&writer,g,&Batch::new(&model,vec![$row.clone()]).unwrap()).await.unwrap();)+ }; }
+        macro_rules! copy { ($($row:expr),+ $(,)?) => { $(store.copy(&writer,g,&Batch::new(&model,vec![$row.clone()], &budget()).unwrap(), &budget()).await.unwrap();)+ }; }
         copy!(input,origin,acquisition,source,site,scope,context,provider,run,condition,qualification,symbol,signature,
             destination,channel,receiver,target,resolution,call_surface,signature_surface,evidence,signature_support,resolution_support);
-        store.copy(&writer,g,&Batch::new(&model,ArtifactChunk::split(&source,bytes).unwrap().collect()).unwrap()).await.unwrap();
-        store.copy(&writer,g,&Batch::new(&model,nodes.clone()).unwrap()).await.unwrap();
-        store.copy(&writer,g,&Batch::new(&model,families.clone()).unwrap()).await.unwrap();
-        store.copy(&writer,g,&Batch::new(&model,shapes.clone()).unwrap()).await.unwrap();
-        store.copy(&writer,g,&Batch::new(&model,parameters.clone()).unwrap()).await.unwrap();
-        store.copy(&writer,g,&Batch::new(&model,members.clone()).unwrap()).await.unwrap();
+        store.copy(&writer,g,&Batch::new(&model,ArtifactChunk::split(&source,bytes).unwrap().collect(), &budget()).unwrap(), &budget()).await.unwrap();
+        store.copy(&writer,g,&Batch::new(&model,nodes.clone(), &budget()).unwrap(), &budget()).await.unwrap();
+        store.copy(&writer,g,&Batch::new(&model,families.clone(), &budget()).unwrap(), &budget()).await.unwrap();
+        store.copy(&writer,g,&Batch::new(&model,shapes.clone(), &budget()).unwrap(), &budget()).await.unwrap();
+        store.copy(&writer,g,&Batch::new(&model,parameters.clone(), &budget()).unwrap(), &budget()).await.unwrap();
+        store.copy(&writer,g,&Batch::new(&model,members.clone(), &budget()).unwrap(), &budget()).await.unwrap();
         if wrong_provider {
             let other = Provider { tool: "other-namespace".into(),..provider.clone() };
             let (other_run,other_families) = ProviderRun::new(other.id(),context.id(),input.id(),context.config_digest,[FactFamily::Calls]).unwrap();
             let other_surface = ProviderSurface { provider: other.id(),..call_surface.clone() };
             let support = CallTargetSupport { run: other_run.id(),surface: other_surface.id(),..target_support.clone() };
             copy!(other,other_run,other_surface,support);
-            store.copy(&writer,g,&Batch::new(&model,other_families).unwrap()).await.unwrap();
+            store.copy(&writer,g,&Batch::new(&model,other_families, &budget()).unwrap(), &budget()).await.unwrap();
         } else { copy!(target_support); }
         store.seal(g).await.unwrap();
         if wrong_provider {
@@ -68,12 +68,17 @@ async fn call_signature_membership_support_ownership_and_readback() {
             assert!(store.publish(g).await.is_err()); store.abort(g).await.unwrap();
         } else {
             store.validate(g).await.unwrap(); store.publish(g).await.unwrap();
-            let mut lease = store.pin(&reader,g).await.unwrap();
+            let mut lease = store.pin(&reader,g, budget()).await.unwrap();
             assert_eq!(lease.read::<Signature>().await.unwrap().rows(),&[signature.clone()]);
-            assert_eq!(lease.read::<SignatureParameter>().await.unwrap().rows(),Batch::new(&model,parameters.clone()).unwrap().rows());
+            assert_eq!(lease.read::<SignatureParameter>().await.unwrap().rows(),Batch::new(&model,parameters.clone(), &budget()).unwrap().rows());
             assert_eq!(lease.read::<CallTarget>().await.unwrap().rows(),&[target.clone()]);
             assert_eq!(lease.read::<CallResolution>().await.unwrap().rows(),&[resolution.clone()]);
             assert_eq!(lease.read::<CallResolutionMember>().await.unwrap().rows(),members);
         }
     }
+}
+
+/// A fresh attempt budget; these controls do not share reservations across batches.
+fn budget() -> lctx_model::domain::resources::ResourceBudget {
+    lctx_model::domain::resources::ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).unwrap()
 }

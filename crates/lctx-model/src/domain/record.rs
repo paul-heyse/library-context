@@ -1,7 +1,8 @@
 use std::{any::TypeId, sync::Arc};
 use arrow_array::RecordBatch;
 use arrow_schema::{DataType, Field as ArrowField, Schema, SchemaRef};
-use super::{ContentHash, Id, Key, ModelError, ValidatedModel};
+use super::{ContentHash, EvidenceBytes, Id, Key, ModelError, ValidatedModel};
+use super::resources::{Reservation, ResourceBudget};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Scalar { Text, Bool, Int16, Int32, Int64, Id, Digest, Binary }
@@ -44,8 +45,27 @@ impl Field {
         ArrowField::new(self.name, ty, self.nullable)
     }
 }
+/// Heap bytes a value owns beyond its inline size. This is allocation admission, not an
+/// allocator measurement: capacities are charged, shared buffers are not discovered.
+pub trait HeapSize { fn heap_bytes(&self) -> usize { 0 } }
+impl HeapSize for String { fn heap_bytes(&self) -> usize { self.capacity() } }
+impl HeapSize for EvidenceBytes { fn heap_bytes(&self) -> usize { self.0.capacity() } }
+impl<T: HeapSize> HeapSize for Option<T> { fn heap_bytes(&self) -> usize { self.as_ref().map_or(0, HeapSize::heap_bytes) } }
+impl<T: HeapSize> HeapSize for Vec<T> {
+    fn heap_bytes(&self) -> usize {
+        self.iter().fold(self.capacity().saturating_mul(size_of::<T>()), |bytes, item| bytes.saturating_add(item.heap_bytes()))
+    }
+}
+impl<T> HeapSize for Id<T> {}
+impl<T: SumRecord, const CODE: i16> HeapSize for super::ArmId<T, CODE> {}
+impl HeapSize for ContentHash {}
+impl HeapSize for bool {}
+impl HeapSize for i16 {}
+impl HeapSize for i32 {}
+impl HeapSize for i64 {}
+
 pub trait FlatValue: FieldValue {}
-pub trait FieldValue {
+pub trait FieldValue: HeapSize {
     fn subtype() -> Option<i16> { None }
     const SCALAR: Scalar;
     const NULLABLE: bool = false;
@@ -106,6 +126,10 @@ pub trait Record: Sized + Clone + PartialEq + std::fmt::Debug + Send + Sync + 's
     fn invariants() -> Vec<super::Invariant> { Vec::new() }
     /// Hash every semantic field, including non-key payload, independently of Arrow framing.
     fn content_digest(&self) -> ContentHash;
+    /// Heap bytes owned by the row's fields, generated from the declaration.
+    fn heap_bytes(&self) -> usize;
+    /// Admission size of one typed row: its inline size plus owned heap bytes.
+    fn row_bytes(&self) -> usize { size_of::<Self>().saturating_add(self.heap_bytes()) }
     fn sum() -> Option<Sum> { None }
     fn validate(&self) -> Result<(), ModelError>;
     fn encode(rows: &[Self]) -> Result<RecordBatch, ModelError>;
@@ -117,11 +141,36 @@ pub trait Record: Sized + Clone + PartialEq + std::fmt::Debug + Send + Sync + 's
     }
 }
 
+/// Fixed Arrow bytes per row: the identity column plus each declared column's slot, offset and
+/// validity. Variable payload is charged separately from `Record::heap_bytes`.
+pub(crate) fn fixed_width<R: Record>() -> usize {
+    R::fields().iter().fold(16, |bytes, field| {
+        let slot = match field.scalar() {
+            Scalar::Text | Scalar::Binary | Scalar::Int32 => 4, Scalar::Bool => 1, Scalar::Int16 => 2,
+            Scalar::Int64 => 8, Scalar::Id => 16, Scalar::Digest => 32,
+        };
+        bytes + slot + if field.list() { 4 } else { 0 } + usize::from(field.nullable())
+    })
+}
+/// Admission size of held typed rows, including unused vector capacity.
+pub(crate) fn rows_bytes<R: Record>(rows: &[R], capacity: usize) -> Result<usize, ModelError> {
+    let mut bytes = capacity.checked_mul(size_of::<R>());
+    for row in rows { bytes = bytes.and_then(|held| held.checked_add(row.heap_bytes())); }
+    bytes.ok_or_else(|| ModelError::Invalid(format!("{} batch size overflow", R::NAME)))
+}
+
 /// A model-checked, identity-checked typed boundary. Equal keys with different payload refuse.
+/// The batch owns one reservation covering its typed rows and their Arrow encoding for its whole
+/// lifetime; dropping the batch returns it to the attempt budget.
 #[derive(Debug)]
-pub struct Batch<R: Record> { rows: Vec<R>, arrow: RecordBatch }
+pub struct Batch<R: Record> { rows: Vec<R>, arrow: RecordBatch, reservation: Box<dyn Reservation> }
 impl<R: Record> Batch<R> {
-    pub fn new(model: &ValidatedModel, mut rows: Vec<R>) -> Result<Self, ModelError> {
+    pub fn new(model: &ValidatedModel, rows: Vec<R>, budget: &ResourceBudget) -> Result<Self, ModelError> {
+        let reservation = budget.reserve(R::NAME, rows_bytes(&rows, rows.capacity())?)?;
+        Self::with_reservation(model, rows, reservation)
+    }
+    /// `reservation` already covers `rows`; it grows before encoding and settles on the encoded size.
+    pub(crate) fn with_reservation(model: &ValidatedModel, mut rows: Vec<R>, mut reservation: Box<dyn Reservation>) -> Result<Self, ModelError> {
         model.require::<R>()?;
         for row in &rows { row.validate()?; }
         rows.sort_unstable_by_key(Record::id);
@@ -132,20 +181,37 @@ impl<R: Record> Batch<R> {
             true
         });
         if conflict { return Err(ModelError::Conflict(R::NAME)); }
+        let held = rows_bytes(&rows, rows.capacity())?;
+        let overflow = || ModelError::Invalid(format!("{} encoding size overflow", R::NAME));
+        let variable = rows.iter().try_fold(0usize, |bytes, row| bytes.checked_add(row.heap_bytes())).ok_or_else(overflow)?;
+        // Growable Arrow buffers may double while encoding; admit that before allocating.
+        let encoding = rows.len().checked_mul(fixed_width::<R>()).and_then(|fixed| fixed.checked_add(variable.checked_mul(2)?)).ok_or_else(overflow)?;
+        reservation.try_resize(held.checked_add(encoding).ok_or_else(overflow)?.max(reservation.size()))?;
         let arrow = R::encode(&rows)?;
-        Ok(Self { rows, arrow })
+        reservation.try_resize(held.checked_add(arrow.get_array_memory_size()).ok_or_else(overflow)?)?;
+        Ok(Self { rows, arrow, reservation })
     }
-    pub fn read(model: &ValidatedModel, arrow: &RecordBatch) -> Result<Self, ModelError> {
+    pub fn read(model: &ValidatedModel, arrow: &RecordBatch, budget: &ResourceBudget) -> Result<Self, ModelError> {
         model.require::<R>()?;
+        let encoded = arrow.get_array_memory_size();
+        // Decoded rows hold at most their inline size plus the encoded variable payload.
+        let decoded = arrow.num_rows().checked_mul(size_of::<R>()).and_then(|inline| inline.checked_add(encoded))
+            .ok_or_else(|| ModelError::Invalid(format!("{} decoding size overflow", R::NAME)))?;
+        let mut reservation = budget.reserve(R::NAME, encoded.saturating_add(decoded))?;
         let rows = R::decode(arrow)?;
+        let held = rows_bytes(&rows, rows.capacity())?;
         if rows.windows(2).all(|pair| pair[0].id() < pair[1].id()) {
             // A canonical stored batch already has the correct physical representation.
             // Share its Arrow buffers instead of constructing another encoded copy.
-            Ok(Self { rows, arrow: arrow.clone() })
+            reservation.try_resize(held.saturating_add(encoded))?;
+            Ok(Self { rows, arrow: arrow.clone(), reservation })
         } else {
-            Self::new(model, rows)
+            reservation.try_resize(held)?;
+            Self::with_reservation(model, rows, reservation)
         }
     }
     pub fn rows(&self) -> &[R] { &self.rows }
     pub fn arrow(&self) -> &RecordBatch { &self.arrow }
+    /// Bytes this batch currently holds against its attempt budget.
+    pub fn reserved(&self) -> usize { self.reservation.size() }
 }
