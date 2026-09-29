@@ -29,6 +29,7 @@ pub mod memory;
 pub mod occurrence_owner;
 pub mod composition;
 pub mod obligation;
+pub mod admission;
 
 pub use identity::{ArmId, ContentHash, ContentHasher, EvidenceBytes, Id, Key, KeySink};
 pub use model::{Invariant, InvariantCheck, ValidationInput, Relation, RelationContent, ValidatedModel};
@@ -40,6 +41,10 @@ pub enum ModelError {
     Resource { owner: &'static str, requested: usize, used: usize, limit: usize },
     #[error("invalid model: {0}")]
     Invalid(String),
+    /// A request outside the generation's frontier, or a schedule or coverage that cannot be
+    /// admitted to it.
+    #[error("frontier: {0}")]
+    Frontier(String),
     #[error("wrong schema for {0}")]
     Schema(&'static str),
     #[error("identity does not match semantic key for {0}")]
@@ -118,8 +123,27 @@ pub mod __private {
 /// ```
 pub mod declaration_controls {}
 
-/// The sole production relation membership manifest; physical inventories are derived.
+/// The sole production relation membership manifest; physical inventories are derived. It is the
+/// facts relations plus the analysis relations derived from them.
 pub fn model() -> Result<ValidatedModel, ModelError> {
+    let mut relations = facts_relations();
+    relations.extend(analysis_relations());
+    ValidatedModel::validate(relations)
+}
+/// Relations later layers derive from facts: transfers, control selections, stability witnesses,
+/// guard substitutions and call compositions. A facts generation never writes them.
+pub fn analysis_relations() -> Vec<Relation> {
+    use transfer::*;
+    vec![
+        Relation::of::<TransferKey>(), Relation::of::<TransferAlternative>(), Relation::of::<TransferSupport>(),
+        Relation::of::<ControlInfluence>(), Relation::of::<ControlSupport>(), Relation::of::<Selection>(),
+        Relation::of::<conditions::stability::StabilityWitness>(), Relation::of::<conditions::stability::GuardSubstitution>(),
+        Relation::of::<composition::CallCompositionStep>(),
+    ]
+}
+/// The relations a facts generation publishes: inputs, attribution and coverage, provider
+/// observations and the vocabulary they use (cutover phases 0–2).
+pub fn facts_relations() -> Vec<Relation> {
     use input::*;
     use attribution::*;
     use source::*;
@@ -132,8 +156,7 @@ pub fn model() -> Result<ValidatedModel, ModelError> {
     use conditions::*;
     use assertion::*;
     use calls::*;
-    use transfer::*;
-    ValidatedModel::validate(vec![
+    vec![
         Relation::of::<ReportCollection>(), Relation::of::<ReportValue>(), Relation::of::<ReportEntry>(),
         Relation::of::<ReportedEnvironment>(), Relation::of::<TaskReport>(), Relation::of::<TaskReportObservation>(), Relation::of::<TaskReportSupport>(),
         Relation::of::<DeploymentObservation>(), Relation::of::<DeploymentSupport>(),
@@ -159,8 +182,6 @@ pub fn model() -> Result<ValidatedModel, ModelError> {
         Relation::of::<BindingObservation>(), Relation::of::<BindingSupport>(),
         Relation::of::<ReferenceObservation>(), Relation::of::<ReferenceSupport>(),
         Relation::of::<LexicalResolution>(), Relation::of::<LexicalResolutionSupport>(),
-        Relation::of::<TransferKey>(), Relation::of::<TransferAlternative>(), Relation::of::<TransferSupport>(),
-        Relation::of::<ControlInfluence>(), Relation::of::<ControlSupport>(), Relation::of::<Selection>(),
         Relation::of::<ProviderModule>(), Relation::of::<ProviderSymbol>(), Relation::of::<ParameterShape>(), Relation::of::<Signature>(),
         Relation::of::<SignatureParameter>(), Relation::of::<SignatureSupport>(),
         Relation::of::<CallChannel>(), Relation::of::<CallDestination>(), Relation::of::<Receiver>(),
@@ -173,8 +194,6 @@ pub fn model() -> Result<ValidatedModel, ModelError> {
         Relation::of::<Literal>(), Relation::of::<LiteralSet>(), Relation::of::<LiteralSetMember>(),
         Relation::of::<PlaceRoot>(), Relation::of::<PathSegment>(), Relation::of::<AccessPath>(), Relation::of::<Place>(),
         Relation::of::<Predicate>(), Relation::of::<EvaluationAtom>(), Relation::of::<ConditionNode>(), Relation::of::<Condition>(),
-        Relation::of::<conditions::stability::StabilityWitness>(), Relation::of::<conditions::stability::GuardSubstitution>(),
-        Relation::of::<composition::CallCompositionStep>(),
         Relation::of::<Package>(), Relation::of::<Release>(), Relation::of::<InputRevision>(),
         Relation::of::<InputOrigin>(), Relation::of::<InputAcquisition>(), Relation::of::<CorpusLibrary>(),
         Relation::of::<InputDistribution>(), Relation::of::<DistributionVerification>(),
@@ -182,5 +201,5 @@ pub fn model() -> Result<ValidatedModel, ModelError> {
         Relation::of::<Occurrence>(), Relation::of::<Provider>(), Relation::of::<AnalysisContext>(),
         Relation::of::<ProviderRun>(), Relation::of::<RunFamily>(), Relation::of::<SyntaxObservation>(), Relation::of::<SyntaxSupport>(),
         Relation::of::<CoverageScope>(), Relation::of::<ProviderCoverage>(),
-    ])
+    ]
 }

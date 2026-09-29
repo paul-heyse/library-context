@@ -336,7 +336,8 @@ parallel DNF computation exists.
 - **Budgets:** named budgets charge deterministically. Exhaustion is `budget_reached(kind)`,
   distinguishable from dominance and from evidence.
 - **Coverage:** coverage is stated per family and scope. A negative claim requires complete coverage
-  inside the relation's declared closure.
+  inside the relation's declared closure. Every fact family is a coverage family. Each assertion
+  relation, and its support, declares the family whose coverage states its completeness.
 - **Verdicts:** one verdict function maps condition, open obligations and approximation to the five
   verdicts (established, conditional, refuted under model, unknown, not analysed).
 
@@ -416,6 +417,32 @@ contributions, effect class and code identity. From it:
 - a read before its writer runs is an error;
 - a stage contributing shared vocabulary hands budget-reserved rows to that relation's writer,
   which runs after every contributor and emits each identity once.
+
+A stage that reports coverage names its provider; the provider is part of the schedule digest.
+
+**The facts frontier** (`domain::admission`). A facts generation publishes only facts relations,
+which reference only facts relations. One table states, for each family:
+- its grain: once per input, or once per input artifact of a class (Python source or document);
+- the profiles that request it: Flow in the behavioral profile only;
+- whether facts are admissible when it is entirely unavailable: Artifacts and Syntax are required.
+
+*Preflight* refuses a schedule before any store effect when:
+- it reads or writes above the frontier;
+- it attempts a family its profile does not request;
+- it leaves a requested family uncovered;
+- a family's assertions are written by a stage that does not report that family's coverage, or an
+  unrequested family's assertions are written at all;
+- it has no coverage writer.
+
+*Admission* reads the sealed inputs, artifacts and coverage and requires exactly the expected rows:
+- one row per scope, requested family and covering provider;
+- one `NotRequested` row per scope of an unrequested family;
+- no missing, extra or duplicate row, and no `Failed` status.
+
+Each stage's reported outcome must agree with the coverage its provider stated. Each family's
+availability is recorded as Complete, Partial, Unavailable, NotRequested, or no scope. The
+admission record binds the contract, model, schedule, coverage and content digests, and only
+admission constructs it.
 
 Reuse keeps recompute-and-compare admission. Skipping on key stays behind ADR-0081's trigger.
 

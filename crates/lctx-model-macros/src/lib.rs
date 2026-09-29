@@ -66,7 +66,7 @@ fn expand_assertion(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
             }
         }
         #[derive(Debug, Clone, PartialEq, Eq, ::lctx_model::Domain)]
-        #[model(name = #table, invariants = ::lctx_model::domain::assertion::support_invariants::<#name, #support>)]
+        #[model(name = #table, family = #family, invariants = ::lctx_model::domain::assertion::support_invariants::<#name, #support>)]
         #vis struct #support {
             #[model(key)] pub assertion: ::lctx_model::domain::Id<#name>,
             #[model(key, provenance)] pub run: ::lctx_model::domain::Id<::lctx_model::domain::attribution::ProviderRun>,
@@ -105,11 +105,13 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
     let mut invariants: Option<syn::Path> = None;
     let mut semantic_source: Option<syn::Expr> = None;
     let mut required_support: Option<syn::Ident> = None;
+    let mut family: Option<syn::Path> = None;
     for attr in &input.attrs {
         if attr.path().is_ident("assertion") {
             attr.parse_nested_meta(|meta| {
                 if meta.path.is_ident("support") { required_support = Some(meta.value()?.parse()?); }
                 else if meta.path.is_ident("subjects") { meta.parse_nested_meta(|_| Ok(()))?; }
+                else if meta.path.is_ident("family") { family = Some(meta.value()?.parse()?); }
                 else { let _: syn::Expr = meta.value()?.parse()?; }
                 Ok(())
             })?;
@@ -122,7 +124,8 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
                 else if meta.path.is_ident("validate") { validator = Some(meta.value()?.parse()?); }
                 else if meta.path.is_ident("invariants") { invariants = Some(meta.value()?.parse()?); }
                 else if meta.path.is_ident("semantic_source") { semantic_source = Some(meta.value()?.parse()?); }
-                else { return Err(meta.error("expected name, validate, invariants or semantic_source")); }
+                else if meta.path.is_ident("family") { family = Some(meta.value()?.parse()?); }
+                else { return Err(meta.error("expected name, validate, invariants, family or semantic_source")); }
                 Ok(())
             })?;
         }
@@ -192,6 +195,9 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
             }
         }
     } else { quote!() };
+    let family_fn = family.map(|family| quote! {
+        fn family() -> Option<::lctx_model::domain::attribution::FactFamily> { Some(#family) }
+    });
     let declaration = quote!(#input).to_string();
     let name = &input.ident;
     let key_name = format_ident!("{}Key", name);
@@ -243,6 +249,7 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
             fn fields() -> Vec<::lctx_model::domain::Field> { vec![#(#descriptors,)*] }
             fn invariants() -> Vec<::lctx_model::domain::Invariant> { #invariants }
             fn required_relations() -> Vec<(::std::any::TypeId, &'static str)> { #required_support }
+            #family_fn
             fn content_digest(&self) -> ::lctx_model::domain::ContentHash {
                 let mut sink = ::lctx_model::domain::KeySink::new(Self::NAME);
                 #(::lctx_model::domain::Key::encode(&self.#names, &mut sink);)*

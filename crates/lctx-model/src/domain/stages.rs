@@ -23,6 +23,8 @@ pub struct RelationUse { pub(crate) type_id: TypeId, name: &'static str }
 impl RelationUse {
     pub fn of<R: Record>() -> Self { Self { type_id: TypeId::of::<R>(), name: R::NAME } }
     pub fn name(self) -> &'static str { self.name }
+    /// The use of a declared relation, for schedules built from a relation list.
+    pub fn of_relation(relation: &super::Relation) -> Self { Self { type_id: relation.type_id(), name: relation.name() } }
 }
 #[derive(Debug, Clone)]
 pub struct Stage {
@@ -32,8 +34,9 @@ pub struct Stage {
     /// Shared vocabulary this stage hands to another stage's output (ADR-0089). The writer runs
     /// after every contributor and emits each identity once.
     pub contributes: Vec<RelationUse>,
-    /// Fact families whose provider coverage this stage reports.
+    /// Fact families whose provider coverage this stage reports, and the provider that reports it.
     pub coverage: Vec<FactFamily>,
+    pub provider: Option<super::Id<super::attribution::Provider>>,
     pub profiles: Vec<Profile>,
     pub effect: Effect,
     pub code: ContentHash,
@@ -71,6 +74,9 @@ impl Schedule {
                 if stage.outputs.iter().any(|o| o.type_id == r.type_id) {
                     return Err(ModelError::Invalid(format!("{} cannot contribute to its own output {}", stage.name, r.name)));
                 }
+            }
+            if stage.coverage.is_empty() != stage.provider.is_none() {
+                return Err(ModelError::Invalid(format!("{} reports coverage exactly when it names its provider", stage.name)));
             }
             if stage.contributes.iter().map(|r| r.type_id).collect::<HashSet<_>>().len() != stage.contributes.len()
                 || stage.coverage.iter().collect::<BTreeSet<_>>().len() != stage.coverage.len() {
@@ -122,6 +128,7 @@ impl Schedule {
             for name in contributes { digest.part(b"contribute",name.as_bytes()); }
             let mut coverage = stage.coverage.clone(); coverage.sort();
             for family in coverage { Key::encode(&family, &mut digest); }
+            if let Some(provider) = stage.provider { Key::encode(&provider, &mut digest); }
         }
         Ok(Self { stages: ordered, model: model.digest(), digest: digest.finish(), profile, dependencies: named, readers })
     }

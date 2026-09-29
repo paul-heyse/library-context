@@ -42,7 +42,7 @@ pub struct ProviderSurface {
     #[model(key)] pub name: String,
 }
 fn validate_surface(row: &ProviderSurface) -> Result<(), ModelError> {
-    if row.name.is_empty() || !row.family.is_coverage_family() { return Err(invalid("invalid provider surface")); }
+    if row.name.is_empty() { return Err(invalid("invalid provider surface")); }
     Ok(())
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]

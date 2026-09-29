@@ -134,7 +134,7 @@ mod batching {
         }
     }
     fn stage() -> Stage {
-        Stage { name: "inputs", inputs: vec![], outputs: vec![RelationUse::of::<Package>(), RelationUse::of::<Release>()], contributes: vec![], coverage: vec![],
+        Stage { name: "inputs", inputs: vec![], outputs: vec![RelationUse::of::<Package>(), RelationUse::of::<Release>()], contributes: vec![], coverage: vec![], provider: None,
             profiles: vec![Profile::Catalog], effect: Effect::Extraction, code: ContentHash::of(b"producer"), configuration: ContentHash::of(b"config") }
     }
 

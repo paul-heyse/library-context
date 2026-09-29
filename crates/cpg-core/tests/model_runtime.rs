@@ -6,8 +6,8 @@ use lctx_model::domain::{*,input::*,stages::*};
 async fn declared_stage_catalogs_are_fresh_and_reject_foreign_capabilities() {
     let model = model().unwrap();
     let schedule = Schedule::build(&model,vec![
-        Stage { name: "source",inputs: vec![],outputs: vec![RelationUse::of::<Package>()], contributes: vec![], coverage: vec![], profiles: vec![Profile::Catalog, Profile::Behavioral], effect: Effect::Pure, code: ContentHash::of(b"test-producer"), configuration: ContentHash::of(b"test-config") },
-        Stage { name: "consumer",inputs: vec![RelationUse::of::<Package>()],outputs: vec![RelationUse::of::<Release>()], contributes: vec![], coverage: vec![], profiles: vec![Profile::Catalog, Profile::Behavioral], effect: Effect::Pure, code: ContentHash::of(b"test-producer"), configuration: ContentHash::of(b"test-config") },
+        Stage { name: "source",inputs: vec![],outputs: vec![RelationUse::of::<Package>()], contributes: vec![], coverage: vec![], provider: None, profiles: vec![Profile::Catalog, Profile::Behavioral], effect: Effect::Pure, code: ContentHash::of(b"test-producer"), configuration: ContentHash::of(b"test-config") },
+        Stage { name: "consumer",inputs: vec![RelationUse::of::<Package>()],outputs: vec![RelationUse::of::<Release>()], contributes: vec![], coverage: vec![], provider: None, profiles: vec![Profile::Catalog, Profile::Behavioral], effect: Effect::Pure, code: ContentHash::of(b"test-producer"), configuration: ContentHash::of(b"test-config") },
     ],&[], Profile::Catalog).unwrap();
     let runtime = AttemptRuntime::new(RuntimeOptions::default()).unwrap();
     let mut execution = schedule.execute(); let mut source = execution.begin("source").unwrap();
@@ -34,7 +34,7 @@ async fn declared_stage_catalogs_are_fresh_and_reject_foreign_capabilities() {
 }
 #[tokio::test]
 async fn compute_and_external_reservations_share_one_attempt_pool() {
-    let model = model().unwrap(); let schedule = Schedule::build(&model,vec![Stage { name: "s",inputs: vec![],outputs: vec![RelationUse::of::<Package>()], contributes: vec![], coverage: vec![], profiles: vec![Profile::Catalog, Profile::Behavioral], effect: Effect::Pure, code: ContentHash::of(b"test-producer"), configuration: ContentHash::of(b"test-config") }],&[], Profile::Catalog).unwrap();
+    let model = model().unwrap(); let schedule = Schedule::build(&model,vec![Stage { name: "s",inputs: vec![],outputs: vec![RelationUse::of::<Package>()], contributes: vec![], coverage: vec![], provider: None, profiles: vec![Profile::Catalog, Profile::Behavioral], effect: Effect::Pure, code: ContentHash::of(b"test-producer"), configuration: ContentHash::of(b"test-config") }],&[], Profile::Catalog).unwrap();
     let mut execution = schedule.execute(); let stage = execution.begin("s").unwrap();
     let limit = 32*1024*1024; // Includes DataFusion's 10 MiB sort-spill reservation.
     let runtime = AttemptRuntime::new(RuntimeOptions { memory_bytes: limit,partitions: 1 }).unwrap();

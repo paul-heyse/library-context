@@ -45,7 +45,7 @@ fn model_invariants_run_over_declared_input_order() {
 #[test]
 fn a_bound_generation_accepts_only_its_execution_and_charges_what_it_stores() {
     let model = model().unwrap();
-    let stages = vec![Stage { name: "packages", inputs: vec![], outputs: vec![RelationUse::of::<Package>()], contributes: vec![], coverage: vec![],
+    let stages = vec![Stage { name: "packages", inputs: vec![], outputs: vec![RelationUse::of::<Package>()], contributes: vec![], coverage: vec![], provider: None,
         profiles: vec![Profile::Catalog], effect: Effect::Pure, code: ContentHash::of(b"p"), configuration: ContentHash::of(b"c") }];
     let schedule = Schedule::build(&model, stages, &[], Profile::Catalog).unwrap();
     let store = budget();

@@ -133,6 +133,9 @@ pub trait Record: HeapSize + Sized + Clone + PartialEq + std::fmt::Debug + Send 
     fn derivation() -> Option<super::derivation::Derivation> { None }
     fn proof(&self) -> Option<super::derivation::Proof> { None }
     fn required_relations() -> Vec<(std::any::TypeId, &'static str)> { Vec::new() }
+    /// The fact family whose coverage states this relation's completeness: an assertion's and its
+    /// support's declared family; `None` for vocabulary and derived relations.
+    fn family() -> Option<super::attribution::FactFamily> { None }
     type Key: Key + Clone + Eq + std::hash::Hash;
     const NAME: &'static str;
     const CONTRACT: &'static str;

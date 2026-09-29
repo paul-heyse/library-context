@@ -14,15 +14,17 @@ pub struct Relation {
     schema: SchemaRef,
     contract: &'static str,
     owner: &'static str,
+    family: Option<super::attribution::FactFamily>,
     semantic_source: &'static [u8],
     validate: fn(&arrow_array::RecordBatch) -> Result<arrow_array::RecordBatch, ModelError>,
     proofs: fn(&arrow_array::RecordBatch) -> Result<Vec<super::derivation::Proof>,ModelError>,
     hash_rows: fn(&arrow_array::RecordBatch, &mut RelationContent) -> Result<(), ModelError>,
 }
 impl Relation {
-    pub fn of<R: Record>() -> Self { Self { type_id: TypeId::of::<R>(), name: R::NAME, fields: R::fields(), invariants: R::invariants(), required: R::required_relations(), sum: R::sum(), derivation: R::derivation(), schema: R::schema(), contract: R::CONTRACT, owner: R::OWNER, semantic_source: R::SEMANTIC_SOURCE, validate: canonical::<R>, hash_rows: hash_rows::<R>,proofs: proofs::<R> } }
+    pub fn of<R: Record>() -> Self { Self { type_id: TypeId::of::<R>(), name: R::NAME, fields: R::fields(), invariants: R::invariants(), required: R::required_relations(), sum: R::sum(), derivation: R::derivation(), schema: R::schema(), contract: R::CONTRACT, owner: R::OWNER, family: R::family(), semantic_source: R::SEMANTIC_SOURCE, validate: canonical::<R>, hash_rows: hash_rows::<R>,proofs: proofs::<R> } }
     pub fn derivation(&self) -> Option<&super::derivation::Derivation> { self.derivation.as_ref() }
     pub fn name(&self) -> &'static str { self.name }
+    pub fn family(&self) -> Option<super::attribution::FactFamily> { self.family }
     pub fn sum(&self) -> Option<&super::Sum> { self.sum.as_ref() }
     pub fn fields(&self) -> &[Field] { &self.fields }
     pub fn schema(&self) -> &SchemaRef { &self.schema }

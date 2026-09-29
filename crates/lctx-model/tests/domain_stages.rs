@@ -11,8 +11,8 @@ fn execution_handoff_required(stage: &mut StageAccess<'_, '_>) -> bool {
     stage.retain(std::sync::Arc::new(empty)).is_ok()
 }
 fn stages() -> Vec<Stage> {
-    vec![Stage { name: "packages", inputs: vec![], outputs: vec![RelationUse::of::<Package>()], contributes: vec![], coverage: vec![], profiles: vec![Profile::Catalog, Profile::Behavioral], effect: Effect::Pure, code: ContentHash::of(b"test-producer"), configuration: ContentHash::of(b"test-config") },
-        Stage { name: "releases", inputs: vec![RelationUse::of::<Package>()],outputs: vec![RelationUse::of::<Release>()], contributes: vec![], coverage: vec![], profiles: vec![Profile::Catalog, Profile::Behavioral], effect: Effect::Pure, code: ContentHash::of(b"test-producer"), configuration: ContentHash::of(b"test-config") }]
+    vec![Stage { name: "packages", inputs: vec![], outputs: vec![RelationUse::of::<Package>()], contributes: vec![], coverage: vec![], provider: None, profiles: vec![Profile::Catalog, Profile::Behavioral], effect: Effect::Pure, code: ContentHash::of(b"test-producer"), configuration: ContentHash::of(b"test-config") },
+        Stage { name: "releases", inputs: vec![RelationUse::of::<Package>()],outputs: vec![RelationUse::of::<Release>()], contributes: vec![], coverage: vec![], provider: None, profiles: vec![Profile::Catalog, Profile::Behavioral], effect: Effect::Pure, code: ContentHash::of(b"test-producer"), configuration: ContentHash::of(b"test-config") }]
 }
 #[test]
 fn execution_capabilities_refuse_undeclared_reads_writes_and_incomplete_schedules() {
@@ -118,7 +118,7 @@ mod contributions {
         }
     }
     fn stage(name: &'static str, inputs: Vec<RelationUse>, outputs: Vec<RelationUse>, contributes: Vec<RelationUse>) -> Stage {
-        Stage { name, inputs, outputs, contributes, coverage: vec![], profiles: vec![Profile::Catalog], effect: Effect::Extraction,
+        Stage { name, inputs, outputs, contributes, coverage: vec![], provider: None, profiles: vec![Profile::Catalog], effect: Effect::Extraction,
             code: ContentHash::of(name.as_bytes()), configuration: ContentHash::of(b"config") }
     }
     fn pipeline() -> Vec<Stage> {
@@ -142,8 +142,13 @@ mod contributions {
         assert!(Schedule::build(&model, cyclic, &[], Profile::Catalog).is_err(), "a contributor cannot read its writer's output");
         let digest = |stages| Schedule::build(&model, stages, &[], Profile::Catalog).unwrap().digest();
         let mut dropped = pipeline(); dropped[1].contributes.clear();
-        let mut covered = pipeline(); covered[0].coverage = vec![FactFamily::Syntax];
-        assert_ne!(digest(pipeline()), digest(dropped)); assert_ne!(digest(pipeline()), digest(covered));
+        let provider = |tool: &str| lctx_model::domain::attribution::Provider { tool: tool.into(), revision: "1".into(), build_digest: ContentHash::of(b"p") }.id();
+        let mut unattributed = pipeline(); unattributed[0].coverage = vec![FactFamily::Syntax];
+        assert!(Schedule::build(&model, unattributed, &[], Profile::Catalog).is_err(), "coverage names its provider");
+        let mut covered = pipeline(); covered[0].coverage = vec![FactFamily::Syntax]; covered[0].provider = Some(provider("a"));
+        let mut other = pipeline(); other[0].coverage = vec![FactFamily::Syntax]; other[0].provider = Some(provider("b"));
+        assert_ne!(digest(pipeline()), digest(dropped)); assert_ne!(digest(pipeline()), digest(covered.clone()));
+        assert_ne!(digest(covered), digest(other), "the covering provider is part of the schedule");
     }
 
     #[test]
@@ -205,7 +210,7 @@ struct Outside { #[model(key)] name: String }
 fn the_schedule_refuses_double_or_missing_writers_foreign_relations_and_cycles() {
     let model = model().unwrap();
     let of = |name: &'static str, inputs: Vec<RelationUse>, outputs: Vec<RelationUse>, profiles: Vec<Profile>| Stage { name, inputs, outputs, contributes: vec![],
-        coverage: vec![], profiles, effect: Effect::Pure, code: ContentHash::of(b"test-producer"), configuration: ContentHash::of(b"test-config") };
+        coverage: vec![], provider: None, profiles, effect: Effect::Pure, code: ContentHash::of(b"test-producer"), configuration: ContentHash::of(b"test-config") };
     let both = || vec![Profile::Catalog, Profile::Behavioral];
     let (package, release) = (RelationUse::of::<Package>, RelationUse::of::<Release>);
     let refused = |stages: Vec<Stage>, required: &[RelationUse], profile: Profile, expected: &str| {

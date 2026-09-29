@@ -190,7 +190,7 @@ assembled reviews at the P0 and P0–P2 exits.
 | T2 | Resource slices R1/R2 precede new contract work, so budget-taking `Batch::new/read` and `Invariant.create` signatures land before new tests |
 | T3 | Contract amendments land in P0 (K1): `ProviderModule` (Artifact/Bundled/Unresolved) replaces `ProviderSymbol.module: String` and `TypeVariable.module`; `PlaceRoot::Local{scope, name}` (code 8), because reaching requires one place shared by a use and all its definitions; DESIGN §15.4 amended |
 | T4 | Composition policy: Yield/Raise yield a typed `UnsupportedControlFlow` obligation; substitutable guards are `IsNone`/`IsValue` only; unwitnessed formal guards keep refusing; the pure `discharge`/`Meter` policy is ported so its expectations stay executable |
-| T5 | `FactFamily` codes 0, 5, 6, 11 and 12 leave the enum with their numbers reserved: documented, never reused, never renumbered |
+| T5 | `FactFamily` codes 0, 4, 5, 6, 11 and 12 leave the enum with their numbers reserved: documented, never reused, never renumbered. Code 4 (`Coverage`) was also not a coverage family and had no user (D1, 2026-09-29) |
 | T6 | Capture takes the complete analyzer-readable input closure (site-packages `.py`/`.pyi`/`py.typed`/`.pth`, dist-info METADATA/entry_points/RECORD, selected corpus files). Derived blocks and receipts live under a reserved `_lctx/` namespace in the frozen copy; a stale `_lctx_blocks/` in a source tree is refused |
 | T7 | Only an Exact span match attaches. Other outcomes write a `SubjectBoundary` retaining candidates plus Partial coverage with appended reasons `AttachmentAmbiguous`/`AttachmentUnmatched`; dependent facts are counted, never guessed |
 | T8 | Test-operand typing is decoupled from ty: Pyrefly types every test-position load; the leaf-to-type join is P3 |
@@ -614,6 +614,25 @@ Retired answers, recoverable at 9912598:
 - a 20-callback cap refuses at 21.
 
 Every refusal is `SyntaxError::Refused` with reason `ResourceRefused`. Default limits emit the full counts; the conformance fixture emission is unchanged |
+| D1: `cargo test --release -p lctx-model` (incl. `domain_admission`, `domain_stages`, `domain`, doctests); `-p lctx-postgres --test generations --test generation_stages --test domain_coverage`; workspace check | passed 2026-09-29.
+
+Contract changes: `domain/admission.rs` plus `Stage.provider`, `Relation::family` and `ModelError::Frontier`; codes 0/4/5/6/11/12 retired.
+
+Four-artifact input {a.py, b.pyi, _invalid/undecodable.py, README.md}:
+- expected rows: 24 per profile. Flow is `NotRequested` (no provider) in catalog and ty-provided in behavioral.
+- admitted: faithful coverage with Syntax/Flow Partial and Docs Complete. The result is order-independent.
+- a README-only input: Syntax is no-scope and Deployment Complete.
+- refused: a missing, extra or duplicate row; attempted catalog Flow; a `Failed` row; Complete reported beside an Unavailable module; a receipt of another schedule; a required Syntax entirely Unavailable, where the Partial twin is admitted.
+
+Preflight refuses:
+- the acquisition+syntax subset (Lexical uncovered) and a missing Docs coverer;
+- catalog-scheduled Flow;
+- a `TransferKey` output;
+- Syntax assertions written by the documents stage, and Flow assertions written in catalog;
+- no coverage writer;
+- a behavioral contract over a catalog schedule, and a model without facts relations.
+
+`FactsAdmission` literal construction fails to compile. Coverage without a provider is refused, and the provider changes the schedule digest |
 | `just fmt`, `just test-all`, facts pilots | not_run: functional scope incomplete |
 
 Independent bounded reviewers accepted artifact/capture/acquisition corrections and the

@@ -8,16 +8,13 @@ use super::source::CoverageScope;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, DomainCode)]
 #[repr(i16)]
+/// The families providers report coverage for. Codes 0, 4, 5, 6, 11 and 12 named publication,
+/// graph, findings, cache and coverage units that are not coverage families; they are retired and
+/// reserved, never reused (codebooks are append-only).
 pub enum FactFamily {
-        Provenance = 0,
         Exports = 1,
         Signatures = 2,
         Calls = 3,
-        Coverage = 4,
-        /// The `snapshots` table: the publication act, not a fact family (DESIGN §6.1).
-        Publication = 5,
-        /// The derived `nodes`/`edges` catalogs (DESIGN §3.8): not a coverage unit.
-        Graph = 6,
         /// C2: syntax nodes the passes read (DESIGN §3.2).
         Syntax = 7,
         /// C3: scopes, bindings, references and their resolution (DESIGN §3.2).
@@ -26,11 +23,6 @@ pub enum FactFamily {
         Types = 9,
         /// C5: documents, passages, code blocks, links and mentions (DESIGN §3.2).
         Docs = 10,
-        /// Analysis results: invocations, findings, witnesses, evidence, assertions and briefs
-        /// (ADR-0019). Not a coverage unit: no run declares it.
-        Findings = 11,
-        /// The global embedding cache (DESIGN §3.2, §11.1): not snapshot-qualified.
-        EmbeddingCache = 12,
         /// The flow IR (ADR-0022 §The flow provider): definitions, uses, reaching definitions,
         /// statement regions, value sources and their conditions, from `cpg-flow`.
         Flow = 13,
@@ -132,7 +124,6 @@ pub struct ProviderCoverage {
     pub diagnostic: Option<String>,
 }
 fn validate_coverage(row: &ProviderCoverage) -> Result<(), ModelError> {
-    if !row.family.is_coverage_family() { return Err(ModelError::Invalid("not a coverage family".into())); }
     match row.status {
         CoverageStatus::NotRequested if row.run.is_some() || row.reason.is_some() =>
             Err(ModelError::Invalid("not-requested coverage has no invocation or failure reason".into())),
@@ -143,11 +134,6 @@ fn validate_coverage(row: &ProviderCoverage) -> Result<(), ModelError> {
         _ => Ok(()),
     }
 }
-impl FactFamily {
-    pub fn is_coverage_family(self) -> bool {
-        matches!(self, Self::Exports | Self::Signatures | Self::Calls | Self::Syntax | Self::Lexical | Self::Types | Self::Docs | Self::Flow | Self::Artifacts | Self::Deployment)
-    }
-}
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name = "run_families")]
 pub struct RunFamily {
@@ -155,7 +141,7 @@ pub struct RunFamily {
     #[model(key)] pub family: FactFamily,
 }
 fn family_digest(families: &BTreeSet<FactFamily>) -> Result<ContentHash, ModelError> {
-    if families.is_empty() || families.iter().any(|f| !f.is_coverage_family()) {
+    if families.is_empty() {
         return Err(ModelError::Invalid("invocation needs requested coverage families".into()));
     }
     let mut sink = KeySink::new("requested-families");
@@ -237,7 +223,7 @@ impl InvocationCheck {
         Ok(())
     }
     fn add_family(&mut self, row: &RunFamily) -> Result<(), ModelError> {
-        if !row.family.is_coverage_family() || !self.runs.contains_key(&row.run)
+        if !self.runs.contains_key(&row.run)
             || !self.families.update(&mut self.charge, row.run, |families| families.insert(row.family))? {
             return Err(ModelError::Invalid("invalid invocation family membership".into()));
         }
