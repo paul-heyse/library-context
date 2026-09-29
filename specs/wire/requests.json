@@ -365,5 +365,178 @@
       "library": "fastmcp",
       "limit": 101
     }
+  },
+  {
+    "contract": "GetOperationRequest",
+    "input": {
+      "snapshot_id": "00000000000000000000000000000000",
+      "operation": "demo",
+      "view": {
+        "kind": "section",
+        "section": "behavior",
+        "cursor": null
+      }
+    },
+    "valid": true
+  },
+  {
+    "contract": "GetOperationRequest",
+    "input": {
+      "snapshot_id": "00000000000000000000000000000000",
+      "operation": "demo",
+      "evidence_limit": 20
+    },
+    "valid": false
+  },
+  {
+    "contract": "GetOperationRequest",
+    "input": {
+      "snapshot_id": "00000000000000000000000000000000",
+      "operation": "demo",
+      "view": null
+    },
+    "valid": false
+  },
+  {
+    "contract": "GetOperationRequest",
+    "input": {
+      "snapshot_id": "00000000000000000000000000000000",
+      "operation": "demo",
+      "view": {
+        "kind": "section",
+        "section": "unknown"
+      }
+    },
+    "valid": false
+  },
+  {
+    "contract": "BrowseLibraryRequest",
+    "input": {
+      "library": "demo",
+      "view": {
+        "kind": "vocabulary"
+      }
+    },
+    "valid": true
+  },
+  {
+    "contract": "BrowseLibraryRequest",
+    "input": {
+      "library": "demo",
+      "scope": {
+        "kind": "module",
+        "name": "界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界"
+      }
+    },
+    "valid": false
+  },
+  {
+    "contract": "SearchEvidenceRequest",
+    "input": {
+      "library": "demo",
+      "query": "deployment"
+    },
+    "valid": true
+  },
+  {
+    "contract": "CompareOperationsRequest",
+    "input": {
+      "library": "demo",
+      "candidates": [],
+      "selection": {}
+    },
+    "valid": false
+  },
+  {
+    "contract": "CompareOperationsRequest",
+    "input": {
+      "library": "demo",
+      "candidates": [
+        "demo.run"
+      ],
+      "selection": {}
+    },
+    "valid": true
+  },
+  {
+    "contract": "CompareOperationsRequest",
+    "input": {
+      "library": "demo",
+      "candidates": [
+        "demo.run",
+        "demo.run",
+        "demo.run",
+        "demo.run",
+        "demo.run"
+      ],
+      "selection": {}
+    },
+    "valid": true
+  },
+  {
+    "contract": "CompareOperationsRequest",
+    "input": {
+      "library": "demo",
+      "candidates": [
+        "demo.run",
+        "demo.run",
+        "demo.run",
+        "demo.run",
+        "demo.run",
+        "demo.run"
+      ],
+      "selection": {}
+    },
+    "valid": false
+  },
+  {
+    "contract": "SearchEvidenceRequest",
+    "input": {
+      "library": "λ",
+      "query": "deployment",
+      "families": []
+    },
+    "valid": false
+  },
+  {
+    "contract": "SearchEvidenceRequest",
+    "input": {
+      "library": "λ",
+      "query": "deployment",
+      "families": [
+        "source",
+        "source"
+      ]
+    },
+    "valid": false
+  },
+  {
+    "contract": "SearchEvidenceRequest",
+    "input": {
+      "library": "λ",
+      "query": "deployment",
+      "families": [
+        "api_options",
+        "documentation_deployment",
+        "scenario",
+        "source"
+      ]
+    },
+    "valid": true
+  },
+  {
+    "contract": "SearchEvidenceRequest",
+    "input": {
+      "library": "λ",
+      "query": "deployment",
+      "families": [
+        "source",
+        "api_options",
+        "scenario",
+        "documentation_deployment",
+        "source"
+      ]
+    },
+    "valid": false
   }
 ]

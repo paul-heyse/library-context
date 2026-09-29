@@ -149,6 +149,32 @@ why source/docs/current facts are insufficient, its bounded semantics and an ind
 Otherwise prioritize association/query/packet work. Resource or deployment failures do not justify
 weakening evidence or declaring an unavailable capability implemented.
 
+#### PR5 detailed execution (ADR-0081)
+
+**In progress, Proposed qualification, 2026-09-28.** The operator authorized this complete scope.
+Focused compile/tests accompany implementation; one final formatting pass, full `just test-all`,
+`just docs-check` and bounded real MCP journeys follow functional completion. Embedding accuracy,
+comparative scoring and performance campaigns are excluded. Preserve benchmark artifacts and the
+completed background NVFP4 outputs; deployment ends with current-only profiles, no recovery copies.
+
+| Order / owner | Execution and acceptance |
+|---|---|
+| PR5.1 — schema | One finite contract dispatch for schema and decoding. Tagged operation packet/section views, scoped browse, independent evidence search and ordered 1–5 candidate comparison; explicit CLI rebuild inputs. Version only changed contracts; remove replaced public encodings. Schema/Serde/native/MCP parity includes null/default/unknown/Unicode and limits. |
+| PR5.2 — PG hydration / MCP | Admit mandatory signature/configuration/type/provenance closure before optional hydration. Section directory and whole-record continuation; at most two positive demo references and five default relationship links. No nested constructor behavior. Expanded-required and indivisible-contract refusal; final 32/256 KiB MCP result bound with concise text. Known large CLI/auth packets must yield usable core plus sections. |
+| PR5.3 — browse | Outline from catalog ownership domains (module/class_owner), distinct public-member counts and aliases; vocabulary derives from Requirement/Schemars/codebooks. Scope-aware facets, unavailable behavior and unknown ownership; page 20/max100 with generation/request/policy cursors. |
+| PR5.4 — evidence | Independent unit winners include release-only/unassociated documentation and scenarios. Family/text lexical dedup, best unit fragment per channel, RRF60 then equal family merge and unit-ID ties. Actual subject/intent filters, winning fragments and originals, exact PG vectors and disclosed embedding-only lexical fallback; no DB lease during embedding. |
+| PR5.5 — comparison | Resolve names in caller order; expose ambiguous/missing states. Prepare requirements once and retain all four classifier outcomes, contextual/joint witnesses and compact invocation facts. One response budget; no unsupported winner or witness stripping. |
+| PR5.6 — rebuild | Explicit finite stage dependencies and complete keys; split normalization, association, optional behavior, finalization and retrieval where inputs differ. Catalog rebuild from validated fact snapshot with schema-owned envelope rebinding; retrieval rebuild preserves canonical snapshot. Invalid disposable reuse is a miss, invalid canonical input refuses. No partial ready/select. |
+| PR5.7 — journey qualification | Real MCP on both profiles: browse→vocabulary→selection; task→evidence→contract; deployment without API; compare supported/unresolved/contradicted; oversized sections; declared/installed/observed distinctions; isolated existing programmatic/CLI setup tasks. Exercise capability-unavailable and lexical-only. No sealed tasks. |
+| PR5.8 — review / publication | Fresh assembled design/target review, repair findings, final full gate and docs, fresh imports/reconstruction and bounded journeys. Quiesce, select validated current profiles, delete obsolete runtime only. Update findings and handoff; PR6 comparison remains open. |
+
+Reuse controls compare complete clean/rebuilt rows including provenance after additions, deletions,
+previously absent lookups, coverage/root/profile/provider changes, moved spans, attribution,
+association/rendering/spec changes. The PR4 cross-profile comparator excludes evidence fields and
+is not a reuse oracle. Vector equality replays the same admitted receipts rather than requiring
+fresh NVFP4 bitwise equality. Cancellation, bounded SQLx hydration and interrupted artifact/import
+writes receive focused controls. No new library or framework is needed (FP-01–06; A1–A3).
+
 #### Catalog contract and derivation integration (ADR-0073)
 
 **PR2–PR4 steps Implemented; PR5 Proposed, 2026-09-28.** These refine existing PR2–PR5, not a

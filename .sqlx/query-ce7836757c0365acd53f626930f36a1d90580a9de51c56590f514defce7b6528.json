@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT count(*) AS \"count!\" FROM lctx_serving.behaviors WHERE generation_digest=$1 AND operation_node_id=ANY($2) AND ($3=false OR kind IN ('delegates','supplies_literal','hands_off_to','takes_from'))\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bytea",
+        "ByteaArray",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "ce7836757c0365acd53f626930f36a1d90580a9de51c56590f514defce7b6528"
+}

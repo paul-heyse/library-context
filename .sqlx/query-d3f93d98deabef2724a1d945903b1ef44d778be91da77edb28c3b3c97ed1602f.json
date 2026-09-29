@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT NOT EXISTS(SELECT 1 FROM unnest($2::bytea[],$3::bytea[],$4::text[]) AS w(unit_id,fragment_id,family) LEFT JOIN lctx_serving.retrieval_fragments f ON f.generation_digest=$1 AND f.unit_id=w.unit_id AND f.fragment_id=w.fragment_id AND f.family=w.family WHERE f.fragment_id IS NULL) AS \"valid!\"\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "valid!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bytea",
+        "ByteaArray",
+        "ByteaArray",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "d3f93d98deabef2724a1d945903b1ef44d778be91da77edb28c3b3c97ed1602f"
+}

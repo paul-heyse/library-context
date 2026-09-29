@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT row_ordinal FROM lctx_serving.ambient_reads WHERE generation_digest=$1 AND global=$2 AND field=ANY($3) ORDER BY row_ordinal LIMIT 200001\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "row_ordinal",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "lctx_serving.ambient_reads",
+            "name": "row_ordinal"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bytea",
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "e29a1e860540d7a453251321a8291b52a035b5a8a87d26d68153663ec111c6f0"
+}

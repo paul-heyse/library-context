@@ -210,7 +210,7 @@ pub(crate) struct Hydration {
 pub(crate) enum Keys<'a> {
     Binary(&'a [Vec<u8>]),
     Text(&'a [String]),
-    Prefixes(&'a [String]),
+    Ordinals(&'a [i64]),
 }
 impl Hydration {
     pub(crate) fn new() -> Self {
@@ -255,29 +255,69 @@ impl Hydration {
         key: Option<&'static str>,
         ids: Keys<'_>,
     ) -> Result<Vec<Object>, Error> {
+        self.fetch_projection(conn, generation, name, key, ids, false)
+            .await
+    }
+    /// Invocation projection omits prose at SQL read time; these rows are never persisted.
+    pub(crate) async fn fetch_contract(
+        &mut self,
+        conn: &mut PgConnection,
+        generation: &PinnedGeneration,
+        name: &'static str,
+        key: Option<&'static str>,
+        ids: &[Vec<u8>],
+    ) -> Result<Vec<Object>, Error> {
+        self.fetch_projection(conn, generation, name, key, Keys::Binary(ids), true)
+            .await
+    }
+    async fn fetch_projection(
+        &mut self,
+        conn: &mut PgConnection,
+        generation: &PinnedGeneration,
+        name: &'static str,
+        key: Option<&'static str>,
+        ids: Keys<'_>,
+        invocation: bool,
+    ) -> Result<Vec<Object>, Error> {
         let file = cpg_schema::bundle::files(generation.manifest.dimensions)
             .into_iter()
             .find(|f| f.name == name)
             .ok_or_else(|| corrupt("undeclared query relation"))?;
-        if key.is_some_and(|k| file.schema.field_with_name(k).is_err()) {
+        if key.is_some_and(|k| k != "row_ordinal" && file.schema.field_with_name(k).is_err()) {
             return Err(corrupt("undeclared query key").into());
         }
         // Both identifiers originate in the executable inventory; data always uses parameters.
-        let predicate = key.map_or(String::new(), |k| {
-            if matches!(ids, Keys::Prefixes(_)) {
-                format!("AND EXISTS(SELECT FROM unnest($2::text[]) p WHERE starts_with(\"{k}\",p))")
-            } else {
-                format!("AND \"{k}\"=ANY($2)")
-            }
-        });
+        let predicate = key.map_or(String::new(), |k| format!("AND \"{k}\"=ANY($2)"));
+        let columns = if invocation {
+            let omitted = match name {
+                "catalog_signatures" => "docstring",
+                "catalog_parameters" => "documentation",
+                _ => return Err(corrupt("undeclared invocation projection").into()),
+            };
+            file.schema
+                .fields()
+                .iter()
+                .map(|f| {
+                    if f.name() == omitted {
+                        format!("NULL::text AS \"{omitted}\"")
+                    } else {
+                        format!("\"{}\"", f.name())
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(",")
+        } else {
+            "*".into()
+        };
         let sql = format!(
-            "SELECT * FROM lctx_serving.\"{name}\" WHERE generation_digest=$1 {predicate} ORDER BY row_ordinal LIMIT 200001"
+            "SELECT {columns} FROM lctx_serving.\"{name}\" WHERE generation_digest=$1 {predicate} ORDER BY row_ordinal LIMIT 200001"
         );
         let mut query = sqlx::query(sqlx::AssertSqlSafe(sql)).bind(generation.id.0.as_slice());
         if key.is_some() {
             query = match ids {
                 Keys::Binary(ids) => query.bind(ids),
-                Keys::Text(ids) | Keys::Prefixes(ids) => query.bind(ids),
+                Keys::Text(ids) => query.bind(ids),
+                Keys::Ordinals(ids) => query.bind(ids),
             };
         }
         let mut stream = query.fetch(&mut *conn);

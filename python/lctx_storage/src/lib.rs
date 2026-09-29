@@ -221,31 +221,106 @@ impl PinnedRepository {
             encode(store.resolve(&pinned, &operation).await.map_err(error)?)
         })
     }
-    #[pyo3(signature=(snapshot,operation,expanded=false,evidence_limit=20,evidence_cursor=None))]
+    #[pyo3(signature=(snapshot,operation,expanded=false,view=None))]
     fn get_operation<'py>(
         &self,
         py: Python<'py>,
         snapshot: String,
         operation: String,
         expanded: bool,
-        evidence_limit: u32,
-        evidence_cursor: Option<String>,
+        view: Option<String>,
     ) -> PyResult<Bound<'py, PyAny>> {
+        let request = cpg_schema::wire::GetOperationRequest {
+            snapshot_id: cpg_schema::wire::SnapshotId::parse(&snapshot)
+                .map_err(|e| PyValueError::new_err(e.to_string()))?,
+            operation: cpg_schema::wire::Text::new(operation)
+                .map_err(|e| PyValueError::new_err(e.to_string()))?,
+            expanded,
+            view: view
+                .map(|v| serde_json::from_str(&v))
+                .transpose()
+                .map_err(|e| PyValueError::new_err(e.to_string()))?
+                .unwrap_or_default(),
+        };
         let store = self.store.clone();
         let pinned = self.pinned.clone();
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             encode(
                 store
-                    .get_operation_with_evidence(
+                    .operation_packet(&pinned, &request)
+                    .await
+                    .map_err(error)?,
+            )
+        })
+    }
+    #[pyo3(signature=(request,winners,channel_state,vector=None,spec=None))]
+    fn search_evidence<'py>(
+        &self,
+        py: Python<'py>,
+        request: String,
+        winners: String,
+        channel_state: String,
+        vector: Option<Vec<f32>>,
+        spec: Option<String>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        if winners.len() > 32 * 1024 * 1024 {
+            return Err(PyValueError::new_err(
+                "resource_refused: evidence rank input",
+            ));
+        }
+        let request: cpg_schema::wire::SearchEvidenceRequest =
+            serde_json::from_str(&request).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let winners: Vec<cpg_schema::retrieval::UnitWinner> =
+            serde_json::from_str(&winners).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        if vector.is_some() != spec.is_some() {
+            return Err(PyValueError::new_err(
+                "vector requires a complete embedding spec",
+            ));
+        }
+        let store = self.store.clone();
+        let pinned = self.pinned.clone();
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            encode(
+                store
+                    .search_evidence(
                         &pinned,
-                        &snapshot,
-                        &operation,
-                        &lctx_postgres::EvidenceOptions {
-                            expanded,
-                            limit: evidence_limit,
-                            cursor: evidence_cursor,
-                        },
+                        &request,
+                        winners,
+                        vector.as_deref().zip(spec.as_deref()),
+                        &channel_state,
                     )
+                    .await
+                    .map_err(error)?,
+            )
+        })
+    }
+    fn browse_library<'py>(&self, py: Python<'py>, request: String) -> PyResult<Bound<'py, PyAny>> {
+        let request: cpg_schema::wire::BrowseLibraryRequest =
+            serde_json::from_str(&request).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let store = self.store.clone();
+        let pinned = self.pinned.clone();
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            encode(
+                store
+                    .browse_library(&pinned, &request)
+                    .await
+                    .map_err(error)?,
+            )
+        })
+    }
+    fn compare_operations<'py>(
+        &self,
+        py: Python<'py>,
+        request: String,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let request: cpg_schema::wire::CompareOperationsRequest =
+            serde_json::from_str(&request).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let store = self.store.clone();
+        let pinned = self.pinned.clone();
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            encode(
+                store
+                    .compare_operations(&pinned, &request)
                     .await
                     .map_err(error)?,
             )

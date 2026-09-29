@@ -182,7 +182,7 @@ pub fn compiler_rows(
     context_id: Id,
     config_digest: Digest,
 ) -> (CompilerRun, RunsRow, ProducersRow) {
-    let compiler = crate::attempt::compiler_digest();
+    let compiler = crate::attempt::semantic_digest();
     let revision = compiler.hex();
     let producer_id = recipe::producer(TOOL, &revision, compiler);
     let run_id = recipe::run(release_id, context_id, producer_id, &[], config_digest);

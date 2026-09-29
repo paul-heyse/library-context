@@ -67,11 +67,22 @@ async def smoke(
             record = result.structured_content or {}
             if record.get("capabilities") != capabilities or not record.get("catalog"):
                 raise RuntimeError("catalog contract/capabilities missing from operation packet")
-            references = record["catalog"].get("evidence_page", {}).get("items", [])
+            section = await client.call_tool(
+                "get_operation",
+                {
+                    "snapshot_id": manifest["snapshot_id"],
+                    "operation": operation["access_path"],
+                    "view": {"kind": "section", "section": "evidence"},
+                },
+            )
+            references = (section.structured_content or {})["items"]
             if references:
                 evidence = await client.call_tool(
                     "get_evidence",
-                    {"snapshot_id": manifest["snapshot_id"], "evidence": references[0]["evidence"]},
+                    {
+                        "snapshot_id": manifest["snapshot_id"],
+                        "evidence": references[0]["record"]["evidence"],
+                    },
                 )
                 packet = evidence.structured_content or {}
                 if packet.get("result_kind") != "evidence" or not packet.get("content"):

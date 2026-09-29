@@ -24,6 +24,7 @@
 
 mod db;
 mod propose;
+mod rebuild;
 mod serving;
 
 /// jemalloc, not glibc malloc (ADR-0016): glibc's per-thread arenas retained about half of a
@@ -69,6 +70,12 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Cmd {
+    /// Rebuild from a validated published snapshot without reacquisition or extraction.
+    Rebuild {
+        #[command(subcommand)]
+        command: rebuild::Command,
+    },
+
     /// Immutable PostgreSQL serving projections and explicit operator selection.
     Serving {
         #[arg(long)]
@@ -935,6 +942,7 @@ fn run() -> anyhow::Result<()> {
     let envs = absolute(&cli.envs)?;
     let sources = absolute(&cli.sources)?;
     match cli.command {
+        Cmd::Rebuild { command } => command.run(cli.database_config.as_deref()),
         Cmd::Serving {
             command,
             importer_config,

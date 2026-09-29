@@ -137,14 +137,6 @@ pub struct Fate {
     pub discharges: Vec<Discharge>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct ParameterRecord {
-    pub name: String,
-    pub fates: Vec<Fate>,
-    #[serde(deserialize_with = "super::required_nullable")]
-    #[schemars(with = "super::Nullable<String>")]
-    pub note: Option<String>,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SettingRead {
     #[serde(deserialize_with = "super::required_nullable")]
     #[schemars(with = "super::Nullable<String>")]
@@ -174,11 +166,49 @@ pub struct FacetValue {
 }
 pub type CatalogMember = crate::catalog::CatalogMembersRow;
 pub type CatalogBinding = crate::catalog::CatalogBindingsRow;
-pub type CatalogParameter = crate::catalog::CatalogParametersRow;
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct CatalogParameter {
+    pub signature_id: crate::Id,
+    pub ordinal: i64,
+    pub formal_node_id: Option<crate::Id>,
+    pub name: Option<String>,
+    #[serde(deserialize_with = "super::decode_parameter_kind_nullable")]
+    #[schemars(with = "super::Nullable<super::ParameterKind>")]
+    pub kind: Option<String>,
+    pub required: Option<bool>,
+    pub syntax_fact_id: Option<crate::Id>,
+    pub semantics_fact_id: Option<crate::Id>,
+    pub provider_name: Option<String>,
+    #[serde(deserialize_with = "super::decode_provider_parameter_kind_nullable")]
+    #[schemars(with = "super::Nullable<super::ProviderParameterKind>")]
+    pub provider_kind: Option<String>,
+    pub annotation_text: Option<String>,
+    pub provider_annotation: Option<String>,
+    #[serde(deserialize_with = "super::decode_default_state")]
+    #[schemars(with = "super::DefaultState")]
+    pub default_state: String,
+    pub default_text: Option<String>,
+    pub literal_json: Option<String>,
+    pub reason: Option<String>,
+}
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct CatalogSignature {
-    #[serde(flatten)]
-    pub contract: crate::catalog::CatalogSignaturesRow,
+    pub signature_id: crate::Id,
+    pub callable_node_id: crate::Id,
+    pub declaration_node_id: Option<crate::Id>,
+    pub constructor_class_id: Option<crate::Id>,
+    pub module_node_id: crate::Id,
+    pub function_key: Option<String>,
+    pub signature_index: Option<i64>,
+    #[serde(deserialize_with = "super::decode_signature_role")]
+    #[schemars(with = "super::SignatureRole")]
+    pub role: String,
+    #[serde(deserialize_with = "super::decode_signature_form")]
+    #[schemars(with = "super::SignatureForm")]
+    pub form: String,
+    pub source_fact_id: crate::Id,
+    pub reason: Option<String>,
+    pub return_annotation: Option<String>,
     pub parameters: Vec<CatalogParameter>,
 }
 pub type CatalogEvidence = crate::catalog::CatalogEvidenceRow;
@@ -191,8 +221,6 @@ pub type CatalogConfiguration = crate::catalog::CatalogConfigurationsRow;
 pub type CatalogFieldLink = crate::catalog::CatalogFieldLinksRow;
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct CatalogRecord {
-    pub evidence_page: super::EvidencePage,
-    pub demonstrations: Vec<super::EvidenceResult>,
     pub surfaces: Vec<CatalogSurface>,
     pub configurations: Vec<CatalogConfiguration>,
     pub field_links: Vec<CatalogFieldLink>,
@@ -213,59 +241,6 @@ pub struct AmbiguousOperation {
     pub resolution: AmbiguousOperationResolution,
     pub requested: String,
     pub choices: Vec<CatalogMember>,
-}
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct Operation {
-    pub snapshot_id: SnapshotId,
-    pub generation: GenerationDigest,
-    #[serde(deserialize_with = "super::required_nullable")]
-    #[schemars(with = "super::Nullable<OperationId>")]
-    pub operation_id: Option<OperationId>,
-    #[serde(default)]
-    pub member_id: Option<PublicMemberId>,
-    #[serde(default)]
-    pub resolution: Option<String>,
-    #[serde(default)]
-    pub capabilities: BTreeMap<String, bool>,
-    #[serde(default)]
-    pub catalog: Option<CatalogRecord>,
-    pub access_path: String,
-    pub own_paths: Vec<String>,
-    pub inherited_paths: Vec<String>,
-    pub kind: String,
-    #[serde(deserialize_with = "super::required_nullable")]
-    #[schemars(with = "super::Nullable<bool>")]
-    pub is_method: Option<bool>,
-    pub qualified_name: String,
-    pub module: String,
-    #[serde(deserialize_with = "super::required_nullable")]
-    #[schemars(with = "super::Nullable<String>")]
-    pub docstring_summary: Option<String>,
-    pub behavior_status: String,
-    #[serde(deserialize_with = "super::required_nullable")]
-    #[schemars(with = "super::Nullable<String>")]
-    pub boundary_reason: Option<String>,
-    #[serde(deserialize_with = "super::required_nullable")]
-    #[schemars(with = "super::Nullable<String>")]
-    pub status_reason: Option<String>,
-    #[serde(deserialize_with = "super::required_nullable")]
-    #[schemars(with = "super::Nullable<CapabilityId>")]
-    pub capability_id: Option<CapabilityId>,
-    pub facets: BTreeMap<String, Vec<FacetValue>>,
-    pub incomplete_facets: BTreeMap<String, String>,
-    pub parameters: Vec<ParameterRecord>,
-    #[serde(default)]
-    pub unbound_parameter_fates: Vec<Fate>,
-    pub delegates: Vec<Fate>,
-    pub handoffs: Vec<Fate>,
-    #[serde(default)]
-    pub reads: Vec<Fate>,
-    #[serde(default)]
-    pub constructor: Option<Box<Operation>>,
-    #[serde(default)]
-    pub singleton_of: Option<String>,
-    #[serde(default)]
-    pub fields: Vec<FieldRecord>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct Hit {

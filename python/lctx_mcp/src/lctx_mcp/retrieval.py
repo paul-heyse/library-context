@@ -48,9 +48,13 @@ class Lexical:
         """The query's words some briefs contain and others do not, in query order."""
         return [t for t in tokenize(query) if 0 < self.df.get(t, 0) < self.size]
 
-    def scores(self, query: str) -> np.ndarray:
-        """One score per brief over the discriminating words; all zero when there are none."""
-        tokens = self.discriminating(query)
+    def scores(self, query: str, *, discriminating: bool = True) -> np.ndarray:
+        """Score matching words; brief ranking may abstain on fully shared vocabulary."""
+        tokens = (
+            self.discriminating(query)
+            if discriminating
+            else [t for t in tokenize(query) if self.df.get(t, 0)]
+        )
         if not tokens:
             return np.zeros(self.size, dtype=np.float32)
         return np.asarray(self.retriever.get_scores(tokens), dtype=np.float32)
@@ -153,6 +157,34 @@ class UnitLexical:
                 Lexical([key[1] for key in keys]),
                 [unique[key] for key in keys],
             )
+
+    def unit_winners(self, query: str, families: list[str]) -> list[dict]:
+        """One vote per actual unit, including release-only or unassociated originals."""
+        best = {}
+        for family in families:
+            if family not in self.families:
+                continue
+            index, occurrences = self.families[family]
+            scores = index.scores(query, discriminating=False)
+            for position in np.flatnonzero(scores > 0):
+                for unit, fragment, _members in occurrences[int(position)]:
+                    row = {
+                        "family": family,
+                        "channel": "lexical",
+                        "unit_id": unit,
+                        "fragment_id": fragment,
+                        "score": float(scores[position]),
+                        "rank": 0,
+                    }
+                    old = best.get(unit)
+                    if old is None or (-row["score"], fragment) < (
+                        -old["score"],
+                        old["fragment_id"],
+                    ):
+                        best[unit] = row
+                    if len(best) * 512 > FUSION_BYTES:
+                        raise ValueError("resource_refused: lexical unit budget")
+        return list(best.values())
 
     def winners(self, query: str, eligible: set[str]) -> list[dict]:
         best: dict[tuple[str, str], dict] = {}

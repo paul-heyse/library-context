@@ -16,7 +16,7 @@ from lctx_mcp.server import NativeWorkers, search_members, serve
 LIBRARY = "analysis_shapes"
 
 
-def test_an_operation_reads_whole_with_fates_verdicts_and_lines(
+def test_an_operation_core_and_sections_retain_fates_verdicts_and_lines(
     generation: Path, pg_serving
 ) -> None:
     gen = pg_serving.load()
@@ -24,9 +24,15 @@ def test_an_operation_reads_whole_with_fates_verdicts_and_lines(
     assert op.access_path == "pkg.Catalog.remove"
     assert "pkg.Catalog.remove" in op.own_paths
     assert op.behavior_status == "established"
-    assert [(f.value, f.verdict) for f in op.facets["raises"]] == [("KeyError", "established")]
-    key = next(p for p in op.parameters if p.name == "key")
-    raises = [f for f in key.fates if f.kind == "raises_when"]
+    facets = pg_serving.section(gen.snapshot_id, op.access_path, "facets")
+    assert [(f.value, f.verdict) for f in facets if f.name == "raises"] == [
+        ("KeyError", "established")
+    ]
+    assert any(p.name == "key" for sig in op.catalog.signatures for p in sig.parameters)
+    fates = [
+        item.record for item in pg_serving.section(gen.snapshot_id, op.access_path, "behavior")
+    ]
+    raises = [f for f in fates if f.kind == "raises_when" and f.parameter == "key"]
     assert raises and raises[0].verdict == "conditional"
     assert raises[0].line is not None and raises[0].path is not None
     # Stage 2: the site is the raise; its guard is the condition, in the operation's places.
@@ -43,17 +49,16 @@ def test_a_parameter_never_read_is_refuted_only_under_its_premise(
     review's R1). Every refutation served cites its parameter premise."""
     gen = pg_serving.load()
     op = pg_serving.operation(gen, gen.snapshot_id, "pkg.Catalog.add_tool")
-    parameters = {p.name: p for p in op.parameters}
-    assert set(parameters) == {"self", "fn", "name", "tags", "title"}
-    # The source contract now includes the receiver. Behavioral premises cover explicit
-    # inputs; retaining the receiver must not fabricate an unused/abstract-body verdict.
-    receiver = parameters.pop("self")
-    assert receiver.fates == []
-    assert receiver.note and "never read this as unused" in receiver.note
-    for p in parameters.values():
-        claims = [f for f in p.fates if f.kind == "is_read"]
-        assert claims, p.name
+    parameters = {p.name for sig in op.catalog.signatures for p in sig.parameters}
+    assert parameters == {"self", "fn", "name", "tags", "title"}
+    fates = [
+        item.record for item in pg_serving.section(gen.snapshot_id, op.access_path, "behavior")
+    ]
+    for name in parameters - {"self"}:
+        claims = [f for f in fates if f.kind == "is_read" and f.parameter == name]
+        assert claims, name
         assert (claims[0].verdict, claims[0].boundary_reason) == ("unknown", "abstract_body")
+    assert not any(f.parameter == "self" for f in fates)
     refuted = [
         r
         for r in pg_serving.reference.table("behaviors").to_pylist()
@@ -61,14 +66,11 @@ def test_a_parameter_never_read_is_refuted_only_under_its_premise(
     ]
     assert refuted
     assert all(r["premise_key"] and r["premise_key"].startswith("Parameter[") for r in refuted)
-    # A parameter with no fate at all is never called unused.
-    for q in pg_serving.operation(gen, gen.snapshot_id, "pkg.Catalog.remove").parameters:
-        assert q.fates or (q.note and "never read this as unused" in q.note)
 
 
 def test_an_unknown_operation_names_near_spellings(generation: Path, pg_serving) -> None:
     gen = pg_serving.load()
-    with pytest.raises(ValueError, match="no public operation"):
+    with pytest.raises(ValueError, match="public member not found"):
         pg_serving.operation(gen, gen.snapshot_id, "pkg.Catalog.remov")
     with pytest.raises(ValueError, match="snapshot"):
         pg_serving.operation(gen, "0" * 32, "pkg.Catalog.remove")
@@ -148,9 +150,12 @@ def test_lookup_keeps_each_facet_value_verdict_separate_from_completeness(
 ) -> None:
     gen = pg_serving.load()
     op = pg_serving.operation(gen, gen.snapshot_id, "pkg.configure", expanded=True)
-    unknown = next(f for f in op.facets["delegates_to"] if f.value == "pkg.controls.Registry.add")
+    facets = pg_serving.section(gen.snapshot_id, op.access_path, "facets")
+    unknown = next(
+        f for f in facets if f.name == "delegates_to" and f.value == "pkg.controls.Registry.add"
+    )
     assert unknown.verdict == "unknown"
-    assert any(f.verdict == "established" for f in op.facets["delegates_to"])
+    assert any(f.verdict == "established" for f in facets if f.name == "delegates_to")
     where = ops.Selection(
         requirements=[
             {"predicate": "facet_membership", "facet": "delegates_to", "value": unknown.value}
@@ -159,8 +164,8 @@ def test_lookup_keeps_each_facet_value_verdict_separate_from_completeness(
     found = pg_serving.find(gen, where, limit=50, cursor=None)
     assert op.access_path not in {m.access_path for m in found.supported["items"]}
     assert op.access_path in {m.access_path for m in found.unresolved["items"]}
-    schema = ops.Operation.model_json_schema()
-    assert "$defs" in schema and "FacetValue" in schema["$defs"]
+    schema = ops.OperationSectionPage.model_json_schema()
+    assert "$defs" in schema and "OperationSectionRecord" in schema["$defs"]
 
 
 def test_pages_follow_a_bound_cursor(generation: Path, pg_serving) -> None:
@@ -266,8 +271,9 @@ def test_a_class_carries_its_constructor(generation: Path, pg_serving) -> None:
     assert inits, "the fixture has a public constructor"
     cls = inits[0].removesuffix(".__init__")
     op = pg_serving.operation(gen, gen.snapshot_id, cls)
-    assert op.kind == "class" and op.behavior_status == "not_analyzed"
-    assert op.constructor is not None and op.constructor.access_path.endswith("__init__")
+    assert op.catalog.member.kind == "class" and op.behavior_status == "not_analyzed"
+    assert op.catalog.constructors and op.catalog.signatures
+    assert "constructor" not in op.model_dump()
 
 
 def test_the_facet_names_are_the_codebook_s() -> None:
@@ -343,8 +349,10 @@ def test_a_fate_states_its_condition_in_the_operations_places(generation: Path, 
     """Stage 2: a raise is stated under its guard, and a conditional fate says so."""
     gen = pg_serving.load()
     op = pg_serving.operation(gen, gen.snapshot_id, "pkg.Catalog.load")
-    path = next(p for p in op.parameters if p.name == "path")
-    raises = [f for f in path.fates if f.kind == "raises_when"]
+    fates = [
+        item.record for item in pg_serving.section(gen.snapshot_id, op.access_path, "behavior")
+    ]
+    raises = [f for f in fates if f.parameter == "path" and f.kind == "raises_when"]
     assert raises and raises[0].condition is not None
     assert raises[0].condition.startswith("!truthy(path)#")
-    assert all(f.verdict != "established" for f in path.fates if f.condition)
+    assert all(f.verdict != "established" for f in fates if f.condition)

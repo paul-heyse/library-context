@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH metadata AS (\n SELECT ((detail::jsonb - 'text') || jsonb_build_object('text',''))::text AS detail\n FROM lctx_serving.retrieval_units WHERE generation_digest=$1 AND unit_id=$2\n)\nSELECT CASE WHEN octet_length(detail)<=16777216 THEN detail END FROM metadata\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "case",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bytea",
+        "Bytea"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "36b68e7a9ce4708883c606046088feb70b7c3ebd3f056fb4a875af6a978e9002"
+}

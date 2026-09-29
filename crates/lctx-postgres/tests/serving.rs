@@ -605,15 +605,9 @@ async fn published_pilot_import_and_repository_queries() {
     );
     for op in page["supported"]["items"].as_array().unwrap() {
         let result = reader
-            .get_operation_with_evidence(
-                &pinned,
-                &pinned.manifest().snapshot_id,
-                op["access_path"].as_str().unwrap(),
-                &lctx_postgres::EvidenceOptions {
-                    expanded: true,
-                    ..Default::default()
-                },
-            )
+            .operation_packet(&pinned, &serde_json::from_value(serde_json::json!({
+                "snapshot_id":pinned.manifest().snapshot_id,"operation":op["access_path"],"expanded":true
+            })).unwrap())
             .await
             .unwrap();
         assert_eq!(result["operation_id"], op["operation_id"]);
@@ -1193,8 +1187,8 @@ async fn catalog_specificity_import_and_typed_hydration() {
         )
         .await
         .unwrap();
-    let typed: cpg_schema::wire::Operation = serde_json::from_value(packet.clone()).unwrap();
-    let catalog = typed.catalog.unwrap();
+    let typed: cpg_schema::wire::OperationPacket = serde_json::from_value(packet.clone()).unwrap();
+    let catalog = typed.catalog;
     let field = catalog
         .configurations
         .iter()
@@ -1208,7 +1202,23 @@ async fn catalog_specificity_import_and_typed_hydration() {
             .any(|l| l.field_id == field.field_id && l.kind == "exact_storage")
     );
     let mut original_field = false;
-    for reference in &catalog.evidence_page.items {
+    let page = reader
+        .operation_packet(
+            &pinned,
+            &serde_json::from_value(serde_json::json!({
+                "snapshot_id":pinned.manifest().snapshot_id,"operation":"catalogpkg.Options",
+                "view":{"kind":"section","section":"evidence"},"expanded":true
+            }))
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    let page: cpg_schema::wire::OperationSectionPage = serde_json::from_value(page).unwrap();
+    for entry in page.items {
+        let cpg_schema::wire::OperationSectionRecord::Association { record: reference } = entry
+        else {
+            panic!("association")
+        };
         let evidence = reader
             .get_evidence(
                 &pinned,
@@ -1226,7 +1236,7 @@ async fn catalog_specificity_import_and_typed_hydration() {
         });
     }
     assert!(original_field, "configuration source remains expandable");
-    let schema = cpg_schema::wire::schema("Operation", true).unwrap();
+    let schema = cpg_schema::wire::schema("OperationPacket", true).unwrap();
     let validator = jsonschema::options().offline().build(&schema).unwrap();
     assert!(
         validator.is_valid(&packet),
@@ -1238,7 +1248,7 @@ async fn catalog_specificity_import_and_typed_hydration() {
     );
     let mut forged = packet;
     forged["catalog"]["configurations"][0]["default_state"] = serde_json::json!("invented");
-    assert!(serde_json::from_value::<cpg_schema::wire::Operation>(forged.clone()).is_err());
+    assert!(serde_json::from_value::<cpg_schema::wire::OperationPacket>(forged.clone()).is_err());
     assert!(!validator.is_valid(&forged));
     let setter = reader
         .get_operation(

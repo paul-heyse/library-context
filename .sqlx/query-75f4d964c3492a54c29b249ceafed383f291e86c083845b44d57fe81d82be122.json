@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT k.field AS \"field!\" FROM (SELECT field FROM lctx_serving.ambient_reads WHERE generation_digest=$1 AND global=$2 UNION SELECT substring(place_key FROM char_length($3)+1) AS field FROM lctx_serving.place_claims WHERE generation_digest=$1 AND starts_with(place_key,$3)) k ORDER BY k.field COLLATE \"C\" LIMIT 200001\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "field!",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bytea",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "75f4d964c3492a54c29b249ceafed383f291e86c083845b44d57fe81d82be122"
+}

@@ -4,7 +4,7 @@
 
 ## §14 Purpose, status and decision
 
-**Accepted target; PR1–PR2 catalog implemented, remaining product scope Proposed, 2026-09-28.** This is the comprehensive replacement
+**Accepted target; PR1–PR5 implemented, PR5 qualification in progress, 2026-09-29.** This is the comprehensive replacement
 product target under ADR-0071. It replaces general behavioral-model completion as the route to a
 first useful release. It preserves sound behavioral analysis as one source of evidence. It does
 not declare Stage 3 finished or certify an advantage over Context7.
@@ -254,8 +254,8 @@ original argument expressions and unresolved test parameters survive compilation
 keep per-site intent; expected-failure context stops at deferred bodies and excludes manager headers.
 Parse status comes from declared extraction coverage, including recovered syntax errors.
 
-Wire2 replaces the old unbounded `catalog.evidence` body list with `evidence_page` and up to two
-admitted demonstrations. References use nominal span/scenario/deployment IDs. `get_evidence`
+Wire4 exposes evidence associations through the independently paged operation evidence section,
+with at most two positive demonstration references in the mandatory packet. References use nominal span/scenario/deployment IDs. `get_evidence`
 returns generation-qualified original bytes, source identity and context in 32 KiB default or
 256 KiB expanded packets. Metadata admission precedes body reads. Oversized typed detail is explicitly marked
 `metadata_omitted`; its primary original span remains independently readable and paginated.
@@ -327,7 +327,7 @@ provisioner or mandatory library-wide runtime probing.
 
 ## §14.7 Query semantics and customizable requirements
 
-> Decision: ADR-0071, ADR-0073, ADR-0076, ADR-0077
+> Decision: ADR-0071, ADR-0073, ADR-0076, ADR-0081, ADR-0077
 
 One finite typed request/classification contract lives in Rust. PostgreSQL performs relational
 selection; the existing pure condition kernel supplies any supported semantic decision. MCP
@@ -476,12 +476,11 @@ The materialization receipt hashes every produced file, including embedding stat
 
 ## §14.9 Agent interface and bounded implementation packet
 
-> Decision: ADR-0071, ADR-0073, ADR-0076
+> Decision: ADR-0071, ADR-0073, ADR-0076, ADR-0081
 
-Evolve existing tools and add only missing product actions. These are **target** contracts; current
-MCP schemas remain implemented until the versioned migration lands.
+The PR5 interface is **Implemented (2026-09-29)** under Wire4. The forward plan records its bounded qualification; comparative value remains Proposed.
 
-The six existing tools now use a thin FastMCP `Tool` adapter: native-exported generated `parameters` and
+All ten tools use a thin FastMCP `Tool` adapter: native-exported generated `parameters` and
 `output_schema`, a bounded `run`, and Rust-owned request decoding/semantic validation. A custom
 Tool does not inherit FunctionTool's Pydantic validation; explicit validation precedes effects.
 Retain the existing lifespan, errors, total deadlines, native cancellation/lease behavior and
@@ -510,15 +509,19 @@ Do not add a separate `get_recipe` knowledge store: scenarios and packet section
 that consumer. Evidence retrieval also supplies immediate explanation without waiting for a general
 capability registry or Stage 4 `explain` engine.
 
+PR5 (Implemented, ADR-0081) separates a mandatory packet from typed, independently hydrated optional
+sections on the same `get_operation` route. Cursors bind generation/member/section/representation.
+Original bytes use `get_evidence`; the default packet carries references. Concise MCP text avoids
+duplicating structured JSON, and the final serialized result has the same byte bound as domain
+admission. Required signatures are indivisible; optional enrichment cannot prevent core access. A singleton retains its public member identity and explicitly names the effective class operation. Field evidence is scoped to the named singleton global; a class query never chooses an instance implicitly.
+
 The packet contains: identity and release; preferred public access/import with provenance; supported
 invocation/signature variants; options/configuration; up to two relevant original positive scenarios;
 deployment prerequisites when applicable; up to five relationship links; evidence references; and
 field-specific limitations/conflicts. The brief is an optional link. Prefer exact current public
 paths deterministically, but do not label an alias deprecated or unrecommended without evidence.
 
-Proposed starting resource limits: 20 search hits by default, 100 per page maximum; 16 requirements;
-two relationship steps with at most 50 expanded edges; 32 KiB default packet text and 256 KiB maximum
-expanded response. Paginate expandable evidence. Return omitted-section/continuation or explicit
+Implemented limits: browse/evidence pages default to 20 with a maximum of 100; selection accepts at most 16 requirements; operation packets use a 32 KiB default and 256 KiB expanded final MCP response budget. Comparison accepts one to five candidates. Multi-step relationship expansion remains Proposed. Paginate expandable evidence. Return omitted-section/continuation or explicit
 resource refusal, never truncate a required signature silently. These are engineering limits to
 qualify, not measured latency claims. Reuse existing statement/pool/cancellation budgets.
 
@@ -530,7 +533,7 @@ generates new recipes nor executes library code in the query path.
 
 ## §14.10 Publication, optional analyses and rebuild boundaries
 
-> Decision: ADR-0071, ADR-0078, ADR-0073, ADR-0077
+> Decision: ADR-0071, ADR-0078, ADR-0073, ADR-0077, ADR-0081
 
 Make public roots and API catalog construction mandatory product inputs independent of `Some(analysis)`.
 Use an explicit compile capability selection, initially `catalog` and the retained `behavioral`
@@ -554,7 +557,7 @@ Separate coarse rebuild inputs without creating another incremental framework:
 
 | Change | Required rebuild | Must remain reusable |
 |---|---|---|
-| Source/environment/provider meaning | Canonical extraction and affected selected analyses, then catalog/retrieval | Previously published snapshots under their old identities |
+| Source/environment/provider meaning | Canonical extraction and affected selected analyses, then catalog/retrieval | Exact unchanged stage inputs within the current validated publication |
 | Add API/default/deployment facts not captured | New canonical extraction/schema version, then consumers | Nothing reinterprets old missing values as false |
 | Change catalog/scenario association using captured facts | Catalog projection and dependent units/artifact closure | Exact input fact snapshot |
 | Add/re-render retrieval unit or embedding spec | Retrieval artifacts and a new serving generation referencing the catalog | Canonical facts; cached vectors only for exact admitted keys |
@@ -570,6 +573,14 @@ Separate semantic shape from current evidence binding only where their contracts
 An unchanged signature with moved spans or new attribution still needs current snapshot/fact IDs,
 source digests and citations. Do not exclude evidence-bearing fields from equality to increase
 cache hits. Compare reused outputs with a clean rebuild, including provenance and absence states.
+**Implemented, qualification in progress (2026-09-29).** `lctx rebuild catalog` reads a published
+fact snapshot and validates a fresh publication; `lctx rebuild retrieval` keeps the canonical
+snapshot. Current-only Arrow stage artifacts bind complete scans and executable source identities.
+Cache admission re-derives its pure output and compares canonical batches, so even validly encoded
+but semantically wrong cache data is a miss. Full stored-Delta validation remains mandatory.
+This is reuse of admitted stage artifacts and unchanged selected analysis, not a measured reduction
+in pure-stage validation cost. Shared semantic dependencies invalidate conservatively.
+
 Salsa persistence, if later admitted under §14.11, is a disposable version-qualified cache;
 incompatible cache state is discarded, while canonical/serving validation remains mandatory.
 
@@ -584,7 +595,7 @@ merely because the earlier external sketch shows one arrow. Old processes keep t
 
 ## §14.11 Library fit, retained work and exclusions
 
-> Decision: ADR-0071, ADR-0073, ADR-0076, ADR-0074
+> Decision: ADR-0071, ADR-0073, ADR-0076, ADR-0081, ADR-0074
 
 **PR2 library foundation Implemented (2026-09-28); conditional additions remain Proposed.** Reuse Ruff/Pyrefly/ty,
 Arrow/DataFusion/Delta, SQLx/pgpq/pgvector, existing graph/condition kernels, PyO3 async lifetime,
@@ -759,7 +770,7 @@ typed selection plus retrieval witnesses; bounded agent tools; then comparative 
 Each packet is a vertical slice across canonical facts, shared validators, versioned projection,
 PG import, native/MCP and focused product fixtures. R08 baseline work precedes feature tuning.
 
-**PR1–PR4 Implemented (ADR-0073/0074/0076/0077), PR5 Proposed:** PR2 establishes the
+**PR1–PR5 Implemented (ADR-0073/0074/0076/0077/0081), PR5 qualification in progress:** PR2 establishes the
 small nominal-ID/wire foundation and load/index/derive boundary while implementing surface/options;
 PR3 uses those identities and pure inputs for scenarios/deployment. PR4 completes the contextual
 classifier, extends the shared typed packets and selected SQLx checking. PR5 adds schema-backed tools
@@ -785,4 +796,4 @@ The existing fast editable environment remains the development path; no wheel or
 is introduced. Full formatting/integrated checks wait for the complete authorized implementation
 scope; focused checks follow each functional boundary.
 
-> Decision: ADR-0071, ADR-0073, ADR-0076
+> Decision: ADR-0071, ADR-0073, ADR-0076, ADR-0081

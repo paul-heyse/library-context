@@ -32,6 +32,8 @@ pub struct Published {
     /// Wall time and peak RSS per stage: each raw write, each derivation (with its write),
     /// validation, publication (DESIGN §4.3). Not content.
     pub stages: Vec<Stage>,
+    /// Actual pure-stage execution decisions, never inferred from the command.
+    pub catalog_stages: Vec<crate::rebuild::Step>,
 }
 
 /// Bumped by hand whenever the derive, cast, sort or analysis code changes output for the same
@@ -126,7 +128,8 @@ pub struct Published {
 /// 103: builtin binding-preserving descriptors no longer write the decorator boundary.
 /// 104: summaries neither start in nor compose through a decorated function (ADR-0064).
 /// 105: call-transfer return claims graded after summaries with claim-keyed discharges (ADR-0064).
-pub const COMPILER_OUTPUT_VERSION: u32 = 111;
+/// 112: canonical semantic producer identity and validated coarse-stage reuse (ADR-0081).
+pub const COMPILER_OUTPUT_VERSION: u32 = 112;
 
 /// The locked engines (DataFusion, Arrow, Parquet, object_store, delta-rs, its kernel), read from
 /// `Cargo.lock` at build time (`build.rs`).
@@ -167,7 +170,16 @@ pub fn compiler_digest_of(
 /// `lctx-analytics` and `cpg-schema`.
 pub const SOURCE_DIGEST: &str = env!("LCTX_SOURCE_DIGEST");
 
+/// Identity of canonical semantic production; serving-only code is still full compiler provenance.
+pub fn semantic_digest() -> Digest {
+    compiler_digest_for(env!("LCTX_SEMANTIC_SOURCE_DIGEST"))
+}
+
 pub fn compiler_digest() -> Digest {
+    compiler_digest_for(SOURCE_DIGEST)
+}
+
+fn compiler_digest_for(source: &str) -> Digest {
     let rules: Vec<(String, String)> = rules().into_iter().map(|r| (r.name, r.sql)).collect();
     let mut queries = derivations();
     for spec in cpg_schema::projection::projections() {
@@ -175,7 +187,7 @@ pub fn compiler_digest() -> Digest {
     }
     queries.push(("pass_b_relations", cpg_schema::flows::digest().hex()));
     // The compiler's own sources (the holistic assessment's A2(e); `build.rs`).
-    queries.push(("compiler_sources", SOURCE_DIGEST.to_owned()));
+    queries.push(("compiler_sources", source.to_owned()));
     // The one public-path authority (the holistic assessment's A1): seeds resolve by it.
     for relation in cpg_schema::public::all()
         .into_iter()
@@ -274,7 +286,7 @@ pub fn content_digest_with(run_ids: &[Id], embedded: Option<(Digest, Digest)>) -
     h.finish_digest()
 }
 
-async fn write<T: Table>(
+pub(crate) async fn write<T: Table>(
     root: &Path,
     batch: &RecordBatch,
     snapshot_id: Id,
@@ -342,7 +354,7 @@ async fn write_derived<T: Derived>(
 
 /// A stored table's schema digest. An unknown name is an error, never another table's digest
 /// (ADR-0019).
-fn schema_digest_of(name: &str) -> Result<Digest, CoreError> {
+pub(crate) fn schema_digest_of(name: &str) -> Result<Digest, CoreError> {
     macro_rules! find {
         ($($t:ty),+) => {$(
             if name == <$t as Table>::NAME {
@@ -502,6 +514,7 @@ pub async fn compile_analyzed(
         analysis.zip(compiler),
         &models,
         &crate::catalog::CompileInputs::from_analysis(analysis),
+        false,
     )
     .await
 }
@@ -536,6 +549,7 @@ pub async fn compile_owned(
         analysis.zip(compiler),
         &models,
         &crate::catalog::CompileInputs::from_analysis(analysis),
+        false,
     )
     .await
 }
@@ -544,9 +558,20 @@ pub async fn compile_owned(
 pub async fn compile_catalog(
     root: &Path,
     snapshot_id: Id,
+    raw: Vec<(&'static str, RecordBatch)>,
+    inputs: &crate::catalog::CompileInputs,
+    analysis: Option<&Analysis>,
+) -> Result<Published, CoreError> {
+    compile_catalog_mode(root, snapshot_id, raw, inputs, analysis, false).await
+}
+
+pub(crate) async fn compile_catalog_mode(
+    root: &Path,
+    snapshot_id: Id,
     mut raw: Vec<(&'static str, RecordBatch)>,
     inputs: &crate::catalog::CompileInputs,
     analysis: Option<&Analysis>,
+    clean: bool,
 ) -> Result<Published, CoreError> {
     cpg_schema::catalog::validate_roots(&inputs.public_roots).map_err(CoreError::Analysis)?;
     if inputs.profile.behavioral() != analysis.is_some()
@@ -569,6 +594,7 @@ pub async fn compile_catalog(
         analysis.map(|a| (a, compiler)),
         &models,
         inputs,
+        clean,
     )
     .await
 }
@@ -663,6 +689,10 @@ async fn write_all(
 }
 
 /// Derive, analyze, validate and publish over the written raw tables.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "one publication boundary with explicit inputs and clean-rebuild policy"
+)]
 async fn finish(
     root: &Path,
     snapshot_id: Id,
@@ -671,6 +701,7 @@ async fn finish(
     analysis: Option<(&Analysis, CompilerRun)>,
     models: &BoundModels,
     inputs: &crate::catalog::CompileInputs,
+    clean: bool,
 ) -> Result<Published, CoreError> {
     let cache = inputs.embedding_cache.clone();
     let budget = cache
@@ -707,21 +738,38 @@ async fn finish(
         ctx.register_batch(<$t as Table>::NAME, <$t as Table>::to_batch(&[])?)?;
     )+ }; }
     cpg_schema::for_each_analysis_table!(initialize);
-    let mut catalog =
-        match crate::catalog::contracts(&ctx, snapshot_id, &inputs.public_roots, &public).await {
-            Ok(catalog) => catalog,
-            Err(error) => {
-                // Keep named invariant diagnostics for malformed inputs that strict typed decoding
-                // cannot consume. The successful path retains one full publication validation.
-                let cache = crate::validate::cached_session(&ctx).await?;
-                let (violations, _) = crate::validate::relational_costed(&cache).await?;
-                return Err(if violations.is_empty() {
-                    error
-                } else {
-                    CoreError::Invalid(violations)
-                });
+    let (mut catalog, catalog_stages) = match crate::stage_cache::contracts(
+        root,
+        &ctx,
+        snapshot_id,
+        snapshot_id,
+        &inputs.public_roots,
+        &public,
+        clean,
+    )
+    .await
+    {
+        Ok((catalog, steps)) => {
+            for step in &steps {
+                written.stages.mark(format!(
+                    "catalog stage {:?}: {:?}",
+                    step.stage, step.outcome
+                ));
             }
-        };
+            (catalog, steps)
+        }
+        Err(error) => {
+            // Keep named invariant diagnostics for malformed inputs that strict typed decoding
+            // cannot consume. The successful path retains one full publication validation.
+            let cache = crate::validate::cached_session(&ctx).await?;
+            let (violations, _) = crate::validate::relational_costed(&cache).await?;
+            return Err(if violations.is_empty() {
+                error
+            } else {
+                CoreError::Invalid(violations)
+            });
+        }
+    };
     write_analysis::<cpg_schema::catalog::CatalogCompilation>(
         &ctx,
         root,
@@ -1656,6 +1704,7 @@ async fn finish(
         versions,
         rows,
         stages: stages.stages,
+        catalog_stages,
     })
 }
 

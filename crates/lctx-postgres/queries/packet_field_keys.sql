@@ -1,0 +1,1 @@
+SELECT k.field AS "field!" FROM (SELECT field FROM lctx_serving.ambient_reads WHERE generation_digest=$1 AND global=$2 UNION SELECT substring(place_key FROM char_length($3)+1) AS field FROM lctx_serving.place_claims WHERE generation_digest=$1 AND starts_with(place_key,$3)) k ORDER BY k.field COLLATE "C" LIMIT 200001

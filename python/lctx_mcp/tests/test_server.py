@@ -51,6 +51,9 @@ async def test_the_tools_round_trip_in_both_protocol_eras(
             "find_operations",
             "search_operations",
             "inspect_value_paths",
+            "browse_library",
+            "search_evidence",
+            "compare_operations",
         }
         for t in tools.values():
             a = t.annotations

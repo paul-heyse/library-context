@@ -1316,6 +1316,21 @@ codebook!(
     }
 );
 
+impl OperationFacet {
+    /// Facets whose producer is selected only by the behavioral compilation profile.
+    pub fn requires_behavior(self) -> bool {
+        matches!(
+            self,
+            Self::Raises
+                | Self::DelegatesTo
+                | Self::ForwardsTo
+                | Self::HandsOffTo
+                | Self::TakesFrom
+                | Self::ReadsSetting
+        )
+    }
+}
+
 codebook!(
     /// A facet of a public operation, for `find_operations` (ADR-0021; DESIGN §11.3).
     OperationFacet = "operation_facet" {

@@ -93,9 +93,28 @@ class PgFixture:
         return load_pinned(self.pinned, json.loads(self.pinned.descriptor()), self.inputs, spec)
 
     def operation(self, gen, snapshot, operation, *, expanded=False):
-        return ops.Operation.model_validate_json(
+        return ops.OperationPacket.model_validate_json(
             self.call(self.pinned.get_operation, snapshot, operation, expanded)
         )
+
+    def section(self, snapshot, operation, section):
+        """Follow real section cursors; no reconstructed legacy operation packet."""
+        cursor = None
+        records = []
+        while True:
+            page = ops.OperationSectionPage.model_validate_json(
+                self.call(
+                    self.pinned.get_operation,
+                    snapshot,
+                    operation,
+                    True,
+                    json.dumps({"kind": "section", "section": section, "cursor": cursor}),
+                )
+            )
+            records.extend(page["items"])
+            cursor = page.next_cursor
+            if cursor is None:
+                return records
 
     def find(self, gen, selection, limit, cursor):
         result = json.loads(

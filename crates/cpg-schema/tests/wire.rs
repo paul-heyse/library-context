@@ -36,6 +36,9 @@ fn generated_wire_schemas_snapshot() {
         "find_operations",
         "search_operations",
         "inspect_value_paths",
+        "browse_library",
+        "search_evidence",
+        "compare_operations",
     ] {
         let (input, output) = wire::tool_schemas(name).unwrap();
         schemas.insert(format!("{name}.input"), input);

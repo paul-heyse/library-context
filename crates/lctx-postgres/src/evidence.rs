@@ -15,12 +15,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sqlx::{PgConnection, Row};
 
-#[derive(Default)]
-pub struct EvidenceOptions {
-    pub expanded: bool,
-    pub limit: u32,
-    pub cursor: Option<String>,
-}
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Cursor {
@@ -290,29 +284,13 @@ pub(crate) fn check_operation_packet(
     Ok(())
 }
 
-pub(crate) async fn enrich(
+pub(crate) async fn association_page(
     conn: &mut PgConnection,
     g: &PinnedGeneration,
-    result: &mut Value,
-    options: &EvidenceOptions,
-) -> Result<(), Error> {
-    let Some(member) = result["catalog"]["member"]["member_id"].as_str() else {
-        return Ok(());
-    };
-    let member = Id::from_hex(member).ok_or_else(|| corrupt("member ID"))?;
-    let target = format!("operation:{}", member.hex());
-    let (offset, byte_offset) = position(g, &target, options.cursor.as_deref(), options.expanded)?;
-    if byte_offset != 0 {
-        return Err(Error::Request("operation cursor has a byte offset".into()));
-    }
-    let limit = if options.limit == 0 {
-        20
-    } else {
-        options.limit
-    };
-    if limit > 50 {
-        return Err(Error::Request("evidence limit exceeds 50".into()));
-    }
+    member: Id,
+    offset: u64,
+    limit: u32,
+) -> Result<EvidencePage, Error> {
     let counts=sqlx::query("SELECT count(*) AS total,count(*) FILTER(WHERE intent='demonstration' AND evidence_kind='scenario') AS demonstrations,count(*) FILTER(WHERE intent IN ('expected_failure','skip_xfail')) AS negative,count(*) FILTER(WHERE evidence_kind='scenario' AND evidence_id IN (SELECT scenario_id FROM lctx_serving.catalog_scenarios WHERE generation_digest=$1 AND detail::jsonb->>'context'='context_dependent')) AS contextual FROM lctx_serving.catalog_associations WHERE generation_digest=$1 AND (member_id=$2 OR release_id IS NOT NULL)")
         .bind(g.id.0.as_slice()).bind(member.0.as_slice()).fetch_one(&mut *conn).await?;
     let total = counts.try_get::<i64, _>("total")? as u64;
@@ -327,11 +305,6 @@ pub(crate) async fn enrich(
         negative: counts.try_get::<i64, _>("negative")? as u64,
         context_dependent: counts.try_get::<i64, _>("contextual")? as u64,
         ..EvidencePage::default()
-    };
-    let budget = if options.expanded {
-        256 * 1024
-    } else {
-        32 * 1024
     };
     for row in records {
         let subject = match (
@@ -365,77 +338,8 @@ pub(crate) async fn enrich(
                 .map_err(|_| corrupt("association support"))?,
         };
         page.items.push(item);
-        result["catalog"]["evidence_page"] = json!(page);
-        if serde_json::to_vec(result)
-            .map_err(|_| corrupt("packet encoding"))?
-            .len()
-            + 2048
-            > budget
-        {
-            page.items.pop();
-            break;
-        }
     }
-    if offset + (page.items.len() as u64) < total {
-        page.next_cursor = Some(cursor(
-            g,
-            &target,
-            offset + page.items.len() as u64,
-            0,
-            options.expanded,
-        )?);
-    }
-    if page.items.is_empty() && offset < total {
-        // `result` still contains the first association which could not fit. Refuse the
-        // assembled packet explicitly; neither signatures nor behavioral fates are truncated.
-        return check_operation_packet(result, options.expanded, 2048);
-    }
-    result["catalog"]["evidence_page"] = json!(page);
-    let mut demonstrated = std::collections::BTreeSet::new();
-    for item in page.items.iter().filter(|i| {
-        i.evidence.kind() == EvidenceKind::Scenario
-            && i.intent == cpg_schema::evidence::Intent::Demonstration
-            && i.basis == "resolved_target"
-    }) {
-        if demonstrated.len() == 2 {
-            break;
-        }
-        if !demonstrated.insert(item.evidence.id()) {
-            continue;
-        }
-        let size = serde_json::to_vec(result)
-            .map_err(|_| corrupt("packet encoding"))?
-            .len();
-        let Some(remaining) = budget.checked_sub(size + 2048) else {
-            break;
-        };
-        if remaining < 4096 {
-            break;
-        }
-        let demo = match read(
-            conn,
-            g,
-            item.evidence.clone(),
-            None,
-            options.expanded,
-            remaining.min(8192),
-        )
-        .await
-        {
-            Ok(demo) => demo,
-            Err(Error::Projection(error))
-                if error.kind == cpg_schema::serving_projection::FailureKind::ResourceRefused =>
-            {
-                continue;
-            }
-            Err(error) => return Err(error),
-        };
-        result["catalog"]["demonstrations"]
-            .as_array_mut()
-            .ok_or_else(|| corrupt("demonstration list"))?
-            .push(json!(demo));
-    }
-    Ok(())
+    Ok(page)
 }
 
 #[derive(Serialize, Deserialize)]

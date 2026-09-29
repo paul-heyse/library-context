@@ -129,6 +129,7 @@ _dynamic_settings = DynamicSettings()
         .await
         .unwrap();
     let script = r#"
+import json
 import sys
 from pathlib import Path
 sys.path[:0] = [str(Path("scripts").resolve()), str(Path("python/lctx_mcp/tests").resolve())]
@@ -143,15 +144,15 @@ with served_bundle(Path(sys.argv[1])) as pg:
     singleton = pg.operation(pg.load(), generation.snapshot_id, "probe.settings")
     assert singleton.operation_id == operation.operation_id
     assert singleton.access_path == "probe.settings" and singleton.resolution == "singleton_class"
-    assert singleton.fields == operation.fields
+    class_fields = json.loads(pg.call(pg.pinned.get_operation, generation.snapshot_id, operation.member_id, True, json.dumps({"kind":"section", "section":"fields"})))
+    assert class_fields["state"] == "unavailable" and not class_fields["items"]
+    singleton_fields = [r.record for r in pg.section(generation.snapshot_id, singleton.member_id, "fields")]
     assert singleton.catalog.constructors == operation.catalog.constructors
     by_member = pg.operation(pg.load(), generation.snapshot_id, singleton.member_id)
     assert by_member.operation_id == singleton.operation_id
-    private = pg.operation(pg.load(), generation.snapshot_id, "probe._dynamic_settings")
-    assert private.constructor is not None and private.catalog is not None
-    assert private.catalog.member.access_path == "probe.DynamicSettings"
-fields = {field.name: field.never_read for field in operation.fields}
-assert "probe.settings" == operation.singleton_of, operation
+    dynamic = pg.operation(pg.load(), generation.snapshot_id, "probe.DynamicSettings")
+    assert dynamic.catalog.constructors and dynamic.catalog.signatures
+fields = {field.name: field.never_read for field in singleton_fields}
 assert fields["qualified_only"].startswith("unknown (not refuted)"), fields
 assert fields["aliased_only"].startswith("unknown (not refuted)"), fields
 assert fields["unread_only"].startswith("refuted_under_model"), fields

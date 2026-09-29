@@ -362,15 +362,8 @@ fn derive_population(
             };
             let (verdict, reason) = if scan_reason.as_deref()
                 == Some("behavioral analysis not requested")
-                && matches!(
-                    facet,
-                    OperationFacet::Raises
-                        | OperationFacet::DelegatesTo
-                        | OperationFacet::ForwardsTo
-                        | OperationFacet::HandsOffTo
-                        | OperationFacet::TakesFrom
-                        | OperationFacet::ReadsSetting
-                ) {
+                && facet.requires_behavior()
+            {
                 (
                     Verdict::NotAnalyzed,
                     Some("behavioral analysis not requested".into()),
@@ -509,48 +502,54 @@ pub struct CatalogFacts {
     pub roots: Vec<crate::flow_model::NameRootRow>,
     pub descriptors: Vec<crate::flow_model::DescriptorRow>,
 }
-pub async fn load_facts(ctx: &SessionContext) -> Result<CatalogFacts, CoreError> {
-    Ok(CatalogFacts {
-        declarations: rows::<raw::Declarations>(ctx).await?,
-        source: rows::<raw::SourceFiles>(ctx).await?,
-        names: rows::<raw::PublicNames>(ctx).await?,
-        signatures: rows::<derived::Signatures>(ctx).await?,
-        parameters: rows::<derived::Parameters>(ctx).await?,
-        syntax: rows::<raw::ParameterSyntax>(ctx).await?,
-        semantics: rows::<raw::ParameterSemantics>(ctx).await?,
-        docs: rows::<raw::ParameterDocs>(ctx).await?,
-        functions: rows::<raw::PysaFunctions>(ctx).await?,
-        synthetic: rows::<derived::SyntheticCallables>(ctx).await?,
-        classes: rows::<raw::PysaClasses>(ctx).await?,
-        class_map: rows::<derived::ProviderClassMap>(ctx).await?,
-        ancestry: rows::<raw::ClassAncestry>(ctx).await?,
-        ancestry_targets: rows::<derived::AncestryTargets>(ctx).await?,
-        scopes: rows::<raw::Scopes>(ctx).await?,
-        lexical_bindings: rows::<raw::Bindings>(ctx).await?,
-        observations: rows::<raw::TypeObservations>(ctx).await?,
-        terms: rows::<raw::TypeTerms>(ctx).await?,
-        args: rows::<raw::TypeTermArgs>(ctx).await?,
-        releases: rows::<raw::Releases>(ctx).await?,
-        field_syntax: rows::<raw::RecordFieldSyntax>(ctx).await?,
-        record_fields: rows::<raw::RecordFields>(ctx).await?,
-        nodes: rows::<raw::SyntaxNodes>(ctx).await?,
-        references: rows::<raw::References>(ctx).await?,
-        resolutions: rows::<raw::ReferenceResolutions>(ctx).await?,
-        roots: sql::fetch(ctx, &crate::flow_model::all_roots(), sql::Params::new()).await?,
-        descriptors: sql::fetch(ctx, &crate::flow_model::descriptors(), sql::Params::new()).await?,
-        member_observations: sql::fetch(
-            ctx,
-            &cpg_schema::public::member_observations(),
-            sql::Params::new(),
-        )
-        .await?,
-        candidates: sql::fetch(
-            ctx,
-            &cpg_schema::public::export_candidates(),
-            sql::Params::new(),
-        )
-        .await?,
-    })
+// A single declaration owns loading and full-table reuse dependencies.
+macro_rules! catalog_inputs {
+    (tables {$($field:ident: $table:ty),+ $(,)?}, queries {$($query_field:ident: $query:path),+ $(,)?}) => {
+        pub fn input_dependencies() -> Vec<&'static str> {
+            let mut deps=vec![$(<$table as Table>::NAME),+];
+            $(deps.extend($query().deps);)+
+            deps.extend(["facts","runs","producers","contexts","coverage","boundaries"]);
+            deps.sort();deps.dedup();deps
+        }
+        pub async fn load_facts(ctx:&SessionContext)->Result<CatalogFacts,CoreError> {
+            Ok(CatalogFacts { $($field:rows::<$table>(ctx).await?,)+
+                $($query_field:sql::fetch(ctx,&$query(),sql::Params::new()).await?,)+ })
+        }
+    };
+}
+catalog_inputs! {
+    tables {
+        declarations: raw::Declarations,
+        source: raw::SourceFiles,
+        names: raw::PublicNames,
+        signatures: derived::Signatures,
+        parameters: derived::Parameters,
+        syntax: raw::ParameterSyntax,
+        semantics: raw::ParameterSemantics,
+        docs: raw::ParameterDocs,
+        functions: raw::PysaFunctions,
+        synthetic: derived::SyntheticCallables,
+        classes: raw::PysaClasses,
+        class_map: derived::ProviderClassMap,
+        ancestry: raw::ClassAncestry,
+        ancestry_targets: derived::AncestryTargets,
+        scopes: raw::Scopes,
+        lexical_bindings: raw::Bindings,
+        observations: raw::TypeObservations,
+        terms: raw::TypeTerms,
+        args: raw::TypeTermArgs,
+        releases: raw::Releases,
+        field_syntax: raw::RecordFieldSyntax,
+        record_fields: raw::RecordFields,
+        nodes: raw::SyntaxNodes,
+        references: raw::References,
+        resolutions: raw::ReferenceResolutions,
+    }, queries {
+        roots: crate::flow_model::all_roots,
+        descriptors: crate::flow_model::descriptors,
+        member_observations: cpg_schema::public::member_observations,
+        candidates: cpg_schema::public::export_candidates,
+    }
 }
 
 /// Reusable, immutable indexes owned with their exact input rows. No ambient invalidation.

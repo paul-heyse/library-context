@@ -16,13 +16,15 @@ use std::{borrow::Cow, collections::BTreeMap, fmt};
 
 mod dispatch;
 mod evidence;
+mod journeys;
+pub use journeys::*;
 mod responses;
 mod vocabulary;
 pub use dispatch::{decode, schema};
 pub use evidence::*;
 pub use responses::*;
 pub use vocabulary::*;
-pub const FORMAT: u32 = 3;
+pub const FORMAT: u32 = 4;
 pub const RESPONSE_BYTES: usize = 8 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -269,9 +271,7 @@ pub struct GetOperationRequest {
     #[serde(default)]
     pub expanded: bool,
     #[serde(default)]
-    pub evidence_limit: Limit<50, 20>,
-    #[serde(default)]
-    pub evidence_cursor: Option<Text<0, 2048>>,
+    pub view: OperationView,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -314,7 +314,8 @@ pub struct SearchOperationsRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "result_kind", rename_all = "snake_case")]
 pub enum GetOperationResponse {
-    Operation(Box<Operation>),
+    Operation(Box<OperationPacket>),
+    Section(OperationSectionPage),
     Ambiguous(AmbiguousOperation),
 }
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -350,6 +351,9 @@ pub fn tool_contract(name: &str) -> Result<(&'static str, &'static str), WireErr
     match name {
         "get_evidence" => Ok(("GetEvidenceRequest", "GetEvidenceResponse")),
         "get_operation" => Ok(("GetOperationRequest", "GetOperationResponse")),
+        "browse_library" => Ok(("BrowseLibraryRequest", "BrowseLibraryResponse")),
+        "search_evidence" => Ok(("SearchEvidenceRequest", "SearchEvidenceResponse")),
+        "compare_operations" => Ok(("CompareOperationsRequest", "CompareOperationsResponse")),
         "get_capability" => Ok(("GetCapabilityRequest", "GetCapabilityResponse")),
         "search_capabilities" => Ok(("SearchCapabilitiesRequest", "SearchCapabilitiesResponse")),
         "inspect_value_paths" => Ok(("InspectValuePathsRequest", "InspectValuePathsResponse")),
@@ -359,6 +363,21 @@ pub fn tool_contract(name: &str) -> Result<(&'static str, &'static str), WireErr
     }
 }
 
+/// One byte policy for domain admission and final MCP serialization.
+pub fn tool_budget(name: &str, expanded: bool) -> usize {
+    if matches!(
+        name,
+        "get_operation"
+            | "get_evidence"
+            | "browse_library"
+            | "search_evidence"
+            | "compare_operations"
+    ) {
+        if expanded { 256 * 1024 } else { 32 * 1024 }
+    } else {
+        RESPONSE_BYTES
+    }
+}
 /// MCP requires root object schemas, including internally tagged response unions.
 pub fn tool_schemas(name: &str) -> Result<(serde_json::Value, serde_json::Value), WireError> {
     let (request, response) = tool_contract(name)?;
@@ -381,6 +400,7 @@ pub fn tool_result(name: &str, raw: &str, expanded: bool) -> Result<String, Wire
                 "selected"
             }
             "get_operation" if value["resolution"] == "ambiguous" => "ambiguous",
+            "get_operation" if value.get("section").is_some() => "section",
             "get_operation" => "operation",
             "get_evidence" if value.get("unit").is_some() => "retrieval_unit",
             "get_evidence" => "evidence",
@@ -394,11 +414,7 @@ pub fn tool_result(name: &str, raw: &str, expanded: bool) -> Result<String, Wire
         .ok_or_else(|| WireError("expected response object".into()))?
         .insert("result_kind".into(), kind.into());
     let encoded = decode(tool_contract(name)?.1, &serde_json::to_string(&value)?)?;
-    let limit = if matches!(name, "get_operation" | "get_evidence") {
-        if expanded { 256 * 1024 } else { 32 * 1024 }
-    } else {
-        RESPONSE_BYTES
-    };
+    let limit = tool_budget(name, expanded);
     if encoded.len() > limit {
         return Err(WireError(
             if name == "get_operation" && !expanded {

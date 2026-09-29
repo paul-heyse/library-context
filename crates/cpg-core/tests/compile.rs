@@ -583,16 +583,16 @@ from support import load_native as load, served_bundle
 with served_bundle(Path(sys.argv[1])) as pg:
     generation = pg.load()
     mixed = pg.operation(generation, generation.snapshot_id, 'transferpkg.mixed')
-    fates = [f for p in mixed.parameters if p.name == 'value' for f in p.fates if f.kind == 'returns']
+    fates = [r.record for r in pg.section(generation.snapshot_id, mixed.operation_id, 'behavior') if r.record.parameter == 'value' and r.record.kind == 'returns']
     assert {f.transfer: f.verdict for f in fates} == {'identity': 'conditional', 'derived': 'conditional', 'call': 'unknown'}
     assert all(f.condition_scope_id == mixed.operation_id for f in fates)
     holder = pg.operation(generation, generation.snapshot_id, 'transferpkg.RecordHolder.__init__')
-    fates = [f for p in holder.parameters if p.name == 'value' for f in p.fates if f.kind == 'returns']
+    fates = [r.record for r in pg.section(generation.snapshot_id, holder.operation_id, 'behavior') if r.record.parameter == 'value' and r.record.kind == 'returns']
     assert len(fates) == 3 and all(f.condition_scope_id != holder.operation_id for f in fates)
     assert {f.transfer for f in fates} == {'identity', 'derived', 'call'}
     assert all(f.verdict == 'unknown' for f in fates)
     unmodeled = pg.operation(generation, generation.snapshot_id, 'transferpkg.Holder.__init__')
-    assert not [f for p in unmodeled.parameters if p.name == 'value' for f in p.fates if f.kind == 'returns']
+    assert not [r.record for r in pg.section(generation.snapshot_id, unmodeled.operation_id, 'behavior') if r.record.parameter == 'value' and r.record.kind == 'returns']
 "#]).arg(&generation.dir)
         .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
         .output().unwrap();

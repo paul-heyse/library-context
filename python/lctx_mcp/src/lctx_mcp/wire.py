@@ -14,6 +14,7 @@ from fastmcp.exceptions import ToolError, ValidationError
 from fastmcp.server.dependencies import get_context
 from fastmcp.tools import Tool, ToolResult
 from lctx_semantics import wire_decode, wire_schema, wire_tool, wire_tool_result
+from mcp_types import CallToolResult
 from pydantic import PrivateAttr
 
 REQUEST_SECONDS = 30.0
@@ -49,7 +50,7 @@ class Packet:
         except KeyError as exc:
             raise AttributeError(name) from exc
 
-    def __getitem__(self, name):
+    def __getitem__(self, name: str) -> Any:
         return view(self._data[name])
 
     def __iter__(self):
@@ -98,6 +99,7 @@ class Contract:
 class SchemaTool(Tool):
     _callback: Any = PrivateAttr()
     _request: str = PrivateAttr()
+    _byte_limits: dict[str, int] = PrivateAttr()
 
     async def run(self, arguments: dict[str, Any]) -> ToolResult:
         ctx = get_context()
@@ -134,7 +136,32 @@ class SchemaTool(Tool):
                         if str(exc).startswith("resource_refused:"):
                             raise ToolError(str(exc)) from exc
                         raise
-                    return ToolResult(content=raw, structured_content=json.loads(raw))
+                    tool_result = ToolResult(
+                        content=(
+                            f"{self.name}: structured result; "
+                            "inspect structuredContent for the complete contract and evidence."
+                        ),
+                        structured_content=json.loads(raw),
+                    )
+                    # Measure the SDK's actual MCP result, including content/metadata/escaping.
+                    encoded = (
+                        CallToolResult(
+                            content=tool_result.content,
+                            structured_content=tool_result.structured_content,
+                            is_error=False,
+                        )
+                        .model_dump_json(by_alias=True, exclude_none=True)
+                        .encode("utf-8")
+                    )
+                    limit = self._byte_limits[
+                        "expanded" if decoded.get("expanded", False) else "default"
+                    ]
+                    if len(encoded) > limit:
+                        raise ToolError(
+                            "resource_refused: final MCP result byte budget; "
+                            "request expanded=true or a smaller page"
+                        )
+                    return tool_result
 
                 return await served.workers.run(finish)
         except TimeoutError as exc:
@@ -156,6 +183,7 @@ def register(mcp, annotations):
         )
         tool._callback = callback
         tool._request = contract["request"]
+        tool._byte_limits = contract["byte_limits"]
         mcp.add_tool(tool)
         return callback
 

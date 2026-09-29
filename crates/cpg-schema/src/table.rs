@@ -209,3 +209,77 @@ macro_rules! table {
     };
 }
 pub(crate) use table;
+
+/// Copy a table into a new snapshot envelope. All fact identities, run/producer attribution,
+/// digests, coordinates and values stay byte-for-byte unchanged. This is not a semantic migration.
+pub fn rebind_snapshot<T: Table>(
+    batch: &RecordBatch,
+    from: crate::Id,
+    to: crate::Id,
+) -> Result<RecordBatch, ArrowError> {
+    use arrow_array::FixedSizeBinaryArray;
+    if batch.schema() != T::schema() {
+        return Err(ArrowError::SchemaError(format!(
+            "{} rebound schema",
+            T::NAME
+        )));
+    }
+    let position = batch.schema().index_of("snapshot_id")?;
+    let ids = batch
+        .column(position)
+        .as_any()
+        .downcast_ref::<FixedSizeBinaryArray>()
+        .ok_or_else(|| ArrowError::SchemaError("snapshot envelope type".into()))?;
+    if ids.null_count() != 0 || ids.iter().any(|id| id != Some(from.0.as_slice())) {
+        return Err(ArrowError::InvalidArgumentError(
+            "foreign snapshot envelope".into(),
+        ));
+    }
+    let mut columns = batch.columns().to_vec();
+    let mut envelope =
+        arrow_array::builder::FixedSizeBinaryBuilder::with_capacity(batch.num_rows(), 16);
+    for _ in 0..batch.num_rows() {
+        envelope.append_value(to.0)?;
+    }
+    columns[position] = Arc::new(envelope.finish());
+    RecordBatch::try_new(T::schema(), columns)
+}
+
+#[cfg(test)]
+mod envelope_tests {
+    use super::*;
+    use crate::{
+        Id,
+        tables::{Producers, ProducersRow},
+    };
+    #[test]
+    fn snapshot_rebind_preserves_every_provenance_column_and_empty_schema() {
+        let source = Id([1; 16]);
+        let target = Id([2; 16]);
+        let batch = Producers::to_batch(&[ProducersRow {
+            snapshot_id: source,
+            producer_id: Id([3; 16]),
+            tool: "probe".into(),
+            revision: "pinned".into(),
+            build_digest: crate::Digest([4; 32]),
+        }])
+        .unwrap();
+        let rebound = rebind_snapshot::<Producers>(&batch, source, target).unwrap();
+        assert_eq!(
+            rebind_snapshot::<Producers>(&rebound, target, source).unwrap(),
+            batch
+        );
+        assert!(rebind_snapshot::<Producers>(&batch, target, source).is_err());
+        let empty = Producers::to_batch(&[]).unwrap();
+        assert_eq!(
+            rebind_snapshot::<Producers>(&empty, source, target).unwrap(),
+            empty
+        );
+        let wrong = RecordBatch::try_new(
+            Arc::new(Schema::new(batch.schema().fields().clone())),
+            batch.columns().to_vec(),
+        )
+        .unwrap();
+        assert!(rebind_snapshot::<Producers>(&wrong, source, target).is_err());
+    }
+}

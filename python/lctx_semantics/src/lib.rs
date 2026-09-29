@@ -1814,7 +1814,7 @@ fn wire_tool(name: &str) -> PyResult<String> {
         cpg_schema::wire::tool_contract(name).map_err(|e| PyValueError::new_err(e.to_string()))?;
     let (input, output) =
         cpg_schema::wire::tool_schemas(name).map_err(|e| PyValueError::new_err(e.to_string()))?;
-    Ok(serde_json::json!({"format":cpg_schema::wire::FORMAT,"request":request,"response":response,"parameters":input,"output_schema":output}).to_string())
+    Ok(serde_json::json!({"format":cpg_schema::wire::FORMAT,"request":request,"response":response,"parameters":input,"output_schema":output,"byte_limits":{"default":cpg_schema::wire::tool_budget(name,false),"expanded":cpg_schema::wire::tool_budget(name,true)}}).to_string())
 }
 #[pyfunction]
 #[pyo3(signature = (name, raw, expanded=false))]

@@ -48,22 +48,28 @@ where
     )
     .await
 }
-pub async fn load(ctx: &SessionContext) -> Result<EvidenceInputs, CoreError> {
-    Ok(EvidenceInputs {
-        captured: rows::<CapturedArtifacts>(ctx).await?,
-        documents: rows::<raw::Documents>(ctx).await?,
-        passages: rows::<raw::Passages>(ctx).await?,
-        blocks: rows::<raw::CodeBlocks>(ctx).await?,
-        mentions: rows::<raw::Mentions>(ctx).await?,
-        edges: rows::<cpg_schema::graph::Edges>(ctx).await?,
-        coverage: rows::<raw::Coverage>(ctx).await?,
-        boundaries: rows::<raw::Boundaries>(ctx).await?,
-        facts: rows::<raw::Facts>(ctx).await?,
-        context_definitions: rows::<raw::ContextDefinitions>(ctx).await?,
-        context_modules: rows::<raw::ContextModules>(ctx).await?,
-        calls: rows::<raw::PysaCalls>(ctx).await?,
-        arguments: rows::<raw::Arguments>(ctx).await?,
-    })
+macro_rules! evidence_inputs {
+    ($($field:ident: $table:ty),+ $(,)?) => {
+        pub fn input_dependencies()->Vec<&'static str> {vec![$(<$table as Table>::NAME),+]}
+        pub async fn load(ctx:&SessionContext)->Result<EvidenceInputs,CoreError> {
+            Ok(EvidenceInputs { $($field:rows::<$table>(ctx).await?,)+ })
+        }
+    };
+}
+evidence_inputs! {
+    captured: CapturedArtifacts,
+    documents: raw::Documents,
+    passages: raw::Passages,
+    blocks: raw::CodeBlocks,
+    mentions: raw::Mentions,
+    edges: cpg_schema::graph::Edges,
+    coverage: raw::Coverage,
+    boundaries: raw::Boundaries,
+    facts: raw::Facts,
+    context_definitions: raw::ContextDefinitions,
+    context_modules: raw::ContextModules,
+    calls: raw::PysaCalls,
+    arguments: raw::Arguments,
 }
 #[derive(Default, Debug, Clone, PartialEq)]
 pub struct EvidenceRows {

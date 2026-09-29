@@ -466,30 +466,28 @@ async fn postgres_original_bytes_bounded_pages_and_typed_refs() {
         &artifact.body.0[span.start_byte as usize..span.end_byte as usize]
     );
     let packet = serving
-        .get_operation_with_evidence(
+        .operation_packet(
             &pinned,
-            &snapshot.hex(),
-            "pr3pkg.run",
-            &cpg_core::postgres::EvidenceOptions {
-                expanded: false,
-                limit: 1,
-                cursor: None,
-            },
+            &serde_json::from_value(serde_json::json!({
+                "snapshot_id":snapshot.hex(),"operation":"pr3pkg.run",
+                "view":{"kind":"section","section":"evidence"}
+            }))
+            .unwrap(),
         )
         .await
         .unwrap();
     cpg_schema::wire::tool_result("get_operation", &packet.to_string(), false).unwrap();
-    assert_eq!(
-        packet["catalog"]["evidence_page"]["items"]
+    assert!(!packet["items"].as_array().unwrap().is_empty());
+    let reference: EvidenceRef = serde_json::from_value(
+        packet["items"]
             .as_array()
             .unwrap()
-            .len(),
-        1
-    );
-    assert!(packet["catalog"]["evidence_page"]["next_cursor"].is_string());
-    let reference: EvidenceRef =
-        serde_json::from_value(packet["catalog"]["evidence_page"]["items"][0]["evidence"].clone())
-            .unwrap();
+            .iter()
+            .find(|item| item["record"]["evidence"]["kind"] == "scenario")
+            .unwrap()["record"]["evidence"]
+            .clone(),
+    )
+    .unwrap();
     let page = serving
         .get_evidence(&pinned, &snapshot.hex(), reference, None, false)
         .await

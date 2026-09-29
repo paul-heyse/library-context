@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT count(*) AS \"count!\" FROM lctx_serving.operation_facets WHERE generation_digest=$1 AND node_id=ANY($2)\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bytea",
+        "ByteaArray"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "8910e7b37c52778f5e213342fc70f722abc0c939420d6d286c356fe86f3d0028"
+}

@@ -71,75 +71,82 @@ def _fate_line(f: Packet) -> str:
 
 async def _operation(gen: Generation, spelling: str) -> list[str]:
     try:
-        op = ops.Operation.model_validate_json(
-            await gen.repository.get_operation(gen.snapshot_id, spelling)
+        op = ops.OperationPacket.model_validate_json(
+            await gen.repository.get_operation(gen.snapshot_id, spelling, True)
         )
     except ValueError as e:
         return [f"- **`{spelling}`: does not resolve** ({e})"]
     return await _render(gen, op, spelling)
 
 
+async def _section(gen: Generation, spelling: str, section: str) -> list[Packet]:
+    records = []
+    cursor = None
+    while True:
+        page = ops.OperationSectionPage.model_validate_json(
+            await gen.repository.get_operation(
+                gen.snapshot_id,
+                spelling,
+                True,
+                json.dumps({"kind": "section", "section": section, "cursor": cursor}),
+            )
+        )
+        records.extend(item.record for item in page["items"])
+        cursor = page.next_cursor
+        if cursor is None:
+            return records
+
+
 async def _render(gen: Generation, op: Packet, spelling: str | None = None) -> list[str]:
     spelling = spelling or op.access_path
     out = [
-        f"- **`{spelling}`** → `{op.access_path}` ({op.kind}), status **{op.behavior_status}**"
-        + (f" ({op.status_reason})" if op.status_reason else "")
+        f"- **`{spelling}`** → `{op.access_path}` ({op.catalog.member.kind}), "
+        f"status **{op.behavior_status}**" + (f" ({op.status_reason})" if op.status_reason else "")
     ]
-    if op.docstring_summary:
-        out.append(f"  - summary: {op.docstring_summary}")
-    for p in op.parameters:
-        if p.fates:
-            out.append(f"  - parameter `{p.name}`:")
-            out.extend(f"    - {_fate_line(f)}" for f in p.fates)
-        else:
-            out.append(f"  - parameter `{p.name}`: no fate ({p.note})")
-    if op.delegates:
-        out.append(f"  - delegations and literals ({len(op.delegates)}):")
-        out.extend(f"    - {_fate_line(f)}" for f in op.delegates[:25])
-        if len(op.delegates) > 25:
-            out.append(f"    - … {len(op.delegates) - 25} more")
-    if op.handoffs:
-        out.append(f"  - handoffs ({len(op.handoffs)}):")
-        out.extend(f"    - {_fate_line(f)}" for f in op.handoffs)
-    if op.reads:
-        out.append(f"  - settings read ({len(op.reads)}):")
-        out.extend(f"    - `{f.target}` {_fate_line(f)}" for f in op.reads)
-    if op.singleton_of:
-        out.append(f"  - the singleton `{op.singleton_of}`'s fields:")
-        for fr in op.fields:
-            reads = "; ".join(
-                f"{r.reader or 'module body'} ({r.phase}"
-                + (f", when `{r.condition}`" if r.condition else "")
-                + f") {r.path}:{r.line}"
-                for r in fr.reads
-            )
-            out.append(
-                f"    - `{fr.name}`: "
-                + (reads or "no read")
-                + (f" — {fr.never_read}" if fr.never_read else "")
-            )
-    if op.constructor is not None:
-        out.append(f"  - constructor `{op.constructor.access_path}`:")
-        out.extend("  " + line for line in await _render(gen, op.constructor))
+    fates = await _section(gen, spelling, "behavior")
+    parameters = sorted(
+        {p.name for signature in op.catalog.signatures for p in signature.parameters if p.name}
+    )
+    for name in parameters:
+        claims = [f for f in fates if f.parameter == name]
+        out.append(
+            f"  - parameter `{name}`:"
+            if claims
+            else f"  - parameter `{name}`: no recorded fate; never infer unused"
+        )
+        out.extend(f"    - {_fate_line(f)}" for f in claims)
+    for fate in fates:
+        if fate.parameter not in parameters:
+            out.append(f"  - {_fate_line(fate)}")
+    for field in await _section(gen, spelling, "fields"):
+        reads = "; ".join(
+            f"{r.reader or 'module body'} ({r.phase}) {r.path}:{r.line}" for r in field.reads
+        )
+        out.append(
+            f"  - field `{field.name}`: {reads or 'no recorded read'}"
+            + (f" — {field.never_read}" if field.never_read else "")
+        )
+    for constructor in op.catalog.constructors:
+        out.append(
+            f"  - constructor signature `{constructor.signature_id}` "
+            "(invocation contract above; behavior is independently addressable)"
+        )
     if op.capability_id:
         out.append(f"  - brief `{op.capability_id[:12]}`:")
         brief = Capability.model_validate_json(
             await gen.repository.get_capability(gen.snapshot_id, op.capability_id)
         )
-        for a in brief.assertions:
-            if a.text:
-                out.append(f"    - [{a.section}/{a.status}] {a.text}")
+        for assertion in brief.assertions:
+            if assertion.text:
+                out.append(f"    - [{assertion.section}/{assertion.status}] {assertion.text}")
     return out
 
 
-def _served_lines(op: Packet) -> set[tuple[str, int]]:
-    """Every (path, line) a served record of this operation cites."""
-    fates = [f for p in op.parameters for f in p.fates] + op.delegates + op.handoffs + op.reads
-    lines = {(f.path, f.line) for f in fates if f.path and f.line}
-    lines |= {(r.path, r.line) for fr in op.fields for r in fr.reads if r.path and r.line}
-    if op.constructor is not None:
-        lines |= _served_lines(op.constructor)
-    return lines
+def _served_lines(fates: list[Packet], fields: list[Packet]) -> set[tuple[str, int]]:
+    """Every source line in the explicitly requested behavior and field sections."""
+    return {(f.path, f.line) for f in fates if f.path and f.line} | {
+        (r.path, r.line) for field in fields for r in field.reads if r.path and r.line
+    }
 
 
 def _ranges(root: str, item: dict) -> list[tuple[str, int, int]]:
@@ -161,17 +168,19 @@ async def _marks(gen: Generation, question: dict, item: dict, root: str, extra: 
     served: set[tuple[str, int]] = set()
     for spelling in question["operations"] + extra:
         try:
-            op = ops.Operation.model_validate_json(
-                await gen.repository.get_operation(gen.snapshot_id, spelling)
+            op = ops.OperationPacket.model_validate_json(
+                await gen.repository.get_operation(gen.snapshot_id, spelling, True)
             )
         except ValueError:
             continue
-        served |= _served_lines(op)
+        fates = await _section(gen, spelling, "behavior")
+        served |= _served_lines(fates, await _section(gen, spelling, "fields"))
         if spelling not in question["operations"]:
             continue
-        for p in op.parameters:
-            if p.name in named:
-                hits.append(f"`{p.name}` {'has fates' if p.fates else 'has no fate'}")
+        for name in {p.name for signature in op.catalog.signatures for p in signature.parameters}:
+            if name in named:
+                present = any(f.parameter == name for f in fates)
+                hits.append(f"`{name}` {'has fates' if present else 'has no fate'}")
     named_mark = "; ".join(sorted(set(hits))) or "no parameter of the operations is named"
     cited = sum(
         1

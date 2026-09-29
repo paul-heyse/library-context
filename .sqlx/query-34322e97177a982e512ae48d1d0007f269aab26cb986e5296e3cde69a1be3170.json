@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT behavior_id FROM lctx_serving.behaviors WHERE generation_digest=$1 AND operation_node_id=ANY($2) AND ($3=false OR kind IN ('delegates','supplies_literal','hands_off_to','takes_from')) ORDER BY behavior_id LIMIT 20 OFFSET $4\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "behavior_id",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "lctx_serving.behaviors",
+            "name": "behavior_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bytea",
+        "ByteaArray",
+        "Bool",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "34322e97177a982e512ae48d1d0007f269aab26cb986e5296e3cde69a1be3170"
+}

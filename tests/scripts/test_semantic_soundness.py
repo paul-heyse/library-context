@@ -216,11 +216,26 @@ def _served(tree: Path, work: Path, functions: list[Function], db) -> dict[str, 
             pin = await repo.pin(PACKAGE, manifest["projection_generation"], None)
             served = {}
             for f in functions:
-                op = ops.Operation.model_validate_json(
-                    await pin.get_operation(manifest["snapshot_id"], f"{PACKAGE}.{f.name}")
-                )
-                (value,) = [p for p in op.parameters if p.name == "value"]
-                served[f.name] = [fate for fate in value.fates if fate.kind == "returns"]
+                cursor = None
+                fates = []
+                while True:
+                    page = ops.OperationSectionPage.model_validate_json(
+                        await pin.get_operation(
+                            manifest["snapshot_id"],
+                            f"{PACKAGE}.{f.name}",
+                            True,
+                            json.dumps(
+                                {"kind": "section", "section": "behavior", "cursor": cursor}
+                            ),
+                        )
+                    )
+                    fates.extend(item.record for item in page["items"])
+                    cursor = page.next_cursor
+                    if cursor is None:
+                        break
+                served[f.name] = [
+                    fate for fate in fates if fate.parameter == "value" and fate.kind == "returns"
+                ]
             return served
         finally:
             await repo.close()

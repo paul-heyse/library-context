@@ -136,6 +136,21 @@ pub(crate) async fn relational_costed(
     Ok((violations, costs))
 }
 
+/// Admit pinned canonical input without re-deriving its old policy-dependent products.
+/// Shared relational and raw-flow validators still apply; current semantic derivation is
+/// checked against the replacement publication before it can become visible.
+pub(crate) async fn rebuild_source(ctx: &SessionContext) -> Result<(), CoreError> {
+    let cache = cached_session(ctx).await?;
+    let (mut violations, _) = relational_costed(&cache).await?;
+    violations.extend(validate_condition_graph(&cache).await?);
+    violations.extend(validate_test_type_links(&cache).await?);
+    if violations.is_empty() {
+        Ok(())
+    } else {
+        Err(CoreError::Invalid(violations))
+    }
+}
+
 /// [`validate`], with each rule's cost, so a stage report can name what dominates. Violations and
 /// costs come back in `rules()` order, whatever order the rules finished in.
 pub async fn validate_costed(

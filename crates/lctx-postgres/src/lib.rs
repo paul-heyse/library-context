@@ -3,10 +3,13 @@
 mod cache;
 pub mod diagnostics;
 mod evidence;
+mod evidence_search;
 mod hydration;
-pub use evidence::EvidenceOptions;
 pub mod import;
+mod journey_cursor;
+mod journeys;
 pub mod operations;
+mod packet;
 pub mod profiles;
 pub mod projection;
 pub mod report;

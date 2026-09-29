@@ -34,7 +34,7 @@ async def test_catalog_contract_without_native_or_briefs(catalog_serving):
                 "expanded": True,
             },
         )
-        operation = ops.Operation.model_validate(result.structured_content)
+        operation = ops.OperationPacket.model_validate(result.structured_content)
         assert operation.catalog is not None and result.content
         formals = operation.catalog.signatures[0].parameters
         assert [p.name for p in formals] == ["first", "optional", "items", "flag", "options"]
@@ -46,7 +46,7 @@ async def test_catalog_contract_without_native_or_briefs(catalog_serving):
             "var_keyword",
         ]
         assert formals[1].default_text == '"ok"'
-        assert operation.catalog.evidence_page["items"] and operation.catalog.type_observations
+        assert operation.evidence.kind == "retrieval_unit" and operation.catalog.type_observations
         assert operation.catalog.member.brief_status == "not_requested"
         missing = await client.call_tool(
             "search_capabilities", {"library": fixture.library, "query": "ordinary"}
@@ -77,7 +77,7 @@ async def test_catalog_contract_without_native_or_briefs(catalog_serving):
             "get_operation",
             {"snapshot_id": snapshot, "operation": "catalogpkg.Config", "expanded": True},
         )
-        config = ops.Operation.model_validate(config.structured_content)
+        config = ops.OperationPacket.model_validate(config.structured_content)
         assert config.catalog is not None
         assert config.catalog.constructors
         assert any(s.role == "provider_constructor" for s in config.catalog.signatures)
@@ -85,11 +85,12 @@ async def test_catalog_contract_without_native_or_briefs(catalog_serving):
             "get_operation",
             {"snapshot_id": snapshot, "operation": "catalogpkg.PublicConfig", "expanded": True},
         )
-        inherited = ops.Operation.model_validate(inherited.structured_content)
+        inherited = ops.OperationPacket.model_validate(inherited.structured_content)
         assert inherited.catalog is not None
         assert any(not c.own and c.ancestry_fact_id for c in inherited.catalog.constructors)
         originals = []
-        for item in inherited.catalog.evidence_page["items"]:
+        for entry in fixture.section(snapshot, inherited.access_path, "evidence"):
+            item = entry.record
             opened = await client.call_tool(
                 "get_evidence",
                 {

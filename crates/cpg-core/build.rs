@@ -98,6 +98,49 @@ fn main() {
         h.update(&(text.len() as u64).to_le_bytes());
         h.update(&text);
     }
+    // Canonical producer identity excludes serving/retrieval-only realization code. Shared
+    // schema, semantic queries, models and validators are deliberately included conservatively.
+    let mut semantic = blake3::Hasher::new();
+    for file in &files {
+        if matches!(
+            file.as_str(),
+            "crates/cpg-schema/src/wire/journeys.rs"
+                | "crates/cpg-schema/src/wire/responses.rs"
+                | "crates/cpg-schema/src/wire/dispatch.rs"
+        ) || file == "crates/cpg-schema/src/retrieval.rs"
+            || file == "crates/cpg-core/src/evidence.rs"
+            || file == "crates/cpg-core/src/catalog_domains.rs"
+            || file == "crates/cpg-core/src/stage_cache.rs"
+            || file.starts_with("crates/cpg-core/src/bundle")
+            || file.starts_with("crates/cpg-core/src/retrieval")
+            || file.starts_with("crates/cpg-core/src/rebuild")
+        {
+            continue;
+        }
+        let bytes = std::fs::read(root.join(file)).expect("semantic source");
+        semantic.update(file.as_bytes());
+        semantic.update(&(bytes.len() as u64).to_le_bytes());
+        semantic.update(&bytes);
+    }
+    semantic.update(found.join(";").as_bytes());
+    let mut association = blake3::Hasher::new();
+    for file in [
+        "crates/cpg-core/src/evidence.rs",
+        "crates/cpg-core/src/catalog_domains.rs",
+    ] {
+        let bytes = std::fs::read(root.join(file)).expect("association source");
+        association.update(file.as_bytes());
+        association.update(&(bytes.len() as u64).to_le_bytes());
+        association.update(&bytes);
+    }
+    println!(
+        "cargo:rustc-env=LCTX_ASSOCIATION_SOURCE_DIGEST={}",
+        association.finalize().to_hex()
+    );
+    println!(
+        "cargo:rustc-env=LCTX_SEMANTIC_SOURCE_DIGEST={}",
+        semantic.finalize().to_hex()
+    );
     println!(
         "cargo:rustc-env=LCTX_SOURCE_DIGEST={}",
         h.finalize().to_hex()

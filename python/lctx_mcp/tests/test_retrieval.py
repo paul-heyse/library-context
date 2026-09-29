@@ -144,3 +144,29 @@ def test_duplicate_documents_leave_corpus_scores_stable_and_keep_member_owned_oc
     alias = index(True).winners("tool", {c.hex()})
     assert alias[0]["member_id"] == c.hex() and alias[0]["unit_id"] == c.hex()
     assert alias[0]["score"] == original[0]["score"]
+
+
+def test_independent_units_include_release_only_and_unassociated_text():
+    import pyarrow as pa
+
+    from lctx_mcp.retrieval import UnitLexical
+
+    fragments = [
+        {
+            "unit_id": bytes([i]) * 16,
+            "fragment_id": bytes([i]) * 16,
+            "family": "documentation_deployment",
+            "text": "install deployment server",
+        }
+        for i in [1, 2, 3]
+    ]
+    subjects = [
+        {"unit_id": bytes([1]) * 16, "member_id": bytes([7]) * 16},
+        {"unit_id": bytes([2]) * 16, "member_id": None},
+    ]
+    index = UnitLexical(pa.Table.from_pylist(fragments), pa.Table.from_pylist(subjects))
+    winners = index.unit_winners("deployment", ["documentation_deployment"])
+    assert {w["unit_id"] for w in winners} == {bytes([i]).hex() * 16 for i in [1, 2, 3]}
+    assert len({w["score"] for w in winners}) == 1
+    repeated = UnitLexical(pa.Table.from_pylist(fragments * 5), pa.Table.from_pylist(subjects))
+    assert repeated.unit_winners("deployment", ["documentation_deployment"]) == winners

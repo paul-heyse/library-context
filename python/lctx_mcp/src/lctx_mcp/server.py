@@ -489,34 +489,20 @@ def build_server(
         operation: str,
         ctx: Context,
         expanded: bool = False,
-        evidence_limit: int = 20,
-        evidence_cursor: str | None = None,
+        view: dict | None = None,
     ) -> ToolResult:
-        """One public operation, whole, by any public spelling (or its id): its paths, facets,
-        each parameter's fates (forwarded, literal, raises-when, unfollowed) with verdicts and
-        source lines, its delegations and official-usage handoffs, and its brief if one exists.
-        Established and conditional fates are may-behavior admitted by the model, not concrete
-        execution witnesses. A negative fate requires complete coverage under the model."""
+        """Complete invocation/configuration contract for one public member, or a bounded
+        optional section page. Original evidence bytes use get_evidence. Behavioral claims
+        retain their model and coverage; absence of a record is not proof of no behavior."""
         served = ctx.lifespan_context["served"]
         encoded = await storage(
             served.generation.repository.get_operation(
-                snapshot_id, operation, expanded, evidence_limit, evidence_cursor
+                snapshot_id, operation, expanded, json.dumps(view or {"kind": "packet"})
             )
         )
-        model = (
-            ops.AmbiguousOperation
-            if json.loads(encoded).get("resolution") == "ambiguous"
-            else ops.Operation
-        )
-        result = await decode_model(
-            served,
-            model,
-            encoded,
-        )
-        payload = result.model_dump(mode="json")
         return ToolResult(
-            content="Public API contract and evidence; effective behavior may remain unresolved.",
-            structured_content=payload,
+            content="Public API contract or optional section.",
+            structured_content=json.loads(encoded),
         )
 
     @register(mcp, READ_ONLY)
@@ -634,6 +620,113 @@ def build_server(
         served = ctx.lifespan_context["served"]
         _check(served, library)
         return await search_members(served, query, selection, limit, cursor)
+
+    @register(mcp, READ_ONLY)
+    @request_deadline
+    async def browse_library(
+        library: str,
+        ctx: Context,
+        scope: dict | None = None,
+        view: dict | None = None,
+        limit: int = 20,
+        cursor: str | None = None,
+        expanded: bool = False,
+    ) -> dict:
+        """Browse exact library/module/class ownership, scoped facet counts, or the supported
+        typed requirement vocabulary. Aliases remain distinct public exposures."""
+        served = ctx.lifespan_context["served"]
+        _check(served, library)
+        request = {
+            "library": library,
+            "scope": scope or {"kind": "library"},
+            "view": view or {"kind": "outline"},
+            "limit": limit,
+            "cursor": cursor,
+            "expanded": expanded,
+        }
+        return json.loads(
+            await storage(served.generation.repository.browse_library(json.dumps(request)))
+        )
+
+    @register(mcp, READ_ONLY)
+    @request_deadline
+    async def compare_operations(
+        library: str, candidates: list[str], selection: Packet, ctx: Context, expanded: bool = False
+    ) -> dict:
+        """Compare one to five named APIs against identical typed requirements in caller order.
+        Includes contradictions, uncertainty, conflicts, ambiguity and missing names; no winner
+        or new inference is asserted."""
+        served = ctx.lifespan_context["served"]
+        _check(served, library)
+        request = {
+            "library": library,
+            "candidates": candidates,
+            "selection": selection.model_dump(),
+            "expanded": expanded,
+        }
+        return json.loads(
+            await storage(served.generation.repository.compare_operations(json.dumps(request)))
+        )
+
+    @register(mcp, READ_ONLY)
+    @request_deadline
+    async def search_evidence(
+        library: str,
+        query: str,
+        ctx: Context,
+        families: list[str],
+        intent: str | None = None,
+        subject: dict | None = None,
+        limit: int = 20,
+        cursor: str | None = None,
+        expanded: bool = False,
+    ) -> dict:
+        """Find original documentation, deployment declarations and usage scenarios independently
+        of APIs. API/source families are explicit options. Intent and actual subject associations
+        filter discovery; a retrieved test is not automatically a successful-use recipe."""
+        served = ctx.lifespan_context["served"]
+        _check(served, library)
+        winners = await served.workers.run(served.unit_lexical.unit_winners, query, families)
+        vector = None
+        spec = None
+        channel = (
+            "lexical-only:no-embedder" if served.embedder is None else "lexical-only:no-vectors"
+        )
+        if (
+            served.embedder is not None
+            and served.generation.manifest["relations"]["retrieval_vectors"]["rows"]
+        ):
+            try:
+                vector = (await served.embedder.embed([served.embedder.spec.query_text(query)]))[0]
+            except EmbedderError:
+                channel = "lexical-only:embedding-unavailable"
+            else:
+                import hashlib
+
+                spec = served.embedder.spec.hash
+                channel = (
+                    "vector:"
+                    + hashlib.sha256(np.asarray(vector, dtype="<f4").tobytes()).hexdigest()
+                    + ":"
+                    + spec
+                )
+        request = {
+            "library": library,
+            "query": query,
+            "families": families,
+            "intent": intent,
+            "subject": subject,
+            "limit": limit,
+            "cursor": cursor,
+            "expanded": expanded,
+        }
+        return json.loads(
+            await storage(
+                served.generation.repository.search_evidence(
+                    json.dumps(request), json.dumps(winners), channel, vector, spec
+                )
+            )
+        )
 
     @mcp.resource("capability://{snapshot_id}/{capability_id}", mime_type="text/markdown")
     @request_deadline

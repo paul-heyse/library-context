@@ -603,6 +603,50 @@ mod tests {
         }
     }
     #[test]
+    fn evidence_unit_votes_deduplicate_fragments_and_balance_families() {
+        let row = |unit, fragment, family, channel, score| UnitWinner {
+            unit_id: RetrievalUnitId::from_storage(Id([unit; 16])),
+            fragment_id: Id([fragment; 16]),
+            family,
+            channel,
+            score,
+            rank: 0,
+        };
+        let rows = vec![
+            row(1, 9, Family::Scenario, Channel::Lexical, 2.),
+            row(1, 3, Family::Scenario, Channel::Lexical, 2.),
+            row(1, 4, Family::Scenario, Channel::Vector, 8.),
+            row(2, 5, Family::DocumentationDeployment, Channel::Lexical, 0.5),
+        ];
+        let mut duplicated = rows.clone();
+        duplicated.extend(rows.clone());
+        duplicated.reverse();
+        let canonical = unit_channel_winners(rows).unwrap();
+        assert_eq!(
+            serde_json::to_value(&canonical).unwrap(),
+            serde_json::to_value(unit_channel_winners(duplicated).unwrap()).unwrap()
+        );
+        assert_eq!(
+            canonical
+                .iter()
+                .find(|w| w.unit_id.storage() == Id([1; 16]) && w.channel == Channel::Lexical)
+                .unwrap()
+                .fragment_id,
+            Id([3; 16])
+        );
+        let ranks = fuse_units(&canonical);
+        assert_eq!(
+            ranks[0].score, ranks[1].score,
+            "two channels do not give one family extra weight"
+        );
+        assert!(ranks[0].unit_id < ranks[1].unit_id);
+        assert_eq!(ranks[0].winners.len(), 2);
+        assert!(
+            unit_channel_winners(vec![row(1, 1, Family::Scenario, Channel::Vector, f64::NAN)])
+                .is_err()
+        );
+    }
+    #[test]
     fn large_unit_metadata_still_has_a_bounded_header() {
         let subjects = (0u128..10000)
             .map(|i| Subject::Member(PublicMemberId::from_storage(Id(i.to_le_bytes()))))
@@ -684,4 +728,85 @@ mod tests {
             fragments(&unit, 5).unwrap()[0].fragment_id
         );
     }
+}
+
+/// Evidence discovery votes for an actual unit, independently of member eligibility.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct UnitWinner {
+    pub family: Family,
+    pub channel: Channel,
+    pub unit_id: RetrievalUnitId,
+    pub fragment_id: Id,
+    pub score: f64,
+    pub rank: u32,
+}
+
+/// Best fragment per unit/channel, then stable per-family channel ranks.
+pub fn unit_channel_winners(rows: Vec<UnitWinner>) -> Result<Vec<UnitWinner>, WireError> {
+    let mut best: BTreeMap<(RetrievalUnitId, Family, Channel), UnitWinner> = BTreeMap::new();
+    for row in rows {
+        if !row.score.is_finite() {
+            return Err(WireError("non-finite unit score".into()));
+        }
+        let key = (row.unit_id, row.family, row.channel);
+        match best.get(&key) {
+            Some(old)
+                if old.score > row.score
+                    || (old.score == row.score && old.fragment_id <= row.fragment_id) => {}
+            _ => {
+                best.insert(key, row);
+            }
+        }
+    }
+    let mut rows = best.into_values().collect::<Vec<_>>();
+    rows.sort_by(|a, b| {
+        (a.family, a.channel)
+            .cmp(&(b.family, b.channel))
+            .then_with(|| b.score.total_cmp(&a.score))
+            .then(a.unit_id.cmp(&b.unit_id))
+    });
+    let mut counts = BTreeMap::new();
+    for row in &mut rows {
+        let n = counts.entry((row.family, row.channel)).or_insert(0);
+        *n += 1;
+        row.rank = *n;
+    }
+    Ok(rows)
+}
+#[derive(Debug, Clone)]
+pub struct RankedUnit {
+    pub unit_id: RetrievalUnitId,
+    pub score: f64,
+    pub winners: Vec<UnitWinner>,
+}
+/// Reuse the equal-family RRF policy without inventing a member for release-only evidence.
+pub fn fuse_units(winners: &[UnitWinner]) -> Vec<RankedUnit> {
+    let mut families: BTreeMap<Family, BTreeMap<RetrievalUnitId, f64>> = BTreeMap::new();
+    let mut votes: BTreeMap<RetrievalUnitId, Vec<UnitWinner>> = BTreeMap::new();
+    for row in winners {
+        *families
+            .entry(row.family)
+            .or_default()
+            .entry(row.unit_id)
+            .or_default() += 1.0 / (RRF_K + f64::from(row.rank));
+        votes.entry(row.unit_id).or_default().push(row.clone());
+    }
+    let mut scores: BTreeMap<RetrievalUnitId, f64> = BTreeMap::new();
+    for family in families.into_values() {
+        let mut ranks = family.into_iter().collect::<Vec<_>>();
+        ranks.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
+        for (i, (unit, _)) in ranks.into_iter().enumerate() {
+            *scores.entry(unit).or_default() += 1.0 / (RRF_K + (i + 1) as f64);
+        }
+    }
+    let mut ranked = scores
+        .into_iter()
+        .map(|(unit_id, score)| RankedUnit {
+            unit_id,
+            score,
+            winners: votes.remove(&unit_id).unwrap_or_default(),
+        })
+        .collect::<Vec<_>>();
+    ranked.sort_by(|a, b| b.score.total_cmp(&a.score).then(a.unit_id.cmp(&b.unit_id)));
+    ranked
 }

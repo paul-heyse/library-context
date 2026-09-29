@@ -22,9 +22,6 @@ Discharge = Contract("Discharge")
 Fate = Contract("Fate")
 
 
-ParameterRecord = Contract("ParameterRecord")
-
-
 SettingRead = Contract("SettingRead")
 
 
@@ -67,4 +64,5 @@ CatalogRecord = Contract("CatalogRecord")
 AmbiguousOperation = Contract("AmbiguousOperation")
 
 
-Operation = Contract("Operation")
+OperationPacket = Contract("OperationPacket")
+OperationSectionPage = Contract("OperationSectionPage")

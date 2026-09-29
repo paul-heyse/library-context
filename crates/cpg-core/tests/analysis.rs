@@ -1435,6 +1435,12 @@ async fn briefs_are_synthesized_from_findings_and_verbatim_evidence() {
             21,
             "855fa15abfa9fedf5a52bee00ca3b0aa00b1ce38ae9ce8eeded5bdc629aeea74",
         ),
+        // PR5 separates rebuild provenance and bounded serving; synthesis stays identical.
+        (
+            112,
+            21,
+            "855fa15abfa9fedf5a52bee00ca3b0aa00b1ce38ae9ce8eeded5bdc629aeea74",
+        ),
     ];
     // Texts, and every identity column of Stage F's tables (slice 1.5 review F6).
     let mut output = format!(
