@@ -22,7 +22,7 @@ _Updated 2026-09-29 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
   Conformance subsets cannot select facts; cleanup distinguishes absence from orphaned state.
 - **Transfer/proof contract:** stable keys and qualified alternatives, separate control/selection,
   identity-only path extension, nominal derivation declarations and generated PG views. Shared
-  validation rejects cross-scope call sites and cycles through explicit proof-step identities.
+  validation rejects cross-scope call sites/guard operands and cycles through proof-step identities.
 - **Resource progress:** attachment buffers and retained ambiguous results own shared reservations.
 - **Still open:** lexical/type/flow/document/deployment representative domains; whole-call/root
   composition and opaque rebasing; full resource/coverage admission and assembled P0-E review;
@@ -36,12 +36,14 @@ Cargo commands use `python3 scripts/build_environment.py --`. These are bounded 
 
 | Command | Outcome |
 |---|---|
-| `cargo test --release -p lctx-model --test domain_transfer --test domain_assertions --test domain_paths` | passed: five transfer, three assertion, two path; independently rerun |
+| `cargo test --release -p lctx-model --test domain_transfer --test domain_assertions --test domain_paths` | passed: reviewed five transfer/three assertion/two path; author follow-up six transfer/three assertion |
 | `cargo test --release -p lctx-model --test domain --test domain_resources` | passed: 17 domain + three resource; independently rerun |
 | `cargo test --release -p lctx-model --test domain_derivation` | passed: three controls; independently rerun after source-identity correction |
 | `cargo test --release -p lctx-postgres --test domain_derivation` | passed: real PG18 four-case proof/grant test; independently rerun |
-| `cargo test --release -p lctx-postgres --test domain_transfer` | passed: real PG18 transfer/control/selection/readback, scope refusal and views |
+| `cargo test --release -p lctx-postgres --test domain_transfer` | passed: real PG18 transfer/control/selection/readback, call-site/guard-operand scope refusal and views |
 | `cargo test --release -p lctx-model --doc` | passed: seven positive/negative pairs; one old ignored example |
+| `cargo check -p cpg-extract -p cpg-core` | passed after generated invariant API change |
+| `cargo test --release -p lctx-postgres --test generations` | passed: two lifecycle/chunk controls after generated proof views |
 | `just build-features` | passed: union refreshed; model macro crate excluded; petgraph pin unchanged |
 | `just docs-check` | passed: 187 canonical pages, zero link errors |
 | `just fmt`, `just test-all`, facts pilots | not_run: functional scope incomplete |

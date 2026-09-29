@@ -153,3 +153,34 @@ fn transfer_call_site_must_belong_to_both_scope_and_acquired_inputs() {
         assert_eq!(check(TransferSupport::invariants().remove(0),&data).is_ok(),expected);
     }
 }
+
+#[test]
+fn ordinary_assertions_validate_guard_operand_sources_even_when_evaluation_is_local() {
+    let f = Fixture::new();
+    let other_input = InputRevision::from_entries(vec![]).unwrap();
+    let other = SourceArtifact::from_bytes(other_input.id(),"other.py".into(),b"z").unwrap();
+    let other_occurrence = Occurrence { source: other.id(),start: 0,end: 1,..f.occurrences[0].clone() };
+    let other_root = PlaceRoot::Occurrence { occurrence: other_occurrence.id() };
+    let other_place = Place { root: other_root.id(),path: f.path.id() };
+    let (run,families) = ProviderRun::new(f.provider.id(),f.context.id(),f.input.id(),f.context.config_digest,[FactFamily::Syntax]).unwrap();
+    let surface = ProviderSurface { family: FactFamily::Syntax,..f.surface.clone() };
+    for (foreign,corpus,artifact_scope,expected) in [(false,false,false,true),(true,false,false,false),(true,true,false,true),(true,true,true,false)] {
+        let mut data = records(&f);
+        let scope = if artifact_scope { CoverageScope::Artifact { artifact: f.source.id() } } else { f.scope.clone() };
+        let atom = EvaluationAtom { operand: Some(if foreign { other_place.id() } else { f.places[1].id() }),..f.atom.clone() };
+        let (condition,nodes) = Diagram::from_atom(atom.id()).records();
+        let q = AssertionQualification { scope: scope.id(),condition: condition.id(),..f.qualification.clone() };
+        let assertion = SyntaxObservation { qualification: q.id(),occurrence: f.occurrences[0].id(),spelling: "x".into() };
+        let evidence = Evidence::Occurrence { occurrence: f.occurrences[0].id() };
+        let support = SyntaxSupport { assertion: assertion.id(),run: run.id(),surface: surface.id(),evidence: evidence.id(),
+            origin: Origin::SourceObservation,mode: ExtractionMode::NativeTraversal,fidelity: Fidelity::NativeStructural };
+        macro_rules! one { ($($row:expr),+ $(,)?) => { $(insert(&f,&mut data,vec![$row.clone()]);)+ }; }
+        one!(scope,atom,condition,q,assertion,support,run,surface,evidence); insert(&f,&mut data,nodes);
+        insert(&f,&mut data,families.clone()); insert(&f,&mut data,vec![f.source.clone(),other.clone()]);
+        let mut occurrences = f.occurrences.clone(); occurrences.push(other_occurrence.clone()); insert(&f,&mut data,occurrences);
+        let mut roots = f.roots.clone(); roots.push(other_root.clone()); insert(&f,&mut data,roots);
+        let mut places = f.places.clone(); places.push(other_place.clone()); insert(&f,&mut data,places);
+        if corpus { insert(&f,&mut data,vec![CorpusLibrary { corpus: f.input.id(),library: other_input.id() }]); }
+        assert_eq!(check(SyntaxSupport::invariants().remove(0),&data).is_ok(),expected);
+    }
+}

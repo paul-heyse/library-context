@@ -51,3 +51,15 @@ reinspected the correction and reran the tests. A2/G3 and CI-G1 are corrected at
 - Formatting/lints/integrated gates: not_run; functional Phase 0–2 scope remains incomplete.
 
 The later derivation metadata/view implementation has a separate review boundary.
+
+## Author follow-up: condition operand ownership
+
+**Tested, 2026-09-29, author receipt; outside the independent review above.** Condition support
+validation now follows each atom's optional operand Place as well as its evaluation occurrence.
+A local evaluation cannot import a foreign/out-of-scope operand. This uses the shared support checker
+for ordinary syntax assertions too; common condition dependencies now include Place/PlaceRoot.
+`cargo test --release -p lctx-model --test domain_transfer --test domain_assertions` passed six transfer
+and three assertion controls. Local/authorized-corpus operands pass; unrelated and outside-artifact
+operands refuse. The extended `cargo test --release -p lctx-postgres --test domain_transfer` passed
+real PG18 validation/publication refusal for the crossed operand. Commands use the build-environment
+prefix above. This does not close full resource or assembled phase qualification.

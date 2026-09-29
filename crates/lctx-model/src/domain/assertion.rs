@@ -67,8 +67,8 @@ impl From<Id<Module>> for Subject { fn from(value: Id<Module>) -> Self { Self::M
 impl From<Id<CoverageScope>> for Subject { fn from(value: Id<CoverageScope>) -> Self { Self::Scope(value) } }
 impl From<Id<Place>> for Subject { fn from(value: Id<Place>) -> Self { Self::Place(value) } }
 impl From<Id<TransferKey>> for Subject { fn from(value: Id<TransferKey>) -> Self { Self::Transfer(value) } }
-/// Additional nominal subject dependencies. The derive supplies these from actual field types;
-/// an ordinary source assertion does not load transfer/place catalogs it never consults.
+/// Additional nominal subject dependencies beyond common provenance and condition operands.
+/// The derive supplies them from actual field types; source assertions do not load transfer keys.
 pub trait SubjectValue { fn inputs() -> Vec<ValidationInput>; }
 macro_rules! simple_subject { ($($ty:ty),+) => { $(impl SubjectValue for Id<$ty> {
     fn inputs() -> Vec<ValidationInput> { vec![] }
@@ -166,6 +166,7 @@ pub fn support_invariants<A: Assertion, S: Support<Assertion=A>>() -> Vec<Invari
     let mut inputs = vec![
         ValidationInput::of::<SourceArtifact>(&["id"]), ValidationInput::of::<Occurrence>(&["id"]),
         ValidationInput::of::<Module>(&["id"]), ValidationInput::of::<CorpusLibrary>(&["id"]),
+        ValidationInput::of::<PlaceRoot>(&["id"]), ValidationInput::of::<Place>(&["id"]),
         ValidationInput::of::<EvaluationAtom>(&["id"]), ValidationInput::of::<ConditionNode>(&["id"]),
         ValidationInput::of::<Condition>(&["id"]),
         ValidationInput::of::<InputDistribution>(&["id"]), ValidationInput::of::<CoverageScope>(&["id"]),
@@ -183,7 +184,7 @@ struct SupportCheck<A: Assertion, S: Support<Assertion=A>> {
     occurrences: BTreeMap<Id<Occurrence>, Id<SourceArtifact>>,
     modules: BTreeMap<Id<Module>, Id<SourceArtifact>>,
     corpus: BTreeSet<(Id<InputRevision>, Id<InputRevision>)>,
-    atoms: BTreeMap<Id<EvaluationAtom>, Id<Occurrence>>,
+    atoms: BTreeMap<Id<EvaluationAtom>, (Id<Occurrence>,Option<Id<Place>>)>,
     nodes: BTreeMap<Id<ConditionNode>, ConditionNode>,
     conditions: BTreeMap<Id<Condition>, BTreeSet<Id<SourceArtifact>>>,
     closure_visits: usize,
@@ -300,7 +301,7 @@ impl<A: Assertion, S: Support<Assertion=A>> InvariantCheck for SupportCheck<A,S>
         else if relation == Occurrence::NAME { for r in Occurrence::decode(batch)? { self.occurrences.insert(r.id(),r.source); } }
         else if relation == Module::NAME { for r in Module::decode(batch)? { self.modules.insert(r.id(),r.source); } }
         else if relation == CorpusLibrary::NAME { for r in CorpusLibrary::decode(batch)? { self.corpus.insert((r.corpus,r.library)); } }
-        else if relation == EvaluationAtom::NAME { for r in EvaluationAtom::decode(batch)? { self.atoms.insert(r.id(),r.evaluation); } }
+        else if relation == EvaluationAtom::NAME { for r in EvaluationAtom::decode(batch)? { self.atoms.insert(r.id(),(r.evaluation,r.operand)); } }
         else if relation == ConditionNode::NAME { for r in ConditionNode::decode(batch)? { self.nodes.insert(r.id(),r); } }
         else if relation == Condition::NAME {
             for r in Condition::decode(batch)? {
@@ -310,8 +311,9 @@ impl<A: Assertion, S: Support<Assertion=A>> InvariantCheck for SupportCheck<A,S>
                 let mut sources = BTreeSet::new();
                 for id in closure {
                     if let ConditionNode::Branch { atom,.. } = &self.nodes[&id] {
-                        let occurrence = self.atoms.get(atom).ok_or_else(|| invalid("condition atom missing"))?;
+                        let (occurrence,operand) = self.atoms.get(atom).ok_or_else(|| invalid("condition atom missing"))?;
                         sources.insert(*self.occurrences.get(occurrence).ok_or_else(|| invalid("condition evaluation occurrence missing"))?);
+                        if let Some(operand) = operand { sources.extend(self.source(Subject::Place(*operand))?); }
                     }
                 }
                 self.conditions.insert(r.id(),sources);

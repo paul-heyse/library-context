@@ -326,7 +326,9 @@ connected to the production compiler or CLI. No compatibility adapter connects t
   Capture-safe substitution preserves unmapped opaque guards; display truncation is separate.
 - Qualified syntax propositions and generated concrete supports retain context, condition, modality,
   approximation, invocation, surface, evidence, origin, mode and fidelity. Validators check condition
-  contexts, evaluation/source input ownership, assertion/evidence scope and required support.
+  contexts, evaluation and operand-Place source ownership, assertion/evidence scope and required support.
+  Ordinary source assertions also validate guard operands; an evaluation in local bytes does not
+  authorize an operand from another input/artifact.
   Coverage-matrix controls exist; full compiler schedule/coverage admission remains open.
 - A pinned Pyrefly retained-AST emitter produces structural occurrences and qualified identifier
   observations directly, without legacy rows/IDs. A disposable conformance harness exercises
@@ -371,9 +373,11 @@ Focused evidence (2026-09-29; Cargo commands prefixed by `python3 scripts/build_
 |---|---|
 | `cargo test --release -p lctx-model --test domain --test domain_conditions --test domain_assertions --test domain_stages --test domain_resources --test domain_verdicts` | passed: 29 focused model controls |
 | `cargo test --release -p lctx-model --test domain_transfer --test domain_assertions --test domain_paths` | passed: five transfer, three assertion and two path controls; independent reviewer rerun |
+| `cargo test --release -p lctx-model --test domain_transfer --test domain_assertions` | passed: six transfer and three assertion controls after author guard-operand follow-up; local/corpus positives and foreign/artifact-scope refusals |
 | `cargo test --release -p lctx-model --test domain --test domain_resources` | passed: 17 domain and three resource controls; independent reviewer rerun |
 | `cargo test --release -p lctx-model --test domain_derivation`; `cargo test --release -p lctx-postgres --test domain_derivation` | passed: three model controls and one real PG18 four-case test; independent reviewer rerun after proof-source correction |
-| `cargo test --release -p lctx-postgres --test domain_transfer` | passed: real PG18 transfer/control/selection/support readback, generated view targets and cross-scope call-site refusal |
+| `cargo test --release -p lctx-postgres --test domain_transfer` | passed: real PG18 transfer/control/selection/support readback, generated view targets, cross-scope call-site and guard-operand refusal |
+| `cargo check -p cpg-extract -p cpg-core` | passed after generated invariant API change; existing third-party future-incompatibility warnings remain |
 | `just build-features` | passed: CLI union regenerated; lower model macro crate excluded; no dependency pin upgraded |
 | `cargo test --release -p lctx-model --test domain_calls` | passed: seven call/signature/binding controls, independently rerun after review corrections |
 | `cargo test --release -p lctx-postgres --test domain_calls` | passed: real PG18 signature/call/support readback and wrong-provider refusal; contract fixtures, not producer qualification |

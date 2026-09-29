@@ -36,18 +36,20 @@ async fn transfer_control_selection_survive_postgres_and_cross_scope_call_site_r
     let roots: Vec<_> = occurrences.iter().map(|o| PlaceRoot::Occurrence { occurrence: o.id() }).collect();
     let path = AccessPath::empty(); let places: Vec<_> = roots.iter().map(|r| Place { root: r.id(),path: path.id() }).collect();
     let predicate = Predicate::Truthy;
-    let atom = EvaluationAtom { evaluation: occurrences[1].id(),context: context.id(),predicate: predicate.id(),operand: Some(places[1].id()) };
-    let diagram = Diagram::from_atom(atom.id()); let (condition,nodes) = diagram.records();
-    let qualification = AssertionQualification { context: context.id(),scope: scope.id(),condition: condition.id(),modality: Modality::Definite,approximation: Approximation::Exact };
-    let influence = ControlInfluence { qualification: qualification.id(),input: places[1].id(),atom: atom.id(),evaluation: atom.evaluation };
-    let evidence = Evidence::Occurrence { occurrence: occurrences[0].id() };
-    let influence_evidence = Evidence::Occurrence { occurrence: atom.evaluation };
-    let control_support = ControlSupport { assertion: influence.id(),run: run.id(),surface: surface.id(),evidence: influence_evidence.id(),
-        origin: Origin::DerivedAnalysis,mode: ExtractionMode::GraphAnalysis,fidelity: Fidelity::NormalizedStructural };
-    for wrong_site in [false,true] {
+    let other_root = PlaceRoot::Occurrence { occurrence: other_site.id() };
+    let other_place = Place { root: other_root.id(),path: path.id() };
+    for boundary in 0..3 {
+        let atom = EvaluationAtom { evaluation: occurrences[1].id(),context: context.id(),predicate: predicate.id(),operand: Some(if boundary == 2 { other_place.id() } else { places[1].id() }) };
+        let diagram = Diagram::from_atom(atom.id()); let (condition,nodes) = diagram.records();
+        let qualification = AssertionQualification { context: context.id(),scope: scope.id(),condition: condition.id(),modality: Modality::Definite,approximation: Approximation::Exact };
+        let influence = ControlInfluence { qualification: qualification.id(),input: places[1].id(),atom: atom.id(),evaluation: atom.evaluation };
+        let evidence = Evidence::Occurrence { occurrence: occurrences[0].id() };
+        let influence_evidence = Evidence::Occurrence { occurrence: atom.evaluation };
+        let control_support = ControlSupport { assertion: influence.id(),run: run.id(),surface: surface.id(),evidence: influence_evidence.id(),
+            origin: Origin::DerivedAnalysis,mode: ExtractionMode::GraphAnalysis,fidelity: Fidelity::NormalizedStructural };
         let key = TransferKey { owner: symbol.id(),input: places[0].id(),output: places[2].id(),context: context.id(),scope: scope.id(),
             modality: Modality::Definite,approximation: Approximation::Exact,kind: TransferKind::Identity,
-            call_site: Some(if wrong_site { other_site.id() } else { occurrences[0].id() }),provenance: ProvenanceClass::FlowLocal };
+            call_site: Some(if boundary == 1 { other_site.id() } else { occurrences[0].id() }),provenance: ProvenanceClass::FlowLocal };
         let branch = TransferBranch::new(key.clone(),qualification.clone(),diagram.clone()).unwrap();
         let alternative = branch.alternative(); let selection = branch.selection(&influence,&qualification).unwrap().unwrap();
         let support = TransferSupport { assertion: alternative.id(),run: run.id(),surface: surface.id(),evidence: evidence.id(),
@@ -55,13 +57,13 @@ async fn transfer_control_selection_survive_postgres_and_cross_scope_call_site_r
         let g = store.create_conformance(ContentHash::of(b"transfer-fixture"),"behavioral").await.unwrap();
         macro_rules! copy { ($($row:expr),+ $(,)?) => { $(store.copy(&writer,g,&Batch::new(&model,vec![$row.clone()]).unwrap()).await.unwrap();)+ }; }
         copy!(input,origin,acquisition,source,other,scope,context,provider,run,surface,symbol,path,predicate,atom,condition,qualification,
-            influence,evidence,influence_evidence,control_support,key,alternative,selection,support,other_site);
+            influence,evidence,influence_evidence,control_support,key,alternative,selection,support,other_site,other_root,other_place);
         macro_rules! copies { ($($rows:expr),+ $(,)?) => { $(store.copy(&writer,g,&Batch::new(&model,$rows.clone()).unwrap()).await.unwrap();)+ }; }
         copies!(families,occurrences,roots,places,nodes);
         store.copy(&writer,g,&Batch::new(&model,ArtifactChunk::split(&source,bytes).unwrap().collect()).unwrap()).await.unwrap();
         store.copy(&writer,g,&Batch::new(&model,ArtifactChunk::split(&other,b"z").unwrap().collect()).unwrap()).await.unwrap();
         store.seal(g).await.unwrap();
-        if wrong_site {
+        if boundary != 0 {
             let error = store.validate(g).await.unwrap_err();
             assert!(matches!(error,Error::Model(_)) && error.to_string().contains("scope"),"{error}");
             assert!(store.publish(g).await.is_err()); store.abort(g).await.unwrap();
