@@ -55,6 +55,18 @@ fn stored_witnesses_and_substitutions_refuse_what_they_cannot_justify() {
     let mut observed = f.rows::<FlowReachingObservation>(); observed.push(other.clone()); f.put(observed);
     let mut supports = f.rows::<FlowReachingSupport>(); supports.push(FlowReachingSupport { assertion: other.id(), ..supports[0].clone() }); f.put(supports);
     refused(&f, "more than one reaching definition");
+    // `def reset(): nonlocal timeout; timeout = None` then `reset(); if timeout is None`: the nested
+    // scope's binding reaches the read beside the parameter, or alone; neither is a witness.
+    let mut f = Fixture::new();
+    let nested = FlowReachingObservation { target: ReachingDefinition::Nested.id(), ..f.reaching.clone() };
+    let mut targets = f.rows::<ReachingDefinition>(); targets.push(ReachingDefinition::Nested); f.put(targets);
+    let mut observed = f.rows::<FlowReachingObservation>(); observed.push(nested.clone()); f.put(observed);
+    let mut supports = f.rows::<FlowReachingSupport>(); supports.push(FlowReachingSupport { assertion: nested.id(), ..supports[0].clone() }); f.put(supports);
+    refused(&f, "more than one reaching definition");
+    let mut f = Fixture::new();
+    f.target = ReachingDefinition::Nested; f.reaching.target = f.target.id();
+    f.store_flow(); f.store_substitution();
+    refused(&f, "unbound or from a nested scope");
     let mut f = Fixture::new();
     f.coverage = ProviderCoverage { status: CoverageStatus::Partial, reason: Some(ObligationKind::OutsideProviderModel), ..f.coverage.clone() };
     f.store_flow(); f.store_substitution();

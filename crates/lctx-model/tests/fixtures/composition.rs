@@ -18,6 +18,8 @@ pub enum Mutation {
     NotComposed,
     /// The composed alternative keeps the callee's guard atom, never restated at the call.
     UnrestatedGuard,
+    /// The composed alternative drops the restated guard: its condition is `true`.
+    ErasedCondition,
 }
 
 pub struct Fixture {
@@ -69,7 +71,9 @@ impl Fixture {
         let argument = PlaceRoot::Occurrence { occurrence: base.actual.id() };
         let returned = PlaceRoot::Return { callable: def.id() };
         let empty = AccessPath::empty();
-        let [source, delivered, result] = [&global, &argument, &returned].map(|root| Place { root: root.id(), path: empty.id() });
+        // The callee returns its entry value; its guard tests the parameter variable.
+        let entry = PlaceRoot::Entry { declaration: base.parameter.id() };
+        let [source, delivered, result, port] = [&global, &argument, &returned, &entry].map(|root| Place { root: root.id(), path: empty.id() });
         let branch = |owner: &ProviderSymbol, input: &Place, output: &Place, condition: Diagram| {
             let qualification = AssertionQualification { condition: condition.id(), ..qualification.clone() };
             let key = TransferKey { owner: owner.id(), input: input.id(), output: output.id(), context: context.id(), scope: qualification.scope,
@@ -77,10 +81,10 @@ impl Fixture {
             TransferBranch::new(key, qualification, condition).unwrap()
         };
         let caller = branch(&caller_symbol, &source, &delivered, Diagram::always());
-        let callee = branch(&callee_symbol, &base.place, &result, Diagram::from_atom(base.guard.id()).not().unwrap());
+        let callee = branch(&callee_symbol, &port, &result, Diagram::from_atom(base.guard.id()).not().unwrap());
         // Compose through the call over the stored rows.
-        let mut places: BTreeMap<_, _> = base.rows::<Place>().into_iter().chain([source.clone(), delivered.clone(), result.clone()]).map(|p| (p.id(), p)).collect();
-        let roots: BTreeMap<_, _> = base.rows::<PlaceRoot>().into_iter().chain([global, argument, returned]).map(|r| (r.id(), r)).collect();
+        let mut places: BTreeMap<_, _> = base.rows::<Place>().into_iter().chain([source.clone(), delivered.clone(), result.clone(), port.clone()]).map(|p| (p.id(), p)).collect();
+        let roots: BTreeMap<_, _> = base.rows::<PlaceRoot>().into_iter().chain([global, argument, returned, entry.clone()]).map(|r| (r.id(), r)).collect();
         let atoms = base.rows::<EvaluationAtom>().into_iter().map(|a| (a.id(), a)).collect();
         let predicates = base.rows::<Predicate>().into_iter().map(|p| (p.id(), p)).collect();
         let paths = BTreeMap::from([(empty.id(), empty.clone())]);
@@ -89,10 +93,10 @@ impl Fixture {
         let catalog = CompositionCatalog { guards: GuardCatalog { atoms: &atoms, predicates: &predicates, places: &places, roots: &roots },
             paths: &paths, segments: PathCatalog { segments: &segments, literals: &literals } };
         let witnesses = BTreeMap::from([(base.guard.id(), base.witness.clone())]);
-        let frame = CallFrame { site: &base.site, target: &target, destination: &destination, bound: &bound, arguments: &base.arguments,
+        let frame = CallFrame { site: &base.site, target: &target, qualification: &qualification, destination: &destination, bound: Some(&bound), arguments: &base.arguments,
             summary_admitted: true, unique_variant: true };
         let results = compose_call(&caller, &callee, &frame, &CallerFrame { declaration: &caller_declaration, site_owner: caller_root.id() },
-            &CalleeFrame { symbol: &callee_symbol, declaration: &callee_declaration, parameters: std::slice::from_ref(&parameter_declaration), witnesses: Some(&witnesses) },
+            &CalleeFrame { symbol: &callee_symbol, declaration: &callee_declaration, parameters: &members, links: std::slice::from_ref(&parameter_declaration), witnesses: Some(&witnesses) },
             &catalog).unwrap();
         let [CallComposition::Transfer(composed)] = <[CallComposition; 1]>::try_from(results).unwrap() else { panic!("expected one composed transfer") };
         let composed = *composed;
@@ -118,8 +122,8 @@ impl Fixture {
         f.extend(vec![ParameterDeclarationSupport { assertion: parameter_declaration.id(), run: support.0, surface: declared.id(), evidence: evidence(&f.base.parameter).id(), origin: support.1, mode: support.2, fidelity: support.3 }]);
         f.extend(vec![SignatureSupport { assertion: signature.id(), run: support.0, surface: declared.id(), evidence: evidence(&def).id(), origin: support.1, mode: support.2, fidelity: support.3 }]);
         f.extend(vec![CallTargetSupport { assertion: target.id(), run: support.0, surface: called.id(), evidence: evidence(&f.base.site).id(), origin: support.1, mode: support.2, fidelity: support.3 }]);
-        f.extend(vec![source.clone(), delivered.clone(), result.clone()]);
-        f.extend(vec![PlaceRoot::Global { module: modules[0].id(), name: "t".into() }, PlaceRoot::Occurrence { occurrence: f.base.actual.id() }, PlaceRoot::Return { callable: def.id() }]);
+        f.extend(vec![source.clone(), delivered.clone(), result.clone(), port]);
+        f.extend(vec![PlaceRoot::Global { module: modules[0].id(), name: "t".into() }, PlaceRoot::Occurrence { occurrence: f.base.actual.id() }, PlaceRoot::Return { callable: def.id() }, entry]);
         f.store_branch(&caller, f.base.site.id(), derived); f.store_branch(&callee, def.id(), derived);
         f.store_composed(derived);
         f.extend(vec![influence.clone()]); f.extend(vec![selection]);
@@ -161,10 +165,11 @@ impl Fixture {
         let refused = match mutation {
             Mutation::CalleeFromAnotherSymbol => CallCompositionStep { callee: self.caller.alternative().id(), ..step },
             Mutation::NotComposed => CallCompositionStep { composed: self.caller.alternative().id(), ..step },
-            Mutation::UnrestatedGuard => {
-                // Same key and frame, but conditioned on the callee's own guard atom.
-                let qualification = AssertionQualification { condition: self.callee.condition().id(), ..self.composed.branch.qualification().clone() };
-                let branch = TransferBranch::new(self.composed.branch.key().clone(), qualification, self.callee.condition().clone()).unwrap();
+            Mutation::UnrestatedGuard | Mutation::ErasedCondition => {
+                // Same key and frame, but conditioned on the callee's own guard atom, or on nothing.
+                let condition = if matches!(mutation, Mutation::ErasedCondition) { Diagram::always() } else { self.callee.condition().clone() };
+                let qualification = AssertionQualification { condition: condition.id(), ..self.composed.branch.qualification().clone() };
+                let branch = TransferBranch::new(self.composed.branch.key().clone(), qualification, condition).unwrap();
                 let alternative = branch.alternative().id();
                 self.store_branch(&branch, self.base.site.id(), (self.run.id(), Origin::DerivedAnalysis, ExtractionMode::GraphAnalysis, Fidelity::NormalizedStructural));
                 CallCompositionStep { composed: alternative, ..step }

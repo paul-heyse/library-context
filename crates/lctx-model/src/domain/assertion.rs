@@ -286,7 +286,7 @@ impl<A: Assertion, S: Support<Assertion=A>> SupportCheck<A,S> {
                 let place = self.places.get(&id).ok_or_else(|| invalid("assertion place absent"))?;
                 let root = self.roots.get(&place.root).ok_or_else(|| invalid("assertion place root absent"))?;
                 self.source(match root {
-                    PlaceRoot::Formal { declaration } => Subject::Occurrence(*declaration),
+                    PlaceRoot::Formal { declaration } | PlaceRoot::Entry { declaration } => Subject::Occurrence(*declaration),
                     PlaceRoot::Receiver { callable } | PlaceRoot::Return { callable } | PlaceRoot::Yield { callable }
                         | PlaceRoot::Raise { callable } => Subject::Occurrence(*callable),
                     PlaceRoot::Field { class,.. } => Subject::Occurrence(*class),
@@ -315,7 +315,7 @@ impl<A: Assertion, S: Support<Assertion=A>> SupportCheck<A,S> {
             },
             Subject::ReachingDefinition(id) => match self.reaching.get(&id).ok_or_else(|| invalid("reaching definition absent"))? {
                 super::flow::ReachingDefinition::Bound { definition } => return self.subject_sources(Subject::FlowDefinition(*definition)),
-                super::flow::ReachingDefinition::Unbound => vec![],
+                super::flow::ReachingDefinition::Unbound | super::flow::ReachingDefinition::Nested => vec![],
             },
             other => vec![other],
         };

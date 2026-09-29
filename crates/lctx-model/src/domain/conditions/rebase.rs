@@ -8,7 +8,7 @@ pub const MAX_GUARD_DEPTH: usize = 32;
 // Explicit calls and provider-observed implicit call evaluations share the same role contract.
 fn is_call(site: &Occurrence) -> bool { site.syntax_kind == SyntaxKind::ExprCall || site.role == OccurrenceRole::Call }
 fn local_root(root: &PlaceRoot) -> Result<(),ObligationKind> {
-    if matches!(root,PlaceRoot::Formal { .. }|PlaceRoot::Receiver { .. }) { Err(ObligationKind::ConditionTransferUnsupported) } else { Ok(()) }
+    if matches!(root,PlaceRoot::Formal { .. }|PlaceRoot::Receiver { .. }|PlaceRoot::Entry { .. }) { Err(ObligationKind::ConditionTransferUnsupported) } else { Ok(()) }
 }
 fn invalid(message: &str) -> ModelError { ModelError::Invalid(message.into()) }
 

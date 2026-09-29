@@ -84,6 +84,9 @@ pub enum ObligationKind {
         /// Retained presentation code; cannot weaken a semantic verdict.
         ResponseBudget = 47,
         Approximation = 48,
+        /// A callee transfer end is rooted at a parameter variable whose value at that access is
+        /// not shown to be the caller's entry value; the body may have rebound it.
+        EntryValueUnknown = 49,
 }
 
 /// The class of an obligation, which orders it before its code.
@@ -149,7 +152,8 @@ impl ObligationKind {
             | K::SyntaxError
             | K::UndecodableSource
             | K::DefaultUnavailable
-            | K::DefaultStabilityUnknown => C::Evidence,
+            | K::DefaultStabilityUnknown
+            | K::EntryValueUnknown => C::Evidence,
             K::NoApplicableDomain
             | K::IncompleteDomain
             | K::ComparableConflict

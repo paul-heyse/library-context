@@ -11,9 +11,13 @@ struct Rows {
     segments: BTreeMap<Id<PathSegment>, PathSegment>, literals: BTreeMap<Id<Literal>, Literal>,
     atoms: BTreeMap<Id<EvaluationAtom>, EvaluationAtom>, predicates: BTreeMap<Id<Predicate>, Predicate>,
 }
-struct World { rows: Rows, context: AnalysisContext, base: AssertionQualification, provider: Provider, source: SourceArtifact, next: i64 }
-struct Call { site: Occurrence, target: CallTarget, destination: CallDestination, bound: BoundCall, arguments: Vec<CallArgument>,
-    symbol: ProviderSymbol, declaration: SymbolDeclaration, parameters: Vec<ParameterDeclaration>, formals: Vec<PlaceRoot>, actuals: Vec<Occurrence> }
+struct World { rows: Rows, context: AnalysisContext, base: AssertionQualification, provider: Provider, source: SourceArtifact, next: i64,
+    /// The modality the provider asserts for the next call's target.
+    target_modality: Modality }
+/// A call to a fresh callee. `formals` are the parameter variables, `entries` the entry-value ports.
+struct Call { site: Occurrence, qualification: AssertionQualification, target: CallTarget, destination: CallDestination, bound: BoundCall,
+    arguments: Vec<CallArgument>, symbol: ProviderSymbol, declaration: SymbolDeclaration, members: Vec<SignatureParameter>,
+    links: Vec<ParameterDeclaration>, formals: Vec<PlaceRoot>, entries: Vec<PlaceRoot>, actuals: Vec<Occurrence> }
 struct Caller { symbol: ProviderSymbol, declaration: SymbolDeclaration }
 
 impl World {
@@ -25,7 +29,7 @@ impl World {
         let base = AssertionQualification { context: context.id(), scope: CoverageScope::Input { input: input.id() }.id(), condition: Diagram::always().id(),
             modality: Modality::Definite, approximation: Approximation::Exact };
         let provider = Provider { tool: "pysa".into(), revision: "1".into(), build_digest: ContentHash::of(b"pysa") };
-        Self { rows: Rows::default(), context, base, provider, source, next: 0 }
+        Self { rows: Rows::default(), context, base, provider, source, next: 0, target_modality: Modality::Definite }
     }
     fn occurrence(&mut self, kind: SyntaxKind, role: OccurrenceRole) -> Occurrence {
         self.next += 1;
@@ -64,18 +68,20 @@ impl World {
         let receiver_actual = self.occurrence(SyntaxKind::ExprName, OccurrenceRole::Read);
         let (signature, members) = Signature::new(&self.base, symbol.id(), 0, SignatureForm::List, shapes).unwrap();
         let parameter_rows: Vec<_> = shapes.iter().map(|_| self.occurrence(SyntaxKind::Parameter, OccurrenceRole::Parameter)).collect();
-        let parameters: Vec<_> = members.iter().zip(&parameter_rows).map(|(member, occurrence)| ParameterDeclaration { qualification: self.base.id(), parameter: member.id(), declaration: occurrence.id() }).collect();
+        let links: Vec<_> = members.iter().zip(&parameter_rows).map(|(member, occurrence)| ParameterDeclaration { qualification: self.base.id(), parameter: member.id(), declaration: occurrence.id() }).collect();
         let formals: Vec<_> = parameter_rows.iter().map(|o| PlaceRoot::Formal { declaration: o.id() }).collect();
+        let entries: Vec<_> = parameter_rows.iter().map(|o| PlaceRoot::Entry { declaration: o.id() }).collect();
         let destination = CallDestination::Resolved { symbol: symbol.id() };
         let receiver = if has_receiver { Receiver::Bound { actual: receiver_actual.id() } } else { Receiver::None };
-        let target = CallTarget { qualification: self.base.id(), site: site.id(), destination: destination.id(), channel: CallChannel::Direct.id(), phase: CallPhase::Call, receiver: receiver.id(), implicit: false };
+        let qualification = AssertionQualification { modality: self.target_modality, ..self.base.clone() };
+        let target = CallTarget { qualification: qualification.id(), site: site.id(), destination: destination.id(), channel: CallChannel::Direct.id(), phase: CallPhase::Call, receiver: receiver.id(), implicit: false };
         let (syntax, arguments) = CallSyntax::new(self.base.id(), site.id(), callee_name.id(), false, &actuals.iter().zip(&actual_rows)
             .map(|((kind, keyword), occurrence)| Actual { occurrence: occurrence.id(), kind: *kind, keyword: keyword.map(str::to_owned) }).collect::<Vec<_>>()).unwrap();
         let shape_map = shapes.iter().map(|s| (s.id(), s.clone())).collect();
-        let bound = bind(BindingInput { target: &target, qualification: &self.base, signature_qualification: &self.base, destination: &destination,
+        let bound = bind(BindingInput { target: &target, qualification: &qualification, signature_qualification: &self.base, destination: &destination,
             channel: &CallChannel::Direct, receiver: &receiver, signature: &signature, parameters: &members, shapes: &shape_map, call: &syntax, arguments: &arguments }).unwrap();
         let mut actuals = actual_rows; if has_receiver { actuals.insert(0, receiver_actual); }
-        Call { site, target, destination, bound, arguments, symbol, declaration, parameters, formals, actuals }
+        Call { site, qualification, target, destination, bound, arguments, symbol, declaration, members, links, formals, entries, actuals }
     }
     fn catalog(&self) -> CompositionCatalog<'_> {
         CompositionCatalog { guards: GuardCatalog { atoms: &self.rows.atoms, predicates: &self.rows.predicates, places: &self.rows.places, roots: &self.rows.roots },
@@ -85,10 +91,11 @@ impl World {
 fn shape(name: &str, kind: ParameterKind, required: bool) -> ParameterShape { ParameterShape { name: Some(name.into()), kind, required } }
 fn positional(name: &str) -> ParameterShape { shape(name, ParameterKind::PositionalOrKeyword, true) }
 fn frame<'a>(call: &'a Call, summary: bool) -> CallFrame<'a> {
-    CallFrame { site: &call.site, target: &call.target, destination: &call.destination, bound: &call.bound, arguments: &call.arguments, summary_admitted: summary, unique_variant: true }
+    CallFrame { site: &call.site, target: &call.target, qualification: &call.qualification, destination: &call.destination, bound: Some(&call.bound),
+        arguments: &call.arguments, summary_admitted: summary, unique_variant: true }
 }
 fn callee<'a>(call: &'a Call, witnesses: Option<&'a BTreeMap<Id<EvaluationAtom>, StabilityWitness>>) -> CalleeFrame<'a> {
-    CalleeFrame { symbol: &call.symbol, declaration: &call.declaration, parameters: &call.parameters, witnesses }
+    CalleeFrame { symbol: &call.symbol, declaration: &call.declaration, parameters: &call.members, links: &call.links, witnesses }
 }
 fn owner(caller: &Caller) -> CallerFrame<'_> { CallerFrame { declaration: &caller.declaration, site_owner: caller.declaration.declaration } }
 fn compose(w: &World, caller: &Caller, from: &TransferBranch, call: &Call, through: &TransferBranch, summary: bool) -> Vec<CallComposition> {
@@ -120,7 +127,7 @@ fn paths_compose_only_through_identity_and_roots_map_through_the_binding() {
     let x = w.occurrence(SyntaxKind::ExprName, OccurrenceRole::Read);
     let source = w.place(PlaceRoot::Occurrence { occurrence: x.id() }, &[]);
     let into_c = w.place(PlaceRoot::Occurrence { occurrence: call.actuals[0].id() }, &[]);
-    let cfg_timeout = w.place(call.formals[0].clone(), &[timeout]);
+    let cfg_timeout = w.place(call.entries[0].clone(), &[timeout]);
     let returned = w.place(PlaceRoot::Return { callable: call.declaration.declaration }, &[]);
     let callee_reads = w.branch(&call.symbol, &cfg_timeout, &returned, TransferKind::Identity, Diagram::always());
     // read_timeout(c): x flows into c, the callee returns cfg.timeout, so x.timeout reaches the call.
@@ -139,7 +146,7 @@ fn paths_compose_only_through_identity_and_roots_map_through_the_binding() {
     assert_eq!(t.branch.key().kind, TransferKind::Derived);
     // A caller delivering into c.timeout, through a derived callee (json.dumps(cfg)): the whole result, derived.
     let into_c_timeout = w.place(PlaceRoot::Occurrence { occurrence: call.actuals[0].id() }, &[timeout]);
-    let cfg = w.place(call.formals[0].clone(), &[]);
+    let cfg = w.place(call.entries[0].clone(), &[]);
     let dumps = w.branch(&call.symbol, &cfg, &returned, TransferKind::Derived, Diagram::always());
     let field_delivery = w.branch(&caller.symbol, &source, &into_c_timeout, TransferKind::Identity, Diagram::always());
     let t = transfer(compose(&w, &caller, &field_delivery, &call, &dumps, true));
@@ -162,8 +169,8 @@ fn outputs_map_to_mutated_actuals_fields_and_obligations() {
     let x = w.occurrence(SyntaxKind::ExprName, OccurrenceRole::Read);
     let source = w.place(PlaceRoot::Occurrence { occurrence: x.id() }, &[]);
     let into_v = w.place(PlaceRoot::Occurrence { occurrence: call.actuals[2].id() }, &[]);
-    let v = w.place(call.formals[2].clone(), &[]);
-    let t_items = w.place(call.formals[0].clone(), &[any]);
+    let v = w.place(call.entries[2].clone(), &[]);
+    let t_items = w.place(call.entries[0].clone(), &[any]);
     let store = w.branch(&call.symbol, &v, &t_items, TransferKind::Identity, Diagram::always());
     let delivered = w.branch(&caller.symbol, &source, &into_v, TransferKind::Identity, Diagram::always());
     let t = transfer(compose(&w, &caller, &delivered, &call, &store, true));
@@ -193,7 +200,7 @@ fn outputs_map_to_mutated_actuals_fields_and_obligations() {
     // with_default(v, y=[]): mutating a defaulted formal has no caller place.
     let defaulted = w.call("with_default", &[positional("v"), shape("y", ParameterKind::PositionalOrKeyword, false)], &[(ArgumentKind::Positional, None)], false);
     let into_v = w.place(PlaceRoot::Occurrence { occurrence: defaulted.actuals[0].id() }, &[]);
-    let v = w.place(defaulted.formals[0].clone(), &[]); let y = w.place(defaulted.formals[1].clone(), &[any]);
+    let v = w.place(defaulted.entries[0].clone(), &[]); let y = w.place(defaulted.entries[1].clone(), &[any]);
     let append = w.branch(&defaulted.symbol, &v, &y, TransferKind::Identity, Diagram::always());
     let delivered = w.branch(&caller.symbol, &source, &into_v, TransferKind::Identity, Diagram::always());
     assert_eq!(obligation(compose(&w, &caller, &delivered, &defaulted, &append, true)), ObligationKind::DefaultUnavailable);
@@ -209,7 +216,7 @@ fn aggregates_and_receivers_carry_their_projection() {
     let source = w.place(PlaceRoot::Occurrence { occurrence: x.id() }, &[]);
     let returned = w.place(PlaceRoot::Return { callable: call.declaration.declaration }, &[]);
     let site = PlaceRoot::Occurrence { occurrence: call.site.id() };
-    let args = w.place(call.formals[0].clone(), &[]); let kw = w.place(call.formals[1].clone(), &[]);
+    let args = w.place(call.entries[0].clone(), &[]); let kw = w.place(call.entries[1].clone(), &[]);
     let returns_args = w.branch(&call.symbol, &args, &returned, TransferKind::Identity, Diagram::always());
     let returns_kw = w.branch(&call.symbol, &kw, &returned, TransferKind::Identity, Diagram::always());
     let into_b = w.place(PlaceRoot::Occurrence { occurrence: call.actuals[1].id() }, &[]);
@@ -223,7 +230,7 @@ fn aggregates_and_receivers_carry_their_projection() {
     // collect() binds only empty aggregates; nothing the caller delivers reaches it.
     let empty_call = w.call("collect", &[shape("args", ParameterKind::VarPositional, false)], &[], false);
     let somewhere = w.place(PlaceRoot::Occurrence { occurrence: x.id() }, &[]);
-    let args = w.place(empty_call.formals[0].clone(), &[]);
+    let args = w.place(empty_call.entries[0].clone(), &[]);
     let returned = w.place(PlaceRoot::Return { callable: empty_call.declaration.declaration }, &[]);
     let through = w.branch(&empty_call.symbol, &args, &returned, TransferKind::Identity, Diagram::always());
     assert!(matches!(compose(&w, &caller, &w.branch(&caller.symbol, &source, &somewhere, TransferKind::Identity, Diagram::always()), &empty_call, &through, true).as_slice(), [CallComposition::Disjoint]));
@@ -245,7 +252,9 @@ fn conditions_stay_conditional_and_unjustified_guards_refuse() {
     let x = w.occurrence(SyntaxKind::ExprName, OccurrenceRole::Read);
     let source = w.place(PlaceRoot::Occurrence { occurrence: x.id() }, &[]);
     let into_t = w.place(PlaceRoot::Occurrence { occurrence: call.actuals[0].id() }, &[]);
+    // The guard tests the parameter variable; the transfer reads the entry value.
     let formal = w.place(call.formals[0].clone(), &[]);
+    let entry = w.place(call.entries[0].clone(), &[]);
     let returned = w.place(PlaceRoot::Return { callable: call.declaration.declaration }, &[]);
     let evaluation = w.occurrence(SyntaxKind::ExprCompare, OccurrenceRole::Predicate);
     let guard = EvaluationAtom { evaluation: evaluation.id(), context: w.context.id(), predicate: Predicate::IsNone.id(), operand: Some(formal.id()) };
@@ -255,7 +264,7 @@ fn conditions_stay_conditional_and_unjustified_guards_refuse() {
     }
     let delivered = w.branch(&caller.symbol, &source, &into_t, TransferKind::Identity, Diagram::always());
     // return timeout under `not (timeout is None)`: without a stability witness this refuses, never true.
-    let guarded = w.branch(&call.symbol, &formal, &returned, TransferKind::Identity, Diagram::from_atom(guard.id()).not().unwrap());
+    let guarded = w.branch(&call.symbol, &entry, &returned, TransferKind::Identity, Diagram::from_atom(guard.id()).not().unwrap());
     assert_eq!(obligation(compose(&w, &caller, &delivered, &call, &guarded, true)), ObligationKind::ConditionTransferUnsupported);
     let none = compose_call(&delivered, &guarded, &frame(&call, true), &owner(&caller), &callee(&call, None), &w.catalog()).unwrap();
     assert_eq!(obligation(none), ObligationKind::NotRequested);
@@ -274,7 +283,7 @@ fn conditions_stay_conditional_and_unjustified_guards_refuse() {
     let influence = ControlInfluence { qualification: w.base.id(), input: into_t.id(), atom: bound.id(), evaluation: call.site.id() };
     assert!(t.branch.selection(&influence, &w.base).unwrap().is_some(), "the actual's value selects this composed flow");
     // A callee-local guard stays an opaque, conditional guard at the call.
-    let debug_only = w.branch(&call.symbol, &formal, &returned, TransferKind::Identity, Diagram::from_atom(local.id()));
+    let debug_only = w.branch(&call.symbol, &entry, &returned, TransferKind::Identity, Diagram::from_atom(local.id()));
     let t = transfer(compose(&w, &caller, &delivered, &call, &debug_only, true));
     assert_eq!(t.branch.condition().support().len(), 1);
     assert!(t.records.predicates.iter().any(|p| matches!(p, Predicate::InvokedGuard { source } if *source == local.id())));
@@ -287,7 +296,7 @@ fn complementary_caller_conditions_merge_to_true() {
     let x = w.occurrence(SyntaxKind::ExprName, OccurrenceRole::Read);
     let source = w.place(PlaceRoot::Occurrence { occurrence: x.id() }, &[]);
     let into_v = w.place(PlaceRoot::Occurrence { occurrence: call.actuals[0].id() }, &[]);
-    let formal = w.place(call.formals[0].clone(), &[]);
+    let formal = w.place(call.entries[0].clone(), &[]);
     let returned = w.place(PlaceRoot::Return { callable: call.declaration.declaration }, &[]);
     let evaluation = w.occurrence(SyntaxKind::ExprName, OccurrenceRole::Predicate);
     let predicate = Predicate::Opaque { text: "b".into() };
@@ -317,7 +326,7 @@ fn every_admitted_alternative_composes_separately_and_modality_follows_the_site(
     let (syntax, arguments) = CallSyntax::new(w.base.id(), first.site.id(), first.actuals[0].id(), false,
         &[Actual { occurrence: first.actuals[0].id(), kind: ArgumentKind::Positional, keyword: None }]).unwrap();
     let (signature, members) = Signature::new(&w.base, second.symbol.id(), 0, SignatureForm::List, &[positional("a")]).unwrap();
-    second.parameters[0].parameter = members[0].id();
+    second.links[0].parameter = members[0].id(); second.members = members.clone();
     second.bound = bind(BindingInput { target: &second.target, qualification: &w.base, signature_qualification: &w.base, destination: &second.destination,
         channel: &CallChannel::Direct, receiver: &Receiver::None, signature: &signature, parameters: &members,
         shapes: &BTreeMap::from([(positional("a").id(), positional("a"))]), call: &syntax, arguments: &arguments }).unwrap();
@@ -325,13 +334,13 @@ fn every_admitted_alternative_composes_separately_and_modality_follows_the_site(
     let into_a = w.place(PlaceRoot::Occurrence { occurrence: first.actuals[0].id() }, &[]);
     let delivered = w.branch(&caller.symbol, &source, &into_a, TransferKind::Identity, Diagram::always());
     let branches: Vec<Vec<TransferBranch>> = [&first, &second].iter().map(|call| {
-        let formal = w.place(call.formals[0].clone(), &[]);
+        let formal = w.place(call.entries[0].clone(), &[]);
         let returned = w.place(PlaceRoot::Return { callable: call.declaration.declaration }, &[]);
         vec![w.branch(&call.symbol, &formal, &returned, TransferKind::Identity, Diagram::always())]
     }).collect();
     let empty = BTreeMap::new();
-    let calls = [SiteCall { frame: frame(&first, false), callee: callee(&first, Some(&empty)), branches: &branches[0] },
-        SiteCall { frame: frame(&second, false), callee: callee(&second, Some(&empty)), branches: &branches[1] }];
+    let calls = [SiteCall { frame: frame(&first, false), callee: Some(callee(&first, Some(&empty))), branches: &branches[0] },
+        SiteCall { frame: frame(&second, false), callee: Some(callee(&second, Some(&empty))), branches: &branches[1] }];
     let results = compose_site(std::slice::from_ref(&delivered), &calls, &owner(&caller), &w.catalog()).unwrap();
     assert_eq!(results.len(), 2, "two targets are two candidate flows, never one merged invocation");
     for result in &results { let CallComposition::Transfer(t) = result else { panic!() }; assert_eq!(t.branch.key().modality, Modality::Candidate); }
@@ -341,10 +350,15 @@ fn every_admitted_alternative_composes_separately_and_modality_follows_the_site(
     let mut several = frame(&first, true); several.unique_variant = false;
     let candidate = compose_call(&delivered, &branches[0][0], &several, &owner(&caller), &callee(&first, Some(&empty)), &w.catalog()).unwrap();
     assert_eq!(transfer(candidate).branch.key().modality, Modality::Candidate);
-    // An unresolved target is an obligation, not an absent flow.
+    // An unresolved target is an obligation, not an absent flow, even with no callee to compose.
     let unresolved = CallDestination::Unresolved { reason: ObligationKind::UnresolvedTarget };
-    let mut open = frame(&first, false); open.destination = &unresolved;
-    assert_eq!(obligation(compose_call(&delivered, &branches[0][0], &open, &owner(&caller), &callee(&first, Some(&empty)), &w.catalog()).unwrap()), ObligationKind::UnresolvedTarget);
+    let open_target = CallTarget { destination: unresolved.id(), ..first.target.clone() };
+    let open = CallFrame { target: &open_target, destination: &unresolved, bound: None, ..frame(&first, false) };
+    let results = compose_site(std::slice::from_ref(&delivered), &[SiteCall { frame: open, callee: None, branches: &[] }], &owner(&caller), &w.catalog()).unwrap();
+    assert_eq!(obligation(results), ObligationKind::UnresolvedTarget);
+    // A frame whose destination is not its target's is refused.
+    let forged = CallFrame { destination: &unresolved, ..frame(&first, false) };
+    assert!(compose_call(&delivered, &branches[0][0], &forged, &owner(&caller), &callee(&first, Some(&empty)), &w.catalog()).is_err());
 }
 
 #[test]
@@ -354,7 +368,7 @@ fn an_oversized_condition_is_a_limit_obligation_never_true() {
     let x = w.occurrence(SyntaxKind::ExprName, OccurrenceRole::Read);
     let source = w.place(PlaceRoot::Occurrence { occurrence: x.id() }, &[]);
     let into_a = w.place(PlaceRoot::Occurrence { occurrence: call.actuals[0].id() }, &[]);
-    let formal = w.place(call.formals[0].clone(), &[]);
+    let formal = w.place(call.entries[0].clone(), &[]);
     let returned = w.place(PlaceRoot::Return { callable: call.declaration.declaration }, &[]);
     let atoms = |w: &mut World, count: usize, name: &str| -> Diagram {
         (0..count).fold(Diagram::always(), |condition, n| {
@@ -381,9 +395,107 @@ fn stored_compositions_validate_and_mismatched_steps_refuse() {
     assert!(f.composed.records.substitutions.iter().any(|s| s.witness == f.base.witness.id()), "the formal guard is restated through its witness");
     f.validate().unwrap();
     for (mutation, reason) in [(fixture::Mutation::CalleeFromAnotherSymbol, "differ from the target's symbol"),
-        (fixture::Mutation::NotComposed, "not the caller's transfer at the target's site"), (fixture::Mutation::UnrestatedGuard, "not restated at the call")] {
+        (fixture::Mutation::NotComposed, "not the caller's transfer at the target's site"), (fixture::Mutation::UnrestatedGuard, "restated at the call"), (fixture::Mutation::ErasedCondition, "restated at the call")] {
         let mut refused = fixture::Fixture::new(); refused.mutate(mutation);
         let error = refused.validate().unwrap_err();
         assert!(matches!(error, ModelError::Invalid(ref m) if m.contains(reason)), "{mutation:?}: {error}");
     }
+}
+
+#[test]
+fn rebound_formals_and_slot_writes_never_reach_the_caller() {
+    let mut w = World::new(); let caller = w.caller();
+    let any = w.segment(PathSegment::AnyItem); let x_attr = w.attribute("x");
+    let call = w.call("f", &[positional("t"), positional("v")], &[(ArgumentKind::Positional, None); 2], false);
+    let x = w.occurrence(SyntaxKind::ExprName, OccurrenceRole::Read);
+    let source = w.place(PlaceRoot::Occurrence { occurrence: x.id() }, &[]);
+    let into_v = w.place(PlaceRoot::Occurrence { occurrence: call.actuals[1].id() }, &[]);
+    let into_t = w.place(PlaceRoot::Occurrence { occurrence: call.actuals[0].id() }, &[]);
+    let delivered = w.branch(&caller.symbol, &source, &into_v, TransferKind::Identity, Diagram::always());
+    let v = w.place(call.entries[1].clone(), &[]);
+    let through = |w: &mut World, output: Place| w.branch(&call.symbol, &v, &output, TransferKind::Identity, Diagram::always());
+    // `t = []; t.append(v)` and `t = t or []; t.append(v)`: the append targets whatever t now holds.
+    let rebound_items = w.place(call.formals[0].clone(), &[any]);
+    let append = through(&mut w, rebound_items);
+    assert_eq!(obligation(compose(&w, &caller, &delivered, &call, &append, true)), ObligationKind::EntryValueUnknown);
+    // `t = v`: rebinding the parameter variable never reaches the caller's `a`.
+    let rebound = w.place(call.formals[0].clone(), &[]);
+    let rebind = through(&mut w, rebound);
+    assert!(matches!(compose(&w, &caller, &delivered, &call, &rebind, true).as_slice(), [CallComposition::Disjoint]));
+    // Reading the variable is not reading the caller's value.
+    let returned = w.place(PlaceRoot::Return { callable: call.declaration.declaration }, &[]);
+    let t_variable = w.place(call.formals[0].clone(), &[]);
+    let reads_variable = w.branch(&call.symbol, &t_variable, &returned, TransferKind::Identity, Diagram::always());
+    let into_first = w.branch(&caller.symbol, &source, &into_t, TransferKind::Identity, Diagram::always());
+    assert_eq!(obligation(compose(&w, &caller, &into_first, &call, &reads_variable, true)), ObligationKind::EntryValueUnknown);
+    // `t.x = v` below the entry value mutates the caller's object.
+    let entry_x = w.place(call.entries[0].clone(), &[x_attr]);
+    let store = through(&mut w, entry_x);
+    assert_eq!(ends(&w, &transfer(compose(&w, &caller, &delivered, &call, &store, true))).1, (PlaceRoot::Occurrence { occurrence: call.actuals[0].id() }, path(&[x_attr])));
+    // `def g(v, **kw): kw['k'] = v` at `g(x, k=c)`: storing the element replaces a slot of a fresh
+    // dict; `kw['k'].x = v` mutates c.
+    let g = w.call("g", &[positional("v"), shape("kw", ParameterKind::VarKeyword, false)], &[(ArgumentKind::Positional, None), (ArgumentKind::Keyword, Some("k"))], false);
+    let into_gv = w.place(PlaceRoot::Occurrence { occurrence: g.actuals[0].id() }, &[]);
+    let delivered = w.branch(&caller.symbol, &source, &into_gv, TransferKind::Identity, Diagram::always());
+    let k = w.segment(PathSegment::Item { key: Literal::String { value: "k".into() }.id() });
+    w.rows.literals.insert(Literal::String { value: "k".into() }.id(), Literal::String { value: "k".into() });
+    let gv = w.place(g.entries[0].clone(), &[]);
+    let slot = w.place(g.entries[1].clone(), &[k]);
+    let element = w.branch(&g.symbol, &gv, &slot, TransferKind::Identity, Diagram::always());
+    assert!(matches!(compose(&w, &caller, &delivered, &g, &element, true).as_slice(), [CallComposition::Disjoint]));
+    let below = w.place(g.entries[1].clone(), &[k, x_attr]);
+    let mutation = w.branch(&g.symbol, &gv, &below, TransferKind::Identity, Diagram::always());
+    assert_eq!(ends(&w, &transfer(compose(&w, &caller, &delivered, &g, &mutation, true))).1, (PlaceRoot::Occurrence { occurrence: g.actuals[1].id() }, path(&[x_attr])));
+}
+
+#[test]
+fn ports_are_total_over_the_bound_signature() {
+    let mut w = World::new(); let caller = w.caller();
+    let x_attr = w.attribute("x");
+    let x = w.occurrence(SyntaxKind::ExprName, OccurrenceRole::Read);
+    let source = w.place(PlaceRoot::Occurrence { occurrence: x.id() }, &[]);
+    // `C.m(obj, v)` with `self.x = v`: the unbound call passes the receiver positionally.
+    let method = w.call("m", &[positional("self"), positional("v")], &[(ArgumentKind::Positional, None); 2], false);
+    let v = w.place(method.entries[1].clone(), &[]);
+    let receiver_x = w.place(PlaceRoot::Receiver { callable: method.declaration.declaration }, &[x_attr]);
+    let store = w.branch(&method.symbol, &v, &receiver_x, TransferKind::Identity, Diagram::always());
+    let into_v = w.place(PlaceRoot::Occurrence { occurrence: method.actuals[1].id() }, &[]);
+    let delivered = w.branch(&caller.symbol, &source, &into_v, TransferKind::Identity, Diagram::always());
+    assert_eq!(ends(&w, &transfer(compose(&w, &caller, &delivered, &method, &store, true))).1, (PlaceRoot::Occurrence { occurrence: method.actuals[0].id() }, path(&[x_attr])));
+    // Links and parameters must be the bound variant's, complete and one-to-one.
+    let call = w.call("f", &[positional("a"), shape("b", ParameterKind::PositionalOrKeyword, false)], &[(ArgumentKind::Positional, None)], false);
+    let a = w.place(call.entries[0].clone(), &[]);
+    let returned = w.place(PlaceRoot::Return { callable: call.declaration.declaration }, &[]);
+    let identity = w.branch(&call.symbol, &a, &returned, TransferKind::Identity, Diagram::always());
+    let into_a = w.place(PlaceRoot::Occurrence { occurrence: call.actuals[0].id() }, &[]);
+    let delivered = w.branch(&caller.symbol, &source, &into_a, TransferKind::Identity, Diagram::always());
+    let (_, other) = Signature::new(&w.base, call.symbol.id(), 1, SignatureForm::List, &[positional("a")]).unwrap();
+    let shared = vec![ParameterDeclaration { qualification: w.base.id(), parameter: other[0].id(), declaration: call.links[0].declaration }];
+    let empty = BTreeMap::new();
+    let with = |parameters: &[SignatureParameter], links: &[ParameterDeclaration]| compose_call(&delivered, &identity, &frame(&call, true), &owner(&caller),
+        &CalleeFrame { symbol: &call.symbol, declaration: &call.declaration, parameters, links, witnesses: Some(&empty) }, &w.catalog());
+    assert!(with(&call.members, &shared).is_err(), "a link of another variant sharing the occurrence is refused");
+    assert!(with(&other, &shared).is_err(), "parameters must be the bound variant's");
+    assert_eq!(obligation(with(&call.members, &call.links[..1]).unwrap()), ObligationKind::NoSourceDeclaration);
+    assert!(matches!(with(&call.members, &call.links).unwrap().as_slice(), [CallComposition::Transfer(_)]));
+    // A root naming another callable's parameter is not a port of this call.
+    let foreign = w.place(PlaceRoot::Entry { declaration: method.links[1].declaration }, &[]);
+    let crossing = w.branch(&call.symbol, &foreign, &returned, TransferKind::Identity, Diagram::always());
+    assert!(compose_call(&delivered, &crossing, &frame(&call, true), &owner(&caller), &callee(&call, Some(&empty)), &w.catalog()).is_err());
+}
+
+#[test]
+fn the_target_modality_bounds_the_composition() {
+    let mut w = World::new(); let caller = w.caller();
+    w.target_modality = Modality::Potential;
+    let call = w.call("f", &[positional("a")], &[(ArgumentKind::Positional, None)], false);
+    let x = w.occurrence(SyntaxKind::ExprName, OccurrenceRole::Read);
+    let source = w.place(PlaceRoot::Occurrence { occurrence: x.id() }, &[]);
+    let into_a = w.place(PlaceRoot::Occurrence { occurrence: call.actuals[0].id() }, &[]);
+    let a = w.place(call.entries[0].clone(), &[]);
+    let returned = w.place(PlaceRoot::Return { callable: call.declaration.declaration }, &[]);
+    let through = w.branch(&call.symbol, &a, &returned, TransferKind::Identity, Diagram::always());
+    let delivered = w.branch(&caller.symbol, &source, &into_a, TransferKind::Identity, Diagram::always());
+    assert_eq!(transfer(compose(&w, &caller, &delivered, &call, &through, true)).branch.key().modality, Modality::Potential,
+        "a potential target never composes into a candidate or definite flow");
 }

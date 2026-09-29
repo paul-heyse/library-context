@@ -41,6 +41,10 @@ pub enum PlaceRoot {
     /// A local variable of the scope opened by `scope`. Every definition and use of the same
     /// name in that scope shares this root, which reaching flow requires.
     #[model(code = 8)] Local { scope: Id<Occurrence>, name: String },
+    /// The value bound to the parameter declared at `declaration` when its callable was entered.
+    /// `Formal` is the parameter variable, which the body may rebind; only `Entry` (and the bound
+    /// `Receiver`) denote the caller's value, so only they are ports of a call summary.
+    #[model(code = 9)] Entry { declaration: Id<Occurrence> },
 }
 fn validate_root(row: &PlaceRoot) -> Result<(), ModelError> {
     match row {

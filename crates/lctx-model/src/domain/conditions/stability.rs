@@ -16,7 +16,10 @@ use super::EvaluationAtom;
 pub enum StabilityBasis { ParameterOnlyReaching = 0 }
 
 /// The guard's read of its formal is reached only by the parameter definition, not loop-carried,
-/// under complete flow coverage of the read.
+/// under complete flow coverage of the read. Any other reach refuses: an assignment, an unbound
+/// path, a binding from a nested scope (`nonlocal`), or a second reaching observation. Writes
+/// through frame objects (`sys._getframe().f_locals`, PEP 667) are `DynamicAccess`, outside the
+/// stated model.
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name = "stability_witnesses", rule = "parameter_only_reaching", conclusion = atom, invariants = stability_invariants)]
 pub struct StabilityWitness {
@@ -92,7 +95,7 @@ impl StabilityCheck {
         if read.place != place || !self.inside(read.occurrence, atom.evaluation)? { return Err(invalid("witness read is not the guard's read of its formal")); }
         if self.reaching_count.get(&(reaching.use_, atom.context)) != Some(&1) { return Err(invalid("the formal read has more than one reaching definition")); }
         let ReachingDefinition::Bound { definition } = Self::get(&self.targets, &reaching.target, "witness reaching target absent")? else {
-            return Err(invalid("witness reaching target is unbound"));
+            return Err(invalid("witness reaching target is unbound or from a nested scope"));
         };
         let observed = Self::get(&self.definition_observations, &row.definition, "witness definition observation absent")?;
         let reached = Self::get(&self.definitions, definition, "witness definition absent")?;

@@ -42,6 +42,10 @@ pub enum ReachingDefinition {
     #[model(code = 0)] Bound { definition: Id<FlowDefinition> },
     /// The provider observes a possibly unbound place on this path. This is not missing coverage.
     #[model(code = 1)] Unbound,
+    /// A binding made from another scope may reach this use: a `nonlocal` or `global` write in a
+    /// nested function, or a lazy snapshot of such bindings. The writing definition lives in the
+    /// other scope, so no definition of this scope is named; it is never a parameter reach.
+    #[model(code = 2)] Nested,
 }
 #[derive(Debug,Clone,PartialEq,Eq,Domain,Assertion)]
 #[model(name = "flow_reaching_observations")]
