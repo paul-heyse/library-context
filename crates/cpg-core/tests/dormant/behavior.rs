@@ -1,3 +1,6 @@
+// DORMANT (cutover plan P1.3): not a test target. It drives the removed Delta runtime
+// (`snapshot`/`attempt`/`delta`), so it cannot compile until its layer is rebuilt on generations.
+// Owner: P4 (behavior model). Its known answers stay here as expectations to re-express, never to reuse as-is.
 //! The behavior model on `behavior_shapes` (ADR-0021, ADR-0022; DESIGN §3.9; increment 3's deep
 //! review F1–F3, F6): one verdict policy per arc, the scan's status over its region, persisted
 //! steps, and facets whose completeness is data.

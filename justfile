@@ -47,7 +47,7 @@ test *args:
     INSTA_UPDATE=no cargo nextest run --release --workspace --no-fail-fast --no-tests=pass {{args}}
 
 # Python tests (scripts and lctx_mcp over the fixture generation) + pyrefly
-py-check: py-fixture
+py-check:
     uv run pytest
     uv run pyrefly check --summary=none
 
@@ -60,11 +60,6 @@ oracles:
 # Search items rank on live query vectors when embed_url names a running `just embed-serve`
 structured-eval generation stage embed_url="":
     uv run python scripts/structured_eval.py {{generation}} eval/behavior/fastmcp-4.0.5.toml --stage {{stage}} --requests eval/behavior/fastmcp-4.0.5.requests.toml --out build/structured/stage{{stage}}.md {{ if embed_url != "" { "--embed-url " + embed_url } else { "" } }}
-
-# The generation the lctx_mcp tests serve: analysis_shapes with fake vectors, into build/py-fixture
-py-fixture:
-    LCTX_PY_FIXTURE="$PWD/build/py-fixture" INSTA_UPDATE=no cargo nextest run --release -p cpg-core --no-fail-fast -E 'test(writes_the_python_fixture_generation)' --status-level none --final-status-level fail
-    LCTX_CATALOG_FIXTURE="$PWD/build/catalog-fixture" INSTA_UPDATE=no cargo nextest run --release -p cpg-core --test catalog --no-fail-fast --status-level none --final-status-level fail
 
 # Pinned-family single-version check + cargo-deny sources/licenses + the Pyrefly fork (ADR-0046)
 deps:
@@ -179,11 +174,11 @@ postgres-test-setup:
     docker pull "postgres:$(cat specs/postgres-image.txt)"
     docker pull "$(cat specs/postgres-vector-image.txt)"
 
-# Real database semantics; pure model tests do not require a running service.
-test-postgres: py-fixture
+# Real PostgreSQL 18 generation-store semantics in disposable containers. The serving suites are
+# dormant until cutover phase 5 (plan P1.3).
+test-postgres:
     @docker image inspect "$(cat specs/postgres-vector-image.txt)" >/dev/null || { echo 'blocked: run just postgres-test-setup'; exit 2; }
-    LCTX_TEST_PROJECTION="$PWD/build/py-fixture/$(cat build/py-fixture/CURRENT)" INSTA_UPDATE=no cargo nextest run --release -p cpg-core --test catalog_evidence -p lctx-postgres --test serving --run-ignored only --test-threads 2 --no-fail-fast --success-output immediate -E 'not test(captured_reference_parity)'
-    LCTX_POSTGRES_TEST=1 uv run pytest tests/scripts/test_postgres_serving.py
+    INSTA_UPDATE=no cargo nextest run --release -p lctx-postgres -p cpg-extract --no-fail-fast -E 'not binary(serving)'
 
 # Explicit comparison with a previously frozen, same-input reference answer capture.
 test-postgres-reference projection reference:

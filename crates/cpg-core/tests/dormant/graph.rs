@@ -1,3 +1,6 @@
+// DORMANT (cutover plan P1.3): not a test target. It drives the removed Delta runtime
+// (`snapshot`/`attempt`/`delta`), so it cannot compile until its layer is rebuilt on generations.
+// Owner: P3 (graph registry). Its known answers stay here as expectations to re-express, never to reuse as-is.
 //! C1 (ADR-0014; guidelines §12): the node and edge catalogs on known-answer graph shapes, their
 //! determinism, and a graph-readiness reader that builds a petgraph projection from them.
 

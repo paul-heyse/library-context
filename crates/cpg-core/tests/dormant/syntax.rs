@@ -1,3 +1,6 @@
+// DORMANT (cutover plan P1.3): not a test target. It drives the removed Delta runtime
+// (`snapshot`/`attempt`/`delta`), so it cannot compile until its layer is rebuilt on generations.
+// Owner: B3 re-homes its raw-level answers; the rest P3. Its known answers stay here as expectations to re-express, never to reuse as-is.
 //! CPG slices C2–C5 (DESIGN §3.2): the placed syntax tree on the `syntax_shapes` fixture and
 //! Pysa's non-call sites resolved to its nodes; name resolution on `lexical_shapes`; type terms,
 //! observations and record fields on `type_shapes`; a corpus's documents and mentions on

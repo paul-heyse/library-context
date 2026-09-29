@@ -1,3 +1,6 @@
+// DORMANT (cutover plan P1.3): not a test target. It drives the removed Delta runtime
+// (`snapshot`/`attempt`/`delta`), so it cannot compile until its layer is rebuilt on generations.
+// Owner: P4 (catalog evidence). Its known answers stay here as expectations to re-express, never to reuse as-is.
 //! Original evidence is useful without brief seeds and survives canonical publication.
 #[path = "catalog/selection_evidence.rs"]
 mod selection_evidence;

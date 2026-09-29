@@ -8,7 +8,9 @@ Evidence-only input to the [conditional adoption owner](../../../plans/behaviora
 compares clean and prepared derivation with Salsa 0.28.2, including the same full-output comparison
 encoding/hash work in timed queries. Initial, unchanged, narrowed, expanded, restored and absent-root
 cases retain every evidence field. The Debug encoding is probe-local, never a publication format.
-The experiment does not qualify source/environment changes, production persistence or a speed claim.
+The experiment does not qualify source/environment changes, production persistence or a speed claim. Since cutover
+plan P1.3 removed the Delta snapshot runtime it reads, the example is no longer a `cpg-core`
+target; its source and recorded outputs remain as evidence (`raw/`).
 
 `persistence-probe` is an isolated workspace. It pins the complete Salsa macro family to 0.28.2;
 a floating macro helper patch did not compile against that family. Persistence preserves the original

@@ -1,3 +1,6 @@
+// DORMANT (cutover plan P1.3): not a test target. It drives the removed Delta runtime
+// (`snapshot`/`attempt`/`delta`), so it cannot compile until its layer is rebuilt on generations.
+// Owner: P4 (attribute access). Its known answers stay here as expectations to re-express, never to reuse as-is.
 //! Resolved builtin access must be represented like direct attribute reads.
 use cpg_schema::{id::Id, table::Table};
 

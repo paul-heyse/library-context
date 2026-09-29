@@ -34,9 +34,9 @@ use datafusion::physical_plan::{ExecutionPlan, collect};
 use datafusion::prelude::SessionContext;
 use futures::{StreamExt, TryStreamExt};
 
-use crate::{CoreError, snapshot, sql};
+use crate::{CoreError, sql};
 
-/// Rules in flight at once. With `snapshot::TARGET_PARTITIONS` partitions each, 8 × 8 tasks share
+/// Rules in flight at once. With `session::TARGET_PARTITIONS` partitions each, 8 × 8 tasks share
 /// the tokio runtime's bounded worker pool (guidelines §9); the probe measured 8 as the knee
 /// (12–18 s sequential → 3.0–3.5 s, then 0.6 s with the cache).
 pub const CONCURRENT_RULES: usize = 8;
@@ -69,7 +69,7 @@ pub async fn validate(ctx: &SessionContext) -> Result<Vec<Violation>, CoreError>
 /// in-memory table under the same name. A doctored view is honoured, because what is cached is
 /// whatever the session registers; the batches as they were before the write never are.
 pub async fn cached_session(ctx: &SessionContext) -> Result<SessionContext, CoreError> {
-    let cache = snapshot::empty_session();
+    let cache = crate::session::session();
     let names = ctx
         .catalog("datafusion")
         .and_then(|c| c.schema("public"))
@@ -134,21 +134,6 @@ pub(crate) async fn relational_costed(
         costs.push(c);
     }
     Ok((violations, costs))
-}
-
-/// Admit pinned canonical input without re-deriving its old policy-dependent products.
-/// Shared relational and raw-flow validators still apply; current semantic derivation is
-/// checked against the replacement publication before it can become visible.
-pub(crate) async fn rebuild_source(ctx: &SessionContext) -> Result<(), CoreError> {
-    let cache = cached_session(ctx).await?;
-    let (mut violations, _) = relational_costed(&cache).await?;
-    violations.extend(validate_condition_graph(&cache).await?);
-    violations.extend(validate_test_type_links(&cache).await?);
-    if violations.is_empty() {
-        Ok(())
-    } else {
-        Err(CoreError::Invalid(violations))
-    }
 }
 
 /// [`validate`], with each rule's cost, so a stage report can name what dominates. Violations and

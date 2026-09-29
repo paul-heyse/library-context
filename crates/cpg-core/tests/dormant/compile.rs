@@ -1,3 +1,6 @@
+// DORMANT (cutover plan P1.3): not a test target. It drives the removed Delta runtime
+// (`snapshot`/`attempt`/`delta`), so it cannot compile until its layer is rebuilt on generations.
+// Owner: P3–P5 by layer; its raw-level answers are re-homed by B3. Its known answers stay here as expectations to re-express, never to reuse as-is.
 //! Slice 2: a compile attempt writes the raw tables, derives Stage C/D, validates and publishes
 //! (DESIGN §4.1, §6, §8; ADR-0009).
 

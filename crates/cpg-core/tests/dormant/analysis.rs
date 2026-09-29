@@ -1,3 +1,6 @@
+// DORMANT (cutover plan P1.3): not a test target. It drives the removed Delta runtime
+// (`snapshot`/`attempt`/`delta`), so it cannot compile until its layer is rebuilt on generations.
+// Owner: P4 (analysis passes, summaries). Its known answers stay here as expectations to re-express, never to reuse as-is.
 //! Stage E on `analysis_shapes` (ADR-0019; DESIGN §5, §9.1, §12): Pass A from a method seed over
 //! the invocation projection, with parallel call sites, two paths to one helper, a property
 //! getter, an override-open dispatch, a dependency, a synthetic constructor, a callee outside the

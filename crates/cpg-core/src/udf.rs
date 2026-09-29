@@ -195,7 +195,7 @@ mod tests {
     use cpg_schema::id::Id;
 
     async fn eval(sql: &str) -> Result<Vec<Id>> {
-        let ctx = crate::snapshot::empty_session();
+        let ctx = crate::session::session();
         let batches = crate::sql::query(&ctx, sql)
             .await
             .map_err(|e| datafusion::error::DataFusionError::External(Box::new(e)))?
@@ -321,7 +321,7 @@ mod tests {
             let err = eval(sql).await.unwrap_err().to_string();
             assert!(err.contains("literal"), "{sql}: {err}");
         }
-        let ctx = crate::snapshot::empty_session();
+        let ctx = crate::session::session();
         let df = crate::sql::query(&ctx, "SELECT lctx_id('k', CAST(NULL AS VARCHAR)) AS id")
             .await
             .unwrap();

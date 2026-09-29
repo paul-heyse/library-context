@@ -677,6 +677,19 @@ Removed:
 - the DDL half of `decl_sample` and its two snapshots.
 
 The justfile no longer names `cpg-core --test postgres`. The embedding-cache case of the deleted `postgres` test is re-established at P1.5. `postgres_read`'s filter-pushdown algebra is recovered from Git (`8bbc17a`) at P1.10. The table-provider dependency stays unused in `cpg-core` until P1.10 (manifest warning) |
+| P1.3: `cargo test --release -p cpg-core --test model_runtime --test dependency_audit --lib`; `uv run pytest python/lctx_mcp/tests tests/scripts/test_flow_soundness.py tests/scripts/test_semantic_soundness.py tests/scripts/test_postgres_serving.py -q`; `cargo check --workspace --all-targets` | passed 2026-09-29 (Rust: 31, 2 and 2 tests; Python exit 0).
+
+Removed:
+- `cpg-core` `attempt`, `delta`, `derive`, `diff`, `rebuild`, `snapshot` and `stage_cache`;
+- the Delta variants of `CoreError` and `validate::rebuild_source`;
+- `bundle`/`bundle_with_embedding`;
+- the `lctx-postgres` operations discovery half (snapshots and generations).
+
+`producer.rs` keeps the producer identity for the dormant `analyze`. Ten runtime-bound tests, their helpers and their snapshots moved to `cpg-core/tests/dormant/` (not targets; each header names its phase). The PR2 Salsa probe is no longer a Cargo example; its source and outputs stay as evidence.
+
+Justfile: `py-fixture` removed; `py-check` no longer depends on it; `test-postgres` now runs the generation-store suites without the dormant serving binary.
+
+Python: `lctx_mcp` tests needing a served generation or an entry point, `test_semantic_soundness.py` and `test_postgres_serving.py` report skipped (not_run); `test_flow_soundness.py` and the pure `lctx_mcp` tests run |
 | `just fmt`, `just test-all`, facts pilots | not_run: functional scope incomplete |
 
 Independent bounded reviewers accepted artifact/capture/acquisition corrections and the

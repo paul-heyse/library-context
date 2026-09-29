@@ -1,3 +1,6 @@
+// DORMANT (cutover plan P1.3): not a test target. It drives the removed Delta runtime
+// (`snapshot`/`attempt`/`delta`), so it cannot compile until its layer is rebuilt on generations.
+// Owner: P4 (catalog). Its known answers stay here as expectations to re-express, never to reuse as-is.
 //! Catalog-only publication must not need a brief, flow pass or native semantic closure.
 use cpg_schema::{Id, catalog::CompileProfile};
 use std::path::Path;

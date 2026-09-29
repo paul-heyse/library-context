@@ -1,3 +1,6 @@
+// DORMANT (cutover plan P1.3): not a test target. It drives the removed Delta runtime
+// (`snapshot`/`attempt`/`delta`), so it cannot compile until its layer is rebuilt on generations.
+// Owner: P5 (serving bundles). Its known answers stay here as expectations to re-express, never to reuse as-is.
 //! Stage G (DESIGN §6.4; ADR-0017, ADR-0019): a serving generation from a published snapshot.
 //! Rebuilding it gives the same bytes. A changed file is refused. One generation never mixes
 //! vector spaces. The serving schema digests are the known answers Python checks too.

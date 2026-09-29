@@ -1101,32 +1101,6 @@ pub async fn build_with_retrieval(
     Ok(Generation { key, dir, manifest })
 }
 
-/// Build the generation of a published snapshot.
-pub async fn bundle(root: &Path, snapshot_id: Id, out: &Path) -> Result<Generation, CoreError> {
-    let (_, ctx) = crate::snapshot::published(root, snapshot_id)
-        .await?
-        .ok_or_else(|| bad(format!("snapshot {} is not published", snapshot_id.hex())))?;
-    let artifacts = crate::retrieval::restore(root, snapshot_id)?;
-    build_with_retrieval(&ctx, out, artifacts.as_ref()).await
-}
-
-/// Construct retrieval artifacts after canonical publication, then use the ordinary publisher.
-pub async fn bundle_with_embedding(
-    root: &Path,
-    snapshot_id: Id,
-    out: &Path,
-    embedder: Option<&dyn crate::embed::Embedder>,
-    cache: Option<crate::postgres::Store>,
-) -> Result<Generation, CoreError> {
-    let (_, ctx) = crate::snapshot::published(root, snapshot_id)
-        .await?
-        .ok_or_else(|| bad("snapshot not published"))?;
-    let artifacts = crate::retrieval::prepare(&ctx, snapshot_id, embedder, cache).await?;
-    let generation = build_with_retrieval(&ctx, out, Some(&artifacts)).await?;
-    crate::retrieval::save(&artifacts, root, snapshot_id)?;
-    Ok(generation)
-}
-
 /// Check a generation against its manifest: each file's sha256, row count and serving schema
 /// digest, and the key, which must also name the directory.
 pub fn verify(dir: &Path) -> Result<Value, CoreError> {

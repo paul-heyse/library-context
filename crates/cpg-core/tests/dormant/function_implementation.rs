@@ -1,3 +1,6 @@
+// DORMANT (cutover plan P1.3): not a test target. It drives the removed Delta runtime
+// (`snapshot`/`attempt`/`delta`), so it cannot compile until its layer is rebuilt on generations.
+// Owner: P4 (function bodies). Its known answers stay here as expectations to re-express, never to reuse as-is.
 //! Abstract and placeholder decisions use Pyrefly's resolved function flags.
 use cpg_schema::{codebook::BoundaryReason, id::Id, table::Table};
 
