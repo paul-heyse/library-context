@@ -1,0 +1,12 @@
+[package]
+name = "p3-graph-reasoning"
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+
+[dependencies]
+petgraph = "=0.8.3"
+biodivine-lib-bdd = "=0.6.3"
+ascent = { version = "=0.8.1", default-features = false }
+fixedbitset = "=0.5.7"

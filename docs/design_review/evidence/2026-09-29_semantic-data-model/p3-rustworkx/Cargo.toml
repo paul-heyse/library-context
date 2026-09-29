@@ -1,0 +1,10 @@
+[package]
+name = "p3-rustworkx"
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+
+[dependencies]
+petgraph = "=0.8.3"
+rustworkx-core = "=0.18.1"
