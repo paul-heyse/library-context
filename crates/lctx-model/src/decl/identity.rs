@@ -1,6 +1,6 @@
 //! Identity recompute (DESIGN §15.2–§15.3): a declared relation's id column must equal its recipe
 //! over exactly the declared identity inputs. The encoding is [`RecipeField`]'s, read from Arrow
-//! columns, so a producer, a validator and the `lctx_id_v2` UDF agree.
+//! columns, so a producer and a validator agree.
 //!
 //! [`RecipeField`]: crate::id::RecipeField
 

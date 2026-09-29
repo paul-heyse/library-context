@@ -9,7 +9,15 @@ use lctx_model::decl::relation::{
     ColumnClass, ColumnDecl, Exposure, FidelityClass, Layer, Polarity, Relation, RelationDecl,
     validate,
 };
-use lctx_model::id::{Id, IdKind, recipes};
+use lctx_model::id::{Id, IdKind};
+
+/// Sample recipes for the retained `recipe!` machinery; the production recipe catalog is retired
+/// (the typed `domain` owns identity).
+mod recipes {
+    use lctx_model::id::Id;
+    lctx_model::recipe!(occurrence, OCCURRENCE = Occurrence { module: Id, start: i64, end: i64, syntax_kind: &str });
+    lctx_model::recipe!(symbol_key, SYMBOL_KEY = SymbolKey { distribution: &str, qualified_path: &str, descriptor: &str });
+}
 use lctx_model::{model, relation};
 
 relation! {

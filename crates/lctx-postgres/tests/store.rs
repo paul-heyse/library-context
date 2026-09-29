@@ -7,7 +7,15 @@ use lctx_model::ddl::{self, Install, TableSpec};
 use lctx_model::decl::codebook::CodebookEntry;
 use lctx_model::decl::column::Blob;
 use lctx_model::decl::relation::Relation;
-use lctx_model::id::{Digest, Id, IdKind, recipes};
+use lctx_model::id::{Digest, Id, IdKind};
+
+/// Sample recipes for the retained `recipe!` machinery; the production recipe catalog is retired
+/// (the typed `domain` owns identity).
+mod recipes {
+    use lctx_model::id::Id;
+    lctx_model::recipe!(occurrence, OCCURRENCE = Occurrence { module: Id, start: i64, end: i64, syntax_kind: &str });
+    lctx_model::recipe!(symbol_key, SYMBOL_KEY = SymbolKey { distribution: &str, qualified_path: &str, descriptor: &str });
+}
 use lctx_model::{model, relation};
 use lctx_postgres::serving::TEST_IMAGE;
 use lctx_postgres::store::{self, CANONICAL, GenerationDigests, RelationReceipt, Writer};

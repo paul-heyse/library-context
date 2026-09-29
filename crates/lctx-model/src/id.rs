@@ -220,9 +220,9 @@ impl IdHasher {
 }
 
 /// One identity field of a v2 recipe. Every field is encoded with a presence byte — `0` for
-/// absent, else `1` and the length-prefixed value — so a recipe computed in Rust equals the
-/// `lctx_id_v2` UDF over nullable columns, which cannot tell a declared non-null column from a
-/// nullable one holding a value.
+/// absent, else `1` and the length-prefixed value — so a recipe computed in Rust equals a
+/// declaration validator's recomputation over nullable columns, which cannot tell a declared
+/// non-null column from a nullable one holding a value.
 pub trait RecipeField {
     fn feed(&self, h: &mut IdHasher);
 }
@@ -279,8 +279,8 @@ impl<C: crate::decl::codebook::Codebook> RecipeField for Code<C> {
 }
 
 /// A recipe as data: its kind and its identity fields in hash order. Relation declarations name
-/// a recipe, and identity validators and the `lctx_id_v2` UDF recompute it from exactly these
-/// columns; no other column (provenance) can reach the id.
+/// a recipe, and identity validators recompute it from exactly these columns; no other column
+/// (provenance) can reach the id.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Recipe {
     pub kind: IdKind,
@@ -307,86 +307,4 @@ macro_rules! recipe {
             fields: &[$(stringify!($field)),+],
         };
     };
-}
-
-/// The model's identity recipes (DESIGN §15.3). Each vocabulary module adds the recipes of the
-/// relations it owns as those contracts are declared.
-pub mod recipes {
-    use super::Id;
-
-    crate::recipe!(
-        /// A source occurrence: its module entity, byte span and syntax kind. The syntax kind is
-        /// the parser's stable node-kind name, so two occurrences sharing a span stay distinct.
-        occurrence, OCCURRENCE = Occurrence { module: Id, start: i64, end: i64, syntax_kind: &str }
-    );
-
-    crate::recipe!(
-        /// A release-independent symbol key: distribution, qualified path and member descriptor,
-        /// for cross-release and dependency joins.
-        symbol_key, SYMBOL_KEY = SymbolKey { distribution: &str, qualified_path: &str, descriptor: &str }
-    );
-
-    crate::recipe!(
-        /// One predicate evaluation: the evaluating occurrence, the predicate kind, the tested
-        /// place and the canonical literal argument (DESIGN §15.3, §15.7).
-        atom, ATOM = Atom {
-            evaluation: Id,
-            predicate: super::Code<crate::condition::PredicateKind>,
-            operand: Option<Id>,
-            argument: Option<&str>,
-        }
-    );
-
-    crate::recipe!(
-        /// A BDD terminal.
-        condition_terminal, CONDITION_TERMINAL = ConditionNode { value: bool }
-    );
-
-    crate::recipe!(
-        /// A reduced BDD nonterminal: its atom and its low and high children. Content-addressed,
-        /// so equal functions over equal atoms share every node.
-        condition_node, CONDITION_NODE = ConditionNode { atom: Id, low: Id, high: Id }
-    );
-
-    crate::recipe!(
-        /// A condition: its structural root, domain-separated from the node id.
-        condition, CONDITION = Condition { root: Id }
-    );
-
-    crate::recipe!(
-        /// A place: its root kind and root fields, and its canonical access path.
-        place, PLACE = Place {
-            root_kind: super::Code<crate::vocab::PlaceRootKind>,
-            owner: Option<Id>,
-            position: Option<i64>,
-            name: Option<&str>,
-            path: &str,
-        }
-    );
-
-    crate::recipe!(
-        /// A transfer (DESIGN §15.6): owner, in- and out-place, kind, condition, context and
-        /// provenance class.
-        transfer, TRANSFER = Transfer {
-            owner: Id,
-            input: Id,
-            output: Id,
-            kind: super::Code<crate::transfer::TransferKind>,
-            condition: Id,
-            context: Option<Id>,
-            provenance: super::Code<crate::transfer::ProvenanceClass>,
-        }
-    );
-
-    /// Every recipe declared here, for validators and the UDF's known answers.
-    pub const ALL: &[super::Recipe] = &[
-        OCCURRENCE,
-        SYMBOL_KEY,
-        ATOM,
-        CONDITION_TERMINAL,
-        CONDITION_NODE,
-        CONDITION,
-        PLACE,
-        TRANSFER,
-    ];
 }

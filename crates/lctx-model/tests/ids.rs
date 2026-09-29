@@ -1,7 +1,16 @@
 //! Identity v2 (DESIGN §15.3): the encoding, the declared kinds and the recipes.
 
 use lctx_model::decl::codebook::{Codebook, CodebookEntry};
-use lctx_model::id::{Id, IdHasher, IdKind, recipes};
+use lctx_model::id::{Id, IdHasher, IdKind};
+
+/// Sample recipes for the retained `recipe!` machinery; the production recipe catalog is retired
+/// (the typed `domain` owns identity).
+mod recipes {
+    use lctx_model::id::Id;
+    lctx_model::recipe!(occurrence, OCCURRENCE = Occurrence { module: Id, start: i64, end: i64, syntax_kind: &str });
+    lctx_model::recipe!(symbol_key, SYMBOL_KEY = SymbolKey { distribution: &str, qualified_path: &str, descriptor: &str });
+    pub const ALL: &[lctx_model::id::Recipe] = &[OCCURRENCE, SYMBOL_KEY];
+}
 use proptest::prelude::*;
 
 /// The encoding written out by hand, independently of `IdHasher` and `recipe!`: the v2 domain,

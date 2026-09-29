@@ -189,3 +189,23 @@ fn ordinary_assertions_validate_guard_operand_sources_even_when_evaluation_is_lo
 fn budget() -> lctx_model::domain::resources::ResourceBudget {
     lctx_model::domain::resources::ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).unwrap()
 }
+
+#[test]
+fn transfer_identity_is_the_semantic_key() {
+    let f = Fixture::new();
+    let base = f.key.clone();
+    assert_eq!(base.id(), f.key.clone().id());
+    // An authored model and our own summary of the same flow stay distinct rows, as do the
+    // flow-local key and an instantiation at a call site.
+    let authored = TransferKey { provenance: ProvenanceClass::AuthoredModel, ..base.clone() };
+    let at_site = TransferKey { call_site: Some(f.occurrences[1].id()), ..base.clone() };
+    let derived = TransferKey { kind: TransferKind::Derived, ..base.clone() };
+    let candidate = TransferKey { modality: Modality::Candidate, ..base.clone() };
+    let ids: BTreeSet<_> = [&base, &authored, &at_site, &derived, &candidate].iter().map(|key| key.id()).collect();
+    assert_eq!(ids.len(), 5);
+    // The accumulating condition is not part of the key: alternatives differ, the key does not.
+    let widened = AssertionQualification { condition: Diagram::always().id(), ..f.qualification.clone() };
+    let other = TransferBranch::new(base.clone(), widened, Diagram::always()).unwrap();
+    assert_eq!(other.key().id(), f.branch().key().id());
+    assert_ne!(other.alternative().id(), f.branch().alternative().id());
+}

@@ -1,29 +1,18 @@
 //! The declared semantic relation model (DESIGN §15, ADR-0082).
 //!
-//! This crate owns the pure contracts of the model: relation declarations and the one registry,
-//! identity, vocabulary, the named semantic policies, the transfer algebra, the condition kernel,
-//! obligations and verdicts, the derivation-source registry, the stage table and generated DDL.
-//! It performs no I/O and depends on neither `cpg-schema` nor `cpg-core`; `lctx-postgres` applies
-//! its DDL and `cpg-core` runs its stages.
+//! `domain` is the typed semantic authority (ADR-0085): relations, identity, vocabulary, the named
+//! policies, the transfer algebra and composition, the condition kernel, obligations and verdicts,
+//! derivations, stages and generations. It performs no I/O and depends on neither `cpg-schema` nor
+//! `cpg-core`; `lctx-postgres` stores its generations and `cpg-core` runs its stages.
 //!
-//! `domain` is the reconstructed typed authority under ADR-0085. Its production subset has focused
-//! Arrow/PostgreSQL evidence. The pre-reconstruction modules below still serve the old pipeline;
-//! their removal and semantic replacement remain open in cutover plan §4.2. No adapter connects the
-//! two execution paths, and the existence of this foundation does not establish phase completion.
+//! `decl`, `id`, `legacy` and `ddl` are the pre-reconstruction declaration and identity machinery
+//! that the dormant `cpg-schema` still compiles against; `ddl` leaves in cutover phase 1 and the
+//! rest with `cpg-schema` in phases 3–5 (cutover plan §4.1.1). No adapter connects them to `domain`.
 
-pub mod calls;
-pub mod condition;
 pub mod ddl;
 pub mod decl;
-pub mod derivation;
 pub mod id;
 pub mod legacy;
-pub mod obligation;
-pub mod projection;
-pub mod relations;
-pub mod stage;
-pub mod transfer;
-pub mod vocab;
 
 pub use decl::codebook::Codebook;
 pub use id::{Digest, Id, IdHasher};

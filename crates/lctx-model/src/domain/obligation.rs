@@ -1,4 +1,5 @@
-//! Shared semantic refusal vocabulary and conservative verdict policy.
+//! Shared semantic refusal vocabulary, named budgets, discharge and conservative verdict policy.
+use std::collections::{BTreeMap,BTreeSet};
 use crate::DomainCode;
 use super::{assertion::Approximation,attribution::CoverageStatus,conditions::Diagram};
 
@@ -216,4 +217,63 @@ pub fn verdict(input: VerdictInput<'_>) -> Conclusion {
         if input.coverage == CoverageStatus::CompleteUnderStatedModel { Conclusion { verdict: Verdict::RefutedUnderModel,reason: None } }
         else { Conclusion { verdict: Verdict::Unknown,reason: Some(ObligationKind::IncompleteDomain) } }
     } else { Conclusion { verdict: if condition.is_true() { Verdict::Established } else { Verdict::Conditional },reason: None } }
+}
+
+/// A named, deterministic budget. Charging is by declared units; exhaustion is the budget's own
+/// obligation, never `false` and never a silent cap.
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+pub struct Budget { pub obligation: ObligationKind,pub limit: u64 }
+impl Budget {
+    pub const fn new(obligation: ObligationKind,limit: u64) -> Self { Self { obligation,limit } }
+    pub fn meter(self) -> Meter { Meter { budget: self,used: 0 } }
+}
+/// A budget being charged.
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+pub struct Meter { budget: Budget,used: u64 }
+impl Meter {
+    /// Charge `units`, or return the budget's obligation when they do not fit.
+    pub fn charge(&mut self,units: u64) -> Result<(),ObligationKind> {
+        match self.used.checked_add(units) {
+            Some(total) if total <= self.budget.limit => { self.used = total; Ok(()) }
+            _ => Err(self.budget.obligation),
+        }
+    }
+    pub fn used(&self) -> u64 { self.used }
+}
+
+/// Whether one origin of a claim is proved or held open, and by what.
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+pub enum Standing<P> { Proved { proof: P },Open { obligation: ObligationKind } }
+/// Per-origin proofs and open obligations over one outcome, independent of input order.
+#[derive(Clone,Debug)]
+pub struct Decisions<O,P> { proved: BTreeMap<O,P>,open: BTreeMap<O,ObligationKind> }
+impl<O,P> Default for Decisions<O,P> { fn default() -> Self { Self { proved: BTreeMap::new(),open: BTreeMap::new() } } }
+impl<O: Ord + Copy,P: Ord + Copy> Decisions<O,P> {
+    /// A proof cites an origin. Only an established or conditional proof counts; the lowest proof
+    /// identity is kept.
+    pub fn proof(&mut self,origin: O,proof: P,verdict: Verdict) {
+        if matches!(verdict,Verdict::Established|Verdict::Conditional) {
+            self.proved.entry(origin).and_modify(|p| *p = (*p).min(proof)).or_insert(proof);
+        }
+    }
+    /// An obligation keeps an origin open; the first in [`priority`] order is kept.
+    pub fn open(&mut self,origin: O,obligation: ObligationKind) {
+        self.open.entry(origin).and_modify(|o| if priority(obligation) < priority(*o) { *o = obligation; }).or_insert(obligation);
+    }
+    /// An origin is proved only when a proof cites it **and** no obligation keeps it open. An
+    /// origin nothing considered stays open as an open call.
+    pub fn decide(&self,origin: O) -> Standing<P> {
+        if let Some(&obligation) = self.open.get(&origin) { return Standing::Open { obligation }; }
+        match self.proved.get(&origin) {
+            Some(&proof) => Standing::Proved { proof },
+            None => Standing::Open { obligation: ObligationKind::CallTransfer },
+        }
+    }
+}
+/// The one discharge-validity function: a claim is discharged exactly when it has members and
+/// every member is proved. An open member is never a negative conclusion.
+pub fn discharge<O: Ord + Copy,P: Ord + Copy>(members: &BTreeSet<O>,decisions: &Decisions<O,P>) -> (bool,Vec<(O,Standing<P>)>) {
+    let standings: Vec<_> = members.iter().map(|&member| (member,decisions.decide(member))).collect();
+    let proved = !standings.is_empty() && standings.iter().all(|(_,standing)| matches!(standing,Standing::Proved { .. }));
+    (proved,standings)
 }

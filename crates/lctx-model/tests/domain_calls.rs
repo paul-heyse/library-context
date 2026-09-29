@@ -317,3 +317,42 @@ fn local_variable_places_are_shared_within_a_scope_and_distinct_across_scopes() 
     check(vec![reaching(&first),reaching(&second)]).unwrap();
     assert!(check(vec![reaching(&sibling)]).is_err(), "a use cannot be reached by another scope's variable");
 }
+
+/// The old binder's answers, re-expressed: a call binds only as a whole variant, so surplus or
+/// conflicting actuals refuse the variant instead of leaving unmapped rows.
+#[test]
+fn positional_keyword_receiver_and_refused_variants() {
+    let f = Fixture::new();
+    let bind_to = |f: &Fixture, shapes: &[ParameterShape], actuals: &[Actual]| {
+        let (signature, members, shapes) = f.signature(shapes); let (call, arguments) = f.call(actuals);
+        bind(BindingInput { target: &f.target, qualification: &f.qualification, signature_qualification: &f.qualification, destination: &f.destination,
+            channel: &f.channel, receiver: &f.receiver, signature: &signature, parameters: &members, shapes: &shapes, call: &call, arguments: &arguments })
+            .map(|bound| (bound, members))
+    };
+    let formal_of = |bound: &BoundCall, n: i64| bound.bindings().iter().find(|b| b.source == BindingSource::Actual(occurrence(n).id())).map(|b| (b.formal, b.kind.clone()));
+    let ab = [shape("a", ParameterKind::PositionalOrKeyword, true), shape("b", ParameterKind::PositionalOrKeyword, true)];
+    // f(x, y) and f(b=y, a=x) bind the same formals.
+    let (by_position, members) = bind_to(&f, &ab, &[actual(1, ArgumentKind::Positional, None), actual(2, ArgumentKind::Positional, None)]).unwrap();
+    assert_eq!(formal_of(&by_position, 1), Some((members[0].id(), BindingKind::Positional)));
+    let (by_name, _) = bind_to(&f, &ab, &[actual(2, ArgumentKind::Keyword, Some("b")), actual(1, ArgumentKind::Keyword, Some("a"))]).unwrap();
+    assert_eq!(formal_of(&by_name, 1), Some((members[0].id(), BindingKind::Keyword)));
+    assert_eq!(formal_of(&by_name, 2), Some((members[1].id(), BindingKind::Keyword)));
+    // A formal bound twice (a TypeError at run time) refuses the variant.
+    assert!(bind_to(&f, &ab, &[actual(1, ArgumentKind::Positional, None), actual(2, ArgumentKind::Keyword, Some("a"))]).is_err());
+    // Surplus positionals or unknown keywords without a collector refuse; they are never unmapped rows.
+    let strict = [shape("a", ParameterKind::PositionalOrKeyword, true)];
+    assert!(bind_to(&f, &strict, &[actual(1, ArgumentKind::Positional, None), actual(2, ArgumentKind::Positional, None)]).is_err());
+    assert!(bind_to(&f, &strict, &[actual(1, ArgumentKind::Positional, None), actual(2, ArgumentKind::Keyword, Some("z"))]).is_err());
+    // Keyword-only formals take only keywords.
+    let keyword_only = [shape("k", ParameterKind::KeywordOnly, true)];
+    assert!(bind_to(&f, &keyword_only, &[actual(1, ArgumentKind::Keyword, Some("k"))]).is_ok());
+    assert!(bind_to(&f, &keyword_only, &[actual(1, ArgumentKind::Positional, None)]).is_err());
+    // `**kw` unpacking is unsupported, never an error or an ambiguous partial binding.
+    assert_eq!(bind_to(&f, &ab, &[actual(1, ArgumentKind::Positional, None), actual(2, ArgumentKind::DoubleStarred, None)]).unwrap_err(), ObligationKind::UnsupportedUnpacking);
+    // A bound receiver takes the first formal; the next actual the second.
+    let mut bound = Fixture::new(); bound.receiver = Receiver::Bound { actual: occurrence(9).id() }; bound.target.receiver = bound.receiver.id();
+    let (method, members) = bind_to(&bound, &[shape("self", ParameterKind::PositionalOrKeyword, true), shape("x", ParameterKind::PositionalOrKeyword, true)],
+        &[actual(2, ArgumentKind::Positional, None)]).unwrap();
+    assert_eq!(formal_of(&method, 9), Some((members[0].id(), BindingKind::Receiver)));
+    assert_eq!(formal_of(&method, 2), Some((members[1].id(), BindingKind::Positional)));
+}

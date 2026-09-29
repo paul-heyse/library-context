@@ -58,7 +58,6 @@ pub fn new_session(options: SessionOptions) -> SessionContext {
         .build();
     let ctx = SessionContext::new_with_state(state);
     ctx.register_udf(crate::udf::lctx_id());
-    ctx.register_udf(crate::udf::lctx_id_v2());
     ctx
 }
 
@@ -87,7 +86,7 @@ mod tests {
         assert_eq!(options.optimizer.hash_join_inlist_pushdown_max_size, 0);
         assert_eq!(options.optimizer.hash_join_inlist_pushdown_max_distinct_values, 0);
         assert_eq!(options.execution.target_partitions, TARGET_PARTITIONS);
-        assert!(ctx.udf("lctx_id").is_ok() && ctx.udf("lctx_id_v2").is_ok());
+        assert!(ctx.udf("lctx_id").is_ok() && ctx.udf("lctx_id_v2").is_err());
     }
 
     /// The pool bounds every operator: a sort that cannot fit is refused, not truncated.
