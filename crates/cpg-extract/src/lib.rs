@@ -20,6 +20,7 @@ mod public;
 mod pysa_map;
 mod syntax;
 pub mod typed_syntax;
+pub mod typed_stages;
 mod types;
 mod walk;
 

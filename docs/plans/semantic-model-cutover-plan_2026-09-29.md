@@ -634,6 +634,25 @@ Preflight refuses:
 
 `FactsAdmission` literal construction fails to compile. Coverage without a provider is refused, and the provider changes the schedule digest |
 | R-review corrections: `cargo test --release -p lctx-model --test domain_resources --test domain_stages --test domain_types`; `-p cpg-extract --test typed_limits --test typed_conformance`; `-p lctx-postgres --test generations --test generation_stages --test domain_types`; workspace check | passed 2026-09-29: a refused writer takes no further row and never finishes, and a stage that lost rows cannot be receipted (reservation 0); a 2,000-member union shared by 600 presentations validates; an opaque term verified display-only still refuses a structural support; a refused traversal's prefix is ancestor-closed; source-size and traversal refusals map to Unavailable/Partial `ResourceRefused`; the 70 MiB row is `ModelError::Limit` (resource review F01–F04, F09) |
+| E1: `cargo test --release -p cpg-extract --test typed_conformance --test typed_limits --test typed_owner`; `-- --ignored typed_subset_envelope` with `LCTX_P0E_INPUT` = the pinned fastmcp 4.0.5 package; `-p lctx-model --test domain_resources --test domain_stages`; workspace check | passed 2026-09-29.
+
+Contract changes: permanent `typed_syntax::{syntax_provider, extract, SyntaxFacts}` and `typed_stages::{capture_stage, syntax_stage, run_capture, run_syntax}`; `StageOutput::push_batch`; `ResourceBudget::peak`.
+
+Controls:
+- the subset schedule fails facts preflight;
+- two captures give the same memory digest;
+- coverage is artifact-grain Partial (`OutsideProviderModel`/`SyntaxError`) and Unavailable(`UndecodableSource`), and undecodable bytes never reach Pyrefly;
+- a source over `source_bytes` is Unavailable(`ResourceRefused`), is never given to Pyrefly and leaves the others intact;
+- `nodes = 2` keeps the ancestor-closed prefix [0], [0,0] as Partial(`ResourceRefused`);
+- a 16 KiB budget refuses with reservation 0;
+- changed text is refused;
+- a real PG18 conformance generation (begin → stages → seal(receipt) → validate → publish) equals the memory digest and occurrences and is not selectable (`Frontier`).
+
+Envelope (Measured, [evidence](../design_review/evidence/2026-09-29_p0e-subset-envelope/README.md)):
+- 257 files, 243,840 occurrences, 93,582 observations;
+- peak reservation 209 MB, peak RSS 535 MB;
+- extraction 9.7 s, validation 18.4 s;
+- half the peak refuses mid-extraction with reservation 0 (resource review F02/F04 controls) |
 | `just fmt`, `just test-all`, facts pilots | not_run: functional scope incomplete |
 
 Independent bounded reviewers accepted artifact/capture/acquisition corrections and the

@@ -338,7 +338,7 @@ impl<'o, 'e, 's, S: StageSink> StageOutput<'o, 'e, 's, S> {
             return Err(ModelError::Invalid(format!("{} cannot declare output {} twice or outside its stage", self.access.stage.name, R::NAME)));
         }
         let writer = BatchWriter::<R>::new(&self.budget, self.limits)?;
-        self.outputs.push((TypeId::of::<R>(), Box::new(Output { writer, written: false })));
+        self.outputs.push((TypeId::of::<R>(), Box::new(Output { writer, written: false, pushed: false, batched: false })));
         Ok(())
     }
     pub async fn push<R: Record>(&mut self, row: R) -> Result<(), ModelError> {
@@ -346,12 +346,28 @@ impl<'o, 'e, 's, S: StageSink> StageOutput<'o, 'e, 's, S> {
         let output = self.outputs.iter_mut().find(|(t, _)| *t == TypeId::of::<R>())
             .ok_or_else(|| ModelError::Invalid(format!("{} has not declared output {}", stage, R::NAME)))?;
         let output = output.1.as_any().downcast_mut::<Output<R>>().expect("output entry matches its type id");
+        if output.batched { return Err(ModelError::Invalid(format!("{} writes {} by batches; rows cannot join them", stage, R::NAME))); }
+        output.pushed = true;
         match output.writer.push(self.model, row) {
             Ok(Some(batch)) => { emit(&mut self.access, self.sink, batch).await?; output.written = true; Ok(()) },
             Ok(None) => Ok(()),
             // A lost row cannot be recovered by the producer: the attempt fails.
             Err(error) => { self.access.execution.failed = true; Err(error) },
         }
+    }
+    /// Write a batch a producer already built with its own transfer-bounded writer; the batch keeps
+    /// its reservation until the sink has it. An output is written by rows or by batches, never
+    /// both, so one writer owns its duplicates.
+    pub async fn push_batch<R: Record>(&mut self, batch: Batch<R>) -> Result<(), ModelError> {
+        let stage = self.access.stage.name;
+        let output = self.outputs.iter_mut().find(|(t, _)| *t == TypeId::of::<R>())
+            .ok_or_else(|| ModelError::Invalid(format!("{} has not declared output {}", stage, R::NAME)))?;
+        let output = output.1.as_any().downcast_mut::<Output<R>>().expect("output entry matches its type id");
+        if output.pushed { return Err(ModelError::Invalid(format!("{} writes {} by rows; batches cannot join them", stage, R::NAME))); }
+        output.batched = true;
+        emit(&mut self.access, self.sink, batch).await?;
+        output.written = true;
+        Ok(())
     }
     /// Flush every declared output, then record the provider outcome for the stage.
     pub async fn finish(mut self, outcome: ProviderOutcome) -> Result<(), ModelError> {
@@ -383,7 +399,7 @@ impl<R: Record> PendingContribution for Contribution<R> {
         match self.writer.finish(model)? { Some(batch) => access.contribute(Arc::new(batch)), None => Ok(()) }
     }
 }
-struct Output<R: Record> { writer: BatchWriter<R>, written: bool }
+struct Output<R: Record> { writer: BatchWriter<R>, written: bool, pushed: bool, batched: bool }
 trait PendingOutput<S: StageSink>: Send {
     fn as_any(&mut self) -> &mut dyn Any;
     fn flush<'x>(self: Box<Self>, model: &'x ValidatedModel, access: &'x mut StageAccess<'_, '_>, sink: &'x S)
@@ -394,7 +410,7 @@ impl<R: Record, S: StageSink> PendingOutput<S> for Output<R> {
     fn flush<'x>(self: Box<Self>, model: &'x ValidatedModel, access: &'x mut StageAccess<'_, '_>, sink: &'x S)
         -> Pin<Box<dyn Future<Output = Result<(), ModelError>> + Send + 'x>> {
         Box::pin(async move {
-            let Output { mut writer, mut written } = *self;
+            let Output { mut writer, mut written, .. } = *self;
             // Contributed vocabulary merges into this stage's own output; equal rows appear once.
             for batch in access.take_contributions::<R>()? {
                 for row in batch.rows() {

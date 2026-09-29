@@ -13,6 +13,8 @@ pub trait ResourcePool: std::fmt::Debug + Send + Sync {
     fn reserve(&self, owner: &'static str, bytes: usize) -> Result<Box<dyn Reservation>,ModelError>;
     fn reserved(&self) -> usize;
     fn limit(&self) -> usize;
+    /// The highest reservation total so far, where the pool tracks it.
+    fn peak(&self) -> Option<usize> { None }
 }
 pub trait Reservation: std::fmt::Debug + Send + Sync {
     fn size(&self) -> usize;
@@ -23,7 +25,7 @@ pub struct ResourceBudget(Arc<dyn ResourcePool>);
 impl ResourceBudget {
     pub fn fixed(limit: usize) -> Result<Self,ModelError> {
         if limit == 0 { return Err(ModelError::Invalid("memory limit must be positive".into())); }
-        Ok(Self(Arc::new(FixedPool(Arc::new(FixedState { limit,used: AtomicUsize::new(0) })))))
+        Ok(Self(Arc::new(FixedPool(Arc::new(FixedState { limit,used: AtomicUsize::new(0),peak: AtomicUsize::new(0) })))))
     }
     pub fn from_pool(pool: Arc<dyn ResourcePool>) -> Result<Self,ModelError> {
         if pool.limit() == 0 { return Err(ModelError::Invalid("memory limit must be positive".into())); }
@@ -32,10 +34,11 @@ impl ResourceBudget {
     pub fn reserve(&self, owner: &'static str, bytes: usize) -> Result<Box<dyn Reservation>,ModelError> { self.0.reserve(owner,bytes) }
     pub fn reserved(&self) -> usize { self.0.reserved() }
     pub fn limit(&self) -> usize { self.0.limit() }
+    pub fn peak(&self) -> Option<usize> { self.0.peak() }
     pub fn shares_pool(&self, other: &Self) -> bool { Arc::ptr_eq(&self.0,&other.0) }
 }
 #[derive(Debug)]
-struct FixedState { limit: usize, used: AtomicUsize }
+struct FixedState { limit: usize, used: AtomicUsize, peak: AtomicUsize }
 #[derive(Debug)]
 struct FixedPool(Arc<FixedState>);
 #[derive(Debug)]
@@ -47,14 +50,16 @@ impl ResourcePool for FixedPool {
     }
     fn reserved(&self) -> usize { self.0.used.load(Ordering::Relaxed) }
     fn limit(&self) -> usize { self.0.limit }
+    fn peak(&self) -> Option<usize> { Some(self.0.peak.load(Ordering::Relaxed)) }
 }
 impl Reservation for FixedReservation {
     fn size(&self) -> usize { self.size }
     fn try_resize(&mut self, bytes: usize) -> Result<(),ModelError> {
         if bytes > self.size {
             let additional = bytes-self.size;
-            self.state.used.try_update(Ordering::Relaxed,Ordering::Relaxed,|used| used.checked_add(additional).filter(|new| *new <= self.state.limit))
+            let previous = self.state.used.try_update(Ordering::Relaxed,Ordering::Relaxed,|used| used.checked_add(additional).filter(|new| *new <= self.state.limit))
                 .map_err(|used| ModelError::Resource { owner: self.owner,requested: additional,used,limit: self.state.limit })?;
+            self.state.peak.fetch_max(previous + additional,Ordering::Relaxed);
         } else { self.state.used.fetch_sub(self.size-bytes,Ordering::Relaxed); }
         self.size = bytes; Ok(())
     }
