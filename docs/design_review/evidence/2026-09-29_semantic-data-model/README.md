@@ -24,7 +24,7 @@ from `rust-toolchain.toml`. Date: 2026-09-29.
 
 And do the controls hold?
 
-**Fixture.** [`p0-fixture/p0shapes/__init__.py`](p0-fixture/p0shapes/__init__.py). It has:
+**Fixture.** [`fixtures/python/semantic_shapes/p0shapes/__init__.py`](../../../../fixtures/python/semantic_shapes/p0shapes/__init__.py), moved there on 2026-09-29 as the cutover's known-answer fixture (cutover plan WP0.9). It has:
 - `Config(timeout, title)` and a field reader;
 - `identity` called twice in `pair`;
 - the external review's `select_timeout`/`fetch`;

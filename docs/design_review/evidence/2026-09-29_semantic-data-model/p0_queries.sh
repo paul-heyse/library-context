@@ -6,7 +6,7 @@ E=docs/design_review/evidence/2026-09-29_semantic-data-model
 W=${1:?scratch directory}
 rm -rf "$W/p0-store" "$W/p0-gen"
 snap=$(./target/release/lctx compile-fixture --package p0shapes --profile behavioral --seed p0shapes.fetch \
-  --store "$W/p0-store" --generations "$W/p0-gen" "$E/p0-fixture" | awk '/^snapshot/{print $2}')
+  --store "$W/p0-store" --generations "$W/p0-gen" fixtures/python/semantic_shapes | awk '/^snapshot/{print $2}')
 q() { ./target/release/lctx query --store "$W/p0-store" --snapshot "$snap" "$1"; }
 echo "snapshot $snap"
 echo "## summary_flows"

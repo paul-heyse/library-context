@@ -92,23 +92,37 @@ The duplicated semantic decisions and served-fidelity findings are recorded in r
 ### 3.2 Store kernel (`lctx-postgres`)
 
 **Layout.**
-- Schema `lctx` holds the canonical relations. Each is partitioned by `generation_id`.
+- Schema `lctx` holds one list-partitioned parent per canonical relation. The partition key is
+  `generation_id`; legacy relations keep their `snapshot_id` column name until re-declared (§4.1 D6).
 - Codebook tables live alongside them.
-- A `generations` registry records state, profile, compiler and producer digests, content digest,
-  timestamps and receipts.
-- Roles are `lctx_owner`, `lctx_writer` (staging only) and `lctx_reader` (published only).
+- A `generations` registry records state, profile, `ddl_digest`, compiler, producer and content
+  digests, timestamps and receipts. `generation_relations` holds per-relation receipts,
+  `generation_events` holds transitions and stage receipts, and `relations` is the installed
+  relation catalog.
+- Each generation's partitions live in their own schema, `lctx_g<32hex>`.
+- **Roles.** The abstract roles are owner, writer (staging only) and reader (published only). They
+  are the existing `lctx_migrator`, `lctx_importer` and `lctx_serving` roles (§4.1 D5).
+- **DDL.** The canonical DDL is generated from the declarations and installed by an explicit
+  `lctx store install`, which records its digest. A contract change is an explicit `lctx store reset`
+  (§4.1 D3).
 
-**Lifecycle API:** `create_generation` → staging partitions → `copy_batches` (binary COPY via pgpq) →
-constraint validation → `publish` (one transaction; partitions become read-only) → `select`/`pin` →
-`retire` (drop partitions).
+**Lifecycle API:** `create_generation` (owner-created staging tables with partition CHECKs) →
+`copy_batches` (binary COPY via pgpq, straight into staging) → `mark_validated` (indexes built;
+DataFusion validators passed) or `fail_generation` → `publish_generation` (one SECURITY DEFINER
+transaction that attaches every partition and revokes writer access) → `select_generation` →
+`retire_generation` (`DETACH … CONCURRENTLY`, then drop the schema).
 
-**How constraints are checked.** Staging tables are loaded, then attached with constraint validation
-inside the publish transaction. Loading unlogged, deferring validation and tuning index builds are
-later performance options.
+**How constraints are checked.**
+- COPY enforces NOT NULL and CHECKs.
+- Index builds before `mark_validated` enforce keys.
+- ATTACH validates references.
+
+Loading unlogged, deferring validation and tuning index builds are later performance options.
 
 **Reading from DataFusion.** A DataFusion `SessionContext` is registered over a pinned generation
-through the owned provider fork. `lctx query --generation` uses it. A DataFusion memory pool is
-configured for every session, which also bounds recursive CTEs (review F07).
+through the owned provider fork. The canonical read mode lives in `cpg-core::store_read` (§4.1 D14).
+`lctx query --generation` uses it. A DataFusion memory pool is configured for every session, which
+also bounds recursive CTEs (review F07).
 
 **Tests** run on testcontainers PostgreSQL 18. They cover:
 - the lifecycle;
@@ -121,14 +135,24 @@ configured for every session, which also bounds recursive CTEs (review F07).
 ### 3.3 Stage table and orchestrator
 
 **Declarations.**
-- Every stage declares its input relations, output relations, effect class (pure, extraction, store,
-  embedding) and code identity.
+- Every stage declares:
+  - its input relations and output relations;
+  - its **transients**: in-memory handoffs that are never published;
+  - its declared **context** keys: digested non-relation attempt inputs;
+  - its effect class (pure, extraction, store, embedding). Embedding stages share one embedding
+    capability, and a single receipt stage writes the consumed-vector relations;
+  - the profiles it runs in;
+  - its code identity.
 - Legacy stages are declared the same way during the migration, marked `legacy`.
 
 **What is derived and checked.**
-- `attempt::finish` is replaced by a scheduler derived from the table. It uses the canonical
-  Kahn/callee-first helper already used by the SCC schedule.
-- Missing writers, double writers, cycles and reads before writes are refused.
+- `attempt::finish` is replaced by a scheduler derived from the table: a pure Kahn order with a
+  deterministic tie-break.
+- The scheduler refuses:
+  - a published relation without exactly one writer per profile;
+  - a transient read before it is written;
+  - cycles.
+- At run time, each stage's session holds only its declared inputs, so an undeclared read fails.
 - Code identity generalizes the existing `build.rs` digests. The build-digest omission (review F11) is
   fixed: producer identity covers every canonical producer.
 - Reuse keeps recompute-and-compare admission.
@@ -166,7 +190,7 @@ Where a new recipe changes an ID (atoms, places, occurrences, flow facts, transf
 **Corpus**
 - every fixture package under `fixtures/python/` (compiled with `compile-fixture`, behavioral
   profile);
-- the review's P0 fixture;
+- the review's P0 fixture, now `fixtures/python/semantic_shapes/`;
 - the FastMCP pilot in the catalog and behavioral profiles.
 
 **How it runs.** Dual-run in one attempt: the legacy producer, then the new producer plus adapters.
@@ -208,6 +232,9 @@ Each phase lists work packages (WP) with their owning crate or module and deleti
 
 **Timing of checks**
 - During a phase: compile checks and focused tests only (AGENTS.md).
+- **Phases 0 and 1 are one implementation scope for check timing** (operator, 2026-09-29):
+  - the phase-0 exit runs its targeted tests and the WP0.10 review only;
+  - the integrated gates below run once, at the phase-1 exit.
 - At the phase exit, the phase is the authorized scope for integrated gates. The exit runs, in order:
   1. the parity report;
   2. `just fmt`;
@@ -223,13 +250,13 @@ Outcomes are reported as passed, failed, blocked or not_run, with the command.
 
 | WP | Scope and owner | Done when |
 |---|---|---|
-| 0.1 | `crates/lctx-model` scaffold; workspace and Hakari registration; `lctx-model` depends on neither `cpg-schema` nor `cpg-core` | builds; `just deps` passes |
+| 0.1 | `crates/lctx-model` scaffold; workspace and Hakari registration; `lctx-model` depends on neither `cpg-schema` nor `cpg-core`. Shared primitives (`Id`, `Digest`, `HashField`, `ArrowColumn`, `Codebook`) move into it and `cpg-schema` re-exports them (§4.1 D1) | builds; every `cpg-schema` snapshot unchanged (`just deps` runs at the phase-1 exit) |
 | 0.2 | `relation!`/`codebook!`, the `RelationId` registry, generated types, DDL and view text (`decl`, `ddl`) | snapshot of generated DDL for the sample declarations; no hand inventory API exists |
 | 0.3 | `IdKind`, `IdHasher` v2, recipes; `lctx_id` v2 UDF adapter in `cpg-core` with shared known answers | identity property tests: identity columns change the ID, provenance columns do not |
 | 0.4 | Vocabulary and policies (`vocab`, `calls`, `transfer`, `obligation`, `derivation`, `projection`): owner rule, innermost-region join, five call policies, binder, effective-callable contract, composition table, obligation codebook with legacy mapping, priority, named budgets, verdict and discharge validity | known-answer suites: binder over positional, keyword, default, varargs, kwargs, receiver and ambiguous calls; the policy admission matrix; the composition table; verdict cases |
 | 0.5 | Condition kernel ported to `condition` with atom identity v2 and rendering; the legacy kernel in `cpg-schema` stays for legacy code until phase 4 | ported kernel tests pass; the rendering truncation control passes |
-| 0.6 | Store kernel (§3.2) with DataFusion memory pool | the store test list passes |
-| 0.7 | Stage table and scheduler (§3.3) | refusal controls for missing, double and read-before-write writers |
+| 0.6 | Store kernel (§3.2) with DataFusion memory pool; the canonical provider read mode and session factory in `cpg-core`; the owned provider fork decodes declared `List` columns | the store test list passes, including the Arrow → COPY → provider type matrix |
+| 0.7 | Stage table and scheduler (§3.3); the legacy stage table declared as data, with a declared-dependency audit; per-stage code identity (F11) | refusal controls for missing, double and read-before-write writers; the legacy table's published outputs equal the 200 legacy relations |
 | 0.8 | Adapter, legacy-ID and parity frameworks (§3.4–§3.6); `lctx parity` | the parity self-test passes |
 | 0.9 | Known-answer shape library (§3.7) | used by 0.4 and 0.5 |
 | 0.10 | **Design/target review** of the core contracts against §15 (fresh `design-reviewer`) | accepted, or its revisions applied |
@@ -240,14 +267,37 @@ Phase 0 deletes nothing; legacy stays whole.
 
 | WP | Scope and owner | Done when |
 |---|---|---|
-| 1.1 | Legacy DDL shim: generate partitioned tables, keys, NOT NULL and CHECKs for the 201 legacy `table!` contracts. Legacy validation stays in the DataFusion rules; no legacy FKs are added | shim DDL snapshot |
-| 1.2 | Attempt publication through the generation lifecycle (`cpg-core::attempt`, the store kernel); Delta written in parallel only for parity | both stores published by one attempt |
-| 1.3 | Readers moved to pinned-generation provider reads: `rebuild`, `stage_cache`, `lctx query`/`diff`/`snapshots`/`generations`, validation read paths, `scripts/postgres_recovery.py`, `tests/scripts/test_semantic_soundness.py` | reader tests on PostgreSQL |
-| 1.4 | Serving materialization inside the database: bundle SQL runs over the canonical generation into the existing `lctx_serving` tables; native IPC artifacts come from the generation; manifest and `generation_digest` semantics are kept | serving rows identical to the Delta-derived bundle |
-| 1.5 | Dev environment: `just pg-dev` (disposable local PostgreSQL 18 in Docker); `just pilot` and `compile-fixture` use it | fixture compile runs without the operator's database |
-| 1.6 | **Parity:** all 201 relations, Delta against PostgreSQL, across the corpus; serving rows; MCP journeys in both profiles | report archived |
-| 1.7 | **Delete Delta.** Remove `delta.rs`, `snapshot.rs`, Delta tests (their semantics rewritten as store tests) and the `deltalake` dependency. Record the pin change through `pin-check`, with a family record superseding ADR-0002. Update `scripts/check_family.py`. Retire or replace the ast-grep rules `delta-write-path.yml` and `no-raw-parquet-scan.yml`. Drop `deltalake` from `.config/library-skills.toml`. Rewrite storage §6 to the implemented store. Update AGENTS.md and the binding §5/§6 rows | `rg deltalake` is empty |
-| 1.8 | **Change/conformance review** | accepted |
+| 1.0 | One declared type regime: the legacy read-back registers declared-type batches; `Params::ids` binds `List<FixedSizeBinary(n)>`; every session comes from the session factory (§4.1 D8) | existing compile, analysis and behavior tests and snapshots unchanged |
+| 1.1 | Legacy DDL shim: generate partitioned tables, keys, NOT NULL and CHECKs for the 200 legacy `table!` contracts. The `snapshots` contract is replaced by the registry. Legacy validation stays in the DataFusion rules; no legacy FKs are added | shim DDL snapshot; install on PG18; every legacy schema round-trips through COPY and the provider |
+| 1.2 | `pipeline::compute` (in memory, stage-table scheduled, input-restricted sessions) and `publish` through the generation lifecycle. Stage bodies are extracted verbatim so the legacy `finish` and the pipeline share them. Compile tests become store-free; publication semantics become store tests (§4.1 D7–D9) | converted tests pass; publication store tests pass |
+| 1.3 | Readers moved to pinned-generation provider reads: `rebuild` (reuse by server-side copy), `stage_cache`, `lctx query`/`diff`/`generations`, validation read paths, `db report`; `lctx_ops` and `db reconcile` deleted (§4.1 D11); `scripts/postgres_recovery.py`, `postgres_backup.py`, `tests/scripts/test_semantic_soundness.py` | reader tests on PostgreSQL |
+| 1.4 | Serving from the generation: the bundle queries run over the `Computed` session (compile) or the provider session (`serving materialize`/`export`); the existing `lctx_serving` loader is fed from memory; native IPC artifacts come from the generation; manifest and `generation_digest` semantics are kept. The portable export and `import-bundle` remain as declared test-continuity compatibility until phase 5 (§4.1 D10) | both sessions materialize identical manifests; the export rebuilds to the same bytes |
+| 1.5 | Dev environment: `just pg-dev` (disposable local PostgreSQL 18 in Docker); `just pilot` and `compile-fixture` use it; one role bootstrap file | fixture compile runs without the operator's database |
+| 1.6 | **Parity:** all 200 relations, Delta against PostgreSQL, across the corpus; registry receipts; serving manifests; MCP journeys in both profiles; a cross-binary row-count and journey sanity check against the `fedd4a0` pilot | report archived |
+| 1.7 | **Delete Delta.** Remove `delta.rs`, `snapshot.rs`, the legacy `finish`, Delta tests (their semantics rewritten as store tests) and the `deltalake` dependency. Edit `build.rs` `ENGINES`. Record the pin change through `pin-check`, with a family record superseding ADR-0002. Update `scripts/check_family.py` and `deny.toml`. Retire the ast-grep rules `delta-write-path.yml` and `no-raw-parquet-scan.yml`. Drop `deltalake` from `.config/library-skills.toml`. Rewrite storage §6 to the implemented store. Update AGENTS.md and the binding §5/§6 rows | `rg -i 'deltalake\|delta_kernel\|buoyant_kernel\|DeltaTable'` over code and configuration is empty |
+| 1.8 | **Integrated gates, run once for phases 0–1**, then the **change/conformance review** | accepted |
+| 1.9 | Operator cutover: migrate the operator database, recompile and select the pilot, delete superseded stores and generations (ADR-0078). Needs the operator's confirmation at that time | recorded |
+
+### 4.1 Phase 0–1 execution decisions (2026-09-29)
+
+These decisions execute ADR-0083 and ADR-0084 without changing them.
+
+| # | Decision | Reason |
+|---|---|---|
+| D1 | `lctx-model` sits below `cpg-schema`. `Id`, `Digest`, `HashField`, `ArrowColumn` and `Codebook` move into it, and `cpg-schema` re-exports them. The v1 `IdHasher` stays legacy | One `Id` type, so adapters never convert |
+| D2 | `relation!` is `macro_rules!` with one `model!` registry. Everything but row types is generated at run time from const metadata | No proc-macro crate; one registry |
+| D3 | Canonical DDL is generated at run time. It is installed by `lctx store install` with a recorded `ddl_digest`, which `create_generation` checks. A contract change is `lctx store reset` (current-only). The static kernel stays in SQLx migrations | Successor of Delta's create/verify. No committed generated copy exists to drift (F10) |
+| D4 | One schema `lctx_g<hex>` per generation. The owner creates staging tables with partition CHECKs; the writer COPYs directly; indexes are built at `mark_validated`; publish is one ATTACH transaction plus a revoke; retire is `DETACH … CONCURRENTLY` plus DROP | No double write or per-row trigger. Immutability comes from privileges. Names stay within 63 bytes |
+| D5 | The roles keep their existing names: owner `lctx_migrator`, writer `lctx_importer`, reader `lctx_serving`, cache `lctx_app`. One bootstrap SQL file | Avoids churning the serving grants before phase 5 regenerates migrations |
+| D6 | Legacy relations keep `snapshot_id` as the partition-key column; its value is the generation id (a declared quirk) | Renaming would be throwaway before phases 2–5 |
+| D7 | `pipeline::compute` holds every relation in memory as `Arc`'d declared-type batches, then `publish` stages all of them. The generation is validated only if the in-memory validators passed; otherwise it fails and stays inspectable (`--unpublished`) | ADR-0083 compute model; keeps the Tested rejected-attempt inspection |
+| D8 | The parity legacy side (declared compatibility, deleted in 1.7): one declared type regime first (1.0), then verbatim stage extraction, so the legacy `finish` and the pipeline share stage bodies. Dual-run in one process over the same raw batches and generation id | Parity then isolates exactly the store and orchestration change |
+| D9 | Compile tests become store-free; publication and reader semantics become testcontainers store tests (`#[ignore]`, `just test-postgres`) | `just test` stays Docker-free |
+| D10 | Serving: bundle queries over the `Computed` or provider session; the `lctx_serving` loader is fed from memory; the portable export and `import-bundle` stay as the Python tests' independent oracle until phase 5 | Test outcomes stay continuous; legacy serving is removed in phase 5 |
+| D11 | `lctx_ops` and `db reconcile` are deleted; the registry and `generation_events` supersede them | Discovery and journaling existed because the store was outside PostgreSQL |
+| D12 | `--store <dir>` becomes `--database` plus `--work <dir>`; `--snapshot` becomes `--generation` | The store is the database |
+| D13 | `GenerationId` (16 bytes, canonical) and `ProjectionDigest` (32 bytes, legacy serving) are never blurred | "Generation" already had three meanings |
+| D14 | The canonical provider session and session factory live in `cpg-core`; `lctx-postgres` keeps SQL effects only, amending §15.1's owner line | The PyO3 `lctx_storage` wheel must not link DataFusion |
 
 ### Phase 2 — Facts (L0 observations)
 
@@ -308,7 +358,7 @@ the stage table in WP0.7 and kept current there; this table fixes the policy.
 | Raw tables (`for_each_table!`) | 57 | Phase 2 | Phases 2–3; those read by analysis live until phase 4 | Delete as soon as no legacy stage reads them |
 | Derived tables (`for_each_derived_table!`) | 22 | Phase 3 | Phase 3 to phase 4 | Graph-catalog tables co-migrate with Pass A where possible |
 | Analysis, catalog and evidence tables (`for_each_analysis_table!`) | 121 | Phase 4 | Phase 4 to phase 5, only for serving-read tables | Unserved tables co-migrate with their consumers |
-| Serving files and native files | 72 + 29 | Phase 5 | None; replaced by generated views | — |
+| Serving files and native files | 72 + 29 | Phase 5 | None; replaced by generated views. The portable export and `import-bundle` remain the Python tests' oracle until then (§4.1 D10) | — |
 
 ## 6. Research-engine and analytics triage (phase 4 entry)
 
@@ -364,7 +414,7 @@ phase named, and only on its closure evidence.
 | [F08](../design_review/reviews/design_review_semantic-data-model_2026-09-29.md#F08) no derived-result contract; lineage gaps | open → phase 4 | 4.6, 4.7 | one emitter; input invocations; finding-ID rule; derivation views |
 | [F09](../design_review/reviews/design_review_semantic-data-model_2026-09-29.md#F09) nominal projection layer | open → phases 3–4 | 3.2, 4.6 | projection by declaration; ADR-0044 amendment (made 2026-09-29) |
 | [F10](../design_review/reviews/design_review_semantic-data-model_2026-09-29.md#F10) serving is a second hand authority | open → phases 0, 5 | 0.2, 5.1, 5.5 | generated DDL, views and inventories; no hand serving file |
-| [F11](../design_review/reviews/design_review_semantic-data-model_2026-09-29.md#F11) implicit stage composition; producer identity mislabelled | open → phase 0 | 0.7 | stage-table refusal controls; producer identity covers every canonical producer |
+| [F11](../design_review/reviews/design_review_semantic-data-model_2026-09-29.md#F11) implicit stage composition; producer identity mislabelled | open → phases 0–1 | 0.7, 1.2 | stage-table refusal controls; producer identity covers every canonical producer; the pipeline schedules from the table |
 | [F12](../design_review/reviews/design_review_semantic-data-model_2026-09-29.md#F12) per-request rebuilds and round trips | open → phase 5 | 5.1 | generation-scoped prepared catalog; set-based hydration |
 | [F13](../design_review/reviews/design_review_semantic-data-model_2026-09-29.md#F13) pilot recognizer; lexical parameters outside the digest | open → phases 4–5 | 4.4, 5.4 | named authored model; policy digest |
 | Review observations: browse unknown ownership, `EmptyUnderCoverage`, lexical-only reason | open → phase 5 | 5.1 | disclosed in responses |
