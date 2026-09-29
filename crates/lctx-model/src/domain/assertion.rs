@@ -15,7 +15,8 @@
 //! #[assertion(support = GoodSupport, name = "good_supports", family = FactFamily::Syntax, subjects(occurrence))]
 //! struct Good { #[model(key)] qualification: Id<AssertionQualification>, #[model(key)] occurrence: Id<Occurrence> }
 //! ```
-use std::collections::{BTreeMap, BTreeSet};
+use super::charged::{ChargedMap, ChargedSet, StateCharge};
+use std::collections::BTreeSet;
 use std::marker::PhantomData;
 use crate::{Domain, DomainCode, DomainSum};
 use super::{*, attribution::*, source::*, input::*, conditions::*, value::{Place,PlaceRoot,Predicate}, transfer::TransferKey};
@@ -153,33 +154,32 @@ fn qualification_invariants() -> Vec<Invariant> {
     vec![Invariant { name: "qualification_condition_context", inputs: vec![
         ValidationInput::of::<EvaluationAtom>(&["id"]), ValidationInput::of::<ConditionNode>(&["id"]),
         ValidationInput::of::<Condition>(&["id"]), ValidationInput::of::<AssertionQualification>(&["id"]),
-    ], create: std::sync::Arc::new(|| Box::new(QualificationCheck::default())) }]
+    ], create: std::sync::Arc::new(|budget| Box::new(QualificationCheck { charge: StateCharge::new(budget, "qualification_condition_context"), ..Default::default() })) }]
 }
 #[derive(Default)]
 struct QualificationCheck {
-    atoms: BTreeMap<Id<EvaluationAtom>, Id<AnalysisContext>>,
-    nodes: BTreeMap<Id<ConditionNode>, ConditionNode>,
-    contexts: BTreeMap<Id<Condition>, BTreeSet<Id<AnalysisContext>>>,
-    visits: usize,
+    charge: StateCharge,
+    atoms: ChargedMap<Id<EvaluationAtom>, Id<AnalysisContext>>,
+    nodes: ChargedMap<Id<ConditionNode>, ConditionNode>,
+    contexts: ChargedMap<Id<Condition>, BTreeSet<Id<AnalysisContext>>>,
 }
 impl InvariantCheck for QualificationCheck {
     fn visit(&mut self, relation: &str, batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
         if relation == EvaluationAtom::NAME {
-            for row in EvaluationAtom::decode(batch)? { self.atoms.insert(row.id(), row.context); }
+            for row in EvaluationAtom::decode(batch)? { self.atoms.insert(&mut self.charge, row.id(), row.context)?; }
         } else if relation == ConditionNode::NAME {
-            for row in ConditionNode::decode(batch)? { self.nodes.insert(row.id(), row); }
+            for row in ConditionNode::decode(batch)? { self.nodes.insert(&mut self.charge, row.id(), row)?; }
         } else if relation == Condition::NAME {
             for row in Condition::decode(batch)? {
+                // Each root's closure is bounded by the kernel's node and atom limits.
                 let closure = super::conditions::kernel::closure(row.root, &self.nodes)?;
-                self.visits += closure.len();
-                if self.visits > 1_000_000 { return Err(invalid("qualification closure work budget exceeded")); }
                 let mut contexts = BTreeSet::new();
                 for id in closure {
                     if let ConditionNode::Branch { atom, .. } = &self.nodes[&id] {
                         contexts.insert(*self.atoms.get(atom).ok_or_else(|| invalid("condition atom missing"))?);
                     }
                 }
-                self.contexts.insert(row.id(), contexts);
+                self.contexts.insert(&mut self.charge, row.id(), contexts)?;
             }
         } else if relation == AssertionQualification::NAME {
             for row in AssertionQualification::decode(batch)? {
@@ -187,7 +187,6 @@ impl InvariantCheck for QualificationCheck {
                 if contexts.iter().any(|context| *context != row.context) { return Err(invalid("qualification crosses condition contexts")); }
             }
         } else { return Err(invalid("undeclared qualification validation input")); }
-        if self.atoms.len() + self.nodes.len() + self.contexts.len() > 1_000_000 { return Err(invalid("qualification cardinality budget exceeded")); }
         Ok(())
     }
     fn finish(self: Box<Self>) -> Result<(), ModelError> { Ok(()) }
@@ -195,14 +194,13 @@ impl InvariantCheck for QualificationCheck {
 fn evidence_invariants() -> Vec<Invariant> {
     vec![Invariant { name: "evidence_source_bounds", inputs: vec![
         ValidationInput::of::<SourceArtifact>(&["id"]), ValidationInput::of::<Evidence>(&["id"]),
-    ], create: std::sync::Arc::new(|| Box::new(EvidenceCheck { lengths: BTreeMap::new() })) }]
+    ], create: std::sync::Arc::new(|budget| Box::new(EvidenceCheck { charge: StateCharge::new(budget, "evidence_source_bounds"), lengths: ChargedMap::default() })) }]
 }
-struct EvidenceCheck { lengths: BTreeMap<Id<SourceArtifact>, i64> }
+struct EvidenceCheck { charge: StateCharge, lengths: ChargedMap<Id<SourceArtifact>, i64> }
 impl InvariantCheck for EvidenceCheck {
     fn visit(&mut self, relation: &str, batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
         if relation == SourceArtifact::NAME {
-            for row in SourceArtifact::decode(batch)? { self.lengths.insert(row.id(), row.byte_len); }
-            if self.lengths.len() > 1_000_000 { return Err(invalid("evidence cardinality budget exceeded")); }
+            for row in SourceArtifact::decode(batch)? { self.lengths.insert(&mut self.charge, row.id(), row.byte_len)?; }
         } else if relation == Evidence::NAME {
             for row in Evidence::decode(batch)? {
                 if let Evidence::SourceSpan { source, end, .. } = row {
@@ -230,38 +228,39 @@ pub fn support_invariants<A: Assertion, S: Support<Assertion=A>>() -> Vec<Invari
     ];
     for input in A::subject_inputs() { if !inputs.iter().any(|existing| existing.name() == input.name()) { inputs.push(input); } }
     inputs.extend([ValidationInput::of::<A>(&["id"]),ValidationInput::of::<S>(&["id"])]);
-    vec![Invariant { name: S::NAME,inputs,create: std::sync::Arc::new(|| Box::new(SupportCheck::<A,S>::new())) }]
+    vec![Invariant { name: S::NAME,inputs,create: std::sync::Arc::new(|budget| Box::new(SupportCheck::<A,S>::new(budget))) }]
 }
 struct SupportCheck<A: Assertion, S: Support<Assertion=A>> {
+    charge: StateCharge,
     types: super::types::TypeIndex,
-    flow_uses: BTreeMap<Id<super::flow::FlowUse>,super::flow::FlowUse>,
-    flow_definitions: BTreeMap<Id<super::flow::FlowDefinition>,super::flow::FlowDefinition>,
-    reaching: BTreeMap<Id<super::flow::ReachingDefinition>,super::flow::ReachingDefinition>,
-    document_nodes: BTreeMap<Id<super::documents::DocumentNode>,super::documents::DocumentNode>,
-    lexical_scopes: BTreeMap<Id<super::lexical::LexicalScope>,Id<Occurrence>>,
-    bindings: BTreeMap<Id<super::lexical::BindingEvent>,Id<Occurrence>>,
-    lexical_targets: BTreeMap<Id<super::lexical::LexicalTarget>,super::lexical::LexicalTarget>,
+    flow_uses: ChargedMap<Id<super::flow::FlowUse>,super::flow::FlowUse>,
+    flow_definitions: ChargedMap<Id<super::flow::FlowDefinition>,super::flow::FlowDefinition>,
+    reaching: ChargedMap<Id<super::flow::ReachingDefinition>,super::flow::ReachingDefinition>,
+    document_nodes: ChargedMap<Id<super::documents::DocumentNode>,super::documents::DocumentNode>,
+    lexical_scopes: ChargedMap<Id<super::lexical::LexicalScope>,Id<Occurrence>>,
+    bindings: ChargedMap<Id<super::lexical::BindingEvent>,Id<Occurrence>>,
+    lexical_targets: ChargedMap<Id<super::lexical::LexicalTarget>,super::lexical::LexicalTarget>,
     ownership: super::ownership::ScopeIndex,
-    places: BTreeMap<Id<Place>,Place>, roots: BTreeMap<Id<PlaceRoot>,PlaceRoot>, transfers: BTreeMap<Id<TransferKey>,TransferKey>,
-    occurrences: BTreeMap<Id<Occurrence>, Id<SourceArtifact>>,
+    places: ChargedMap<Id<Place>,Place>, roots: ChargedMap<Id<PlaceRoot>,PlaceRoot>, transfers: ChargedMap<Id<TransferKey>,TransferKey>,
+    occurrences: ChargedMap<Id<Occurrence>, Id<SourceArtifact>>,
     guards: super::conditions::rebase::GuardIndex,
-    nodes: BTreeMap<Id<ConditionNode>, ConditionNode>,
-    conditions: BTreeMap<Id<Condition>, BTreeSet<Id<SourceArtifact>>>,
-    closure_visits: usize,
-    qualifications: BTreeMap<Id<AssertionQualification>, AssertionQualification>,
-    runs: BTreeMap<Id<ProviderRun>, ProviderRun>,
-    families: BTreeSet<(Id<ProviderRun>, FactFamily)>,
-    surfaces: BTreeMap<Id<ProviderSurface>, ProviderSurface>,
-    evidence: BTreeMap<Id<Evidence>, Evidence>,
-    assertions: BTreeMap<Id<A>, A>, supported: BTreeSet<Id<A>>, marker: PhantomData<S>,
+    nodes: ChargedMap<Id<ConditionNode>, ConditionNode>,
+    conditions: ChargedMap<Id<Condition>, BTreeSet<Id<SourceArtifact>>>,
+    qualifications: ChargedMap<Id<AssertionQualification>, AssertionQualification>,
+    runs: ChargedMap<Id<ProviderRun>, ProviderRun>,
+    families: ChargedSet<(Id<ProviderRun>, FactFamily)>,
+    surfaces: ChargedMap<Id<ProviderSurface>, ProviderSurface>,
+    evidence: ChargedMap<Id<Evidence>, Evidence>,
+    assertions: ChargedMap<Id<A>, A>, supported: ChargedSet<Id<A>>, marker: PhantomData<S>,
 }
 impl<A: Assertion, S: Support<Assertion=A>> SupportCheck<A,S> {
-    fn new() -> Self { Self { types: Default::default(),flow_uses: BTreeMap::new(),flow_definitions: BTreeMap::new(),reaching: BTreeMap::new(),document_nodes: BTreeMap::new(), lexical_scopes: BTreeMap::new(), bindings: BTreeMap::new(), lexical_targets: BTreeMap::new(),
-        places: BTreeMap::new(), roots: BTreeMap::new(), transfers: BTreeMap::new(), ownership: Default::default(), occurrences: BTreeMap::new(),
-        qualifications: BTreeMap::new(),
-        guards: Default::default(), nodes: BTreeMap::new(), conditions: BTreeMap::new(), closure_visits: 0,
-        runs: BTreeMap::new(), families: BTreeSet::new(), surfaces: BTreeMap::new(), evidence: BTreeMap::new(),
-        assertions: BTreeMap::new(), supported: BTreeSet::new(), marker: PhantomData } }
+    fn new(budget: &super::resources::ResourceBudget) -> Self { Self { charge: StateCharge::new(budget,S::NAME),
+        types: super::types::TypeIndex::new(budget,S::NAME),flow_uses: Default::default(),flow_definitions: Default::default(),reaching: Default::default(),document_nodes: Default::default(), lexical_scopes: Default::default(), bindings: Default::default(), lexical_targets: Default::default(),
+        places: Default::default(), roots: Default::default(), transfers: Default::default(), ownership: super::ownership::ScopeIndex::new(budget,S::NAME), occurrences: Default::default(),
+        qualifications: Default::default(),
+        guards: super::conditions::rebase::GuardIndex::new(budget,S::NAME), nodes: Default::default(), conditions: Default::default(),
+        runs: Default::default(), families: Default::default(), surfaces: Default::default(), evidence: Default::default(),
+        assertions: Default::default(), supported: Default::default(), marker: PhantomData } }
     fn source(&self, subject: Subject) -> Result<Option<Id<SourceArtifact>>, ModelError> {
         Ok(match subject {
             Subject::TypeTerm(_) | Subject::TypeVariable(_) => None,
@@ -369,19 +368,18 @@ impl<A: Assertion, S: Support<Assertion=A>> SupportCheck<A,S> {
                 return Err(invalid("support evidence crosses assertion scope or input"));
             }
         }
-        self.supported.insert(support.assertion()); Ok(())
+        self.supported.insert(&mut self.charge,support.assertion())?; Ok(())
     }
 }
 impl<A: Assertion, S: Support<Assertion=A>> InvariantCheck for SupportCheck<A,S> {
     fn visit(&mut self, relation: &str, batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
         if self.ownership.visit(relation,batch)? || self.types.visit_input(relation,batch)? || self.guards.visit_input(relation,batch)? {}
-        else if relation == Occurrence::NAME { for r in Occurrence::decode(batch)? { self.occurrences.insert(r.id(),r.source); } }
-        else if relation == ConditionNode::NAME { for r in ConditionNode::decode(batch)? { self.nodes.insert(r.id(),r); } }
+        else if relation == Occurrence::NAME { for r in Occurrence::decode(batch)? { self.occurrences.insert(&mut self.charge,r.id(),r.source)?; } }
+        else if relation == ConditionNode::NAME { for r in ConditionNode::decode(batch)? { self.nodes.insert(&mut self.charge,r.id(),r)?; } }
         else if relation == Condition::NAME {
             for r in Condition::decode(batch)? {
+                // Each root's closure is bounded by the kernel's node and atom limits.
                 let closure = super::conditions::kernel::closure(r.root,&self.nodes)?;
-                self.closure_visits += closure.len();
-                if self.closure_visits > 1_000_000 { return Err(invalid("support condition closure budget exceeded")); }
                 let mut sources = BTreeSet::new();
                 for id in closure {
                     if let ConditionNode::Branch { atom,.. } = &self.nodes[&id] {
@@ -391,30 +389,27 @@ impl<A: Assertion, S: Support<Assertion=A>> InvariantCheck for SupportCheck<A,S>
                         }
                     }
                 }
-                self.conditions.insert(r.id(),sources);
+                self.conditions.insert(&mut self.charge,r.id(),sources)?;
             }
         }
-        else if relation == AssertionQualification::NAME { for r in AssertionQualification::decode(batch)? { self.qualifications.insert(r.id(),r); } }
-        else if relation == ProviderRun::NAME { for r in ProviderRun::decode(batch)? { self.runs.insert(r.id(),r); } }
-        else if relation == RunFamily::NAME { for r in RunFamily::decode(batch)? { self.families.insert((r.run,r.family)); } }
-        else if relation == ProviderSurface::NAME { for r in ProviderSurface::decode(batch)? { self.surfaces.insert(r.id(),r); } }
-        else if relation == Evidence::NAME { for r in Evidence::decode(batch)? { self.evidence.insert(r.id(),r); } }
-        else if relation == PlaceRoot::NAME { for r in PlaceRoot::decode(batch)? { self.roots.insert(r.id(),r); } }
-        else if relation == Place::NAME { for r in Place::decode(batch)? { self.places.insert(r.id(),r); } }
-        else if relation == TransferKey::NAME { for r in TransferKey::decode(batch)? { self.transfers.insert(r.id(),r); } }
-        else if relation == super::flow::FlowUse::NAME { for r in super::flow::FlowUse::decode(batch)? { self.flow_uses.insert(r.id(),r); } }
-        else if relation == super::flow::FlowDefinition::NAME { for r in super::flow::FlowDefinition::decode(batch)? { self.flow_definitions.insert(r.id(),r); } }
-        else if relation == super::flow::ReachingDefinition::NAME { for r in super::flow::ReachingDefinition::decode(batch)? { self.reaching.insert(r.id(),r); } }
-        else if relation == super::documents::DocumentNode::NAME { for r in super::documents::DocumentNode::decode(batch)? { self.document_nodes.insert(r.id(),r); } }
-        else if relation == super::lexical::LexicalScope::NAME { for r in super::lexical::LexicalScope::decode(batch)? { self.lexical_scopes.insert(r.id(),r.owner); } }
-        else if relation == super::lexical::BindingEvent::NAME { for r in super::lexical::BindingEvent::decode(batch)? { self.bindings.insert(r.id(),r.site); } }
-        else if relation == super::lexical::LexicalTarget::NAME { for r in super::lexical::LexicalTarget::decode(batch)? { self.lexical_targets.insert(r.id(),r); } }
-        else if relation == A::NAME { for r in A::decode(batch)? { self.assertions.insert(r.id(),r); } }
+        else if relation == AssertionQualification::NAME { for r in AssertionQualification::decode(batch)? { self.qualifications.insert(&mut self.charge,r.id(),r)?; } }
+        else if relation == ProviderRun::NAME { for r in ProviderRun::decode(batch)? { self.runs.insert(&mut self.charge,r.id(),r)?; } }
+        else if relation == RunFamily::NAME { for r in RunFamily::decode(batch)? { self.families.insert(&mut self.charge,(r.run,r.family))?; } }
+        else if relation == ProviderSurface::NAME { for r in ProviderSurface::decode(batch)? { self.surfaces.insert(&mut self.charge,r.id(),r)?; } }
+        else if relation == Evidence::NAME { for r in Evidence::decode(batch)? { self.evidence.insert(&mut self.charge,r.id(),r)?; } }
+        else if relation == PlaceRoot::NAME { for r in PlaceRoot::decode(batch)? { self.roots.insert(&mut self.charge,r.id(),r)?; } }
+        else if relation == Place::NAME { for r in Place::decode(batch)? { self.places.insert(&mut self.charge,r.id(),r)?; } }
+        else if relation == TransferKey::NAME { for r in TransferKey::decode(batch)? { self.transfers.insert(&mut self.charge,r.id(),r)?; } }
+        else if relation == super::flow::FlowUse::NAME { for r in super::flow::FlowUse::decode(batch)? { self.flow_uses.insert(&mut self.charge,r.id(),r)?; } }
+        else if relation == super::flow::FlowDefinition::NAME { for r in super::flow::FlowDefinition::decode(batch)? { self.flow_definitions.insert(&mut self.charge,r.id(),r)?; } }
+        else if relation == super::flow::ReachingDefinition::NAME { for r in super::flow::ReachingDefinition::decode(batch)? { self.reaching.insert(&mut self.charge,r.id(),r)?; } }
+        else if relation == super::documents::DocumentNode::NAME { for r in super::documents::DocumentNode::decode(batch)? { self.document_nodes.insert(&mut self.charge,r.id(),r)?; } }
+        else if relation == super::lexical::LexicalScope::NAME { for r in super::lexical::LexicalScope::decode(batch)? { self.lexical_scopes.insert(&mut self.charge,r.id(),r.owner)?; } }
+        else if relation == super::lexical::BindingEvent::NAME { for r in super::lexical::BindingEvent::decode(batch)? { self.bindings.insert(&mut self.charge,r.id(),r.site)?; } }
+        else if relation == super::lexical::LexicalTarget::NAME { for r in super::lexical::LexicalTarget::decode(batch)? { self.lexical_targets.insert(&mut self.charge,r.id(),r)?; } }
+        else if relation == A::NAME { for r in A::decode(batch)? { self.assertions.insert(&mut self.charge,r.id(),r)?; } }
         else if relation == S::NAME { for r in S::decode(batch)? { self.check_support(r)?; } }
         else { return Err(invalid("undeclared support validation input")); }
-        let entries = self.ownership.entries()+self.occurrences.len()
-            +self.qualifications.len()+self.runs.len()+self.families.len()+self.surfaces.len()+self.evidence.len()+self.assertions.len()+self.supported.len();
-        if entries + self.types.entries()+self.flow_uses.len()+self.flow_definitions.len()+self.reaching.len()+self.document_nodes.len()+self.lexical_scopes.len()+self.bindings.len()+self.lexical_targets.len()+self.places.len()+self.roots.len()+self.transfers.len()+self.guards.entries()+self.nodes.len()+self.conditions.len() > 3_000_000 { return Err(invalid("support validation cardinality budget exceeded")); }
         Ok(())
     }
     fn finish(self: Box<Self>) -> Result<(), ModelError> {

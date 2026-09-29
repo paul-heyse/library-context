@@ -1,4 +1,5 @@
 //! Source and attributed syntax facts. Identity never depends on a normalized L1 entity.
+use super::charged::{ChargedMap, StateCharge};
 use crate::{Domain, DomainCode, DomainSum, Assertion};
 use super::{ContentHash, Id, ModelError, Record};
 use super::input::{InputRevision, Release};
@@ -189,15 +190,14 @@ fn occurrence_invariants() -> Vec<super::Invariant> {
     vec![super::Invariant { name: "occurrence_source_bounds", inputs: vec![
         super::ValidationInput::of::<SourceArtifact>(&["id"]),
         super::ValidationInput::of::<Occurrence>(&["source", "start", "end"]),
-    ], create: std::sync::Arc::new(|| Box::new(OccurrenceBounds { lengths: Default::default() })) }]
+    ], create: std::sync::Arc::new(|budget| Box::new(OccurrenceBounds { charge: StateCharge::new(budget, "occurrence_source_bounds"), lengths: Default::default() })) }]
 }
-struct OccurrenceBounds { lengths: std::collections::BTreeMap<Id<SourceArtifact>, i64> }
+struct OccurrenceBounds { charge: StateCharge, lengths: ChargedMap<Id<SourceArtifact>, i64> }
 impl super::InvariantCheck for OccurrenceBounds {
     fn visit(&mut self, relation: &str, batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
         if relation == SourceArtifact::NAME {
             for source in SourceArtifact::decode(batch)? {
-                if self.lengths.len() >= 1_000_000 { return Err(ModelError::Invalid("source validation cardinality budget exceeded".into())); }
-                if self.lengths.insert(source.id(), source.byte_len).is_some() { return Err(ModelError::Conflict(SourceArtifact::NAME)); }
+                if self.lengths.insert(&mut self.charge, source.id(), source.byte_len)?.is_some() { return Err(ModelError::Conflict(SourceArtifact::NAME)); }
             }
         } else if relation == Occurrence::NAME {
             for occurrence in Occurrence::decode(batch)? {

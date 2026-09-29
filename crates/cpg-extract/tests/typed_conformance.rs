@@ -191,7 +191,7 @@ async fn pinned_native_parse_typed_domain_and_postgres_conformance() {
     write_read!(InputRevision,InputOrigin,InputAcquisition,SourceArtifact,ArtifactChunk,Module,Occurrence,
         Provider,AnalysisContext,ProviderRun,RunFamily,ProviderSurface,Condition,ConditionNode,
         CoverageScope,AssertionQualification,Evidence,SyntaxObservation,SyntaxSupport,ProviderCoverage);
-    store.seal(generation).await.unwrap(); store.validate(generation).await.unwrap(); store.publish(generation).await.unwrap();
+    store.seal(generation).await.unwrap(); store.validate(generation, &budget()).await.unwrap(); store.publish(generation).await.unwrap();
     assert!(matches!(store.select(generation).await,Err(Error::Frontier)));
     let mut lease = store.pin(&reader,generation, budget()).await.unwrap();
     assert_eq!(lease.read::<Occurrence>().await.unwrap().arrow(),&left.batches[Occurrence::NAME]);

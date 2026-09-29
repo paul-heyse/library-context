@@ -3,6 +3,7 @@ pub(super) mod kernel;
 mod substitution;
 pub mod rebase;
 pub use kernel::{CondExpr, Diagram, FactorResult, KernelBoundary, RenderedCondition};
+use super::charged::{ChargedMap, ChargedSet, StateCharge};
 use crate::{Domain, DomainSum};
 use super::{Id, ModelError, Record};
 use super::{source::Occurrence, attribution::AnalysisContext, value::{Place, Predicate}};
@@ -36,30 +37,23 @@ fn condition_invariants() -> Vec<super::Invariant> {
     vec![super::Invariant { name: "canonical_condition_catalog", inputs: vec![
         super::ValidationInput::of::<ConditionNode>(&["id"]),
         super::ValidationInput::of::<Condition>(&["id"]),
-    ], create: std::sync::Arc::new(|| Box::new(CatalogCheck::default())) }]
+    ], create: std::sync::Arc::new(|budget| Box::new(CatalogCheck { charge: StateCharge::new(budget, "canonical_condition_catalog"), ..Default::default() })) }]
 }
 #[derive(Default)]
-struct CatalogCheck {
-    nodes: std::collections::BTreeMap<Id<ConditionNode>, ConditionNode>,
-    reached: std::collections::BTreeSet<Id<ConditionNode>>,
-    visits: usize,
-    conditions: usize,
+struct CatalogCheck { charge: StateCharge,
+    nodes: ChargedMap<Id<ConditionNode>, ConditionNode>,
+    reached: ChargedSet<Id<ConditionNode>>,
 }
 impl super::InvariantCheck for CatalogCheck {
     fn visit(&mut self, relation: &str, batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
         if relation == ConditionNode::NAME {
             for row in ConditionNode::decode(batch)? {
-                if self.nodes.len() >= 100_000 { return Err(ModelError::Invalid("condition catalog node budget exceeded".into())); }
-                if self.nodes.insert(row.id(), row).is_some() { return Err(ModelError::Conflict(ConditionNode::NAME)); }
+                if self.nodes.insert(&mut self.charge, row.id(), row)?.is_some() { return Err(ModelError::Conflict(ConditionNode::NAME)); }
             }
         } else if relation == Condition::NAME {
             for row in Condition::decode(batch)? {
-                self.conditions += 1;
-                if self.conditions > 100_000 { return Err(ModelError::Invalid("condition catalog root budget exceeded".into())); }
-                let closure = kernel::closure(row.root, &self.nodes)?;
-                self.visits += closure.len();
-                if self.visits > 1_000_000 { return Err(ModelError::Invalid("condition catalog closure budget exceeded".into())); }
-                self.reached.extend(closure);
+                // Each root's closure is bounded by the kernel's node and atom limits.
+                for id in kernel::closure(row.root, &self.nodes)? { self.reached.insert(&mut self.charge, id)?; }
             }
         } else { return Err(ModelError::Invalid("undeclared condition validation input".into())); }
         Ok(())

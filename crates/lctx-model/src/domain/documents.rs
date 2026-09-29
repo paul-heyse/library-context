@@ -1,6 +1,7 @@
 //! Document structure refers to captured byte spans. Interpretations remain qualified assertions;
 //! expressions and spreads retain source text and are never evaluated by the facts layer.
 use crate::{Assertion,Domain,DomainCode,DomainSum};
+use super::charged::{ChargedMap, ChargedSet, ChargedVec, StateCharge};
 use super::{*,assertion::{AssertionQualification,EvidenceSourceSpanId},attribution::FactFamily,source::SourceArtifact};
 
 #[derive(Debug,Clone,PartialEq,Eq,Hash,DomainSum)]
@@ -163,18 +164,20 @@ fn document_invariants() -> Vec<Invariant> {
         ValidationInput::of::<PassageObservation>(&["id"]), ValidationInput::of::<CodeBlockObservation>(&["id"]),
         ValidationInput::of::<DocumentLinkObservation>(&["id"]), ValidationInput::of::<DocumentMentionObservation>(&["id"]),
         ValidationInput::of::<DocumentComponentObservation>(&["id"]), ValidationInput::of::<DocumentAttributeObservation>(&["id"]),
-    ], create: std::sync::Arc::new(|| Box::new(DocumentCheck::default())) }]
+    ], create: std::sync::Arc::new(|budget| Box::new(DocumentCheck { charge: StateCharge::new(budget, "document_structure"), ..Default::default() })) }]
 }
 #[derive(Debug,Clone,Copy)]
 struct Span { source: Id<SourceArtifact>, start: i64, end: i64 }
+impl HeapSize for Span {}
 impl Span {
     fn contains(self, child: Self) -> bool { self.source == child.source && self.start <= child.start && self.end >= child.end }
 }
 #[derive(Default)]
 struct DocumentCheck {
-    spans: std::collections::BTreeMap<Id<super::assertion::Evidence>,Span>,
-    nodes: std::collections::BTreeMap<Id<DocumentNode>,DocumentNode>,
-    components: Vec<DocumentComponentObservation>,
+    charge: StateCharge,
+    spans: ChargedMap<Id<super::assertion::Evidence>,Span>,
+    nodes: ChargedMap<Id<DocumentNode>,DocumentNode>,
+    components: ChargedVec<DocumentComponentObservation>,
 }
 impl DocumentCheck {
     fn span(&self, id: EvidenceSourceSpanId) -> Result<Span,ModelError> {
@@ -196,10 +199,10 @@ impl InvariantCheck for DocumentCheck {
     fn visit(&mut self, relation: &str, batch: &arrow_array::RecordBatch) -> Result<(),ModelError> {
         use super::assertion::Evidence;
         if relation == Evidence::NAME { for row in Evidence::decode(batch)? {
-            if let Evidence::SourceSpan { source,start,end } = &row { self.spans.insert(row.id(),Span { source: *source,start: *start,end: *end }); }
+            if let Evidence::SourceSpan { source,start,end } = &row { self.spans.insert(&mut self.charge,row.id(),Span { source: *source,start: *start,end: *end })?; }
         } }
         else if relation == DocumentNode::NAME { for row in DocumentNode::decode(batch)? {
-            self.span(row.span())?; self.nodes.insert(row.id(),row);
+            self.span(row.span())?; self.nodes.insert(&mut self.charge,row.id(),row)?;
         } }
         else if relation == PassageObservation::NAME { for row in PassageObservation::decode(batch)? {
             let span = self.span(self.node(row.passage)?.span())?;
@@ -220,21 +223,20 @@ impl InvariantCheck for DocumentCheck {
                     return Err(invalid("component parent must precede and enclose child"));
                 }
             }
-            self.components.push(row);
+            self.components.push(&mut self.charge,row)?;
         } }
         else if relation == DocumentAttributeObservation::NAME { for row in DocumentAttributeObservation::decode(batch)? {
             self.node(row.component)?;
         } }
         else { return Err(invalid("undeclared document validation input")); }
-        if self.spans.len()+self.nodes.len()+self.components.len() > 1_000_000 { return Err(invalid("document validation cardinality limit")); }
         Ok(())
     }
-    fn finish(self: Box<Self>) -> Result<(),ModelError> {
-        let mut depths = std::collections::BTreeSet::new();
-        for row in &self.components {
-            depths.insert((row.qualification,row.component.id(),row.depth));
+    fn finish(mut self: Box<Self>) -> Result<(),ModelError> {
+        let mut depths = ChargedSet::default();
+        for row in self.components.iter() {
+            depths.insert(&mut self.charge,(row.qualification,row.component.id(),row.depth))?;
         }
-        for row in &self.components {
+        for row in self.components.iter() {
             if let Some(parent) = row.parent {
                 if !depths.contains(&(row.qualification,parent.id(),row.depth-1)) {
                     return Err(invalid("component parent depth or qualification differs"));

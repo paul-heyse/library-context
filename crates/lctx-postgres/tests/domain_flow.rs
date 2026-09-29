@@ -37,11 +37,11 @@ async fn raw_flow_and_transitive_place_provenance_survive_sealed_validation() {
             FlowReachingObservation,FlowReachingSupport,FlowValueObservation,FlowValueSupport,FlowRegionObservation,FlowRegionSupport);
         store.seal(generation).await.unwrap();
         if foreign {
-            assert!(matches!(store.validate(generation).await, Err(Error::Model(_))));
+            assert!(matches!(store.validate(generation, &budget()).await, Err(Error::Model(_))));
             assert!(store.publish(generation).await.is_err());
             store.abort(generation).await.unwrap();
         } else {
-            store.validate(generation).await.unwrap(); store.publish(generation).await.unwrap();
+            store.validate(generation, &budget()).await.unwrap(); store.publish(generation).await.unwrap();
             let mut lease = store.pin(&reader,generation, budget()).await.unwrap();
             assert_eq!(lease.read::<FlowUse>().await.unwrap().rows(),fixture.base.rows::<FlowUse>());
             assert_eq!(lease.read::<FlowReachingObservation>().await.unwrap().rows(),fixture.base.rows::<FlowReachingObservation>());

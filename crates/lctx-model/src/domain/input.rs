@@ -1,4 +1,5 @@
 //! Content revisions and acquisition provenance have independent identities.
+use super::charged::{ChargedMap, ChargedSet, StateCharge};
 use crate::{Domain, DomainCode, DomainSum};
 use super::{ContentHash, Id, Key, KeySink, ModelError, Record, Invariant, InvariantCheck, ValidationInput};
 
@@ -98,16 +99,16 @@ fn input_invariants() -> Vec<Invariant> {
     vec![Invariant { name: "input_manifest_membership", inputs: vec![
         ValidationInput::of::<InputRevision>(&["id"]),
         ValidationInput::of::<super::source::SourceArtifact>(&["input", "path"]),
-    ], create: std::sync::Arc::new(|| Box::new(InputManifestCheck { expected: Default::default(), current: None })) }]
+    ], create: std::sync::Arc::new(|budget| Box::new(InputManifestCheck { charge: StateCharge::new(budget, "input_manifest_membership"), expected: Default::default(), current: None })) }]
 }
-struct InputManifestCheck {
-    expected: std::collections::BTreeMap<Id<InputRevision>, ContentHash>,
+struct InputManifestCheck { charge: StateCharge,
+    expected: ChargedMap<Id<InputRevision>, ContentHash>,
     current: Option<(Id<InputRevision>, ManifestBuilder)>,
 }
 impl InputManifestCheck {
     fn flush(&mut self) -> Result<(), ModelError> {
         if let Some((input, manifest)) = self.current.take() {
-            if self.expected.remove(&input) != Some(manifest.finish()) {
+            if self.expected.remove(&mut self.charge, &input) != Some(manifest.finish()) {
                 return Err(ModelError::Invalid("stored artifacts differ from input manifest".into()));
             }
         }
@@ -119,8 +120,7 @@ impl InvariantCheck for InputManifestCheck {
         use super::source::SourceArtifact;
         if relation == InputRevision::NAME {
             for input in InputRevision::decode(batch)? {
-                if self.expected.len() >= 1_000_000 { return Err(ModelError::Invalid("input validation cardinality budget exceeded".into())); }
-                if self.expected.insert(input.id(), input.manifest).is_some() { return Err(ModelError::Conflict(InputRevision::NAME)); }
+                if self.expected.insert(&mut self.charge, input.id(), input.manifest)?.is_some() { return Err(ModelError::Conflict(InputRevision::NAME)); }
             }
         } else if relation == SourceArtifact::NAME {
             for artifact in SourceArtifact::decode(batch)? {
@@ -183,34 +183,30 @@ fn ownership_invariants() -> Vec<Invariant> {
         ValidationInput::of::<DistributionVerification>(&["id"]),
         ValidationInput::of::<super::source::SourceArtifact>(&["id"]),
         ValidationInput::of::<ArtifactOwnership>(&["id"]),
-    ], create: std::sync::Arc::new(|| Box::new(OwnershipCheck::default())) }]
+    ], create: std::sync::Arc::new(|budget| Box::new(OwnershipCheck { charge: StateCharge::new(budget, "artifact_ownership_input"), ..Default::default() })) }]
 }
 #[derive(Default)]
-struct OwnershipCheck {
-    acquisitions: std::collections::BTreeMap<Id<InputAcquisition>, Id<InputRevision>>,
-    distributions: std::collections::BTreeMap<Id<DistributionVerification>, Id<InputRevision>>,
-    artifacts: std::collections::BTreeMap<Id<super::source::SourceArtifact>, Id<InputRevision>>,
+struct OwnershipCheck { charge: StateCharge,
+    acquisitions: ChargedMap<Id<InputAcquisition>, Id<InputRevision>>,
+    distributions: ChargedMap<Id<DistributionVerification>, Id<InputRevision>>,
+    artifacts: ChargedMap<Id<super::source::SourceArtifact>, Id<InputRevision>>,
 }
 impl InvariantCheck for OwnershipCheck {
     fn visit(&mut self, relation: &str, batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
         use super::source::SourceArtifact;
         let missing = || ModelError::Invalid("artifact ownership crosses or lacks acquired input".into());
-        let budget = || ModelError::Invalid("ownership validation cardinality budget exceeded".into());
         if relation == InputAcquisition::NAME {
             for row in InputAcquisition::decode(batch)? {
-                if self.acquisitions.len() >= 1_000_000 { return Err(budget()); }
-                if self.acquisitions.insert(row.id(), row.input).is_some() { return Err(ModelError::Conflict(InputAcquisition::NAME)); }
+                if self.acquisitions.insert(&mut self.charge, row.id(), row.input)?.is_some() { return Err(ModelError::Conflict(InputAcquisition::NAME)); }
             }
         } else if relation == DistributionVerification::NAME {
             for row in DistributionVerification::decode(batch)? {
-                if self.distributions.len() >= 1_000_000 { return Err(budget()); }
                 let input = *self.acquisitions.get(&row.acquisition).ok_or_else(missing)?;
-                if self.distributions.insert(row.id(), input).is_some() { return Err(ModelError::Conflict(DistributionVerification::NAME)); }
+                if self.distributions.insert(&mut self.charge, row.id(), input)?.is_some() { return Err(ModelError::Conflict(DistributionVerification::NAME)); }
             }
         } else if relation == SourceArtifact::NAME {
             for row in SourceArtifact::decode(batch)? {
-                if self.artifacts.len() >= 1_000_000 { return Err(budget()); }
-                if self.artifacts.insert(row.id(), row.input).is_some() { return Err(ModelError::Conflict(SourceArtifact::NAME)); }
+                if self.artifacts.insert(&mut self.charge, row.id(), row.input)?.is_some() { return Err(ModelError::Conflict(SourceArtifact::NAME)); }
             }
         } else if relation == ArtifactOwnership::NAME {
             for row in ArtifactOwnership::decode(batch)? {
@@ -233,48 +229,42 @@ fn acquisition_invariants() -> Vec<Invariant> {
         ValidationInput::of::<DistributionVerification>(&["id"]),
         ValidationInput::of::<super::source::SourceArtifact>(&["id"]),
         ValidationInput::of::<ArtifactUse>(&["id"]),
-    ], create: std::sync::Arc::new(|| Box::new(AcquisitionBoundaries::default())) }]
+    ], create: std::sync::Arc::new(|budget| Box::new(AcquisitionBoundaries { charge: StateCharge::new(budget, "input_acquisition_boundaries"), ..Default::default() })) }]
 }
 #[derive(Default)]
-struct AcquisitionBoundaries {
-    corpus_origins: std::collections::BTreeSet<Id<InputOrigin>>,
-    acquired: std::collections::BTreeSet<Id<InputRevision>>,
-    corpus_inputs: std::collections::BTreeSet<Id<InputRevision>>,
-    acquisitions: std::collections::BTreeMap<Id<InputAcquisition>, Id<InputRevision>>,
-    corpus_libraries: std::collections::BTreeSet<(Id<InputRevision>, Id<InputRevision>)>,
-    distributions: std::collections::BTreeMap<(Id<InputRevision>, Id<Release>), DistributionRole>,
-    artifacts: std::collections::BTreeMap<Id<super::source::SourceArtifact>, Id<InputRevision>>,
+struct AcquisitionBoundaries { charge: StateCharge,
+    corpus_origins: ChargedSet<Id<InputOrigin>>,
+    acquired: ChargedSet<Id<InputRevision>>,
+    corpus_inputs: ChargedSet<Id<InputRevision>>,
+    acquisitions: ChargedMap<Id<InputAcquisition>, Id<InputRevision>>,
+    corpus_libraries: ChargedSet<(Id<InputRevision>, Id<InputRevision>)>,
+    distributions: ChargedMap<(Id<InputRevision>, Id<Release>), DistributionRole>,
+    artifacts: ChargedMap<Id<super::source::SourceArtifact>, Id<InputRevision>>,
 }
 impl InvariantCheck for AcquisitionBoundaries {
     fn visit(&mut self, relation: &str, batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
         use super::source::SourceArtifact;
-        // Temporary cardinality admission until shared allocation reservations reach validators.
-        let entries = self.corpus_origins.len() + self.acquired.len() + self.corpus_inputs.len()
-            + self.acquisitions.len() + self.corpus_libraries.len() + self.distributions.len() + self.artifacts.len();
-        if entries.saturating_add(batch.num_rows().saturating_mul(3)) > 3_000_000 {
-            return Err(ModelError::Invalid("acquisition validation cardinality budget exceeded".into()));
-        }
         if relation == InputOrigin::NAME {
             for row in InputOrigin::decode(batch)? {
-                if matches!(row, InputOrigin::Corpus { .. }) { self.corpus_origins.insert(row.id()); }
+                if matches!(row, InputOrigin::Corpus { .. }) { self.corpus_origins.insert(&mut self.charge, row.id())?; }
             }
         } else if relation == InputAcquisition::NAME {
             for row in InputAcquisition::decode(batch)? {
-                self.acquired.insert(row.input);
-                if self.corpus_origins.contains(&row.origin) { self.corpus_inputs.insert(row.input); }
-                if self.acquisitions.insert(row.id(), row.input).is_some() { return Err(ModelError::Conflict(InputAcquisition::NAME)); }
+                self.acquired.insert(&mut self.charge, row.input)?;
+                if self.corpus_origins.contains(&row.origin) { self.corpus_inputs.insert(&mut self.charge, row.input)?; }
+                if self.acquisitions.insert(&mut self.charge, row.id(), row.input)?.is_some() { return Err(ModelError::Conflict(InputAcquisition::NAME)); }
             }
         } else if relation == CorpusLibrary::NAME {
             for row in CorpusLibrary::decode(batch)? {
                 if !self.corpus_inputs.contains(&row.corpus) || !self.acquired.contains(&row.library) {
                     return Err(ModelError::Invalid("corpus library needs acquired corpus and library inputs".into()));
                 }
-                self.corpus_libraries.insert((row.corpus, row.library));
+                self.corpus_libraries.insert(&mut self.charge, (row.corpus, row.library))?;
             }
         } else if relation == InputDistribution::NAME {
             for row in InputDistribution::decode(batch)? {
                 if !self.acquired.contains(&row.input) { return Err(ModelError::Invalid("distribution input is not acquired".into())); }
-                if self.distributions.insert((row.input, row.release), row.role).is_some() {
+                if self.distributions.insert(&mut self.charge, (row.input, row.release), row.role)?.is_some() {
                     return Err(ModelError::Invalid("distribution has contradictory input roles".into()));
                 }
             }
@@ -287,7 +277,7 @@ impl InvariantCheck for AcquisitionBoundaries {
                 }
             }
         } else if relation == SourceArtifact::NAME {
-            for row in SourceArtifact::decode(batch)? { self.artifacts.insert(row.id(), row.input); }
+            for row in SourceArtifact::decode(batch)? { self.artifacts.insert(&mut self.charge, row.id(), row.input)?; }
         } else if relation == ArtifactUse::NAME {
             for row in ArtifactUse::decode(batch)? {
                 let input = self.artifacts.get(&row.artifact)

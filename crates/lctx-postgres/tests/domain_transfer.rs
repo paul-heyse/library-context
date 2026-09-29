@@ -64,11 +64,11 @@ async fn transfer_control_selection_survive_postgres_and_cross_scope_call_site_r
         store.copy(&writer,g,&Batch::new(&model,ArtifactChunk::split(&other,b"z").unwrap().collect(), &budget()).unwrap(), &budget()).await.unwrap();
         store.seal(g).await.unwrap();
         if boundary != 0 {
-            let error = store.validate(g).await.unwrap_err();
+            let error = store.validate(g, &budget()).await.unwrap_err();
             assert!(matches!(error,Error::Model(_)) && error.to_string().contains("scope"),"{error}");
             assert!(store.publish(g).await.is_err()); store.abort(g).await.unwrap();
         } else {
-            store.validate(g).await.unwrap(); store.publish(g).await.unwrap();
+            store.validate(g, &budget()).await.unwrap(); store.publish(g).await.unwrap();
             let mut lease = store.pin(&reader,g, budget()).await.unwrap();
             assert_eq!(lease.read::<TransferKey>().await.unwrap().rows(),&[key]);
             assert_eq!(lease.read::<TransferAlternative>().await.unwrap().rows(),&[alternative]);

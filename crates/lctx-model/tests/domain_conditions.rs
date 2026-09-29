@@ -36,7 +36,7 @@ fn typed_bdd_matches_truth_tables_and_survives_reordered_physical_records() {
     let reordered = Diagram::from_atom(c).or(&Diagram::from_atom(a).and(&Diagram::from_atom(b).not().unwrap()).unwrap()).unwrap();
     assert_eq!(diagram.id(), reordered.id());
     let invariant = Condition::invariants().remove(0);
-    let mut check = (invariant.create)();
+    let mut check = (invariant.create)(&budget());
     check.visit(ConditionNode::NAME, batch.arrow()).unwrap();
     check.visit(Condition::NAME, Batch::new(&model, vec![condition.clone()], &budget()).unwrap().arrow()).unwrap();
     check.finish().unwrap();
@@ -79,7 +79,7 @@ fn bdd_refusals_are_unknown_and_stored_nodes_must_be_reduced_and_ordered() {
     let child = ConditionNode::Branch { atom: atoms[0], low: ConditionNode::False.id(), high: terminal.id() };
     let parent = ConditionNode::Branch { atom: atoms[1], low: child.id(), high: terminal.id() };
     assert!(Diagram::from_records(&Condition { root: parent.id() }, &[parent,child,terminal,ConditionNode::False]).is_err());
-    let mut check = (Condition::invariants()[0].create)();
+    let mut check = (Condition::invariants()[0].create)(&budget());
     check.visit(ConditionNode::NAME, Batch::new(&model, vec![ConditionNode::True], &budget()).unwrap().arrow()).unwrap();
     assert!(check.finish().is_err());
     let first = atom(0); let other = atom(1); assert_ne!(first.id(), other.id());
@@ -101,7 +101,7 @@ fn literal_sets_and_structural_paths_preserve_semantic_distinctions() {
     assert_eq!(set, LiteralSet::of([bytes.id(), integer.id()]).0);
     assert_eq!(members.len(), 2);
     for omit in [false,true] {
-        let mut check = (LiteralSet::invariants()[0].create)();
+        let mut check = (LiteralSet::invariants()[0].create)(&budget());
         check.visit(LiteralSet::NAME, Batch::new(&model, vec![set.clone()], &budget()).unwrap().arrow()).unwrap();
         let mut ordered = members.clone(); ordered.sort_by_key(|m| m.value);
         if omit { ordered.pop(); }

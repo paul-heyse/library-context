@@ -119,7 +119,9 @@ impl GenerationStore {
         }).await
     }
     /// Validate stored, sealed contents. Callers cannot submit a `valid=true` receipt.
-    pub async fn validate(&self, g: GenerationId) -> Result<ContentHash, Error> {
+    /// Read buffers and validator state are charged to `budget`; a refusal leaves the
+    /// generation sealed.
+    pub async fn validate(&self, g: GenerationId, budget: &ResourceBudget) -> Result<ContentHash, Error> {
         transaction(&self.owner,async |mut tx| {
         self.lock_installation(&mut tx).await?;
         lock(&mut tx, g, false).await?;
@@ -128,7 +130,7 @@ impl GenerationStore {
         let mut content = KeySink::new("generation-content");
         for relation in self.model.relations() {
             let mut rows = relation.content();
-            visit_physical(&mut tx, g, relation, &["id"], |batch| {
+            visit_physical(&mut tx, g, relation, &["id"], budget, |batch| {
                 relation.hash_rows(&batch, &mut rows)?;
                 Ok(())
             }).await?;
@@ -139,10 +141,10 @@ impl GenerationStore {
         }
         let digest = content.finish();
         for invariant in self.model.invariants() {
-            let mut check = (invariant.create)();
+            let mut check = (invariant.create)(budget);
             for input in &invariant.inputs {
                 let relation = self.model.relations().iter().find(|r| r.name() == input.name()).expect("validated invariant member");
-                visit_physical(&mut tx, g, relation, input.order(), |batch| {
+                visit_physical(&mut tx, g, relation, input.order(), budget, |batch| {
                     check.visit(input.name(), &batch)?;
                     Ok(())
                 }).await?;
@@ -387,7 +389,7 @@ impl GenerationLease {
     pub async fn visit<R: Record>(&mut self, mut visitor: impl FnMut(Batch<R>) -> Result<(), Error>) -> Result<(), Error> {
         self.connection.ping().await?;
         let relation = self.model.require::<R>()?;
-        visit_physical(&mut self.connection, self.generation, relation, &["id"], |batch| {
+        visit_physical(&mut self.connection, self.generation, relation, &["id"], &self.budget, |batch| {
             visitor(Batch::read(&self.model, &batch, &self.budget)?)
         }).await
     }
@@ -405,8 +407,10 @@ impl GenerationLease {
     }
 }
 
+/// Rows are buffered up to one transfer batch. Raw rows and their decoded form are admitted
+/// before a row is retained, and released once the visitor has consumed the batch.
 async fn visit_physical(connection: &mut PgConnection, g: GenerationId, relation: &Relation, order: &[&str],
-    mut visitor: impl FnMut(RecordBatch) -> Result<(), Error>) -> Result<(), Error> {
+    budget: &ResourceBudget, mut visitor: impl FnMut(RecordBatch) -> Result<(), Error>) -> Result<(), Error> {
     let columns = relation.schema().fields().iter().map(|f| quoted(f.name())).collect::<Vec<_>>().join(",");
     let order = order.iter().map(|name| {
         let text = relation.fields().iter().any(|field| field.name() == *name && field.scalar() == lctx_model::domain::Scalar::Text && !field.list());
@@ -416,6 +420,7 @@ async fn visit_physical(connection: &mut PgConnection, g: GenerationId, relation
     let mut stream = sqlx::query(sqlx::AssertSqlSafe(query)).fetch(connection);
     let mut rows = Vec::new();
     let mut bytes = 0usize;
+    let mut held = budget.reserve("postgres-read", 0)?;
     while let Some(row) = stream.try_next().await? {
         let mut size = 0usize;
         for index in 0..row.len() {
@@ -428,8 +433,9 @@ async fn visit_physical(connection: &mut PgConnection, g: GenerationId, relation
         if size > MAX_ROW_BYTES { return Err(Error::Codec("stored row exceeds read budget".into())); }
         if !rows.is_empty() && (rows.len() == TRANSFER_ROWS || bytes.saturating_add(size) > TRANSFER_BYTES) {
             visitor(codec::decode(relation, &rows)?)?;
-            rows.clear(); bytes = 0;
+            rows.clear(); bytes = 0; held.try_resize(0)?;
         }
+        held.try_resize(bytes.saturating_add(size).saturating_mul(3))?;
         bytes += size;
         rows.push(row);
     }

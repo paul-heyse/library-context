@@ -34,11 +34,11 @@ async fn captured_reports_preserve_values_and_reject_incomplete_or_foreign_evide
             ReportCollection,ReportEntry,ReportValue,ReportedEnvironment,TaskReport,TaskReportObservation,TaskReportSupport,DeploymentObservation,DeploymentSupport);
         store.seal(generation).await.unwrap();
         if !valid {
-            assert!(matches!(store.validate(generation).await, Err(Error::Model(_))));
+            assert!(matches!(store.validate(generation, &budget()).await, Err(Error::Model(_))));
             assert!(store.publish(generation).await.is_err());
             store.abort(generation).await.unwrap();
         } else {
-            store.validate(generation).await.unwrap(); store.publish(generation).await.unwrap();
+            store.validate(generation, &budget()).await.unwrap(); store.publish(generation).await.unwrap();
             let mut lease = store.pin(&reader,generation, budget()).await.unwrap();
             assert_eq!(lease.read::<TaskReport>().await.unwrap().rows(),fixture.rows::<TaskReport>());
             assert_eq!(lease.read::<TaskReportObservation>().await.unwrap().rows(),fixture.rows::<TaskReportObservation>());

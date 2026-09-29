@@ -34,11 +34,11 @@ async fn lexical_support_and_optional_subjects_survive_sealed_postgres_validatio
             ReferenceObservation,ReferenceSupport,LexicalResolution,LexicalResolutionSupport,Evidence);
         store.seal(generation).await.unwrap();
         if foreign {
-            assert!(matches!(store.validate(generation).await, Err(Error::Model(_))));
+            assert!(matches!(store.validate(generation, &budget()).await, Err(Error::Model(_))));
             assert!(store.publish(generation).await.is_err());
             store.abort(generation).await.unwrap();
         } else {
-            store.validate(generation).await.unwrap(); store.publish(generation).await.unwrap();
+            store.validate(generation, &budget()).await.unwrap(); store.publish(generation).await.unwrap();
             let mut lease = store.pin(&reader,generation, budget()).await.unwrap();
             assert_eq!(lease.read::<BindingObservation>().await.unwrap().rows(),fixture.rows::<BindingObservation>());
             assert_eq!(lease.read::<LexicalResolution>().await.unwrap().rows(),fixture.rows::<LexicalResolution>());

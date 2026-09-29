@@ -160,7 +160,7 @@ impl ValidatedModel {
             if !invariant_names.insert(name) { return Err(ModelError::Invalid("reserved generated invariant name".into())); }
             let inputs = sources.iter().map(|r| ValidationInput { type_id: r.type_id,name: r.name,order: vec!["id"] }).collect();
             digest.part(b"generated-invariant",name.as_bytes());
-            invariants.push(Invariant { name,inputs,create: std::sync::Arc::new(move || Box::new(super::derivation::Check::new(sources.clone()))) });
+            invariants.push(Invariant { name,inputs,create: std::sync::Arc::new(move |budget| Box::new(super::derivation::Check::new(sources.clone(),budget))) });
         }
         invariants.sort_by_key(|v| v.name);
         Ok(Self { relations, invariants, digest: digest.finish() })
@@ -219,7 +219,8 @@ fn hash_rows<R: Record>(batch: &arrow_array::RecordBatch, content: &mut Relation
 pub struct Invariant {
     pub name: &'static str,
     pub inputs: Vec<ValidationInput>,
-    pub create: std::sync::Arc<dyn Fn() -> Box<dyn InvariantCheck> + Send + Sync>,
+    /// Checks retain state only through the supplied attempt budget (see `charged`).
+    pub create: std::sync::Arc<dyn Fn(&super::resources::ResourceBudget) -> Box<dyn InvariantCheck> + Send + Sync>,
 }
 impl std::fmt::Debug for Invariant {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

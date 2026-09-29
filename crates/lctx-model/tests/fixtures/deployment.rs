@@ -52,7 +52,7 @@ impl Fixture {
     pub fn rows<R: Record>(&self) -> Vec<R> { self.batches.get(R::NAME).map(|b| R::decode(b).unwrap()).unwrap_or_default() }
     pub fn put_entries(&mut self,mut rows: Vec<ReportEntry>) { rows.sort_by_key(|r| (r.collection,r.ordinal)); self.batches.insert(ReportEntry::NAME,ReportEntry::encode(&rows).unwrap()); }
     pub fn check(&self,invariant: &Invariant) -> Result<(),ModelError> {
-        let mut check = (invariant.create)();
+        let mut check = (invariant.create)(&budget());
         for input in &invariant.inputs { if let Some(batch) = self.batches.get(input.name()) { check.visit(input.name(),batch)?; } }
         check.finish()
     }

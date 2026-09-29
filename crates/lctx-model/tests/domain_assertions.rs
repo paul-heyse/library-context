@@ -10,7 +10,7 @@ fn insert<R: Record>(model: &ValidatedModel, batches: &mut BTreeMap<&'static str
     batches.insert(R::NAME, Batch::new(model, rows, &budget()).unwrap().arrow().clone());
 }
 fn check(invariant: &Invariant, batches: &BTreeMap<&str,RecordBatch>) -> Result<(),ModelError> {
-    let mut check = (invariant.create)();
+    let mut check = (invariant.create)(&budget());
     for input in &invariant.inputs { if let Some(batch) = batches.get(input.name()) { check.visit(input.name(),batch)?; } }
     check.finish()
 }

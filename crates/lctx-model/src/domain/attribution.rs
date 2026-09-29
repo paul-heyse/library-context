@@ -1,5 +1,6 @@
 //! Provider invocation and coverage contracts, independent of execution machinery.
-use std::collections::{BTreeMap, BTreeSet};
+use super::charged::{ChargedMap, ChargedSet, StateCharge};
+use std::collections::BTreeSet;
 use crate::{Domain, DomainCode};
 use super::{ContentHash, Id, Key, KeySink, ModelError, Record};
 use super::input::InputRevision;
@@ -182,23 +183,23 @@ pub struct CoverageExpectation {
 /// Missing, extra, contradictory or failed outcomes prevent publication. Empty complete scopes
 /// are valid; omitted scopes and not-requested scopes cannot stand in for them.
 pub fn validate_coverage_contract(expected: &[CoverageExpectation], observed: &[ProviderCoverage],
-    runs: &[ProviderRun], requested: &[RunFamily]) -> Result<(), ModelError> {
-    let mut invocation = InvocationCheck::default();
+    runs: &[ProviderRun], requested: &[RunFamily], budget: &super::resources::ResourceBudget) -> Result<(), ModelError> {
+    let mut invocation = InvocationCheck { charge: StateCharge::new(budget, "coverage_contract"), ..Default::default() };
     for run in runs { invocation.add_run(run.clone())?; }
     for member in requested { invocation.add_family(member)?; }
     invocation.validate_families()?;
-    let mut outcomes = BTreeMap::new();
+    let mut outcomes = ChargedMap::default();
     for outcome in observed {
         outcome.validate()?;
         invocation.check_outcome(outcome)?;
         let key = (outcome.scope, outcome.provider, outcome.context, outcome.family, outcome.run);
-        if outcomes.insert(key, outcome).is_some() { return Err(ModelError::Conflict(ProviderCoverage::NAME)); }
+        if outcomes.insert(&mut invocation.charge, key, outcome)?.is_some() { return Err(ModelError::Conflict(ProviderCoverage::NAME)); }
     }
-    let mut expected_keys = BTreeSet::new();
+    let mut expected_keys = ChargedSet::default();
     for item in expected {
         let key = (item.scope, item.provider, item.context, item.family, item.run);
-        if !expected_keys.insert(key) { return Err(ModelError::Invalid("duplicate coverage expectation".into())); }
-        let outcome = outcomes.remove(&key).ok_or_else(|| ModelError::Invalid("missing required coverage outcome".into()))?;
+        if !expected_keys.insert(&mut invocation.charge, key)? { return Err(ModelError::Invalid("duplicate coverage expectation".into())); }
+        let outcome = outcomes.remove(&mut invocation.charge, &key).ok_or_else(|| ModelError::Invalid("missing required coverage outcome".into()))?;
         if let Some(id) = item.run {
             let run = invocation.runs.get(&id).ok_or_else(|| ModelError::Invalid("coverage names missing invocation".into()))?;
             if (run.input, run.provider, run.context) != (item.input, item.provider, item.context)
@@ -223,22 +224,21 @@ fn invocation_invariants() -> Vec<super::Invariant> {
         super::ValidationInput::of::<ProviderRun>(&["id"]),
         super::ValidationInput::of::<RunFamily>(&["run", "family"]),
         super::ValidationInput::of::<ProviderCoverage>(&["id"]),
-    ], create: std::sync::Arc::new(|| Box::new(InvocationCheck::default())) }]
+    ], create: std::sync::Arc::new(|budget| Box::new(InvocationCheck { charge: StateCharge::new(budget, "provider_invocation_membership"), ..Default::default() })) }]
 }
 #[derive(Default)]
-struct InvocationCheck {
-    runs: BTreeMap<Id<ProviderRun>, ProviderRun>,
-    families: BTreeMap<Id<ProviderRun>, BTreeSet<FactFamily>>,
+struct InvocationCheck { charge: StateCharge,
+    runs: ChargedMap<Id<ProviderRun>, ProviderRun>,
+    families: ChargedMap<Id<ProviderRun>, BTreeSet<FactFamily>>,
 }
 impl InvocationCheck {
     fn add_run(&mut self, row: ProviderRun) -> Result<(), ModelError> {
-        if self.runs.len() >= 1_000_000 { return Err(ModelError::Invalid("invocation validation cardinality budget exceeded".into())); }
-        if self.runs.insert(row.id(), row).is_some() { return Err(ModelError::Conflict(ProviderRun::NAME)); }
+        if self.runs.insert(&mut self.charge, row.id(), row)?.is_some() { return Err(ModelError::Conflict(ProviderRun::NAME)); }
         Ok(())
     }
     fn add_family(&mut self, row: &RunFamily) -> Result<(), ModelError> {
         if !row.family.is_coverage_family() || !self.runs.contains_key(&row.run)
-            || !self.families.entry(row.run).or_default().insert(row.family) {
+            || !self.families.update(&mut self.charge, row.run, |families| families.insert(row.family))? {
             return Err(ModelError::Invalid("invalid invocation family membership".into()));
         }
         Ok(())
@@ -257,7 +257,7 @@ impl InvocationCheck {
         Ok(())
     }
     fn validate_families(&self) -> Result<(), ModelError> {
-        for (id, run) in &self.runs {
+        for (id, run) in self.runs.iter() {
             let members = self.families.get(id).ok_or_else(|| ModelError::Invalid("invocation lacks requested families".into()))?;
             if family_digest(members)? != run.requested_families {
                 return Err(ModelError::Invalid("invocation family digest differs".into()));
@@ -285,20 +285,20 @@ fn coverage_ownership_invariants() -> Vec<super::Invariant> {
     let mut inputs = super::ownership::ScopeIndex::inputs();
     inputs.extend([super::ValidationInput::of::<ProviderRun>(&["id"]),super::ValidationInput::of::<ProviderCoverage>(&["id"])]);
     vec![super::Invariant { name: "coverage_scope_ownership",inputs,
-        create: std::sync::Arc::new(|| Box::new(CoverageOwnership::default())) }]
+        create: std::sync::Arc::new(|budget| Box::new(CoverageOwnership { charge: StateCharge::new(budget,"coverage_scope_ownership"),
+            ownership: super::ownership::ScopeIndex::new(budget,"coverage_scope_ownership"),runs: Default::default() })) }]
 }
 #[derive(Default)]
-struct CoverageOwnership {
+struct CoverageOwnership { charge: StateCharge,
     ownership: super::ownership::ScopeIndex,
-    runs: BTreeMap<Id<ProviderRun>,Id<InputRevision>>,
+    runs: ChargedMap<Id<ProviderRun>,Id<InputRevision>>,
 }
 impl super::InvariantCheck for CoverageOwnership {
     fn visit(&mut self, relation: &str, batch: &arrow_array::RecordBatch) -> Result<(),ModelError> {
         if self.ownership.visit(relation,batch)? { return Ok(()); }
         if relation == ProviderRun::NAME {
             for row in ProviderRun::decode(batch)? {
-                if self.runs.len() >= 1_000_000 { return Err(ModelError::Invalid("coverage ownership cardinality limit".into())); }
-                self.runs.insert(row.id(),row.input);
+                self.runs.insert(&mut self.charge, row.id(),row.input)?;
             }
         } else if relation == ProviderCoverage::NAME {
             for row in ProviderCoverage::decode(batch)? {

@@ -13,7 +13,7 @@ struct OptionalConclusion { #[model(key)] name: String,result: Option<Id<Node>>,
 fn node(name: &str) -> Node { Node { name: name.into(),next: None } }
 fn validate(model: &ValidatedModel,nodes: Vec<Node>,steps: Vec<Step>) -> Result<(),ModelError> {
     let invariant = model.invariants().iter().find(|i| i.name == "derivation_acyclic").unwrap();
-    let mut check = (invariant.create)();
+    let mut check = (invariant.create)(&budget());
     check.visit(Node::NAME,Batch::new(model,nodes, &budget())?.arrow())?;
     check.visit(Step::NAME,Batch::new(model,steps, &budget())?.arrow())?;
     check.finish()
@@ -67,7 +67,7 @@ fn proof_source_identity_prevents_self_and_mutual_explicit_step_cycles() {
         let left = LeftStep { previous: Some(right.id()),..left.clone() };
         let right = RightStep { previous: mutual_cycle.then_some(left.id()),..right.clone() };
         let invariant = model.invariants().iter().find(|i| i.name == "derivation_acyclic").unwrap();
-        let mut check = (invariant.create)();
+        let mut check = (invariant.create)(&budget());
         check.visit(Node::NAME,Batch::new(&model,vec![a.clone(),b.clone()], &budget()).unwrap().arrow()).unwrap();
         check.visit(SelfStep::NAME,Batch::new(&model,vec![own], &budget()).unwrap().arrow()).unwrap();
         check.visit(LeftStep::NAME,Batch::new(&model,vec![left], &budget()).unwrap().arrow()).unwrap();

@@ -1,6 +1,7 @@
 //! Callee-local guards remain conditional at a caller site. Typed origin chains retain repeated
 //! instantiations without identifying separate calls or existentially eliminating local guards.
 use std::collections::BTreeMap;
+use crate::domain::charged::{ChargedMap,StateCharge};
 use super::{Diagram,EvaluationAtom};
 use crate::domain::{*,attribution::{AnalysisContext,ObligationKind},source::{Occurrence,OccurrenceRole,SyntaxKind},value::{Place,PlaceRoot,Predicate}};
 pub const MAX_GUARD_DEPTH: usize = 32;
@@ -14,20 +15,22 @@ fn invalid(message: &str) -> ModelError { ModelError::Invalid(message.into()) }
 /// Shared origin traversal for persisted validation and support source authorization.
 #[derive(Default)]
 pub(crate) struct GuardIndex {
-    atoms: BTreeMap<Id<EvaluationAtom>,EvaluationAtom>,predicates: BTreeMap<Id<Predicate>,Predicate>,work: usize,
+    charge: StateCharge,
+    atoms: ChargedMap<Id<EvaluationAtom>,EvaluationAtom>,predicates: ChargedMap<Id<Predicate>,Predicate>,
 }
 impl GuardIndex {
-    pub fn entries(&self) -> usize { self.atoms.len()+self.predicates.len() }
+    pub fn new(budget: &crate::domain::resources::ResourceBudget,owner: &'static str) -> Self { Self { charge: StateCharge::new(budget,owner),..Self::default() } }
     pub fn visit_input(&mut self,relation: &str,batch: &arrow_array::RecordBatch) -> Result<bool,ModelError> {
-        if relation == EvaluationAtom::NAME { for row in EvaluationAtom::decode(batch)? { self.atoms.insert(row.id(),row); } }
-        else if relation == Predicate::NAME { for row in Predicate::decode(batch)? { self.predicates.insert(row.id(),row); } }
+        if relation == EvaluationAtom::NAME { for row in EvaluationAtom::decode(batch)? { self.atoms.insert(&mut self.charge,row.id(),row)?; } }
+        else if relation == Predicate::NAME { for row in Predicate::decode(batch)? { self.predicates.insert(&mut self.charge,row.id(),row)?; } }
         else { return Ok(false); }
-        if self.entries() > 1_000_000 { return Err(invalid("guard origin cardinality limit")); } Ok(true)
+        Ok(true)
     }
-    pub fn lineage(&mut self,id: Id<EvaluationAtom>) -> Result<Vec<EvaluationAtom>,ModelError> {
+    /// Each lineage is bounded by `MAX_GUARD_DEPTH`; that is the semantic work limit.
+    pub fn lineage(&self,id: Id<EvaluationAtom>) -> Result<Vec<EvaluationAtom>,ModelError> {
         let mut at = id; let mut context = None; let mut rows = Vec::new();
         loop {
-            self.work += 1; if self.work > 1_000_000 || rows.len() >= MAX_GUARD_DEPTH { return Err(invalid("guard origin work/depth limit")); }
+            if rows.len() >= MAX_GUARD_DEPTH { return Err(invalid("guard origin depth limit")); }
             let row = self.atoms.get(&at).ok_or_else(|| invalid("guard origin atom absent"))?;
             if context.is_some_and(|c| c != row.context) { return Err(invalid("guard origin crosses analysis contexts")); }
             context = Some(row.context);
@@ -42,23 +45,23 @@ impl GuardIndex {
 }
 pub(super) fn guard_invariants() -> Vec<Invariant> {
     vec![Invariant { name: "invoked_guard_origins",inputs: vec![ValidationInput::of::<Predicate>(&["id"]),ValidationInput::of::<EvaluationAtom>(&["id"]),
-        ValidationInput::of::<Occurrence>(&["id"]),ValidationInput::of::<PlaceRoot>(&["id"]),ValidationInput::of::<Place>(&["id"])],create: std::sync::Arc::new(|| Box::new(GuardCheck::default())) }]
+        ValidationInput::of::<Occurrence>(&["id"]),ValidationInput::of::<PlaceRoot>(&["id"]),ValidationInput::of::<Place>(&["id"])],create: std::sync::Arc::new(|budget| Box::new(GuardCheck {
+            charge: StateCharge::new(budget,"invoked_guard_origins"),index: GuardIndex::new(budget,"invoked_guard_origins"),..Default::default() })) }]
 }
 #[derive(Default)]
-struct GuardCheck { index: GuardIndex,occurrences: BTreeMap<Id<Occurrence>,bool>,
-    roots: BTreeMap<Id<PlaceRoot>,PlaceRoot>,places: BTreeMap<Id<Place>,Place> }
+struct GuardCheck { charge: StateCharge,index: GuardIndex,occurrences: ChargedMap<Id<Occurrence>,bool>,
+    roots: ChargedMap<Id<PlaceRoot>,PlaceRoot>,places: ChargedMap<Id<Place>,Place> }
 impl InvariantCheck for GuardCheck {
     fn visit(&mut self,relation: &str,batch: &arrow_array::RecordBatch) -> Result<(),ModelError> {
         if self.index.visit_input(relation,batch)? {}
-        else if relation == Occurrence::NAME { for row in Occurrence::decode(batch)? { self.occurrences.insert(row.id(),is_call(&row)); } }
-        else if relation == PlaceRoot::NAME { for row in PlaceRoot::decode(batch)? { self.roots.insert(row.id(),row); } }
-        else if relation == Place::NAME { for row in Place::decode(batch)? { self.places.insert(row.id(),row); } }
+        else if relation == Occurrence::NAME { for row in Occurrence::decode(batch)? { self.occurrences.insert(&mut self.charge,row.id(),is_call(&row))?; } }
+        else if relation == PlaceRoot::NAME { for row in PlaceRoot::decode(batch)? { self.roots.insert(&mut self.charge,row.id(),row)?; } }
+        else if relation == Place::NAME { for row in Place::decode(batch)? { self.places.insert(&mut self.charge,row.id(),row)?; } }
         else { return Err(invalid("undeclared guard origin input")); }
-        if self.index.entries()+self.occurrences.len()+self.roots.len()+self.places.len() > 1_000_000 { return Err(invalid("guard origin cardinality limit")); } Ok(())
+        Ok(())
     }
-    fn finish(mut self: Box<Self>) -> Result<(),ModelError> {
-        let ids: Vec<_> = self.index.atoms.keys().copied().collect();
-        for id in ids {
+    fn finish(self: Box<Self>) -> Result<(),ModelError> {
+        for id in self.index.atoms.keys().copied() {
             let lineage = self.index.lineage(id)?;
             let invoked = lineage.len() > 1;
             for row in lineage {

@@ -67,7 +67,7 @@ fn insert<R: Record>(f: &Fixture, data: &mut BTreeMap<&'static str,arrow_array::
     data.insert(R::NAME,Batch::new(&f.model,rows, &budget()).unwrap().arrow().clone());
 }
 fn check(invariant: Invariant,data: &BTreeMap<&str,arrow_array::RecordBatch>) -> Result<(),ModelError> {
-    let mut check = (invariant.create)();
+    let mut check = (invariant.create)(&budget());
     for input in invariant.inputs { if let Some(batch) = data.get(input.name()) { check.visit(input.name(),batch)?; } }
     check.finish()
 }

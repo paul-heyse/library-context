@@ -54,10 +54,10 @@ async fn sealed_derivations_refuse_cross_source_cycles_and_expose_only_nominal_t
         assert!(sqlx::query(sqlx::AssertSqlSafe(select.clone())).fetch_all(&reader).await.is_err());
         store.seal(g).await.unwrap();
         if cyclic {
-            let error = store.validate(g).await.unwrap_err(); assert!(matches!(error,Error::Model(_)) && error.to_string().contains("cyclic"),"{error}");
+            let error = store.validate(g, &budget()).await.unwrap_err(); assert!(matches!(error,Error::Model(_)) && error.to_string().contains("cyclic"),"{error}");
             assert!(store.publish(g).await.is_err()); store.abort(g).await.unwrap();
         } else {
-            store.validate(g).await.unwrap(); store.publish(g).await.unwrap();
+            store.validate(g, &budget()).await.unwrap(); store.publish(g).await.unwrap();
             let _lease = store.pin(&reader,g, budget()).await.unwrap();
             let row: (String,Vec<u8>) = sqlx::query_as(sqlx::AssertSqlSafe(select)).fetch_one(&reader).await.unwrap();
             assert_eq!(row,(Node::NAME.into(),b.id().bytes().to_vec()));

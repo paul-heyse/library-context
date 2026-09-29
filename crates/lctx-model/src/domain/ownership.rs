@@ -1,15 +1,15 @@
 //! One ownership policy for qualified assertions and provider coverage.
 //! Corpus membership is explicit; paths and display names never establish ownership.
-use std::collections::{BTreeMap,BTreeSet};
+use super::charged::{ChargedMap, ChargedSet, StateCharge};
 use super::{*,input::{CorpusLibrary,InputDistribution,InputRevision,Release},source::{CoverageScope,Module,SourceArtifact}};
 
 #[derive(Default)]
-pub(crate) struct ScopeIndex {
-    sources: BTreeMap<Id<SourceArtifact>,Id<InputRevision>>,
-    modules: BTreeMap<Id<Module>,Id<SourceArtifact>>,
-    corpus: BTreeSet<(Id<InputRevision>,Id<InputRevision>)>,
-    distributions: BTreeSet<(Id<InputRevision>,Id<Release>)>,
-    scopes: BTreeMap<Id<CoverageScope>,CoverageScope>,
+pub(crate) struct ScopeIndex { charge: StateCharge,
+    sources: ChargedMap<Id<SourceArtifact>,Id<InputRevision>>,
+    modules: ChargedMap<Id<Module>,Id<SourceArtifact>>,
+    corpus: ChargedSet<(Id<InputRevision>,Id<InputRevision>)>,
+    distributions: ChargedSet<(Id<InputRevision>,Id<Release>)>,
+    scopes: ChargedMap<Id<CoverageScope>,CoverageScope>,
 }
 fn invalid(message: &str) -> ModelError { ModelError::Invalid(message.into()) }
 impl ScopeIndex {
@@ -18,15 +18,14 @@ impl ScopeIndex {
         ValidationInput::of::<CorpusLibrary>(&["id"]),ValidationInput::of::<InputDistribution>(&["id"]),
         ValidationInput::of::<CoverageScope>(&["id"]),
     ] }
-    pub fn entries(&self) -> usize { self.sources.len()+self.modules.len()+self.corpus.len()+self.distributions.len()+self.scopes.len() }
+    pub fn new(budget: &super::resources::ResourceBudget, owner: &'static str) -> Self { Self { charge: StateCharge::new(budget,owner),..Self::default() } }
     pub fn visit(&mut self, relation: &str, batch: &arrow_array::RecordBatch) -> Result<bool,ModelError> {
-        if relation == SourceArtifact::NAME { for row in SourceArtifact::decode(batch)? { self.sources.insert(row.id(),row.input); } }
-        else if relation == Module::NAME { for row in Module::decode(batch)? { self.modules.insert(row.id(),row.source); } }
-        else if relation == CorpusLibrary::NAME { for row in CorpusLibrary::decode(batch)? { self.corpus.insert((row.corpus,row.library)); } }
-        else if relation == InputDistribution::NAME { for row in InputDistribution::decode(batch)? { self.distributions.insert((row.input,row.release)); } }
-        else if relation == CoverageScope::NAME { for row in CoverageScope::decode(batch)? { self.scopes.insert(row.id(),row); } }
+        if relation == SourceArtifact::NAME { for row in SourceArtifact::decode(batch)? { self.sources.insert(&mut self.charge, row.id(),row.input)?; } }
+        else if relation == Module::NAME { for row in Module::decode(batch)? { self.modules.insert(&mut self.charge, row.id(),row.source)?; } }
+        else if relation == CorpusLibrary::NAME { for row in CorpusLibrary::decode(batch)? { self.corpus.insert(&mut self.charge, (row.corpus,row.library))?; } }
+        else if relation == InputDistribution::NAME { for row in InputDistribution::decode(batch)? { self.distributions.insert(&mut self.charge, (row.input,row.release))?; } }
+        else if relation == CoverageScope::NAME { for row in CoverageScope::decode(batch)? { self.scopes.insert(&mut self.charge, row.id(),row)?; } }
         else { return Ok(false); }
-        if self.entries() > 1_000_000 { return Err(invalid("ownership validation cardinality limit")); }
         Ok(true)
     }
     pub fn scope(&self, id: Id<CoverageScope>) -> Result<&CoverageScope,ModelError> {

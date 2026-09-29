@@ -39,11 +39,11 @@ async fn structural_types_and_recursive_variable_restrictions_roundtrip_without_
             TypeObservation,TypeSupport,TypePresentation,TypePresentationSupport,TypeVariableRestriction,TypeRestrictionSupport);
         store.seal(generation).await.unwrap();
         if !valid {
-            assert!(matches!(store.validate(generation).await, Err(Error::Model(_))));
+            assert!(matches!(store.validate(generation, &budget()).await, Err(Error::Model(_))));
             assert!(store.publish(generation).await.is_err());
             store.abort(generation).await.unwrap();
         } else {
-            store.validate(generation).await.unwrap(); store.publish(generation).await.unwrap();
+            store.validate(generation, &budget()).await.unwrap(); store.publish(generation).await.unwrap();
             let mut lease = store.pin(&reader,generation, budget()).await.unwrap();
             assert_eq!(lease.read::<TypeObservation>().await.unwrap().rows(),fixture.base.rows::<TypeObservation>());
             assert_eq!(lease.read::<TypeVariableRestriction>().await.unwrap().rows(),fixture.base.rows::<TypeVariableRestriction>());

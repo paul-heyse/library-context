@@ -1,6 +1,7 @@
 //! Source-anchored lexical vocabulary and separately attributed scoping/resolution assertions.
 //! No normalized entity, display-name join or provider-local index identifies a source event.
 use crate::{Assertion,Domain,DomainCode,DomainSum};
+use super::charged::{ChargedMap, StateCharge};
 use super::{*, assertion::AssertionQualification, attribution::FactFamily, source::Occurrence};
 
 #[derive(Debug,Clone,Copy,PartialEq,Eq,Hash,DomainCode)]
@@ -123,14 +124,15 @@ fn lexical_invariants() -> Vec<Invariant> {
         ValidationInput::of::<BindingEvent>(&["id"]), ValidationInput::of::<LexicalTarget>(&["id"]),
         ValidationInput::of::<LexicalScopeObservation>(&["id"]), ValidationInput::of::<BindingObservation>(&["id"]),
         ValidationInput::of::<ReferenceObservation>(&["id"]), ValidationInput::of::<LexicalResolution>(&["id"]),
-    ], create: std::sync::Arc::new(|| Box::new(LexicalCheck::default())) }]
+    ], create: std::sync::Arc::new(|budget| Box::new(LexicalCheck { charge: StateCharge::new(budget, "lexical_source_structure"), ..Default::default() })) }]
 }
 #[derive(Default)]
 struct LexicalCheck {
-    occurrences: std::collections::BTreeMap<Id<Occurrence>,Occurrence>,
-    scopes: std::collections::BTreeMap<Id<LexicalScope>,LexicalScope>,
-    events: std::collections::BTreeMap<Id<BindingEvent>,BindingEvent>,
-    targets: std::collections::BTreeMap<Id<LexicalTarget>,LexicalTarget>,
+    charge: StateCharge,
+    occurrences: ChargedMap<Id<Occurrence>,Occurrence>,
+    scopes: ChargedMap<Id<LexicalScope>,LexicalScope>,
+    events: ChargedMap<Id<BindingEvent>,BindingEvent>,
+    targets: ChargedMap<Id<LexicalTarget>,LexicalTarget>,
 }
 fn invalid(message: &str) -> ModelError { ModelError::Invalid(message.into()) }
 impl LexicalCheck {
@@ -150,7 +152,7 @@ impl LexicalCheck {
 }
 impl InvariantCheck for LexicalCheck {
     fn visit(&mut self, relation: &str, batch: &arrow_array::RecordBatch) -> Result<(),ModelError> {
-        if relation == Occurrence::NAME { for row in Occurrence::decode(batch)? { self.occurrences.insert(row.id(),row); } }
+        if relation == Occurrence::NAME { for row in Occurrence::decode(batch)? { self.occurrences.insert(&mut self.charge,row.id(),row)?; } }
         else if relation == LexicalScope::NAME { for row in LexicalScope::decode(batch)? {
             use super::source::SyntaxKind;
             let owner = self.occurrence(row.owner)?;
@@ -162,12 +164,12 @@ impl InvariantCheck for LexicalCheck {
                 LexicalScopeKind::Comprehension => matches!(owner.syntax_kind,SyntaxKind::ExprListComp | SyntaxKind::ExprSetComp | SyntaxKind::ExprDictComp | SyntaxKind::ExprGenerator),
             };
             if !valid { return Err(invalid("lexical scope kind differs from its opening occurrence")); }
-            self.scopes.insert(row.id(),row);
+            self.scopes.insert(&mut self.charge,row.id(),row)?;
         } }
-        else if relation == BindingEvent::NAME { for row in BindingEvent::decode(batch)? { self.occurrence(row.site)?; self.events.insert(row.id(),row); } }
+        else if relation == BindingEvent::NAME { for row in BindingEvent::decode(batch)? { self.occurrence(row.site)?; self.events.insert(&mut self.charge,row.id(),row)?; } }
         else if relation == LexicalTarget::NAME { for row in LexicalTarget::decode(batch)? {
             if let LexicalTarget::Binding { event } = &row { self.event(*event)?; }
-            self.targets.insert(row.id(),row);
+            self.targets.insert(&mut self.charge,row.id(),row)?;
         } }
         else if relation == LexicalScopeObservation::NAME { for row in LexicalScopeObservation::decode(batch)? {
             let scope = self.scope(row.scope)?;
@@ -204,9 +206,6 @@ impl InvariantCheck for LexicalCheck {
             }
         } }
         else { return Err(invalid("undeclared lexical validation input")); }
-        if self.occurrences.len()+self.scopes.len()+self.events.len()+self.targets.len() > 1_000_000 {
-            return Err(invalid("lexical validation cardinality limit"));
-        }
         Ok(())
     }
     fn finish(self: Box<Self>) -> Result<(),ModelError> { Ok(()) }

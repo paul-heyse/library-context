@@ -38,11 +38,11 @@ async fn invoked_guards_retain_typed_origins_and_foreign_source_refusal() {
             PlaceRoot,AccessPath,Place,Predicate,EvaluationAtom,SyntaxObservation,SyntaxSupport);
         store.seal(generation).await.unwrap();
         if !valid {
-            assert!(matches!(store.validate(generation).await, Err(Error::Model(_))));
+            assert!(matches!(store.validate(generation, &budget()).await, Err(Error::Model(_))));
             assert!(store.publish(generation).await.is_err());
             store.abort(generation).await.unwrap();
         } else {
-            store.validate(generation).await.unwrap(); store.publish(generation).await.unwrap();
+            store.validate(generation, &budget()).await.unwrap(); store.publish(generation).await.unwrap();
             let mut lease = store.pin(&reader,generation, budget()).await.unwrap();
             assert_eq!(lease.read::<EvaluationAtom>().await.unwrap().rows(),fixture.rows::<EvaluationAtom>());
             assert_eq!(lease.read::<Predicate>().await.unwrap().rows(),fixture.rows::<Predicate>());

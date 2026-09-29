@@ -1,4 +1,5 @@
 //! Structural values and places. Display spellings are never access-path identity encodings.
+use super::charged::{ChargedMap, StateCharge};
 use crate::{Domain, DomainSum};
 use super::{Id, ModelError, Record};
 use super::source::{Module, Occurrence};
@@ -130,16 +131,17 @@ fn literal_set_invariants() -> Vec<super::Invariant> {
     vec![super::Invariant { name: "literal_set_membership", inputs: vec![
         super::ValidationInput::of::<LiteralSet>(&["id"]),
         super::ValidationInput::of::<LiteralSetMember>(&["set", "value"]),
-    ], create: std::sync::Arc::new(|| Box::new(SetCheck { expected: Default::default(), current: None })) }]
+    ], create: std::sync::Arc::new(|budget| Box::new(SetCheck { charge: StateCharge::new(budget, "literal_set_membership"), expected: Default::default(), current: None })) }]
 }
 struct SetCheck {
-    expected: std::collections::BTreeMap<Id<LiteralSet>, super::ContentHash>,
+    charge: StateCharge,
+    expected: ChargedMap<Id<LiteralSet>, super::ContentHash>,
     current: Option<(Id<LiteralSet>, SetDigest, Option<Id<Literal>>)>,
 }
 impl SetCheck {
     fn flush(&mut self) -> Result<(), ModelError> {
         if let Some((id, builder, _)) = self.current.take() {
-            if self.expected.remove(&id) != Some(builder.finish()) { return Err(ModelError::Invalid("literal set members differ from identity".into())); }
+            if self.expected.remove(&mut self.charge, &id) != Some(builder.finish()) { return Err(ModelError::Invalid("literal set members differ from identity".into())); }
         }
         Ok(())
     }
@@ -148,8 +150,7 @@ impl super::InvariantCheck for SetCheck {
     fn visit(&mut self, relation: &str, batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
         if relation == LiteralSet::NAME {
             for row in LiteralSet::decode(batch)? {
-                if self.expected.len() >= 1_000_000 { return Err(ModelError::Invalid("literal set cardinality budget exceeded".into())); }
-                if self.expected.insert(row.id(), row.members).is_some() { return Err(ModelError::Conflict(LiteralSet::NAME)); }
+                if self.expected.insert(&mut self.charge, row.id(), row.members)?.is_some() { return Err(ModelError::Conflict(LiteralSet::NAME)); }
             }
         } else if relation == LiteralSetMember::NAME {
             for row in LiteralSetMember::decode(batch)? {

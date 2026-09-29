@@ -1,7 +1,8 @@
 //! Structural provider type observations. Renderings do not define modeled type identity.
 //! Variable restrictions are qualified relationships, so recursive bounds need no recursive key.
-use std::collections::{BTreeMap,BTreeSet};
+use std::collections::BTreeSet;
 use crate::{Assertion,Domain,DomainCode,DomainSum};
+use super::charged::{ChargedMap, ChargedSet, StateCharge};
 use super::{*,assertion::AssertionQualification,attribution::{AnalysisContext,FactFamily,Provider,ProviderRun,Fidelity},
     calls::{ProviderSymbol,SymbolKind},source::{CoverageScope,Occurrence},value::Literal,obligation::ObligationKind};
 
@@ -138,22 +139,21 @@ fn validate_restriction(row: &TypeVariableRestriction) -> Result<(),ModelError> 
 
 fn sequence_invariants() -> Vec<Invariant> {
     vec![Invariant { name: "type_sequence_membership",inputs: vec![ValidationInput::of::<TypeSequence>(&["id"]),
-        ValidationInput::of::<TypeSequenceMember>(&["sequence","ordinal"])],create: std::sync::Arc::new(|| Box::new(SequenceCheck::default())) }]
+        ValidationInput::of::<TypeSequenceMember>(&["sequence","ordinal"])],create: std::sync::Arc::new(|budget| Box::new(SequenceCheck { charge: StateCharge::new(budget,"type_sequence_membership"),..Default::default() })) }]
 }
 #[derive(Default)]
-struct SequenceCheck { expected: BTreeMap<Id<TypeSequence>,ContentHash>,current: Option<(Id<TypeSequence>,Vec<(TypeChildRole,Id<TypeTerm>)>)> }
+struct SequenceCheck { charge: StateCharge,expected: ChargedMap<Id<TypeSequence>,ContentHash>,current: Option<(Id<TypeSequence>,Vec<(TypeChildRole,Id<TypeTerm>)>)> }
 impl SequenceCheck {
     fn flush(&mut self) -> Result<(),ModelError> {
         if let Some((id,members)) = self.current.take() {
-            if self.expected.remove(&id) != Some(sequence_digest(&members)) { return Err(invalid("type sequence membership differs")); }
+            if self.expected.remove(&mut self.charge,&id) != Some(sequence_digest(&members)) { return Err(invalid("type sequence membership differs")); }
         } Ok(())
     }
 }
 impl InvariantCheck for SequenceCheck {
     fn visit(&mut self, relation: &str,batch: &arrow_array::RecordBatch) -> Result<(),ModelError> {
         if relation == TypeSequence::NAME { for row in TypeSequence::decode(batch)? {
-            if self.expected.len() >= 1_000_000 { return Err(invalid("type sequence cardinality limit")); }
-            self.expected.insert(row.id(),row.members);
+            self.expected.insert(&mut self.charge,row.id(),row.members)?;
         } }
         else if relation == TypeSequenceMember::NAME { for row in TypeSequenceMember::decode(batch)? {
             if self.current.as_ref().is_none_or(|(id,_)| *id != row.sequence) { self.flush()?; self.current = Some((row.sequence,Vec::new())); }
@@ -171,27 +171,27 @@ impl InvariantCheck for SequenceCheck {
 }
 
 fn type_invariants() -> Vec<Invariant> {
-    vec![Invariant { name: "structural_type_shapes",inputs: TypeIndex::inputs(),create: std::sync::Arc::new(|| Box::new(TypeIndex::default())) }]
+    vec![Invariant { name: "structural_type_shapes",inputs: TypeIndex::inputs(),create: std::sync::Arc::new(|budget| Box::new(TypeIndex::new(budget,"structural_type_shapes"))) }]
 }
 /// The same native-owner closure is used by shared support validation and structural checks.
 #[derive(Default)]
 pub(crate) struct TypeIndex {
-    symbols: BTreeMap<Id<ProviderSymbol>,ProviderSymbol>,variables: BTreeMap<Id<TypeVariable>,TypeVariable>,
-    terms: BTreeMap<Id<TypeTerm>,TypeTerm>,sequences: BTreeSet<Id<TypeSequence>>,
-    members: BTreeMap<Id<TypeSequence>,Vec<TypeSequenceMember>>, member_count: usize, closure_work: usize,
+    charge: StateCharge,
+    symbols: ChargedMap<Id<ProviderSymbol>,ProviderSymbol>,variables: ChargedMap<Id<TypeVariable>,TypeVariable>,
+    terms: ChargedMap<Id<TypeTerm>,TypeTerm>,sequences: ChargedSet<Id<TypeSequence>>,
+    members: ChargedMap<Id<TypeSequence>,Vec<TypeSequenceMember>>, closure_work: usize,
 }
 impl TypeIndex {
+    pub fn new(budget: &super::resources::ResourceBudget, owner: &'static str) -> Self { Self { charge: StateCharge::new(budget,owner),..Self::default() } }
     pub fn inputs() -> Vec<ValidationInput> { vec![ValidationInput::of::<ProviderSymbol>(&["id"]),ValidationInput::of::<TypeVariable>(&["id"]),
         ValidationInput::of::<TypeSequence>(&["id"]),ValidationInput::of::<TypeSequenceMember>(&["sequence","ordinal"]),ValidationInput::of::<TypeTerm>(&["id"])] }
-    pub fn entries(&self) -> usize { self.symbols.len()+self.variables.len()+self.terms.len()+self.sequences.len()+self.member_count }
     pub fn visit_input(&mut self, relation: &str,batch: &arrow_array::RecordBatch) -> Result<bool,ModelError> {
-        if relation == ProviderSymbol::NAME { for row in ProviderSymbol::decode(batch)? { self.symbols.insert(row.id(),row); } }
-        else if relation == TypeVariable::NAME { for row in TypeVariable::decode(batch)? { self.variables.insert(row.id(),row); } }
-        else if relation == TypeSequence::NAME { for row in TypeSequence::decode(batch)? { self.sequences.insert(row.id()); } }
-        else if relation == TypeSequenceMember::NAME { for row in TypeSequenceMember::decode(batch)? { self.member_count += 1; self.members.entry(row.sequence).or_default().push(row); } }
-        else if relation == TypeTerm::NAME { for row in TypeTerm::decode(batch)? { self.terms.insert(row.id(),row); } }
+        if relation == ProviderSymbol::NAME { for row in ProviderSymbol::decode(batch)? { self.symbols.insert(&mut self.charge,row.id(),row)?; } }
+        else if relation == TypeVariable::NAME { for row in TypeVariable::decode(batch)? { self.variables.insert(&mut self.charge,row.id(),row)?; } }
+        else if relation == TypeSequence::NAME { for row in TypeSequence::decode(batch)? { self.sequences.insert(&mut self.charge,row.id())?; } }
+        else if relation == TypeSequenceMember::NAME { for row in TypeSequenceMember::decode(batch)? { self.members.update(&mut self.charge,row.sequence,|members| members.push(row))?; } }
+        else if relation == TypeTerm::NAME { for row in TypeTerm::decode(batch)? { self.terms.insert(&mut self.charge,row.id(),row)?; } }
         else { return Ok(false); }
-        if self.entries() > 1_000_000 { return Err(invalid("type index cardinality limit")); }
         Ok(true)
     }
     fn sequence(&self, id: Id<TypeSequence>) -> Result<&[TypeSequenceMember],ModelError> {

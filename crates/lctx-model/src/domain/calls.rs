@@ -1,5 +1,6 @@
 //! Provider-qualified symbols, complete signature alternatives, and one call-shape binder.
 //! No normalized/effective entity is presumed at the raw-facts boundary.
+use super::charged::{ChargedMap, StateCharge};
 use std::collections::{BTreeMap, BTreeSet};
 use crate::{Assertion, Domain, DomainCode, DomainSum};
 use super::{*, assertion::*, attribution::*, source::*};
@@ -113,30 +114,26 @@ fn signature_invariants() -> Vec<Invariant> {
         ValidationInput::of::<AssertionQualification>(&["id"]),ValidationInput::of::<ProviderSymbol>(&["id"]),
         ValidationInput::of::<ParameterShape>(&["id"]),ValidationInput::of::<Signature>(&["id"]),
         ValidationInput::of::<SignatureParameter>(&["signature","ordinal"]),
-    ], create: std::sync::Arc::new(|| Box::new(SignatureCheck::default())) }]
+    ], create: std::sync::Arc::new(|budget| Box::new(SignatureCheck { charge: StateCharge::new(budget,"complete_signature_membership"),..Default::default() })) }]
 }
 #[derive(Default)]
-struct SignatureCheck {
-    qualifications: BTreeMap<Id<AssertionQualification>,AssertionQualification>,
-    symbols: BTreeMap<Id<ProviderSymbol>,ProviderSymbol>, shapes: BTreeMap<Id<ParameterShape>,ParameterShape>,
-    signatures: BTreeMap<Id<Signature>,Signature>, members: BTreeMap<Id<Signature>,Vec<SignatureParameter>>,
+struct SignatureCheck { charge: StateCharge,
+    qualifications: ChargedMap<Id<AssertionQualification>,AssertionQualification>,
+    symbols: ChargedMap<Id<ProviderSymbol>,ProviderSymbol>, shapes: ChargedMap<Id<ParameterShape>,ParameterShape>,
+    signatures: ChargedMap<Id<Signature>,Signature>, members: ChargedMap<Id<Signature>,Vec<SignatureParameter>>,
 }
 impl InvariantCheck for SignatureCheck {
     fn visit(&mut self, relation: &str, batch: &arrow_array::RecordBatch) -> Result<(),ModelError> {
-        if relation == AssertionQualification::NAME { for row in AssertionQualification::decode(batch)? { self.qualifications.insert(row.id(),row); } }
-        else if relation == ProviderSymbol::NAME { for row in ProviderSymbol::decode(batch)? { self.symbols.insert(row.id(),row); } }
-        else if relation == ParameterShape::NAME { for row in ParameterShape::decode(batch)? { self.shapes.insert(row.id(),row); } }
-        else if relation == Signature::NAME { for row in Signature::decode(batch)? { self.signatures.insert(row.id(),row); } }
+        if relation == AssertionQualification::NAME { for row in AssertionQualification::decode(batch)? { self.qualifications.insert(&mut self.charge, row.id(),row)?; } }
+        else if relation == ProviderSymbol::NAME { for row in ProviderSymbol::decode(batch)? { self.symbols.insert(&mut self.charge, row.id(),row)?; } }
+        else if relation == ParameterShape::NAME { for row in ParameterShape::decode(batch)? { self.shapes.insert(&mut self.charge, row.id(),row)?; } }
+        else if relation == Signature::NAME { for row in Signature::decode(batch)? { self.signatures.insert(&mut self.charge, row.id(),row)?; } }
         else if relation == SignatureParameter::NAME {
             for row in SignatureParameter::decode(batch)? {
-                let members = self.members.entry(row.signature).or_default();
-                if members.len() >= 4096 { return Err(invalid("signature parameter work limit")); }
-                members.push(row);
+                if self.members.get(&row.signature).is_some_and(|members| members.len() >= 4096) { return Err(invalid("signature parameter work limit")); }
+                self.members.update(&mut self.charge,row.signature,|members| members.push(row))?;
             }
         } else { return Err(invalid("undeclared signature validation input")); }
-        if self.qualifications.len()+self.symbols.len()+self.shapes.len()+self.signatures.len()+self.members.len() > 1_000_000 {
-            return Err(invalid("signature validation cardinality limit"));
-        }
         Ok(())
     }
     fn finish(self: Box<Self>) -> Result<(),ModelError> {
@@ -394,24 +391,25 @@ fn resolution_invariants() -> Vec<Invariant> {
     vec![Invariant { name: "complete_call_alternatives", inputs: vec![
         ValidationInput::of::<AssertionQualification>(&["id"]),ValidationInput::of::<CallTarget>(&["id"]),
         ValidationInput::of::<CallResolution>(&["id"]),ValidationInput::of::<CallResolutionMember>(&["resolution","target"]),
-    ], create: std::sync::Arc::new(|| Box::new(ResolutionCheck::default())) }]
+    ], create: std::sync::Arc::new(|budget| Box::new(ResolutionCheck { charge: StateCharge::new(budget,"complete_call_alternatives"),..Default::default() })) }]
 }
 #[derive(Default)]
-struct ResolutionCheck {
-    qualifications: BTreeMap<Id<AssertionQualification>,AssertionQualification>,
-    targets: BTreeMap<Id<CallTarget>,CallTarget>,resolutions: BTreeMap<Id<CallResolution>,CallResolution>,
-    members: BTreeMap<Id<CallResolution>,BTreeSet<Id<CallTarget>>>,
+struct ResolutionCheck { charge: StateCharge,
+    qualifications: ChargedMap<Id<AssertionQualification>,AssertionQualification>,
+    targets: ChargedMap<Id<CallTarget>,CallTarget>,resolutions: ChargedMap<Id<CallResolution>,CallResolution>,
+    members: ChargedMap<Id<CallResolution>,BTreeSet<Id<CallTarget>>>,
 }
 impl InvariantCheck for ResolutionCheck {
     fn visit(&mut self, relation: &str, batch: &arrow_array::RecordBatch) -> Result<(),ModelError> {
-        if relation == AssertionQualification::NAME { for row in AssertionQualification::decode(batch)? { self.qualifications.insert(row.id(),row); } }
-        else if relation == CallTarget::NAME { for row in CallTarget::decode(batch)? { self.targets.insert(row.id(),row); } }
-        else if relation == CallResolution::NAME { for row in CallResolution::decode(batch)? { self.resolutions.insert(row.id(),row); } }
+        if relation == AssertionQualification::NAME { for row in AssertionQualification::decode(batch)? { self.qualifications.insert(&mut self.charge, row.id(),row)?; } }
+        else if relation == CallTarget::NAME { for row in CallTarget::decode(batch)? { self.targets.insert(&mut self.charge, row.id(),row)?; } }
+        else if relation == CallResolution::NAME { for row in CallResolution::decode(batch)? { self.resolutions.insert(&mut self.charge, row.id(),row)?; } }
         else if relation == CallResolutionMember::NAME { for row in CallResolutionMember::decode(batch)? {
-            let members = self.members.entry(row.resolution).or_default();
-            if members.len() >= 4096 || !members.insert(row.target) { return Err(invalid("call alternatives repeated or work limit exceeded")); }
+            if self.members.get(&row.resolution).is_some_and(|members| members.len() >= 4096)
+                || !self.members.update(&mut self.charge,row.resolution,|members| members.insert(row.target))? {
+                return Err(invalid("call alternatives repeated or work limit exceeded"));
+            }
         } } else { return Err(invalid("undeclared call resolution validation input")); }
-        if self.qualifications.len()+self.targets.len()+self.resolutions.len()+self.members.len() > 1_000_000 { return Err(invalid("call resolution cardinality limit")); }
         Ok(())
     }
     fn finish(self: Box<Self>) -> Result<(),ModelError> {
@@ -512,21 +510,21 @@ fn target_invariants() -> Vec<Invariant> {
         ValidationInput::of::<AssertionQualification>(&["id"]),ValidationInput::of::<ProviderSymbol>(&["id"]),
         ValidationInput::of::<Occurrence>(&["id"]),ValidationInput::of::<Receiver>(&["id"]),
         ValidationInput::of::<CallDestination>(&["id"]),ValidationInput::of::<CallTarget>(&["id"]),
-    ], create: std::sync::Arc::new(|| Box::new(TargetCheck::default())) }]
+    ], create: std::sync::Arc::new(|budget| Box::new(TargetCheck { charge: StateCharge::new(budget,"call_target_ownership"),..Default::default() })) }]
 }
 #[derive(Default)]
-struct TargetCheck {
-    qualifications: BTreeMap<Id<AssertionQualification>,AssertionQualification>,
-    symbols: BTreeMap<Id<ProviderSymbol>,ProviderSymbol>,occurrences: BTreeMap<Id<Occurrence>,Occurrence>,
-    receivers: BTreeMap<Id<Receiver>,Receiver>,destinations: BTreeMap<Id<CallDestination>,CallDestination>,
+struct TargetCheck { charge: StateCharge,
+    qualifications: ChargedMap<Id<AssertionQualification>,AssertionQualification>,
+    symbols: ChargedMap<Id<ProviderSymbol>,ProviderSymbol>,occurrences: ChargedMap<Id<Occurrence>,Occurrence>,
+    receivers: ChargedMap<Id<Receiver>,Receiver>,destinations: ChargedMap<Id<CallDestination>,CallDestination>,
 }
 impl InvariantCheck for TargetCheck {
     fn visit(&mut self, relation: &str, batch: &arrow_array::RecordBatch) -> Result<(),ModelError> {
-        if relation == AssertionQualification::NAME { for row in AssertionQualification::decode(batch)? { self.qualifications.insert(row.id(),row); } }
-        else if relation == ProviderSymbol::NAME { for row in ProviderSymbol::decode(batch)? { self.symbols.insert(row.id(),row); } }
-        else if relation == Occurrence::NAME { for row in Occurrence::decode(batch)? { self.occurrences.insert(row.id(),row); } }
-        else if relation == Receiver::NAME { for row in Receiver::decode(batch)? { self.receivers.insert(row.id(),row); } }
-        else if relation == CallDestination::NAME { for row in CallDestination::decode(batch)? { self.destinations.insert(row.id(),row); } }
+        if relation == AssertionQualification::NAME { for row in AssertionQualification::decode(batch)? { self.qualifications.insert(&mut self.charge, row.id(),row)?; } }
+        else if relation == ProviderSymbol::NAME { for row in ProviderSymbol::decode(batch)? { self.symbols.insert(&mut self.charge, row.id(),row)?; } }
+        else if relation == Occurrence::NAME { for row in Occurrence::decode(batch)? { self.occurrences.insert(&mut self.charge, row.id(),row)?; } }
+        else if relation == Receiver::NAME { for row in Receiver::decode(batch)? { self.receivers.insert(&mut self.charge, row.id(),row)?; } }
+        else if relation == CallDestination::NAME { for row in CallDestination::decode(batch)? { self.destinations.insert(&mut self.charge, row.id(),row)?; } }
         else if relation == CallTarget::NAME {
             for row in CallTarget::decode(batch)? {
                 let qualification = self.qualifications.get(&row.qualification).ok_or_else(|| invalid("call qualification absent"))?;
@@ -545,9 +543,6 @@ impl InvariantCheck for TargetCheck {
                 }
             }
         } else { return Err(invalid("undeclared call ownership input")); }
-        if self.qualifications.len()+self.symbols.len()+self.occurrences.len()+self.receivers.len()+self.destinations.len() > 1_000_000 {
-            return Err(invalid("call target ownership cardinality limit"));
-        }
         Ok(())
     }
     fn finish(self: Box<Self>) -> Result<(),ModelError> { Ok(()) }
@@ -561,13 +556,13 @@ fn native_support_invariants() -> Vec<Invariant> {
         ValidationInput::of::<CallDestination>(&["id"]),ValidationInput::of::<Signature>(&["id"]),
         ValidationInput::of::<CallTarget>(&["id"]),ValidationInput::of::<SignatureSupport>(&["id"]),
         ValidationInput::of::<CallTargetSupport>(&["id"]),
-    ], create: std::sync::Arc::new(|| Box::new(NativeSupportCheck::default())) }]
+    ], create: std::sync::Arc::new(|budget| Box::new(NativeSupportCheck { charge: StateCharge::new(budget,"native_symbol_support_ownership"),..Default::default() })) }]
 }
 #[derive(Default)]
-struct NativeSupportCheck {
-    symbols: BTreeMap<Id<ProviderSymbol>,Id<Provider>>,runs: BTreeMap<Id<ProviderRun>,Id<Provider>>,
-    destinations: BTreeMap<Id<CallDestination>,CallDestination>,
-    signatures: BTreeMap<Id<Signature>,Id<ProviderSymbol>>,targets: BTreeMap<Id<CallTarget>,Id<CallDestination>>,
+struct NativeSupportCheck { charge: StateCharge,
+    symbols: ChargedMap<Id<ProviderSymbol>,Id<Provider>>,runs: ChargedMap<Id<ProviderRun>,Id<Provider>>,
+    destinations: ChargedMap<Id<CallDestination>,CallDestination>,
+    signatures: ChargedMap<Id<Signature>,Id<ProviderSymbol>>,targets: ChargedMap<Id<CallTarget>,Id<CallDestination>>,
 }
 impl NativeSupportCheck {
     fn check(&self, symbol: Id<ProviderSymbol>,run: Id<ProviderRun>) -> Result<(),ModelError> {
@@ -578,11 +573,11 @@ impl NativeSupportCheck {
 }
 impl InvariantCheck for NativeSupportCheck {
     fn visit(&mut self, relation: &str, batch: &arrow_array::RecordBatch) -> Result<(),ModelError> {
-        if relation == ProviderSymbol::NAME { for row in ProviderSymbol::decode(batch)? { self.symbols.insert(row.id(),row.provider); } }
-        else if relation == ProviderRun::NAME { for row in ProviderRun::decode(batch)? { self.runs.insert(row.id(),row.provider); } }
-        else if relation == CallDestination::NAME { for row in CallDestination::decode(batch)? { self.destinations.insert(row.id(),row); } }
-        else if relation == Signature::NAME { for row in Signature::decode(batch)? { self.signatures.insert(row.id(),row.symbol); } }
-        else if relation == CallTarget::NAME { for row in CallTarget::decode(batch)? { self.targets.insert(row.id(),row.destination); } }
+        if relation == ProviderSymbol::NAME { for row in ProviderSymbol::decode(batch)? { self.symbols.insert(&mut self.charge, row.id(),row.provider)?; } }
+        else if relation == ProviderRun::NAME { for row in ProviderRun::decode(batch)? { self.runs.insert(&mut self.charge, row.id(),row.provider)?; } }
+        else if relation == CallDestination::NAME { for row in CallDestination::decode(batch)? { self.destinations.insert(&mut self.charge, row.id(),row)?; } }
+        else if relation == Signature::NAME { for row in Signature::decode(batch)? { self.signatures.insert(&mut self.charge, row.id(),row.symbol)?; } }
+        else if relation == CallTarget::NAME { for row in CallTarget::decode(batch)? { self.targets.insert(&mut self.charge, row.id(),row.destination)?; } }
         else if relation == SignatureSupport::NAME { for row in SignatureSupport::decode(batch)? {
             self.check(*self.signatures.get(&row.assertion).ok_or_else(|| invalid("supported signature absent"))?,row.run)?;
         } }
@@ -592,9 +587,6 @@ impl InvariantCheck for NativeSupportCheck {
                 self.check(*symbol,row.run)?;
             }
         } } else { return Err(invalid("undeclared native symbol support input")); }
-        if self.symbols.len()+self.runs.len()+self.destinations.len()+self.signatures.len()+self.targets.len() > 1_000_000 {
-            return Err(invalid("native symbol support cardinality limit"));
-        }
         Ok(())
     }
     fn finish(self: Box<Self>) -> Result<(),ModelError> { Ok(()) }

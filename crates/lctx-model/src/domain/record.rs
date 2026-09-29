@@ -58,11 +58,29 @@ impl<T: HeapSize> HeapSize for Vec<T> {
 }
 impl<T> HeapSize for Id<T> {}
 impl<T: SumRecord, const CODE: i16> HeapSize for super::ArmId<T, CODE> {}
-impl HeapSize for ContentHash {}
-impl HeapSize for bool {}
-impl HeapSize for i16 {}
-impl HeapSize for i32 {}
-impl HeapSize for i64 {}
+impl<T: HeapSize> HeapSize for std::collections::BTreeSet<T> {
+    fn heap_bytes(&self) -> usize {
+        self.iter().fold(self.len().saturating_mul(size_of::<T>() + 16), |bytes, item| bytes.saturating_add(item.heap_bytes()))
+    }
+}
+impl<K: HeapSize, V: HeapSize> HeapSize for std::collections::BTreeMap<K, V> {
+    fn heap_bytes(&self) -> usize {
+        self.iter().fold(self.len().saturating_mul(size_of::<(K, V)>() + 16), |bytes, (k, v)| bytes.saturating_add(k.heap_bytes()).saturating_add(v.heap_bytes()))
+    }
+}
+macro_rules! inline_only { ($($t:ty),*) => { $(impl HeapSize for $t {})* }; }
+inline_only!(ContentHash, bool, i16, i32, i64, u8, u16, u32, u64, usize, char);
+/// A borrow owns no heap; the referent is accounted by its owner.
+impl<T: ?Sized> HeapSize for &T {}
+macro_rules! tuple_heap {
+    ($($name:ident),+) => {
+        impl<$($name: HeapSize),+> HeapSize for ($($name,)+) {
+            #[allow(non_snake_case)]
+            fn heap_bytes(&self) -> usize { let ($($name,)+) = self; 0usize $(.saturating_add($name.heap_bytes()))+ }
+        }
+    };
+}
+tuple_heap!(A); tuple_heap!(A, B); tuple_heap!(A, B, C); tuple_heap!(A, B, C, D); tuple_heap!(A, B, C, D, E);
 
 pub trait FlatValue: FieldValue {}
 pub trait FieldValue: HeapSize {
@@ -110,7 +128,7 @@ pub struct Sum { pub tag: &'static str, pub arms: Vec<Arm> }
 
 pub trait SumRecord: Record { fn tag(&self) -> i16; }
 
-pub trait Record: Sized + Clone + PartialEq + std::fmt::Debug + Send + Sync + 'static {
+pub trait Record: HeapSize + Sized + Clone + PartialEq + std::fmt::Debug + Send + Sync + 'static {
     fn derivation() -> Option<super::derivation::Derivation> { None }
     fn proof(&self) -> Option<super::derivation::Proof> { None }
     fn required_relations() -> Vec<(std::any::TypeId, &'static str)> { Vec::new() }
@@ -126,8 +144,6 @@ pub trait Record: Sized + Clone + PartialEq + std::fmt::Debug + Send + Sync + 's
     fn invariants() -> Vec<super::Invariant> { Vec::new() }
     /// Hash every semantic field, including non-key payload, independently of Arrow framing.
     fn content_digest(&self) -> ContentHash;
-    /// Heap bytes owned by the row's fields, generated from the declaration.
-    fn heap_bytes(&self) -> usize;
     /// Admission size of one typed row: its inline size plus owned heap bytes.
     fn row_bytes(&self) -> usize { size_of::<Self>().saturating_add(self.heap_bytes()) }
     fn sum() -> Option<Sum> { None }

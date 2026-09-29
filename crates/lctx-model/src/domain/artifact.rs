@@ -1,5 +1,5 @@
 //! Canonical original bytes, independent of interpretation and transport batch boundaries.
-use std::collections::BTreeMap;
+use super::charged::{ChargedMap, StateCharge};
 use crate::Domain;
 use super::{ContentHash, EvidenceBytes, Id, Invariant, InvariantCheck, ModelError, Record, ValidationInput};
 use super::source::SourceArtifact;
@@ -71,11 +71,11 @@ pub(crate) fn content_invariants() -> Vec<Invariant> {
     vec![Invariant { name: "artifact_chunk_content", inputs: vec![
         ValidationInput::of::<SourceArtifact>(&["id"]),
         ValidationInput::of::<ArtifactChunk>(&["artifact", "ordinal"]),
-    ], create: std::sync::Arc::new(|| Box::new(ArtifactContents::default())) }]
+    ], create: std::sync::Arc::new(|budget| Box::new(ArtifactContents { charge: StateCharge::new(budget, "artifact_chunk_content"), ..Default::default() })) }]
 }
 #[derive(Default)]
-struct ArtifactContents {
-    expected: BTreeMap<Id<SourceArtifact>, (ContentHash, i64)>,
+struct ArtifactContents { charge: StateCharge,
+    expected: ChargedMap<Id<SourceArtifact>, (ContentHash, i64)>,
     current: Option<(Id<SourceArtifact>, ArtifactVerifier)>,
 }
 impl ArtifactContents {
@@ -88,8 +88,7 @@ impl InvariantCheck for ArtifactContents {
     fn visit(&mut self, relation: &str, batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
         if relation == SourceArtifact::NAME {
             for artifact in SourceArtifact::decode(batch)? {
-                if self.expected.len() >= 1_000_000 { return Err(ModelError::Invalid("artifact validation cardinality budget exceeded".into())); }
-                if self.expected.insert(artifact.id(), (artifact.content, artifact.byte_len)).is_some() {
+                if self.expected.insert(&mut self.charge, artifact.id(), (artifact.content, artifact.byte_len))?.is_some() {
                     return Err(ModelError::Conflict(SourceArtifact::NAME));
                 }
             }
@@ -97,7 +96,7 @@ impl InvariantCheck for ArtifactContents {
             for chunk in ArtifactChunk::decode(batch)? {
                 if self.current.as_ref().is_none_or(|(id, _)| *id != chunk.artifact) {
                     self.flush()?;
-                    let (expected_digest, expected_len) = self.expected.remove(&chunk.artifact)
+                    let (expected_digest, expected_len) = self.expected.remove(&mut self.charge, &chunk.artifact)
                         .ok_or_else(|| ModelError::Invalid("chunk artifact absent or repeated".into()))?;
                     self.current = Some((chunk.artifact, ArtifactVerifier {
                         artifact: chunk.artifact, expected_digest, expected_len,

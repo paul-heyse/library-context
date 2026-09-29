@@ -42,7 +42,7 @@ async fn generation_sink_requires_its_execution_and_cannot_bypass_sealing_receip
     assert_eq!(attempt_budget.reserved(), 0);
     stage.finish(ProviderOutcome::Complete).unwrap();
     assert_eq!(attempt.seal(execution.finish().unwrap()).await.unwrap(), generation);
-    store.validate(generation).await.unwrap();
+    store.validate(generation, &budget()).await.unwrap();
     store.publish(generation).await.unwrap();
     assert!(matches!(store.select(generation).await, Err(Error::Frontier)));
     let mut lease = store.pin(&reader, generation, budget()).await.unwrap();
@@ -109,7 +109,7 @@ async fn generation_sink_requires_its_execution_and_cannot_bypass_sealing_receip
         let sealed = attempt.seal(execution.finish().unwrap()).await;
         if empty_write {
             assert_eq!(sealed.unwrap(), id);
-            store.validate(id).await.unwrap();
+            store.validate(id, &budget()).await.unwrap();
         } else { assert!(matches!(sealed, Err(Error::State)), "a successful no-op did not write an output"); }
         store.abort(id).await.unwrap();
     }
@@ -127,7 +127,14 @@ async fn generation_sink_requires_its_execution_and_cannot_bypass_sealing_receip
     output.finish(ProviderOutcome::Complete).await.unwrap();
     assert_eq!(attempt_budget.reserved(), 0);
     assert_eq!(attempt.seal(execution.finish().unwrap()).await.unwrap(), id);
-    store.validate(id).await.unwrap();
+    // Validator state and read buffers are charged: a tiny budget refuses and leaves the
+    // generation sealed, and a funded retry validates the same stored contents.
+    let tiny = ResourceBudget::fixed(64 << 10).unwrap();
+    assert!(matches!(store.validate(id, &tiny).await, Err(Error::Model(ModelError::Resource { .. }))));
+    assert_eq!(tiny.reserved(), 0);
+    assert!(matches!(store.publish(id).await, Err(Error::State)), "a refused validation publishes nothing");
+    store.validate(id, &attempt_budget).await.unwrap();
+    assert_eq!(attempt_budget.reserved(), 0);
     let count: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {}.packages", id.schema()))).fetch_one(&owner).await.unwrap();
     assert_eq!(count, 5000, "a repeated row is emitted once across transfer batches");
     store.abort(id).await.unwrap();

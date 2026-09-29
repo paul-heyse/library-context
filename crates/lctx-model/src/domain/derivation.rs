@@ -34,6 +34,10 @@ impl<R: Record> DerivationReference for Id<R> { fn row_ref(&self) -> Option<RowR
 impl<R: Record> DerivationReference for Option<Id<R>> { fn row_ref(&self) -> Option<RowRef> { self.map(RowRef::of) } }
 #[derive(Debug,Clone)]
 pub struct Proof { pub source: RowRef,pub conclusion: RowRef,pub premises: Vec<RowRef> }
+impl super::HeapSize for RowRef {}
+impl super::HeapSize for Proof { fn heap_bytes(&self) -> usize { self.premises.heap_bytes() } }
+/// Graph-map bookkeeping admitted per proof node or edge before the cycle check allocates it.
+const GRAPH_ENTRY_BYTES: usize = 64;
 
 /// Validates the finite, relation-qualified dependency graph of an assembled proof set.
 /// This is a semantic work bound, not coordinated allocation accounting. The effect owner must
@@ -58,18 +62,27 @@ pub fn acyclic(proofs: &[Proof],max_work: usize) -> Result<(),ModelError> {
 
 /// The model constructs one common check across every declared proof relation. A cycle spanning
 /// two step types is therefore checked together, rather than separately per producer.
-pub(super) struct Check { sources: Vec<super::Relation>,proofs: Vec<Proof>,work: usize }
-impl Check { pub fn new(sources: Vec<super::Relation>) -> Self { Self { sources,proofs: Vec::new(),work: 0 } } }
+pub(super) struct Check { sources: Vec<super::Relation>,charge: super::charged::StateCharge,proofs: super::charged::ChargedVec<Proof>,entries: usize }
+impl Check {
+    pub fn new(sources: Vec<super::Relation>,budget: &super::resources::ResourceBudget) -> Self {
+        Self { sources,charge: super::charged::StateCharge::new(budget,"derivation_acyclic"),proofs: Default::default(),entries: 0 }
+    }
+}
 impl super::InvariantCheck for Check {
     fn visit(&mut self,relation: &str,batch: &arrow_array::RecordBatch) -> Result<(),ModelError> {
         let source = self.sources.iter().find(|s| s.name() == relation).ok_or_else(|| ModelError::Invalid("undeclared proof input".into()))?;
-        let arity = source.derivation().expect("declared proof source").premises.len();
-        let added = arity.checked_add(2).and_then(|width| width.checked_mul(batch.num_rows()));
-        self.work = added.and_then(|added| self.work.checked_add(added)).filter(|work| *work <= 1_000_000)
-            .ok_or_else(|| ModelError::Invalid("derivation work bound exceeded".into()))?;
-        self.proofs.extend(source.proofs(batch)?); Ok(())
+        for proof in source.proofs(batch)? {
+            self.entries = self.entries.saturating_add(proof.premises.len()+2);
+            self.proofs.push(&mut self.charge,proof)?;
+        }
+        Ok(())
     }
-    fn finish(self: Box<Self>) -> Result<(),ModelError> { acyclic(&self.proofs,1_000_000) }
+    /// The stored check is bounded by admitted memory: proof rows are already charged, and the
+    /// cycle graph is admitted before it is built.
+    fn finish(mut self: Box<Self>) -> Result<(),ModelError> {
+        self.charge.grow(self.entries.saturating_mul(GRAPH_ENTRY_BYTES))?;
+        acyclic(&self.proofs,usize::MAX)
+    }
 }
 
 /// Derivation field annotations must name nominal reference types.

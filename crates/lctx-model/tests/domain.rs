@@ -213,10 +213,10 @@ fn provider_invocation_and_coverage_require_the_exact_requested_contract() {
     let scope = CoverageScope::Artifact { artifact: artifact.id() };
     let expected = CoverageExpectation { input: artifact.input, scope: scope.id(), provider: provider.id(), context: context.id(), family: FactFamily::Syntax, run: Some(run.id()) };
     let mut outcome = ProviderCoverage { scope: scope.id(), provider: provider.id(), context: context.id(), family: FactFamily::Syntax, run: Some(run.id()), status: CoverageStatus::CompleteUnderStatedModel, reason: None, diagnostic: None };
-    let check = |outcome: &ProviderCoverage| validate_coverage_contract(std::slice::from_ref(&expected), std::slice::from_ref(outcome), std::slice::from_ref(&run), &families);
+    let check = |outcome: &ProviderCoverage| validate_coverage_contract(std::slice::from_ref(&expected), std::slice::from_ref(outcome), std::slice::from_ref(&run), &families, &budget());
     assert!(check(&outcome).is_ok()); // complete-empty does not require invented observations
-    assert!(validate_coverage_contract(std::slice::from_ref(&expected), &[], std::slice::from_ref(&run), &families).is_err());
-    assert!(validate_coverage_contract(std::slice::from_ref(&expected), std::slice::from_ref(&outcome), std::slice::from_ref(&run), &[]).is_err());
+    assert!(validate_coverage_contract(std::slice::from_ref(&expected), &[], std::slice::from_ref(&run), &families, &budget()).is_err());
+    assert!(validate_coverage_contract(std::slice::from_ref(&expected), std::slice::from_ref(&outcome), std::slice::from_ref(&run), &[], &budget()).is_err());
     outcome.status = CoverageStatus::Partial;
     assert!(check(&outcome).is_err());
     outcome.reason = Some(ObligationKind::SyntaxError);
@@ -228,7 +228,7 @@ fn provider_invocation_and_coverage_require_the_exact_requested_contract() {
     assert!(check(&outcome).is_ok());
     let mut unrequested = expected.clone(); unrequested.run = None;
     outcome.status = CoverageStatus::NotRequested; outcome.run = None; outcome.reason = None;
-    assert!(validate_coverage_contract(&[unrequested], &[outcome.clone()], &[], &[]).is_ok());
+    assert!(validate_coverage_contract(&[unrequested], &[outcome.clone()], &[], &[], &budget()).is_ok());
     assert!(check(&outcome).is_err());
 }
 
@@ -309,7 +309,7 @@ fn canonical_artifact_chunks_preserve_original_bytes_and_refuse_incomplete_proof
     // This is the actual model-owned cross-relation validator, not a test-only reconstruction.
     let invariant = SourceArtifact::invariants().remove(0);
     for missing in [false, true] {
-        let mut check = (invariant.create)();
+        let mut check = (invariant.create)(&budget());
         check.visit(SourceArtifact::NAME, Batch::new(&model, vec![artifact.clone(), empty.clone()], &budget()).unwrap().arrow()).unwrap();
         if !missing {
             for chunk in ArtifactChunk::split(&artifact, &bytes).unwrap() {
@@ -361,7 +361,7 @@ fn corpus_uses_and_distribution_verification_cannot_cross_undeclared_inputs() {
         check.visit(R::NAME, Batch::new(model, rows, &budget())?.arrow())
     }
     for linked in [false, true] {
-        let mut check = (InputAcquisition::invariants()[0].create)();
+        let mut check = (InputAcquisition::invariants()[0].create)(&budget());
         feed(&model, &mut *check, vec![origin.clone(), corpus_origin.clone()]).unwrap();
         feed(&model, &mut *check, vec![acquired.clone(), acquired_corpus.clone()]).unwrap();
         if linked { feed(&model, &mut *check, vec![link.clone()]).unwrap(); }
@@ -371,7 +371,7 @@ fn corpus_uses_and_distribution_verification_cannot_cross_undeclared_inputs() {
     let release = Release { package: Package { name: "demo".into() }.id(), version: "1".into() };
     let verified = DistributionVerification { acquisition: acquired.id(), release: release.id(), record_digest: ContentHash::of(b"record"), artifact_sha256: vec![] };
     for member in [false, true] {
-        let mut check = (InputAcquisition::invariants()[0].create)();
+        let mut check = (InputAcquisition::invariants()[0].create)(&budget());
         feed(&model, &mut *check, vec![origin.clone()]).unwrap();
         feed(&model, &mut *check, vec![acquired.clone()]).unwrap();
         if member { feed(&model, &mut *check, vec![InputDistribution { input: library, release: release.id(), role: DistributionRole::FirstParty }]).unwrap(); }

@@ -107,7 +107,7 @@ async fn immutable_generation_vertical_slice_and_lifecycle_refusals() {
     assert!(store.copy(&writer, g, &Batch::new(&model, vec![held], &budget()).unwrap(), &budget()).await.is_err());
     let late = sqlx::query(sqlx::AssertSqlSafe(format!("INSERT INTO {}.packages(id,name) VALUES($1,'late')",g.schema()))).bind(vec![0u8;16]).execute(&writer).await;
     assert!(late.is_err());
-    let content = store.validate(g).await.unwrap();
+    let content = store.validate(g, &budget()).await.unwrap();
     store.publish(g).await.unwrap();
     let mut lease = store.pin(&reader, g, budget()).await.unwrap();
     assert_eq!(lease.read::<BinaryEvidence>().await.unwrap().rows(), &[binary]);
@@ -124,7 +124,7 @@ async fn immutable_generation_vertical_slice_and_lifecycle_refusals() {
     assert!(matches!(store.pin(&reader, g, budget()).await, Err(Error::Database(sqlx::Error::PoolTimedOut))));
     assert!(matches!(store.retire(g).await, Err(Error::Busy)));
     let next = store.create_conformance(producer_digest, "catalog").await.unwrap();
-    store.seal(next).await.unwrap(); store.validate(next).await.unwrap(); store.publish(next).await.unwrap();
+    store.seal(next).await.unwrap(); store.validate(next, &budget()).await.unwrap(); store.publish(next).await.unwrap();
     assert!(matches!(store.select(next).await, Err(Error::Frontier)));
     let frontier: String = sqlx::query_scalar("SELECT frontier FROM lctx_model_store.generations WHERE id=decode($1,'hex')").bind(next.hex()).fetch_one(&owner).await.unwrap();
     assert_eq!(frontier,"conformance");
@@ -169,7 +169,7 @@ async fn immutable_generation_vertical_slice_and_lifecycle_refusals() {
             store.copy(&writer, attempt, &Batch::new(&model, vec![out_of_bounds], &budget()).unwrap(), &budget()).await.unwrap();
         }
         store.seal(attempt).await.unwrap();
-        let error = store.validate(attempt).await.unwrap_err();
+        let error = store.validate(attempt, &budget()).await.unwrap_err();
         assert!(matches!(error, Error::Model(_)), "case {case}: {error}");
         if case == "span" { assert!(error.to_string().contains("outside its source"), "{error}"); }
         assert!(store.publish(attempt).await.is_err());
@@ -188,7 +188,7 @@ async fn immutable_generation_vertical_slice_and_lifecycle_refusals() {
     copy_artifact(&store, &writer, crossed, &model, &original, b"x = 1").await;
     copy_artifact(&store, &writer, crossed, &model, &auxiliary, b"y = 2").await;
     store.seal(crossed).await.unwrap();
-    let error = store.validate(crossed).await.unwrap_err();
+    let error = store.validate(crossed, &budget()).await.unwrap_err();
     assert!(error.to_string().contains("ownership crosses"), "{error}");
     assert!(store.publish(crossed).await.is_err());
     store.abort(crossed).await.unwrap();
@@ -207,21 +207,21 @@ async fn immutable_generation_vertical_slice_and_lifecycle_refusals() {
         }
         if case == "failed-provider" { copy_attempt!(outcome); }
         store.seal(attempt).await.unwrap();
-        let error = store.validate(attempt).await.unwrap_err();
+        let error = store.validate(attempt, &budget()).await.unwrap_err();
         let expected = match case { "missing-family" => "lacks requested families", "wrong-family" => "family digest differs", _ => "failed provider invocation" };
         assert!(error.to_string().contains(expected), "{case}: {error}");
         assert!(store.publish(attempt).await.is_err());
         store.abort(attempt).await.unwrap();
     }
     let damaged = store.create_conformance(producer_digest, "catalog").await.unwrap();
-    store.seal(damaged).await.unwrap(); store.validate(damaged).await.unwrap();
+    store.seal(damaged).await.unwrap(); store.validate(damaged, &budget()).await.unwrap();
     sqlx::query("UPDATE lctx_model_store.validation_receipts SET validator_name='substituted' WHERE generation_id=decode($1,'hex') AND validator_name='input_manifest_membership'").bind(damaged.hex()).execute(&owner).await.unwrap();
     assert!(matches!(store.publish(damaged).await, Err(Error::Contract)));
     store.abort(damaged).await.unwrap();
     // Missing reference is caught against sealed stored contents, not a caller's batch receipt.
     let bad = store.create_conformance(producer_digest, "catalog").await.unwrap();
     store.copy(&writer, bad, &Batch::new(&model, vec![release.clone()], &budget()).unwrap(), &budget()).await.unwrap(); store.seal(bad).await.unwrap();
-    assert!(store.validate(bad).await.is_err()); assert!(store.publish(bad).await.is_err());
+    assert!(store.validate(bad, &budget()).await.is_err()); assert!(store.publish(bad).await.is_err());
     assert_eq!(store.abort(bad).await.unwrap(),CleanupOutcome::Removed); assert_eq!(store.abort(bad).await.unwrap(),CleanupOutcome::AlreadyAbsent);
     assert!(matches!(store.pin(&reader, bad, budget()).await, Err(Error::State)));
     let abandoned = store.create_conformance(producer_digest, "catalog").await.unwrap();
@@ -251,7 +251,7 @@ async fn immutable_generation_vertical_slice_and_lifecycle_refusals() {
     sqlx::query(sqlx::AssertSqlSafe(format!("INSERT INTO {}.module_scope_links(id,scope) VALUES($1,$2)",wrong_subtype.schema())))
         .bind(vec![0u8;16]).bind(wrong_scope.id().bytes().to_vec()).execute(&writer).await.unwrap();
     store.seal(wrong_subtype).await.unwrap();
-    let error = store.validate(wrong_subtype).await.unwrap_err();
+    let error = store.validate(wrong_subtype, &budget()).await.unwrap_err();
     assert!(matches!(error, Error::Database(ref e) if e.as_database_error().and_then(|e| e.code()).as_deref() == Some("23503")));
     store.abort(wrong_subtype).await.unwrap();
     // A reader refuses a model mismatch before interpreting any physical values.
@@ -280,7 +280,7 @@ async fn chunked_evidence_round_trips_beyond_row_limit_and_sealed_corruption_ref
     store.copy(&writer, generation, &Batch::new(&model, vec![input], &budget()).unwrap(), &budget()).await.unwrap();
     copy_artifact(&store, &writer, generation, &model, &empty, b"").await;
     copy_artifact(&store, &writer, generation, &model, &artifact, &bytes).await;
-    store.seal(generation).await.unwrap(); store.validate(generation).await.unwrap(); store.publish(generation).await.unwrap();
+    store.seal(generation).await.unwrap(); store.validate(generation, &budget()).await.unwrap(); store.publish(generation).await.unwrap();
     let mut lease = store.pin(&reader, generation, budget()).await.unwrap();
     assert!(lease.read::<ArtifactChunk>().await.is_err()); // convenience collection remains bounded
     let mut seen = std::collections::BTreeSet::new();
@@ -315,7 +315,7 @@ async fn chunked_evidence_round_trips_beyond_row_limit_and_sealed_corruption_ref
             store.copy(&writer, g, &Batch::new(&model, ArtifactChunk::split(&b, b"xyz").unwrap().collect(), &budget()).unwrap(), &budget()).await.unwrap();
         }
         store.seal(g).await.unwrap();
-        let error = store.validate(g).await.unwrap_err();
+        let error = store.validate(g, &budget()).await.unwrap_err();
         assert!(matches!(error, Error::Model(_)), "{case}: {error}");
         assert!(error.to_string().contains("chunk"), "{case}: {error}");
         assert!(store.publish(g).await.is_err()); store.abort(g).await.unwrap();

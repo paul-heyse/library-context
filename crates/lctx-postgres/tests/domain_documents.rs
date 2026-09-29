@@ -35,11 +35,11 @@ async fn document_nodes_and_optional_spans_survive_sealed_postgres_validation() 
             DocumentComponentObservation,DocumentComponentSupport,DocumentAttributeObservation,DocumentAttributeSupport,Evidence);
         store.seal(generation).await.unwrap();
         if foreign {
-            assert!(matches!(store.validate(generation).await, Err(Error::Model(_))));
+            assert!(matches!(store.validate(generation, &budget()).await, Err(Error::Model(_))));
             assert!(store.publish(generation).await.is_err());
             store.abort(generation).await.unwrap();
         } else {
-            store.validate(generation).await.unwrap(); store.publish(generation).await.unwrap();
+            store.validate(generation, &budget()).await.unwrap(); store.publish(generation).await.unwrap();
             let mut lease = store.pin(&reader,generation, budget()).await.unwrap();
             assert_eq!(lease.read::<DocumentComponentObservation>().await.unwrap().rows(),fixture.rows::<DocumentComponentObservation>());
             assert_eq!(lease.read::<DocumentAttributeValue>().await.unwrap().rows(),fixture.rows::<DocumentAttributeValue>());

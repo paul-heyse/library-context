@@ -1,6 +1,6 @@
 //! Captured deployment descriptions and task reports. Reported execution/environment fields are
 //! evidence values, never a certification that this pipeline executed or reproduced the task.
-use std::collections::{BTreeMap,BTreeSet};
+use super::charged::{ChargedMap, ChargedSet, StateCharge};
 use crate::{Assertion,Domain,DomainCode,DomainSum};
 use super::{*,assertion::{AssertionQualification,EvidenceSourceSpanId},attribution::FactFamily,input::Release,source::SourceArtifact};
 
@@ -179,17 +179,17 @@ fn validate_deployment(row: &DeploymentObservation) -> Result<(),ModelError> {
 
 fn collection_invariants() -> Vec<Invariant> {
     vec![Invariant { name: "report_collection_membership",inputs: vec![ValidationInput::of::<ReportCollection>(&["id"]),
-        ValidationInput::of::<ReportValue>(&["id"]),ValidationInput::of::<ReportEntry>(&["collection","ordinal"])],create: std::sync::Arc::new(|| Box::new(CollectionCheck::default())) }]
+        ValidationInput::of::<ReportValue>(&["id"]),ValidationInput::of::<ReportEntry>(&["collection","ordinal"])],create: std::sync::Arc::new(|budget| Box::new(CollectionCheck { charge: StateCharge::new(budget,"report_collection_membership"),..Default::default() })) }]
 }
 #[derive(Default)]
-struct CollectionCheck {
-    expected: BTreeMap<Id<ReportCollection>,ReportCollection>,values: BTreeMap<Id<ReportValue>,ReportValue>,
+struct CollectionCheck { charge: StateCharge,
+    expected: ChargedMap<Id<ReportCollection>,ReportCollection>,values: ChargedMap<Id<ReportValue>,ReportValue>,
     current: Option<(Id<ReportCollection>,Vec<Id<ReportValue>>)>,
 }
 impl CollectionCheck {
     fn flush(&mut self) -> Result<(),ModelError> {
         if let Some((id,ids)) = self.current.take() {
-            let row = self.expected.remove(&id).ok_or_else(|| invalid("report collection absent or repeated"))?;
+            let row = self.expected.remove(&mut self.charge, &id).ok_or_else(|| invalid("report collection absent or repeated"))?;
             if row.members != member_digest(row.kind,ids.iter().copied()) { return Err(invalid("report collection membership differs")); }
             let values = ids.iter().map(|id| self.values.get(id).ok_or_else(|| invalid("report value absent"))).collect::<Result<Vec<_>,_>>()?;
             check_values(row.kind,values)?;
@@ -198,15 +198,15 @@ impl CollectionCheck {
 }
 impl InvariantCheck for CollectionCheck {
     fn visit(&mut self,relation: &str,batch: &arrow_array::RecordBatch) -> Result<(),ModelError> {
-        if relation == ReportCollection::NAME { for row in ReportCollection::decode(batch)? { self.expected.insert(row.id(),row); } }
-        else if relation == ReportValue::NAME { for row in ReportValue::decode(batch)? { self.values.insert(row.id(),row); } }
+        if relation == ReportCollection::NAME { for row in ReportCollection::decode(batch)? { self.expected.insert(&mut self.charge, row.id(),row)?; } }
+        else if relation == ReportValue::NAME { for row in ReportValue::decode(batch)? { self.values.insert(&mut self.charge, row.id(),row)?; } }
         else if relation == ReportEntry::NAME { for row in ReportEntry::decode(batch)? {
             if self.current.as_ref().is_none_or(|(id,_)| *id != row.collection) { self.flush()?; self.current = Some((row.collection,Vec::new())); }
             let (_,values) = self.current.as_mut().expect("current collection");
             if row.ordinal != values.len() as i64 || values.len() >= 4096 { return Err(invalid("report membership gap, duplicate or work limit")); }
             values.push(row.value);
         } } else { return Err(invalid("undeclared report membership input")); }
-        if self.expected.len()+self.values.len() > 1_000_000 { return Err(invalid("report membership cardinality limit")); } Ok(())
+        Ok(())
     }
     fn finish(mut self: Box<Self>) -> Result<(),ModelError> {
         self.flush()?;
@@ -216,14 +216,14 @@ impl InvariantCheck for CollectionCheck {
 }
 fn report_shape_invariants() -> Vec<Invariant> {
     vec![Invariant { name: "report_collection_roles",inputs: vec![ValidationInput::of::<ReportCollection>(&["id"]),
-        ValidationInput::of::<ReportedEnvironment>(&["id"]),ValidationInput::of::<TaskReport>(&["id"])],create: std::sync::Arc::new(|| Box::new(ReportShape::default())) }]
+        ValidationInput::of::<ReportedEnvironment>(&["id"]),ValidationInput::of::<TaskReport>(&["id"])],create: std::sync::Arc::new(|budget| Box::new(ReportShape { charge: StateCharge::new(budget,"report_collection_roles"),..Default::default() })) }]
 }
 #[derive(Default)]
-struct ReportShape { metadata: BTreeSet<Id<ReportCollection>>, invocation: BTreeSet<Id<ReportCollection>> }
+struct ReportShape { charge: StateCharge, metadata: ChargedSet<Id<ReportCollection>>, invocation: ChargedSet<Id<ReportCollection>> }
 impl InvariantCheck for ReportShape {
     fn visit(&mut self,relation: &str,batch: &arrow_array::RecordBatch) -> Result<(),ModelError> {
         if relation == ReportCollection::NAME { for row in ReportCollection::decode(batch)? { match row.kind {
-            ReportCollectionKind::EnvironmentMetadata => { self.metadata.insert(row.id()); },ReportCollectionKind::Invocation => { self.invocation.insert(row.id()); },
+            ReportCollectionKind::EnvironmentMetadata => { self.metadata.insert(&mut self.charge, row.id())?; },ReportCollectionKind::Invocation => { self.invocation.insert(&mut self.charge, row.id())?; },
         } } }
         else if relation == ReportedEnvironment::NAME { for row in ReportedEnvironment::decode(batch)? {
             if !self.metadata.contains(&row.metadata) { return Err(invalid("environment needs metadata collection")); }
@@ -231,7 +231,7 @@ impl InvariantCheck for ReportShape {
         else if relation == TaskReport::NAME { for row in TaskReport::decode(batch)? {
             if !self.invocation.contains(&row.invocation) { return Err(invalid("task needs invocation collection")); }
         } } else { return Err(invalid("undeclared report shape input")); }
-        if self.metadata.len()+self.invocation.len() > 1_000_000 { return Err(invalid("report shape cardinality limit")); } Ok(())
+        Ok(())
     }
     fn finish(self: Box<Self>) -> Result<(),ModelError> { Ok(()) }
 }

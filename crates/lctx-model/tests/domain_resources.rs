@@ -163,3 +163,50 @@ mod batching {
         assert!(execution.finish().is_err(), "a refused stage output fails the attempt");
     }
 }
+
+mod charged_state {
+    use lctx_model::domain::{*, charged::*, input::*, resources::*, source::*};
+
+    #[test]
+    fn charged_containers_admit_before_retaining_and_release_on_removal() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let mut charge = StateCharge::new(&budget, "test");
+        let mut map = ChargedMap::<i64, String>::default();
+        assert!(map.insert(&mut charge, 1, "a".repeat(100)).unwrap().is_none());
+        let one = budget.reserved(); assert!(one >= 100);
+        map.insert(&mut charge, 1, "b".repeat(10)).unwrap();
+        assert!(budget.reserved() < one, "replacing a value releases the old payload");
+        map.update(&mut charge, 2, |value| value.push_str(&"c".repeat(1000))).unwrap();
+        assert!(budget.reserved() >= 1000);
+        map.remove(&mut charge, &2).unwrap();
+        let mut set = ChargedSet::<i64>::default();
+        assert!(set.insert(&mut charge, 7).unwrap()); assert!(!set.insert(&mut charge, 7).unwrap());
+        let mut vec = ChargedVec::<i64>::default();
+        for n in 0..100 { vec.push(&mut charge, n).unwrap(); }
+        assert_eq!(vec.len(), 100);
+        drop((map, set, vec)); drop(charge); assert_eq!(budget.reserved(), 0);
+        let mut unbound = StateCharge::default();
+        assert!(ChargedSet::<i64>::default().insert(&mut unbound, 1).is_err(), "a check without its budget cannot retain state");
+        let tiny = ResourceBudget::fixed(64).unwrap(); let mut charge = StateCharge::new(&tiny, "test");
+        assert!(matches!(ChargedMap::<i64, String>::default().insert(&mut charge, 1, "x".repeat(128)), Err(ModelError::Resource { .. })));
+        drop(charge); assert_eq!(tiny.reserved(), 0);
+    }
+
+    #[test]
+    fn stored_invariant_state_is_charged_to_the_validation_budget() {
+        let model = model().unwrap();
+        let invariant = model.invariants().iter().find(|i| i.name == "occurrence_source_bounds").unwrap();
+        let input = InputRevision::from_entries(vec![]).unwrap();
+        let sources: Vec<_> = (0..1000).map(|n| SourceArtifact::from_bytes(input.id(), format!("m{n}.py"), b"x").unwrap()).collect();
+        let arrow = Batch::new(&model, sources, &ResourceBudget::fixed(1 << 30).unwrap()).unwrap().arrow().clone();
+        let tiny = ResourceBudget::fixed(4096).unwrap();
+        let mut check = (invariant.create)(&tiny);
+        assert!(matches!(check.visit(SourceArtifact::NAME, &arrow), Err(ModelError::Resource { .. })));
+        drop(check); assert_eq!(tiny.reserved(), 0);
+        let budget = ResourceBudget::fixed(1 << 30).unwrap();
+        let mut check = (invariant.create)(&budget);
+        check.visit(SourceArtifact::NAME, &arrow).unwrap();
+        assert!(budget.reserved() > 1000 * 16, "retained lengths are charged");
+        check.finish().unwrap(); assert_eq!(budget.reserved(), 0);
+    }
+}

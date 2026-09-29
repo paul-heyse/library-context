@@ -1,6 +1,7 @@
 //! Stable transfer keys, qualified alternatives, and explicit control/selection relationships.
 //! A transfer key is vocabulary, not an asserted unconditional flow. Supported alternatives own
 //! their conditions; aggregation ORs them while retaining every alternative's identity.
+use super::charged::{ChargedMap, StateCharge};
 use std::collections::{BTreeMap,BTreeSet};
 use crate::{Assertion,Domain,DomainCode};
 use super::{*, assertion::*, attribution::*, calls::ProviderSymbol, conditions::*, source::*, value::Place};
@@ -126,15 +127,14 @@ fn transfer_invariants() -> Vec<Invariant> {
         ValidationInput::of::<EvaluationAtom>(&["id"]),ValidationInput::of::<ConditionNode>(&["id"]),ValidationInput::of::<Condition>(&["id"]),
         ValidationInput::of::<TransferKey>(&["id"]),ValidationInput::of::<TransferAlternative>(&["id"]),
         ValidationInput::of::<ControlInfluence>(&["id"]),ValidationInput::of::<Selection>(&["id"]),
-    ], create: std::sync::Arc::new(|| Box::new(TransferCheck::default())) }]
+    ], create: std::sync::Arc::new(|budget| Box::new(TransferCheck { charge: StateCharge::new(budget,"transfer_frames_and_selections"),..Default::default() })) }]
 }
 #[derive(Default)]
-struct TransferCheck {
-    qualifications: BTreeMap<Id<AssertionQualification>,AssertionQualification>, symbols: BTreeMap<Id<ProviderSymbol>,ProviderSymbol>,
-    atoms: BTreeMap<Id<EvaluationAtom>,EvaluationAtom>, nodes: BTreeMap<Id<ConditionNode>,ConditionNode>,
-    conditions: BTreeMap<Id<Condition>,BTreeSet<Id<EvaluationAtom>>>,keys: BTreeMap<Id<TransferKey>,TransferKey>,
-    alternatives: BTreeMap<Id<TransferAlternative>,TransferAlternative>, influences: BTreeMap<Id<ControlInfluence>,ControlInfluence>,
-    visits: usize,
+struct TransferCheck { charge: StateCharge,
+    qualifications: ChargedMap<Id<AssertionQualification>,AssertionQualification>, symbols: ChargedMap<Id<ProviderSymbol>,ProviderSymbol>,
+    atoms: ChargedMap<Id<EvaluationAtom>,EvaluationAtom>, nodes: ChargedMap<Id<ConditionNode>,ConditionNode>,
+    conditions: ChargedMap<Id<Condition>,BTreeSet<Id<EvaluationAtom>>>,keys: ChargedMap<Id<TransferKey>,TransferKey>,
+    alternatives: ChargedMap<Id<TransferAlternative>,TransferAlternative>, influences: ChargedMap<Id<ControlInfluence>,ControlInfluence>,
 }
 impl TransferCheck {
     fn qualification(&self,id: Id<AssertionQualification>) -> Result<&AssertionQualification,ModelError> {
@@ -143,32 +143,32 @@ impl TransferCheck {
 }
 impl InvariantCheck for TransferCheck {
     fn visit(&mut self, relation: &str, batch: &arrow_array::RecordBatch) -> Result<(),ModelError> {
-        if relation == AssertionQualification::NAME { for row in AssertionQualification::decode(batch)? { self.qualifications.insert(row.id(),row); } }
-        else if relation == ProviderSymbol::NAME { for row in ProviderSymbol::decode(batch)? { self.symbols.insert(row.id(),row); } }
-        else if relation == EvaluationAtom::NAME { for row in EvaluationAtom::decode(batch)? { self.atoms.insert(row.id(),row); } }
-        else if relation == ConditionNode::NAME { for row in ConditionNode::decode(batch)? { self.nodes.insert(row.id(),row); } }
+        if relation == AssertionQualification::NAME { for row in AssertionQualification::decode(batch)? { self.qualifications.insert(&mut self.charge, row.id(),row)?; } }
+        else if relation == ProviderSymbol::NAME { for row in ProviderSymbol::decode(batch)? { self.symbols.insert(&mut self.charge, row.id(),row)?; } }
+        else if relation == EvaluationAtom::NAME { for row in EvaluationAtom::decode(batch)? { self.atoms.insert(&mut self.charge, row.id(),row)?; } }
+        else if relation == ConditionNode::NAME { for row in ConditionNode::decode(batch)? { self.nodes.insert(&mut self.charge, row.id(),row)?; } }
         else if relation == Condition::NAME { for row in Condition::decode(batch)? {
+            // Each root's closure is bounded by the kernel's node and atom limits.
             let closure = super::conditions::kernel::closure(row.root,&self.nodes)?;
-            self.visits += closure.len(); if self.visits > 1_000_000 { return Err(invalid("transfer condition closure work limit")); }
             let atoms = closure.into_iter().filter_map(|id| match &self.nodes[&id] { ConditionNode::Branch { atom,.. } => Some(*atom),_ => None }).collect();
-            self.conditions.insert(row.id(),atoms);
+            self.conditions.insert(&mut self.charge, row.id(),atoms)?;
         } }
         else if relation == TransferKey::NAME { for row in TransferKey::decode(batch)? {
             if self.symbols.get(&row.owner).is_none_or(|symbol| symbol.context != row.context) { return Err(invalid("transfer owner context mismatch")); }
-            self.keys.insert(row.id(),row);
+            self.keys.insert(&mut self.charge, row.id(),row)?;
         } }
         else if relation == TransferAlternative::NAME { for row in TransferAlternative::decode(batch)? {
             let key = self.keys.get(&row.transfer).ok_or_else(|| invalid("transfer alternative key absent"))?;
             let qualification = self.qualification(row.qualification)?;
             if !same_frame(key,qualification) || row.scope != key.scope { return Err(invalid("transfer alternative frame mismatch")); }
-            self.alternatives.insert(row.id(),row);
+            self.alternatives.insert(&mut self.charge, row.id(),row)?;
         } }
         else if relation == ControlInfluence::NAME { for row in ControlInfluence::decode(batch)? {
             let atom = self.atoms.get(&row.atom).ok_or_else(|| invalid("influence atom absent"))?;
             if atom.evaluation != row.evaluation || atom.context != self.qualification(row.qualification)?.context {
                 return Err(invalid("influence evaluation/context mismatch"));
             }
-            self.influences.insert(row.id(),row);
+            self.influences.insert(&mut self.charge, row.id(),row)?;
         } }
         else if relation == Selection::NAME { for row in Selection::decode(batch)? {
             let influence = self.influences.get(&row.influence).ok_or_else(|| invalid("selection influence absent"))?;
@@ -181,9 +181,6 @@ impl InvariantCheck for TransferCheck {
             }
         } }
         else { return Err(invalid("undeclared transfer validation input")); }
-        if self.qualifications.len()+self.symbols.len()+self.atoms.len()+self.nodes.len()+self.conditions.len()+self.keys.len()+self.alternatives.len()+self.influences.len() > 1_000_000 {
-            return Err(invalid("transfer validation cardinality limit"));
-        }
         Ok(())
     }
     fn finish(self: Box<Self>) -> Result<(),ModelError> { Ok(()) }

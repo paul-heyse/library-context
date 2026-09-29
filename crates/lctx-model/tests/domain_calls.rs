@@ -134,7 +134,7 @@ fn stored_membership_checks_refuse_missing_parameters_and_missing_call_alternati
     let params = [shape("x",ParameterKind::PositionalOnly,true),shape("flag",ParameterKind::KeywordOnly,true)];
     let (signature,members,_) = f.signature(&params);
     let check_signature = |members: Vec<SignatureParameter>| {
-        let invariant = Signature::invariants().remove(0); let mut check = (invariant.create)();
+        let invariant = Signature::invariants().remove(0); let mut check = (invariant.create)(&budget());
         macro_rules! visit { ($ty:ty,$rows:expr) => { check.visit(<$ty>::NAME,Batch::new(&f.model,$rows, &budget()).unwrap().arrow()).unwrap() }; }
         visit!(AssertionQualification,vec![f.qualification.clone()]); visit!(ProviderSymbol,vec![f.symbol.clone()]);
         visit!(ParameterShape,params.to_vec()); visit!(Signature,vec![signature.clone()]);
@@ -148,7 +148,7 @@ fn stored_membership_checks_refuse_missing_parameters_and_missing_call_alternati
     assert!(check_signature(changed).is_err());
     let (resolution,members) = CallResolution::new(&f.qualification,f.target.site,f.channel.id(),CallPhase::Call,true,&[f.target.clone()]).unwrap();
     for include in [true,false] {
-        let invariant = CallResolution::invariants().remove(0); let mut check = (invariant.create)();
+        let invariant = CallResolution::invariants().remove(0); let mut check = (invariant.create)(&budget());
         check.visit(AssertionQualification::NAME,Batch::new(&f.model,vec![f.qualification.clone()], &budget()).unwrap().arrow()).unwrap();
         check.visit(CallTarget::NAME,Batch::new(&f.model,vec![f.target.clone()], &budget()).unwrap().arrow()).unwrap();
         check.visit(CallResolution::NAME,Batch::new(&f.model,vec![resolution.clone()], &budget()).unwrap().arrow()).unwrap();
@@ -182,7 +182,7 @@ fn native_signature_and_call_support_cannot_switch_provider_namespace() {
     let alien = Provider { tool: "other-provider".into(),revision: "same".into(),build_digest: ContentHash::of(b"other") };
     for call_support in [false,true] {
         for wrong in [false,true] {
-            let invariant = ProviderSymbol::invariants().remove(0); let mut check = (invariant.create)();
+            let invariant = ProviderSymbol::invariants().remove(0); let mut check = (invariant.create)(&budget());
             let run = if wrong { ProviderRun { provider: alien.id(),..f.run.clone() } } else { f.run.clone() };
             macro_rules! visit { ($ty:ty,$rows:expr) => { check.visit(<$ty>::NAME,Batch::new(&f.model,$rows, &budget()).unwrap().arrow()).unwrap() }; }
             visit!(ProviderSymbol,vec![f.symbol.clone()]); visit!(ProviderRun,vec![run.clone()]);

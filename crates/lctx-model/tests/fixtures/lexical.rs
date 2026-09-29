@@ -77,7 +77,7 @@ impl Fixture {
     pub fn put<R: Record>(&mut self, rows: Vec<R>) { self.batches.insert(R::NAME,Batch::new(&self.model,rows, &budget()).unwrap().arrow().clone()); }
     pub fn rows<R: Record>(&self) -> Vec<R> { self.batches.get(R::NAME).map(|b| R::decode(b).unwrap()).unwrap_or_default() }
     pub fn check(&self, invariant: &Invariant) -> Result<(),ModelError> {
-        let mut check = (invariant.create)();
+        let mut check = (invariant.create)(&budget());
         for input in &invariant.inputs { if let Some(batch) = self.batches.get(input.name()) { check.visit(input.name(),batch)?; } }
         check.finish()
     }
