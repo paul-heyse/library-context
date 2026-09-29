@@ -10,11 +10,13 @@ _Updated 2026-09-29 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
   owns the implementation checkpoint and §8 owns findings. Earlier Phase 0 completion is reopened.
 - **Implemented foundation:** bounded domain/codebook/sum derives, nominal IDs and keys, generated
   Arrow codecs, subtype references, model validation and typed scheduling. Source/provider/support/
-  coverage subset round-trips through ordinary PostgreSQL generation schemas.
+  coverage subset round-trips through ordinary PostgreSQL generation schemas. Content manifests,
+  acquisition/verification/ownership, source bounds and invocation family membership have sealed
+  model-owned invariants. Indexed occurrence attachment preserves ambiguity.
 - **Store foundation:** COPY, write-draining seal, stored validation, atomic publication, pool-bound
   reader leases, selection/retirement and failed-attempt cleanup. Not wired into compiler/CLI.
-- **Still open:** remaining domain families and raw-field mapping, semantic policies, indexed joins,
-  stage execution and session isolation, bounded large reads, CLI/runtime cutover, producer migration
+- **Still open:** remaining domain families and implementation of the 57-family raw-field inventory, semantic policies,
+  stage execution and session isolation, coordinated memory budgets, CLI/runtime cutover, producer migration
   and deletions. Old runtime/framework remain present; no compatibility adapter was introduced.
 - **Authorized scope:** model/store/facts. Analysis/catalog/MCP suspend at runtime cutover and return
   only in phases 3–5. Product work remains paused. Protected evidence and evaluation isolation remain.
@@ -25,13 +27,14 @@ Build commands use `python3 scripts/build_environment.py --`.
 
 | Command | Outcome |
 |---|---|
-| `cargo test --release -p lctx-model --test domain` | passed: 10 domain controls |
+| `cargo test --release -p lctx-model --test domain` | passed: 14 domain controls |
 | `cargo test --release -p lctx-model --doc` | passed: five negative/positive pairs; one legacy ignore |
 | `cargo test --release -p lctx-postgres --test generations` | passed: real PG18 vertical slice and lifecycle refusals |
 | `just docs-check`; `uv run python scripts/adr.py lint` | passed: docs/decision checks |
 | `just fmt`, `just test-all`, facts pilots | not_run: functional scope incomplete |
 
-The interim reviewer identified five foundation defects; corrections are recorded in plan §4.2.
+The bounded input reviewer accepted manifest/span/ownership corrections; coordinated memory
+qualification remains open in plan §8. Attribution and indexing were outside that review.
 This bounded review and focused tests do not qualify the reconstructed architecture or product.
 
 ## Next

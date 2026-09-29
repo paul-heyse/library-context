@@ -1,9 +1,8 @@
-use lctx_model::{Domain, domain::{Batch, ContentHash, Id, ModelError, Record, Relation, ValidatedModel, source::*, stages::*}};
+use lctx_model::{Domain, domain::{Batch, ContentHash, Id, ModelError, Record, Relation, ValidatedModel, model, attribution::*, input::*, source::*, stages::*}};
 
 fn source() -> SourceArtifact {
-    let package = Package { name: "demo".into() };
-    let release = Release { package: package.id(), version: "1.0".into(), lock_digest: ContentHash::of(b"lock") };
-    SourceArtifact { release: release.id(), path: "demo.py".into(), content: ContentHash::of(b"x = 1") }
+    let input = InputRevision::from_entries(vec![ManifestEntry { path: "demo.py".into(), content: ContentHash::of(b"x = 1"), byte_len: 5 }]).unwrap();
+    SourceArtifact::new(input.id(), "demo.py".into(), b"x = 1".to_vec()).unwrap()
 }
 #[test]
 fn production_records_round_trip_explicit_schema() {
@@ -26,8 +25,8 @@ fn source_kind_and_structural_roles_separate_identity() {
         let mut invalid = py.clone(); invalid.path = path.into();
         assert!(Batch::new(&model().unwrap(), vec![invalid]).is_err());
     }
-    let a = Occurrence { source: py.id(), start: 0, end: 5, syntax_kind: SyntaxKind::WithItem, role: "item:0".into() };
-    let mut b = a.clone(); b.role = "item:1".into();
+    let a = Occurrence { source: py.id(), start: 0, end: 5, syntax_kind: SyntaxKind::WithItem, role: OccurrenceRole::WithItem, structural_path: vec![0] };
+    let mut b = a.clone(); b.structural_path = vec![1];
     assert_ne!(a.id(), b.id());
     let mut invalid = a.clone(); invalid.start = 6;
     assert!(Batch::new(&model().unwrap(), vec![invalid]).is_err());
@@ -138,7 +137,7 @@ fn subtype_references_require_the_right_arm() {
     let source = source();
     let module = Module { source: source.id(), qualified_name: "x".into() };
     let module_scope = CoverageScope::Module { module: module.id() };
-    let release_scope = CoverageScope::Release { release: source.release };
+    let release_scope = CoverageScope::Input { input: source.input };
     assert!(CoverageScopeModuleId::of(&module_scope).is_ok());
     assert!(CoverageScopeModuleId::of(&release_scope).is_err());
     #[derive(Debug, Clone, PartialEq, Eq, Domain)]
@@ -179,4 +178,97 @@ fn binary_evidence_and_streamed_content_preserve_payload_and_batch_independence(
     let before = changed.content_digest(); let key = changed.id();
     changed.bytes.0.push(1);
     assert_eq!(key, changed.id()); assert_ne!(before, changed.content_digest());
+}
+
+#[test]
+fn input_identity_is_content_based_and_acquisition_is_independent() {
+    let entry = |path: &str, bytes: &[u8]| ManifestEntry { path: path.into(), content: ContentHash::of(bytes), byte_len: bytes.len() as i64 };
+    let first = InputRevision::from_entries(vec![entry("a.py", b"x=1"), entry("b.pyi", b"x:int")]).unwrap();
+    let reordered = InputRevision::from_entries(vec![entry("b.pyi", b"x:int"), entry("a.py", b"x=1")]).unwrap();
+    assert_eq!(first.id(), reordered.id());
+    let changed = InputRevision::from_entries(vec![entry("a.py", b"x=2"), entry("b.pyi", b"x:int")]).unwrap();
+    assert_ne!(first.id(), changed.id());
+    assert!(InputRevision::from_entries(vec![entry("a.py", b"a"), entry("a.py", b"b")]).is_err());
+    assert!(InputRevision::from_entries(vec![entry("/checkout/a.py", b"a")]).is_err());
+    let origin = InputOrigin::Tree { label: "same label".into() };
+    assert_ne!(InputAcquisition { input: first.id(), origin: origin.id() }.id(), InputAcquisition { input: changed.id(), origin: origin.id() }.id());
+    let model = model().unwrap();
+    let origins = Batch::new(&model, vec![origin, InputOrigin::Installed { library: "demo".into(), requirement: "demo==1".into(), lock_digest: ContentHash::of(b"lock"), installer: None }, InputOrigin::Corpus { repository: "upstream".into(), revision: "commit".into() }]).unwrap();
+    assert_eq!(Batch::<InputOrigin>::read(&model, origins.arrow()).unwrap().rows(), origins.rows());
+    let mut artifact = SourceArtifact::new(first.id(), "a.py".into(), vec![255, 0]).unwrap();
+    artifact.body.0[0] = 0;
+    assert!(Batch::new(&model, vec![artifact]).is_err());
+}
+
+#[test]
+fn provider_invocation_and_coverage_require_the_exact_requested_contract() {
+    let artifact = source();
+    let provider = Provider { tool: "parser".into(), revision: "1".into(), build_digest: ContentHash::of(b"provider") };
+    let context = AnalysisContext { python_version: "3.14".into(), python_platform: "linux".into(), search_path: vec![], site_package_path: vec![], config_digest: ContentHash::of(b"config"), environment_digest: ContentHash::of(b"env"), lock_digest: None };
+    let (run, families) = ProviderRun::new(provider.id(), context.id(), artifact.input, context.config_digest, [FactFamily::Syntax]).unwrap();
+    let (extra, _) = ProviderRun::new(provider.id(), context.id(), artifact.input, context.config_digest, [FactFamily::Syntax, FactFamily::Flow]).unwrap();
+    assert_ne!(run.id(), extra.id());
+    let (shuffled, _) = ProviderRun::new(provider.id(), context.id(), artifact.input, context.config_digest, [FactFamily::Flow, FactFamily::Syntax, FactFamily::Syntax]).unwrap();
+    assert_eq!(shuffled.id(), extra.id());
+    let scope = CoverageScope::Artifact { artifact: artifact.id() };
+    let expected = CoverageExpectation { input: artifact.input, scope: scope.id(), provider: provider.id(), context: context.id(), family: FactFamily::Syntax, run: Some(run.id()) };
+    let mut outcome = ProviderCoverage { scope: scope.id(), provider: provider.id(), context: context.id(), family: FactFamily::Syntax, run: Some(run.id()), status: CoverageStatus::CompleteUnderStatedModel, reason: None, diagnostic: None };
+    let check = |outcome: &ProviderCoverage| validate_coverage_contract(std::slice::from_ref(&expected), std::slice::from_ref(outcome), std::slice::from_ref(&run), &families);
+    assert!(check(&outcome).is_ok()); // complete-empty does not require invented observations
+    assert!(validate_coverage_contract(std::slice::from_ref(&expected), &[], std::slice::from_ref(&run), &families).is_err());
+    assert!(validate_coverage_contract(std::slice::from_ref(&expected), std::slice::from_ref(&outcome), std::slice::from_ref(&run), &[]).is_err());
+    outcome.status = CoverageStatus::Partial;
+    assert!(check(&outcome).is_err());
+    outcome.reason = Some(BoundaryReason::SyntaxError);
+    assert!(check(&outcome).is_ok());
+    outcome.status = CoverageStatus::Failed;
+    assert!(check(&outcome).is_err());
+    outcome.status = CoverageStatus::Unavailable;
+    outcome.reason = Some(BoundaryReason::UndecodableSource);
+    assert!(check(&outcome).is_ok());
+    let mut unrequested = expected.clone(); unrequested.run = None;
+    outcome.status = CoverageStatus::NotRequested; outcome.run = None; outcome.reason = None;
+    assert!(validate_coverage_contract(&[unrequested], &[outcome.clone()], &[], &[]).is_ok());
+    assert!(check(&outcome).is_err());
+}
+
+#[test]
+fn indexed_attachment_matches_independent_scalar_oracle_and_retains_ambiguity() {
+    use lctx_model::domain::attachment::*;
+    let artifact = SourceArtifact::new(source().input, "demo.py".into(), vec![b' '; 100]).unwrap();
+    let other = SourceArtifact::new(artifact.input, "demo.pyi".into(), vec![b' '; 100]).unwrap();
+    let mut occurrences = Vec::new();
+    for (kind, role) in [(SyntaxKind::ExprName, OccurrenceRole::Read), (SyntaxKind::ExprAttribute, OccurrenceRole::Read), (SyntaxKind::ExprSubscript, OccurrenceRole::Read)] {
+        for i in 0..40 {
+            occurrences.push(Occurrence { source: artifact.id(), start: i, end: 100 - i, syntax_kind: kind, role, structural_path: vec![i as i32] });
+        }
+    }
+    let duplicate_span = Occurrence { source: artifact.id(), start: 20, end: 80, syntax_kind: SyntaxKind::ExprName, role: OccurrenceRole::Read, structural_path: vec![100] };
+    occurrences.push(duplicate_span);
+    let index = OccurrenceIndex::new(&occurrences).unwrap();
+    for kind in [SyntaxKind::ExprName, SyntaxKind::ExprAttribute, SyntaxKind::ExprSubscript] {
+        for start in 0..105 {
+            for end in [start, start + 1, start + 15] {
+                let query = AttachmentQuery { source: artifact.id(), start, end, syntax_kind: kind, role: OccurrenceRole::Read, structural_path: None };
+                let candidates: Vec<_> = occurrences.iter().filter(|o| o.source == query.source && o.syntax_kind == kind && o.role == query.role && o.start <= start && o.end >= end).collect();
+                let expected = if let Some(width) = candidates.iter().map(|o| o.end-o.start).min() {
+                    let mut ids: Vec<_> = candidates.iter().filter(|o| o.end-o.start == width).map(|o| o.id()).collect(); ids.sort();
+                    if ids.len() > 1 { Attachment::Ambiguous(ids) }
+                    else if width == end-start { Attachment::Exact(ids[0]) } else { Attachment::Innermost(ids[0]) }
+                } else { Attachment::Unmatched };
+                assert_eq!(index.attach(&query, AttachmentBudget::default()).unwrap(), expected);
+            }
+        }
+    }
+    let mut query = AttachmentQuery { source: artifact.id(), start: 20, end: 80, syntax_kind: SyntaxKind::ExprName, role: OccurrenceRole::Read, structural_path: None };
+    assert!(matches!(index.attach(&query, AttachmentBudget::default()).unwrap(), Attachment::Ambiguous(_)));
+    assert_eq!(index.attach(&query, AttachmentBudget { visited_nodes: 0, alternatives: 256 }).unwrap(), Attachment::BudgetExceeded);
+    query.structural_path = Some(vec![20]);
+    assert!(matches!(index.attach(&query, AttachmentBudget::default()).unwrap(), Attachment::Exact(_)));
+    query.source = other.id();
+    assert_eq!(index.attach(&query, AttachmentBudget::default()).unwrap(), Attachment::Unmatched);
+    occurrences.reverse();
+    let reverse = OccurrenceIndex::new(&occurrences).unwrap();
+    query.source = artifact.id(); query.structural_path = None;
+    assert_eq!(reverse.attach(&query, AttachmentBudget::default()).unwrap(), index.attach(&query, AttachmentBudget::default()).unwrap());
 }

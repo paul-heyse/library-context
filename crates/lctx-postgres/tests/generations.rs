@@ -1,6 +1,6 @@
 //! Permanent typed lowerings against a disposable real PostgreSQL server.
 use std::sync::Arc;
-use lctx_model::{Domain, domain::{Batch, ContentHash, Id, Record, Relation, ValidatedModel, source::*}};
+use lctx_model::{Domain, domain::{Batch, ContentHash, Id, Record, Relation, ValidatedModel, model, attribution::*, input::*, source::*}};
 use lctx_postgres::generations::{Error, GenerationStore};
 use sqlx::PgPool;
 use testcontainers_modules::{postgres::Postgres, testcontainers::{ImageExt, runners::AsyncRunner}};
@@ -41,22 +41,39 @@ async fn immutable_generation_vertical_slice_and_lifecycle_refusals() {
     assert!(matches!(store.pin(&reader, g).await, Err(Error::State)));
     assert!(matches!(store.publish(g).await, Err(Error::State)));
     let package = Package { name: "example".into() };
-    let release = Release { package: package.id(), version: "1.0".into(), lock_digest: ContentHash::of(b"lock") };
-    let source = SourceArtifact { release: release.id(), path: "example.py".into(), content: ContentHash::of(b"x = 1") };
+    let release = Release { package: package.id(), version: "1.0".into() };
+    let input = InputRevision::from_entries(vec![ManifestEntry { path: "example.py".into(), content: ContentHash::of(b"x = 1"), byte_len: 5 }, ManifestEntry { path: "aux.py".into(), content: ContentHash::of(b"y = 2"), byte_len: 5 }]).unwrap();
+    let source = SourceArtifact::new(input.id(), "example.py".into(), b"x = 1".to_vec()).unwrap();
+    let auxiliary = SourceArtifact::new(input.id(), "aux.py".into(), b"y = 2".to_vec()).unwrap();
+    let other_package = Package { name: "auxiliary".into() };
+    let other_release = Release { package: other_package.id(), version: "2.0".into() };
+    let origin = InputOrigin::Installed { library: "example".into(), requirement: "example==1.0".into(), lock_digest: ContentHash::of(b"lock"), installer: Some("uv".into()) };
+    let acquisition = InputAcquisition { input: input.id(), origin: origin.id() };
+    let verified = DistributionVerification { acquisition: acquisition.id(), release: release.id(), record_digest: ContentHash::of(b"record-a"), artifact_sha256: vec!["ab".repeat(32)] };
+    let other_verified = DistributionVerification { acquisition: acquisition.id(), release: other_release.id(), record_digest: ContentHash::of(b"record-b"), artifact_sha256: vec!["cd".repeat(32)] };
+    let ownership = ArtifactOwnership { artifact: source.id(), distribution: verified.id() };
+    let other_ownership = ArtifactOwnership { artifact: auxiliary.id(), distribution: other_verified.id() };
+    let example_use = ArtifactUse { artifact: source.id(), input: input.id(), role: SourceRole::Example };
+    let test_use = ArtifactUse { artifact: source.id(), input: input.id(), role: SourceRole::Test };
     let module = Module { source: source.id(), qualified_name: "example".into() };
-    let occurrence = Occurrence { source: source.id(), start: 0, end: 1, syntax_kind: SyntaxKind::ExprName, role: "assignment_target".into() };
+    let occurrence = Occurrence { source: source.id(), start: 0, end: 1, syntax_kind: SyntaxKind::ExprName, role: OccurrenceRole::Binding, structural_path: vec![0] };
     let provider = Provider { tool: "ruff".into(), revision: "0.0.11".into(), build_digest: producer_digest };
     let context = AnalysisContext { python_version: "3.14.7".into(), python_platform: "linux".into(), search_path: vec!["src".into()], site_package_path: vec![], config_digest: ContentHash::of(b"config"), environment_digest: ContentHash::of(b"env"), lock_digest: None };
-    let run = ProviderRun { provider: provider.id(), context: context.id(), release: release.id(), configuration: context.config_digest };
+    let (run, run_families) = ProviderRun::new(provider.id(), context.id(), input.id(), context.config_digest, [FactFamily::Syntax]).unwrap();
     let assertion = SyntaxObservation { occurrence: occurrence.id(), spelling: "x".into() };
     let support = SyntaxSupport { assertion: assertion.id(), run: run.id(), surface: "syntax".into() };
     let scope = CoverageScope::Module { module: module.id() };
     let link = ModuleScopeLink { scope: CoverageScopeModuleId::of(&scope).unwrap() };
-    let coverage = ProviderCoverage { scope: scope.id(), provider: provider.id(), context: context.id(), family: "syntax".into(), run: Some(run.id()), status: CoverageStatus::CompleteUnderStatedModel, reason: None };
+    let coverage = ProviderCoverage { scope: scope.id(), provider: provider.id(), context: context.id(), family: FactFamily::Syntax, run: Some(run.id()), status: CoverageStatus::CompleteUnderStatedModel, reason: None, diagnostic: None };
     let mut node = RecursiveNode { name: "self".into(), parent: None }; node.parent = Some(node.id());
     macro_rules! copy { ($($row:expr),*) => { $(store.copy(&writer, g, &Batch::new(&model, vec![$row.clone()]).unwrap()).await.unwrap();)* }; }
     let binary = BinaryEvidence { name: "invalid-utf8".into(), body: lctx_model::domain::EvidenceBytes(vec![0, 255, 128]) };
-    copy!(binary, package, release, source, module, occurrence, provider, context, run, assertion, support, scope, coverage, link, node);
+    copy!(binary, other_package, other_release, origin, acquisition, verified, other_verified, ownership, other_ownership, example_use, test_use, auxiliary, package, release, input, source, module, occurrence, provider, context, run, assertion, support, scope, coverage, link, node);
+    store.copy(&writer, g, &Batch::new(&model, run_families).unwrap()).await.unwrap();
+    // The server refuses oversized payloads even when a caller bypasses typed COPY.
+    let oversized = sqlx::query(sqlx::AssertSqlSafe(format!("INSERT INTO {}.binary_evidence(id,name,body) VALUES($1,'oversized',decode(repeat('ff',67108864),'hex'))", g.schema())))
+        .bind(vec![0u8;16]).execute(&writer).await;
+    assert!(matches!(oversized, Err(ref e) if e.as_database_error().and_then(|e| e.code()).as_deref() == Some("23514")));
     // A malformed tagged row is refused by generated PostgreSQL constraints before validation.
     let malformed = sqlx::query(sqlx::AssertSqlSafe(format!("INSERT INTO {}.coverage_scopes(id,kind,release_release,module_module) VALUES($1,1,$2,$3)", g.schema())))
         .bind(vec![0u8;16]).bind(release.id().bytes().to_vec()).bind(module.id().bytes().to_vec()).execute(&writer).await;
@@ -76,8 +93,11 @@ async fn immutable_generation_vertical_slice_and_lifecycle_refusals() {
     store.publish(g).await.unwrap();
     let mut lease = store.pin(&reader, g).await.unwrap();
     assert_eq!(lease.read::<BinaryEvidence>().await.unwrap().rows(), &[binary]);
-    assert_eq!(lease.read::<SourceArtifact>().await.unwrap().rows(), &[source]);
-    assert_eq!(lease.read::<AnalysisContext>().await.unwrap().rows(), &[context]);
+    assert_eq!(lease.read::<SourceArtifact>().await.unwrap().rows(), Batch::new(&model, vec![source, auxiliary.clone()]).unwrap().rows());
+    assert_eq!(lease.read::<ArtifactOwnership>().await.unwrap().rows(), Batch::new(&model, vec![ownership, other_ownership]).unwrap().rows());
+    assert_eq!(lease.read::<DistributionVerification>().await.unwrap().rows(), Batch::new(&model, vec![verified, other_verified]).unwrap().rows());
+    assert_eq!(lease.read::<ArtifactUse>().await.unwrap().rows(), Batch::new(&model, vec![example_use, test_use]).unwrap().rows());
+    assert_eq!(lease.read::<AnalysisContext>().await.unwrap().rows(), &[context.clone()]);
     assert_eq!(lease.read::<SyntaxSupport>().await.unwrap().rows(), &[support]);
     assert_eq!(lease.read::<ModuleScopeLink>().await.unwrap().rows(), &[link]);
     assert_eq!(lease.read::<CoverageScope>().await.unwrap().rows(), &[scope]);
@@ -100,6 +120,72 @@ async fn immutable_generation_vertical_slice_and_lifecycle_refusals() {
     }
     assert!(matches!(store.pin(&reader, g).await, Err(Error::State)));
     assert_eq!(sqlx::query_scalar::<_,Vec<u8>>("SELECT content_digest FROM lctx_model_store.generations WHERE id=decode($1,'hex')").bind(g.hex()).fetch_one(&owner).await.unwrap(), content.0);
+    // Cross-relation invariants execute over sealed contents, including otherwise valid rows.
+    for case in ["changed", "missing", "extra", "duplicate", "span"] {
+        let attempt = store.create(producer_digest, "catalog").await.unwrap();
+        let original = SourceArtifact::new(input.id(), "example.py".into(), b"x = 1".to_vec()).unwrap();
+        store.copy(&writer, attempt, &Batch::new(&model, vec![input.clone()]).unwrap()).await.unwrap();
+        store.copy(&writer, attempt, &Batch::new(&model, vec![auxiliary.clone()]).unwrap()).await.unwrap();
+        if case != "missing" {
+            let artifact = if case == "changed" { SourceArtifact::new(input.id(), "example.py".into(), b"x = 2".to_vec()).unwrap() } else { original.clone() };
+            store.copy(&writer, attempt, &Batch::new(&model, vec![artifact]).unwrap()).await.unwrap();
+        }
+        if matches!(case, "extra" | "duplicate") {
+            let artifact = SourceArtifact::new(input.id(), if case == "extra" { "extra.py" } else { "example.py" }.into(), b"y = 2".to_vec()).unwrap();
+            store.copy(&writer, attempt, &Batch::new(&model, vec![artifact]).unwrap()).await.unwrap();
+        }
+        if case == "span" {
+            let out_of_bounds = Occurrence { source: original.id(), start: 0, end: 6, syntax_kind: SyntaxKind::ExprName, role: OccurrenceRole::Read, structural_path: vec![] };
+            store.copy(&writer, attempt, &Batch::new(&model, vec![out_of_bounds]).unwrap()).await.unwrap();
+        }
+        store.seal(attempt).await.unwrap();
+        let error = store.validate(attempt).await.unwrap_err();
+        assert!(matches!(error, Error::Model(_)), "case {case}: {error}");
+        if case == "span" { assert!(error.to_string().contains("outside its source"), "{error}"); }
+        assert!(store.publish(attempt).await.is_err());
+        store.abort(attempt).await.unwrap();
+    }
+    // Every referenced row is valid, but verification for another acquisition cannot own this file.
+    let crossed = store.create(producer_digest, "catalog").await.unwrap();
+    let empty_input = InputRevision::from_entries(vec![]).unwrap();
+    let crossed_origin = InputOrigin::Tree { label: "other input".into() };
+    let crossed_acquisition = InputAcquisition { input: empty_input.id(), origin: crossed_origin.id() };
+    let crossed_verification = DistributionVerification { acquisition: crossed_acquisition.id(), release: release.id(), record_digest: ContentHash::of(b"other record"), artifact_sha256: vec![] };
+    let original = SourceArtifact::new(input.id(), "example.py".into(), b"x = 1".to_vec()).unwrap();
+    let crossed_ownership = ArtifactOwnership { artifact: original.id(), distribution: crossed_verification.id() };
+    macro_rules! copy_crossed { ($($row:expr),+ $(,)?) => { $(store.copy(&writer, crossed, &Batch::new(&model, vec![$row]).unwrap()).await.unwrap();)+ }; }
+    copy_crossed!(input.clone(), empty_input, crossed_origin, crossed_acquisition, crossed_verification, original, auxiliary.clone(), package.clone(), release.clone(), crossed_ownership);
+    store.seal(crossed).await.unwrap();
+    let error = store.validate(crossed).await.unwrap_err();
+    assert!(error.to_string().contains("ownership crosses"), "{error}");
+    assert!(store.publish(crossed).await.is_err());
+    store.abort(crossed).await.unwrap();
+    for case in ["missing-family", "wrong-family", "failed-provider"] {
+        let attempt = store.create(producer_digest, "catalog").await.unwrap();
+        let empty_input = InputRevision::from_entries(vec![]).unwrap();
+        let (invocation, mut memberships) = ProviderRun::new(provider.id(), context.id(), empty_input.id(), context.config_digest, [FactFamily::Syntax]).unwrap();
+        let scope = CoverageScope::Input { input: empty_input.id() };
+        let outcome = ProviderCoverage { scope: scope.id(), provider: provider.id(), context: context.id(), family: FactFamily::Syntax,
+            run: Some(invocation.id()), status: CoverageStatus::Failed, reason: Some(BoundaryReason::NativeUnavailable), diagnostic: None };
+        macro_rules! copy_attempt { ($($row:expr),+ $(,)?) => { $(store.copy(&writer, attempt, &Batch::new(&model, vec![$row]).unwrap()).await.unwrap();)+ }; }
+        copy_attempt!(empty_input, provider.clone(), context.clone(), invocation, scope);
+        if case != "missing-family" {
+            if case == "wrong-family" { memberships[0].family = FactFamily::Flow; }
+            store.copy(&writer, attempt, &Batch::new(&model, memberships).unwrap()).await.unwrap();
+        }
+        if case == "failed-provider" { copy_attempt!(outcome); }
+        store.seal(attempt).await.unwrap();
+        let error = store.validate(attempt).await.unwrap_err();
+        let expected = match case { "missing-family" => "lacks requested families", "wrong-family" => "family digest differs", _ => "failed provider invocation" };
+        assert!(error.to_string().contains(expected), "{case}: {error}");
+        assert!(store.publish(attempt).await.is_err());
+        store.abort(attempt).await.unwrap();
+    }
+    let damaged = store.create(producer_digest, "catalog").await.unwrap();
+    store.seal(damaged).await.unwrap(); store.validate(damaged).await.unwrap();
+    sqlx::query("UPDATE lctx_model_store.validation_receipts SET validator_name='substituted' WHERE generation_id=decode($1,'hex') AND validator_name='input_manifest_membership'").bind(damaged.hex()).execute(&owner).await.unwrap();
+    assert!(matches!(store.publish(damaged).await, Err(Error::Contract)));
+    store.abort(damaged).await.unwrap();
     // Missing reference is caught against sealed stored contents, not a caller's batch receipt.
     let bad = store.create(producer_digest, "catalog").await.unwrap();
     store.copy(&writer, bad, &Batch::new(&model, vec![release.clone()]).unwrap()).await.unwrap(); store.seal(bad).await.unwrap();

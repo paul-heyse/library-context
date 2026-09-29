@@ -10,6 +10,7 @@ pub(super) fn generate(model: &ValidatedModel, generation: GenerationId) -> Ddl 
     let mut references = Vec::new();
     for relation in model.relations() {
         let mut table = Table::create();
+        let mut wire_sizes = vec!["42::bigint".to_owned()];
         table.table((schema.clone(), relation.name()));
         table.col(ColumnDef::new("generation_id").binary().not_null().default(Expr::cust(format!("decode('{}', 'hex')", generation.hex()))));
         table.check(Expr::cust(format!("generation_id = decode('{}', 'hex')", generation.hex())));
@@ -27,6 +28,19 @@ pub(super) fn generate(model: &ValidatedModel, generation: GenerationId) -> Ddl 
             } else { ColumnDef::new_with_type(field.name(), ty) };
             if !field.nullable() { column.not_null(); }
             table.col(&mut column);
+            let column_name = format!("\"{}\"", field.name());
+            let scalar_width = match field.scalar() {
+                Scalar::Bool => 1, Scalar::Int16 => 2, Scalar::Int32 => 4, Scalar::Int64 => 8,
+                Scalar::Id => 16, Scalar::Digest => 32, Scalar::Text | Scalar::Binary => 0,
+            };
+            let size = if field.list() {
+                table.check(Expr::cust(format!("CASE WHEN array_ndims({column_name}) > 1 THEN FALSE ELSE (COALESCE(array_lower({column_name},1),1)=1 AND array_position({column_name},NULL) IS NULL) END")));
+                if field.scalar() == Scalar::Text { format!("lctx_model_store.text_array_wire_bytes({column_name})") }
+                else { format!("20::bigint + COALESCE(cardinality({column_name}),0)::bigint * {}", scalar_width + 4) }
+            } else if matches!(field.scalar(), Scalar::Text | Scalar::Binary) {
+                format!("COALESCE(octet_length({column_name}),0)::bigint")
+            } else { scalar_width.to_string() };
+            wire_sizes.push(format!("4::bigint + ({size})"));
             if !field.codes().is_empty() {
                 let values = field.codes().iter().map(|(code, _)| code.to_string()).collect::<Vec<_>>().join(",");
                 table.check(Expr::cust(format!("\"{}\" IN ({values})", field.name())));
@@ -51,6 +65,7 @@ pub(super) fn generate(model: &ValidatedModel, generation: GenerationId) -> Ddl 
                 }
             }
         }
+        table.check(Expr::cust(format!("({}) <= {}", wire_sizes.join(" + "), super::MAX_ROW_BYTES)));
         if let Some(sum) = relation.sum() {
             table.index(Index::create().unique().col("generation_id").col("id").col(sum.tag));
             let checks = sum.arms.iter().map(|arm| {

@@ -1,5 +1,11 @@
 CREATE SCHEMA IF NOT EXISTS lctx_model_store;
 REVOKE ALL ON SCHEMA lctx_model_store FROM PUBLIC;
+-- Binary array framing plus uncompressed element lengths, used by generated admission checks.
+CREATE OR REPLACE FUNCTION lctx_model_store.text_array_wire_bytes(value text[]) RETURNS bigint
+LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
+    SELECT 20::bigint + COALESCE(sum(4::bigint + COALESCE(octet_length(element), 0)), 0)::bigint
+    FROM unnest(value) AS element
+$$;
 CREATE TABLE IF NOT EXISTS lctx_model_store.installation (
     singleton boolean PRIMARY KEY CHECK(singleton),
     model_digest bytea NOT NULL CHECK(octet_length(model_digest)=32),
@@ -23,6 +29,14 @@ CREATE TABLE IF NOT EXISTS lctx_model_store.receipts (
     row_count bigint NOT NULL CHECK(row_count>=0),
     content_digest bytea NOT NULL CHECK(octet_length(content_digest)=32),
     PRIMARY KEY(generation_id,relation_name)
+);
+CREATE TABLE IF NOT EXISTS lctx_model_store.validation_receipts (
+    generation_id bytea NOT NULL REFERENCES lctx_model_store.generations(id),
+    validator_name text NOT NULL,
+    content_digest bytea NOT NULL CHECK(octet_length(content_digest)=32),
+    model_digest bytea NOT NULL CHECK(octet_length(model_digest)=32),
+    physical_digest bytea NOT NULL CHECK(octet_length(physical_digest)=32),
+    PRIMARY KEY(generation_id,validator_name)
 );
 CREATE TABLE IF NOT EXISTS lctx_model_store.selection (
     singleton boolean PRIMARY KEY CHECK(singleton),

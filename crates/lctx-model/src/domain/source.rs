@@ -1,29 +1,36 @@
 //! Source and attributed syntax facts. Identity never depends on a normalized L1 entity.
 use crate::{Domain, DomainCode, DomainSum};
-use super::{ContentHash, Id, ModelError, Relation, ValidatedModel};
+use super::{ContentHash, EvidenceBytes, Id, ModelError, Record};
+use super::input::{InputRevision, Release};
+use super::attribution::ProviderRun;
 
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "packages")]
-pub struct Package {
-    #[model(key)] pub name: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "releases")]
-pub struct Release {
-    #[model(key)] pub package: Id<Package>,
-    #[model(key)] pub version: String,
-    #[model(key)] pub lock_digest: ContentHash,
-}
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name = "source_artifacts", validate = validate_source)]
 pub struct SourceArtifact {
-    #[model(key)] pub release: Id<Release>,
+    #[model(key)] pub input: Id<InputRevision>,
     #[model(key)] pub path: String,
     #[model(key)] pub content: ContentHash,
+    pub byte_len: i64,
+    pub body: EvidenceBytes,
+}
+impl SourceArtifact {
+    pub fn new(input: Id<InputRevision>, path: String, body: Vec<u8>) -> Result<Self, ModelError> {
+        let row = Self { input, path, content: ContentHash::of(&body),
+            byte_len: i64::try_from(body.len()).map_err(|_| ModelError::Invalid("artifact too large".into()))?, body: EvidenceBytes(body) };
+        row.validate()?;
+        Ok(row)
+    }
+    pub fn text(&self) -> Result<&str, std::str::Utf8Error> { std::str::from_utf8(&self.body.0) }
+    pub fn is_stub(&self) -> bool { self.path.ends_with(".pyi") }
+    pub fn is_package(&self) -> bool { matches!(self.path.rsplit('/').next(), Some("__init__.py" | "__init__.pyi")) }
+    pub fn manifest_entry(&self) -> super::input::ManifestEntry {
+        super::input::ManifestEntry { path: self.path.clone(), content: self.content, byte_len: self.byte_len }
+    }
 }
 fn validate_source(row: &SourceArtifact) -> Result<(), ModelError> {
-    if row.path.is_empty() || row.path.starts_with('/') || row.path.split('/').any(|p| p == "." || p == ".." || p.is_empty()) {
-        return Err(ModelError::Invalid("source path must be relative and normalized".into()));
+    super::input::validate_path(&row.path)?;
+    if usize::try_from(row.byte_len).ok() != Some(row.body.0.len()) || row.content != ContentHash::of(&row.body.0) {
+        return Err(ModelError::Invalid("artifact bytes differ from length or content digest".into()));
     }
     Ok(())
 }
@@ -34,46 +41,29 @@ pub struct Module {
     #[model(key)] pub qualified_name: String,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "occurrences", validate = validate_occurrence)]
+#[model(name = "occurrences", validate = validate_occurrence, invariants = occurrence_invariants)]
 pub struct Occurrence {
     #[model(key)] pub source: Id<SourceArtifact>,
     #[model(key)] pub start: i64,
     #[model(key)] pub end: i64,
     #[model(key)] pub syntax_kind: SyntaxKind,
     /// Structural role distinguishes events sharing a span (e.g. individual with-items).
-    #[model(key)] pub role: String,
+    #[model(key)] pub role: OccurrenceRole,
+    #[model(key)] pub structural_path: Vec<i32>,
 }
 fn validate_occurrence(row: &Occurrence) -> Result<(), ModelError> {
-    if row.start < 0 || row.end < row.start || row.role.is_empty() {
+    if row.start < 0 || row.end < row.start || row.structural_path.iter().any(|index| *index < 0) {
         return Err(ModelError::Invalid("invalid occurrence span/kind/role".into()));
     }
     Ok(())
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "providers")]
-pub struct Provider {
-    #[model(key)] pub tool: String,
-    #[model(key)] pub revision: String,
-    #[model(key)] pub build_digest: ContentHash,
-}
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "analysis_contexts")]
-pub struct AnalysisContext {
-    #[model(key)] pub python_version: String,
-    #[model(key)] pub python_platform: String,
-    #[model(key)] pub search_path: Vec<String>,
-    #[model(key)] pub site_package_path: Vec<String>,
-    #[model(key)] pub config_digest: ContentHash,
-    #[model(key)] pub environment_digest: ContentHash,
-    #[model(key)] pub lock_digest: Option<ContentHash>,
-}
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "provider_runs")]
-pub struct ProviderRun {
-    #[model(key, provenance)] pub provider: Id<Provider>,
-    #[model(key, provenance)] pub context: Id<AnalysisContext>,
-    #[model(key)] pub release: Id<Release>,
-    #[model(key)] pub configuration: ContentHash,
+/// A source event's role is semantic data, not a caller-constructed string.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
+#[repr(i16)]
+pub enum OccurrenceRole {
+    Syntax = 0, Declaration = 1, Parameter = 2, Binding = 3, Read = 4,
+    Call = 5, Argument = 6, Predicate = 7, WithItem = 8, Decorator = 9,
+    Return = 10, Yield = 11, Raise = 12,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name = "syntax_observations")]
@@ -87,17 +77,6 @@ pub struct SyntaxSupport {
     #[model(key)] pub assertion: Id<SyntaxObservation>,
     #[model(key, provenance)] pub run: Id<ProviderRun>,
     #[model(key, provenance)] pub surface: String,
-}
-
-/// One membership manifest. Lowerings never maintain their own inventory.
-pub fn model() -> Result<ValidatedModel, ModelError> {
-    ValidatedModel::validate(vec![
-        Relation::of::<Package>(), Relation::of::<Release>(), Relation::of::<SourceArtifact>(),
-        Relation::of::<Module>(), Relation::of::<Occurrence>(), Relation::of::<Provider>(),
-        Relation::of::<AnalysisContext>(), Relation::of::<ProviderRun>(),
-        Relation::of::<SyntaxObservation>(), Relation::of::<SyntaxSupport>(),
-        Relation::of::<CoverageScope>(), Relation::of::<ProviderCoverage>(),
-    ])
 }
 
 /// Ruff syntax kinds; existing codes retained from the extraction contract.
@@ -206,37 +185,33 @@ pub enum SyntaxKind {
 pub enum CoverageScope {
     #[model(code = 0)] Release { release: Id<Release> },
     #[model(code = 1)] Module { module: Id<Module> },
+    #[model(code = 2)] Input { input: Id<InputRevision> },
+    #[model(code = 3)] Artifact { artifact: Id<SourceArtifact> },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
-#[repr(i16)]
-pub enum CoverageStatus {
-    CompleteUnderStatedModel = 0,
-    Partial = 1,
-    NotRequested = 2,
-    Unavailable = 3,
-    Failed = 4,
+
+fn occurrence_invariants() -> Vec<super::Invariant> {
+    vec![super::Invariant { name: "occurrence_source_bounds", inputs: vec![
+        super::ValidationInput::of::<SourceArtifact>(&["id"]),
+        super::ValidationInput::of::<Occurrence>(&["source", "start", "end"]),
+    ], create: || Box::new(OccurrenceBounds { lengths: Default::default() }) }]
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "provider_coverage", validate = validate_coverage)]
-pub struct ProviderCoverage {
-    #[model(key)] pub scope: Id<CoverageScope>,
-    #[model(key, provenance)] pub provider: Id<Provider>,
-    #[model(key, provenance)] pub context: Id<AnalysisContext>,
-    #[model(key)] pub family: String,
-    #[model(key, provenance)] pub run: Option<Id<ProviderRun>>,
-    pub status: CoverageStatus,
-    pub reason: Option<String>,
-}
-fn validate_coverage(row: &ProviderCoverage) -> Result<(), ModelError> {
-    if row.family.is_empty() { return Err(ModelError::Invalid("coverage needs a family".into())); }
-    match row.status {
-        CoverageStatus::CompleteUnderStatedModel | CoverageStatus::Partial if row.run.is_none() =>
-            Err(ModelError::Invalid("attempted coverage needs a run".into())),
-        CoverageStatus::NotRequested if row.run.is_some() =>
-            Err(ModelError::Invalid("not-requested coverage cannot name a run".into())),
-        CoverageStatus::Partial | CoverageStatus::Unavailable | CoverageStatus::Failed if row.reason.as_ref().is_none_or(String::is_empty) =>
-            Err(ModelError::Invalid("incomplete coverage needs a reason".into())),
-        _ => Ok(()),
+struct OccurrenceBounds { lengths: std::collections::BTreeMap<Id<SourceArtifact>, i64> }
+impl super::InvariantCheck for OccurrenceBounds {
+    fn visit(&mut self, relation: &str, batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
+        if relation == SourceArtifact::NAME {
+            for source in SourceArtifact::decode(batch)? {
+                if self.lengths.len() >= 1_000_000 { return Err(ModelError::Invalid("source validation cardinality budget exceeded".into())); }
+                if self.lengths.insert(source.id(), source.byte_len).is_some() { return Err(ModelError::Conflict(SourceArtifact::NAME)); }
+            }
+        } else if relation == Occurrence::NAME {
+            for occurrence in Occurrence::decode(batch)? {
+                if !self.lengths.get(&occurrence.source).is_some_and(|length| occurrence.end <= *length) {
+                    return Err(ModelError::Invalid("occurrence is outside its source bytes".into()));
+                }
+            }
+        } else { return Err(ModelError::Invalid("undeclared span validation input".into())); }
+        Ok(())
     }
+    fn finish(self: Box<Self>) -> Result<(), ModelError> { Ok(()) }
 }

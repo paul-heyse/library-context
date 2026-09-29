@@ -84,7 +84,7 @@ impl GenerationStore {
         let mut content = KeySink::new("generation-content");
         for relation in self.model.relations() {
             let mut rows = relation.content();
-            visit_physical(&mut tx, g, relation, |batch| {
+            visit_physical(&mut tx, g, relation, &["id"], |batch| {
                 relation.hash_rows(&batch, &mut rows)?;
                 Ok(())
             }).await?;
@@ -94,6 +94,20 @@ impl GenerationStore {
                 .bind(g.0.to_vec()).bind(relation.name()).bind(i64::try_from(row_count).map_err(|_| Error::Codec("row count overflow".into()))?).bind(digest.0.to_vec()).execute(&mut *tx).await?;
         }
         let digest = content.finish();
+        for invariant in self.model.invariants() {
+            let mut check = (invariant.create)();
+            for input in &invariant.inputs {
+                let relation = self.model.relations().iter().find(|r| r.name() == input.name()).expect("validated invariant member");
+                visit_physical(&mut tx, g, relation, input.order(), |batch| {
+                    check.visit(input.name(), &batch)?;
+                    Ok(())
+                }).await?;
+            }
+            check.finish()?;
+            sqlx::query("INSERT INTO lctx_model_store.validation_receipts(generation_id,validator_name,content_digest,model_digest,physical_digest) VALUES($1,$2,$3,$4,$5)")
+                .bind(g.0.to_vec()).bind(invariant.name).bind(digest.0.to_vec())
+                .bind(self.model.digest().0.to_vec()).bind(self.physical.0.to_vec()).execute(&mut *tx).await?;
+        }
         sqlx::query("UPDATE lctx_model_store.generations SET content_digest=$2 WHERE id=$1").bind(g.0.to_vec()).bind(digest.0.to_vec()).execute(&mut *tx).await?;
         transition(&mut tx, g, "validated").await?;
         tx.commit().await?; Ok(digest)
@@ -102,8 +116,26 @@ impl GenerationStore {
         let mut tx = self.owner.begin().await?;
         lock(&mut tx, g, false).await?;
         state(&mut tx, g, "validated", &self.model, self.physical).await?;
-        let receipt_count: i64 = sqlx::query_scalar("SELECT count(*) FROM lctx_model_store.receipts WHERE generation_id=$1").bind(g.0.to_vec()).fetch_one(&mut *tx).await?;
-        if receipt_count != self.model.relations().len() as i64 { return Err(Error::State); }
+        let receipts = sqlx::query("SELECT relation_name,content_digest FROM lctx_model_store.receipts WHERE generation_id=$1 ORDER BY relation_name COLLATE \"C\"")
+            .bind(g.0.to_vec()).fetch_all(&mut *tx).await?;
+        if receipts.len() != self.model.relations().len() { return Err(Error::State); }
+        let mut content = KeySink::new("generation-content");
+        for (receipt, relation) in receipts.iter().zip(self.model.relations()) {
+            if receipt.try_get::<String, _>("relation_name")? != relation.name() { return Err(Error::Contract); }
+            content.part(relation.name().as_bytes(), &receipt.try_get::<Vec<u8>, _>("content_digest")?);
+        }
+        let digest = content.finish();
+        let stored: Vec<u8> = sqlx::query_scalar("SELECT content_digest FROM lctx_model_store.generations WHERE id=$1").bind(g.0.to_vec()).fetch_one(&mut *tx).await?;
+        if stored != digest.0 { return Err(Error::Contract); }
+        let validations = sqlx::query("SELECT validator_name,content_digest,model_digest,physical_digest FROM lctx_model_store.validation_receipts WHERE generation_id=$1 ORDER BY validator_name COLLATE \"C\"")
+            .bind(g.0.to_vec()).fetch_all(&mut *tx).await?;
+        if validations.len() != self.model.invariants().len() { return Err(Error::State); }
+        for (receipt, invariant) in validations.iter().zip(self.model.invariants()) {
+            if receipt.try_get::<String, _>("validator_name")? != invariant.name
+                || receipt.try_get::<Vec<u8>, _>("content_digest")? != digest.0
+                || receipt.try_get::<Vec<u8>, _>("model_digest")? != self.model.digest().0
+                || receipt.try_get::<Vec<u8>, _>("physical_digest")? != self.physical.0 { return Err(Error::Contract); }
+        }
         sqlx::raw_sql(sqlx::AssertSqlSafe(format!("GRANT USAGE ON SCHEMA {s} TO lctx_serving; GRANT SELECT ON ALL TABLES IN SCHEMA {s} TO lctx_serving", s=quoted(&g.schema())))).execute(&mut *tx).await?;
         transition(&mut tx, g, "published").await?;
         tx.commit().await?; Ok(())
@@ -159,9 +191,15 @@ impl GenerationStore {
         let mut encoder = pgpq::ArrowToPostgresBinaryEncoder::try_new(&batch.arrow().schema()).map_err(|e| Error::Codec(e.to_string()))?;
         let mut bytes = BytesMut::new();
         encoder.write_header(&mut bytes).map_err(|e| Error::Codec(e.to_string()))?;
-        encoder.write_batch(batch.arrow(), &mut bytes).map_err(|e| Error::Codec(e.to_string()))?;
-        encoder.write_footer(&mut bytes).map_err(|e| Error::Codec(e.to_string()))?;
         let mut copy = tx.copy_in_raw(&format!("COPY {} ({columns}) FROM STDIN BINARY", qualified(g, R::NAME))).await?;
+        copy.send(bytes.split().freeze()).await?;
+        for index in 0..batch.arrow().num_rows() {
+            // Each send is bounded by one admitted record, not the entire producer batch.
+            encoder.write_batch(&batch.arrow().slice(index, 1), &mut bytes).map_err(|e| Error::Codec(e.to_string()))?;
+            if bytes.len() > MAX_ROW_BYTES { return Err(Error::Codec("COPY row exceeds storage admission limit".into())); }
+            copy.send(bytes.split().freeze()).await?;
+        }
+        encoder.write_footer(&mut bytes).map_err(|e| Error::Codec(e.to_string()))?;
         copy.send(bytes.freeze()).await?; copy.finish().await?;
         tx.commit().await?; Ok(())
     }
@@ -175,7 +213,7 @@ impl GenerationLease {
     pub async fn visit<R: Record>(&mut self, mut visitor: impl FnMut(Batch<R>) -> Result<(), Error>) -> Result<(), Error> {
         self.connection.ping().await?;
         let relation = self.model.require::<R>()?;
-        visit_physical(&mut self.connection, self.generation, relation, |batch| {
+        visit_physical(&mut self.connection, self.generation, relation, &["id"], |batch| {
             visitor(Batch::read(&self.model, &batch)?)
         }).await
     }
@@ -196,10 +234,14 @@ const READ_BATCH_ROWS: usize = 4096;
 const READ_BATCH_BYTES: usize = 8 * 1024 * 1024;
 const MAX_ROW_BYTES: usize = 64 * 1024 * 1024;
 
-async fn visit_physical(connection: &mut PgConnection, g: GenerationId, relation: &Relation,
+async fn visit_physical(connection: &mut PgConnection, g: GenerationId, relation: &Relation, order: &[&str],
     mut visitor: impl FnMut(RecordBatch) -> Result<(), Error>) -> Result<(), Error> {
     let columns = relation.schema().fields().iter().map(|f| quoted(f.name())).collect::<Vec<_>>().join(",");
-    let query = format!("SELECT {columns} FROM {} ORDER BY id", qualified(g, relation.name()));
+    let order = order.iter().map(|name| {
+        let text = relation.fields().iter().any(|field| field.name() == *name && field.scalar() == lctx_model::domain::Scalar::Text && !field.list());
+        if text { format!("{} COLLATE \"C\"", quoted(name)) } else { quoted(name) }
+    }).collect::<Vec<_>>().join(",");
+    let query = format!("SELECT {columns} FROM {} ORDER BY {order}", qualified(g, relation.name()));
     let mut stream = sqlx::query(sqlx::AssertSqlSafe(query)).fetch(connection);
     let mut rows = Vec::new();
     let mut bytes = 0usize;

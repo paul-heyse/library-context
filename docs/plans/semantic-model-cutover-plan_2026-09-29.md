@@ -191,6 +191,122 @@ with structured partial/unavailable coverage. Original evidence survives failed 
 Equivalent fresh inputs/configuration must produce equal semantic content independent of batching;
 compiler telemetry and generation IDs do not participate. No incremental cache is added.
 
+### 4.1.2 Raw-field migration inventory
+
+**Proposed mappings; source inventory inspected 2026-09-29.** This is the deletion checklist for P2,
+not a second executable schema. All 57 `for_each_table!` entries are listed, including inline
+macro fields. The destination domain owns all listed payload fields unless an explicit transformation
+below applies. No table is marked migrated merely because its owner appears here.
+
+Common transformations: `snapshot_id` becomes generation containment, never a semantic field;
+`fact_id` becomes qualified proposition identity plus separate typed supports. Legacy `*_id` node/fact
+references are reconstructed as nominal references to the corresponding domain object; no old ID
+reader or lookup bridge survives. Optional fields retain unknown/absent meaning through domain sums
+or validated options. Display names remain presentation and cannot replace source/provider identity.
+
+| Raw relation | Remaining fields (including legacy identity/reference fields) | Destination owner |
+|---|---|---|
+| `facts` | `run_id`, `table_name`, `origin`, `extraction_mode`, `modality`, `fidelity`, `model_id` | attribution: qualified assertions and typed support records |
+| `runs` | `run_id`, `release_id`, `context_id`, `producer_id`, `families`, `config_digest` | attribution: ProviderRun/RunFamily, AnalysisContext, Provider |
+| `contexts` | `context_id`, `python_version`, `python_platform`, `search_path`, `site_package_path`, `config_digest`, `environment_digest`, `lock_digest` | attribution: ProviderRun/RunFamily, AnalysisContext, Provider |
+| `producers` | `producer_id`, `tool`, `revision`, `build_digest` | attribution: ProviderRun/RunFamily, AnalysisContext, Provider |
+| `releases` | `release_id`, `library`, `requirement`, `lock_digest`, `distributions`, `installer`, `label` | input: InputOrigin/Acquisition, Package/Release, DistributionVerification and InputDistribution |
+| `distributions` | `context_id`, `name`, `version`, `artifact_sha256`, `record_digest` | input: InputOrigin/Acquisition, Package/Release, DistributionVerification and InputDistribution |
+| `captured_artifacts` | `artifact_id`, `release_id`, `context_id`, `path`, `source_kind`, `source_digest`, `byte_len`, `body`, `alignment`, `provenance`, `observations` | input/source plus deployment: original SourceArtifact bytes and typed interpretation/task observations |
+| `source_files` | `module_node_id`, `release_id`, `module_name`, `path`, `is_package`, `is_stub`, `content_digest`, `byte_len`, `utf8`, `distribution`, `role`, `text` | input/source: SourceArtifact, Module, ArtifactOwnership and ArtifactUse |
+| `context_modules` | `module_node_id`, `module_name`, `origin`, `path`, `distribution`, `version` | syntax/types: provider-qualified dependency symbols, signatures and ancestry observations |
+| `context_definitions` | `symbol_node_id`, `module_node_id`, `module_name`, `kind`, `key`, `name`, `qualified_name`, `is_top_level`, `signature_count` | syntax/types: provider-qualified dependency symbols, signatures and ancestry observations |
+| `context_parameters` | `symbol_node_id`, `module_node_id`, `signature_index`, `form`, `ordinal`, `kind`, `name`, `required` | syntax/types: provider-qualified dependency symbols, signatures and ancestry observations |
+| `context_class_mro` | `class_node_id`, `module_node_id`, `ordinal`, `ancestor_module`, `ancestor_key`, `ancestor_name`, `cyclic`, `linearization_complete` | syntax/types: provider-qualified dependency symbols, signatures and ancestry observations |
+| `declarations` | `node_id`, `module_node_id`, `parent_node_id`, `qualified_name`, `name`, `kind`, `start_byte`, `end_byte`, `name_start_byte`, `name_end_byte`, `docstring`, `docstring_start_byte`, `docstring_end_byte`, `is_overload`, `decorators` | syntax: qualified declaration/export/parameter/tree/scope/binding/read/resolution observations |
+| `export_syntax` | `node_id`, `module_node_id`, `kind`, `imported_module`, `imported_name`, `alias`, `level`, `resolved_module`, `start_byte`, `end_byte`, `dunder_all_literal` | syntax: qualified declaration/export/parameter/tree/scope/binding/read/resolution observations |
+| `public_names` | `access_path`, `access_module`, `name`, `origin_path`, `origin_module_node_id`, `via_dunder_all`, `origin_module`, `origin_name`, `access_module_node_id`, `origin_symbol_kind` | syntax: qualified declaration/export/parameter/tree/scope/binding/read/resolution observations |
+| `parameter_syntax` | `node_id`, `function_node_id`, `ordinal`, `name`, `kind`, `default_text`, `default_start_byte`, `default_end_byte`, `annotation_text`, `start_byte`, `end_byte` | syntax: qualified declaration/export/parameter/tree/scope/binding/read/resolution observations |
+| `parameter_docs` | `function_node_id`, `module_node_id`, `name`, `text`, `start_byte`, `end_byte` | syntax: qualified declaration/export/parameter/tree/scope/binding/read/resolution observations |
+| `pysa_functions` | `module_node_id`, `module_name`, `function_key`, `name`, `name_start_byte`, `name_end_byte`, `is_overload`, `is_staticmethod`, `is_classmethod`, `is_property_getter`, `is_property_setter`, `is_stub`, `is_def_statement`, `defining_class`, `overridden_base`, `defining_class_module`, `defining_class_key`, `overridden_module`, `overridden_key`, `signature_count` | types: provider-qualified callable signatures, class traits and ancestry |
+| `parameter_semantics` | `module_node_id`, `module_name`, `function_key`, `signature_index`, `form`, `ordinal`, `kind`, `name`, `required`, `annotation`, `annotation_classes`, `annotation_classes_exhaustive`, `annotation_scalar` | types: provider-qualified callable signatures, class traits and ancestry |
+| `class_ancestry` | `module_node_id`, `module_name`, `class_key`, `class_name`, `name_start_byte`, `name_end_byte`, `relation`, `ordinal`, `ancestor`, `mro_cyclic`, `ancestor_module`, `ancestor_key` | types: provider-qualified callable signatures, class traits and ancestry |
+| `pysa_classes` | `module_node_id`, `module_name`, `class_key`, `class_name`, `name_start_byte`, `name_end_byte`, `is_synthesized`, `is_dataclass`, `is_named_tuple`, `is_typed_dict` | types: provider-qualified callable signatures, class traits and ancestry |
+| `call_syntax` | `node_id`, `module_node_id`, `owner_node_id`, `start_byte`, `end_byte`, `callee_start_byte`, `callee_end_byte`, `in_annotation`, `positional_count`, `keyword_count` | calls: syntax sites/arguments and separately qualified target alternatives |
+| `arguments` | `node_id`, `call_node_id`, `ordinal`, `kind`, `keyword`, `start_byte`, `end_byte`, `value_start_byte`, `value_end_byte` | calls: syntax sites/arguments and separately qualified target alternatives |
+| `syntax_nodes` | `node_id`, `module_node_id`, `owner_node_id`, `parent_node_id`, `kind`, `field`, `ordinal`, `start_byte`, `end_byte`, `detail` | syntax: qualified declaration/export/parameter/tree/scope/binding/read/resolution observations |
+| `scopes` | `node_id`, `module_node_id`, `kind`, `owner_node_id`, `parent_scope_id`, `start_byte`, `end_byte` | syntax: qualified declaration/export/parameter/tree/scope/binding/read/resolution observations |
+| `bindings` | `node_id`, `scope_id`, `module_node_id`, `name`, `kind`, `ordinal`, `site_node_id`, `start_byte`, `end_byte`, `value_start_byte`, `value_end_byte`, `static_branch`, `static_polarity` | syntax: qualified declaration/export/parameter/tree/scope/binding/read/resolution observations |
+| `references` | `node_id`, `name_node_id`, `scope_id`, `module_node_id`, `name`, `parent_node_id`, `field`, `start_byte`, `end_byte` | syntax: qualified declaration/export/parameter/tree/scope/binding/read/resolution observations |
+| `reference_resolutions` | `reference_id`, `binding_id`, `captured`, `builtin_name`, `reason` | syntax: qualified declaration/export/parameter/tree/scope/binding/read/resolution observations |
+| `type_terms` | `node_id`, `kind`, `display`, `detail`, `literal_json`, `class_module`, `class_key`, `variable`, `anchor_module`, `anchor_start`, `anchor_end` | types: structural terms/arguments, qualified type/body/record-field observations |
+| `type_term_args` | `parent_node_id`, `role`, `ordinal`, `child_node_id`, `name`, `parameter_kind`, `required` | types: structural terms/arguments, qualified type/body/record-field observations |
+| `type_observations` | `module_node_id`, `subject_node_id`, `role`, `declared`, `term_node_id` | types: structural terms/arguments, qualified type/body/record-field observations |
+| `function_implementations` | `function_node_id`, `module_node_id`, `body_kind`, `is_abstract_method`, `is_in_protocol_class`, `is_in_type_checking_block`, `is_overload` | types: structural terms/arguments, qualified type/body/record-field observations |
+| `record_fields` | `node_id`, `class_node_id`, `module_node_id`, `record_kind`, `name`, `ordinal`, `term_node_id`, `declared`, `start_byte`, `end_byte`, `has_default`, `init`, `alias`, `kw_only`, `required`, `read_only` | types: structural terms/arguments, qualified type/body/record-field observations |
+| `record_field_syntax` | `field_node_id`, `class_node_id`, `module_node_id`, `name`, `start_byte`, `end_byte`, `annotation_text`, `value_text`, `value_start_byte`, `value_end_byte` | types: structural terms/arguments, qualified type/body/record-field observations |
+| `documents` | `node_id`, `release_id`, `path`, `content_digest`, `byte_len`, `title`, `parsed` | documents: source-backed document/section/code/link/mention/component records |
+| `passages` | `node_id`, `document_node_id`, `ordinal`, `level`, `heading`, `heading_path`, `start_byte`, `end_byte`, `text` | documents: source-backed document/section/code/link/mention/component records |
+| `code_blocks` | `node_id`, `document_node_id`, `passage_node_id`, `ordinal`, `language`, `meta`, `start_byte`, `end_byte`, `code`, `content_digest`, `module_path` | documents: source-backed document/section/code/link/mention/component records |
+| `doc_links` | `passage_node_id`, `ordinal`, `url`, `title`, `text`, `start_byte`, `end_byte` | documents: source-backed document/section/code/link/mention/component records |
+| `mentions` | `passage_node_id`, `class`, `source`, `form`, `access_path`, `qualified_name`, `start_byte`, `end_byte` | documents: source-backed document/section/code/link/mention/component records |
+| `doc_components` | `document_node_id`, `passage_node_id`, `ordinal`, `parent_ordinal`, `depth`, `name`, `form`, `start_byte`, `end_byte`, `inner_start`, `inner_end`, `lead_start`, `lead_end` | documents: source-backed document/section/code/link/mention/component records |
+| `doc_component_attributes` | `document_node_id`, `component_ordinal`, `ordinal`, `name`, `value`, `value_kind` | documents: source-backed document/section/code/link/mention/component records |
+| `pysa_calls` | `payload_id`, `module_node_id`, `module_name`, `caller_key`, `site_kind`, `callee_kind`, `site_detail`, `start_byte`, `end_byte`, `phase`, `higher_order_index`, `target_kind`, `target_module`, `target_key`, `target_name`, `receiver_class`, `receiver_module`, `receiver_key`, `implicit_receiver`, `implicit_dunder_call`, `is_class_method`, `is_static_method`, `unresolved_reason`, `is_attribute` | calls: syntax sites/arguments and separately qualified target alternatives |
+| `flow_uses` | `use_id`, `module_node_id`, `place`, `scope_kind`, `scope_start_byte`, `scope_end_byte`, `start_byte`, `end_byte`, `annotation` | flow: typed places, occurrence-backed events, reaching/value/control/predicate observations |
+| `flow_definitions` | `definition_id`, `module_node_id`, `place`, `kind`, `scope_kind`, `scope_start_byte`, `scope_end_byte`, `start_byte`, `end_byte`, `value_start_byte`, `value_end_byte` | flow: typed places, occurrence-backed events, reaching/value/control/predicate observations |
+| `flow_reaching` | `use_id`, `definition_id`, `condition_id`, `approximated`, `loop_carried` | flow: typed places, occurrence-backed events, reaching/value/control/predicate observations |
+| `flow_values` | `module_node_id`, `sink`, `sink_start_byte`, `sink_end_byte`, `use_id`, `identity`, `through_call`, `condition_id`, `approximated` | flow: typed places, occurrence-backed events, reaching/value/control/predicate observations |
+| `flow_value_calls` | `module_node_id`, `flow_value_fact_id`, `use_id`, `step`, `call_start_byte`, `call_end_byte`, `operand_start_byte`, `operand_end_byte`, `role` | flow: typed places, occurrence-backed events, reaching/value/control/predicate observations |
+| `flow_regions` | `module_node_id`, `scope_kind`, `scope_start_byte`, `scope_end_byte`, `start_byte`, `end_byte`, `condition_id`, `approximated` | flow: typed places, occurrence-backed events, reaching/value/control/predicate observations |
+| `flow_tests` | `module_node_id`, `scope_kind`, `scope_start_byte`, `scope_end_byte`, `start_byte`, `end_byte`, `condition_id` | flow: typed places, occurrence-backed events, reaching/value/control/predicate observations |
+| `flow_test_leaves` | `module_node_id`, `scope_kind`, `scope_start_byte`, `scope_end_byte`, `predicate_key`, `test_start_byte`, `test_end_byte`, `condition_id`, `atom_id`, `atom`, `leaf_start_byte`, `leaf_end_byte` | flow: typed places, occurrence-backed events, reaching/value/control/predicate observations |
+| `flow_test_types` | `module_node_id`, `leaf_fact_id`, `atom_id`, `use_id`, `use_fact_id`, `operand_start_byte`, `operand_end_byte`, `role`, `place`, `term_node_id`, `term_fact_id`, `origin` | flow: typed places, occurrence-backed events, reaching/value/control/predicate observations |
+| `flow_attribute_loads` | `module_node_id`, `start_byte`, `end_byte`, `name` | flow: typed places, occurrence-backed events, reaching/value/control/predicate observations |
+| `conditions` | `condition_id`, `root_id`, `encoding`, `stated`, `display_truncated`, `boundary_reason` | conditions: canonical BDD/occurrence atoms; display-only projections retired |
+| `condition_nodes` | `node_id`, `atom`, `low_id`, `high_id` | conditions: canonical BDD/occurrence atoms; display-only projections retired |
+| `condition_literals` | `condition_id`, `conjunction`, `ordinal`, `atom`, `positive`, `place`, `argument` | conditions: canonical BDD/occurrence atoms; display-only projections retired |
+| `coverage` | `run_id`, `scope_kind`, `scope_node_id`, `fact_family`, `status`, `reason`, `detail` | attribution: ProviderCoverage plus structured scope/subject boundaries |
+| `boundaries` | `module_node_id`, `subject_node_id`, `fact_family`, `reason`, `start_byte`, `end_byte`, `detail` | attribution: ProviderCoverage plus structured scope/subject boundaries |
+
+Specific transformations and deletion conditions:
+
+- `facts.table_name` is replaced by concrete typed support targets. `origin`, `extraction_mode`,
+  `fidelity` and provider surface remain evidence attributes; modality/condition/approximation qualify
+  propositions and participate in their identity. Run identity does not qualify proposition identity.
+- Acquired distribution strings split into package/version references. Source text, UTF-8, package
+  and stub flags derive from retained bytes/path; original bytes must survive failed interpretation.
+  Context distribution association must remain explicit, including unowned top-level input entries.
+- Rendered flow `place`, predicate keys and string atoms are replaced by structural places and
+  occurrence-keyed atoms. Keep original diagnostic text only as presentation. `conditions.encoding`
+  and `condition_literals` have no independent semantic store: canonical BDD roots/nodes own truth;
+  terminal truth, unknown/refusal and approximation must remain distinguishable.
+- Calls retain direct/higher-order distinction, phase, target/receiver alternatives, unknown receiver
+  and unresolved remainder. Target absence never certifies completeness. Span attachment retains
+  ambiguity and provider identity; normalized entity ownership waits until L1.
+- Documents/code retain byte-coordinate spaces and links to original artifacts. Optional parser
+  failure cannot erase evidence. Annotation/default/literal payloads require lossless typed values;
+  a display string alone does not establish structural semantics.
+- `snapshots` is outside the 57 raw families: generation registry/content and relation receipts replace
+  its publication metadata. Delta table versions and snapshot-key columns are deleted at cutover.
+
+Nested captured evidence is part of the same inventory, not an opaque JSON escape hatch:
+
+| Current structure | Fields retained in typed deployment/evidence records |
+|---|---|
+| `Checks` | `parse`, `binding`, `environment`, `execution` |
+| `ContextRequirement` | `kind`, `expression`, `evidence` |
+| `ScenarioDetail` | `spans`, `context`, `intent`, `checks`, `requirements`, `extraction`, `analysis_module`, `option_bindings`, `omitted_options`, `omitted_requirements` |
+| `OptionBinding` | `site_id`, `ordinal`, `keyword`, `kind`, `expression`, `span_id`, `coordinate_space` |
+| `DeploymentEnvironment` | `release_id`, `lock_digest`, `environment_digest`, `runtime_digest`, `interpreter_digest`, `python_version`, `platform`, `requirement`, `metadata` |
+| `TaskReceipt` | `format`, `policy`, `task`, `runner_sha256`, `source_path`, `source_sha256`, `environment`, `command`, `tool`, `arguments`, `elapsed_ms`, `timeout_seconds`, `execution`, `tools`, `result`, `diagnostic` |
+| `TaskObservation` | `target_artifact`, `receipt` |
+| `AssociationSupport` | `edge_id`, `fact_id`, `support_fact_id`, `target_id`, `modality`, `phase`, `unresolved_reason`, `context_span_id`, `analysis_module`, `start_byte`, `end_byte`, `coordinate_space` |
+| `DeploymentDetail` | `distribution`, `version`, `field`, `original`, `name`, `extras`, `marker`, `constraint`, `interpretation`, `diagnostic`, `environment_digest`, `lock_digest`, `task`, `referenced_path` |
+
+`CheckStatus`, `ContextStatus`, `Intent`, `Alignment`, `EvidenceKind` and `EvidenceRef` become
+typed codes/sums. Metadata maps, task arguments/commands/tools, requirements, option bindings and
+evidence-reference collections become ordered/keyed relationship records. Preserve receipt format,
+policy, runner/source hashes, execution result/diagnostic and omission counters. Scenario/association
+conclusions are P4 work, but their raw evidence inputs cannot be dropped during P2. Captured
+`observations` must be decoded and attributed by the new producer, without retaining an old-format
+runtime reader. Malformed interpretation retains the original artifact with explicit failure coverage.
+
 ### 4.2 Execution status
 
 **In progress: P0.1–P0.3/P0.5/P0.6 foundations.** Replacement decisions and revised plan accepted.
@@ -204,7 +320,7 @@ Focused evidence (2026-09-29; commands prefixed by `python3 scripts/build_enviro
 
 | Command | Outcome and boundary |
 |---|---|
-| `cargo test --release -p lctx-model --test domain` | passed: 11 focused domain controls, including sum null semantics, nominal subtype construction, binary evidence and batch-independent content hashing |
+| `cargo test --release -p lctx-model --test domain` | passed: 14 focused domain controls, including sum null semantics, nominal subtype construction, binary evidence and batch-independent content hashing |
 | `cargo test --release -p lctx-model --doc` | passed: five negative declarations with five positive partners; one pre-existing ignored legacy example |
 | `cargo test --release -p lctx-postgres --test generations` | passed: real disposable PG18 typed source/support/coverage round trip; writer drain and revocation; stored reference and subtype refusal; pool-bound reader leases; retirement, selection, contract mismatch and failed-attempt cleanup |
 | `just docs-check`; `uv run python scripts/adr.py lint` | passed: documentation publication and current decision references; not architecture qualification |
@@ -222,10 +338,20 @@ explicit Arrow codec, COPY and SQLx readback. Record derives generate semantic p
 Stored validation streams rows in ID order with row/byte-bounded chunks instead of fetching a whole
 relation and hashing IPC framing. Typed leased `visit` is the large-relation API; convenience `read`
 refuses collections above its budget. The real PG lifecycle test includes non-UTF-8 evidence.
-COPY buffering, provider-stream integration and the complete validator manifest remain open.
+COPY now encodes individual rows. Generated admission checks reject oversized rows and malformed
+arrays before readback. Model-owned sealed validators reconcile input manifests, source-relative
+spans and acquisition-specific artifact ownership; publication checks exact validator receipts.
+Content revisions, acquisition variants, distribution verification and artifact uses are typed.
+Provider family-set identity, outcome consistency and failed-provider refusal are checked over sealed
+contents. Exact coverage-matrix validation has focused controls but still needs compiler scheduling
+and scope/input enforcement. Indexed occurrence attachment preserves ambiguity
+and has an independent scalar oracle; normalized ownership remains open.
+The [bounded input review](../design_review/reviews/design_review_semantic-input-validation_2026-09-29.md)
+accepted its corrections by source inspection. Coordinated allocation budgets, provider-stream
+integration and the complete validator manifest remain open.
 
-**Still open:** complete raw-field disposition and domain families; P0.4 semantic policies and indexed
-join; stage runtime/session enforcement; bounded large-table reads; complete store/CLI commands;
+**Still open:** implement the raw-field mappings in §4.1.2 and remaining domain families; P0.4 remaining semantic policies and normalized
+ownership; stage runtime/session enforcement; bounded large-table reads; complete store/CLI commands;
 producer migration; deletion and quiescence. The old pipeline and framework remain present, unwired
 to the new generation path. No adapter between them has been added. No phase exit is qualified.
 Earlier phase-0/WP1.0 receipts do not qualify this target.
@@ -253,6 +379,15 @@ owners. Phases 3–5 update their owners when implemented. No documentation labe
 without corresponding evidence.
 
 ## 8. Findings disposition
+
+The bounded [input-validation review](../design_review/reviews/design_review_semantic-input-validation_2026-09-29.md)
+has the following separate finding namespace (2026-09-29):
+
+| Source finding | Current disposition | Owner and closure evidence |
+|---|---|---|
+| input-validation F01/F03/F04/F05 | addressed within reviewed slice | `lctx-model` input/source invariants; real PG manifest/span/cross-input ownership refusals and multi-distribution positive; reviewer source reinspection accepted |
+| input-validation F02 | open, P0.3/P1 | model/store/producer coordinated memory accounting including conversion copies and invariant state; large-input measured envelope and refusal controls required; server row admission and per-row COPY alone are partial |
+
 
 This table owns the current disposition of the review's findings. Each closes by construction in the
 phase named, and only on its closure evidence.

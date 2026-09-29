@@ -3,10 +3,13 @@ mod identity;
 mod model;
 mod record;
 pub mod source;
+pub mod input;
+pub mod attribution;
+pub mod attachment;
 pub mod stages;
 
 pub use identity::{ArmId, ContentHash, EvidenceBytes, Id, Key, KeySink};
-pub use model::{Relation, RelationContent, ValidatedModel};
+pub use model::{Invariant, InvariantCheck, ValidationInput, Relation, RelationContent, ValidatedModel};
 pub use record::{Arm, ArmField, Sum, SumRecord, Batch, Field, FieldValue, FlatValue, Record, Scalar};
 
 #[derive(Debug, thiserror::Error)]
@@ -36,14 +39,14 @@ pub mod __private {
 /// Declaration controls are paired: a reference collection must be a relationship record.
 ///
 /// ```compile_fail
-/// use lctx_model::{Domain, domain::{Id, source::Package}};
+/// use lctx_model::{Domain, domain::{Id, input::Package}};
 /// #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 /// #[model(name = "bad_collection")]
 /// struct Collection { #[model(key)] name: String, members: Vec<Id<Package>> }
 /// ```
 ///
 /// ```
-/// use lctx_model::{Domain, domain::{Id, source::Package}};
+/// use lctx_model::{Domain, domain::{Id, input::Package}};
 /// #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 /// #[model(name = "package_memberships")]
 /// struct Membership { #[model(key)] owner: Id<Package>, #[model(key)] member: Id<Package> }
@@ -90,3 +93,19 @@ pub mod __private {
 /// struct Ordinary { #[model(key)] name: String, value: Option<String> }
 /// ```
 pub mod declaration_controls {}
+
+/// The sole production relation membership manifest; physical inventories are derived.
+pub fn model() -> Result<ValidatedModel, ModelError> {
+    use input::*;
+    use attribution::*;
+    use source::*;
+    ValidatedModel::validate(vec![
+        Relation::of::<Package>(), Relation::of::<Release>(), Relation::of::<InputRevision>(),
+        Relation::of::<InputOrigin>(), Relation::of::<InputAcquisition>(), Relation::of::<CorpusLibrary>(),
+        Relation::of::<InputDistribution>(), Relation::of::<DistributionVerification>(),
+        Relation::of::<ArtifactOwnership>(), Relation::of::<ArtifactUse>(), Relation::of::<SourceArtifact>(), Relation::of::<Module>(),
+        Relation::of::<Occurrence>(), Relation::of::<Provider>(), Relation::of::<AnalysisContext>(),
+        Relation::of::<ProviderRun>(), Relation::of::<RunFamily>(), Relation::of::<SyntaxObservation>(), Relation::of::<SyntaxSupport>(),
+        Relation::of::<CoverageScope>(), Relation::of::<ProviderCoverage>(),
+    ])
+}

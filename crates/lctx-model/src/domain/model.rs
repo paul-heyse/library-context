@@ -7,6 +7,7 @@ pub struct Relation {
     type_id: TypeId,
     name: &'static str,
     fields: Vec<Field>,
+    invariants: Vec<Invariant>,
     sum: Option<super::Sum>,
     schema: SchemaRef,
     contract: &'static str,
@@ -16,7 +17,7 @@ pub struct Relation {
     hash_rows: fn(&arrow_array::RecordBatch, &mut RelationContent) -> Result<(), ModelError>,
 }
 impl Relation {
-    pub fn of<R: Record>() -> Self { Self { type_id: TypeId::of::<R>(), name: R::NAME, fields: R::fields(), sum: R::sum(), schema: R::schema(), contract: R::CONTRACT, owner: R::OWNER, semantic_source: R::SEMANTIC_SOURCE, validate: canonical::<R>, hash_rows: hash_rows::<R> } }
+    pub fn of<R: Record>() -> Self { Self { type_id: TypeId::of::<R>(), name: R::NAME, fields: R::fields(), invariants: R::invariants(), sum: R::sum(), schema: R::schema(), contract: R::CONTRACT, owner: R::OWNER, semantic_source: R::SEMANTIC_SOURCE, validate: canonical::<R>, hash_rows: hash_rows::<R> } }
     pub fn name(&self) -> &'static str { self.name }
     pub fn sum(&self) -> Option<&super::Sum> { self.sum.as_ref() }
     pub fn fields(&self) -> &[Field] { &self.fields }
@@ -32,7 +33,7 @@ impl Relation {
 
 /// The only model accepted by storage or execution. Validation supports reference cycles.
 #[derive(Debug)]
-pub struct ValidatedModel { relations: Vec<Relation>, digest: ContentHash }
+pub struct ValidatedModel { relations: Vec<Relation>, invariants: Vec<Invariant>, digest: ContentHash }
 impl ValidatedModel {
     pub fn validate(mut relations: Vec<Relation>) -> Result<Self, ModelError> {
         if relations.is_empty() { return Err(ModelError::Invalid("empty model".into())); }
@@ -99,9 +100,34 @@ impl ValidatedModel {
             }
             if !has_key { return Err(ModelError::Invalid(format!("{} has no key", relation.name))); }
         }
-        Ok(Self { relations, digest: digest.finish() })
+        let mut invariants = Vec::new();
+        let mut invariant_names = HashSet::new();
+        for relation in &relations {
+            for invariant in &relation.invariants {
+                if !identifier(invariant.name) || !invariant_names.insert(invariant.name) || invariant.inputs.is_empty() {
+                    return Err(ModelError::Invalid("invalid or duplicate invariant".into()));
+                }
+                digest.part(b"invariant", invariant.name.as_bytes());
+                for input in &invariant.inputs {
+                    if input.order.is_empty() { return Err(ModelError::Invalid("invariant input needs an explicit order".into())); }
+                    let target = relations.iter().find(|r| r.type_id == input.type_id)
+                        .ok_or_else(|| ModelError::Invalid("invariant input absent from model".into()))?;
+                    digest.part(b"invariant-input", target.name.as_bytes());
+                    for order in &input.order {
+                        if *order != "id" && !target.fields.iter().any(|f| f.name() == *order) {
+                            return Err(ModelError::Invalid("invariant order field absent".into()));
+                        }
+                        digest.part(b"invariant-order", order.as_bytes());
+                    }
+                }
+                invariants.push(invariant.clone());
+            }
+        }
+        invariants.sort_by_key(|v| v.name);
+        Ok(Self { relations, invariants, digest: digest.finish() })
     }
     pub fn relations(&self) -> &[Relation] { &self.relations }
+    pub fn invariants(&self) -> &[Invariant] { &self.invariants }
     pub fn digest(&self) -> ContentHash { self.digest }
     pub fn require<R: Record>(&self) -> Result<&Relation, ModelError> {
         self.relations.iter().find(|r| r.type_id == TypeId::of::<R>())
@@ -146,4 +172,29 @@ fn hash_rows<R: Record>(batch: &arrow_array::RecordBatch, content: &mut Relation
         content.count = content.count.checked_add(1).ok_or_else(|| ModelError::Invalid("row count overflow".into()))?;
     }
     Ok(())
+}
+
+/// A model-owned cross-relation invariant. The store supplies declared ordered inputs;
+/// semantic validation itself remains a pure, independently testable state machine.
+#[derive(Clone)]
+pub struct Invariant {
+    pub name: &'static str,
+    pub inputs: Vec<ValidationInput>,
+    pub create: fn() -> Box<dyn InvariantCheck>,
+}
+impl std::fmt::Debug for Invariant {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Invariant").field("name", &self.name).field("inputs", &self.inputs).finish_non_exhaustive()
+    }
+}
+#[derive(Debug, Clone)]
+pub struct ValidationInput { type_id: TypeId, name: &'static str, order: Vec<&'static str> }
+impl ValidationInput {
+    pub fn name(&self) -> &'static str { self.name }
+    pub fn order(&self) -> &[&'static str] { &self.order }
+    pub fn of<R: Record>(order: &[&'static str]) -> Self { Self { type_id: TypeId::of::<R>(), name: R::NAME, order: order.to_vec() } }
+}
+pub trait InvariantCheck: Send {
+    fn visit(&mut self, relation: &str, batch: &arrow_array::RecordBatch) -> Result<(), ModelError>;
+    fn finish(self: Box<Self>) -> Result<(), ModelError>;
 }

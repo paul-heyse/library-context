@@ -98,6 +98,7 @@ pub trait Record: Sized + Clone + PartialEq + std::fmt::Debug + Send + Sync + 's
     const SEMANTIC_SOURCE: &'static [u8];
     fn key(&self) -> Self::Key;
     fn fields() -> Vec<Field>;
+    fn invariants() -> Vec<super::Invariant> { Vec::new() }
     /// Hash every semantic field, including non-key payload, independently of Arrow framing.
     fn content_digest(&self) -> ContentHash;
     fn sum() -> Option<Sum> { None }

@@ -42,9 +42,9 @@ Every relation belongs to exactly one layer and has exactly one producing stage.
 
 | Layer | Holds | Producer |
 |---|---|---|
-| **L0 observations** | Attributed provider assertions: syntax, declarations, Pysa call facts, ty flow facts, types, documents, package metadata, runs/contexts/producers/facts | `cpg-extract`, `cpg-flow` |
-| **L1 normalized relations** | Entities, occurrences, places, call sites/targets/resolutions and call-policy views, effective callables, signatures, call bindings | Normalization stages (DataFusion, one Rust binder) |
-| **L2 derived semantic relations** | Transfers, control influences, conditions and atoms, obligations, coverage, the derivation index, analysis invocations and findings | Analysis stages (`lctx-analytics` operators, DataFusion) |
+| **L0 observations** | Source artifacts and occurrences; attributed provider assertions, provider conditions and coverage: syntax, declarations, Pysa call facts, ty flow facts, types, documents, package metadata and invocation context | `cpg-extract`, `cpg-flow` |
+| **L1 normalized relations** | Normalized entities and occurrence ownership, places, call sites/targets/resolutions and call-policy views, effective callables, signatures, call bindings | Normalization stages (DataFusion, one Rust binder) |
+| **L2 derived semantic relations** | Transfers, control influences, derived conditions over the shared atom vocabulary, obligations, analysis coverage, the derivation index, analysis invocations and findings | Analysis stages (`lctx-analytics` operators, DataFusion) |
 | **L3 product relations** | Catalog contracts, requirements, associations, scenarios, deployment evidence, selection domains, retrieval units | Catalog and retrieval stages |
 | **L4 serving** | Generated views, grants and indexes over one pinned generation; derived artifact caches | Generated from declarations |
 
@@ -101,7 +101,16 @@ encoding is structural and length tagged, with a model namespace and nominal typ
 Entity identity, qualified proposition identity and support/run identity are distinct. A condition,
 modality or approximation qualifies an assertion; additional supports do not strengthen it.
 
-Source artifacts anchor occurrences by span, syntax kind and structural discriminator. Module and
+Input revisions identify canonical manifests of analyzer-visible bytes, independently of acquisition
+labels or absolute checkout locations. Package/version releases, installed verification and acquired
+input revisions have separate identities. Installed, source-tree and corpus acquisition origins are
+explicit alternatives; multiple distributions and corpus attribution remain relationships. Original
+artifact bytes survive independently of interpretation. The model owns cross-relation reconciliation
+of the stored artifacts with the input manifest.
+
+Source artifacts anchor occurrences by half-open byte span, syntax kind and structural discriminator.
+Spans must fit their source bytes; valid empty spans remain representable. Typed roles and structural
+paths distinguish same-span events. Module and
 source identities are acyclic; `.py` and `.pyi` remain distinct. Provider variable indices never
 identify atoms. An atom names its actual evaluation occurrence and predicate. Parallel relationships
 include the discriminator that separates them. Transfer aggregation keys exclude the accumulating

@@ -17,14 +17,16 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
     }
     let mut table = None;
     let mut validator: Option<syn::Path> = None;
+    let mut invariants: Option<syn::Path> = None;
     let mut semantic_source: Option<syn::Expr> = None;
     for attr in &input.attrs {
         if attr.path().is_ident("model") {
             attr.parse_nested_meta(|meta| {
                 if meta.path.is_ident("name") { table = Some(meta.value()?.parse::<LitStr>()?); }
                 else if meta.path.is_ident("validate") { validator = Some(meta.value()?.parse()?); }
+                else if meta.path.is_ident("invariants") { invariants = Some(meta.value()?.parse()?); }
                 else if meta.path.is_ident("semantic_source") { semantic_source = Some(meta.value()?.parse()?); }
-                else { return Err(meta.error("expected name, validate or semantic_source")); }
+                else { return Err(meta.error("expected name, validate, invariants or semantic_source")); }
                 Ok(())
             })?;
         }
@@ -73,6 +75,7 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
     let vis = &input.vis;
     let semantic_source = semantic_source.map(|expr| quote!(#expr)).unwrap_or_else(|| quote!(b""));
     let validation = validator.map(|v| quote! { #v(self)?; });
+    let invariants = invariants.map(|v| quote! { #v() }).unwrap_or_else(|| quote! { Vec::new() });
     Ok(quote! {
         #[derive(Debug, Clone, PartialEq, Eq, Hash)]
         #vis struct #key_name { #(pub #keys: #key_types,)* }
@@ -95,6 +98,7 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
             const SEMANTIC_SOURCE: &'static [u8] = #semantic_source;
             fn key(&self) -> Self::Key { #key_name { #(#keys: self.#keys.clone(),)* } }
             fn fields() -> Vec<::lctx_model::domain::Field> { vec![#(#descriptors,)*] }
+            fn invariants() -> Vec<::lctx_model::domain::Invariant> { #invariants }
             fn content_digest(&self) -> ::lctx_model::domain::ContentHash {
                 let mut sink = ::lctx_model::domain::KeySink::new(Self::NAME);
                 #(::lctx_model::domain::Key::encode(&self.#names, &mut sink);)*
