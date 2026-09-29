@@ -25,6 +25,8 @@ _Updated 2026-09-28 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
 | `just docs-check`; `just fmt-check`; `git diff --check` | **passed:** 168 canonical pages, zero documentation errors; formatting and whitespace checks passed |
 | Live embedding/hybrid testing | **not_run:** explicit operator waiver for the critical GPU benchmark; benchmark service unchanged |
 
+- **Build-environment audit:** [isolated cache probe](docs/design_review/evidence/2026-09-28_cargo-cache/README.md) reproduced per-target environment cache misses. Current shell uses the correct default target; SQLx and measurement scripts still export absolute targets, and stale inherited paths are unguarded. Corrections remain Proposed; production settings and benchmark services were unchanged.
+
 ## Next
 
 PR5 agent journeys, bounded packet usability and coarse rebuild/reuse qualification. PR0 independent parity/admission precedes comparative scoring. The [forward plan](docs/plans/behavioral-model-forward-plan_2026-09-24.md) is the single execution/adoption owner; the [PostgreSQL runbook](docs/postgresql.md) owns current commands. Completed PR1–PR3 records and the completed PostgreSQL plan are retired; surviving findings/triggers remain in the forward plan.
