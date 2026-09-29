@@ -7,6 +7,7 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+lctx-model = { path = "../lctx-model" }
 lctx-postgres = { path = "../lctx-postgres" }
 cpg-schema = { path = "../cpg-schema" }
 lctx-analytics = { path = "../lctx-analytics" }

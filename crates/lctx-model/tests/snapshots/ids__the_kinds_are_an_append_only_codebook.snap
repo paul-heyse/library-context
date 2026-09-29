@@ -1,0 +1,65 @@
+---
+source: crates/lctx-model/tests/ids.rs
+expression: "CodebookEntry::of::<IdKind>()"
+---
+CodebookEntry {
+    name: "id_kind",
+    values: [
+        (
+            0,
+            "occurrence",
+        ),
+        (
+            1,
+            "entity",
+        ),
+        (
+            2,
+            "symbol_key",
+        ),
+        (
+            3,
+            "place",
+        ),
+        (
+            4,
+            "atom",
+        ),
+        (
+            5,
+            "condition",
+        ),
+        (
+            6,
+            "condition_node",
+        ),
+        (
+            7,
+            "call_target",
+        ),
+        (
+            8,
+            "call_binding",
+        ),
+        (
+            9,
+            "transfer",
+        ),
+        (
+            10,
+            "obligation",
+        ),
+        (
+            11,
+            "derivation",
+        ),
+        (
+            12,
+            "finding",
+        ),
+        (
+            13,
+            "invocation",
+        ),
+    ],
+}

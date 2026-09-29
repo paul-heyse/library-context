@@ -1,0 +1,14 @@
+---
+source: crates/lctx-model/tests/ids.rs
+expression: vectors
+---
+[
+    (
+        "occurrence",
+        "842ac4b90b89365c5a77cc01d2b877c8",
+    ),
+    (
+        "symbol_key",
+        "e59d45efa5192ba959572677a89896c7",
+    ),
+]

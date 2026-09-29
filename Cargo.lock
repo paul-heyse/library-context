@@ -1434,6 +1434,7 @@ dependencies = [
  "futures 0.3.34",
  "insta",
  "lctx-analytics",
+ "lctx-model",
  "lctx-postgres",
  "parquet",
  "petgraph",

@@ -177,3 +177,151 @@ impl IdHasher {
     }
 }
 
+
+/// The current identity domain (DESIGN §15.3). Part of every model id and digest.
+pub const ID_TAG_V2: &[u8] = b"lctx-id/v2";
+
+crate::codebook!(
+    /// The declared identity kinds (DESIGN §15.3). A recipe names exactly one; an ad hoc tag does
+    /// not compile. Append-only: a new kind takes the next code, and a kind's text (which is what
+    /// the hash covers) never changes.
+    IdKind = "id_kind" {
+        Occurrence = 0 => "occurrence",
+        Entity = 1 => "entity",
+        SymbolKey = 2 => "symbol_key",
+        Place = 3 => "place",
+        Atom = 4 => "atom",
+        Condition = 5 => "condition",
+        ConditionNode = 6 => "condition_node",
+        CallTarget = 7 => "call_target",
+        CallBinding = 8 => "call_binding",
+        Transfer = 9 => "transfer",
+        Obligation = 10 => "obligation",
+        Derivation = 11 => "derivation",
+        Finding = 12 => "finding",
+        Invocation = 13 => "invocation",
+    }
+);
+
+impl IdHasher {
+    /// An `lctx-id/v2` hasher for a declared kind: the domain, then the kind's text.
+    pub fn v2(kind: IdKind) -> Self {
+        use crate::decl::codebook::Codebook;
+        let mut h = blake3::Hasher::new();
+        h.update(ID_TAG_V2);
+        let mut this = Self(h);
+        this.bytes(kind.text().as_bytes());
+        this
+    }
+}
+
+/// One identity field of a v2 recipe. Every field is encoded with a presence byte — `0` for
+/// absent, else `1` and the length-prefixed value — so a recipe computed in Rust equals the
+/// `lctx_id_v2` UDF over nullable columns, which cannot tell a declared non-null column from a
+/// nullable one holding a value.
+pub trait RecipeField {
+    fn feed(&self, h: &mut IdHasher);
+}
+
+macro_rules! present_field {
+    ($($ty:ty => |$v:ident, $h:ident| $body:expr;)+) => {
+        $(
+            impl RecipeField for $ty {
+                fn feed(&self, $h: &mut IdHasher) {
+                    let $v = self;
+                    $h.bytes(&[1]);
+                    $body;
+                }
+            }
+        )+
+    };
+}
+
+present_field! {
+    Id => |v, h| h.id(*v);
+    Digest => |v, h| h.digest_field(*v);
+    str => |v, h| h.str(v);
+    String => |v, h| h.str(v);
+    i64 => |v, h| h.i64(*v);
+    bool => |v, h| h.bool(*v);
+}
+
+impl<T: RecipeField + ?Sized> RecipeField for &T {
+    fn feed(&self, h: &mut IdHasher) {
+        (**self).feed(h);
+    }
+}
+
+impl<T: RecipeField> RecipeField for Option<T> {
+    fn feed(&self, h: &mut IdHasher) {
+        match self {
+            None => {
+                h.bytes(&[0]);
+            }
+            Some(v) => v.feed(h),
+        }
+    }
+}
+
+/// A codebook value is its code, which is append-only and never renumbered (DESIGN §3.5).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Code<C>(pub C);
+
+impl<C: crate::decl::codebook::Codebook> RecipeField for Code<C> {
+    fn feed(&self, h: &mut IdHasher) {
+        h.bytes(&[1]);
+        h.i64(i64::from(self.0.code()));
+    }
+}
+
+/// A recipe as data: its kind and its identity fields in hash order. Relation declarations name
+/// a recipe, and identity validators and the `lctx_id_v2` UDF recompute it from exactly these
+/// columns; no other column (provenance) can reach the id.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Recipe {
+    pub kind: IdKind,
+    pub name: &'static str,
+    pub fields: &'static [&'static str],
+}
+
+/// Declares a v2 identity recipe: a typed function of exactly its identity fields, and its
+/// [`Recipe`] metadata.
+#[macro_export]
+macro_rules! recipe {
+    ($(#[$meta:meta])* $name:ident, $meta_name:ident = $kind:ident { $($field:ident : $ty:ty),+ $(,)? }) => {
+        $(#[$meta])*
+        pub fn $name($($field: $ty),+) -> $crate::id::Id {
+            let mut h = $crate::id::IdHasher::v2($crate::id::IdKind::$kind);
+            $($crate::id::RecipeField::feed(&$field, &mut h);)+
+            h.finish_id()
+        }
+
+        #[doc = concat!("The metadata of [`", stringify!($name), "`].")]
+        pub const $meta_name: $crate::id::Recipe = $crate::id::Recipe {
+            kind: $crate::id::IdKind::$kind,
+            name: stringify!($name),
+            fields: &[$(stringify!($field)),+],
+        };
+    };
+}
+
+/// The model's identity recipes (DESIGN §15.3). Each vocabulary module adds the recipes of the
+/// relations it owns as those contracts are declared.
+pub mod recipes {
+    use super::Id;
+
+    crate::recipe!(
+        /// A source occurrence: its module entity, byte span and syntax kind. The syntax kind is
+        /// the parser's stable node-kind name, so two occurrences sharing a span stay distinct.
+        occurrence, OCCURRENCE = Occurrence { module: Id, start: i64, end: i64, syntax_kind: &str }
+    );
+
+    crate::recipe!(
+        /// A release-independent symbol key: distribution, qualified path and member descriptor,
+        /// for cross-release and dependency joins.
+        symbol_key, SYMBOL_KEY = SymbolKey { distribution: &str, qualified_path: &str, descriptor: &str }
+    );
+
+    /// Every recipe declared here, for validators and the UDF's known answers.
+    pub const ALL: &[super::Recipe] = &[OCCURRENCE, SYMBOL_KEY];
+}

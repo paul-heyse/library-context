@@ -3,6 +3,10 @@
 //! in the `opt_*` encoding (a presence byte, then the length-prefixed value), so an id computed in
 //! SQL equals the same recipe computed in Rust. Types are checked at plan time and never cast:
 //! UInt64 (`row_number()`), Int32 and floats are refused rather than silently re-encoded.
+//!
+//! `lctx_id_v2(kind, field, …)` is the model's form (DESIGN §15.3): the same field encoding under
+//! the `lctx-id/v2` domain, whose kind must be a declared `IdKind`, so it equals every
+//! `lctx_model` recipe.
 
 use std::sync::Arc;
 
@@ -15,6 +19,8 @@ use arrow_array::{
 };
 use arrow_schema::{DataType, Field, FieldRef};
 use cpg_schema::id::IdHasher;
+use lctx_model::Codebook;
+use lctx_model::id::IdKind;
 use datafusion::common::{Result, ScalarValue, exec_err, plan_err};
 use datafusion::logical_expr::{
     ColumnarValue, ReturnFieldArgs, ScalarFunctionArgs, ScalarUDF, ScalarUDFImpl, Signature,
@@ -24,19 +30,46 @@ use datafusion::logical_expr::{
 /// The SQL name.
 pub const NAME: &str = "lctx_id";
 
+/// The SQL name of the model's form.
+pub const NAME_V2: &str = "lctx_id_v2";
+
 /// Bumped by hand whenever the encoding changes; part of `compiler_digest`.
 pub const VERSION: u32 = 1;
+
+/// Which identity domain a UDF hashes under.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum Domain {
+    /// `lctx-id/v1`, an ad hoc kind tag.
+    V1,
+    /// `lctx-id/v2`, a declared `IdKind`.
+    V2,
+}
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 struct LctxId {
     signature: Signature,
+    domain: Domain,
 }
 
 /// The UDF, ready to register.
 pub fn lctx_id() -> ScalarUDF {
     ScalarUDF::from(LctxId {
         signature: Signature::variadic_any(Volatility::Immutable),
+        domain: Domain::V1,
     })
+}
+
+/// The model's UDF (`lctx-id/v2`), ready to register.
+pub fn lctx_id_v2() -> ScalarUDF {
+    ScalarUDF::from(LctxId {
+        signature: Signature::variadic_any(Volatility::Immutable),
+        domain: Domain::V2,
+    })
+}
+
+/// The declared kind a v2 literal names, if any.
+fn declared_kind(text: &str) -> Option<IdKind> {
+    IdKind::all().iter().copied().find(|k| k.text() == text)
 }
 
 fn text(t: &DataType) -> bool {
@@ -122,7 +155,10 @@ fn check(args: &[DataType]) -> Result<()> {
 
 impl ScalarUDFImpl for LctxId {
     fn name(&self) -> &str {
-        NAME
+        match self.domain {
+            Domain::V1 => NAME,
+            Domain::V2 => NAME_V2,
+        }
     }
 
     fn signature(&self) -> &Signature {
@@ -146,14 +182,18 @@ impl ScalarUDFImpl for LctxId {
         check(&types)?;
         match args.scalar_arguments.first() {
             Some(Some(
-                ScalarValue::Utf8(Some(_))
-                | ScalarValue::Utf8View(Some(_))
-                | ScalarValue::LargeUtf8(Some(_)),
-            )) => {}
-            _ => return plan_err!("{NAME}: the kind must be a non-null text literal"),
+                ScalarValue::Utf8(Some(k))
+                | ScalarValue::Utf8View(Some(k))
+                | ScalarValue::LargeUtf8(Some(k)),
+            )) => {
+                if self.domain == Domain::V2 && declared_kind(k).is_none() {
+                    return plan_err!("{NAME_V2}: {k:?} is not a declared IdKind");
+                }
+            }
+            _ => return plan_err!("{}: the kind must be a non-null text literal", self.name()),
         }
         Ok(Arc::new(Field::new(
-            NAME,
+            self.name(),
             DataType::FixedSizeBinary(16),
             false,
         )))
@@ -174,7 +214,13 @@ impl ScalarUDFImpl for LctxId {
             .map(|a| Column::of(&a.to_array(rows)?))
             .collect::<Result<_>>()?;
         // The tag and kind are hashed once; each row continues from a copy.
-        let seed = IdHasher::new(&kind);
+        let seed = match self.domain {
+            Domain::V1 => IdHasher::new(&kind),
+            Domain::V2 => match declared_kind(&kind) {
+                Some(k) => IdHasher::v2(k),
+                None => return exec_err!("{NAME_V2}: {kind:?} is not a declared IdKind"),
+            },
+        };
         let mut out = FixedSizeBinaryBuilder::with_capacity(rows, 16);
         for row in 0..rows {
             let mut h = seed.clone();
@@ -194,6 +240,7 @@ mod tests {
 
     async fn eval(sql: &str) -> Result<Vec<Id>> {
         let ctx = crate::snapshot::empty_session();
+        ctx.register_udf(lctx_id_v2());
         let batches = crate::sql::query(&ctx, sql)
             .await
             .map_err(|e| datafusion::error::DataFusionError::External(Box::new(e)))?
@@ -293,6 +340,38 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n")
         );
+    }
+
+    /// Every `lctx_model` recipe equals its `lctx_id_v2` SQL form; a recipe without a case here
+    /// fails the completeness check.
+    #[tokio::test]
+    async fn every_model_recipe_equals_its_v2_sql_form() {
+        use lctx_model::id::recipes;
+        let module = Id([1; 16]);
+        let cases = [
+            (
+                "occurrence",
+                recipes::occurrence(module, 0, 5, "name"),
+                format!(
+                    "SELECT lctx_id_v2('occurrence', X'{}', CAST(0 AS BIGINT), CAST(5 AS BIGINT), 'name')",
+                    module.hex()
+                ),
+            ),
+            (
+                "symbol_key",
+                recipes::symbol_key("fastmcp", "fastmcp.server.FastMCP", "method:run"),
+                "SELECT lctx_id_v2('symbol_key', 'fastmcp', 'fastmcp.server.FastMCP', 'method:run')"
+                    .to_owned(),
+            ),
+        ];
+        for (_, rust, sql) in &cases {
+            assert_eq!(&eval(sql).await.unwrap(), &[*rust], "{sql}");
+        }
+        let covered: Vec<&str> = cases.iter().map(|(name, _, _)| *name).collect();
+        let declared: Vec<&str> = recipes::ALL.iter().map(|r| r.name).collect();
+        assert_eq!(covered, declared, "every recipe has a SQL case");
+        let err = eval("SELECT lctx_id_v2('edge', 'x')").await.unwrap_err().to_string();
+        assert!(err.contains("not a declared IdKind"), "{err}");
     }
 
     #[tokio::test]
