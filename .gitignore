@@ -1,5 +1,6 @@
 # Build output
 /target/
+/tools/*/target/
 /.dev/
 # Acquired library environments and local stores (rebuildable from the locks)
 /build/

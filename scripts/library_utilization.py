@@ -37,9 +37,9 @@ from typing import Any
 
 import library_names as names
 import library_scan as scan
+import library_semantic as semantic
 
 HACK = scan.HACK  # cargo-hakari feature-unification stub, never real use
-INDIRECT_ROLES = {"consumer", "macro-expansion", "sql-string"}
 JSONL = Path("docs/library-utilization.jsonl")
 CAPABILITY_KEYS = [
     "kind",
@@ -334,31 +334,6 @@ def build(
     return list(out.values()), report
 
 
-def capability_drift(
-    existing: list[dict], refs: dict[str, list[scan.Ref]], root: Path
-) -> list[str]:
-    """Capability files that are gone or no longer reference their library (advisory).
-
-    Consumer, macro-expansion and sql-string files reach a library through a wrapper, a macro or
-    a query file, so they are only checked for existence.
-    """
-    by_path: dict[str, set[str]] = defaultdict(set)
-    for key, found in refs.items():
-        for ref in found:
-            by_path[ref.path].add(key)
-    lines: list[str] = []
-    for record in existing:
-        if record["kind"] != "capability":
-            continue
-        for entry in record.get("files", []):
-            path, role = entry["path"], entry["role"]
-            if not (root / path).exists():
-                lines.append(f"{record['id']}: {path} is missing")
-            elif role not in INDIRECT_ROLES and record["lib"] not in by_path[path]:
-                lines.append(f"{record['id']}: {path} ({role}) has no reference to {record['lib']}")
-    return lines
-
-
 def cross_check(root: Path, meta: dict, refs: dict[str, list[scan.Ref]]) -> list[str]:
     """Where the source scan and an independent ripgrep file list disagree, per library."""
     lines: list[str] = []
@@ -379,7 +354,11 @@ def cross_check(root: Path, meta: dict, refs: dict[str, list[scan.Ref]]) -> list
 
 
 def normalize_capabilities(
-    existing: list[dict], index: names.Index, libraries: list[dict], stamp: str
+    existing: list[dict],
+    index: names.Index,
+    libraries: list[dict],
+    stamp: str,
+    resolved: set[str] | frozenset[str] = frozenset(),
 ) -> tuple[list[dict], list[str], dict[str, list[str]]]:
     """Rewrite each capability's items to defining paths; report what the index cannot place."""
     hints = {r["lib"]: r.get("skill_pin_delta") for r in libraries}
@@ -391,8 +370,8 @@ def normalize_capabilities(
         if record["kind"] != "capability":
             continue
         record = dict(record)
-        items, replaced, resolved = names.normalize_items(record["items"], index)
-        for r in resolved:
+        items, replaced, results = names.normalize_items(record["items"], index, resolved)
+        for r in results:
             if r.how in ("absent", "ambiguous"):
                 hint = f" [{hints[record['lib']]}]" if hints.get(record["lib"]) else ""
                 missing.append(f"{record['id']}: {r.item} ({r.how}){hint}")
@@ -474,22 +453,36 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--jsonl", type=Path)
     parser.add_argument("--metadata", type=Path, help="a saved `cargo metadata --no-deps` file")
+    parser.add_argument(
+        "--resolved", type=Path, help="a saved `lu-resolve` output, instead of running the tool"
+    )
     args = parser.parse_args(argv)
     root: Path = args.root
     path: Path = args.jsonl or root / JSONL
+    stamp = git_stamp(root)
     existing = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
-    meta = load_metadata(root, args.metadata)
-    refs = scan.scan_workspace(root, meta)
-    libraries, report = build(existing, meta, load_lock(root), load_groups(root), refs)
-    report["capability files"] = capability_drift(existing, refs, root)
-    report["scan vs ripgrep"] = cross_check(root, meta, refs)
-    old = {r["lib"]: r for r in existing if r["kind"] == "library"}
-    drift = stamp_changed(libraries, old, git_stamp(root))
-    capabilities, cap_drift, cap_report = normalize_capabilities(
-        existing, names.load_index(root), libraries, git_stamp(root)
+    meta, lock = load_metadata(root, args.metadata), load_lock(root)
+    # S1: the lexical scan; S2: what rust-analyzer resolves (no build of the workspace).
+    lexical = scan.scan_workspace(root, meta)
+    hits = semantic.parse_hits(
+        args.resolved.read_text() if args.resolved else semantic.run_tool(root)
     )
-    drift += cap_drift
+    roles = semantic.Roles(root, meta)
+    deps = direct_deps(meta)
+    keys = semantic.package_keys(deps, {k: resolved_versions(d, lock) for k, d in deps.items()})
+    refs = semantic.augment_refs(lexical, hits, roles, keys)
+    libraries, report = build(existing, meta, lock, load_groups(root), refs)
+    report["scan vs ripgrep"] = cross_check(root, meta, lexical)
+    old = {r["lib"]: r for r in existing if r["kind"] == "library"}
+    drift = stamp_changed(libraries, old, stamp)
+    # S3 (canonical names from the skills' indexes), then S2's evidence for what they cannot place.
+    capabilities, cap_drift, cap_report = normalize_capabilities(
+        existing, names.load_index(root), libraries, stamp, {h.path for h in hits}
+    )
+    capabilities, sem_drift, sem_report = semantic.apply(capabilities, hits, roles, stamp)
+    drift += cap_drift + sem_drift
     report.update(cap_report)
+    report.update(sem_report)
     for line in drift:
         print(line)
     for title, items in report.items():

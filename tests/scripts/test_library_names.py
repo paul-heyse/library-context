@@ -73,3 +73,11 @@ def test_load_index_reads_symbols_aliases_and_methods_of_the_enabled_skills(tmp_
     assert index.symbols["lib::a::T"] == "struct" and index.aliases == {"lib::T": "lib::a::T"}
     assert index.methods == {("lib::a::T", "go")} and index.crates == {"lib"}
     assert index.by_name == {("lib", "T"): ["lib::a::T"]}
+
+
+def test_an_item_the_compiler_resolved_exactly_is_not_rewritten_by_the_index() -> None:
+    index = make_index()
+    items, replaced, resolved = names.normalize_items(["facade::Type"], index)
+    assert items == ["lib::a::Type"] and replaced == ["facade::Type"]
+    items, replaced, resolved = names.normalize_items(["facade::Type"], index, {"facade::Type"})
+    assert items == ["facade::Type"] and replaced == [] and resolved[0].how == "resolved"

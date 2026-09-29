@@ -119,9 +119,18 @@ def resolve(item: str, index: Index) -> Resolved:
     return Resolved(item, canonical + bang if canonical else None, how)
 
 
-def normalize_items(items: list[str], index: Index) -> tuple[list[str], list[str], list[Resolved]]:
-    """Return the normalized items, the spellings replaced, and every resolution."""
-    resolved = [resolve(item, index) for item in items]
+def normalize_items(
+    items: list[str], index: Index, keep: frozenset[str] | set[str] = frozenset()
+) -> tuple[list[str], list[str], list[Resolved]]:
+    """Return the normalized items, the spellings replaced, and every resolution.
+
+    An item in `keep` (a path rust-analyzer resolved exactly) is already a defining path as the
+    compiler sees it, so the skills' index does not rewrite it.
+    """
+    resolved = [
+        Resolved(item, None, "resolved") if item.removesuffix("!") in keep else resolve(item, index)
+        for item in items
+    ]
     out: list[str] = []
     replaced: list[str] = []
     for r in resolved:

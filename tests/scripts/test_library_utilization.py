@@ -106,29 +106,6 @@ def test_a_library_that_becomes_a_dependency_takes_its_status_from_the_scan() ->
     assert records[0]["status"] == "test-only"
 
 
-def test_capability_drift_flags_missing_files_and_missing_references(tmp_path: Path) -> None:
-    (tmp_path / "there.rs").write_text("")
-    caps = [
-        {
-            "kind": "capability",
-            "id": "petgraph/x",
-            "lib": "petgraph",
-            "files": [
-                {"path": "gone.rs", "role": "impl"},
-                {"path": "there.rs", "role": "impl"},
-                {"path": "there.rs", "role": "consumer"},
-                {"path": "ok.rs", "role": "impl"},
-            ],
-        }
-    ]
-    (tmp_path / "ok.rs").write_text("")
-    refs = {"petgraph": [scan.Ref("a", "ok.rs", "src", 1)]}
-    assert lu.capability_drift(caps, refs, tmp_path) == [
-        "petgraph/x: gone.rs is missing",
-        "petgraph/x: there.rs (impl) has no reference to petgraph",
-    ]
-
-
 def test_only_changed_records_are_restamped_and_render_is_stable(tmp_path: Path) -> None:
     old = {"petgraph": {"kind": "library", "lib": "petgraph", "status": "used", "verified": "old"}}
     same = dict(old["petgraph"])

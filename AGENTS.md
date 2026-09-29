@@ -102,7 +102,7 @@ real consumer.
 | Dependency policy | `just deps`: one version each of Arrow/DataFusion/object_store/ruff/pyrefly/blake3, cargo-deny, and the Pyrefly fork check (tag + patch, classified env reads) |
 | Decisions | `just adr new <slug> --title "…"`, `just adr supersede ADR-NNNN <slug>`, `just adr index`, `just adr lint`, `just adr revisit` |
 | Documentation changes | `just docs-test` for publisher/resolver changes; `just docs-check` for publication. First run: `just bootstrap-docs`; preview: `just docs-serve`. No product gate solely for docs. |
-| Refresh the library catalog | `uv run python scripts/library_utilization.py` (dry run; `--write` to regenerate its manifest-derived fields, `docs/library-utilization.md`) |
+| Refresh the library catalog | `uv run python scripts/library_utilization.py` (dry run; `--write` regenerates the catalog; stage S2 runs `tools/lu-resolve`, one to two minutes; `docs/library-utilization.md`) |
 | Tools present? | `just doctor` |
 
 The Rust toolchain is pinned to `nightly-2026-09-29` in `rust-toolchain.toml` (ADR-0079).
