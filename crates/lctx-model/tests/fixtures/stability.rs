@@ -49,6 +49,7 @@ impl Fixture {
         let statement = occurrence(&callee, at(CALLEE, "if timeout"), 30, SyntaxKind::StmtIf, OccurrenceRole::Syntax, vec![0, 0, 1]);
         let read = occurrence(&callee, at(CALLEE, "timeout is None"), 7, SyntaxKind::ExprName, OccurrenceRole::Read, vec![0, 0, 1, 0, 0]);
         let caller_root = occurrence(&caller, 0, CALLER.len() as i64, SyntaxKind::ModModule, OccurrenceRole::Syntax, vec![0]);
+        let expression = occurrence(&caller, 0, 17, SyntaxKind::StmtExpr, OccurrenceRole::Syntax, vec![0, 0]);
         let site = occurrence(&caller, 0, 17, SyntaxKind::ExprCall, OccurrenceRole::Call, vec![0, 0, 0]);
         let callee_name = occurrence(&caller, 0, 14, SyntaxKind::ExprName, OccurrenceRole::Read, vec![0, 0, 0, 0]);
         let actual = occurrence(&caller, at(CALLER, "t)"), 1, SyntaxKind::ExprName, OccurrenceRole::Argument, vec![0, 0, 0, 1]);
@@ -76,7 +77,7 @@ impl Fixture {
         f.put(families); f.put(nodes); f.put(vec![surface, syntax_surface.clone()]); f.put(arguments);
         f.put(vec![callee.clone(), caller.clone()]);
         f.put(ArtifactChunk::split(&callee, CALLEE).unwrap().chain(ArtifactChunk::split(&caller, CALLER).unwrap()).collect());
-        f.put(vec![callee_root, def, parameter.clone(), statement, evaluation, read.clone(), caller_root, site.clone(), callee_name, actual]);
+        f.put(vec![callee_root, def, parameter.clone(), statement, evaluation, read.clone(), caller_root, expression, site.clone(), callee_name, actual]);
         f.put(vec![CallSyntaxSupport { assertion: call.id(), run: run.id(), surface: syntax_surface.id(), evidence: Evidence::Occurrence { occurrence: site.id() }.id(),
             origin: Origin::SourceObservation, mode: ExtractionMode::NativeTraversal, fidelity: Fidelity::NativeStructural }]);
         f.store_flow(); f.store_substitution();

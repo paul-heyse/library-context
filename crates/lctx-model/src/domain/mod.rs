@@ -27,6 +27,7 @@ pub mod batching;
 pub mod charged;
 pub mod memory;
 pub mod occurrence_owner;
+pub mod composition;
 pub mod obligation;
 
 pub use identity::{ArmId, ContentHash, ContentHasher, EvidenceBytes, Id, Key, KeySink};
@@ -173,6 +174,7 @@ pub fn model() -> Result<ValidatedModel, ModelError> {
         Relation::of::<PlaceRoot>(), Relation::of::<PathSegment>(), Relation::of::<AccessPath>(), Relation::of::<Place>(),
         Relation::of::<Predicate>(), Relation::of::<EvaluationAtom>(), Relation::of::<ConditionNode>(), Relation::of::<Condition>(),
         Relation::of::<conditions::stability::StabilityWitness>(), Relation::of::<conditions::stability::GuardSubstitution>(),
+        Relation::of::<composition::CallCompositionStep>(),
         Relation::of::<Package>(), Relation::of::<Release>(), Relation::of::<InputRevision>(),
         Relation::of::<InputOrigin>(), Relation::of::<InputAcquisition>(), Relation::of::<CorpusLibrary>(),
         Relation::of::<InputDistribution>(), Relation::of::<DistributionVerification>(),
