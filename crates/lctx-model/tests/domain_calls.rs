@@ -1,0 +1,238 @@
+use std::collections::BTreeMap;
+use lctx_model::domain::{*, calls::*, assertion::*, attribution::*, conditions::Diagram, input::*, source::*};
+
+struct Fixture {
+    model: ValidatedModel, qualification: AssertionQualification, symbol: ProviderSymbol,
+    destination: CallDestination, channel: CallChannel, receiver: Receiver, target: CallTarget,
+    support: CallTargetSupport, run: ProviderRun,
+}
+fn occurrence(n: i64) -> Occurrence {
+    let input = InputRevision::from_entries(vec![]).unwrap();
+    let source = SourceArtifact::from_bytes(input.id(),"a.py".into(),b"f(x)").unwrap();
+    Occurrence { source: source.id(),start: n,end: n+1,syntax_kind: SyntaxKind::ExprName,
+        role: OccurrenceRole::Read,structural_path: vec![n as i32] }
+}
+impl Fixture {
+    fn new() -> Self {
+        let model = model().unwrap();
+        let context = AnalysisContext { python_version: "3.14".into(),python_platform: "linux".into(),
+            search_path: vec![],site_package_path: vec![],config_digest: ContentHash::of(b"cfg"),
+            environment_digest: ContentHash::of(b"env"),lock_digest: None };
+        let provider = Provider { tool: "pinned-provider".into(),revision: "revision".into(),build_digest: ContentHash::of(b"build") };
+        let input = InputRevision::from_entries(vec![]).unwrap();
+        let (run,_) = ProviderRun::new(provider.id(),context.id(),input.id(),context.config_digest,[FactFamily::Calls]).unwrap();
+        let scope = CoverageScope::Input { input: input.id() };
+        let qualification = AssertionQualification { context: context.id(),scope: scope.id(),
+            condition: Diagram::always().id(),modality: Modality::Definite,approximation: Approximation::Exact };
+        let symbol = ProviderSymbol { provider: provider.id(),context: context.id(),module: "a".into(),
+            native_key: "function:f".into(),name: "f".into(),kind: SymbolKind::Function };
+        let destination = CallDestination::Resolved { symbol: symbol.id() };
+        let channel = CallChannel::Direct; let receiver = Receiver::None;
+        let target = CallTarget { qualification: qualification.id(),site: occurrence(0).id(),destination: destination.id(),
+            channel: channel.id(),phase: CallPhase::Call,receiver: receiver.id(),implicit: false };
+        let surface = ProviderSurface { provider: provider.id(),family: FactFamily::Calls,name: "targets".into() };
+        let evidence = Evidence::Occurrence { occurrence: target.site };
+        let support = CallTargetSupport { assertion: target.id(),run: run.id(),surface: surface.id(),evidence: evidence.id(),
+            origin: Origin::AnalyzerAssertion,mode: ExtractionMode::NativeTraversal,fidelity: Fidelity::NativeStructural };
+        Self { model,qualification,symbol,destination,channel,receiver,target,support,run }
+    }
+    fn candidate(&self) -> CallCandidate<'_> { CallCandidate { target: &self.target,qualification: &self.qualification,
+        destination: &self.destination,symbol: Some(&self.symbol),receiver: &self.receiver,supports: std::slice::from_ref(&self.support) } }
+    fn signature(&self, parameters: &[ParameterShape]) -> (Signature,Vec<SignatureParameter>,BTreeMap<Id<ParameterShape>,ParameterShape>) {
+        let (signature,members) = Signature::new(&self.qualification,self.symbol.id(),0,SignatureForm::List,parameters).unwrap();
+        (signature,members,parameters.iter().map(|p| (p.id(),p.clone())).collect())
+    }
+}
+fn shape(name: &str,kind: ParameterKind,required: bool) -> ParameterShape {
+    ParameterShape { name: Some(name.into()),kind,required }
+}
+fn actual(n: i64,kind: ArgumentKind,name: Option<&str>) -> Actual {
+    Actual { occurrence: occurrence(n).id(),kind,keyword: name.map(str::to_owned) }
+}
+
+#[test]
+fn complete_alternatives_precede_policies_and_higher_order_never_becomes_direct() {
+    let fixture = Fixture::new(); let f = &fixture;
+    let (resolution,_) = CallResolution::new(&f.qualification,f.target.site,f.channel.id(),CallPhase::Call,true,&[f.target.clone()]).unwrap();
+    let set = TargetSet::new(&resolution,&f.qualification,&f.channel,vec![f.candidate()]).unwrap();
+    assert_eq!(set.admitted(CallPolicy::Summary),vec![f.target.id()]);
+    assert_eq!(set.admitted(CallPolicy::Invocation),vec![f.target.id()]);
+    let unresolved = CallDestination::Unresolved { reason: ObligationKind::UnresolvedTarget };
+    let unknown = CallTarget { destination: unresolved.id(),..f.target.clone() };
+    let support = CallTargetSupport { assertion: unknown.id(),..f.support.clone() };
+    let (resolution,_) = CallResolution::new(&f.qualification,f.target.site,f.channel.id(),CallPhase::Call,true,&[f.target.clone(),unknown.clone()]).unwrap();
+    assert!(TargetSet::new(&resolution,&f.qualification,&f.channel,vec![f.candidate()]).is_err(),"a filtered set cannot claim unique resolution");
+    let supports = [support];
+    let set = TargetSet::new(&resolution,&f.qualification,&f.channel,vec![f.candidate(),CallCandidate {
+        target: &unknown,qualification: &f.qualification,destination: &unresolved,symbol: None,receiver: &f.receiver,supports: &supports,
+    }]).unwrap();
+    assert!(set.admitted(CallPolicy::Summary).is_empty());
+    assert_eq!(set.admitted(CallPolicy::Dataflow),vec![f.target.id()]);
+    let channel = CallChannel::HigherOrder { argument_index: 0 };
+    let higher = CallTarget { channel: channel.id(),..f.target.clone() };
+    let support = CallTargetSupport { assertion: higher.id(),..f.support.clone() };
+    let (resolution,_) = CallResolution::new(&f.qualification,higher.site,channel.id(),CallPhase::Call,true,&[higher.clone()]).unwrap();
+    let supports = [support];
+    let set = TargetSet::new(&resolution,&f.qualification,&channel,vec![CallCandidate { target: &higher,supports: &supports,..f.candidate() }]).unwrap();
+    for policy in [CallPolicy::Invocation,CallPolicy::Dataflow,CallPolicy::Summary] { assert!(set.admitted(policy).is_empty()); }
+    assert_eq!(set.admitted(CallPolicy::Association),vec![higher.id()]);
+    let arrow = Batch::new(&f.model,vec![higher.clone(),unknown]).unwrap();
+    assert_eq!(CallTarget::decode(arrow.arrow()).unwrap(),arrow.rows());
+}
+
+#[test]
+fn binder_requires_whole_variant_and_preserves_all_formals_without_inventing_values() {
+    let f = Fixture::new();
+    let definitions = vec![shape("x",ParameterKind::PositionalOnly,true),shape("y",ParameterKind::PositionalOrKeyword,false),
+        shape("args",ParameterKind::VarPositional,false),shape("flag",ParameterKind::KeywordOnly,false),shape("kwargs",ParameterKind::VarKeyword,false)];
+    let (signature,members,shapes) = f.signature(&definitions);
+    let args = [actual(1,ArgumentKind::Positional,None)];
+    let bind_with = |parameters: &[SignatureParameter], actuals: &[Actual]| bind(BindingInput {
+        target: &f.target,qualification: &f.qualification,signature_qualification: &f.qualification,destination: &f.destination,channel: &f.channel,receiver: &f.receiver,
+        signature: &signature,parameters,shapes: &shapes,actuals,
+    });
+    let bound = bind_with(&members,&args).unwrap();
+    assert_eq!(bound.bindings().len(),5);
+    assert_eq!(bound.bindings().iter().filter(|b| b.source == BindingSource::Default).count(),2);
+    assert_eq!(bound.site(),f.target.site); assert_eq!(bound.target(),f.target.id()); assert_eq!(bound.signature(),signature.id());
+    assert!(bound.bindings().iter().any(|b| b.source == BindingSource::EmptyVarargs));
+    assert!(bound.bindings().iter().any(|b| b.source == BindingSource::EmptyKwargs));
+    assert!(bind_with(&members[..1],&args).is_err(),"successful subset does not certify invocation");
+    assert!(bind_with(&members,&[]).is_err(),"required formal absent");
+    assert!(bind_with(&members,&[actual(1,ArgumentKind::Keyword,Some("x"))]).is_err(),"positional-only remains unbound even if x enters kwargs");
+    assert_eq!(bind_with(&members,&[actual(1,ArgumentKind::Starred,None)]).unwrap_err(),ObligationKind::UnsupportedUnpacking);
+    assert!(bind_with(&members,&[actual(1,ArgumentKind::Positional,None),actual(2,ArgumentKind::Keyword,Some("extra")),actual(3,ArgumentKind::Keyword,Some("extra"))]).is_err());
+    let many = [actual(1,ArgumentKind::Positional,None),actual(2,ArgumentKind::Positional,None),actual(3,ArgumentKind::Positional,None),actual(4,ArgumentKind::Positional,None)];
+    let bound = bind_with(&members,&many).unwrap();
+    assert_eq!(bound.bindings().iter().filter(|b| b.formal == members[2].id()).count(),2,"all varargs values survive");
+    let mut crossed = members.clone(); crossed[0].signature = Signature { variant: 1,..signature.clone() }.id();
+    assert!(bind_with(&crossed,&args).is_err());
+    let (empty,empty_members,empty_shapes) = f.signature(&[]);
+    assert!(bind(BindingInput { target: &f.target,qualification: &f.qualification,signature_qualification: &f.qualification,destination: &f.destination,channel: &f.channel,receiver: &f.receiver,
+        signature: &empty,parameters: &empty_members,shapes: &empty_shapes,actuals: &[] }).is_ok(),"a declared zero-argument signature is different from missing parameters");
+}
+
+#[test]
+fn receiver_classification_refuses_incomplete_evidence_and_missing_actuals() {
+    let base = ReceiverEvidence { implicit_receiver: None,static_method: None,class_method: None,attribute_access: true,actual: None };
+    assert!(matches!(classify_receiver(base),Receiver::Unknown { .. }));
+    assert!(matches!(classify_receiver(ReceiverEvidence { implicit_receiver: Some(true),..base }),Receiver::Unknown { .. }));
+    assert_eq!(classify_receiver(ReceiverEvidence { implicit_receiver: Some(false),..base }),Receiver::None);
+    assert_eq!(classify_receiver(ReceiverEvidence { static_method: Some(true),..base }),Receiver::None);
+    assert!(matches!(classify_receiver(ReceiverEvidence { static_method: Some(true),class_method: Some(true),..base }),Receiver::Unknown { .. }));
+    let actual = occurrence(0).id();
+    assert_eq!(classify_receiver(ReceiverEvidence { implicit_receiver: Some(true),actual: Some(actual),..base }),Receiver::Bound { actual });
+    let mut f = Fixture::new(); f.receiver = classify_receiver(base); f.target.receiver = f.receiver.id();
+    let (signature,members,shapes) = f.signature(&[shape("self",ParameterKind::PositionalOnly,true)]);
+    assert_eq!(bind(BindingInput { target: &f.target,qualification: &f.qualification,signature_qualification: &f.qualification,destination: &f.destination,channel: &f.channel,receiver: &f.receiver,
+        signature: &signature,parameters: &members,shapes: &shapes,actuals: &[] }).unwrap_err(),ObligationKind::AmbiguousBinding);
+}
+
+#[test]
+fn stored_membership_checks_refuse_missing_parameters_and_missing_call_alternatives() {
+    let f = Fixture::new();
+    let params = [shape("x",ParameterKind::PositionalOnly,true),shape("flag",ParameterKind::KeywordOnly,true)];
+    let (signature,members,_) = f.signature(&params);
+    let check_signature = |members: Vec<SignatureParameter>| {
+        let invariant = Signature::invariants().remove(0); let mut check = (invariant.create)();
+        macro_rules! visit { ($ty:ty,$rows:expr) => { check.visit(<$ty>::NAME,Batch::new(&f.model,$rows).unwrap().arrow()).unwrap() }; }
+        visit!(AssertionQualification,vec![f.qualification.clone()]); visit!(ProviderSymbol,vec![f.symbol.clone()]);
+        visit!(ParameterShape,params.to_vec()); visit!(Signature,vec![signature.clone()]);
+        // The stored validator scans this relation in its declared signature/ordinal order.
+        check.visit(SignatureParameter::NAME,&SignatureParameter::encode(&members).unwrap()).unwrap();
+        check.finish()
+    };
+    check_signature(members.clone()).unwrap();
+    assert!(check_signature(members[..1].to_vec()).is_err());
+    let mut changed = members.clone(); changed[1].shape = changed[0].shape;
+    assert!(check_signature(changed).is_err());
+    let (resolution,members) = CallResolution::new(&f.qualification,f.target.site,f.channel.id(),CallPhase::Call,true,&[f.target.clone()]).unwrap();
+    for include in [true,false] {
+        let invariant = CallResolution::invariants().remove(0); let mut check = (invariant.create)();
+        check.visit(AssertionQualification::NAME,Batch::new(&f.model,vec![f.qualification.clone()]).unwrap().arrow()).unwrap();
+        check.visit(CallTarget::NAME,Batch::new(&f.model,vec![f.target.clone()]).unwrap().arrow()).unwrap();
+        check.visit(CallResolution::NAME,Batch::new(&f.model,vec![resolution.clone()]).unwrap().arrow()).unwrap();
+        if include { check.visit(CallResolutionMember::NAME,Batch::new(&f.model,members.clone()).unwrap().arrow()).unwrap(); }
+        assert_eq!(check.finish().is_ok(),include);
+    }
+}
+
+#[test]
+fn binding_context_and_receiver_varargs_are_explicit() {
+    let mut f = Fixture::new(); f.receiver = Receiver::Bound { actual: occurrence(0).id() }; f.target.receiver = f.receiver.id();
+    let (signature,members,shapes) = f.signature(&[shape("args",ParameterKind::VarPositional,false)]);
+    let arguments = [actual(1,ArgumentKind::Positional,None)];
+    let input = |qualification| BindingInput { target: &f.target,qualification: &f.qualification,
+        signature_qualification: qualification,destination: &f.destination,channel: &f.channel,receiver: &f.receiver,
+        signature: &signature,parameters: &members,shapes: &shapes,actuals: &arguments };
+    assert_eq!(bind(input(&f.qualification)).unwrap().bindings().len(),2,"bound receiver and explicit value both reach args");
+    let other = AssertionQualification { modality: Modality::Potential,..f.qualification.clone() };
+    assert!(bind(input(&other)).is_err());
+    let mut f = Fixture::new(); f.qualification.modality = Modality::Potential; f.target.qualification = f.qualification.id(); f.support.assertion = f.target.id();
+    let (resolution,_) = CallResolution::new(&f.qualification,f.target.site,f.channel.id(),CallPhase::Call,true,&[f.target.clone()]).unwrap();
+    let set = TargetSet::new(&resolution,&f.qualification,&f.channel,vec![f.candidate()]).unwrap();
+    assert!(set.admitted(CallPolicy::Dataflow).is_empty());
+    assert!(set.admitted(CallPolicy::Invocation).is_empty());
+    assert_eq!(set.admitted(CallPolicy::Association),vec![f.target.id()]);
+}
+
+#[test]
+fn native_signature_and_call_support_cannot_switch_provider_namespace() {
+    let f = Fixture::new(); let (signature,_,_) = f.signature(&[]);
+    let alien = Provider { tool: "other-provider".into(),revision: "same".into(),build_digest: ContentHash::of(b"other") };
+    for call_support in [false,true] {
+        for wrong in [false,true] {
+            let invariant = ProviderSymbol::invariants().remove(0); let mut check = (invariant.create)();
+            let run = if wrong { ProviderRun { provider: alien.id(),..f.run.clone() } } else { f.run.clone() };
+            macro_rules! visit { ($ty:ty,$rows:expr) => { check.visit(<$ty>::NAME,Batch::new(&f.model,$rows).unwrap().arrow()).unwrap() }; }
+            visit!(ProviderSymbol,vec![f.symbol.clone()]); visit!(ProviderRun,vec![run.clone()]);
+            visit!(CallDestination,vec![f.destination.clone()]); visit!(Signature,vec![signature.clone()]);
+            visit!(CallTarget,vec![f.target.clone()]);
+            let result = if call_support {
+                let support = CallTargetSupport { run: run.id(),..f.support.clone() };
+                check.visit(CallTargetSupport::NAME,Batch::new(&f.model,vec![support]).unwrap().arrow())
+            } else {
+                let support = SignatureSupport { assertion: signature.id(),run: run.id(),surface: f.support.surface,evidence: f.support.evidence,
+                    origin: f.support.origin,mode: f.support.mode,fidelity: f.support.fidelity };
+                check.visit(SignatureSupport::NAME,Batch::new(&f.model,vec![support]).unwrap().arrow())
+            };
+            assert_eq!(result.is_ok(),!wrong);
+            if wrong { assert!(result.unwrap_err().to_string().contains("different provider")); }
+            else { check.finish().unwrap(); }
+        }
+    }
+}
+
+#[test]
+fn binder_checks_shape_lookup_identity_and_retains_aggregate_coordinates() {
+    let f = Fixture::new();
+    let required = shape("value",ParameterKind::PositionalOnly,true);
+    let (signature,members,mut shapes) = f.signature(&[required.clone()]);
+    shapes.insert(required.id(),ParameterShape { required: false,..required });
+    assert_eq!(bind(BindingInput { target: &f.target,qualification: &f.qualification,signature_qualification: &f.qualification,
+        destination: &f.destination,channel: &f.channel,receiver: &f.receiver,signature: &signature,parameters: &members,
+        shapes: &shapes,actuals: &[] }).unwrap_err(),ObligationKind::MissingEvidence);
+    let (signature,members,shapes) = f.signature(&[shape("kwargs",ParameterKind::VarKeyword,false)]);
+    let mut bindings = vec![];
+    for name in ["left","right"] {
+        let args = [actual(1,ArgumentKind::Keyword,Some(name))];
+        let bound = bind(BindingInput { target: &f.target,qualification: &f.qualification,signature_qualification: &f.qualification,
+            destination: &f.destination,channel: &f.channel,receiver: &f.receiver,signature: &signature,parameters: &members,
+            shapes: &shapes,actuals: &args }).unwrap();
+        assert_eq!(bound.bindings()[0].kind,BindingKind::Kwargs);
+        assert_eq!(bound.bindings()[0].projection,BindingProjection::Keyword { name: name.into() });
+        bindings.push(bound.bindings().to_vec());
+    }
+    assert_ne!(bindings[0],bindings[1]);
+    let mut f = Fixture::new(); f.receiver = Receiver::Bound { actual: occurrence(0).id() }; f.target.receiver = f.receiver.id();
+    let (signature,members,shapes) = f.signature(&[shape("args",ParameterKind::VarPositional,false)]);
+    let args = [actual(1,ArgumentKind::Positional,None),actual(2,ArgumentKind::Implicit,None)];
+    let bound = bind(BindingInput { target: &f.target,qualification: &f.qualification,signature_qualification: &f.qualification,
+        destination: &f.destination,channel: &f.channel,receiver: &f.receiver,signature: &signature,parameters: &members,
+        shapes: &shapes,actuals: &args }).unwrap();
+    assert_eq!(bound.bindings().iter().map(|binding| binding.kind.clone()).collect::<Vec<_>>(),
+        vec![BindingKind::Receiver,BindingKind::Varargs,BindingKind::Implicit]);
+    for (index,binding) in bound.bindings().iter().enumerate() {
+        assert_eq!(binding.projection,BindingProjection::Positional { index: index as i64 });
+    }
+}

@@ -316,7 +316,10 @@ connected to the production compiler or CLI. No compatibility adapter connects t
   assertion qualification must participate in identity.
 - Source metadata plus canonical 1 MiB artifact chunks preserve original binary evidence, including
   files above the row limit. Capture and sealed validation prove full length/digest and canonical
-  ordering; failed capture cannot resume successfully. Input manifests, acquisition/distribution/
+  ordering; failed capture cannot resume successfully. The extractor now freezes a complete selected
+  input inventory before provider startup, reserves copy/chunk/metadata buffers, detects changed input
+  and verifies the frozen bytes afterward. Its caller must quiesce acquisition; this is not an atomic
+  filesystem snapshot or total-RSS qualification. Input manifests, acquisition/distribution/
   corpus relationships, ownership/use and source spans have shared stored invariants.
 - Typed values, literal sets, places, occurrence-keyed atoms and canonical BDD nodes. Independent
   truth tables and malformed-node controls cover bounded operations and persisted hydration.
@@ -328,7 +331,14 @@ connected to the production compiler or CLI. No compatibility adapter connects t
 - A pinned Pyrefly retained-AST emitter produces structural occurrences and qualified identifier
   observations directly, without legacy rows/IDs. A disposable conformance harness exercises
   permanent PG lowerings and readback, relocation, changed-text refusal and incomplete coverage.
-  Emission/depth limits are not total traversal-work limits; full production capture remains open.
+  The harness now uses the reusable captured tree. Emission/depth limits are not total traversal-work
+  limits; acquisition/assembler integration remains open.
+- Provider-qualified symbols, complete signature membership, typed call destinations/channels/receivers
+  and complete alternative membership have generated lowerings and stored invariants. Native support
+  must belong to the symbol provider. The whole-variant binder preserves all formals, defaults, empty
+  aggregates, binding kind and positional/keyword projections; forged shape lookups refuse. Named
+  policies exclude potential/higher-order invocation from dataflow and use the full declared set for
+  uniqueness. P3 equivalence, constructor normalization and SQL projection remain open.
 - Typed stage access refuses undeclared reads/writes and incomplete, failed or cancelled execution.
   `cpg-core::model_runtime` constructs fresh catalogs over a shared DataFusion runtime, rejects
   foreign stage/attempt read permits and SQL mutations. A neutral reservation interface shares the
@@ -347,6 +357,9 @@ Focused evidence (2026-09-29; Cargo commands prefixed by `python3 scripts/build_
 | Command | Outcome and boundary |
 |---|---|
 | `cargo test --release -p lctx-model --test domain --test domain_conditions --test domain_assertions --test domain_stages --test domain_resources --test domain_verdicts` | passed: 29 focused model controls |
+| `cargo test --release -p lctx-model --test domain_calls` | passed: seven call/signature/binding controls, independently rerun after review corrections |
+| `cargo test --release -p lctx-postgres --test domain_calls` | passed: real PG18 signature/call/support readback and wrong-provider refusal; contract fixtures, not producer qualification |
+| `cargo test --release -p cpg-extract --test capture`; `cargo test --release -p cpg-extract --lib capture::tests` | passed: three capture controls plus changed-during-capture unit; 65 MiB input under a 3 MiB capture reservation budget, not RSS |
 | `cargo test --release -p lctx-model --doc` | passed: six negative/positive declaration pairs; one pre-existing ignored legacy example |
 | `cargo test --release -p lctx-postgres --test generations` | passed: two real disposable PG18 tests, including 65 MiB evidence, stored corruption and contract refusal, write drain, leases, conformance selection refusal, cleanup retry and orphan repair |
 | `cargo test --release -p cpg-extract --test typed_conformance` | passed: real pinned AST to typed records, sealed PG18 validation/readback and conformance-only selection refusal |
@@ -357,12 +370,15 @@ Focused evidence (2026-09-29; Cargo commands prefixed by `python3 scripts/build_
 Independent bounded reviewers accepted artifact/capture/acquisition corrections and the
 [assertion/condition foundation](../design_review/reviews/design_review_semantic-assertion-foundation_2026-09-29.md)
 after its three corrections. The [native syntax subset review](../design_review/reviews/design_review_semantic-native-syntax_2026-09-29.md)
-accepted the bounded producer/store seam without qualifying P0. The [earlier input review](../design_review/reviews/design_review_semantic-input-validation_2026-09-29.md)
+accepted the bounded producer/store seam without qualifying P0. The
+[call contract review](../design_review/reviews/design_review_semantic-call-contract_2026-09-29.md) accepted
+three corrected findings, and the [input capture review](../design_review/reviews/design_review_semantic-input-capture_2026-09-29.md)
+accepted the checked-copy and bounded reservation contract. The [earlier input review](../design_review/reviews/design_review_semantic-input-validation_2026-09-29.md)
 still has open coordinated-resource qualification. Stage/session/lifecycle changes await their
 assembled review; none of these bounded receipts establishes enclosing architecture acceptance.
 
-**Next / still open:** remaining representative domain families and P0-C call/binding/transfer/control/
-selection/derivation policies; occurrence ownership; coordinated allocation accounting; exact coverage
+**Next / still open:** remaining representative lexical/type/flow/document/deployment domain families
+and P0-C transfer/control/selection/derivation policies; complete call producer/normalization integration; occurrence ownership; coordinated allocation accounting; exact coverage
 and full production frontier admission; production capture/assembler integration and assembled P0-E review.
 Then finish generated installation verification/reset, provider lease/stream integration, service
 classification, store/CLI cutover and Delta deletion in P1; migrate every raw producer/field in §4.1.2
@@ -436,6 +452,17 @@ reinspected these corrections on 2026-09-29. Closure is limited to the foundatio
 | [F02](../design_review/reviews/design_review_semantic-assertion-foundation_2026-09-29.md#F02) | `lctx-model-macros` | closed (bounded): keyed qualification required by derive; paired declaration controls |
 | [F03](../design_review/reviews/design_review_semantic-assertion-foundation_2026-09-29.md#F03) | `lctx-model::domain::model` | closed (bounded): generated companion dependency; incomplete membership rejected |
 
+
+### Bounded native call contract findings
+
+The [call review](../design_review/reviews/design_review_semantic-call-contract_2026-09-29.md) independently
+reinspected corrections and reran seven controls on 2026-09-29. P2/P3 and C04 closure remain open.
+
+| Finding | Responsible component | Current disposition and evidence |
+|---|---|---|
+| [F01](../design_review/reviews/design_review_semantic-call-contract_2026-09-29.md#F01) | `lctx-model::domain::calls` | closed (bounded): native provider/support ownership invariant; signature/call positive and crossed-provider controls plus real PG18 refusal |
+| [F02](../design_review/reviews/design_review_semantic-call-contract_2026-09-29.md#F02) | `lctx-model::domain::calls` | closed (bounded): shape lookup identity checked before binding; forged optional-for-required map refuses |
+| [F03](../design_review/reviews/design_review_semantic-call-contract_2026-09-29.md#F03) | `lctx-model::domain::calls` | closed (bounded): binding kind and aggregate projections; keyword keys and receiver/varargs/implicit positions retained |
 
 ### Core review findings
 

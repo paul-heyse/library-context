@@ -6,6 +6,7 @@
 //! extraction (§4.2.5): there is no per-module recovery.
 
 mod config;
+pub mod capture;
 mod context;
 mod docs;
 mod facts;

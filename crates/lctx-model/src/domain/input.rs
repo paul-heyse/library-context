@@ -72,8 +72,8 @@ pub struct InputDistribution {
     #[model(key)] pub role: DistributionRole,
 }
 
-pub(crate) fn validate_path(path: &str) -> Result<(), ModelError> {
-    if path.is_empty() || path.starts_with('/') || path.contains('\\')
+pub fn validate_path(path: &str) -> Result<(), ModelError> {
+    if path.is_empty() || path.contains('\0') || path.starts_with('/') || path.contains('\\')
         || path.split('/').any(|p| p == "." || p == ".." || p.is_empty()) {
         return Err(ModelError::Invalid("artifact path must be normalized and relative".into()));
     }

@@ -22,7 +22,7 @@ fn source_kind_and_structural_roles_separate_identity() {
     let py = source();
     let mut stub = py.clone(); stub.path = "demo.pyi".into();
     assert_ne!(py.id(), stub.id());
-    for path in ["/demo.py", "a/../demo.py", "a/./demo.py", "a//demo.py"] {
+    for path in ["/demo.py", "a/../demo.py", "a/./demo.py", "a//demo.py", "a\0b"] {
         let mut invalid = py.clone(); invalid.path = path.into();
         assert!(Batch::new(&model().unwrap(), vec![invalid]).is_err());
     }

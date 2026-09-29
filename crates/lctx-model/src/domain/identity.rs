@@ -62,6 +62,14 @@ impl ContentHash {
     pub fn hex(&self) -> String { self.0.iter().map(|v| format!("{v:02x}")).collect() }
 }
 
+/// Incremental original-byte digest; identical to ContentHash::of for every fragmentation.
+#[derive(Default)]
+pub struct ContentHasher(blake3::Hasher);
+impl ContentHasher {
+    pub fn update(&mut self, bytes: &[u8]) { self.0.update(bytes); }
+    pub fn finish(self) -> ContentHash { ContentHash(*self.0.finalize().as_bytes()) }
+}
+
 /// Structural encoding: each scalar is tagged and length delimited; containers carry arity.
 /// There is no caller-supplied stringification or provider-local index identity.
 pub struct KeySink(blake3::Hasher);

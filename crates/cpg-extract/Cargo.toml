@@ -7,6 +7,7 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+tempfile.workspace = true
 lctx-model = { path = "../lctx-model" }
 cpg-schema = { path = "../cpg-schema" }
 cpg-flow = { path = "../cpg-flow" }
@@ -54,7 +55,6 @@ base64.workspace = true
 sha2.workspace = true
 serde_json.workspace = true
 insta.workspace = true
-tempfile.workspace = true
 
 [lints]
 workspace = true

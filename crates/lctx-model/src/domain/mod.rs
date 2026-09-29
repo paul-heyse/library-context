@@ -3,6 +3,7 @@ mod identity;
 mod model;
 mod record;
 pub mod source;
+pub mod calls;
 pub mod artifact;
 pub mod value;
 pub mod conditions;
@@ -14,7 +15,7 @@ pub mod stages;
 pub mod resources;
 pub mod obligation;
 
-pub use identity::{ArmId, ContentHash, EvidenceBytes, Id, Key, KeySink};
+pub use identity::{ArmId, ContentHash, ContentHasher, EvidenceBytes, Id, Key, KeySink};
 pub use model::{Invariant, InvariantCheck, ValidationInput, Relation, RelationContent, ValidatedModel};
 pub use record::{Arm, ArmField, Sum, SumRecord, Batch, Field, FieldValue, FlatValue, Record, Scalar};
 
@@ -110,7 +111,13 @@ pub fn model() -> Result<ValidatedModel, ModelError> {
     use value::*;
     use conditions::*;
     use assertion::*;
+    use calls::*;
     ValidatedModel::validate(vec![
+        Relation::of::<ProviderSymbol>(), Relation::of::<ParameterShape>(), Relation::of::<Signature>(),
+        Relation::of::<SignatureParameter>(), Relation::of::<SignatureSupport>(),
+        Relation::of::<CallChannel>(), Relation::of::<CallDestination>(), Relation::of::<Receiver>(),
+        Relation::of::<CallTarget>(), Relation::of::<CallTargetSupport>(),
+        Relation::of::<CallResolution>(), Relation::of::<CallResolutionMember>(), Relation::of::<CallResolutionSupport>(),
         Relation::of::<AssertionQualification>(), Relation::of::<ProviderSurface>(), Relation::of::<Evidence>(),
         Relation::of::<Literal>(), Relation::of::<LiteralSet>(), Relation::of::<LiteralSetMember>(),
         Relation::of::<PlaceRoot>(), Relation::of::<PathSegment>(), Relation::of::<AccessPath>(), Relation::of::<Place>(),

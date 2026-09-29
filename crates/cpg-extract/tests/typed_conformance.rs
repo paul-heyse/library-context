@@ -12,7 +12,7 @@ use sqlx::PgPool;
 use testcontainers_modules::{postgres::Postgres, testcontainers::{ImageExt, runners::AsyncRunner}};
 
 struct Captured {
-    frozen: tempfile::TempDir,
+    frozen: cpg_extract::capture::CapturedInput,
     input: InputRevision,
     files: BTreeMap<String,Vec<u8>>,
 }
@@ -32,12 +32,15 @@ impl Captured {
         let input = InputRevision::from_entries(files.iter().map(|(path, bytes)| ManifestEntry {
             path: path.clone(), content: ContentHash::of(bytes), byte_len: bytes.len() as i64,
         }).collect()).unwrap();
-        let frozen = tempfile::tempdir().unwrap();
+        let original = tempfile::tempdir().unwrap();
         for (path, bytes) in &files {
-            let target = frozen.path().join(path);
+            let target = original.path().join(path);
             std::fs::create_dir_all(target.parent().unwrap()).unwrap();
             std::fs::write(target,bytes).unwrap();
         }
+        let budget = resources::ResourceBudget::fixed(4 << 20).unwrap();
+        let frozen = cpg_extract::capture::CapturedInput::capture(original.path(),&files.keys().cloned().collect::<Vec<_>>(),&budget).unwrap();
+        assert_eq!(frozen.revision(),&input);
         Self { frozen,input,files }
     }
 }
@@ -69,7 +72,7 @@ fn extract_inner(captured: Captured) -> Extracted {
         let name = name.to_string_lossy();
         assert!(!matches!(name.as_ref(),"PYREFLY_STACK_SIZE"|"PYREFLY_FIXPOINT_DETAILS") && !name.starts_with("PYSA_DUMP"));
     }
-    let root = captured.frozen.path();
+    let root = captured.frozen.root();
     let mut cfg = ConfigFile { source: ConfigSource::File(root.join("pyrefly.toml")),
         search_path_from_args: vec![root.to_path_buf()], disable_search_path_heuristics: true,
         disable_project_excludes_heuristics: true, enable_fallback_search_path: false, ..ConfigFile::default() };
@@ -150,13 +153,14 @@ fn extract_inner(captured: Captured) -> Extracted {
         if let Some((assertion,evidence,support)) = &event.observation { add_one!(assertion,evidence,support); }
     }
     add(&mut batches,&model,coverage.clone());
+    captured.frozen.verify().unwrap();
     Extracted { batches,events,coverage }
 }
 
 #[tokio::test]
 async fn pinned_native_parse_typed_domain_and_postgres_conformance() {
     let first = Captured::fixture(); let relocated = Captured::new(first.files.clone());
-    assert_ne!(first.frozen.path(),relocated.frozen.path());
+    assert_ne!(first.frozen.root(),relocated.frozen.root());
     let left = extract(first); let right = extract(relocated);
     assert_eq!(left.events,right.events,"structural identity is independent of checkout path");
     assert_eq!(left.batches,right.batches,"configuration and provenance also relocate deterministically");
