@@ -11,9 +11,19 @@ This page owns the **target** representation of the analyzed codebase:
 transfers, conditions, obligations and derivations), the declaration contract every relation
 satisfies, the named semantic policies, the transfer algebra, and the store and serving contract.
 
-**Status.** **Accepted target** (2026-09-29). Bounded foundations are **Implemented / Tested**,
-with exact contracts, commands and exclusions in cutover plan §4.2. No enclosing phase exit is
-qualified; the production cutover and remaining capabilities are **Proposed**.
+**Status.** **Accepted target** (2026-09-29). Phase 0's contracts are **Implemented /
+focused-Tested**:
+- typed model, stages and memory generation;
+- resource accounting;
+- declarations, call-site facts and the owner rule;
+- stability witnesses and whole-call composition;
+- the facts frontier and admission;
+- the stage-bound capture and syntax subset.
+
+The assembled P0 exit review accepted them, scoped, on 2026-09-29. It excludes the P4 composition
+engine and the store-side frontier enforcement (P1.7). Exact contracts, commands and exclusions are
+in cutover plan §4.2; finding dispositions are in §8. No phase is release-qualified. The store,
+facts producers and later capabilities are **Proposed** until their phases land.
 
 **Current state.** Until each layer cuts over, the implemented pipeline is the legacy one described
 by §3–§14:

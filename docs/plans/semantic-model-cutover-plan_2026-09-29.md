@@ -294,7 +294,7 @@ name and declaration inputs; the Ruff-vs-Pysa call and `__all__` comparisons sta
 
 | ID | Deliverable | Controls | Focused command |
 |---|---|---|---|
-| A0 | Provider framework: `ProviderStage`, `StageContext` (emit, contribute, handoffs, attacher, captured inputs, budget); big-stack provider thread, bounded channel to an async pump holding `StageAccess`; `Provider` build digest over lockfile, provider sources and Pyrefly patch (F11); `Attacher`; `cpg-core/src/facts.rs` `compile_facts<S: StageSink>`; fixture-corpus skeleton; the provider channel carries `Batch<R>` with its reservation, and `StageOutput` takes batches (resource review F05) | Undeclared emit/contribute/read refused; panic aborts; reservations 0; order preserved | `cpg-extract` `bundle`; `cpg-core` `facts_driver` |
+| A0 | Provider framework: `ProviderStage`, `StageContext` (emit, contribute, handoffs, attacher, captured inputs, budget); big-stack provider thread, bounded channel to an async pump holding `StageAccess`; `Provider` build digest over lockfile, provider sources and Pyrefly patch (F11); `Attacher`; `cpg-core/src/facts.rs` `compile_facts<S: StageSink>`; fixture-corpus skeleton; the provider channel carries `Batch<R>` with its reservation, and `StageOutput` takes batches (resource review F05) | Undeclared emit/contribute/read refused; panic aborts; reservations 0; order preserved; contributed vocabulary merged into a batched output is deduplicated or refused (P0 exit F04); peak reservation stays bounded by the channel window, not total output (input-validation F02) | `cpg-extract` `bundle`; `cpg-core` `facts_driver` |
 | A1 | Acquisition model: source roles, `UnownedArtifact`, `DerivedArtifact`, `EnvironmentFingerprint`; exactly-one ownership class | Double class, orphan derivation and `_lctx/` originals refused | `domain_input` (model and PG) |
 | A2 | T6 acquisition: pure inventory, full closure capture, `_lctx/` namespace, `acquire` stage; delete tree writes, `release_rows`, old `capture()` and corpus id hashing | Tree byte-identical before/after; namespace collision and stale blocks refused; location independence; environment dependence; RECORD tamper; change during capture aborts | `cpg-extract` `acquisition`, `capture` |
 | A3 | Syntax model: placement/field, `SyntaxDetail`, declaration (+decorators), import alias, `__all__`, parameter syntax, class field syntax, `SubjectBoundary`, attachment outcome/candidates, appended obligation codes (52 onward; 49–51 are `EntryValueUnknown`, `NonDefiniteAlternative`, `IncompleteCoverage`) | Text derivable from bytes; foreign optional subject and scopeless boundary refused | `domain_syntax`, `domain_coverage`; PG `domain_syntax` |
@@ -659,6 +659,7 @@ Envelope (Measured, [evidence](../design_review/evidence/2026-09-29_p0e-subset-e
 - the Definite twins are Established and Refuted;
 - a refutation under partial coverage is Unknown(`IncompleteCoverage`);
 - a Candidate composed flow is Unknown while its Definite twin is Established (P0 exit F01; C09) |
+| X0: assembled P0 exit review ([report](../design_review/reviews/design_review_p0-exit_2026-09-29.md)) | **Accept scoped** 2026-09-29 after the F01 re-inspection at `7595557`. Scenarios 1, 2 (routed to P3), 4, 6 and 7 are accepted at contract level, Implemented and focused-Tested. Excluded: scenario 3 (the P4 composition engine; P0 exit F03 with composition F04/F06/F07; trigger: P4 engine design or the first `compose_site` caller outside tests) and scenario 5's store-side enforcement (P0 exit F02, P1.7). The reviewer ran `cargo test --release -p lctx-model` (159 passed, 1 ignored) and the F01 suites; PG suites rely on the dated receipts above. Review acceptance is not release qualification |
 | `just fmt`, `just test-all`, facts pilots | not_run: functional scope incomplete |
 
 Independent bounded reviewers accepted artifact/capture/acquisition corrections and the
@@ -896,14 +897,14 @@ returned Revise on 2026-09-29 for one correction (F01). The review's §11 dispos
 
 | Finding | Responsible component | Current disposition and evidence |
 |---|---|---|
-| [F01](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F01) | `obligation::verdict`, §15.8 | addressed, pending re-inspection: `VerdictInput.modality`; Candidate/Potential give Unknown(`NonDefiniteAlternative`, 50); refutation under partial coverage gives `IncompleteCoverage` (51); priority rationale documented; §15.8 amended. Controls: `a_candidate_or_potential_alternative_is_never_established_or_refuted` and the composition-to-verdict case (Candidate composed flow Unknown, Definite twin Established) |
+| [F01](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F01) | `obligation::verdict`, §15.8 | closed (re-inspection at `7595557`, 2026-09-29, review "Re-inspection"): `VerdictInput.modality`; Candidate/Potential give Unknown(`NonDefiniteAlternative`, 50); refutation under partial coverage gives `IncompleteCoverage` (51); priority rationale documented; §15.8 amended. Controls: `a_candidate_or_potential_alternative_is_never_established_or_refuted` and the composition-to-verdict case (Candidate composed flow Unknown, Definite twin Established) |
 | [F02](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F02) | `lctx-postgres::generations`; P1.7/P1.10/P1.11 | open → P1.7: frontier-scoped schema and a typed `Frontier` read refusal (P1.7 controls) |
 | [F03](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F03) | `composition` | deferred → P4 with composition F04/F06/F07; trigger: P4 engine design or the first `compose_site` caller outside tests |
 | [F04](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F04) | `stages` | open → A0: batched outputs and contributed vocabulary dedup/refusal control |
 | [F05](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F05) | `ProviderCoverage`; B1 | open → B1 (catalog generation without a ty `Provider` row); D1 receipt wording corrected |
 | [F06](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F06) | model tests; P1.11 | open → P1.11: model and codebook snapshot from `model describe --format json` |
-| [F07](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F07) | `StageSink`/`GenerationAttempt::copy`; P1.7/P1.10 | open → P1.10: typed store failure class with an injected transport-failure control |
-| [F08](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F08) | `typed_syntax`; A4 | wording addressed (`admit`/`extract` state the transitive-load limit); import policy → A4 |
+| [F07](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F07) | `StageSink`/`GenerationAttempt::copy`; P1.7/P1.10 | open → P1.7 (typed store failure class, including an unconfirmed commit) and P1.10 (transport loss in provider sessions), each with an injected-failure control |
+| [F08](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F08) | `typed_syntax`; A4 | wording addressed (`admit` states the transitive-load limit); import policy → A4 |
 
 ### Core review findings
 
@@ -922,7 +923,7 @@ qualification. Findings routed to P1–P5 remain open.
 | C06 | closed at contract level (P0 exit review): C4, C5, C5r. Owner: C4, C5, C5r: preserve opaque local guards; refuse unsupported substitution rather than erase conditions; nested reach and the stored composition equation (C4/C5 review F01/F05) |
 | C07 | closed at contract level (P0 exit review): C5. Owner: C5: typed ControlInfluence and Selection with separate value-transfer meaning |
 | C08 | re-confirmed (P0 exit review). Owner: X0 re-confirmation: transfer key excludes merged condition; stable derivation references |
-| C09 | pending F01 re-inspection (P0 exit review): verdict modality and coverage reason. Owner: X0 re-confirmation: scope-boundary unknown; approximation obligation; rendering budget separate |
+| C09 | re-confirmed after P0 exit F01 (verdict modality and coverage reason; re-inspection 2026-09-29). Owner: X0 re-confirmation: scope-boundary unknown; approximation obligation; rendering budget separate |
 | C10 | closed at contract level (P0 exit review): C2. Owner: C2: receiver Unknown and one classification policy |
 | C11 | C1, A3–A4, A14, B2: acyclic source identities, typed syntax kinds and structural occurrence discriminators |
 | C12 | owner-rule half closed at contract level (P0 exit review): C3; attachment half → B2. Owner: C3, B2: indexed region join with scalar oracle and unresolved ambiguity |

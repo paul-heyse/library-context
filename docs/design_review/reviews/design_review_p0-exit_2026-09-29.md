@@ -349,3 +349,43 @@ After re-inspection of item 1, X0 becomes **Accept scoped**. Excluded: scenario 
 | 4 | NotRequested attribution; refused-module imports | F05, F08 | B1 control; text or A4 control |
 
 **Next step.** The plan owner applies F01, enters the §11 rows in plan §8, and requests re-inspection of F01. X0 then closes as Accept scoped, and P1.1 begins with F02 written into P1.7's controls.
+
+## Re-inspection of F01 and the plan §8 entries (`7595557`), 2026-09-29
+
+Scope: F01 against its closure criteria, and the plan §8/§4.1.1 entries proposed in §11. Source
+re-read at `7595557`: `obligation.rs`, `domain_verdicts.rs`, the composition-to-verdict case in
+`domain_composition.rs`, §15.8, the `typed_syntax::admit` doc, and the plan diff `c4c7cba..7595557`.
+The other findings were not re-examined.
+
+**Reviewer-executed checks, 2026-09-29, clean tree at `7595557`.**
+- `python3 scripts/build_environment.py -- cargo test --release -p lctx-model --test domain_verdicts --test domain_composition`: **passed**, 5 verdict and 11 composition tests, including `a_candidate_or_potential_alternative_is_never_established_or_refuted` and the extended `every_admitted_alternative_composes_separately_and_modality_follows_the_site`.
+- `python3 scripts/build_environment.py -- cargo check -p lctx-postgres -p cpg-extract -p cpg-core`: **passed** (the appended codes compile downstream; existing third-party future-incompatibility warnings only).
+
+| Closure criterion (§7 F01) | Verdict | Evidence |
+|---|---|---|
+| Modality is a verdict input; Candidate/Potential never Established, Conditional or Refuted | **met** | `VerdictInput.modality`; a non-Definite modality adds `NonDefiniteAlternative` (50, Resolution class) to the open set before `first`. The test covers `true`, `false` under complete coverage, and an atom condition, for both modalities; Definite twins stay Established and Refuted |
+| Default reason, with a more specific open reason winning | **met** | A stopped budget still names `BudgetReached`; `NonDefiniteAlternative` ranks before `MissingEvidence` |
+| Failed refutation under partial coverage names coverage | **met** | `IncompleteCoverage` (51, Evidence class) replaces `IncompleteDomain`, which stays a selection reason |
+| Priority rationale recorded | **met** | Doc on `priority`: most specific cause first |
+| §15.8 amended | **met** | Verdict inputs now include coverage and modality, with both rules stated |
+| Composition-to-verdict control | **met** | A Candidate composed flow is Unknown(`NonDefiniteAlternative`); its Definite twin is Established |
+| Pre-written, independent answers | **met** | Expected conclusions are literals, not kernel output |
+| Append-only codes | **met** | 50 and 51 appended; plan A3 now appends from 52 |
+
+One deliberate behavior to note, not a defect: a non-definite alternative under `NotRequested` coverage is Unknown(`NonDefiniteAlternative`), not NotAnalyzed, because the Scope class ranks last. This follows the pre-existing rule that an unasked question is the least specific cause, and it never produces a positive or negative claim.
+
+**F01: closed.** Core C09 is now re-confirmed: ScopeBoundary is Unknown, response budgets are excluded, approximation and non-definite modality block both positive and negative verdicts, and incomplete coverage has its own reason. G2 and CI-G1 now pass at P0 contract scope. Composition F04's caller-supplied booleans remain open on their plan route. A2 moves from violated to **satisfied for the P0 scope**; F02's P1 aspect is routed.
+
+**Plan entries.** The §8 "P0 exit review findings" table carries F01–F08 with the owners and routes proposed in §11. The core rows record C03, C05, C06, C07, C10, C12 (owner half) and C14 as closed at contract level, C04 apart from its P3 items, and C08 as re-confirmed. The input-validation F02 row is narrowed to A0 (charged channel unit with a channel-window peak), P1.9/P1.10 and Q. The D1 receipt wording (F05) is corrected, and P1.7's controls now include the F02 frontier refusal and the F07 typed failure class. All accepted. Four small follow-ups for the plan owner, none blocking:
+1. Update the F01 row to closed and the C09 row to re-confirmed, citing this section.
+2. F07's row names P1.10, but its control was added to P1.7. Name one owner, or name both in the row.
+3. The F08 row says "`admit`/`extract` state the transitive-load limit"; only `admit`'s doc was changed, though it references `extract`. Say `admit`.
+4. When A0 starts, copy F04's dedup/refusal control and the channel-window peak control into A0's controls column, so the package spec carries them.
+
+**X0 decision: Accept scoped.** Scope: the P0 contracts (typed model, stages and sinks, facts-frontier preflight and admission, resource accounting, call-site facts, owner rule, witnessed substitution, whole-call composition, verdict policy, stage-bound syntax subset) at Implemented and focused-Tested strength.
+
+Excluded, with triggers:
+- **Scenario 3** (the P4 SCC composition engine): F03 with composition F04/F06/F07. Trigger: P4 engine design, or the first `compose_site` caller outside tests.
+- **Scenario 5's physical enforcement:** F02, at P1.7.
+
+The enclosing architecture is accepted for scenarios 1, 2 (routed), 4, 6 and 7 at contract level. It remains unresolved for scenarios 3 and 5 as stated. §12's P1/P2 prerequisites are unchanged. This is review acceptance, not release qualification: P0–P2 formatting, integrated gates and pilots remain `not_run` until plan Q.
