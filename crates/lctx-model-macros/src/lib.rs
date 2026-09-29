@@ -95,6 +95,11 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
             const SEMANTIC_SOURCE: &'static [u8] = #semantic_source;
             fn key(&self) -> Self::Key { #key_name { #(#keys: self.#keys.clone(),)* } }
             fn fields() -> Vec<::lctx_model::domain::Field> { vec![#(#descriptors,)*] }
+            fn content_digest(&self) -> ::lctx_model::domain::ContentHash {
+                let mut sink = ::lctx_model::domain::KeySink::new(Self::NAME);
+                #(::lctx_model::domain::Key::encode(&self.#names, &mut sink);)*
+                sink.finish()
+            }
             fn validate(&self) -> Result<(), ::lctx_model::domain::ModelError> {
                 #validation
                 Ok(())
@@ -300,6 +305,11 @@ fn expand_sum(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
             const OWNER: &'static str = env!("CARGO_PKG_NAME");
             const SEMANTIC_SOURCE: &'static [u8] = #semantic_source;
             fn key(&self) -> Self { self.clone() }
+            fn content_digest(&self) -> ::lctx_model::domain::ContentHash {
+                let mut sink = ::lctx_model::domain::KeySink::new(Self::NAME);
+                ::lctx_model::domain::Key::encode(self, &mut sink);
+                sink.finish()
+            }
             fn fields() -> Vec<::lctx_model::domain::Field> { vec![::lctx_model::domain::Field::of::<i16>("kind", true, false), #(#descriptors,)*] }
             fn sum() -> Option<::lctx_model::domain::Sum> { Some(::lctx_model::domain::Sum { tag: "kind", arms: vec![#(#sum_arms,)*] }) }
             fn validate(&self) -> Result<(), ::lctx_model::domain::ModelError> { Ok(()) }

@@ -20,7 +20,7 @@ pub(super) fn generate(model: &ValidatedModel, generation: GenerationId) -> Ddl 
             let ty = match field.scalar() {
                 Scalar::Text => ColumnType::Text, Scalar::Bool => ColumnType::Boolean,
                 Scalar::Int16 => ColumnType::SmallInteger, Scalar::Int32 => ColumnType::Integer,
-                Scalar::Int64 => ColumnType::BigInteger, Scalar::Id | Scalar::Digest => ColumnType::Binary(32),
+                Scalar::Int64 => ColumnType::BigInteger, Scalar::Id | Scalar::Digest | Scalar::Binary => ColumnType::Binary(32),
             };
             let mut column = if field.list() {
                 let mut column = ColumnDef::new(field.name()); column.array(ty); column

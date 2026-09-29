@@ -150,3 +150,33 @@ fn subtype_references_require_the_right_arm() {
     let batch = Batch::new(&model, vec![link.clone()]).unwrap();
     assert_eq!(Batch::<ModuleScopeLink>::read(&model, batch.arrow()).unwrap().rows(), &[link]);
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[model(name = "binary_evidence")]
+struct BinaryEvidence {
+    #[model(key)] name: String,
+    bytes: lctx_model::domain::EvidenceBytes,
+    optional: Option<lctx_model::domain::EvidenceBytes>,
+}
+#[test]
+fn binary_evidence_and_streamed_content_preserve_payload_and_batch_independence() {
+    use lctx_model::domain::EvidenceBytes;
+    let model = ValidatedModel::validate(vec![Relation::of::<BinaryEvidence>()]).unwrap();
+    let batch = Batch::new(&model, vec![
+        BinaryEvidence { name: "invalid_utf8".into(), bytes: EvidenceBytes(vec![0, 255, 128, 0]), optional: None },
+        BinaryEvidence { name: "empty".into(), bytes: EvidenceBytes(vec![]), optional: Some(EvidenceBytes(vec![])) },
+    ]).unwrap();
+    assert_eq!(Batch::<BinaryEvidence>::read(&model, batch.arrow()).unwrap().rows(), batch.rows());
+    let relation = model.require::<BinaryEvidence>().unwrap();
+    let mut all = relation.content(); relation.hash_rows(batch.arrow(), &mut all).unwrap();
+    let mut chunks = relation.content();
+    for i in 0..batch.rows().len() { relation.hash_rows(&batch.arrow().slice(i, 1), &mut chunks).unwrap(); }
+    assert_eq!(all.finish(), chunks.finish());
+    let mut duplicates = relation.content();
+    relation.hash_rows(batch.arrow(), &mut duplicates).unwrap();
+    assert!(relation.hash_rows(batch.arrow(), &mut duplicates).is_err());
+    let mut changed = batch.rows()[0].clone();
+    let before = changed.content_digest(); let key = changed.id();
+    changed.bytes.0.push(1);
+    assert_eq!(key, changed.id()); assert_ne!(before, changed.content_digest());
+}

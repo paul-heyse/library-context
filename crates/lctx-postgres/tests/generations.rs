@@ -12,6 +12,13 @@ struct RecursiveNode { #[model(key)] name: String, parent: Option<Id<RecursiveNo
 #[model(name = "module_scope_links", semantic_source = include_bytes!("generations.rs"))]
 struct ModuleScopeLink { #[model(key)] scope: CoverageScopeModuleId }
 
+#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[model(name = "binary_evidence", semantic_source = include_bytes!("generations.rs"))]
+struct BinaryEvidence {
+    #[model(key)] name: String,
+    body: lctx_model::domain::EvidenceBytes,
+}
+
 #[tokio::test]
 async fn immutable_generation_vertical_slice_and_lifecycle_refusals() {
     #[derive(Debug, Clone, PartialEq, Eq, Domain)]
@@ -26,7 +33,7 @@ async fn immutable_generation_vertical_slice_and_lifecycle_refusals() {
     sqlx::raw_sql("CREATE ROLE lctx_importer LOGIN PASSWORD 'postgres'; CREATE ROLE lctx_serving LOGIN PASSWORD 'postgres'").execute(&owner).await.unwrap();
     let writer = PgPool::connect(&url("lctx_importer")).await.unwrap();
     let reader = sqlx::postgres::PgPoolOptions::new().max_connections(1).acquire_timeout(std::time::Duration::from_millis(150)).connect(&url("lctx_serving")).await.unwrap();
-    let mut relations = model().unwrap().relations().to_vec(); relations.push(Relation::of::<RecursiveNode>()); relations.push(Relation::of::<ModuleScopeLink>());
+    let mut relations = model().unwrap().relations().to_vec(); relations.push(Relation::of::<RecursiveNode>()); relations.push(Relation::of::<ModuleScopeLink>()); relations.push(Relation::of::<BinaryEvidence>());
     let model = Arc::new(ValidatedModel::validate(relations).unwrap());
     let store = GenerationStore::install(owner.clone(), model.clone()).await.unwrap();
     let producer_digest = ContentHash::of(b"producer-code");
@@ -48,7 +55,8 @@ async fn immutable_generation_vertical_slice_and_lifecycle_refusals() {
     let coverage = ProviderCoverage { scope: scope.id(), provider: provider.id(), context: context.id(), family: "syntax".into(), run: Some(run.id()), status: CoverageStatus::CompleteUnderStatedModel, reason: None };
     let mut node = RecursiveNode { name: "self".into(), parent: None }; node.parent = Some(node.id());
     macro_rules! copy { ($($row:expr),*) => { $(store.copy(&writer, g, &Batch::new(&model, vec![$row.clone()]).unwrap()).await.unwrap();)* }; }
-    copy!(package, release, source, module, occurrence, provider, context, run, assertion, support, scope, coverage, link, node);
+    let binary = BinaryEvidence { name: "invalid-utf8".into(), body: lctx_model::domain::EvidenceBytes(vec![0, 255, 128]) };
+    copy!(binary, package, release, source, module, occurrence, provider, context, run, assertion, support, scope, coverage, link, node);
     // A malformed tagged row is refused by generated PostgreSQL constraints before validation.
     let malformed = sqlx::query(sqlx::AssertSqlSafe(format!("INSERT INTO {}.coverage_scopes(id,kind,release_release,module_module) VALUES($1,1,$2,$3)", g.schema())))
         .bind(vec![0u8;16]).bind(release.id().bytes().to_vec()).bind(module.id().bytes().to_vec()).execute(&writer).await;
@@ -67,6 +75,7 @@ async fn immutable_generation_vertical_slice_and_lifecycle_refusals() {
     let content = store.validate(g).await.unwrap();
     store.publish(g).await.unwrap();
     let mut lease = store.pin(&reader, g).await.unwrap();
+    assert_eq!(lease.read::<BinaryEvidence>().await.unwrap().rows(), &[binary]);
     assert_eq!(lease.read::<SourceArtifact>().await.unwrap().rows(), &[source]);
     assert_eq!(lease.read::<AnalysisContext>().await.unwrap().rows(), &[context]);
     assert_eq!(lease.read::<SyntaxSupport>().await.unwrap().rows(), &[support]);

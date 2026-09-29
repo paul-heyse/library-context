@@ -136,3 +136,32 @@ impl<T: super::SumRecord, const CODE: i16> super::FieldValue for ArmId<T, CODE> 
     fn target() -> Option<(std::any::TypeId, &'static str)> { Some((std::any::TypeId::of::<T>(), T::NAME)) }
     fn subtype() -> Option<i16> { Some(CODE) }
 }
+
+/// Original evidence bytes. Binary is distinct from an integer list and never requires UTF-8.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct EvidenceBytes(pub Vec<u8>);
+impl Key for EvidenceBytes {
+    fn encode(&self, sink: &mut KeySink) { sink.part(b"binary", &self.0); }
+}
+impl Serialize for EvidenceBytes {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_bytes(&self.0)
+    }
+}
+impl<'de> Deserialize<'de> for EvidenceBytes {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct BytesVisitor;
+        impl<'de> serde::de::Visitor<'de> for BytesVisitor {
+            type Value = EvidenceBytes;
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { f.write_str("binary evidence") }
+            fn visit_bytes<E: serde::de::Error>(self, bytes: &[u8]) -> Result<Self::Value, E> { Ok(EvidenceBytes(bytes.to_vec())) }
+            fn visit_byte_buf<E: serde::de::Error>(self, bytes: Vec<u8>) -> Result<Self::Value, E> { Ok(EvidenceBytes(bytes)) }
+            fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+                let mut bytes = Vec::new();
+                while let Some(byte) = seq.next_element()? { bytes.push(byte); }
+                Ok(EvidenceBytes(bytes))
+            }
+        }
+        deserializer.deserialize_byte_buf(BytesVisitor)
+    }
+}

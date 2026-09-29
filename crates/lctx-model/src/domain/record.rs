@@ -4,13 +4,13 @@ use arrow_schema::{DataType, Field as ArrowField, Schema, SchemaRef};
 use super::{ContentHash, Id, Key, ModelError, ValidatedModel};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Scalar { Text, Bool, Int16, Int32, Int64, Id, Digest }
+pub enum Scalar { Text, Bool, Int16, Int32, Int64, Id, Digest, Binary }
 impl Scalar {
     fn arrow(self) -> DataType {
         match self {
             Self::Text => DataType::Utf8, Self::Bool => DataType::Boolean,
             Self::Int16 => DataType::Int16, Self::Int32 => DataType::Int32, Self::Int64 => DataType::Int64,
-            Self::Id => DataType::FixedSizeBinary(16), Self::Digest => DataType::FixedSizeBinary(32),
+            Self::Id => DataType::FixedSizeBinary(16), Self::Digest => DataType::FixedSizeBinary(32), Self::Binary => DataType::Binary,
         }
     }
 }
@@ -58,6 +58,7 @@ macro_rules! scalar {
 }
 scalar!(String, Text); scalar!(bool, Bool); scalar!(i16, Int16); scalar!(i32, Int32); scalar!(i64, Int64);
 scalar!(ContentHash, Digest);
+scalar!(super::EvidenceBytes, Binary);
 impl<T: Record> FlatValue for Id<T> {}
 impl<T: Record> FieldValue for Id<T> {
     const SCALAR: Scalar = Scalar::Id;
@@ -97,6 +98,8 @@ pub trait Record: Sized + Clone + PartialEq + std::fmt::Debug + Send + Sync + 's
     const SEMANTIC_SOURCE: &'static [u8];
     fn key(&self) -> Self::Key;
     fn fields() -> Vec<Field>;
+    /// Hash every semantic field, including non-key payload, independently of Arrow framing.
+    fn content_digest(&self) -> ContentHash;
     fn sum() -> Option<Sum> { None }
     fn validate(&self) -> Result<(), ModelError>;
     fn encode(rows: &[Self]) -> Result<RecordBatch, ModelError>;

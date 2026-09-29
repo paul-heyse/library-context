@@ -150,6 +150,47 @@ resuming PR6 or new features.
 ADR-0085–0087 supersede the earlier execution decisions. No compatibility, parity-to-bug requirement,
 partition migration or upfront ablation is authorized. Independent behavior controls remain required.
 
+### 4.1.1 Detailed remaining execution order
+
+The 2026-09-29 execution refinement retains ADR-0085–0087. Implementation order:
+
+1. **P0.1 inventory and ownership:** map every emitted raw field, including captured artifact
+   bytes and nested deployment/task receipts, to a typed owner before deletion. Source occurrences,
+   provider conditions and provider coverage belong to facts; normalized ownership and derived
+   conclusions are later relationships over those objects.
+2. **P0.2/P0.3 domain construction:** separate package releases, content-addressed input revisions,
+   environment and acquisition provenance. Preserve installed/tree/corpus input variants, multiple
+   distributions and corpus attribution. Labels and absolute paths do not establish content identity.
+   Finish binary codecs, qualified assertion/support contracts, typed roles, the root membership
+   manifest, generated content encoding and model/reference closure. Cover representative actual
+   shapes across all raw domains before scaling producers.
+3. **P0.4 policies:** calls/alternatives/receiver classification, structural places, occurrence-keyed
+   BDD atoms, full binding-set transfer, typed control/selection and derivation premises, obligation
+   policy and one indexed attachment/owner rule. Independent controls retain C03–C13 obligations.
+4. **P0.5/P0.6 execution:** stage-scoped typed reads/writes, fresh catalogs sharing one attempt
+   runtime, expected provider/family/scope coverage, then a real extraction-to-PG vertical slice and
+   assembled design/target review. No future-layer placeholder tables.
+5. **P1 store:** generated installation verification and privilege checks; bounded COPY/read/validate;
+   batch-independent content hashes and exact required-validator receipts; query-owned leases with
+   terminal failure/cancellation; complete lock order and interrupted-attempt cleanup.
+6. **P1 runtime cutover:** install/check/reset and generation inspection/selection/retirement/abort
+   commands; database/generation query. Quiesce owned runtime and remove Delta, partitions, bundles,
+   adapters, old flags and runnable downstream paths. Retain pure raw definitions only until their
+   producers migrate. Preserve operational services and independent expected semantics.
+7. **P2 producers:** acquisition/source → syntax/lexical → signatures/calls/types → ty flow → documents
+   → package/deployment evidence. Each group lands its definitions, typed producer bundle and focused
+   controls, then deletes replaced schema/hash authority. One assembly owner attaches observations,
+   preserves alternatives/support, validates coverage and writes typed batches.
+8. **P2 compiler and deletion:** facts-only compile for both profiles, no automatic selection,
+   explicit frontier refusal. Delete `cpg-schema` and the old model after surviving consumers move;
+   rebuild pinned inputs and remove enumerated obsolete runtime copies. Finish formatting, the active
+   integrated gate, both facts pilots, docs, assembled review and handoff.
+
+Unexpected required-provider failure aborts. Explicit unsupported/recovered scopes may publish only
+with structured partial/unavailable coverage. Original evidence survives failed interpretation.
+Equivalent fresh inputs/configuration must produce equal semantic content independent of batching;
+compiler telemetry and generation IDs do not participate. No incremental cache is added.
+
 ### 4.2 Execution status
 
 **In progress: P0.1–P0.3/P0.5/P0.6 foundations.** Replacement decisions and revised plan accepted.
@@ -163,7 +204,7 @@ Focused evidence (2026-09-29; commands prefixed by `python3 scripts/build_enviro
 
 | Command | Outcome and boundary |
 |---|---|
-| `cargo test --release -p lctx-model --test domain` | passed: 10 focused domain controls, including sum null semantics and nominal subtype construction |
+| `cargo test --release -p lctx-model --test domain` | passed: 11 focused domain controls, including sum null semantics, nominal subtype construction, binary evidence and batch-independent content hashing |
 | `cargo test --release -p lctx-model --doc` | passed: five negative declarations with five positive partners; one pre-existing ignored legacy example |
 | `cargo test --release -p lctx-postgres --test generations` | passed: real disposable PG18 typed source/support/coverage round trip; writer drain and revocation; stored reference and subtype refusal; pool-bound reader leases; retirement, selection, contract mismatch and failed-attempt cleanup |
 | `just docs-check`; `uv run python scripts/adr.py lint` | passed: documentation publication and current decision references; not architecture qualification |
@@ -175,6 +216,13 @@ cleanup. Model fingerprints include owned semantic/generator sources and depende
 external fixture declarations must supply semantic source bytes. Source inspection accepted the
 corrections within this boundary; concurrent/cancelled abort and the new sum/subtype design still
 require the assembled P0 review.
+
+**Additional implemented slice (2026-09-29):** binary evidence is supported through the domain,
+explicit Arrow codec, COPY and SQLx readback. Record derives generate semantic payload hashes.
+Stored validation streams rows in ID order with row/byte-bounded chunks instead of fetching a whole
+relation and hashing IPC framing. Typed leased `visit` is the large-relation API; convenience `read`
+refuses collections above its budget. The real PG lifecycle test includes non-UTF-8 evidence.
+COPY buffering, provider-stream integration and the complete validator manifest remain open.
 
 **Still open:** complete raw-field disposition and domain families; P0.4 semantic policies and indexed
 join; stage runtime/session enforcement; bounded large-table reads; complete store/CLI commands;

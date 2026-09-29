@@ -13,15 +13,21 @@ pub struct Relation {
     owner: &'static str,
     semantic_source: &'static [u8],
     validate: fn(&arrow_array::RecordBatch) -> Result<arrow_array::RecordBatch, ModelError>,
+    hash_rows: fn(&arrow_array::RecordBatch, &mut RelationContent) -> Result<(), ModelError>,
 }
 impl Relation {
-    pub fn of<R: Record>() -> Self { Self { type_id: TypeId::of::<R>(), name: R::NAME, fields: R::fields(), sum: R::sum(), schema: R::schema(), contract: R::CONTRACT, owner: R::OWNER, semantic_source: R::SEMANTIC_SOURCE, validate: canonical::<R> } }
+    pub fn of<R: Record>() -> Self { Self { type_id: TypeId::of::<R>(), name: R::NAME, fields: R::fields(), sum: R::sum(), schema: R::schema(), contract: R::CONTRACT, owner: R::OWNER, semantic_source: R::SEMANTIC_SOURCE, validate: canonical::<R>, hash_rows: hash_rows::<R> } }
     pub fn name(&self) -> &'static str { self.name }
     pub fn sum(&self) -> Option<&super::Sum> { self.sum.as_ref() }
     pub fn fields(&self) -> &[Field] { &self.fields }
     pub fn schema(&self) -> &SchemaRef { &self.schema }
     pub fn canonical(&self, batch: &arrow_array::RecordBatch) -> Result<arrow_array::RecordBatch, ModelError> { (self.validate)(batch) }
     pub fn type_id(&self) -> TypeId { self.type_id }
+    pub fn content(&self) -> RelationContent { RelationContent { relation: self.name, sink: KeySink::new(self.name), previous: None, count: 0 } }
+    pub fn hash_rows(&self, batch: &arrow_array::RecordBatch, content: &mut RelationContent) -> Result<(), ModelError> {
+        if content.relation != self.name { return Err(ModelError::Schema(self.name)); }
+        (self.hash_rows)(batch, content)
+    }
 }
 
 /// The only model accepted by storage or execution. Validation supports reference cycles.
@@ -113,4 +119,31 @@ fn canonical<R: Record>(batch: &arrow_array::RecordBatch) -> Result<arrow_array:
         if pair[0].id() == pair[1].id() { return Err(ModelError::Conflict(R::NAME)); }
     }
     R::encode(&rows)
+}
+
+/// Streaming content validation. Chunks must be globally ordered by ID; duplicate IDs refuse.
+pub struct RelationContent {
+    relation: &'static str,
+    sink: KeySink,
+    previous: Option<[u8; 16]>,
+    count: u64,
+}
+impl RelationContent {
+    pub fn finish(mut self) -> (u64, ContentHash) {
+        self.sink.part(b"row-count", &self.count.to_le_bytes());
+        (self.count, self.sink.finish())
+    }
+}
+fn hash_rows<R: Record>(batch: &arrow_array::RecordBatch, content: &mut RelationContent) -> Result<(), ModelError> {
+    for row in R::decode(batch)? {
+        let id = *row.id().bytes();
+        if content.previous.is_some_and(|previous| previous >= id) {
+            return Err(ModelError::Invalid(format!("{} content rows must have strictly increasing IDs", R::NAME)));
+        }
+        content.sink.part(b"id", &id);
+        content.sink.part(b"payload", &row.content_digest().0);
+        content.previous = Some(id);
+        content.count = content.count.checked_add(1).ok_or_else(|| ModelError::Invalid("row count overflow".into()))?;
+    }
+    Ok(())
 }

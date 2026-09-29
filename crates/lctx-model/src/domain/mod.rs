@@ -5,8 +5,8 @@ mod record;
 pub mod source;
 pub mod stages;
 
-pub use identity::{ArmId, ContentHash, Id, Key, KeySink};
-pub use model::{Relation, ValidatedModel};
+pub use identity::{ArmId, ContentHash, EvidenceBytes, Id, Key, KeySink};
+pub use model::{Relation, RelationContent, ValidatedModel};
 pub use record::{Arm, ArmField, Sum, SumRecord, Batch, Field, FieldValue, FlatValue, Record, Scalar};
 
 #[derive(Debug, thiserror::Error)]

@@ -19,6 +19,10 @@ pub(super) fn decode(relation: &Relation, rows: &[PgRow]) -> Result<RecordBatch,
             DataType::Int16 => scalar!(i16, Int16Array),
             DataType::Int32 => scalar!(i32, Int32Array),
             DataType::Int64 => scalar!(i64, Int64Array),
+            DataType::Binary => {
+                let values = rows.iter().map(|r| r.try_get::<Option<Vec<u8>>, _>(name)).collect::<Result<Vec<_>, _>>()?;
+                Arc::new(arrow_array::BinaryArray::from_iter(values.iter().map(|v| v.as_deref())))
+            }
             DataType::FixedSizeBinary(size) => {
                 let values = rows.iter().map(|r| r.try_get::<Option<Vec<u8>>, _>(name)).collect::<Result<Vec<_>, _>>()?;
                 Arc::new(FixedSizeBinaryArray::try_from_sparse_iter_with_size(values.iter().map(|v| v.as_deref()), *size).map_err(|e| Error::Codec(e.to_string()))?)

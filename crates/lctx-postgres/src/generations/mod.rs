@@ -5,7 +5,8 @@ use std::sync::Arc;
 use arrow_array::RecordBatch;
 use bytes::BytesMut;
 use lctx_model::domain::{Batch, ContentHash, KeySink, ModelError, Record, Relation, ValidatedModel};
-use sqlx::{Connection, PgConnection, PgPool, Row};
+use sqlx::{Connection, PgConnection, PgPool, Row, ValueRef};
+use futures::TryStreamExt;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -82,18 +83,15 @@ impl GenerationStore {
         for sql in ddl::generate(&self.model, g).references { sqlx::query(sqlx::AssertSqlSafe(sql)).execute(&mut *tx).await?; }
         let mut content = KeySink::new("generation-content");
         for relation in self.model.relations() {
-            let batch = read_physical(&mut tx, g, relation).await?;
-            let canonical = relation.canonical(&batch)?;
-            let mut bytes = Vec::new();
-            {
-                let mut writer = arrow_ipc::writer::StreamWriter::try_new(&mut bytes, &canonical.schema()).map_err(|e| Error::Codec(e.to_string()))?;
-                writer.write(&canonical).map_err(|e| Error::Codec(e.to_string()))?;
-                writer.finish().map_err(|e| Error::Codec(e.to_string()))?;
-            }
-            let digest = ContentHash::of(&bytes);
+            let mut rows = relation.content();
+            visit_physical(&mut tx, g, relation, |batch| {
+                relation.hash_rows(&batch, &mut rows)?;
+                Ok(())
+            }).await?;
+            let (row_count, digest) = rows.finish();
             content.part(relation.name().as_bytes(), &digest.0);
             sqlx::query("INSERT INTO lctx_model_store.receipts(generation_id,relation_name,row_count,content_digest) VALUES($1,$2,$3,$4)")
-                .bind(g.0.to_vec()).bind(relation.name()).bind(canonical.num_rows() as i64).bind(digest.0.to_vec()).execute(&mut *tx).await?;
+                .bind(g.0.to_vec()).bind(relation.name()).bind(i64::try_from(row_count).map_err(|_| Error::Codec("row count overflow".into()))?).bind(digest.0.to_vec()).execute(&mut *tx).await?;
         }
         let digest = content.finish();
         sqlx::query("UPDATE lctx_model_store.generations SET content_digest=$2 WHERE id=$1").bind(g.0.to_vec()).bind(digest.0.to_vec()).execute(&mut *tx).await?;
@@ -172,18 +170,58 @@ impl GenerationStore {
 pub struct GenerationLease { connection: sqlx::pool::PoolConnection<sqlx::Postgres>, generation: GenerationId, model: Arc<ValidatedModel> }
 impl GenerationLease {
     pub fn generation(&self) -> GenerationId { self.generation }
-    pub async fn read<R: Record>(&mut self) -> Result<Batch<R>, Error> {
-        // Every read uses the leased connection. A lost connection cannot silently reacquire a lease.
+    /// Visit bounded typed batches while borrowing the original leased connection.
+    /// No connection reacquisition is permitted after a transport failure.
+    pub async fn visit<R: Record>(&mut self, mut visitor: impl FnMut(Batch<R>) -> Result<(), Error>) -> Result<(), Error> {
         self.connection.ping().await?;
         let relation = self.model.require::<R>()?;
-        let batch = read_physical(&mut self.connection, self.generation, relation).await?;
-        Ok(Batch::read(&self.model, &batch)?)
+        visit_physical(&mut self.connection, self.generation, relation, |batch| {
+            visitor(Batch::read(&self.model, &batch)?)
+        }).await
+    }
+    /// Convenience for small relations. Larger consumers must use `visit`.
+    pub async fn read<R: Record>(&mut self) -> Result<Batch<R>, Error> {
+        let mut rows = Vec::new();
+        let mut bytes = 0usize;
+        self.visit::<R>(|batch| {
+            bytes = bytes.checked_add(batch.arrow().get_array_memory_size()).ok_or_else(|| Error::Codec("read budget overflow".into()))?;
+            if bytes > READ_BATCH_BYTES { return Err(Error::Codec("small-relation read budget exceeded; use visit".into())); }
+            rows.extend_from_slice(batch.rows());
+            Ok(())
+        }).await?;
+        Ok(Batch::new(&self.model, rows)?)
     }
 }
-async fn read_physical(connection: &mut PgConnection, g: GenerationId, relation: &Relation) -> Result<RecordBatch, Error> {
+const READ_BATCH_ROWS: usize = 4096;
+const READ_BATCH_BYTES: usize = 8 * 1024 * 1024;
+const MAX_ROW_BYTES: usize = 64 * 1024 * 1024;
+
+async fn visit_physical(connection: &mut PgConnection, g: GenerationId, relation: &Relation,
+    mut visitor: impl FnMut(RecordBatch) -> Result<(), Error>) -> Result<(), Error> {
     let columns = relation.schema().fields().iter().map(|f| quoted(f.name())).collect::<Vec<_>>().join(",");
-    let rows = sqlx::query(sqlx::AssertSqlSafe(format!("SELECT {columns} FROM {} ORDER BY id", qualified(g, relation.name())))).fetch_all(connection).await?;
-    codec::decode(relation, &rows)
+    let query = format!("SELECT {columns} FROM {} ORDER BY id", qualified(g, relation.name()));
+    let mut stream = sqlx::query(sqlx::AssertSqlSafe(query)).fetch(connection);
+    let mut rows = Vec::new();
+    let mut bytes = 0usize;
+    while let Some(row) = stream.try_next().await? {
+        let mut size = 0usize;
+        for index in 0..row.len() {
+            let value = row.try_get_raw(index)?;
+            if !value.is_null() {
+                size = size.checked_add(value.as_bytes().map_err(|e| Error::Codec(e.to_string()))?.len())
+                    .ok_or_else(|| Error::Codec("row size overflow".into()))?;
+            }
+        }
+        if size > MAX_ROW_BYTES { return Err(Error::Codec("stored row exceeds read budget".into())); }
+        if !rows.is_empty() && (rows.len() == READ_BATCH_ROWS || bytes.saturating_add(size) > READ_BATCH_BYTES) {
+            visitor(codec::decode(relation, &rows)?)?;
+            rows.clear(); bytes = 0;
+        }
+        bytes += size;
+        rows.push(row);
+    }
+    if !rows.is_empty() { visitor(codec::decode(relation, &rows)?)?; }
+    Ok(())
 }
 async fn state(connection: &mut PgConnection, g: GenerationId, expected: &str, model: &ValidatedModel, physical: ContentHash) -> Result<(), Error> {
     let row = sqlx::query("SELECT state,model_digest,physical_digest FROM lctx_model_store.generations WHERE id=$1").bind(g.0.to_vec()).fetch_optional(connection).await?.ok_or(Error::State)?;
