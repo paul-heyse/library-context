@@ -24,6 +24,7 @@
 
 mod db;
 mod propose;
+mod parity;
 mod rebuild;
 mod serving;
 
@@ -70,6 +71,11 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Cmd {
+    /// The semantic-model cutover's parity harness (cutover plan §3.6).
+    Parity {
+        #[command(subcommand)]
+        command: parity::Command,
+    },
     /// Rebuild from a validated published snapshot without reacquisition or extraction.
     Rebuild {
         #[command(subcommand)]
@@ -942,6 +948,7 @@ fn run() -> anyhow::Result<()> {
     let envs = absolute(&cli.envs)?;
     let sources = absolute(&cli.sources)?;
     match cli.command {
+        Cmd::Parity { command } => command.run(),
         Cmd::Rebuild { command } => command.run(cli.database_config.as_deref()),
         Cmd::Serving {
             command,

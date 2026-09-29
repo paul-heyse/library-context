@@ -14,6 +14,7 @@ pub mod entry_links;
 pub mod evidence;
 pub mod flow_model;
 pub mod postgres;
+pub mod parity;
 pub mod rebuild;
 pub mod session;
 pub mod store_read;

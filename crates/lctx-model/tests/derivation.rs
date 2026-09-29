@@ -100,3 +100,17 @@ fn a_projection_digest_follows_its_declaration() {
     assert_ne!(INVOCATION.digest(), dataflow.digest());
     assert_ne!(INVOCATION.digest(), reversed.digest());
 }
+
+#[test]
+fn a_legacy_id_side_relation_maps_new_ids_to_legacy_ids() {
+    use lctx_model::id::IdKind;
+    use lctx_model::legacy::LegacyIdDecl;
+    let decl = LegacyIdDecl { family: "atoms", new_kind: IdKind::Atom };
+    let spec = decl.table_spec().unwrap();
+    assert_eq!(spec.name, "legacy_ids_atoms");
+    assert_eq!(spec.copy_columns(), ["new_id", "legacy_id"]);
+    assert!(spec.partition.supplied);
+    let ddl = spec.parent(&CFG).join(";\n");
+    assert!(ddl.contains("PRIMARY KEY (\"generation_id\", \"new_id\")"), "{ddl}");
+    assert!(ddl.contains("UNIQUE (\"generation_id\", \"legacy_id\")"), "{ddl}");
+}

@@ -10,6 +10,8 @@ publish.workspace = true
 [dependencies]
 arrow-array.workspace = true
 arrow-schema.workspace = true
+arrow-row.workspace = true
+arrow-select.workspace = true
 blake3.workspace = true
 serde.workspace = true
 schemars.workspace = true
