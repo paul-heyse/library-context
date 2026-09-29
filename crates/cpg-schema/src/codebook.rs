@@ -1,54 +1,12 @@
 //! Append-only `Int16` codebooks (DESIGN §3.5).
 //!
-//! Each codebook is declared once here. Codes are dense from 0 and **never renumbered, reordered or
-//! removed**; a new value is appended with the next code. `tests/codebooks.rs` snapshots the whole
-//! registry, so any change to an existing code shows up as a reviewed snapshot diff.
+//! Each legacy codebook is declared once here. Codes are dense from 0 and **never renumbered,
+//! reordered or removed**; a new value is appended with the next code. `tests/codebooks.rs`
+//! snapshots the whole registry, so any change to an existing code shows up as a reviewed snapshot
+//! diff. The trait and the `codebook!` macro live in `lctx-model`.
 
-/// A closed category stored as `Int16` and validated against its codebook.
-pub trait Codebook: Copy + Eq + std::fmt::Debug + 'static {
-    /// The codebook's name, carried in Arrow field metadata (`lctx.codebook`).
-    const NAME: &'static str;
-    /// Every value, in code order.
-    fn all() -> &'static [Self];
-    fn code(self) -> i16;
-    fn text(self) -> &'static str;
-    fn from_code(code: i16) -> Option<Self>;
-}
-
-/// One codebook as data: its name and `(code, text)` pairs in code order.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CodebookEntry {
-    pub name: &'static str,
-    pub values: Vec<(i16, &'static str)>,
-}
-
-impl CodebookEntry {
-    fn of<C: Codebook>() -> Self {
-        Self {
-            name: C::NAME,
-            values: C::all().iter().map(|c| (c.code(), c.text())).collect(),
-        }
-    }
-}
-
-macro_rules! codebook {
-    ($(#[$meta:meta])* $ty:ident = $name:literal { $($(#[$vmeta:meta])* $variant:ident = $code:literal => $text:literal),+ $(,)? }) => {
-        $(#[$meta])*
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-        #[repr(i16)]
-        pub enum $ty { $($(#[$vmeta])* $variant = $code),+ }
-
-        impl Codebook for $ty {
-            const NAME: &'static str = $name;
-            fn all() -> &'static [Self] { &[$($ty::$variant),+] }
-            fn code(self) -> i16 { self as i16 }
-            fn text(self) -> &'static str { match self { $($ty::$variant => $text),+ } }
-            fn from_code(code: i16) -> Option<Self> {
-                match code { $($code => Some($ty::$variant),)+ _ => None }
-            }
-        }
-    };
-}
+use lctx_model::codebook;
+pub use lctx_model::decl::codebook::{Codebook, CodebookEntry};
 
 codebook!(
     /// Where an assertion comes from.

@@ -1531,6 +1531,7 @@ dependencies = [
  "deltalake",
  "insta",
  "jsonschema",
+ "lctx-model",
  "proptest",
  "schemars 1.2.2",
  "serde",
@@ -4477,6 +4478,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "lctx-model"
+version = "0.1.0"
+dependencies = [
+ "arrow-array",
+ "arrow-schema",
+ "blake3",
+ "insta",
+ "proptest",
+ "schemars 1.2.2",
+ "serde",
+]
+
+[[package]]
 name = "lctx-postgres"
 version = "0.1.0"
 dependencies = [
@@ -4602,10 +4616,12 @@ dependencies = [
  "ordermap",
  "phf_shared 0.11.3",
  "portable-atomic",
+ "ppv-lite86",
  "proc-macro2",
  "rand 0.10.3",
  "rand 0.8.8",
  "rand 0.9.5",
+ "rand_chacha 0.9.0",
  "regex-automata",
  "regex-syntax 0.8.11",
  "ring",

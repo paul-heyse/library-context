@@ -9,6 +9,7 @@
 
 /// The source trees whose code decides the compiler's output, relative to the workspace root.
 const SOURCES: &[&str] = &[
+    "crates/lctx-model/src",
     "crates/cpg-core/src",
     "crates/lctx-analytics/src",
     "crates/cpg-schema/src",
@@ -36,6 +37,7 @@ fn rust_files(root: &std::path::Path, dir: &std::path::Path, out: &mut Vec<Strin
 
 const ENGINES: &[&str] = &[
     "arrow-array",
+    "biodivine-lib-bdd",
     "buoyant_kernel",
     "datafusion",
     "deltalake-core",
