@@ -5,11 +5,10 @@
 //! derivations, stages and generations. It performs no I/O and depends on neither `cpg-schema` nor
 //! `cpg-core`; `lctx-postgres` stores its generations and `cpg-core` runs its stages.
 //!
-//! `decl`, `id`, `legacy` and `ddl` are the pre-reconstruction declaration and identity machinery
-//! that the dormant `cpg-schema` still compiles against; `ddl` leaves in cutover phase 1 and the
-//! rest with `cpg-schema` in phases 3–5 (cutover plan §4.1.1). No adapter connects them to `domain`.
+//! `decl`, `id` and `legacy` are the pre-reconstruction declaration and identity machinery that the
+//! dormant `cpg-schema` still compiles against; they leave with `cpg-schema` in phases 3–5 (cutover
+//! plan §4.1.1). No adapter connects them to `domain`.
 
-pub mod ddl;
 pub mod decl;
 pub mod id;
 pub mod legacy;

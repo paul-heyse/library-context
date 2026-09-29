@@ -15,11 +15,9 @@ pub mod entry_links;
 pub mod evidence;
 pub mod flow_model;
 pub mod postgres;
-pub mod parity;
 pub mod rebuild;
 pub mod session;
 pub mod model_runtime;
-pub mod store_read;
 pub mod snapshot;
 pub mod sql;
 mod stage_cache;
@@ -116,7 +114,6 @@ pub enum CoreError {
     Unpublished(Box<CoreError>),
 }
 
-pub mod postgres_read;
 
 pub mod surface;
 

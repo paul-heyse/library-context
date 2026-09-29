@@ -668,6 +668,15 @@ Envelope (Measured, [evidence](../design_review/evidence/2026-09-29_p0e-subset-e
 - both MCP entry points exit 3;
 - no Hakari change;
 - the workspace compiles, with `lctx-analytics`/`lctx-embed` still members |
+| P1.2: `cargo test --release -p lctx-model --test domain --test decl_sample --test ids`; `cargo check --workspace --all-targets` | passed 2026-09-29.
+
+Removed:
+- `lctx-model::ddl`, `lctx-postgres::store` and its test;
+- `cpg-core` `store_read`/`postgres_read`/`parity` and their tests (`store_read`, `postgres`);
+- `legacy.rs` down to `ID_TAG_V1` and `IdHasher::new`;
+- the DDL half of `decl_sample` and its two snapshots.
+
+The justfile no longer names `cpg-core --test postgres`. The embedding-cache case of the deleted `postgres` test is re-established at P1.5. `postgres_read`'s filter-pushdown algebra is recovered from Git (`8bbc17a`) at P1.10. The table-provider dependency stays unused in `cpg-core` until P1.10 (manifest warning) |
 | `just fmt`, `just test-all`, facts pilots | not_run: functional scope incomplete |
 
 Independent bounded reviewers accepted artifact/capture/acquisition corrections and the

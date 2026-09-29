@@ -1,5 +1,0 @@
----
-source: crates/lctx-model/tests/decl_sample.rs
-expression: install.digest.hex()
----
-da83be088c3bd52e9aa533da82e086612fc597f0c96e29d0e1ba7ab28478e853

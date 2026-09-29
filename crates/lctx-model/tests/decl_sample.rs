@@ -1,9 +1,8 @@
 //! Relation declarations on a sample model that exercises every declaration feature: identity,
-//! provenance, roles, codebooks, nullable and list columns, uniques, checks and lookups.
+//! provenance, roles, codebooks, nullable and list columns, uniques, checks and lookups. The
+//! partition DDL rendered from them was removed with the partition kernel (plan P1.2).
 
 use arrow_array::RecordBatch;
-use lctx_model::ddl::{self, DdlConfig, TableSpec};
-use lctx_model::decl::codebook::CodebookEntry;
 use lctx_model::decl::identity;
 use lctx_model::decl::relation::{
     ColumnClass, ColumnDecl, Exposure, FidelityClass, Layer, Polarity, Relation, RelationDecl,
@@ -91,93 +90,11 @@ relation! {
 
 model! { Entities, Occurrences, Notes }
 
-const CFG: DdlConfig = DdlConfig {
-    schema: "lctx",
-    reader: "lctx_serving",
-};
-
-fn install() -> ddl::Install {
-    let tables = DECLS
-        .iter()
-        .map(|d| TableSpec::from_decl(d).expect("renderable"))
-        .collect();
-    ddl::install(tables, &[CodebookEntry::of::<IdKind>()], &CFG).expect("installable")
-}
-
 #[test]
 fn the_sample_model_is_valid() {
     validate(DECLS).expect("valid");
     assert_eq!(RelationId::ALL.len(), 3);
     assert_eq!(RelationId::Occurrences.decl().name, "occurrences");
-}
-
-#[test]
-fn the_generated_ddl_is_pinned() {
-    let install = install();
-    let mut text = install.statements.join(";\n\n");
-    for spec in &install.tables {
-        text.push_str(&format!(
-            ";\n\n-- staging templates for {}\n{};\n{};\n{};\n{}",
-            spec.name,
-            spec.staging_table(),
-            spec.staging_indexes().join(";\n"),
-            spec.attach(&CFG),
-            spec.detach(&CFG),
-        ));
-    }
-    insta::assert_snapshot!(text);
-    insta::assert_snapshot!("ddl_digest", install.digest.hex());
-}
-
-#[test]
-fn referenced_relations_are_created_first() {
-    let order: Vec<_> = install().tables.iter().map(|t| t.name.clone()).collect();
-    assert_eq!(order, ["entities", "occurrences", "notes"]);
-}
-
-#[test]
-fn the_store_supplies_the_generation_column() {
-    let spec = TableSpec::from_decl(&Occurrences::DECL).unwrap();
-    assert_eq!(spec.columns[0].name, "generation_id");
-    assert!(spec.partition.supplied);
-    assert_eq!(
-        spec.copy_columns(),
-        ["occurrence_id", "module_id", "start_byte", "end_byte", "syntax_kind", "run_id"]
-    );
-    assert_eq!(
-        spec.primary_key.as_deref(),
-        Some(&["generation_id".to_owned(), "occurrence_id".to_owned()][..])
-    );
-}
-
-#[test]
-fn identifiers_are_quoted_and_names_bounded() {
-    assert_eq!(ddl::quote("references"), "\"references\"");
-    assert_eq!(ddl::quote("a\"b"), "\"a\"\"b\"");
-    let long = "x".repeat(49);
-    let schema = arrow_schema::Schema::new(vec![arrow_schema::Field::new(
-        "snapshot_id",
-        arrow_schema::DataType::FixedSizeBinary(16),
-        false,
-    )]);
-    let err = TableSpec::build(
-        &long,
-        &schema,
-        "snapshot_id",
-        &ddl::TableOptions {
-            key: &["snapshot_id"],
-            ..Default::default()
-        },
-    )
-    .unwrap_err();
-    assert!(err.0.contains("bytes"), "{err}");
-}
-
-#[test]
-fn codebook_tables_carry_every_code() {
-    let statements = ddl::codebook(&CodebookEntry::of::<IdKind>(), &CFG);
-    assert!(statements[1].contains("(0, 'occurrence')"));
-    assert!(statements[1].contains("(14, 'ddl')"));
 }
 
 fn occurrence(module: Id, start: i64, end: i64, run: Id) -> OccurrencesRow {

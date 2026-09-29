@@ -17,7 +17,6 @@ pub mod report;
 pub mod repository;
 pub mod retrieval;
 pub mod serving;
-pub mod store;
 pub mod generations;
 
 use serde::{Deserialize, Serialize};
