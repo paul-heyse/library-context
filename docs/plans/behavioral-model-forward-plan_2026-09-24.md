@@ -10,7 +10,7 @@ ADR-0073/0074/0076 foundations are implemented through PR3; PR4–PR5 extend the
 
 ## 1. Current state and qualification boundary
 
-**Paused behind the semantic model cutover (operator decision, 2026-09-29; ADR-0082/0083/0084).** The
+**Paused behind the semantic model cutover (operator decision, 2026-09-29; ADR-0085/0083/0084).** The
 [cutover plan](semantic-model-cutover-plan_2026-09-29.md) is the current execution owner. PR6 and new
 product features resume after its phase 5.
 
@@ -725,7 +725,7 @@ catalog digest in `compiler_digest`; no model cites `.claude/skills/`.
 
 **Implemented, 2026-09-28.** PostgreSQL is the rebuildable transactional/cache and online serving
 owner. Delta and immutable receipts remain the implemented canonical store until the semantic model
-cutover phase 1 moves every relation into PostgreSQL generations (ADR-0083). SQLx owns effects, pgpq owns
+cutover phase 1 moves every relation into PostgreSQL generations (ADR-0086). SQLx owns effects, pgpq owns
 COPY encoding, and the maintained DataFusion provider exposes admitted read-only reports. Fixed
 PR4 reads use checked SQLx queries; inventory-driven hydration remains validated against the
 shared projection declarations. No second query/semantic owner is introduced.
@@ -1196,7 +1196,7 @@ not install another transport, query owner or service.
 | F6 Direct Python workflow/SQLAlchemy | Python gains its own relational workflow, not just an MCP transport caller | Psycopg 3 default; one async pool owner; SQLAlchemy only for substantive Core/ORM ownership. Python 3.14 lifecycle/type controls, same Rust migration history |
 | F7 Notifications/durable jobs | Actual worker or polling-cost consumer | Durable rows/events are truth; LISTEN/NOTIFY is a reconnectable hint. Bound transactions, claiming/retry/idempotency and crash recovery before job scheduling |
 | F8 pgrx extension | Measured candidate-transfer cost cannot be handled by bounded fetch into the native executor | Separate PG18 extension crate/toolchain/runtime rules; pure shared kernel, explicit model/generation identity and refusal/evidence fidelity; no Tokio analysis engine in a PG backend |
-| F9 Canonical-store replacement | **Decided 2026-09-29 (ADR-0083):** PostgreSQL becomes the single relational store | Executed by [cutover plan](semantic-model-cutover-plan_2026-09-29.md) phase 1, which covers writes, validators, IDs, publication, reads, rebuilds and the deletion of Delta machinery |
+| F9 Canonical-store replacement | **Decided 2026-09-29 (ADR-0086):** PostgreSQL becomes the single relational store | Executed by [cutover plan](semantic-model-cutover-plan_2026-09-29.md) phase 1, which covers writes, validators, IDs, publication, reads, rebuilds and the deletion of Delta machinery |
 | F10 Retention/advanced operations | ADR-0078 supplies current-only replacement and reconstruction; actual growth/pressure/recovery need selects further work | Replacement must protect live readers and referenced artifacts plus in-flight users until the validated cutover. Replicas/PITR/proxies need separate durability/read/session contracts; no automatic topology expansion |
 | F11 Native ADBC bulk reads | Representative PG15 row-conversion/transfer cost or a named columnar client favors it | Pin core/manager/FFI 0.24, r2d2_adbc 0.3 and compatible provider plus native PG driver artifact; qualify mappings (including numeric/opaque types), C ABI, blocking executor/pool health, transactions/cancellation and supported expressions. Replace the selected transport for that consumer rather than duplicate defaults |
 | F12 DataFusion client protocols | Named psql/BI or embedded ADBC client | Select datafusion-postgres family for PG-wire serving, or adbc-driver-datafusion for ADBC access. Reverify pins for the selected implementation; own authentication/exposed SQL/read-only limits/cancellation/session generation and operational port/artifact. Neither is a PG storage provider |

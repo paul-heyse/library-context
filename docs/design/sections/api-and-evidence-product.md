@@ -1,6 +1,6 @@
 # API and evidence product target
 
-**Target, 2026-09-29.** [§15](semantic-model.md) (ADR-0082/0083/0084) is the accepted target, and the [cutover plan](../../plans/semantic-model-cutover-plan_2026-09-29.md) delivers it layer by layer. Phases 4–5 move the catalog, associations, selection and retrieval onto §15 relations; product work beyond PR5 pauses until phase 5. Until that phase exits, this page describes the implemented legacy pipeline.
+**Target, 2026-09-29.** [§15](semantic-model.md) (ADR-0085/0083/0084) is the accepted target, and the [cutover plan](../../plans/semantic-model-cutover-plan_2026-09-29.md) delivers it layer by layer. Phases 4–5 move the catalog, associations, selection and retrieval onto §15 relations; product work beyond PR5 pauses until phase 5. Until that phase exits, this page describes the implemented legacy pipeline.
 
 <a id="section-14"></a>
 

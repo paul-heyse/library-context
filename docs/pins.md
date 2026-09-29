@@ -163,8 +163,8 @@ is `just docs-test` plus `just docs-check` ([publishing operations](publishing.m
 | datafusion-table-providers-postgres | Owned fork `paul-heyse/datafusion-table-providers`, rev `e6fc4c40ec0ffdb7c89371371b18c5f819cc79a9`, defaults off, `federation` | Based on `CaptainEureka` migration `33095588fcdd17301a5d1c340dcd66cd60e41ec8`; 2026-09-28: declared schema reads, stream ownership, cancellation with capacity quarantine, per-pool metrics; actual PG18 pushed/local/coherence/cancellation controls passed; patch in `third_party/datafusion-table-providers-df55.patch` |
 | tokio-postgres | =0.7.18 | Provider-only configuration adapter; exact registry manifest. SQLx retains application write/transaction ownership |
 
-Psycopg/SQLAlchemy, native ADBC and pgrx remain uninstalled. SeaQuery is a transitive provider
-implementation dependency, not an application query owner. PG15 admits the two declared report views, a closed expression policy and generation-qualified key joins; unsupported expressions remain local. Conditional triggers remain in the [PostgreSQL plan](plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-adoption).
+Psycopg/SQLAlchemy, native ADBC and pgrx remain uninstalled. SeaQuery 1.0.2 is also a direct dependency of the semantic generation DDL lowering
+(ADR-0086); it does not own domain definitions or effects. PG15 admits the two declared report views, a closed expression policy and generation-qualified key joins; unsupported expressions remain local. Conditional triggers remain in the [PostgreSQL plan](plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-adoption).
 Operation/configuration: [PostgreSQL runbook](postgresql.md). Focused and integrated results:
 [PG8–PG11 evidence](design_review/evidence/2026-09-27_postgresql-expansion/implementation.md).
 
@@ -180,3 +180,18 @@ unchanged. Focused schema/native controls passed; complete qualification is reco
 |---|---|---|---|
 | schemars | =1.2.2; std, derive; default-features=false | 2026-09-28 | Registry Cargo.toml and generated input/output schema controls; PR2 wire and existing format owners |
 | jsonschema | =0.58.2; dev-only, default-features=false | 2026-09-28 | Registry Cargo.toml; offline conformance for shared fixtures and existing DTOs |
+
+### Typed semantic model lowerings (ADR-0085/0086), 2026-09-29
+
+Pins verified from the exact local registry `Cargo.toml` in this session. Arrow/DataFusion,
+SQLx and analyzer versions did not change. No capability-skill version evidence was extrapolated.
+
+| Dependency | Direct pin/features | Source and focused evidence |
+|---|---|---|
+| serde_arrow | =0.15.1, arrow-59 | Exact registry manifest and arrow_impl.rs; explicit-schema typed round trip, fixed binary IDs/digests, optional values and primitive lists in `cargo test --release -p lctx-model --test domain` |
+| sea-query | =1.0.2, defaults off, backend-postgres/postgres-array | Exact registry manifest, PostgreSQL DDL tests and column API; generation tables/constraints lowered from the validated model |
+| syn | =2.0.119, full | Exact registry manifest; bounded Domain/DomainCode derives compile |
+| quote | =1.0.47 | Exact registry manifest; derive output is compiled in production domain declarations |
+
+`just deps` and `just test-all` are not_run until all phase 0–2 functional scope is implemented,
+as required by the execution timing in AGENTS.md. These focused checks do not qualify the cutover.

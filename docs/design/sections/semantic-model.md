@@ -20,7 +20,7 @@ by §3–§14:
 - bundle import into PostgreSQL serving.
 
 **Execution owner.** The [semantic model cutover plan](../../plans/semantic-model-cutover-plan_2026-09-29.md)
-owns the order, adapters, parity and deletion obligations.
+owns the execution order, qualification and deletion obligations.
 
 **Where the requirement came from.** The
 [semantic data model target review](../../design_review/reviews/design_review_semantic-data-model_2026-09-29.md)
@@ -32,7 +32,7 @@ supplies it, F01–F13 especially:
 
 The review's evidence folder holds the probes.
 
-> Decision: ADR-0082, ADR-0083, ADR-0084
+> Decision: ADR-0085, ADR-0086, ADR-0087
 
 <a id="section-15-1"></a>
 
@@ -59,83 +59,58 @@ Every relation belongs to exactly one layer and has exactly one producing stage.
 **Crate owners**
 - **`lctx-model` (new)** owns the pure contracts: relation declarations and registry, identity kinds,
   vocabulary types, named policies, transfer algebra, the condition kernel, the obligation and verdict
-  policies, the derivation-source registry, the stage table, and generated DDL/view text.
+  policies, the derivation-source registry, the stage table, and validated model metadata. PostgreSQL lowering belongs to `lctx-postgres`.
 - **`lctx-postgres`** owns all PostgreSQL effects: the generation lifecycle, COPY, constraints, roles,
-  and provider registration.
+  and reader leases. `cpg-core` owns DataFusion provider registration so the Python storage wheel
+  does not link the compute engine.
 - **`cpg-core`** orchestrates stages and runs DataFusion derivations and semantic validators.
 - **`lctx-analytics`** keeps pure Arrow-in/Arrow-out operators.
 - **`cpg-schema`** is retired by the cutover. Its surviving wire, selection and retrieval contracts move
   to `lctx-model`.
 
-> Decision: ADR-0082, ADR-0083
+> Decision: ADR-0085, ADR-0086
 
 <a id="section-15-2"></a>
 
 ## §15.2 Relation declarations: the single authority
 
-**What a declaration states.** Each relation is declared exactly once. The declaration states:
-- name, layer, family and producing stage;
-- typed columns: nominal IDs, codebook columns, nullability;
-- the key, whose first column is always `generation_id`;
-- the identity recipe (§15.3);
-- **participant roles** for relationship relations, as typed references to entity/occurrence/place
-  kinds;
-- a **coverage scope** and **polarity**. The scope is the domain within which an absent row is
-  meaningful; the polarity is may/must, and over- or under-approximation;
-- a **fidelity class**: extracted, resolved, derived or heuristic;
-- **serving exposure**: grant, lookup indexes, and wire exposure.
+Ordinary Rust domain structs and tagged enums in `lctx-model` are the semantic authority.
+They define attributes, typed participant roles, key participation, provenance, fidelity and coverage.
+A bounded derive generates the typed key, identity recipe, physical Arrow codec and metadata. The
+root manifest supplies membership once. Storage and execution require a privately constructed
+`ValidatedModel`. There is no independently maintained row DSL, schema or foreign-key inventory.
 
-**What is generated mechanically from it**
-- the Rust row type, Arrow schema and decoder;
-- PostgreSQL DDL: the table partitioned by generation, primary/unique keys, generation-qualified
-  foreign keys from roles, codebook foreign keys, CHECKs, NOT NULL, and declared indexes;
-- identity-recompute validators;
-- graph-catalog entries and derivation-source entries;
-- serving views, grants and inventories;
-- wire DTOs, where the row is the DTO;
-- every relation-name list.
+`Id<T>` identifies its target nominally. A reference may also be provenance; these are independent
+field properties. Reference collections become first-class relationships. Tagged sums distinguish
+inactive arms from present optional values and reject malformed payloads. Subtype references enforce
+subtype membership. Same-key conflicting payload is an error unless an explicit model merge owns it.
 
-**No second copy.** No inventory, foreign-key list, codebook mapping or serving schema is written by
-hand a second time. One generated `RelationId` enumeration is the registry.
+`lctx-postgres` lowers the validated model into ordinary tables in each generation schema, with
+qualified keys, references, checks and indexes. Explicit Arrow schemas drive `serde_arrow`; no sample
+inference defines a contract. Codebooks remain append-only Int16 values. Semantic validators and
+computations stay handwritten where they express actual behavior, consuming the same typed contracts.
 
-**Codebooks** stay append-only `Int16`. They are published as codebook tables and referenced by foreign
-keys, so the database enforces membership.
-
-**What stays hand-written:** derivations (DataFusion SQL or Rust operators) and semantic validators
-that constraints cannot express.
-
-**The generation catalog.** `nodes`/`edges` remain a materialized, role-generated navigation catalog.
-It is the reference universe for validation and ad hoc exploration. It is never the substrate for
-semantic re-interpretation (§15.5). `edge_kinds` has a reader or is retired.
-
-> Decision: ADR-0082, ADR-0083
+> Decision: ADR-0085, ADR-0086
 
 <a id="section-15-3"></a>
 
 ## §15.3 Identity
 
-**The recipe.** Every identifier is `BLAKE3("lctx-id/v2" ‖ kind ‖ fields…)`, truncated to 16 bytes,
-where `kind` is a value of one declared `IdKind` enumeration. An ad hoc tag string does not compile.
+One generated typed semantic key supplies equality, hashing and BLAKE3 identity. The
+encoding is structural and length tagged, with a model namespace and nominal type discriminator.
+Entity identity, qualified proposition identity and support/run identity are distinct. A condition,
+modality or approximation qualifies an assertion; additional supports do not strengthen it.
 
-**What goes into identity.** Identity is the **semantic key**. Provenance never enters it: path, depth,
-witness, run, rendered text or provider-internal indices.
+Source artifacts anchor occurrences by span, syntax kind and structural discriminator. Module and
+source identities are acyclic; `.py` and `.pyi` remain distinct. Provider variable indices never
+identify atoms. An atom names its actual evaluation occurrence and predicate. Parallel relationships
+include the discriminator that separates them. Transfer aggregation keys exclude the accumulating
+condition; the owned merge joins conditions and retains all support.
 
-**Recipes for each kind of identity**
-- **Parallel relationships** stay distinct because their identity includes the occurrence or
-  discriminator that separates them. `(source, target)` is never an identity.
-- **Occurrence:** `(module entity, start, end, syntax kind)`.
-- **Entity:** `(kind, owner entity, name, declaring occurrence)`.
-- **Entity symbol key:** a release-independent descriptor (distribution, qualified path, member
-  descriptor) for cross-release and dependency joins.
-- **Place:** `(root, access path)` (§15.4).
-- **Atom:** `(evaluation occurrence, predicate kind, operand places and literals)`.
-- **Transfer:** `(owner, in place, out place, kind, condition, context, provenance class)`.
+Generation IDs identify attempts. Model, physical schema, producer and content digests have separate
+meanings. Content equality excludes runtime timestamps and measurement data.
 
-**Generations.** A generation is one compile attempt. `generation_id` is random per attempt. Its
-content digest covers relation digests, run identities and consumed-vector receipts. Producer identity
-covers every canonical producer's code.
-
-> Decision: ADR-0082, ADR-0083
+> Decision: ADR-0085, ADR-0086
 
 <a id="section-15-4"></a>
 
@@ -152,8 +127,8 @@ types, external symbols and synthetic callables.
 - decorator applications, imports and annotations.
 
 **Who owns occurrence identity.** The Pyrefly/Ruff parse owns occurrence identity. ty observations
-attach to occurrences by `(module, span)` through one join function, with parity rules for name,
-attribute and subscript places alike.
+attach by source artifact, span, syntax kind and structural role through one indexed join, checked
+against a scalar oracle for names, attributes and subscripts. Ambiguity stays unresolved.
 
 **Owner rule.** One owner rule assigns each occurrence its enclosing entity: the innermost declaration
 whose body holds it, otherwise the module. It is the only definition of "caller".
@@ -169,7 +144,7 @@ whose body holds it, otherwise the module. It is the only definition of "caller"
 - **Ports** are the places on a callable's boundary.
 - No other place encoding exists. Node-hex keys, name paths and rendered strings are presentations.
 
-> Decision: ADR-0082
+> Decision: ADR-0085
 
 <a id="section-15-5"></a>
 
@@ -189,8 +164,8 @@ admission predicate, compiled once to a view:
 | Policy | Admits | Consumers |
 |---|---|---|
 | `invocation` | Analyzer assertions; definite or candidate; call and property phases; definition arcs kept separate | invocation projection, delegation |
-| `dataflow` | Function targets; call/init phases | flow composition, handoffs |
-| `summary` | Definite, single, complete target between callables | summary instantiation |
+| `dataflow` | Direct function invocation targets; call/init phases | flow composition, handoffs |
+| `summary` | One normalized, complete target alternative between callables | summary instantiation |
 | `usage` | Definite or candidate, with declared origins | usage ranking |
 | `association` | All origins, with origin and implicit flag disclosed | catalog evidence |
 
@@ -205,7 +180,7 @@ call site × target alternative × signature variant × actual → formal place.
 unmapped, refused). Signature alternatives stay separate rows. Independent alternatives never jointly
 establish one valid invocation.
 
-> Decision: ADR-0082
+> Decision: ADR-0085
 
 <a id="section-15-6"></a>
 
@@ -230,13 +205,14 @@ are keyed by symbol key, and a provider's summary may disagree with ours, visibl
 |---|---|
 | `identity` | The same value arrives unchanged |
 | `derived` | A value computed from the input arrives |
-| `control` | The input decides which value arrives: a predicate atom whose evaluation reads the in-place |
+
 
 Sequential composition is an explicit table in one module, never an order over codebook codes:
 - identity · identity = identity;
 - any composition involving `derived` = `derived`;
-- `control` does not compose sequentially with value transfers. A control influence on an atom that
-  guards a transfer yields a **selection** relation.
+- **ControlInfluence** is a separate relationship between a place and a predicate evaluation.
+  It does not compose sequentially with value transfers. An influence on an atom guarding a
+  transfer yields a first-class **Selection** relationship.
 
 **Open calls and alternatives**
 - **A value crossing an unresolved or unsummarized call** is not a transfer kind. It is an obligation
@@ -248,10 +224,11 @@ Sequential composition is an explicit table in one module, never an order over c
 - An in-caller transfer to an argument, the call binding and a callee transfer compose, **matched by
   call site**, into a `composed` transfer.
 - Its condition is the caller condition ∧ the callee condition. In the callee condition, formal atoms
-  are substituted by actual atoms, and callee-local atoms are eliminated existentially under bounded
-  work.
+  are substituted only with an established binding and stability witness. Opaque local guards remain
+  conditional; unsupported substitutions yield an obligation. All actual/formal bindings contribute
+  separate outputs. Access paths compose only through identity transfers.
 
-> Decision: ADR-0082
+> Decision: ADR-0085
 
 <a id="section-15-7"></a>
 
@@ -276,7 +253,7 @@ occurrences stay distinct atoms. Cross-site equality needs an effect-stability w
 with a truncation marker. Served conditions carry `condition_id` together with their rendering. No
 parallel DNF computation exists.
 
-> Decision: ADR-0082
+> Decision: ADR-0085
 
 <a id="section-15-8"></a>
 
@@ -299,7 +276,7 @@ parallel DNF computation exists.
 - **Verdicts:** one verdict function maps condition, open obligations and approximation to the five
   verdicts (established, conditional, refuted under model, unknown, not analysed).
 
-> Decision: ADR-0082
+> Decision: ADR-0085
 
 <a id="section-15-9"></a>
 
@@ -322,7 +299,7 @@ generated. It supports explanation lookup ("why", "why unresolved") and reverse 
 **Witnesses** are selected at serve time from derivations, under response budgets. A smaller budget
 never removes an established conclusion.
 
-> Decision: ADR-0082
+> Decision: ADR-0085
 
 <a id="section-15-10"></a>
 
@@ -344,22 +321,22 @@ views.
 - The SCC schedule uses `kosaraju_scc` with the canonical callee-first order.
 - Heuristic analytics remain governed and never reach a served claim as fact.
 
-> Decision: ADR-0082
+> Decision: ADR-0085
 
 <a id="section-15-11"></a>
 
 ## §15.11 Store, compute and stages
 
-**The store.** **PostgreSQL 18 is the single relational store.** Every canonical relation is
-list-partitioned by `generation_id`, with generated constraints and codebook tables.
+**The store.** PostgreSQL 18 is the single relational store. Each generation owns an ordinary
+schema, without parent partitions. A stable control schema owns lifecycle state, manifests and selection.
+Generation-qualified local references support cycles; tables/keys are created before foreign keys.
 
-**The generation lifecycle** is staging → validated → published → selected → retired.
-- An attempt writes into staging partitions under a writer role, by binary COPY from Arrow.
-- Publication is one transaction, and only after both database constraints and DataFusion semantic
-  validators pass.
-- Published partitions are read-only by privilege.
-- Retirement drops whole partitions.
-- A failed attempt publishes nothing, and a retry is a new generation.
+**Lifecycle:** staging → sealed → validated → published; failed and retired are terminal. Selection
+is a separate pointer. Seal waits for active writes and revokes writer access. Required validators
+inspect stored sealed contents; receipts bind the exact contents and complete validator set.
+Publication changes state and reader grants atomically. Readers verify digests and hold leases;
+retirement requires an unselected generation and exclusive access, then drops its schema atomically.
+A failed attempt publishes nothing and retry creates a new generation.
 
 **Compute.** DataFusion computes derivations and semantic validators over in-memory Arrow batches
 within an attempt. It reads published relations through the owned PostgreSQL table-provider fork,
@@ -368,7 +345,7 @@ with pushdown. `lctx query` runs DataFusion SQL over a pinned generation.
 **Artifacts.** Arrow IPC artifacts are only derived, content-addressed caches for bulk consumers, such
 as native executor inputs, with their manifests in PostgreSQL. They are never canonical.
 
-**The stage table.** A declared **stage table** names each stage's input relations, output relations,
+**The stage table.** A typed **stage table** is the sole writer authority and names each stage's input relations, output relations,
 effect class and code identity. From it:
 - the scheduler is derived;
 - every output has exactly one writer;
@@ -379,7 +356,7 @@ Reuse keeps recompute-and-compare admission. Skipping on key stays behind ADR-00
 **Performance** of publication and provider reads is measured at phase exits and tuned later. It is
 not a decision gate.
 
-> Decision: ADR-0083
+> Decision: ADR-0086
 
 <a id="section-15-12"></a>
 
@@ -397,7 +374,7 @@ not a decision gate.
 - A missing or corrupt required relation or artifact is a refusal, never an empty answer.
 - Explanations traverse the derivation index with bounded recursive queries.
 
-> Decision: ADR-0083
+> Decision: ADR-0086
 
 <a id="section-15-13"></a>
 
@@ -413,11 +390,10 @@ not a decision gate.
 
 A layer is complete only when it contains no legacy code.
 
-**Temporary machinery.** Legacy adapters, legacy-ID side relations and the parity harness are
-temporary migration machinery owned by the plan. They are not part of this model. Every adapter and
-declared legacy quirk is deleted by the end of the final phase.
+**Clean reconstruction.** No adapters, legacy-ID side relations, compatibility flags or dual
+stores are retained. Phases 0–2 restore model/store/facts; analysis, catalog and MCP stay unavailable
+until phases 3–5. Availability is recorded per generation; missing capabilities never become empty
+answers. Independent semantic expectations and protected evidence survive implementation deletion.
+Deleting an engine does not retire its capability obligation; that needs a separate consumer decision.
 
-**Research engines.** Engines whose ablation leaves served output and retained controls unchanged are
-retired rather than migrated, with operator confirmation.
-
-> Decision: ADR-0084
+> Decision: ADR-0087

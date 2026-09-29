@@ -167,8 +167,8 @@ Review quality is established by scenario reasoning and calibration, not by a ne
 
 The operator's graph guidelines now live in the code-intelligence profile (lineage in §8). This
 table keeps the mechanism that meets each rule in this repository and the checks already in
-place (ADR-0083, which carries the retired canonical-snapshot record's surviving clauses). The target mechanisms are DESIGN §15
-(ADR-0082); rows change as their cutover phase exits.
+place (ADR-0086, which carries the retired canonical-snapshot record's surviving clauses). The target mechanisms are DESIGN §15
+(ADR-0085); rows change as their cutover phase exits.
 
 | Profile | Guideline rule | Mechanism | DESIGN | Checks in place |
 |---|---|---|---|---|
@@ -180,7 +180,7 @@ place (ADR-0083, which carries the retired canonical-snapshot record's surviving
 | CI-08, CI-04 | §7 no eager closures or path enumeration; partial is not complete | the catalogs hold direct relations only; coverage, boundaries, external and synthetic nodes and `graph_gaps` state where the graph stops | §3.7, §3.8 | review question 13; `partition:pysa_calls-remainders` (the gaps partition is an edit guard over an empty table, §8) |
 | CI-06, CI-09 | §8 exact, conservative and heuristic results stay apart; method, parameters, seed, convergence recorded or reported unavailable | `FINDING_STATUS` per finding kind; `analysis_invocations` records seed, iterations, residual, convergence and quality history, null meaning unavailable | §9 | `semantic:finding-status-policy` |
 | CI-07 | §9 an explicit DataFusion ↔ graph boundary | projection SQL on the attempt's session, cast to declared schemas, then `lctx-analytics` (Arrow in, Arrow out; no DataFusion or Delta), rows written back through the attempt | §4.1, §5 | `lctx-analytics` tests run with no store |
-| CI-01, DP-21 | §10 results carry run and projection lineage and evidence | `analysis_invocations` (method, parameters JSON, projection digest, library versions, diagnostics), `findings`, `finding_members`, `witnesses` with `edge_id` lineage; provenance in-row (ADR-0083) | §3.2, §9 | `semantic:invocation-model-producer`, `semantic:witness-chain`, `semantic:finding-status-policy`, `semantic:invocation-run-is-compiler`, each with an injected case |
+| CI-01, DP-21 | §10 results carry run and projection lineage and evidence | `analysis_invocations` (method, parameters JSON, projection digest, library versions, diagnostics), `findings`, `finding_members`, `witnesses` with `edge_id` lineage; provenance in-row (ADR-0086) | §3.2, §9 | `semantic:invocation-model-producer`, `semantic:witness-chain`, `semantic:finding-status-policy`, `semantic:invocation-run-is-compiler`, each with an injected case |
 | DP-19 | §11 Delta read through a pinned snapshot; a manifest after validation; retention for files live snapshots need | `snapshots` append; pinned `with_version` reads with a `snapshot_id` filter; cleanup off, retention verified at open. An attempt holds one run per release (the library, its corpus); what both assert is one node | §3.4, §6.1, §6.2 | the reader tests; the retention test; `unique:release-paths`, `unique:type_terms` |
 | DP-23, DP-22 | §12 known-answer shapes (isolates, parallel edges, self-loops, reconvergence, cross-file cycles, unresolved, mixed configuration); lineage; per-stage instrumentation | the `graph_shapes`, `syntax_shapes`, `lexical_shapes`, `type_shapes` and `docs_shapes` fixtures; generated lineage rules; `lctx compile` stage metrics, with validation's slowest rules | §3.8, §4.3 | insta catalog snapshots; `just pilot` and the C6 measurement, with its allocator setting stated (§4.3) |
 

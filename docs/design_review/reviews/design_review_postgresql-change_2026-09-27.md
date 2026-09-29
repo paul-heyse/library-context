@@ -182,7 +182,7 @@ analytics-only values and conflicting restored cache state.
 
 Historical ADR-0065/0066 (now superseded by
 [ADR-0068](../../adr/0078-current-design-cutover.md)) and
-ADR-0067 (retired 2026-09-29; superseded by [ADR-0083](../../adr/0083-postgresql-relational-store.md)) provide the decision
+ADR-0067 (retired 2026-09-29; superseded by ADR-0083 (also retired; current owner: [ADR-0086](../../adr/0086-immutable-postgresql-generations.md))) provide the decision
 route for the new service/receipt boundaries and their affected predecessors. Accepted decisions
 do not establish implementation qualification. The architecture owners and final handoff must
 match the implemented split and actual verification results.

@@ -2,7 +2,7 @@
 
 # §3.9 Behavior model: places, conditions and verdicts
 
-**Target, 2026-09-29.** [§15](semantic-model.md) (ADR-0082/0083/0084) is the accepted target, and the [cutover plan](../../plans/semantic-model-cutover-plan_2026-09-29.md) delivers it layer by layer. Phases 2 and 4 replace places, atoms and conditions with §15.4, §15.6–§15.8. Until that phase exits, this page describes the implemented legacy pipeline.
+**Target, 2026-09-29.** [§15](semantic-model.md) (ADR-0085/0083/0084) is the accepted target, and the [cutover plan](../../plans/semantic-model-cutover-plan_2026-09-29.md) delivers it layer by layer. Phases 2 and 4 replace places, atoms and conditions with §15.4, §15.6–§15.8. Until that phase exits, this page describes the implemented legacy pipeline.
 
 This page owns the meaning of behavioral facts: which **places** a behavior is about, the
 **runtime view** and flow provider that produce reaching definitions and regions, the
@@ -25,7 +25,7 @@ oracle ([§8.1](validation-and-evaluation.md#section-8-1)). See the [architectur
 condition language, verdicts, premises, boundary reasons, the read phase, identity and composed
 layers are **Implemented** and **Tested** (Stage 2 exit, 2026-09-24). The condition kernel, the
 typed primitive theory, value links and exact origins are **Implemented and Tested in focused
-cases** (2026-09-24/25); ADR-0082 accepts the kernel's general allowance ([§15.7](semantic-model.md#section-15-7)). Integrated
+cases** (2026-09-24/25); ADR-0085 accepts the kernel's general allowance ([§15.7](semantic-model.md#section-15-7)). Integrated
 Stage 3 acceptance (`just test-all`, a fresh `just pilot`, the Stage 3 questions) is `not_run`
 ([plan §1](../../plans/behavioral-model-forward-plan_2026-09-24.md#1-current-state-and-qualification-boundary)).
 The rationale is ADR-0045 and ADR-0051.
@@ -212,7 +212,7 @@ The **accepted** parts (ADR-0045):
 - The bounded kernel decides the predecessor compatibility screen of
   [§9.9](behavioral-analysis.md#section-9-9); a missing, approximate or capped operand withholds.
 
-The **general kernel allowance** is accepted by ADR-0082 ([§15.7](semantic-model.md#section-15-7)). The target keys atoms by evaluation occurrence, with no provider-internal indices, and keeps DNF only as a rendering. The kernel owns `and`, `or`,
+The **general kernel allowance** is accepted by ADR-0085 ([§15.7](semantic-model.md#section-15-7)). The target keys atoms by evaluation occurrence, with no provider-internal indices, and keeps DNF only as a rendering. The kernel owns `and`, `or`,
 `not`, `given`, `implies` (incompatibility of `a ∧ ¬b`) and `compatible` (satisfiability of
 `a ∧ b`). Materialized operations preflight support (≤128 atoms), input-node product
 (≤1,000,000 pair work) and a 50,000-node result cap; `compatible` and `implies` use the pinned
@@ -488,6 +488,6 @@ question; "when it runs" versus "when called" for coroutines and generators is S
   (`semantic:unreachable-not-established`). `unreachable_in_context` keeps its meaning: the
   checker never binds it.
 
-> Decision: ADR-0045, ADR-0082, ADR-0028, ADR-0051, ADR-0064, ADR-0074
+> Decision: ADR-0045, ADR-0085, ADR-0028, ADR-0051, ADR-0064, ADR-0074
 
 ---

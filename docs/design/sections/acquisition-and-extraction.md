@@ -1,6 +1,6 @@
 # Acquisition and extraction
 
-**Target, 2026-09-29.** [§15](semantic-model.md) (ADR-0082/0083/0084) is the accepted target, and the [cutover plan](../../plans/semantic-model-cutover-plan_2026-09-29.md) delivers it layer by layer. Phase 2 moves extraction onto the §15 observation relations and occurrence identity (§15.3–§15.4). Until that phase exits, this page describes the implemented legacy pipeline.
+**Target, 2026-09-29.** [§15](semantic-model.md) (ADR-0085/0083/0084) is the accepted target, and the [cutover plan](../../plans/semantic-model-cutover-plan_2026-09-29.md) delivers it layer by layer. Phase 2 moves extraction onto the §15 observation relations and occurrence identity (§15.3–§15.4). Until that phase exits, this page describes the implemented legacy pipeline.
 
 This owner turns a pinned library definition into a verified analysis universe (Stage A) and
 attributed raw facts (Stage B), and orders the compile stages that follow. Its inputs are a
@@ -184,7 +184,7 @@ log whatever was written after it; a table it did not write is left out, so a qu
 fails (`attempt_versions`; `a_rejected_attempt_is_inspected_at_its_own_commits`). This is for
 inspecting a failure, never for a reader.
 
-> Decision: ADR-0046, ADR-0083, ADR-0015, ADR-0018, ADR-0045
+> Decision: ADR-0046, ADR-0086, ADR-0015, ADR-0018, ADR-0045
 
 
 ### §4.1 Stages
@@ -212,7 +212,7 @@ scanned relations, membership, missing lookups, coverage and policy context. The
 remain in DataFusion. This refines `cpg-core::catalog`, not acquisition or analyzer ownership,
 and preserves the mandatory-catalog/optional-analysis profile boundary from ADR-0078.
 
-> Decision: ADR-0046, ADR-0083, ADR-0073
+> Decision: ADR-0046, ADR-0086, ADR-0073
 
 
 ### §4.2 Extraction
@@ -499,4 +499,4 @@ families; the current tree has not been re-measured):
 - **Peak memory:** reopen when the peak nears the host's memory (ADR-0016 owns the allocator's own
   trigger).
 
-> Decision: ADR-0083, ADR-0016
+> Decision: ADR-0086, ADR-0016

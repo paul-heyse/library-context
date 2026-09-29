@@ -1,455 +1,208 @@
 # Plan: the semantic model cutover
 
-**Status: Active, 2026-09-29. Execution owner** for [ADR-0082](../adr/0082-relation-centric-semantic-model.md)
-(relation-centric model), [ADR-0083](../adr/0083-postgresql-relational-store.md) (PostgreSQL single
-store) and [ADR-0084](../adr/0084-layered-hard-cutover.md) (hard layered cutover).
-
-**Target.** The target is [§15](../design/sections/semantic-model.md). This plan owns the order, the
-work packages, the adapters, parity, the deletion obligations, and the disposition of findings F01–F13
-from the [semantic data model review](../design_review/reviews/design_review_semantic-data-model_2026-09-29.md).
-
-**Relation to the forward plan.** The [forward plan](behavioral-model-forward-plan_2026-09-24.md)
-keeps the product context and every other finding. Its queue points here until phase 5 exits.
-**Product work (PR6 and new features) is paused until then.**
+**Active execution owner, 2026-09-29.** [ADR-0085](../adr/0085-typed-semantic-domain.md),
+[ADR-0086](../adr/0086-immutable-postgresql-generations.md), and
+[ADR-0087](../adr/0087-clean-semantic-reconstruction.md) govern this plan.
+The target is [DESIGN §15](../design/sections/semantic-model.md).
 
 ## 1. Outcome and completion
 
-**The end state** is §15, fully implemented:
-- `lctx-model` declarations are the single authority;
-- PostgreSQL 18 generations are the only store;
-- DataFusion computes at intake;
-- every semantic question has one owner;
-- serving reads generated views over the pinned generation.
+Ordinary typed Rust domain definitions in `lctx-model` own atomic units, attributes, relationships,
+identity and invariants. A bounded derive lowers those definitions to Arrow and metadata;
+`lctx-postgres` lowers the validated model to PostgreSQL. PostgreSQL is the only relational store.
+DataFusion is compute, not another schema authority. There are no compatibility readers, adapters,
+legacy identity maps, old-store flags, or dual writers.
 
-**The cutover is complete when all of the following hold.** Each is checked mechanically where
-possible, by `rg` over `crates/` and `python/`:
-- no `deltalake` dependency, and no `delta`/`snapshot` store code;
-- no `cpg-schema` crate;
-- no `for_each_table!`/`Derived`/`EdgeSource` legacy registries;
-- no legacy adapter, declared quirk or legacy-ID relation;
-- no hand-written serving file, inventory or foreign-key list;
-- no semantic question answered outside its §15 owner:
-  - the call edge, owner and binding;
-  - transfer composition;
-  - verdict, obligation priority and discharge validity;
-  - atom identity and conditions.
+**Authorized scope:** reconstruct phases 0–2. Analysis, catalog and MCP availability is suspended
+until phases 3–5 implement those capabilities on the same model. A facts-only generation advertises
+that frontier and cannot answer higher-layer requests with empty tables. Product work stays paused.
+The forward plan retains product context and unrelated findings.
 
-**Working rules**
-- **Order.** Phases run strictly in order. Within a phase, work packages may overlap.
-- **Code standard.** Nothing is blended. New code is written to the target contracts. Legacy code is
-  only ever deleted or bridged by a declared adapter; it is never extended.
-- **Contracts.** The core contracts (phase 0) evolve freely until the layer that produces and consumes
-  them cuts over. They are frozen at that phase's exit.
-- **Performance.** Publication and read performance is recorded at each phase exit and tuned later.
-  It is never a phase gate.
-- **No rollback.** A failing phase is fixed forward. Git holds the legacy code.
+**Qualification:** compile checks and focused tests during execution; formatting and the integrated
+active-scope gate once all phase 0–2 functional work is implemented. A phase's decision is not evidence
+of implementation. PostgreSQL qualification uses a real disposable server, including concurrency.
+Independent semantic fixtures, oracles, benchmark assets and held-out isolation are preserved.
 
-## 2. Baseline (`fedd4a0`, 2026-09-29)
+## 2. Baseline and reopened work
 
-**Code.**
-- 8 Rust crates (about 105k lines) and 3 Python packages.
-- 485 Rust tests and 204 Python tests.
-- 201 `table!` contracts: 57 raw, 22 derived, 121 analysis, plus `snapshots`.
-- 72 serving files (18 derived, 49 hand-written, plus retrieval), 29 native IPC files, 12 PostgreSQL
-  migrations.
-- 10 MCP tools and 1 resource.
+Baseline `a265758` contains an empty model membership registry, relation metadata separate from row
+definitions, untyped IDs, mutable table specifications, partition publication and compatibility
+machinery. The earlier phase-0 completion claim is **reopened**. The
+[core review](../design_review/reviews/design_review_cutover-core_2026-09-29.md) is Revise.
+Existing code is reusable only where it meets the new contract; it is not architectural authority.
+The historical baseline had 57 raw families, 22 normalized families and 121 analysis/catalog families.
+Every raw field must be mapped to a current typed owner before its source is deleted.
 
-**Pilot (behavioral profile).** Measured in P8 and in the PR5 qualification log:
+## 3. Global mechanisms
 
-| Measure | Value |
-|---|---|
-| Rows | 7,737,960 |
-| Canonical bytes | 321.5 MiB |
-| Compile time | 473.9 s |
-| Validation time | 177.2 s |
-| Summary flows | 23 |
-| Discharges proved | 0 of 2,107 |
+### 3.1 Typed domain ownership
 
-The duplicated semantic decisions and served-fidelity findings are recorded in review §2 and §7.
+`Id<T>` distinguishes targets. Entity keys, qualified assertion keys and support/run keys have
+separate meanings. One generated typed key supplies equality, hashing and ID derivation. Conditions,
+modality and approximation distinguish assertions; repeated supports never strengthen a conclusion.
+Conflicting payload for an equal key is rejected unless an explicit domain merge owns it.
+Field type, key participation, reference role and provenance are orthogonal. Collections of references
+become relationship rows. Tagged sums enforce the active payload, absent inactive arms, and the
+difference between an absent arm and a present optional value. Subtype references enforce the subtype.
 
-## 3. Global mechanisms, built in phase 0 and used throughout
+A root manifest declares membership once. Only a privately constructed `ValidatedModel` admits
+storage and execution. Generated declarations, Arrow schemas/codecs and relation inventories derive
+from domain definitions. The derive handles actual shapes rather than becoming a general DSL.
+`serde_arrow` 0.15.1 uses explicit schemas and Arrow 59; SeaQuery 1.0.2 lowers SQL in the store owner.
+Salsa remains internal to ty 0.28.2. No new incremental or inference engine is introduced without a
+consumer. SQLx, pgpq, the provider fork and the bounded BDD kernel keep their narrow responsibilities.
 
-### 3.1 `lctx-model` (new crate)
+### 3.2 Immutable generation schemas
 
-**Purity.** Pure, with no DataFusion, SQLx or I/O. Dependencies: `arrow-*`, `blake3`,
-`biodivine-lib-bdd`, `serde`/`serde_json`, `schemars`.
+Each generation owns ordinary tables in its own schema. A stable control schema owns state,
+manifests, receipts and selection. There are no parent partitions or attach/detach transitions.
+Keys and foreign keys are generation-qualified; local cyclic references are supported by creating
+tables and keys before references. Semantic and physical schema digests are distinct from producer
+and content digests.
 
-| Module | Owns |
-|---|---|
-| `decl` | `relation!` and `codebook!`, the `RelationId` registry, generated Rust/Arrow types, and a declaration metadata API (layer, roles, coverage scope, polarity, fidelity, serving exposure) |
-| `id` | The `IdKind` enumeration, `IdHasher` v2 (which requires an `IdKind`), recipes, and known-answer vectors |
-| `vocab` | Entity and occurrence kinds; `Place`, `PlaceRoot`, `AccessPath` (k ≤ 2, unknown suffix); the owner rule; the innermost-region join rule |
-| `calls` | The five call policies; the binder (a pure function over call syntax, target alternative and signature variant); the effective-callable contract |
-| `transfer` | Kinds, the composition table, provenance classes, and the call-site composition operator |
-| `condition` | The ported bounded kernel and primitive theory; atom identity v2; rendering from capped satisfying paths |
-| `obligation` | The obligation codebook (a union of the legacy boundary and refusal reasons, with a legacy mapping), priority, named budgets, the verdict function and the discharge-validity function |
-| `derivation` | The derivation-source registry and generated `derivations`/`derivation_premises` view text |
-| `projection` | Projection declarations: universe, arc sources from policies, direction, parallel and unresolved policies |
-| `stage` | The stage table, scheduler, writer-uniqueness and read-before-write checks, and code identity |
-| `ddl` | Generated PostgreSQL DDL, constraints, codebook tables, indexes, grants and view text |
-| `legacy` (temporary) | Adapter declarations, declared quirks and divergences, legacy-ID relation declarations |
+Lifecycle: staging → sealed → validated → published; failed and retired are terminal. Selection is a
+separate pointer. Sealing waits for writes and removes writer access before stored-content validation.
+A receipt binds sealed content to the complete required validator set. Publication changes state and
+grants atomically. A reader validates model/schema identity and holds a lease for its lifetime.
+Retirement requires an unselected generation and exclusive access, then removes schema and registry
+state atomically. Lost leases invalidate readers. Failed attempts are never repaired in place.
 
-### 3.2 Store kernel (`lctx-postgres`)
+### 3.3 Typed stage execution
 
-**Layout.**
-- Schema `lctx` holds one list-partitioned parent per canonical relation. The partition key is
-  `generation_id`; legacy relations keep their `snapshot_id` column name until re-declared (§4.1 D6).
-- Codebook tables live alongside them.
-- A `generations` registry records state, profile, `ddl_digest`, compiler, producer and content
-  digests, timestamps and receipts. `generation_relations` holds per-relation receipts,
-  `generation_events` holds transitions and stage receipts, and `relations` is the installed
-  relation catalog.
-- Each generation's partitions live in their own schema, `lctx_g<32hex>`.
-- **Roles.** The abstract roles are owner, writer (staging only) and reader (published only). They
-  are the existing `lctx_migrator`, `lctx_importer` and `lctx_serving` roles (§4.1 D5).
-- **DDL.** The canonical DDL is generated from the declarations and installed by an explicit
-  `lctx store install`, which records its digest. A contract change is an explicit `lctx store reset`
-  (§4.1 D3).
-
-**Lifecycle API:** `create_generation` (owner-created staging tables with partition CHECKs) →
-`copy_batches` (binary COPY via pgpq, straight into staging) → `mark_validated` (indexes built;
-DataFusion validators passed) or `fail_generation` → `publish_generation` (one SECURITY DEFINER
-transaction that attaches every partition and revokes writer access) → `select_generation` →
-`retire_generation` (`DETACH … CONCURRENTLY`, then drop the schema).
-
-**How constraints are checked.**
-- COPY enforces NOT NULL and CHECKs.
-- Index builds before `mark_validated` enforce keys.
-- ATTACH validates references.
-
-Loading unlogged, deferring validation and tuning index builds are later performance options.
-
-**Reading from DataFusion.** A DataFusion `SessionContext` is registered over a pinned generation
-through the owned provider fork. The canonical read mode lives in `cpg-core::store_read` (§4.1 D14).
-`lctx query --generation` uses it. A DataFusion memory pool is configured for every session, which
-also bounds recursive CTEs (review F07).
-
-**Tests** run on testcontainers PostgreSQL 18. They cover:
-- the lifecycle;
-- an aborted attempt staying invisible;
-- a retry creating a new generation;
-- injected violations of keys, references, codebooks and CHECKs being refused;
-- writes to published partitions being denied;
-- a pinned reader being unaffected by a later publication.
-
-### 3.3 Stage table and orchestrator
-
-**Declarations.**
-- Every stage declares:
-  - its input relations and output relations;
-  - its **transients**: in-memory handoffs that are never published;
-  - its declared **context** keys: digested non-relation attempt inputs;
-  - its effect class (pure, extraction, store, embedding). Embedding stages share one embedding
-    capability, and a single receipt stage writes the consumed-vector relations;
-  - the profiles it runs in;
-  - its code identity.
-- Legacy stages are declared the same way during the migration, marked `legacy`.
-
-**What is derived and checked.**
-- `attempt::finish` is replaced by a scheduler derived from the table: a pure Kahn order with a
-  deterministic tie-break.
-- The scheduler refuses:
-  - a published relation without exactly one writer per profile;
-  - a transient read before it is written;
-  - cycles.
-- At run time, each stage's session holds only its declared inputs, so an undeclared read fails.
-- Code identity generalizes the existing `build.rs` digests. The build-digest omission (review F11) is
-  fixed: producer identity covers every canonical producer.
-- Reuse keeps recompute-and-compare admission.
-
-### 3.4 Legacy adapters
-
-**What an adapter declares**
-- the legacy relation it produces;
-- its new input relations;
-- its computation (DataFusion SQL, or Rust where a legacy encoding needs it);
-- its **declared quirks**: legacy behavior deliberately reproduced;
-- its **declared divergences**: intentional differences. Each names its review finding or reason and a
-  row predicate.
-
-**Rules**
-- An adapter's output feeds only legacy consumers.
-- Build an adapter only where a legacy consumer outlives its producer by a phase. Otherwise migrate the
-  producer and consumer together (co-migration).
-- Delete the adapter in the phase where its last consumer cuts over.
-- Every adapter is listed in §5 with its planned deletion phase.
-
-### 3.5 Legacy identities
-
-Where a new recipe changes an ID (atoms, places, occurrences, flow facts, transfers):
-- The new producer emits a temporary side relation `legacy_ids_<family>(new_id, legacy_id)`, computed
-  with the legacy recipe during dual-run.
-- Adapters join through it, so legacy IDs are reproduced exactly.
-- All side relations are deleted in phase 5.
-
-### 3.6 Parity harness
-
-**Command:** `lctx parity --phase N --corpus <fixtures|pilot|all> --out <dir>`, plus
-`just parity N` for the full corpus.
-
-**Corpus**
-- every fixture package under `fixtures/python/` (compiled with `compile-fixture`, behavioral
-  profile);
-- the review's P0 fixture, now `fixtures/python/semantic_shapes/`;
-- the FastMCP pilot in the catalog and behavioral profiles.
-
-**How it runs.** Dual-run in one attempt: the legacy producer, then the new producer plus adapters.
-
-**What it compares**
-- every adapted legacy relation, as an exact multiset of canonically sorted rows, IDs included;
-- the served output: bundle/serving rows until phase 5, then MCP packet JSON for the PR5.7 journey set
-  plus fixed request sets per tool.
-
-**Verdicts**
-- Declared divergences are applied as predicates.
-- Any undeclared difference fails.
-- A self-test injects a divergence (the run must fail), declares it (the run must pass), and corrupts
-  an ID mapping (the run must fail).
-
-**Report.** JSON and a Markdown summary, archived in
-`docs/design_review/evidence/<date>_cutover-phase-N/`. They record, for each relation: equal, the
-declared-divergence row count, and failure samples.
-
-### 3.7 Tests
-
-**Test tiers**
-- **Pure unit tests (store-free):**
-  - `lctx-model` declarations;
-  - generated DDL, as a snapshot;
-  - policies, the binder, the composition table, the kernel, obligations and verdicts;
-  - the known-answer shape library: the review's P0 shapes and known-answer list as Arrow-level
-    inputs.
-- **Store tests:** testcontainers PostgreSQL 18.
-- **Fixture and pilot compiles:** the disposable dev cluster from `just pg-dev` (phase 1).
-
-**Keeping controls independent.** Existing tests move with their layer. Independent semantic controls
-stay independent (CI-12): the Pysa TITO control, the flow-soundness oracle and runtime challenges.
-Parity never substitutes for them.
+Stage input/output declarations alone own production; relation definitions do not duplicate writers.
+Model membership, writer uniqueness, required inputs, read-before-write and cycles (including self
+cycles) are checked. Provider outcomes are Complete, Partial, Failed or NotRequested. Output assembly
+preserves attribution and alternatives; consensus belongs to normalization. Each DataFusion stage
+sees only declared inputs and shares one attempt memory pool. Boundaries accept `Batch<R>`.
 
 ## 4. Phases
 
-Each phase lists work packages (WP) with their owning crate or module and deletion obligations.
+<a id="phase-0--core-contracts-store-kernel-and-migration-tooling"></a>
+### Phase 0 — Typed domain and executable contracts
 
-**Timing of checks**
-- During a phase: compile checks and focused tests only (AGENTS.md).
-- **Phases 0 and 1 are one implementation scope for check timing** (operator, 2026-09-29):
-  - the phase-0 exit runs its targeted tests and the WP0.10 review only;
-  - the integrated gates below run once, at the phase-1 exit.
-- At the phase exit, the phase is the authorized scope for integrated gates. The exit runs, in order:
-  1. the parity report;
-  2. `just fmt`;
-  3. `just test-all`;
-  4. a pilot compile in both profiles;
-  5. the MCP journey set;
-  6. recorded publication and read cost;
-  7. the review listed for the phase.
-
-Outcomes are reported as passed, failed, blocked or not_run, with the command.
-
-### Phase 0 — Core contracts, store kernel and migration tooling
-
-| WP | Scope and owner | Done when |
+| Package | Implementation and owner | Acceptance |
 |---|---|---|
-| 0.1 | `crates/lctx-model` scaffold; workspace and Hakari registration; `lctx-model` depends on neither `cpg-schema` nor `cpg-core`. Shared primitives (`Id`, `Digest`, `HashField`, `ArrowColumn`, `Codebook`) move into it and `cpg-schema` re-exports them (§4.1 D1) | builds; every `cpg-schema` snapshot unchanged (`just deps` runs at the phase-1 exit) |
-| 0.2 | `relation!`/`codebook!`, the `RelationId` registry, generated types, DDL and view text (`decl`, `ddl`) | snapshot of generated DDL for the sample declarations; no hand inventory API exists |
-| 0.3 | `IdKind`, `IdHasher` v2, recipes; `lctx_id` v2 UDF adapter in `cpg-core` with shared known answers | identity property tests: identity columns change the ID, provenance columns do not |
-| 0.4 | Vocabulary and policies (`vocab`, `calls`, `transfer`, `obligation`, `derivation`, `projection`): owner rule, innermost-region join, five call policies, binder, effective-callable contract, composition table, obligation codebook with legacy mapping, priority, named budgets, verdict and discharge validity | known-answer suites: binder over positional, keyword, default, varargs, kwargs, receiver and ambiguous calls; the policy admission matrix; the composition table; verdict cases |
-| 0.5 | Condition kernel ported to `condition` with atom identity v2 and rendering; the legacy kernel in `cpg-schema` stays for legacy code until phase 4 | ported kernel tests pass; the rendering truncation control passes |
-| 0.6 | Store kernel (§3.2) with DataFusion memory pool; the canonical provider read mode and session factory in `cpg-core`; the owned provider fork decodes declared `List` columns | the store test list passes, including the Arrow → COPY → provider type matrix |
-| 0.7 | Stage table and scheduler (§3.3); a static audit of every legacy SQL relation's declared dependencies against its plan's scans; producer identity covering every canonical producer (F11). The legacy stage table itself is declared in WP1.2, beside the stage extraction whose session records each stage's reads | refusal controls for missing, double and read-before-write writers; the audit's known discrepancies pinned |
-| 0.8 | Adapter, legacy-ID and parity frameworks (§3.4–§3.6); `lctx parity` | the parity self-test passes |
-| 0.9 | Known-answer shape library (§3.7) | used by 0.4 and 0.5 |
-| 0.10 | **Design/target review** of the core contracts against §15 (fresh `design-reviewer`) | accepted, or its revisions applied |
+| P0.1 | Replace governing decisions and this plan; map raw fields to model owners | No active compatibility target; no dropped raw information |
+| P0.2 | Domain groups: package/release/source/module; syntax/declaration; provider/context/run/assertion/support/coverage; call alternatives; type terms; flow/places/predicates/conditions; documents/package/deployment | Nominal references; acyclic source/occurrence keys; support separated from assertions |
+| P0.3 | Bounded `lctx-model-macros` derive, generated key/schema/codec, root membership, `ValidatedModel` | Positive and compile-fail controls; invalid sums/subtypes/duplicate keys refused |
+| P0.4 | Correct calls, structured paths, atom identity, transfer and verdict contracts | All C03–C13 controls below, retaining independent expected answers |
+| P0.5 | Typed stages, provider outcome contracts, restricted sessions | Missing/double writer, unknown input, self-cycle, failure/not-requested controls |
+| P0.6 | Production subset source → module → occurrence → assertion → support/coverage through permanent lowerings | Typed → Arrow → real PostgreSQL COPY → typed readback; fresh design review before scaling |
 
-Phase 0 deletes nothing; legacy stays whole.
+P0.4 requires structural length-tagged paths; occurrence-based atoms (including distinct with-items);
+separate potential higher-order and direct invocation; one owner for receiver classification and call
+normalization; complete target alternatives rather than row-count uniqueness. Transfer keys exclude
+accumulating conditions. Composition extends paths only through identity, maps all bindings, preserves
+local opaque guards and refuses unsupported substitutions. ControlInfluence and Selection are first-
+class relationships. ScopeBoundary yields unknown; value approximation creates an obligation;
+rendering truncation is not semantic uncertainty. Derivation premises are typed references.
 
-### Phase 1 — Store cutover (existing relations onto PostgreSQL)
+### Phase 1 — PostgreSQL store and runtime cutover
 
-| WP | Scope and owner | Done when |
+| Package | Implementation and owner | Acceptance |
 |---|---|---|
-| 1.0 | One declared type regime: the legacy read-back registers declared-type batches; `Params::ids` binds `List<FixedSizeBinary(n)>`; every session comes from the session factory (§4.1 D8) | existing compile, analysis and behavior tests and snapshots unchanged |
-| 1.1 | Legacy DDL shim: generate partitioned tables, keys, NOT NULL and CHECKs for the 200 legacy `table!` contracts. The `snapshots` contract is replaced by the registry. Legacy validation stays in the DataFusion rules; no legacy FKs are added | shim DDL snapshot; install on PG18; every legacy schema round-trips through COPY and the provider |
-| 1.2 | The legacy stage table (about 25 coarse stages, transients, per-profile writers; inputs from the WP0.7 audit and a read-recording session over the corpus) and stage bodies extracted verbatim, so the legacy `finish` and the pipeline share them; `pipeline::compute` (in memory, stage-table scheduled, input-restricted sessions) and `publish` through the generation lifecycle. Compile tests become store-free; publication semantics become store tests (§4.1 D7–D9) | the scheduler accepts the legacy table in both profiles and its published outputs equal the 200 legacy relations; converted tests pass; publication store tests pass |
-| 1.3 | Readers moved to pinned-generation provider reads: `rebuild` (reuse by server-side copy), `stage_cache`, `lctx query`/`diff`/`generations`, validation read paths, `db report`; `lctx_ops` and `db reconcile` deleted (§4.1 D11); `scripts/postgres_recovery.py`, `postgres_backup.py`, `tests/scripts/test_semantic_soundness.py` | reader tests on PostgreSQL |
-| 1.4 | Serving from the generation: the bundle queries run over the `Computed` session (compile) or the provider session (`serving materialize`/`export`); the existing `lctx_serving` loader is fed from memory; native IPC artifacts come from the generation; manifest and `generation_digest` semantics are kept. The portable export and `import-bundle` remain as declared test-continuity compatibility until phase 5 (§4.1 D10) | both sessions materialize identical manifests; the export rebuilds to the same bytes |
-| 1.5 | Dev environment: `just pg-dev` (disposable local PostgreSQL 18 in Docker); `just pilot` and `compile-fixture` use it; one role bootstrap file | fixture compile runs without the operator's database |
-| 1.6 | **Parity:** all 200 relations, Delta against PostgreSQL, across the corpus; registry receipts; serving manifests; MCP journeys in both profiles; a cross-binary row-count and journey sanity check against the `fedd4a0` pilot | report archived |
-| 1.7 | **Delete Delta.** Remove `delta.rs`, `snapshot.rs`, the legacy `finish`, Delta tests (their semantics rewritten as store tests) and the `deltalake` dependency. Edit `build.rs` `ENGINES`. Record the pin change through `pin-check`, with a family record superseding ADR-0002. Update `scripts/check_family.py` and `deny.toml`. Retire the ast-grep rules `delta-write-path.yml` and `no-raw-parquet-scan.yml`. Drop `deltalake` from `.config/library-skills.toml`. Rewrite storage §6 to the implemented store. Update AGENTS.md and the binding §5/§6 rows | `rg -i 'deltalake\|delta_kernel\|buoyant_kernel\|DeltaTable'` over code and configuration is empty |
-| 1.8 | **Integrated gates, run once for phases 0–1**, then the **change/conformance review** | accepted |
-| 1.9 | Operator cutover: migrate the operator database, recompile and select the pilot, delete superseded stores and generations (ADR-0078). Needs the operator's confirmation at that time | recorded |
+| P1.1 | `lctx-postgres` generated generation DDL and control catalog | Only validated model accepted; cyclic refs, codebooks, tagged sums and keys enforced |
+| P1.2 | Seal/validate/publish/fail/select/retire lifecycle, COPY and receipts | Real concurrency controls: late writes, failed validation, failed publication, lease/retirement race |
+| P1.3 | `cpg-core` provider sessions with pinned lease and digests | Readback fidelity; pinned read survives a different generation selection; digest mismatch rejected |
+| P1.4 | Quiesce old project runtime; remove Delta, partition kernel, bundles, adapters, legacy IDs and runnable downstream orchestration | No alternative store or compatibility flag; independent semantic expectations retained |
+| P1.5 | CLI model describe, store install/reset, generation list/select/retire, database/generation query; dev/test PostgreSQL and pin policies | Disposable database lifecycle; supported commands expose actual availability |
 
-### 4.1 Phase 0–1 execution decisions (2026-09-29)
+Do not delete unrelated PostgreSQL operational services or protected evidence. No stage may turn a
+suspended analysis into a fabricated empty result. Provider integration stays outside the Python
+storage wheel. Retirement must not rely on DETACH CONCURRENTLY recovery.
 
-These decisions execute ADR-0083 and ADR-0084 without changing them.
+### Phase 2 — Complete attributed facts
 
-| # | Decision | Reason |
+| Package | Implementation and owner | Acceptance |
 |---|---|---|
-| D1 | `lctx-model` sits below `cpg-schema`. `Id`, `Digest`, `HashField`, `ArrowColumn` and `Codebook` move into it, and `cpg-schema` re-exports them. The v1 `IdHasher` stays legacy | One `Id` type, so adapters never convert |
-| D2 | `relation!` is `macro_rules!` with one `model!` registry. Everything but row types is generated at run time from const metadata | No proc-macro crate; one registry |
-| D3 | Canonical DDL is generated at run time. It is installed by `lctx store install` with a recorded `ddl_digest`, which `create_generation` checks. A contract change is `lctx store reset` (current-only). The static kernel stays in SQLx migrations | Successor of Delta's create/verify. No committed generated copy exists to drift (F10) |
-| D4 | One schema `lctx_g<hex>` per generation. The owner creates staging tables with partition CHECKs; the writer COPYs directly; indexes are built at `mark_validated`; publish is one ATTACH transaction plus a revoke; retire is `DETACH … CONCURRENTLY` plus DROP | No double write or per-row trigger. Immutability comes from privileges. Names stay within 63 bytes |
-| D5 | The roles keep their existing names: owner `lctx_migrator`, writer `lctx_importer`, reader `lctx_serving`, cache `lctx_app`. One bootstrap SQL file | Avoids churning the serving grants before phase 5 regenerates migrations |
-| D6 | Legacy relations keep `snapshot_id` as the partition-key column; its value is the generation id (a declared quirk) | Renaming would be throwaway before phases 2–5 |
-| D7 | `pipeline::compute` holds every relation in memory as `Arc`'d declared-type batches, then `publish` stages all of them. The generation is validated only if the in-memory validators passed; otherwise it fails and stays inspectable (`--unpublished`) | ADR-0083 compute model; keeps the Tested rejected-attempt inspection |
-| D8 | The parity legacy side (declared compatibility, deleted in 1.7): one declared type regime first (1.0), then verbatim stage extraction, so the legacy `finish` and the pipeline share stage bodies. Dual-run in one process over the same raw batches and generation id | Parity then isolates exactly the store and orchestration change |
-| D9 | Compile tests become store-free; publication and reader semantics become testcontainers store tests (`#[ignore]`, `just test-postgres`) | `just test` stays Docker-free |
-| D10 | Serving: bundle queries over the `Computed` or provider session; the `lctx_serving` loader is fed from memory; the portable export and `import-bundle` stay as the Python tests' independent oracle until phase 5 | Test outcomes stay continuous; legacy serving is removed in phase 5 |
-| D11 | `lctx_ops` and `db reconcile` are deleted; the registry and `generation_events` supersede them | Discovery and journaling existed because the store was outside PostgreSQL |
-| D12 | `--store <dir>` becomes `--database` plus `--work <dir>`; `--snapshot` becomes `--generation` | The store is the database |
-| D13 | `GenerationId` (16 bytes, canonical) and `ProjectionDigest` (32 bytes, legacy serving) are never blurred | "Generation" already had three meanings |
-| D14 | The canonical provider session and session factory live in `cpg-core`; `lctx-postgres` keeps SQL effects only, amending §15.1's owner line | The PyO3 `lctx_storage` wheel must not link DataFusion |
+| P2.1 | Finish every raw domain family and old-field disposition in model | All existing raw information preserved; no references to future L1 entities |
+| P2.2 | Convert `cpg-extract` and `cpg-flow` to typed producer bundles | Provider indices confined locally; preserve pinned acquisition, shared Pyrefly/Ruff parse, ty second parse |
+| P2.3 | Single assembly owner and indexed source/span/kind/role join | Scalar oracle agrees; names, attributes, subscripts, nested/same spans and `.py`/`.pyi` controls; ambiguous stays unresolved |
+| P2.4 | Canonical atoms/BDD; structured paths; attributed support and coverage | Shuffled-input determinism; unknown/partial/not-requested distinguished; no independent DNF |
+| P2.5 | `compile <library> --through facts --profile catalog\|behavioral --database …` | Required provider failure aborts; explicit partial facts disclose limits; actual availability frontier |
+| P2.6 | Delete obsolete extraction schemas/hashes/conditions and finally `cpg-schema`; rebuild facts generations | Both profile facts pilots and fixture corpus; no old runtime copy; MCP remains unavailable |
 
-### 4.2 Execution status (updated 2026-09-29)
+Content equality excludes timestamps and measurements. Fresh recomputation is required; stage cache
+optimization is deferred. Once all functional packages are done, run `just fmt`, updated
+`just test-all` (including real store and compile-fail tests), facts pilots for both profiles,
+`just docs-check`, assembled design review and handoff. Report suspended product/MCP gates separately
+as not_run, not as restored product qualification.
 
-Checks so far are targeted, per the phase 0–1 timing rule. Integrated gates are `not_run` until the
-phase-1 exit.
+### Phase 3 — Normalized relations
 
-| WP | Status | Commit | Targeted evidence (all `cargo nextest run --release`) |
-|---|---|---|---|
-| E0 | Done | `e66d1f8` | Decisions D1–D14 recorded here; P0 fixture moved to `fixtures/python/semantic_shapes/`; `just docs-check` and `just adr lint` passed |
-| 0.1 | Done | `9e1a3c3` | `lctx-model` scaffolded; `Id`, `Digest`, `IdHasher`, `ArrowColumn`, `HashField` and `Codebook` moved in and re-exported by `cpg-schema`; `-p cpg-schema -p lctx-model`: 124 passed, every snapshot unchanged |
-| 0.2 | Done | `a53d0ff` | `relation!`, the `model!` registry (empty until phase 2), `validate`, identity recompute, the DDL renderer and templates; sample-model DDL and digest pinned |
-| 0.3 | Done | `8ae5faf` | `IdKind` codebook, `lctx-id/v2`, `recipe!`, the `lctx_id_v2` UDF; hand-written encoding control, known answers, proptest, and every recipe equal to its SQL form |
-| 0.5 | Done | `0d9fc8a` | Kernel ported onto v2 atom ids, with no DNF half; bounded existential elimination added; primitive theory ported; laws, truth table, budgets, catalog validation and the rendering truncation control |
-| 0.4, 0.9 | Done | `d9832c6` | Vocabulary, five call policies, the one binder, transfer algebra and `compose_call`, obligations and verdicts, derivation views, projections; P0 shape library with its known answers; policy SQL equals Rust on 5,040 fact combinations; legacy boundary codes equal obligation codes |
-| 0.6 | Done | `fe0e99a` | Store kernel migration and `store.rs`, the one bootstrap SQL, the session factory, canonical provider reads; `lctx-postgres --test store`: 7 passed on real PG18; `cpg-core --test store_read`: the full type matrix round-trips (NaN, −0.0, lists, nulls) |
-| 0.7 | Done (phase-0 scope) | `4e3418e` | The stage scheduler with its refusal controls; the dependency audit, whose known discrepancies are pinned; producer identity covering every canonical producer (F11); rebuild tests: 8 passed |
-| 0.8 | Done | `f8870ce` | Adapter and legacy-id declarations, the arrow-row multiset diff, the harness; `lctx parity self-test`: all 7 controls behaved |
-| 0.10 | **Review delivered: Revise** | (review file) | [Cutover-core review](../design_review/reviews/design_review_cutover-core_2026-09-29.md): A1 satisfied, A2 violated, A3 unresolved. Must fix before phase 1 relies on the store: C01 (retirement is not atomic, locked or resumable; self-referencing partitions cannot detach), C02 (readers do not check `ddl_digest`), C03 (stage/relation references are unchecked strings, and `RelationDecl.stage` is unlinked). C05(a), C08 and C09 are cheap to fix now. C04–C07 and C10–C14 are contract evolution in their owning phases. WP0.10 closes once C01–C03 are applied and the rest are entered in §8 |
-| 1.0 | Done | `e267f3d` | Every session is declared-type; `Params` bind `FixedSizeBinary` lists; `cpg-core` all tests: 158 passed plus the fixed syntax suite (22 passed); `lctx`: 10 passed |
-| 1.1–1.9 | Not started | — | — |
+Restore entities, normalization, effective callables, signatures, bindings, policy views and program
+projections using the same typed model. Independent semantic controls remain required.
 
-**Deviations from the plan text, to confirm in WP0.10**
-- **No provider-fork patch (WP0.6).** List columns are read with nullable items and cast to their
-  declared items in `store_read`.
-- **Kernel schema (WP0.6).** The static kernel lives in schema `lctx_store` (registry, relation
-  catalog, lifecycle functions). Generated relations live in `lctx`, so `lctx store reset` can drop
-  `lctx` whole.
-- **Lifecycle refinements (WP0.6).**
-  - Validation runs one relation per call (`validate_relation`), because the writer's statement and
-    transaction timeouts are 30 s.
-  - Publish grants the reader `SELECT` on the generation's partitions, so a pinned read scans one
-    partition.
-  - Retire drops each detached partition, referrers first, because a detached partition keeps its
-    foreign keys.
-- **Vocabulary and policy choices (WP0.4).**
-  - The `Occurrence` place root generalizes "local binding occurrence" to argument and call-result
-    occurrences.
-  - The `summary` policy admits only call and init phases, so it is a subset of `dataflow`.
-  - A budget obligation's verdict is `unknown`, not `not_analysed`.
-  - `IdKind` gains `ddl` and `projection`.
-- **Resequencing (WP0.7).** The legacy stage table moved to WP1.2.
-- **F11 (WP0.7).** Whole-publication rebuild reuse now compares full producer identity, so a change
-  to association code recomputes instead of reusing.
+### Phase 4 — Analysis and catalog
 
-**Open findings from the work so far**
-- **Undeclared reads.** The dependency audit shows four legacy relations reading undeclared tables:
-  `argument_flows`, `handoffs`, `usage_candidates` and `flow_model_roots`. The WP1.2 legacy stage
-  table declares their true inputs.
-- **Tests with a fixture prerequisite.** Real-PG serving and provider tests that need
-  `LCTX_TEST_PROJECTION` were `not_run` in the targeted runs; `just test-postgres` supplies the
-  fixture at the phase-1 exit.
-- **Rebuilding the Python extension.** `lctx_storage` must be rebuilt (`uv sync
-  --reinstall-package lctx-storage`) whenever the migration set changes, because its exact
-  migration check refuses a stale build.
+Restore transfers, obligations, summaries, behavioral evidence, catalog and retrieval. Findings remain
+open until assembled consumers demonstrate the intended semantics. A removed implementation does not
+retire its capability obligation.
 
-### Phase 2 — Facts (L0 observations)
+### Phase 5 — Serving
 
-| WP | Scope and owner | Done when |
-|---|---|---|
-| 2.1 | Declare the L0 relations in `lctx-model`: sources and modules, syntax occurrences, declarations, Pysa call facts (origin, implicit flag), ty flow facts with structured places, occurrence-keyed atoms and test leaves, types, documents, package metadata, runs, contexts, producers, facts, coverage | DDL snapshot; store tests |
-| 2.2 | Rewrite extraction (`cpg-extract`, `cpg-flow`) to emit them: one innermost-region join; parity rules for name, attribute and subscript places; no ty-internal indices in identities; legacy-ID side relations for atoms, flow facts and occurrences | focused extractor tests on the fixtures |
-| 2.3 | Raw legacy adapters for every raw table still read by legacy stages (legacy atom encodings and DNF inputs are declared quirks) | adapter list matches §5 |
-| 2.4 | **Parity** across the corpus | report archived |
-| 2.5 | Delete legacy extraction writers and legacy raw `table!` producers; raw legacy tables now exist only as adapter outputs | `rg` shows no legacy raw writer in the extraction crates |
-| 2.6 | **Change/conformance review** | accepted |
+Generate views and inventories from the model; restore native executor/MCP against one leased
+published generation. No bundle import or copied serving schema. Qualify end-to-end journeys before
+resuming PR6 or new features.
 
-### Phase 3 — Normalized relations (the CPG)
+### 4.1 Execution decisions
 
-| WP | Scope and owner | Done when |
-|---|---|---|
-| 3.1 | L1 relations and derivations: entities (with symbol keys), occurrences with the owner rule, places, call sites, targets and resolutions (implicit invocations disclosed), the five call-policy views, effective callables (decorator/wrapper normalization moved out of `surface.rs`), signatures and parameters, call bindings from the one binder, exports and public paths | known-answer and fixture tests |
-| 3.2 | Role-generated graph catalog (`nodes`/`edges` materialized, `edge_kinds` with a reader or retired) and projection declarations | catalog equality against legacy through the adapter |
-| 3.3 | Derived legacy adapters: the 22 derived tables, and the legacy call-edge variants still read by analysis stages (`flows` arcs, `summary_call_arcs`, `model_applications` input, usage candidates, evidence edges), each declared as a quirk mapped to its policy | adapter list matches §5 |
-| 3.4 | **Parity** | report archived |
-| 3.5 | Delete legacy `Derived` implementations, the `EdgeSource`/`NodeSource` registry, `ProjectionSpec`, and the legacy binders' SQL where their consumers co-migrate | `rg` check |
-| 3.6 | **Change/conformance review** | accepted |
+ADR-0085–0087 supersede the earlier execution decisions. No compatibility, parity-to-bug requirement,
+partition migration or upfront ablation is authorized. Independent behavior controls remain required.
 
-### Phase 4 — Analysis and catalog (L2/L3)
+### 4.2 Execution status
 
-| WP | Scope and owner | Done when |
-|---|---|---|
-| 4.0 | **Ablation triage** (§6). Operator decisions are recorded before any migration in this phase | §6 complete |
-| 4.1 | Canonical conditions: catalog, atoms, renderings, `condition_id` everywhere; delete the legacy DNF computation and the legacy kernel in `cpg-schema` | no `BoundedCondition` legacy half |
-| 4.2 | Transfers (`flow_local`) from the flow model; control influences; obligations and coverage; behaviors as a derivation over transfers, rendered from the final composed kind (review F04) | P0 shapes: `facade` renders `unchanged`; controls hold |
-| 4.3 | Summaries and composition: `derived_summary` and `composed` transfers through bindings and the SCC schedule; a bounded frontier that distinguishes the cost cap from dominance (review F07); discharge through the one validity function (producer, validator and native share it) | P0 rerun answers per-branch supply; a cost-cap control reports a proof limit |
-| 4.4 | Models as data: authored models become `authored_model` transfers keyed by symbol key; Pysa TITO becomes `provider_summary`; the FastMCP registration recognizer becomes a named, pinned authored model (review F13) | model known answers; TITO control |
-| 4.5 | Catalog on the new relations. Field links become `catalog_field_link` transfers, generalized to plain classes. Contracts and tri-state parameter defaults (review F01). Associations carry basis and origin through every projection, with a storage role (F02, F03). Scenarios, deployments, selection domains. The classifier evaluates tri-state evidence and reports a budget reason (F01, F07). Retrieval units become a declared relation | F01/F03 controls; provider-constructor, factory-default and candidate-only fixtures return `Unresolved` |
-| 4.6 | Analytics: the projection runtime (shared dense index, adjacency in both directions, arc IDs, views); Pass A on `invocation`; Pass B/C on `dataflow` and transfers; communities, ranking, FCA/RCA and kNN as §6 decides; one findings emitter with input invocations; `MemberKey` fixed, with a finding-ID recompute rule (F08, F09) | shuffled-input determinism; lineage rules |
-| 4.7 | Derivation sources declared for every step and proof relation; `derivations`/`derivation_premises` views; negative claims gated by coverage scope | a "why unresolved" query answers from the views |
-| 4.8 | Legacy analysis adapters only for serving-read tables; **parity**; delete the legacy producers, including retired engines and their tests | report archived; `rg` check |
-| 4.9 | **Change/conformance review** | accepted |
+**In progress: P0.1–P0.3/P0.5/P0.6 foundations.** Replacement decisions and revised plan accepted.
+Implemented a bounded derive for records, codebooks and tagged sums; nominal IDs, generated keys,
+explicit-schema codecs, subtype references, validated membership and a typed stage schedule. The
+production subset covers source/module/occurrence, provider/context/run, syntax support and coverage.
+The generation store has ordinary schema lowering, COPY, seal/validate/publish, leased reads,
+selection, retirement and abort cleanup. It is not connected to the production compiler or CLI.
 
-### Phase 5 — Serving and zero legacy
+Focused evidence (2026-09-29; commands prefixed by `python3 scripts/build_environment.py --`):
 
-| WP | Scope and owner | Done when |
-|---|---|---|
-| 5.1 | Generated serving views, grants and lookup indexes. `lctx-postgres/queries` rewritten over views. Set-based hydration. A generation-scoped prepared catalog built once per pinned generation (review F12). Browse discloses unknown ownership; search discloses the reason for lexical-only fallback; `EmptyUnderCoverage` cites association coverage | real-PostgreSQL query tests |
-| 5.2 | Wire DTOs derived from relation rows; Python keeps rendering models only; all MCP tools switch; served conditions carry `condition_id`; the explanation tool or section uses the derivation views | schema, Serde and MCP parity |
-| 5.3 | Native executor reads generation relations (optional derived IPC cache) and uses the `lctx-model` verdict, discharge and condition functions | native tests |
-| 5.4 | Retrieval on declared relations; lexical parameters in the policy digest (F13) | retrieval controls |
-| 5.5 | **Delete** all adapters, legacy-ID relations and legacy declarations; `cpg-schema` (wire, selection and retrieval contracts moved to `lctx-model`); `bundle.rs`, `serving_projection` inventories, the `lctx_serving` materialization, `NATIVE_FILES` and every hand inventory. Regenerate migrations fresh (current-only, ADR-0078) | the §1 completion checks pass |
-| 5.6 | Qualification: `just fmt`, `just test-all`, pilot in both profiles, the PR5.7 journey set plus new journeys (served condition IDs, why-unresolved explanation, plain-class configuration), `just docs-check`, generation cutover and obsolete runtime deletion | recorded outcomes |
-| 5.7 | **Assembled design/target review.** Handoff; resume PR6 in the forward plan | accepted |
-
-## 5. Legacy relation map
-
-Only relations with a legacy consumer surviving a phase get adapters. The inventory is generated from
-the stage table in WP0.7 and kept current there; this table fixes the policy.
-
-| Legacy group | Count | Produced by the new model from | Adapter lifetime | Co-migration |
-|---|---|---|---|---|
-| Raw tables (`for_each_table!`) | 57 | Phase 2 | Phases 2–3; those read by analysis live until phase 4 | Delete as soon as no legacy stage reads them |
-| Derived tables (`for_each_derived_table!`) | 22 | Phase 3 | Phase 3 to phase 4 | Graph-catalog tables co-migrate with Pass A where possible |
-| Analysis, catalog and evidence tables (`for_each_analysis_table!`) | 121 | Phase 4 | Phase 4 to phase 5, only for serving-read tables | Unserved tables co-migrate with their consumers |
-| Serving files and native files | 72 + 29 | Phase 5 | None; replaced by generated views. The portable export and `import-bundle` remain the Python tests' oracle until then (§4.1 D10) | — |
-
-## 6. Research-engine and analytics triage (phase 4 entry)
-
-**Protocol.** For each engine, publish the pilot (both profiles) and the full fixture corpus with the
-engine disabled. Its outputs are then empty, and its dependent obligations stay open. Compare:
-- served MCP output for the fixed request sets;
-- the retained regression controls.
-
-If both are unchanged, retire the engine: delete its code, tests and relations, and supersede its ADR.
-Otherwise migrate it onto transfers and obligations. **The operator confirms each row.**
-
-| Engine or variant | Pilot yield (P8) | Main consumer today | Expectation | Decision |
-|---|---|---|---|---|
-| Finite value summaries and local composition (`summaries/finite.rs`) | 23 flows | `inspect_value_paths`, discharge | migrate: its composition is the §15.6 operator | — |
-| Discharge (`summaries/discharge.rs`) | 0 of 2,107 proved | behaviors | migrate as the one validity function | — |
-| Completion kernel (`completion.rs`) and expression evaluator (`evaluation.rs`) | 25,648 / 120,262 step rows | summary admission premises | ablation decides | — |
-| Frame exits, source-call normals, call execution | 13 / 4 / 7 rows | summary admission | ablation decides | — |
-| Context protocols and context values | — | summary admission | ablation decides | — |
-| Modeled and parameter identities | — | modeled reads | ablation decides | — |
-| Actions (triggers, postconditions) | — | models | ablation decides | — |
-| Two-stage source-call execution (`execution.rs`) | — | normals | ablation decides | — |
-| Pass B from every public callable | 3.7 s | behaviors | migrate onto the `dataflow` policy and transfers | — |
-| Communities, PageRank, FCA/RCA, kNN (off by default) | — | Related support (`+variants`) | ablation decides, under ADR-0071's consumer rule | — |
-
-## 7. Tooling, pins, skills and documents by phase
-
-| Phase | Changes |
+| Command | Outcome and boundary |
 |---|---|
-| 0 | New crate `lctx-model` (pins unchanged; `pin-check` for any new direct dependency); new `lctx parity` subcommand; `just parity` |
-| 1 | Remove `deltalake`, with a family record superseding ADR-0002; `just pg-dev`; `check_family.py`; retire Delta ast-grep rules and the `deltalake` skill selection; storage §6 and §B7/§B12 implemented text; AGENTS.md "The pieces" and Commands; binding §5/§6 |
-| 2 | facts-and-identity §3.1–§3.7 and behavior-model §3.9 implemented text for observations and atoms |
-| 3 | facts-and-identity §3.8 and storage §5 implemented text; analytics §9 projection text |
-| 4 | behavioral-analysis §9.9, behavior-model §3.9, product §14.3–§14.8 implemented text; ADR supersessions for retired engines |
-| 5 | synthesis-and-serving §10–§11, §B13/§B14, product §14.9–§14.11; retire `cpg-schema` references in AGENTS.md; regenerate the architecture map |
+| `cargo test --release -p lctx-model --test domain` | passed: 10 focused domain controls, including sum null semantics and nominal subtype construction |
+| `cargo test --release -p lctx-model --doc` | passed: five negative declarations with five positive partners; one pre-existing ignored legacy example |
+| `cargo test --release -p lctx-postgres --test generations` | passed: real disposable PG18 typed source/support/coverage round trip; writer drain and revocation; stored reference and subtype refusal; pool-bound reader leases; retirement, selection, contract mismatch and failed-attempt cleanup |
+| `just docs-check`; `uv run python scripts/adr.py lint` | passed: documentation publication and current decision references; not architecture qualification |
+| `just fmt`, `just test-all`, facts pilots | not_run: functional scope incomplete |
 
-A section's implemented text changes in the phase where its layer cuts over. Until then, the §15
-target and the legacy text coexist, each labelled.
+The independent interim storage review found five defects. Nested options are now rejected,
+unsupported digest arrays excluded, leases keep their pool permits, and failed attempts have atomic
+cleanup. Model fingerprints include owned semantic/generator sources and dependency manifests;
+external fixture declarations must supply semantic source bytes. Source inspection accepted the
+corrections within this boundary; concurrent/cancelled abort and the new sum/subtype design still
+require the assembled P0 review.
+
+**Still open:** complete raw-field disposition and domain families; P0.4 semantic policies and indexed
+join; stage runtime/session enforcement; bounded large-table reads; complete store/CLI commands;
+producer migration; deletion and quiescence. The old pipeline and framework remain present, unwired
+to the new generation path. No adapter between them has been added. No phase exit is qualified.
+Earlier phase-0/WP1.0 receipts do not qualify this target.
+
+## 5. Deletion and preservation obligations
+
+Delete legacy code by ownership boundary after preserving raw-field mappings and independent controls.
+No legacy adapter inventory is maintained. Preserve fixtures, oracles, protected benchmarks, evaluation
+isolation and unrelated operational services. Git retains removed implementation. Old runtime readers
+must be quiesced before replacing or retiring project state.
+
+## 6. Deferred capability obligations
+
+Phase 4 retains finite summaries/discharge, completion/evaluation, frame exits and call execution,
+context protocols/values, modeled identities/actions, behavioral reachability, communities/PageRank,
+FCA/RCA and optional kNN wherever their existing consumer remains. Retirement needs consumer evidence
+and an explicit decision; deleting old code during reconstruction does not retire these obligations.
+
+## 7. Tooling, pins, skills and documents
+
+Phase 0 adds the bounded derive and explicit Arrow codec dependencies. Phase 1 removes Delta family
+and skill selection and replaces store/CLI/PG test commands. Phase 2 updates fact owners and tests.
+Model, PG and producer digests, generated declarations and SQLx metadata must be regenerated from their
+owners. Phases 3–5 update their owners when implemented. No documentation labels target as Tested
+without corresponding evidence.
 
 ## 8. Findings disposition
 
@@ -476,25 +229,37 @@ phase named, and only on its closure evidence.
 **Operator decision (2026-09-29).** Do not repair these in the legacy code. The new contracts must
 make them unrepresentable.
 
+
+### Core review findings
+
+All findings from the [core review](../design_review/reviews/design_review_cutover-core_2026-09-29.md)
+remain open; acceptance requires implementation plus focused evidence and the P0.6 review.
+
+| Finding | Owner and closure |
+|---|---|
+| C01 | P1.2/P1.3: schema-per-generation retirement, reader lease and select/retire concurrency controls |
+| C02 | P1.3: reader rejects model/physical digest mismatch before decoding |
+| C03 | P0.5: typed model membership and sole stage writer authority, including self-cycle refusal |
+| C04 | P0.4/P2/P3: attributed direct/potential/higher-order alternatives; one normalization owner |
+| C05 | P0.4: paths compose only through identity; map complete binding sets and boundary outputs |
+| C06 | P0.4: preserve opaque local guards; refuse unsupported substitution rather than erase conditions |
+| C07 | P0.4: typed ControlInfluence and Selection with separate value-transfer meaning |
+| C08 | P0.4: transfer key excludes merged condition; stable derivation references |
+| C09 | P0.4: scope-boundary unknown; approximation obligation; rendering budget separate |
+| C10 | P0.4: receiver Unknown and one classification policy |
+| C11 | P0.2/P2: acyclic source identities, typed syntax kinds and structural occurrence discriminators |
+| C12 | P0.4/P2.3: indexed region join with scalar oracle and unresolved ambiguity |
+| C13 | P0.3/P3–P5: derivation targets follow typed references and generated view grants |
+| C14 | P0.1: DESIGN §15.1 assigns provider registration to cpg-core and PostgreSQL effects to lctx-postgres |
+
 ## 9. Risks
 
-| Risk | Mitigation |
-|---|---|
-| Core design errors surface late | Contracts stay open until their layer cuts over; phase-0 design review; the known-answer library is the core's test suite from day one |
-| Parity noise from nondeterminism | Canonical sort everywhere; fixed seeds; the self-test; shuffled-input controls kept |
-| Loss of Tested semantics | Independent controls migrate with their layer; retirements only by ablation evidence plus operator confirmation |
-| Publication or read cost on PostgreSQL | Recorded at each phase exit; tuning options are listed in §3.2; never a gate (operator) |
-| Long product pause | The product keeps working on adapter output through phase 4; phase exits are small and objective |
-| Adapter sprawl | Co-migration rule; §5 lifetimes; any adapter surviving its planned phase is a finding |
-| Sealed evaluation assets | `eval/heldout` is never read or moved; gold and eval scripts move only in their tooling phase |
+The principal risks are incomplete raw-family migration, parallel semantic definitions, invalid
+publication races and accidental claims of restored downstream capability. The field mapping, single
+root model, real concurrency tests and generation availability frontier address these directly.
 
 ## 10. Deferred, each with a trigger
 
-| Item | Trigger |
-|---|---|
-| Skip-on-key stage reuse | ADR-0081's measured workload trigger |
-| Publication/read performance tuning | A phase-exit cost the operator judges too high |
-| salsa, ascent, moka, typed-index-collections, roaring | Their §14.11 and forward-plan §7 triggers |
-| CFG and post-dominators (petgraph `simple_fast` on `Reversed`) | A claim that ty reachability conditions cannot express |
-| Cross-release diff, dependency-library summaries | The first consumer of symbol keys |
-| PR6 comparative confirmation | Phase 5 exit |
+Stage reuse requires the existing measured-workload trigger. New reasoning engines and application
+Salsa require a concrete consumer. PostgreSQL performance tuning follows measured phase-exit costs.
+Cross-release symbol matching waits for its consumer. Product PR6 waits for phase 5 qualification.

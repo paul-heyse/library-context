@@ -1,6 +1,6 @@
 # Validation and evaluation
 
-**Target, 2026-09-29.** [§15](semantic-model.md) (ADR-0082/0083/0084) is the accepted target, and the [cutover plan](../../plans/semantic-model-cutover-plan_2026-09-29.md) delivers it layer by layer. Phase 1 moves publication validation onto database constraints plus DataFusion semantic validators (§15.11). Until that phase exits, this page describes the implemented legacy pipeline.
+**Target, 2026-09-29.** [§15](semantic-model.md) (ADR-0085/0083/0084) is the accepted target, and the [cutover plan](../../plans/semantic-model-cutover-plan_2026-09-29.md) delivers it layer by layer. Phase 1 moves publication validation onto database constraints plus DataFusion semantic validators (§15.11). Until that phase exits, this page describes the implemented legacy pipeline.
 
 This owner states what the system checks and how its answers are judged. **§8** covers
 publication validation: the rules every snapshot passes before it becomes visible, and the
@@ -93,7 +93,7 @@ real-provider fixtures, served round trips) are kept separate from derived valid
 `ORDER BY`; every `row_number()` ends in a unique tie-break; every cast in validation code uses
 `safe: false`.
 
-> Decision: ADR-0083, ADR-0046, ADR-0015
+> Decision: ADR-0086, ADR-0046, ADR-0015
 
 ### §8.1 Independent oracles (the validation lane)
 
