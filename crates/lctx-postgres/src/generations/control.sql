@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS lctx_model_store.generations (
     model_digest bytea NOT NULL CHECK(octet_length(model_digest)=32),
     physical_digest bytea NOT NULL CHECK(octet_length(physical_digest)=32),
     producer_digest bytea NOT NULL CHECK(octet_length(producer_digest)=32),
+    schedule_digest bytea CHECK(octet_length(schedule_digest)=32),
     content_digest bytea CHECK(octet_length(content_digest)=32),
     profile text NOT NULL CHECK(profile IN ('catalog','behavioral')),
     frontier text NOT NULL CHECK(frontier IN ('conformance','facts','normalized','analysis','serving')),
@@ -37,6 +38,13 @@ CREATE TABLE IF NOT EXISTS lctx_model_store.validation_receipts (
     model_digest bytea NOT NULL CHECK(octet_length(model_digest)=32),
     physical_digest bytea NOT NULL CHECK(octet_length(physical_digest)=32),
     PRIMARY KEY(generation_id,validator_name)
+);
+CREATE TABLE IF NOT EXISTS lctx_model_store.stage_receipts (
+    generation_id bytea NOT NULL REFERENCES lctx_model_store.generations(id),
+    stage_name text NOT NULL,
+    relation_name text NOT NULL,
+    schedule_digest bytea NOT NULL CHECK(octet_length(schedule_digest)=32),
+    PRIMARY KEY(generation_id,stage_name,relation_name)
 );
 CREATE TABLE IF NOT EXISTS lctx_model_store.selection (
     singleton boolean PRIMARY KEY CHECK(singleton),

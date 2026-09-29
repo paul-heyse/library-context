@@ -355,6 +355,12 @@ connected to the production compiler or CLI. No compatibility adapter connects t
   admission and failure cleanup. A flat sorted index retains scalar-oracle equivalence. This qualifies
   attachment buffers only, not parser/validator/COPY totals or process RSS.
 - Typed stage access refuses undeclared reads/writes and incomplete, failed or cancelled execution.
+  Schedules now bind profile, effect, producer code and configuration. The PostgreSQL conformance
+  sink binds one execution exclusively, rejects foreign write permits, and requires successful
+  generation-specific writes (including explicit empty outputs) before receipt-bound sealing.
+  Stage/output receipts are stored atomically with sealing; a successful no-op cannot replace a write.
+  COPY wire buffers reserve from the supplied attempt budget before pgpq encoding, using its own
+  size hints. This does not yet account all producer/codec/driver allocations.
   `cpg-core::model_runtime` constructs fresh catalogs over a shared DataFusion runtime, rejects
   foreign stage/attempt read permits and SQL mutations. A neutral reservation interface shares the
   compute pool; accounting every producer/index/validator/codec buffer remains open.
@@ -371,6 +377,8 @@ Focused evidence (2026-09-29; Cargo commands prefixed by `python3 scripts/build_
 
 | Command | Outcome and boundary |
 |---|---|
+| `cargo test --release -p lctx-model --test domain --test domain_assertions --test domain_stages` | passed: 17 domain, three assertion and four stage controls, including profile/effect/code/config identity and exact attempt permits |
+| `cargo test --release -p lctx-postgres --test generation_stages --test generations` | passed: real PG18 stage-bound sink and two lifecycle/chunk tests; sibling binding, no-op completion and foreign receipt refusal, explicit empty output and COPY budget controls |
 | `cargo test --release -p lctx-model --test domain --test domain_conditions --test domain_assertions --test domain_stages --test domain_resources --test domain_verdicts` | passed: 29 focused model controls |
 | `cargo test --release -p lctx-model --test domain_transfer --test domain_assertions --test domain_paths` | passed: five transfer, three assertion and two path controls; independent reviewer rerun |
 | `cargo test --release -p lctx-model --test domain_transfer --test domain_assertions` | passed: six transfer and three assertion controls after author guard-operand follow-up; local/corpus positives and foreign/artifact-scope refusals |
@@ -435,6 +443,13 @@ owners. Phases 3–5 update their owners when implemented. No documentation labe
 without corresponding evidence.
 
 ## 8. Findings disposition
+
+The bounded [stage/sink review](../design_review/reviews/design_review_semantic-stage-sink_2026-09-29.md)
+accepted the corrected boundary on 2026-09-29; full production admission remains open.
+
+| Source finding | Current disposition | Owner and closure evidence |
+|---|---|---|
+| stage-sink F01 | addressed within reviewed slice | `lctx-model` exclusive sink binding plus `lctx-postgres` generation-specific successful-output tracking and atomic stage receipts; real PG18 sibling/no-op refusal and explicit-empty positive; independent source reinspection accepted |
 
 The bounded [input-validation review](../design_review/reviews/design_review_semantic-input-validation_2026-09-29.md)
 has the following separate finding namespace (2026-09-29):

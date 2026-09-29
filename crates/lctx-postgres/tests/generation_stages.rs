@@ -1,0 +1,95 @@
+use std::sync::Arc;
+use lctx_model::domain::{*, input::Package, stages::*};
+use lctx_model::domain::resources::ResourceBudget;
+use lctx_postgres::generations::{Error, GenerationStore};
+use sqlx::PgPool;
+use testcontainers_modules::{postgres::Postgres, testcontainers::{runners::AsyncRunner, ImageExt}};
+
+#[tokio::test]
+async fn generation_sink_requires_its_execution_and_cannot_bypass_sealing_receipt() {
+    let (image, tag) = lctx_postgres::serving::TEST_IMAGE.trim().split_once(':').unwrap();
+    let container = Postgres::default().with_name(image).with_tag(tag).start().await.expect("Docker and pinned PG18 image required");
+    let port = container.get_host_port_ipv4(5432).await.unwrap();
+    let url = |role: &str| format!("postgres://{role}:postgres@127.0.0.1:{port}/postgres");
+    let owner = PgPool::connect(&url("postgres")).await.unwrap();
+    sqlx::raw_sql("CREATE ROLE lctx_importer LOGIN PASSWORD 'postgres'; CREATE ROLE lctx_serving LOGIN PASSWORD 'postgres'").execute(&owner).await.unwrap();
+    let writer = PgPool::connect(&url("lctx_importer")).await.unwrap();
+    let reader = PgPool::connect(&url("lctx_serving")).await.unwrap();
+    let model = Arc::new(ValidatedModel::validate(vec![Relation::of::<Package>()]).unwrap());
+    let store = GenerationStore::install(owner, model.clone()).await.unwrap();
+    let schedule = Schedule::build(&model, vec![Stage {
+        name: "packages", inputs: vec![], outputs: vec![RelationUse::of::<Package>()],
+        profiles: vec![Profile::Catalog], effect: Effect::Extraction,
+        code: ContentHash::of(b"package producer"), configuration: ContentHash::of(b"configuration"),
+    }], &[RelationUse::of::<Package>()], Profile::Catalog).unwrap();
+    let rows = Batch::new(&model, vec![Package { name: "example".into() }]).unwrap();
+    let mut execution = schedule.execute();
+    let budget = ResourceBudget::fixed(1 << 20).unwrap();
+    let attempt = store.begin_conformance(writer.clone(), &mut execution, budget.clone()).await.unwrap();
+    let generation = attempt.generation();
+    assert!(store.begin_conformance(writer.clone(), &mut execution, budget.clone()).await.is_err(), "a sibling generation cannot share an execution");
+    assert!(matches!(store.copy(&writer, generation, &rows).await, Err(Error::Contract)));
+    assert!(matches!(store.seal(generation).await, Err(Error::Contract)));
+
+    let mut foreign = schedule.execute();
+    let mut foreign_stage = foreign.begin("packages").unwrap();
+    assert!(foreign_stage.write::<Package,_>(async |permit| attempt.copy(permit, &rows).await).await.is_err());
+    drop(foreign_stage);
+    assert!(foreign.finish().is_err());
+
+    let mut stage = execution.begin("packages").unwrap();
+    stage.write::<Package,_>(async |permit| attempt.copy(permit, &rows).await).await.unwrap();
+    assert_eq!(budget.reserved(), 0);
+    stage.finish(ProviderOutcome::Complete).unwrap();
+    assert_eq!(attempt.seal(execution.finish().unwrap()).await.unwrap(), generation);
+    store.validate(generation).await.unwrap();
+    store.publish(generation).await.unwrap();
+    assert!(matches!(store.select(generation).await, Err(Error::Frontier)));
+    let mut lease = store.pin(&reader, generation).await.unwrap();
+    assert_eq!(lease.read::<Package>().await.unwrap().rows(), rows.rows());
+    drop(lease);
+    store.retire(generation).await.unwrap();
+
+    // An identical schedule's receipt still cannot seal another execution's generation.
+    let mut untouched = schedule.execute();
+    let abandoned = store.begin_conformance(writer.clone(), &mut untouched, budget.clone()).await.unwrap();
+    let abandoned_id = abandoned.generation();
+    let mut other = schedule.execute();
+    let mut stage = other.begin("packages").unwrap();
+    stage.write::<Package,_>(async |_| Ok(())).await.unwrap();
+    stage.finish(ProviderOutcome::Complete).unwrap();
+    assert!(matches!(abandoned.seal(other.finish().unwrap()).await, Err(Error::Contract)));
+    store.abort(abandoned_id).await.unwrap();
+
+    // No wire buffer may escape the shared budget; resource refusal poisons execution.
+    let mut execution = schedule.execute();
+    let attempt = store.begin_conformance(writer.clone(), &mut execution, budget.clone()).await.unwrap();
+    let id = attempt.generation();
+    let blocker = budget.reserve("other stage", budget.limit()).unwrap();
+    let mut stage = execution.begin("packages").unwrap();
+    assert!(matches!(stage.write::<Package,_>(async |permit| attempt.copy(permit, &rows).await).await, Err(ModelError::Resource { .. })));
+    drop(stage);
+    assert!(execution.finish().is_err());
+    drop(blocker);
+    assert_eq!(budget.reserved(), 0);
+    store.abort(id).await.unwrap();
+
+    for empty_write in [false, true] {
+        let mut execution = schedule.execute();
+        let attempt = store.begin_conformance(writer.clone(), &mut execution, budget.clone()).await.unwrap();
+        let id = attempt.generation();
+        let mut stage = execution.begin("packages").unwrap();
+        let empty = Batch::<Package>::new(&model, vec![]).unwrap();
+        stage.write::<Package,_>(async |permit| {
+            if empty_write { attempt.copy(permit, &empty).await?; }
+            Ok(())
+        }).await.unwrap();
+        stage.finish(ProviderOutcome::Complete).unwrap();
+        let sealed = attempt.seal(execution.finish().unwrap()).await;
+        if empty_write {
+            assert_eq!(sealed.unwrap(), id);
+            store.validate(id).await.unwrap();
+        } else { assert!(matches!(sealed, Err(Error::State)), "a successful no-op did not write an output"); }
+        store.abort(id).await.unwrap();
+    }
+}

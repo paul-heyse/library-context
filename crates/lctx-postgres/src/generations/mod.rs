@@ -1,10 +1,13 @@
 //! Immutable generation schemas lowered exclusively from a validated semantic model (ADR-0086).
 mod codec;
 mod ddl;
-use std::sync::Arc;
+use std::{collections::BTreeSet, sync::{Arc,Mutex}};
 use arrow_array::RecordBatch;
 use bytes::BytesMut;
 use lctx_model::domain::{Batch, ContentHash, KeySink, ModelError, Record, Relation, ValidatedModel};
+use lctx_model::domain::stages::{AttemptIdentity, Execution, ExecutionReceipt, WritePermit};
+use lctx_model::domain::resources::{ResourceBudget, DEFAULT_MEMORY_BYTES};
+use pgpq::encoders::{BuildEncoder, Encode, EncoderBuilder};
 use sqlx::{Connection, PgConnection, PgPool, Row, ValueRef};
 use futures::TryStreamExt;
 
@@ -55,6 +58,19 @@ impl GenerationStore {
     /// Disposable subset evidence. This method cannot manufacture production facts admission.
     /// Complete producer/model/schedule/coverage admission is added with the facts assembler.
     pub async fn create_conformance(&self, producer: ContentHash, profile: &str) -> Result<GenerationId, Error> {
+        self.create_subset(producer, profile, None).await
+    }
+    /// Exercise the permanent stage-bound sink without claiming a production facts frontier.
+    pub async fn begin_conformance(&self, writer: PgPool, execution: &mut Execution<'_>, budget: ResourceBudget) -> Result<GenerationAttempt, Error> {
+        execution.bind_sink()?;
+        let schedule = execution.schedule();
+        if schedule.model() != self.model.digest() { return Err(Error::Contract); }
+        let generation = self.create_subset(schedule.digest(), schedule.profile().name(), Some(schedule.digest())).await?;
+        let expected = schedule.stages().iter().flat_map(|s| s.outputs.iter().map(move |r| (s.name,r.name()))).collect();
+        Ok(GenerationAttempt { store: self.clone(), writer, generation, identity: execution.identity(), schedule: schedule.digest(), budget,
+            expected, written: Mutex::new(BTreeSet::new()) })
+    }
+    async fn create_subset(&self, producer: ContentHash, profile: &str, schedule: Option<ContentHash>) -> Result<GenerationId, Error> {
         if !matches!(profile, "catalog" | "behavioral") { return Err(Error::State); }
         let g = GenerationId::new()?;
         let mut tx = self.owner.begin().await?;
@@ -62,8 +78,9 @@ impl GenerationStore {
         let compatible: bool = sqlx::query_scalar("SELECT model_digest=$1 AND physical_digest=$2 FROM lctx_model_store.installation WHERE singleton FOR SHARE")
             .bind(self.model.digest().0.to_vec()).bind(self.physical.0.to_vec()).fetch_one(&mut *tx).await?;
         if !compatible { return Err(Error::Contract); }
-        sqlx::query("INSERT INTO lctx_model_store.generations(id,state,model_digest,physical_digest,producer_digest,profile,frontier) VALUES($1,'staging',$2,$3,$4,$5,'conformance')")
-            .bind(g.0.to_vec()).bind(self.model.digest().0.to_vec()).bind(self.physical.0.to_vec()).bind(producer.0.to_vec()).bind(profile).execute(&mut *tx).await?;
+        sqlx::query("INSERT INTO lctx_model_store.generations(id,state,model_digest,physical_digest,producer_digest,profile,frontier,schedule_digest) VALUES($1,'staging',$2,$3,$4,$5,'conformance',$6)")
+            .bind(g.0.to_vec()).bind(self.model.digest().0.to_vec()).bind(self.physical.0.to_vec()).bind(producer.0.to_vec()).bind(profile)
+            .bind(schedule.map(|d| d.0.to_vec())).execute(&mut *tx).await?;
         sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {}", quoted(&g.schema())))).execute(&mut *tx).await?;
         let generated = ddl::generate(&self.model, g);
         for sql in generated.tables.into_iter().chain(generated.views) { sqlx::query(sqlx::AssertSqlSafe(sql)).execute(&mut *tx).await?; }
@@ -73,14 +90,24 @@ impl GenerationStore {
     }
     /// Sealing takes the exclusive generation lock and table locks before revoking access.
     pub async fn seal(&self, g: GenerationId) -> Result<(), Error> {
+        self.seal_attempt(g, None, &BTreeSet::new()).await
+    }
+    async fn seal_attempt(&self, g: GenerationId, schedule: Option<ContentHash>, outputs: &BTreeSet<(&str,&str)>) -> Result<(), Error> {
         let mut tx = self.owner.begin().await?;
         self.lock_installation(&mut tx).await?;
         lock(&mut tx, g, false).await?;
         state(&mut tx, g, "staging", &self.model, self.physical).await?;
+        check_schedule(&mut tx, g, schedule).await?;
         for relation in self.model.relations() {
             sqlx::query(sqlx::AssertSqlSafe(format!("LOCK TABLE {} IN ACCESS EXCLUSIVE MODE", qualified(g, relation.name())))).execute(&mut *tx).await?;
         }
         sqlx::query(sqlx::AssertSqlSafe(format!("REVOKE ALL ON ALL TABLES IN SCHEMA {} FROM lctx_importer", quoted(&g.schema())))).execute(&mut *tx).await?;
+        if let Some(schedule) = schedule {
+            for (stage, relation) in outputs {
+                sqlx::query("INSERT INTO lctx_model_store.stage_receipts VALUES($1,$2,$3,$4)")
+                    .bind(g.0.to_vec()).bind(stage).bind(relation).bind(schedule.0.to_vec()).execute(&mut *tx).await?;
+            }
+        }
         transition(&mut tx, g, "sealed").await?;
         tx.commit().await?; Ok(())
     }
@@ -182,7 +209,7 @@ impl GenerationStore {
         if !acquired { return Err(Error::Busy); }
         let current: Option<String> = sqlx::query_scalar("SELECT state FROM lctx_model_store.generations WHERE id=$1").bind(g.0.to_vec()).fetch_optional(&mut *tx).await?;
         let schema: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname=$1)").bind(g.schema()).fetch_one(&mut *tx).await?;
-        let residue: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM lctx_model_store.receipts WHERE generation_id=$1) OR EXISTS(SELECT 1 FROM lctx_model_store.validation_receipts WHERE generation_id=$1) OR EXISTS(SELECT 1 FROM lctx_model_store.events WHERE generation_id=$1)")
+        let residue: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM lctx_model_store.receipts WHERE generation_id=$1) OR EXISTS(SELECT 1 FROM lctx_model_store.validation_receipts WHERE generation_id=$1) OR EXISTS(SELECT 1 FROM lctx_model_store.events WHERE generation_id=$1) OR EXISTS(SELECT 1 FROM lctx_model_store.stage_receipts WHERE generation_id=$1)")
             .bind(g.0.to_vec()).fetch_one(&mut *tx).await?;
         if current.is_none() && !schema && !residue { tx.commit().await?; return Ok(CleanupOutcome::AlreadyAbsent); }
         let orphaned = current.is_none() || !schema;
@@ -194,7 +221,7 @@ impl GenerationStore {
         }
         // DROP drains direct writer transactions as well as declared stage writers.
         if schema { sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {} CASCADE", quoted(&g.schema())))).execute(&mut *tx).await?; }
-        for table in ["receipts","validation_receipts","events"] {
+        for table in ["receipts","validation_receipts","stage_receipts","events"] {
             sqlx::query(sqlx::AssertSqlSafe(format!("DELETE FROM lctx_model_store.{table} WHERE generation_id=$1"))).bind(g.0.to_vec()).execute(&mut *tx).await?;
         }
         sqlx::query("DELETE FROM lctx_model_store.generations WHERE id=$1").bind(g.0.to_vec()).execute(&mut *tx).await?;
@@ -218,27 +245,93 @@ impl GenerationStore {
         Ok(GenerationLease { connection, generation: g, model: self.model.clone() })
     }
     pub async fn copy<R: Record>(&self, writer: &PgPool, g: GenerationId, batch: &Batch<R>) -> Result<(), Error> {
+        self.copy_attempt(writer, g, batch, None, &ResourceBudget::fixed(DEFAULT_MEMORY_BYTES)?).await
+    }
+    async fn copy_attempt<R: Record>(&self, writer: &PgPool, g: GenerationId, batch: &Batch<R>, schedule: Option<ContentHash>, budget: &ResourceBudget) -> Result<(), Error> {
         self.model.require::<R>()?;
         let mut tx = writer.begin().await?;
         self.lock_installation(&mut tx).await?;
         lock(&mut tx, g, true).await?;
         state(&mut tx, g, "staging", &self.model, self.physical).await?;
+        check_schedule(&mut tx, g, schedule).await?;
+        // Schema/encoder bookkeeping stays reserved for the COPY lifetime. The variable wire
+        // buffer is admitted separately before pgpq allocates it, using pgpq's own size bound.
+        let _metadata = budget.reserve("postgres-copy-metadata", batch.arrow().schema().fields().len().checked_mul(4096)
+            .ok_or_else(|| Error::Codec("COPY schema accounting overflow".into()))?)?;
         let columns = batch.arrow().schema().fields().iter().map(|f| quoted(f.name())).collect::<Vec<_>>().join(",");
         let mut encoder = pgpq::ArrowToPostgresBinaryEncoder::try_new(&batch.arrow().schema()).map_err(|e| Error::Codec(e.to_string()))?;
-        let mut bytes = BytesMut::new();
+        let builders = batch.arrow().schema().fields().iter().map(|f| EncoderBuilder::try_new(f.clone())).collect::<Result<Vec<_>,_>>()
+            .map_err(|e| Error::Codec(e.to_string()))?;
+        let header_charge = budget.reserve("postgres-copy-wire", 64)?;
+        let mut bytes = BytesMut::with_capacity(32);
         encoder.write_header(&mut bytes).map_err(|e| Error::Codec(e.to_string()))?;
         let mut copy = tx.copy_in_raw(&format!("COPY {} ({columns}) FROM STDIN BINARY", qualified(g, R::NAME))).await?;
-        copy.send(bytes.split().freeze()).await?;
+        copy.send(bytes.freeze()).await?;
+        drop(header_charge);
         for index in 0..batch.arrow().num_rows() {
-            // Each send is bounded by one admitted record, not the entire producer batch.
-            encoder.write_batch(&batch.arrow().slice(index, 1), &mut bytes).map_err(|e| Error::Codec(e.to_string()))?;
-            if bytes.len() > MAX_ROW_BYTES { return Err(Error::Codec("COPY row exceeds storage admission limit".into())); }
-            copy.send(bytes.split().freeze()).await?;
+            let row = batch.arrow().slice(index, 1);
+            let size = copy_size(&row, &builders)?;
+            // The generated server-side row also carries the generation column (20 bytes).
+            if size > MAX_ROW_BYTES - 20 { return Err(Error::Codec("COPY row exceeds storage admission limit".into())); }
+            let _wire = budget.reserve("postgres-copy-wire", size.checked_mul(2)
+                .ok_or_else(|| Error::Codec("COPY wire accounting overflow".into()))?)?;
+            let mut bytes = BytesMut::with_capacity(size);
+            encoder.write_batch(&row, &mut bytes).map_err(|e| Error::Codec(e.to_string()))?;
+            if bytes.len() > size { return Err(Error::Codec("COPY encoder exceeded its admitted size".into())); }
+            copy.send(bytes.freeze()).await?;
         }
+        let _footer = budget.reserve("postgres-copy-wire", 64)?;
+        let mut bytes = BytesMut::with_capacity(32);
         encoder.write_footer(&mut bytes).map_err(|e| Error::Codec(e.to_string()))?;
         copy.send(bytes.freeze()).await?; copy.finish().await?;
         tx.commit().await?; Ok(())
     }
+}
+
+/// An unpublished generation belongs to exactly one execution. Neither a copied schedule nor a
+/// different invocation of that schedule can write or seal it. Dropping this handle never seals;
+/// interrupted attempts are subsequently aborted by the lifecycle owner.
+pub struct GenerationAttempt {
+    store: GenerationStore, writer: PgPool, generation: GenerationId,
+    identity: AttemptIdentity, schedule: ContentHash, budget: ResourceBudget,
+    expected: BTreeSet<(&'static str,&'static str)>, written: Mutex<BTreeSet<(&'static str,&'static str)>>,
+}
+impl GenerationAttempt {
+    pub fn generation(&self) -> GenerationId { self.generation }
+    pub async fn copy<R: Record>(&self, permit: WritePermit<'_, R>, batch: &Batch<R>) -> Result<(), ModelError> {
+        if permit.identity().attempt() != self.identity || permit.model() != self.store.model.digest() {
+            return Err(ModelError::Invalid("write permit belongs to another generation attempt".into()));
+        }
+        self.store.copy_attempt(&self.writer, self.generation, batch, Some(self.schedule), &self.budget).await.map_err(|error| match error {
+            Error::Model(error) => error, other => ModelError::codec(other),
+        })?;
+        self.written.lock().map_err(|_| ModelError::Invalid("generation output completion poisoned".into()))?.insert((permit.stage(),R::NAME));
+        Ok(())
+    }
+    pub async fn seal(self, receipt: ExecutionReceipt) -> Result<GenerationId, Error> {
+        if receipt.identity() != self.identity || receipt.model() != self.store.model.digest() || receipt.schedule() != self.schedule {
+            return Err(Error::Contract);
+        }
+        let written = self.written.into_inner().map_err(|_| Error::State)?;
+        if written != self.expected { return Err(Error::State); }
+        self.store.seal_attempt(self.generation, Some(self.schedule), &written).await?;
+        Ok(self.generation)
+    }
+}
+
+fn copy_size(row: &RecordBatch, builders: &[EncoderBuilder]) -> Result<usize, Error> {
+    row.columns().iter().zip(builders).try_fold(2usize, |bytes, (column,builder)| {
+        let encoder = builder.try_new(column.as_ref()).map_err(|e| Error::Codec(e.to_string()))?;
+        let size = encoder.byte_size_hint().map_err(|e| Error::Codec(e.to_string()))?;
+        bytes.checked_add(size).ok_or_else(|| Error::Codec("COPY row size overflow".into()))
+    })
+}
+
+async fn check_schedule(connection: &mut PgConnection, g: GenerationId, expected: Option<ContentHash>) -> Result<(), Error> {
+    let actual: Option<Vec<u8>> = sqlx::query_scalar("SELECT schedule_digest FROM lctx_model_store.generations WHERE id=$1")
+        .bind(g.0.to_vec()).fetch_one(connection).await?;
+    if actual.as_deref() != expected.as_ref().map(|d| d.0.as_slice()) { return Err(Error::Contract); }
+    Ok(())
 }
 
 pub struct GenerationLease { connection: sqlx::pool::PoolConnection<sqlx::Postgres>, generation: GenerationId, model: Arc<ValidatedModel> }
