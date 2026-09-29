@@ -6,8 +6,7 @@ use cpg_extract::{capture::CapturedInput, typed_stages::{self, CAPTURE, SYNTAX},
 use lctx_model::domain::{*, admission::FrontierContract, assertion::*, attribution::*, batching::TransferLimits, conditions::Diagram, input::*,
     memory::MemoryGeneration, resources::ResourceBudget, source::*, stages::*};
 use lctx_postgres::generations::{Error, GenerationStore};
-use sqlx::PgPool;
-use testcontainers_modules::{postgres::Postgres, testcontainers::{ImageExt, runners::AsyncRunner}};
+use lctx_postgres::testing::DisposableDatabase;
 
 fn ready<T>(future: impl Future<Output = T>) -> T {
     match std::pin::pin!(future).as_mut().poll(&mut Context::from_waker(Waker::noop())) {
@@ -143,15 +142,10 @@ fn changed_text_is_refused_before_emission() {
 async fn the_subset_publishes_a_conformance_generation_equal_to_memory() {
     let files = fixture();
     let memory = run_memory(&files, SyntaxLimits::default(), &budget()).unwrap();
-    let (image, tag) = lctx_postgres::serving::TEST_IMAGE.trim().split_once(':').unwrap();
-    let container = Postgres::default().with_name(image).with_tag(tag).start().await.expect("Docker and pinned PostgreSQL18 required");
-    let port = container.get_host_port_ipv4(5432).await.unwrap();
-    let url = |role: &str| format!("postgres://{role}:postgres@127.0.0.1:{port}/postgres");
-    let owner = PgPool::connect(&url("postgres")).await.unwrap();
-    sqlx::raw_sql("CREATE ROLE lctx_importer LOGIN PASSWORD 'postgres'; CREATE ROLE lctx_serving LOGIN PASSWORD 'postgres'").execute(&owner).await.unwrap();
-    let writer = PgPool::connect(&url("lctx_importer")).await.unwrap();
-    let reader = PgPool::connect(&url("lctx_serving")).await.unwrap();
-    let model = Arc::new(model().unwrap()); let store = GenerationStore::install(owner, model.clone()).await.unwrap();
+    let db = DisposableDatabase::start().await;
+    let writer = db.writer.clone();
+    let reader = db.reader.clone();
+    let model = Arc::new(model().unwrap()); let store = GenerationStore::install(db.owner.clone(), model.clone()).await.unwrap();
     let captured = capture(&files); let budget = budget();
     let schedule = schedule(&model, SyntaxLimits::default());
     let mut execution = schedule.execute();

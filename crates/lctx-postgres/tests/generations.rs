@@ -4,7 +4,7 @@ use lctx_model::{Domain, domain::{Batch, ContentHash, Id, Record, Relation, Vali
 use lctx_postgres::generations::{Error, GenerationStore, GenerationId, CleanupOutcome};
 use sqlx::PgPool;
 use lctx_model::domain::{assertion::*, conditions::*};
-use testcontainers_modules::{postgres::Postgres, testcontainers::{ImageExt, runners::AsyncRunner}};
+use lctx_postgres::testing::DisposableDatabase;
 
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name = "recursive_nodes", semantic_source = include_bytes!("generations.rs"))]
@@ -34,17 +34,13 @@ async fn immutable_generation_vertical_slice_and_lifecycle_refusals() {
     #[model(name = "external_unversioned")]
     struct ExternalUnversioned { #[model(key)] name: String }
     assert!(ValidatedModel::validate(vec![Relation::of::<ExternalUnversioned>()]).is_err());
-    let (image, tag) = lctx_postgres::serving::TEST_IMAGE.trim().split_once(':').unwrap();
-    let container = Postgres::default().with_name(image).with_tag(tag).start().await.expect("Docker and pinned PG18 image required");
-    let port = container.get_host_port_ipv4(5432).await.unwrap();
-    let url = |role: &str| format!("postgres://{role}:postgres@127.0.0.1:{port}/postgres");
-    let owner = PgPool::connect(&url("postgres")).await.unwrap();
-    sqlx::raw_sql("CREATE ROLE lctx_importer LOGIN PASSWORD 'postgres'; CREATE ROLE lctx_serving LOGIN PASSWORD 'postgres'").execute(&owner).await.unwrap();
-    let writer = PgPool::connect(&url("lctx_importer")).await.unwrap();
-    let reader = sqlx::postgres::PgPoolOptions::new().max_connections(1).acquire_timeout(std::time::Duration::from_millis(150)).connect(&url("lctx_serving")).await.unwrap();
+    let db = DisposableDatabase::start().await;
+    let owner = db.owner.pool().clone();
+    let writer = db.writer.clone();
+    let reader = sqlx::postgres::PgPoolOptions::new().max_connections(1).acquire_timeout(std::time::Duration::from_millis(150)).connect(&db.url("lctx_serving")).await.unwrap();
     let mut relations = model().unwrap().relations().to_vec(); relations.push(Relation::of::<RecursiveNode>()); relations.push(Relation::of::<ModuleScopeLink>()); relations.push(Relation::of::<BinaryEvidence>());
     let model = Arc::new(ValidatedModel::validate(relations).unwrap());
-    let store = GenerationStore::install(owner.clone(), model.clone()).await.unwrap();
+    let store = GenerationStore::install(db.owner.clone(), model.clone()).await.unwrap();
     let producer_digest = ContentHash::of(b"producer-code");
     let g = store.create_conformance(producer_digest, "catalog").await.unwrap();
     assert!(matches!(store.pin(&reader, g, budget()).await, Err(Error::State)));
@@ -262,16 +258,11 @@ async fn immutable_generation_vertical_slice_and_lifecycle_refusals() {
 
 #[tokio::test]
 async fn chunked_evidence_round_trips_beyond_row_limit_and_sealed_corruption_refuses() {
-    let (image, tag) = lctx_postgres::serving::TEST_IMAGE.trim().split_once(':').unwrap();
-    let container = Postgres::default().with_name(image).with_tag(tag).start().await.expect("Docker and pinned PG18 image required");
-    let port = container.get_host_port_ipv4(5432).await.unwrap();
-    let url = |role: &str| format!("postgres://{role}:postgres@127.0.0.1:{port}/postgres");
-    let owner = PgPool::connect(&url("postgres")).await.unwrap();
-    sqlx::raw_sql("CREATE ROLE lctx_importer LOGIN PASSWORD 'postgres'; CREATE ROLE lctx_serving LOGIN PASSWORD 'postgres'").execute(&owner).await.unwrap();
-    let writer = PgPool::connect(&url("lctx_importer")).await.unwrap();
-    let reader = PgPool::connect(&url("lctx_serving")).await.unwrap();
+    let db = DisposableDatabase::start().await;
+    let writer = db.writer.clone();
+    let reader = db.reader.clone();
     let model = Arc::new(model().unwrap());
-    let store = GenerationStore::install(owner.clone(), model.clone()).await.unwrap();
+    let store = GenerationStore::install(db.owner.clone(), model.clone()).await.unwrap();
     let bytes: Vec<u8> = (0..65 * ARTIFACT_CHUNK_BYTES + 17).map(|i| ((i / ARTIFACT_CHUNK_BYTES + i) % 256) as u8).collect();
     let input = InputRevision::from_entries(vec![ManifestEntry { path: "evidence.bin".into(), content: ContentHash::of(&bytes), byte_len: bytes.len() as i64 }, ManifestEntry { path: "empty.bin".into(), content: ContentHash::of(b""), byte_len: 0 }]).unwrap();
     let artifact = SourceArtifact::from_bytes(input.id(), "evidence.bin".into(), &bytes).unwrap();

@@ -35,15 +35,13 @@ impl Store {
         }
         let hash = spec.hash();
         let canonical = spec.canonical_json();
-        sqlx::query!("INSERT INTO lctx_cache.specs(spec_hash, canonical_spec, dimensions) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING", hash.0.as_slice(), &canonical, dimensions).execute(&self.pool).await?;
+        sqlx::query("INSERT INTO lctx_cache.specs(spec_hash, canonical_spec, dimensions) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING")
+            .bind(hash.0.as_slice()).bind(&canonical).bind(dimensions).execute(&self.pool).await?;
         // A separate READ COMMITTED statement sees the winner after a concurrent insert waits.
-        let row = sqlx::query!(
-            "SELECT canonical_spec, dimensions FROM lctx_cache.specs WHERE spec_hash=$1",
-            hash.0.as_slice()
-        )
-        .fetch_one(&self.pool)
-        .await?;
-        let existing = (row.canonical_spec, row.dimensions);
+        let existing: (String, i32) = sqlx::query_as("SELECT canonical_spec, dimensions FROM lctx_cache.specs WHERE spec_hash=$1")
+            .bind(hash.0.as_slice())
+            .fetch_one(&self.pool)
+            .await?;
         if existing != (canonical, dimensions) {
             return Err(Error::Integrity("canonical spec conflict"));
         }
@@ -60,7 +58,8 @@ impl Store {
         for chunk in keys.chunks(128) {
             let wanted: Vec<Vec<u8>> = chunk.iter().map(|k| k.0.to_vec()).collect();
             let hash = spec.hash();
-            let rows = sqlx::query_as!(StoredValue,"SELECT input_hash, codec, dimensions, vector_bytes, value_digest, admitted_tokens FROM lctx_cache.embedding_values WHERE spec_hash=$1 AND input_hash=ANY($2)", hash.0.as_slice(), &wanted).fetch_all(&self.pool).await?;
+            let rows: Vec<StoredValue> = sqlx::query_as("SELECT input_hash, codec, dimensions, vector_bytes, value_digest, admitted_tokens FROM lctx_cache.embedding_values WHERE spec_hash=$1 AND input_hash=ANY($2)")
+                .bind(hash.0.as_slice()).bind(&wanted).fetch_all(&self.pool).await?;
             for row in rows {
                 if row.codec != VALUE_CODEC
                     || row.dimensions != spec.dimensions as i32

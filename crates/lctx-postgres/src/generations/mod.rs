@@ -44,7 +44,9 @@ impl GenerationId {
 pub struct GenerationStore { owner: PgPool, model: Arc<ValidatedModel>, physical: ContentHash }
 impl GenerationStore {
     /// Roles are provisioned by the existing PostgreSQL bootstrap, not by schema lowering.
-    pub async fn install(owner: PgPool, model: Arc<ValidatedModel>) -> Result<Self, Error> {
+    /// Install or confirm the store as the verified service owner (cutover plan P1.5).
+    pub async fn install(owner: crate::OwnerPool, model: Arc<ValidatedModel>) -> Result<Self, Error> {
+        let owner = owner.pool().clone();
         let physical = ddl::digest(&model);
         transaction(&owner,async |tx| {
         sqlx::query("SELECT pg_advisory_xact_lock(1279476824,0)").execute(&mut *tx).await?;

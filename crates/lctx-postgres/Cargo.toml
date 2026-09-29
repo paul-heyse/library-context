@@ -30,11 +30,17 @@ sqlx.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+testcontainers-modules = { workspace = true, optional = true }
+
+[features]
+# Disposable PostgreSQL 18 databases for tests in this and dependent crates.
+testing = ["dep:testcontainers-modules"]
 
 [dev-dependencies]
 jsonschema.workspace = true
 arrow-select.workspace = true
 testcontainers-modules.workspace = true
+lctx-postgres = { path = ".", features = ["testing"] }
 
 [lints]
 workspace = true

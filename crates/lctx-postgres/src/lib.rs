@@ -16,6 +16,9 @@ pub mod projection;
 pub mod report;
 pub mod repository;
 pub mod retrieval;
+pub mod roles;
+#[cfg(feature = "testing")]
+pub mod testing;
 pub mod serving;
 pub mod generations;
 
@@ -52,6 +55,12 @@ pub enum Error {
     Integrity(&'static str),
     #[error("PostgreSQL migration failed; inspect migration status using the migration identity")]
     Migration,
+    /// The database carries migration history from before the service baseline. It is moved by the
+    /// operator transition (cutover plan P1.13), never migrated in place.
+    #[error("the database's migration history predates the service baseline; it is refused, not upgraded")]
+    LegacyHistory,
+    #[error("the configured store owner is not a verified service owner: {0}")]
+    Owner(&'static str),
     #[error("the installed canonical schema differs from this binary; run `lctx store reset`")]
     CanonicalSchema,
     #[error("{0}")]
@@ -285,8 +294,6 @@ impl Store {
         {
             return Err(Error::Schema);
         }
-        let mut conn = self.pool.acquire().await?;
-        serving::check_extension(&mut conn).await?;
         Ok(())
     }
     pub async fn health(&self) -> Result<Health, Error> {
@@ -304,16 +311,62 @@ impl Store {
     }
 }
 
+/// The runtime roles a service owner must never be joined to.
+pub const RUNTIME_ROLES: [&str; 3] = ["lctx_app", "lctx_importer", "lctx_serving"];
+
+/// A pool of the verified service owner: not a superuser, without CREATEROLE or BYPASSRLS, allowed
+/// to CREATE in its database, and in no membership edge with a runtime role in either direction.
+/// Only [`OwnerPool::verify`] constructs one, so installing the store requires the check.
+#[derive(Clone)]
+pub struct OwnerPool(sqlx::PgPool);
+impl OwnerPool {
+    pub async fn verify(pool: sqlx::PgPool) -> Result<Self, Error> {
+        let (superuser, createrole, bypassrls, create, joined): (bool, bool, bool, bool, bool) = sqlx::query_as(
+            "SELECT r.rolsuper, r.rolcreaterole, r.rolbypassrls, \
+                    has_database_privilege(current_user, current_database(), 'CREATE'), \
+                    EXISTS (SELECT FROM pg_catalog.pg_auth_members m \
+                            JOIN pg_catalog.pg_roles granted ON granted.oid = m.roleid \
+                            JOIN pg_catalog.pg_roles member ON member.oid = m.member \
+                            WHERE (member.rolname = current_user AND granted.rolname = ANY($1)) \
+                               OR (granted.rolname = current_user AND member.rolname = ANY($1))) \
+             FROM pg_catalog.pg_roles r WHERE r.rolname = current_user")
+            .bind(RUNTIME_ROLES.to_vec()).fetch_one(&pool).await?;
+        let refusal = if superuser { Some("a superuser may not own the store") }
+            else if createrole || bypassrls { Some("the owner may not hold CREATEROLE or BYPASSRLS") }
+            else if !create { Some("the owner lacks CREATE on its database") }
+            else if joined { Some("the owner shares a membership edge with a runtime role") }
+            else { None };
+        match refusal { Some(reason) => Err(Error::Owner(reason)), None => Ok(Self(pool)) }
+    }
+    pub fn pool(&self) -> &sqlx::PgPool { &self.0 }
+}
+
 /// Only the explicitly opened migration identity exposes DDL.
 pub struct MigrationStore {
     inner: Store,
 }
 impl MigrationStore {
+    /// Apply the service baseline as the verified owner. A history containing any migration this
+    /// binary does not declare is refused before any change.
     pub async fn migrate(&self) -> Result<(), Error> {
+        self.owner().await?;
+        let present: Option<String> = sqlx::query_scalar("SELECT to_regclass('public._sqlx_migrations')::text")
+            .fetch_one(&self.inner.pool).await?;
+        if present.is_some() {
+            let applied: Vec<i64> = sqlx::query_scalar("SELECT version FROM public._sqlx_migrations")
+                .fetch_all(&self.inner.pool).await?;
+            if applied.iter().any(|version| !MIGRATOR.iter().any(|m| m.version == *version)) {
+                return Err(Error::LegacyHistory);
+            }
+        }
         MIGRATOR
             .run(&self.inner.pool)
             .await
             .map_err(|_| Error::Migration)
+    }
+    /// The verified owner of this database's store.
+    pub async fn owner(&self) -> Result<OwnerPool, Error> {
+        OwnerPool::verify(self.inner.pool.clone()).await
     }
     pub async fn check(&self) -> Result<(), Error> {
         self.inner.check().await

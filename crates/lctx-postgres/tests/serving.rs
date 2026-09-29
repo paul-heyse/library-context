@@ -1,4 +1,6 @@
-//! Targeted, real PG18 controls for the PG10/11 service contracts.
+//! Dormant (plan P1.5): real PG18 controls for the retired PG10/11 serving schema. The service
+//! baseline no longer installs `lctx_serving`, so every database test is suspended until cutover
+//! phase 5 converts or deletes it; the file stays compiling with the dormant serving module.
 use arrow_array::{FixedSizeBinaryArray, RecordBatch, StringArray};
 use lctx_postgres::{
     Config, projection,
@@ -76,7 +78,7 @@ impl Fixture {
     }
 }
 #[tokio::test]
-#[ignore = "explicit real PostgreSQL functional check"]
+#[ignore = "suspended: P5 serving (the service baseline installs no serving schema; plan P1.5)"]
 async fn generation_freeze_roles_and_cross_generation_keys() {
     let f = Fixture::start().await;
     let gen1 = f.generation(1).await;
@@ -182,7 +184,7 @@ async fn generation_freeze_roles_and_cross_generation_keys() {
     );
 }
 #[tokio::test]
-#[ignore = "explicit real PostgreSQL functional check"]
+#[ignore = "suspended: P5 serving (the service baseline installs no serving schema; plan P1.5)"]
 async fn copy_codec_pgvector_and_empty_declared_schemas() {
     let f = Fixture::start().await;
     let schema = cpg_schema::bundle::files(1024)
@@ -322,35 +324,6 @@ async fn copy_codec_pgvector_and_empty_declared_schemas() {
     assert!(projection::decode_rows("lexical_text", 1024, &wrong).is_err());
 }
 
-#[test]
-fn role_configuration_refuses_ambiguous_tls_and_pool_budgets() {
-    let base = RoleConfig {
-        format: 1,
-        role: Role::Serving,
-        url: "postgres://lctx_serving:secret-token@127.0.0.1/lctx".into(),
-        max_connections: 6,
-        provider_connections: 2,
-        acquire_timeout_seconds: 5,
-        statement_timeout_seconds: 30,
-        lock_timeout_seconds: 5,
-    };
-    assert!(base.validate().is_ok());
-    assert!(!format!("{base:?}").contains("secret-token"));
-    for url in [
-        "postgres://lctx_serving:secret-token@remote.invalid/lctx?sslmode=disable",
-        "postgres://lctx_serving:secret-token@127.0.0.1/lctx?sslmode=disable&sslmode=require",
-        "postgres://lctx_serving:secret-token@127.0.0.1/lctx?options=-csearch_path=public",
-        "postgres://lctx_migrator:secret-token@127.0.0.1/lctx",
-    ] {
-        let mut c = base.clone();
-        c.url = url.into();
-        assert!(c.validate().is_err());
-    }
-    let mut c = base;
-    c.provider_connections = 6;
-    assert!(c.validate().is_err());
-}
-
 fn empty_source(root: &std::path::Path) -> lctx_postgres::import::Source {
     empty_source_version(root, "empty==1")
 }
@@ -446,7 +419,7 @@ fn empty_source_version(
     lctx_postgres::import::Source::open(root).unwrap()
 }
 #[tokio::test]
-#[ignore = "explicit real PostgreSQL functional check"]
+#[ignore = "suspended: P5 serving (the service baseline installs no serving schema; plan P1.5)"]
 async fn production_import_is_atomic_repeatable_and_selection_is_explicit() {
     let f = Fixture::start().await;
     let input = tempfile::tempdir().unwrap();
@@ -566,7 +539,7 @@ async fn production_import_is_atomic_repeatable_and_selection_is_explicit() {
 }
 
 #[tokio::test]
-#[ignore = "explicit real PostgreSQL and published pilot projection check"]
+#[ignore = "suspended: P5 serving (the service baseline installs no serving schema; plan P1.5)"]
 async fn published_pilot_import_and_repository_queries() {
     let path = std::env::var_os("LCTX_TEST_PROJECTION")
         .expect("LCTX_TEST_PROJECTION must name a verified published bundle");
@@ -647,7 +620,7 @@ async fn published_pilot_import_and_repository_queries() {
 }
 
 #[tokio::test]
-#[ignore = "explicit captured file-reference parity check"]
+#[ignore = "suspended: P5 serving (the service baseline installs no serving schema; plan P1.5)"]
 async fn captured_reference_parity() {
     use serde_json::Value;
     fn compare(expected: &Value, actual: &Value, path: &str) {
@@ -733,7 +706,7 @@ async fn captured_reference_parity() {
 }
 
 #[tokio::test]
-#[ignore = "explicit exact-vector arithmetic and addressable unit check"]
+#[ignore = "suspended: P5 serving (the service baseline installs no serving schema; plan P1.5)"]
 async fn exact_ranks_and_profile_isolation() {
     use arrow_array::{Array, FixedSizeListArray, Float32Array};
     let root = std::path::PathBuf::from(std::env::var("LCTX_TEST_PROJECTION").unwrap());
@@ -874,7 +847,7 @@ async fn exact_ranks_and_profile_isolation() {
 }
 
 #[tokio::test]
-#[ignore = "explicit real PostgreSQL artifact reconstruction controls"]
+#[ignore = "suspended: P5 serving (the service baseline installs no serving schema; plan P1.5)"]
 async fn current_artifact_relocation_and_diagnostics() {
     use lctx_postgres::profiles::Policy;
     let source = lctx_postgres::import::Source::open(&std::path::PathBuf::from(
@@ -945,7 +918,7 @@ async fn current_artifact_relocation_and_diagnostics() {
 }
 
 #[tokio::test]
-#[ignore = "explicit real PostgreSQL publication fault controls"]
+#[ignore = "suspended: P5 serving (the service baseline installs no serving schema; plan P1.5)"]
 async fn interrupted_import_resumes_without_partial_visibility() {
     let source = lctx_postgres::import::Source::open(std::path::Path::new(
         &std::env::var("LCTX_TEST_PROJECTION").unwrap(),
@@ -1014,7 +987,7 @@ async fn interrupted_import_resumes_without_partial_visibility() {
 }
 
 #[tokio::test]
-#[ignore = "explicit conflicting receipt and incomplete validation controls"]
+#[ignore = "suspended: P5 serving (the service baseline installs no serving schema; plan P1.5)"]
 async fn publication_refuses_conflicts_and_incomplete_stored_content() {
     use sha2::Digest as _;
     let root = std::path::PathBuf::from(std::env::var("LCTX_TEST_PROJECTION").unwrap());
@@ -1143,7 +1116,7 @@ async fn publication_refuses_conflicts_and_incomplete_stored_content() {
 }
 
 #[tokio::test]
-#[ignore = "explicit real PostgreSQL catalog specificity check"]
+#[ignore = "suspended: P5 serving (the service baseline installs no serving schema; plan P1.5)"]
 async fn catalog_specificity_import_and_typed_hydration() {
     let root = std::env::var_os("LCTX_CATALOG_PROJECTION")
         .map(std::path::PathBuf::from)

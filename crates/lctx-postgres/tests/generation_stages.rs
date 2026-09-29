@@ -2,21 +2,16 @@ use std::sync::Arc;
 use lctx_model::domain::{*, input::Package, stages::*};
 use lctx_model::domain::resources::ResourceBudget;
 use lctx_postgres::generations::{Error, GenerationStore};
-use sqlx::PgPool;
-use testcontainers_modules::{postgres::Postgres, testcontainers::{runners::AsyncRunner, ImageExt}};
+use lctx_postgres::testing::DisposableDatabase;
 
 #[tokio::test]
 async fn generation_sink_requires_its_execution_and_cannot_bypass_sealing_receipt() {
-    let (image, tag) = lctx_postgres::serving::TEST_IMAGE.trim().split_once(':').unwrap();
-    let container = Postgres::default().with_name(image).with_tag(tag).start().await.expect("Docker and pinned PG18 image required");
-    let port = container.get_host_port_ipv4(5432).await.unwrap();
-    let url = |role: &str| format!("postgres://{role}:postgres@127.0.0.1:{port}/postgres");
-    let owner = PgPool::connect(&url("postgres")).await.unwrap();
-    sqlx::raw_sql("CREATE ROLE lctx_importer LOGIN PASSWORD 'postgres'; CREATE ROLE lctx_serving LOGIN PASSWORD 'postgres'").execute(&owner).await.unwrap();
-    let writer = PgPool::connect(&url("lctx_importer")).await.unwrap();
-    let reader = PgPool::connect(&url("lctx_serving")).await.unwrap();
+    let db = DisposableDatabase::start().await;
+    let owner = db.owner.pool().clone();
+    let writer = db.writer.clone();
+    let reader = db.reader.clone();
     let model = Arc::new(ValidatedModel::validate(vec![Relation::of::<Package>()]).unwrap());
-    let store = GenerationStore::install(owner.clone(), model.clone()).await.unwrap();
+    let store = GenerationStore::install(db.owner.clone(), model.clone()).await.unwrap();
     let schedule = Schedule::build(&model, vec![Stage {
         name: "packages", inputs: vec![], outputs: vec![RelationUse::of::<Package>()], contributes: vec![], coverage: vec![], provider: None,
         profiles: vec![Profile::Catalog], effect: Effect::Extraction,

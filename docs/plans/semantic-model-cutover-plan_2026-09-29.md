@@ -697,6 +697,15 @@ Python: `lctx_mcp` tests needing a served generation or an entry point, `test_se
 ADR-0090 supersedes ADR-0002, which is deleted, and DESIGN §B7/§B9/§7 are amended. The owned fork got commit `790726d` (common's defaults opt-in), pushed to `paul-heyse/datafusion-table-providers` `lctx/df55-bounded-pool`; the pin was bumped and the patch regenerated.
 
 Also updated: `deny.toml` sources, the family-check patterns, the logging filter, `build.rs` engines, `family_smoke` (now Arrow→DataFusion SQL), the Delta ast-grep rules and their tests (removed), the `deltalake` skill (deselected and synced), the pins rows and the AGENTS.md Delta lines. The Delta mentions in the legacy DESIGN sections (§3–§14) are swept at P1.12/C3x. `just deps` is deferred to Q |
+| P1.5: `cargo test --release -p lctx-postgres --test services --test generations --test generation_stages` plus the 13 `domain_*` suites; `-p cpg-extract --test typed_conformance`; `cargo check --workspace --all-targets` | passed 2026-09-29 (services 8, generations 2, every other suite 1; `typed_conformance` 6 plus the ignored envelope).
+
+Migrations 0001–0013 are replaced by `202609300014_service_baseline.sql`: `lctx_cache.{specs,embedding_values}` and `lctx_ops.{attempts,events}` in their post-0002 shape, with grants to `lctx_app` only. The controls found one defect, now fixed: the baseline had dropped `started_at`'s default, so `start_attempt` violated `attempt_provenance`.
+
+`MigrationStore::migrate` verifies the owner, then refuses any applied version it does not declare (`Error::LegacyHistory`) before any change. `OwnerPool::verify` refuses a superuser, CREATEROLE/BYPASSRLS, a missing database CREATE, and a membership edge with a runtime role in either direction. `GenerationStore::install` takes only an `OwnerPool`. `Role`/`RoleConfig` moved to `roles.rs`, and `cache.rs` runs runtime queries, whose three `.sqlx` entries are deleted; 21 dormant entries remain (T12).
+
+The `testing` feature's `DisposableDatabase` provisions as production does: `lctx_migrator` owns database `lctx`, with runtime CONNECT/TEMP grants and a read-only `lctx_serving`. Every generation PG test and `typed_conformance` install through it.
+
+The dormant `tests/serving.rs` database tests are `#[ignore = "suspended: P5 serving …"]`; its pure role-configuration test moved to `services`. The operator database still carries the old history and is refused until P1.13 |
 | `just fmt`, `just test-all`, facts pilots | not_run: functional scope incomplete |
 
 Independent bounded reviewers accepted artifact/capture/acquisition corrections and the

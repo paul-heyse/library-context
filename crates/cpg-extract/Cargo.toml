@@ -47,10 +47,9 @@ tikv-jemallocator.workspace = true
 
 [dev-dependencies]
 ruff_python_parser.workspace = true
-lctx-postgres = { path = "../lctx-postgres" }
+lctx-postgres = { path = "../lctx-postgres", features = ["testing"] }
 sqlx.workspace = true
 tokio.workspace = true
-testcontainers-modules.workspace = true
 arrow-cast.workspace = true
 base64.workspace = true
 sha2.workspace = true
