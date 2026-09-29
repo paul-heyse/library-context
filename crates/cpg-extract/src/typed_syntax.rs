@@ -67,9 +67,11 @@ impl SyntaxError {
     }
 }
 
-/// Admit an artifact's source size before its syntax is traversed. An oversized source is never
-/// parsed only if the provider calls this before it is handed the source; the Pyrefly stage owes
-/// that call (plan E1/A4), and until then the parse is outside the budget.
+/// Admit an artifact's source size before its syntax is traversed. [`extract`] calls it for every
+/// captured Python source before building Pyrefly handles, so a refused source is never handed to
+/// the analyzer as a root. Pyrefly may still parse it when an admitted module imports it: such a
+/// transitive load stays provider-internal and outside the budget until the Pyrefly stage decides
+/// its import policy (plan A4; the pinned fork's `replace-imports-with-any` is a candidate).
 pub fn admit(source: &SourceArtifact, limits: SyntaxLimits) -> Result<(), SyntaxError> {
     match usize::try_from(source.byte_len) {
         Ok(bytes) if bytes <= limits.source_bytes => Ok(()),

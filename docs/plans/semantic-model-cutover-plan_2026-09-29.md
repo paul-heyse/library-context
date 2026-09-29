@@ -258,7 +258,7 @@ Every commit leaves `cargo check --workspace --all-targets` passing with dormant
 | P1.4 | Drop delta-rs family and federation (pin-check; ADR-0090): workspace manifests, `build.rs` engines, `family_smoke`, logging filters, `deny.toml`, `check_family.py`, pins, skill selection, Delta ast-grep rules, AGENTS.md, DESIGN §B7/§B9/§7 | Family check passes; no `deltalake` in the tree | `just build-features`; `check_family.py`; its pytest |
 | P1.5 | Service baseline (T11/T12): single baseline migration; `Error::LegacyHistory`; `OwnerPool::verify` (non-superuser owner without CREATEROLE/BYPASSRLS or runtime-role membership); `roles.rs`; runtime cache queries; `testing` feature `DisposableDatabase`; all generation PG tests install as the owner | Fresh baseline only services; repeated migrate no-op; legacy history refused unchanged; cache round trip; attempts/events; grant matrix; superuser install refused | `lctx-postgres` `services`, `generations`, `generation_stages`, domain suites; `typed_conformance` |
 | P1.6 | Generated install/check/reset: pure `Lowering` phases and physical digest; templated control DDL; `store check` compares live `pg_catalog` descriptors against in-transaction shadow schemas for every state, roles and ACLs, unexpected objects and orphans; `store reset --confirm` drops only inventoried objects | Owner required; digest mismatch; clean in every state; each injected drift reported; reset refuses live lease/attempt, spares services and unrelated schemas, reinstalls | `lctx-postgres` `installation` |
-| P1.7 | Attempt-owned lifecycle (T10, uses D1): `begin(writer, &mut Execution, &FrontierContract, budget)` typestates; `planned_outputs`, `stage_outcomes`, `admissions`, `failures`, `failed` state; validate runs `AdmissionCheck`; publish requires planned = written outputs and a matching admission, atomically with grants; select requires facts; reader grants on control tables | Late write vs seal (50×); failed validation abort-only; failed publication atomic under three faults; interrupted attempt never published; live abort Busy; lease vs retire (50×); select vs retire; atomic retire under fault; no deadlock; subset `begin` refused without registry row | `lctx-model` `domain_admission`; `lctx-postgres` `lifecycle`, `generation_stages`, `generations`; review (C01) |
+| P1.7 | Attempt-owned lifecycle (T10, uses D1): `begin(writer, &mut Execution, &FrontierContract, budget)` typestates; `planned_outputs`, `stage_outcomes`, `admissions`, `failures`, `failed` state; validate runs `AdmissionCheck`; publish requires planned = written outputs and a matching admission, atomically with grants; select requires facts; reader grants on control tables | Late write vs seal (50×); failed validation abort-only; failed publication atomic under three faults; interrupted attempt never published; live abort Busy; lease vs retire (50×); select vs retire; atomic retire under fault; no deadlock; subset `begin` refused without registry row; a facts generation's schema holds only facts relations and reading any other relation is a typed `Frontier` refusal (P0 exit F02); store failures carry a typed class (P0 exit F07) | `lctx-model` `domain_admission`; `lctx-postgres` `lifecycle`, `generation_stages`, `generations`; review (C01) |
 | P1.8 | `GenerationCatalog` list/show: state, frontier, profile, digests, coverage summary, reader count, writer liveness | Fields per state; two leases counted; reader cannot mutate | `lctx-postgres` `generation_catalog` |
 | P1.9 | Owned provider fork (T13): byte-bounded row chunks, `MemoryReservation` hooks, one-shot bound pools with drain-and-return and `lost`, nullable-list narrowing. Operator confirms the push; then rev, patch, pins row, `just build-features` | Fork `bounded_chunks` | fork crate test |
 | P1.10 | Driver-neutral lease protocol in `lctx-postgres`; `cpg-core/src/generation_read.rs` `GenerationSession` and `InspectionSession`; `GenerationTable` with exact schema and closed filter pushdown (C02) | Readback fidelity incl. 65 MiB and empty; pushdown; digest/column mismatch before scan; pin survives selection; lease blocks retire; byte bounds and reservation refusal; cancellation drains to the same backends; transport loss terminal; stage registration | `cpg-core` `generation_read`, `model_runtime`; review |
@@ -297,7 +297,7 @@ name and declaration inputs; the Ruff-vs-Pysa call and `__all__` comparisons sta
 | A0 | Provider framework: `ProviderStage`, `StageContext` (emit, contribute, handoffs, attacher, captured inputs, budget); big-stack provider thread, bounded channel to an async pump holding `StageAccess`; `Provider` build digest over lockfile, provider sources and Pyrefly patch (F11); `Attacher`; `cpg-core/src/facts.rs` `compile_facts<S: StageSink>`; fixture-corpus skeleton; the provider channel carries `Batch<R>` with its reservation, and `StageOutput` takes batches (resource review F05) | Undeclared emit/contribute/read refused; panic aborts; reservations 0; order preserved | `cpg-extract` `bundle`; `cpg-core` `facts_driver` |
 | A1 | Acquisition model: source roles, `UnownedArtifact`, `DerivedArtifact`, `EnvironmentFingerprint`; exactly-one ownership class | Double class, orphan derivation and `_lctx/` originals refused | `domain_input` (model and PG) |
 | A2 | T6 acquisition: pure inventory, full closure capture, `_lctx/` namespace, `acquire` stage; delete tree writes, `release_rows`, old `capture()` and corpus id hashing | Tree byte-identical before/after; namespace collision and stale blocks refused; location independence; environment dependence; RECORD tamper; change during capture aborts | `cpg-extract` `acquisition`, `capture` |
-| A3 | Syntax model: placement/field, `SyntaxDetail`, declaration (+decorators), import alias, `__all__`, parameter syntax, class field syntax, `SubjectBoundary`, attachment outcome/candidates, appended obligation codes (50 onward; 49 is `EntryValueUnknown`) | Text derivable from bytes; foreign optional subject and scopeless boundary refused | `domain_syntax`, `domain_coverage`; PG `domain_syntax` |
+| A3 | Syntax model: placement/field, `SyntaxDetail`, declaration (+decorators), import alias, `__all__`, parameter syntax, class field syntax, `SubjectBoundary`, attachment outcome/candidates, appended obligation codes (52 onward; 49–51 are `EntryValueUnknown`, `NonDefiniteAlternative`, `IncompleteCoverage`) | Text derivable from bytes; foreign optional subject and scopeless boundary refused | `domain_syntax`, `domain_coverage`; PG `domain_syntax` |
 | A4 | `pyrefly` phase 1: complete typed syntax (replaces string paths), declarations, imports, parameters, class fields, call syntax, parse/undecodable coverage, `__all__` boundary; delete `walk.rs`/`syntax.rs` rows | syntax_shapes, unicode_bom offsets, dunder_all; distinct with-items | `typed_syntax_shapes` |
 | A5 | Lexical records from the recognizer; delete `lexical.rs` rows | static_branches, lexical_shapes | `typed_lexical` |
 | A6 | Symbol model: symbol, dependency module, function/class traits, ancestry (base/MRO), annotations, public names, parameter docs, symbol sequences | Cyclic MRO; untraced ≠ traced; display-only annotation not structural | `domain_symbols` (model and PG) |
@@ -619,7 +619,7 @@ Every refusal is `SyntaxError::Refused` with reason `ResourceRefused`. Default l
 Contract changes: `domain/admission.rs` plus `Stage.provider`, `Relation::family` and `ModelError::Frontier`; codes 0/4/5/6/11/12 retired.
 
 Four-artifact input {a.py, b.pyi, _invalid/undecodable.py, README.md}:
-- expected rows: 24 per profile. Flow is `NotRequested` (no provider) in catalog and ty-provided in behavioral.
+- expected rows: 24 per profile. Flow is `NotRequested` in catalog, with the key carrying no provider while the row still names the unscheduled ty provider (attribution decided at B1, P0 exit F05), and ty-provided in behavioral.
 - admitted: faithful coverage with Syntax/Flow Partial and Docs Complete. The result is order-independent.
 - a README-only input: Syntax is no-scope and Deployment Complete.
 - refused: a missing, extra or duplicate row; attempted catalog Flow; a `Failed` row; Complete reported beside an Unavailable module; a receipt of another schedule; a required Syntax entirely Unavailable, where the Partial twin is admitted.
@@ -653,6 +653,12 @@ Envelope (Measured, [evidence](../design_review/evidence/2026-09-29_p0e-subset-e
 - peak reservation 209 MB, peak RSS 535 MB;
 - extraction 9.7 s, validation 18.4 s;
 - half the peak refuses mid-extraction with reservation 0 (resource review F02/F04 controls) |
+| X0 F01: `cargo test --release -p lctx-model` (incl. `domain_verdicts`, `domain_composition`); workspace check | passed 2026-09-29:
+- Candidate and Potential alternatives with condition true, false or conditional are Unknown(`NonDefiniteAlternative`);
+- a stopped budget still ranks first, and a non-definite alternative ranks before missing evidence;
+- the Definite twins are Established and Refuted;
+- a refutation under partial coverage is Unknown(`IncompleteCoverage`);
+- a Candidate composed flow is Unknown while its Definite twin is Established (P0 exit F01; C09) |
 | `just fmt`, `just test-all`, facts pilots | not_run: functional scope incomplete |
 
 Independent bounded reviewers accepted artifact/capture/acquisition corrections and the
@@ -766,7 +772,7 @@ has the following separate finding namespace (2026-09-29):
 | Source finding | Current disposition | Owner and closure evidence |
 |---|---|---|
 | input-validation F01/F03/F04/F05 | addressed within reviewed slice | `lctx-model` input/source invariants; real PG manifest/span/cross-input ownership refusals and multi-distribution positive; reviewer source reinspection accepted |
-| input-validation F02 | narrowed (R1–R3 plus resource-review corrections) → A0, P1.9/P1.10, E1 | Addressed: reserved batch encode/decode and transfer bounds (R1); charged invariant state and a linear, memoized type-closure walk (R2, review F03); admitted source size and total traversal work before traversal (R3); fail-stop writers and stages (review F01); typed limit refusals (review F09). Remaining: A0 charged channel unit (review F05); P1.9/P1.10 provider chunks on the reservation, shared Arrow buffer charge ownership (F07), DataFusion refusals typed as `Resource`, SQLx buffer shrinking (F06); E1 measured envelope against peak RSS for both profiles, naming provider-internal parse/solver memory, allocator retention, SQLx buffers and charged-map undercount (F08), with a mid-attempt exhaustion run |
+| input-validation F02 | narrowed (R1–R3, resource-review corrections, E1 Measured) → A0, P1.9/P1.10, Q | Addressed: reserved batch encode/decode and transfer bounds (R1); charged invariant state and a linear, memoized type-closure walk (R2, resource F03); source admission before Pyrefly handles and a total traversal bound (R3/E1); fail-stop writers and stages (resource F01); typed limits (resource F09); E1 envelope on fastmcp 4.0.5 with clean mid-attempt exhaustion. Remaining: A0 batches carry their charge across the provider channel, with peak reservation bounded by the channel window rather than total output; P1.9/P1.10 provider chunks on the reservation, SQLx buffer retention and shared Arrow buffer accounting; Q both-profile envelope over the full captured closure, with charged-map calibration (resource F08) |
 
 
 This table owns the current disposition of the review's findings. Each closes by construction in the
@@ -883,27 +889,45 @@ re-inspects them.
 | [F09](../design_review/reviews/design_review_resource-slices_2026-09-29.md#F09) | `ModelError`, `generations` | addressed: `ModelError::Limit { owner, limit, observed, bound }` for the writer row limit, the COPY row limit, the small-read cap and the stored-row read limit; the 70 MiB control matches it |
 | O1 | `MemoryGeneration::validate` | deferred; trigger: any use beyond fixture-sized inputs (B3 at scale) |
 
+### P0 exit review findings
+
+The assembled [P0 exit review](../design_review/reviews/design_review_p0-exit_2026-09-29.md)
+returned Revise on 2026-09-29 for one correction (F01). The review's §11 dispositions:
+
+| Finding | Responsible component | Current disposition and evidence |
+|---|---|---|
+| [F01](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F01) | `obligation::verdict`, §15.8 | addressed, pending re-inspection: `VerdictInput.modality`; Candidate/Potential give Unknown(`NonDefiniteAlternative`, 50); refutation under partial coverage gives `IncompleteCoverage` (51); priority rationale documented; §15.8 amended. Controls: `a_candidate_or_potential_alternative_is_never_established_or_refuted` and the composition-to-verdict case (Candidate composed flow Unknown, Definite twin Established) |
+| [F02](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F02) | `lctx-postgres::generations`; P1.7/P1.10/P1.11 | open → P1.7: frontier-scoped schema and a typed `Frontier` read refusal (P1.7 controls) |
+| [F03](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F03) | `composition` | deferred → P4 with composition F04/F06/F07; trigger: P4 engine design or the first `compose_site` caller outside tests |
+| [F04](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F04) | `stages` | open → A0: batched outputs and contributed vocabulary dedup/refusal control |
+| [F05](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F05) | `ProviderCoverage`; B1 | open → B1 (catalog generation without a ty `Provider` row); D1 receipt wording corrected |
+| [F06](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F06) | model tests; P1.11 | open → P1.11: model and codebook snapshot from `model describe --format json` |
+| [F07](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F07) | `StageSink`/`GenerationAttempt::copy`; P1.7/P1.10 | open → P1.10: typed store failure class with an injected transport-failure control |
+| [F08](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F08) | `typed_syntax`; A4 | wording addressed (`admit`/`extract` state the transitive-load limit); import policy → A4 |
+
 ### Core review findings
 
-All findings from the [core review](../design_review/reviews/design_review_cutover-core_2026-09-29.md)
-remain open; acceptance requires implementation plus focused evidence and the assembled P0 exit review (§4.1.1 X0).
+Dispositions of the [core review](../design_review/reviews/design_review_cutover-core_2026-09-29.md)
+findings after the assembled [P0 exit review](../design_review/reviews/design_review_p0-exit_2026-09-29.md)
+(2026-09-29). "Closed at contract level" means implemented with focused evidence; it is not phase
+qualification. Findings routed to P1–P5 remain open.
 
 | Finding | Owner and closure |
 |---|---|
 | C01 | P1.7 (lifecycle), P1.10 (lease): schema-per-generation retirement, reader lease and select/retire concurrency controls |
 | C02 | P1.10: reader rejects model/physical digest mismatch before decoding |
-| C03 | D0, C6: typed model membership and sole stage writer authority, including self-cycle refusal |
-| C04 | C2, A7/A10, P3 (equivalence, views): attributed direct/potential/higher-order alternatives; one normalization owner |
-| C05 | C5, C5r: paths compose only through identity; map complete binding sets and boundary outputs; entry-value ports and total root map (C4/C5 review F02/F03) |
-| C06 | C4, C5, C5r: preserve opaque local guards; refuse unsupported substitution rather than erase conditions; nested reach and the stored composition equation (C4/C5 review F01/F05) |
-| C07 | C5: typed ControlInfluence and Selection with separate value-transfer meaning |
-| C08 | X0 re-confirmation: transfer key excludes merged condition; stable derivation references |
-| C09 | X0 re-confirmation: scope-boundary unknown; approximation obligation; rendering budget separate |
-| C10 | C2: receiver Unknown and one classification policy |
+| C03 | closed at contract level (P0 exit review, 2026-09-29): D0, C6. Owner: D0, C6: typed model membership and sole stage writer authority, including self-cycle refusal |
+| C04 | closed apart from P3 items (cross-provider equivalence, SQL views) and composition F04's admission token (P0 exit review). Owner: C2, A7/A10, P3 (equivalence, views): attributed direct/potential/higher-order alternatives; one normalization owner |
+| C05 | closed at contract level (P0 exit review): C5, C5r. Owner: C5, C5r: paths compose only through identity; map complete binding sets and boundary outputs; entry-value ports and total root map (C4/C5 review F02/F03) |
+| C06 | closed at contract level (P0 exit review): C4, C5, C5r. Owner: C4, C5, C5r: preserve opaque local guards; refuse unsupported substitution rather than erase conditions; nested reach and the stored composition equation (C4/C5 review F01/F05) |
+| C07 | closed at contract level (P0 exit review): C5. Owner: C5: typed ControlInfluence and Selection with separate value-transfer meaning |
+| C08 | re-confirmed (P0 exit review). Owner: X0 re-confirmation: transfer key excludes merged condition; stable derivation references |
+| C09 | pending F01 re-inspection (P0 exit review): verdict modality and coverage reason. Owner: X0 re-confirmation: scope-boundary unknown; approximation obligation; rendering budget separate |
+| C10 | closed at contract level (P0 exit review): C2. Owner: C2: receiver Unknown and one classification policy |
 | C11 | C1, A3–A4, A14, B2: acyclic source identities, typed syntax kinds and structural occurrence discriminators |
-| C12 | C3, B2: indexed region join with scalar oracle and unresolved ambiguity |
+| C12 | owner-rule half closed at contract level (P0 exit review): C3; attachment half → B2. Owner: C3, B2: indexed region join with scalar oracle and unresolved ambiguity |
 | C13 | implemented derivation contract; P4/P5 consumers: derivation targets follow typed references and generated view grants |
-| C14 | P0.1: DESIGN §15.1 assigns provider registration to cpg-core and PostgreSQL effects to lctx-postgres |
+| C14 | closed (P0 exit review): DESIGN §15.1. Owner: P0.1: DESIGN §15.1 assigns provider registration to cpg-core and PostgreSQL effects to lctx-postgres |
 
 ## 9. Risks
 

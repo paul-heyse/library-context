@@ -338,8 +338,13 @@ parallel DNF computation exists.
 - **Coverage:** coverage is stated per family and scope. A negative claim requires complete coverage
   inside the relation's declared closure. Every fact family is a coverage family. Each assertion
   relation, and its support, declares the family whose coverage states its completeness.
-- **Verdicts:** one verdict function maps condition, open obligations and approximation to the five
-  verdicts (established, conditional, refuted under model, unknown, not analysed).
+- **Verdicts:** one verdict function maps condition, open obligations, coverage, approximation and
+  the claim's modality to the five verdicts (established, conditional, refuted under model,
+  unknown, not analysed).
+  - A candidate or potential alternative is never established, conditional or refuted. It is
+    unknown (`NonDefiniteAlternative`) until discharge over every alternative of its site.
+  - A refutation under partial coverage is unknown (`IncompleteCoverage`).
+  - Priority names the most specific cause first.
 
 > Decision: ADR-0085
 

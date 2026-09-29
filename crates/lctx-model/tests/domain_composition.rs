@@ -349,9 +349,15 @@ fn every_admitted_alternative_composes_separately_and_modality_follows_the_site(
     let results = compose_site(std::slice::from_ref(&delivered), &calls, &owner(&caller), &w.catalog()).unwrap();
     assert_eq!(results.len(), 2, "two targets are two candidate flows, never one merged invocation");
     for result in &results { let CallComposition::Transfer(t) = result else { panic!() }; assert_eq!(t.branch.key().modality, Modality::Candidate); }
+    // A candidate composed flow with condition true is unknown, never established (P0 exit F01).
+    let CallComposition::Transfer(candidate) = &results[0] else { panic!() };
+    let concluded = |t: &ComposedTransfer| obligation::verdict(obligation::VerdictInput { condition: Some(t.branch.condition()), open: &[],
+        coverage: CoverageStatus::CompleteUnderStatedModel, approximation: t.branch.key().approximation, modality: t.branch.key().modality });
+    assert_eq!(concluded(candidate), obligation::Conclusion { verdict: obligation::Verdict::Unknown, reason: Some(ObligationKind::NonDefiniteAlternative) });
     // One binding variant of a summarized target is definite; two variants make it a candidate.
     let definite = transfer(compose(&w, &caller, &delivered, &first, &branches[0][0], true));
     assert_eq!(definite.branch.key().modality, Modality::Definite);
+    assert_eq!(concluded(&definite).verdict, obligation::Verdict::Established, "the definite twin of the same flow");
     let mut several = frame(&first, true); several.unique_variant = false;
     let candidate = compose_call(&delivered, &branches[0][0], &several, &owner(&caller), &callee(&first, Some(&empty)), &w.catalog()).unwrap();
     assert_eq!(transfer(candidate).branch.key().modality, Modality::Candidate);

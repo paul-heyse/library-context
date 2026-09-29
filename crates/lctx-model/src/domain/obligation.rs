@@ -1,7 +1,7 @@
 //! Shared semantic refusal vocabulary, named budgets, discharge and conservative verdict policy.
 use std::collections::{BTreeMap,BTreeSet};
 use crate::DomainCode;
-use super::{assertion::Approximation,attribution::CoverageStatus,conditions::Diagram};
+use super::{assertion::Approximation,attribution::{CoverageStatus,Modality},conditions::Diagram};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, DomainCode)]
 #[repr(i16)]
@@ -88,6 +88,11 @@ pub enum ObligationKind {
         /// A callee transfer end is rooted at a parameter variable whose value at that access is
         /// not shown to be the caller's entry value; the body may have rebound it.
         EntryValueUnknown = 49,
+        /// The claim rests on a candidate or potential alternative. Only discharge over every
+        /// alternative of its site can establish or refute it.
+        NonDefiniteAlternative = 50,
+        /// A refutation needs complete coverage of the relation's scope; the coverage is partial.
+        IncompleteCoverage = 51,
 }
 
 /// The class of an obligation, which orders it before its code.
@@ -134,7 +139,8 @@ impl ObligationKind {
             | K::ProviderDisagreement
             | K::CallTransfer
             | K::ConflictingProof
-            | K::ConditionTransferUnsupported => C::Resolution,
+            | K::ConditionTransferUnsupported
+            | K::NonDefiniteAlternative => C::Resolution,
             K::NativeUnavailable
             | K::UnsupportedControlFlow
             | K::OutsideProviderModel
@@ -154,7 +160,8 @@ impl ObligationKind {
             | K::UndecodableSource
             | K::DefaultUnavailable
             | K::DefaultStabilityUnknown
-            | K::EntryValueUnknown => C::Evidence,
+            | K::EntryValueUnknown
+            | K::IncompleteCoverage => C::Evidence,
             K::NoApplicableDomain
             | K::IncompleteDomain
             | K::ComparableConflict
@@ -168,7 +175,10 @@ impl ObligationKind {
 
 /// The one obligation order (DESIGN §15.8): by class — budget, resolution, model, evidence,
 /// selection, scope — then by code. When several obligations are open, the first is the reason a
-/// response names. Presentation-only response truncation is excluded before verdict evaluation.
+/// response names. The order puts the most specific cause first: a stopped proof explains more
+/// than an unresolved alternative, which explains more than the model's limits, missing evidence,
+/// an inapplicable domain or an unasked question. Presentation-only response truncation is
+/// excluded before verdict evaluation.
 pub fn priority(kind: ObligationKind) -> (ObligationClass, i16) {
     (kind.class(), kind as i16)
 }
@@ -197,25 +207,30 @@ pub struct Conclusion { pub verdict: Verdict,pub reason: Option<ObligationKind> 
 pub struct VerdictInput<'a> {
     pub condition: Option<&'a Diagram>,pub open: &'a [ObligationKind],
     pub coverage: CoverageStatus,pub approximation: Approximation,
+    /// The modality of the alternative the claim rests on.
+    pub modality: Modality,
 }
 /// Positive witnesses can hold under partial coverage, but no approximate or refused proof is
-/// promoted. ScopeBoundary is unknown; only an explicitly unrequested question is not analyzed.
-/// Display truncation never enters the semantic condition or changes its verdict.
+/// promoted. A candidate or potential alternative is never established, conditional or refuted:
+/// it is unknown until discharge over all of its site's alternatives. ScopeBoundary is unknown;
+/// only an explicitly unrequested question is not analyzed. Display truncation never enters the
+/// semantic condition or changes its verdict.
 pub fn verdict(input: VerdictInput<'_>) -> Conclusion {
+    let alternative = (input.modality != Modality::Definite).then_some(ObligationKind::NonDefiniteAlternative);
     let approximation = (input.approximation != Approximation::Exact).then_some(ObligationKind::Approximation);
     let coverage = match input.coverage {
         CoverageStatus::NotRequested => Some(ObligationKind::NotRequested),
         CoverageStatus::Unavailable | CoverageStatus::Failed => Some(ObligationKind::NativeUnavailable),
         _ => None,
     };
-    let first = first(input.open.iter().copied().filter(|reason| *reason != ObligationKind::ResponseBudget).chain(approximation).chain(coverage));
+    let first = first(input.open.iter().copied().filter(|reason| *reason != ObligationKind::ResponseBudget).chain(alternative).chain(approximation).chain(coverage));
     if let Some(reason) = first {
         return Conclusion { verdict: if reason == ObligationKind::NotRequested { Verdict::NotAnalyzed } else { Verdict::Unknown },reason: Some(reason) };
     }
     let Some(condition) = input.condition else { return Conclusion { verdict: Verdict::Unknown,reason: Some(ObligationKind::MissingEvidence) }; };
     if condition.is_false() {
         if input.coverage == CoverageStatus::CompleteUnderStatedModel { Conclusion { verdict: Verdict::RefutedUnderModel,reason: None } }
-        else { Conclusion { verdict: Verdict::Unknown,reason: Some(ObligationKind::IncompleteDomain) } }
+        else { Conclusion { verdict: Verdict::Unknown,reason: Some(ObligationKind::IncompleteCoverage) } }
     } else { Conclusion { verdict: if condition.is_true() { Verdict::Established } else { Verdict::Conditional },reason: None } }
 }
 
