@@ -299,6 +299,60 @@ These decisions execute ADR-0083 and ADR-0084 without changing them.
 | D13 | `GenerationId` (16 bytes, canonical) and `ProjectionDigest` (32 bytes, legacy serving) are never blurred | "Generation" already had three meanings |
 | D14 | The canonical provider session and session factory live in `cpg-core`; `lctx-postgres` keeps SQL effects only, amending §15.1's owner line | The PyO3 `lctx_storage` wheel must not link DataFusion |
 
+### 4.2 Execution status (updated 2026-09-29)
+
+Checks so far are targeted, per the phase 0–1 timing rule. Integrated gates are `not_run` until the
+phase-1 exit.
+
+| WP | Status | Commit | Targeted evidence (all `cargo nextest run --release`) |
+|---|---|---|---|
+| E0 | Done | `e66d1f8` | Decisions D1–D14 recorded here; P0 fixture moved to `fixtures/python/semantic_shapes/`; `just docs-check` and `just adr lint` passed |
+| 0.1 | Done | `9e1a3c3` | `lctx-model` scaffolded; `Id`, `Digest`, `IdHasher`, `ArrowColumn`, `HashField` and `Codebook` moved in and re-exported by `cpg-schema`; `-p cpg-schema -p lctx-model`: 124 passed, every snapshot unchanged |
+| 0.2 | Done | `a53d0ff` | `relation!`, the `model!` registry (empty until phase 2), `validate`, identity recompute, the DDL renderer and templates; sample-model DDL and digest pinned |
+| 0.3 | Done | `8ae5faf` | `IdKind` codebook, `lctx-id/v2`, `recipe!`, the `lctx_id_v2` UDF; hand-written encoding control, known answers, proptest, and every recipe equal to its SQL form |
+| 0.5 | Done | `0d9fc8a` | Kernel ported onto v2 atom ids, with no DNF half; bounded existential elimination added; primitive theory ported; laws, truth table, budgets, catalog validation and the rendering truncation control |
+| 0.4, 0.9 | Done | `d9832c6` | Vocabulary, five call policies, the one binder, transfer algebra and `compose_call`, obligations and verdicts, derivation views, projections; P0 shape library with its known answers; policy SQL equals Rust on 5,040 fact combinations; legacy boundary codes equal obligation codes |
+| 0.6 | Done | `fe0e99a` | Store kernel migration and `store.rs`, the one bootstrap SQL, the session factory, canonical provider reads; `lctx-postgres --test store`: 7 passed on real PG18; `cpg-core --test store_read`: the full type matrix round-trips (NaN, −0.0, lists, nulls) |
+| 0.7 | Done (phase-0 scope) | `4e3418e` | The stage scheduler with its refusal controls; the dependency audit, whose known discrepancies are pinned; producer identity covering every canonical producer (F11); rebuild tests: 8 passed |
+| 0.8 | Done | `f8870ce` | Adapter and legacy-id declarations, the arrow-row multiset diff, the harness; `lctx parity self-test`: all 7 controls behaved |
+| 0.10 | **In progress** | — | Design/target review running (fresh `design-reviewer`); output `docs/design_review/reviews/design_review_cutover-core_2026-09-29.md`. Revisions follow its decision |
+| 1.0 | Done | `e267f3d` | Every session is declared-type; `Params` bind `FixedSizeBinary` lists; `cpg-core` all tests: 158 passed plus the fixed syntax suite (22 passed); `lctx`: 10 passed |
+| 1.1–1.9 | Not started | — | — |
+
+**Deviations from the plan text, to confirm in WP0.10**
+- **No provider-fork patch (WP0.6).** List columns are read with nullable items and cast to their
+  declared items in `store_read`.
+- **Kernel schema (WP0.6).** The static kernel lives in schema `lctx_store` (registry, relation
+  catalog, lifecycle functions). Generated relations live in `lctx`, so `lctx store reset` can drop
+  `lctx` whole.
+- **Lifecycle refinements (WP0.6).**
+  - Validation runs one relation per call (`validate_relation`), because the writer's statement and
+    transaction timeouts are 30 s.
+  - Publish grants the reader `SELECT` on the generation's partitions, so a pinned read scans one
+    partition.
+  - Retire drops each detached partition, referrers first, because a detached partition keeps its
+    foreign keys.
+- **Vocabulary and policy choices (WP0.4).**
+  - The `Occurrence` place root generalizes "local binding occurrence" to argument and call-result
+    occurrences.
+  - The `summary` policy admits only call and init phases, so it is a subset of `dataflow`.
+  - A budget obligation's verdict is `unknown`, not `not_analysed`.
+  - `IdKind` gains `ddl` and `projection`.
+- **Resequencing (WP0.7).** The legacy stage table moved to WP1.2.
+- **F11 (WP0.7).** Whole-publication rebuild reuse now compares full producer identity, so a change
+  to association code recomputes instead of reusing.
+
+**Open findings from the work so far**
+- **Undeclared reads.** The dependency audit shows four legacy relations reading undeclared tables:
+  `argument_flows`, `handoffs`, `usage_candidates` and `flow_model_roots`. The WP1.2 legacy stage
+  table declares their true inputs.
+- **Tests with a fixture prerequisite.** Real-PG serving and provider tests that need
+  `LCTX_TEST_PROJECTION` were `not_run` in the targeted runs; `just test-postgres` supplies the
+  fixture at the phase-1 exit.
+- **Rebuilding the Python extension.** `lctx_storage` must be rebuilt (`uv sync
+  --reinstall-package lctx-storage`) whenever the migration set changes, because its exact
+  migration check refuses a stale build.
+
 ### Phase 2 — Facts (L0 observations)
 
 | WP | Scope and owner | Done when |
