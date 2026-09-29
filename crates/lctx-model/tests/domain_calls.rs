@@ -24,7 +24,7 @@ impl Fixture {
         let scope = CoverageScope::Input { input: input.id() };
         let qualification = AssertionQualification { context: context.id(),scope: scope.id(),
             condition: Diagram::always().id(),modality: Modality::Definite,approximation: Approximation::Exact };
-        let symbol = ProviderSymbol { provider: provider.id(),context: context.id(),module: "a".into(),
+        let symbol = ProviderSymbol { provider: provider.id(),context: context.id(),module: ProviderModule::Bundled { provider: provider.id(),name: "a".into() }.id(),
             native_key: "function:f".into(),name: "f".into(),kind: SymbolKind::Function };
         let destination = CallDestination::Resolved { symbol: symbol.id() };
         let channel = CallChannel::Direct; let receiver = Receiver::None;
@@ -240,4 +240,76 @@ fn binder_checks_shape_lookup_identity_and_retains_aggregate_coordinates() {
 /// A fresh attempt budget; these controls do not share reservations across batches.
 fn budget() -> lctx_model::domain::resources::ResourceBudget {
     lctx_model::domain::resources::ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).unwrap()
+}
+
+#[test]
+fn provider_modules_distinguish_origin_and_belong_to_their_provider() {
+    use lctx_model::domain::types::TypeVariable;
+    let model = model().unwrap();
+    let context = AnalysisContext { python_version: "3.14.7".into(),python_platform: "linux".into(),search_path: vec![],site_package_path: vec![],
+        config_digest: ContentHash::of(b"config"),environment_digest: ContentHash::of(b"env"),lock_digest: None };
+    let other_context = AnalysisContext { python_platform: "darwin".into(),..context.clone() };
+    let provider = Provider { tool: "pinned-provider".into(),revision: "1".into(),build_digest: ContentHash::of(b"build") };
+    let alien = Provider { tool: "other-provider".into(),..provider.clone() };
+    let input = InputRevision::from_entries(vec![]).unwrap();
+    let source = SourceArtifact::from_bytes(input.id(),"pkg/mod.py".into(),b"x = 1").unwrap();
+    let acquired = ProviderModule::Acquired { module: Module { source: source.id(),qualified_name: "pkg.mod".into() }.id() };
+    let bundled = ProviderModule::Bundled { provider: provider.id(),name: "pkg.mod".into() };
+    let unresolved = ProviderModule::Unresolved { provider: provider.id(),context: context.id(),name: "pkg.mod".into() };
+    let ids = [acquired.id(),bundled.id(),unresolved.id()];
+    assert!(ids[0] != ids[1] && ids[1] != ids[2] && ids[0] != ids[2], "the same spelling in different origins is not one module");
+    assert!(ProviderModule::Bundled { provider: provider.id(),name: String::new() }.validate().is_err());
+    let symbol = |owner: &Provider, context: &AnalysisContext, module: &ProviderModule| ProviderSymbol { provider: owner.id(),context: context.id(),
+        module: module.id(),native_key: "pkg.mod.f".into(),name: "f".into(),kind: SymbolKind::Function };
+    let check = |modules: Vec<ProviderModule>, symbols: Vec<ProviderSymbol>| {
+        let invariant = model.invariants().iter().find(|i| i.name == "provider_module_owners").unwrap();
+        let mut check = (invariant.create)(&budget());
+        check.visit(ProviderModule::NAME, Batch::new(&model, modules, &budget()).unwrap().arrow())?;
+        check.visit(ProviderSymbol::NAME, Batch::new(&model, symbols, &budget()).unwrap().arrow())?;
+        check.visit(TypeVariable::NAME, Batch::<TypeVariable>::new(&model, vec![], &budget()).unwrap().arrow())?;
+        check.finish()
+    };
+    let modules = vec![acquired.clone(),bundled.clone(),unresolved.clone()];
+    check(modules.clone(),vec![symbol(&provider,&context,&acquired),symbol(&provider,&context,&bundled),symbol(&provider,&context,&unresolved),
+        symbol(&alien,&context,&acquired)]).unwrap();
+    assert!(check(modules.clone(),vec![symbol(&alien,&context,&bundled)]).is_err(), "a bundled module belongs to its provider");
+    assert!(check(modules.clone(),vec![symbol(&provider,&other_context,&unresolved)]).is_err(), "an unresolved module belongs to its context");
+    assert!(check(vec![],vec![symbol(&provider,&context,&bundled)]).is_err(), "a symbol's module must be present");
+}
+
+#[test]
+fn local_variable_places_are_shared_within_a_scope_and_distinct_across_scopes() {
+    use lctx_model::domain::{flow::*, value::*};
+    let model = model().unwrap();
+    let input = InputRevision::from_entries(vec![]).unwrap();
+    let source = SourceArtifact::from_bytes(input.id(),"m.py".into(),b"def f():\n x = 1\n x = 2\n return x\ndef g():\n x = 3\n").unwrap();
+    let occurrence = |start: i64, kind: SyntaxKind, path: Vec<i32>| Occurrence { source: source.id(),start,end: start+1,syntax_kind: kind,role: OccurrenceRole::Syntax,structural_path: path };
+    let (f, g) = (occurrence(0,SyntaxKind::StmtFunctionDef,vec![0]), occurrence(36,SyntaxKind::StmtFunctionDef,vec![1]));
+    let local = |scope: &Occurrence| PlaceRoot::Local { scope: scope.id(),name: "x".into() };
+    let place = |root: &PlaceRoot| Place { root: root.id(),path: AccessPath::empty().id() };
+    let (in_f, in_g) = (place(&local(&f)), place(&local(&g)));
+    assert_ne!(in_f.id(), in_g.id(), "the same name in a sibling scope is another variable");
+    assert!(PlaceRoot::Local { scope: f.id(),name: String::new() }.validate().is_err());
+    let first = FlowDefinition { occurrence: occurrence(10,SyntaxKind::ExprName,vec![0,0]).id(),place: in_f.id() };
+    let second = FlowDefinition { occurrence: occurrence(17,SyntaxKind::ExprName,vec![0,1]).id(),place: in_f.id() };
+    let sibling = FlowDefinition { occurrence: occurrence(42,SyntaxKind::ExprName,vec![1,0]).id(),place: in_g.id() };
+    let read = FlowUse { occurrence: occurrence(31,SyntaxKind::ExprName,vec![0,2]).id(),place: in_f.id() };
+    let context = AnalysisContext { python_version: "3.14.7".into(),python_platform: "linux".into(),search_path: vec![],site_package_path: vec![],
+        config_digest: ContentHash::of(b"config"),environment_digest: ContentHash::of(b"env"),lock_digest: None };
+    let q = AssertionQualification { context: context.id(), scope: CoverageScope::Input { input: input.id() }.id(),
+        condition: Diagram::always().id(),modality: Modality::Definite,approximation: Approximation::Exact };
+    let reaching = |definition: &FlowDefinition| (ReachingDefinition::Bound { definition: definition.id() },
+        FlowReachingObservation { qualification: q.id(),use_: read.id(),target: ReachingDefinition::Bound { definition: definition.id() }.id(),loop_carried: false });
+    let check = |targets: Vec<(ReachingDefinition,FlowReachingObservation)>| {
+        let invariant = model.invariants().iter().find(|i| i.name == "flow_reaching_places").unwrap();
+        let mut check = (invariant.create)(&budget());
+        let (definitions, observations): (Vec<_>,Vec<_>) = targets.into_iter().unzip();
+        check.visit(FlowUse::NAME, Batch::new(&model, vec![read.clone()], &budget()).unwrap().arrow())?;
+        check.visit(FlowDefinition::NAME, Batch::new(&model, vec![first.clone(),second.clone(),sibling.clone()], &budget()).unwrap().arrow())?;
+        check.visit(ReachingDefinition::NAME, Batch::new(&model, definitions, &budget()).unwrap().arrow())?;
+        check.visit(FlowReachingObservation::NAME, Batch::new(&model, observations, &budget()).unwrap().arrow())?;
+        check.finish()
+    };
+    check(vec![reaching(&first),reaching(&second)]).unwrap();
+    assert!(check(vec![reaching(&sibling)]).is_err(), "a use cannot be reached by another scope's variable");
 }

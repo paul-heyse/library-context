@@ -8,6 +8,22 @@ use super::{*, assertion::*, attribution::*, source::*};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
 #[repr(i16)]
 pub enum SymbolKind { Function = 0, Method = 1, Class = 2, Variable = 3, Module = 4, Unknown = 5 }
+/// The module a provider places a symbol or type variable in. An acquired module is the typed
+/// module over captured bytes. A provider-bundled stub (such as vendored typeshed) is scoped to
+/// its provider; an unresolved module keeps the provider's spelling and never equals a resolved one.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[model(name = "provider_modules", validate = validate_provider_module, invariants = provider_module_invariants)]
+pub enum ProviderModule {
+    #[model(code = 0)] Acquired { module: Id<Module> },
+    #[model(code = 1)] Bundled { provider: Id<Provider>, name: String },
+    #[model(code = 2)] Unresolved { provider: Id<Provider>, context: Id<AnalysisContext>, name: String },
+}
+fn validate_provider_module(row: &ProviderModule) -> Result<(),ModelError> {
+    match row {
+        ProviderModule::Bundled { name, .. } | ProviderModule::Unresolved { name, .. } if name.is_empty() => Err(invalid("provider module needs a name")),
+        _ => Ok(()),
+    }
+}
 /// A provider's native symbol key, qualified by its pinned provider and analysis context.
 /// Cross-provider equivalence is a later attributed relationship, never a spelling join.
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
@@ -15,15 +31,43 @@ pub enum SymbolKind { Function = 0, Method = 1, Class = 2, Variable = 3, Module 
 pub struct ProviderSymbol {
     #[model(key, provenance)] pub provider: Id<Provider>,
     #[model(key)] pub context: Id<AnalysisContext>,
-    #[model(key)] pub module: String,
+    #[model(key)] pub module: Id<ProviderModule>,
     #[model(key)] pub native_key: String,
     pub name: String,
     pub kind: SymbolKind,
 }
 fn invalid(message: &str) -> ModelError { ModelError::Invalid(message.into()) }
 fn validate_symbol(row: &ProviderSymbol) -> Result<(),ModelError> {
-    if row.module.is_empty() || row.native_key.is_empty() { return Err(invalid("provider symbol needs native module/key")); }
+    if row.native_key.is_empty() { return Err(invalid("provider symbol needs a native key")); }
     Ok(())
+}
+fn provider_module_invariants() -> Vec<Invariant> {
+    vec![Invariant { name: "provider_module_owners", inputs: vec![ValidationInput::of::<ProviderModule>(&["id"]),
+        ValidationInput::of::<ProviderSymbol>(&["id"]), ValidationInput::of::<super::types::TypeVariable>(&["id"])],
+        create: std::sync::Arc::new(|budget| Box::new(ModuleOwners { charge: StateCharge::new(budget, "provider_module_owners"), ..Default::default() })) }]
+}
+/// A bundled module belongs to one provider and an unresolved one to one provider and context.
+#[derive(Default)]
+struct ModuleOwners { charge: StateCharge, modules: ChargedMap<Id<ProviderModule>, ProviderModule> }
+impl ModuleOwners {
+    fn owns(&self, module: Id<ProviderModule>, provider: Id<Provider>, context: Id<AnalysisContext>) -> Result<(),ModelError> {
+        match self.modules.get(&module).ok_or_else(|| invalid("provider module absent"))? {
+            ProviderModule::Acquired { .. } => Ok(()),
+            ProviderModule::Bundled { provider: owner, .. } if *owner == provider => Ok(()),
+            ProviderModule::Unresolved { provider: owner, context: scope, .. } if (*owner, *scope) == (provider, context) => Ok(()),
+            _ => Err(invalid("provider module belongs to another provider or context")),
+        }
+    }
+}
+impl InvariantCheck for ModuleOwners {
+    fn visit(&mut self, relation: &str, batch: &arrow_array::RecordBatch) -> Result<(),ModelError> {
+        if relation == ProviderModule::NAME { for row in ProviderModule::decode(batch)? { self.modules.insert(&mut self.charge, row.id(), row)?; } }
+        else if relation == ProviderSymbol::NAME { for row in ProviderSymbol::decode(batch)? { self.owns(row.module, row.provider, row.context)?; } }
+        else if relation == super::types::TypeVariable::NAME { for row in super::types::TypeVariable::decode(batch)? { self.owns(row.module, row.provider, row.context)?; } }
+        else { return Err(invalid("undeclared provider module input")); }
+        Ok(())
+    }
+    fn finish(self: Box<Self>) -> Result<(),ModelError> { Ok(()) }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
 #[repr(i16)]

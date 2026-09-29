@@ -291,7 +291,7 @@ impl<A: Assertion, S: Support<Assertion=A>> SupportCheck<A,S> {
                         | PlaceRoot::Raise { callable } => Subject::Occurrence(*callable),
                     PlaceRoot::Field { class,.. } => Subject::Occurrence(*class),
                     PlaceRoot::Global { module,.. } => Subject::Module(*module),
-                    PlaceRoot::Occurrence { occurrence } => Subject::Occurrence(*occurrence),
+                    PlaceRoot::Occurrence { occurrence } | PlaceRoot::Local { scope: occurrence, .. } => Subject::Occurrence(*occurrence),
                 })?
             }
             Subject::Transfer(_) | Subject::FlowUse(_) | Subject::FlowDefinition(_) | Subject::ReachingDefinition(_) => return Err(invalid("composite subject requires all sources")),

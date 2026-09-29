@@ -29,7 +29,8 @@ async fn transfer_control_selection_survive_postgres_and_cross_scope_call_site_r
     let provider = Provider { tool: "contract-fixture".into(),revision: "one".into(),build_digest: ContentHash::of(b"build") };
     let (run,families) = ProviderRun::new(provider.id(),context.id(),input.id(),context.config_digest,[FactFamily::Flow]).unwrap();
     let surface = ProviderSurface { provider: provider.id(),family: FactFamily::Flow,name: "flow".into() };
-    let symbol = ProviderSymbol { provider: provider.id(),context: context.id(),module: "x".into(),native_key: "f".into(),name: "f".into(),kind: SymbolKind::Function };
+    let module = ProviderModule::Bundled { provider: provider.id(),name: "x".into() };
+    let symbol = ProviderSymbol { provider: provider.id(),context: context.id(),module: module.id(),native_key: "f".into(),name: "f".into(),kind: SymbolKind::Function };
     let occurrences: Vec<_> = (0..3).map(|i| Occurrence { source: source.id(),start: i,end: i+1,syntax_kind: SyntaxKind::ExprName,
         role: OccurrenceRole::Read,structural_path: vec![i as i32] }).collect();
     let other_site = Occurrence { source: other.id(),start: 0,end: 1,..occurrences[0].clone() };
@@ -56,7 +57,7 @@ async fn transfer_control_selection_survive_postgres_and_cross_scope_call_site_r
             origin: Origin::DerivedAnalysis,mode: ExtractionMode::GraphAnalysis,fidelity: Fidelity::NormalizedStructural };
         let g = store.create_conformance(ContentHash::of(b"transfer-fixture"),"behavioral").await.unwrap();
         macro_rules! copy { ($($row:expr),+ $(,)?) => { $(store.copy(&writer,g,&Batch::new(&model,vec![$row.clone()], &budget()).unwrap(), &budget()).await.unwrap();)+ }; }
-        copy!(input,origin,acquisition,source,other,scope,context,provider,run,surface,symbol,path,predicate,atom,condition,qualification,
+        copy!(input,origin,acquisition,source,other,scope,context,provider,run,surface,module,symbol,path,predicate,atom,condition,qualification,
             influence,evidence,influence_evidence,control_support,key,alternative,selection,support,other_site,other_root,other_place);
         macro_rules! copies { ($($rows:expr),+ $(,)?) => { $(store.copy(&writer,g,&Batch::new(&model,$rows.clone(), &budget()).unwrap(), &budget()).await.unwrap();)+ }; }
         copies!(families,occurrences,roots,places,nodes);

@@ -199,7 +199,7 @@ assembled reviews at the P0 and P0–P2 exits.
 | T11 | One service baseline migration (`lctx_cache.*`, `lctx_ops.attempts/events`) replaces migrations 0001–0013; legacy history is refused. The operator database moves offline: new database, retained-service copy, rename, archive kept |
 | T12 | The 21 dormant `query_file!` entries stay frozen in `.sqlx`; `cache.rs` uses runtime queries; `sqlx-check`/`sqlx-prepare` leave `test-all` until P5; `lctx_serving` is not installed |
 | T13 | Provider sessions use a bound pool of N (default 2) one-shot connections, each holding its own lease and checking digests and live columns before any scan. Transport loss or a failed cancellation drain is terminal (`Lost`); a confirmed drain returns the connection. Federation is removed; reference-column indexes wait for measurement |
-| T14 | ADR-0089 (written at K1/D0, before code) records T1, T3, T6 and T7. ADR-0090 (P1.4) supersedes ADR-0002 for the delta-rs family removal. Composition, admission and lifecycle policies amend DESIGN §15.4/§15.6/§15.8/§15.11 in place |
+| T14 | ADR-0089 (accepted at K1, 2026-09-29) records T1, T3, T6 and T7. ADR-0090 (P1.4) supersedes ADR-0002 for the delta-rs family removal. Composition, admission and lifecycle policies amend DESIGN §15.4/§15.6/§15.8/§15.11 in place |
 
 **Operator-authorized steps.** The project is in its design phase; on 2026-09-29 the operator
 authorized executing these planned steps without a further prompt: pushing the provider-fork
@@ -316,7 +316,7 @@ name and declaration inputs; the Ruff-vs-Pysa call and `__all__` comparisons sta
 | Dc | `lctx compile <library> --through facts --profile catalog\|behavioral --database <cfg>`: other frontiers refused before side effects; digest check; acquire → capture → schedule → publish; availability report; never selects | `--through analysis` side-effect free; injected required failure leaves no registry row | `lctx` `compile_facts` |
 | C1x | Remove the extraction husk (`extract`, `run_release`, `ExtractOutput`, `FactSink`, `fact_row!`, `write_ipc`, `lctx-extract` binary, legacy ids/recipes, cpg-schema dependencies) | Gates below | workspace check |
 | C2x | Selective pruning; dormant-test answers re-homed or recorded as obligations with the Git revision; regenerate the surviving `cpg-schema` module → consumer → phase map into §5 | Gates below | workspace check |
-| C3x | §4.1.2 dispositions with evidence, §4.2, §5, §6, DESIGN §15 labels, AGENTS.md, ADR-0089 accepted; operator-confirmed `build/` runtime-copy deletion from an inventory | docs and ADR lint | `just docs-check` |
+| C3x | §4.1.2 dispositions with evidence, §4.2, §5, §6, DESIGN §15 labels, AGENTS.md, ADR-0089 consequences brought current; `build/` runtime-copy deletion from an inventory | docs and ADR lint | `just docs-check` |
 
 **Gates.** `rg` over `crates/cpg-extract` and `crates/cpg-flow` finds no `cpg_schema`,
 `FactSink`, `fact_row!`, `IdHasher`, `recipe::`, `ExtractOutput`, `write_ipc`,
@@ -579,6 +579,7 @@ Focused evidence (2026-09-29; Cargo commands prefixed by `python3 scripts/build_
 | R1: `cargo test --release -p cpg-extract --test typed_conformance`; `-p cpg-core --test model_runtime`; `cargo check --workspace --all-targets` | passed 2026-09-29 |
 | R2: `cargo test --release -p lctx-model` | passed 2026-09-29: every stored invariant retains state only through `charged` containers bound to the validation budget; cardinality caps and global closure/lineage/proof totals removed, per-condition kernel and guard-depth bounds kept; charged-container and tiny-budget invariant controls |
 | R2: `cargo test --release -p lctx-postgres --test generation_stages --test generations` plus the ten `domain_*` PG suites; `-p cpg-extract --test typed_conformance`; `cargo check --workspace --all-targets` | passed 2026-09-29: real PG18 `validate(g, budget)` refuses on a 64 KiB budget leaving the generation sealed and unpublishable, then a funded retry validates with the attempt budget back at zero |
+| K1: `cargo test --release -p lctx-model --test domain_calls --test domain_types --test domain_flow --test domain_guard_rebase --test domain_transfer`; the same five under `-p lctx-postgres` | passed 2026-09-29: `ProviderModule` origins stay distinct and bind bundled/unresolved modules to their provider and context; `PlaceRoot::Local` shares one place across definitions in a scope and refuses a sibling scope's variable; updated fixtures read back through real PG18 (ADR-0089) |
 | `just fmt`, `just test-all`, facts pilots | not_run: functional scope incomplete |
 
 Independent bounded reviewers accepted artifact/capture/acquisition corrections and the

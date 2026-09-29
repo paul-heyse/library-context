@@ -2,7 +2,7 @@
 #[path = "../../lctx-model/tests/fixtures/types.rs"] mod fixture;
 use std::sync::Arc;
 use fixture::Fixture;
-use lctx_model::domain::{*,artifact::*,assertion::*,attribution::*,conditions::*,input::*,lexical::*,types::*,calls::ProviderSymbol,value::Literal,source::*};
+use lctx_model::domain::{*,artifact::*,assertion::*,attribution::*,conditions::*,input::*,lexical::*,types::*,calls::{ProviderModule,ProviderSymbol},value::Literal,source::*};
 use lctx_postgres::generations::{GenerationStore,Error};
 use sqlx::PgPool;
 use testcontainers_modules::{postgres::Postgres,testcontainers::{ImageExt,runners::AsyncRunner}};
@@ -32,7 +32,7 @@ async fn structural_types_and_recursive_variable_restrictions_roundtrip_without_
         macro_rules! copy { ($($ty:ty),+ $(,)?) => { $(
             store.copy(&writer,generation,&Batch::new(&model,fixture.base.rows::<$ty>(), &budget()).unwrap(), &budget()).await.unwrap();
         )+ }; }
-        copy!(InputRevision,InputOrigin,InputAcquisition,AnalysisContext,Provider,ProviderRun,RunFamily,ProviderSurface,
+        copy!(InputRevision,InputOrigin,InputAcquisition,AnalysisContext,Provider,ProviderRun,RunFamily,ProviderSurface,ProviderModule,
             CoverageScope,ProviderCoverage,Condition,ConditionNode,AssertionQualification,SourceArtifact,ArtifactChunk,Occurrence,
             LexicalScope,BindingEvent,LexicalTarget,LexicalScopeObservation,LexicalScopeSupport,BindingObservation,BindingSupport,
             ReferenceObservation,ReferenceSupport,LexicalResolution,LexicalResolutionSupport,Evidence,ProviderSymbol,Literal,TypeVariable,TypeTerm,TypeSequence,TypeSequenceMember,

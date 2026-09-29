@@ -157,7 +157,7 @@ pub fn model() -> Result<ValidatedModel, ModelError> {
         Relation::of::<LexicalResolution>(), Relation::of::<LexicalResolutionSupport>(),
         Relation::of::<TransferKey>(), Relation::of::<TransferAlternative>(), Relation::of::<TransferSupport>(),
         Relation::of::<ControlInfluence>(), Relation::of::<ControlSupport>(), Relation::of::<Selection>(),
-        Relation::of::<ProviderSymbol>(), Relation::of::<ParameterShape>(), Relation::of::<Signature>(),
+        Relation::of::<ProviderModule>(), Relation::of::<ProviderSymbol>(), Relation::of::<ParameterShape>(), Relation::of::<Signature>(),
         Relation::of::<SignatureParameter>(), Relation::of::<SignatureSupport>(),
         Relation::of::<CallChannel>(), Relation::of::<CallDestination>(), Relation::of::<Receiver>(),
         Relation::of::<CallTarget>(), Relation::of::<CallTargetSupport>(),

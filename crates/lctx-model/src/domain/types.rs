@@ -25,7 +25,7 @@ pub enum TypeVariableOrigin { ScopedLegacy = 0, Pep695 = 1, Synthetic = 2, Synth
 pub struct TypeVariable {
     #[model(key, provenance)] pub provider: Id<Provider>,
     #[model(key)] pub context: Id<AnalysisContext>,
-    #[model(key)] pub module: String,
+    #[model(key)] pub module: Id<super::calls::ProviderModule>,
     #[model(key)] pub anchor_start: i64,
     #[model(key)] pub anchor_end: i64,
     #[model(key)] pub slot: i64,
@@ -35,7 +35,7 @@ pub struct TypeVariable {
 }
 fn invalid(message: &str) -> ModelError { ModelError::Invalid(message.into()) }
 fn validate_variable(row: &TypeVariable) -> Result<(),ModelError> {
-    if row.module.is_empty() || row.name.is_empty() || row.anchor_start < 0 || row.anchor_end < row.anchor_start || row.slot < 0 {
+    if row.name.is_empty() || row.anchor_start < 0 || row.anchor_end < row.anchor_start || row.slot < 0 {
         return Err(invalid("invalid native type-variable identity"));
     }
     Ok(())

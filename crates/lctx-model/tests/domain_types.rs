@@ -1,6 +1,6 @@
 #[path = "fixtures/types.rs"] mod fixture;
 use fixture::Fixture;
-use lctx_model::domain::{*,types::*,value::Literal};
+use lctx_model::domain::{*,calls::ProviderModule,types::*,value::Literal};
 
 #[test]
 fn type_structure_keeps_large_literals_variable_identity_and_recursive_restrictions() {
@@ -10,7 +10,7 @@ fn type_structure_keeps_large_literals_variable_identity_and_recursive_restricti
     }
     let views = f.base.rows::<TypePresentation>(); assert_eq!(views.len(),2);
     assert!(views.iter().all(|v| v.term == f.term.id())); assert_ne!(views[0].id(),views[1].id());
-    let mut renamed = f.variable.clone(); renamed.module = "unrelated".into(); assert_ne!(renamed.id(),f.variable.id());
+    let mut renamed = f.variable.clone(); renamed.module = ProviderModule::Bundled { provider: f.variable.provider,name: "unrelated".into() }.id(); assert_ne!(renamed.id(),f.variable.id());
     let literal = f.base.rows::<Literal>().into_iter().find(|v| matches!(v,Literal::Integer { .. })).unwrap();
     assert_eq!(Literal::decode(Batch::new(&f.base.model,vec![literal.clone()], &budget()).unwrap().arrow()).unwrap(),vec![literal]);
     let restriction = f.base.rows::<TypeVariableRestriction>()[0].clone();

@@ -11,8 +11,12 @@ impl Fixture {
         let alien = Provider { tool: "other-type-provider".into(),..provider.clone() };
         let (run,families) = ProviderRun::new(provider.id(),context.id(),input,context.config_digest,[FactFamily::Types]).unwrap();
         let surface = ProviderSurface { provider: provider.id(),family: FactFamily::Types,name: "native types".into() };
-        let class = ProviderSymbol { provider: provider.id(),context: context.id(),module: "example".into(),native_key: "Container".into(),name: "Container".into(),kind: SymbolKind::Class };
-        let variable = TypeVariable { provider: if foreign_variable { alien.id() } else { provider.id() },context: context.id(),module: "example".into(),anchor_start: 6,anchor_end: 12,
+        let module = ProviderModule::Bundled { provider: provider.id(),name: "example".into() };
+        let variable_provider = if foreign_variable { alien.id() } else { provider.id() };
+        // The variable's module belongs to the variable's own provider, isolating the ownership refusal.
+        let variable_module = ProviderModule::Bundled { provider: variable_provider,name: "example".into() };
+        let class = ProviderSymbol { provider: provider.id(),context: context.id(),module: module.id(),native_key: "Container".into(),name: "Container".into(),kind: SymbolKind::Class };
+        let variable = TypeVariable { provider: variable_provider,context: context.id(),module: variable_module.id(),anchor_start: 6,anchor_end: 12,
             slot: 0,origin: TypeVariableOrigin::Pep695,kind: TypeVariableKind::TypeVar,name: "T".into() };
         let variable_term = TypeTerm::TypeVar { variable: variable.id() };
         let integer = Literal::Integer { decimal: "99999999999999999999999999999999999999999999999999999999".into() };
@@ -34,6 +38,7 @@ impl Fixture {
         macro_rules! append { ($ty:ty,$rows:expr) => { let mut rows = base.rows::<$ty>(); rows.extend($rows); base.put(rows); }; }
         append!(Provider,vec![provider.clone(),alien]); append!(ProviderRun,vec![run.clone()]); append!(RunFamily,families); append!(ProviderSurface,vec![surface.clone()]);
         macro_rules! one { ($($row:expr),+ $(,)?) => { $(base.put(vec![$row.clone()]);)+ }; }
+        base.put(vec![module,variable_module]);
         one!(class,variable,observation,support!(TypeSupport,observation),restriction,support!(TypeRestrictionSupport,restriction));
         base.put(vec![presentation.clone(),alternative.clone()]); base.put(vec![support!(TypePresentationSupport,presentation),support!(TypePresentationSupport,alternative)]);
         base.put(vec![integer,bytes]); base.put(vec![variable_term,integer_term,bytes_term,instance,term.clone()]); base.put(vec![arguments,union]);

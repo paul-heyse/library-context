@@ -29,7 +29,8 @@ async fn call_signature_membership_support_ownership_and_readback() {
     let (run,families) = ProviderRun::new(provider.id(),context.id(),input.id(),context.config_digest,[FactFamily::Calls,FactFamily::Signatures]).unwrap();
     let (condition,nodes) = Diagram::always().records();
     let qualification = AssertionQualification { context: context.id(),scope: scope.id(),condition: condition.id(),modality: Modality::Definite,approximation: Approximation::Exact };
-    let symbol = ProviderSymbol { provider: provider.id(),context: context.id(),module: "example".into(),native_key: "fixture:f".into(),name: "f".into(),kind: SymbolKind::Function };
+    let module = ProviderModule::Bundled { provider: provider.id(),name: "example".into() };
+    let symbol = ProviderSymbol { provider: provider.id(),context: context.id(),module: module.id(),native_key: "fixture:f".into(),name: "f".into(),kind: SymbolKind::Function };
     let shapes = vec![ParameterShape { name: Some("value".into()),kind: ParameterKind::PositionalOnly,required: true },
         ParameterShape { name: Some("kwargs".into()),kind: ParameterKind::VarKeyword,required: false }];
     let (signature,parameters) = Signature::new(&qualification,symbol.id(),0,SignatureForm::List,&shapes).unwrap();
@@ -45,7 +46,7 @@ async fn call_signature_membership_support_ownership_and_readback() {
     for wrong_provider in [false,true] {
         let g = store.create_conformance(ContentHash::of(b"call-fixture"),"catalog").await.unwrap();
         macro_rules! copy { ($($row:expr),+ $(,)?) => { $(store.copy(&writer,g,&Batch::new(&model,vec![$row.clone()], &budget()).unwrap(), &budget()).await.unwrap();)+ }; }
-        copy!(input,origin,acquisition,source,site,scope,context,provider,run,condition,qualification,symbol,signature,
+        copy!(input,origin,acquisition,source,site,scope,context,provider,run,condition,qualification,module,symbol,signature,
             destination,channel,receiver,target,resolution,call_surface,signature_surface,evidence,signature_support,resolution_support);
         store.copy(&writer,g,&Batch::new(&model,ArtifactChunk::split(&source,bytes).unwrap().collect(), &budget()).unwrap(), &budget()).await.unwrap();
         store.copy(&writer,g,&Batch::new(&model,nodes.clone(), &budget()).unwrap(), &budget()).await.unwrap();

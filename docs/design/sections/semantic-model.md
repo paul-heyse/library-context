@@ -108,6 +108,10 @@ labels or absolute checkout locations. Package/version releases, installed verif
 input revisions have separate identities. Installed, source-tree and corpus acquisition origins are
 explicit alternatives; multiple distributions and corpus attribution remain relationships. Original
 artifact bytes survive independently of interpretation as canonical 1 MiB `ArtifactChunk` records.
+Acquisition captures the complete analyzer-readable input (site-packages sources and stubs, `.pth`
+and `py.typed` files, distribution metadata and records, and selected corpus files). Derived
+artifacts, such as Markdown Python blocks and task receipts, are written only into a reserved
+`_lctx/` namespace of the frozen capture with typed provenance; the source tree is never written.
 Empty artifacts have no chunks; the last chunk alone may be shorter. A streaming model-owned
 validator reconstructs the full byte length and digest before publication (ADR-0088). The model owns cross-relation reconciliation
 of the stored artifacts with the input manifest.
@@ -123,7 +127,7 @@ condition; the owned merge joins conditions and retains all support.
 Generation IDs identify attempts. Model, physical schema, producer and content digests have separate
 meanings. Content equality excludes runtime timestamps and measurement data.
 
-> Decision: ADR-0085, ADR-0086, ADR-0088
+> Decision: ADR-0085, ADR-0086, ADR-0088, ADR-0089
 
 <a id="section-15-4"></a>
 
@@ -141,15 +145,22 @@ types, external symbols and synthetic callables.
 
 **Who owns occurrence identity.** The Pyrefly/Ruff parse owns occurrence identity. ty observations
 attach by source artifact, span, syntax kind and structural role through one indexed join, checked
-against a scalar oracle for names, attributes and subscripts. Ambiguity stays unresolved.
+against a scalar oracle for names, attributes and subscripts. Only an exact match attaches; any
+other outcome records a subject boundary with its candidates and Partial coverage. Ambiguity stays
+unresolved.
+
+**Provider modules.** Symbols and type variables name a provider module: the acquired module over
+captured bytes, a provider-bundled stub, or an unresolved spelling in one analysis context. The
+same spelling in different origins is never one module.
 
 **Owner rule.** One owner rule assigns each occurrence its enclosing entity: the innermost declaration
 whose body holds it, otherwise the module. It is the only definition of "caller".
 
 **Places**
 - A **place** is a root plus a bounded access path.
-- **Roots:** formal parameter, receiver, return, yield, raise, class field, module global, or local
-  binding occurrence.
+- **Roots:** formal parameter, receiver, return, yield, raise, class field, module global, local
+  variable (its scope-opening occurrence and name), or expression occurrence. Every definition and
+  use of one local variable shares its place.
 - A formal of a source callable is its parameter entity. A formal of an external or modeled callable is
   `(callable, position or name)`, resolved once by the binder (§15.5).
 - **Access path:** at most two segments, each an attribute name, a literal item key or any item, plus
@@ -157,7 +168,7 @@ whose body holds it, otherwise the module. It is the only definition of "caller"
 - **Ports** are the places on a callable's boundary.
 - No other place encoding exists. Node-hex keys, name paths and rendered strings are presentations.
 
-> Decision: ADR-0085
+> Decision: ADR-0085, ADR-0089
 
 <a id="section-15-5"></a>
 
@@ -359,17 +370,19 @@ with pushdown. `lctx query` runs DataFusion SQL over a pinned generation.
 as native executor inputs, with their manifests in PostgreSQL. They are never canonical.
 
 **The stage table.** A typed **stage table** is the sole writer authority and names each stage's input relations, output relations,
-effect class and code identity. From it:
+contributions, effect class and code identity. From it:
 - the scheduler is derived;
 - every output has exactly one writer;
-- a read before its writer runs is an error.
+- a read before its writer runs is an error;
+- a stage contributing shared vocabulary hands budget-reserved rows to that relation's writer,
+  which runs after every contributor and emits each identity once.
 
 Reuse keeps recompute-and-compare admission. Skipping on key stays behind ADR-0081's trigger.
 
 **Performance** of publication and provider reads is measured at phase exits and tuned later. It is
 not a decision gate.
 
-> Decision: ADR-0086
+> Decision: ADR-0086, ADR-0089
 
 <a id="section-15-12"></a>
 

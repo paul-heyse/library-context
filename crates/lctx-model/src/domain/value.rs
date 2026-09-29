@@ -28,7 +28,7 @@ fn validate_literal(row: &Literal) -> Result<(), ModelError> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
-#[model(name = "place_roots")]
+#[model(name = "place_roots", validate = validate_root)]
 pub enum PlaceRoot {
     #[model(code = 0)] Formal { declaration: Id<Occurrence> },
     #[model(code = 1)] Receiver { callable: Id<Occurrence> },
@@ -38,6 +38,15 @@ pub enum PlaceRoot {
     #[model(code = 5)] Field { class: Id<Occurrence>, name: String },
     #[model(code = 6)] Global { module: Id<Module>, name: String },
     #[model(code = 7)] Occurrence { occurrence: Id<Occurrence> },
+    /// A local variable of the scope opened by `scope`. Every definition and use of the same
+    /// name in that scope shares this root, which reaching flow requires.
+    #[model(code = 8)] Local { scope: Id<Occurrence>, name: String },
+}
+fn validate_root(row: &PlaceRoot) -> Result<(), ModelError> {
+    match row {
+        PlaceRoot::Local { name, .. } | PlaceRoot::Field { name, .. } | PlaceRoot::Global { name, .. } if name.is_empty() => Err(ModelError::Invalid("named place root needs a name".into())),
+        _ => Ok(()),
+    }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
 #[model(name = "path_segments")]
