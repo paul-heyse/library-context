@@ -5,8 +5,7 @@ use lctx_postgres::generations::{CleanupOutcome, Error, GenerationStore};
 use lctx_postgres::testing::DisposableDatabase;
 use sqlx::PgPool;
 
-mod support;
-use support::*;
+use lctx_postgres::testing::fixtures::*;
 
 #[tokio::test]
 async fn a_facts_generation_holds_only_facts_relations_and_publishes_with_its_admission() {

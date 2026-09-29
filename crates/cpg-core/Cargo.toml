@@ -37,6 +37,7 @@ unicode-segmentation.workspace = true
 url.workspace = true
 
 [dev-dependencies]
+lctx-postgres = { path = "../lctx-postgres", features = ["testing"] }
 salsa.workspace = true
 sqlx.workspace = true
 cpg-extract = { path = "../cpg-extract" }

@@ -3,11 +3,13 @@ mod catalog;
 mod codec;
 mod ddl;
 mod install;
+mod lease;
 mod lifecycle;
 mod receipts;
 mod verify;
 pub use catalog::{GenerationCatalog, GenerationDetail, GenerationState, GenerationSummary, ListFilter, Writer};
 pub use install::ResetInventory;
+pub use lease::{LeaseContract, LeaseDriver, LeaseParam};
 pub use lifecycle::{GenerationAttempt, SealedAttempt, ValidatedAttempt};
 pub use verify::{CheckReport, Finding, FindingKind};
 use std::{collections::{BTreeMap, BTreeSet}, sync::Arc};
@@ -38,6 +40,8 @@ pub enum Error {
     /// generation that is not a facts generation (P0 exit F02).
     #[error("frontier: {0}")] Frontier(String),
     #[error("reset requires the database name as confirmation")] Confirmation,
+    /// A failure of a driver other than SQLx (a provider session), with its class.
+    #[error("{class:?} driver failure: {detail}")] Driver { class: Infrastructure, detail: String },
 }
 impl Error {
     /// The infrastructure class a stage sink reports for a store failure (P0 exit F07).
@@ -56,6 +60,7 @@ impl Error {
             Self::State | Self::Busy | Self::Orphaned | Self::Confirmation => Infrastructure::State,
             Self::Contract | Self::Frontier(_) | Self::Model(_) | Self::Codec(_) => Infrastructure::Contract,
             Self::Random => Infrastructure::Io,
+            Self::Driver { class, .. } => *class,
         }
     }
 }
@@ -265,16 +270,14 @@ impl GenerationStore {
         // Keep the pool permit; closing on drop releases both the advisory lock and pool capacity.
         let mut connection = reader.acquire().await?;
         connection.close_on_drop();
-        let frontier = transaction_on(&mut connection,async |mut tx| {
-        self.lock_installation(&mut tx).await?;
-        lock(&mut tx,g,true).await?;
-        let registered = self.registered(&mut tx, g).await?;
-        if registered.state != "published" { return Err(Error::State); }
-        sqlx::query("SELECT pg_advisory_lock_shared($1)").bind(g.lock()).execute(&mut *tx).await?;
-        Ok(registered.frontier)
-        }).await?;
+        let contract = self.lease_contract(g);
+        let frontier = contract.acquire(&mut lease::Sqlx(&mut connection)).await?;
         let relations = self.scope(frontier)?.relations.clone();
-        Ok(GenerationLease { connection, generation: g, model: self.model.clone(), budget, relations })
+        Ok(GenerationLease { connection, contract, model: self.model.clone(), budget, relations })
+    }
+    /// The lease protocol for one generation of this store's model.
+    pub fn lease_contract(&self, g: GenerationId) -> LeaseContract {
+        LeaseContract::from_scopes(self.model.digest(), self.physical, self.scopes.iter().map(|(f, s)| (*f, (s.physical, s.columns.clone()))).collect(), g)
     }
     /// Conformance writes charge COPY buffers to the caller's attempt budget.
     pub async fn copy<R: Record>(&self, writer: &PgPool, g: GenerationId, batch: &Batch<R>, budget: &ResourceBudget) -> Result<(), Error> {
@@ -364,19 +367,17 @@ async fn check_schedule(connection: &mut PgConnection, g: GenerationId, expected
 }
 
 pub struct GenerationLease {
-    connection: sqlx::pool::PoolConnection<sqlx::Postgres>, generation: GenerationId, model: Arc<ValidatedModel>, budget: ResourceBudget,
+    connection: sqlx::pool::PoolConnection<sqlx::Postgres>, contract: LeaseContract, model: Arc<ValidatedModel>, budget: ResourceBudget,
     /// The relations the generation's frontier holds; any other is refused before a scan.
     relations: BTreeSet<&'static str>,
 }
 impl GenerationLease {
-    pub fn generation(&self) -> GenerationId { self.generation }
+    pub fn generation(&self) -> GenerationId { self.contract.generation() }
     /// Consume the reader and wait for server acknowledgment that its session lease is released.
     /// Drop still closes the connection conservatively, but does not acknowledge lock release.
     /// The connection remains close-on-drop on error or cancellation and is never pooled again.
     pub async fn release(mut self) -> Result<(), Error> {
-        let released: bool = sqlx::query_scalar("SELECT pg_advisory_unlock_shared($1)")
-            .bind(self.generation.lock()).fetch_one(&mut *self.connection).await?;
-        if !released { return Err(Error::State); }
+        self.contract.release(&mut lease::Sqlx(&mut self.connection)).await?;
         self.connection.close().await?;
         Ok(())
     }
@@ -386,7 +387,7 @@ impl GenerationLease {
         if !self.relations.contains(R::NAME) { return Err(Error::Frontier(format!("{} is outside this generation's frontier", R::NAME))); }
         self.connection.ping().await?;
         let relation = self.model.require::<R>()?;
-        visit_physical(&mut self.connection, self.generation, relation, &["id"], &self.budget, |batch| {
+        visit_physical(&mut self.connection, self.contract.generation(), relation, &["id"], &self.budget, |batch| {
             visitor(Batch::read(&self.model, &batch, &self.budget)?)
         }).await
     }

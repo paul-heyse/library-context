@@ -19,18 +19,44 @@ pub(super) const FAILURE_CLASSES: [&str; 12] =
 
 /// The relations one frontier's generations lower, and the physical digest of that lowering.
 #[derive(Debug, Clone)]
-pub(super) struct Scope { pub relations: BTreeSet<&'static str>, pub physical: ContentHash }
+pub(super) struct Scope { pub relations: BTreeSet<&'static str>, pub physical: ContentHash, pub columns: String }
 /// A conformance generation lowers the whole model; a facts generation lowers only the facts
 /// relations, so nothing above its frontier exists to read as empty (P0 exit F02). A model without
 /// every facts relation has no facts scope.
 pub(super) fn scopes(model: &ValidatedModel) -> BTreeMap<Frontier, Scope> {
-    let scope = |relations: BTreeSet<&'static str>| Scope { physical: physical_digest(model, &relations), relations };
+    let scope = |relations: BTreeSet<&'static str>| Scope { physical: physical_digest(model, &relations), columns: column_signature(model, &relations), relations };
     let mut scopes = BTreeMap::from([(Frontier::Conformance, scope(model.relations().iter().map(Relation::name).collect()))]);
     if let Ok(contract) = FrontierContract::facts(model, Profile::Catalog) {
         scopes.insert(Frontier::Facts, scope(model.relations().iter().map(Relation::name).filter(|name| contract.contains(name)).collect()));
     }
     scopes
 }
+/// The live-column signature of a lowering: `relation.column:type:not-null`, in relation-name
+/// and column order, exactly as `pg_attribute` and `format_type` report the tables `lower` creates.
+fn column_signature(model: &ValidatedModel, relations: &BTreeSet<&str>) -> String {
+    let mut held: Vec<&Relation> = model.relations().iter().filter(|r| relations.contains(r.name())).collect();
+    held.sort_by_key(|r| r.name());
+    let mut parts = Vec::new();
+    for relation in held {
+        let name = relation.name();
+        parts.push(format!("{name}.generation_id:bytea:true"));
+        parts.push(format!("{name}.id:bytea:true"));
+        for field in relation.fields() {
+            let base = match field.scalar() {
+                Scalar::Text => "text", Scalar::Bool => "boolean", Scalar::Int16 => "smallint", Scalar::Int32 => "integer",
+                Scalar::Int64 => "bigint", Scalar::Id | Scalar::Digest | Scalar::Binary => "bytea",
+            };
+            parts.push(format!("{name}.{}:{base}{}:{}", field.name(), if field.list() { "[]" } else { "" }, !field.nullable()));
+            if field.target().is_some() && field.subtype().is_some() { parts.push(format!("{name}.__{}_tag:smallint:false", field.name())); }
+        }
+    }
+    parts.join(",")
+}
+/// The live-column signature of one generation schema, in the same form.
+pub(super) const LIVE_COLUMNS: &str = "SELECT COALESCE(string_agg(c.relname || '.' || a.attname || ':' || format_type(a.atttypid, a.atttypmod) || ':' || a.attnotnull::text, \
+    ',' ORDER BY c.relname COLLATE \"C\", a.attnum), '') FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid JOIN pg_namespace n ON n.oid = c.relnamespace \
+    WHERE n.nspname = $1 AND c.relkind = 'r' AND a.attnum > 0 AND NOT a.attisdropped";
+
 /// The frontier a registry row names.
 pub(super) fn frontier(name: &str) -> Option<Frontier> { Frontier::ALL.into_iter().find(|f| f.name() == name) }
 

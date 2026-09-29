@@ -772,6 +772,36 @@ Fork commit `09cc8a8` on `lctx/df55-bounded-pool` was pushed to `paul-heyse/data
 Controls: `bounded_chunks` known answers ([4096, 4096, 1808]; [2, 1]; an oversized row alone; 70 MiB refused; completed-chunk bytes), declared-list conformance with null and width refusals, and bound-limit refusal before network access. Live pool behaviour (drain to the same backends, transport loss) is P1.10's control.
 
 Also: the workspace rev bumped, the patch regenerated (base `33095588`), the pins row updated, and an ADR-0090 amendment records the rev move with the family unchanged |
+| P1.10: `cargo test --release -p cpg-core --test generation_read`; `-p lctx-postgres --test lifecycle --test generations --test generation_catalog --test domain_calls --test installation`; `cargo check --workspace --all-targets` | passed 2026-09-29 (generation_read 9; the lctx-postgres suites unchanged).
+
+**Lease protocol.** `generations/lease.rs` is driver-neutral: `LeaseContract::{acquire, release}` over a two-method `LeaseDriver`. `pin` runs it through SQLx. Provider sessions run it through tokio-postgres as each bound connection's `SessionBinder`. The protocol checks, in order:
+- the installation (shared lock and digests);
+- the generation lock, shared;
+- the registry state and frontier-scoped digests;
+- the live `pg_attribute` column signature against the lowering;
+
+and then takes the session lock.
+
+**Sessions.** `cpg-core/src/generation_read.rs` provides:
+- `GenerationSession::open(RoleConfig, model, generation, ProviderOptions)`: serving role only, within its provider budget, with every refusal before any scan;
+- `table::<R>()`: `Frontier` refusal outside the scope;
+- `health()` and `close()`: every release confirmed;
+- `InspectionSession::sql`: read-only.
+
+`GenerationTable` has exactly the relation's declared schema and the closed pushdown algebra recovered from `postgres_read`. It admits `Utf8View` literals and the column's view cast, unqualifies columns, and orders integers only. `GenerationScan` reads through the fork's reserved bounded stream.
+
+**Controls:**
+- provider readback equals typed SQLx readback over 65 MiB of chunks in bounded batches, lists, a sum and an empty relation;
+- exact vs unsupported pushdown, with correct answers either way and WHERE in the plan;
+- a refused session keeps no connection and no lease, for each of an unpublished generation, another model and an added live column;
+- a pin survives a selection change and still blocks retire; `transfer_keys` is refused by type and by SQL on a facts generation;
+- lease blocks retire until `close`;
+- row-bounded and 8 MiB-bounded batches; a 1 MiB pool refuses with Resources exhausted and the session stays Ready;
+- three mid-stream drops drain and return to the same two backend PIDs;
+- terminated backends make the session Lost with no replacement backend, and retire then succeeds;
+- a stage session registers a generation table through its read permit.
+
+The lifecycle fixtures moved into `lctx_postgres::testing::fixtures`. P0 exit F02 is closed at the reader for leases and provider tables (the `query` CLI is P1.11). C02 is closed |
 | `just fmt`, `just test-all`, facts pilots | not_run: functional scope incomplete |
 
 Independent bounded reviewers accepted artifact/capture/acquisition corrections and the

@@ -4,8 +4,7 @@ use lctx_model::domain::{ContentHash, admission::Frontier, stages::Profile};
 use lctx_postgres::generations::{GenerationCatalog, GenerationState, GenerationStore, ListFilter, Writer};
 use lctx_postgres::testing::DisposableDatabase;
 
-mod support;
-use support::*;
+use lctx_postgres::testing::fixtures::*;
 
 #[tokio::test]
 async fn the_catalog_reports_every_state_frontier_and_writer() {

@@ -14,6 +14,7 @@ pub mod postgres;
 pub mod producer;
 pub mod session;
 pub mod model_runtime;
+pub mod generation_read;
 pub mod sql;
 pub mod summaries;
 pub mod synth;
