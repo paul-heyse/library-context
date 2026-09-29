@@ -12,8 +12,8 @@ contradiction or dependency requires it; the whole corpus is not the default rea
 | Change serving, retrieval or embeddings | [Synthesis and serving](design/sections/synthesis-and-serving.md) → [storage and publication §6.4](design/sections/storage-and-publication.md) |
 | Build the differentiated API/evidence product | [Target design §14](design/sections/api-and-evidence-product.md) → [current PR0–PR6 queue](plans/behavioral-model-forward-plan_2026-09-24.md#30-consolidated-execution) |
 | Deploy or integrate PostgreSQL | [PostgreSQL workstream](plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-workstream) → [storage §6.5](design/sections/storage-and-publication.md#section-6-5); [forward plan §3.4](plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-workstream) coordinates sequencing and §6.1 owns finding status |
-| Review a design or implementation | [Review skill](../.claude/skills/design-review/SKILL.md) → [repository binding](design_review/design_principles/binding/library-context.md) |
-| Research a library capability | [Pins](pins.md) → [local capability skills](../.claude/skills/README.md) → Context7, then the `library-research` route |
+| Review a design or implementation | [Review skill](../.claude/skills/design-review/SKILL.md) → [repository binding](design_review/design_principles/binding/library-context.md); for library fit, start from [library utilization](library-utilization.md) |
+| Research a library capability | [Library utilization](library-utilization.md) (what we already use, and where) → [Pins](pins.md) → [local capability skills](../.claude/skills/README.md) → Context7, then the `library-research` route |
 | Understand why a decision was made | Owner section's `> Decision:` line → [ADR index](adr/README.md) |
 | Maintain this site | [Publishing operations](publishing.md) |
 
