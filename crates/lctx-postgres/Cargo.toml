@@ -21,6 +21,7 @@ bytes.workspace = true
 base64.workspace = true
 url.workspace = true
 cpg-schema = { path = "../cpg-schema" }
+lctx-model = { path = "../lctx-model" }
 serde.workspace = true
 serde_json.workspace = true
 sqlx.workspace = true

@@ -88,6 +88,20 @@ impl SqlType {
         })
     }
 
+    /// PostgreSQL's own type name, as a binary COPY encoder names it (`int2`, `float8`, `text[]`).
+    pub fn pg_name(&self) -> String {
+        match self {
+            Self::Bytea => "bytea".into(),
+            Self::Text => "text".into(),
+            Self::SmallInt => "int2".into(),
+            Self::BigInt => "int8".into(),
+            Self::Boolean => "bool".into(),
+            Self::Double => "float8".into(),
+            Self::Real => "float4".into(),
+            Self::Array(inner) => format!("{}[]", inner.pg_name()),
+        }
+    }
+
     pub fn sql(&self) -> String {
         match self {
             Self::Bytea => "bytea".into(),
@@ -393,9 +407,9 @@ impl TableSpec {
                 list(index)
             ));
         }
-        if self.serve {
-            out.push(format!("GRANT SELECT ON {table} TO {}", quote(cfg.reader)));
-        }
+        // Every published relation is readable by the reader: canonical reads (rebuild, diff,
+        // query) need them all. `serve` governs generated serving views, not this grant.
+        out.push(format!("GRANT SELECT ON {table} TO {}", quote(cfg.reader)));
         out
     }
 
@@ -572,7 +586,12 @@ pub fn install(
     cfg: &DdlConfig,
 ) -> Result<Install, DdlError> {
     let ordered = dependency_order(tables)?;
-    let mut statements = Vec::new();
+    let schema = quote(cfg.schema);
+    let mut statements = vec![
+        format!("CREATE SCHEMA {schema}"),
+        format!("REVOKE ALL ON SCHEMA {schema} FROM PUBLIC"),
+        format!("GRANT USAGE ON SCHEMA {schema} TO {}", quote(cfg.reader)),
+    ];
     for entry in codebooks {
         statements.extend(codebook(entry, cfg));
     }

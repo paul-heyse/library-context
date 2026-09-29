@@ -1,6 +1,7 @@
 //! SQLx owns PostgreSQL effects; neither connections nor operational rows are semantic inputs.
 
 mod cache;
+pub mod bootstrap;
 pub mod diagnostics;
 mod evidence;
 mod evidence_search;
@@ -16,6 +17,7 @@ pub mod report;
 pub mod repository;
 pub mod retrieval;
 pub mod serving;
+pub mod store;
 
 use serde::{Deserialize, Serialize};
 use sqlx::{
@@ -50,6 +52,8 @@ pub enum Error {
     Integrity(&'static str),
     #[error("PostgreSQL migration failed; inspect migration status using the migration identity")]
     Migration,
+    #[error("the installed canonical schema differs from this binary; run `lctx store reset`")]
+    CanonicalSchema,
     #[error("{0}")]
     Projection(#[from] cpg_schema::serving_projection::ProjectionError),
 }

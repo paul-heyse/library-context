@@ -127,7 +127,7 @@ impl RoleConfig {
                 ),
             ]))
     }
-    async fn pool(&self) -> Result<PgPool, Error> {
+    pub(crate) async fn pool(&self) -> Result<PgPool, Error> {
         self.validate()?;
         let pool = PgPoolOptions::new()
             .max_connections(self.max_connections - self.provider_connections)

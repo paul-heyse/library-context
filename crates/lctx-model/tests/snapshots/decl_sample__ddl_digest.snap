@@ -2,4 +2,4 @@
 source: crates/lctx-model/tests/decl_sample.rs
 expression: install.digest.hex()
 ---
-ea63fe3ede12196208854c98db769b69a680083618e901109ebd89e870ba767f
+da83be088c3bd52e9aa533da82e086612fc597f0c96e29d0e1ba7ab28478e853

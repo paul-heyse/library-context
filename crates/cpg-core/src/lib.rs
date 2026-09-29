@@ -15,6 +15,8 @@ pub mod evidence;
 pub mod flow_model;
 pub mod postgres;
 pub mod rebuild;
+pub mod session;
+pub mod store_read;
 pub mod snapshot;
 pub mod sql;
 mod stage_cache;

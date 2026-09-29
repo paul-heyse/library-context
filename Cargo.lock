@@ -4506,6 +4506,7 @@ dependencies = [
  "fs-err",
  "futures 0.3.34",
  "jsonschema",
+ "lctx-model",
  "pgpq",
  "pgvector",
  "schemars 1.2.2",

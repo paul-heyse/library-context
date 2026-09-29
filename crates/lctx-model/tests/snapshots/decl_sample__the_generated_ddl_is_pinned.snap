@@ -2,6 +2,12 @@
 source: crates/lctx-model/tests/decl_sample.rs
 expression: text
 ---
+CREATE SCHEMA "lctx";
+
+REVOKE ALL ON SCHEMA "lctx" FROM PUBLIC;
+
+GRANT USAGE ON SCHEMA "lctx" TO "lctx_serving";
+
 CREATE TABLE "lctx"."codebook_id_kind" ("code" smallint PRIMARY KEY, "text" text NOT NULL UNIQUE);
 
 INSERT INTO "lctx"."codebook_id_kind" ("code", "text") VALUES (0, 'occurrence'), (1, 'entity'), (2, 'symbol_key'), (3, 'place'), (4, 'atom'), (5, 'condition'), (6, 'condition_node'), (7, 'call_target'), (8, 'call_binding'), (9, 'transfer'), (10, 'obligation'), (11, 'derivation'), (12, 'finding'), (13, 'invocation'), (14, 'ddl'), (15, 'projection');
@@ -42,6 +48,8 @@ CREATE TABLE "lctx"."occurrences" (
     CONSTRAINT "occurrences_fk0" FOREIGN KEY ("generation_id", "module_id") REFERENCES "lctx"."entities" ("generation_id", "entity_id")
 ) PARTITION BY LIST ("generation_id");
 
+GRANT SELECT ON "lctx"."occurrences" TO "lctx_serving";
+
 CREATE TABLE "lctx"."notes" (
     "generation_id" bytea NOT NULL,
     "note_id" bytea NOT NULL,
@@ -60,6 +68,8 @@ CREATE TABLE "lctx"."notes" (
     CONSTRAINT "notes_fk0" FOREIGN KEY ("generation_id", "subject_id") REFERENCES "lctx"."occurrences" ("generation_id", "occurrence_id"),
     CONSTRAINT "notes_cb4" FOREIGN KEY ("kind") REFERENCES "lctx"."codebook_id_kind" ("code")
 ) PARTITION BY LIST ("generation_id");
+
+GRANT SELECT ON "lctx"."notes" TO "lctx_serving";
 
 -- staging templates for entities
 CREATE TABLE {schema}."entities" (
