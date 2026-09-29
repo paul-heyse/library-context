@@ -324,6 +324,40 @@ pub mod recipes {
         symbol_key, SYMBOL_KEY = SymbolKey { distribution: &str, qualified_path: &str, descriptor: &str }
     );
 
+    crate::recipe!(
+        /// One predicate evaluation: the evaluating occurrence, the predicate kind, the tested
+        /// place and the canonical literal argument (DESIGN §15.3, §15.7).
+        atom, ATOM = Atom {
+            evaluation: Id,
+            predicate: super::Code<crate::condition::PredicateKind>,
+            operand: Option<Id>,
+            argument: Option<&str>,
+        }
+    );
+
+    crate::recipe!(
+        /// A BDD terminal.
+        condition_terminal, CONDITION_TERMINAL = ConditionNode { value: bool }
+    );
+
+    crate::recipe!(
+        /// A reduced BDD nonterminal: its atom and its low and high children. Content-addressed,
+        /// so equal functions over equal atoms share every node.
+        condition_node, CONDITION_NODE = ConditionNode { atom: Id, low: Id, high: Id }
+    );
+
+    crate::recipe!(
+        /// A condition: its structural root, domain-separated from the node id.
+        condition, CONDITION = Condition { root: Id }
+    );
+
     /// Every recipe declared here, for validators and the UDF's known answers.
-    pub const ALL: &[super::Recipe] = &[OCCURRENCE, SYMBOL_KEY];
+    pub const ALL: &[super::Recipe] = &[
+        OCCURRENCE,
+        SYMBOL_KEY,
+        ATOM,
+        CONDITION_TERMINAL,
+        CONDITION_NODE,
+        CONDITION,
+    ];
 }

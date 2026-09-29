@@ -10,6 +10,7 @@
 //! here, so legacy and new code share one `Id` type; `legacy` holds the temporary migration
 //! machinery and is deleted in phase 5.
 
+pub mod condition;
 pub mod ddl;
 pub mod decl;
 pub mod id;

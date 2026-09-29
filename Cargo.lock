@@ -4484,6 +4484,7 @@ version = "0.1.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
+ "biodivine-lib-bdd",
  "blake3",
  "insta",
  "proptest",

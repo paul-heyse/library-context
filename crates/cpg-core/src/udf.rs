@@ -363,6 +363,39 @@ mod tests {
                 "SELECT lctx_id_v2('symbol_key', 'fastmcp', 'fastmcp.server.FastMCP', 'method:run')"
                     .to_owned(),
             ),
+            (
+                "atom",
+                recipes::atom(
+                    module,
+                    lctx_model::id::Code(lctx_model::condition::PredicateKind::Truthy),
+                    None,
+                    Some("x"),
+                ),
+                format!(
+                    "SELECT lctx_id_v2('atom', X'{}', CAST(4 AS SMALLINT), CAST(NULL AS BYTEA), 'x')",
+                    module.hex()
+                ),
+            ),
+            (
+                "condition_terminal",
+                recipes::condition_terminal(true),
+                "SELECT lctx_id_v2('condition_node', true)".to_owned(),
+            ),
+            (
+                "condition_node",
+                recipes::condition_node(module, Id([2; 16]), Id([3; 16])),
+                format!(
+                    "SELECT lctx_id_v2('condition_node', X'{}', X'{}', X'{}')",
+                    module.hex(),
+                    Id([2; 16]).hex(),
+                    Id([3; 16]).hex()
+                ),
+            ),
+            (
+                "condition",
+                recipes::condition(module),
+                format!("SELECT lctx_id_v2('condition', X'{}')", module.hex()),
+            ),
         ];
         for (_, rust, sql) in &cases {
             assert_eq!(&eval(sql).await.unwrap(), &[*rust], "{sql}");
