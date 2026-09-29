@@ -397,6 +397,8 @@ Focused evidence (2026-09-29; Cargo commands prefixed by `python3 scripts/build_
 | `just docs-check`; `uv run python scripts/adr.py lint` | passed: documentation publication and 44 current ADR records |
 | `cargo test --release -p lctx-model --test domain_lexical` | passed: four lexical controls, including independently attributed alternatives and strict/equal-span ancestry |
 | `cargo test --release -p lctx-postgres --test domain_lexical` | passed: real PG18 good/foreign-optional-value conformance cases |
+| `cargo test --release -p lctx-model --test domain_documents` | passed: three document shape/attribution controls, including corrected enclosing heading paths |
+| `cargo test --release -p lctx-postgres --test domain_documents` | passed: real PG18 good/foreign-optional-span conformance cases |
 | `just fmt`, `just test-all`, facts pilots | not_run: functional scope incomplete |
 
 Independent bounded reviewers accepted artifact/capture/acquisition corrections and the
@@ -417,7 +419,9 @@ assembled review; none of these bounded receipts establishes enclosing architect
 
 **Representative lexical contracts (Implemented; focused Tested, 2026-09-29):** nominal scope, binding event and target records; qualified scope/binding/reference/resolution observations and generated supports. Optional subjects retain provenance. Shared checks enforce structural ancestry and same-source relationships while preserving independently attributed provider disagreement at a common ordinal. Real PG18 COPY/validation/readback covers the representative fixture and rejects a foreign optional value. These are contract fixtures; the raw lexical producer and complete field disposition remain P2 work.
 
-**Next / still open:** remaining representative type/flow/document/deployment domain families
+**Representative document contracts (Implemented; focused Tested, 2026-09-29):** source-span-backed passage/code/link/mention/component identities, qualified observations and generated supports, plus typed literal/expression/bare/spread attributes. Shared checks preserve cross-heading component parents and validate subtype, parent/depth, optional-span source ownership and code-content digests. Heading paths name enclosing headings. Model and real PG18 fixtures pass; raw document producer integration and all-field parity remain P2 work. The [bounded document review](../design_review/reviews/design_review_semantic-documents_2026-09-29.md) accepted this contract scope, without qualifying producer coverage or a phase exit.
+
+**Next / still open:** remaining representative type/flow/deployment domain families
 and whole-call binding/root composition and opaque caller rebasing; complete call producer/normalization integration; occurrence ownership; coordinated allocation accounting; exact coverage
 and full production frontier admission; production capture/assembler integration and assembled P0-E review.
 Then finish generated installation verification/reset, provider lease/stream integration, service

@@ -4,6 +4,7 @@ mod model;
 mod record;
 pub mod source;
 pub mod lexical;
+pub mod documents;
 pub mod calls;
 pub mod transfer;
 pub mod derivation;
@@ -113,12 +114,21 @@ pub fn model() -> Result<ValidatedModel, ModelError> {
     use attribution::*;
     use source::*;
     use lexical::*;
+    use documents::*;
     use value::*;
     use conditions::*;
     use assertion::*;
     use calls::*;
     use transfer::*;
     ValidatedModel::validate(vec![
+        Relation::of::<DocumentNode>(), Relation::of::<DocumentAttributeValue>(),
+        Relation::of::<DocumentObservation>(), Relation::of::<DocumentSupport>(),
+        Relation::of::<PassageObservation>(), Relation::of::<PassageSupport>(),
+        Relation::of::<CodeBlockObservation>(), Relation::of::<CodeBlockSupport>(),
+        Relation::of::<DocumentLinkObservation>(), Relation::of::<DocumentLinkSupport>(),
+        Relation::of::<DocumentMentionObservation>(), Relation::of::<DocumentMentionSupport>(),
+        Relation::of::<DocumentComponentObservation>(), Relation::of::<DocumentComponentSupport>(),
+        Relation::of::<DocumentAttributeObservation>(), Relation::of::<DocumentAttributeSupport>(),
         Relation::of::<LexicalScope>(), Relation::of::<BindingEvent>(), Relation::of::<LexicalTarget>(),
         Relation::of::<LexicalScopeObservation>(), Relation::of::<LexicalScopeSupport>(),
         Relation::of::<BindingObservation>(), Relation::of::<BindingSupport>(),
