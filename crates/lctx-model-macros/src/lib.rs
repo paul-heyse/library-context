@@ -46,12 +46,20 @@ fn expand_assertion(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
     let table = table.ok_or_else(error)?;
     let family = family.ok_or_else(error)?;
     if subjects.is_empty() { return Err(error()); }
+    let subject_types = subjects.iter().map(|subject| data.fields.iter().find(|field| field.ident.as_ref() == Some(subject))
+        .map(|field| &field.ty).ok_or_else(|| syn::Error::new_spanned(subject,"unknown subject field")))
+        .collect::<syn::Result<Vec<_>>>()?;
     let name = &input.ident; let vis = &input.vis;
     Ok(quote! {
         impl ::lctx_model::domain::assertion::Assertion for #name {
             const FAMILY: ::lctx_model::domain::attribution::FactFamily = #family;
             fn qualification(&self) -> ::lctx_model::domain::Id<::lctx_model::domain::assertion::AssertionQualification> { self.qualification }
             fn subjects(&self) -> Vec<::lctx_model::domain::assertion::Subject> { vec![#(self.#subjects.into(),)*] }
+            fn subject_inputs() -> Vec<::lctx_model::domain::ValidationInput> {
+                let mut inputs = Vec::new();
+                #(inputs.extend(<#subject_types as ::lctx_model::domain::assertion::SubjectValue>::inputs());)*
+                inputs
+            }
         }
         #[derive(Debug, Clone, PartialEq, Eq, ::lctx_model::Domain)]
         #[model(name = #table, invariants = ::lctx_model::domain::assertion::support_invariants::<#name, #support>)]
@@ -87,6 +95,8 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
         return Err(syn::Error::new_spanned(&input.generics, "domain records are concrete"));
     }
     let mut table = None;
+    let mut rule: Option<LitStr> = None;
+    let mut conclusion: Option<syn::Ident> = None;
     let mut validator: Option<syn::Path> = None;
     let mut invariants: Option<syn::Path> = None;
     let mut semantic_source: Option<syn::Expr> = None;
@@ -103,6 +113,8 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
         if attr.path().is_ident("model") {
             attr.parse_nested_meta(|meta| {
                 if meta.path.is_ident("name") { table = Some(meta.value()?.parse::<LitStr>()?); }
+                else if meta.path.is_ident("rule") { rule = Some(meta.value()?.parse()?); }
+                else if meta.path.is_ident("conclusion") { conclusion = Some(meta.value()?.parse()?); }
                 else if meta.path.is_ident("validate") { validator = Some(meta.value()?.parse()?); }
                 else if meta.path.is_ident("invariants") { invariants = Some(meta.value()?.parse()?); }
                 else if meta.path.is_ident("semantic_source") { semantic_source = Some(meta.value()?.parse()?); }
@@ -123,6 +135,8 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
     let mut names = Vec::new();
     let mut types = Vec::new();
     let mut descriptors = Vec::new();
+    let mut premises = Vec::new();
+    let mut premise_types = Vec::new();
     for field in &fields.named {
         let name = field.ident.as_ref().expect("named fields");
         if name == "id" || name == "generation_id" {
@@ -135,6 +149,7 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
             if attr.path().is_ident("model") {
                 attr.parse_nested_meta(|meta| {
                     if meta.path.is_ident("key") { key = true; }
+                    else if meta.path.is_ident("premise") { premises.push(name); premise_types.push(ty); }
                     else if meta.path.is_ident("provenance") { provenance = true; }
                     else { return Err(meta.error("expected key or provenance")); }
                     Ok(())
@@ -148,6 +163,31 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
         });
     }
     if keys.is_empty() { return Err(syn::Error::new_spanned(&input.ident, "at least one semantic key field is required")); }
+    if rule.is_none() && (conclusion.is_some() || !premises.is_empty()) {
+        return Err(syn::Error::new_spanned(&input,"derivation fields require a declared rule"));
+    }
+    let derivation = if let Some(rule) = rule {
+        if premises.is_empty() { return Err(syn::Error::new_spanned(&input,"derivation requires typed premises")); }
+        let (conclusion_metadata,conclusion_row) = if let Some(column) = conclusion {
+            let field = fields.named.iter().find(|f| f.ident.as_ref() == Some(&column))
+                .ok_or_else(|| syn::Error::new_spanned(&column,"unknown derivation conclusion"))?;
+            let ty = &field.ty;
+            (quote!(Some(::lctx_model::domain::derivation::ReferenceColumn::of::<#ty>(stringify!(#column)))),
+             quote!(::lctx_model::domain::derivation::DerivationReference::row_ref(&self.#column)?))
+        } else {
+            (quote!(None),quote!(::lctx_model::domain::derivation::RowRef::of(<Self as ::lctx_model::domain::Record>::id(self))))
+        };
+        quote! {
+            fn derivation() -> Option<::lctx_model::domain::derivation::Derivation> {
+                Some(::lctx_model::domain::derivation::Derivation { rule: #rule,conclusion: #conclusion_metadata,
+                    premises: vec![#(::lctx_model::domain::derivation::ReferenceColumn::of::<#premise_types>(stringify!(#premises)),)*] })
+            }
+            fn proof(&self) -> Option<::lctx_model::domain::derivation::Proof> {
+                Some(::lctx_model::domain::derivation::Proof { source: ::lctx_model::domain::derivation::RowRef::of(<Self as ::lctx_model::domain::Record>::id(self)),conclusion: #conclusion_row,
+                    premises: [#(::lctx_model::domain::derivation::DerivationReference::row_ref(&self.#premises),)*].into_iter().flatten().collect() })
+            }
+        }
+    } else { quote!() };
     let declaration = quote!(#input).to_string();
     let name = &input.ident;
     let key_name = format_ident!("{}Key", name);
@@ -181,6 +221,7 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
             #(#names: &'a #types,)*
         }
         impl ::lctx_model::domain::Record for #name {
+            #derivation
             type Key = #key_name;
             const NAME: &'static str = #table;
             const CONTRACT: &'static str = #declaration;

@@ -3,7 +3,7 @@ use lctx_model::domain::{ContentHash, Scalar, ValidatedModel};
 use sea_query::{ColumnDef, ColumnType, Expr, ForeignKey, Index, PostgresQueryBuilder, Table};
 use super::GenerationId;
 
-pub(super) struct Ddl { pub tables: Vec<String>, pub references: Vec<String> }
+pub(super) struct Ddl { pub tables: Vec<String>, pub references: Vec<String>, pub views: Vec<String> }
 pub(super) fn generate(model: &ValidatedModel, generation: GenerationId) -> Ddl {
     let schema = generation.schema();
     let mut tables = Vec::new();
@@ -83,9 +83,29 @@ pub(super) fn generate(model: &ValidatedModel, generation: GenerationId) -> Ddl 
         }
         tables.push(table.to_string(PostgresQueryBuilder));
     }
-    Ddl { tables, references }
+    Ddl { tables, references, views: derivation_views(model,generation) }
 }
 pub(super) fn digest(model: &ValidatedModel) -> ContentHash {
     let ddl = generate(model, GenerationId([0;16]));
-    ContentHash::of(format!("{}\n{}", include_str!("control.sql"), ddl.tables.into_iter().chain(ddl.references).collect::<Vec<_>>().join(";\n")).as_bytes())
+    ContentHash::of(format!("{}\n{}", include_str!("control.sql"), ddl.tables.into_iter().chain(ddl.references).chain(ddl.views).collect::<Vec<_>>().join(";\n")).as_bytes())
+}
+
+fn literal(text: &str) -> String { format!("'{}'",text.replace('\'',"''")) }
+/// Explanation targets and premise roles are projected from nominal model fields. No separately
+/// maintained target registry, copied evidence table, or executable relation-name payload is used.
+fn derivation_views(model: &ValidatedModel,generation: GenerationId) -> Vec<String> {
+    let mut derivations = Vec::new(); let mut premises = Vec::new();
+    for source in model.relations() {
+        let Some(rule) = source.derivation() else { continue; };
+        let (target,column) = rule.conclusion.as_ref().map_or((source.name(),"id"),|c| (c.target().1,c.name()));
+        let table = super::qualified(generation,source.name()); let source_name = literal(source.name());
+        derivations.push(format!("SELECT generation_id,id AS derivation_id,{source_name}::text AS source_relation,{}::text AS rule,{}::text AS conclusion_relation,{} AS conclusion_id FROM {table}",literal(rule.rule),literal(target),super::quoted(column)));
+        for premise in &rule.premises {
+            let column = super::quoted(premise.name());
+            premises.push(format!("SELECT generation_id,id AS derivation_id,{source_name}::text AS source_relation,{}::text AS role,{}::text AS premise_relation,{column} AS premise_id FROM {table} WHERE {column} IS NOT NULL",literal(premise.name()),literal(premise.target().1)));
+        }
+    }
+    if derivations.is_empty() { return Vec::new(); }
+    [("derivations",derivations),("derivation_premises",premises)].into_iter()
+        .map(|(name,parts)| format!("CREATE VIEW {} AS {}",super::qualified(generation,name),parts.join(" UNION ALL "))).collect()
 }

@@ -113,7 +113,7 @@ fn signature_invariants() -> Vec<Invariant> {
         ValidationInput::of::<AssertionQualification>(&["id"]),ValidationInput::of::<ProviderSymbol>(&["id"]),
         ValidationInput::of::<ParameterShape>(&["id"]),ValidationInput::of::<Signature>(&["id"]),
         ValidationInput::of::<SignatureParameter>(&["signature","ordinal"]),
-    ], create: || Box::new(SignatureCheck::default()) }]
+    ], create: std::sync::Arc::new(|| Box::new(SignatureCheck::default())) }]
 }
 #[derive(Default)]
 struct SignatureCheck {
@@ -394,7 +394,7 @@ fn resolution_invariants() -> Vec<Invariant> {
     vec![Invariant { name: "complete_call_alternatives", inputs: vec![
         ValidationInput::of::<AssertionQualification>(&["id"]),ValidationInput::of::<CallTarget>(&["id"]),
         ValidationInput::of::<CallResolution>(&["id"]),ValidationInput::of::<CallResolutionMember>(&["resolution","target"]),
-    ], create: || Box::new(ResolutionCheck::default()) }]
+    ], create: std::sync::Arc::new(|| Box::new(ResolutionCheck::default())) }]
 }
 #[derive(Default)]
 struct ResolutionCheck {
@@ -512,7 +512,7 @@ fn target_invariants() -> Vec<Invariant> {
         ValidationInput::of::<AssertionQualification>(&["id"]),ValidationInput::of::<ProviderSymbol>(&["id"]),
         ValidationInput::of::<Occurrence>(&["id"]),ValidationInput::of::<Receiver>(&["id"]),
         ValidationInput::of::<CallDestination>(&["id"]),ValidationInput::of::<CallTarget>(&["id"]),
-    ], create: || Box::new(TargetCheck::default()) }]
+    ], create: std::sync::Arc::new(|| Box::new(TargetCheck::default())) }]
 }
 #[derive(Default)]
 struct TargetCheck {
@@ -561,7 +561,7 @@ fn native_support_invariants() -> Vec<Invariant> {
         ValidationInput::of::<CallDestination>(&["id"]),ValidationInput::of::<Signature>(&["id"]),
         ValidationInput::of::<CallTarget>(&["id"]),ValidationInput::of::<SignatureSupport>(&["id"]),
         ValidationInput::of::<CallTargetSupport>(&["id"]),
-    ], create: || Box::new(NativeSupportCheck::default()) }]
+    ], create: std::sync::Arc::new(|| Box::new(NativeSupportCheck::default())) }]
 }
 #[derive(Default)]
 struct NativeSupportCheck {

@@ -127,7 +127,7 @@ fn literal_set_invariants() -> Vec<super::Invariant> {
     vec![super::Invariant { name: "literal_set_membership", inputs: vec![
         super::ValidationInput::of::<LiteralSet>(&["id"]),
         super::ValidationInput::of::<LiteralSetMember>(&["set", "value"]),
-    ], create: || Box::new(SetCheck { expected: Default::default(), current: None }) }]
+    ], create: std::sync::Arc::new(|| Box::new(SetCheck { expected: Default::default(), current: None })) }]
 }
 struct SetCheck {
     expected: std::collections::BTreeMap<Id<LiteralSet>, super::ContentHash>,

@@ -24,3 +24,35 @@ fn concurrent_reservations_cannot_overbook_the_attempt() {
     let successes = threads.into_iter().map(|thread| thread.join().unwrap()).filter(|success| *success).count();
     assert_eq!(successes,1); assert_eq!(budget.reserved(),0);
 }
+
+#[test]
+fn attachment_buffers_share_budget_and_ambiguity_owns_its_reservation() {
+    use lctx_model::domain::{*,attachment::*,source::*,input::*};
+    let input = InputRevision::from_entries(vec![]).unwrap();
+    let source = SourceArtifact::from_bytes(input.id(),"x.py".into(),b"x").unwrap();
+    let rows: Vec<_> = (0..3).map(|i| Occurrence { source: source.id(),start: 0,end: 1,
+        syntax_kind: SyntaxKind::ExprName,role: OccurrenceRole::Read,structural_path: vec![i] }).collect();
+    let query = AttachmentQuery { source: source.id(),start: 0,end: 1,syntax_kind: SyntaxKind::ExprName,role: OccurrenceRole::Read,structural_path: None };
+    let budget = ResourceBudget::fixed(4096).unwrap();
+    let blocker = budget.reserve("other stage",4096).unwrap();
+    assert!(matches!(OccurrenceIndex::new(&rows,budget.clone()),Err(ModelError::Resource { .. })));
+    assert_eq!(budget.reserved(),4096); drop(blocker);
+    let index = OccurrenceIndex::new(&rows,budget.clone()).unwrap();
+    let index_bytes = budget.reserved(); assert!(index_bytes > 0);
+    let blocker = budget.reserve("other stage",4096-index_bytes).unwrap();
+    assert!(matches!(index.attach(&query,AttachmentBudget::default()),Err(ModelError::Resource { .. })));
+    assert_eq!(budget.reserved(),4096); drop(blocker);
+    let result = index.attach(&query,AttachmentBudget::default()).unwrap();
+    assert!(matches!(result.value(),Attachment::Ambiguous(ids) if ids.len() == 3));
+    assert_eq!(budget.reserved(),index_bytes+3*std::mem::size_of::<Id<Occurrence>>());
+    drop(index);
+    assert_eq!(budget.reserved(),3*std::mem::size_of::<Id<Occurrence>>());
+    drop(result); assert_eq!(budget.reserved(),0);
+    let duplicate = vec![rows[0].clone(),rows[0].clone()];
+    assert!(OccurrenceIndex::new(&duplicate,budget.clone()).is_err()); assert_eq!(budget.reserved(),0);
+    // Work refusal is semantic uncertainty; memory refusal is an attempt error. Neither retains scratch.
+    let index = OccurrenceIndex::new(&rows,budget.clone()).unwrap();
+    let before = budget.reserved();
+    let result = index.attach(&query,AttachmentBudget { visited_nodes: 0,alternatives: 3 }).unwrap();
+    assert_eq!(result.value(),&Attachment::BudgetExceeded); assert_eq!(budget.reserved(),before);
+}

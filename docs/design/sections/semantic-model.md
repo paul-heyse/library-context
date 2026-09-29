@@ -11,7 +11,9 @@ This page owns the **target** representation of the analyzed codebase:
 transfers, conditions, obligations and derivations), the declaration contract every relation
 satisfies, the named semantic policies, the transfer algebra, and the store and serving contract.
 
-**Status.** All of it is the **accepted target, with implementation Proposed** (2026-09-29).
+**Status.** **Accepted target** (2026-09-29). Bounded foundations are **Implemented / Tested**,
+with exact contracts, commands and exclusions in cutover plan §4.2. No enclosing phase exit is
+qualified; the production cutover and remaining capabilities are **Proposed**.
 
 **Current state.** Until each layer cuts over, the implemented pipeline is the legacy one described
 by §3–§14:

@@ -66,7 +66,7 @@ impl GenerationStore {
             .bind(g.0.to_vec()).bind(self.model.digest().0.to_vec()).bind(self.physical.0.to_vec()).bind(producer.0.to_vec()).bind(profile).execute(&mut *tx).await?;
         sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {}", quoted(&g.schema())))).execute(&mut *tx).await?;
         let generated = ddl::generate(&self.model, g);
-        for sql in generated.tables { sqlx::query(sqlx::AssertSqlSafe(sql)).execute(&mut *tx).await?; }
+        for sql in generated.tables.into_iter().chain(generated.views) { sqlx::query(sqlx::AssertSqlSafe(sql)).execute(&mut *tx).await?; }
         sqlx::raw_sql(sqlx::AssertSqlSafe(format!("GRANT USAGE ON SCHEMA {s} TO lctx_importer; GRANT INSERT ON ALL TABLES IN SCHEMA {s} TO lctx_importer", s=quoted(&g.schema())))).execute(&mut *tx).await?;
         tx.commit().await?;
         Ok(g)

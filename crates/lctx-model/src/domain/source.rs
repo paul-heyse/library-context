@@ -189,7 +189,7 @@ fn occurrence_invariants() -> Vec<super::Invariant> {
     vec![super::Invariant { name: "occurrence_source_bounds", inputs: vec![
         super::ValidationInput::of::<SourceArtifact>(&["id"]),
         super::ValidationInput::of::<Occurrence>(&["source", "start", "end"]),
-    ], create: || Box::new(OccurrenceBounds { lengths: Default::default() }) }]
+    ], create: std::sync::Arc::new(|| Box::new(OccurrenceBounds { lengths: Default::default() })) }]
 }
 struct OccurrenceBounds { lengths: std::collections::BTreeMap<Id<SourceArtifact>, i64> }
 impl super::InvariantCheck for OccurrenceBounds {

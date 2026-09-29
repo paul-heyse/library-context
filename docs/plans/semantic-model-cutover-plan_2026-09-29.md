@@ -339,6 +339,19 @@ connected to the production compiler or CLI. No compatibility adapter connects t
   aggregates, binding kind and positional/keyword projections; forged shape lookups refuse. Named
   policies exclude potential/higher-order invocation from dataflow and use the full declared set for
   uniqueness. P3 equivalence, constructor normalization and SQL projection remain open.
+- Stable TransferKey vocabulary, qualified alternatives and condition-OR aggregation retain original
+  evidence IDs. ControlInfluence and Selection remain distinct from value flow. Shared support checks
+  both Place endpoints and populated call sites against scope/acquisition. Structural path composition
+  extends only through identity; wildcard/unknown/numeric-alias cases preserve uncertainty. Whole-call
+  root/binding composition and opaque caller rebasing remain open.
+- Derivation fields declare their rule, nominal conclusion and premise roles in their Rust record.
+  Model admission generates one cross-source cycle invariant; proof source identity survives explicit
+  conclusions. Existing pinned petgraph supplies iterative cycle detection. PostgreSQL generates
+  explanation views and publication grants from the same declarations. Self/mutual proof-step cycles
+  refuse before publication. P4 producers and serving explanations remain open.
+- Attachment indexes and retained ambiguous answers own shared-budget reservations, with preallocation
+  admission and failure cleanup. A flat sorted index retains scalar-oracle equivalence. This qualifies
+  attachment buffers only, not parser/validator/COPY totals or process RSS.
 - Typed stage access refuses undeclared reads/writes and incomplete, failed or cancelled execution.
   `cpg-core::model_runtime` constructs fresh catalogs over a shared DataFusion runtime, rejects
   foreign stage/attempt read permits and SQL mutations. A neutral reservation interface shares the
@@ -357,10 +370,15 @@ Focused evidence (2026-09-29; Cargo commands prefixed by `python3 scripts/build_
 | Command | Outcome and boundary |
 |---|---|
 | `cargo test --release -p lctx-model --test domain --test domain_conditions --test domain_assertions --test domain_stages --test domain_resources --test domain_verdicts` | passed: 29 focused model controls |
+| `cargo test --release -p lctx-model --test domain_transfer --test domain_assertions --test domain_paths` | passed: five transfer, three assertion and two path controls; independent reviewer rerun |
+| `cargo test --release -p lctx-model --test domain --test domain_resources` | passed: 17 domain and three resource controls; independent reviewer rerun |
+| `cargo test --release -p lctx-model --test domain_derivation`; `cargo test --release -p lctx-postgres --test domain_derivation` | passed: three model controls and one real PG18 four-case test; independent reviewer rerun after proof-source correction |
+| `cargo test --release -p lctx-postgres --test domain_transfer` | passed: real PG18 transfer/control/selection/support readback, generated view targets and cross-scope call-site refusal |
+| `just build-features` | passed: CLI union regenerated; lower model macro crate excluded; no dependency pin upgraded |
 | `cargo test --release -p lctx-model --test domain_calls` | passed: seven call/signature/binding controls, independently rerun after review corrections |
 | `cargo test --release -p lctx-postgres --test domain_calls` | passed: real PG18 signature/call/support readback and wrong-provider refusal; contract fixtures, not producer qualification |
 | `cargo test --release -p cpg-extract --test capture`; `cargo test --release -p cpg-extract --lib capture::tests` | passed: three capture controls plus changed-during-capture unit; 65 MiB input under a 3 MiB capture reservation budget, not RSS |
-| `cargo test --release -p lctx-model --doc` | passed: six negative/positive declaration pairs; one pre-existing ignored legacy example |
+| `cargo test --release -p lctx-model --doc` | passed: seven negative/positive declaration pairs including nominal proof targets; one pre-existing ignored legacy example |
 | `cargo test --release -p lctx-postgres --test generations` | passed: two real disposable PG18 tests, including 65 MiB evidence, stored corruption and contract refusal, write drain, leases, conformance selection refusal, cleanup retry and orphan repair |
 | `cargo test --release -p cpg-extract --test typed_conformance` | passed: real pinned AST to typed records, sealed PG18 validation/readback and conformance-only selection refusal |
 | `cargo test --release -p cpg-core --test model_runtime` | passed: two fresh-catalog/capability/shared-pool controls; no total-memory/RSS claim |
@@ -374,11 +392,17 @@ accepted the bounded producer/store seam without qualifying P0. The
 [call contract review](../design_review/reviews/design_review_semantic-call-contract_2026-09-29.md) accepted
 three corrected findings, and the [input capture review](../design_review/reviews/design_review_semantic-input-capture_2026-09-29.md)
 accepted the checked-copy and bounded reservation contract. The [earlier input review](../design_review/reviews/design_review_semantic-input-validation_2026-09-29.md)
-still has open coordinated-resource qualification. Stage/session/lifecycle changes await their
+still has open coordinated-resource qualification. The
+[transfer/path review](../design_review/reviews/design_review_semantic-transfer-contract_2026-09-29.md)
+accepted its scope after call-site ownership correction; the
+[attachment resource review](../design_review/reviews/design_review_semantic-attachment-resources_2026-09-29.md)
+accepted buffer accounting; the [nominal derivation review](../design_review/reviews/design_review_semantic-nominal-derivation_2026-09-29.md)
+accepted typed targets, cycle validation and PG projections after proof-source identity correction.
+Stage/session/lifecycle changes await their
 assembled review; none of these bounded receipts establishes enclosing architecture acceptance.
 
 **Next / still open:** remaining representative lexical/type/flow/document/deployment domain families
-and P0-C transfer/control/selection/derivation policies; complete call producer/normalization integration; occurrence ownership; coordinated allocation accounting; exact coverage
+and whole-call binding/root composition and opaque caller rebasing; complete call producer/normalization integration; occurrence ownership; coordinated allocation accounting; exact coverage
 and full production frontier admission; production capture/assembler integration and assembled P0-E review.
 Then finish generated installation verification/reset, provider lease/stream integration, service
 classification, store/CLI cutover and Delta deletion in P1; migrate every raw producer/field in §4.1.2
@@ -463,6 +487,13 @@ reinspected corrections and reran seven controls on 2026-09-29. P2/P3 and C04 cl
 | [F01](../design_review/reviews/design_review_semantic-call-contract_2026-09-29.md#F01) | `lctx-model::domain::calls` | closed (bounded): native provider/support ownership invariant; signature/call positive and crossed-provider controls plus real PG18 refusal |
 | [F02](../design_review/reviews/design_review_semantic-call-contract_2026-09-29.md#F02) | `lctx-model::domain::calls` | closed (bounded): shape lookup identity checked before binding; forged optional-for-required map refuses |
 | [F03](../design_review/reviews/design_review_semantic-call-contract_2026-09-29.md#F03) | `lctx-model::domain::calls` | closed (bounded): binding kind and aggregate projections; keyword keys and receiver/varargs/implicit positions retained |
+
+### Transfer and derivation review findings
+
+| Finding | Responsible component | Current disposition and evidence |
+|---|---|---|
+| [transfer-contract F01](../design_review/reviews/design_review_semantic-transfer-contract_2026-09-29.md#F01) | `lctx-model::domain::assertion` | closed (bounded): populated call site shares endpoint scope/acquisition checks; local/corpus positives and unrelated/artifact-scope refusals, real PG18 publication refusal, independent reinspection |
+| [nominal-derivation F01](../design_review/reviews/design_review_semantic-nominal-derivation_2026-09-29.md#F01) | model derivation/derive/common invariant | closed (bounded): retain source step and conditional conclusion-to-source edge; self and mutually dependent explicit steps refuse; model and real PG18 independently rerun |
 
 ### Core review findings
 

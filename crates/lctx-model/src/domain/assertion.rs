@@ -18,7 +18,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::marker::PhantomData;
 use crate::{Domain, DomainCode, DomainSum};
-use super::{*, attribution::*, source::*, input::*, conditions::*};
+use super::{*, attribution::*, source::*, input::*, conditions::*, value::{Place,PlaceRoot}, transfer::TransferKey};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
 #[repr(i16)]
@@ -60,15 +60,33 @@ fn validate_evidence(row: &Evidence) -> Result<(), ModelError> {
     Ok(())
 }
 #[derive(Debug, Clone, Copy)]
-pub enum Subject { Occurrence(Id<Occurrence>), Artifact(Id<SourceArtifact>), Module(Id<Module>), Scope(Id<CoverageScope>) }
+pub enum Subject { Occurrence(Id<Occurrence>), Artifact(Id<SourceArtifact>), Module(Id<Module>), Scope(Id<CoverageScope>), Place(Id<Place>), Transfer(Id<TransferKey>) }
 impl From<Id<Occurrence>> for Subject { fn from(value: Id<Occurrence>) -> Self { Self::Occurrence(value) } }
 impl From<Id<SourceArtifact>> for Subject { fn from(value: Id<SourceArtifact>) -> Self { Self::Artifact(value) } }
 impl From<Id<Module>> for Subject { fn from(value: Id<Module>) -> Self { Self::Module(value) } }
 impl From<Id<CoverageScope>> for Subject { fn from(value: Id<CoverageScope>) -> Self { Self::Scope(value) } }
+impl From<Id<Place>> for Subject { fn from(value: Id<Place>) -> Self { Self::Place(value) } }
+impl From<Id<TransferKey>> for Subject { fn from(value: Id<TransferKey>) -> Self { Self::Transfer(value) } }
+/// Additional nominal subject dependencies. The derive supplies these from actual field types;
+/// an ordinary source assertion does not load transfer/place catalogs it never consults.
+pub trait SubjectValue { fn inputs() -> Vec<ValidationInput>; }
+macro_rules! simple_subject { ($($ty:ty),+) => { $(impl SubjectValue for Id<$ty> {
+    fn inputs() -> Vec<ValidationInput> { vec![] }
+})+ }; }
+simple_subject!(Occurrence,SourceArtifact,Module,CoverageScope);
+impl SubjectValue for Id<Place> {
+    fn inputs() -> Vec<ValidationInput> { vec![ValidationInput::of::<PlaceRoot>(&["id"]),ValidationInput::of::<Place>(&["id"])] }
+}
+impl SubjectValue for Id<TransferKey> {
+    fn inputs() -> Vec<ValidationInput> {
+        let mut inputs = <Id<Place> as SubjectValue>::inputs(); inputs.push(ValidationInput::of::<TransferKey>(&["id"])); inputs
+    }
+}
 pub trait Assertion: Record {
     const FAMILY: FactFamily;
     fn qualification(&self) -> Id<AssertionQualification>;
     fn subjects(&self) -> Vec<Subject>;
+    fn subject_inputs() -> Vec<ValidationInput> { Vec::new() }
 }
 pub struct SupportAttribution { pub run: Id<ProviderRun>, pub surface: Id<ProviderSurface>, pub evidence: Id<Evidence> }
 pub trait Support: Record {
@@ -81,7 +99,7 @@ fn qualification_invariants() -> Vec<Invariant> {
     vec![Invariant { name: "qualification_condition_context", inputs: vec![
         ValidationInput::of::<EvaluationAtom>(&["id"]), ValidationInput::of::<ConditionNode>(&["id"]),
         ValidationInput::of::<Condition>(&["id"]), ValidationInput::of::<AssertionQualification>(&["id"]),
-    ], create: || Box::new(QualificationCheck::default()) }]
+    ], create: std::sync::Arc::new(|| Box::new(QualificationCheck::default())) }]
 }
 #[derive(Default)]
 struct QualificationCheck {
@@ -123,7 +141,7 @@ impl InvariantCheck for QualificationCheck {
 fn evidence_invariants() -> Vec<Invariant> {
     vec![Invariant { name: "evidence_source_bounds", inputs: vec![
         ValidationInput::of::<SourceArtifact>(&["id"]), ValidationInput::of::<Evidence>(&["id"]),
-    ], create: || Box::new(EvidenceCheck { lengths: BTreeMap::new() }) }]
+    ], create: std::sync::Arc::new(|| Box::new(EvidenceCheck { lengths: BTreeMap::new() })) }]
 }
 struct EvidenceCheck { lengths: BTreeMap<Id<SourceArtifact>, i64> }
 impl InvariantCheck for EvidenceCheck {
@@ -145,7 +163,7 @@ impl InvariantCheck for EvidenceCheck {
 
 /// The concrete generated support type supplies its nominal target; no relation-name join exists.
 pub fn support_invariants<A: Assertion, S: Support<Assertion=A>>() -> Vec<Invariant> {
-    vec![Invariant { name: S::NAME, inputs: vec![
+    let mut inputs = vec![
         ValidationInput::of::<SourceArtifact>(&["id"]), ValidationInput::of::<Occurrence>(&["id"]),
         ValidationInput::of::<Module>(&["id"]), ValidationInput::of::<CorpusLibrary>(&["id"]),
         ValidationInput::of::<EvaluationAtom>(&["id"]), ValidationInput::of::<ConditionNode>(&["id"]),
@@ -153,11 +171,15 @@ pub fn support_invariants<A: Assertion, S: Support<Assertion=A>>() -> Vec<Invari
         ValidationInput::of::<InputDistribution>(&["id"]), ValidationInput::of::<CoverageScope>(&["id"]),
         ValidationInput::of::<AssertionQualification>(&["id"]), ValidationInput::of::<ProviderRun>(&["id"]),
         ValidationInput::of::<RunFamily>(&["id"]), ValidationInput::of::<ProviderSurface>(&["id"]),
-        ValidationInput::of::<Evidence>(&["id"]), ValidationInput::of::<A>(&["id"]), ValidationInput::of::<S>(&["id"]),
-    ], create: || Box::new(SupportCheck::<A,S>::new()) }]
+        ValidationInput::of::<Evidence>(&["id"]),
+    ];
+    for input in A::subject_inputs() { if !inputs.iter().any(|existing| existing.name() == input.name()) { inputs.push(input); } }
+    inputs.extend([ValidationInput::of::<A>(&["id"]),ValidationInput::of::<S>(&["id"])]);
+    vec![Invariant { name: S::NAME,inputs,create: std::sync::Arc::new(|| Box::new(SupportCheck::<A,S>::new())) }]
 }
 struct SupportCheck<A: Assertion, S: Support<Assertion=A>> {
     sources: BTreeMap<Id<SourceArtifact>, Id<InputRevision>>,
+    places: BTreeMap<Id<Place>,Place>, roots: BTreeMap<Id<PlaceRoot>,PlaceRoot>, transfers: BTreeMap<Id<TransferKey>,TransferKey>,
     occurrences: BTreeMap<Id<Occurrence>, Id<SourceArtifact>>,
     modules: BTreeMap<Id<Module>, Id<SourceArtifact>>,
     corpus: BTreeSet<(Id<InputRevision>, Id<InputRevision>)>,
@@ -175,7 +197,7 @@ struct SupportCheck<A: Assertion, S: Support<Assertion=A>> {
     assertions: BTreeMap<Id<A>, A>, supported: BTreeSet<Id<A>>, marker: PhantomData<S>,
 }
 impl<A: Assertion, S: Support<Assertion=A>> SupportCheck<A,S> {
-    fn new() -> Self { Self { sources: BTreeMap::new(), occurrences: BTreeMap::new(), modules: BTreeMap::new(),
+    fn new() -> Self { Self { places: BTreeMap::new(), roots: BTreeMap::new(), transfers: BTreeMap::new(), sources: BTreeMap::new(), occurrences: BTreeMap::new(), modules: BTreeMap::new(),
         corpus: BTreeSet::new(), distributions: BTreeSet::new(), scopes: BTreeMap::new(), qualifications: BTreeMap::new(),
         atoms: BTreeMap::new(), nodes: BTreeMap::new(), conditions: BTreeMap::new(), closure_visits: 0,
         runs: BTreeMap::new(), families: BTreeSet::new(), surfaces: BTreeMap::new(), evidence: BTreeMap::new(),
@@ -192,7 +214,28 @@ impl<A: Assertion, S: Support<Assertion=A>> SupportCheck<A,S> {
             Subject::Occurrence(id) => Some(*self.occurrences.get(&id).ok_or_else(|| invalid("assertion occurrence missing"))?),
             Subject::Module(id) => Some(*self.modules.get(&id).ok_or_else(|| invalid("assertion module missing"))?),
             Subject::Scope(_) => None,
+            Subject::Place(id) => {
+                let place = self.places.get(&id).ok_or_else(|| invalid("assertion place absent"))?;
+                let root = self.roots.get(&place.root).ok_or_else(|| invalid("assertion place root absent"))?;
+                self.source(match root {
+                    PlaceRoot::Formal { declaration } => Subject::Occurrence(*declaration),
+                    PlaceRoot::Receiver { callable } | PlaceRoot::Return { callable } | PlaceRoot::Yield { callable }
+                        | PlaceRoot::Raise { callable } => Subject::Occurrence(*callable),
+                    PlaceRoot::Field { class,.. } => Subject::Occurrence(*class),
+                    PlaceRoot::Global { module,.. } => Subject::Module(*module),
+                    PlaceRoot::Occurrence { occurrence } => Subject::Occurrence(*occurrence),
+                })?
+            }
+            Subject::Transfer(_) => return Err(invalid("transfer has multiple source subjects")),
         })
+    }
+    fn subject_sources(&self, subject: Subject) -> Result<Vec<Id<SourceArtifact>>,ModelError> {
+        if let Subject::Transfer(id) = subject {
+            let transfer = self.transfers.get(&id).ok_or_else(|| invalid("assertion transfer key absent"))?;
+            let mut sources: Vec<_> = [self.source(Subject::Place(transfer.input))?,self.source(Subject::Place(transfer.output))?].into_iter().flatten().collect();
+            if let Some(site) = transfer.call_site { sources.extend(self.source(Subject::Occurrence(site))?); }
+            Ok(sources)
+        } else { Ok(self.source(subject)?.into_iter().collect()) }
     }
     fn within(&self, source: Id<SourceArtifact>, scope: &CoverageScope) -> Result<bool, ModelError> {
         Ok(match scope {
@@ -228,9 +271,11 @@ impl<A: Assertion, S: Support<Assertion=A>> SupportCheck<A,S> {
         for subject in assertion.subjects() {
             if let Subject::Scope(id) = subject {
                 if id != q.scope { return Err(invalid("assertion subject scope differs")); }
-            } else if let Some(source) = self.source(subject)? {
-                if !self.within(source,scope)? || !self.acquired(run.input,source)? { return Err(invalid("assertion crosses declared scope or invocation input")); }
-                sources.insert(source);
+            } else {
+                for source in self.subject_sources(subject)? {
+                    if !self.within(source,scope)? || !self.acquired(run.input,source)? { return Err(invalid("assertion crosses declared scope or invocation input")); }
+                    sources.insert(source);
+                }
             }
         }
         let evidence = self.evidence.get(&provenance.evidence).ok_or_else(|| invalid("support evidence missing"))?;
@@ -279,12 +324,15 @@ impl<A: Assertion, S: Support<Assertion=A>> InvariantCheck for SupportCheck<A,S>
         else if relation == RunFamily::NAME { for r in RunFamily::decode(batch)? { self.families.insert((r.run,r.family)); } }
         else if relation == ProviderSurface::NAME { for r in ProviderSurface::decode(batch)? { self.surfaces.insert(r.id(),r); } }
         else if relation == Evidence::NAME { for r in Evidence::decode(batch)? { self.evidence.insert(r.id(),r); } }
+        else if relation == PlaceRoot::NAME { for r in PlaceRoot::decode(batch)? { self.roots.insert(r.id(),r); } }
+        else if relation == Place::NAME { for r in Place::decode(batch)? { self.places.insert(r.id(),r); } }
+        else if relation == TransferKey::NAME { for r in TransferKey::decode(batch)? { self.transfers.insert(r.id(),r); } }
         else if relation == A::NAME { for r in A::decode(batch)? { self.assertions.insert(r.id(),r); } }
         else if relation == S::NAME { for r in S::decode(batch)? { self.check_support(r)?; } }
         else { return Err(invalid("undeclared support validation input")); }
         let entries = self.sources.len()+self.occurrences.len()+self.modules.len()+self.corpus.len()+self.distributions.len()+self.scopes.len()
             +self.qualifications.len()+self.runs.len()+self.families.len()+self.surfaces.len()+self.evidence.len()+self.assertions.len()+self.supported.len();
-        if entries + self.atoms.len()+self.nodes.len()+self.conditions.len() > 3_000_000 { return Err(invalid("support validation cardinality budget exceeded")); }
+        if entries + self.places.len()+self.roots.len()+self.transfers.len()+self.atoms.len()+self.nodes.len()+self.conditions.len() > 3_000_000 { return Err(invalid("support validation cardinality budget exceeded")); }
         Ok(())
     }
     fn finish(self: Box<Self>) -> Result<(), ModelError> {

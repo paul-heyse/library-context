@@ -10,20 +10,24 @@ pub struct Relation {
     invariants: Vec<Invariant>,
     required: Vec<(TypeId, &'static str)>,
     sum: Option<super::Sum>,
+    derivation: Option<super::derivation::Derivation>,
     schema: SchemaRef,
     contract: &'static str,
     owner: &'static str,
     semantic_source: &'static [u8],
     validate: fn(&arrow_array::RecordBatch) -> Result<arrow_array::RecordBatch, ModelError>,
+    proofs: fn(&arrow_array::RecordBatch) -> Result<Vec<super::derivation::Proof>,ModelError>,
     hash_rows: fn(&arrow_array::RecordBatch, &mut RelationContent) -> Result<(), ModelError>,
 }
 impl Relation {
-    pub fn of<R: Record>() -> Self { Self { type_id: TypeId::of::<R>(), name: R::NAME, fields: R::fields(), invariants: R::invariants(), required: R::required_relations(), sum: R::sum(), schema: R::schema(), contract: R::CONTRACT, owner: R::OWNER, semantic_source: R::SEMANTIC_SOURCE, validate: canonical::<R>, hash_rows: hash_rows::<R> } }
+    pub fn of<R: Record>() -> Self { Self { type_id: TypeId::of::<R>(), name: R::NAME, fields: R::fields(), invariants: R::invariants(), required: R::required_relations(), sum: R::sum(), derivation: R::derivation(), schema: R::schema(), contract: R::CONTRACT, owner: R::OWNER, semantic_source: R::SEMANTIC_SOURCE, validate: canonical::<R>, hash_rows: hash_rows::<R>,proofs: proofs::<R> } }
+    pub fn derivation(&self) -> Option<&super::derivation::Derivation> { self.derivation.as_ref() }
     pub fn name(&self) -> &'static str { self.name }
     pub fn sum(&self) -> Option<&super::Sum> { self.sum.as_ref() }
     pub fn fields(&self) -> &[Field] { &self.fields }
     pub fn schema(&self) -> &SchemaRef { &self.schema }
     pub fn canonical(&self, batch: &arrow_array::RecordBatch) -> Result<arrow_array::RecordBatch, ModelError> { (self.validate)(batch) }
+    pub fn proofs(&self,batch: &arrow_array::RecordBatch) -> Result<Vec<super::derivation::Proof>,ModelError> { (self.proofs)(batch) }
     pub fn type_id(&self) -> TypeId { self.type_id }
     pub fn content(&self) -> RelationContent { RelationContent { relation: self.name, sink: KeySink::new(self.name), previous: None, count: 0 } }
     pub fn hash_rows(&self, batch: &arrow_array::RecordBatch, content: &mut RelationContent) -> Result<(), ModelError> {
@@ -87,6 +91,25 @@ impl ValidatedModel {
                 digest.part(b"type", format!("{:?}", field.arrow().data_type()).as_bytes());
                 digest.part(b"roles", &[u8::from(field.is_key()), u8::from(field.is_provenance()), u8::from(field.nullable())]);
             }
+            if let Some(proof) = relation.derivation() {
+                if !identifier(proof.rule) || proof.premises.is_empty() { return Err(ModelError::Invalid("invalid derivation rule".into())); }
+                let mut roles = HashSet::new();
+                for column in proof.conclusion.iter().chain(&proof.premises) {
+                    let field = relation.fields.iter().find(|f| f.name() == column.name())
+                        .ok_or_else(|| ModelError::Invalid("derivation column absent".into()))?;
+                    if field.target() != Some(column.target()) || field.nullable() != column.nullable() || field.list() {
+                        return Err(ModelError::Invalid("derivation target differs from nominal field".into()));
+                    }
+                }
+                if proof.conclusion.as_ref().is_some_and(|c| c.nullable()) { return Err(ModelError::Invalid("derivation conclusion cannot be optional".into())); }
+                for premise in &proof.premises {
+                    if !roles.insert(premise.name()) { return Err(ModelError::Invalid("duplicate derivation premise role".into())); }
+                    digest.part(b"premise",premise.name().as_bytes());
+                    digest.part(b"premise-target",premise.target().1.as_bytes());
+                }
+                digest.part(b"rule",proof.rule.as_bytes());
+                digest.part(b"conclusion",proof.conclusion.as_ref().map_or("id",|c| c.name()).as_bytes());
+            }
             if let Some(sum) = relation.sum() {
                 let tag = relation.fields.iter().find(|field| field.name() == sum.tag)
                     .ok_or_else(|| ModelError::Invalid("missing sum discriminant".into()))?;
@@ -129,6 +152,15 @@ impl ValidatedModel {
                 }
                 invariants.push(invariant.clone());
             }
+        }
+        let sources: Vec<_> = relations.iter().filter(|r| r.derivation().is_some()).cloned().collect();
+        if !sources.is_empty() {
+            if names.contains("derivations") || names.contains("derivation_premises") { return Err(ModelError::Invalid("relation name reserved for generated derivation view".into())); }
+            let name = "derivation_acyclic";
+            if !invariant_names.insert(name) { return Err(ModelError::Invalid("reserved generated invariant name".into())); }
+            let inputs = sources.iter().map(|r| ValidationInput { type_id: r.type_id,name: r.name,order: vec!["id"] }).collect();
+            digest.part(b"generated-invariant",name.as_bytes());
+            invariants.push(Invariant { name,inputs,create: std::sync::Arc::new(move || Box::new(super::derivation::Check::new(sources.clone()))) });
         }
         invariants.sort_by_key(|v| v.name);
         Ok(Self { relations, invariants, digest: digest.finish() })
@@ -187,7 +219,7 @@ fn hash_rows<R: Record>(batch: &arrow_array::RecordBatch, content: &mut Relation
 pub struct Invariant {
     pub name: &'static str,
     pub inputs: Vec<ValidationInput>,
-    pub create: fn() -> Box<dyn InvariantCheck>,
+    pub create: std::sync::Arc<dyn Fn() -> Box<dyn InvariantCheck> + Send + Sync>,
 }
 impl std::fmt::Debug for Invariant {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -204,4 +236,8 @@ impl ValidationInput {
 pub trait InvariantCheck: Send {
     fn visit(&mut self, relation: &str, batch: &arrow_array::RecordBatch) -> Result<(), ModelError>;
     fn finish(self: Box<Self>) -> Result<(), ModelError>;
+}
+
+fn proofs<R: Record>(batch: &arrow_array::RecordBatch) -> Result<Vec<super::derivation::Proof>,ModelError> {
+    R::decode(batch)?.into_iter().map(|row| row.proof().ok_or_else(|| ModelError::Invalid("declared derivation has no proof".into()))).collect()
 }

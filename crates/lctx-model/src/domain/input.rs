@@ -98,7 +98,7 @@ fn input_invariants() -> Vec<Invariant> {
     vec![Invariant { name: "input_manifest_membership", inputs: vec![
         ValidationInput::of::<InputRevision>(&["id"]),
         ValidationInput::of::<super::source::SourceArtifact>(&["input", "path"]),
-    ], create: || Box::new(InputManifestCheck { expected: Default::default(), current: None }) }]
+    ], create: std::sync::Arc::new(|| Box::new(InputManifestCheck { expected: Default::default(), current: None })) }]
 }
 struct InputManifestCheck {
     expected: std::collections::BTreeMap<Id<InputRevision>, ContentHash>,
@@ -183,7 +183,7 @@ fn ownership_invariants() -> Vec<Invariant> {
         ValidationInput::of::<DistributionVerification>(&["id"]),
         ValidationInput::of::<super::source::SourceArtifact>(&["id"]),
         ValidationInput::of::<ArtifactOwnership>(&["id"]),
-    ], create: || Box::new(OwnershipCheck::default()) }]
+    ], create: std::sync::Arc::new(|| Box::new(OwnershipCheck::default())) }]
 }
 #[derive(Default)]
 struct OwnershipCheck {
@@ -233,7 +233,7 @@ fn acquisition_invariants() -> Vec<Invariant> {
         ValidationInput::of::<DistributionVerification>(&["id"]),
         ValidationInput::of::<super::source::SourceArtifact>(&["id"]),
         ValidationInput::of::<ArtifactUse>(&["id"]),
-    ], create: || Box::new(AcquisitionBoundaries::default()) }]
+    ], create: std::sync::Arc::new(|| Box::new(AcquisitionBoundaries::default())) }]
 }
 #[derive(Default)]
 struct AcquisitionBoundaries {

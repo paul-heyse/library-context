@@ -4,8 +4,11 @@ mod model;
 mod record;
 pub mod source;
 pub mod calls;
+pub mod transfer;
+pub mod derivation;
 pub mod artifact;
 pub mod value;
+pub mod place_composition;
 pub mod conditions;
 pub mod assertion;
 pub mod input;
@@ -112,7 +115,10 @@ pub fn model() -> Result<ValidatedModel, ModelError> {
     use conditions::*;
     use assertion::*;
     use calls::*;
+    use transfer::*;
     ValidatedModel::validate(vec![
+        Relation::of::<TransferKey>(), Relation::of::<TransferAlternative>(), Relation::of::<TransferSupport>(),
+        Relation::of::<ControlInfluence>(), Relation::of::<ControlSupport>(), Relation::of::<Selection>(),
         Relation::of::<ProviderSymbol>(), Relation::of::<ParameterShape>(), Relation::of::<Signature>(),
         Relation::of::<SignatureParameter>(), Relation::of::<SignatureSupport>(),
         Relation::of::<CallChannel>(), Relation::of::<CallDestination>(), Relation::of::<Receiver>(),

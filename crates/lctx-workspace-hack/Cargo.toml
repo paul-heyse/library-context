@@ -31,6 +31,7 @@ arrow-ipc = { version = "59.3.0", features = ["lz4", "zstd"] }
 arrow-schema = { version = "59.3.0", default-features = false, features = ["canonical_extension_types", "ffi", "serde"] }
 base64-2b5c6dc72f624058 = { package = "base64", version = "0.23.1" }
 base64-3c51e837cfc5589a = { package = "base64", version = "0.22.1" }
+bigdecimal = { version = "0.4.10" }
 bit-set = { version = "0.8.0" }
 bit-vec = { version = "0.8.0" }
 bitvec = { version = "1.0.1" }
@@ -59,7 +60,9 @@ futures-io = { version = "0.3.34" }
 futures-sink = { version = "0.3.34" }
 futures-util = { version = "0.3.34", features = ["channel", "io", "sink"] }
 get-size2 = { version = "0.11.0", features = ["compact-str", "derive", "hashbrown", "indexmap", "ordermap", "smallvec", "thin-vec"] }
+getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3.4", default-features = false, features = ["std"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2.17", default-features = false, features = ["std"] }
+half = { version = "2.7.1", default-features = false, features = ["bytemuck", "num-traits"] }
 hashbrown = { version = "0.17.1" }
 hex = { version = "0.4.3" }
 httparse = { version = "1.10.1" }
@@ -77,6 +80,7 @@ num-traits = { version = "0.2.19", features = ["i128", "libm"] }
 once_cell = { version = "1.21.4", features = ["critical-section"] }
 ordermap = { version = "1.2.2" }
 portable-atomic = { version = "1.15.0" }
+postgres-types = { version = "0.2.14", default-features = false, features = ["with-chrono-0_4", "with-geo-types-0_7", "with-serde_json-1", "with-uuid-1"] }
 rand-274715c4dabd11b0 = { package = "rand", version = "0.9.5" }
 rand-93f6ce9d446188ac = { package = "rand", version = "0.10.3" }
 rand-c38e5c1d305a1b54 = { package = "rand", version = "0.8.8" }
@@ -87,8 +91,10 @@ ring = { version = "0.17.14", features = ["std"] }
 ruff_python_ast = { version = "0.0.11", default-features = false, features = ["get-size", "serde"] }
 ruff_source_file = { version = "0.0.11", default-features = false, features = ["serde"] }
 ruff_text_size = { version = "0.0.11", default-features = false, features = ["get-size", "serde"] }
+rust_decimal = { version = "1.43.0", features = ["db-postgres"] }
 rustls = { version = "0.23.45", default-features = false, features = ["logging", "ring", "std", "tls12"] }
 rustls-pki-types = { version = "1.15.1", features = ["std"] }
+sea-query = { version = "1.0.2", features = ["postgres-array", "with-bigdecimal", "with-chrono", "with-rust_decimal", "with-time"] }
 serde = { version = "1.0.229", features = ["alloc", "derive", "rc"] }
 serde_core = { version = "1.0.229", features = ["alloc", "rc"] }
 serde_json = { version = "1.0.151", features = ["alloc", "float_roundtrip", "preserve_order", "raw_value", "unbounded_depth"] }
@@ -133,6 +139,8 @@ byteorder = { version = "1.5.0", default-features = false, features = ["std"] }
 cc = { version = "1.4.7", default-features = false, features = ["parallel"] }
 crc32fast = { version = "1.5.2" }
 crossbeam-utils = { version = "0.8.23", default-features = false, features = ["std"] }
+darling = { version = "0.20.11" }
+darling_core = { version = "0.20.11", default-features = false, features = ["suggestions"] }
 digest-93f6ce9d446188ac = { package = "digest", version = "0.10.7", features = ["std"] }
 digest-a6292c17cd707f01 = { package = "digest", version = "0.11.3", features = ["mac"] }
 either = { version = "1.18.0", features = ["serde", "use_std"] }
@@ -184,7 +192,6 @@ bitflags = { version = "2.13.2", default-features = false, features = ["std"] }
 bytes = { version = "1.12.1", features = ["serde"] }
 futures = { version = "0.3.34", features = ["compat"] }
 futures-util = { version = "0.3.34", default-features = false, features = ["compat"] }
-getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3.4", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4.3", default-features = false, features = ["std", "sys_rng"] }
 hyper-rustls = { version = "0.27.10", default-features = false, features = ["aws-lc-rs", "http1", "http2", "native-tokio", "ring", "tls12"] }
 hyper-util = { version = "0.1.20", features = ["client-legacy", "client-proxy", "client-proxy-system", "server-auto", "service"] }

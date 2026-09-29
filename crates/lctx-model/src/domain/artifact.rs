@@ -71,7 +71,7 @@ pub(crate) fn content_invariants() -> Vec<Invariant> {
     vec![Invariant { name: "artifact_chunk_content", inputs: vec![
         ValidationInput::of::<SourceArtifact>(&["id"]),
         ValidationInput::of::<ArtifactChunk>(&["artifact", "ordinal"]),
-    ], create: || Box::new(ArtifactContents::default()) }]
+    ], create: std::sync::Arc::new(|| Box::new(ArtifactContents::default())) }]
 }
 #[derive(Default)]
 struct ArtifactContents {

@@ -245,7 +245,7 @@ fn indexed_attachment_matches_independent_scalar_oracle_and_retains_ambiguity() 
     }
     let duplicate_span = Occurrence { source: artifact.id(), start: 20, end: 80, syntax_kind: SyntaxKind::ExprName, role: OccurrenceRole::Read, structural_path: vec![100] };
     occurrences.push(duplicate_span);
-    let index = OccurrenceIndex::new(&occurrences).unwrap();
+    let index = OccurrenceIndex::new(&occurrences,lctx_model::domain::resources::ResourceBudget::fixed(1024*1024).unwrap()).unwrap();
     for kind in [SyntaxKind::ExprName, SyntaxKind::ExprAttribute, SyntaxKind::ExprSubscript] {
         for start in 0..105 {
             for end in [start, start + 1, start + 15] {
@@ -256,21 +256,21 @@ fn indexed_attachment_matches_independent_scalar_oracle_and_retains_ambiguity() 
                     if ids.len() > 1 { Attachment::Ambiguous(ids) }
                     else if width == end-start { Attachment::Exact(ids[0]) } else { Attachment::Innermost(ids[0]) }
                 } else { Attachment::Unmatched };
-                assert_eq!(index.attach(&query, AttachmentBudget::default()).unwrap(), expected);
+                assert_eq!(index.attach(&query, AttachmentBudget::default()).unwrap().value(), &expected);
             }
         }
     }
     let mut query = AttachmentQuery { source: artifact.id(), start: 20, end: 80, syntax_kind: SyntaxKind::ExprName, role: OccurrenceRole::Read, structural_path: None };
-    assert!(matches!(index.attach(&query, AttachmentBudget::default()).unwrap(), Attachment::Ambiguous(_)));
-    assert_eq!(index.attach(&query, AttachmentBudget { visited_nodes: 0, alternatives: 256 }).unwrap(), Attachment::BudgetExceeded);
+    assert!(matches!(index.attach(&query, AttachmentBudget::default()).unwrap().value(), Attachment::Ambiguous(_)));
+    assert_eq!(index.attach(&query, AttachmentBudget { visited_nodes: 0, alternatives: 256 }).unwrap().value(), &Attachment::BudgetExceeded);
     query.structural_path = Some(vec![20]);
-    assert!(matches!(index.attach(&query, AttachmentBudget::default()).unwrap(), Attachment::Exact(_)));
+    assert!(matches!(index.attach(&query, AttachmentBudget::default()).unwrap().value(), Attachment::Exact(_)));
     query.source = other.id();
-    assert_eq!(index.attach(&query, AttachmentBudget::default()).unwrap(), Attachment::Unmatched);
+    assert_eq!(index.attach(&query, AttachmentBudget::default()).unwrap().value(), &Attachment::Unmatched);
     occurrences.reverse();
-    let reverse = OccurrenceIndex::new(&occurrences).unwrap();
+    let reverse = OccurrenceIndex::new(&occurrences,lctx_model::domain::resources::ResourceBudget::fixed(1024*1024).unwrap()).unwrap();
     query.source = artifact.id(); query.structural_path = None;
-    assert_eq!(reverse.attach(&query, AttachmentBudget::default()).unwrap(), index.attach(&query, AttachmentBudget::default()).unwrap());
+    assert_eq!(reverse.attach(&query, AttachmentBudget::default()).unwrap().value(), index.attach(&query, AttachmentBudget::default()).unwrap().value());
 }
 
 #[test]

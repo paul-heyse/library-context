@@ -223,7 +223,7 @@ fn invocation_invariants() -> Vec<super::Invariant> {
         super::ValidationInput::of::<ProviderRun>(&["id"]),
         super::ValidationInput::of::<RunFamily>(&["run", "family"]),
         super::ValidationInput::of::<ProviderCoverage>(&["id"]),
-    ], create: || Box::new(InvocationCheck::default()) }]
+    ], create: std::sync::Arc::new(|| Box::new(InvocationCheck::default())) }]
 }
 #[derive(Default)]
 struct InvocationCheck {

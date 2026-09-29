@@ -35,7 +35,7 @@ fn condition_invariants() -> Vec<super::Invariant> {
     vec![super::Invariant { name: "canonical_condition_catalog", inputs: vec![
         super::ValidationInput::of::<ConditionNode>(&["id"]),
         super::ValidationInput::of::<Condition>(&["id"]),
-    ], create: || Box::new(CatalogCheck::default()) }]
+    ], create: std::sync::Arc::new(|| Box::new(CatalogCheck::default())) }]
 }
 #[derive(Default)]
 struct CatalogCheck {

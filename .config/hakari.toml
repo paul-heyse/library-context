@@ -12,7 +12,7 @@ exact-versions = true
 [final-excludes]
 workspace-members = [
   "cpg-flow", "cpg-core", "cpg-extract", "cpg-schema", "lctx-analytics", "lctx-embed",
-  "lctx-model", "lctx-postgres", "lctx-semantics", "lctx-storage",
+  "lctx-model", "lctx-model-macros", "lctx-postgres", "lctx-semantics", "lctx-storage",
 ]
 # Keep the second Ruff family reachable only through cpg-flow (ADR-0022).
 third-party = [
