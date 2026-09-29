@@ -24,7 +24,7 @@ async fn generation_sink_requires_its_execution_and_cannot_bypass_sealing_receip
     let generation = attempt.generation();
     assert!(store.begin_conformance(writer.clone(), &mut execution, attempt_budget.clone()).await.is_err(), "a sibling generation cannot share an execution");
     assert!(matches!(store.copy(&writer, generation, &rows, &budget()).await, Err(Error::Contract)));
-    assert!(matches!(store.seal(generation).await, Err(Error::Contract)));
+    assert!(matches!(store.seal(generation).await, Err(Error::State)), "an attempt-owned generation is sealed only by its attempt");
 
     let mut foreign = schedule.execute();
     let mut foreign_stage = foreign.begin("packages").unwrap();
@@ -36,10 +36,13 @@ async fn generation_sink_requires_its_execution_and_cannot_bypass_sealing_receip
     stage.write::<Package,_>(async |permit| attempt.copy(permit, &rows).await).await.unwrap();
     assert_eq!(attempt_budget.reserved(), 0);
     stage.finish(ProviderOutcome::Complete).unwrap();
-    assert_eq!(attempt.seal(execution.finish().unwrap()).await.unwrap(), generation);
-    store.validate(generation, &budget()).await.unwrap();
-    store.publish(generation).await.unwrap();
-    assert!(matches!(store.select(generation).await, Err(Error::Frontier)));
+    let sealed = attempt.seal(execution.finish().unwrap()).await.unwrap();
+    assert_eq!(sealed.generation(), generation);
+    assert!(matches!(store.validate(generation, &budget()).await, Err(Error::State)), "an attempt-owned generation advances only through its attempt");
+    let validated = sealed.validate().await.unwrap();
+    assert!(matches!(store.publish(generation).await, Err(Error::State)));
+    assert_eq!(validated.publish().await.unwrap(), generation);
+    assert!(matches!(store.select(generation).await, Err(Error::Frontier(_))));
     let mut lease = store.pin(&reader, generation, budget()).await.unwrap();
     assert_eq!(lease.read::<Package>().await.unwrap().rows(), rows.rows());
     lease.release().await.unwrap();
@@ -67,6 +70,8 @@ async fn generation_sink_requires_its_execution_and_cannot_bypass_sealing_receip
     assert!(execution.finish().is_err());
     drop(blocker);
     assert_eq!(attempt_budget.reserved(), 0);
+    assert!(matches!(store.abort(id).await, Err(Error::Busy)), "a live attempt cannot be aborted from outside");
+    assert_eq!(attempt.fail("resource refusal").await.unwrap(), id);
     store.abort(id).await.unwrap();
 
     // Admit a small first row, then refuse a larger wire row during active COPY. The server
@@ -87,6 +92,7 @@ async fn generation_sink_requires_its_execution_and_cannot_bypass_sealing_receip
         let count: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {}.packages",id.schema()))).fetch_one(&owner).await.unwrap();
         assert_eq!(count,if admitted { 2 } else { 0 });
         assert!(store.publish(id).await.is_err());
+        attempt.fail("wire control").await.unwrap();
         store.abort(id).await.unwrap();
     }
 
@@ -103,10 +109,12 @@ async fn generation_sink_requires_its_execution_and_cannot_bypass_sealing_receip
         stage.finish(ProviderOutcome::Complete).unwrap();
         let sealed = attempt.seal(execution.finish().unwrap()).await;
         if empty_write {
-            assert_eq!(sealed.unwrap(), id);
-            store.validate(id, &budget()).await.unwrap();
-        } else { assert!(matches!(sealed, Err(Error::State)), "a successful no-op did not write an output"); }
-        store.abort(id).await.unwrap();
+            sealed.unwrap().validate().await.unwrap().publish().await.unwrap();
+            store.retire(id).await.unwrap();
+        } else {
+            assert!(matches!(sealed, Err(Error::State)), "a successful no-op did not write an output");
+            store.abort(id).await.unwrap();
+        }
     }
 
     // The permanent writer path: transfer-bounded batches through the stage-bound sink, all
@@ -121,18 +129,28 @@ async fn generation_sink_requires_its_execution_and_cannot_bypass_sealing_receip
     output.push(Package { name: "p0".into() }).await.unwrap();
     output.finish(ProviderOutcome::Complete).await.unwrap();
     assert_eq!(attempt_budget.reserved(), 0);
-    assert_eq!(attempt.seal(execution.finish().unwrap()).await.unwrap(), id);
-    // Validator state and read buffers are charged: a tiny budget refuses and leaves the
-    // generation sealed, and a funded retry validates the same stored contents.
-    let tiny = ResourceBudget::fixed(64 << 10).unwrap();
-    assert!(matches!(store.validate(id, &tiny).await, Err(Error::Model(ModelError::Resource { .. }))));
-    assert_eq!(tiny.reserved(), 0);
-    assert!(matches!(store.publish(id).await, Err(Error::State)), "a refused validation publishes nothing");
-    store.validate(id, &attempt_budget).await.unwrap();
-    assert_eq!(attempt_budget.reserved(), 0);
+    let sealed = attempt.seal(execution.finish().unwrap()).await.unwrap();
     let count: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {}.packages", id.schema()))).fetch_one(&owner).await.unwrap();
     assert_eq!(count, 5000, "a repeated row is emitted once across transfer batches");
+    let validated = sealed.validate().await.unwrap();
+    assert_eq!(attempt_budget.reserved(), 0);
+    validated.fail("control complete").await.unwrap();
     store.abort(id).await.unwrap();
+
+    // Validator state and read buffers are charged: on a manual conformance generation a tiny
+    // budget refuses and leaves the generation sealed, and a funded retry validates the same
+    // stored contents. (An attempt records the refusal as failed instead.)
+    let manual = store.create_conformance(ContentHash::of(b"charged validation"), "catalog").await.unwrap();
+    let rows = Batch::new(&model, (0..5000).map(|n| Package { name: format!("p{n}") }).collect(), &budget()).unwrap();
+    store.copy(&writer, manual, &rows, &budget()).await.unwrap();
+    store.seal(manual).await.unwrap();
+    let tiny = ResourceBudget::fixed(64 << 10).unwrap();
+    assert!(matches!(store.validate(manual, &tiny).await, Err(Error::Model(ModelError::Resource { .. }))));
+    assert_eq!(tiny.reserved(), 0);
+    assert!(matches!(store.publish(manual).await, Err(Error::State)), "a refused validation publishes nothing");
+    store.validate(manual, &attempt_budget).await.unwrap();
+    assert_eq!(attempt_budget.reserved(), 0);
+    store.abort(manual).await.unwrap();
 }
 
 /// A fresh attempt budget; these controls do not share reservations across batches.

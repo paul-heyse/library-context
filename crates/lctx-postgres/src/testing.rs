@@ -49,6 +49,14 @@ impl DisposableDatabase {
         let owner = OwnerPool::verify(PgPool::connect(&url("lctx_migrator", "lctx")).await.expect("owner")).await.expect("verified owner");
         Self { _container: container, port, superuser, owner, writer: connect("lctx_importer"), reader: connect("lctx_serving"), app: connect("lctx_app") }
     }
+    /// Apply the service baseline as the owner, as provisioning does before a store install.
+    pub async fn migrate(&self) {
+        let config = crate::Config { application_url: self.url("lctx_app"), migration_url: self.url("lctx_migrator"), migration_config: None,
+            max_connections: 2, acquire_timeout_seconds: 10, statement_timeout_seconds: 60, lock_timeout_seconds: 10, max_receipt_bytes: 1 << 20 };
+        let migrator = config.connect_migrator().await.expect("migrator");
+        migrator.migrate().await.expect("service baseline");
+        migrator.close().await;
+    }
     /// A connection URL for a role on `lctx`.
     pub fn url(&self, role: &str) -> String { format!("postgres://{role}:{PASSWORD}@127.0.0.1:{}/lctx", self.port) }
     /// Write mode-0600 protected configurations into `dir`: `postgres.json` (application),

@@ -57,9 +57,31 @@ pub enum ModelError {
     Conflict(&'static str),
     #[error("codec: {0}")]
     Codec(String),
+    /// A store or capture effect failed for a reason outside the model (P0 exit F07). The class
+    /// is what a caller acts on: a transport loss or an unconfirmed commit interrupts the attempt,
+    /// a refusal or conflict is reported, never retried as if it were a codec defect.
+    #[error("{class:?} infrastructure failure: {detail}")]
+    Infrastructure { class: Infrastructure, detail: String },
 }
 impl ModelError {
     pub fn codec(error: impl std::fmt::Display) -> Self { Self::Codec(error.to_string()) }
+    pub fn infrastructure(class: Infrastructure, error: impl std::fmt::Display) -> Self { Self::Infrastructure { class, detail: error.to_string() } }
+}
+/// The class of an infrastructure failure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Infrastructure {
+    /// The connection or transport was lost; nothing after the last confirmed step happened.
+    Transport,
+    /// A commit, rollback or COPY abort was sent without confirmation; the outcome is unknown.
+    Unconfirmed,
+    /// The server refused a statement: a privilege, constraint or protocol refusal.
+    Refused,
+    /// A generation's state or lock excluded the operation.
+    State,
+    /// The stored model, lowering or registry differs from this binary's.
+    Contract,
+    /// Local input could not be read.
+    Io,
 }
 
 #[doc(hidden)]

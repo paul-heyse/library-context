@@ -720,6 +720,34 @@ The dormant `tests/serving.rs` database tests are `#[ignore = "suspended: P5 ser
 It holds the installation lock exclusively rather than relying on a REPEATABLE READ snapshot, because `pg_get_*def` and `format_type` read the latest catalog.
 
 `reset_plan`/`reset(owner, model, confirm)` inventory only owner-owned `lctx_g<32 hex>` schemas and the control schema. A wrong confirmation, a leased generation or a generation in a lifecycle transaction is refused before any change; the attempt-lock refusal lands with P1.7's lifecycle connection. Controls: 20 drift mutations (8 inside generation schemas, 2 on published generations, 2 orphans, 8 store-wide), each detected, with a final clean check after all reverts |
+| P1.7: `cargo test --release -p lctx-postgres --test lifecycle` and the P1.5/P1.6 suites (`services`, `installation`, `generations`, `generation_stages`, 13 `domain_*`) plus `--doc`; `-p cpg-extract --test typed_conformance --test typed_limits`; `-p lctx-model` (all suites); `cargo check --workspace --all-targets` | passed 2026-09-29 (lifecycle 11; every earlier suite unchanged).
+
+**Attempt-owned lifecycle (T10).** `begin(writer, &mut Execution, &FrontierContract, budget)` runs preflight before any store effect, then registers an `owned` facts generation. Its lifecycle connection takes the session attempt lock before the registry row is visible and keeps it until the attempt ends. `begin_conformance` does the same without the frontier. The typestates are `GenerationAttempt{copy, seal, fail}` → `SealedAttempt{validate, fail}` → `ValidatedAttempt{publish, fail}`. The public `seal`/`validate`/`publish` refuse attempt-owned generations, so they serve only manual conformance generations, where a refusal still rolls back.
+
+**Failure.** Any attempt refusal is recorded `failed`: terminal, abort-only, with the from-state and one of twelve stored classes. A generation failed while staging loses its writer. A lost lifecycle connection leaves the generation `interrupted()` (listed; abort only).
+
+**Control tables.** New: `planned_outputs`, `stage_outcomes` (append-only `ProviderOutcome` codes), `admissions` and `failures`. The reader has SELECT on every control table.
+
+**Validation and publication.** `validate` runs every in-scope invariant and, for facts, `AdmissionCheck` over the stored rows. `publish` requires planned outputs = stage receipts and an admission matching the stored model, content, schedule and profile. It inserts the admission, grants and transitions in one transaction. `select` requires facts.
+
+**Split.** `generations/` is split into `lifecycle.rs`, `receipts.rs` and `mod.rs`.
+
+**P0 exit F02** (closure evidence at P1.7). A facts generation lowers, receipts, validates, grants and digests only the facts relations. The control shows its schema holding exactly `facts_relations()`. `visit::<TransferKey>` refuses with `Frontier`, and reader SQL on `transfer_keys` gets 42P01, never zero rows. `check` shadows per (state, frontier).
+
+**P0 exit F07.** `ModelError::Infrastructure{class}` with Transport, Unconfirmed, Refused, State, Contract and Io. Store errors keep their class through `StageSink`; capture I/O is `Io`. Controls:
+- a terminated lifecycle backend makes `seal` return Transport and lists the attempt interrupted;
+- a closed writer pool makes the stage copy return Transport;
+- an unconfirmed commit maps to Unconfirmed.
+
+**Races (both orderings occur, counted).** Late write vs seal: 50×. Lease vs retire: 50×. Select vs retire: 10× on facts generations.
+
+**Other controls:**
+- three publication faults, each atomic, leaving the generation failed with no reader grant and no admission;
+- retirement under an injected trigger fault removes nothing;
+- mixed concurrent lifecycles complete without deadlock;
+- a subset schedule's `begin` is refused, with no registry row or schema;
+- a missing Deployment coverage row fails validation with class `frontier`;
+- failed and facts shapes `check` clean |
 | `just fmt`, `just test-all`, facts pilots | not_run: functional scope incomplete |
 
 Independent bounded reviewers accepted artifact/capture/acquisition corrections and the

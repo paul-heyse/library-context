@@ -121,7 +121,7 @@ async fn immutable_generation_vertical_slice_and_lifecycle_refusals() {
     assert!(matches!(store.retire(g).await, Err(Error::Busy)));
     let next = store.create_conformance(producer_digest, "catalog").await.unwrap();
     store.seal(next).await.unwrap(); store.validate(next, &budget()).await.unwrap(); store.publish(next).await.unwrap();
-    assert!(matches!(store.select(next).await, Err(Error::Frontier)));
+    assert!(matches!(store.select(next).await, Err(Error::Frontier(_))));
     let frontier: String = sqlx::query_scalar("SELECT frontier FROM lctx_model_store.generations WHERE id=decode($1,'hex')").bind(next.hex()).fetch_one(&owner).await.unwrap();
     assert_eq!(frontier,"conformance");
     // Force the pointer administratively only to exercise the retirement protection independently

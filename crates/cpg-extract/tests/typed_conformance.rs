@@ -152,10 +152,10 @@ async fn the_subset_publishes_a_conformance_generation_equal_to_memory() {
     let attempt = store.begin_conformance(writer, &mut execution, budget.clone()).await.unwrap();
     let facts = typed_syntax::extract(&captured, &model, SyntaxLimits::default(), &budget).unwrap();
     drive(&model, &mut execution, &attempt, &captured, facts, &budget).await.unwrap();
-    let generation = attempt.seal(execution.finish().unwrap()).await.unwrap();
-    assert_eq!(store.validate(generation, &budget).await.unwrap(), memory.digest, "the store and memory validate the same content");
-    store.publish(generation).await.unwrap();
-    assert!(matches!(store.select(generation).await, Err(Error::Frontier)), "a conformance generation is never selectable");
+    let validated = attempt.seal(execution.finish().unwrap()).await.unwrap().validate().await.unwrap();
+    assert_eq!(validated.content(), memory.digest, "the store and memory validate the same content");
+    let generation = validated.publish().await.unwrap();
+    assert!(matches!(store.select(generation).await, Err(Error::Frontier(_))), "a conformance generation is never selectable");
     let mut lease = store.pin(&reader, generation, budget.clone()).await.unwrap();
     let mut stored = Vec::new();
     lease.visit::<Occurrence>(|batch| { stored.extend(batch.rows().iter().cloned()); Ok(()) }).await.unwrap();

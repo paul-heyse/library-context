@@ -9,6 +9,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use lctx_model::domain::ValidatedModel;
 use sqlx::{Connection, PgConnection};
+use lctx_model::domain::admission::Frontier;
 use super::{Error, GenerationId, ddl::{self, CONTROL, STATES}};
 use crate::{OwnerPool, RUNTIME_ROLES};
 
@@ -70,7 +71,8 @@ async fn inspect(tx: &mut PgConnection, model: &ValidatedModel) -> Result<CheckR
     if !crate::history_current(tx).await? {
         findings.push(FindingKind::Installation, "service baseline", "the migration history differs from this binary's");
     }
-    let physical = ddl::physical_digest(model);
+    let scopes = ddl::scopes(model);
+    let physical = scopes[&Frontier::Conformance].physical;
     let installed: bool = sqlx::query_scalar("SELECT to_regclass('lctx_model_store.installation') IS NOT NULL").fetch_one(&mut *tx).await?;
     let mut registered = Vec::new();
     let mut compare = installed;
@@ -81,16 +83,19 @@ async fn inspect(tx: &mut PgConnection, model: &ValidatedModel) -> Result<CheckR
             findings.push(FindingKind::Installation, CONTROL, "installed from a different model or lowering; generation shapes were not compared");
             compare = false;
         }
-        let rows: Vec<(Vec<u8>, String, Vec<u8>, Vec<u8>)> = sqlx::query_as("SELECT id, state, model_digest, physical_digest FROM lctx_model_store.generations ORDER BY id")
-            .fetch_all(&mut *tx).await?;
-        for (id, state, m, p) in rows {
+        // A failed generation keeps the shape of the state it failed from, with the writer
+        // revoked: a generation failed while staging has the sealed shape.
+        let rows: Vec<(Vec<u8>, String, String, Vec<u8>, Vec<u8>)> = sqlx::query_as("SELECT g.id, \
+            CASE WHEN g.state <> 'failed' THEN g.state WHEN f.from_state = 'staging' THEN 'sealed' ELSE COALESCE(f.from_state, 'failed') END, \
+            g.frontier, g.model_digest, g.physical_digest FROM lctx_model_store.generations g \
+            LEFT JOIN lctx_model_store.failures f ON f.generation_id = g.id ORDER BY g.id").fetch_all(&mut *tx).await?;
+        for (id, state, frontier, m, p) in rows {
             let g = GenerationId(id.try_into().map_err(|_| Error::Codec("generation id length".into()))?);
-            if m != model.digest().0 || p != physical.0 {
-                findings.push(FindingKind::Differs, g.schema(), "registered under a different model or lowering");
-            } else if !STATES.contains(&state.as_str()) {
-                findings.push(FindingKind::Differs, g.schema(), format!("unknown state {state}"));
-            } else {
-                registered.push((g, state));
+            match ddl::frontier(&frontier).and_then(|f| scopes.get(&f).map(|scope| (f, scope))) {
+                Some((frontier, scope)) if m == model.digest().0 && p == scope.physical.0 && STATES.contains(&state.as_str()) => registered.push((g, state, frontier)),
+                Some(_) if !STATES.contains(&state.as_str()) => findings.push(FindingKind::Differs, g.schema(), format!("unknown state {state}")),
+                Some(_) => findings.push(FindingKind::Differs, g.schema(), "registered under a different model or lowering"),
+                None => findings.push(FindingKind::Differs, g.schema(), format!("frontier {frontier} has no scope in this model")),
             }
         }
     } else {
@@ -103,18 +108,20 @@ async fn inspect(tx: &mut PgConnection, model: &ValidatedModel) -> Result<CheckR
         let live = describe(tx, CONTROL, &[(CONTROL, "<control>")]).await?;
         let shadow = describe(tx, SHADOW_CONTROL, &[(SHADOW_CONTROL, "<control>")]).await?;
         compare_objects(&mut findings, CONTROL, &shadow, &live);
+        // One shadow per (state, frontier) present: a generation's shape is its frontier's lowering
+        // through its state.
         let mut shadows = BTreeMap::new();
-        for state in registered.iter().map(|(_, state)| state.as_str()).collect::<BTreeSet<_>>() {
-            let schema = format!("lctx_check_{state}");
-            let lowering = ddl::lower(model, SHADOW_GENERATION, &schema, SHADOW_CONTROL);
+        for (state, frontier) in registered.iter().map(|(_, state, frontier)| (state.as_str(), *frontier)).collect::<BTreeSet<_>>() {
+            let schema = format!("lctx_check_{}_{state}", frontier.name());
+            let lowering = ddl::lower(model, &scopes[&frontier].relations, SHADOW_GENERATION, &schema, SHADOW_CONTROL);
             for sql in lowering.through(state) { sqlx::query(sqlx::AssertSqlSafe(sql)).execute(&mut *tx).await?; }
             let hex = SHADOW_GENERATION.hex();
-            shadows.insert(state, describe(tx, &schema, &[(&schema, "<schema>"), (&hex, "<generation>"), (SHADOW_CONTROL, "<control>")]).await?);
+            shadows.insert((state, frontier), describe(tx, &schema, &[(&schema, "<schema>"), (&hex, "<generation>"), (SHADOW_CONTROL, "<control>")]).await?);
         }
-        for (g, state) in &registered {
+        for (g, state, frontier) in &registered {
             let (schema, hex) = (g.schema(), g.hex());
             let live = describe(tx, &schema, &[(&schema, "<schema>"), (&hex, "<generation>"), (CONTROL, "<control>")]).await?;
-            compare_objects(&mut findings, &schema, &shadows[state.as_str()], &live);
+            compare_objects(&mut findings, &schema, &shadows[&(state.as_str(), *frontier)], &live);
         }
     }
     let mut findings = findings.0;
@@ -168,18 +175,18 @@ async fn database(tx: &mut PgConnection, findings: &mut Findings) -> Result<(), 
 
 /// Classify every schema the owner owns, and owner objects in `public`. Returns the registered
 /// generations whose schemas exist and belong to the owner.
-async fn inventory(tx: &mut PgConnection, findings: &mut Findings, registered: Vec<(GenerationId, String)>, installed: bool)
-    -> Result<Vec<(GenerationId, String)>, Error> {
+async fn inventory(tx: &mut PgConnection, findings: &mut Findings, registered: Vec<(GenerationId, String, Frontier)>, installed: bool)
+    -> Result<Vec<(GenerationId, String, Frontier)>, Error> {
     let owned: BTreeSet<String> = sqlx::query_scalar("SELECT nspname::text FROM pg_namespace WHERE nspowner = (SELECT oid FROM pg_roles WHERE rolname = current_user)")
         .fetch_all(&mut *tx).await?.into_iter().collect();
     let mut present = Vec::new();
-    for (g, state) in registered {
-        if owned.contains(&g.schema()) { present.push((g, state)); continue; }
+    for (g, state, frontier) in registered {
+        if owned.contains(&g.schema()) { present.push((g, state, frontier)); continue; }
         let exists: bool = sqlx::query_scalar("SELECT EXISTS (SELECT FROM pg_namespace WHERE nspname = $1)").bind(g.schema()).fetch_one(&mut *tx).await?;
         if exists { findings.push(FindingKind::Differs, g.schema(), "the schema belongs to another role"); }
         else { findings.push(FindingKind::Orphan, g.schema(), "registered without its schema"); }
     }
-    let known: BTreeSet<String> = present.iter().map(|(g, _)| g.schema()).collect();
+    let known: BTreeSet<String> = present.iter().map(|(g, _, _)| g.schema()).collect();
     for schema in &owned {
         if known.contains(schema) || SERVICE_SCHEMAS.contains(&schema.as_str()) || (installed && schema == CONTROL) { continue; }
         if GenerationId::from_schema(schema).is_some() { findings.push(FindingKind::Orphan, schema.clone(), "a generation schema without a registry row"); }

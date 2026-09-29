@@ -1,7 +1,8 @@
 //! PostgreSQL is a lowering of the validated domain, never a public table specification. The
 //! lowering is pure: one model, generation, schema name and control schema name always give the
 //! same statements, so a shadow install is a faithful reference for `store check` (plan P1.6).
-use lctx_model::domain::{ContentHash, Scalar, ValidatedModel, admission::Frontier, stages::Profile};
+use std::collections::{BTreeMap, BTreeSet};
+use lctx_model::domain::{ContentHash, Relation, Scalar, ValidatedModel, admission::{Frontier, FrontierContract}, stages::{Profile, ProviderOutcome}};
 use sea_query::{ColumnDef, ColumnType, Expr, ForeignKey, Index, PostgresQueryBuilder, Table};
 use super::{GenerationId, quoted};
 
@@ -9,6 +10,29 @@ use super::{GenerationId, quoted};
 pub(super) const CONTROL: &str = "lctx_model_store";
 /// Lifecycle states in the order a generation passes through them.
 pub(super) const STATES: [&str; 4] = ["staging", "sealed", "validated", "published"];
+/// The terminal state of a refused attempt. It keeps the physical shape of the state it failed
+/// from, with the writer revoked, and permits only abort.
+pub(super) const FAILED: &str = "failed";
+/// The stored classes of an attempt failure.
+pub(super) const FAILURE_CLASSES: [&str; 12] =
+    ["transport", "unconfirmed", "refused", "state", "contract", "io", "frontier", "resource", "limit", "invalid", "codec", "producer"];
+
+/// The relations one frontier's generations lower, and the physical digest of that lowering.
+#[derive(Debug, Clone)]
+pub(super) struct Scope { pub relations: BTreeSet<&'static str>, pub physical: ContentHash }
+/// A conformance generation lowers the whole model; a facts generation lowers only the facts
+/// relations, so nothing above its frontier exists to read as empty (P0 exit F02). A model without
+/// every facts relation has no facts scope.
+pub(super) fn scopes(model: &ValidatedModel) -> BTreeMap<Frontier, Scope> {
+    let scope = |relations: BTreeSet<&'static str>| Scope { physical: physical_digest(model, &relations), relations };
+    let mut scopes = BTreeMap::from([(Frontier::Conformance, scope(model.relations().iter().map(Relation::name).collect()))]);
+    if let Ok(contract) = FrontierContract::facts(model, Profile::Catalog) {
+        scopes.insert(Frontier::Facts, scope(model.relations().iter().map(Relation::name).filter(|name| contract.contains(name)).collect()));
+    }
+    scopes
+}
+/// The frontier a registry row names.
+pub(super) fn frontier(name: &str) -> Option<Frontier> { Frontier::ALL.into_iter().find(|f| f.name() == name) }
 
 /// The statements that give a generation its physical form, grouped by the lifecycle transition
 /// that executes them.
@@ -46,16 +70,18 @@ impl Lowering {
 pub(super) fn control(control: &str) -> String {
     let list = |names: &mut dyn Iterator<Item = &str>| names.map(|n| format!("'{n}'")).collect::<Vec<_>>().join(",");
     include_str!("control.sql").replace("{control}", &quoted(control))
-        .replace("{states}", &list(&mut STATES.into_iter()))
+        .replace("{lifecycle}", &list(&mut STATES.into_iter().chain([FAILED])))
+        .replace("{outcomes}", &ProviderOutcome::ALL.iter().map(|o| o.code().to_string()).collect::<Vec<_>>().join(","))
+        .replace("{classes}", &list(&mut FAILURE_CLASSES.into_iter()))
         .replace("{profiles}", &list(&mut Profile::ALL.iter().map(|p| p.name())))
         .replace("{frontiers}", &list(&mut Frontier::ALL.iter().map(|f| f.name())))
 }
 
-pub(super) fn lower(model: &ValidatedModel, generation: GenerationId, schema: &str, control: &str) -> Lowering {
+pub(super) fn lower(model: &ValidatedModel, relations: &BTreeSet<&str>, generation: GenerationId, schema: &str, control: &str) -> Lowering {
     let schema = schema.to_owned();
     let mut tables = Vec::new();
     let mut references = Vec::new();
-    for relation in model.relations() {
+    for relation in model.relations().iter().filter(|r| relations.contains(r.name())) {
         let mut table = Table::create();
         let mut wire_sizes = vec!["42::bigint".to_owned()];
         table.table((schema.clone(), relation.name()));
@@ -132,26 +158,27 @@ pub(super) fn lower(model: &ValidatedModel, generation: GenerationId, schema: &s
     }
     let s = quoted(&schema);
     Lowering {
-        views: derivation_views(model, &schema),
+        views: derivation_views(model, relations, &schema),
         grant_staging: vec![format!("GRANT USAGE ON SCHEMA {s} TO lctx_importer"), format!("GRANT INSERT ON ALL TABLES IN SCHEMA {s} TO lctx_importer")],
         revoke_writer: vec![format!("REVOKE ALL ON ALL TABLES IN SCHEMA {s} FROM lctx_importer"), format!("REVOKE USAGE ON SCHEMA {s} FROM lctx_importer")],
         grant_reader: vec![format!("GRANT USAGE ON SCHEMA {s} TO lctx_serving"), format!("GRANT SELECT ON ALL TABLES IN SCHEMA {s} TO lctx_serving")],
         schema, tables, references,
     }
 }
-/// The physical digest covers the control DDL and every phase of a generation's lowering.
-pub(super) fn physical_digest(model: &ValidatedModel) -> ContentHash {
+/// The physical digest covers the control DDL and every phase of a generation's lowering of
+/// `relations`.
+fn physical_digest(model: &ValidatedModel, relations: &BTreeSet<&str>) -> ContentHash {
     let g = GenerationId([0; 16]);
-    let lowering = lower(model, g, &g.schema(), CONTROL);
+    let lowering = lower(model, relations, g, &g.schema(), CONTROL);
     ContentHash::of(format!("{}\n{}", control(CONTROL), lowering.through("published").join(";\n")).as_bytes())
 }
 
 fn literal(text: &str) -> String { format!("'{}'",text.replace('\'',"''")) }
 /// Explanation targets and premise roles are projected from nominal model fields. No separately
 /// maintained target registry, copied evidence table, or executable relation-name payload is used.
-fn derivation_views(model: &ValidatedModel, schema: &str) -> Vec<String> {
+fn derivation_views(model: &ValidatedModel, relations: &BTreeSet<&str>, schema: &str) -> Vec<String> {
     let mut derivations = Vec::new(); let mut premises = Vec::new();
-    for source in model.relations() {
+    for source in model.relations().iter().filter(|r| relations.contains(r.name())) {
         let Some(rule) = source.derivation() else { continue; };
         let (target,column) = rule.conclusion.as_ref().map_or((source.name(),"id"),|c| (c.target().1,c.name()));
         let table = format!("{}.{}", quoted(schema), quoted(source.name())); let source_name = literal(source.name());

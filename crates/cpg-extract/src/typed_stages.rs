@@ -29,7 +29,11 @@ pub fn syntax_stage(limits: SyntaxLimits) -> Stage {
         code: provider.build_digest, configuration: ContentHash::of(format!("{limits:?}").as_bytes()) }
 }
 fn capture_error(error: CaptureError) -> ModelError {
-    match error { CaptureError::Model(error) => error, other => ModelError::codec(other) }
+    match error {
+        CaptureError::Model(error) => error,
+        CaptureError::Io(error) => ModelError::infrastructure(lctx_model::domain::Infrastructure::Io, error),
+        other => ModelError::codec(other),
+    }
 }
 
 /// Write the captured input, streaming each artifact's chunks in reserved transfer batches, and

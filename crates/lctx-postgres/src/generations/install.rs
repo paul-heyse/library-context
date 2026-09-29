@@ -63,16 +63,16 @@ pub(super) async fn plan(owner: &OwnerPool) -> Result<ResetInventory, Error> {
 }
 
 pub(super) async fn reset(owner: OwnerPool, model: Arc<ValidatedModel>, confirm: &str) -> Result<(ResetInventory, GenerationStore), Error> {
-    let pool = owner.pool().clone();
-    let physical = ddl::physical_digest(&model);
-    let inventory = transaction(&pool, async |tx| {
+    let store = GenerationStore::assemble(owner.pool().clone(), model);
+    let inventory = transaction(&store.owner, async |tx| {
         sqlx::query(INSTALLATION_LOCK).execute(&mut *tx).await?;
         let (inventory, generations) = inventory(tx).await?;
         if confirm != inventory.database { return Err(Error::Confirmation); }
-        // A lease holds its generation lock for the reader's lifetime; a lifecycle transaction
-        // holds it for the transition. Either keeps the store.
+        // A lease holds its generation lock for the reader's lifetime, a lifecycle transaction
+        // for the transition, and a live attempt its attempt lock. Any of them keeps the store.
         for g in &generations {
-            let acquired: bool = sqlx::query_scalar("SELECT pg_try_advisory_xact_lock($1)").bind(g.lock()).fetch_one(&mut *tx).await?;
+            let acquired: bool = sqlx::query_scalar("SELECT pg_try_advisory_xact_lock($1) AND pg_try_advisory_xact_lock($2)")
+                .bind(g.lock()).bind(g.attempt_lock()).fetch_one(&mut *tx).await?;
             if !acquired { return Err(Error::Busy); }
         }
         for schema in &inventory.schemas {
@@ -81,8 +81,8 @@ pub(super) async fn reset(owner: OwnerPool, model: Arc<ValidatedModel>, confirm:
         if inventory.control {
             sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {} CASCADE", quoted(ddl::CONTROL)))).execute(&mut *tx).await?;
         }
-        control(tx, &model, physical).await?;
+        control(tx, &store.model, store.physical).await?;
         Ok(inventory)
     }).await?;
-    Ok((inventory, GenerationStore { owner: pool, model, physical }))
+    Ok((inventory, store))
 }

@@ -7,6 +7,13 @@ use super::resources::ResourceBudget;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProviderOutcome { Complete, Partial, Unavailable, Failed, NotRequested }
+impl ProviderOutcome {
+    pub const ALL: [Self; 5] = [Self::Complete, Self::Partial, Self::Unavailable, Self::Failed, Self::NotRequested];
+    /// The stored code. Append-only: a new outcome takes the next code; none is renumbered.
+    pub fn code(self) -> i16 {
+        match self { Self::Complete => 0, Self::Partial => 1, Self::Unavailable => 2, Self::Failed => 3, Self::NotRequested => 4 }
+    }
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Profile { Catalog, Behavioral }
 impl Profile {
