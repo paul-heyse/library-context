@@ -44,7 +44,7 @@ async fn document_nodes_and_optional_spans_survive_sealed_postgres_validation() 
             assert_eq!(lease.read::<DocumentComponentObservation>().await.unwrap().rows(),fixture.rows::<DocumentComponentObservation>());
             assert_eq!(lease.read::<DocumentAttributeValue>().await.unwrap().rows(),fixture.rows::<DocumentAttributeValue>());
             assert_eq!(lease.read::<CodeBlockObservation>().await.unwrap().rows(),fixture.rows::<CodeBlockObservation>());
-            drop(lease); store.retire(generation).await.unwrap();
+            lease.release().await.unwrap(); store.retire(generation).await.unwrap();
         }
     }
 }

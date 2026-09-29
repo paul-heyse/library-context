@@ -48,7 +48,7 @@ async fn structural_types_and_recursive_variable_restrictions_roundtrip_without_
             assert_eq!(lease.read::<TypeObservation>().await.unwrap().rows(),fixture.base.rows::<TypeObservation>());
             assert_eq!(lease.read::<TypeVariableRestriction>().await.unwrap().rows(),fixture.base.rows::<TypeVariableRestriction>());
             assert_eq!(lease.read::<Literal>().await.unwrap().rows(),fixture.base.rows::<Literal>());
-            drop(lease); store.retire(generation).await.unwrap();
+            lease.release().await.unwrap(); store.retire(generation).await.unwrap();
         }
     }
 }

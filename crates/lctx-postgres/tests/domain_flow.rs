@@ -46,7 +46,7 @@ async fn raw_flow_and_transitive_place_provenance_survive_sealed_validation() {
             assert_eq!(lease.read::<FlowUse>().await.unwrap().rows(),fixture.base.rows::<FlowUse>());
             assert_eq!(lease.read::<FlowReachingObservation>().await.unwrap().rows(),fixture.base.rows::<FlowReachingObservation>());
             assert_eq!(lease.read::<FlowDefinitionObservation>().await.unwrap().rows(),fixture.base.rows::<FlowDefinitionObservation>());
-            drop(lease); store.retire(generation).await.unwrap();
+            lease.release().await.unwrap(); store.retire(generation).await.unwrap();
         }
     }
 }

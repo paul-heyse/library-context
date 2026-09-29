@@ -52,7 +52,7 @@ async fn coverage_cannot_claim_a_foreign_input_even_with_matching_provider_and_c
             assert_eq!(lease.read::<BindingObservation>().await.unwrap().rows(),fixture.rows::<BindingObservation>());
             assert_eq!(lease.read::<LexicalResolution>().await.unwrap().rows(),fixture.rows::<LexicalResolution>());
             assert_eq!(lease.read::<LexicalScopeObservation>().await.unwrap().rows(),fixture.rows::<LexicalScopeObservation>());
-            drop(lease); store.retire(generation).await.unwrap();
+            lease.release().await.unwrap(); store.retire(generation).await.unwrap();
         }
     }
 }

@@ -15,6 +15,11 @@ use futures::TryStreamExt;
 pub enum Error {
     #[error("{0}")] Model(#[from] ModelError),
     #[error("PostgreSQL operation failed")] Database(#[from] sqlx::Error),
+    #[error("PostgreSQL commit failed; outcome is unconfirmed")] Commit(#[source] sqlx::Error),
+    #[error("PostgreSQL rollback failed after {operation}; cleanup is unconfirmed")]
+    Rollback { operation: Box<Error>, #[source] source: sqlx::Error },
+    #[error("PostgreSQL COPY abort failed after {operation}; cleanup is unconfirmed")]
+    CopyAbort { operation: Box<Error>, #[source] source: sqlx::Error },
     #[error("generation state does not permit this operation")] State,
     #[error("generation model or physical schema differs from this binary")] Contract,
     #[error("generation has active readers or is selected")] Busy,
@@ -41,7 +46,7 @@ impl GenerationStore {
     /// Roles are provisioned by the existing PostgreSQL bootstrap, not by schema lowering.
     pub async fn install(owner: PgPool, model: Arc<ValidatedModel>) -> Result<Self, Error> {
         let physical = ddl::digest(&model);
-        let mut tx = owner.begin().await?;
+        transaction(&owner,async |tx| {
         sqlx::query("SELECT pg_advisory_xact_lock(1279476824,0)").execute(&mut *tx).await?;
         sqlx::raw_sql(include_str!("control.sql")).execute(&mut *tx).await?;
         let existing: Option<(Vec<u8>, Vec<u8>)> = sqlx::query_as("SELECT model_digest, physical_digest FROM lctx_model_store.installation WHERE singleton FOR UPDATE").fetch_optional(&mut *tx).await?;
@@ -50,7 +55,8 @@ impl GenerationStore {
         } else {
             sqlx::query("INSERT INTO lctx_model_store.installation VALUES (true,$1,$2)").bind(model.digest().0.to_vec()).bind(physical.0.to_vec()).execute(&mut *tx).await?;
         }
-        tx.commit().await?;
+        Ok(())
+        }).await?;
         Ok(Self { owner, model, physical })
     }
     pub fn model(&self) -> &ValidatedModel { &self.model }
@@ -73,7 +79,7 @@ impl GenerationStore {
     async fn create_subset(&self, producer: ContentHash, profile: &str, schedule: Option<ContentHash>) -> Result<GenerationId, Error> {
         if !matches!(profile, "catalog" | "behavioral") { return Err(Error::State); }
         let g = GenerationId::new()?;
-        let mut tx = self.owner.begin().await?;
+        transaction(&self.owner,async |mut tx| {
         self.lock_installation(&mut tx).await?;
         let compatible: bool = sqlx::query_scalar("SELECT model_digest=$1 AND physical_digest=$2 FROM lctx_model_store.installation WHERE singleton FOR SHARE")
             .bind(self.model.digest().0.to_vec()).bind(self.physical.0.to_vec()).fetch_one(&mut *tx).await?;
@@ -85,15 +91,15 @@ impl GenerationStore {
         let generated = ddl::generate(&self.model, g);
         for sql in generated.tables.into_iter().chain(generated.views) { sqlx::query(sqlx::AssertSqlSafe(sql)).execute(&mut *tx).await?; }
         sqlx::raw_sql(sqlx::AssertSqlSafe(format!("GRANT USAGE ON SCHEMA {s} TO lctx_importer; GRANT INSERT ON ALL TABLES IN SCHEMA {s} TO lctx_importer", s=quoted(&g.schema())))).execute(&mut *tx).await?;
-        tx.commit().await?;
         Ok(g)
+        }).await
     }
     /// Sealing takes the exclusive generation lock and table locks before revoking access.
     pub async fn seal(&self, g: GenerationId) -> Result<(), Error> {
         self.seal_attempt(g, None, &BTreeSet::new()).await
     }
     async fn seal_attempt(&self, g: GenerationId, schedule: Option<ContentHash>, outputs: &BTreeSet<(&str,&str)>) -> Result<(), Error> {
-        let mut tx = self.owner.begin().await?;
+        transaction(&self.owner,async |mut tx| {
         self.lock_installation(&mut tx).await?;
         lock(&mut tx, g, false).await?;
         state(&mut tx, g, "staging", &self.model, self.physical).await?;
@@ -109,11 +115,12 @@ impl GenerationStore {
             }
         }
         transition(&mut tx, g, "sealed").await?;
-        tx.commit().await?; Ok(())
+        Ok(())
+        }).await
     }
     /// Validate stored, sealed contents. Callers cannot submit a `valid=true` receipt.
     pub async fn validate(&self, g: GenerationId) -> Result<ContentHash, Error> {
-        let mut tx = self.owner.begin().await?;
+        transaction(&self.owner,async |mut tx| {
         self.lock_installation(&mut tx).await?;
         lock(&mut tx, g, false).await?;
         state(&mut tx, g, "sealed", &self.model, self.physical).await?;
@@ -147,10 +154,11 @@ impl GenerationStore {
         }
         sqlx::query("UPDATE lctx_model_store.generations SET content_digest=$2 WHERE id=$1").bind(g.0.to_vec()).bind(digest.0.to_vec()).execute(&mut *tx).await?;
         transition(&mut tx, g, "validated").await?;
-        tx.commit().await?; Ok(digest)
+        Ok(digest)
+        }).await
     }
     pub async fn publish(&self, g: GenerationId) -> Result<(), Error> {
-        let mut tx = self.owner.begin().await?;
+        transaction(&self.owner,async |mut tx| {
         self.lock_installation(&mut tx).await?;
         lock(&mut tx, g, false).await?;
         state(&mut tx, g, "validated", &self.model, self.physical).await?;
@@ -176,10 +184,11 @@ impl GenerationStore {
         }
         sqlx::raw_sql(sqlx::AssertSqlSafe(format!("GRANT USAGE ON SCHEMA {s} TO lctx_serving; GRANT SELECT ON ALL TABLES IN SCHEMA {s} TO lctx_serving", s=quoted(&g.schema())))).execute(&mut *tx).await?;
         transition(&mut tx, g, "published").await?;
-        tx.commit().await?; Ok(())
+        Ok(())
+        }).await
     }
     pub async fn select(&self, g: GenerationId) -> Result<(), Error> {
-        let mut tx = self.owner.begin().await?;
+        transaction(&self.owner,async |mut tx| {
         self.lock_installation(&mut tx).await?;
         sqlx::query("SELECT singleton FROM lctx_model_store.selection FOR UPDATE").execute(&mut *tx).await?;
         lock(&mut tx, g, true).await?;
@@ -187,13 +196,15 @@ impl GenerationStore {
         let frontier: String = sqlx::query_scalar("SELECT frontier FROM lctx_model_store.generations WHERE id=$1").bind(g.0.to_vec()).fetch_one(&mut *tx).await?;
         if frontier == "conformance" { return Err(Error::Frontier); }
         sqlx::query("UPDATE lctx_model_store.selection SET generation_id=$1 WHERE singleton").bind(g.0.to_vec()).execute(&mut *tx).await?;
-        tx.commit().await?; Ok(())
+        Ok(())
+        }).await
     }
     pub async fn clear_selection(&self) -> Result<(), Error> {
-        let mut tx = self.owner.begin().await?;
+        transaction(&self.owner,async |mut tx| {
         self.lock_installation(&mut tx).await?;
         sqlx::query("UPDATE lctx_model_store.selection SET generation_id=NULL WHERE singleton").execute(&mut *tx).await?;
-        tx.commit().await?; Ok(())
+        Ok(())
+        }).await
     }
     pub async fn retire(&self, g: GenerationId) -> Result<CleanupOutcome, Error> { self.cleanup(g, true, false).await }
     /// Abandon an unpublished attempt. No registry tombstone or generation event survives.
@@ -201,7 +212,7 @@ impl GenerationStore {
     /// Explicitly repair orphan objects only; ordinary cleanup refuses them.
     pub async fn repair_orphan(&self, g: GenerationId) -> Result<CleanupOutcome, Error> { self.cleanup(g, false, true).await }
     async fn cleanup(&self, g: GenerationId, published: bool, repair: bool) -> Result<CleanupOutcome, Error> {
-        let mut tx = self.owner.begin().await?;
+        transaction(&self.owner,async |mut tx| {
         self.lock_installation(&mut tx).await?;
         let selected: Option<Vec<u8>> = sqlx::query_scalar("SELECT generation_id FROM lctx_model_store.selection WHERE singleton FOR UPDATE").fetch_one(&mut *tx).await?;
         if selected.as_deref() == Some(&g.0) { return Err(Error::Busy); }
@@ -211,7 +222,7 @@ impl GenerationStore {
         let schema: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname=$1)").bind(g.schema()).fetch_one(&mut *tx).await?;
         let residue: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM lctx_model_store.receipts WHERE generation_id=$1) OR EXISTS(SELECT 1 FROM lctx_model_store.validation_receipts WHERE generation_id=$1) OR EXISTS(SELECT 1 FROM lctx_model_store.events WHERE generation_id=$1) OR EXISTS(SELECT 1 FROM lctx_model_store.stage_receipts WHERE generation_id=$1)")
             .bind(g.0.to_vec()).fetch_one(&mut *tx).await?;
-        if current.is_none() && !schema && !residue { tx.commit().await?; return Ok(CleanupOutcome::AlreadyAbsent); }
+        if current.is_none() && !schema && !residue { return Ok(CleanupOutcome::AlreadyAbsent); }
         let orphaned = current.is_none() || !schema;
         if orphaned && !repair { return Err(Error::Orphaned); }
         if repair && !orphaned { return Err(Error::State); }
@@ -225,7 +236,8 @@ impl GenerationStore {
             sqlx::query(sqlx::AssertSqlSafe(format!("DELETE FROM lctx_model_store.{table} WHERE generation_id=$1"))).bind(g.0.to_vec()).execute(&mut *tx).await?;
         }
         sqlx::query("DELETE FROM lctx_model_store.generations WHERE id=$1").bind(g.0.to_vec()).execute(&mut *tx).await?;
-        tx.commit().await?; Ok(CleanupOutcome::Removed)
+        Ok(CleanupOutcome::Removed)
+        }).await
     }
     async fn lock_installation(&self, connection: &mut PgConnection) -> Result<(), Error> {
         sqlx::query("SELECT pg_advisory_xact_lock_shared(1279476824,0)").execute(&mut *connection).await?;
@@ -237,11 +249,13 @@ impl GenerationStore {
         // Keep the pool permit; closing on drop releases both the advisory lock and pool capacity.
         let mut connection = reader.acquire().await?;
         connection.close_on_drop();
-        let mut tx = connection.begin().await?;
+        transaction_on(&mut connection,async |mut tx| {
         self.lock_installation(&mut tx).await?;
-        sqlx::query("SELECT pg_advisory_lock_shared($1)").bind(g.lock()).execute(&mut *tx).await?;
+        lock(&mut tx,g,true).await?;
         state(&mut tx, g, "published", &self.model, self.physical).await?;
-        tx.commit().await?;
+        sqlx::query("SELECT pg_advisory_lock_shared($1)").bind(g.lock()).execute(&mut *tx).await?;
+        Ok(())
+        }).await?;
         Ok(GenerationLease { connection, generation: g, model: self.model.clone() })
     }
     pub async fn copy<R: Record>(&self, writer: &PgPool, g: GenerationId, batch: &Batch<R>) -> Result<(), Error> {
@@ -249,7 +263,7 @@ impl GenerationStore {
     }
     async fn copy_attempt<R: Record>(&self, writer: &PgPool, g: GenerationId, batch: &Batch<R>, schedule: Option<ContentHash>, budget: &ResourceBudget) -> Result<(), Error> {
         self.model.require::<R>()?;
-        let mut tx = writer.begin().await?;
+        transaction(writer,async |mut tx| {
         self.lock_installation(&mut tx).await?;
         lock(&mut tx, g, true).await?;
         state(&mut tx, g, "staging", &self.model, self.physical).await?;
@@ -266,6 +280,7 @@ impl GenerationStore {
         let mut bytes = BytesMut::with_capacity(32);
         encoder.write_header(&mut bytes).map_err(|e| Error::Codec(e.to_string()))?;
         let mut copy = tx.copy_in_raw(&format!("COPY {} ({columns}) FROM STDIN BINARY", qualified(g, R::NAME))).await?;
+        let result: Result<(),Error> = async {
         copy.send(bytes.freeze()).await?;
         drop(header_charge);
         for index in 0..batch.arrow().num_rows() {
@@ -283,8 +298,20 @@ impl GenerationStore {
         let _footer = budget.reserve("postgres-copy-wire", 64)?;
         let mut bytes = BytesMut::with_capacity(32);
         encoder.write_footer(&mut bytes).map_err(|e| Error::Codec(e.to_string()))?;
-        copy.send(bytes.freeze()).await?; copy.finish().await?;
-        tx.commit().await?; Ok(())
+        copy.send(bytes.freeze()).await?;
+        Ok(())
+        }.await;
+        match result {
+            Ok(()) => { copy.finish().await?; },
+            Err(operation) => {
+                if let Err(source) = copy.abort("typed generation COPY refused").await {
+                    return Err(Error::CopyAbort { operation: Box::new(operation),source });
+                }
+                return Err(operation);
+            },
+        }
+        Ok(())
+        }).await
     }
 }
 
@@ -420,3 +447,22 @@ async fn transition(connection: &mut PgConnection, g: GenerationId, next: &str) 
 }
 fn quoted(name: &str) -> String { format!("\"{}\"", name.replace('"', "\"\"")) }
 fn qualified(g: GenerationId, relation: &str) -> String { format!("{}.{}", quoted(&g.schema()), quoted(relation)) }
+
+/// Completed domain refusals imply acknowledged rollback. Commit/rollback transport failures
+/// remain explicitly unconfirmed and quarantine the connection. Cancellation uses SQLx drop cleanup.
+async fn transaction<T>(pool: &PgPool,body: impl for<'a> AsyncFnOnce(&'a mut PgConnection) -> Result<T,Error>) -> Result<T,Error> {
+    let mut connection = pool.acquire().await?;
+    let result = transaction_on(&mut connection,body).await;
+    if matches!(&result,Err(Error::Commit(_)|Error::Rollback { .. })) { connection.close_on_drop(); }
+    result
+}
+async fn transaction_on<T>(connection: &mut PgConnection,body: impl for<'a> AsyncFnOnce(&'a mut PgConnection) -> Result<T,Error>) -> Result<T,Error> {
+    let mut tx = connection.begin().await?;
+    match body(&mut tx).await {
+        Ok(value) => { tx.commit().await.map_err(Error::Commit)?; Ok(value) },
+        Err(operation) => match tx.rollback().await {
+            Ok(()) => Err(operation),
+            Err(source) => Err(Error::Rollback { operation: Box::new(operation),source }),
+        },
+    }
+}

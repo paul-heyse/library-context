@@ -16,7 +16,7 @@ async fn generation_sink_requires_its_execution_and_cannot_bypass_sealing_receip
     let writer = PgPool::connect(&url("lctx_importer")).await.unwrap();
     let reader = PgPool::connect(&url("lctx_serving")).await.unwrap();
     let model = Arc::new(ValidatedModel::validate(vec![Relation::of::<Package>()]).unwrap());
-    let store = GenerationStore::install(owner, model.clone()).await.unwrap();
+    let store = GenerationStore::install(owner.clone(), model.clone()).await.unwrap();
     let schedule = Schedule::build(&model, vec![Stage {
         name: "packages", inputs: vec![], outputs: vec![RelationUse::of::<Package>()],
         profiles: vec![Profile::Catalog], effect: Effect::Extraction,
@@ -47,7 +47,7 @@ async fn generation_sink_requires_its_execution_and_cannot_bypass_sealing_receip
     assert!(matches!(store.select(generation).await, Err(Error::Frontier)));
     let mut lease = store.pin(&reader, generation).await.unwrap();
     assert_eq!(lease.read::<Package>().await.unwrap().rows(), rows.rows());
-    drop(lease);
+    lease.release().await.unwrap();
     store.retire(generation).await.unwrap();
 
     // An identical schedule's receipt still cannot seal another execution's generation.
@@ -73,6 +73,27 @@ async fn generation_sink_requires_its_execution_and_cannot_bypass_sealing_receip
     drop(blocker);
     assert_eq!(budget.reserved(), 0);
     store.abort(id).await.unwrap();
+
+    // Admit a small first row, then refuse a larger wire row during active COPY. The server
+    // must acknowledge COPY abort and transaction rollback before the failure is returned.
+    let large = Package { name: "a".repeat(4096) };
+    let small = (0..1000).map(|n| Package { name: format!("small-{n}") }).find(|p| p.id() < large.id()).unwrap();
+    let wire_rows = Batch::new(&model,vec![small.clone(),large]).unwrap();
+    assert_eq!(wire_rows.rows()[0],small);
+    for admitted in [false,true] {
+        let wire_budget = ResourceBudget::fixed(wire_rows.arrow().schema().fields().len()*4096 + if admitted { 32768 } else { 128 }).unwrap();
+        let mut execution = schedule.execute();
+        let attempt = store.begin_conformance(writer.clone(),&mut execution,wire_budget.clone()).await.unwrap();
+        let id = attempt.generation(); let mut stage = execution.begin("packages").unwrap();
+        let result = stage.write::<Package,_>(async |permit| attempt.copy(permit,&wire_rows).await).await;
+        if admitted { result.unwrap(); stage.finish(ProviderOutcome::Complete).unwrap(); }
+        else { assert!(matches!(result,Err(ModelError::Resource { .. }))); drop(stage); assert!(execution.finish().is_err()); }
+        assert_eq!(wire_budget.reserved(),0);
+        let count: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {}.packages",id.schema()))).fetch_one(&owner).await.unwrap();
+        assert_eq!(count,if admitted { 2 } else { 0 });
+        assert!(store.publish(id).await.is_err());
+        store.abort(id).await.unwrap();
+    }
 
     for empty_write in [false, true] {
         let mut execution = schedule.execute();

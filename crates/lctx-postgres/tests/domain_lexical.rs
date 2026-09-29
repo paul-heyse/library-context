@@ -43,7 +43,7 @@ async fn lexical_support_and_optional_subjects_survive_sealed_postgres_validatio
             assert_eq!(lease.read::<BindingObservation>().await.unwrap().rows(),fixture.rows::<BindingObservation>());
             assert_eq!(lease.read::<LexicalResolution>().await.unwrap().rows(),fixture.rows::<LexicalResolution>());
             assert_eq!(lease.read::<LexicalScopeObservation>().await.unwrap().rows(),fixture.rows::<LexicalScopeObservation>());
-            drop(lease); store.retire(generation).await.unwrap();
+            lease.release().await.unwrap(); store.retire(generation).await.unwrap();
         }
     }
 }
