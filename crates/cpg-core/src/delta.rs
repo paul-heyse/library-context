@@ -12,9 +12,7 @@ use std::sync::Arc;
 use parquet::basic::{Compression, ZstdLevel};
 use parquet::file::properties::WriterProperties;
 
-use arrow_array::{ArrayRef, RecordBatch};
-use arrow_cast::{CastOptions, cast_with_options};
-use arrow_schema::{DataType, SchemaRef};
+use arrow_array::RecordBatch;
 use cpg_schema::id::Id;
 use cpg_schema::table::Table;
 use datafusion::common::DFSchema;
@@ -29,11 +27,6 @@ use deltalake::{DeltaTable, DeltaTableBuilder, TableProperty};
 use url::Url;
 
 use crate::{CoreError, sql};
-
-const STRICT: CastOptions<'static> = CastOptions {
-    safe: false,
-    format_options: arrow_cast::display::FormatOptions::new(),
-};
 
 /// Key prefix delta-rs stores CHECK constraints under.
 const CONSTRAINT_PREFIX: &str = "delta.constraints.";
@@ -199,31 +192,7 @@ pub fn writer_properties() -> Result<WriterProperties, CoreError> {
         .build())
 }
 
-/// Cast a batch read back from Delta to the declared schema: `BinaryView → Binary →
-/// FixedSizeBinary` in two steps (no direct cast exists), `Utf8View → Utf8`, and list children
-/// back to their declared field (§3.3). Casts are strict: a wrong width is an error.
-pub fn to_declared<T: Table>(batch: &RecordBatch) -> Result<RecordBatch, CoreError> {
-    to_schema(batch, &T::schema())
-}
-
-/// [`to_declared`] for any declared schema (a projection's output, §5): columns by name, the same
-/// strict casts.
-pub fn to_schema(batch: &RecordBatch, schema: &SchemaRef) -> Result<RecordBatch, CoreError> {
-    let schema = schema.clone();
-    let mut columns: Vec<ArrayRef> = Vec::with_capacity(schema.fields().len());
-    for field in schema.fields() {
-        let col = batch.column(batch.schema().index_of(field.name())?).clone();
-        let cast = match field.data_type() {
-            DataType::FixedSizeBinary(_) => {
-                let binary = cast_with_options(&col, &DataType::Binary, &STRICT)?;
-                cast_with_options(&binary, field.data_type(), &STRICT)?
-            }
-            other => cast_with_options(&col, other, &STRICT)?,
-        };
-        columns.push(cast);
-    }
-    Ok(RecordBatch::try_new(schema, columns)?)
-}
+pub use crate::arrow_types::{to_declared, to_schema};
 
 /// Read one snapshot's rows at a pinned version, in the declared total order.
 pub async fn read_at<T: Table>(
@@ -232,7 +201,7 @@ pub async fn read_at<T: Table>(
     snapshot_id: Id,
 ) -> Result<RecordBatch, CoreError> {
     let table = crate::snapshot::load_at(root, T::NAME, version).await?;
-    let ctx: SessionContext = crate::snapshot::empty_session();
+    let ctx: SessionContext = crate::snapshot::delta_session();
     table.update_datafusion_session(&ctx.state())?;
     ctx.register_table(
         "t",

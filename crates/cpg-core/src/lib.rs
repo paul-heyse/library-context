@@ -2,6 +2,7 @@
 //! attempt: write, derive, validate, publish (DESIGN §4.3, §6, §8).
 
 pub mod analyze;
+pub mod arrow_types;
 pub mod attempt;
 pub mod behavior;
 pub mod bundle;

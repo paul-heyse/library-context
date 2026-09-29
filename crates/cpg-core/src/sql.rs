@@ -42,19 +42,19 @@ impl Params {
         Self::default()
     }
 
-    /// `$name` as a list of ids, for `array_has($name, column)`. They are bound as `BinaryView`, the
-    /// type a session's Delta scans give every id column (`array_has` coerces neither
-    /// `FixedSizeBinary` nor `Binary` to it). An empty list is a list, and matches nothing.
+    /// `$name` as a list of ids, for `array_has($name, column)`. They are bound as the declared id
+    /// type, `FixedSizeBinary(16)`, the type every session's id columns have (cutover plan WP1.0).
+    /// An empty list is a list, and matches nothing.
     pub fn ids(mut self, name: &str, ids: impl IntoIterator<Item = Id>) -> Self {
         let values: Vec<ScalarValue> = ids
             .into_iter()
-            .map(|id| ScalarValue::BinaryView(Some(id.0.to_vec())))
+            .map(|id| ScalarValue::FixedSizeBinary(16, Some(id.0.to_vec())))
             .collect();
         self.0.push((
             name.to_owned(),
             ScalarValue::List(ScalarValue::new_list_nullable(
                 &values,
-                &DataType::BinaryView,
+                &DataType::FixedSizeBinary(16),
             )),
         ));
         self
@@ -64,13 +64,13 @@ impl Params {
     pub fn digests(mut self, name: &str, digests: impl IntoIterator<Item = Digest>) -> Self {
         let values: Vec<ScalarValue> = digests
             .into_iter()
-            .map(|d| ScalarValue::BinaryView(Some(d.0.to_vec())))
+            .map(|d| ScalarValue::FixedSizeBinary(32, Some(d.0.to_vec())))
             .collect();
         self.0.push((
             name.to_owned(),
             ScalarValue::List(ScalarValue::new_list_nullable(
                 &values,
-                &DataType::BinaryView,
+                &DataType::FixedSizeBinary(32),
             )),
         ));
         self
@@ -80,7 +80,7 @@ impl Params {
     pub fn digest(mut self, name: &str, digest: Digest) -> Self {
         self.0.push((
             name.to_owned(),
-            ScalarValue::BinaryView(Some(digest.0.to_vec())),
+            ScalarValue::FixedSizeBinary(32, Some(digest.0.to_vec())),
         ));
         self
     }
@@ -128,7 +128,7 @@ pub async fn fetch<R: QueryRow>(
     let schema = R::schema();
     let mut rows = Vec::new();
     for batch in frame.collect().await? {
-        let batch = crate::delta::to_schema(&batch, &schema)?;
+        let batch = crate::arrow_types::to_schema(&batch, &schema)?;
         rows.extend(R::read_batch(&batch)?);
     }
     Ok(rows)
@@ -138,7 +138,7 @@ pub async fn fetch<R: QueryRow>(
 mod tests {
     use std::sync::Arc;
 
-    use datafusion::arrow::array::{BinaryViewArray, RecordBatch, StringArray};
+    use datafusion::arrow::array::{RecordBatch, StringArray};
     use datafusion::arrow::datatypes::{Field, Schema};
 
     use super::*;
@@ -152,18 +152,20 @@ mod tests {
 
     fn session() -> SessionContext {
         let ctx = SessionContext::new();
-        // Ids as a session's Delta scans give them (`BinaryView`), never the declared
-        // `FixedSizeBinary(16)`.
+        // Ids as every session holds them: the declared `FixedSizeBinary(16)` (WP1.0).
         let schema = Arc::new(Schema::new(vec![
-            Field::new("node_id", DataType::BinaryView, false),
+            Field::new("node_id", DataType::FixedSizeBinary(16), false),
             Field::new("name", DataType::Utf8, true),
         ]));
         let batch = RecordBatch::try_new(
             schema,
             vec![
-                Arc::new(BinaryViewArray::from_iter_values([
-                    [1u8; 16], [2; 16], [3; 16],
-                ])),
+                Arc::new(
+                    arrow_array::FixedSizeBinaryArray::try_from_iter(
+                        [[1u8; 16], [2; 16], [3; 16]].into_iter(),
+                    )
+                    .unwrap(),
+                ),
                 Arc::new(StringArray::from(vec![Some("a"), Some("o'brien"), None])),
             ],
         )

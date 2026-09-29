@@ -27,7 +27,7 @@ pub(crate) async fn key(
         let input = ctx.table(name).await?.collect().await?;
         let mut normalized = None;
         macro_rules! bind {($($t:ty),+)=>{$(if name==<$t as Table>::NAME {
-            let rows=input.iter().map(crate::delta::to_declared::<$t>).collect::<Result<Vec<_>,_>>()?;
+            let rows=input.iter().map(crate::arrow_types::to_declared::<$t>).collect::<Result<Vec<_>,_>>()?;
             let b=arrow_select::concat::concat_batches(&<$t as Table>::schema(),&rows)?;
             let b=cpg_schema::table::canonical_sort(&b,<$t as Table>::key())?;
             normalized=Some(cpg_schema::table::rebind_snapshot::<$t>(&b,source,Id::ZERO)?);
@@ -378,7 +378,7 @@ pub(crate) async fn finish_members(
     let mut members = BTreeMap::new();
     for batch in batches {
         for row in
-            cpg_schema::catalog::CatalogMembersRow::read_batch(&crate::delta::to_declared::<
+            cpg_schema::catalog::CatalogMembersRow::read_batch(&crate::arrow_types::to_declared::<
                 cpg_schema::catalog::CatalogMembers,
             >(&batch)?)?
         {

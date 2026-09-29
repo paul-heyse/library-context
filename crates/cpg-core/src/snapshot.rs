@@ -34,21 +34,23 @@ pub async fn catalog(root: &Path) -> Result<Vec<cpg_schema::tables::SnapshotsRow
         return Ok(Vec::new());
     }
     let table = crate::delta::open_verified::<Snapshots>(root).await?;
-    let ctx = empty_session();
+    let ctx = delta_session();
     table.update_datafusion_session(&ctx.state())?;
     ctx.register_table("snapshots", table.table_provider().await?)?;
     crate::sql::fetch(&ctx, &catalog_query(), crate::sql::Params::new()).await
 }
 
-/// Partitions per plan (H1 P2): the 32-thread default doubled derivation's working set for no
-/// wall time (deriving `nodes`: 433 → 152 MiB accounted, +0.1 s), and validation runs
-/// `validate::CONCURRENT_RULES` plans at once. Outputs are canonically sorted, so no result depends
-/// on it.
-pub const TARGET_PARTITIONS: usize = 8;
+pub use crate::session::TARGET_PARTITIONS;
 
-/// A session over Delta's planner defaults, with [`TARGET_PARTITIONS`], the `lctx_id` UDF (§3.4.1)
-/// and no tables.
+/// A session with no tables: the one session factory's (cutover plan WP1.0). Every table a
+/// compile or reader session holds has its declared Arrow types.
 pub fn empty_session() -> SessionContext {
+    crate::session::session()
+}
+
+/// A session over delta-rs's planner, only for reading Delta tables themselves: their providers
+/// need it. Nothing queries a Delta provider through a compile or reader session.
+pub fn delta_session() -> SessionContext {
     let state = create_session().into_inner().state();
     let config = state
         .config()
@@ -61,6 +63,33 @@ pub fn empty_session() -> SessionContext {
     );
     ctx.register_udf(crate::udf::lctx_id());
     ctx
+}
+
+/// Read `provider`'s rows of `snapshot_id` into one batch of `name`'s declared schema.
+async fn declared_rows(
+    name: &str,
+    table: &DeltaTable,
+    provider: std::sync::Arc<dyn datafusion::catalog::TableProvider>,
+    snapshot_id: Id,
+) -> Result<datafusion::datasource::MemTable, CoreError> {
+    let reader = delta_session();
+    table.update_datafusion_session(&reader.state())?;
+    let batches = reader
+        .read_table(provider)?
+        .filter(col("snapshot_id").eq(lit(ScalarValue::Binary(Some(snapshot_id.0.to_vec())))))?
+        .collect()
+        .await?;
+    let declared_schema = crate::arrow_types::declared_schema(name)?;
+    let schema = crate::arrow_types::session_schema(&declared_schema);
+    let declared = batches
+        .iter()
+        .map(|b| {
+            crate::arrow_types::to_schema(b, &declared_schema)
+                .and_then(|b| crate::arrow_types::session_batch(&b))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let batch = arrow_select::concat::concat_batches(&schema, &declared)?;
+    Ok(datafusion::datasource::MemTable::try_new(schema, vec![vec![batch]])?)
 }
 
 /// Load a table at exactly `version`. A provider built on an already-loaded handle ignores the
@@ -150,9 +179,9 @@ pub async fn commit_provider(
     Ok(table.table_provider().with_adds(adds).await?)
 }
 
-/// Register `name` at `version`, filtered to `snapshot_id`, as a view under its own name. Only the
-/// files of the commit at `version` are read (H1 P3); the `snapshot_id` filter stays as the row
-/// predicate.
+/// Register `name` at `version`, filtered to `snapshot_id`, under its own name, as its declared
+/// types (cutover plan WP1.0). Only the files of the commit at `version` are read (H1 P3); the
+/// `snapshot_id` filter stays as the row predicate.
 pub async fn register(
     ctx: &SessionContext,
     root: &Path,
@@ -161,12 +190,9 @@ pub async fn register(
     snapshot_id: Id,
 ) -> Result<(), CoreError> {
     let table = load_at(root, name, version).await?;
-    table.update_datafusion_session(&ctx.state())?;
-    let view = ctx
-        .read_table(commit_provider(&table, version, snapshot_id).await?)?
-        .filter(col("snapshot_id").eq(lit(ScalarValue::Binary(Some(snapshot_id.0.to_vec())))))?
-        .into_view();
-    ctx.register_table(name, view)?;
+    let provider = commit_provider(&table, version, snapshot_id).await?;
+    let rows = declared_rows(name, &table, provider, snapshot_id).await?;
+    ctx.register_table(name, std::sync::Arc::new(rows))?;
     Ok(())
 }
 
@@ -226,7 +252,7 @@ pub async fn resolve(root: &Path, snapshot_id: Id) -> Result<Option<Versions>, C
     let table = DeltaTableBuilder::from_url(table_url(root, Snapshots::NAME)?)?
         .load()
         .await?;
-    let ctx = empty_session();
+    let ctx = delta_session();
     table.update_datafusion_session(&ctx.state())?;
     ctx.register_table(Snapshots::NAME, table.table_provider().await?)?;
     let statement = format!(
@@ -268,14 +294,9 @@ pub async fn published(
             let table = DeltaTableBuilder::from_url(table_url(root, Snapshots::NAME)?)?
                 .load()
                 .await?;
-            table.update_datafusion_session(&ctx.state())?;
-            let view = ctx
-                .read_table(table.table_provider().await?)?
-                .filter(
-                    col("snapshot_id").eq(lit(ScalarValue::Binary(Some(snapshot_id.0.to_vec())))),
-                )?
-                .into_view();
-            ctx.register_table(Snapshots::NAME, view)?;
+            let provider = table.table_provider().await?;
+            let rows = declared_rows(Snapshots::NAME, &table, provider, snapshot_id).await?;
+            ctx.register_table(Snapshots::NAME, std::sync::Arc::new(rows))?;
             Ok(Some((versions, ctx)))
         }
         None => Ok(None),

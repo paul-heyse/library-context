@@ -360,7 +360,7 @@ async fn a_pinned_read_opens_only_its_commits_files() {
             let table = cpg_core::snapshot::load_at(&root, Declarations::NAME, version)
                 .await
                 .unwrap();
-            let ctx = cpg_core::snapshot::empty_session();
+            let ctx = cpg_core::snapshot::delta_session();
             table.update_datafusion_session(&ctx.state()).unwrap();
             ctx.register_table(
                 "t",

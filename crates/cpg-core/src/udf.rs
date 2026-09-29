@@ -396,6 +396,39 @@ mod tests {
                 recipes::condition(module),
                 format!("SELECT lctx_id_v2('condition', X'{}')", module.hex()),
             ),
+            (
+                "place",
+                recipes::place(
+                    lctx_model::id::Code(lctx_model::vocab::PlaceRootKind::Field),
+                    Some(module),
+                    None,
+                    Some("timeout"),
+                    ".a",
+                ),
+                format!(
+                    "SELECT lctx_id_v2('place', CAST(5 AS SMALLINT), X'{}', CAST(NULL AS BIGINT), 'timeout', '.a')",
+                    module.hex()
+                ),
+            ),
+            (
+                "transfer",
+                recipes::transfer(
+                    module,
+                    Id([2; 16]),
+                    Id([3; 16]),
+                    lctx_model::id::Code(lctx_model::transfer::TransferKind::Identity),
+                    Id([4; 16]),
+                    None,
+                    lctx_model::id::Code(lctx_model::transfer::ProvenanceClass::Composed),
+                ),
+                format!(
+                    "SELECT lctx_id_v2('transfer', X'{}', X'{}', X'{}', CAST(0 AS SMALLINT), X'{}', CAST(NULL AS BYTEA), CAST(2 AS SMALLINT))",
+                    module.hex(),
+                    Id([2; 16]).hex(),
+                    Id([3; 16]).hex(),
+                    Id([4; 16]).hex()
+                ),
+            ),
         ];
         for (_, rust, sql) in &cases {
             assert_eq!(&eval(sql).await.unwrap(), &[*rust], "{sql}");

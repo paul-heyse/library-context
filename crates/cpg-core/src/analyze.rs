@@ -30,7 +30,7 @@ use lctx_analytics::pass_c::{self, Handoffs};
 use lctx_analytics::{communities, concepts, neighbours, ranking, selection};
 use serde::Serialize;
 
-use crate::delta::to_schema;
+use crate::arrow_types::to_schema;
 use crate::{CoreError, sql};
 
 /// The compiler's producer tool name.

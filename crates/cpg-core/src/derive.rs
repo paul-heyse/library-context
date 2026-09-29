@@ -12,7 +12,7 @@ use cpg_schema::table::canonical_sort;
 use datafusion::common::ScalarValue;
 use datafusion::prelude::SessionContext;
 
-use crate::delta::to_declared;
+use crate::arrow_types::to_declared;
 use crate::{CoreError, sql};
 
 fn snapshot_column(snapshot_id: Id, rows: usize) -> Result<ArrayRef, CoreError> {

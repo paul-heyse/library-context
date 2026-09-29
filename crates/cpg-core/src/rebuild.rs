@@ -54,7 +54,7 @@ async fn batch<T: Table>(ctx: &SessionContext) -> Result<RecordBatch, CoreError>
     let batches = ctx.table(T::NAME).await?.collect().await?;
     let declared = batches
         .iter()
-        .map(crate::delta::to_declared::<T>)
+        .map(crate::arrow_types::to_declared::<T>)
         .collect::<Result<Vec<_>, _>>()?;
     Ok(canonical_sort(
         &arrow_select::concat::concat_batches(&T::schema(), &declared)?,

@@ -17,7 +17,7 @@ async fn neutral<T: Table>(
     let batches = ctx.table(T::NAME).await.unwrap().collect().await.unwrap();
     let batches = batches
         .iter()
-        .map(cpg_core::delta::to_declared::<T>)
+        .map(cpg_core::arrow_types::to_declared::<T>)
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
     let b = arrow_select::concat::concat_batches(&T::schema(), &batches).unwrap();

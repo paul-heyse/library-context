@@ -6458,7 +6458,7 @@ budget = 1
         .iter()
         .flat_map(|batch| {
             <CallExecutionsRow as cpg_schema::query::QueryRow>::read_batch(
-                &cpg_core::delta::to_schema(batch, &CallExecutions::schema()).unwrap(),
+                &cpg_core::arrow_types::to_schema(batch, &CallExecutions::schema()).unwrap(),
             )
             .unwrap()
         })
@@ -6476,7 +6476,7 @@ budget = 1
         .iter()
         .flat_map(|batch| {
             <CallExecutionStepsRow as cpg_schema::query::QueryRow>::read_batch(
-                &cpg_core::delta::to_schema(batch, &CallExecutionSteps::schema()).unwrap(),
+                &cpg_core::arrow_types::to_schema(batch, &CallExecutionSteps::schema()).unwrap(),
             )
             .unwrap()
         })
@@ -6819,7 +6819,7 @@ async fn context_protocols_bind_class_and_constructor_roles_independently() {
         .iter()
         .flat_map(|b| {
             ModelContextProtocolsRow::read_batch(
-                &cpg_core::delta::to_schema(b, &ModelContextProtocolsRow::schema()).unwrap(),
+                &cpg_core::arrow_types::to_schema(b, &ModelContextProtocolsRow::schema()).unwrap(),
             )
             .unwrap()
         })

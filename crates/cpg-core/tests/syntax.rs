@@ -280,7 +280,14 @@ async fn rows(ctx: &SessionContext, statement: &str) -> Vec<Vec<Option<String>>>
     for b in batches(ctx, statement).await {
         let cols: Vec<StringArray> = (0..b.num_columns())
             .map(|c| {
-                let a = arrow_cast::cast(b.column(c), &arrow_schema::DataType::Utf8).unwrap();
+                // Ids are declared FixedSizeBinary; read them as bytes first, as before (WP1.0).
+                let column = match b.column(c).data_type() {
+                    arrow_schema::DataType::FixedSizeBinary(_) => {
+                        arrow_cast::cast(b.column(c), &arrow_schema::DataType::Binary).unwrap()
+                    }
+                    _ => b.column(c).clone(),
+                };
+                let a = arrow_cast::cast(&column, &arrow_schema::DataType::Utf8).unwrap();
                 a.as_any().downcast_ref::<StringArray>().unwrap().clone()
             })
             .collect();

@@ -459,7 +459,7 @@ async fn write_analysis_query<T: Table>(
         .collect()
         .await?
     {
-        declared.push(crate::delta::to_declared::<T>(&batch)?);
+        declared.push(crate::arrow_types::to_declared::<T>(&batch)?);
     }
     let batch = arrow_select::concat::concat_batches(&T::schema(), &declared)?;
     let batch = cpg_schema::table::canonical_sort(&batch, T::key())?;
