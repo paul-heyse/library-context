@@ -7,6 +7,7 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+lctx-model = { path = "../lctx-model" }
 cpg-schema = { path = "../cpg-schema" }
 cpg-flow = { path = "../cpg-flow" }
 arrow-array.workspace = true
@@ -44,6 +45,10 @@ walkdir.workspace = true
 tikv-jemallocator.workspace = true
 
 [dev-dependencies]
+lctx-postgres = { path = "../lctx-postgres" }
+sqlx.workspace = true
+tokio.workspace = true
+testcontainers-modules.workspace = true
 arrow-cast.workspace = true
 base64.workspace = true
 sha2.workspace = true

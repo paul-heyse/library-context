@@ -305,7 +305,7 @@ runtime reader. Malformed interpretation retains the original artifact with expl
 
 ### 4.2 Execution status
 
-**In progress: P0-A–P0-D foundations and bounded generation lifecycle corrections.**
+**In progress: P0-A–P0-D foundations, native P0-E subset and bounded generation lifecycle corrections.**
 No phase exit is qualified. The old pipeline remains active and the new generation path is not
 connected to the production compiler or CLI. No compatibility adapter connects them.
 
@@ -325,6 +325,10 @@ connected to the production compiler or CLI. No compatibility adapter connects t
   approximation, invocation, surface, evidence, origin, mode and fidelity. Validators check condition
   contexts, evaluation/source input ownership, assertion/evidence scope and required support.
   Coverage-matrix controls exist; full compiler schedule/coverage admission remains open.
+- A pinned Pyrefly retained-AST emitter produces structural occurrences and qualified identifier
+  observations directly, without legacy rows/IDs. A disposable conformance harness exercises
+  permanent PG lowerings and readback, relocation, changed-text refusal and incomplete coverage.
+  Emission/depth limits are not total traversal-work limits; full production capture remains open.
 - Typed stage access refuses undeclared reads/writes and incomplete, failed or cancelled execution.
   `cpg-core::model_runtime` constructs fresh catalogs over a shared DataFusion runtime, rejects
   foreign stage/attempt read permits and SQL mutations. A neutral reservation interface shares the
@@ -345,19 +349,21 @@ Focused evidence (2026-09-29; Cargo commands prefixed by `python3 scripts/build_
 | `cargo test --release -p lctx-model --test domain --test domain_conditions --test domain_assertions --test domain_stages --test domain_resources --test domain_verdicts` | passed: 29 focused model controls |
 | `cargo test --release -p lctx-model --doc` | passed: six negative/positive declaration pairs; one pre-existing ignored legacy example |
 | `cargo test --release -p lctx-postgres --test generations` | passed: two real disposable PG18 tests, including 65 MiB evidence, stored corruption and contract refusal, write drain, leases, conformance selection refusal, cleanup retry and orphan repair |
+| `cargo test --release -p cpg-extract --test typed_conformance` | passed: real pinned AST to typed records, sealed PG18 validation/readback and conformance-only selection refusal |
 | `cargo test --release -p cpg-core --test model_runtime` | passed: two fresh-catalog/capability/shared-pool controls; no total-memory/RSS claim |
 | `just docs-check`; `uv run python scripts/adr.py lint` | passed: documentation publication and 44 current ADR records |
 | `just fmt`, `just test-all`, facts pilots | not_run: functional scope incomplete |
 
 Independent bounded reviewers accepted artifact/capture/acquisition corrections and the
 [assertion/condition foundation](../design_review/reviews/design_review_semantic-assertion-foundation_2026-09-29.md)
-after its three corrections. The [earlier input review](../design_review/reviews/design_review_semantic-input-validation_2026-09-29.md)
+after its three corrections. The [native syntax subset review](../design_review/reviews/design_review_semantic-native-syntax_2026-09-29.md)
+accepted the bounded producer/store seam without qualifying P0. The [earlier input review](../design_review/reviews/design_review_semantic-input-validation_2026-09-29.md)
 still has open coordinated-resource qualification. Stage/session/lifecycle changes await their
 assembled review; none of these bounded receipts establishes enclosing architecture acceptance.
 
 **Next / still open:** remaining representative domain families and P0-C call/binding/transfer/control/
 selection/derivation policies; occurrence ownership; coordinated allocation accounting; exact coverage
-and full production frontier admission; real pinned extraction conformance and assembled P0-E review.
+and full production frontier admission; production capture/assembler integration and assembled P0-E review.
 Then finish generated installation verification/reset, provider lease/stream integration, service
 classification, store/CLI cutover and Delta deletion in P1; migrate every raw producer/field in §4.1.2
 and reconstruct owned state in P2. Earlier Phase 0 receipts do not qualify this target.

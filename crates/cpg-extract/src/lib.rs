@@ -18,6 +18,7 @@ pub mod observations;
 mod public;
 mod pysa_map;
 mod syntax;
+pub mod typed_syntax;
 mod types;
 mod walk;
 
