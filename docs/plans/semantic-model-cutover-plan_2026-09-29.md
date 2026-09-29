@@ -315,7 +315,7 @@ phase-1 exit.
 | 0.6 | Done | `fe0e99a` | Store kernel migration and `store.rs`, the one bootstrap SQL, the session factory, canonical provider reads; `lctx-postgres --test store`: 7 passed on real PG18; `cpg-core --test store_read`: the full type matrix round-trips (NaN, −0.0, lists, nulls) |
 | 0.7 | Done (phase-0 scope) | `4e3418e` | The stage scheduler with its refusal controls; the dependency audit, whose known discrepancies are pinned; producer identity covering every canonical producer (F11); rebuild tests: 8 passed |
 | 0.8 | Done | `f8870ce` | Adapter and legacy-id declarations, the arrow-row multiset diff, the harness; `lctx parity self-test`: all 7 controls behaved |
-| 0.10 | **In progress** | — | Design/target review running (fresh `design-reviewer`); output `docs/design_review/reviews/design_review_cutover-core_2026-09-29.md`. Revisions follow its decision |
+| 0.10 | **Review delivered: Revise** | (review file) | [Cutover-core review](../design_review/reviews/design_review_cutover-core_2026-09-29.md): A1 satisfied, A2 violated, A3 unresolved. Must fix before phase 1 relies on the store: C01 (retirement is not atomic, locked or resumable; self-referencing partitions cannot detach), C02 (readers do not check `ddl_digest`), C03 (stage/relation references are unchecked strings, and `RelationDecl.stage` is unlinked). C05(a), C08 and C09 are cheap to fix now. C04–C07 and C10–C14 are contract evolution in their owning phases. WP0.10 closes once C01–C03 are applied and the rest are entered in §8 |
 | 1.0 | Done | `e267f3d` | Every session is declared-type; `Params` bind `FixedSizeBinary` lists; `cpg-core` all tests: 158 passed plus the fixed syntax suite (22 passed); `lctx`: 10 passed |
 | 1.1–1.9 | Not started | — | — |
 
