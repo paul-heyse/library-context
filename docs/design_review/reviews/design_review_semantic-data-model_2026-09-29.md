@@ -560,6 +560,12 @@ The P0 fixture already holds several of these.
 
 ## 11. Authority changes and dispositions
 
+**Operator disposition (2026-09-29).** The operator adopted a hard layered cutover to the relation-centric
+model with PostgreSQL as the single relational store (ADR-0082/0083/0084). The served-fidelity findings
+are not repaired in the legacy code; the new contracts close them by construction. Current disposition
+for F01–F13 is owned by the [cutover plan §8](../../plans/semantic-model-cutover-plan_2026-09-29.md#8-findings-disposition).
+The rows below keep this review's original assessment.
+
 | Required change | Decision route and owner | Source findings | Current disposition location | Closure evidence or revisit trigger |
 |---|---|---|---|---|
 | Fidelity repairs: tri-state defaults; basis propagation; origin disclosure; `condition_id` served with capped rendering; governed recognizer | Refactors inside existing contracts: §14.7 and ADR-0076/0074; **accept ADR-0024** for the display decision; the models catalog for the recognizer. Owners: `cpg-schema::selection`, `cpg-core::evidence`, `cpg-schema::condition_kernel` and bundle, `cpg-core::surface` | F01, F03, F02, F05, F13 | Deferred row here until the operator accepts; then forward plan §6.2 | Named fixture controls (§7) |

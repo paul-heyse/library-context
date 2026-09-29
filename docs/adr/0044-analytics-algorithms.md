@@ -151,3 +151,11 @@ line. Ascent and datafrog are compared, not deferred (W12 above).
 - Evidence floor: the flow-algorithm assignment is only **Interface-checked** against the pinned
   API; the other clauses are **Tested** as stated. Open W10, W12 and W13 are not closed by this
   record.
+
+## Amendments
+
+- 2026-09-29 (factual correction, [semantic data model review F09](../design_review/reviews/design_review_semantic-data-model_2026-09-29.md#F09)):
+  the invocation adapter does not use filtered or reversed views; it exposes `out_arcs`, which sorts
+  row indices per call, and no petgraph algorithm runs on it. The SCC schedule uses the iterative
+  `kosaraju_scc` (ADR-0052), not `tarjan_scc`. No decision changes; ADR-0082 owns the target
+  projection runtime.

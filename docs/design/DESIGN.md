@@ -67,7 +67,20 @@ storage/serving deployment is qualified within its recorded scope. Neither is a 
 Remaining Stage 3–5 work is deferred research unless an exposed claim or named product task needs it.
 No former semantic exit is relabeled passed.
 
-The CPG precedes its analytics (ADR-0067). Canonical facts keep their identity and provenance;
+**Current increment: the semantic model cutover (accepted 2026-09-29; ADR-0082/0083/0084).** The
+[cutover plan](../plans/semantic-model-cutover-plan_2026-09-29.md) runs these phases in order:
+0. core contracts;
+1. the store (PostgreSQL replaces Delta);
+2. facts;
+3. normalized relations;
+4. analysis and catalog;
+5. serving.
+
+Each phase exits only with no legacy code in its layer. PR6 and new product features pause until phase
+5. The target is [§15](sections/semantic-model.md); until each layer cuts over, the sections below
+describe the implemented legacy pipeline.
+
+The CPG precedes its analytics (ADR-0083). Canonical facts keep their identity and provenance;
 mandatory catalog construction is independent of optional analysis. Libraries remain pinned
 uv projects (ADR-0046). ADR-0040 owns review cadence. ADR-0079 owns the current-tree editable development loop on dated nightly Cargo,
 workspace feature unification, a CLI-only Hakari crate and shared intermediates with fine-grain
@@ -75,7 +88,7 @@ locking. Final artifacts stay in local `target/`: workspace O2 with incremental 
 imported dependencies O3 with sccache, and the existing release test workflow. No wheel
 project is selected.
 
-> Decision: ADR-0071, ADR-0067, ADR-0046, ADR-0079, ADR-0040
+> Decision: ADR-0071, ADR-0083, ADR-0084, ADR-0046, ADR-0079, ADR-0040
 
 <a id="section-1-3"></a>
 
@@ -232,8 +245,8 @@ and codebook snapshots).
   key and reference declarations, the graph registry
   ([§3.8](sections/facts-and-identity.md#section-3-8)), physical storage mappings and
   Arrow-only batch builders and local validators. Its dependencies are `arrow-*`, `blake3` (ids), `serde`/`serde_json`/`toml` (typed declarations such as the model
-  catalog), `sha2` and `biodivine-lib-bdd` (the condition kernel, whose general allowance is
-  proposed in ADR-0024); never DataFusion, Delta, object_store, an async runtime or I/O. DataFusion
+  catalog), `sha2` and `biodivine-lib-bdd` (the condition kernel, whose general allowance ADR-0082
+  accepts); never DataFusion, Delta, object_store, an async runtime or I/O. DataFusion
   validators live in core crates.
 - **No inferred schemas**: none is inferred from JSON or a first batch, including the serving
   generation ([§6.4](sections/storage-and-publication.md#section-6-4)) and the embedding exchange
@@ -249,7 +262,17 @@ Matching flat components derive from existing declarations; nominal domain wrapp
 the canonical ID encodings. SQLx codecs, effectful loading and transport remain outside schema.
 [§14.7/§14.11](sections/api-and-evidence-product.md#section-14-7) own the contract and library policy.
 
-> Decision: ADR-0067, ADR-0073
+**Accepted target, implementation Proposed (ADR-0082, 2026-09-29).** Relation declarations in the new
+crate `lctx-model` become the single authority ([§15.2](sections/semantic-model.md#section-15-2)).
+One declaration per relation generates:
+- the Rust and Arrow types;
+- PostgreSQL DDL and constraints;
+- codebook foreign keys, validators and inventories;
+- serving views and wire DTOs.
+
+`cpg-schema` is retired by the cutover.
+
+> Decision: ADR-0082, ADR-0083, ADR-0073
 
 <a id="section-b3"></a>
 
@@ -367,7 +390,13 @@ scope; no missing exit observation is fabricated as a call. Full Stage 3 qualifi
 complete empty channels from missing analysis and omitted witnesses; non-value channels cite
 their actual subjects and sources instead of invented parameter-return identities (§9.9).
 
-> Decision: ADR-0067, ADR-0045, ADR-0058
+**Accepted target, implementation Proposed (ADR-0082, 2026-09-29).** Provenance stays in-row, and it
+is also indexed: each proof and step relation declares itself a derivation source, and generated
+`derivations`/`derivation_premises` views separate joint premises from alternative derivations.
+Obligations replace boundary-reason encodings. Invocations record their input invocations
+([§15.8–§15.9](sections/semantic-model.md#section-15-8)).
+
+> Decision: ADR-0082, ADR-0083, ADR-0045, ADR-0058
 
 <a id="section-b7"></a>
 
@@ -380,7 +409,18 @@ their actual subjects and sources instead of invented parameter-return identitie
 - Readers resolve table versions through that row, open only the pinned commit's files and filter
   by `snapshot_id` ([§6](sections/storage-and-publication.md#section-6)).
 
-> Decision: ADR-0067
+**Accepted target, implementation Proposed (ADR-0083, 2026-09-29; cutover phase 1).** PostgreSQL 18
+replaces Delta as the single relational store.
+- Every relation is list-partitioned by `generation_id`, with generated constraints.
+- An attempt writes staging partitions by binary COPY.
+- Publication is one transaction after the database constraints and the DataFusion semantic
+  validators pass.
+- Published partitions are read-only by privilege.
+- Readers pin one generation ([§15.11](sections/semantic-model.md#section-15-11)).
+
+Until phase 1 exits, the Delta contract above is the implemented store.
+
+> Decision: ADR-0083
 
 <a id="section-b8"></a>
 
@@ -417,8 +457,8 @@ its boundary (§7).
 
 ### §B10 Exclusions
 
-**Accepted** for the exclusions; the condition-kernel allowance is **Implemented** and its
-decision record remains **Proposed** (ADR-0024).
+**Accepted** for the exclusions. The condition-kernel allowance is **Implemented**, and ADR-0082
+accepts it as the canonical condition representation ([§15.7](sections/semantic-model.md#section-15-7)).
 
 Excluded: a graph database; a generic workflow engine; JSON-inferred canonical schemas; a
 whole-ontology petgraph instance; a general composition planner or constraint solver; neural
@@ -430,10 +470,10 @@ primitive places, which decide compatibility and implication over evaluation ato
 `unknown` at node, work, stability or type boundaries ([§3.9](sections/behavior-model.md#section-3-9)).
 A theory solver (z3) stays excluded unless a registered query needs a theory the bounded
 lowering cannot express (forward plan §5). ADR-0045 accepts the persisted, validated analysis
-condition catalog and the BDD predecessor-compatibility screen; the general allowance remains
-ADR-0024's open proposal.
+condition catalog and the BDD predecessor-compatibility screen. ADR-0082 accepts the general allowance,
+with occurrence-keyed atoms and a rendering-only DNF.
 
-> Decision: ADR-0005, ADR-0045, ADR-0024
+> Decision: ADR-0005, ADR-0045, ADR-0082
 
 <a id="section-b11"></a>
 
@@ -463,7 +503,13 @@ ADR-0024's open proposal.
   realization over the same snapshot. Any future search index derives from that generation.
 - No cross-store transactions: the generation manifest names the snapshot it came from.
 
-> Decision: ADR-0067, ADR-0077
+**Accepted target, implementation Proposed (ADR-0083, 2026-09-29).** There is one store. The published
+generation is canonical, and serving reads that same generation through generated views, grants and
+indexes ([§15.12](sections/semantic-model.md#section-15-12)). The bundle import and the serving copy
+are removed. Arrow IPC remains only for derived, content-addressed caches. Serving still pins exactly
+one generation per process, and a missing or corrupt required relation is a refusal.
+
+> Decision: ADR-0083, ADR-0077
 
 <a id="section-b13"></a>
 
@@ -489,7 +535,13 @@ semantic executor remains **Partially implemented** under a **Proposed** decisio
   [§14.9 Tool adapter](sections/api-and-evidence-product.md#section-14-9). Existing generation,
   lifetime, budgets and cancellation ownership remain; custom Tool validation is explicit.
 
-> Decision: ADR-0078, ADR-0025, ADR-0073
+- **Accepted target (ADR-0083, cutover phase 5):** the pinned generation is the canonical PostgreSQL
+  generation itself.
+  - Wire DTOs derive from relation declarations.
+  - The native executor reads generation relations, optionally through a derived artifact cache, and
+    shares `lctx-model`'s verdict, discharge and condition functions.
+
+> Decision: ADR-0078, ADR-0025, ADR-0073, ADR-0083
 
 <a id="section-b14"></a>
 
@@ -512,8 +564,10 @@ semantic executor remains **Partially implemented** under a **Proposed** decisio
 - [§6.5](sections/storage-and-publication.md#section-6-5) owns database effects and conditional
   capabilities. The [PostgreSQL workstream](../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-workstream) owns
   current qualification; W9/W16 retain live-client and endpoint-identity boundaries.
+- **Accepted target (ADR-0083):** consumed-vector receipts and exact vectors become canonical
+  PostgreSQL relations of the generation, and they stay in its content digest.
 
-> Decision: ADR-0078, ADR-0067
+> Decision: ADR-0078, ADR-0083
 
 ---
 

@@ -21,8 +21,8 @@ removed and recovered from Git (ADR-0042, [historical recovery](../../README.md#
 
 | Folder | Question | Current consumer |
 |---|---|---|
-| [`2026-09-24_bdd-pilot-survey`](2026-09-24_bdd-pilot-survey/README.md) | Can the published pilot's conditions convert to BDDs, and at what size? | ADR-0024 (proposed kernel allowance) |
-| [`2026-09-24_test-leaf-proof-joins`](2026-09-24_test-leaf-proof-joins/README.md) | Do test leaves and entry values join to proof rows by source identity? | ADR-0024 |
+| [`2026-09-24_bdd-pilot-survey`](2026-09-24_bdd-pilot-survey/README.md) | Can the published pilot's conditions convert to BDDs, and at what size? | ADR-0082 (kernel allowance, §3.9, §15.7) |
+| [`2026-09-24_test-leaf-proof-joins`](2026-09-24_test-leaf-proof-joins/README.md) | Do test leaves and entry values join to proof rows by source identity? | ADR-0082 (§3.9 test leaves) |
 | [`2026-09-24_entry-value-bridge`](2026-09-24_entry-value-bridge/README.md) | When is an entry formal stable up to a guard use? | ADR-0025 (proposed native executor) |
 | [`2026-09-24_rust-build-performance`](2026-09-24_rust-build-performance/README.md) | Which development build configuration reuses cached work? | ADR-0079; retained benchmark |
 | [`2026-09-24_typing_cast_model_oracle`](2026-09-24_typing_cast_model_oracle/README.md) | Does the `typing.cast` identity model agree with CPython? | Behavioral analysis §9.9 |

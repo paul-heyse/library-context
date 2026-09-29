@@ -2,6 +2,8 @@
 
 # §9.9 Summaries, models and the capability registry
 
+**Target, 2026-09-29.** [§15](semantic-model.md) (ADR-0082/0083/0084) is the accepted target, and the [cutover plan](../../plans/semantic-model-cutover-plan_2026-09-29.md) delivers it layer by layer. Phase 4 re-expresses summaries, models and discharge as transfers, obligations and derivations (§15.6–§15.9), after an ablation triage of the research engines. Until that phase exits, this page describes the implemented legacy pipeline.
+
 This page owns how behavior propagates beyond one expression: the **models catalog** (L4) that
 gives meaning to stdlib, dependency and framework callables, **model application** at source
 calls, **L2 fates** (exits, handlers, finalizers), **transfer summaries** (L3) that resolve
@@ -804,7 +806,7 @@ Serve-time semantic selection remains a proposed ADR-0025 target
   small (20–40 authored); ranked lookup waits until it outgrows one page. **`explain`** returns the
   stored witness chain.
 
-> Decision: ADR-0045, ADR-0024, ADR-0028, ADR-0050, ADR-0053, ADR-0054, ADR-0055, ADR-0056
+> Decision: ADR-0045, ADR-0082, ADR-0028, ADR-0050, ADR-0053, ADR-0054, ADR-0055, ADR-0056
 
 ---
 

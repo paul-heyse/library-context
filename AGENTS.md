@@ -7,6 +7,20 @@ behavioral analyses are enrichment; general semantic completion no longer gates 
 The detailed target is `docs/design/sections/api-and-evidence-product.md`; new capabilities there
 remain Proposed until implemented. Existing FastMCP operation/brief tools remain the current interface.
 
+**Current work: the semantic model cutover** (ADR-0082/0083/0084, accepted 2026-09-29). The target is
+one declared relation model with a single owner per semantic question (`lctx-model`), PostgreSQL as
+the single relational store, and DataFusion as in-process compute (DESIGN §15). The
+[cutover plan](docs/plans/semantic-model-cutover-plan_2026-09-29.md) runs it as hard layers:
+0. core;
+1. store;
+2. facts;
+3. normalized relations;
+4. analysis and catalog;
+5. serving.
+
+Legacy code is bridged only by declared adapters and removed per layer. Product work (PR6, new features)
+pauses until phase 5. The pieces below describe the implemented pipeline until each layer cuts over.
+
 The pieces:
 - **Extraction:** Pyrefly (a pinned, minimally patched fork) and Ruff 0.0.11 crates, both linked
   in-process over one parse (ADR-0046). The one exception is the flow facts: `cpg-flow` reads ty's
@@ -15,7 +29,8 @@ The pieces:
   `--profile behavioral` explicitly requests the flow provider and retained behavioral enrichment.
 - **Facts:** Arrow schemas are the contract, DataFusion constructs and validates the facts, and
   Delta stores them. `lctx-postgres` owns rebuildable PostgreSQL projections and transactional
-  cache/operation services; canonical publication remains Delta-owned (ADR-0067/0068).
+  cache/operation services. Delta remains the implemented canonical store until cutover phase 1
+  moves every relation into PostgreSQL generations (ADR-0083).
 - **Behavior:** conditions are bounded BDDs over evaluation atoms (biodivine-lib-bdd), with
   pinned models and finite summaries composed over petgraph SCCs; five verdicts, never a null.
 - **Analytics:** petgraph, leiden-rs and our own FCA/RCA.
@@ -33,12 +48,14 @@ real consumer.
 ## Start of session
 
 1. Read `STATUS.md`: where we are and what's next.
-2. For product work, read the forward plan
+2. For the cutover, read the [cutover plan](docs/plans/semantic-model-cutover-plan_2026-09-29.md)
+   (phases, work packages, adapters, parity, §8 finding disposition) and DESIGN §15.
+3. For product context, read the forward plan
    (`docs/plans/behavioral-model-forward-plan_2026-09-24.md`): §1 current state and qualification
    boundary, §3.0 product PR0–PR6 queue and §6 findings. The retained Stage 3–5 sequence is a
    research backlog, activated only by a product task or an exposed-claim defect. It coordinates product sequencing and owns
    finding disposition. For PostgreSQL work, §3.4 owns integration, §6.1 finding status and §7 conditional adoption.
-3. For design questions, follow **owner → decision → open work**:
+4. For design questions, follow **owner → decision → open work**:
    - start at the architecture map `docs/design/README.md` and read the owning section in
      `docs/design/DESIGN.md` (scope, §B1–§B14) or `docs/design/sections/` plus adjacent consumers;
      labels there distinguish implemented, accepted target and proposed;
@@ -46,7 +63,7 @@ real consumer.
      alternatives (`docs/adr/README.md` lists accepted records and open proposals);
    - known defects and deferred choices affecting the section are forward-plan §6 items, linked
      from the owner. Executable declarations (`cpg-schema`) own column-level detail.
-4. Retired plans, reviews, evidence and ADRs are not reading context; recover one from Git only
+5. Retired plans, reviews, evidence and ADRs are not reading context; recover one from Git only
    when a current owner is insufficient (`docs/README.md`, Historical recovery).
 
 ## Where things are
@@ -55,13 +72,13 @@ real consumer.
 |---|---|
 | `docs/design/DESIGN.md`, `docs/design/sections/` | Architectural collection; stable § IDs. DESIGN §2 holds §B1–§B14 |
 | `docs/README.md`, `docs/publishing.md` | Task routes and isolated documentation commands; site navigation/search is derived |
-| `docs/plans/` | One current product/research forward plan; finished or superseded plans are removed once their obligations move |
+| `docs/plans/` | The semantic model cutover plan (current execution) and the product/research forward plan; finished or superseded plans are removed once their obligations move |
 | `docs/adr/` | Current decision records (accepted and open proposals), a generated index, and `TEMPLATE.md` |
 | `docs/design_review/design_principles/` | The layered design standard, declared in `standard.toml`: six foundations (FP-01–06), architectural judgments A1–A3, supporting rules DP-01–24 and gates G1–G8, the CI profile, and the repository binding (ADR-0040) |
 | `docs/design_review/reviews/` | Review outputs: evidence, never authority; kept while a finding they supply is open |
 | `docs/design_review/evidence/` | Probes, spikes and investigations behind decisions, one `YYYY-MM-DD_<topic>/` folder each with a README; raw outputs and binaries through Git LFS; never venvs or `target/`. Put probes here, not in the session scratchpad |
 | `docs/pins.md` | Every pin, with dated verification |
-| `crates/` | The single Rust workspace. `cpg-schema` holds the authoritative Arrow contracts, derivations, rules and the graph registry (`graph.rs`: the `nodes`/`edges` catalogs, ADR-0067); `cpg-extract` (Stage A in `library.rs`, extraction, the dependency context in `context.rs`), `cpg-core` (Delta, the `lctx_id` UDF, derive, validate, publish, flow model), `cpg-flow` (ty flow facts), `lctx-analytics` (passes, FCA/RCA, communities, summaries; Arrow in/out, no store), `lctx-embed` (compile-time embedding client), `lctx-postgres` (SQLx effects, migrations, projection codecs and role pools) and `lctx` (the CLI). Further crates are added as increments need them (ADR-0046) |
+| `crates/` | The single Rust workspace. `cpg-schema` holds the authoritative Arrow contracts, derivations, rules and the graph registry (`graph.rs`: the `nodes`/`edges` catalogs, ADR-0083; the cutover replaces this crate with `lctx-model`); `cpg-extract` (Stage A in `library.rs`, extraction, the dependency context in `context.rs`), `cpg-core` (Delta, the `lctx_id` UDF, derive, validate, publish, flow model), `cpg-flow` (ty flow facts), `lctx-analytics` (passes, FCA/RCA, communities, summaries; Arrow in/out, no store), `lctx-embed` (compile-time embedding client), `lctx-postgres` (SQLx effects, migrations, projection codecs and role pools) and `lctx` (the CLI). Further crates are added as increments need them (ADR-0046) |
 | `python/` | `lctx_mcp` (the FastMCP server over one pinned generation) , `lctx_semantics` (the pure PyO3 native executor) and `lctx_storage` (explicit asynchronous PostgreSQL service lifetime) |
 | `eval/` | `behavior/` pre-registered question sets, `gold/` evaluation-only gold extract and freeze, `heldout/` sealed until increment 5 |
 | `libraries/` | One committed uv project per analyzed library (`pyproject.toml` with `[tool.lctx] release`, `.python-version`, `uv.lock`); `libraries/README.md` has the add/upgrade procedure (ADR-0046). Environments go to `build/envs/` (gitignored) |

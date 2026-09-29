@@ -1,5 +1,7 @@
 # Storage and publication
 
+**Target, 2026-09-29.** [§15](semantic-model.md) (ADR-0082/0083/0084) is the accepted target, and the [cutover plan](../../plans/semantic-model-cutover-plan_2026-09-29.md) delivers it layer by layer. Phase 1 replaces the Delta store and bundle import with PostgreSQL generations (§15.11–§15.12); phases 3–4 replace the projection layer (§15.10). Until that phase exits, this page describes the implemented legacy pipeline.
+
 This owner covers what happens to validated rows: how an attempt becomes an immutable published
 snapshot in the Delta store, how readers see exactly one snapshot, how the schema contract is
 enforced over time, how analytics read the graph through declared projections, and how a serving
@@ -100,13 +102,13 @@ arc's row index (the arc columns stay in Arrow).
   safety, is owned by the analytics side and still open
   ([plan W13](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
 
-> Decision: ADR-0044, ADR-0067
+> Decision: ADR-0044, ADR-0083, ADR-0082
 
 ---
 
 ## §6 Persistence and publication
 
-> Decision: ADR-0067
+> Decision: ADR-0083
 
 **Implemented** in `cpg-core` and **Tested** where a line names a test or says so
 (`cpg-core/tests/delta.rs`, `compile.rs`, `bundle.rs`; 2026-09-22 onward). Lines about delta-rs
@@ -340,7 +342,7 @@ Only the current format is accepted; regeneration replaces historical-format rec
   finalizer-bearing generation and schema-drift controls passed; integrated qualification is
   pending ([plan W1](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
 
-> Decision: ADR-0067, ADR-0077, ADR-0078, ADR-0049
+> Decision: ADR-0083, ADR-0077, ADR-0078, ADR-0049
 
 **Accepted target, 2026-09-28 (ADR-0078):** current formats only. After validating a fresh
 replacement, quiesce readers and delete superseded stores, generations, matching runtimes and
@@ -449,7 +451,7 @@ Future review events preserve exact subject revision and become explicit attribu
 inputs when used. Later SQL serving remains an immutable projection. Both need their own
 consumer, replay and failure evidence; neither is silently enabled by installing PostgreSQL.
 
-> Decision: ADR-0078, ADR-0067, ADR-0073
+> Decision: ADR-0078, ADR-0083, ADR-0073
 
 
 **Current-only replacement (Implemented, 2026-09-28; ADR-0078).** Validate both current profiles and

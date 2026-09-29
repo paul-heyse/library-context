@@ -1,5 +1,7 @@
 # Facts and identity
 
+**Target, 2026-09-29.** [§15](semantic-model.md) (ADR-0082/0083/0084) is the accepted target, and the [cutover plan](../../plans/semantic-model-cutover-plan_2026-09-29.md) delivers it layer by layer. Phases 2–3 replace the facts, identity recipes and graph registry with §15.2–§15.5. Until that phase exits, this page describes the implemented legacy pipeline.
+
 This owner defines what a fact is in the store: which typed table is the authority for it, how
 its identity is derived, which closed vocabularies describe it, how coverage and boundaries keep
 "not analyzed" distinct from "absent", and how the `nodes`/`edges` catalogs make the family tables
@@ -30,7 +32,7 @@ tables marked **Proposed** are accepted targets, not implementation claims.
 
 ### §3.1 Layers and node kinds
 
-> Decision: ADR-0067
+> Decision: ADR-0083
 
 The full ontology below is the **target model** (**Proposed**). Node kinds are introduced only
 with the consumer that reads them (§3.2).
@@ -159,7 +161,7 @@ Pyrefly MRO relation; resolved-empty and cyclic MROs have explicit marker rows, 
 checks coverage, order and child identity. An ancestor is identified by Pyrefly's module and class
 key and only becomes a handler class identity through its pinned `context_definitions` row.
 
-> Decision: ADR-0067, ADR-0046, ADR-0015, ADR-0045
+> Decision: ADR-0083, ADR-0046, ADR-0015, ADR-0045
 
 
 ### §3.3 Physical profiles
@@ -189,7 +191,7 @@ default dictionary encoding and page statistics.
   `CastOptions { safe: false }`. A wrong length is an error.
 - **Timestamps:** µs normalization is lossy for ns, so only µs is ever written.
 
-> Decision: ADR-0067
+> Decision: ADR-0083
 
 
 ### §3.4 Identity rules
@@ -222,12 +224,12 @@ typing and [§14.10](api-and-evidence-product.md#section-14-10) owns evidence-pr
 Current requests and hydration use this foundation; new PR4 witness/classifier semantics and PR5
 tools remain Proposed and must extend the same identity owner.
 
-> Decision: ADR-0046, ADR-0067, ADR-0073
+> Decision: ADR-0046, ADR-0083, ADR-0073
 
 
 ### §3.4.1 ID derivation
 
-> Decision: ADR-0067, ADR-0046, ADR-0045
+> Decision: ADR-0083, ADR-0046, ADR-0045
 
 **Implemented** and **Tested** unless a row says otherwise: the extractor's ids are pinned by an
 id-recipe snapshot (`extractor_id_recipes_snapshot`, 2026-09-22), the Rust/SQL recipes by shared
@@ -370,7 +372,7 @@ codebooks whose meaning the code does not state.
   `unnarrowed`, `contextual`, …) append when a consumer needs them; Pyrefly's
   `get_expected_type_trace` already reaches the first (**Proposed**).
 
-> Decision: ADR-0067, ADR-0046, ADR-0015
+> Decision: ADR-0083, ADR-0046, ADR-0015
 
 
 ### §3.5.1 Type observations and class order
@@ -443,7 +445,7 @@ codebooks whose meaning the code does not state.
   A projection's spec (§5) states which of them it accepts. A non-finding outside that coverage
   is never read as absence (CI-04, CI-08).
 
-> Decision: ADR-0067
+> Decision: ADR-0083
 
 
 ### §3.8 Graph catalog and edge registry
@@ -559,20 +561,24 @@ rules are generated from (DP-16).
 **The registry as data.**
 - `edge_kinds` publishes each kind's derivation class (`derivation_class`: extracted, analyzer,
   joined, recognizer), direction meaning, parallel policy, evidence table and endpoint kinds with
-  every snapshot. A projection selects by them from the store, not from its own build.
+  every snapshot. The design intended projections to select by them from the store, but **nothing reads
+  `edge_kinds` today** ([review F09](../../design_review/reviews/design_review_semantic-data-model_2026-09-29.md#F09)).
+  Under the target, it gains a reader or is retired ([§15.2](semantic-model.md#section-15-2)).
 - `graph_gaps` publishes each raw row the graph does not represent, with its reason
   (`not_requested`) and the family that will represent it. It is empty today. Nothing is left out
   silently.
 
 **Scale** (**Measured**, FastMCP 4.0.5 with its corpus, `just pilot`, 2026-09-23; the last
 whole-CPG measurement, before the behavior-model families): 905,648 nodes and 1,449,162 edges,
-every rule passing; `edges` derives in 1.0 s and `nodes` in 0.5 s of a 29.9 s compile. This
-bounds ADR-0067's revisit trigger on catalog derivation cost; the current tree has not been
-re-measured ([STATUS](../../../STATUS.md)).
+every rule passing; `edges` derives in 1.0 s and `nodes` in 0.5 s of a 29.9 s compile.
+**Re-measured 2026-09-29.** On the PR5 behavioral pilot, `edges` derived in 2.0 s and `nodes` in 1.0 s
+of a 473.9 s compile. They hold 2,355,231 rows, which is 38% of canonical bytes, and neither is served
+([review evidence P8](../../design_review/evidence/2026-09-29_semantic-data-model/README.md)). The
+target keeps them materialized ([§15.2](semantic-model.md#section-15-2)).
 
 **What the catalogs never hold:**
 - transitive closures, paths or all-pairs results (CI-08);
 - a merged "best" target in place of a candidate set;
 - graph-local indices (§5).
 
-> Decision: ADR-0067
+> Decision: ADR-0083, ADR-0082

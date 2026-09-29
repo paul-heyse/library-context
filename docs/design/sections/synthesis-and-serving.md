@@ -1,5 +1,7 @@
 # Synthesis and serving
 
+**Target, 2026-09-29.** [§15](semantic-model.md) (ADR-0082/0083/0084) is the accepted target, and the [cutover plan](../../plans/semantic-model-cutover-plan_2026-09-29.md) delivers it layer by layer. Phase 5 replaces the serving generation with generated views over the canonical PostgreSQL generation (§15.12). Until that phase exits, this page describes the implemented legacy pipeline.
+
 This owner covers how typed findings become cited assertions and briefs (Stage F, §10), how
 texts become vectors under one hashed embedding spec, and how one pinned serving generation is
 exposed to coding agents through the FastMCP server (§11). Its inputs are the analytics findings
@@ -44,12 +46,12 @@ roots. Broader contextual evidence remains PR3 work.
 Briefs are one rendering of the analysis. Behavioral claims served through the operation tools
 (§11.3) come from the behavior relations directly, not from briefs.
 
-> Decision: ADR-0005, ADR-0067, ADR-0049, ADR-0071, ADR-0078
+> Decision: ADR-0005, ADR-0083, ADR-0049, ADR-0071, ADR-0078
 
 
 ### §10.1 Findings
 
-**A finding is a typed record** (`cpg_schema::findings`; ADR-0067), carrying:
+**A finding is a typed record** (`cpg_schema::findings`; ADR-0083), carrying:
 - `finding_kind`;
 - its subject and related nodes;
 - ordered witness steps (call site, callee, modality and phase; the `edge_id` as lineage) and
@@ -297,7 +299,7 @@ Repository text is treated as untrusted data. It is never an instruction to the 
   usage description.
 - Executed fixtures (`fixture_checked`) are permitted by the policy but not produced yet.
 
-> Decision: ADR-0005, ADR-0067, ADR-0049
+> Decision: ADR-0005, ADR-0083, ADR-0049
 
 ---
 
@@ -594,7 +596,7 @@ original-evidence pagination and classification coverage remain separate.
 **Proposed Stage 3 semantic terms** (ADR-0025): `{effect}`, `{role}` and
 `{compatible_with: <typed condition>}`. The condition grammar is closed and canonicalized by
 Rust. Compatibility and implication use the bounded condition kernel and stable-place theory
-(ADR-0024, [§3.9](behavior-model.md#section-3-9)); an undecided condition leaves its operation in
+(ADR-0082, [§3.9](behavior-model.md#section-3-9)); an undecided condition leaves its operation in
 `unknown`. A condition term is anchored to an operation's entry formal. The Rust flow/summary
 producer writes `flow_test_value_links`: operation/formal id, leaf evaluation atom identity,
 `flow_test_leaves.fact_id`/`flow_uses.use_id` and operand span, resolved place/path, proof origin,

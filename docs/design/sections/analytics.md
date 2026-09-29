@@ -1,7 +1,9 @@
 # Analytics
 
+**Target, 2026-09-29.** [§15](semantic-model.md) (ADR-0082/0083/0084) is the accepted target, and the [cutover plan](../../plans/semantic-model-cutover-plan_2026-09-29.md) delivers it layer by layer. Phase 4 moves the passes onto call-policy views, the projection runtime and one findings emitter (§15.5, §15.9–§15.10). Until that phase exits, this page describes the implemented legacy pipeline.
+
 This owner covers the analyses that run over published facts and derived projections to produce
-typed **findings** (ADR-0067): the three structural passes behind briefs (Pass A delegation,
+typed **findings** (ADR-0083): the three structural passes behind briefs (Pass A delegation,
 Pass B controls, Pass C handoffs), the whole-surface behavior scan, direct-usage ranking and seed
 selection, and the optional statistical and lattice techniques (communities, PageRank, FCA/RCA,
 embedding kNN). Its consumers are Stage F synthesis ([§10](synthesis-and-serving.md#section-10)),
@@ -28,7 +30,7 @@ are **Implemented** and **Tested** as off-by-default variants (§9.8).
 - it must have a **named consumer** in the served model: a tool's output or a brief (ADR-0071);
 - it must be **deterministic** for fixed inputs and parameters;
 - it must record its method, parameters, projection and diagnostics in `analysis_invocations`
-  (ADR-0067);
+  (ADR-0083);
 - it runs by default only if it passes the keep criterion (§9.8), and its effect must be
   measurable as a mechanical diff.
 
@@ -114,7 +116,7 @@ beside the config's. The config file and these parameters are frozen; a paramete
   subsystem callees only, and briefs state that stop as a limit, so a seed's brief and its
   behavior rows can differ past the subsystem edge.
 
-> Decision: ADR-0005, ADR-0067, ADR-0071, ADR-0044, ADR-0045
+> Decision: ADR-0005, ADR-0083, ADR-0071, ADR-0044, ADR-0045
 
 
 ### §9.1 Pass A — public entry point and delegation
