@@ -134,7 +134,7 @@ fn extract_inner(captured: Captured) -> Extracted {
             let mut count = 0;
             let refused = typed_syntax::emit(&ast,&text,invocation(),SyntaxLimits { nodes: 2,..SyntaxLimits::default() },|_| { count += 1; Ok(()) }).unwrap_err();
             assert!(matches!(refused,typed_syntax::SyntaxError::Refused { limit: typed_syntax::SyntaxLimit::Nodes,work } if work.emitted == 2));
-            assert_eq!(refused.reason(),Some(ObligationKind::ResourceRefused));
+            assert_eq!(refused.coverage(),Some((CoverageStatus::Partial,ObligationKind::ResourceRefused)),"the emitted prefix is kept");
             assert_eq!(count,2);
             let mut count = 0;
             assert!(typed_syntax::emit(&ast,&text,invocation(),SyntaxLimits::default(),|_| { count += 1; Err(ModelError::Invalid("sink refused".into())) }).is_err());

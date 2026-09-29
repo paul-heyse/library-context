@@ -1,8 +1,7 @@
 //! Structural provider type observations. Renderings do not define modeled type identity.
 //! Variable restrictions are qualified relationships, so recursive bounds need no recursive key.
-use std::collections::BTreeSet;
 use crate::{Assertion,Domain,DomainCode,DomainSum};
-use super::charged::{ChargedMap, ChargedSet, StateCharge};
+use super::charged::{ChargedMap, ChargedSet, ChargedVec, StateCharge};
 use super::{*,assertion::AssertionQualification,attribution::{AnalysisContext,FactFamily,Provider,ProviderRun,Fidelity},
     calls::{ProviderSymbol,SymbolKind},source::{CoverageScope,Occurrence},value::Literal,obligation::ObligationKind};
 
@@ -179,7 +178,10 @@ pub(crate) struct TypeIndex {
     charge: StateCharge,
     symbols: ChargedMap<Id<ProviderSymbol>,ProviderSymbol>,variables: ChargedMap<Id<TypeVariable>,TypeVariable>,
     terms: ChargedMap<Id<TypeTerm>,TypeTerm>,sequences: ChargedSet<Id<TypeSequence>>,
-    members: ChargedMap<Id<TypeSequence>,Vec<TypeSequenceMember>>, closure_work: usize,
+    members: ChargedMap<Id<TypeSequence>,Vec<TypeSequenceMember>>,
+    /// Terms whose closure is verified for (provider, context, display-only support); a shared
+    /// term is walked once per key, so total work is linear in the term graph.
+    verified: ChargedSet<(Id<TypeTerm>,Id<Provider>,Id<AnalysisContext>,bool)>,
 }
 impl TypeIndex {
     pub fn new(budget: &super::resources::ResourceBudget, owner: &'static str) -> Self { Self { charge: StateCharge::new(budget,owner),..Self::default() } }
@@ -203,17 +205,22 @@ impl TypeIndex {
         if (v.provider,v.context) != (run.provider,run.context) { return Err(invalid("type variable belongs to another provider/context")); } Ok(())
     }
     pub fn term_support(&mut self, id: Id<TypeTerm>,run: &ProviderRun,fidelity: Fidelity) -> Result<(),ModelError> {
-        let mut pending = vec![id]; let mut seen = BTreeSet::new();
-        while let Some(id) = pending.pop() {
-            self.closure_work += 1; if self.closure_work > 1_000_000 { return Err(invalid("type closure work limit")); }
-            if !seen.insert(id) { continue; }
+        let key = |term: Id<TypeTerm>| (term,run.provider,run.context,fidelity == Fidelity::DisplayOnly);
+        if self.verified.contains(&key(id)) { return Ok(()); }
+        // The walk's scratch is charged to the same budget and released when the walk ends.
+        let mut scratch = StateCharge::new(self.charge.budget().ok_or_else(|| invalid("type closure needs a validation budget"))?,"type_closure");
+        let mut pending = ChargedVec::default(); let mut seen = ChargedSet::default();
+        pending.push(&mut scratch,id)?;
+        while let Some(id) = pending.take_last(&mut scratch) {
+            if self.verified.contains(&key(id)) || !seen.insert(&mut scratch,id)? { continue; }
+            let mut children = Vec::new();
             let term = self.terms.get(&id).ok_or_else(|| invalid("type term absent"))?;
             match term {
-                TypeTerm::ClassInstance { class,arguments } => { self.class_owner(*class,run)?; pending.extend(self.sequence(*arguments)?.iter().map(|m| m.child)); },
+                TypeTerm::ClassInstance { class,arguments } => { self.class_owner(*class,run)?; children.extend(self.sequence(*arguments)?.iter().map(|m| m.child)); },
                 TypeTerm::ClassObject { class } => self.class_owner(*class,run)?,
-                TypeTerm::TypeOf { target } => pending.push(*target),
-                TypeTerm::Union { members } | TypeTerm::Intersection { members } => pending.extend(self.sequence(*members)?.iter().map(|m| m.child)),
-                TypeTerm::Tuple { elements } => pending.extend(self.sequence(*elements)?.iter().map(|m| m.child)),
+                TypeTerm::TypeOf { target } => children.push(*target),
+                TypeTerm::Union { members } | TypeTerm::Intersection { members } => children.extend(self.sequence(*members)?.iter().map(|m| m.child)),
+                TypeTerm::Tuple { elements } => children.extend(self.sequence(*elements)?.iter().map(|m| m.child)),
                 TypeTerm::TypeVar { variable } | TypeTerm::ParamSpec { variable } | TypeTerm::TypeVarTuple { variable } => self.variable_owner(*variable,run)?,
                 TypeTerm::Other { provider,context,.. } | TypeTerm::Truncated { provider,context,.. } => {
                     if (*provider,*context) != (run.provider,run.context) { return Err(invalid("opaque type belongs to another provider/context")); }
@@ -221,8 +228,11 @@ impl TypeIndex {
                 },
                 TypeTerm::Literal { .. } | TypeTerm::Any { .. } | TypeTerm::Never { .. } | TypeTerm::None => {},
             }
-            if pending.len() > 1_000_000-self.closure_work { return Err(invalid("type closure frontier work limit")); }
-        } Ok(())
+            for child in children { pending.push(&mut scratch,child)?; }
+        }
+        // Every term the walk reached has its own closure inside this verified one.
+        for term in seen.iter() { self.verified.insert(&mut self.charge,key(*term))?; }
+        Ok(())
     }
     fn class_owner(&self, id: Id<ProviderSymbol>,run: &ProviderRun) -> Result<(),ModelError> {
         let symbol = self.symbols.get(&id).ok_or_else(|| invalid("type class symbol absent"))?;

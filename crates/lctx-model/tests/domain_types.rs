@@ -53,3 +53,35 @@ fn opaque_type_leaves_cannot_be_promoted_to_structural_fidelity() {
 fn budget() -> lctx_model::domain::resources::ResourceBudget {
     lctx_model::domain::resources::ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).unwrap()
 }
+
+/// Supports over one shared wide term walk it once per provider key: 600 presentations of a
+/// 2,000-member union were about 1.2M cumulative closure steps, which a global cap refused as an
+/// invalid model (resource review F03).
+#[test]
+fn shared_type_closures_are_verified_once() {
+    use lctx_model::domain::attribution::Fidelity;
+    let mut f = Fixture::new(false);
+    let literals: Vec<_> = (0..2000).map(|n| Literal::Integer { decimal: n.to_string() }).collect();
+    let terms: Vec<_> = literals.iter().map(|l| TypeTerm::Literal { value: l.id() }).collect();
+    let (union, members) = TypeSequence::new(&terms.iter().map(|t| (TypeChildRole::Member, t.id())).collect::<Vec<_>>()).unwrap();
+    let wide = TypeTerm::Union { members: union.id() };
+    let base = f.base.rows::<TypePresentation>()[0].clone();
+    let support = f.base.rows::<TypePresentationSupport>()[0].clone();
+    let presentations: Vec<_> = (0..600).map(|n| TypePresentation { term: wide.id(), display: format!("wide{n}"), ..base.clone() }).collect();
+    let supports: Vec<_> = presentations.iter().map(|p| TypePresentationSupport { assertion: p.id(), ..support.clone() }).collect();
+    macro_rules! append { ($ty:ty, $rows:expr) => { let mut rows = f.base.rows::<$ty>(); rows.extend($rows); f.base.put(rows); }; }
+    append!(Literal, literals); append!(TypeTerm, terms.into_iter().chain([wide])); append!(TypeSequence, vec![union]);
+    append!(TypePresentation, presentations); append!(TypePresentationSupport, supports);
+    let mut all = f.base.rows::<TypeSequenceMember>(); all.extend(members); f.put_members(all);
+    f.base.check(&TypePresentationSupport::invariants()[0]).unwrap();
+    // The memo is keyed by fidelity: an opaque term verified for display-only support still
+    // refuses a structural support of the same term.
+    let mut g = Fixture::new(false); g.opaque(false, true, Fidelity::DisplayOnly);
+    g.base.check(&TypeSupport::invariants()[0]).unwrap();
+    let observation = TypeObservation { role: TypeRole::CallResult, ..g.base.rows::<TypeObservation>()[0].clone() };
+    let structural = TypeSupport { assertion: observation.id(), fidelity: Fidelity::NativeStructural, ..g.base.rows::<TypeSupport>()[0].clone() };
+    let mut observations = g.base.rows::<TypeObservation>(); observations.push(observation); g.base.put(observations);
+    let mut supports = g.base.rows::<TypeSupport>(); supports.push(structural); g.base.put(supports);
+    let error = g.base.check(&TypeSupport::invariants()[0]).unwrap_err();
+    assert!(error.to_string().contains("display-only"), "{error}");
+}

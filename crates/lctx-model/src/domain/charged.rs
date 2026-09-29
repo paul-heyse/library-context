@@ -108,6 +108,12 @@ impl<T: HeapSize> ChargedVec<T> {
         self.0.push(value);
         Ok(())
     }
+    /// Remove the last value, releasing its heap charge; the vector keeps its charged capacity.
+    pub fn take_last(&mut self, charge: &mut StateCharge) -> Option<T> {
+        let value = self.0.pop()?;
+        charge.release(value.heap_bytes());
+        Some(value)
+    }
     /// Move the values out; their charge is released and the caller owns their accounting.
     pub fn take(&mut self, charge: &mut StateCharge) -> Vec<T> {
         let values = std::mem::take(&mut self.0);

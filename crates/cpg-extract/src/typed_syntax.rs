@@ -3,7 +3,8 @@
 //! This is an identifier-observation subset, not complete syntax-family coverage. The caller
 //! supplies the AST and text from the same pinned transaction, retains every captured byte,
 //! and publishes only after the generation's shared invariants succeed. No legacy row or ID
-//! enters this boundary. Emission is incremental; any callback/refusal aborts the attempt.
+//! enters this boundary. Emission is incremental: a sink or model error aborts the attempt; a
+//! declared bound refuses the artifact, and [`SyntaxError::coverage`] states what it publishes.
 use lctx_model::domain::{ContentHash, ModelError, Record, assertion::*, attribution::*, source::*};
 use ruff_python_ast::{Alias, AnyNodeRef, Arguments, BoolOp, BytesLiteral, CmpOp, Comprehension, Decorator, ElifElseClause, ExceptHandler, Expr,
     ExprContext, FString, Identifier, InterpolatedStringElement, Keyword, MatchCase, Mod, ModModule, NodeKind, Operator, Parameter,
@@ -44,18 +45,29 @@ pub struct SyntaxWork { pub emitted: usize, pub callbacks: usize, pub residual: 
 pub enum SyntaxLimit { SourceBytes, Nodes, Depth, Callbacks }
 #[derive(Debug, thiserror::Error)]
 pub enum SyntaxError {
-    /// A declared bound refused the artifact; its coverage is `Unavailable(ResourceRefused)`.
+    /// A declared bound refused the artifact after `work`.
     #[error("syntax {limit:?} limit refused the artifact ({work:?})")]
     Refused { limit: SyntaxLimit, work: SyntaxWork },
     #[error(transparent)]
     Model(#[from] ModelError),
 }
 impl SyntaxError {
-    /// The coverage reason of a refusal; other errors abort the attempt.
-    pub fn reason(&self) -> Option<ObligationKind> { matches!(self, Self::Refused { .. }).then_some(ObligationKind::ResourceRefused) }
+    /// The artifact's Syntax coverage after a refusal; `None` for errors that abort the attempt.
+    /// A source-size refusal emitted nothing, so the artifact is `Unavailable`. A traversal bound
+    /// halts after the emitted prefix, which is kept: every emitted node's ancestors were emitted
+    /// before it, so the prefix is a well-formed tree and the artifact is `Partial`.
+    pub fn coverage(&self) -> Option<(CoverageStatus, ObligationKind)> {
+        match self {
+            Self::Refused { limit: SyntaxLimit::SourceBytes, .. } => Some((CoverageStatus::Unavailable, ObligationKind::ResourceRefused)),
+            Self::Refused { .. } => Some((CoverageStatus::Partial, ObligationKind::ResourceRefused)),
+            Self::Model(_) => None,
+        }
+    }
 }
 
-/// Admit an artifact before it is handed to the provider: an oversized source is refused, never parsed.
+/// Admit an artifact's source size before its syntax is traversed. An oversized source is never
+/// parsed only if the provider calls this before it is handed the source; the Pyrefly stage owes
+/// that call (plan E1/A4), and until then the parse is outside the budget.
 pub fn admit(source: &SourceArtifact, limits: SyntaxLimits) -> Result<(), SyntaxError> {
     match usize::try_from(source.byte_len) {
         Ok(bytes) if bytes <= limits.source_bytes => Ok(()),

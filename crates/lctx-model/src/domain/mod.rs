@@ -41,6 +41,10 @@ pub enum ModelError {
     Resource { owner: &'static str, requested: usize, used: usize, limit: usize },
     #[error("invalid model: {0}")]
     Invalid(String),
+    /// A declared operational ceiling refused an input: a row, read or transfer larger than its
+    /// bound. Producers turn it into `ResourceRefused` coverage; it is never an invalid model.
+    #[error("{owner} {limit} limit refused {observed} (bound {bound})")]
+    Limit { owner: &'static str, limit: &'static str, observed: usize, bound: usize },
     /// A request outside the generation's frontier, or a schedule or coverage that cannot be
     /// admitted to it.
     #[error("frontier: {0}")]

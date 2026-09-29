@@ -322,8 +322,14 @@ impl<'o, 'e, 's, S: StageSink> StageOutput<'o, 'e, 's, S> {
         }
         let entry = self.contributions.iter_mut().find(|(t, _)| *t == TypeId::of::<R>()).expect("inserted above");
         let contribution = entry.1.as_any().downcast_mut::<Contribution<R>>().expect("contribution entry matches its type id");
-        if let Some(batch) = contribution.writer.push(self.model, row)? { self.access.contribute(Arc::new(batch))?; }
-        Ok(())
+        let result = match contribution.writer.push(self.model, row) {
+            Ok(Some(batch)) => self.access.contribute(Arc::new(batch)),
+            Ok(None) => Ok(()),
+            Err(error) => Err(error),
+        };
+        // A lost row cannot be recovered by the producer: the attempt fails.
+        if result.is_err() { self.access.execution.failed = true; }
+        result
     }
     /// Open a writer for one of the stage's declared outputs.
     pub fn declare<R: Record>(&mut self) -> Result<(), ModelError> {
@@ -340,11 +346,12 @@ impl<'o, 'e, 's, S: StageSink> StageOutput<'o, 'e, 's, S> {
         let output = self.outputs.iter_mut().find(|(t, _)| *t == TypeId::of::<R>())
             .ok_or_else(|| ModelError::Invalid(format!("{} has not declared output {}", stage, R::NAME)))?;
         let output = output.1.as_any().downcast_mut::<Output<R>>().expect("output entry matches its type id");
-        if let Some(batch) = output.writer.push(self.model, row)? {
-            emit(&mut self.access, self.sink, batch).await?;
-            output.written = true;
+        match output.writer.push(self.model, row) {
+            Ok(Some(batch)) => { emit(&mut self.access, self.sink, batch).await?; output.written = true; Ok(()) },
+            Ok(None) => Ok(()),
+            // A lost row cannot be recovered by the producer: the attempt fails.
+            Err(error) => { self.access.execution.failed = true; Err(error) },
         }
-        Ok(())
     }
     /// Flush every declared output, then record the provider outcome for the stage.
     pub async fn finish(mut self, outcome: ProviderOutcome) -> Result<(), ModelError> {

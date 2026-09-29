@@ -83,7 +83,7 @@ mod batching {
         assert_eq!(sizes(writer(), &model, (0..10_000).map(|n| Package { name: format!("p{n}") })).unwrap(), [4096, 4096, 1808]);
         assert_eq!(sizes(writer(), &model, (0..3).map(|n| named(3 << 20, n))).unwrap(), [2, 1]);
         assert_eq!(sizes(writer(), &model, [named(8, 0), named(20 << 20, 1), named(8, 2)]).unwrap(), [1, 1, 1], "a 20 MiB row travels alone");
-        assert!(matches!(sizes(writer(), &model, [named(70 << 20, 0)]), Err(ModelError::Invalid(_))), "a 70 MiB row exceeds the row limit");
+        assert!(matches!(sizes(writer(), &model, [named(70 << 20, 0)]), Err(ModelError::Limit { limit: "row bytes", bound: MAX_ROW_BYTES, .. })), "a 70 MiB row exceeds the row limit");
         assert_eq!(budget.reserved(), 0);
         assert!(BatchWriter::<Package>::new(&budget, TransferLimits { rows: 0, ..TransferLimits::default() }).is_err());
         assert_eq!(sizes(BatchWriter::new(&budget, TransferLimits { rows: 1, ..TransferLimits::default() }).unwrap(), &model,
@@ -161,6 +161,30 @@ mod batching {
         output.declare::<Package>().unwrap();
         assert!(ready(output.finish(ProviderOutcome::Complete)).is_err(), "every stage output must be declared");
         assert!(execution.finish().is_err(), "a refused stage output fails the attempt");
+    }
+
+    #[test]
+    fn a_writer_refusal_fails_the_writer_and_the_stage() {
+        let model = model().unwrap();
+        let short = ResourceBudget::fixed(8 << 10).unwrap();
+        let mut writer = BatchWriter::<Package>::new(&short, TransferLimits { rows: 4, ..TransferLimits::default() }).unwrap();
+        let refused = (0..1000).try_for_each(|n| writer.push(&model, Package { name: format!("p{n}") }).map(drop));
+        assert!(matches!(refused, Err(ModelError::Resource { .. })));
+        assert!(writer.push(&model, Package { name: "x".into() }).is_err(), "a refused writer takes no further rows");
+        assert!(writer.push(&model, Package { name: "p0".into() }).is_err(), "not even an earlier row it may have lost");
+        assert!(writer.finish(&model).is_err(), "and never finishes as if complete");
+        assert_eq!(short.reserved(), 0);
+        // Through a stage: the attempt fails and cannot be receipted.
+        let schedule = Schedule::build(&model, vec![stage()], &[], Profile::Catalog).unwrap();
+        let sink = Recorder(Mutex::new(Vec::new()));
+        let mut execution = schedule.execute();
+        let mut output = StageOutput::new(execution.begin("inputs").unwrap(), &sink, &model, short.clone(), TransferLimits { rows: 4, ..TransferLimits::default() }).unwrap();
+        output.declare::<Package>().unwrap(); output.declare::<Release>().unwrap();
+        let refused = (0..1000).try_for_each(|n| ready(output.push(Package { name: format!("p{n}") })));
+        assert!(matches!(refused, Err(ModelError::Resource { .. })));
+        assert!(ready(output.finish(ProviderOutcome::Complete)).is_err());
+        assert!(execution.finish().is_err(), "a stage that lost rows fails the attempt");
+        assert_eq!(short.reserved(), 0);
     }
 }
 

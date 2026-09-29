@@ -14,12 +14,13 @@ impl Default for TransferLimits {
 
 /// Accumulates one relation's rows into transfer-sized batches. Equal rows repeated across flushes
 /// are emitted once; the same identity with a different payload is a conflict. An admitted row
-/// larger than the byte target travels alone; one above `max_row` is refused.
+/// larger than the byte target travels alone; one above `max_row` is refused. The first error
+/// poisons the writer: rows it held may be lost, so every later push and the finish refuse.
 #[derive(Debug)]
 pub struct BatchWriter<R: Record> {
     budget: ResourceBudget, limits: TransferLimits, fixed: usize,
     pending: Vec<R>, pending_bytes: usize, pending_heap: usize, held: Box<dyn Reservation>,
-    seen: HashMap<Id<R>, ContentHash>, seen_held: Box<dyn Reservation>,
+    seen: HashMap<Id<R>, ContentHash>, seen_held: Box<dyn Reservation>, failed: bool,
 }
 impl<R: Record> BatchWriter<R> {
     pub fn new(budget: &ResourceBudget, limits: TransferLimits) -> Result<Self, ModelError> {
@@ -28,17 +29,23 @@ impl<R: Record> BatchWriter<R> {
         }
         Ok(Self { budget: budget.clone(), limits, fixed: fixed_width::<R>(),
             pending: Vec::new(), pending_bytes: 0, pending_heap: 0, held: budget.reserve(R::NAME, 0)?,
-            seen: HashMap::new(), seen_held: budget.reserve(R::NAME, 0)? })
+            seen: HashMap::new(), seen_held: budget.reserve(R::NAME, 0)?, failed: false })
     }
     pub fn budget(&self) -> &ResourceBudget { &self.budget }
     /// Admit one row. Returns the previously pending batch when this row would exceed a target.
     pub fn push(&mut self, model: &ValidatedModel, row: R) -> Result<Option<Batch<R>>, ModelError> {
+        if self.failed { return Err(poisoned::<R>()); }
+        let result = self.admit(model, row);
+        self.failed = result.is_err();
+        result
+    }
+    fn admit(&mut self, model: &ValidatedModel, row: R) -> Result<Option<Batch<R>>, ModelError> {
         model.require::<R>()?;
         row.validate()?;
         let heap = row.heap_bytes();
         let encoded = self.fixed.checked_add(heap).ok_or_else(|| overflow::<R>())?;
         if encoded > self.limits.max_row {
-            return Err(ModelError::Invalid(format!("{} row of {encoded} bytes exceeds the {} byte row limit", R::NAME, self.limits.max_row)));
+            return Err(ModelError::Limit { owner: R::NAME, limit: "row bytes", observed: encoded, bound: self.limits.max_row });
         }
         let id = row.id();
         let digest = row.content_digest();
@@ -72,6 +79,7 @@ impl<R: Record> BatchWriter<R> {
     }
     /// Emit the remaining rows, if any. The duplicate index and its reservation end here.
     pub fn finish(mut self, model: &ValidatedModel) -> Result<Option<Batch<R>>, ModelError> {
+        if self.failed { return Err(poisoned::<R>()); }
         if self.pending.is_empty() { return Ok(None); }
         self.flush(model).map(Some)
     }
@@ -84,3 +92,4 @@ impl<R: Record> BatchWriter<R> {
     }
 }
 fn overflow<R: Record>() -> ModelError { ModelError::Invalid(format!("{} batch size overflow", R::NAME)) }
+fn poisoned<R: Record>() -> ModelError { ModelError::Invalid(format!("{} batch writer failed earlier; its rows are incomplete", R::NAME)) }

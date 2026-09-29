@@ -291,7 +291,7 @@ impl GenerationStore {
             let row = batch.arrow().slice(index, 1);
             let size = copy_size(&row, &builders)?;
             // The generated server-side row also carries the generation column (20 bytes).
-            if size > MAX_ROW_BYTES - 20 { return Err(Error::Codec("COPY row exceeds storage admission limit".into())); }
+            if size > MAX_ROW_BYTES - 20 { return Err(Error::Model(ModelError::Limit { owner: R::NAME, limit: "COPY row bytes", observed: size, bound: MAX_ROW_BYTES - 20 })); }
             let _wire = budget.reserve("postgres-copy-wire", size.checked_mul(2)
                 .ok_or_else(|| Error::Codec("COPY wire accounting overflow".into()))?)?;
             let mut bytes = BytesMut::with_capacity(size);
@@ -399,7 +399,7 @@ impl GenerationLease {
         let mut bytes = 0usize;
         self.visit::<R>(|batch| {
             bytes = bytes.checked_add(batch.arrow().get_array_memory_size()).ok_or_else(|| Error::Codec("read budget overflow".into()))?;
-            if bytes > TRANSFER_BYTES { return Err(Error::Codec("small-relation read budget exceeded; use visit".into())); }
+            if bytes > TRANSFER_BYTES { return Err(Error::Model(ModelError::Limit { owner: R::NAME, limit: "small-relation read bytes (use visit)", observed: bytes, bound: TRANSFER_BYTES })); }
             rows.extend_from_slice(batch.rows());
             Ok(())
         }).await?;
@@ -430,7 +430,7 @@ async fn visit_physical(connection: &mut PgConnection, g: GenerationId, relation
                     .ok_or_else(|| Error::Codec("row size overflow".into()))?;
             }
         }
-        if size > MAX_ROW_BYTES { return Err(Error::Codec("stored row exceeds read budget".into())); }
+        if size > MAX_ROW_BYTES { return Err(Error::Model(ModelError::Limit { owner: relation.name(), limit: "stored row bytes", observed: size, bound: MAX_ROW_BYTES })); }
         if !rows.is_empty() && (rows.len() == TRANSFER_ROWS || bytes.saturating_add(size) > TRANSFER_BYTES) {
             visitor(codec::decode(relation, &rows)?)?;
             rows.clear(); bytes = 0; held.try_resize(0)?;

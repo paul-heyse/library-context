@@ -19,16 +19,19 @@ fn input(text: &str) -> Input {
     Input { source, qualification, run, surface }
 }
 /// Parse and emit on a thread with room for the parser's own recursion; returns the result and
-/// the number of events the sink received.
-fn run(text: String, limits: SyntaxLimits) -> (Result<SyntaxWork, SyntaxError>, usize) {
+/// the structural paths of the events the sink received.
+fn paths(text: String, limits: SyntaxLimits) -> (Result<SyntaxWork, SyntaxError>, Vec<Vec<i32>>) {
     std::thread::Builder::new().stack_size(256 << 20).spawn(move || {
         let parsed = ruff_python_parser::parse_module(&text).expect("valid Python");
         let input = input(&text);
-        let mut events = 0;
+        let mut events = Vec::new();
         let invocation = SyntaxInvocation { source: &input.source, qualification: &input.qualification, run: &input.run, surface: &input.surface };
-        let result = typed_syntax::emit(parsed.syntax(), &text, invocation, limits, |_| { events += 1; Ok(()) });
+        let result = typed_syntax::emit(parsed.syntax(), &text, invocation, limits, |event| { events.push(event.occurrence.structural_path); Ok(()) });
         (result, events)
     }).unwrap().join().unwrap()
+}
+fn run(text: String, limits: SyntaxLimits) -> (Result<SyntaxWork, SyntaxError>, usize) {
+    let (result, events) = paths(text, limits); (result, events.len())
 }
 fn refused(result: Result<SyntaxWork, SyntaxError>) -> (SyntaxLimit, SyntaxWork) {
     match result { Err(SyntaxError::Refused { limit, work }) => (limit, work), other => panic!("expected a refusal, got {other:?}") }
@@ -43,6 +46,11 @@ fn a_halted_statement_list_stops_at_once() {
     let (limit, work) = refused(result);
     assert_eq!((limit, work.emitted, events), (SyntaxLimit::Nodes, 10, 10));
     assert!(work.residual <= SyntaxLimits::default().depth, "the owned statement loop stops: {work:?}");
+    // The kept prefix is a tree: every emitted node's parent was emitted before it.
+    let (_, emitted) = paths(text.clone(), limited(10));
+    for (index, path) in emitted.iter().enumerate().skip(1) {
+        assert!(emitted[..index].contains(&path[..path.len() - 1].to_vec()), "{path:?} lacks its parent");
+    }
     let (result, events) = run(text, SyntaxLimits::default());
     assert_eq!(result.unwrap().emitted, 1 + 3 * 50_000); assert_eq!(events, 1 + 3 * 50_000);
 }
@@ -76,7 +84,7 @@ fn an_oversized_source_is_refused_before_any_callback() {
     let big = input(&text);
     let error = typed_syntax::admit(&big.source, limits).unwrap_err();
     assert!(matches!(error, SyntaxError::Refused { limit: SyntaxLimit::SourceBytes, work } if work == SyntaxWork::default()));
-    assert_eq!(error.reason(), Some(ObligationKind::ResourceRefused));
+    assert_eq!(error.coverage(), Some((CoverageStatus::Unavailable, ObligationKind::ResourceRefused)), "nothing was emitted");
     // The emitter repeats the admission before any traversal or sink call.
     let empty = ruff_python_parser::parse_module("").unwrap();
     let invocation = SyntaxInvocation { source: &big.source, qualification: &big.qualification, run: &big.run, surface: &big.surface };
