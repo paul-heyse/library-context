@@ -60,27 +60,53 @@ fn validate_evidence(row: &Evidence) -> Result<(), ModelError> {
     Ok(())
 }
 #[derive(Debug, Clone, Copy)]
-pub enum Subject { Occurrence(Id<Occurrence>), Artifact(Id<SourceArtifact>), Module(Id<Module>), Scope(Id<CoverageScope>), Place(Id<Place>), Transfer(Id<TransferKey>) }
+pub enum Subject { Occurrence(Id<Occurrence>), Artifact(Id<SourceArtifact>), Module(Id<Module>), Scope(Id<CoverageScope>), Place(Id<Place>), Transfer(Id<TransferKey>),
+    LexicalScope(Id<super::lexical::LexicalScope>), BindingEvent(Id<super::lexical::BindingEvent>), LexicalTarget(Id<super::lexical::LexicalTarget>) }
 impl From<Id<Occurrence>> for Subject { fn from(value: Id<Occurrence>) -> Self { Self::Occurrence(value) } }
 impl From<Id<SourceArtifact>> for Subject { fn from(value: Id<SourceArtifact>) -> Self { Self::Artifact(value) } }
 impl From<Id<Module>> for Subject { fn from(value: Id<Module>) -> Self { Self::Module(value) } }
 impl From<Id<CoverageScope>> for Subject { fn from(value: Id<CoverageScope>) -> Self { Self::Scope(value) } }
 impl From<Id<Place>> for Subject { fn from(value: Id<Place>) -> Self { Self::Place(value) } }
 impl From<Id<TransferKey>> for Subject { fn from(value: Id<TransferKey>) -> Self { Self::Transfer(value) } }
+impl From<Id<super::lexical::LexicalScope>> for Subject { fn from(value: Id<super::lexical::LexicalScope>) -> Self { Self::LexicalScope(value) } }
+impl From<Id<super::lexical::BindingEvent>> for Subject { fn from(value: Id<super::lexical::BindingEvent>) -> Self { Self::BindingEvent(value) } }
+impl From<Id<super::lexical::LexicalTarget>> for Subject { fn from(value: Id<super::lexical::LexicalTarget>) -> Self { Self::LexicalTarget(value) } }
 /// Additional nominal subject dependencies beyond common provenance and condition operands.
 /// The derive supplies them from actual field types; source assertions do not load transfer keys.
-pub trait SubjectValue { fn inputs() -> Vec<ValidationInput>; }
+pub trait SubjectValue {
+    fn inputs() -> Vec<ValidationInput>;
+    fn append_subjects(&self, subjects: &mut Vec<Subject>);
+}
+impl<T: SubjectValue> SubjectValue for Option<T> {
+    fn inputs() -> Vec<ValidationInput> { T::inputs() }
+    fn append_subjects(&self, subjects: &mut Vec<Subject>) { if let Some(value) = self { value.append_subjects(subjects); } }
+}
 macro_rules! simple_subject { ($($ty:ty),+) => { $(impl SubjectValue for Id<$ty> {
     fn inputs() -> Vec<ValidationInput> { vec![] }
+    fn append_subjects(&self, subjects: &mut Vec<Subject>) { subjects.push((*self).into()); }
 })+ }; }
 simple_subject!(Occurrence,SourceArtifact,Module,CoverageScope);
 impl SubjectValue for Id<Place> {
     fn inputs() -> Vec<ValidationInput> { vec![ValidationInput::of::<PlaceRoot>(&["id"]),ValidationInput::of::<Place>(&["id"])] }
+    fn append_subjects(&self, subjects: &mut Vec<Subject>) { subjects.push((*self).into()); }
 }
 impl SubjectValue for Id<TransferKey> {
+    fn append_subjects(&self, subjects: &mut Vec<Subject>) { subjects.push((*self).into()); }
     fn inputs() -> Vec<ValidationInput> {
         let mut inputs = <Id<Place> as SubjectValue>::inputs(); inputs.push(ValidationInput::of::<TransferKey>(&["id"])); inputs
     }
+}
+impl SubjectValue for Id<super::lexical::LexicalScope> {
+    fn inputs() -> Vec<ValidationInput> { vec![ValidationInput::of::<super::lexical::LexicalScope>(&["id"])] }
+    fn append_subjects(&self, subjects: &mut Vec<Subject>) { subjects.push((*self).into()); }
+}
+impl SubjectValue for Id<super::lexical::BindingEvent> {
+    fn inputs() -> Vec<ValidationInput> { vec![ValidationInput::of::<super::lexical::BindingEvent>(&["id"])] }
+    fn append_subjects(&self, subjects: &mut Vec<Subject>) { subjects.push((*self).into()); }
+}
+impl SubjectValue for Id<super::lexical::LexicalTarget> {
+    fn inputs() -> Vec<ValidationInput> { vec![ValidationInput::of::<super::lexical::BindingEvent>(&["id"]),ValidationInput::of::<super::lexical::LexicalTarget>(&["id"])] }
+    fn append_subjects(&self, subjects: &mut Vec<Subject>) { subjects.push((*self).into()); }
 }
 pub trait Assertion: Record {
     const FAMILY: FactFamily;
@@ -179,6 +205,9 @@ pub fn support_invariants<A: Assertion, S: Support<Assertion=A>>() -> Vec<Invari
     vec![Invariant { name: S::NAME,inputs,create: std::sync::Arc::new(|| Box::new(SupportCheck::<A,S>::new())) }]
 }
 struct SupportCheck<A: Assertion, S: Support<Assertion=A>> {
+    lexical_scopes: BTreeMap<Id<super::lexical::LexicalScope>,Id<Occurrence>>,
+    bindings: BTreeMap<Id<super::lexical::BindingEvent>,Id<Occurrence>>,
+    lexical_targets: BTreeMap<Id<super::lexical::LexicalTarget>,super::lexical::LexicalTarget>,
     sources: BTreeMap<Id<SourceArtifact>, Id<InputRevision>>,
     places: BTreeMap<Id<Place>,Place>, roots: BTreeMap<Id<PlaceRoot>,PlaceRoot>, transfers: BTreeMap<Id<TransferKey>,TransferKey>,
     occurrences: BTreeMap<Id<Occurrence>, Id<SourceArtifact>>,
@@ -198,7 +227,8 @@ struct SupportCheck<A: Assertion, S: Support<Assertion=A>> {
     assertions: BTreeMap<Id<A>, A>, supported: BTreeSet<Id<A>>, marker: PhantomData<S>,
 }
 impl<A: Assertion, S: Support<Assertion=A>> SupportCheck<A,S> {
-    fn new() -> Self { Self { places: BTreeMap::new(), roots: BTreeMap::new(), transfers: BTreeMap::new(), sources: BTreeMap::new(), occurrences: BTreeMap::new(), modules: BTreeMap::new(),
+    fn new() -> Self { Self { lexical_scopes: BTreeMap::new(), bindings: BTreeMap::new(), lexical_targets: BTreeMap::new(),
+        places: BTreeMap::new(), roots: BTreeMap::new(), transfers: BTreeMap::new(), sources: BTreeMap::new(), occurrences: BTreeMap::new(), modules: BTreeMap::new(),
         corpus: BTreeSet::new(), distributions: BTreeSet::new(), scopes: BTreeMap::new(), qualifications: BTreeMap::new(),
         atoms: BTreeMap::new(), nodes: BTreeMap::new(), conditions: BTreeMap::new(), closure_visits: 0,
         runs: BTreeMap::new(), families: BTreeSet::new(), surfaces: BTreeMap::new(), evidence: BTreeMap::new(),
@@ -211,6 +241,12 @@ impl<A: Assertion, S: Support<Assertion=A>> SupportCheck<A,S> {
     }
     fn source(&self, subject: Subject) -> Result<Option<Id<SourceArtifact>>, ModelError> {
         Ok(match subject {
+            Subject::LexicalScope(id) => self.source(Subject::Occurrence(*self.lexical_scopes.get(&id).ok_or_else(|| invalid("lexical scope absent"))?))?,
+            Subject::BindingEvent(id) => self.source(Subject::Occurrence(*self.bindings.get(&id).ok_or_else(|| invalid("binding event absent"))?))?,
+            Subject::LexicalTarget(id) => match self.lexical_targets.get(&id).ok_or_else(|| invalid("lexical target absent"))? {
+                super::lexical::LexicalTarget::Binding { event } => self.source(Subject::BindingEvent(*event))?,
+                super::lexical::LexicalTarget::Builtin { .. } | super::lexical::LexicalTarget::Unresolved { .. } => None,
+            },
             Subject::Artifact(id) => Some(id),
             Subject::Occurrence(id) => Some(*self.occurrences.get(&id).ok_or_else(|| invalid("assertion occurrence missing"))?),
             Subject::Module(id) => Some(*self.modules.get(&id).ok_or_else(|| invalid("assertion module missing"))?),
@@ -329,12 +365,15 @@ impl<A: Assertion, S: Support<Assertion=A>> InvariantCheck for SupportCheck<A,S>
         else if relation == PlaceRoot::NAME { for r in PlaceRoot::decode(batch)? { self.roots.insert(r.id(),r); } }
         else if relation == Place::NAME { for r in Place::decode(batch)? { self.places.insert(r.id(),r); } }
         else if relation == TransferKey::NAME { for r in TransferKey::decode(batch)? { self.transfers.insert(r.id(),r); } }
+        else if relation == super::lexical::LexicalScope::NAME { for r in super::lexical::LexicalScope::decode(batch)? { self.lexical_scopes.insert(r.id(),r.owner); } }
+        else if relation == super::lexical::BindingEvent::NAME { for r in super::lexical::BindingEvent::decode(batch)? { self.bindings.insert(r.id(),r.site); } }
+        else if relation == super::lexical::LexicalTarget::NAME { for r in super::lexical::LexicalTarget::decode(batch)? { self.lexical_targets.insert(r.id(),r); } }
         else if relation == A::NAME { for r in A::decode(batch)? { self.assertions.insert(r.id(),r); } }
         else if relation == S::NAME { for r in S::decode(batch)? { self.check_support(r)?; } }
         else { return Err(invalid("undeclared support validation input")); }
         let entries = self.sources.len()+self.occurrences.len()+self.modules.len()+self.corpus.len()+self.distributions.len()+self.scopes.len()
             +self.qualifications.len()+self.runs.len()+self.families.len()+self.surfaces.len()+self.evidence.len()+self.assertions.len()+self.supported.len();
-        if entries + self.places.len()+self.roots.len()+self.transfers.len()+self.atoms.len()+self.nodes.len()+self.conditions.len() > 3_000_000 { return Err(invalid("support validation cardinality budget exceeded")); }
+        if entries + self.lexical_scopes.len()+self.bindings.len()+self.lexical_targets.len()+self.places.len()+self.roots.len()+self.transfers.len()+self.atoms.len()+self.nodes.len()+self.conditions.len() > 3_000_000 { return Err(invalid("support validation cardinality budget exceeded")); }
         Ok(())
     }
     fn finish(self: Box<Self>) -> Result<(), ModelError> {

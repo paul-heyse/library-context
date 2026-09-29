@@ -395,6 +395,8 @@ Focused evidence (2026-09-29; Cargo commands prefixed by `python3 scripts/build_
 | `cargo test --release -p cpg-extract --test typed_conformance` | passed: real pinned AST to typed records, sealed PG18 validation/readback and conformance-only selection refusal |
 | `cargo test --release -p cpg-core --test model_runtime` | passed: two fresh-catalog/capability/shared-pool controls; no total-memory/RSS claim |
 | `just docs-check`; `uv run python scripts/adr.py lint` | passed: documentation publication and 44 current ADR records |
+| `cargo test --release -p lctx-model --test domain_lexical` | passed: four lexical controls, including independently attributed alternatives and strict/equal-span ancestry |
+| `cargo test --release -p lctx-postgres --test domain_lexical` | passed: real PG18 good/foreign-optional-value conformance cases |
 | `just fmt`, `just test-all`, facts pilots | not_run: functional scope incomplete |
 
 Independent bounded reviewers accepted artifact/capture/acquisition corrections and the
@@ -413,7 +415,9 @@ accepted typed targets, cycle validation and PG projections after proof-source i
 Stage/session/lifecycle changes await their
 assembled review; none of these bounded receipts establishes enclosing architecture acceptance.
 
-**Next / still open:** remaining representative lexical/type/flow/document/deployment domain families
+**Representative lexical contracts (Implemented; focused Tested, 2026-09-29):** nominal scope, binding event and target records; qualified scope/binding/reference/resolution observations and generated supports. Optional subjects retain provenance. Shared checks enforce structural ancestry and same-source relationships while preserving independently attributed provider disagreement at a common ordinal. Real PG18 COPY/validation/readback covers the representative fixture and rejects a foreign optional value. These are contract fixtures; the raw lexical producer and complete field disposition remain P2 work.
+
+**Next / still open:** remaining representative type/flow/document/deployment domain families
 and whole-call binding/root composition and opaque caller rebasing; complete call producer/normalization integration; occurrence ownership; coordinated allocation accounting; exact coverage
 and full production frontier admission; production capture/assembler integration and assembled P0-E review.
 Then finish generated installation verification/reset, provider lease/stream integration, service
@@ -443,6 +447,15 @@ owners. Phases 3–5 update their owners when implemented. No documentation labe
 without corresponding evidence.
 
 ## 8. Findings disposition
+
+The bounded [lexical review](../design_review/reviews/design_review_semantic-lexical_2026-09-29.md)
+accepted corrected representative contracts on 2026-09-29; P2 mapping remains open.
+
+| Source finding | Current disposition | Owner and closure evidence |
+|---|---|---|
+| lexical F01 | addressed within reviewed slice | Raw lexical validator no longer imposes consensus over provider-independent qualification/ordinal; two independently supported interpretations coexist in the focused model control |
+| lexical F02 | addressed within reviewed slice | Reference parents require strict structural ancestry; self-parent and unrelated same-span refusals plus valid equal-span ancestry; independent source reinspection accepted |
+
 
 The bounded [stage/sink review](../design_review/reviews/design_review_semantic-stage-sink_2026-09-29.md)
 accepted the corrected boundary on 2026-09-29; full production admission remains open.

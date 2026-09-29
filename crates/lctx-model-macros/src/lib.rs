@@ -54,7 +54,11 @@ fn expand_assertion(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
         impl ::lctx_model::domain::assertion::Assertion for #name {
             const FAMILY: ::lctx_model::domain::attribution::FactFamily = #family;
             fn qualification(&self) -> ::lctx_model::domain::Id<::lctx_model::domain::assertion::AssertionQualification> { self.qualification }
-            fn subjects(&self) -> Vec<::lctx_model::domain::assertion::Subject> { vec![#(self.#subjects.into(),)*] }
+            fn subjects(&self) -> Vec<::lctx_model::domain::assertion::Subject> {
+                let mut subjects = Vec::new();
+                #(::lctx_model::domain::assertion::SubjectValue::append_subjects(&self.#subjects, &mut subjects);)*
+                subjects
+            }
             fn subject_inputs() -> Vec<::lctx_model::domain::ValidationInput> {
                 let mut inputs = Vec::new();
                 #(inputs.extend(<#subject_types as ::lctx_model::domain::assertion::SubjectValue>::inputs());)*
