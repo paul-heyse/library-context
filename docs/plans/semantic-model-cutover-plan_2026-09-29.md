@@ -761,6 +761,17 @@ It holds the installation lock exclusively rather than relying on a REPEATABLE R
 - a failed generation's from-state, class and detail.
 
 Controls: every state across both frontiers and all four writer kinds; a lost attempt turns Live into Interrupted and agrees with `interrupted()`; two leases count 2, then 1, then 0; the reader, even in an explicitly read-write transaction, gets 42501 on every control-table write. The lifecycle and catalog tests share `tests/support` fixtures |
+| P1.9: in the fork, `cargo test -p datafusion-table-providers-postgres --no-default-features --lib`; here, `just build-features`, `just adr lint`, `cargo check --workspace --all-targets` | passed 2026-09-29 (fork lib 64).
+
+Fork commit `09cc8a8` on `lctx/df55-bounded-pool` was pushed to `paul-heyse/datafusion-table-providers` (authorized). It adds:
+- `BoundedChunks`/`ChunkLimits` (4096 rows, 8 MiB, 64 MiB row) by `Row::raw_size_bytes()`;
+- `PostgresConnection::query_arrow_bounded(self, …, declared, limits, Option<MemoryReservation>, drain_timeout)`. The stream owns its connection; a mid-read drop cancels and drains before returning the connection, and a failed drain or closed transport marks a bound pool lost;
+- `PostgresConnectionPool::new_bound(config, ssl, rootcert, Arc<dyn SessionBinder>, BoundLimits)`: prefilled, each connection bound once, no reaping or reconnecting, `health()` Ready/Lost, acquisition refused once lost;
+- declared `List<nullable T>` conforming to `List<non-null T>`, or to fixed-width identities, only without null elements.
+
+Controls: `bounded_chunks` known answers ([4096, 4096, 1808]; [2, 1]; an oversized row alone; 70 MiB refused; completed-chunk bytes), declared-list conformance with null and width refusals, and bound-limit refusal before network access. Live pool behaviour (drain to the same backends, transport loss) is P1.10's control.
+
+Also: the workspace rev bumped, the patch regenerated (base `33095588`), the pins row updated, and an ADR-0090 amendment records the rev move with the family unchanged |
 | `just fmt`, `just test-all`, facts pilots | not_run: functional scope incomplete |
 
 Independent bounded reviewers accepted artifact/capture/acquisition corrections and the

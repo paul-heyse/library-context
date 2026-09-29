@@ -21,7 +21,7 @@ serde_arrow = { version = "=0.15.1", features = ["arrow-59"] }
 async-trait = "=0.1.92"
 pgvector = { version = "=0.4.2", default-features = false, features = ["sqlx"] }
 pgpq = "=0.12.0"
-datafusion-table-providers-postgres = { git = "https://github.com/paul-heyse/datafusion-table-providers", rev = "790726de06007ea657444d8d48e3ce05350352a9", default-features = false }
+datafusion-table-providers-postgres = { git = "https://github.com/paul-heyse/datafusion-table-providers", rev = "09cc8a8f7e5401ad4424e47247e17f5b74cbe86b", default-features = false }
 tokio-postgres = "=0.7.18"
 bytes = "=1.12.1"
 pyo3-async-runtimes = { version = "=0.29.0", default-features = false, features = ["tokio-runtime"] }

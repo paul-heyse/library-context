@@ -71,3 +71,10 @@ The toolchain pin itself belongs to ADR-0079.
 - A future reason to read Delta or Parquet lakes directly would be a new decision.
 - The table-provider fork is unused in the workspace until P1.10 adds generation-bound sessions.
   P1.9 adds bounded chunks to the same fork.
+
+## Amendments
+
+- 2026-09-29: cutover plan P1.9 moved the owned fork to rev `09cc8a8f` (bounded row chunks,
+  reserved bounded reads, bound session pools). The family, the defaults-off entry and the
+  absence of federation are unchanged. `docs/pins.md` owns the current rev.
+

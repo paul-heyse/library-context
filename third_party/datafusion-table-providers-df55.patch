@@ -76,10 +76,10 @@ index 393b03c..0d84a57 100644
  version = { workspace = true }
  readme = { workspace = true }
 diff --git a/crates/postgres/src/arrow_sql_gen/mod.rs b/crates/postgres/src/arrow_sql_gen/mod.rs
-index f6d6608..1773cae 100644
+index f6d6608..6ed60fe 100644
 --- a/crates/postgres/src/arrow_sql_gen/mod.rs
 +++ b/crates/postgres/src/arrow_sql_gen/mod.rs
-@@ -1138,7 +1138,53 @@ pub fn rows_to_arrow(rows: &[Row], projected_schema: &Option<SchemaRef>) -> Resu
+@@ -1138,11 +1138,79 @@ pub fn rows_to_arrow(rows: &[Row], projected_schema: &Option<SchemaRef>) -> Resu
          columns,
          options,
      ) {
@@ -106,24 +106,7 @@ index f6d6608..1773cae 100644
 +                    if !wanted.is_nullable() && array.null_count() != 0 {
 +                        return Err(failure("declared non-null column contains nulls"));
 +                    }
-+                    let array = if array.data_type() == wanted.data_type() {
-+                        array.clone()
-+                    } else if let (DataType::Binary, DataType::FixedSizeBinary(width)) =
-+                        (array.data_type(), wanted.data_type())
-+                    {
-+                        let values = array
-+                            .as_any()
-+                            .downcast_ref::<arrow::array::BinaryArray>()
-+                            .ok_or_else(|| failure("binary representation"))?;
-+                        if values.iter().flatten().any(|v| v.len() != *width as usize) {
-+                            return Err(failure("declared binary identity width mismatch"));
-+                        }
-+                        arrow::compute::cast(array, wanted.data_type())
-+                            .map_err(|source| Error::FailedToBuildRecordBatch { source })?
-+                    } else {
-+                        return Err(failure("unqualified declared domain conversion"));
-+                    };
-+                    arrays.push(array);
++                    arrays.push(conform_declared(array, wanted.data_type(), &failure)?);
 +                }
 +                RecordBatch::try_new_with_options(declared.clone(), arrays, options)
 +                    .map_err(|source| Error::FailedToBuildRecordBatch { source })
@@ -134,11 +117,261 @@ index f6d6608..1773cae 100644
          Err(e) => Err(e).context(FailedToBuildRecordBatchSnafu),
      }
  }
+ 
++/// Conform a decoded array to its declared type: identical types pass, a binary identity
++/// becomes its declared fixed width, and a list conforms element-wise, where a declared non-null
++/// element type is accepted only when no element is null.
++fn conform_declared(
++    array: &ArrayRef,
++    wanted: &DataType,
++    failure: &dyn Fn(&str) -> Error,
++) -> Result<ArrayRef> {
++    if array.data_type() == wanted {
++        return Ok(array.clone());
++    }
++    match (array.data_type(), wanted) {
++        (DataType::Binary, DataType::FixedSizeBinary(width)) => {
++            let values = array
++                .as_any()
++                .downcast_ref::<arrow::array::BinaryArray>()
++                .ok_or_else(|| failure("binary representation"))?;
++            if values.iter().flatten().any(|v| v.len() != *width as usize) {
++                return Err(failure("declared binary identity width mismatch"));
++            }
++            arrow::compute::cast(array, wanted).map_err(|source| Error::FailedToBuildRecordBatch { source })
++        }
++        (DataType::List(_), DataType::List(item)) => {
++            let list = array
++                .as_any()
++                .downcast_ref::<arrow::array::ListArray>()
++                .ok_or_else(|| failure("list representation"))?;
++            if !item.is_nullable() && list.values().null_count() != 0 {
++                return Err(failure("declared non-null list element contains nulls"));
++            }
++            let values = conform_declared(list.values(), item.data_type(), failure)?;
++            let conformed = arrow::array::ListArray::try_new(item.clone(), list.offsets().clone(), values, list.nulls().cloned())
++                .map_err(|source| Error::FailedToBuildRecordBatch { source })?;
++            Ok(Arc::new(conformed))
++        }
++        _ => Err(failure("unqualified declared domain conversion")),
++    }
++}
++
+ /// Identifies columns whose values arrive as a JSON text serialization of a complex
+ /// Arrow type and should be decoded post-collection rather than read as a scalar.
+ ///
+@@ -2306,3 +2374,41 @@ mod tests {
+         );
+     }
+ }
++
++#[cfg(test)]
++mod declared_list_tests {
++    use super::*;
++    use arrow::array::{BinaryBuilder, ListBuilder};
++
++    fn ids(elements: &[Option<&[u8]>]) -> ArrayRef {
++        let mut builder = ListBuilder::new(BinaryBuilder::new());
++        for element in elements {
++            builder.values().append_option(*element);
++        }
++        builder.append(true);
++        Arc::new(builder.finish())
++    }
++    fn declared(nullable: bool) -> DataType {
++        DataType::List(Arc::new(Field::new("item", DataType::FixedSizeBinary(16), nullable)))
++    }
++    fn failure(message: &str) -> Error {
++        Error::FailedToBuildRecordBatch { source: arrow::error::ArrowError::SchemaError(message.into()) }
++    }
++
++    #[test]
++    fn a_list_conforms_to_its_declared_non_null_identity_elements() {
++        let conformed = conform_declared(&ids(&[Some(&[1; 16]), Some(&[2; 16])]), &declared(false), &failure).unwrap();
++        assert_eq!(conformed.data_type(), &declared(false));
++        assert_eq!(conformed.len(), 1);
++    }
++
++    #[test]
++    fn a_null_element_or_a_wrong_width_is_refused() {
++        let null = conform_declared(&ids(&[Some(&[1; 16]), None]), &declared(false), &failure);
++        assert!(null.unwrap_err().to_string().contains("non-null list element"));
++        assert!(conform_declared(&ids(&[Some(&[1; 16]), None]), &declared(true), &failure).is_ok(), "a nullable declaration keeps nulls");
++        let width = conform_declared(&ids(&[Some(&[1; 15])]), &declared(false), &failure);
++        assert!(width.unwrap_err().to_string().contains("width mismatch"));
++    }
++}
++
+diff --git a/crates/postgres/src/bounded.rs b/crates/postgres/src/bounded.rs
+new file mode 100644
+index 0000000..893bed2
+--- /dev/null
++++ b/crates/postgres/src/bounded.rs
+@@ -0,0 +1,150 @@
++//! Row- and byte-bounded chunking of streamed rows. A chunk holds at most `rows` rows and
++//! `bytes` bytes of wire data; one row larger than `bytes` forms its own chunk, and one larger
++//! than `max_row` is refused before it is retained.
++
++/// Transfer bounds for one streamed read.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub struct ChunkLimits {
++    pub rows: usize,
++    pub bytes: usize,
++    pub max_row: usize,
++}
++
++impl Default for ChunkLimits {
++    fn default() -> Self {
++        Self {
++            rows: 4096,
++            bytes: 8 << 20,
++            max_row: 64 << 20,
++        }
++    }
++}
++
++impl ChunkLimits {
++    pub fn validate(&self) -> Result<(), &'static str> {
++        if self.rows == 0 || self.bytes == 0 || self.max_row == 0 {
++            return Err("chunk limits must be positive");
++        }
++        Ok(())
++    }
++}
++
++/// A row larger than the per-row bound.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub struct RowTooLarge {
++    pub size: usize,
++    pub bound: usize,
++}
++
++impl std::fmt::Display for RowTooLarge {
++    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++        write!(f, "a {} byte row exceeds the {} byte row bound", self.size, self.bound)
++    }
++}
++
++impl std::error::Error for RowTooLarge {}
++
++/// Accumulates sized items into bounded chunks.
++#[derive(Debug)]
++pub struct BoundedChunks<T> {
++    limits: ChunkLimits,
++    pending: Vec<T>,
++    bytes: usize,
++}
++
++impl<T> BoundedChunks<T> {
++    pub fn new(limits: ChunkLimits) -> Self {
++        Self {
++            limits,
++            pending: Vec::new(),
++            bytes: 0,
++        }
++    }
++
++    /// Retain an item of `size` bytes. Returns the completed chunk it displaced, if adding it
++    /// would exceed the row or byte bound.
++    pub fn push(&mut self, item: T, size: usize) -> Result<Option<(Vec<T>, usize)>, RowTooLarge> {
++        if size > self.limits.max_row {
++            return Err(RowTooLarge {
++                size,
++                bound: self.limits.max_row,
++            });
++        }
++        let full = !self.pending.is_empty()
++            && (self.pending.len() == self.limits.rows
++                || self.bytes.saturating_add(size) > self.limits.bytes);
++        let completed = full.then(|| self.take());
++        self.pending.push(item);
++        self.bytes += size;
++        Ok(completed)
++    }
++
++    /// Bytes of the retained, not yet completed chunk.
++    pub fn pending_bytes(&self) -> usize {
++        self.bytes
++    }
++
++    /// The final partial chunk, if any.
++    pub fn finish(&mut self) -> Option<(Vec<T>, usize)> {
++        (!self.pending.is_empty()).then(|| self.take())
++    }
++
++    fn take(&mut self) -> (Vec<T>, usize) {
++        let bytes = std::mem::take(&mut self.bytes);
++        (std::mem::take(&mut self.pending), bytes)
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    const MIB: usize = 1 << 20;
++
++    fn chunk(sizes: &[usize]) -> Result<Vec<usize>, RowTooLarge> {
++        let mut chunks = BoundedChunks::new(ChunkLimits::default());
++        let mut lengths = Vec::new();
++        for (index, size) in sizes.iter().enumerate() {
++            if let Some((rows, _)) = chunks.push(index, *size)? {
++                lengths.push(rows.len());
++            }
++        }
++        lengths.extend(chunks.finish().map(|(rows, _)| rows.len()));
++        Ok(lengths)
++    }
++
++    #[test]
++    fn bounded_chunks_split_by_rows_and_bytes() {
++        assert_eq!(chunk(&[100; 10_000]).unwrap(), [4096, 4096, 1808]);
++        assert_eq!(chunk(&[3 * MIB; 3]).unwrap(), [2, 1]);
++        assert_eq!(chunk(&[10, 20 * MIB, 10]).unwrap(), [1, 1, 1], "an oversized row travels alone");
++        assert_eq!(chunk(&[64 * MIB]).unwrap(), [1], "the row bound is inclusive");
++        assert_eq!(chunk(&[]).unwrap(), Vec::<usize>::new(), "no rows, no chunk");
++    }
++
++    #[test]
++    fn bounded_chunks_refuse_a_row_over_the_bound() {
++        assert_eq!(
++            chunk(&[10, 70 * MIB]),
++            Err(RowTooLarge {
++                size: 70 * MIB,
++                bound: 64 * MIB
++            })
++        );
++    }
++
++    #[test]
++    fn bounded_chunks_report_completed_bytes() {
++        let mut chunks = BoundedChunks::new(ChunkLimits {
++            rows: 2,
++            bytes: 100,
++            max_row: 100,
++        });
++        assert_eq!(chunks.push('a', 40).unwrap(), None);
++        assert_eq!(chunks.push('b', 40).unwrap(), None);
++        assert_eq!(chunks.pending_bytes(), 80);
++        assert_eq!(chunks.push('c', 10).unwrap(), Some((vec!['a', 'b'], 80)));
++        assert_eq!(chunks.finish(), Some((vec!['c'], 10)));
++        assert_eq!(chunks.finish(), None);
++    }
++}
 diff --git a/crates/postgres/src/conn.rs b/crates/postgres/src/conn.rs
-index 644a576..ee62178 100644
+index 644a576..11166cc 100644
 --- a/crates/postgres/src/conn.rs
 +++ b/crates/postgres/src/conn.rs
-@@ -446,27 +446,47 @@ impl<'a> AsyncDbConnection<PostgresPooledConnection, &'a (dyn ToSql + Sync)>
+@@ -4,6 +4,8 @@ use std::error::Error;
+ use std::sync::Arc;
+ 
+ use crate::arrow_sql_gen::rows_to_arrow;
++use crate::bounded::{BoundedChunks, ChunkLimits};
++use datafusion::execution::memory_pool::MemoryReservation;
+ use crate::arrow_sql_gen::schema::pg_data_type_to_arrow_type;
+ use crate::arrow_sql_gen::schema::ParseContext;
+ use crate::pool::ConnectionManager;
+@@ -446,27 +448,47 @@ impl<'a> AsyncDbConnection<PostgresPooledConnection, &'a (dyn ToSql + Sync)>
          params: &[&'a (dyn ToSql + Sync)],
          projected_schema: Option<SchemaRef>,
      ) -> Result<SendableRecordBatchStream> {
@@ -187,7 +420,7 @@ index 644a576..ee62178 100644
                  stream::empty(),
              )));
          };
-@@ -483,9 +503,11 @@ impl<'a> AsyncDbConnection<PostgresPooledConnection, &'a (dyn ToSql + Sync)>
+@@ -483,9 +505,11 @@ impl<'a> AsyncDbConnection<PostgresPooledConnection, &'a (dyn ToSql + Sync)>
                      }
                      Err(e) => {
                          yield Err(DataFusionError::Execution(format!("Failed to fetch batch: {e}")));
@@ -199,11 +432,170 @@ index 644a576..ee62178 100644
          };
  
          Ok(Box::pin(RecordBatchStreamAdapter::new(
+@@ -499,7 +523,152 @@ impl<'a> AsyncDbConnection<PostgresPooledConnection, &'a (dyn ToSql + Sync)>
+     }
+ }
+ 
++/// A bounded read's hold on its connection. When the request ends the connection returns to
++/// its pool; if the stream is dropped mid-read, the read is drained first. A failed drain or a
++/// closed transport loses a bound pool rather than returning an uncertain connection.
++struct Lease {
++    connection: Option<PostgresConnection>,
++    drain_timeout: std::time::Duration,
++}
++
++impl Lease {
++    fn end(&mut self) {
++        if let Some(connection) = self.connection.take() {
++            if connection.conn.is_closed() {
++                connection.conn.mark_lost();
++            }
++            connection.conn.finish_request();
++        }
++    }
++}
++
++impl Drop for Lease {
++    fn drop(&mut self) {
++        let Some(connection) = self.connection.take() else {
++            return;
++        };
++        let timeout = self.drain_timeout;
++        match tokio::runtime::Handle::try_current() {
++            Ok(runtime) => {
++                runtime.spawn(async move {
++                    let drained = tokio::time::timeout(timeout, connection.conn.drain()).await;
++                    if matches!(drained, Ok(Ok(()))) {
++                        connection.conn.finish_request();
++                    } else {
++                        connection.conn.mark_lost();
++                    }
++                    drop(connection);
++                });
++            }
++            Err(_) => connection.conn.mark_lost(),
++        }
++    }
++}
++
++fn charge(
++    reservation: &Option<MemoryReservation>,
++    retained: usize,
++) -> std::result::Result<(), DataFusionError> {
++    // Retained wire rows plus their Arrow conversion.
++    reservation
++        .as_ref()
++        .map_or(Ok(()), |r| r.try_resize(retained.saturating_mul(2)))
++}
++
+ impl PostgresConnection {
++    /// Stream `sql` as batches of exactly the `declared` schema, in row- and byte-bounded
++    /// chunks sized by each row's wire bytes. Retained rows and their conversion are charged to
++    /// `reservation`. The stream owns this connection: at the end of the request it returns to
++    /// its pool; if the stream is dropped mid-read, the read is cancelled and drained within
++    /// `drain_timeout` before the connection returns, and a failed drain loses a bound pool.
++    pub async fn query_arrow_bounded(
++        self,
++        sql: &str,
++        params: &[&(dyn ToSql + Sync)],
++        declared: SchemaRef,
++        limits: ChunkLimits,
++        reservation: Option<MemoryReservation>,
++        drain_timeout: std::time::Duration,
++    ) -> std::result::Result<SendableRecordBatchStream, DataFusionError> {
++        limits
++            .validate()
++            .map_err(|message| DataFusionError::Configuration(message.into()))?;
++        self.conn.start_request();
++        let rows = match self.conn.query_raw(sql, params.iter().copied()).await {
++            Ok(rows) => rows,
++            Err(error) => {
++                Lease {
++                    connection: Some(self),
++                    drain_timeout,
++                }
++                .end();
++                return Err(DataFusionError::External(Box::new(
++                    PostgresError::QueryError { source: error },
++                )));
++            }
++        };
++        let mut lease = Lease {
++            connection: Some(self),
++            drain_timeout,
++        };
++        let schema = declared.clone();
++        let output = stream! {
++            let mut rows = std::pin::pin!(rows);
++            let mut chunks = BoundedChunks::new(limits);
++            let mut retained = 0usize;
++            loop {
++                let completed = match rows.next().await {
++                    Some(Ok(row)) => {
++                        let size = row.raw_size_bytes();
++                        if let Err(error) = charge(&reservation, retained.saturating_add(size)) {
++                            yield Err(error);
++                            return;
++                        }
++                        retained += size;
++                        match chunks.push(row, size) {
++                            Ok(completed) => completed,
++                            Err(error) => {
++                                yield Err(DataFusionError::External(Box::new(error)));
++                                return;
++                            }
++                        }
++                    }
++                    Some(Err(error)) => {
++                        lease.end();
++                        yield Err(DataFusionError::External(Box::new(PostgresError::QueryError { source: error })));
++                        return;
++                    }
++                    None => {
++                        lease.end();
++                        chunks.finish()
++                    }
++                };
++                let ended = lease.connection.is_none();
++                if let Some((rows, bytes)) = completed {
++                    match rows_to_arrow(&rows, &Some(declared.clone())) {
++                        Ok(batch) => {
++                            drop(rows);
++                            retained -= bytes;
++                            let _ = charge(&reservation, retained);
++                            yield Ok(batch);
++                        }
++                        Err(error) => {
++                            yield Err(DataFusionError::External(Box::new(PostgresError::ConversionError { source: error })));
++                            return;
++                        }
++                    }
++                }
++                if ended {
++                    break;
++                }
++            }
++            if let Some(reservation) = &reservation {
++                reservation.free();
++            }
++        };
++        Ok(Box::pin(RecordBatchStreamAdapter::new(schema, output)))
++    }
++
+     #[must_use]
+     pub fn with_unsupported_type_action(mut self, action: UnsupportedTypeAction) -> Self {
+         self.unsupported_type_action = action;
 diff --git a/crates/postgres/src/lib.rs b/crates/postgres/src/lib.rs
-index 12df531..8d745ec 100644
+index 12df531..aadc209 100644
 --- a/crates/postgres/src/lib.rs
 +++ b/crates/postgres/src/lib.rs
-@@ -28,7 +28,7 @@ use datafusion_table_providers_common::sql::arrow_sql_gen::statement::{
+@@ -1,4 +1,5 @@
+ pub mod arrow_sql_gen;
++pub mod bounded;
+ pub mod conn;
+ pub mod pool;
+ 
+@@ -28,7 +29,7 @@ use datafusion_table_providers_common::sql::arrow_sql_gen::statement::{
  use datafusion_table_providers_common::sql::db_connection_pool::{
      self, dbconnection::DbConnection, DbConnectionPool,
  };
@@ -212,7 +604,7 @@ index 12df531..8d745ec 100644
  use datafusion_table_providers_common::util::schema::SchemaValidator;
  use datafusion_table_providers_common::UnsupportedTypeAction;
  use snafu::prelude::*;
-@@ -140,6 +140,19 @@ impl PostgresTableFactory {
+@@ -140,6 +141,19 @@ impl PostgresTableFactory {
          Self { pool }
      }
  
@@ -233,10 +625,55 @@ index 12df531..8d745ec 100644
          &self,
          table_reference: TableReference,
 diff --git a/crates/postgres/src/pool.rs b/crates/postgres/src/pool.rs
-index b1b7e3c..42b0a2d 100644
+index b1b7e3c..af1ff0f 100644
 --- a/crates/postgres/src/pool.rs
 +++ b/crates/postgres/src/pool.rs
-@@ -127,18 +127,38 @@ impl From<tokio_postgres::Error> for ConnectionManagerError {
+@@ -82,6 +82,14 @@ pub enum Error {
+ 
+     #[snafu(display("Task failed to execute on IO runtime.\n{source}"))]
+     IoRuntimeError { source: tokio::task::JoinError },
++
++    #[snafu(display("The bound PostgreSQL pool is lost: a connection closed or a cancelled read could not be drained. It never reconnects."))]
++    BoundPoolLost,
++
++    #[snafu(display("Binding a PostgreSQL session failed.\n{source}"))]
++    SessionBindError {
++        source: Box<dyn std::error::Error + Send + Sync>,
++    },
+ }
+ 
+ pub type Result<T, E = Error> = std::result::Result<T, E>;
+@@ -93,6 +101,10 @@ pub enum ConnectionManagerError {
+     Postgres(tokio_postgres::Error),
+     /// An error from the password provider.
+     PasswordProvider(Box<dyn std::error::Error + Send + Sync>),
++    /// A bound pool may not open a connection beyond its prefilled set.
++    Lost,
++    /// The session binder refused a new connection.
++    Bind(Box<dyn std::error::Error + Send + Sync>),
+ }
+ 
+ impl std::fmt::Display for ConnectionManagerError {
+@@ -100,6 +112,8 @@ impl std::fmt::Display for ConnectionManagerError {
+         match self {
+             Self::Postgres(e) => write!(f, "{e}"),
+             Self::PasswordProvider(e) => write!(f, "password provider error: {e}"),
++            Self::Lost => write!(f, "bound pool lost; it never reconnects"),
++            Self::Bind(e) => write!(f, "session binding failed: {e}"),
+         }
+     }
+ }
+@@ -108,7 +122,8 @@ impl std::error::Error for ConnectionManagerError {
+     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+         match self {
+             Self::Postgres(e) => Some(e),
+-            Self::PasswordProvider(e) => Some(e.as_ref()),
++            Self::PasswordProvider(e) | Self::Bind(e) => Some(e.as_ref()),
++            Self::Lost => None,
+         }
+     }
+ }
+@@ -127,18 +142,75 @@ impl From<tokio_postgres::Error> for ConnectionManagerError {
  ///
  /// When no provider is set (passwordless auth), the manager connects using the
  /// stored [`Config`] as-is.
@@ -262,6 +699,42 @@ index b1b7e3c..42b0a2d 100644
      config: Config,
      tls: MakeTlsConnector,
      password_provider: Option<Arc<dyn PasswordProvider>>,
++    bound: Option<Bound>,
++}
++
++/// Binds each physical connection to its caller's session once, before first use: for example,
++/// by holding a lease on the data it reads and checking that data's identity. A bound pool opens
++/// exactly its prefilled connections and never reconnects, so a binding is never silently
++/// replaced by another.
++#[async_trait]
++pub trait SessionBinder: Send + Sync + std::fmt::Debug {
++    async fn bind(
++        &self,
++        client: &tokio_postgres::Client,
++    ) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>>;
++}
++
++/// Limits of a bound pool.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub struct BoundLimits {
++    pub connections: u32,
++    pub acquire_timeout: std::time::Duration,
++    /// How long a cancelled read may take to drain before the pool is lost.
++    pub drain_timeout: std::time::Duration,
++}
++
++/// A bound pool is ready until it is lost; loss is terminal.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum PoolHealth {
++    Ready { connections: u32, idle: u32 },
++    Lost,
++}
++
++#[derive(Debug)]
++struct Bound {
++    binder: Arc<dyn SessionBinder>,
++    remaining: std::sync::atomic::AtomicU32,
++    lost: Arc<std::sync::atomic::AtomicBool>,
  }
  
  impl ConnectionManager {
@@ -273,10 +746,11 @@ index b1b7e3c..42b0a2d 100644
              password_provider: None,
 +            metrics: Arc::default(),
 +            permits: Arc::new(tokio::sync::Semaphore::new(capacity as usize)),
++            bound: None,
          }
      }
  
-@@ -185,11 +205,85 @@ async fn configure_session(
+@@ -185,11 +257,107 @@ async fn configure_session(
      Ok(())
  }
  
@@ -288,6 +762,8 @@ index b1b7e3c..42b0a2d 100644
 +    tls: MakeTlsConnector,
 +    permit: Option<tokio::sync::OwnedSemaphorePermit>,
 +    pub(crate) streaming: Arc<std::sync::atomic::AtomicBool>,
++    /// A bound pool's terminal loss flag, shared by all of its connections.
++    pub(crate) lost: Option<Arc<std::sync::atomic::AtomicBool>>,
 +}
 +impl std::fmt::Debug for ManagedClient {
 +    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -328,6 +804,19 @@ index b1b7e3c..42b0a2d 100644
 +    }
 +}
 +impl ManagedClient {
++    /// Cancel the in-flight request and prove it left the server: CancelRequest has no
++    /// acknowledgement, so a following round trip confirms the drain.
++    pub async fn drain(&self) -> std::result::Result<(), tokio_postgres::Error> {
++        self.cancel_token().cancel_query(self.tls.clone()).await?;
++        self.simple_query("").await?;
++        Ok(())
++    }
++    /// Mark the bound pool this connection belongs to as lost.
++    pub fn mark_lost(&self) {
++        if let Some(lost) = &self.lost {
++            lost.store(true, std::sync::atomic::Ordering::Release);
++        }
++    }
 +    pub fn start_request(&self) {
 +        self.streaming
 +            .store(true, std::sync::atomic::Ordering::Release);
@@ -355,6 +844,13 @@ index b1b7e3c..42b0a2d 100644
  
 -    async fn connect(&self) -> std::result::Result<tokio_postgres::Client, ConnectionManagerError> {
 +    async fn connect(&self) -> std::result::Result<ManagedClient, ConnectionManagerError> {
++        if let Some(bound) = &self.bound {
++            use std::sync::atomic::Ordering;
++            if bound.remaining.fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| n.checked_sub(1)).is_err() {
++                bound.lost.store(true, Ordering::Release);
++                return Err(ConnectionManagerError::Lost);
++            }
++        }
 +        let permit = self
 +            .permits
 +            .clone()
@@ -364,7 +860,7 @@ index b1b7e3c..42b0a2d 100644
          let (client, connection) = if let Some(provider) = &self.password_provider {
              let password = provider
                  .get_password()
-@@ -201,32 +295,40 @@ impl bb8::ManageConnection for ConnectionManager {
+@@ -201,39 +369,203 @@ impl bb8::ManageConnection for ConnectionManager {
          } else {
              self.config.connect(self.tls.clone()).await?
          };
@@ -385,8 +881,12 @@ index b1b7e3c..42b0a2d 100644
 +            connection_task: task.abort_handle(),
 +            metrics: self.metrics.clone(),
 +            streaming: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
++            lost: self.bound.as_ref().map(|bound| bound.lost.clone()),
 +        };
 +        configure_session(&managed).await?;
++        if let Some(bound) = &self.bound {
++            bound.binder.bind(&managed).await.map_err(ConnectionManagerError::Bind)?;
++        }
 +        Ok(managed)
      }
  
@@ -402,7 +902,12 @@ index b1b7e3c..42b0a2d 100644
 -    fn has_broken(&self, conn: &mut tokio_postgres::Client) -> bool {
 -        conn.is_closed()
 +    fn has_broken(&self, conn: &mut ManagedClient) -> bool {
-+        conn.is_closed() || conn.streaming.load(std::sync::atomic::Ordering::Acquire)
++        let broken = conn.is_closed() || conn.streaming.load(std::sync::atomic::Ordering::Acquire);
++        if broken {
++            // A bound connection is never replaced; losing one loses the pool.
++            conn.mark_lost();
++        }
++        broken
      }
  }
  
@@ -412,7 +917,9 @@ index b1b7e3c..42b0a2d 100644
      pool: Arc<bb8::Pool<ConnectionManager>>,
      join_push_down: JoinPushDown,
      unsupported_type_action: UnsupportedTypeAction,
-@@ -234,6 +336,63 @@ pub struct PostgresConnectionPool {
+     io_handle: Option<Handle>,
++    lost: Option<Arc<std::sync::atomic::AtomicBool>>,
++    drain_timeout: std::time::Duration,
  }
  
  impl PostgresConnectionPool {
@@ -470,13 +977,101 @@ index b1b7e3c..42b0a2d 100644
 +            join_push_down,
 +            unsupported_type_action: UnsupportedTypeAction::Error,
 +            io_handle: None,
++            lost: None,
++            drain_timeout: std::time::Duration::from_secs(2),
 +        })
++    }
++
++    /// Create a bound pool: exactly `limits.connections` connections, opened and bound by
++    /// `binder` before this returns, never reaped and never replaced. A closed connection or a
++    /// cancelled read that cannot be drained within `limits.drain_timeout` loses the pool, and
++    /// every later acquisition is refused.
++    pub async fn new_bound(
++        config: Config,
++        ssl_mode: &str,
++        rootcert: Option<PathBuf>,
++        binder: Arc<dyn SessionBinder>,
++        limits: BoundLimits,
++    ) -> Result<Self> {
++        if !(1..=32).contains(&limits.connections)
++            || limits.acquire_timeout.is_zero()
++            || limits.acquire_timeout.as_secs() > 60
++            || limits.drain_timeout.is_zero()
++            || limits.drain_timeout.as_secs() > 60
++        {
++            return InvalidParameterSnafu {
++                parameter_name: "bound pool limits".to_string(),
++            }
++            .fail();
++        }
++        let certs = match rootcert {
++            Some(path) => {
++                let bytes = tokio::fs::read(path).await.context(FailedToReadCertSnafu)?;
++                Some(parse_certs(&bytes)?)
++            }
++            None => None,
++        };
++        let tls = get_tls_connector(ssl_mode, certs)?;
++        let join_push_down = get_join_context(&config);
++        let lost = Arc::new(std::sync::atomic::AtomicBool::new(false));
++        let mut manager = ConnectionManager::new(config, MakeTlsConnector::new(tls), limits.connections);
++        manager.bound = Some(Bound {
++            binder,
++            remaining: std::sync::atomic::AtomicU32::new(limits.connections),
++            lost: lost.clone(),
++        });
++        let metrics = manager.metrics.clone();
++        let pool = bb8::Pool::builder()
++            .max_size(limits.connections)
++            .min_idle(Some(limits.connections))
++            .connection_timeout(limits.acquire_timeout)
++            .idle_timeout(None)
++            .max_lifetime(None)
++            .error_sink(Box::new(PostgresErrorSink::new()))
++            .build(manager)
++            .await
++            .map_err(map_pool_build_error)?;
++        let state = pool.state();
++        if state.connections != limits.connections || lost.load(std::sync::atomic::Ordering::Acquire) {
++            return BoundPoolLostSnafu.fail();
++        }
++        Ok(Self {
++            metrics,
++            pool: Arc::new(pool),
++            join_push_down,
++            unsupported_type_action: UnsupportedTypeAction::Error,
++            io_handle: None,
++            lost: Some(lost),
++            drain_timeout: limits.drain_timeout,
++        })
++    }
++
++    /// Whether a bound pool can still serve reads, and its connection counts. An unbound pool
++    /// is never lost.
++    pub fn health(&self) -> PoolHealth {
++        if self.is_lost() {
++            return PoolHealth::Lost;
++        }
++        let state = self.pool.state();
++        PoolHealth::Ready {
++            connections: state.connections,
++            idle: state.idle_connections,
++        }
++    }
++
++    fn is_lost(&self) -> bool {
++        self.lost.as_ref().is_some_and(|lost| lost.load(std::sync::atomic::Ordering::Acquire))
++    }
++
++    /// How long a cancelled read on this pool may take to drain.
++    pub fn drain_timeout(&self) -> std::time::Duration {
++        self.drain_timeout
 +    }
 +
      /// Creates a new instance of `PostgresConnectionPool`.
      ///
      /// If a `pass` parameter is present, it is wrapped in a [`StaticPasswordProvider`]
-@@ -386,12 +545,6 @@ impl PostgresConnectionPool {
+@@ -386,12 +718,6 @@ impl PostgresConnectionPool {
  
          let join_push_down = get_join_context(&config);
  
@@ -489,7 +1084,7 @@ index b1b7e3c..42b0a2d 100644
          let mut connection_pool_size = 10; // The BB8 default is 10
          if let Some(pg_pool_size) = params
              .get("connection_pool_size")
-@@ -402,6 +555,13 @@ impl PostgresConnectionPool {
+@@ -402,6 +728,13 @@ impl PostgresConnectionPool {
              })?;
          }
  
@@ -503,7 +1098,7 @@ index b1b7e3c..42b0a2d 100644
          let pool = bb8::Pool::builder()
              .max_size(connection_pool_size)
              .error_sink(Box::new(error_sink))
-@@ -418,6 +578,7 @@ impl PostgresConnectionPool {
+@@ -418,10 +751,13 @@ impl PostgresConnectionPool {
          }
  
          Ok(PostgresConnectionPool {
@@ -511,7 +1106,41 @@ index b1b7e3c..42b0a2d 100644
              pool: Arc::new(pool),
              join_push_down,
              unsupported_type_action: UnsupportedTypeAction::default(),
-@@ -750,3 +911,22 @@ mod tests {
+             io_handle: None,
++            lost: None,
++            drain_timeout: std::time::Duration::from_secs(2),
+         })
+     }
+ 
+@@ -445,6 +781,9 @@ impl PostgresConnectionPool {
+     ///
+     /// Returns an error if there is a problem creating the connection pool.
+     pub async fn connect_direct(&self) -> Result<PostgresConnection> {
++        if self.is_lost() {
++            return BoundPoolLostSnafu.fail();
++        }
+         let pool = Arc::clone(&self.pool);
+         let conn = if let Some(handle) = &self.io_handle {
+             handle
+@@ -551,6 +890,8 @@ fn map_pool_build_error(e: ConnectionManagerError) -> Error {
+     match e {
+         ConnectionManagerError::Postgres(e) => Error::ConnectionPoolError { source: e },
+         ConnectionManagerError::PasswordProvider(e) => Error::PasswordProviderError { source: e },
++        ConnectionManagerError::Lost => Error::BoundPoolLost,
++        ConnectionManagerError::Bind(e) => Error::SessionBindError { source: e },
+     }
+ }
+ 
+@@ -562,6 +903,8 @@ fn map_pool_run_error(e: bb8::RunError<ConnectionManagerError>) -> Error {
+         bb8::RunError::User(ConnectionManagerError::PasswordProvider(e)) => {
+             Error::PasswordProviderError { source: e }
+         }
++        bb8::RunError::User(ConnectionManagerError::Lost) => Error::BoundPoolLost,
++        bb8::RunError::User(ConnectionManagerError::Bind(e)) => Error::SessionBindError { source: e },
+         bb8::RunError::TimedOut => Error::ConnectionPoolRunError {
+             source: bb8::RunError::TimedOut,
+         },
+@@ -750,3 +1093,39 @@ mod tests {
          assert_eq!(config.get_application_name(), None);
      }
  }
@@ -519,6 +1148,23 @@ index b1b7e3c..42b0a2d 100644
 +#[cfg(test)]
 +mod bounded_pool_tests {
 +    use super::*;
++    #[derive(Debug)]
++    struct Unused;
++    #[async_trait]
++    impl SessionBinder for Unused {
++        async fn bind(&self, _: &tokio_postgres::Client) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
++            unreachable!("limits are refused before any connection")
++        }
++    }
++    #[tokio::test]
++    async fn bound_limits_are_rejected_before_network_access() {
++        let second = std::time::Duration::from_secs(1);
++        for (connections, acquire, drain) in [(0, second, second), (33, second, second), (2, std::time::Duration::ZERO, second), (2, second, std::time::Duration::ZERO)] {
++            let limits = BoundLimits { connections, acquire_timeout: acquire, drain_timeout: drain };
++            assert!(matches!(PostgresConnectionPool::new_bound(Config::new(), "disable", None, Arc::new(Unused), limits).await,
++                Err(Error::InvalidParameterError { .. })));
++        }
++    }
 +    #[tokio::test]
 +    async fn limits_are_rejected_before_network_access() {
 +        for (size, seconds) in [(0, 5), (33, 5), (2, 0), (2, 61)] {
