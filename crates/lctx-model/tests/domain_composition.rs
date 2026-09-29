@@ -15,7 +15,7 @@ struct World { rows: Rows, context: AnalysisContext, base: AssertionQualificatio
     /// The modality the provider asserts for the next call's target.
     target_modality: Modality }
 /// A call to a fresh callee. `formals` are the parameter variables, `entries` the entry-value ports.
-struct Call { site: Occurrence, qualification: AssertionQualification, target: CallTarget, destination: CallDestination, bound: BoundCall,
+struct Call { site: Occurrence, qualification: AssertionQualification, target: CallTarget, destination: CallDestination, receiver: Receiver, bound: BoundCall,
     arguments: Vec<CallArgument>, symbol: ProviderSymbol, declaration: SymbolDeclaration, members: Vec<SignatureParameter>,
     links: Vec<ParameterDeclaration>, formals: Vec<PlaceRoot>, entries: Vec<PlaceRoot>, actuals: Vec<Occurrence> }
 struct Caller { symbol: ProviderSymbol, declaration: SymbolDeclaration }
@@ -81,7 +81,7 @@ impl World {
         let bound = bind(BindingInput { target: &target, qualification: &qualification, signature_qualification: &self.base, destination: &destination,
             channel: &CallChannel::Direct, receiver: &receiver, signature: &signature, parameters: &members, shapes: &shape_map, call: &syntax, arguments: &arguments }).unwrap();
         let mut actuals = actual_rows; if has_receiver { actuals.insert(0, receiver_actual); }
-        Call { site, qualification, target, destination, bound, arguments, symbol, declaration, members, links, formals, entries, actuals }
+        Call { site, qualification, target, destination, receiver, bound, arguments, symbol, declaration, members, links, formals, entries, actuals }
     }
     fn catalog(&self) -> CompositionCatalog<'_> {
         CompositionCatalog { guards: GuardCatalog { atoms: &self.rows.atoms, predicates: &self.rows.predicates, places: &self.rows.places, roots: &self.rows.roots },
@@ -91,7 +91,7 @@ impl World {
 fn shape(name: &str, kind: ParameterKind, required: bool) -> ParameterShape { ParameterShape { name: Some(name.into()), kind, required } }
 fn positional(name: &str) -> ParameterShape { shape(name, ParameterKind::PositionalOrKeyword, true) }
 fn frame<'a>(call: &'a Call, summary: bool) -> CallFrame<'a> {
-    CallFrame { site: &call.site, target: &call.target, qualification: &call.qualification, destination: &call.destination, bound: Some(&call.bound),
+    CallFrame { site: &call.site, target: &call.target, qualification: &call.qualification, destination: &call.destination, receiver: &call.receiver, bound: Some(&call.bound),
         arguments: &call.arguments, summary_admitted: summary, unique_variant: true }
 }
 fn callee<'a>(call: &'a Call, witnesses: Option<&'a BTreeMap<Id<EvaluationAtom>, StabilityWitness>>) -> CalleeFrame<'a> {
@@ -236,13 +236,18 @@ fn aggregates_and_receivers_carry_their_projection() {
     assert!(matches!(compose(&w, &caller, &w.branch(&caller.symbol, &source, &somewhere, TransferKind::Identity, Diagram::always()), &empty_call, &through, true).as_slice(), [CallComposition::Disjoint]));
     // obj.run(x): the receiver's value reaches the result through the receiver binding.
     let method = w.call("run", &[positional("self")], &[], true);
-    let receiver = PlaceRoot::Receiver { callable: method.declaration.declaration };
-    let self_place = w.place(receiver, &[]);
+    let self_place = w.place(method.entries[0].clone(), &[]);
     let returned = w.place(PlaceRoot::Return { callable: method.declaration.declaration }, &[]);
     let returns_self = w.branch(&method.symbol, &self_place, &returned, TransferKind::Identity, Diagram::always());
     let into_obj = w.place(PlaceRoot::Occurrence { occurrence: method.actuals[0].id() }, &[]);
     let t = transfer(compose(&w, &caller, &w.branch(&caller.symbol, &source, &into_obj, TransferKind::Identity, Diagram::always()), &method, &returns_self, true));
     assert_eq!(ends(&w, &t).1, (PlaceRoot::Occurrence { occurrence: method.site.id() }, AccessPath::empty()));
+    // A declared method's receiver has one encoding, its first parameter's entry value.
+    let receiver_root = w.place(PlaceRoot::Receiver { callable: method.declaration.declaration }, &[]);
+    let second_encoding = w.branch(&method.symbol, &receiver_root, &returned, TransferKind::Identity, Diagram::always());
+    let empty = BTreeMap::new();
+    assert!(compose_call(&w.branch(&caller.symbol, &source, &into_obj, TransferKind::Identity, Diagram::always()), &second_encoding,
+        &frame(&method, true), &owner(&caller), &callee(&method, Some(&empty)), &w.catalog()).is_err());
 }
 
 #[test]
@@ -356,6 +361,14 @@ fn every_admitted_alternative_composes_separately_and_modality_follows_the_site(
     let open = CallFrame { target: &open_target, destination: &unresolved, bound: None, ..frame(&first, false) };
     let results = compose_site(std::slice::from_ref(&delivered), &[SiteCall { frame: open, callee: None, branches: &[] }], &owner(&caller), &w.catalog()).unwrap();
     assert_eq!(obligation(results), ObligationKind::UnresolvedTarget);
+    // A value delivered into the receiver of an unresolved method call is that call's obligation.
+    let method = w.call("m", &[positional("self")], &[], true);
+    let into_receiver = w.place(PlaceRoot::Occurrence { occurrence: method.actuals[0].id() }, &[]);
+    let open_method = CallTarget { destination: unresolved.id(), ..method.target.clone() };
+    let open = CallFrame { target: &open_method, destination: &unresolved, bound: None, ..frame(&method, false) };
+    let delivered_receiver = w.branch(&caller.symbol, &source, &into_receiver, TransferKind::Identity, Diagram::always());
+    let results = compose_site(std::slice::from_ref(&delivered_receiver), &[SiteCall { frame: open, callee: None, branches: &[] }], &owner(&caller), &w.catalog()).unwrap();
+    assert_eq!(obligation(results), ObligationKind::UnresolvedTarget);
     // A frame whose destination is not its target's is refused.
     let forged = CallFrame { destination: &unresolved, ..frame(&first, false) };
     assert!(compose_call(&delivered, &branches[0][0], &forged, &owner(&caller), &callee(&first, Some(&empty)), &w.catalog()).is_err());
@@ -395,7 +408,7 @@ fn stored_compositions_validate_and_mismatched_steps_refuse() {
     assert!(f.composed.records.substitutions.iter().any(|s| s.witness == f.base.witness.id()), "the formal guard is restated through its witness");
     f.validate().unwrap();
     for (mutation, reason) in [(fixture::Mutation::CalleeFromAnotherSymbol, "differ from the target's symbol"),
-        (fixture::Mutation::NotComposed, "not the caller's transfer at the target's site"), (fixture::Mutation::UnrestatedGuard, "restated at the call"), (fixture::Mutation::ErasedCondition, "restated at the call")] {
+        (fixture::Mutation::NotComposed, "not the caller's transfer at the target's site"), (fixture::Mutation::ForeignOutput, "not a caller-side place of the call"), (fixture::Mutation::UnrestatedGuard, "restated at the call"), (fixture::Mutation::ErasedCondition, "restated at the call")] {
         let mut refused = fixture::Fixture::new(); refused.mutate(mutation);
         let error = refused.validate().unwrap_err();
         assert!(matches!(error, ModelError::Invalid(ref m) if m.contains(reason)), "{mutation:?}: {error}");
@@ -457,7 +470,7 @@ fn ports_are_total_over_the_bound_signature() {
     // `C.m(obj, v)` with `self.x = v`: the unbound call passes the receiver positionally.
     let method = w.call("m", &[positional("self"), positional("v")], &[(ArgumentKind::Positional, None); 2], false);
     let v = w.place(method.entries[1].clone(), &[]);
-    let receiver_x = w.place(PlaceRoot::Receiver { callable: method.declaration.declaration }, &[x_attr]);
+    let receiver_x = w.place(method.entries[0].clone(), &[x_attr]);
     let store = w.branch(&method.symbol, &v, &receiver_x, TransferKind::Identity, Diagram::always());
     let into_v = w.place(PlaceRoot::Occurrence { occurrence: method.actuals[1].id() }, &[]);
     let delivered = w.branch(&caller.symbol, &source, &into_v, TransferKind::Identity, Diagram::always());
@@ -478,10 +491,12 @@ fn ports_are_total_over_the_bound_signature() {
     assert!(with(&other, &shared).is_err(), "parameters must be the bound variant's");
     assert_eq!(obligation(with(&call.members, &call.links[..1]).unwrap()), ObligationKind::NoSourceDeclaration);
     assert!(matches!(with(&call.members, &call.links).unwrap().as_slice(), [CallComposition::Transfer(_)]));
-    // A root naming another callable's parameter is not a port of this call.
+    // A root naming another callable's parameter (a closure read) is not a port of this call:
+    // nothing the caller delivers enters through it.
     let foreign = w.place(PlaceRoot::Entry { declaration: method.links[1].declaration }, &[]);
     let crossing = w.branch(&call.symbol, &foreign, &returned, TransferKind::Identity, Diagram::always());
-    assert!(compose_call(&delivered, &crossing, &frame(&call, true), &owner(&caller), &callee(&call, Some(&empty)), &w.catalog()).is_err());
+    assert!(matches!(compose_call(&delivered, &crossing, &frame(&call, true), &owner(&caller), &callee(&call, Some(&empty)), &w.catalog()).unwrap().as_slice(),
+        [CallComposition::Disjoint]));
 }
 
 #[test]

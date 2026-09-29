@@ -8,9 +8,9 @@
 //! unconditional flow.
 use std::collections::{BTreeMap, BTreeSet};
 use crate::Domain;
-use super::charged::{ChargedMap, StateCharge};
+use super::charged::{ChargedMap, ChargedSet, StateCharge};
 use super::{*, assertion::{Approximation, AssertionQualification}, attribution::{Modality, ObligationKind},
-    calls::{BindingKind, BindingProjection, BindingSource, BoundCall, CallArgument, CallDestination, CallTarget, ProviderSymbol, Signature, SignatureParameter},
+    calls::{BindingProjection, BindingSource, BoundCall, CallArgument, CallDestination, CallSyntax, CallTarget, ProviderSymbol, Receiver, Signature, SignatureParameter},
     conditions::{Condition, ConditionNode, Diagram, EvaluationAtom, rebase::{GuardCatalog, RebasedGuards, RootBinding, substitute_call_guards},
         stability::{GuardSubstitution, StabilityWitness}},
     declarations::{ParameterDeclaration, SymbolDeclaration}, place_composition::{self, ComposedPaths, PathCatalog},
@@ -33,7 +33,7 @@ pub struct CallCompositionStep {
 /// One admitted call target at a site with its complete binding.
 pub struct CallFrame<'a> {
     pub site: &'a Occurrence, pub target: &'a CallTarget, pub qualification: &'a AssertionQualification,
-    pub destination: &'a CallDestination,
+    pub destination: &'a CallDestination, pub receiver: &'a Receiver,
     /// The binding of the target's signature variant; `None` only for an unresolved target.
     pub bound: Option<&'a BoundCall>, pub arguments: &'a [CallArgument],
     /// The site's Summary policy admits this target and exactly one signature variant binds.
@@ -44,9 +44,10 @@ pub struct CallerFrame<'a> { pub declaration: &'a SymbolDeclaration, pub site_ow
 /// The callee's declaration links over the bound signature; witnesses are `None` when flow facts
 /// were not requested.
 ///
-/// Callee transfers are port summaries: an end rooted at `Entry` or at the bound `Receiver`
-/// denotes the caller's value, and the producer must justify each such root by entry-value
-/// evidence at the access it summarizes. An end rooted at the `Formal` variable does not.
+/// Callee transfers are port summaries: an end rooted at `Entry` denotes the caller's value, and
+/// the producer must justify each such root by entry-value evidence at the access it summarizes.
+/// An end rooted at the `Formal` variable does not. A declared callable's receiver is the entry
+/// value of its first parameter; a `Receiver` root is refused here.
 pub struct CalleeFrame<'a> {
     pub symbol: &'a ProviderSymbol, pub declaration: &'a SymbolDeclaration,
     /// The bound signature's parameters in ordinal order, and one declaration link for each.
@@ -94,8 +95,8 @@ struct PortBinding { source: BindingSource, projection: BindingProjection }
 /// A callee root at this call: an entry-value port, or the parameter variable.
 enum Port { Entry(Vec<PortBinding>), Variable(Vec<PortBinding>) }
 /// The call's ports, total over the bound signature: every parameter has exactly one declaration
-/// link and at least one binding; the receiver is the first parameter's whole value.
-struct Ports { callable: Id<Occurrence>, by_declaration: BTreeMap<Id<Occurrence>, Vec<PortBinding>>, receiver: Vec<PortBinding> }
+/// link and at least one binding. A bound receiver is a binding of the first parameter.
+struct Ports { callable: Id<Occurrence>, by_declaration: BTreeMap<Id<Occurrence>, Vec<PortBinding>> }
 impl Ports {
     fn build(bound: &BoundCall, callee: &CalleeFrame<'_>) -> Result<Result<Self, ObligationKind>, ModelError> {
         let mut members = BTreeSet::new();
@@ -113,33 +114,24 @@ impl Ports {
             }
         }
         if declared.len() != members.len() { return Ok(Err(ObligationKind::NoSourceDeclaration)); }
-        let mut by_declaration = BTreeMap::new(); let mut receiver = Vec::new();
+        let mut by_declaration = BTreeMap::new();
         for parameter in callee.parameters {
-            let own: Vec<_> = bound.bindings().iter().filter(|b| b.formal == parameter.id()).collect();
+            let own: Vec<_> = bound.bindings().iter().filter(|b| b.formal == parameter.id())
+                .map(|b| PortBinding { source: b.source.clone(), projection: b.projection.clone() }).collect();
             if own.is_empty() { return Err(invalid("a bound parameter has no binding")); }
-            if parameter.ordinal == 0 {
-                receiver = own.iter().filter(|b| b.kind == BindingKind::Receiver
-                    || matches!(b.projection, BindingProjection::Whole | BindingProjection::Positional { index: 0 }))
-                    .map(|b| PortBinding { source: b.source.clone(), projection: BindingProjection::Whole }).collect();
-            }
-            by_declaration.insert(declared[&parameter.id()], own.into_iter().map(|b| PortBinding { source: b.source.clone(), projection: b.projection.clone() }).collect());
+            by_declaration.insert(declared[&parameter.id()], own);
         }
-        Ok(Ok(Self { callable: callee.declaration.declaration, by_declaration, receiver }))
+        Ok(Ok(Self { callable: callee.declaration.declaration, by_declaration }))
     }
-    /// The port a callee root names; `None` for a root that is not a parameter of this callee.
+    /// The port a callee root names; `None` for a root that is not a parameter of this callee,
+    /// such as an enclosing function's parameter read through a closure.
     fn port(&self, root: &PlaceRoot) -> Result<Option<Port>, ModelError> {
-        let parameter = |declaration: &Id<Occurrence>| self.by_declaration.get(declaration).cloned()
-            .ok_or_else(|| invalid("a parameter root of another callable"));
-        Ok(Some(match root {
-            PlaceRoot::Entry { declaration } => Port::Entry(parameter(declaration)?),
-            PlaceRoot::Formal { declaration } => Port::Variable(parameter(declaration)?),
-            PlaceRoot::Receiver { callable } if *callable == self.callable => {
-                if self.receiver.is_empty() { return Err(invalid("a receiver root without a first-parameter binding")); }
-                Port::Entry(self.receiver.clone())
-            },
-            PlaceRoot::Receiver { .. } => return Err(invalid("a receiver root of another callable")),
-            _ => return Ok(None),
-        }))
+        Ok(match root {
+            PlaceRoot::Entry { declaration } => self.by_declaration.get(declaration).cloned().map(Port::Entry),
+            PlaceRoot::Formal { declaration } => self.by_declaration.get(declaration).cloned().map(Port::Variable),
+            PlaceRoot::Receiver { .. } => return Err(invalid("a declared callable's receiver is its first parameter's entry value")),
+            _ => None,
+        })
     }
     /// Guards on a formal are restated over the argument bound to it, only when that is one whole
     /// actual; transfers read the same bindings.
@@ -205,8 +197,9 @@ pub fn compose_call(caller: &TransferBranch, callee: &TransferBranch, call: &Cal
     if caller_key.owner != caller_frame.declaration.symbol || caller_frame.declaration.declaration != caller_frame.site_owner {
         return Err(invalid("the caller transfer's owner does not own the call site"));
     }
-    if call.target.site != call.site.id() || call.target.destination != call.destination.id() || call.target.qualification != call.qualification.id() {
-        return Err(invalid("call frame site, destination or qualification differs from its target"));
+    if call.target.site != call.site.id() || call.target.destination != call.destination.id() || call.target.qualification != call.qualification.id()
+        || call.target.receiver != call.receiver.id() {
+        return Err(invalid("call frame site, destination, receiver or qualification differs from its target"));
     }
     match call.destination {
         CallDestination::Unresolved { reason } => return Ok(vec![CallComposition::Obligation(*reason)]),
@@ -352,11 +345,13 @@ pub fn compose_site(callers: &[TransferBranch], calls: &[SiteCall<'_>], caller_f
     } }
     Ok(results)
 }
-/// The caller alternative delivers its value into one of the call's actuals.
+/// The caller alternative delivers its value into one of the call's actuals or its receiver.
 fn delivers(caller: &TransferBranch, call: &CallFrame<'_>, catalog: &CompositionCatalog<'_>) -> Result<bool, ModelError> {
+    if call.target.receiver != call.receiver.id() { return Err(invalid("call frame receiver differs from its target")); }
     let output = catalog.guards.places.get(&caller.key().output).ok_or_else(|| invalid("transfer place absent"))?;
     Ok(match catalog.guards.roots.get(&output.root).ok_or_else(|| invalid("transfer place root absent"))? {
-        PlaceRoot::Occurrence { occurrence } => call.arguments.iter().any(|argument| argument.value == *occurrence),
+        PlaceRoot::Occurrence { occurrence } => call.arguments.iter().any(|argument| argument.value == *occurrence)
+            || matches!(call.receiver, Receiver::Bound { actual } if actual == occurrence),
         _ => false,
     })
 }
@@ -366,6 +361,7 @@ fn composition_invariants() -> Vec<Invariant> {
         ValidationInput::of::<AssertionQualification>(&["id"]), ValidationInput::of::<Predicate>(&["id"]),
         ValidationInput::of::<EvaluationAtom>(&["id"]), ValidationInput::of::<ConditionNode>(&["id"]), ValidationInput::of::<Condition>(&["id"]),
         ValidationInput::of::<PlaceRoot>(&["id"]), ValidationInput::of::<AccessPath>(&["id"]), ValidationInput::of::<Place>(&["id"]),
+        ValidationInput::of::<CallSyntax>(&["id"]), ValidationInput::of::<CallArgument>(&["call", "ordinal"]), ValidationInput::of::<Receiver>(&["id"]),
         ValidationInput::of::<CallDestination>(&["id"]), ValidationInput::of::<CallTarget>(&["id"]), ValidationInput::of::<Signature>(&["id"]),
         ValidationInput::of::<SymbolDeclaration>(&["id"]), ValidationInput::of::<TransferKey>(&["id"]),
         ValidationInput::of::<TransferAlternative>(&["id"]), ValidationInput::of::<CallCompositionStep>(&["composed"]),
@@ -383,6 +379,9 @@ struct CompositionCheck {
     restatements: ChargedMap<(Id<Occurrence>, Id<EvaluationAtom>), Vec<Id<EvaluationAtom>>>,
     nodes: ChargedMap<Id<ConditionNode>, ConditionNode>, conditions: ChargedMap<Id<Condition>, Condition>,
     roots: ChargedMap<Id<PlaceRoot>, PlaceRoot>, paths: ChargedMap<Id<AccessPath>, AccessPath>, places: ChargedMap<Id<Place>, Place>,
+    /// Call syntax sites, and the actual occurrences each site passes.
+    syntax: ChargedMap<Id<CallSyntax>, Id<Occurrence>>, actuals: ChargedSet<(Id<Occurrence>, Id<Occurrence>)>,
+    receivers: ChargedMap<Id<Receiver>, Receiver>,
     destinations: ChargedMap<Id<CallDestination>, CallDestination>, targets: ChargedMap<Id<CallTarget>, CallTarget>,
     signatures: ChargedMap<Id<Signature>, (Id<ProviderSymbol>, Id<AssertionQualification>)>,
     declarations: ChargedMap<Id<SymbolDeclaration>, Id<ProviderSymbol>>,
@@ -432,14 +431,24 @@ impl CompositionCheck {
         let ((input_root, input_path), (caller_root, caller_path)) = (self.place(composed.input)?, self.place(caller.input)?);
         let extends = if caller.kind == TransferKind::Identity { is_prefix(caller_path, input_path) } else { caller_path == input_path };
         if input_root != caller_root || !extends { return Err(invalid("composed input is not the caller's input")); }
-        if !matches!(self.place(composed.output)?.0, PlaceRoot::Occurrence { .. } | PlaceRoot::Field { .. } | PlaceRoot::Global { .. }) {
-            return Err(invalid("composed output is not a caller-side place"));
-        }
+        let receiver = match self.receivers.get(&target.receiver) { Some(Receiver::Bound { actual }) => Some(*actual), _ => None };
+        let caller_side = match self.place(composed.output)?.0 {
+            PlaceRoot::Occurrence { occurrence } => *occurrence == target.site || receiver == Some(*occurrence)
+                || self.actuals.contains(&(target.site, *occurrence)),
+            PlaceRoot::Field { .. } | PlaceRoot::Global { .. } => true,
+            _ => false,
+        };
+        if !caller_side { return Err(invalid("composed output is not a caller-side place of the call")); }
         let callee_condition = self.diagram(callee_q.condition)?;
+        let composed_support: BTreeSet<_> = self.diagram(composed_q.condition)?.support().iter().copied().collect();
         let mut replacements = Vec::new();
         for atom in callee_condition.support() {
-            match self.restatements.get(&(target.site, *atom)).map(Vec::as_slice) {
-                Some([restated]) => replacements.push((*atom, Diagram::from_atom(*restated))),
+            // Signature variants binding different actuals restate one guard differently; the
+            // composed condition names the restatement this step used.
+            let candidates = self.restatements.get(&(target.site, *atom)).map(Vec::as_slice).unwrap_or_default();
+            let used: Vec<_> = candidates.iter().copied().filter(|id| composed_support.contains(id)).collect();
+            match (candidates, used.as_slice()) {
+                ([restated], _) | (_, [restated]) => replacements.push((*atom, Diagram::from_atom(*restated))),
                 _ => return Err(invalid("a callee atom has no unique restatement at the call")),
             }
         }
@@ -473,6 +482,12 @@ impl InvariantCheck for CompositionCheck {
         else if relation == PlaceRoot::NAME { for row in PlaceRoot::decode(batch)? { self.roots.insert(c, row.id(), row)?; } }
         else if relation == AccessPath::NAME { for row in AccessPath::decode(batch)? { self.paths.insert(c, row.id(), row)?; } }
         else if relation == Place::NAME { for row in Place::decode(batch)? { self.places.insert(c, row.id(), row)?; } }
+        else if relation == CallSyntax::NAME { for row in CallSyntax::decode(batch)? { self.syntax.insert(c, row.id(), row.site)?; } }
+        else if relation == CallArgument::NAME { for row in CallArgument::decode(batch)? {
+            let site = *Self::get(&self.syntax, &row.call, "composition call syntax absent")?;
+            self.actuals.insert(c, (site, row.value))?;
+        } }
+        else if relation == Receiver::NAME { for row in Receiver::decode(batch)? { self.receivers.insert(c, row.id(), row)?; } }
         else if relation == CallDestination::NAME { for row in CallDestination::decode(batch)? { self.destinations.insert(c, row.id(), row)?; } }
         else if relation == CallTarget::NAME { for row in CallTarget::decode(batch)? { self.targets.insert(c, row.id(), row)?; } }
         else if relation == Signature::NAME { for row in Signature::decode(batch)? { self.signatures.insert(c, row.id(), (row.symbol, row.qualification))?; } }

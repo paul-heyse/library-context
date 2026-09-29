@@ -605,6 +605,7 @@ Retired answers, recoverable at 9912598:
 - the old region join → B2's exact-only attachment;
 - projection digests → P3/P5;
 - legacy-ID side relations: retired (hard pivot) |
+| C5r residuals: `cargo test --release -p lctx-model --test domain_composition`; `-p lctx-postgres --test domain_composition`; workspace check | passed 2026-09-29: `Entry{self}` gives `obj.x` for `C.m(obj, v)` and the site for `obj.run()`; a `Receiver` root is refused; a closure-read root composes `Disjoint`; delivery into an unresolved method's receiver → `UnresolvedTarget`; the stored foreign-output mutation is refused (C4/C5 review R1–R5) |
 | `just fmt`, `just test-all`, facts pilots | not_run: functional scope incomplete |
 
 Independent bounded reviewers accepted artifact/capture/acquisition corrections and the
@@ -810,6 +811,12 @@ returned Revise on 2026-09-29. Slice C5r corrects the findings due before X0; X0
 | [F06](../design_review/reviews/design_review_c4-c5-composition_2026-09-29.md#F06) | §15.6/§15.7 decision, P4 engine | deferred, recorded in §15.6: the SCC instantiation/widening decision is taken before the P4 SCC engine is designed |
 | [F07](../design_review/reviews/design_review_c4-c5-composition_2026-09-29.md#F07)–[F09](../design_review/reviews/design_review_c4-c5-composition_2026-09-29.md#F09) | `composition.rs`, `conditions::stability` | deferred to P4 (obligation subjects, emitted influence, shared witness derivation and `StabilityBasis::admits`, catalog overlay), trigger: P4 engine design |
 | O1 | `obligation::verdict` | routed to the C09 re-confirmation at X0: a Candidate flow with condition `true` must not come out Established |
+| Re-inspection (2026-09-29) | review file, "Re-inspection of C5r" | F01, F02 (scoped), F03, F04 target-modality part and F05(a) are closed; the slice is Accept scoped |
+| R1 | `composition.rs` | partly addressed: a foreign-parameter input root (closure read) composes to `Disjoint` rather than aborting the site. A foreign output root stays refused until the P4 port-summary decision on closure writes |
+| R2 | §15.4, `composition.rs` | addressed: a declared callable's receiver is written only as its first parameter's `Entry`, and composition refuses a `Receiver` root |
+| R3 | `compose_site` | addressed: `CallFrame` carries the checked `Receiver`, and a delivery into an unresolved call's receiver yields the obligation (known answer) |
+| R4 | `CompositionCheck` | addressed: when variants restate one guard differently, the composed condition names the restatement; otherwise the step is refused. No positive control yet, because two witnessed substitutions of one guard at one site need a variant fixture; trigger: A10 two-variant producer |
+| R5 | `CompositionCheck` | addressed: the output occurrence must be the site, a stored argument of the site or its bound receiver; the foreign-output mutation is refused in memory and in PG18 |
 
 ### Core review findings
 

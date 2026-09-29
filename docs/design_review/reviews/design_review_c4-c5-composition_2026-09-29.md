@@ -241,3 +241,41 @@ Review acceptance is not release qualification.
 
 **Next step.** The plan owner applies F02 rule 1, F03, F05(a) and F01's vocabulary with its
 control, then records the F02 port clause in §15.6.
+
+## Re-inspection of C5r (`9912598`), 2026-09-29
+
+Scope: F01, F02, F03 and F05(a), and the target-modality part of F04, each judged against the
+closure criteria above. Source was re-read at `9912598`: `composition.rs` (`Ports`, `map_output`,
+`compose_call`, `compose_site`, `CompositionCheck`), `value.rs` `PlaceRoot::Entry`, `flow.rs`
+`ReachingDefinition::Nested`, `stability.rs`, `rebase.rs` `local_root`, and the §15.4/§15.6
+amendment and plan §8 rows.
+
+**Reviewer-executed checks, 2026-09-29.** The tree was `9912598` plus concurrent uncommitted C6
+work: additive `obligation.rs` budget/discharge code and deletions of legacy modules. The
+composition and stability sources, tests and fixtures were unchanged from the commit.
+- `python3 scripts/build_environment.py -- cargo test --release -p lctx-model --test domain_composition --test domain_stability`: **passed**. 11 composition tests and 3 stability tests ran, including `rebound_formals_and_slot_writes_never_reach_the_caller`, `ports_are_total_over_the_bound_signature`, `the_target_modality_bounds_the_composition` and the erased-condition mutation.
+- `… cargo test --release -p lctx-postgres --test domain_composition --test domain_stability` (real PG18): **passed**, 1 test each.
+
+| Finding | Verdict | Reason |
+|---|---|---|
+| F01 | **closed (contract)** | `ReachingDefinition::Nested` (code 2, appended) makes nested writes a typed reach, and the witness refuses any non-`Bound` reach. The witness contract and §15.4 state the rule, with frame write-through classed as `DynamicAccess`. Stored controls refuse a nested reach beside the parameter reach and in place of it. The producer control (a `nonlocal` rebinding emits `Nested`) is plan A14's obligation |
+| F02 | **closed (scoped)** | `PlaceRoot::Entry` (code 9) separates the entry-value port from the `Formal` variable. Variable reads and writes below the variable give `EntryValueUnknown` (49). Whole-slot writes (variable, entry, collected element) compose to nothing. A write below an entry value maps to the caller's object. §15.6 states that callee transfers are port summaries. Known answers cover all four shapes, and `update`/`Config.__init__` are unchanged. **Remaining, deferred:** nothing yet checks that a producer's `Entry` root is justified; plan §8 F02 owns this, with trigger "first producer of callee transfers" (P4) |
+| F03 | **closed** | `Ports::build` is one total map. It admits only the bound signature's parameters, in order, with one-to-one links. A foreign or other-variant link is `Err`; a missing link is `NoSourceDeclaration`; zero bindings is `Err`. The receiver is the first parameter's whole value of any binding kind, so `C.m(obj, v)` gives `obj.x`. Guards read the same map. Destination and qualification are checked. The result is non-empty by construction |
+| F04 (target-modality part) | **closed**; **F04 remains open** | Target modality and approximation are joined in both the kernel and the stored check, and a Potential target stays Potential. The admission token, derived uniqueness and owner lookup remain open (plan §8 F04, before the P3/P4 producers) |
+| F05(a) | **closed** | The stored step re-derives caller ∧ restated callee from stored rows (a unique `InvokedGuard`/`BoundGuard{source}` per callee atom at the site) and compares condition IDs. It checks that the input root is the caller's with the identity path rule, and that the output root is caller-side. Erased-condition and unrestated-guard mutations are refused in memory and in PG18. F05(b) is deferred to P3 |
+
+**Residuals introduced by or visible in C5r** (Low; none reopens a closed finding):
+- **R1.** A root of another callable is now `Err`. The old behavior was an obligation, and a `Global` input still gives `Disjoint`. This includes closure cells of an enclosing function, such as a decorator wrapper reading the decorated `f`. Decide at P4, with port summaries, whether closure reads are excluded from summaries or compose as `Disjoint`/an obligation. Otherwise an ordinary wrapper aborts its site's composition.
+- **R2.** `Receiver{callable}` and `Entry{first parameter}` are two encodings of one port. Callee-side transfer keys can diverge for the same value; §15.4 should pick one or declare them equal.
+- **R3.** `compose_site`'s `delivers` sees only call arguments. A value delivered into the receiver expression of an *unresolved* method call yields no obligation (CI-04). Include the receiver or callee-object occurrence.
+- **R4.** `CompositionCheck` requires one restatement per (site, source atom). Two signature variants that share a parameter occurrence but bind different actuals would produce two `BoundGuard`s and refuse a legitimate generation. Key the restatement by (site, source, operand), or accept any restatement that the composed condition uses.
+- **R5 (tightening).** The stored output-root check accepts any `Occurrence`. It could be restricted to the site or one of its argument/receiver actuals, using the stored `CallArgument` rows.
+
+**Decision update.** The F01–F03 and F05(a) corrections are accepted at bounded, contract level
+(Implemented; reviewer-Tested 2026-09-29). With them, G2, G3 and G6 pass within this slice's scope.
+CI-G1 is no longer failed by F02 or F03, but it stays **unresolved**: F04's admission, uniqueness and
+ownership are still unenforced, and `Entry` justification is deferred. The bounded decision moves
+from Revise to **Accept scoped**. Excluded: stored `Entry` justification (P4), the F04 remainder
+(before the P3/P4 producers), and F05(b), F06–F09 on their plan §8 triggers. A1 and A3 stay
+unresolved. A2 moves from violated to unresolved: two of its causes (F02, F03) are corrected,
+but the F04 booleans and F08 remain. The enclosing architecture is still not certified; X0 reassesses it.

@@ -20,6 +20,9 @@ pub enum Mutation {
     UnrestatedGuard,
     /// The composed alternative drops the restated guard: its condition is `true`.
     ErasedCondition,
+    /// The composed transfer lands on an occurrence of the call that is not its site, an argument
+    /// or its receiver (the callee expression).
+    ForeignOutput,
 }
 
 pub struct Fixture {
@@ -93,7 +96,7 @@ impl Fixture {
         let catalog = CompositionCatalog { guards: GuardCatalog { atoms: &atoms, predicates: &predicates, places: &places, roots: &roots },
             paths: &paths, segments: PathCatalog { segments: &segments, literals: &literals } };
         let witnesses = BTreeMap::from([(base.guard.id(), base.witness.clone())]);
-        let frame = CallFrame { site: &base.site, target: &target, qualification: &qualification, destination: &destination, bound: Some(&bound), arguments: &base.arguments,
+        let frame = CallFrame { site: &base.site, target: &target, qualification: &qualification, destination: &destination, receiver: &Receiver::None, bound: Some(&bound), arguments: &base.arguments,
             summary_admitted: true, unique_variant: true };
         let results = compose_call(&caller, &callee, &frame, &CallerFrame { declaration: &caller_declaration, site_owner: caller_root.id() },
             &CalleeFrame { symbol: &callee_symbol, declaration: &callee_declaration, parameters: &members, links: std::slice::from_ref(&parameter_declaration), witnesses: Some(&witnesses) },
@@ -173,6 +176,15 @@ impl Fixture {
                 let alternative = branch.alternative().id();
                 self.store_branch(&branch, self.base.site.id(), (self.run.id(), Origin::DerivedAnalysis, ExtractionMode::GraphAnalysis, Fidelity::NormalizedStructural));
                 CallCompositionStep { composed: alternative, ..step }
+            },
+            Mutation::ForeignOutput => {
+                let root = PlaceRoot::Occurrence { occurrence: self.base.callee_name.id() };
+                let output = Place { root: root.id(), path: AccessPath::empty().id() };
+                let key = TransferKey { output: output.id(), ..self.composed.branch.key().clone() };
+                let branch = TransferBranch::new(key, self.composed.branch.qualification().clone(), self.composed.branch.condition().clone()).unwrap();
+                self.extend(vec![root]); self.extend(vec![output]);
+                self.store_branch(&branch, self.base.site.id(), (self.run.id(), Origin::DerivedAnalysis, ExtractionMode::GraphAnalysis, Fidelity::NormalizedStructural));
+                CallCompositionStep { composed: branch.alternative().id(), ..step }
             },
         };
         self.base.put(vec![refused]);

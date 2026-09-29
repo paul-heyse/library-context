@@ -163,8 +163,10 @@ whose body holds it, otherwise the module. It is the only definition of "caller"
   Every definition and use of one local variable shares its place.
 - **Formal versus entry value.** The formal root is the parameter *variable*: flow facts and guards
   name it, and the body may rebind it. The **entry** root is the value the parameter held when the
-  callable was entered, which is the caller's value. The bound receiver is the entry value of the
-  first parameter. Only entry and receiver roots are call ports (§15.6).
+  callable was entered, which is the caller's value. A declared callable's receiver is written as
+  the entry value of its first parameter. The receiver root is reserved for callables without a
+  declared first parameter (modeled and external summaries). Only entry roots are ports of a
+  declared callable (§15.6).
 - **Reaching.** A use is reached by a definition of its place, by an unbound path, or by a binding
   made from a nested scope (`nonlocal`/`global` writes in a closure, lazy snapshots). The nested
   reach names no definition of the use's scope and is never a parameter reach. Writes through frame
@@ -260,8 +262,7 @@ Sequential composition is an explicit table in one module, never an order over c
   are substituted only with an established binding and stability witness. Opaque local guards remain
   conditional; unsupported substitutions yield an obligation. All actual/formal bindings contribute
   separate outputs. Access paths compose only through identity transfers.
-- **Callee transfers are port summaries.** Composition maps only entry and receiver roots through
-  the binding. Their producer justifies each such root by the same entry-value evidence a stability
+- **Callee transfers are port summaries.** Composition maps only entry roots through the binding. Their producer justifies each such root by the same entry-value evidence a stability
   witness states for a guard (parameter-only reaching under complete flow coverage) at the access it
   summarizes. The stored check of that justification lands with the first producer of callee
   transfers (P4).
@@ -271,17 +272,23 @@ Sequential composition is an explicit table in one module, never an order over c
   - A write below an entry value (`t.x = v`, `t[k] = v`, `kw['k'].x = v`) mutates the caller's
     object. Below the variable it is `EntryValueUnknown`.
 - **Totality.** Roots resolve through one map over the bound signature variant: each parameter has
-  exactly one declaration link and at least one binding. The receiver is the first parameter's
-  whole value, whether bound as receiver (`obj.m(v)`) or positionally (`C.m(obj, v)`). A root of
-  another callable is refused. A missing link is `NoSourceDeclaration`. A value delivered into an
-  unresolved target's call is that target's obligation.
+  exactly one declaration link and at least one binding.
+  - The receiver is the first parameter's entry value, whether bound as receiver (`obj.m(v)`) or
+    positionally (`C.m(obj, v)`). A receiver root is refused.
+  - A missing link is `NoSourceDeclaration`.
+  - A root of another callable, such as a closure read of an enclosing parameter, is not a port:
+    nothing the caller delivers enters through it. A callee *output* rooted there is refused until
+    P4 decides closure writes.
+  - A value delivered into an unresolved target's call, as an argument or as its receiver, is that
+    target's obligation.
 - **Strength.** The composed modality is no stronger than the caller, the callee or the target
   alternative, and Definite only for a Summary-admitted target with one binding variant. The
   approximation joins all three.
 - **Stored equation.** A stored `CallCompositionStep` is re-derived at validation: the composed
   condition must equal caller ∧ callee with each callee atom replaced by its unique restatement at
-  the site. The input must be the caller's, extended only through identity, and the output a
-  caller-side root.
+  the site. Where signature variants restate one guard differently, the composed condition names
+  the restatement. The input must be the caller's, extended only through identity. The output must
+  be the site, one of its actuals or its receiver, or a field or global.
 - **Open (P4).** Instantiation inside a strongly connected component mints a fresh atom per pass and
   cannot reach a fixpoint. A widening decision precedes the SCC engine design.
 

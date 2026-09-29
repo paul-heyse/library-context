@@ -19,7 +19,7 @@ async fn composed_transfers_round_trip_and_mismatched_steps_refuse() {
     let reader = PgPool::connect(&url("lctx_serving")).await.unwrap();
     let model = Arc::new(model().unwrap());
     let store = GenerationStore::install(owner, model.clone()).await.unwrap();
-    for (mutation, reason) in [(None, ""), (Some(Mutation::CalleeFromAnotherSymbol), "differ from the target's symbol"), (Some(Mutation::UnrestatedGuard), "restated at the call"), (Some(Mutation::ErasedCondition), "restated at the call")] {
+    for (mutation, reason) in [(None, ""), (Some(Mutation::CalleeFromAnotherSymbol), "differ from the target's symbol"), (Some(Mutation::UnrestatedGuard), "restated at the call"), (Some(Mutation::ErasedCondition), "restated at the call"), (Some(Mutation::ForeignOutput), "not a caller-side place of the call")] {
         let mut fixture = Fixture::new();
         if let Some(mutation) = mutation { fixture.mutate(mutation); }
         let generation = store.create_conformance(ContentHash::of(b"composition-contract"), "behavioral").await.unwrap();
