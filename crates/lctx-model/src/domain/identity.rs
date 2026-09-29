@@ -22,6 +22,14 @@ impl<T: Record> Id<T> {
     pub fn of(key: &T::Key) -> Self {
         let mut sink = KeySink::new(T::NAME);
         key.encode(&mut sink);
+        Self::from_sink(sink)
+    }
+    pub(crate) fn of_record(record: &T) -> Self {
+        let mut sink = KeySink::new(T::NAME);
+        record.write_key(&mut sink);
+        Self::from_sink(sink)
+    }
+    fn from_sink(sink: KeySink) -> Self {
         let mut bytes = [0; 16];
         bytes.copy_from_slice(&sink.finish().0[..16]);
         Self { bytes, target: PhantomData }

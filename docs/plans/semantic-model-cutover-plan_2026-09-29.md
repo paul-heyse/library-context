@@ -402,6 +402,9 @@ Focused evidence (2026-09-29; Cargo commands prefixed by `python3 scripts/build_
 | `cargo test --release -p lctx-model --test domain_coverage` | passed: scope/input/corpus ownership matrix |
 | `cargo test --release -p lctx-model --test domain_assertions --test domain_lexical --test domain_documents --test domain_transfer` | passed: 16 controls after ownership consolidation |
 | `cargo test --release -p lctx-postgres --test domain_coverage --test domain_documents` | passed: real PG18 good/foreign coverage and document cases |
+| `cargo test --release -p lctx-model --test domain` | passed: 18 controls after builder-reservation follow-up; owned/borrowed identity and unit/optional sum parity |
+| `cargo test --release -p lctx-model --doc` | passed after codec change: seven positive and seven compile-fail controls; one old ignored example |
+| `cargo test --release -p lctx-postgres --test generations` | passed after codec change: real PG18 lifecycle and 65 MiB chunk/corruption controls |
 | `just fmt`, `just test-all`, facts pilots | not_run: functional scope incomplete |
 
 Independent bounded reviewers accepted artifact/capture/acquisition corrections and the
@@ -425,6 +428,8 @@ assembled review; none of these bounded receipts establishes enclosing architect
 **Representative document contracts (Implemented; focused Tested, 2026-09-29):** source-span-backed passage/code/link/mention/component identities, qualified observations and generated supports, plus typed literal/expression/bare/spread attributes. Shared checks preserve cross-heading component parents and validate subtype, parent/depth, optional-span source ownership and code-content digests. Heading paths name enclosing headings. Model and real PG18 fixtures pass; raw document producer integration and all-field parity remain P2 work. The [bounded document review](../design_review/reviews/design_review_semantic-documents_2026-09-29.md) accepted this contract scope, without qualifying producer coverage or a phase exit.
 
 **Shared scope ownership (Implemented; focused Tested, 2026-09-29):** one `ScopeIndex` policy owns artifact/module/input/release containment and explicit direct corpus membership for both assertion supports and stored provider coverage. Matching provider/context no longer permits coverage for an unrelated input. The bounded [ownership review](../design_review/reviews/design_review_semantic-scope-ownership_2026-09-29.md) accepted the consolidation. The model matrix checks all four scope kinds with direct/corpus positive and foreign controls; real PG18 checks good and foreign input coverage. Production expected-matrix construction and complete facts admission remain open. Native Ruff traversal still has emission/depth limits, not a total-work termination bound.
+
+**Codec allocation reduction (Implemented; focused Tested, 2026-09-29):** generated record identity hashes key fields by reference; explicit owned-key APIs remain available. Struct/sum encoders push borrowed physical rows into pinned serde_arrow builders, reserving known row capacity, without building an intermediate vector or cloning active sum payloads. Identity framing and schemas remain unchanged. Focused controls include all-unit/optional sums and a 1 MiB value; PG18 chunk readback still includes 65 MiB input. This removes known intermediates; it does not establish complete reservations or RSS limits. The [bounded codec review](../design_review/reviews/design_review_semantic-codec-allocation_2026-09-29.md) accepted the correction.
 
 **Next / still open:** remaining representative type/flow/deployment domain families
 and whole-call binding/root composition and opaque caller rebasing; complete call producer/normalization integration; occurrence ownership; coordinated allocation accounting; exact coverage
@@ -456,6 +461,11 @@ owners. Phases 3–5 update their owners when implemented. No documentation labe
 without corresponding evidence.
 
 ## 8. Findings disposition
+
+| Source finding | Current disposition | Owner and closure evidence |
+|---|---|---|
+| [codec-allocation F01](../design_review/reviews/design_review_semantic-codec-allocation_2026-09-29.md) | addressed within reviewed slice | Both generated ArrayBuilders reserve the known row count; source reinspection and post-correction domain18 pass; runtime/RSS impact unmeasured |
+
 
 The bounded [lexical review](../design_review/reviews/design_review_semantic-lexical_2026-09-29.md)
 accepted corrected representative contracts on 2026-09-29; P2 mapping remains open.

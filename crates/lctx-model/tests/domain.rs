@@ -378,3 +378,29 @@ fn corpus_uses_and_distribution_verification_cannot_cross_undeclared_inputs() {
         assert_eq!(feed(&model, &mut *check, vec![verified.clone()]).is_ok(), member);
     }
 }
+
+#[test]
+fn borrowed_identity_and_streamed_codecs_preserve_owned_key_contracts() {
+    use lctx_model::DomainSum;
+    #[derive(Debug,Clone,PartialEq,Eq,Hash,DomainSum)]
+    #[model(name = "empty_payload_choices")]
+    enum Choice { #[model(code = 0)] No, #[model(code = 1)] Yes }
+    #[derive(Debug,Clone,PartialEq,Eq,Hash,DomainSum)]
+    #[model(name = "optional_payload_choices")]
+    enum Payload {
+        #[model(code = 0)] Empty,
+        #[model(code = 1)] Text { value: String, note: Option<String> },
+    }
+    let m = ValidatedModel::validate(vec![Relation::of::<Choice>(),Relation::of::<Payload>(),Relation::of::<NamedItem>()]).unwrap();
+    let choices = vec![Choice::No,Choice::Yes];
+    for row in &choices { assert_eq!(row.id(),Id::of(&row.key())); }
+    assert_eq!(Choice::decode(&Choice::encode(&choices).unwrap()).unwrap(),choices);
+    assert_eq!(Choice::encode(&[]).unwrap().schema(),Choice::schema());
+    let rows = vec![Payload::Empty,Payload::Text { value: "x".repeat(1 << 20),note: None },
+        Payload::Text { value: "body".into(),note: Some("note".into()) }];
+    for row in &rows { assert_eq!(row.id(),Id::of(&row.key())); }
+    let encoded = Batch::new(&m,rows).unwrap();
+    assert_eq!(Payload::decode(encoded.arrow()).unwrap(),encoded.rows());
+    let item = NamedItem { name: "key".repeat(1024),payload: "payload".into() };
+    assert_eq!(item.id(),Id::of(&item.key()));
+}

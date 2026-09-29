@@ -232,6 +232,9 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
             const OWNER: &'static str = env!("CARGO_PKG_NAME");
             const SEMANTIC_SOURCE: &'static [u8] = #semantic_source;
             fn key(&self) -> Self::Key { #key_name { #(#keys: self.#keys.clone(),)* } }
+            fn write_key(&self, sink: &mut ::lctx_model::domain::KeySink) {
+                #(::lctx_model::domain::Key::encode(&self.#keys, sink);)*
+            }
             fn fields() -> Vec<::lctx_model::domain::Field> { vec![#(#descriptors,)*] }
             fn invariants() -> Vec<::lctx_model::domain::Invariant> { #invariants }
             fn required_relations() -> Vec<(::std::any::TypeId, &'static str)> { #required_support }
@@ -245,13 +248,17 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
                 Ok(())
             }
             fn encode(rows: &[Self]) -> Result<::lctx_model::domain::__private::RecordBatch, ::lctx_model::domain::ModelError> {
-                let physical = rows.iter().map(|row| #physical_ref {
-                    id: <Self as ::lctx_model::domain::Record>::id(row),
-                    #(#names: &row.#names,)*
-                }).collect::<Vec<_>>();
-                ::lctx_model::domain::__private::serde_arrow::to_record_batch(
-                    Self::schema().fields(), &physical
-                ).map_err(::lctx_model::domain::ModelError::codec)
+                let mut builder = ::lctx_model::domain::__private::serde_arrow::ArrayBuilder::from_arrow(Self::schema().fields())
+                    .map_err(::lctx_model::domain::ModelError::codec)?;
+                builder.reserve(rows.len());
+                for row in rows {
+                    let physical = #physical_ref {
+                        id: <Self as ::lctx_model::domain::Record>::id(row),
+                        #(#names: &row.#names,)*
+                    };
+                    builder.push(&physical).map_err(::lctx_model::domain::ModelError::codec)?;
+                }
+                builder.into_record_batch().map_err(::lctx_model::domain::ModelError::codec)
             }
             fn decode(batch: &::lctx_model::domain::__private::RecordBatch) -> Result<Vec<Self>, ::lctx_model::domain::ModelError> {
                 if batch.schema().as_ref() != Self::schema().as_ref() {
@@ -356,6 +363,7 @@ fn expand_sum(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
     let invariant_creation = invariants.map(|v| quote! { #v() }).unwrap_or_else(|| quote! { Vec::new() });
     let name = &input.ident;
     let physical = format_ident!("__{}Physical", name);
+    let physical_ref = format_ident!("__{}PhysicalRef", name);
     let declaration = quote!(#input).to_string();
     let mut physical_names = Vec::new();
     let mut physical_types = Vec::new();
@@ -414,10 +422,10 @@ fn expand_sum(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
         }});
         let values: Vec<_> = physical_names.iter().map(|column| {
             if let Some((member, _, optional)) = fields.iter().find(|(_,c,_)| c == column) {
-                if *optional { quote! { #column: #member.clone() } } else { quote! { #column: Some(#member.clone()) } }
+                if *optional { quote! { #column: #member.as_ref() } } else { quote! { #column: Some(#member) } }
             } else { quote! { #column: None } }
         }).collect();
-        encode_arms.push(quote! { Self::#variant { #(#names,)* } => #physical { id: Self::id(row), kind: #code, #(#values,)* } });
+        encode_arms.push(quote! { Self::#variant { #(#names,)* } => #physical_ref { id: Self::id(row), kind: #code, #(#values,)* } });
         let inactive: Vec<_> = physical_names.iter().filter(|column| !fields.iter().any(|(_,c,_)| c == *column)).collect();
         let decoded: Vec<_> = fields.iter().map(|(member, column, optional)| {
             if *optional { quote! { #member: physical.#column } }
@@ -433,6 +441,7 @@ fn expand_sum(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
         });
         sum_arms.push(quote! { ::lctx_model::domain::Arm { code: #code, fields: vec![#(#requirements,)*] } });
     }
+    let borrow_lifetime = if physical_names.is_empty() { quote! {} } else { quote! { <'a> } };
     Ok(quote! {
         #(#visibility type #aliases = ::lctx_model::domain::ArmId<#name, #codes>;)*
         impl ::lctx_model::domain::SumRecord for #name {
@@ -441,6 +450,9 @@ fn expand_sum(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
         #[derive(::lctx_model::domain::__private::serde::Serialize, ::lctx_model::domain::__private::serde::Deserialize)]
         #[serde(crate = "::lctx_model::domain::__private::serde")]
         struct #physical { id: ::lctx_model::domain::Id<#name>, kind: i16, #(#physical_names: Option<#physical_types>,)* }
+        #[derive(::lctx_model::domain::__private::serde::Serialize)]
+        #[serde(crate = "::lctx_model::domain::__private::serde")]
+        struct #physical_ref #borrow_lifetime { id: ::lctx_model::domain::Id<#name>, kind: i16, #(#physical_names: Option<&'a #physical_types>,)* }
         impl ::lctx_model::domain::Key for #name {
             fn encode(&self, sink: &mut ::lctx_model::domain::KeySink) { match self { #(#key_arms,)* } }
         }
@@ -451,6 +463,7 @@ fn expand_sum(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
             const OWNER: &'static str = env!("CARGO_PKG_NAME");
             const SEMANTIC_SOURCE: &'static [u8] = #semantic_source;
             fn key(&self) -> Self { self.clone() }
+            fn write_key(&self, sink: &mut ::lctx_model::domain::KeySink) { ::lctx_model::domain::Key::encode(self,sink); }
             fn content_digest(&self) -> ::lctx_model::domain::ContentHash {
                 let mut sink = ::lctx_model::domain::KeySink::new(Self::NAME);
                 ::lctx_model::domain::Key::encode(self, &mut sink);
@@ -461,8 +474,14 @@ fn expand_sum(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
             fn validate(&self) -> Result<(), ::lctx_model::domain::ModelError> { #validation Ok(()) }
             fn invariants() -> Vec<::lctx_model::domain::Invariant> { #invariant_creation }
             fn encode(rows: &[Self]) -> Result<::lctx_model::domain::__private::RecordBatch, ::lctx_model::domain::ModelError> {
-                let physical: Vec<_> = rows.iter().map(|row| match row { #(#encode_arms,)* }).collect();
-                ::lctx_model::domain::__private::serde_arrow::to_record_batch(Self::schema().fields(), &physical).map_err(::lctx_model::domain::ModelError::codec)
+                let mut builder = ::lctx_model::domain::__private::serde_arrow::ArrayBuilder::from_arrow(Self::schema().fields())
+                    .map_err(::lctx_model::domain::ModelError::codec)?;
+                builder.reserve(rows.len());
+                for row in rows {
+                    let physical = match row { #(#encode_arms,)* };
+                    builder.push(&physical).map_err(::lctx_model::domain::ModelError::codec)?;
+                }
+                builder.into_record_batch().map_err(::lctx_model::domain::ModelError::codec)
             }
             fn decode(batch: &::lctx_model::domain::__private::RecordBatch) -> Result<Vec<Self>, ::lctx_model::domain::ModelError> {
                 if batch.schema().as_ref() != Self::schema().as_ref() { return Err(::lctx_model::domain::ModelError::Schema(Self::NAME)); }

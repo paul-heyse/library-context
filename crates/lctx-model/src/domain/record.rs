@@ -100,6 +100,8 @@ pub trait Record: Sized + Clone + PartialEq + std::fmt::Debug + Send + Sync + 's
     const OWNER: &'static str;
     const SEMANTIC_SOURCE: &'static [u8];
     fn key(&self) -> Self::Key;
+    /// Encode the declared key by reference; identity checks must not clone large key payloads.
+    fn write_key(&self, sink: &mut super::KeySink);
     fn fields() -> Vec<Field>;
     fn invariants() -> Vec<super::Invariant> { Vec::new() }
     /// Hash every semantic field, including non-key payload, independently of Arrow framing.
@@ -108,7 +110,7 @@ pub trait Record: Sized + Clone + PartialEq + std::fmt::Debug + Send + Sync + 's
     fn validate(&self) -> Result<(), ModelError>;
     fn encode(rows: &[Self]) -> Result<RecordBatch, ModelError>;
     fn decode(batch: &RecordBatch) -> Result<Vec<Self>, ModelError>;
-    fn id(&self) -> Id<Self> { Id::of(&self.key()) }
+    fn id(&self) -> Id<Self> { Id::of_record(self) }
     fn schema() -> SchemaRef {
         Arc::new(Schema::new(std::iter::once(ArrowField::new("id", DataType::FixedSizeBinary(16), false))
             .chain(Self::fields().iter().map(Field::arrow)).collect::<Vec<_>>()))
