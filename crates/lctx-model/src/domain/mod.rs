@@ -172,6 +172,7 @@ pub fn model() -> Result<ValidatedModel, ModelError> {
         Relation::of::<Literal>(), Relation::of::<LiteralSet>(), Relation::of::<LiteralSetMember>(),
         Relation::of::<PlaceRoot>(), Relation::of::<PathSegment>(), Relation::of::<AccessPath>(), Relation::of::<Place>(),
         Relation::of::<Predicate>(), Relation::of::<EvaluationAtom>(), Relation::of::<ConditionNode>(), Relation::of::<Condition>(),
+        Relation::of::<conditions::stability::StabilityWitness>(), Relation::of::<conditions::stability::GuardSubstitution>(),
         Relation::of::<Package>(), Relation::of::<Release>(), Relation::of::<InputRevision>(),
         Relation::of::<InputOrigin>(), Relation::of::<InputAcquisition>(), Relation::of::<CorpusLibrary>(),
         Relation::of::<InputDistribution>(), Relation::of::<DistributionVerification>(),

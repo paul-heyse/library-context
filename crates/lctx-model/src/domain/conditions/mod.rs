@@ -2,6 +2,7 @@
 pub(super) mod kernel;
 mod substitution;
 pub mod rebase;
+pub mod stability;
 pub use kernel::{CondExpr, Diagram, FactorResult, KernelBoundary, RenderedCondition};
 use super::charged::{ChargedMap, ChargedSet, StateCharge};
 use crate::{Domain, DomainSum};

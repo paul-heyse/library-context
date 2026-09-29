@@ -109,6 +109,9 @@ pub enum Predicate {
     /// A callee-local guard instantiated at a caller evaluation. The source remains a typed
     /// provenance dependency; this is not equality with a caller operand or an erased condition.
     #[model(code = 8)] InvokedGuard { source: Id<super::conditions::EvaluationAtom> },
+    /// A callee guard on a formal, substituted at a call by the bound actual. The atom's operand is
+    /// the actual; a stability witness and the call argument justify it (`GuardSubstitution`).
+    #[model(code = 9)] BoundGuard { source: Id<super::conditions::EvaluationAtom> },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]

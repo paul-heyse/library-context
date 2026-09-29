@@ -36,10 +36,17 @@ impl GuardIndex {
             context = Some(row.context);
             rows.push(row.clone());
             let predicate = self.predicates.get(&row.predicate).ok_or_else(|| invalid("guard predicate absent"))?;
-            if let Predicate::InvokedGuard { source } = predicate {
-                if row.operand.is_some() { return Err(invalid("opaque invoked guard cannot assert a caller operand")); }
-                at = *source;
-            } else { return Ok(rows); }
+            match predicate {
+                Predicate::InvokedGuard { source } => {
+                    if row.operand.is_some() { return Err(invalid("opaque invoked guard cannot assert a caller operand")); }
+                    at = *source;
+                },
+                Predicate::BoundGuard { source } => {
+                    if row.operand.is_none() { return Err(invalid("a bound guard tests its bound actual")); }
+                    at = *source;
+                },
+                _ => return Ok(rows),
+            }
         }
     }
 }
@@ -60,21 +67,24 @@ impl InvariantCheck for GuardCheck {
         else { return Err(invalid("undeclared guard origin input")); }
         Ok(())
     }
+    /// A formal or receiver operand inside an instantiated lineage is admissible only directly
+    /// behind a `BoundGuard`, whose witnessed substitution the stability invariant checks.
     fn finish(self: Box<Self>) -> Result<(),ModelError> {
         for id in self.index.atoms.keys().copied() {
             let lineage = self.index.lineage(id)?;
-            let invoked = lineage.len() > 1;
-            for row in lineage {
-            if invoked { if let Some(operand) = row.operand {
+            for (index,row) in lineage.iter().enumerate() {
+                let wrapped = matches!(self.index.predicates.get(&row.predicate),Some(Predicate::InvokedGuard { .. } | Predicate::BoundGuard { .. }));
+                if wrapped && self.occurrences.get(&row.evaluation) != Some(&true) {
+                    return Err(invalid("invoked guard evaluation must name a call occurrence"));
+                }
+                if index == 0 { continue; }
+                let Some(operand) = row.operand else { continue; };
                 let place = self.places.get(&operand).ok_or_else(|| invalid("invoked guard origin place absent"))?;
                 let root = self.roots.get(&place.root).ok_or_else(|| invalid("invoked guard origin root absent"))?;
-                local_root(root).map_err(|_| invalid("invoked guard formal/receiver needs binding and stability evidence"))?;
-            } }
-            if matches!(self.index.predicates.get(&row.predicate),Some(Predicate::InvokedGuard { .. }))
-                && self.occurrences.get(&row.evaluation) != Some(&true) {
-                return Err(invalid("invoked guard evaluation must name a call occurrence"));
+                let bound = matches!(self.index.predicates.get(&lineage[index-1].predicate),Some(Predicate::BoundGuard { .. }));
+                if !bound { local_root(root).map_err(|_| invalid("invoked guard formal/receiver needs binding and stability evidence"))?; }
             }
-        } } Ok(())
+        } Ok(())
     }
 }
 
@@ -85,37 +95,79 @@ pub struct GuardCatalog<'a> {
     pub roots: &'a BTreeMap<Id<PlaceRoot>,PlaceRoot>,
 }
 #[derive(Debug)]
-pub struct RebasedGuards { pub condition: Diagram,pub atoms: Vec<EvaluationAtom>,pub predicates: Vec<Predicate> }
+pub struct RebasedGuards {
+    pub condition: Diagram, pub atoms: Vec<EvaluationAtom>, pub predicates: Vec<Predicate>,
+    pub roots: Vec<PlaceRoot>, pub places: Vec<Place>, pub substitutions: Vec<super::stability::GuardSubstitution>,
+}
+/// How a callee's formal or receiver root is bound at one call.
+#[derive(Debug, Clone)]
+pub enum RootBinding { Actual(super::super::calls::CallArgument), Default, EmptyAggregate }
 /// Rebase local guards only. A formal/receiver operand requires a separately established binding
 /// and stability witness; this operation refuses it rather than inventing substitution evidence.
-/// A caller composing a whole call must first discharge those operands through the binding owner.
 pub fn rebase_local_guards(source: &Diagram,site: &Occurrence,context: Id<AnalysisContext>,catalog: &GuardCatalog<'_>) -> Result<RebasedGuards,ObligationKind> {
+    substitute_call_guards(source,site,context,catalog,&BTreeMap::new(),Some(&BTreeMap::new()))
+}
+/// Restate a callee condition at a call. Local and operand-free guards become opaque
+/// `InvokedGuard`s at the call site. A guard on a formal or receiver becomes a `BoundGuard` over the
+/// bound actual only when it is substitutable, tests the whole root, the root is bound to an actual
+/// and a stability witness exists; otherwise the transfer is refused, never made unconditional.
+/// `witnesses` is `None` when flow facts were not requested.
+pub fn substitute_call_guards(source: &Diagram,site: &Occurrence,context: Id<AnalysisContext>,catalog: &GuardCatalog<'_>,
+    bindings: &BTreeMap<Id<PlaceRoot>,RootBinding>,witnesses: Option<&BTreeMap<Id<EvaluationAtom>,super::stability::StabilityWitness>>) -> Result<RebasedGuards,ObligationKind> {
     if site.validate().is_err() || !is_call(site) { return Err(ObligationKind::MissingEvidence); }
-    let mut atoms = Vec::new(); let mut predicates = Vec::new(); let mut replacements = Vec::new(); let mut work = 0;
+    let mut out = RebasedGuards { condition: Diagram::always(), atoms: vec![], predicates: vec![], roots: vec![], places: vec![], substitutions: vec![] };
+    let mut replacements = Vec::new(); let mut work = 0;
+    let empty = crate::domain::value::AccessPath::empty().id();
     for id in source.support() {
+        let atom = lookup(catalog.atoms,*id)?;
+        if atom.context != context { return Err(ObligationKind::MissingEvidence); }
+        let formal = match atom.operand {
+            Some(operand) => { let place = lookup(catalog.places,operand)?; let root = lookup(catalog.roots,place.root)?;
+                local_root(root).is_err().then_some((place,lookup(catalog.predicates,atom.predicate)?)) },
+            None => None,
+        };
+        if let Some((place,predicate)) = formal {
+            let witnesses = witnesses.ok_or(ObligationKind::NotRequested)?;
+            if place.path != empty || !super::stability::substitutable(predicate) { return Err(ObligationKind::ConditionTransferUnsupported); }
+            let argument = match bindings.get(&place.root) {
+                Some(RootBinding::Actual(argument)) => argument,
+                Some(RootBinding::Default) => return Err(ObligationKind::DefaultStabilityUnknown),
+                Some(RootBinding::EmptyAggregate) | None => return Err(ObligationKind::ConditionTransferUnsupported),
+            };
+            let witness = witnesses.get(id).ok_or(ObligationKind::ConditionTransferUnsupported)?;
+            let root = PlaceRoot::Occurrence { occurrence: argument.value };
+            let operand = Place { root: root.id(),path: empty };
+            let predicate = Predicate::BoundGuard { source: *id };
+            let bound = EvaluationAtom { evaluation: site.id(),context,predicate: predicate.id(),operand: Some(operand.id()) };
+            out.substitutions.push(super::stability::GuardSubstitution { atom: bound.id(),witness: witness.id(),argument: argument.id() });
+            replacements.push((*id,Diagram::from_atom(bound.id())));
+            out.roots.push(root); out.places.push(operand); out.predicates.push(predicate); out.atoms.push(bound);
+            continue;
+        }
+        // Local and operand-free guards: every origin in the invoked lineage must be local too.
         let mut at = *id; let mut depth = 0;
         loop {
             depth += 1; work += 1;
             if depth >= MAX_GUARD_DEPTH { return Err(ObligationKind::SummaryDepthLimit); }
             if work > 4096 { return Err(ObligationKind::ConditionWorkLimit); }
-            let atom = lookup(catalog.atoms,at)?;
-            if atom.context != context { return Err(ObligationKind::MissingEvidence); }
-            if let Some(operand) = atom.operand {
+            let row = lookup(catalog.atoms,at)?;
+            if row.context != context { return Err(ObligationKind::MissingEvidence); }
+            if let Some(operand) = row.operand {
                 let place = lookup(catalog.places,operand)?; let root = lookup(catalog.roots,place.root)?;
                 local_root(root)?;
             }
-            if let Predicate::InvokedGuard { source } = lookup(catalog.predicates,atom.predicate)? {
-                if atom.operand.is_some() { return Err(ObligationKind::MissingEvidence); }
+            if let Predicate::InvokedGuard { source } = lookup(catalog.predicates,row.predicate)? {
+                if row.operand.is_some() { return Err(ObligationKind::MissingEvidence); }
                 at = *source;
             } else { break; }
         }
         let predicate = Predicate::InvokedGuard { source: *id };
-        let atom = EvaluationAtom { evaluation: site.id(),context,predicate: predicate.id(),operand: None };
-        replacements.push((*id,Diagram::from_atom(atom.id()))); predicates.push(predicate); atoms.push(atom);
+        let invoked = EvaluationAtom { evaluation: site.id(),context,predicate: predicate.id(),operand: None };
+        replacements.push((*id,Diagram::from_atom(invoked.id()))); out.predicates.push(predicate); out.atoms.push(invoked);
     }
     let replacements: Vec<_> = replacements.iter().map(|(id,diagram)| (*id,diagram)).collect();
-    let condition = source.substitute_atoms(&replacements).map_err(super::super::obligation::from_kernel)?;
-    Ok(RebasedGuards { condition,atoms,predicates })
+    out.condition = source.substitute_atoms(&replacements).map_err(super::super::obligation::from_kernel)?;
+    Ok(out)
 }
 fn lookup<R: Record>(rows: &BTreeMap<Id<R>,R>,id: Id<R>) -> Result<&R,ObligationKind> {
     let row = rows.get(&id).ok_or(ObligationKind::MissingEvidence)?;
