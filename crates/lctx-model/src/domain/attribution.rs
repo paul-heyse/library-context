@@ -37,77 +37,7 @@ pub enum FactFamily {
         Deployment = 15,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, DomainCode)]
-#[repr(i16)]
-pub enum BoundaryReason {
-        NativeUnavailable = 0,
-        UnresolvedTarget = 1,
-        UnsupportedUnpacking = 2,
-        AmbiguousBinding = 3,
-        UnsupportedControlFlow = 4,
-        ScopeBoundary = 5,
-        BudgetReached = 6,
-        MissingEvidence = 7,
-        NotRequested = 8,
-        ProviderDisagreement = 9,
-        OutsideProviderModel = 10,
-        /// The module parsed with errors; facts come from a recovered tree.
-        SyntaxError = 11,
-        /// The module's bytes are not UTF-8; nothing was analyzed.
-        UndecodableSource = 12,
-        /// A function the provider describes that has no `def` of its own: a synthesized member
-        /// (a dataclass `__init__`) or a callable class field (`fn = staticmethod(f)`).
-        NoSourceDeclaration = 13,
-        /// A definition the analyzer's context never binds: a branch it decides statically
-        /// (`sys.version_info`, `TYPE_CHECKING`) while a same-name definition is bound.
-        UnreachableInContext = 14,
-        /// An export whose origin is a variable, not a `def` or `class` (until the lexical family
-        /// gives it a binding node; DESIGN §3.2).
-        VariableOrigin = 15,
-        /// A name- or string-driven access (`getattr` by a non-literal name, `vars()`,
-        /// `__dict__`, `importlib`, `exec`/`eval`, a module `__getattr__`) that could reach a place
-        /// a negative claim names (ADR-0022 §Verdicts).
-        DynamicAccess = 16,
-        /// A `self.m(...)` call a subclass may override (ADR-0022 §Verdicts).
-        OverrideDispatch = 17,
-        /// An operation whose seed declaration the runtime view cannot reach (ADR-0022 §Composed
-        /// layers); `unreachable_in_context` is the checker's never-bound.
-        RuntimeUnreachable = 18,
-        /// A value that reaches a sink only inside a call (its callee, receiver or an argument):
-        /// whether the callee's result carries it is a summary's question, Stage 3's (ADR-0022
-        /// §Verdicts).
-        CallTransfer = 19,
-        /// A body the operation's callers may not run: abstract, a stub (only `pass`, `...` or a
-        /// docstring), or one that only raises, so an override or caller supplies the behavior
-        /// and "never read" cannot be refuted there (ADR-0022 §Verdicts; the Stage 2 end
-        /// review's R1).
-        AbstractBody = 20,
-        /// Finite summary composition reached its maximum cited call-path depth.
-        SummaryDepthLimit = 21,
-        /// A condition operation exceeded its deterministic BDD pair-work preflight.
-        ConditionWorkLimit = 22,
-        /// A condition operation exceeded its BDD result-node cap.
-        ConditionNodeLimit = 23,
-        /// A condition operation exceeded its named-atom cap.
-        ConditionAtomLimit = 24,
-        /// The recursive summary worklist exhausted its deterministic source/callee pair cap.
-        SummaryPairWorkLimit = 25,
-        ExpressionDepthLimit = 26,
-        ExpressionWorkLimit = 27,
-        CompletionDepthLimit = 28,
-        CompletionWorkLimit = 29,
-        SummaryProofLimit = 30,
-        DefaultUnavailable = 31,
-        DefaultStabilityUnknown = 32,
-        /// Entering a named exception handler binds and later deletes its name. The
-        /// associated lifetime/finalization actions have no admitted completion proof.
-        HandlerNameCleanup = 33,
-        /// More than 128 explicit arguments in a reached-invocation proof request.
-        InvocationArgumentLimit = 34,
-        ActionTriggerUnavailable = 35,
-        ResourceIdentityUnavailable = 36,
-        FrameExitCleanup = 37,
-}
+pub use super::obligation::ObligationKind;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, DomainCode)]
 #[repr(i16)]
@@ -197,7 +127,7 @@ pub struct ProviderCoverage {
     #[model(key)] pub family: FactFamily,
     #[model(key, provenance)] pub run: Option<Id<ProviderRun>>,
     pub status: CoverageStatus,
-    pub reason: Option<BoundaryReason>,
+    pub reason: Option<ObligationKind>,
     pub diagnostic: Option<String>,
 }
 fn validate_coverage(row: &ProviderCoverage) -> Result<(), ModelError> {

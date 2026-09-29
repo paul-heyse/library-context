@@ -3,10 +3,16 @@ mod identity;
 mod model;
 mod record;
 pub mod source;
+pub mod artifact;
+pub mod value;
+pub mod conditions;
+pub mod assertion;
 pub mod input;
 pub mod attribution;
 pub mod attachment;
 pub mod stages;
+pub mod resources;
+pub mod obligation;
 
 pub use identity::{ArmId, ContentHash, EvidenceBytes, Id, Key, KeySink};
 pub use model::{Invariant, InvariantCheck, ValidationInput, Relation, RelationContent, ValidatedModel};
@@ -14,6 +20,8 @@ pub use record::{Arm, ArmField, Sum, SumRecord, Batch, Field, FieldValue, FlatVa
 
 #[derive(Debug, thiserror::Error)]
 pub enum ModelError {
+    #[error("{owner} memory reservation refused: requested {requested} bytes with {used}/{limit} reserved")]
+    Resource { owner: &'static str, requested: usize, used: usize, limit: usize },
     #[error("invalid model: {0}")]
     Invalid(String),
     #[error("wrong schema for {0}")]
@@ -99,11 +107,18 @@ pub fn model() -> Result<ValidatedModel, ModelError> {
     use input::*;
     use attribution::*;
     use source::*;
+    use value::*;
+    use conditions::*;
+    use assertion::*;
     ValidatedModel::validate(vec![
+        Relation::of::<AssertionQualification>(), Relation::of::<ProviderSurface>(), Relation::of::<Evidence>(),
+        Relation::of::<Literal>(), Relation::of::<LiteralSet>(), Relation::of::<LiteralSetMember>(),
+        Relation::of::<PlaceRoot>(), Relation::of::<PathSegment>(), Relation::of::<AccessPath>(), Relation::of::<Place>(),
+        Relation::of::<Predicate>(), Relation::of::<EvaluationAtom>(), Relation::of::<ConditionNode>(), Relation::of::<Condition>(),
         Relation::of::<Package>(), Relation::of::<Release>(), Relation::of::<InputRevision>(),
         Relation::of::<InputOrigin>(), Relation::of::<InputAcquisition>(), Relation::of::<CorpusLibrary>(),
         Relation::of::<InputDistribution>(), Relation::of::<DistributionVerification>(),
-        Relation::of::<ArtifactOwnership>(), Relation::of::<ArtifactUse>(), Relation::of::<SourceArtifact>(), Relation::of::<Module>(),
+        Relation::of::<ArtifactOwnership>(), Relation::of::<ArtifactUse>(), Relation::of::<SourceArtifact>(), Relation::of::<artifact::ArtifactChunk>(), Relation::of::<Module>(),
         Relation::of::<Occurrence>(), Relation::of::<Provider>(), Relation::of::<AnalysisContext>(),
         Relation::of::<ProviderRun>(), Relation::of::<RunFamily>(), Relation::of::<SyntaxObservation>(), Relation::of::<SyntaxSupport>(),
         Relation::of::<CoverageScope>(), Relation::of::<ProviderCoverage>(),

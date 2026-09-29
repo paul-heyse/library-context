@@ -3,6 +3,77 @@ use proc_macro::TokenStream;
 use quote::{format_ident, quote};
 use syn::{Data, DeriveInput, Fields, LitStr, parse_macro_input};
 
+/// Generates only the mechanically identical support relationship and contract accessors.
+/// Proposition fields remain ordinary Rust declarations; semantic validation is library code.
+#[proc_macro_derive(Assertion, attributes(assertion))]
+pub fn assertion(input: TokenStream) -> TokenStream {
+    match expand_assertion(parse_macro_input!(input as DeriveInput)) {
+        Ok(tokens) => quote!(#tokens).into(),
+        Err(error) => error.into_compile_error().into(),
+    }
+}
+fn expand_assertion(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
+    let Data::Struct(data) = &input.data else { return Err(syn::Error::new_spanned(&input,"assertion requires a concrete record")); };
+    let qualification = data.fields.iter().find(|field| field.ident.as_ref().is_some_and(|name| name == "qualification"))
+        .ok_or_else(|| syn::Error::new_spanned(&input.ident,"assertion requires a keyed qualification field"))?;
+    let mut keyed = false;
+    for attr in &qualification.attrs {
+        if attr.path().is_ident("model") { attr.parse_nested_meta(|meta| { if meta.path.is_ident("key") { keyed = true; } Ok(()) })?; }
+    }
+    if !keyed { return Err(syn::Error::new_spanned(qualification,"assertion qualification must participate in the semantic key")); }
+    let mut support: Option<syn::Ident> = None;
+    let mut table: Option<LitStr> = None;
+    let mut family: Option<syn::Path> = None;
+    let mut subjects: Vec<syn::Ident> = Vec::new();
+    for attr in &input.attrs {
+        if attr.path().is_ident("assertion") {
+            attr.parse_nested_meta(|meta| {
+                if meta.path.is_ident("support") { support = Some(meta.value()?.parse()?); }
+                else if meta.path.is_ident("name") { table = Some(meta.value()?.parse()?); }
+                else if meta.path.is_ident("family") { family = Some(meta.value()?.parse()?); }
+                else if meta.path.is_ident("subjects") {
+                    meta.parse_nested_meta(|field| {
+                        subjects.push(field.path.get_ident().cloned().ok_or_else(|| field.error("expected subject field"))?);
+                        Ok(())
+                    })?;
+                } else { return Err(meta.error("expected support, name, family or subjects")); }
+                Ok(())
+            })?;
+        }
+    }
+    let error = || syn::Error::new_spanned(&input.ident, "assertion requires support, name, family and nonempty subjects");
+    let support = support.ok_or_else(error)?;
+    let table = table.ok_or_else(error)?;
+    let family = family.ok_or_else(error)?;
+    if subjects.is_empty() { return Err(error()); }
+    let name = &input.ident; let vis = &input.vis;
+    Ok(quote! {
+        impl ::lctx_model::domain::assertion::Assertion for #name {
+            const FAMILY: ::lctx_model::domain::attribution::FactFamily = #family;
+            fn qualification(&self) -> ::lctx_model::domain::Id<::lctx_model::domain::assertion::AssertionQualification> { self.qualification }
+            fn subjects(&self) -> Vec<::lctx_model::domain::assertion::Subject> { vec![#(self.#subjects.into(),)*] }
+        }
+        #[derive(Debug, Clone, PartialEq, Eq, ::lctx_model::Domain)]
+        #[model(name = #table, invariants = ::lctx_model::domain::assertion::support_invariants::<#name, #support>)]
+        #vis struct #support {
+            #[model(key)] pub assertion: ::lctx_model::domain::Id<#name>,
+            #[model(key, provenance)] pub run: ::lctx_model::domain::Id<::lctx_model::domain::attribution::ProviderRun>,
+            #[model(key, provenance)] pub surface: ::lctx_model::domain::Id<::lctx_model::domain::assertion::ProviderSurface>,
+            #[model(key, provenance)] pub evidence: ::lctx_model::domain::Id<::lctx_model::domain::assertion::Evidence>,
+            #[model(key, provenance)] pub origin: ::lctx_model::domain::attribution::Origin,
+            #[model(key, provenance)] pub mode: ::lctx_model::domain::attribution::ExtractionMode,
+            #[model(key, provenance)] pub fidelity: ::lctx_model::domain::attribution::Fidelity,
+        }
+        impl ::lctx_model::domain::assertion::Support for #support {
+            type Assertion = #name;
+            fn assertion(&self) -> ::lctx_model::domain::Id<#name> { self.assertion }
+            fn attribution(&self) -> ::lctx_model::domain::assertion::SupportAttribution {
+                ::lctx_model::domain::assertion::SupportAttribution { run: self.run, surface: self.surface, evidence: self.evidence }
+            }
+        }
+    })
+}
+
 #[proc_macro_derive(Domain, attributes(model))]
 pub fn domain(input: TokenStream) -> TokenStream {
     match expand(parse_macro_input!(input as DeriveInput)) {
@@ -19,7 +90,16 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
     let mut validator: Option<syn::Path> = None;
     let mut invariants: Option<syn::Path> = None;
     let mut semantic_source: Option<syn::Expr> = None;
+    let mut required_support: Option<syn::Ident> = None;
     for attr in &input.attrs {
+        if attr.path().is_ident("assertion") {
+            attr.parse_nested_meta(|meta| {
+                if meta.path.is_ident("support") { required_support = Some(meta.value()?.parse()?); }
+                else if meta.path.is_ident("subjects") { meta.parse_nested_meta(|_| Ok(()))?; }
+                else { let _: syn::Expr = meta.value()?.parse()?; }
+                Ok(())
+            })?;
+        }
         if attr.path().is_ident("model") {
             attr.parse_nested_meta(|meta| {
                 if meta.path.is_ident("name") { table = Some(meta.value()?.parse::<LitStr>()?); }
@@ -77,6 +157,9 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
     let semantic_source = semantic_source.map(|expr| quote!(#expr)).unwrap_or_else(|| quote!(b""));
     let validation = validator.map(|v| quote! { #v(self)?; });
     let invariants = invariants.map(|v| quote! { #v() }).unwrap_or_else(|| quote! { Vec::new() });
+    let required_support = required_support.map(|support| quote! {
+        vec![(::std::any::TypeId::of::<#support>(), <#support as ::lctx_model::domain::Record>::NAME)]
+    }).unwrap_or_else(|| quote! { Vec::new() });
     Ok(quote! {
         #[derive(Debug, Clone, PartialEq, Eq, Hash)]
         #vis struct #key_name { #(pub #keys: #key_types,)* }
@@ -106,6 +189,7 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
             fn key(&self) -> Self::Key { #key_name { #(#keys: self.#keys.clone(),)* } }
             fn fields() -> Vec<::lctx_model::domain::Field> { vec![#(#descriptors,)*] }
             fn invariants() -> Vec<::lctx_model::domain::Invariant> { #invariants }
+            fn required_relations() -> Vec<(::std::any::TypeId, &'static str)> { #required_support }
             fn content_digest(&self) -> ::lctx_model::domain::ContentHash {
                 let mut sink = ::lctx_model::domain::KeySink::new(Self::NAME);
                 #(::lctx_model::domain::Key::encode(&self.#names, &mut sink);)*
@@ -207,18 +291,24 @@ fn expand_sum(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
     let Data::Enum(data) = &input.data else { return Err(syn::Error::new_spanned(&input, "DomainSum requires an enum")); };
     if !input.generics.params.is_empty() { return Err(syn::Error::new_spanned(&input.generics, "domain sums are concrete")); }
     let mut table = None;
+    let mut validator: Option<syn::Path> = None;
+    let mut invariants: Option<syn::Path> = None;
     let mut semantic_source: Option<syn::Expr> = None;
     for attr in &input.attrs {
         if attr.path().is_ident("model") {
             attr.parse_nested_meta(|meta| {
                 if meta.path.is_ident("name") { table = Some(meta.value()?.parse::<LitStr>()?); Ok(()) }
                 else if meta.path.is_ident("semantic_source") { semantic_source = Some(meta.value()?.parse()?); Ok(()) }
-                else { Err(meta.error("expected name or semantic_source")) }
+                else if meta.path.is_ident("validate") { validator = Some(meta.value()?.parse()?); Ok(()) }
+                else if meta.path.is_ident("invariants") { invariants = Some(meta.value()?.parse()?); Ok(()) }
+                else { Err(meta.error("expected name, semantic_source, validate or invariants")) }
             })?;
         }
     }
     let table = table.ok_or_else(|| syn::Error::new_spanned(&input.ident, "model(name = …) is required"))?;
     let semantic_source = semantic_source.map(|expr| quote!(#expr)).unwrap_or_else(|| quote!(b""));
+    let validation = validator.map(|v| quote! { #v(self)?; });
+    let invariant_creation = invariants.map(|v| quote! { #v() }).unwrap_or_else(|| quote! { Vec::new() });
     let name = &input.ident;
     let physical = format_ident!("__{}Physical", name);
     let declaration = quote!(#input).to_string();
@@ -323,7 +413,8 @@ fn expand_sum(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
             }
             fn fields() -> Vec<::lctx_model::domain::Field> { vec![::lctx_model::domain::Field::of::<i16>("kind", true, false), #(#descriptors,)*] }
             fn sum() -> Option<::lctx_model::domain::Sum> { Some(::lctx_model::domain::Sum { tag: "kind", arms: vec![#(#sum_arms,)*] }) }
-            fn validate(&self) -> Result<(), ::lctx_model::domain::ModelError> { Ok(()) }
+            fn validate(&self) -> Result<(), ::lctx_model::domain::ModelError> { #validation Ok(()) }
+            fn invariants() -> Vec<::lctx_model::domain::Invariant> { #invariant_creation }
             fn encode(rows: &[Self]) -> Result<::lctx_model::domain::__private::RecordBatch, ::lctx_model::domain::ModelError> {
                 let physical: Vec<_> = rows.iter().map(|row| match row { #(#encode_arms,)* }).collect();
                 ::lctx_model::domain::__private::serde_arrow::to_record_batch(Self::schema().fields(), &physical).map_err(::lctx_model::domain::ModelError::codec)
@@ -333,6 +424,7 @@ fn expand_sum(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
                 let physical: Vec<#physical> = ::lctx_model::domain::__private::serde_arrow::from_record_batch(batch).map_err(::lctx_model::domain::ModelError::codec)?;
                 physical.into_iter().map(|physical| {
                     let row = match physical.kind { #(#decode_arms,)* _ => return Err(::lctx_model::domain::ModelError::Invalid("unknown sum tag".into())) };
+                    row.validate()?;
                     if row.id() != physical.id { return Err(::lctx_model::domain::ModelError::Identity(Self::NAME)); }
                     Ok(row)
                 }).collect()

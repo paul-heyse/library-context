@@ -152,44 +152,40 @@ partition migration or upfront ablation is authorized. Independent behavior cont
 
 ### 4.1.1 Detailed remaining execution order
 
-The 2026-09-29 execution refinement retains ADR-0085–0087. Implementation order:
+The operator accepted this remaining execution refinement on 2026-09-29, starting from `04a99a6`.
+ADR-0085–0087 remain governing; ADR-0088 records the selected chunk-preservation policy. All packages
+are one functional implementation scope. Compile/focused checks accompany slices; formatting and the
+integrated gate wait for the complete scope. No package is complete merely because it is listed here.
 
-1. **P0.1 inventory and ownership:** map every emitted raw field, including captured artifact
-   bytes and nested deployment/task receipts, to a typed owner before deletion. Source occurrences,
-   provider conditions and provider coverage belong to facts; normalized ownership and derived
-   conclusions are later relationships over those objects.
-2. **P0.2/P0.3 domain construction:** separate package releases, content-addressed input revisions,
-   environment and acquisition provenance. Preserve installed/tree/corpus input variants, multiple
-   distributions and corpus attribution. Labels and absolute paths do not establish content identity.
-   Finish binary codecs, qualified assertion/support contracts, typed roles, the root membership
-   manifest, generated content encoding and model/reference closure. Cover representative actual
-   shapes across all raw domains before scaling producers.
-3. **P0.4 policies:** calls/alternatives/receiver classification, structural places, occurrence-keyed
-   BDD atoms, full binding-set transfer, typed control/selection and derivation premises, obligation
-   policy and one indexed attachment/owner rule. Independent controls retain C03–C13 obligations.
-4. **P0.5/P0.6 execution:** stage-scoped typed reads/writes, fresh catalogs sharing one attempt
-   runtime, expected provider/family/scope coverage, then a real extraction-to-PG vertical slice and
-   assembled design/target review. No future-layer placeholder tables.
-5. **P1 store:** generated installation verification and privilege checks; bounded COPY/read/validate;
-   batch-independent content hashes and exact required-validator receipts; query-owned leases with
-   terminal failure/cancellation; complete lock order and interrupted-attempt cleanup.
-6. **P1 runtime cutover:** install/check/reset and generation inspection/selection/retirement/abort
-   commands; database/generation query. Quiesce owned runtime and remove Delta, partitions, bundles,
-   adapters, old flags and runnable downstream paths. Retain pure raw definitions only until their
-   producers migrate. Preserve operational services and independent expected semantics.
-7. **P2 producers:** acquisition/source → syntax/lexical → signatures/calls/types → ty flow → documents
-   → package/deployment evidence. Each group lands its definitions, typed producer bundle and focused
-   controls, then deletes replaced schema/hash authority. One assembly owner attaches observations,
-   preserves alternatives/support, validates coverage and writes typed batches.
-8. **P2 compiler and deletion:** facts-only compile for both profiles, no automatic selection,
-   explicit frontier refusal. Delete `cpg-schema` and the old model after surviving consumers move;
-   rebuild pinned inputs and remove enumerated obsolete runtime copies. Finish formatting, the active
-   integrated gate, both facts pilots, docs, assembled review and handoff.
+| Sequence | Executable contract and owner | Exit evidence / deletion |
+|---|---|---|
+| P0-A | Input/source metadata plus canonical 1 MiB ArtifactChunk relationships; complete-content verifier, input manifest, acquisition/distribution/use/corpus boundaries | Empty, non-UTF-8 and >64 MiB readback; corrupt/missing/duplicate/misplaced/noncanonical refusal; source changes during capture abort |
+| P0-B | Qualified assertions contain context/condition/modality/approximation; concrete typed supports contain invocation/surface/evidence/origin/mode/fidelity; representative syntax, lexical, symbol/type, call, flow, document and deployment domains | Same proposition may gain supports without strengthening; equal key/conflicting payload refuses; all actual shapes lower through typed/Arrow/PG; no future entity references or opaque relationship JSON |
+| P0-C | Port pure call/binding/place/BDD/transfer/control/selection/verdict/derivation policies to nominal types | Full alternative completeness, receiver Unknown, complete binding sets, identity-only path extension, retained opaque guards, stable merge keys, typed premises; C04–C12 controls; later producer/consumer findings remain open |
+| P0-D | Validated stage read/write capabilities; one writer, required inputs, cycle checks; fresh catalogs sharing one attempt runtime; exact provider/family/scope matrix and scope/input validation | Undeclared reads/writes and catalog leakage refuse. Complete-empty/Partial/Unavailable/NotRequested remain distinct. Required unexpected failure aborts. Production facts admission requires complete model/schedule/coverage receipts; subset cannot advertise facts |
+| P0-D resources | Shared reservations for producer batches, indexes, validator state, COPY, wire conversion and Arrow/typed overlap; model/store use library-neutral budget interface | Preserve 64 GiB default and eight compute partitions with explicit overrides; 4096-row/8 MiB transfer targets, admitted oversized-row reservation; fail without publication; measure parser/runtime overhead separately |
+| P0-E | Real pinned extraction → typed source/module/occurrence/assertion/support/coverage → permanent codecs/COPY/sealed validation/readback | Disposable subset conformance harness cannot select or claim complete facts; assembled independent P0 design/target review before scaling; later lifecycle and C04/C13 consumer closure stay open |
+| P1-A | Generated install/check/reset and live schema/type/null/key/ref/check/index/grant verification; service-only installation owner | Fresh/repeated install cannot recreate legacy partition/serving schemas. Preserve embedding cache and attempt/event telemetry for current operations consumer; remove snapshot/bundle discovery. Offline transition copies only retained service data |
+| P1-B | Lifecycle lock order: installation coordination → selection where relevant → generation → relations. Exact sealed/admission receipts; atomic publish/grants; explicit selection | Atomic abort/retire removes schema and generation registry/receipts/events; selected/leased refuses. AlreadyAbsent only when all owned runtime objects absent; orphan state is inconsistent. Interrupted attempts abort, never repair into publication |
+| P1-C | Generation-bound provider sessions and streams, pre-decode digests/admission, lease/pool lifetime, terminal loss and cancellation | Pin survives different selection; no reconnect/substitution; cancel/drain or quarantine. Extend owned provider fork's row-only batching with byte bounds and reservation hooks; update exact pin; no unrestricted discovery/federation |
+| P1-D | CLI model/store/generation/query over protected database configuration | Quiesce identified project readers; remove Delta dependencies/persistence/bootstrap, partitions, bundles, adapters, old flags/IDs and runnable downstream closure in Phase 1. Retain only pure raw definitions/producers needed by P2. Compilation explicitly unavailable until complete new producers exist |
+| P2-A | Migrate acquisition/source → Ruff syntax/lexical → Pyrefly symbols/signatures/calls/types → ty flow → documents → deployment/receipts | Each group completes §4.1.2 field dispositions, typed bounded producer bundles and independent controls, then deletes old schema/hash authority. Shared Pyrefly/Ruff parse, ty second parse and pinned acquisition retained; no captured code execution |
+| P2-B | One assembler attaches by indexed source/span/kind/role, preserves alternatives/support, validates coverage/input ownership, writes typed batches and seals/validates/publishes | Catalog profile records flow NotRequested; behavioral adds flow facts, not analyses. Compile through facts never auto-selects. Beyond-facts requests fail before work. No normalized consensus or fabricated higher-layer output |
+| P2-C | Delete cpg-schema and obsolete model/identity/condition authority after final consumers move; remove enumerated obsolete runtime copies | Rebuild both pinned profiles and fixture corpus; input order/transport batching invariance; original bytes retained; independent fixtures/oracles/protected benchmarks/services preserved; surviving downstream obligations carried to P3–P5 |
 
-Unexpected required-provider failure aborts. Explicit unsupported/recovered scopes may publish only
-with structured partial/unavailable coverage. Original evidence survives failed interpretation.
-Equivalent fresh inputs/configuration must produce equal semantic content independent of batching;
-compiler telemetry and generation IDs do not participate. No incremental cache is added.
+Operator interface (no legacy aliases): `model describe --format text|json`; `store install|check|reset`;
+`generation list|show|select|clear-selection|retire|abort`; `query --generation <id> <SQL>`; and
+`compile <library> --through facts --profile catalog|behavioral`. Database commands take
+`--database <protected-config-path>` and preserve environment/default config discovery. Query is
+read-only. Inspection exposes actual profile/frontier, coverage and contract/content digests.
+Embedding/analytics/bundle/old-store arguments leave facts compile. Installation/reset touches only
+inventoried project-owned semantic objects and retained service contracts, not unrelated data.
+
+Qualification after all functional packages: `just fmt` once, updated complete `just test-all`
+(real PG and compile-fail included), both facts pilots, fixture corpus, `just docs-check`, assembled
+Phase 0–2 review and handoff. Suspended analysis/catalog/MCP gates remain explicitly not_run.
+Content equality excludes telemetry, timestamps and generation IDs. No incremental cache or new
+reasoning engine is added. A capability's deletion does not close its retained obligation.
 
 ### 4.1.2 Raw-field migration inventory
 
@@ -309,55 +305,62 @@ runtime reader. Malformed interpretation retains the original artifact with expl
 
 ### 4.2 Execution status
 
-**In progress: P0.1–P0.3/P0.5/P0.6 foundations.** Replacement decisions and revised plan accepted.
-Implemented a bounded derive for records, codebooks and tagged sums; nominal IDs, generated keys,
-explicit-schema codecs, subtype references, validated membership and a typed stage schedule. The
-production subset covers source/module/occurrence, provider/context/run, syntax support and coverage.
-The generation store has ordinary schema lowering, COPY, seal/validate/publish, leased reads,
-selection, retirement and abort cleanup. It is not connected to the production compiler or CLI.
+**In progress: P0-A–P0-D foundations and bounded generation lifecycle corrections.**
+No phase exit is qualified. The old pipeline remains active and the new generation path is not
+connected to the production compiler or CLI. No compatibility adapter connects them.
 
-Focused evidence (2026-09-29; commands prefixed by `python3 scripts/build_environment.py --`):
+**Implemented / Tested (2026-09-29, bounded):**
+
+- Ordinary record/codebook/sum/Assertion derives, nominal IDs, generated keys and explicit Arrow
+  codecs. Model admission enforces references, subtype membership and assertion/support companions;
+  assertion qualification must participate in identity.
+- Source metadata plus canonical 1 MiB artifact chunks preserve original binary evidence, including
+  files above the row limit. Capture and sealed validation prove full length/digest and canonical
+  ordering; failed capture cannot resume successfully. Input manifests, acquisition/distribution/
+  corpus relationships, ownership/use and source spans have shared stored invariants.
+- Typed values, literal sets, places, occurrence-keyed atoms and canonical BDD nodes. Independent
+  truth tables and malformed-node controls cover bounded operations and persisted hydration.
+  Capture-safe substitution preserves unmapped opaque guards; display truncation is separate.
+- Qualified syntax propositions and generated concrete supports retain context, condition, modality,
+  approximation, invocation, surface, evidence, origin, mode and fidelity. Validators check condition
+  contexts, evaluation/source input ownership, assertion/evidence scope and required support.
+  Coverage-matrix controls exist; full compiler schedule/coverage admission remains open.
+- Typed stage access refuses undeclared reads/writes and incomplete, failed or cancelled execution.
+  `cpg-core::model_runtime` constructs fresh catalogs over a shared DataFusion runtime, rejects
+  foreign stage/attempt read permits and SQL mutations. A neutral reservation interface shares the
+  compute pool; accounting every producer/index/validator/codec buffer remains open.
+- The pure verdict policy treats scope boundaries and approximations as Unknown, preserves explicit
+  NotRequested, requires complete exact coverage for refutation, and ignores display truncation.
+- PostgreSQL generation lowering, streamed COPY/read validation, writer-draining sealing, exact
+  relation/validator receipts and pool-bound reader leases. Subset creation is explicitly
+  `create_conformance`; it cannot select a production facts generation. Cleanup removes schema,
+  registry, receipts and generation events atomically. Retry returns AlreadyAbsent only for complete
+  absence; orphaned schema/registry state requires explicit repair. Production facts admission is
+  not implemented.
+
+Focused evidence (2026-09-29; Cargo commands prefixed by `python3 scripts/build_environment.py --`):
 
 | Command | Outcome and boundary |
 |---|---|
-| `cargo test --release -p lctx-model --test domain` | passed: 14 focused domain controls, including sum null semantics, nominal subtype construction, binary evidence and batch-independent content hashing |
-| `cargo test --release -p lctx-model --doc` | passed: five negative declarations with five positive partners; one pre-existing ignored legacy example |
-| `cargo test --release -p lctx-postgres --test generations` | passed: real disposable PG18 typed source/support/coverage round trip; writer drain and revocation; stored reference and subtype refusal; pool-bound reader leases; retirement, selection, contract mismatch and failed-attempt cleanup |
-| `just docs-check`; `uv run python scripts/adr.py lint` | passed: documentation publication and current decision references; not architecture qualification |
+| `cargo test --release -p lctx-model --test domain --test domain_conditions --test domain_assertions --test domain_stages --test domain_resources --test domain_verdicts` | passed: 29 focused model controls |
+| `cargo test --release -p lctx-model --doc` | passed: six negative/positive declaration pairs; one pre-existing ignored legacy example |
+| `cargo test --release -p lctx-postgres --test generations` | passed: two real disposable PG18 tests, including 65 MiB evidence, stored corruption and contract refusal, write drain, leases, conformance selection refusal, cleanup retry and orphan repair |
+| `cargo test --release -p cpg-core --test model_runtime` | passed: two fresh-catalog/capability/shared-pool controls; no total-memory/RSS claim |
+| `just docs-check`; `uv run python scripts/adr.py lint` | passed: documentation publication and 44 current ADR records |
 | `just fmt`, `just test-all`, facts pilots | not_run: functional scope incomplete |
 
-The independent interim storage review found five defects. Nested options are now rejected,
-unsupported digest arrays excluded, leases keep their pool permits, and failed attempts have atomic
-cleanup. Model fingerprints include owned semantic/generator sources and dependency manifests;
-external fixture declarations must supply semantic source bytes. Source inspection accepted the
-corrections within this boundary; concurrent/cancelled abort and the new sum/subtype design still
-require the assembled P0 review.
+Independent bounded reviewers accepted artifact/capture/acquisition corrections and the
+[assertion/condition foundation](../design_review/reviews/design_review_semantic-assertion-foundation_2026-09-29.md)
+after its three corrections. The [earlier input review](../design_review/reviews/design_review_semantic-input-validation_2026-09-29.md)
+still has open coordinated-resource qualification. Stage/session/lifecycle changes await their
+assembled review; none of these bounded receipts establishes enclosing architecture acceptance.
 
-**Additional implemented slice (2026-09-29):** binary evidence is supported through the domain,
-explicit Arrow codec, COPY and SQLx readback. Record derives generate semantic payload hashes.
-Stored validation streams rows in ID order with row/byte-bounded chunks instead of fetching a whole
-relation and hashing IPC framing. Typed leased `visit` is the large-relation API; convenience `read`
-refuses collections above its budget. The real PG lifecycle test includes non-UTF-8 evidence.
-COPY now encodes individual rows. Generated admission checks reject oversized rows and malformed
-arrays before readback. Model-owned sealed validators reconcile input manifests, source-relative
-spans and acquisition-specific artifact ownership; publication checks exact validator receipts.
-Content revisions, acquisition variants, distribution verification and artifact uses are typed.
-Provider family-set identity, outcome consistency and failed-provider refusal are checked over sealed
-contents. Exact coverage-matrix validation has focused controls but still needs compiler scheduling
-and scope/input enforcement. Indexed occurrence attachment preserves ambiguity
-and has an independent scalar oracle; normalized ownership remains open.
-The [bounded input review](../design_review/reviews/design_review_semantic-input-validation_2026-09-29.md)
-accepted its corrections by source inspection. Coordinated allocation budgets, provider-stream
-integration and the complete validator manifest remain open.
-Typed batches now deduplicate in place, record encoders borrow payload fields, and canonical typed
-readback shares Arrow buffers. Focused domain/PG/doc controls passed after this allocation reduction;
-it does not establish a measured memory envelope or close input-validation F02.
-
-**Still open:** implement the raw-field mappings in §4.1.2 and remaining domain families; P0.4 remaining semantic policies and normalized
-ownership; stage runtime/session enforcement; bounded large-table reads; complete store/CLI commands;
-producer migration; deletion and quiescence. The old pipeline and framework remain present, unwired
-to the new generation path. No adapter between them has been added. No phase exit is qualified.
-Earlier phase-0/WP1.0 receipts do not qualify this target.
+**Next / still open:** remaining representative domain families and P0-C call/binding/transfer/control/
+selection/derivation policies; occurrence ownership; coordinated allocation accounting; exact coverage
+and full production frontier admission; real pinned extraction conformance and assembled P0-E review.
+Then finish generated installation verification/reset, provider lease/stream integration, service
+classification, store/CLI cutover and Delta deletion in P1; migrate every raw producer/field in §4.1.2
+and reconstruct owned state in P2. Earlier Phase 0 receipts do not qualify this target.
 
 ## 5. Deletion and preservation obligations
 
@@ -414,6 +417,18 @@ phase named, and only on its closure evidence.
 
 **Operator decision (2026-09-29).** Do not repair these in the legacy code. The new contracts must
 make them unrepresentable.
+
+
+### Assertion foundation review findings
+
+The [bounded assertion review](../design_review/reviews/design_review_semantic-assertion-foundation_2026-09-29.md)
+reinspected these corrections on 2026-09-29. Closure is limited to the foundation; P0-E assembly stays open.
+
+| Finding | Responsible component | Current disposition and evidence |
+|---|---|---|
+| [F01](../design_review/reviews/design_review_semantic-assertion-foundation_2026-09-29.md#F01) | `lctx-model::domain::assertion` | closed (bounded): condition evaluation input/scope validation; same-input/corpus positive and foreign/missing/out-of-scope negative controls |
+| [F02](../design_review/reviews/design_review_semantic-assertion-foundation_2026-09-29.md#F02) | `lctx-model-macros` | closed (bounded): keyed qualification required by derive; paired declaration controls |
+| [F03](../design_review/reviews/design_review_semantic-assertion-foundation_2026-09-29.md#F03) | `lctx-model::domain::model` | closed (bounded): generated companion dependency; incomplete membership rejected |
 
 
 ### Core review findings

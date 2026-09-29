@@ -105,7 +105,9 @@ Input revisions identify canonical manifests of analyzer-visible bytes, independ
 labels or absolute checkout locations. Package/version releases, installed verification and acquired
 input revisions have separate identities. Installed, source-tree and corpus acquisition origins are
 explicit alternatives; multiple distributions and corpus attribution remain relationships. Original
-artifact bytes survive independently of interpretation. The model owns cross-relation reconciliation
+artifact bytes survive independently of interpretation as canonical 1 MiB `ArtifactChunk` records.
+Empty artifacts have no chunks; the last chunk alone may be shorter. A streaming model-owned
+validator reconstructs the full byte length and digest before publication (ADR-0088). The model owns cross-relation reconciliation
 of the stored artifacts with the input manifest.
 
 Source artifacts anchor occurrences by half-open byte span, syntax kind and structural discriminator.
@@ -119,7 +121,7 @@ condition; the owned merge joins conditions and retains all support.
 Generation IDs identify attempts. Model, physical schema, producer and content digests have separate
 meanings. Content equality excludes runtime timestamps and measurement data.
 
-> Decision: ADR-0085, ADR-0086
+> Decision: ADR-0085, ADR-0086, ADR-0088
 
 <a id="section-15-4"></a>
 

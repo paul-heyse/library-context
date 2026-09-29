@@ -50,7 +50,7 @@ pub enum InputOrigin {
     #[model(code = 2)] Corpus { repository: String, revision: String },
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "input_acquisitions")]
+#[model(name = "input_acquisitions", invariants = acquisition_invariants)]
 pub struct InputAcquisition {
     #[model(key)] pub input: Id<InputRevision>,
     #[model(key, provenance)] pub origin: Id<InputOrigin>,
@@ -169,6 +169,8 @@ pub struct ArtifactOwnership {
 pub enum SourceRole { Release = 0, Example = 1, Test = 2, DocBlock = 3 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name = "artifact_uses")]
+/// A source artifact used in its own revision, or a library artifact explicitly used by a
+/// corpus linked through CorpusLibrary. The use never changes the artifact's content identity.
 pub struct ArtifactUse {
     #[model(key)] pub artifact: Id<super::source::SourceArtifact>,
     #[model(key)] pub input: Id<InputRevision>,
@@ -217,6 +219,84 @@ impl InvariantCheck for OwnershipCheck {
                 if artifact_input != verified_input { return Err(missing()); }
             }
         } else { return Err(ModelError::Invalid("undeclared ownership validation input".into())); }
+        Ok(())
+    }
+    fn finish(self: Box<Self>) -> Result<(), ModelError> { Ok(()) }
+}
+
+fn acquisition_invariants() -> Vec<Invariant> {
+    vec![Invariant { name: "input_acquisition_boundaries", inputs: vec![
+        ValidationInput::of::<InputOrigin>(&["id"]),
+        ValidationInput::of::<InputAcquisition>(&["id"]),
+        ValidationInput::of::<CorpusLibrary>(&["id"]),
+        ValidationInput::of::<InputDistribution>(&["id"]),
+        ValidationInput::of::<DistributionVerification>(&["id"]),
+        ValidationInput::of::<super::source::SourceArtifact>(&["id"]),
+        ValidationInput::of::<ArtifactUse>(&["id"]),
+    ], create: || Box::new(AcquisitionBoundaries::default()) }]
+}
+#[derive(Default)]
+struct AcquisitionBoundaries {
+    corpus_origins: std::collections::BTreeSet<Id<InputOrigin>>,
+    acquired: std::collections::BTreeSet<Id<InputRevision>>,
+    corpus_inputs: std::collections::BTreeSet<Id<InputRevision>>,
+    acquisitions: std::collections::BTreeMap<Id<InputAcquisition>, Id<InputRevision>>,
+    corpus_libraries: std::collections::BTreeSet<(Id<InputRevision>, Id<InputRevision>)>,
+    distributions: std::collections::BTreeMap<(Id<InputRevision>, Id<Release>), DistributionRole>,
+    artifacts: std::collections::BTreeMap<Id<super::source::SourceArtifact>, Id<InputRevision>>,
+}
+impl InvariantCheck for AcquisitionBoundaries {
+    fn visit(&mut self, relation: &str, batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
+        use super::source::SourceArtifact;
+        // Temporary cardinality admission until shared allocation reservations reach validators.
+        let entries = self.corpus_origins.len() + self.acquired.len() + self.corpus_inputs.len()
+            + self.acquisitions.len() + self.corpus_libraries.len() + self.distributions.len() + self.artifacts.len();
+        if entries.saturating_add(batch.num_rows().saturating_mul(3)) > 3_000_000 {
+            return Err(ModelError::Invalid("acquisition validation cardinality budget exceeded".into()));
+        }
+        if relation == InputOrigin::NAME {
+            for row in InputOrigin::decode(batch)? {
+                if matches!(row, InputOrigin::Corpus { .. }) { self.corpus_origins.insert(row.id()); }
+            }
+        } else if relation == InputAcquisition::NAME {
+            for row in InputAcquisition::decode(batch)? {
+                self.acquired.insert(row.input);
+                if self.corpus_origins.contains(&row.origin) { self.corpus_inputs.insert(row.input); }
+                if self.acquisitions.insert(row.id(), row.input).is_some() { return Err(ModelError::Conflict(InputAcquisition::NAME)); }
+            }
+        } else if relation == CorpusLibrary::NAME {
+            for row in CorpusLibrary::decode(batch)? {
+                if !self.corpus_inputs.contains(&row.corpus) || !self.acquired.contains(&row.library) {
+                    return Err(ModelError::Invalid("corpus library needs acquired corpus and library inputs".into()));
+                }
+                self.corpus_libraries.insert((row.corpus, row.library));
+            }
+        } else if relation == InputDistribution::NAME {
+            for row in InputDistribution::decode(batch)? {
+                if !self.acquired.contains(&row.input) { return Err(ModelError::Invalid("distribution input is not acquired".into())); }
+                if self.distributions.insert((row.input, row.release), row.role).is_some() {
+                    return Err(ModelError::Invalid("distribution has contradictory input roles".into()));
+                }
+            }
+        } else if relation == DistributionVerification::NAME {
+            for row in DistributionVerification::decode(batch)? {
+                let input = self.acquisitions.get(&row.acquisition)
+                    .ok_or_else(|| ModelError::Invalid("distribution verification acquisition absent".into()))?;
+                if !self.distributions.contains_key(&(*input, row.release)) {
+                    return Err(ModelError::Invalid("verification release absent from acquired input".into()));
+                }
+            }
+        } else if relation == SourceArtifact::NAME {
+            for row in SourceArtifact::decode(batch)? { self.artifacts.insert(row.id(), row.input); }
+        } else if relation == ArtifactUse::NAME {
+            for row in ArtifactUse::decode(batch)? {
+                let input = self.artifacts.get(&row.artifact)
+                    .ok_or_else(|| ModelError::Invalid("artifact use source absent".into()))?;
+                if row.input != *input && !self.corpus_libraries.contains(&(row.input, *input)) {
+                    return Err(ModelError::Invalid("artifact use crosses undeclared corpus/library boundary".into()));
+                }
+            }
+        } else { return Err(ModelError::Invalid("undeclared acquisition validation input".into())); }
         Ok(())
     }
     fn finish(self: Box<Self>) -> Result<(), ModelError> { Ok(()) }

@@ -91,6 +91,7 @@ pub struct Sum { pub tag: &'static str, pub arms: Vec<Arm> }
 pub trait SumRecord: Record { fn tag(&self) -> i16; }
 
 pub trait Record: Sized + Clone + PartialEq + std::fmt::Debug + Send + Sync + 'static {
+    fn required_relations() -> Vec<(std::any::TypeId, &'static str)> { Vec::new() }
     type Key: Key + Clone + Eq + std::hash::Hash;
     const NAME: &'static str;
     const CONTRACT: &'static str;

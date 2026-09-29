@@ -2,7 +2,7 @@ use lctx_model::{Domain, domain::{Batch, ContentHash, Id, ModelError, Record, Re
 
 fn source() -> SourceArtifact {
     let input = InputRevision::from_entries(vec![ManifestEntry { path: "demo.py".into(), content: ContentHash::of(b"x = 1"), byte_len: 5 }]).unwrap();
-    SourceArtifact::new(input.id(), "demo.py".into(), b"x = 1".to_vec()).unwrap()
+    SourceArtifact::from_bytes(input.id(), "demo.py".into(), b"x = 1").unwrap()
 }
 #[test]
 fn production_records_round_trip_explicit_schema() {
@@ -196,9 +196,8 @@ fn input_identity_is_content_based_and_acquisition_is_independent() {
     let model = model().unwrap();
     let origins = Batch::new(&model, vec![origin, InputOrigin::Installed { library: "demo".into(), requirement: "demo==1".into(), lock_digest: ContentHash::of(b"lock"), installer: None }, InputOrigin::Corpus { repository: "upstream".into(), revision: "commit".into() }]).unwrap();
     assert_eq!(Batch::<InputOrigin>::read(&model, origins.arrow()).unwrap().rows(), origins.rows());
-    let mut artifact = SourceArtifact::new(first.id(), "a.py".into(), vec![255, 0]).unwrap();
-    artifact.body.0[0] = 0;
-    assert!(Batch::new(&model, vec![artifact]).is_err());
+    let artifact = SourceArtifact::from_bytes(first.id(), "a.py".into(), &[255, 0]).unwrap();
+    assert!(lctx_model::domain::artifact::ArtifactChunk::split(&artifact, &[0, 0]).is_err());
 }
 
 #[test]
@@ -220,12 +219,12 @@ fn provider_invocation_and_coverage_require_the_exact_requested_contract() {
     assert!(validate_coverage_contract(std::slice::from_ref(&expected), std::slice::from_ref(&outcome), std::slice::from_ref(&run), &[]).is_err());
     outcome.status = CoverageStatus::Partial;
     assert!(check(&outcome).is_err());
-    outcome.reason = Some(BoundaryReason::SyntaxError);
+    outcome.reason = Some(ObligationKind::SyntaxError);
     assert!(check(&outcome).is_ok());
     outcome.status = CoverageStatus::Failed;
     assert!(check(&outcome).is_err());
     outcome.status = CoverageStatus::Unavailable;
-    outcome.reason = Some(BoundaryReason::UndecodableSource);
+    outcome.reason = Some(ObligationKind::UndecodableSource);
     assert!(check(&outcome).is_ok());
     let mut unrequested = expected.clone(); unrequested.run = None;
     outcome.status = CoverageStatus::NotRequested; outcome.run = None; outcome.reason = None;
@@ -236,8 +235,8 @@ fn provider_invocation_and_coverage_require_the_exact_requested_contract() {
 #[test]
 fn indexed_attachment_matches_independent_scalar_oracle_and_retains_ambiguity() {
     use lctx_model::domain::attachment::*;
-    let artifact = SourceArtifact::new(source().input, "demo.py".into(), vec![b' '; 100]).unwrap();
-    let other = SourceArtifact::new(artifact.input, "demo.pyi".into(), vec![b' '; 100]).unwrap();
+    let artifact = SourceArtifact::from_bytes(source().input, "demo.py".into(), &[b' '; 100]).unwrap();
+    let other = SourceArtifact::from_bytes(artifact.input, "demo.pyi".into(), &[b' '; 100]).unwrap();
     let mut occurrences = Vec::new();
     for (kind, role) in [(SyntaxKind::ExprName, OccurrenceRole::Read), (SyntaxKind::ExprAttribute, OccurrenceRole::Read), (SyntaxKind::ExprSubscript, OccurrenceRole::Read)] {
         for i in 0..40 {
@@ -272,4 +271,110 @@ fn indexed_attachment_matches_independent_scalar_oracle_and_retains_ambiguity() 
     let reverse = OccurrenceIndex::new(&occurrences).unwrap();
     query.source = artifact.id(); query.structural_path = None;
     assert_eq!(reverse.attach(&query, AttachmentBudget::default()).unwrap(), index.attach(&query, AttachmentBudget::default()).unwrap());
+}
+
+#[test]
+fn canonical_artifact_chunks_preserve_original_bytes_and_refuse_incomplete_proofs() {
+    use lctx_model::domain::artifact::*;
+    let input = InputRevision::from_entries(vec![]).unwrap();
+    let mut bytes = vec![255; ARTIFACT_CHUNK_BYTES * 2 + 17];
+    bytes[ARTIFACT_CHUNK_BYTES] = 0;
+    let artifact = SourceArtifact::from_bytes(input.id(), "capture.bin".into(), &bytes).unwrap();
+    let chunks: Vec<_> = ArtifactChunk::split(&artifact, &bytes).unwrap().collect();
+    assert_eq!(chunks.iter().map(|c| c.body.0.len()).collect::<Vec<_>>(), [ARTIFACT_CHUNK_BYTES, ARTIFACT_CHUNK_BYTES, 17]);
+    let verify = |chunks: &[ArtifactChunk]| {
+        let mut proof = ArtifactVerifier::new(&artifact)?;
+        for chunk in chunks { proof.push(chunk)?; }
+        proof.finish()
+    };
+    verify(&chunks).unwrap();
+    assert!(verify(&chunks[..2]).is_err());
+    assert!(verify(&[chunks[1].clone(), chunks[0].clone(), chunks[2].clone()]).is_err());
+    assert!(verify(&[chunks[0].clone(), chunks[0].clone()]).is_err());
+    let mut corrupt = chunks.clone(); corrupt[0].body.0[0] = 1;
+    assert!(verify(&corrupt).is_err());
+    let mut swapped = chunks.clone(); swapped.swap(0, 1); swapped[0].ordinal = 0; swapped[1].ordinal = 1;
+    assert!(verify(&swapped).is_err());
+    let other = SourceArtifact::from_bytes(input.id(), "other.bin".into(), &bytes).unwrap();
+    let mut misplaced = chunks.clone(); misplaced[0].artifact = other.id();
+    assert!(verify(&misplaced).is_err());
+    let empty = SourceArtifact::from_bytes(input.id(), "empty.bin".into(), b"").unwrap();
+    assert_eq!(ArtifactChunk::split(&empty, b"").unwrap().count(), 0);
+    ArtifactVerifier::new(&empty).unwrap().finish().unwrap();
+    let model = model().unwrap();
+    let a = Batch::new(&model, chunks.clone()).unwrap();
+    let b = Batch::new(&model, chunks.into_iter().rev().collect()).unwrap();
+    assert_eq!(a.rows(), b.rows());
+    assert_eq!(ArtifactChunk::decode(a.arrow()).unwrap(), a.rows());
+    // This is the actual model-owned cross-relation validator, not a test-only reconstruction.
+    let invariant = SourceArtifact::invariants().remove(0);
+    for missing in [false, true] {
+        let mut check = (invariant.create)();
+        check.visit(SourceArtifact::NAME, Batch::new(&model, vec![artifact.clone(), empty.clone()]).unwrap().arrow()).unwrap();
+        if !missing {
+            for chunk in ArtifactChunk::split(&artifact, &bytes).unwrap() {
+                check.visit(ArtifactChunk::NAME, Batch::new(&model, vec![chunk]).unwrap().arrow()).unwrap();
+            }
+        }
+        assert_eq!(check.finish().is_err(), missing);
+    }
+}
+
+#[test]
+fn fragmented_capture_has_one_canonical_representation_and_detects_changed_source() {
+    use lctx_model::domain::artifact::*;
+    let bytes: Vec<u8> = (0..ARTIFACT_CHUNK_BYTES * 2 + 73).map(|i| (i % 251) as u8).collect();
+    let artifact = SourceArtifact::from_bytes(source().input, "source.bin".into(), &bytes).unwrap();
+    let expected: Vec<_> = ArtifactChunk::split(&artifact, &bytes).unwrap().collect();
+    for fragment in [1, 8191, ARTIFACT_CHUNK_BYTES, ARTIFACT_CHUNK_BYTES + 101] {
+        let mut emitted = Vec::new();
+        let mut capture = ArtifactCapture::new(&artifact).unwrap();
+        for part in bytes.chunks(fragment) { capture.feed(part, |row| { emitted.push(row); Ok(()) }).unwrap(); }
+        capture.finish(|row| { emitted.push(row); Ok(()) }).unwrap();
+        assert_eq!(emitted, expected);
+    }
+    let mut rejected = ArtifactCapture::new(&artifact).unwrap();
+    assert!(rejected.feed(&bytes, |_| Err(ModelError::Invalid("sink refused".into()))).is_err());
+    assert!(rejected.finish(|_| Ok(())).is_err());
+    let mut changed = bytes.clone(); changed[0] ^= 1;
+    let mut capture = ArtifactCapture::new(&artifact).unwrap();
+    capture.feed(&changed, |_| Ok(())).unwrap();
+    assert!(capture.finish(|_| Ok(())).is_err());
+    let mut capture = ArtifactCapture::new(&artifact).unwrap();
+    capture.feed(&bytes[..bytes.len()-1], |_| Ok(())).unwrap();
+    assert!(capture.finish(|_| Ok(())).is_err());
+}
+
+#[test]
+fn corpus_uses_and_distribution_verification_cannot_cross_undeclared_inputs() {
+    use lctx_model::domain::InvariantCheck;
+    let model = model().unwrap();
+    let library = source().input;
+    let corpus = InputRevision::from_entries(vec![]).unwrap();
+    let origin = InputOrigin::Tree { label: "library".into() };
+    let corpus_origin = InputOrigin::Corpus { repository: "repo".into(), revision: "rev".into() };
+    let acquired = InputAcquisition { input: library, origin: origin.id() };
+    let acquired_corpus = InputAcquisition { input: corpus.id(), origin: corpus_origin.id() };
+    let link = CorpusLibrary { corpus: corpus.id(), library };
+    let usage = ArtifactUse { artifact: source().id(), input: corpus.id(), role: SourceRole::Example };
+    fn feed<R: Record>(model: &ValidatedModel, check: &mut dyn InvariantCheck, rows: Vec<R>) -> Result<(), ModelError> {
+        check.visit(R::NAME, Batch::new(model, rows)?.arrow())
+    }
+    for linked in [false, true] {
+        let mut check = (InputAcquisition::invariants()[0].create)();
+        feed(&model, &mut *check, vec![origin.clone(), corpus_origin.clone()]).unwrap();
+        feed(&model, &mut *check, vec![acquired.clone(), acquired_corpus.clone()]).unwrap();
+        if linked { feed(&model, &mut *check, vec![link.clone()]).unwrap(); }
+        feed(&model, &mut *check, vec![source()]).unwrap();
+        assert_eq!(feed(&model, &mut *check, vec![usage.clone()]).is_ok(), linked);
+    }
+    let release = Release { package: Package { name: "demo".into() }.id(), version: "1".into() };
+    let verified = DistributionVerification { acquisition: acquired.id(), release: release.id(), record_digest: ContentHash::of(b"record"), artifact_sha256: vec![] };
+    for member in [false, true] {
+        let mut check = (InputAcquisition::invariants()[0].create)();
+        feed(&model, &mut *check, vec![origin.clone()]).unwrap();
+        feed(&model, &mut *check, vec![acquired.clone()]).unwrap();
+        if member { feed(&model, &mut *check, vec![InputDistribution { input: library, release: release.id(), role: DistributionRole::FirstParty }]).unwrap(); }
+        assert_eq!(feed(&model, &mut *check, vec![verified.clone()]).is_ok(), member);
+    }
 }

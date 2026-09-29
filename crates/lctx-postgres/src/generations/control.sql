@@ -13,15 +13,15 @@ CREATE TABLE IF NOT EXISTS lctx_model_store.installation (
 );
 CREATE TABLE IF NOT EXISTS lctx_model_store.generations (
     id bytea PRIMARY KEY CHECK(octet_length(id)=16),
-    state text NOT NULL CHECK(state IN ('staging','sealed','validated','published','failed','retired')),
+    state text NOT NULL CHECK(state IN ('staging','sealed','validated','published')),
     model_digest bytea NOT NULL CHECK(octet_length(model_digest)=32),
     physical_digest bytea NOT NULL CHECK(octet_length(physical_digest)=32),
     producer_digest bytea NOT NULL CHECK(octet_length(producer_digest)=32),
     content_digest bytea CHECK(octet_length(content_digest)=32),
     profile text NOT NULL CHECK(profile IN ('catalog','behavioral')),
-    frontier text NOT NULL CHECK(frontier IN ('facts','normalized','analysis','serving')),
+    frontier text NOT NULL CHECK(frontier IN ('conformance','facts','normalized','analysis','serving')),
     created_at timestamptz NOT NULL DEFAULT now(),
-    CHECK(state NOT IN ('validated','published','retired') OR content_digest IS NOT NULL)
+    CHECK(state NOT IN ('validated','published') OR content_digest IS NOT NULL)
 );
 CREATE TABLE IF NOT EXISTS lctx_model_store.receipts (
     generation_id bytea NOT NULL REFERENCES lctx_model_store.generations(id),
@@ -52,3 +52,4 @@ CREATE TABLE IF NOT EXISTS lctx_model_store.events (
 REVOKE ALL ON ALL TABLES IN SCHEMA lctx_model_store FROM PUBLIC;
 GRANT USAGE ON SCHEMA lctx_model_store TO lctx_importer,lctx_serving;
 GRANT SELECT ON lctx_model_store.generations TO lctx_importer,lctx_serving;
+GRANT SELECT ON lctx_model_store.installation TO lctx_importer,lctx_serving;

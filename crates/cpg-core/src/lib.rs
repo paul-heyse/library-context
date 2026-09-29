@@ -18,6 +18,7 @@ pub mod postgres;
 pub mod parity;
 pub mod rebuild;
 pub mod session;
+pub mod model_runtime;
 pub mod store_read;
 pub mod snapshot;
 pub mod sql;

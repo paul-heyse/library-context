@@ -1,26 +1,26 @@
 //! Source and attributed syntax facts. Identity never depends on a normalized L1 entity.
-use crate::{Domain, DomainCode, DomainSum};
-use super::{ContentHash, EvidenceBytes, Id, ModelError, Record};
+use crate::{Domain, DomainCode, DomainSum, Assertion};
+use super::{ContentHash, Id, ModelError, Record};
 use super::input::{InputRevision, Release};
-use super::attribution::ProviderRun;
+use super::{attribution::FactFamily, assertion::AssertionQualification};
 
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "source_artifacts", validate = validate_source)]
+#[model(name = "source_artifacts", validate = validate_source, invariants = super::artifact::content_invariants)]
 pub struct SourceArtifact {
     #[model(key)] pub input: Id<InputRevision>,
     #[model(key)] pub path: String,
     #[model(key)] pub content: ContentHash,
     pub byte_len: i64,
-    pub body: EvidenceBytes,
 }
 impl SourceArtifact {
-    pub fn new(input: Id<InputRevision>, path: String, body: Vec<u8>) -> Result<Self, ModelError> {
-        let row = Self { input, path, content: ContentHash::of(&body),
-            byte_len: i64::try_from(body.len()).map_err(|_| ModelError::Invalid("artifact too large".into()))?, body: EvidenceBytes(body) };
+    /// Metadata for a captured revision. Its bytes are emitted as canonical ArtifactChunk records.
+    /// Publication reconstructs the bytes; this constructor is not a stored-content receipt.
+    pub fn from_bytes(input: Id<InputRevision>, path: String, body: &[u8]) -> Result<Self, ModelError> {
+        let row = Self { input, path, content: ContentHash::of(body),
+            byte_len: i64::try_from(body.len()).map_err(|_| ModelError::Invalid("artifact too large".into()))? };
         row.validate()?;
         Ok(row)
     }
-    pub fn text(&self) -> Result<&str, std::str::Utf8Error> { std::str::from_utf8(&self.body.0) }
     pub fn is_stub(&self) -> bool { self.path.ends_with(".pyi") }
     pub fn is_package(&self) -> bool { matches!(self.path.rsplit('/').next(), Some("__init__.py" | "__init__.pyi")) }
     pub fn manifest_entry(&self) -> super::input::ManifestEntry {
@@ -29,8 +29,8 @@ impl SourceArtifact {
 }
 fn validate_source(row: &SourceArtifact) -> Result<(), ModelError> {
     super::input::validate_path(&row.path)?;
-    if usize::try_from(row.byte_len).ok() != Some(row.body.0.len()) || row.content != ContentHash::of(&row.body.0) {
-        return Err(ModelError::Invalid("artifact bytes differ from length or content digest".into()));
+    if row.byte_len < 0 || (row.byte_len == 0 && row.content != ContentHash::of(b"")) {
+        return Err(ModelError::Invalid("invalid artifact length or empty content digest".into()));
     }
     Ok(())
 }
@@ -65,18 +65,13 @@ pub enum OccurrenceRole {
     Call = 5, Argument = 6, Predicate = 7, WithItem = 8, Decorator = 9,
     Return = 10, Yield = 11, Raise = 12,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
 #[model(name = "syntax_observations")]
+#[assertion(support = SyntaxSupport, name = "syntax_supports", family = FactFamily::Syntax, subjects(occurrence))]
 pub struct SyntaxObservation {
+    #[model(key)] pub qualification: Id<AssertionQualification>,
     #[model(key)] pub occurrence: Id<Occurrence>,
     #[model(key)] pub spelling: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "syntax_supports")]
-pub struct SyntaxSupport {
-    #[model(key)] pub assertion: Id<SyntaxObservation>,
-    #[model(key, provenance)] pub run: Id<ProviderRun>,
-    #[model(key, provenance)] pub surface: String,
 }
 
 /// Ruff syntax kinds; existing codes retained from the extraction contract.

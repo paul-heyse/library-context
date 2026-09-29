@@ -8,6 +8,7 @@ pub struct Relation {
     name: &'static str,
     fields: Vec<Field>,
     invariants: Vec<Invariant>,
+    required: Vec<(TypeId, &'static str)>,
     sum: Option<super::Sum>,
     schema: SchemaRef,
     contract: &'static str,
@@ -17,7 +18,7 @@ pub struct Relation {
     hash_rows: fn(&arrow_array::RecordBatch, &mut RelationContent) -> Result<(), ModelError>,
 }
 impl Relation {
-    pub fn of<R: Record>() -> Self { Self { type_id: TypeId::of::<R>(), name: R::NAME, fields: R::fields(), invariants: R::invariants(), sum: R::sum(), schema: R::schema(), contract: R::CONTRACT, owner: R::OWNER, semantic_source: R::SEMANTIC_SOURCE, validate: canonical::<R>, hash_rows: hash_rows::<R> } }
+    pub fn of<R: Record>() -> Self { Self { type_id: TypeId::of::<R>(), name: R::NAME, fields: R::fields(), invariants: R::invariants(), required: R::required_relations(), sum: R::sum(), schema: R::schema(), contract: R::CONTRACT, owner: R::OWNER, semantic_source: R::SEMANTIC_SOURCE, validate: canonical::<R>, hash_rows: hash_rows::<R> } }
     pub fn name(&self) -> &'static str { self.name }
     pub fn sum(&self) -> Option<&super::Sum> { self.sum.as_ref() }
     pub fn fields(&self) -> &[Field] { &self.fields }
@@ -54,6 +55,12 @@ impl ValidatedModel {
             digest.part(b"semantic-source", relation.semantic_source);
             digest.part(b"declaration", relation.contract.as_bytes());
             digest.part(b"relation", relation.name.as_bytes());
+            for (type_id,name) in &relation.required {
+                if !relations.iter().any(|r| r.type_id == *type_id && r.name == *name) {
+                    return Err(ModelError::Invalid(format!("{} requires companion relation {name}",relation.name)));
+                }
+                digest.part(b"required-relation",name.as_bytes());
+            }
             let mut fields = HashSet::from(["id", "generation_id"]);
             let mut has_key = false;
             for field in &relation.fields {

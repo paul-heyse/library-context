@@ -17,7 +17,11 @@ pub enum Error {
     #[error("generation has active readers or is selected")] Busy,
     #[error("codec: {0}")] Codec(String),
     #[error("secure generation randomness unavailable")] Random,
+    #[error("generation has orphaned registry or schema objects; explicit repair is required")] Orphaned,
+    #[error("conformance subset cannot be selected as a production facts generation")] Frontier,
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CleanupOutcome { Removed, AlreadyAbsent }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GenerationId([u8;16]);
 impl GenerationId {
@@ -35,6 +39,7 @@ impl GenerationStore {
     pub async fn install(owner: PgPool, model: Arc<ValidatedModel>) -> Result<Self, Error> {
         let physical = ddl::digest(&model);
         let mut tx = owner.begin().await?;
+        sqlx::query("SELECT pg_advisory_xact_lock(1279476824,0)").execute(&mut *tx).await?;
         sqlx::raw_sql(include_str!("control.sql")).execute(&mut *tx).await?;
         let existing: Option<(Vec<u8>, Vec<u8>)> = sqlx::query_as("SELECT model_digest, physical_digest FROM lctx_model_store.installation WHERE singleton FOR UPDATE").fetch_optional(&mut *tx).await?;
         if let Some((m, p)) = existing {
@@ -47,14 +52,17 @@ impl GenerationStore {
     }
     pub fn model(&self) -> &ValidatedModel { &self.model }
     pub fn physical_digest(&self) -> ContentHash { self.physical }
-    pub async fn create(&self, producer: ContentHash, profile: &str) -> Result<GenerationId, Error> {
+    /// Disposable subset evidence. This method cannot manufacture production facts admission.
+    /// Complete producer/model/schedule/coverage admission is added with the facts assembler.
+    pub async fn create_conformance(&self, producer: ContentHash, profile: &str) -> Result<GenerationId, Error> {
         if !matches!(profile, "catalog" | "behavioral") { return Err(Error::State); }
         let g = GenerationId::new()?;
         let mut tx = self.owner.begin().await?;
+        self.lock_installation(&mut tx).await?;
         let compatible: bool = sqlx::query_scalar("SELECT model_digest=$1 AND physical_digest=$2 FROM lctx_model_store.installation WHERE singleton FOR SHARE")
             .bind(self.model.digest().0.to_vec()).bind(self.physical.0.to_vec()).fetch_one(&mut *tx).await?;
         if !compatible { return Err(Error::Contract); }
-        sqlx::query("INSERT INTO lctx_model_store.generations(id,state,model_digest,physical_digest,producer_digest,profile,frontier) VALUES($1,'staging',$2,$3,$4,$5,'facts')")
+        sqlx::query("INSERT INTO lctx_model_store.generations(id,state,model_digest,physical_digest,producer_digest,profile,frontier) VALUES($1,'staging',$2,$3,$4,$5,'conformance')")
             .bind(g.0.to_vec()).bind(self.model.digest().0.to_vec()).bind(self.physical.0.to_vec()).bind(producer.0.to_vec()).bind(profile).execute(&mut *tx).await?;
         sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {}", quoted(&g.schema())))).execute(&mut *tx).await?;
         let generated = ddl::generate(&self.model, g);
@@ -66,6 +74,7 @@ impl GenerationStore {
     /// Sealing takes the exclusive generation lock and table locks before revoking access.
     pub async fn seal(&self, g: GenerationId) -> Result<(), Error> {
         let mut tx = self.owner.begin().await?;
+        self.lock_installation(&mut tx).await?;
         lock(&mut tx, g, false).await?;
         state(&mut tx, g, "staging", &self.model, self.physical).await?;
         for relation in self.model.relations() {
@@ -78,6 +87,7 @@ impl GenerationStore {
     /// Validate stored, sealed contents. Callers cannot submit a `valid=true` receipt.
     pub async fn validate(&self, g: GenerationId) -> Result<ContentHash, Error> {
         let mut tx = self.owner.begin().await?;
+        self.lock_installation(&mut tx).await?;
         lock(&mut tx, g, false).await?;
         state(&mut tx, g, "sealed", &self.model, self.physical).await?;
         for sql in ddl::generate(&self.model, g).references { sqlx::query(sqlx::AssertSqlSafe(sql)).execute(&mut *tx).await?; }
@@ -114,6 +124,7 @@ impl GenerationStore {
     }
     pub async fn publish(&self, g: GenerationId) -> Result<(), Error> {
         let mut tx = self.owner.begin().await?;
+        self.lock_installation(&mut tx).await?;
         lock(&mut tx, g, false).await?;
         state(&mut tx, g, "validated", &self.model, self.physical).await?;
         let receipts = sqlx::query("SELECT relation_name,content_digest FROM lctx_model_store.receipts WHERE generation_id=$1 ORDER BY relation_name COLLATE \"C\"")
@@ -142,49 +153,74 @@ impl GenerationStore {
     }
     pub async fn select(&self, g: GenerationId) -> Result<(), Error> {
         let mut tx = self.owner.begin().await?;
+        self.lock_installation(&mut tx).await?;
         sqlx::query("SELECT singleton FROM lctx_model_store.selection FOR UPDATE").execute(&mut *tx).await?;
         lock(&mut tx, g, true).await?;
         state(&mut tx, g, "published", &self.model, self.physical).await?;
+        let frontier: String = sqlx::query_scalar("SELECT frontier FROM lctx_model_store.generations WHERE id=$1").bind(g.0.to_vec()).fetch_one(&mut *tx).await?;
+        if frontier == "conformance" { return Err(Error::Frontier); }
         sqlx::query("UPDATE lctx_model_store.selection SET generation_id=$1 WHERE singleton").bind(g.0.to_vec()).execute(&mut *tx).await?;
         tx.commit().await?; Ok(())
     }
-    pub async fn retire(&self, g: GenerationId) -> Result<(), Error> {
+    pub async fn clear_selection(&self) -> Result<(), Error> {
         let mut tx = self.owner.begin().await?;
+        self.lock_installation(&mut tx).await?;
+        sqlx::query("UPDATE lctx_model_store.selection SET generation_id=NULL WHERE singleton").execute(&mut *tx).await?;
+        tx.commit().await?; Ok(())
+    }
+    pub async fn retire(&self, g: GenerationId) -> Result<CleanupOutcome, Error> { self.cleanup(g, true, false).await }
+    /// Abandon an unpublished attempt. No registry tombstone or generation event survives.
+    pub async fn abort(&self, g: GenerationId) -> Result<CleanupOutcome, Error> { self.cleanup(g, false, false).await }
+    /// Explicitly repair orphan objects only; ordinary cleanup refuses them.
+    pub async fn repair_orphan(&self, g: GenerationId) -> Result<CleanupOutcome, Error> { self.cleanup(g, false, true).await }
+    async fn cleanup(&self, g: GenerationId, published: bool, repair: bool) -> Result<CleanupOutcome, Error> {
+        let mut tx = self.owner.begin().await?;
+        self.lock_installation(&mut tx).await?;
         let selected: Option<Vec<u8>> = sqlx::query_scalar("SELECT generation_id FROM lctx_model_store.selection WHERE singleton FOR UPDATE").fetch_one(&mut *tx).await?;
         if selected.as_deref() == Some(&g.0) { return Err(Error::Busy); }
         let acquired: bool = sqlx::query_scalar("SELECT pg_try_advisory_xact_lock($1)").bind(g.lock()).fetch_one(&mut *tx).await?;
         if !acquired { return Err(Error::Busy); }
-        state(&mut tx, g, "published", &self.model, self.physical).await?;
-        // Only the owner can create dependencies. All generated dependencies live in this schema.
-        sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {} CASCADE", quoted(&g.schema())))).execute(&mut *tx).await?;
-        transition(&mut tx, g, "retired").await?;
-        tx.commit().await?; Ok(())
-    }
-    /// Abandon an unpublished attempt, draining writers before removing its schema atomically.
-    pub async fn abort(&self, g: GenerationId) -> Result<(), Error> {
-        let mut tx = self.owner.begin().await?;
-        lock(&mut tx, g, false).await?;
-        let current: String = sqlx::query_scalar("SELECT state FROM lctx_model_store.generations WHERE id=$1")
+        let current: Option<String> = sqlx::query_scalar("SELECT state FROM lctx_model_store.generations WHERE id=$1").bind(g.0.to_vec()).fetch_optional(&mut *tx).await?;
+        let schema: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname=$1)").bind(g.schema()).fetch_one(&mut *tx).await?;
+        let residue: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM lctx_model_store.receipts WHERE generation_id=$1) OR EXISTS(SELECT 1 FROM lctx_model_store.validation_receipts WHERE generation_id=$1) OR EXISTS(SELECT 1 FROM lctx_model_store.events WHERE generation_id=$1)")
             .bind(g.0.to_vec()).fetch_one(&mut *tx).await?;
-        if current == "failed" { tx.commit().await?; return Ok(()); }
-        if !matches!(current.as_str(), "staging" | "sealed" | "validated") { return Err(Error::State); }
-        state(&mut tx, g, &current, &self.model, self.physical).await?;
-        // DROP takes exclusive relation locks, including for direct writer transactions.
-        sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {} CASCADE", quoted(&g.schema())))).execute(&mut *tx).await?;
-        transition(&mut tx, g, "failed").await?;
-        tx.commit().await?; Ok(())
+        if current.is_none() && !schema && !residue { tx.commit().await?; return Ok(CleanupOutcome::AlreadyAbsent); }
+        let orphaned = current.is_none() || !schema;
+        if orphaned && !repair { return Err(Error::Orphaned); }
+        if repair && !orphaned { return Err(Error::State); }
+        if let Some(current) = &current {
+            if !repair && ((published && current != "published") || (!published && !matches!(current.as_str(), "staging" | "sealed" | "validated"))) { return Err(Error::State); }
+            state(&mut tx,g,current,&self.model,self.physical).await?;
+        }
+        // DROP drains direct writer transactions as well as declared stage writers.
+        if schema { sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {} CASCADE", quoted(&g.schema())))).execute(&mut *tx).await?; }
+        for table in ["receipts","validation_receipts","events"] {
+            sqlx::query(sqlx::AssertSqlSafe(format!("DELETE FROM lctx_model_store.{table} WHERE generation_id=$1"))).bind(g.0.to_vec()).execute(&mut *tx).await?;
+        }
+        sqlx::query("DELETE FROM lctx_model_store.generations WHERE id=$1").bind(g.0.to_vec()).execute(&mut *tx).await?;
+        tx.commit().await?; Ok(CleanupOutcome::Removed)
+    }
+    async fn lock_installation(&self, connection: &mut PgConnection) -> Result<(), Error> {
+        sqlx::query("SELECT pg_advisory_xact_lock_shared(1279476824,0)").execute(&mut *connection).await?;
+        let compatible: Option<bool> = sqlx::query_scalar("SELECT model_digest=$1 AND physical_digest=$2 FROM lctx_model_store.installation WHERE singleton")
+            .bind(self.model.digest().0.to_vec()).bind(self.physical.0.to_vec()).fetch_optional(connection).await?;
+        if compatible != Some(true) { return Err(Error::Contract); } Ok(())
     }
     pub async fn pin(&self, reader: &PgPool, g: GenerationId) -> Result<GenerationLease, Error> {
         // Keep the pool permit; closing on drop releases both the advisory lock and pool capacity.
         let mut connection = reader.acquire().await?;
         connection.close_on_drop();
-        sqlx::query("SELECT pg_advisory_lock_shared($1)").bind(g.lock()).execute(&mut *connection).await?;
-        state(&mut connection, g, "published", &self.model, self.physical).await?;
+        let mut tx = connection.begin().await?;
+        self.lock_installation(&mut tx).await?;
+        sqlx::query("SELECT pg_advisory_lock_shared($1)").bind(g.lock()).execute(&mut *tx).await?;
+        state(&mut tx, g, "published", &self.model, self.physical).await?;
+        tx.commit().await?;
         Ok(GenerationLease { connection, generation: g, model: self.model.clone() })
     }
     pub async fn copy<R: Record>(&self, writer: &PgPool, g: GenerationId, batch: &Batch<R>) -> Result<(), Error> {
         self.model.require::<R>()?;
         let mut tx = writer.begin().await?;
+        self.lock_installation(&mut tx).await?;
         lock(&mut tx, g, true).await?;
         state(&mut tx, g, "staging", &self.model, self.physical).await?;
         let columns = batch.arrow().schema().fields().iter().map(|f| quoted(f.name())).collect::<Vec<_>>().join(",");

@@ -37,4 +37,4 @@ pub mod __private {
 
 extern crate self as lctx_model;
 pub mod domain;
-pub use lctx_model_macros::{Domain, DomainCode, DomainSum};
+pub use lctx_model_macros::{Domain, DomainCode, DomainSum, Assertion};
