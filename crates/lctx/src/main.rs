@@ -41,6 +41,7 @@ use anyhow::Context as _;
 use clap::{Parser, Subcommand};
 use cpg_extract::{extract, library};
 use cpg_schema::id::Id;
+use lctx_workspace_hack as _; // Contributes Cargo features, not callable APIs (ADR-0079).
 
 /// The command line (H1 C4: clap derive; each command takes only its own options).
 #[derive(Parser, Debug)]

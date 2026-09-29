@@ -19,6 +19,7 @@ fs-err.workspace = true
 serde_json.workspace = true
 getrandom.workspace = true
 tokio.workspace = true
+lctx-workspace-hack = { version = "0.1", path = "../lctx-workspace-hack" }
 
 [target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
 tikv-jemallocator.workspace = true

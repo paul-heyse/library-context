@@ -16,6 +16,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import signal
 import statistics
@@ -28,13 +29,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-NIGHTLY = "nightly-2026-09-13"
+NIGHTLY = tomllib.loads((ROOT / "rust-toolchain.toml").read_text())["toolchain"]["channel"]
 MIN_FREE_GIB = 200
 EDIT_FILE = Path("crates/cpg-flow/src/lib.rs")
 ENCODED_SEPARATOR = "\x1f"
 VARIANTS = {
     "stable": ("1.98.1", False, 16, 1),
     "stable-cache": ("1.98.1", True, 16, 1),
+    "nightly-16x1": (NIGHTLY, True, 16, 1),
     "nightly-32x1": (NIGHTLY, True, 32, 1),
     "nightly-16x2": (NIGHTLY, True, 16, 2),
     "nightly-8x4": (NIGHTLY, True, 8, 4),
@@ -215,12 +217,15 @@ def variant_env(campaign: Path, variant: str, trial: int) -> dict[str, str]:
         "RUSTC_WRAPPER",
         "CARGO_INCREMENTAL",
         "UV_PROJECT_ENVIRONMENT",
+        "CARGO_TARGET_DIR",
+        "CARGO_BUILD_TARGET_DIR",
+        "CARGO_BUILD_BUILD_DIR",
+        "LCTX_CARGO_TARGET_DIR",
     ):
         env.pop(key, None)
     env["RUSTUP_TOOLCHAIN"] = toolchain
     env["CARGO_BUILD_JOBS"] = str(jobs)
     # Keep workspace/dependency incremental policy from the captured manifest.
-    env["CARGO_TARGET_DIR"] = str(campaign / "targets" / variant / f"trial-{trial}")
     flags = ["-C", "link-arg=-fuse-ld=mold"]
     if toolchain == NIGHTLY:
         flags.append(f"-Zthreads={threads}")
@@ -242,6 +247,28 @@ def variant_env(campaign: Path, variant: str, trial: int) -> dict[str, str]:
         for key in ("SCCACHE_DIR", "SCCACHE_CACHE_SIZE", "SCCACHE_SERVER_UDS"):
             env.pop(key, None)
     return env
+
+
+def configure_trial(work: Path, target: Path) -> None:
+    """Override paths in the disposable source copy, including nested maturin builds.
+
+    Both artifact classes live below the trial target. Never inherit the ordinary
+    shared build directory or export path variables into sccache's Rust key.
+    The captured source, earlier trials and their receipts stay immutable.
+    """
+    path = work / ".cargo/config.toml"
+    text = path.read_text()
+    section = re.search(r"(?ms)^\[build\]\s*\n(.*?)(?=^\[|\Z)", text)
+    if section is None:
+        raise ValueError("captured Cargo config must contain [build]")
+    body = re.sub(r"(?m)^(?:target-dir|build-dir)\s*=.*\n?", "", section[1])
+    body += f"target-dir = {json.dumps(str(target))}\n"
+    body += f"build-dir = {json.dumps(str(target / 'build'))}\n\n"
+    text = text[: section.start(1)] + body + text[section.end(1) :]
+    parsed = tomllib.loads(text)
+    if parsed["build"]["build-dir"] != str(target / "build"):
+        raise ValueError("trial build directory was not isolated")
+    path.write_text(text)
 
 
 def cache_stats(env: dict[str, str]) -> dict:
@@ -397,9 +424,10 @@ def run_campaign(campaign: Path, variant: str, trial: int, phase: str) -> dict:
     work = campaign / "work" / variant / f"trial-{trial}"
     shutil.copytree(source, work, symlinks=True)
     env = variant_env(campaign, variant, trial)
-    target = Path(env["CARGO_TARGET_DIR"])
+    target = campaign / "targets" / variant / f"trial-{trial}"
     if target.exists():
         raise ValueError(f"target already exists: {target}")
+    configure_trial(work, target)
     write_json(output / "host.json", preflight())
     write_json(
         output / "selection.json",
@@ -408,6 +436,8 @@ def run_campaign(campaign: Path, variant: str, trial: int, phase: str) -> dict:
             "trial": trial,
             "phase": phase,
             "source_sha256": manifest["source_sha256"],
+            "target_directory": str(target),
+            "build_directory": str(target / "build"),
         },
     )
     wrapper = env.get("RUSTC_WRAPPER")
@@ -473,8 +503,9 @@ def run_campaign(campaign: Path, variant: str, trial: int, phase: str) -> dict:
                 ],
                 cargo_json=False,
             )
-            # Retain only task-owned results; target recovery is the final workload.
-            shutil.rmtree(target)
+            # Keep benchmark artifacts as well as receipts. Recovery gets an empty
+            # trial directory without touching the repository's shared build cache.
+            target.rename(target.with_name(f"{target.name}-before-recovery"))
             record("target-recovery", tests)
         return receipts
     finally:

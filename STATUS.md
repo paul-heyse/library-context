@@ -25,7 +25,8 @@ _Updated 2026-09-28 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
 | `just docs-check`; `just fmt-check`; `git diff --check` | **passed:** 168 canonical pages, zero documentation errors; formatting and whitespace checks passed |
 | Live embedding/hybrid testing | **not_run:** explicit operator waiver for the critical GPU benchmark; benchmark service unchanged |
 
-- **Build-environment audit:** [isolated cache probe](docs/design_review/evidence/2026-09-28_cargo-cache/README.md) reproduced per-target environment cache misses. Current shell uses the correct default target; SQLx and measurement scripts still export absolute targets, and stale inherited paths are unguarded. Corrections remain Proposed; production settings and benchmark services were unchanged.
+- **Build environment implemented (ADR-0079):** dated nightly `2026-09-29`, workspace feature union, CLI-only Hakari, shared Cargo intermediates with fine-grain locking and local final targets. Default/foreign target exports are normalized; benchmark trials own both directories and retain their artifacts. An exact upstream allocative backport makes the pinned graph compile; no dependency version moved.
+- **Build validation, 2026-09-28:** release CLI and both native crates, forced editable reinstall/import (nightly + mold identified in the binaries), 13 focused Python tests, shared two-checkout/concurrent-warm probe, dependency checks and docs (168 pages) **passed**. The full `just test-all` **passed**: 475 ordinary Rust tests, 199 Python tests, 19 real-PG Rust tests, three real-PG Python tests, lints/types/rules and SQLx metadata. [Build evidence](docs/design_review/evidence/2026-09-28_cargo-cache/README.md) owns the bounded claims. Performance benchmarks and live embeddings **not_run**; existing benchmark data and service remain intact.
 
 ## Next
 

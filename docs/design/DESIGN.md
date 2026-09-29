@@ -69,12 +69,13 @@ No former semantic exit is relabeled passed.
 
 The CPG precedes its analytics (ADR-0067). Canonical facts keep their identity and provenance;
 mandatory catalog construction is independent of optional analysis. Libraries remain pinned
-uv projects (ADR-0046). ADR-0040 owns review cadence. ADR-0075 retains the current-tree, stable
-target and fast editable development loop: workspace O2 with incremental compilation,
+uv projects (ADR-0046). ADR-0040 owns review cadence. ADR-0079 owns the current-tree editable development loop on dated nightly Cargo,
+workspace feature unification, a CLI-only Hakari crate and shared intermediates with fine-grain
+locking. Final artifacts stay in local `target/`: workspace O2 with incremental compilation,
 imported dependencies O3 with sccache, and the existing release test workflow. No wheel
 project is selected.
 
-> Decision: ADR-0071, ADR-0067, ADR-0046, ADR-0075, ADR-0040
+> Decision: ADR-0071, ADR-0067, ADR-0046, ADR-0079, ADR-0040
 
 <a id="section-1-3"></a>
 

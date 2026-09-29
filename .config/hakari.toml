@@ -1,0 +1,21 @@
+# ADR-0079: Cargo unifies features for every selection; Hakari materializes the CLI union.
+hakari-package = "lctx-workspace-hack"
+dep-format-version = "4"
+resolver = "2"
+platforms = ["x86_64-unknown-linux-gnu"]
+unify-target-host = "none"
+exact-versions = true
+
+# Attach the union at the executable boundary. Lower libraries and native bindings
+# must not gain compiler, DataFusion, or test-only dependencies through the hack.
+# Cargo's workspace resolver still unifies their existing dependencies' features.
+[final-excludes]
+workspace-members = [
+  "cpg-flow", "cpg-core", "cpg-extract", "cpg-schema", "lctx-analytics", "lctx-embed",
+  "lctx-postgres", "lctx-semantics", "lctx-storage",
+]
+# Keep the second Ruff family reachable only through cpg-flow (ADR-0022).
+third-party = [
+  { name = "ruff_source_file", version = "=0.0.14" },
+  { name = "ruff_text_size", version = "=0.0.14" },
+]

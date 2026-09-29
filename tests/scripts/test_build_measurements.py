@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -61,6 +62,8 @@ def test_variants_preserve_mold_and_isolate_cache(
 ) -> None:
     monkeypatch.setenv("RUSTFLAGS", "-C opt-level=3")
     monkeypatch.setenv("RUSTC_WRAPPER", "/wrong/wrapper")
+    monkeypatch.setenv("CARGO_TARGET_DIR", "/wrong/target")
+    monkeypatch.setenv("CARGO_BUILD_BUILD_DIR", "/shared/build")
     monkeypatch.setattr(bm.shutil, "which", lambda name: "/usr/bin/sccache")
 
     stable = bm.variant_env(tmp_path, "stable", 1)
@@ -74,7 +77,24 @@ def test_variants_preserve_mold_and_isolate_cache(
     assert nightly["CARGO_BUILD_JOBS"] == "8"
     assert nightly["SCCACHE_DIR"] == str(tmp_path / "cache/nightly-8x4")
     assert nightly["RUSTC_WRAPPER"] == "/usr/bin/sccache"
-    assert nightly["CARGO_TARGET_DIR"].endswith("nightly-8x4/trial-2")
+    assert "CARGO_TARGET_DIR" not in nightly
+    assert "CARGO_BUILD_BUILD_DIR" not in nightly
+
+
+def test_trial_config_isolates_intermediates_and_nested_builds(tmp_path: Path) -> None:
+    work = tmp_path / "copy"
+    config = work / ".cargo/config.toml"
+    config.parent.mkdir(parents=True)
+    config.write_text('[build]\njobs=16\nbuild-dir="/shared"\n\n[env]\nX="kept"\n')
+    target = tmp_path / 'trial with "quotes"'
+    bm.configure_trial(work, target)
+    result = tomllib.loads(config.read_text())
+    assert result["build"] == {
+        "jobs": 16,
+        "target-dir": str(target),
+        "build-dir": str(target / "build"),
+    }
+    assert result["env"] == {"X": "kept"}
 
 
 def test_cargo_artifact_counts_and_cache_counter_deltas(tmp_path: Path) -> None:

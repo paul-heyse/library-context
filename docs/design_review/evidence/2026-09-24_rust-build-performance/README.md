@@ -1,6 +1,7 @@
 # Rust build development screen — 2026-09-24
 
-This records the single-run screen that informed ADR-0026. The pinned workspace source was
+Retained benchmark evidence; ADR-0079 owns the current build policy. This single-run screen
+informed the former stable policy and does not qualify the current nightly/shared setup. The pinned workspace source was
 `716bed3` (snapshot SHA-256 `e85d1fd34b15cbb53c89e4ce45700512ebb2e7f5ae6deb6ac839746613ec1295`).
 The command was `cargo test --locked --workspace --no-run --timings --message-format=json`
 in isolated targets. Every successful cold run rebuilt 752 artifacts. Process-tree RSS was
@@ -23,9 +24,6 @@ stable 16-job versus nightly 16-job, one-thread comparison was **not_run**. The 
 trial-2 was interrupted at the operator's pivot away from benchmarking, before a result was
 recorded. None of the single-run differences is a statistically established speedup.
 
-ADR-0026 makes the operator's selected stable 16-job, one-thread, cached route permanent.
-It disables Cargo incremental compilation because sccache cannot cache incremental rustc
-invocations. The screen above predates that repository default, so it does not measure the
-final configuration's end-to-end speed. A future performance decision needs representative
-paired runs, including edit/rebuild and cache recovery, if the actual development loop becomes
-slow.
+The current development policy is ADR-0079. These captured sources and receipts remain unchanged;
+they predate both the O2 incremental workspace policy and the nightly/shared build directory.
+A future performance claim needs representative paired runs, including edit/rebuild and recovery.

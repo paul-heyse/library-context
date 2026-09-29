@@ -9,7 +9,8 @@ DESIGN §7 / ADR-0002. A row without a date is not verified.
 
 | Component | Pin | Verified | How |
 |---|---|---|---|
-| toolchain | 1.98.1 (`rust-toolchain.toml`) | 2026-09-22 | installed; family MSRVs: delta-rs 1.94.1, DataFusion 55.1 manifests ≤1.94 |
+| toolchain | nightly-2026-09-29 (`rust-toolchain.toml`); manifest minimum remains 1.98.1 | 2026-09-28 | `rustc -Vv`: 1.101.0-nightly, c1070d69382b8d2f2eb65119c738a77d9e324c9e, LLVM 23.1.1; `cargo -V`: 1.101.0-nightly (3d7cf6e93). Installed rustfmt/Clippy; ADR-0079 |
+| allocative | 0.3.6 with local upstream never-type backport (`third_party/allocative`) | 2026-09-28 | Published manifest/source and upstream commit `9711293c6de502d50583cafb12e4a7b764094d3a`; eight-line duplicate impl/obsolete feature removal, ADR-0079 |
 | datafusion | =55.1.0 | 2026-09-22 | `family_smoke` passed; single version in `Cargo.lock` |
 | arrow-*, parquet | =59.3.0; `parquet` is a direct dependency since H1 P6 (`default-features = false, features = ["zstd"]`: the codec was already compiled) | 2026-09-23 | same; `data_files_are_zstd` |
 | object_store | 0.13.2, held by `Cargo.lock` (no crate depends on it directly, so a workspace pin would pin nothing; H1 O2) and kept single by `check_family.py` | 2026-09-23 | `Cargo.lock`; `cargo shear` in `just deps` |
@@ -127,7 +128,8 @@ Each analyzed library pins itself in `libraries/<name>/` (`pyproject.toml`, `.py
 | pytest | 9.1.1 (`uv.lock`) | 2026-09-22 | `uv sync` |
 | Hypothesis | 6.168.1 (uv dev group; runtime soundness oracle only) | 2026-09-24 | `uv add --dev 'hypothesis==6.168.1'`; `uv.lock` resolves sortedcontainers 2.4.0; generated programs execute under CPython 3.14.7 in an isolated worker |
 | cargo-nextest | 0.9.144 | 2026-09-22 | `just doctor` |
-| sccache | 0.17.0 (required by `.cargo/config.toml`) | 2026-09-24 | `sccache --version`; cache wrapper for stable Cargo builds |
+| cargo-hakari | 0.9.39 | 2026-09-28 | `cargo hakari --version`; exact-release upstream configuration source and generated CLI feature union; `just build-features` / `just deps` (ADR-0079) |
+| sccache | 0.17.0 (required by `.cargo/config.toml`) | 2026-09-24 | `sccache --version`; cache wrapper; target-environment effect tested 2026-09-28 (cache evidence) |
 | cargo-insta | 1.48.0 | 2026-09-22 | `just doctor` |
 | cargo-deny | 0.20.2 (does not see dev-only duplicates; see ADR-0002) | 2026-09-22 | tested with a synthetic duplicate |
 | ast-grep | 0.45.3 | 2026-09-22 | `just doctor` |

@@ -26,7 +26,7 @@ The pilot library is FastMCP 4.0.5. Every analyzed library, the pilot included, 
 project under `libraries/<name>/`, acquired and compiled by `lctx` (ADR-0046); the project's own
 environment is never an analysis input.
 
-This is a personal project with one operator. Process is deliberately light (ADR-0075). Keep
+This is a personal project with one operator. Process is deliberately light (ADR-0079). Keep
 it that way: before adding a hook, gate, register or new document type, check that it has a
 real consumer.
 
@@ -85,18 +85,24 @@ real consumer.
 | Documentation changes | `just docs-test` for publisher/resolver changes; `just docs-check` for publication. First run: `just bootstrap-docs`; preview: `just docs-serve`. No product gate solely for docs. |
 | Tools present? | `just doctor` |
 
-The Rust toolchain is pinned to 1.98.1 in `rust-toolchain.toml`. The machine default is
-nightly, so don't pass `+nightly` or `+stable` to cargo in this workspace. Python is 3.14.7 via
-`uv`; run Python tools as `uv run …`. The type checker is **pyrefly**, not pyright or mypy.
+The Rust toolchain is pinned to `nightly-2026-09-29` in `rust-toolchain.toml` (ADR-0079).
+Do not pass floating `+nightly` or `+stable`. Python is 3.14.7 via `uv`; run Python tools as
+`uv run …`. The type checker is **pyrefly**, not pyright or mypy.
 
-The repository's `.cargo/config.toml` sets 16 Cargo jobs and `sccache` as the compiler wrapper.
-Cargo profiles use workspace O2 with incremental compilation in dev and release, and imported
-dependencies O3 without incremental compilation, including path dependencies (ADR-0075).
-Keep the release test workflow and its target artifacts; do not routinely run `cargo clean`. Stable rustc
-uses one frontend thread by default; do not add nightly `-Zthreads` flags to the development
-loop. Keep Clang and mold as the linker route. Avoid changing `CARGO_TARGET_DIR`, rustflags,
-or worktrees during ordinary development because those changes disrupt build reuse. For an
-isolated diagnosis, override the config through Cargo's environment variables and report it.
+Cargo uses 16 jobs, sccache, Clang/mold and workspace feature unification. Intermediates live in
+`{cargo-cache-home}/build/library-context` across this repository's checkouts, with fine-grain
+locking and its implied new layout; final artifacts stay in local `target/`. Never routinely run
+`cargo clean` (it also removes shared intermediates). Preserve benchmark captures and results.
+Workspace dev/release builds use O2 incremental; imported dependencies O3 non-incremental,
+including path dependencies. Keep release tests and the default single frontend thread.
+
+`just` and SQLx normalize inherited default/foreign target exports. For bare Cargo/uv or an IDE
+shell use `eval "$(python3 scripts/build_environment.py --shell)"` before building. Prefer Cargo
+config `build.target-dir`/`build.build-dir` to exported target paths; `LCTX_CARGO_TARGET_DIR` is an
+explicit override for an external target. Keep paths and rustflags stable during ordinary edits.
+`just build-features` refreshes the CLI's Hakari crate after dependency changes; `just deps` checks
+it. Lower libraries and Python bindings stay outside its dependency closure. Isolated benchmark
+trials own both artifact directories and never clean the shared build directory.
 
 ## Writing code against the pinned libraries
 

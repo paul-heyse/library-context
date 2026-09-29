@@ -1,6 +1,16 @@
 [build]
 jobs = 16
 rustc-wrapper = "sccache"
+# Intermediates are shared by this repository's checkouts; final artifacts stay in target/.
+# Never cargo clean this shared directory as part of ordinary development (ADR-0079).
+build-dir = "{cargo-cache-home}/build/library-context"
+
+[unstable]
+feature-unification = true
+fine-grain-locking = true
+
+[resolver]
+feature-unification = "workspace"
 
 # Ordinary builds never introspect an ambient database; sqlx-check opts in explicitly.
 [env]

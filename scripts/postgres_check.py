@@ -8,6 +8,8 @@ import subprocess
 import time
 from pathlib import Path
 
+from build_environment import normalized_env
+
 
 def call(
     args: list[str],
@@ -99,10 +101,9 @@ END $$;"""
             ],
             input=sql,
         )
-        env = os.environ.copy()
+        env = normalized_env(dict(os.environ), root)
         env["DATABASE_URL"] = f"postgres://postgres:fixture-only@127.0.0.1:{port}/postgres"
         env["SQLX_OFFLINE"] = "false"
-        env["CARGO_TARGET_DIR"] = str(root / "target")
         call(
             ["sqlx", "migrate", "run", "--source", "crates/lctx-postgres/migrations"],
             env=env,

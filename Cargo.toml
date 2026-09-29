@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = ["crates/*", "python/lctx_semantics", "python/lctx_storage"]
+exclude = ["third_party/allocative"]
 
 [workspace.package]
 version = "0.1.0"
@@ -160,3 +161,7 @@ incremental = false
 
 [profile.release.build-override]
 opt-level = 2
+
+# Backport the upstream never-type fix without upgrading Pyrefly's dependency graph (ADR-0079).
+[patch.crates-io]
+allocative = { path = "third_party/allocative" }

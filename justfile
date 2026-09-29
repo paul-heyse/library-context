@@ -2,7 +2,7 @@
 # Check recipes do not edit source; tests may create their own data fixtures.
 # `fmt` and `adr new|supersede|index` edit the working tree.
 
-set shell := ["bash", "-euo", "pipefail", "-c"]
+set shell := ["python3", "scripts/build_environment.py", "--", "bash", "-euo", "pipefail", "-c"]
 
 # List recipes
 default:
@@ -25,12 +25,13 @@ test-all: check fixtures-check deps gold test-postgres sqlx-check
 
 # rustfmt + ruff format check (no changes)
 fmt-check:
-    cargo fmt --all --check
+    cargo fmt --check
     uv run ruff format --check
 
 # Format everything (mutating)
 fmt:
-    cargo fmt --all
+    # Virtual-root defaults cover workspace members; --all would also rewrite vendored patches.
+    cargo fmt
     uv run ruff format
     uv run ruff check --fix --quiet
 
@@ -71,7 +72,14 @@ deps:
     cargo deny --log-level error check bans sources licenses
     uv run python scripts/check_pyrefly_fork.py
     # A dependency no crate uses pins nothing (H1 O2).
-    cargo shear
+    cargo shear --exclude lctx-workspace-hack
+    cargo hakari generate --diff
+    cargo hakari manage-deps --dry-run
+
+# Regenerate the executable's dependency feature union after dependency changes (ADR-0079).
+build-features:
+    cargo hakari generate
+    cargo hakari manage-deps -y
 
 # The gold reference and the analyzed library name one FastMCP (ADR-0046). Separate from `deps`,
 # so a skill refresh in progress never reads as a dependency-family break (ADR-0002's trigger).
@@ -82,6 +90,7 @@ gold:
 fixtures-check:
     #!/usr/bin/env bash
     set -euo pipefail
+    eval "$(python3 scripts/build_environment.py --shell)"
     mapfile -t files < <(find fixtures/python -name '*.py' -not -path '*/_invalid/*')
     [ ${#files[@]} -eq 0 ] && { echo "fixtures-check: not_run (no fixtures yet)"; exit 0; }
     uv run python -c 'import ast,sys; [ast.parse(open(f,"rb").read(), f) for f in sys.argv[1:]]' "${files[@]}"
@@ -142,7 +151,8 @@ lint-agents:
 # Tool presence and versions (compare with docs/pins.md)
 doctor:
     #!/usr/bin/env bash
-    for t in cargo rustc cargo-nextest cargo-insta cargo-deny cargo-shear uv ast-grep rg git gh clang clang++ llvm-config mold sccache sqlx psql pg_dump pg_restore docker; do
+    eval "$(python3 scripts/build_environment.py --shell)"
+    for t in cargo rustc cargo-nextest cargo-insta cargo-deny cargo-shear cargo-hakari uv ast-grep rg git gh clang clang++ llvm-config mold sccache sqlx psql pg_dump pg_restore docker; do
       printf '%-14s ' "$t"; command -v "$t" >/dev/null && "$t" --version 2>/dev/null | head -1 || echo MISSING
     done
     printf '%-14s ' ruff; uv run ruff --version

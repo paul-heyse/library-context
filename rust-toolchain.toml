@@ -1,7 +1,6 @@
-# Load-bearing: this machine's rustup default is nightly. Every cargo command in
-# this workspace must run on this pinned stable. Changing it is a pin change —
-# see the pin-check skill and docs/pins.md.
+# Dated nightly for Cargo workspace feature unification and fine-grain locking (ADR-0079).
+# Do not substitute the machine's floating default; see docs/pins.md.
 [toolchain]
-channel = "1.98.1"
+channel = "nightly-2026-09-29"
 components = ["rustfmt", "clippy"]
 profile = "minimal"

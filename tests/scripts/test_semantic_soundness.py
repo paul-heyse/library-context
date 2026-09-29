@@ -25,6 +25,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 from lctx_storage import open_repository
 
+from build_environment import normalized_env
 from lctx_mcp import operations as ops
 from lctx_mcp.wire import Packet
 from postgres_bootstrap import write_secret
@@ -38,9 +39,18 @@ PACKAGE = "genpkg"
 @cache
 def _lctx() -> Path:
     # Challenge the release producer that integrated compilation uses, in this checkout's cache.
-    env = {**os.environ, "CARGO_TARGET_DIR": str(ROOT / "target")}
+    env = normalized_env(dict(os.environ), ROOT)
     subprocess.run(
-        ["cargo", "build", "--release", "-p", "lctx", "--quiet"],
+        [
+            "cargo",
+            "build",
+            "--release",
+            "-p",
+            "lctx",
+            "--quiet",
+            "--target-dir",
+            str(ROOT / "target"),
+        ],
         cwd=ROOT,
         env=env,
         check=True,
