@@ -2,6 +2,21 @@
 
 _Updated 2026-09-30 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
+## Main consolidation (2026-09-30)
+
+- `main` is the sole local development branch and tracks `origin/main`. Repository-local
+  `pull.ff=only` and `push.default=simple` keep ordinary development and publication on main.
+- Merge `809fe5b` joins local `57a75d8` with remote `716148a`. The remote's five differences
+  from the alternate P0–P2 commit were already incorporated or superseded locally.
+  Tree equality with `57a75d8` and both-parent ancestry checks passed; no source files changed.
+- Published and verified annotated archives: `archive/pyrefly-inproc-2026-09-30` at `5fb2eed`
+  and `archive/stage3-bdd-2026-09-30` at `69bc1b1`. The BDD patch also survives in main at `2da15a6`.
+- The former spike worktrees remain at their original commits in detached state, with their
+  directories and files preserved. The two local spike branch names were retired after remote
+  archive verification. No history was rewritten and no force-push was used.
+- Product checks for this Git-only reconciliation are **not_run**: source-tree equality is the
+  acceptance check; the existing Phase 3 receipts below retain their original scope.
+
 ## Phase 3 implementation and qualification
 
 - **Implemented / focused-Tested:** R1–R3 and N1–N7/X in the
@@ -69,13 +84,15 @@ Reset initially refused absent old-installation control tables; its regression a
 - The legacy `cpg-schema` crate and dormant consumers remain only for named P4/P5 obligations
   in detailed plan §9.1. Meaningful P3 source/stub, Unicode/re-export, synthetic and conditional
   declaration expectations have moved to native normalized tests.
-- Concurrent `.claude` agent/settings and `AGENTS.md` changes remain outside implementation
-  commits. The unrelated generic skill-validator metadata failures were not changed or tested.
+- The formerly concurrent agent/settings, instructions and automatic after-turn hooks were
+  committed in `57a75d8` and preserved by consolidation. Unrelated generic skill-validator
+  metadata failures were not changed or tested.
 
 ## Next
 
-Final session action: `just library-catalog`, without separate output validation. Additional
-pilot-scale qualification runs only if reactivated; detailed plan §11 retains its unmeasured scope.
+Continue ordinary work directly on `main`. Existing after-turn hooks own formatting and catalog
+refresh; do not run or validate them manually. Additional pilot-scale qualification runs only if
+reactivated; detailed plan §11 retains its unmeasured scope.
 P4 owns analysis/composition/catalog. Its graph algorithms must use read-only adapters over
 hydrated materializations rather than reconstructing edges. P5 owns serving/product qualification;
 PR6 and new product features stay paused until phase 5.
