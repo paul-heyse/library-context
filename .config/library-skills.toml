@@ -5,6 +5,7 @@ enabled = [
   "ast-grep-ripgrep",
   "datafusion",
   "datafusion-tracing",
+  "fixedbitset",
   "fastmcp",
   "pyomo-and-solvers",
   "pyrefly-ruff",
