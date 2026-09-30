@@ -75,7 +75,7 @@ real consumer.
 | `docs/README.md`, `docs/publishing.md` | Task routes and isolated documentation commands; site navigation/search is derived |
 | `docs/plans/` | The semantic model cutover plan (current execution) and the product/research forward plan; finished or superseded plans are removed once their obligations move |
 | `docs/adr/` | Current decision records (accepted and open proposals), a generated index, and `TEMPLATE.md` |
-| `docs/design_review/design_principles/` | The layered design standard, declared in `standard.toml`: six foundations (FP-01–06), including an explicit domain model and scoped semantic authority; independent architectural judgments A1–A3, supporting rules DP-01–24 and gates G1–G8, the CI profile, and the repository binding (ADR-0040/0091) |
+| `docs/design_review/design_principles/` | The layered design standard, declared in `standard.toml`: six foundations (FP-01–06), independent architectural judgments A1–A3, supporting rules DP-01–24 and gates G1–G8, the CI profile, and the repository binding (ADR-0040/0093) |
 | `docs/design_review/reviews/` | Review outputs: evidence, never authority; kept while a finding they supply is open |
 | `docs/design_review/evidence/` | Probes, spikes and investigations behind decisions, one `YYYY-MM-DD_<topic>/` folder each with a README; raw outputs and binaries through Git LFS; never venvs or `target/`. Put probes here, not in the session scratchpad |
 | `docs/pins.md` | Every pin, with dated verification |
@@ -202,12 +202,6 @@ capability is absent.
 
 ## Decisions and reviews
 
-- **Domain modeling is mandatory** (core §1, FP-04, A2; ADR-0091). Represent consequential
-  domain distinctions explicitly and make behavior realize owned concept and operation
-  contracts. Trace phenomenon → authoritative concept or operation → implementation → consumer
-  → expected change. This applies wherever domain meaning is established or interpreted,
-  including adapters and orchestration. Ordinary domain functions can suffice; domain-named
-  records alone cannot. A MUST gap is unresolved, never waived for supported behavior.
 - **Write an ADR** (the `adr` skill) when a change alters a §B decision, chooses between real
   alternatives, or would surprise a future session. Amend the owning architectural section in the same commit. To pivot,
   supersede the old ADR; accepted ADRs are immutable.
@@ -217,10 +211,8 @@ capability is absent.
   ([historical recovery](docs/README.md#historical-recovery)).
 - **Design reviews** use `design-review` and its declared profiles, usually through the
   `design-reviewer` subagent. The binding's **Reviews in this repository** section owns cadence
-  and tier/purpose selection (ADR-0040). Begin with the domain model, responsibilities,
-  contracts and expected changes. A2 assesses both model adequacy and authority over behavior;
-  assess A1–A3 separately from correctness/fidelity gates. A bounded slice does not
-  certify the enclosing architecture. Review depth follows impact and uncertainty.
+  and tier/purpose selection (ADR-0040/0093). Apply the principles and review skill within
+  those bounded review periods. Review depth follows impact and uncertainty.
 - **Findings** retain stable source-review IDs. The active plan's findings table owns current
   disposition for scheduled work (forward plan §6); unscheduled deferrals stay in the source review
   with a trigger (binding §4).

@@ -49,7 +49,7 @@ The [architecture map](../design/README.md) and its section owners own contracts
 | [ADR-0088](0088-canonical-artifact-chunks.md) | Preserve complete artifacts as canonical bounded chunks | 2026-09-29 | [§15.3](../design/sections/semantic-model.md#section-15-3) | Tested |  |
 | [ADR-0089](0089-stage-contributions-and-input-closure.md) | Assemble attributed facts through declared stage contributions over a captured input closure | 2026-09-29 | [§15.3](../design/sections/semantic-model.md#section-15-3), [§15.4](../design/sections/semantic-model.md#section-15-4), [§15.11](../design/sections/semantic-model.md#section-15-11) | Proposed |  |
 | [ADR-0090](0090-datafusion-family-without-delta.md) | Pin DataFusion 55.1 / Arrow 59.3 as one family, without delta-rs or federation | 2026-09-29 | [§B9](../design/DESIGN.md#section-b9), [§7](../design/DESIGN.md#section-7) | Tested | ADR-0002 |
-| [ADR-0091](0091-semantic-model-first-design.md) | Require explicit domain models to govern implementation and architectural review | 2026-09-29 | [§2](../design/DESIGN.md#section-2) | Implemented |  |
+| [ADR-0093](0093-domain-model-review-scope.md) | Assess domain modeling during bounded design reviews without mandatory flow tracing | 2026-09-30 | [§2](../design/DESIGN.md#section-2) | Implemented | ADR-0091 |
 
 ## Proposed: open choices, not accepted decisions
 

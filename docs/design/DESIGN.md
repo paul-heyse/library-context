@@ -191,14 +191,15 @@ must resolve, historical `supersedes` entries need not, and ADR ids are never re
 > Decision: ADR-0041, ADR-0042
 
 
-**Implemented policy (ADR-0040/0091, 2026-09-29).** These are the load-bearing choices. The
-repository owns core 3.1 and declares its standard in
+**Implemented policy (ADR-0040/0093, 2026-09-30).** These are the load-bearing choices. The
+repository owns core 3.2 and declares its standard in
 `docs/design_review/design_principles/standard.toml`. The six foundations organize review of
 responsibilities, contracts, composition, explicit domain models and scoped semantic authority,
-constraints and local reasoning. Domain modeling is a MUST wherever implementation establishes
-or interprets domain meaning. Concepts, relationships, contextual bindings, invariants and
-operation contracts must govern behavior; ordinary domain functions are valid realizations.
-A2 assesses both model adequacy and authoritative behavior. A1–A3 judge architecture
+constraints and local reasoning. The principles and review skill own the domain-model criterion;
+assess it within bounded design/review periods at the binding's cadence. AGENTS.md routes to
+that process without imposing a standing modeling mandate. Investigation depth follows the
+scoped question; flow tracing is optional where it resolves a concrete uncertainty.
+A2 retains model adequacy and authoritative behavior as acceptance criteria. A1–A3 judge architecture
 independently of correctness and domain-fidelity gates. Supporting DP/CI IDs retain their
 historical meaning at the version cited by each review.
 
@@ -213,7 +214,7 @@ own their detailed contracts. ADRs record decisions and alternatives. Reviews pr
 evidence, while the active plan owns current disposition of scheduled findings. STATUS links to
 that owner. Acceptance, implementation and verification remain distinct facts.
 
-> Decision: ADR-0040, ADR-0091
+> Decision: ADR-0040, ADR-0093
 
 <a id="section-b1"></a>
 

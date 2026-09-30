@@ -2,30 +2,31 @@
 
 _Updated 2026-09-30 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main; phase 0 accepted (scoped); phase 1 implemented (P1.13 rehearsed); phase 2 through A9._
 
-## Design standard (2026-09-29)
+## Design standard (2026-09-30)
 
-- **Implemented policy:** [ADR-0091](docs/adr/0091-semantic-model-first-design.md) adopts core/template
-  3.1 and profile guidance 1.2. Domain modeling is mandatory; FP-04/A2 require an adequate model
-  governing behavior. Reviewer, process skills, AGENTS and DESIGN §2 are aligned. Library
-  exploration and capability skills are unchanged; this does not qualify product code.
+- **Implemented policy:** [ADR-0093](docs/adr/0093-domain-model-review-scope.md) adopts core/template
+  3.2 and profile guidance 1.3. Domain-model assessment belongs to bounded design/review periods;
+  AGENTS has no standing modeling mandate. Flow tracing is optional for concrete uncertainties.
+  FP-04/A2 retain model adequacy and authority over behavior. Reviewer and skill guidance align.
 - **Implemented review guidance:** relevant library-catalog entries are optional context for
   alternatives; design principles govern the judgment. AGENTS and the catalog introduction align.
-- `just docs-check`: **failed** on five existing review links to deleted cutover files
-  (`attempt.rs`, `db.rs`, `snapshot.rs`, catalog `pr4.rs`, `rebuild.rs`). Its ADR and agent checks
-  and HTML build **passed**, including after the advisory wording change. HEAD inspection
-  confirmed all five broken links predate this policy change.
+- `just docs-check` (2026-09-30): **failed** at agent validation: unchanged implementer guidance
+  names missing `check-package`, `unit-package`, `codegen` recipes. Its ADR lint **passed**.
+- `just docs` (2026-09-30): **failed** on unchanged `.claude/agents/implementer.md` missing H1.
+  The earlier five stale review links remain unresolved; this build did not reach link validation.
 - Generic skill validation (`uv run --no-project --offline --with pyyaml python
   /home/paul/.codex/skills/.system/skill-creator/scripts/quick_validate.py`): with
   `.claude/skills/design-review-code-intelligence`, **passed**; with `.claude/skills/design-review`,
-  **failed** on unchanged `model-baseline`/`user-invocable` metadata. Repository agent validation accepts it.
+  **failed** on unchanged `model-baseline`/`user-invocable` metadata (both rerun 2026-09-30).
 - Product checks: `just test-all`, facts pilots **not_run** for this documentation scope.
-  Concurrent P2 work, including A0 in `de89800`, was not validated by this session; the checkpoint
-  and receipts below remain attributed to the earlier cutover work. Next policy work: apply core
-  3.1 at the next scheduled review; publication link cleanup remains open.
+  `just library-catalog` **not_run**, per operator instruction for this documentation-only change.
+  Concurrent P2 work was not validated by this session; the checkpoint and receipts below remain
+  attributed to earlier cutover work. Next policy work: use core 3.2 at the next scheduled review;
+  documentation validation failures remain open.
 
 ## Restart checkpoint: semantic model cutover
 
-- **Accepted target:** ADR-0085–0091. [Cutover plan](docs/plans/semantic-model-cutover-plan_2026-09-29.md)
+- **Accepted target:** ADR-0085–0090; review policy ADR-0093. [Cutover plan](docs/plans/semantic-model-cutover-plan_2026-09-29.md)
   §4.1.1 owns the order, §4.2 dated receipts, §8 finding dispositions, §6 deferred obligations.
 - **Phase 0** is complete; its exit review is Accept scoped. It excludes the P4 composition engine.
 - **Phase 1** is implemented and focused-Tested (2026-09-29; P1.1–P1.12). The store-lifecycle and
@@ -83,7 +84,8 @@ Cargo commands use `python3 scripts/build_environment.py --`; per-slice receipts
   runtime exceptions).
 - **The legacy husk** still runs `extract`: the Pysa call join, types, flow and docs keep in-memory
   structures until A10/A11/A14/A15, and are removed at C1x.
-- **`just docs-check` fails on five stale review links** (the operator's note above); fix at C3x/Q.
+- **Documentation checks fail** on implementer metadata/recipe references and previously reported
+  stale review links (receipts above); fix at C3x/Q.
 - **Deadlocking editor flychecks.** rust-analyzer's `cargo check --workspace --message-format=json`
   processes can deadlock on build-unit locks. It recurred three times on 2026-09-29/30. A focused
   build then hangs with no `rustc`; stopping the flycheck `cargo` processes (no children, several
@@ -105,5 +107,5 @@ Cargo commands use `python3 scripts/build_environment.py --`; per-slice receipts
    Answers: `pysa_variants`, `map`, `C()` with New and Init, a missing Pysa range as a boundary.
 2. Then A11 (types; F06/F07) → A12–A14 (flow) → A15 → A16 → B1–B3 → Dc
    (`lctx compile --through facts`) → C1x–C3x, then Q qualification and the assembled P0–P2
-   review (core 3.1, ADR-0091).
+   review (core 3.2, ADR-0093).
 3. After the operator's P1.13 run, record its receipts and delete the transition tool.

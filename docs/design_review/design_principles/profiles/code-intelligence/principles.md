@@ -1,13 +1,14 @@
 # Code-intelligence design principles
 
-**Version 1.2 · 2026-09-29** · Domain profile for code-intelligence systems: static analysis
+**Version 1.3 · 2026-09-30** · Domain profile for code-intelligence systems: static analysis
 of source code into fact graphs, graph and program analyses over those facts, and
 evidence-backed answers served to people and coding agents. Refines the
 [core design principles](../../core/design-principles.md) under their layering rules (§B). It
 adds and tightens; it never relaxes a core principle. It names no specific analyzer or library —
 the repository binding does that.
 
-Version 1.2 retains CI-01–CI-13 and CI-G1–CI-G3 and aligns review guidance with core 3.1.
+Version 1.3 retains CI-01–CI-13 and CI-G1–CI-G3 and aligns review guidance with core 3.2's
+bounded assessment and discretionary investigation. Historical reviews retain their versions.
 Core FP-01–FP-06 organize architecture review; these domain rules constrain supported behavior.
 The explicit domain model must govern operations as well as fact shapes (FP-04, A2): resolution,
 derivation and projection have owned meanings consumed by their callers. Source fidelity alone

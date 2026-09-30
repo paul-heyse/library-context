@@ -14,6 +14,9 @@ the analysis: separation of concerns, stable contracts, composition, explicit do
 scoped semantic authority, explicit structure and local reasoning. The model must govern
 implemented behavior wherever domain meaning is established or interpreted (core §1, FP-04, A2).
 
+Apply this assessment during a requested design review or a review due at the repository's
+declared cadence. Ordinary implementation work does not itself initiate a domain-model review.
+
 ## Load the standard
 
 Find `standard.toml` at the location named by repository instructions. Read the declared core
@@ -49,20 +52,22 @@ Ask only if ambiguity would materially change the judgment; otherwise state the 
 ## What to establish
 
 Use judgment about investigation order and depth. These are outcomes, not a mandatory tool script.
+Use the least investigation sufficient for the scoped judgment. Follow a flow only when a concrete
+question about ownership, behavior or change remains unresolved; no complete flow trace is required.
 
 1. **Domain model, responsibilities and dependencies.** Identify the phenomena, consequential
    distinctions and domain operations, then reconstruct their owners, contracts and dependency
-   direction. Trace phenomenon → authoritative concept or operation → implementation → consumer
-   → expected change. Use source and accepted design, not just module or type names.
+   direction within the review scope. Assess whether the model is adequate and governs behavior
+   using relevant source and accepted design, not just module or type names.
 2. **Realistic change scenarios.** Select changes from the next capabilities or known variation
    axes. Distinguish instances, bindings, compositions, policies, domain concepts and mechanisms.
-   Trace trigger → owner → contract change → affected consumers → verification. Explain why
-   change propagates, which decisions repeat and what context/test setup is required. For a
+   Assess where a change belongs, which consumers it affects and why it propagates. Identify
+   repeated decisions and material context or test setup requirements. For a
    substantial architecture review, examine a domain extension and mechanism substitution where
    credible; state a scope reason when either does not apply. A bounded review keeps its one
    relevant scenario.
-3. **Authority, constraints and composition.** Trace semantic definitions into derived forms and
-   workflows. Establish how domain operations realize their contracts and who owns their
+3. **Authority, constraints and composition.** Assess whether derived forms and workflows use
+   their semantic owners. Establish how domain operations realize their contracts and who owns their
    invariants; distinguish repeated enforcement from independent definitions. Identify domain
    rules embedded in orchestration and private mechanics exposed to consumers. Ordinary domain
    functions can suffice; no registry, universal model or conversion of algorithms to data is required.
@@ -121,7 +126,7 @@ enclosing architectural status and path. Distinguish review acceptance from rele
 - Requiring a wrong output before reporting concrete architectural damage.
 - Accepting an enclosing architecture because successive narrow slices passed.
 - Treating file count, traits, crates, declarative vocabulary or library adoption as proof of quality.
-- Accepting output records as a domain model without tracing their governing operations, or
+- Accepting output records as a domain model without assessing their governing operations, or
   accepting one centralized definition that omits consequential distinctions.
 - Deriving all tests from production logic, then treating agreement as independent evidence.
 - Calling a proposed benefit measured, or an accepted ADR an implemented correction.

@@ -36,15 +36,15 @@ profile names none.
 4. **Code-intelligence journeys in slot 5**, chosen by relevance. In a target-purpose review the
    workloads in the profile's functional target are in scope even when current plans exclude them.
 5. **Architectural consequences of domain changes:** distinguish instances, bindings,
-   compositions, policies, domain concepts and mechanisms. Trace the phenomena and owned
-   operations behind facts and relations into extraction, normalization, analysis and serving.
+   compositions, policies, domain concepts and mechanisms. Assess the meanings and owned
+   operations behind the facts and relations in the review scope.
    Check whether consumers independently classify the same concept or interpret an operation's
    outcomes, and identify the affected owners.
 
 ## Lenses
 
-Fidelity and evidence claims are easy to assert in prose. Trace them through the design or code,
-using judgment about where doubt is material:
+Use these lenses when a concrete fidelity or evidence question remains unresolved. Select only
+the relevant paths and follow them far enough to settle it; this is not a required tracing checklist:
 
 - **Follow a served claim backwards** (CI-11): answer → synthesis → finding → fact → span, all in
   one snapshot. The step where a citation could resolve elsewhere, or where "mentions" stands in

@@ -1,6 +1,6 @@
 # Code-intelligence review additions
 
-**Version 1.2 · 2026-09-29** · What the [code-intelligence profile](principles.md) adds to
+**Version 1.3 · 2026-09-30** · What the [code-intelligence profile](principles.md) adds to
 each slot of the [core review template](../../core/design-review-template.md). The additions sit
 within the core slots; no slot is added or removed. Each applies only where the subject touches
 the behaviour concerned.
@@ -20,9 +20,10 @@ the behaviour concerned.
 For each domain journey, retain the core scenario columns, including kind of change, owner,
 contract change, affected consumers, repeated decisions, required context and test setup. A
 new semantic category can require a contract migration; an additional instance or contextual
-binding should reuse its definition. Trace the modeled phenomenon and governing operation into
-the fact and fidelity table; common output columns alone do not establish a common meaning.
+binding should reuse its definition. Assess the meanings and governing operations behind the
+fact and fidelity table; common output columns alone do not establish a common meaning.
 Assess model adequacy and authoritative behavior under A2, separately from CI-G1–CI-G3.
+Investigate only as far as needed for the scoped judgment; journeys do not require complete traces.
 
 ## Fact and fidelity table (slot 2)
 
@@ -38,7 +39,7 @@ Add to each projection, analysis or synthesis stage:
 
 ## Code-intelligence journeys (slot 5)
 
-| Journey | What to trace |
+| Journey | What to assess |
 |---|---|
 | **Add a fact family** | Declarations needed; provenance and fidelity; coverage rows; consumers; places meaning is re-expressed |
 | **Add or upgrade an analyzer** | What its facts mean compared with the previous provider; disagreement handling; recorded run context |

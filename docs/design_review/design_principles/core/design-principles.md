@@ -1,7 +1,7 @@
 # Design principles
 
-**Version 3.1 · 2026-09-29** · Core layer: repository- and domain-agnostic.
-Supersedes core 3.0; §I preserves its lineage and the Data Model–Based Design Charter 1.0 ID map.
+**Version 3.2 · 2026-09-30** · Core layer: repository- and domain-agnostic.
+Supersedes core 3.1; §I preserves its lineage and the Data Model–Based Design Charter 1.0 ID map.
 
 > **Localize change. Encode domain meaning explicitly. Extend through composition.**
 
@@ -33,6 +33,12 @@ establish facts by whatever means is most efficient and reliable for them: readi
 documentation, source and types, reasoning from experience. Probes, tests and written records
 are tools to use where real uncertainty or risk remains, never obligations or proof of
 diligence. The audit questions ask what is true of the design, not which artifact shows it.
+
+**Assessment scope.** Apply domain-model assessment during bounded design and review work at
+the declared review cadence. The criterion concerns model adequacy and authority over behavior;
+it does not require a separate modeling exercise for every implementation task. Reviewers choose
+the least investigation sufficient to settle the scoped question. Following a flow is an optional
+technique for resolving a concrete uncertainty, not a required sequence or exhaustive survey.
 
 ## 1. Governing objective
 
@@ -619,9 +625,9 @@ incorrect, and an interface-checked design can still need substantial engineerin
 ## §E The extension-locality test
 
 Choose realistic changes from the product's next capabilities or known variation axes: a new
-model, provider revision, analytic, workflow, rendering, invariant or isolated test. Trace:
-
-**Trigger and kind of change → owning component → contract change → affected consumers → verification.**
+model, provider revision, analytic, workflow, rendering, invariant or isolated test. Assess which
+owner and contracts would change, which consumers would be affected, and whether the result can
+be verified locally. Investigate propagation only to the depth needed for that judgment.
 
 Distinguish a new instance, contextual binding, composition, policy, domain concept or execution
 mechanism. New instances and bindings generally reuse definitions; compositions reuse operation
@@ -629,8 +635,9 @@ contracts; genuinely new phenomena may require new concepts, invariants or algor
 mechanism replacement preserves the domain contract or makes its incompatibility explicit.
 Judge whether edits follow these semantic owners, not whether an extension avoids new code.
 
-Record expected and observed propagation, independent semantic edits, hidden knowledge and test
-setup. A scenario can be inspected in a proposal or traced through code without implementing it.
+Record material propagation, independent semantic edits, hidden knowledge and test setup.
+A scenario can be assessed from contracts and relevant source without implementing it or
+constructing a complete flow trace.
 Quantitative claims need measurements; reasoned scope analysis is useful evidence without them.
 The target for an ordinary extension:
 
@@ -711,6 +718,11 @@ gap is never an exception: it narrows the supported scope or is recorded as unre
 concrete record is enough for a small deviation.
 
 ## §I Lineage: Data Model–Based Design Charter 1.0
+
+**Version 3.2 lineage.** Domain-model adequacy and authority remain design criteria under §1,
+FP-04 and A2. Assessment belongs to bounded design and review work; mandatory tracing sequences
+are removed. Reviewers choose investigation depth according to the scoped question. All IDs
+retain their meanings; historical reviews retain their recorded versions.
 
 **Version 3.1 lineage.** FP-01–FP-06, A1–A3, DP-01–DP-24 and G1–G8 retain their IDs.
 §1 makes semantic-model-first domain design a MUST; FP-04 and A2 explicitly assess model

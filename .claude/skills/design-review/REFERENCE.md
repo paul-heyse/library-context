@@ -25,9 +25,9 @@ An Arrow-shaped boundary may be the intentional shared contract; a wrapper must 
 
 Model adequacy and authority are separate questions. Domain-named records may only standardize
 outputs while several procedures define what they mean. A single classifier may be authoritative
-yet collapse a distinction required by supported behavior. Trace the relevant phenomenon into
-its definition, operation and consumer before accepting A2. A typed domain function can satisfy
-this trace without a declarative engine or serializable operation object.
+yet collapse a distinction required by supported behavior. Assess the relevant definitions and
+operations at the depth needed to settle A2. A typed domain function can establish authority
+without a declarative engine, serializable operation object or prescribed flow trace.
 
 **Example finding:** "Adding a second output rendering requires reinterpreting completion status
 in the rendering module as well as the analysis module. Both match on the same semantic variants,
@@ -95,8 +95,8 @@ coverage note as examined and unsettled.
 | **Bespoke generic machinery** — own solver loop, graph traversal, cache, parser, retry framework, derivative routine or hand-rolled built-in | The code, the library or built-in that provides the capability at the pinned version, and no stated reason for building it | G8 · DP-13, DP-14 |
 | **Adapter with policy** — a conversion layer holding defaults, selection or domain rules found nowhere else | The rule, and the authority that should own it | G1/G2 · DP-14, DP-01 |
 
-Trace the path that executes — the implementation actually selected, the branch taken under the
-real configuration. Where dispatch is dynamic, say which path you traced.
+When a finding depends on execution or dispatch, inspect the implementation selected under the
+relevant configuration. Follow the path far enough to resolve that question.
 
 ### When the scope computes: reuse, graphs and staged execution
 

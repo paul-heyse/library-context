@@ -14,9 +14,9 @@ profiles through `docs/design_review/design_principles/standard.toml`.
   owners and adjacent consumers; for a bounded change identify the enclosing architectural limit.
 - Begin at the relevant owner in the architectural collection and adjacent consumers. Expand
   reading when dependencies or contradictions warrant it; generated search is only navigation.
-- Reconstruct the domain model and responsibilities; trace phenomena through authoritative
-  concepts and operations into implementations and consumers. Check both model adequacy and
-  whether behavior follows it, then trace realistic changes. Read source evidence yourself;
+- Assess the scoped domain model, responsibilities and realistic changes. Check both model
+  adequacy and whether behavior follows it. Follow a flow only to resolve a concrete uncertainty;
+  the review does not require complete flow traces. Read source evidence yourself;
   prior findings are leads. Domain-named records alone do not establish alignment.
 - Compare library fit and total complexity. A narrow existing module or function can be the
   correct seam; do not prescribe wrappers, plugins or crate splits without a concrete benefit.

@@ -1,6 +1,6 @@
 # Design review template
 
-**Version 3.1 · 2026-09-29** · Core layer: repository- and domain-agnostic.
+**Version 3.2 · 2026-09-30** · Core layer: repository- and domain-agnostic.
 Standard: [design principles](design-principles.md): FP-01–FP-06 organize architectural
 assessment; DP-01–DP-24 support it; A1–A3 and G1–G8 remain separate judgments.
 Profiles add domain constraints within the slots. The binding supplies local owners and cadence.
@@ -23,6 +23,8 @@ Depth follows impact and uncertainty. Legacy `compact`, `standard` and `deep` de
 they are not additional tiers. Drop an irrelevant slot with a scope reason. Mechanical changes
 can state that ownership, contracts and extension behavior are unchanged and cite the inspected
 boundary. Do not narrow away an affected consumer to obtain acceptance.
+Use the least investigation sufficient for the scoped judgments. Flow tracing is optional when
+it resolves a concrete uncertainty; neither these slots nor A2 require a complete flow trace.
 
 ### What a claim can rest on
 
@@ -32,7 +34,7 @@ boundary. Do not narrow away an affected consumer to obtain acceptance.
 - **Code subject:** cite the actual ownership, dependencies, definitions and executing paths.
   *Implemented* establishes existence; *Tested* and *Measured* name the commands, cases and
   conditions. Historical receipts are explicitly dated and attributed, never reported as fresh runs.
-  Trace domain definitions into executing behavior; domain-named output records alone do not
+  Assess whether domain definitions govern behavior; domain-named output records alone do not
   establish model alignment.
 - **Both:** distinguish implemented state, accepted target and superseded design. State whether
   a discrepancy is incomplete implementation or stale authority. Link executable contracts from
@@ -121,11 +123,10 @@ boundary holds; a crate split is not the objective.
 | Phenomenon, concept or operation | Semantic scope, authority and identity where applicable | Update/revision boundary | Implementation, derived forms and consumers |
 |---|---|---|---|
 
-Trace **phenomenon → authoritative concept or operation → implementation → consumer → expected
-change**. Establish that the model captures consequential distinctions and that behavior uses
-its definitions. Identify duplicated decisions, semantics hidden in consumers, private
-mechanisms exposed to consumers, and opaque behavior. This is a reasoning trace, not a
-requirement for another artifact or a fixed implementation layout.
+Assess whether the model captures consequential distinctions and behavior uses its definitions
+within the review scope. Identify material duplicated decisions, semantics hidden in consumers,
+private mechanisms exposed to consumers and opaque behavior. Use relevant contracts and source;
+choose further investigation according to what remains uncertain.
 
 ### 3. Contracts, constraints and testing boundaries
 
@@ -143,7 +144,7 @@ from independent definitions. Ordinary domain functions can supply these contrac
 | Capability or stage | Semantic inputs/outputs | Owning mechanism | Dependencies and reuse boundary | Policy vs orchestration | Effects, ownership and publication | Limits/determinism |
 |---|---|---|---|---|---|---|
 
-Trace how primitives form a workflow. Identify rules that orchestration reimplements, implicit
+Assess how primitives compose. Identify rules that orchestration reimplements, implicit
 ordering and special cases. Include cardinality/cost, identity mappings, representation loss and
 resource budgets where material. A graph projection states its universe and relationship semantics.
 

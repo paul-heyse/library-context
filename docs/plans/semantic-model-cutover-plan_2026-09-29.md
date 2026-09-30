@@ -499,7 +499,7 @@ functional scope.
 | P0 | R1, R2, K1, D0, C1–C6, C5r, R3, D1, E1; exit review X0 **Accept scoped** (excludes the P4 composition engine) | — (routed findings: §8) |
 | P1 | P1.1–P1.12; the store-lifecycle and provider-session reviews re-inspected **Accept scoped** | **P1.13** real transition: **blocked** on PostgreSQL superuser access (rehearsed; operator commands in its evidence README). Afterwards: record receipts, delete the transition tool |
 | P2 | A0 `de89800`, A1 `0213048`, A2 `a7c71a1`, A3 `c87c672`, A4 `9dc55dc`, A5 `d4e980d`, A6 `b46ede2`, A7 `804a5c1`, A8 `38ba3ea`, [A6–A8 review](../design_review/reviews/design_review_semantic-symbols-calls-types_2026-09-29.md) corrections `827135d`, A9 `002d254` + `7f4a0b5` | A10–A16, B1–B3, Dc, C1x–C3x (below) |
-| Q | — | fmt, `test-all`, facts pilots in both profiles, docs-check, assembled P0–P2 review (core 3.1, ADR-0091), handoff |
+| Q | — | fmt, `test-all`, facts pilots in both profiles, docs-check, assembled P0–P2 review (core 3.2, ADR-0093), handoff |
 
 **Open P2 packages, each with the obligations routed to it:**
 - **A10, the call producer.**
