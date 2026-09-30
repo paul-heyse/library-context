@@ -14,6 +14,7 @@ enabled = [
   "rust-graphs",
   "rust-reasoning",
   "salsa",
+  "serde-arrow",
   "ty-flow",
   "typer-rich",
 ]
