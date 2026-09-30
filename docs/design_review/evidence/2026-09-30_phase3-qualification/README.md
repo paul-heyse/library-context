@@ -1,8 +1,8 @@
 # Phase 3 qualification
 
 Consumer: the Phase 3 detailed plan §11/Q and its assembled exit review. Evidence, not authority.
-**In progress, 2026-09-30.** Focused implementation controls passed before Q; full phase acceptance
-remains pending. `raw/` retains command outputs via Git LFS.
+**Implementation and composite gate passed, 2026-09-30.** Full-library output comparison and
+remaining measurements are **not_run at user direction**. `raw/` retains command outputs via Git LFS.
 
 This is a **composite qualification**. The first `just fmt` passed. Initial `just test-all`
 attempts stopped on local Clippy issues; those were repaired. Assembled review then identified
@@ -24,7 +24,9 @@ with unchanged prepared read-only planning and scan admission. The rule itself s
 Pyrefly). Rules, agent lint, fixture parsing, dependency policy, gold and doctests passed.
 The real PostgreSQL repeat suite passed all 257 tests (two tests plus one binary skipped),
 including the repaired fixtures, four normalized-generation controls and three native graph
-controls. Exact logs are in `raw/`; final CLI build and full-library pilots are in progress.
+controls. Exact logs are in `raw/`; the final release CLI build passed. The current test inventory contains
+749 tests (737 active, 12 explicit skips); the new empty-scope control passed separately and in
+the PG repeat suite.
 
 Store reset initially refused because its cleanup inventory named control tables absent in the
 previous installation. Reset now checks table presence while retiring old control records; it
@@ -48,3 +50,18 @@ each normalized collection, encoded as Postcard bytes in bounded BYTEA chunks, a
 publication validation or later analysis. Runtime dense indices are private. Graph bytes have no
 separate reuse hash or incremental update lifecycle. Phase 4 algorithms and Phase 5 serving remain
 outside this qualification.
+
+The facts/catalog FastMCP command completed successfully in 528.641 seconds and published
+unselected generation `7456ea1e2518e198597c8b67e0a18561`. The user then directed that additional
+full-library output comparisons be skipped and catalog regeneration be the final action.
+The just-started normalized/catalog compile was stopped; its staging generation
+`273d61a8ce09f47fbc6e7d5ee9256e7a` was aborted. `lctx store check` then passed with one generation
+and zero findings. No full-library normalized, behavioral/repeat, hydration timing or measured
+budget-refusal result is claimed. The prepared measurement/refusal scripts remain unexecuted
+recovery aids for the detailed plan's explicit measurement obligation. Automated graph roundtrip,
+resource refusal and real-store publication controls did pass as part of the composite gate.
+
+The assembled source review remains Accept scoped. Its O1 pilot-scale measurement obligation is
+unmeasured, and O2 remains P4's read-only algorithm adapter handoff. Neither integration tests nor
+this interrupted qualification establishes retrieval quality, a speedup or an absolute RSS cap.
+The final session action is `just library-catalog`; its output is not separately validated.

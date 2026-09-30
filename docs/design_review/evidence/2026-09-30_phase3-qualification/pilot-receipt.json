@@ -1,0 +1,29 @@
+{
+  "facts-catalog": {
+    "command": [
+      "target/release/lctx",
+      "--database",
+      "~/.config/library-context/postgres.json",
+      "compile",
+      "fastmcp",
+      "--through",
+      "facts",
+      "--profile",
+      "catalog"
+    ],
+    "exit": 0,
+    "elapsed_seconds": 528.640958967997,
+    "outcome": "passed"
+  },
+  "qualification_boundary": {
+    "full_library_output_comparison": "not_run at user direction",
+    "normalized_catalog": "interrupted at user direction; staging generation aborted",
+    "normalized_generation": "273d61a8ce09f47fbc6e7d5ee9256e7a",
+    "cleanup_command": "target/release/lctx generation abort 273d61a8ce09f47fbc6e7d5ee9256e7a",
+    "cleanup_outcome": "passed: Removed",
+    "store_check": "passed: 1 generations, 0 findings",
+    "graph_hydration_measurement": "not_run",
+    "measured_budget_refusals": "not_run",
+    "behavioral_and_repeat_pilots": "not_run"
+  }
+}

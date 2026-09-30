@@ -1,0 +1,97 @@
+{
+  "service_fingerprints_before": {
+    "public._sqlx_migrations": {
+      "rows": 1,
+      "digest": "d7f0516225344cc94cb47c64a1a995b8"
+    },
+    "lctx_cache.specs": {
+      "rows": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "lctx_cache.embedding_values": {
+      "rows": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "lctx_ops.attempts": {
+      "rows": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "lctx_ops.events": {
+      "rows": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    }
+  },
+  "generations_before": [
+    {
+      "generation": "008fde9ddf74a5a0382464aa1eab71ab",
+      "state": "published",
+      "frontier": "facts"
+    },
+    {
+      "generation": "b2a14274a1892d33ada1ca8aeb4cb82a",
+      "state": "published",
+      "frontier": "facts"
+    }
+  ],
+  "active_readers_before": [],
+  "selection_before": "0",
+  "importer_before": {
+    "format": 1,
+    "role": "importer",
+    "max_connections": 10,
+    "provider_connections": 8,
+    "acquire_timeout_seconds": 5,
+    "statement_timeout_seconds": 30,
+    "lock_timeout_seconds": 5
+  },
+  "importer_after": {
+    "format": 1,
+    "role": "importer",
+    "max_connections": 10,
+    "provider_connections": 8,
+    "acquire_timeout_seconds": 5,
+    "statement_timeout_seconds": 30,
+    "lock_timeout_seconds": 5
+  },
+  "reset": {
+    "command": [
+      "target/release/lctx",
+      "store",
+      "reset",
+      "--confirm",
+      "lctx"
+    ],
+    "exit": 0
+  },
+  "check-before": {
+    "command": [
+      "target/release/lctx",
+      "store",
+      "check"
+    ],
+    "exit": 0
+  },
+  "service_fingerprints_after": {
+    "public._sqlx_migrations": {
+      "rows": 1,
+      "digest": "d7f0516225344cc94cb47c64a1a995b8"
+    },
+    "lctx_cache.specs": {
+      "rows": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "lctx_cache.embedding_values": {
+      "rows": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "lctx_ops.attempts": {
+      "rows": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "lctx_ops.events": {
+      "rows": 0,
+      "digest": "d41d8cd98f00b204e9800998ecf8427e"
+    }
+  },
+  "outcome": "passed"
+}

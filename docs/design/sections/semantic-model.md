@@ -26,7 +26,7 @@ in cutover plan §4.2; finding dispositions are in §8. The generation store and
 2026-09-30, after the complete gate, both full profiles, repeated behavioral content and refusal
 controls. The [assembled P0–P2 exit review](../../design_review/reviews/design_review_p0-p2-exit_2026-09-30.md)
 is **Accept scoped** for facts, with explicit resource allowances and downstream exclusions.
-Commands and measured envelope are in the plan. Phase 3 runtime foundations (R1–R3) are **Implemented / focused-Tested**, 2026-09-30, with [scoped independent acceptance](../../design_review/reviews/design_review_phase3-foundation_2026-09-30.md). Normalized producers and graph persistence are **Implemented / focused-Tested**; Phase 3 exit qualification remains in progress; Phases 4–5 remain **Proposed**.
+Commands and measured envelope are in the plan. Phase 3 runtime foundations (R1–R3) are **Implemented / focused-Tested**, 2026-09-30, with [scoped independent acceptance](../../design_review/reviews/design_review_phase3-foundation_2026-09-30.md). Normalized producers and graph persistence are **Implemented / focused-Tested**; the composite automated gate passed, while full-library comparisons and measurements were stopped at user direction; Phases 4–5 remain **Proposed**.
 
 **Current state.** The Delta canonical store and its compile orchestration were removed in cutover
 phase 1 (P1.3/P1.4). The legacy `cpg-schema` contracts and the analysis, catalog and serving code
@@ -85,7 +85,7 @@ Every relation belongs to exactly one layer and has exactly one producing stage.
 - **`cpg-schema`** is retired by the cutover. Its surviving wire, selection and retrieval contracts move
   to `lctx-model`.
 
-**Phase 3 generation closure (Implemented / focused-Tested, 2026-09-30; Q pending).** Facts contains L0; Normalized contains
+**Phase 3 generation closure (Implemented / focused-Tested, 2026-09-30; automated gate passed; pilot measurements unqualified).** Facts contains L0; Normalized contains
 L0+L1 in one self-contained generation. A model-owned frontier descriptor declares relation
 closure, coverage, checkpoints and admission. Fresh normalized compilation runs the combined
 schedule without intermediate publication or selection. P4/P5 extend the declared closure;
@@ -227,7 +227,7 @@ tentative candidates and their support remain inspectable without resolved ident
 Pyrefly's declaration map distinguishes synthesized methods from callable-valued source fields;
 its `is_def_statement` flag alone cannot establish that distinction. The completed-stage driver
 and shared exact-output invariant enforce the same contract. N1 is a tested internal stage;
-normalized publication is implemented; full Phase 3 qualification remains Q.
+normalized publication is implemented; pilot-scale qualification is bounded by detailed plan §11/Q.
 
 **Types** (Implemented, focused Tested 2026-09-29, plan A8).
 
@@ -579,7 +579,7 @@ views.
 - The SCC schedule uses `kosaraju_scc` with the canonical callee-first order.
 - Heuristic analytics remain governed and never reach a served claim as fact.
 
-**Phase 3 projection realization (Implemented / focused-Tested, 2026-09-30; Q pending).** Typed endpoint roles in the relation
+**Phase 3 projection realization (Implemented / focused-Tested, 2026-09-30; automated gate passed; pilot measurements unqualified).** Typed endpoint roles in the relation
 model supply projection structure. Preserve isolates, parallel arcs, canonical ordering, evidence
 membership and unresolved side records. Dense petgraph indices stay private to a bounded immutable
 adapter. Every fresh normalized generation builds all named projections and stores their actual
@@ -666,7 +666,7 @@ compilation. Required producer failure removes its generation and every registry
 preflight refusal has no generation. Publication never selects. No durable history is promised
 for a removed generation or an acquisition failure before registration.
 
-**Completed-stage reads (Implemented / focused-Tested, 2026-09-30; Q pending).** A cumulative attempt freezes each completed
+**Completed-stage reads (Implemented / focused-Tested, 2026-09-30; automated gate passed; pilot measurements unqualified).** A cumulative attempt freezes each completed
 stage's outputs atomically with receipts and importer read grants, after draining readers/writers.
 An immutable validated facts checkpoint precedes normalization. Private source-bound input
 capabilities carry completed content and scoped availability; published-reader authorization stays

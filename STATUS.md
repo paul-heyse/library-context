@@ -27,13 +27,14 @@ _Updated 2026-09-30 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
   [normalization review](docs/design_review/reviews/design_review_phase3-normalization_2026-09-30.md)
   and [assembled exit review](docs/design_review/reviews/design_review_phase3-exit_2026-09-30.md)
   are **Accept scoped** after corrections. This does not establish completion of Q.
-- **Q in progress:** full-library profiles, repeated content, reservation/RSS/storage measurements,
-  graph hydration and measured-budget refusals remain. Stage joins retain complete charged typed
+- **Qualification boundary:** additional full-library output comparisons and measurements were
+  stopped at user direction. Pilot-scale reservations/RSS, graph hydration timing and measured
+  budget refusals remain unqualified. Stage joins retain complete charged typed
   collections; no streaming-join, absolute RSS cap or speedup claim is made.
 
 ## Current checks (2026-09-30)
 
-Cargo commands use `python3 scripts/build_environment.py --`. Exact commands and raw logs are in
+Cargo commands use `python3 scripts/build_environment.py --`. Functional work is committed as `820f548`. Exact commands and raw logs are in
 [Phase 3 qualification evidence](docs/design_review/evidence/2026-09-30_phase3-qualification/README.md).
 
 | Command / scope | Outcome |
@@ -47,7 +48,8 @@ Cargo commands use `python3 scripts/build_environment.py --`. Exact commands and
 | Wrapped release `installation reset_reinstalls_new_model` | passed: reset retires installations missing newly added control tables |
 | `just adr lint`; `just docs-check` | passed: 56 records; 235 canonical pages, zero link errors |
 | `uv run python .../migrate.py` | passed: current store rebuilt, five retained-service fingerprints unchanged, importer eight provider plus two lifecycle/writer slots |
-| Phase 3 full-library pilots / measurements / refusals | in progress; phase exit is not claimed |
+| Actual FastMCP facts/catalog command | passed: 528.641s; unselected published generation `7456ea1e2518e198597c8b67e0a18561` |
+| Additional full-library comparisons / measurements / refusals | not_run at user direction; started normalized pilot stopped and aborted; store check passed with one generation, zero findings |
 | Product/served evaluation, held-out confirmation and performance comparison | not_run: phases 4–5 remain unavailable |
 
 Gate results are composite after initial lint, snapshot, fixture-contract and SQL-rule failures.
@@ -72,8 +74,8 @@ Reset initially refused absent old-installation control tables; its regression a
 
 ## Next
 
-Finish Q's actual FastMCP facts/normalized profile runs, deterministic repeat, graph hydration and
-resource measurements/refusals; update current receipts and run the final catalog regeneration.
-Then P4 owns analysis/composition/catalog. Its graph algorithms must use read-only adapters over
+Final session action: `just library-catalog`, without separate output validation. Additional
+pilot-scale qualification runs only if reactivated; detailed plan §11 retains its unmeasured scope.
+P4 owns analysis/composition/catalog. Its graph algorithms must use read-only adapters over
 hydrated materializations rather than reconstructing edges. P5 owns serving/product qualification;
 PR6 and new product features stay paused until phase 5.

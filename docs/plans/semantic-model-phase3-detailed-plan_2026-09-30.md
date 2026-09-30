@@ -1,6 +1,6 @@
 # Phase 3: normalized semantic relations — detailed design and execution plan
 
-**Implemented; qualification in progress, 2026-09-30.** This is the detailed Phase 3 design subordinate to the
+**Implemented; composite gate passed, 2026-09-30.** This is the detailed Phase 3 design subordinate to the
 [cutover plan](semantic-model-cutover-plan_2026-09-29.md). The parent owns phase sequencing,
 the completed P0–P2 receipts and cross-phase finding dispositions; §11 below owns the newly
 scheduled P3 packages and their implementation status. [DESIGN §15](../design/sections/semantic-model.md)
@@ -12,7 +12,8 @@ and [ADR-0103](../adr/0103-normalized-graph-materialization.md).
 records resolved features and 13 passing existing reader/runtime tests at the design baseline.
 R1–R3/N1–N7/X are **Implemented / focused-Tested**, including persisted native graph snapshots;
 §11 and the [qualification evidence](../design_review/evidence/2026-09-30_phase3-qualification/README.md)
-own current receipts. Complete phase exit remains pending Q. P0–P2's assembled qualification remains valid only
+own current receipts. Full-library comparisons and remaining measurements were stopped at user direction; Q below
+records the resulting qualification boundary. P0–P2's assembled qualification remains valid only
 within its stated facts scope. This document does not activate production analysis or serving.
 
 ## 1. Outcome and design decisions
@@ -764,13 +765,14 @@ required ownership, lost alternatives, unhandled availability or unbounded failu
 
 ## 11. Current package status and finding routes
 
-**2026-09-30: functional scope implemented; Q in progress.** The independent
+**2026-09-30: functional scope implemented; composite gate passed.** The independent
 [assembled implementation review](../design_review/reviews/design_review_phase3-exit_2026-09-30.md)
 is **Accept scoped** after F01/F02 correction and reinspection. A1–A3 are satisfied within the
 inspected supported scope; serving remains P5. ADR-0103 supersedes the initial graph decision
 in ADR-0102. Runtime, semantic normalization and graph persistence have focused controls;
 the [qualification evidence](../design_review/evidence/2026-09-30_phase3-qualification/README.md)
-owns the composite gate, store rebuild and pilot measurements. No phase exit is claimed before Q.
+owns the composite gate and store rebuild. The user stopped additional full-library output
+comparisons; unrun pilot-scale measurements remain explicitly unqualified.
 
 | Package | State and bounded receipt |
 |---|---|
@@ -786,7 +788,7 @@ owns the composite gate, store rebuild and pilot measurements. No phase exit is 
 | N6 | Implemented / focused-Tested, 2026-09-30: model-owned roles, canonical universes and typed parallel arcs; four immutable petgraph Graph snapshots per input/context, versioned Postcard encoding in generation-owned BYTEA chunks, charged hydration and private runtime indices. Shared publication validation hydrates and compares against canonical inputs without rebuilding the graph. Wrapped release model projection unit controls (4, including empty and 70,000-node multi-chunk snapshots), native `normalized_projections` (3), and core `normalized_relations` (2 real profiles) passed. `cargo check -p lctx` passed. Initial fixed-array Serde/Arrow mismatch and malformed-header test setup were corrected before reruns. ADR-0103 replaces per-request construction; no graph reuse hash. |
 | N7 | Implemented / focused-Tested, 2026-09-30: cumulative normalized frontier, complete producer preflight, private facts checkpoint, seven normalization stages including final scoped coverage, atomic publication and explicit selection. Wrapped release core `normalized_generation` (4) and CLI `compile_facts` (1, five profile/frontier compiles) passed, including deterministic repeated content, failure after the facts checkpoint, cleanup and unchanged selected prior generation. The same current-source run passed both core profiles, all three native projection controls and seven native relationship controls. Shared DataFusion PeakRecordingPool records global and per-stage reservations; RSS sampling covers blocking normalization work. |
 | X | Implemented / focused-Tested, 2026-09-30: §9.1 inventories every retained legacy family and its named P4/P5 consumer. No legacy authority is imported by normalized compilation. Wrapped release native `normalized_recovery` passed three independent source/stub, Unicode/re-export/signature-ordinal, dataclass and conditional-declaration controls recovered from dormant assertions. Whole-crate deletion remains at the actual downstream ownership boundaries. |
-| Q | In progress: functional scope complete; integrated gate, pilots, measurements, assembled review and final handoff pending. |
+| Q | Composite `just test-all` gate passed after scoped repairs: all 34 initial failures covered by corrected suites; 129 affected contract controls and 257 PG repeat tests passed; 219 Python passed/56 skipped; remaining gate components and release CLI build passed. Reviewed model snapshot accepted (72 new relations, six invariants, native function-origin field); actual store rebuilt with five retained-service fingerprints unchanged. Facts/catalog FastMCP command passed (528.641s), published unselected. Additional full-library comparison, behavioral/repeat, graph hydration timing and measured-budget refusal are **not_run at user direction**; the started normalized pilot was stopped and aborted, store check passed. Assembled implementation review is Accept scoped; pilot-scale performance/envelope remains unqualified. Evidence and exact commands: [qualification receipt](../design_review/evidence/2026-09-30_phase3-qualification/README.md). |
 
 The [assembled design review](../design_review/reviews/design_review_phase3-plan_2026-09-30.md)
 owns dated evidence for these new findings; this table owns their current disposition.
@@ -802,7 +804,7 @@ owns dated evidence for these new findings; this table owns their current dispos
 | [Normalization F02](../design_review/reviews/design_review_phase3-normalization_2026-09-30.md#F02) | Corrected / focused-Tested: public binding-token verification replays the complete N1–N4 closure before admission. Standalone event validation returns no authority token. Forged lower correspondence/owner/lexical/support controls passed after recomputing higher results. | Closed by independent reinspection; N5 owns full lower-premise replay. |
 | [Phase 3 exit F01](../design_review/reviews/design_review_phase3-exit_2026-09-30.md#F01) | Corrected in implementation: final scoped normalization coverage with shared exact lower premise sets and frozen output receipts; family audit includes cross-source Types/Lexical dependencies and distinct exposure/flow-event capabilities. Pure scope and real-store controls are recorded in Q evidence. | Closed by independent source reinspection and focused controls; final current-source qualification remains Q. |
 | [Phase 3 exit F02](../design_review/reviews/design_review_phase3-exit_2026-09-30.md#F02) | Corrected in implementation: invocation-selected events retain assessment uncertainty as graph side records; known arcs remain. A native known-target/open-remainder twin and a wholly outside-policy twin exercise this boundary. | Closed by independent source reinspection and focused controls; final current-source qualification remains Q. |
-| Normalization O1 (normalization review), exit O1 | Complete charged typed input/index/output collections implement semantic joins; DataFusion currently supplies source-bound transport and scan admission. Lower replay temporarily materializes charged closures by layer. | Q must measure stage/replay reservation and RSS; no streaming-join or pilot-scale memory improvement claim. |
+| Normalization O1 (normalization review), exit O1 | Complete charged typed input/index/output collections implement semantic joins; DataFusion currently supplies source-bound transport and scan admission. Lower replay temporarily materializes charged closures by layer. | Pilot-scale stage/replay reservation and RSS measurement is **not_run at user direction**; retain this obligation if performance qualification resumes. No streaming-join or pilot-scale memory improvement claim. |
 
 Exit review O2 is a **P4 handoff**: add scoped read-only algorithm methods/adapters over the
 hydrated graph when implementing SCC, ranking or communities. Keep runtime indices private and
