@@ -46,7 +46,7 @@ _Updated 2026-09-30 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
     Revise. F01–F04 are corrected in `827135d` (format-string origins, dispatch-set meaning with
     interim policy, `referents`, receiver classification). F05–F07 are deferred with triggers;
     F08 is closed by A9b;
-  - **A9a** `002d254` and **A9b** (this checkpoint's commit): the `pyrefly` stage states Pysa's
+  - **A9a** `002d254` and **A9b** `7f4a0b5`: the `pyrefly` stage states Pysa's
     definitions, public names, docstring parameter docs and the dependency context. The harness
     oracle runs through the `Pyrefly::with_tap` session hook. The legacy definition, public-name,
     parameter-doc and context rows are deleted.
