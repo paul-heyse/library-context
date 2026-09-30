@@ -130,37 +130,16 @@ fn undecodable_and_broken_modules_are_never_silent() {
         .map(|r| (cell(files, "module_name", r), cell(files, "utf8", r)))
         .collect();
     assert_eq!(utf8["badpkg.latin1"], "false");
-    // Nothing from the undecodable module is asserted.
-    let decls = column(out.table("declarations").unwrap(), "qualified_name");
-    assert!(decls.iter().all(|d| !d.starts_with("badpkg.latin1")));
+    // Nothing from the undecodable module is asserted; typed syntax (`typed_conformance`) states the
+    // recovered module's declarations.
     let pysa = column(out.table("pysa_functions").unwrap(), "module_name");
     assert!(pysa.iter().all(|m| m != "badpkg.latin1"));
-    // The recovered module still yields facts.
-    assert!(decls.contains(&"badpkg.broken.after".to_owned()));
 }
 
 #[test]
 fn unicode_bom_crlf_calls_all_join_on_the_call_range() {
     let (_dir, out) = run("unicode_bom");
-    // Offsets index the acquired bytes, BOM included (§3.4): every declaration's name span slices
-    // its name out of the file as stored (review O6).
-    let files = out.table("source_files").unwrap();
-    let path: BTreeMap<String, String> = (0..files.num_rows())
-        .map(|r| (cell(files, "module_node_id", r), cell(files, "path", r)))
-        .collect();
-    let decls = out.table("declarations").unwrap();
-    assert!(decls.num_rows() > 0);
-    for r in 0..decls.num_rows() {
-        let bytes = std::fs::read(
-            common::fixture("unicode_bom").join(&path[&cell(decls, "module_node_id", r)]),
-        )
-        .unwrap();
-        let (s, e): (usize, usize) = (
-            cell(decls, "name_start_byte", r).parse().unwrap(),
-            cell(decls, "name_end_byte", r).parse().unwrap(),
-        );
-        assert_eq!(bytes[s..e], *cell(decls, "name", r).as_bytes());
-    }
+    // Byte spans over the BOM and CRLF lines are the typed syntax's (`typed_syntax_shapes`).
     let b = out.table("boundaries").unwrap();
     assert_eq!(
         b.num_rows(),

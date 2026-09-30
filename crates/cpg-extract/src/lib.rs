@@ -22,8 +22,9 @@ pub mod observations;
 mod public;
 mod pysa_map;
 mod syntax;
+pub mod syntax_records;
+pub mod pyrefly_stage;
 pub mod typed_syntax;
-pub mod typed_stages;
 mod types;
 mod walk;
 
@@ -41,16 +42,14 @@ use cpg_schema::id::{Id, IdHasher, content_digest, kind};
 use cpg_schema::metrics::{Stage, Stages};
 use cpg_schema::table::Table;
 use cpg_schema::tables::{
-    Arguments, Bindings, Boundaries, BoundariesRow, CallSyntax, ClassAncestry, CodeBlocks,
+    Bindings, Boundaries, BoundariesRow, ClassAncestry, CodeBlocks,
     ConditionLiterals, ConditionNodes, Conditions, ContextClassMro, ContextDefinitions,
-    ContextModules, ContextParameters, Contexts, ContextsRow, Coverage, CoverageRow, Declarations,
-    DocComponentAttributes, DocComponents, DocLinks, Documents,
-    ExportSyntax, Facts, FlowAttributeLoads, FlowDefinitions, FlowReaching, FlowRegions,
+    ContextModules, ContextParameters, Contexts, ContextsRow, Coverage, CoverageRow, DocComponentAttributes, DocComponents, DocLinks, Documents,
+    Facts, FlowAttributeLoads, FlowDefinitions, FlowReaching, FlowRegions,
     FlowTestLeaves, FlowTestTypes, FlowTests, FlowUses, FlowValueCalls, FlowValues,
-    FunctionImplementations, Mentions, ParameterDocs, ParameterSemantics, ParameterSyntax,
-    Passages, Producers, ProducersRow, PublicNames, PysaCalls, PysaClasses, PysaFunctions,
-    RecordFieldSyntax, RecordFields, ReferenceResolutions, References, Runs,
-    RunsRow, Scopes, SourceFiles, SourceFilesRow, SyntaxNodes, TypeObservations, TypeTermArgs,
+    FunctionImplementations, Mentions, ParameterDocs, ParameterSemantics, Passages, Producers, ProducersRow, PublicNames, PysaCalls, PysaClasses, PysaFunctions,
+    RecordFields, ReferenceResolutions, References, Runs,
+    RunsRow, Scopes, SourceFiles, SourceFilesRow, TypeObservations, TypeTermArgs,
     TypeTerms,
 };
 use pyrefly::commands::coverage::collect::is_public_name;
@@ -1119,23 +1118,7 @@ fn run_release(
             ContextClassMro::NAME,
             ContextClassMro::to_sorted_batch(&context_out.mro)?,
         ),
-        (
-            Declarations::NAME,
-            Declarations::to_sorted_batch(&walked.declarations)?,
-        ),
-        (
-            ExportSyntax::NAME,
-            ExportSyntax::to_sorted_batch(&walked.export_syntax)?,
-        ),
         (PublicNames::NAME, PublicNames::to_sorted_batch(&public)?),
-        (
-            RecordFieldSyntax::NAME,
-            RecordFieldSyntax::to_sorted_batch(&walked.record_field_syntax)?,
-        ),
-        (
-            ParameterSyntax::NAME,
-            ParameterSyntax::to_sorted_batch(&walked.parameter_syntax)?,
-        ),
         (
             ParameterDocs::NAME,
             ParameterDocs::to_sorted_batch(&walked.parameter_docs)?,
@@ -1155,18 +1138,6 @@ fn run_release(
         (
             PysaClasses::NAME,
             PysaClasses::to_sorted_batch(&pysa.classes)?,
-        ),
-        (
-            CallSyntax::NAME,
-            CallSyntax::to_sorted_batch(&walked.call_syntax)?,
-        ),
-        (
-            Arguments::NAME,
-            Arguments::to_sorted_batch(&walked.arguments)?,
-        ),
-        (
-            SyntaxNodes::NAME,
-            SyntaxNodes::to_sorted_batch(&walked.syntax_nodes)?,
         ),
         (Scopes::NAME, Scopes::to_sorted_batch(&lexical_out.scopes)?),
         (

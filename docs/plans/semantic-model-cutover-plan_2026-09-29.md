@@ -971,6 +971,33 @@ The facts frontier now requires the pyrefly stage to write these family relation
 - attachment outcomes keep exactly their candidates (seven cases);
 - a candidate or boundary subject outside its scope, a boundary under complete coverage or in an uncovered family, a mismatched reason and a missing scope are each refused;
 - the PG twin publishes, reads back and refuses |
+| A4: `cargo test --release -p cpg-extract` (all suites); `-p cpg-core --test facts_driver`; `cargo check --workspace --all-targets` | passed 2026-09-29 (typed_syntax_shapes 4, typed_conformance 6 + 1 ignored, bundle 6, typed_limits 5, typed_owner 1; the legacy suites unchanged).
+
+**The `pyrefly` stage, phase 1.** `pyrefly_stage.rs`:
+- one pinned Pyrefly transaction per captured input; a corpus sees its library's frozen root as site-packages, and the context records `$input`/`$library`;
+- analysis roots come from the acquisition: an installed input's release modules, a corpus's examples, tests and derived blocks, and every source of a tree;
+- per root: Module naming from the handle, then full typed syntax.
+
+The emitter (`typed_syntax.rs`) now states each occurrence's placement (parent, field, ordinal) and its details (operator kinds; parsed literals, a noncanonical big integer excepted). `syntax_records.rs` resolves declarations with decorators, `@overload` and docstrings, import aliases with resolved modules, `__all__` (literal sets for assign, `+=`, `.extend` and `.append`), parameters (a literal default as its value), class fields and call syntax. It uses a per-module span-and-kind index: nothing is invented, and an ambiguous index is refused.
+
+Vocabulary is contributed to the new `assemble` stage (`Assemble`, the one writer).
+
+Coverage:
+- Syntax is Complete, Partial on a parse error or traversal bound, or Unavailable when admission or decoding refuses;
+- Exports and Signatures are Partial (`OutsideProviderModel`) until A9;
+- a computed `__all__` is a subject boundary (Exports, `OutsideProviderModel`).
+
+Deleted: E1's `typed_stages.rs` and `typed_syntax::extract`/`SyntaxFacts`/`syntax_provider`, and the legacy pipeline's emission of the syntax tables (`syntax_nodes`, `declarations`, `export_syntax`, `parameter_syntax`, `record_field_syntax`, `call_syntax`, `arguments`). The walk still computes them, because the legacy Pysa join reads call syntax until A10. The legacy id-recipe snapshot lost its three syntax lines (legacy husk output, not a schema).
+
+**Controls** (`typed_syntax_shapes`, written from the fixture sources):
+- `syntax_shapes`: six declarations, one decorator, guarded's defaults `"fast"` and `0` as literals, eleven call sites with the keyword argument `maxsize`, the chained `0 <= limit < 10` as LtE then Lt, one placement per occurrence with only the module unparented, and `raise … from err` placed as Cause;
+- `unicode_bom`: multibyte names by byte span, two `@overload`s and the implementation, the docstring, four methods under `Écrivain`, `@property`, `__new__`'s variadics (Ruff's node spans the star), the `"défaut"` default, a lambda parameter, and the BOM-and-CRLF package's imports and `__all__` at exact byte spans;
+- `dunder_all`: literal names by assign, `+=` and `.append`; two computed forms as boundaries; relative imports resolved;
+- two with-items are distinct occurrences; a node bound keeps the prefix, discloses Partial, and states no records.
+
+`typed_conformance` now runs `acquire → pyrefly → assemble` into memory and a PG conformance generation that validate the same content. A clean module's Syntax coverage is now complete.
+
+P0 exit F08: the declared transitive-load limit is kept. A refused module that an admitted one imports may be parsed by Pyrefly, and it states nothing; this is documented in `pyrefly_stage.rs` and `typed_syntax::admit` |
 | `just fmt`, `just test-all`, facts pilots | not_run: functional scope incomplete |
 
 Independent bounded reviewers accepted artifact/capture/acquisition corrections and the
@@ -1215,7 +1242,7 @@ returned Revise on 2026-09-29 for one correction (F01). The review's §11 dispos
 | [F05](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F05) | `ProviderCoverage`; B1 | open → B1 (catalog generation without a ty `Provider` row); D1 receipt wording corrected |
 | [F06](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F06) | model tests; P1.11 | closed (P1.11, 2026-09-29): `crates/lctx/tests/model_describe.rs` snapshots `lctx model describe --format json` (relations, fields with roles and types, references, sums, every codebook's code/label pairs) under `INSTA_UPDATE=no` |
 | [F07](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F07) | `StageSink`/`GenerationAttempt::copy`; P1.7/P1.10 | closed: the in-memory class at P1.7; the persisted class with store-lifecycle review F04 (a producer's transport failure stores `transport`); provider-session transport loss at P1.10 (`transport_loss_is_terminal`) |
-| [F08](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F08) | `typed_syntax`; A4 | wording addressed (`admit` states the transitive-load limit); import policy → A4 |
+| [F08](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F08) | `typed_syntax`, `pyrefly_stage`; A4 | closed (A4, 2026-09-29): the declared transitive-load limit is kept rather than `replace-imports-with-any`. A refused module that an admitted one imports may be parsed provider-internally and states nothing; `pyrefly_stage.rs` and `typed_syntax::admit` document it |
 
 ### P1 store-lifecycle review findings
 

@@ -1,18 +1,15 @@
-//! The stage-bound production subset (plan E1) over the pinned native parse: the permanent
-//! capture and syntax stages write through `StageOutput` into a stage-bound memory generation and
-//! into a real PostgreSQL 18 conformance generation. The subset cannot be admitted as facts.
-use std::{collections::BTreeMap, future::Future, path::Path, sync::Arc, task::{Context, Poll, Waker}};
-use cpg_extract::{capture::CapturedInput, typed_stages::{self, CAPTURE, SYNTAX}, typed_syntax::{self, SyntaxFacts, SyntaxInvocation, SyntaxLimits}};
+//! The production syntax stages (plan E1, carried by A0–A4) over the pinned native parse: `acquire`,
+//! `pyrefly` and `assemble` run through the provider framework into a stage-bound memory generation
+//! and into a real PostgreSQL 18 conformance generation, which validate the same content. The
+//! schedule cannot be admitted as facts.
+use std::{collections::BTreeMap, path::Path, sync::{Arc, Mutex}};
+use cpg_extract::{acquisition::{AcquiredInput, Acquire}, assembly::Assemble, bundle::{CapturedInputs, Declared, ProviderStage, StageContext, run_stage},
+    capture::CapturedInput, pyrefly_stage::{Pyrefly, pyrefly_provider}, typed_syntax::{self, SyntaxInvocation, SyntaxLimits}};
 use lctx_model::domain::{*, admission::FrontierContract, assertion::*, attribution::*, batching::TransferLimits, conditions::Diagram, input::*,
-    memory::MemoryGeneration, resources::ResourceBudget, source::*, stages::*};
+    memory::MemoryGeneration, obligation::ObligationKind, resources::ResourceBudget, source::*, stages::*};
 use lctx_postgres::generations::{Error, GenerationStore};
 use lctx_postgres::testing::DisposableDatabase;
 
-fn ready<T>(future: impl Future<Output = T>) -> T {
-    match std::pin::pin!(future).as_mut().poll(&mut Context::from_waker(Waker::noop())) {
-        Poll::Ready(value) => value, Poll::Pending => panic!("a memory sink never waits"),
-    }
-}
 fn budget() -> ResourceBudget { ResourceBudget::fixed(1 << 30).unwrap() }
 fn fixture() -> BTreeMap<String, Vec<u8>> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/python/typed_semantics");
@@ -23,100 +20,128 @@ fn fixture() -> BTreeMap<String, Vec<u8>> {
     files
 }
 /// Capture a fresh copy of the files; every capture lives in its own temporary tree.
-fn capture(files: &BTreeMap<String, Vec<u8>>) -> CapturedInput {
+fn capture(files: &BTreeMap<String, Vec<u8>>, budget: &ResourceBudget) -> Arc<CapturedInputs> {
     let original = tempfile::tempdir().unwrap();
     for (path, bytes) in files {
         let target = original.path().join(path);
         std::fs::create_dir_all(target.parent().unwrap()).unwrap();
         std::fs::write(target, bytes).unwrap();
     }
-    CapturedInput::capture(original.path(), &files.keys().cloned().collect::<Vec<_>>(), &budget()).unwrap()
+    let captured = CapturedInput::capture(original.path(), &files.keys().cloned().collect::<Vec<_>>(), budget).unwrap();
+    Arc::new(CapturedInputs::new(vec![AcquiredInput::tree(captured, "typed-conformance")]))
 }
-fn origin() -> InputOrigin { InputOrigin::Tree { label: "typed-conformance".into() } }
+
+/// What the stages wrote, read back through handoffs.
+#[derive(Default, Clone)]
+struct Rows { coverage: Vec<ProviderCoverage>, occurrences: Vec<Occurrence>, observations: Vec<SyntaxObservation> }
+struct Inspect(Arc<Mutex<Rows>>);
+fn inspect_stage() -> Stage {
+    Stage { name: "inspect", inputs: vec![RelationUse::of::<ProviderCoverage>(), RelationUse::of::<Occurrence>(), RelationUse::of::<SyntaxObservation>()],
+        outputs: vec![RelationUse::of::<types::TypePresentationSupport>()], contributes: vec![], coverage: vec![], provider: None,
+        profiles: vec![Profile::Catalog, Profile::Behavioral], effect: Effect::Pure, code: ContentHash::of(b"inspect"), configuration: ContentHash::of(b"inspect") }
+}
+impl Declared for Inspect { fn declaration(&self, _: Profile) -> Stage { inspect_stage() } }
+impl<S: StageSink + 'static> ProviderStage<S> for Inspect {
+    fn run(&mut self, context: &mut StageContext<S>) -> Result<ProviderOutcome, ModelError> {
+        fn all<R: Record, S: StageSink + 'static>(context: &mut StageContext<S>) -> Result<Vec<R>, ModelError> {
+            Ok(context.handoff::<R>()?.iter().flat_map(|b| b.rows().to_vec()).collect())
+        }
+        let mut rows = self.0.lock().unwrap();
+        rows.coverage = all(context)?; rows.occurrences = all(context)?; rows.observations = all(context)?;
+        context.declare::<types::TypePresentationSupport>()?;
+        Ok(ProviderOutcome::Complete)
+    }
+}
+fn providers<S: StageSink + 'static>(limits: SyntaxLimits, rows: &Arc<Mutex<Rows>>) -> Vec<Box<dyn ProviderStage<S>>> {
+    vec![Box::new(Acquire::new(ContentHash::of(b"typed-conformance"))), Box::new(Pyrefly::new(limits)), Box::new(Assemble), Box::new(Inspect(rows.clone()))]
+}
 fn schedule(model: &ValidatedModel, limits: SyntaxLimits) -> Schedule {
-    Schedule::build(model, vec![typed_stages::capture_stage(), typed_stages::syntax_stage(limits)], &[], Profile::Catalog).unwrap()
+    let stages = providers::<MemoryGeneration>(limits, &Arc::default()).iter().map(|p| p.declaration(Profile::Catalog)).collect();
+    Schedule::build(model, stages, &[], Profile::Catalog).unwrap()
 }
-/// Drive both stages into any stage-bound sink.
-async fn drive<S: StageSink>(model: &ValidatedModel, execution: &mut Execution<'_>, sink: &S, captured: &CapturedInput, facts: SyntaxFacts,
-    budget: &ResourceBudget) -> Result<(), ModelError> {
-    let output = StageOutput::new(execution.begin(CAPTURE)?, sink, model, budget.clone(), TransferLimits::default())?;
-    typed_stages::run_capture(output, captured, origin(), model, budget).await?;
-    let output = StageOutput::new(execution.begin(SYNTAX)?, sink, model, budget.clone(), TransferLimits::default())?;
-    typed_stages::run_syntax(output, captured, facts).await
+/// Drive every scheduled stage into `sink`.
+async fn drive<S: StageSink + 'static>(model: &Arc<ValidatedModel>, execution: &mut Execution<'_>, sink: &S, captured: &Arc<CapturedInputs>,
+    limits: SyntaxLimits, rows: &Arc<Mutex<Rows>>, budget: &ResourceBudget) -> Result<(), ModelError> {
+    let mut providers: BTreeMap<&str, Box<dyn ProviderStage<S>>> = providers::<S>(limits, rows).into_iter().map(|p| (p.declaration(Profile::Catalog).name, p)).collect();
+    let names: Vec<&'static str> = execution.schedule().stages().iter().map(|s| s.name).collect();
+    for name in names {
+        run_stage(providers.remove(name).unwrap(), execution.begin(name)?, sink, model, captured, budget, TransferLimits::default()).await?;
+    }
+    Ok(())
 }
-struct Run { digest: ContentHash, coverage: Vec<ProviderCoverage>, occurrences: Vec<Occurrence>, observations: Vec<SyntaxObservation>, analyzed: Vec<String> }
-/// The whole subset into a stage-bound memory generation.
-fn run_memory(files: &BTreeMap<String, Vec<u8>>, limits: SyntaxLimits, budget: &ResourceBudget) -> Result<Run, ModelError> {
-    let model = model()?; let captured = capture(files);
+struct Run { digest: ContentHash, rows: Rows }
+/// The whole schedule into a stage-bound memory generation.
+async fn run_memory(files: &BTreeMap<String, Vec<u8>>, limits: SyntaxLimits, budget: &ResourceBudget) -> Result<Run, ModelError> {
+    let model = Arc::new(model()?);
+    let captured = capture(files, &ResourceBudget::fixed(1 << 30).unwrap());
     let schedule = schedule(&model, limits);
     let mut execution = schedule.execute();
     let generation = MemoryGeneration::bind(&model, budget, &mut execution)?;
-    let facts = typed_syntax::extract(&captured, &model, limits, budget)?;
-    let (coverage, analyzed) = (facts.coverage.clone(), facts.analyzed.clone());
-    let occurrences = facts.occurrences.iter().flat_map(|b| b.rows().to_vec()).collect();
-    let observations = facts.observations.iter().flat_map(|b| b.rows().to_vec()).collect();
-    ready(drive(&model, &mut execution, &generation, &captured, facts, budget))?;
+    let rows = Arc::new(Mutex::new(Rows::default()));
+    drive(&model, &mut execution, &generation, &captured, limits, &rows, budget).await?;
     execution.finish()?;
-    Ok(Run { digest: generation.validate(&model, budget)?, coverage, occurrences, observations, analyzed })
+    let rows = rows.lock().unwrap().clone();
+    Ok(Run { digest: generation.validate(&model, budget)?, rows })
 }
 fn artifact(files: &BTreeMap<String, Vec<u8>>, path: &str) -> SourceArtifact {
     let input = InputRevision::from_entries(files.iter().map(|(p, b)| ManifestEntry { path: p.clone(), content: ContentHash::of(b), byte_len: b.len() as i64 }).collect()).unwrap();
     SourceArtifact::from_bytes(input.id(), path.into(), &files[path]).unwrap()
 }
-fn coverage_of<'a>(run: &'a Run, source: &SourceArtifact) -> &'a ProviderCoverage {
-    run.coverage.iter().find(|row| row.scope == CoverageScope::Artifact { artifact: source.id() }.id()).unwrap()
+fn syntax_of<'a>(run: &'a Run, source: &SourceArtifact) -> &'a ProviderCoverage {
+    run.rows.coverage.iter().find(|row| row.scope == CoverageScope::Artifact { artifact: source.id() }.id() && row.family == FactFamily::Syntax).unwrap()
 }
 
 #[test]
-fn the_subset_schedule_is_not_a_facts_frontier() {
+fn the_syntax_schedule_is_not_a_facts_frontier() {
     let model = model().unwrap();
     let refused = FrontierContract::facts(&model, Profile::Catalog).unwrap().preflight(&schedule(&model, SyntaxLimits::default()));
     assert!(matches!(refused, Err(ModelError::Frontier(_))), "{refused:?}");
 }
 
-#[test]
-fn stages_relocate_deterministically_and_disclose_coverage() {
+#[tokio::test]
+async fn stages_relocate_deterministically_and_disclose_coverage() {
     let files = fixture();
-    let (left, right) = (run_memory(&files, SyntaxLimits::default(), &budget()).unwrap(), run_memory(&files, SyntaxLimits::default(), &budget()).unwrap());
+    let (left, right) = (run_memory(&files, SyntaxLimits::default(), &budget()).await.unwrap(), run_memory(&files, SyntaxLimits::default(), &budget()).await.unwrap());
     assert_eq!(left.digest, right.digest, "identity, configuration and provenance are independent of the capture path");
-    assert!(left.coverage.iter().all(|row| row.status != CoverageStatus::CompleteUnderStatedModel), "an identifier subset is never complete");
-    let sample = artifact(&files, "sample.py");
-    assert_eq!(coverage_of(&left, &sample).reason, Some(ObligationKind::OutsideProviderModel));
-    assert_eq!(coverage_of(&left, &artifact(&files, "_invalid/broken.py")).reason, Some(ObligationKind::SyntaxError));
-    let undecodable = coverage_of(&left, &artifact(&files, "_invalid/undecodable.py"));
+    let sample = syntax_of(&left, &artifact(&files, "sample.py"));
+    assert_eq!((sample.status, sample.reason), (CoverageStatus::CompleteUnderStatedModel, None), "a clean module's syntax is complete");
+    let broken = syntax_of(&left, &artifact(&files, "_invalid/broken.py"));
+    assert_eq!((broken.status, broken.reason), (CoverageStatus::Partial, Some(ObligationKind::SyntaxError)));
+    let undecodable = syntax_of(&left, &artifact(&files, "_invalid/undecodable.py"));
     assert_eq!((undecodable.status, undecodable.reason), (CoverageStatus::Unavailable, Some(ObligationKind::UndecodableSource)));
-    assert!(!left.analyzed.contains(&"_invalid/undecodable.py".to_owned()), "undecodable bytes never reach the analyzer");
-    assert!(left.observations.iter().any(|row| row.spelling == "α"));
-    let with_items: Vec<_> = left.occurrences.iter().filter(|o| o.role == OccurrenceRole::WithItem).collect();
+    assert!(left.rows.occurrences.iter().all(|o| o.source != artifact(&files, "_invalid/undecodable.py").id()), "undecodable bytes never reach the analyzer");
+    assert!(left.rows.coverage.iter().filter(|c| c.family != FactFamily::Syntax).all(|c| c.status != CoverageStatus::CompleteUnderStatedModel),
+        "exports and signatures wait for the symbol producer");
+    assert!(left.rows.observations.iter().any(|row| row.spelling == "α"));
+    let with_items: Vec<_> = left.rows.occurrences.iter().filter(|o| o.role == OccurrenceRole::WithItem).collect();
     assert_eq!(with_items.len(), 2); assert_ne!(with_items[0].id(), with_items[1].id());
     assert_ne!(with_items[0].structural_path, with_items[1].structural_path);
 }
 
-#[test]
-fn admission_and_traversal_refusals_are_disclosed() {
+#[tokio::test]
+async fn admission_and_traversal_refusals_are_disclosed() {
     let files = fixture();
     let (sample, broken) = (artifact(&files, "sample.py"), artifact(&files, "_invalid/broken.py"));
     // A source over the size bound is refused before Pyrefly is given it; others are unaffected.
-    let small = run_memory(&files, SyntaxLimits { source_bytes: files["sample.py"].len() - 1, ..SyntaxLimits::default() }, &budget()).unwrap();
-    let refused = coverage_of(&small, &sample);
+    let small = run_memory(&files, SyntaxLimits { source_bytes: files["sample.py"].len() - 1, ..SyntaxLimits::default() }, &budget()).await.unwrap();
+    let refused = syntax_of(&small, &sample);
     assert_eq!((refused.status, refused.reason), (CoverageStatus::Unavailable, Some(ObligationKind::ResourceRefused)));
-    assert!(!small.analyzed.contains(&"sample.py".to_owned()));
-    assert!(small.occurrences.iter().all(|o| o.source != sample.id()));
-    assert!(small.occurrences.iter().any(|o| o.source == broken.id()));
+    assert!(small.rows.occurrences.iter().all(|o| o.source != sample.id()));
+    assert!(small.rows.occurrences.iter().any(|o| o.source == broken.id()));
     // A traversal bound keeps the emitted, ancestor-closed prefix and states Partial.
-    let bounded = run_memory(&files, SyntaxLimits { nodes: 2, ..SyntaxLimits::default() }, &budget()).unwrap();
-    let partial = coverage_of(&bounded, &sample);
+    let bounded = run_memory(&files, SyntaxLimits { nodes: 2, ..SyntaxLimits::default() }, &budget()).await.unwrap();
+    let partial = syntax_of(&bounded, &sample);
     assert_eq!((partial.status, partial.reason), (CoverageStatus::Partial, Some(ObligationKind::ResourceRefused)));
-    let prefix: Vec<_> = bounded.occurrences.iter().filter(|o| o.source == sample.id()).collect();
-    assert_eq!(prefix.len(), 2);
-    assert_eq!(prefix.iter().map(|o| o.structural_path.clone()).collect::<Vec<_>>(), [vec![0], vec![0, 0]]);
+    let mut prefix: Vec<_> = bounded.rows.occurrences.iter().filter(|o| o.source == sample.id()).map(|o| o.structural_path.clone()).collect();
+    prefix.sort();
+    assert_eq!(prefix, [vec![0], vec![0, 0]]);
 }
 
-#[test]
-fn a_short_budget_fails_the_attempt_and_releases_everything() {
+#[tokio::test]
+async fn a_short_budget_fails_the_attempt_and_releases_everything() {
     let files = fixture();
-    let short = ResourceBudget::fixed(16 << 10).unwrap();
-    assert!(matches!(run_memory(&files, SyntaxLimits::default(), &short), Err(ModelError::Resource { .. })));
+    let short = ResourceBudget::fixed(64 << 10).unwrap();
+    assert!(matches!(run_memory(&files, SyntaxLimits::default(), &short).await, Err(ModelError::Resource { .. })));
     assert_eq!(short.reserved(), 0);
 }
 
@@ -126,7 +151,7 @@ fn changed_text_is_refused_before_emission() {
     let text = std::str::from_utf8(&files["sample.py"]).unwrap();
     let parsed = ruff_python_parser::parse_module(text).unwrap();
     let mut source = artifact(&files, "sample.py"); source.content = ContentHash::of(b"changed");
-    let provider = typed_syntax::syntax_provider();
+    let provider = pyrefly_provider();
     let context = AnalysisContext { python_version: "3.14.7".into(), python_platform: "linux".into(), search_path: vec![], site_package_path: vec![],
         config_digest: ContentHash::of(b"c"), environment_digest: ContentHash::of(b"e"), lock_digest: None };
     let (run, _) = ProviderRun::new(provider.id(), context.id(), source.input, context.config_digest, [FactFamily::Syntax]).unwrap();
@@ -139,39 +164,40 @@ fn changed_text_is_refused_before_emission() {
 }
 
 #[tokio::test]
-async fn the_subset_publishes_a_conformance_generation_equal_to_memory() {
+async fn the_stages_publish_a_conformance_generation_equal_to_memory() {
     let files = fixture();
-    let memory = run_memory(&files, SyntaxLimits::default(), &budget()).unwrap();
+    let memory = run_memory(&files, SyntaxLimits::default(), &budget()).await.unwrap();
     let db = DisposableDatabase::start().await;
-    let writer = db.writer.clone();
-    let reader = db.reader.clone();
-    let model = Arc::new(model().unwrap()); let store = GenerationStore::install(db.owner.clone(), model.clone()).await.unwrap();
-    let captured = capture(&files); let budget = budget();
+    let model = Arc::new(model().unwrap());
+    let store = GenerationStore::install(db.owner.clone(), model.clone()).await.unwrap();
+    let budget = budget();
+    let captured = capture(&files, &budget);
     let schedule = schedule(&model, SyntaxLimits::default());
     let mut execution = schedule.execute();
-    let attempt = store.begin_conformance(writer, &mut execution, budget.clone()).await.unwrap();
-    let facts = typed_syntax::extract(&captured, &model, SyntaxLimits::default(), &budget).unwrap();
-    drive(&model, &mut execution, &attempt, &captured, facts, &budget).await.unwrap();
+    let attempt = store.begin_conformance(db.writer.clone(), &mut execution, budget.clone()).await.unwrap();
+    let rows = Arc::new(Mutex::new(Rows::default()));
+    drive(&model, &mut execution, &attempt, &captured, SyntaxLimits::default(), &rows, &budget).await.unwrap();
     let validated = attempt.seal(execution.finish().unwrap()).await.unwrap().validate().await.unwrap();
     assert_eq!(validated.content(), memory.digest, "the store and memory validate the same content");
     let generation = validated.publish().await.unwrap();
     assert!(matches!(store.select(generation).await, Err(Error::Frontier(_))), "a conformance generation is never selectable");
-    let mut lease = store.pin(&reader, generation, budget.clone()).await.unwrap();
+    let mut lease = store.pin(&db.reader, generation, budget.clone()).await.unwrap();
     let mut stored = Vec::new();
     lease.visit::<Occurrence>(|batch| { stored.extend(batch.rows().iter().cloned()); Ok(()) }).await.unwrap();
     stored.sort_by_key(Record::id);
-    let mut expected = memory.occurrences.clone(); expected.sort_by_key(Record::id);
+    let mut expected = memory.rows.occurrences.clone(); expected.sort_by_key(Record::id);
     assert_eq!(stored, expected);
     lease.release().await.unwrap();
+    drop(captured);
     assert_eq!(budget.reserved(), 0);
 }
 
 /// P0-E envelope over a pinned input tree named by `LCTX_P0E_INPUT`: rows, peak budget
-/// reservation, peak RSS and time for extraction, both stages and validation into memory.
+/// reservation, peak RSS and time for capture, the stages and validation into memory.
 /// Run with `-- --ignored typed_subset_envelope --nocapture`.
-#[test]
+#[tokio::test]
 #[ignore = "measurement: set LCTX_P0E_INPUT to a pinned input tree"]
-fn typed_subset_envelope() {
+async fn typed_subset_envelope() {
     let root = std::path::PathBuf::from(std::env::var_os("LCTX_P0E_INPUT").expect("LCTX_P0E_INPUT names the input tree"));
     let mut paths: Vec<String> = walkdir::WalkDir::new(&root).into_iter().map(Result::unwrap).filter(|e| e.file_type().is_file())
         .map(|e| e.path().strip_prefix(&root).unwrap().to_string_lossy().into_owned())
@@ -179,39 +205,22 @@ fn typed_subset_envelope() {
     paths.sort();
     let budget = ResourceBudget::fixed(16 << 30).unwrap();
     let started = std::time::Instant::now();
-    let captured = CapturedInput::capture(&root, &paths, &budget).unwrap();
-    let model = model().unwrap();
+    let captured = Arc::new(CapturedInputs::new(vec![AcquiredInput::tree(CapturedInput::capture(&root, &paths, &budget).unwrap(), "envelope")]));
+    let model = Arc::new(model().unwrap());
     let schedule = schedule(&model, SyntaxLimits::default());
     let mut execution = schedule.execute();
     let generation = MemoryGeneration::bind(&model, &budget, &mut execution).unwrap();
     let captured_at = started.elapsed();
-    let facts = typed_syntax::extract(&captured, &model, SyntaxLimits::default(), &budget).unwrap();
-    let extracted_at = started.elapsed();
-    let rows = |batches: &[Batch<Occurrence>]| batches.iter().map(|b| b.rows().len()).sum::<usize>();
-    let (occurrences, observations) = (rows(&facts.occurrences), facts.observations.iter().map(|b| b.rows().len()).sum::<usize>());
-    let (partial, unavailable) = (facts.coverage.iter().filter(|r| r.status == CoverageStatus::Partial).count(),
-        facts.coverage.iter().filter(|r| r.status == CoverageStatus::Unavailable).count());
-    let bytes: i64 = captured.artifacts().iter().map(|a| a.byte_len).sum();
-    ready(drive(&model, &mut execution, &generation, &captured, facts, &budget)).unwrap();
+    let rows = Arc::new(Mutex::new(Rows::default()));
+    drive(&model, &mut execution, &generation, &captured, SyntaxLimits::default(), &rows, &budget).await.unwrap();
     execution.finish().unwrap();
     let staged_at = started.elapsed();
     let digest = generation.validate(&model, &budget).unwrap();
     let validated_at = started.elapsed();
+    let rows = rows.lock().unwrap().clone();
     let status = std::fs::read_to_string("/proc/self/status").unwrap();
     let hwm = status.lines().find(|l| l.starts_with("VmHWM")).unwrap_or("VmHWM: unknown").to_owned();
-    println!("envelope files={} bytes={bytes} occurrences={occurrences} observations={observations} coverage_partial={partial} coverage_unavailable={unavailable}",
-        paths.len());
+    println!("envelope files={} occurrences={} observations={} coverage_rows={}", paths.len(), rows.occurrences.len(), rows.observations.len(), rows.coverage.len());
     println!("envelope peak_reservation={:?} limit={} {hwm}", budget.peak(), budget.limit());
-    println!("envelope capture={captured_at:?} extract={extracted_at:?} stages={staged_at:?} validate={validated_at:?} digest={digest:?}");
-    // Exhaustion mid-attempt: half the measured peak refuses, and every reservation returns.
-    drop(generation);
-    let half = ResourceBudget::fixed(budget.peak().unwrap() / 2).unwrap();
-    let mut execution = schedule.execute();
-    let generation = MemoryGeneration::bind(&model, &half, &mut execution).unwrap();
-    let refused = typed_syntax::extract(&captured, &model, SyntaxLimits::default(), &half)
-        .and_then(|facts| ready(drive(&model, &mut execution, &generation, &captured, facts, &half)))
-        .and_then(|()| generation.validate(&model, &half).map(drop));
-    println!("envelope half_budget={} refused={:?} reserved_after={}", half.limit(), refused.as_ref().err().map(|e| e.to_string()), { drop(generation); half.reserved() });
-    assert!(matches!(refused, Err(ModelError::Resource { .. })));
-    assert_eq!(half.reserved(), 0);
+    println!("envelope capture={captured_at:?} stages={staged_at:?} validate={validated_at:?} digest={digest:?}");
 }

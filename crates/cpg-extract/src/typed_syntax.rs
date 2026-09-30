@@ -1,26 +1,32 @@
-//! Typed syntax emission from Pyrefly's retained Ruff parse (ADR-0085).
+//! Typed syntax emission from Pyrefly's retained Ruff parse (ADR-0085, plan A4).
 //!
-//! This is an identifier-observation subset, not complete syntax-family coverage. The caller
-//! supplies the AST and text from the same pinned transaction, retains every captured byte,
-//! and publishes only after the generation's shared invariants succeed. No legacy row or ID
-//! enters this boundary. Emission is incremental: a sink or model error aborts the attempt; a
+//! Every parse node is one occurrence, with its placement (the parent occurrence, the parent's
+//! field that holds it and its ordinal there) and the detail its bytes do not state: operator
+//! kinds and parsed literal values. The caller supplies the AST and text from the same pinned
+//! transaction, retains every captured byte, and publishes only after the generation's shared
+//! invariants succeed. Emission is incremental: a sink or model error aborts the attempt; a
 //! declared bound refuses the artifact, and [`SyntaxError::coverage`] states what it publishes.
-use lctx_model::domain::{Batch, ContentHash, ModelError, Record, ValidatedModel, admission::ArtifactClass, assertion::*, attribution::*,
-    batching::{BatchWriter, TransferLimits}, conditions::{Condition, ConditionNode, Diagram}, resources::ResourceBudget, source::*, stages::ProviderOutcome};
-use crate::capture::CapturedInput;
+use lctx_model::domain::{ContentHash, EvidenceBytes, Id, ModelError, Record, assertion::*, attribution::*, lexical::SyntaxField, source::*,
+    syntax::{OperatorKind, SyntaxDetail}, value::Literal};
 use ruff_python_ast::{Alias, AnyNodeRef, Arguments, BoolOp, BytesLiteral, CmpOp, Comprehension, Decorator, ElifElseClause, ExceptHandler, Expr,
     ExprContext, FString, Identifier, InterpolatedStringElement, Keyword, MatchCase, Mod, ModModule, NodeKind, Operator, Parameter,
     ParameterWithDefault, Parameters, Pattern, PatternArguments, PatternKeyword, Singleton, Stmt, StringLiteral, TString, TypeParam,
     TypeParams, UnaryOp, WithItem};
 use ruff_python_ast::visitor::source_order::{self, SourceOrderVisitor, TraversalSignal};
-use ruff_text_size::Ranged;
+use ruff_text_size::{Ranged, TextRange};
 
-/// One structural occurrence and, for name/identifier leaves, its qualified observation.
-/// Parent traversal never copies the entire source slice into every enclosing node.
+/// One structural occurrence and, for name/identifier leaves, its qualified observation, with its
+/// placement and details. Parent traversal never copies the entire source slice into every
+/// enclosing node.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SyntaxEvent {
     pub occurrence: Occurrence,
     pub observation: Option<(SyntaxObservation, Evidence, SyntaxSupport)>,
+    /// The parent occurrence, the parent's field holding this one and its ordinal in that field;
+    /// none for the module.
+    pub placement: Option<(Id<Occurrence>, SyntaxField, i64)>,
+    /// The occurrence's details in order, each with the literal it names.
+    pub details: Vec<(SyntaxDetail, Option<Literal>)>,
 }
 
 pub struct SyntaxInvocation<'a> {
@@ -99,7 +105,7 @@ pub fn emit(
         return Err(invalid("syntax invocation attribution differs from its input/context/provider/family").into());
     }
     let mut visitor = Emitter { invocation, output: &mut output, limits, path: vec![],
-        children: vec![0], work: SyntaxWork::default(), error: None, text };
+        children: vec![0], frames: vec![], work: SyntaxWork::default(), error: None, text };
     let root = AnyNodeRef::from(ast);
     if visitor.enter_node(root).is_traverse() { visitor.visit_body(&ast.body); }
     visitor.leave_node(root);
@@ -113,9 +119,24 @@ fn invalid(message: &str) -> ModelError { ModelError::Invalid(message.into()) }
 
 /// Why the traversal halted.
 enum Halt { Limit(SyntaxLimit), Model(ModelError) }
+/// An entered node: its occurrence, its fields' ranges and each field's next ordinal. A node
+/// entered after a halt has none.
+struct Frame { id: Id<Occurrence>, fields: Vec<(SyntaxField, TextRange)>, next: Vec<(SyntaxField, i64)> }
+impl Frame {
+    /// The field of a child with `range` (the first field containing it, else `Child`) and its
+    /// ordinal there.
+    fn place(&mut self, range: TextRange) -> (SyntaxField, i64) {
+        let field = self.fields.iter().find(|(_, r)| r.contains_range(range)).map_or(SyntaxField::Child, |(f, _)| *f);
+        let ordinal = match self.next.iter_mut().find(|(f, _)| *f == field) {
+            Some((_, next)) => { *next += 1; *next - 1 },
+            None => { self.next.push((field, 1)); 0 },
+        };
+        (field, ordinal)
+    }
+}
 struct Emitter<'a, F> {
     invocation: SyntaxInvocation<'a>, output: &'a mut F, limits: SyntaxLimits,
-    path: Vec<i32>, children: Vec<i32>, work: SyntaxWork, error: Option<Halt>, text: &'a str,
+    path: Vec<i32>, children: Vec<i32>, frames: Vec<Option<Frame>>, work: SyntaxWork, error: Option<Halt>, text: &'a str,
 }
 impl<F: FnMut(SyntaxEvent) -> Result<(), ModelError>> Emitter<'_, F> {
     /// Count one callback; `true` when the traversal has halted and the callback must return.
@@ -148,6 +169,11 @@ impl<F: FnMut(SyntaxEvent) -> Result<(), ModelError>> Emitter<'_, F> {
         let occurrence = Occurrence { source: self.invocation.source.id(), start: start as i64,
             end: end as i64, syntax_kind: syntax_kind(node.kind()), role, structural_path: self.path.clone() };
         occurrence.validate()?;
+        let placement = match self.frames.last() {
+            Some(Some(frame)) => Some(frame.id),
+            Some(None) => return Err(invalid("a node was entered under a halted parent")),
+            None => None,
+        };
         let observation = if matches!(node, AnyNodeRef::ExprName(_) | AnyNodeRef::Identifier(_)) {
             let assertion = SyntaxObservation { qualification: self.invocation.qualification.id(),
                 occurrence: occurrence.id(), spelling: text.into() };
@@ -158,7 +184,7 @@ impl<F: FnMut(SyntaxEvent) -> Result<(), ModelError>> Emitter<'_, F> {
                 fidelity: Fidelity::NativeStructural };
             Some((assertion, evidence, support))
         } else { None };
-        Ok(SyntaxEvent { occurrence, observation })
+        Ok(SyntaxEvent { occurrence, observation, placement: placement.map(|id| (id, SyntaxField::Child, 0)), details: details(node) })
     }
 }
 /// Every dispatch point counts as one callback and returns at once after a halt, so a refused
@@ -176,16 +202,29 @@ impl<'tree, F: FnMut(SyntaxEvent) -> Result<(), ModelError>> SourceOrderVisitor<
         // Ruff calls leave_node even after Skip, so every entry owns a balanced stack frame.
         let ordinal = *self.children.last().expect("root counter");
         self.path.push(ordinal); self.children.push(0);
-        if self.error.is_some() { return TraversalSignal::Skip; }
+        if self.error.is_some() { self.frames.push(None); return TraversalSignal::Skip; }
         self.work.deepest = self.work.deepest.max(self.path.len());
-        if self.path.len() > self.limits.depth { self.error = Some(Halt::Limit(SyntaxLimit::Depth)); return TraversalSignal::Skip; }
-        if self.work.emitted >= self.limits.nodes { self.error = Some(Halt::Limit(SyntaxLimit::Nodes)); return TraversalSignal::Skip; }
-        match self.event(node).and_then(&mut self.output) {
-            Ok(()) => { self.work.emitted += 1; TraversalSignal::Traverse }
-            Err(error) => { self.error = Some(Halt::Model(error)); TraversalSignal::Skip }
+        if self.path.len() > self.limits.depth { self.error = Some(Halt::Limit(SyntaxLimit::Depth)); self.frames.push(None); return TraversalSignal::Skip; }
+        if self.work.emitted >= self.limits.nodes { self.error = Some(Halt::Limit(SyntaxLimit::Nodes)); self.frames.push(None); return TraversalSignal::Skip; }
+        let event = self.event(node).map(|mut event| {
+            if let (Some(placement), Some(Some(parent))) = (event.placement.as_mut(), self.frames.last_mut()) {
+                let (field, ordinal) = parent.place(node.range());
+                *placement = (parent.id, field, ordinal);
+            }
+            event
+        });
+        let id = event.as_ref().ok().map(|event| event.occurrence.id());
+        match event.and_then(&mut self.output) {
+            Ok(()) => {
+                self.work.emitted += 1;
+                self.frames.push(Some(Frame { id: id.expect("emitted event"), fields: fields(node), next: vec![] }));
+                TraversalSignal::Traverse
+            }
+            Err(error) => { self.error = Some(Halt::Model(error)); self.frames.push(None); TraversalSignal::Skip }
         }
     }
     fn leave_node(&mut self, _: AnyNodeRef<'tree>) {
+        self.frames.pop();
         self.children.pop(); self.path.pop();
         let next = self.children.last_mut().expect("parent counter");
         match next.checked_add(1) {
@@ -237,6 +276,136 @@ impl<'tree, F: FnMut(SyntaxEvent) -> Result<(), ModelError>> SourceOrderVisitor<
     }
 }
 
+fn suite(body: &[Stmt]) -> Option<TextRange> { Some(TextRange::new(body.first()?.start(), body.last()?.end())) }
+/// The fields a node's children sit in, with their ranges. A child's field is the first one whose
+/// range contains it; anything else is `Child`.
+fn fields(node: AnyNodeRef<'_>) -> Vec<(SyntaxField, TextRange)> {
+    use SyntaxField as F;
+    let mut v: Vec<(SyntaxField, TextRange)> = Vec::new();
+    let mut add = |f: SyntaxField, r: Option<TextRange>| if let Some(r) = r { v.push((f, r)); };
+    match node {
+        AnyNodeRef::ModModule(m) => add(F::Body, suite(&m.body)),
+        AnyNodeRef::StmtFunctionDef(f) => {
+            for d in &f.decorator_list { add(F::Decorator, Some(d.range())); }
+            for p in f.parameters.iter_non_variadic_params() { add(F::Default, p.default.as_ref().map(|d| d.range())); }
+            add(F::Annotation, f.returns.as_ref().map(|r| r.range()));
+            add(F::Body, suite(&f.body));
+        }
+        AnyNodeRef::StmtClassDef(c) => {
+            for d in &c.decorator_list { add(F::Decorator, Some(d.range())); }
+            if let Some(a) = &c.arguments { add(F::Argument, Some(a.range())); }
+            add(F::Body, suite(&c.body));
+        }
+        AnyNodeRef::StmtIf(s) => {
+            add(F::Test, Some(s.test.range())); add(F::Body, suite(&s.body));
+            for c in &s.elif_else_clauses { add(F::Orelse, Some(c.range())); }
+        }
+        AnyNodeRef::ElifElseClause(c) => { add(F::Test, c.test.as_ref().map(Ranged::range)); add(F::Body, suite(&c.body)); }
+        AnyNodeRef::StmtWhile(s) => { add(F::Test, Some(s.test.range())); add(F::Body, suite(&s.body)); add(F::Orelse, suite(&s.orelse)); }
+        AnyNodeRef::StmtFor(s) => {
+            add(F::Target, Some(s.target.range())); add(F::Iter, Some(s.iter.range())); add(F::Body, suite(&s.body)); add(F::Orelse, suite(&s.orelse));
+        }
+        AnyNodeRef::StmtTry(s) => {
+            add(F::Body, suite(&s.body));
+            for h in &s.handlers { add(F::Handler, Some(h.range())); }
+            add(F::Orelse, suite(&s.orelse)); add(F::Finalbody, suite(&s.finalbody));
+        }
+        AnyNodeRef::ExceptHandlerExceptHandler(h) => { add(F::Test, h.type_.as_ref().map(|t| t.range())); add(F::Body, suite(&h.body)); }
+        AnyNodeRef::StmtRaise(s) => { add(F::Exc, s.exc.as_ref().map(|e| e.range())); add(F::Cause, s.cause.as_ref().map(|e| e.range())); }
+        AnyNodeRef::StmtAssert(s) => { add(F::Test, Some(s.test.range())); add(F::Msg, s.msg.as_ref().map(|e| e.range())); }
+        AnyNodeRef::StmtReturn(s) => add(F::Value, s.value.as_ref().map(|e| e.range())),
+        AnyNodeRef::StmtAssign(s) => { for t in &s.targets { add(F::Target, Some(t.range())); } add(F::Value, Some(s.value.range())); }
+        AnyNodeRef::StmtAnnAssign(s) => {
+            add(F::Target, Some(s.target.range())); add(F::Annotation, Some(s.annotation.range())); add(F::Value, s.value.as_ref().map(|e| e.range()));
+        }
+        AnyNodeRef::StmtAugAssign(s) => { add(F::Target, Some(s.target.range())); add(F::Value, Some(s.value.range())); }
+        AnyNodeRef::StmtWith(s) => { for i in &s.items { add(F::Item, Some(i.range())); } add(F::Body, suite(&s.body)); }
+        AnyNodeRef::WithItem(i) => { add(F::Value, Some(i.context_expr.range())); add(F::Target, i.optional_vars.as_ref().map(|e| e.range())); }
+        AnyNodeRef::StmtMatch(s) => { add(F::Subject, Some(s.subject.range())); for c in &s.cases { add(F::Case, Some(c.range())); } }
+        AnyNodeRef::MatchCase(c) => { add(F::Guard, c.guard.as_ref().map(|e| e.range())); add(F::Body, suite(&c.body)); }
+        AnyNodeRef::StmtExpr(s) => add(F::Value, Some(s.value.range())),
+        AnyNodeRef::StmtDelete(s) => { for t in &s.targets { add(F::Target, Some(t.range())); } }
+        AnyNodeRef::ExprCompare(e) => { add(F::Left, Some(e.left.range())); for c in &e.comparators { add(F::Right, Some(c.range())); } }
+        AnyNodeRef::ExprBinOp(e) => { add(F::Left, Some(e.left.range())); add(F::Right, Some(e.right.range())); }
+        AnyNodeRef::ExprBoolOp(e) => { for x in &e.values { add(F::Operand, Some(x.range())); } }
+        AnyNodeRef::ExprUnaryOp(e) => add(F::Operand, Some(e.operand.range())),
+        AnyNodeRef::ExprAttribute(e) => add(F::Value, Some(e.value.range())),
+        AnyNodeRef::ExprSubscript(e) => { add(F::Value, Some(e.value.range())); add(F::Slice, Some(e.slice.range())); }
+        AnyNodeRef::ExprCall(e) => { add(F::Callee, Some(e.func.range())); for a in e.arguments.iter_source_order() { add(F::Argument, Some(a.range())); } }
+        AnyNodeRef::ExprNamed(e) => { add(F::Target, Some(e.target.range())); add(F::Value, Some(e.value.range())); }
+        AnyNodeRef::ExprIf(e) => { add(F::Test, Some(e.test.range())); add(F::Value, Some(e.body.range())); add(F::Orelse, Some(e.orelse.range())); }
+        AnyNodeRef::ExprAwait(e) => add(F::Value, Some(e.value.range())),
+        AnyNodeRef::ExprYield(e) => add(F::Value, e.value.as_ref().map(|x| x.range())),
+        AnyNodeRef::ExprYieldFrom(e) => add(F::Value, Some(e.value.range())),
+        AnyNodeRef::ExprStarred(e) => add(F::Value, Some(e.value.range())),
+        AnyNodeRef::ExprLambda(e) => {
+            if let Some(ps) = &e.parameters { for p in ps.iter_non_variadic_params() { add(F::Default, p.default.as_ref().map(|d| d.range())); } }
+            add(F::Value, Some(e.body.range()));
+        }
+        AnyNodeRef::ExprList(e) => e.elts.iter().for_each(|x| add(F::Element, Some(x.range()))),
+        AnyNodeRef::ExprTuple(e) => e.elts.iter().for_each(|x| add(F::Element, Some(x.range()))),
+        AnyNodeRef::ExprSet(e) => e.elts.iter().for_each(|x| add(F::Element, Some(x.range()))),
+        AnyNodeRef::ParameterWithDefault(p) => { add(F::Default, p.default.as_ref().map(|d| d.range())); }
+        AnyNodeRef::Parameter(p) => add(F::Annotation, p.annotation.as_ref().map(|a| a.range())),
+        _ => {}
+    }
+    v
+}
+fn operator(op: Operator) -> OperatorKind {
+    use OperatorKind as K;
+    match op {
+        Operator::Add => K::Add, Operator::Sub => K::Sub, Operator::Mult => K::Mult, Operator::MatMult => K::MatMult, Operator::Div => K::Div,
+        Operator::Mod => K::Mod, Operator::Pow => K::Pow, Operator::LShift => K::LShift, Operator::RShift => K::RShift, Operator::BitOr => K::BitOr,
+        Operator::BitXor => K::BitXor, Operator::BitAnd => K::BitAnd, Operator::FloorDiv => K::FloorDiv,
+    }
+}
+fn comparison(op: CmpOp) -> OperatorKind {
+    use OperatorKind as K;
+    match op {
+        CmpOp::Eq => K::Eq, CmpOp::NotEq => K::NotEq, CmpOp::Lt => K::Lt, CmpOp::LtE => K::LtE, CmpOp::Gt => K::Gt, CmpOp::GtE => K::GtE,
+        CmpOp::Is => K::Is, CmpOp::IsNot => K::IsNot, CmpOp::In => K::In, CmpOp::NotIn => K::NotIn,
+    }
+}
+/// A literal expression's value, when the model can state it exactly: integers in canonical
+/// decimal, floats by their bits, strings joined across implicit concatenation, bytes, booleans
+/// and `None`. A complex number or an integer the parser keeps as text is not stated.
+pub fn literal(expr: &Expr) -> Option<Literal> { literal_of(expr.into()) }
+fn literal_of(expr: ruff_python_ast::ExprRef<'_>) -> Option<Literal> {
+    use ruff_python_ast::ExprRef as Expr;
+    let literal = match expr {
+        Expr::NumberLiteral(number) => match &number.value {
+            ruff_python_ast::Number::Int(int) => Literal::Integer { decimal: int.as_i64().map_or_else(|| int.to_string(), |v| v.to_string()) },
+            ruff_python_ast::Number::Float(value) => Literal::Float { bits: value.to_bits() as i64 },
+            ruff_python_ast::Number::Complex { .. } => return None,
+        },
+        Expr::StringLiteral(string) => Literal::String { value: string.value.to_str().to_owned() },
+        Expr::BytesLiteral(bytes) => Literal::Bytes { value: EvidenceBytes(bytes.value.bytes().collect()) },
+        Expr::BooleanLiteral(boolean) => Literal::Bool { value: boolean.value },
+        Expr::NoneLiteral(_) => Literal::None,
+        _ => return None,
+    };
+    literal.validate().ok().map(|()| literal)
+}
+/// What a node's bytes do not state: its operators in order, or its literal value.
+fn details(node: AnyNodeRef<'_>) -> Vec<(SyntaxDetail, Option<Literal>)> {
+    let op = |kind: OperatorKind| (SyntaxDetail::Operator { operator: kind }, None);
+    match node {
+        AnyNodeRef::ExprBinOp(e) => vec![op(operator(e.op))],
+        AnyNodeRef::StmtAugAssign(s) => vec![op(operator(s.op))],
+        AnyNodeRef::ExprBoolOp(e) => vec![op(match e.op { BoolOp::And => OperatorKind::And, BoolOp::Or => OperatorKind::Or })],
+        AnyNodeRef::ExprUnaryOp(e) => vec![op(match e.op {
+            UnaryOp::Not => OperatorKind::Not, UnaryOp::Invert => OperatorKind::Invert, UnaryOp::UAdd => OperatorKind::UAdd, UnaryOp::USub => OperatorKind::USub,
+        })],
+        AnyNodeRef::ExprCompare(e) => e.ops.iter().map(|o| op(comparison(*o))).collect(),
+        AnyNodeRef::ExprNumberLiteral(_) | AnyNodeRef::ExprStringLiteral(_) | AnyNodeRef::ExprBytesLiteral(_) | AnyNodeRef::ExprBooleanLiteral(_)
+            | AnyNodeRef::ExprNoneLiteral(_) => node.as_expr_ref().and_then(literal_of)
+                .map(|value| vec![(SyntaxDetail::Literal { literal: value.id() }, Some(value))]).unwrap_or_default(),
+        _ => vec![],
+    }
+}
+
+/// The model's kind for a Ruff node kind.
+pub(crate) fn kind(k: NodeKind) -> SyntaxKind { syntax_kind(k) }
 #[deny(clippy::wildcard_enum_match_arm)]
 fn syntax_kind(k: NodeKind) -> SyntaxKind {
     macro_rules! map {
@@ -346,148 +515,3 @@ fn syntax_kind(k: NodeKind) -> SyntaxKind {
 /// The pinned Pyrefly fork commit and the Ruff line its retained AST comes from.
 pub const PYREFLY_REVISION: &str = "a07b7baead9e0c7b496346d879b88e2fff9cbda7;ruff=0.0.11";
 
-/// The provider that reports Syntax coverage. Its build identity covers the lockfile and this
-/// source, so a changed emitter or pin is a different provider.
-pub fn syntax_provider() -> Provider {
-    Provider { tool: "pyrefly-retained-ruff-ast".into(), revision: PYREFLY_REVISION.into(),
-        build_digest: crate::bundle::build_digest(&[include_str!("typed_syntax.rs")]) }
-}
-
-/// The typed syntax facts of one captured input. Occurrence and observation rows travel in
-/// reserved transfer batches; the per-artifact vocabulary is small and travels as rows.
-pub struct SyntaxFacts {
-    pub provider: Provider, pub context: AnalysisContext, pub run: ProviderRun, pub families: Vec<RunFamily>,
-    pub surface: ProviderSurface, pub condition: Condition, pub nodes: Vec<ConditionNode>,
-    pub modules: Vec<Module>, pub scopes: Vec<CoverageScope>, pub qualifications: Vec<AssertionQualification>,
-    pub coverage: Vec<ProviderCoverage>,
-    pub occurrences: Vec<Batch<Occurrence>>, pub observations: Vec<Batch<SyntaxObservation>>,
-    pub evidence: Vec<Batch<Evidence>>, pub supports: Vec<Batch<SyntaxSupport>>,
-    /// The artifacts handed to Pyrefly, and the traversal work of each one emitted.
-    pub analyzed: Vec<String>, pub work: Vec<(String, SyntaxWork)>,
-}
-impl SyntaxFacts {
-    /// Every Syntax row is complete under the stated model, or the stage is Partial.
-    pub fn outcome(&self) -> ProviderOutcome {
-        if self.coverage.iter().all(|row| row.status == CoverageStatus::CompleteUnderStatedModel) { ProviderOutcome::Complete }
-        else if self.coverage.iter().all(|row| row.status == CoverageStatus::Unavailable) && !self.coverage.is_empty() { ProviderOutcome::Unavailable }
-        else { ProviderOutcome::Partial }
-    }
-}
-
-/// Run the pinned syntax provider over a captured input, on a thread with room for Pyrefly's
-/// recursion. Every Python source is admitted before Pyrefly is given it. An admission-refused,
-/// undecodable or traversal-bounded artifact is disclosed in its coverage, never dropped.
-pub fn extract(captured: &CapturedInput, model: &ValidatedModel, limits: SyntaxLimits, budget: &ResourceBudget) -> Result<SyntaxFacts, ModelError> {
-    std::thread::scope(|scope| {
-        std::thread::Builder::new().stack_size(512 << 20).spawn_scoped(scope, || extract_on_thread(captured, model, limits, budget))
-            .map_err(ModelError::codec)?.join().map_err(|_| invalid("the syntax provider panicked"))?
-    })
-}
-fn extract_on_thread(captured: &CapturedInput, model: &ValidatedModel, limits: SyntaxLimits, budget: &ResourceBudget) -> Result<SyntaxFacts, ModelError> {
-    use pyrefly::state::{require::Require, state::State};
-    use pyrefly_config::{config::{ConfigFile, ConfigSource}, error_kind::ErrorKind, finder::ConfigFinder};
-    use pyrefly_python::{module_path::ModulePath, sys_info::{PythonPlatform, PythonVersion}};
-    use pyrefly_util::{arc_id::ArcId, thread_pool::ThreadCount};
-    for (name, _) in std::env::vars_os() {
-        let name = name.to_string_lossy();
-        if matches!(name.as_ref(), "PYREFLY_STACK_SIZE" | "PYREFLY_FIXPOINT_DETAILS") || name.starts_with("PYSA_DUMP") {
-            return Err(invalid(&format!("ambient analyzer setting {name} would change the provider's output")));
-        }
-    }
-    let root = captured.root();
-    let mut cfg = ConfigFile { source: ConfigSource::File(root.join("pyrefly.toml")), search_path_from_args: vec![root.to_path_buf()],
-        disable_search_path_heuristics: true, disable_project_excludes_heuristics: true, enable_fallback_search_path: false, ..ConfigFile::default() };
-    cfg.python_environment.python_version = Some(PythonVersion::new(3, 14, 7));
-    cfg.python_environment.python_platform = Some(PythonPlatform::new("linux"));
-    cfg.python_environment.site_package_path = Some(vec![]);
-    cfg.interpreters.skip_interpreter_query = true;
-    if !cfg.configure().is_empty() { return Err(invalid("the pinned analyzer configuration does not validate")); }
-    // The configuration digest is independent of where the input was captured.
-    let mut config = serde_json::to_value(&cfg).map_err(ModelError::codec)?; relativize(&mut config, root);
-    let context = AnalysisContext { python_version: "3.14.7".into(), python_platform: "linux".into(), search_path: vec!["$input".into()],
-        site_package_path: vec![], config_digest: ContentHash::of(&serde_json::to_vec(&config).map_err(ModelError::codec)?),
-        environment_digest: captured.revision().manifest, lock_digest: None };
-    let provider = syntax_provider();
-    let (run, families) = ProviderRun::new(provider.id(), context.id(), captured.revision().id(), context.config_digest, [FactFamily::Syntax])?;
-    let surface = ProviderSurface { provider: provider.id(), family: FactFamily::Syntax, name: "retained AST identifier observations".into() };
-    let (condition, nodes) = Diagram::always().records();
-    // Admission precedes the analyzer: a refused or undecodable source is never handed to Pyrefly.
-    let mut python: Vec<&SourceArtifact> = captured.artifacts().iter().filter(|a| ArtifactClass::of(&a.path) == Some(ArtifactClass::PythonSource)).collect();
-    python.sort_by(|a, b| a.path.cmp(&b.path));
-    let mut withheld = std::collections::BTreeMap::new(); let mut analyzed = Vec::new();
-    for artifact in &python {
-        if admit(artifact, limits).is_err() { withheld.insert(artifact.id(), ObligationKind::ResourceRefused); continue; }
-        let _held = budget.reserve("syntax_source_check", usize::try_from(artifact.byte_len).unwrap_or(usize::MAX))?;
-        let bytes = std::fs::read(root.join(&artifact.path)).map_err(ModelError::codec)?;
-        if std::str::from_utf8(&bytes).is_err() { withheld.insert(artifact.id(), ObligationKind::UndecodableSource); continue; }
-        analyzed.push(*artifact);
-    }
-    let handles: Vec<_> = analyzed.iter().map(|a| cfg.handle_from_module_path(ModulePath::filesystem(root.join(&a.path)))).collect();
-    let state = State::new(ConfigFinder::new_constant(ArcId::new(cfg)), ThreadCount::Inline);
-    let mut txn = state.new_transaction(Require::Exports, None);
-    txn.run(&handles, Require::Everything, None);
-    let transfer = TransferLimits::default();
-    let (mut occurrences, mut observations, mut evidence, mut supports) = (BatchWriter::new(budget, transfer)?, BatchWriter::new(budget, transfer)?,
-        BatchWriter::new(budget, transfer)?, BatchWriter::new(budget, transfer)?);
-    let mut facts = SyntaxFacts { provider: provider.clone(), context: context.clone(), run: run.clone(), families, surface: surface.clone(), condition: condition.clone(),
-        nodes, modules: vec![], scopes: vec![], qualifications: vec![], coverage: vec![], occurrences: vec![], observations: vec![], evidence: vec![],
-        supports: vec![], analyzed: analyzed.iter().map(|a| a.path.clone()).collect(), work: vec![] };
-    let covered = |scope: &CoverageScope, status: CoverageStatus, reason: ObligationKind, diagnostic: Option<String>| ProviderCoverage {
-        scope: scope.id(), provider: provider.id(), context: context.id(), family: FactFamily::Syntax, run: Some(run.id()), status, reason: Some(reason), diagnostic };
-    for artifact in python {
-        let scope = CoverageScope::Artifact { artifact: artifact.id() };
-        if let Some(reason) = withheld.get(&artifact.id()) {
-            facts.coverage.push(covered(&scope, CoverageStatus::Unavailable, *reason, None)); facts.scopes.push(scope); continue;
-        }
-        let handle = &handles[analyzed.iter().position(|a| a.id() == artifact.id()).expect("analyzed artifact")];
-        let module = Module { source: artifact.id(), qualified_name: handle.module().to_string() };
-        let qualification = AssertionQualification { context: context.id(), scope: scope.id(), condition: condition.id(),
-            modality: Modality::Definite, approximation: Approximation::Exact };
-        let ast = txn.get_ast(handle).ok_or_else(|| invalid("the analyzer did not retain the module's AST"))?;
-        let info = txn.get_module_info(handle).ok_or_else(|| invalid("the analyzer did not retain the module's text"))?;
-        let text = info.lined_buffer().contents().clone();
-        let invocation = SyntaxInvocation { source: artifact, qualification: &qualification, run: &run, surface: &surface };
-        let result = emit(&ast, &text, invocation, limits, |event| {
-            if let Some(batch) = occurrences.push(model, event.occurrence)? { facts.occurrences.push(batch); }
-            if let Some((assertion, cited, support)) = event.observation {
-                if let Some(batch) = observations.push(model, assertion)? { facts.observations.push(batch); }
-                if let Some(batch) = evidence.push(model, cited)? { facts.evidence.push(batch); }
-                if let Some(batch) = supports.push(model, support)? { facts.supports.push(batch); }
-            }
-            Ok(())
-        });
-        let errors = txn.get_errors([handle]).collect_errors();
-        let parse_error = [&errors.ordinary, &errors.directives, &errors.suppressed, &errors.disabled, &errors.baseline]
-            .into_iter().flatten().any(|error| error.error_kind() == ErrorKind::ParseError);
-        match result {
-            Ok(work) => {
-                facts.coverage.push(covered(&scope, CoverageStatus::Partial, if parse_error { ObligationKind::SyntaxError } else { ObligationKind::OutsideProviderModel },
-                    Some("Identifier observation subset; complete syntax family not implemented".into())));
-                facts.work.push((artifact.path.clone(), work));
-            },
-            Err(error) => match error.coverage() {
-                Some((status, reason)) => {
-                    facts.coverage.push(covered(&scope, status, reason, Some(error.to_string())));
-                    if let SyntaxError::Refused { work, .. } = error { facts.work.push((artifact.path.clone(), work)); }
-                },
-                None => return Err(match error { SyntaxError::Model(error) => error, other => invalid(&other.to_string()) }),
-            },
-        }
-        facts.modules.push(module); facts.qualifications.push(qualification); facts.scopes.push(scope);
-    }
-    macro_rules! finish { ($($writer:ident => $out:ident),+) => { $( if let Some(batch) = $writer.finish(model)? { facts.$out.push(batch); } )+ }; }
-    finish!(occurrences => occurrences, observations => observations, evidence => evidence, supports => supports);
-    Ok(facts)
-}
-/// Paths under the captured root are written relative to it, so the configuration digest does
-/// not depend on where the input was captured.
-fn relativize(value: &mut serde_json::Value, root: &std::path::Path) {
-    match value {
-        serde_json::Value::String(s) => {
-            if let Ok(relative) = std::path::Path::new(s).strip_prefix(root) { *s = format!("$input/{}", relative.display()); }
-        }
-        serde_json::Value::Array(items) => items.iter_mut().for_each(|item| relativize(item, root)),
-        serde_json::Value::Object(items) => items.values_mut().for_each(|item| relativize(item, root)),
-        _ => {},
-    }
-}

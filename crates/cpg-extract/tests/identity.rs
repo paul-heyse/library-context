@@ -54,13 +54,8 @@ fn extractor_id_recipes_snapshot() {
         format!("run_id      {}", out.run_id.hex()),
     ];
     for (table, columns) in [
+        // The syntax families are the typed pyrefly stage's (plan A4); only the husk's remain.
         ("source_files", &["path", "module_node_id", "fact_id"][..]),
-        (
-            "declarations",
-            &["qualified_name", "node_id", "fact_id"][..],
-        ),
-        ("parameter_syntax", &["name", "node_id", "fact_id"][..]),
-        ("call_syntax", &["start_byte", "node_id", "fact_id"][..]),
     ] {
         let t = out.table(table).unwrap();
         let first = columns

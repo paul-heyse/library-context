@@ -6,6 +6,3 @@ producer_id 0a927b015596d3f1895057947d7c4ab3
 context_id  4324aa0fdc28105822be36fa3f145f0f
 run_id      acfc7344c47482a8f7077bf52be02395
 source_files[0] lcfix/__init__.py 88f1d865f4c2b2e3490e3c3579a4942f 3ff82cda03e7a39c9a4fd2f8cddec24f
-declarations[0] lcfix.core.Base 2fe0aee5c0c6aac9055d13dfccdfe2dc 5022e546f9c517dc485324bc2b7df1ec
-parameter_syntax[0] x 1d4d5d7f4548739c9381cdcee92e47b7 f860d2bd149453a711f02fd5e0cf74df
-call_syntax[0] 267 cc40e52b37cb577c0f7867ffa1f0fb2e 5ecd3bf704169ab2d9f119b16bc0a2c9
