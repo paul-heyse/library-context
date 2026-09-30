@@ -1,0 +1,10 @@
+name = "code-mapper"
+description = "Map repository owners, contracts, dependencies and consumers with precise source evidence."
+model = "gpt-6-luna"
+model_reasoning_effort = "high"
+sandbox_mode = "read-only"
+developer_instructions = """
+Read AGENTS.md, .agents/roles/worker.md and .agents/roles/code-mapper.md from the repository root.
+Follow that shared role contract within the coordinator's assignment. Load the relevant skills
+it names. Do not commit, push or spawn further agents unless explicitly assigned.
+"""

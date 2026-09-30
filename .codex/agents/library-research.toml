@@ -1,0 +1,10 @@
+name = "library-research"
+description = "Resolve library capabilities and versioned contracts from skills, documentation and source."
+model = "gpt-6-luna"
+model_reasoning_effort = "high"
+sandbox_mode = "read-only"
+developer_instructions = """
+Read AGENTS.md, .agents/roles/worker.md and .agents/roles/library-research.md from the repository root.
+Follow that shared role contract within the coordinator's assignment. Load the relevant skills
+it names. Do not commit, push or spawn further agents unless explicitly assigned.
+"""

@@ -244,6 +244,14 @@ and projections from pinned inputs; remove obsolete generations, runtime copies,
 and compatibility-only paths. Do not add old-format readers or retain historical runtime records
 without a named current consumer. Quiesce project readers before replacing their state.
 
+## Agent coordination
+
+Use subagents for review, planning and execution. Use concurrency as you see fit; strive for
+parallel execution. Follow the
+[shared roles and coordination contract](.agents/roles/README.md) (ADR-0107), including its explicit
+model/effort routing. The root agent owns design, integration and acceptance; choose the roles
+and decomposition that serve the task.
+
 ## Git
 
 - Work on `main` in the current working tree for ordinary edits, reviews and spikes. Use a
@@ -253,5 +261,5 @@ without a named current consumer. Quiesce project readers before replacing their
 - Never force-push or `reset --hard`.
 - `.claude/skills/*` is gitignored except the process skills: `adr`, `design-review`,
   `design-review-code-intelligence`, `plan-design-review`, `create-plan`, `plan-creation`,
-  `handoff`, `pin-check`.
+  `plan-execution`, `execute-plan`, `handoff`, `pin-check`.
 - At the end of a session that changed what's true, run the `handoff` skill.

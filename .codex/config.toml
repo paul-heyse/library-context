@@ -1,4 +1,15 @@
-# Project-scoped Codex config (loaded once the project is trusted). Mirrors `.mcp.json`, which
+# Project-scoped coordinator and worker defaults; explicit user/runtime choices take precedence.
+model = "gpt-6-astra"
+model_reasoning_effort = "high"
+plan_mode_reasoning_effort = "high"
+
+[agents]
+enabled = true
+default_subagent_model = "gpt-6.1-sol"
+default_subagent_reasoning_effort = "high"
+
+# Role-specific models and contracts are in .codex/agents; shared routing is .agents/roles/README.md.
+# Project-scoped MCP config (loaded once the project is trusted). Mirrors `.mcp.json`, which
 # registers the same server for Claude Code: a read-only stdio lookup over the library-utilization
 # catalog (docs/library-utilization.md). Codex starts stdio servers in the session's working
 # directory, so the script path is relative to the repository root.

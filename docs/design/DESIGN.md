@@ -90,7 +90,16 @@ project is selected. Agents run functional tests; an end-of-turn hook runs forma
 and every non-functional check (`just hygiene`), with a cheaper fixer agent for what fails and the
 rest shown to the operator (ADR-0104).
 
-> Decision: ADR-0071, ADR-0086, ADR-0087, ADR-0046, ADR-0079, ADR-0040, ADR-0104
+**Implemented workflow, 2026-09-30 (ADR-0107):** a coordinator owns design, integration and
+acceptance, using reusable evidence, design-review, execution, implementation-review and functional
+testing roles. Shared responsibilities live in [agent role contracts](../../.agents/roles/README.md);
+native Codex and Claude definitions select models and tools. Paired process skills prepare and carry
+out reviews, plan creation and execution. Plan creation includes focused assessment of the existing
+foundations it will use. Delegation depth follows the work; review cadence, decision authority and
+single-owner finding disposition remain with their existing owners. Runtime settings are initial
+allocations; resource savings and broader workflow effectiveness remain **Proposed**.
+
+> Decision: ADR-0071, ADR-0086, ADR-0087, ADR-0046, ADR-0079, ADR-0040, ADR-0104, ADR-0107
 
 <a id="section-1-3"></a>
 

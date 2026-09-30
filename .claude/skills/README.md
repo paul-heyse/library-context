@@ -14,6 +14,8 @@ Workflows for building this repository. A skill is added when a workflow has act
 | [`design-review-code-intelligence/`](design-review-code-intelligence/SKILL.md) | The code-intelligence profile, loaded with `design-review` |
 | [`plan-creation/`](plan-creation/SKILL.md) | Plan the authoring approach from a design review or existing plan, including focused assessment of relevant dependencies |
 | [`create-plan/`](create-plan/SKILL.md) | Write the design and execution plan, including foundation improvements and an adaptable document structure |
+| [`plan-execution/`](plan-execution/SKILL.md) | Develop the approach to executing an existing plan: prerequisites, work ownership, integration and evidence |
+| [`execute-plan/`](execute-plan/SKILL.md) | Carry authorized plan scope through implementation, review, functional verification and handoff |
 | [`handoff/`](handoff/SKILL.md) | Rewrite STATUS.md from the actual tree at session end |
 | [`pin-check/`](pin-check/SKILL.md) | Change or re-verify any dependency or tool pin |
 
@@ -25,6 +27,15 @@ approach. When ready to write the document, leave Plan mode and invoke `$create-
 Either skill can be used directly when the intended task is already clear. The
 [suggested outline](create-plan/references/plan-structure.md) provides a flexible starting point
 for the document.
+
+For execution, use `/plan $plan-execution <plan and scope>` to develop the approach. Leave Plan
+mode and invoke `$execute-plan <plan and scope>` to implement it; invoke execution directly when
+the approach is already clear. Existing plans remain the durable owners of packages and receipts.
+
+All three pairs use the [shared agent roles](../../.agents/roles/README.md). Skills own workflows;
+roles supply reusable capabilities. The coordinator selects useful delegation and owns design,
+integration and acceptance. Planning skills do not themselves switch runtime modes, and no hook
+is needed.
 
 ## Library capability skills (shared live copies)
 

@@ -1,0 +1,10 @@
+name = "test-agent"
+description = "Run scoped functional tests and diagnose failures without changing implementation or acceptance controls."
+model = "gpt-6.1-sol"
+model_reasoning_effort = "medium"
+sandbox_mode = "workspace-write"
+developer_instructions = """
+Read AGENTS.md, .agents/roles/worker.md and .agents/roles/test-agent.md from the repository root.
+Follow that shared role contract within the coordinator's assignment. Load the relevant skills
+it names. Do not commit, push or spawn further agents unless explicitly assigned.
+"""

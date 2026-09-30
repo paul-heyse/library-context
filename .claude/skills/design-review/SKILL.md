@@ -51,6 +51,12 @@ Ask only if ambiguity would materially change the judgment; otherwise state the 
 
 ## What to establish
 
+For substantial reviews, use the [shared agent roles](../../../.agents/roles/README.md) to delegate
+bounded code mapping and library research where helpful. Give a fresh design reviewer the target,
+requirements and source evidence for an independent judgment. Delegation does not remove the
+reviewer's obligation to inspect decisive evidence or the coordinator's responsibility to resolve
+findings through the existing authority and disposition routes.
+
 Use judgment about investigation order and depth. These are outcomes, not a mandatory tool script.
 Use the least investigation sufficient for the scoped judgment. Follow a flow only when a concrete
 question about ownership, behavior or change remains unresolved; no complete flow trace is required.
@@ -121,7 +127,10 @@ challenge production semantics, even when mechanical validators derive from one 
 ## Output
 
 For a requested review, write one document at the binding's location using the template's slots
-and scoped profile additions. A request to discuss or revise this process does not itself require
+and scoped profile additions. A read-only delegated reviewer returns the complete review text
+and intended path; the coordinator publishes it while preserving the reviewer's judgment.
+Focused design advice during plan creation can instead be incorporated in the plan; it does not
+replace a formal review due under the binding. A request to discuss or revise this process does not itself require
 an additional review artifact. Close with scope, A1–A3, gates, material findings, bounded decision,
 enclosing architectural status and path. Distinguish review acceptance from release qualification.
 

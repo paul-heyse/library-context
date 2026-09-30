@@ -25,6 +25,10 @@ Useful considerations may include:
 These are suggestions, not required sections or an exhaustive investigation sequence. The
 focused dependency assessment remains part of plan creation; choose how best to conduct it.
 
+Use the [shared agent roles](../../../.agents/roles/README.md) for bounded investigation where useful.
+Consider which code or library questions can proceed independently, where focused design advice
+would help, and who will assemble the document. The coordinator owns the approach and design choices.
+
 Produce an adaptable approach in the conversation, explaining the material scope choices,
 assumptions and uncertainties. Ask questions only when their answers would meaningfully change
 the work. Use the available planning interface when appropriate; otherwise present the approach

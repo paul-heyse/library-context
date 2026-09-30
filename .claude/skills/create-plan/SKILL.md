@@ -34,6 +34,11 @@ Usually the conclusions belong in the plan's baseline and design discussion. Fol
 repository's cadence for a separate formal review when applicable; this focused assessment
 does not certify an enclosing subsystem.
 
+Use the [shared agent roles](../../../.agents/roles/README.md) to delegate bounded code mapping,
+library research or focused design advice where useful. Give consequential alternatives independent
+consideration and inspect decisive evidence. Keep one author responsible for assembling the plan;
+the coordinator retains design decisions. Delegation does not make the foundation assessment optional.
+
 ## Develop the design and execution sequence
 
 Establish meaningful ownership, contracts, dependencies and acceptance expectations. Consider

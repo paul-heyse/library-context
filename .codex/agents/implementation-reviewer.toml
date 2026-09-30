@@ -1,0 +1,10 @@
+name = "implementation-reviewer"
+description = "Independently review a stable implementation for correctness, regressions and contract violations."
+model = "gpt-6.1-sol"
+model_reasoning_effort = "medium"
+sandbox_mode = "read-only"
+developer_instructions = """
+Read AGENTS.md, .agents/roles/worker.md and .agents/roles/implementation-reviewer.md from the repository root.
+Follow that shared role contract within the coordinator's assignment. Load the relevant skills
+it names. Do not commit, push or spawn further agents unless explicitly assigned.
+"""

@@ -2,13 +2,13 @@
 
 _Updated 2026-09-30 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-## Planning skills (2026-09-30)
+## Agent workflows (2026-09-30)
 
-- **Implemented:** [planning skills](.claude/skills/README.md) cover review planning, plan
-  creation and planning the authoring approach. Plan creation includes focused dependency
-  review and a flexible document outline.
-- Checks **not_run**: `just lint-agents` and `just docs-check` belong to the automatic hook;
-  `just test-all` is outside this process-only change. No new hook was added.
+- **Implemented:** [paired skills](.claude/skills/README.md) cover review, plan creation and execution;
+  [shared roles](.agents/roles/README.md) serve Codex and Claude (ADR-0107). Strive for parallel execution.
+- **passed:** `codex app-server --strict-config --stdio` config/read and skills/list requests loaded
+  project defaults and both execution skills. Independent static integration review found no material issues.
+- Product tests **not_run** (process-only scope); hygiene remains hook-owned. No new hook or worker cap.
 
 ## Phase 4 detailed design (2026-09-30)
 

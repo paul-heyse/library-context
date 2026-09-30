@@ -28,6 +28,10 @@ Depending on the goal, useful considerations may include:
 These are suggestions, not required sections or an exhaustive checklist. Choose other
 approaches when they better serve the request.
 
+Use the [shared agent roles](../../../.agents/roles/README.md) to identify useful parallel evidence
+gathering and independent review. Delegate bounded preparation where it helps make the approach
+concrete, while keeping the eventual reviewer independent. Choose roles to fit the questions.
+
 Produce a concrete review plan in the conversation, with enough rationale to explain the
 chosen scope and approach. Make material assumptions and coverage limits visible. Ask
 questions only when their answers would meaningfully change the plan.

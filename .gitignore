@@ -20,10 +20,12 @@ __pycache__/
 !/.claude/skills/README.md
 !/.claude/skills/adr/
 !/.claude/skills/create-plan/
+!/.claude/skills/execute-plan/
 !/.claude/skills/design-review/
 !/.claude/skills/design-review-code-intelligence/
 !/.claude/skills/plan-design-review/
 !/.claude/skills/plan-creation/
+!/.claude/skills/plan-execution/
 !/.claude/skills/handoff/
 !/.claude/skills/pin-check/
 

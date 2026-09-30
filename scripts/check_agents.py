@@ -22,10 +22,12 @@ ROOT = Path(__file__).resolve().parent.parent
 PROCESS_SKILLS = (
     "adr",
     "create-plan",
+    "execute-plan",
     "design-review",
     "design-review-code-intelligence",
     "plan-design-review",
     "plan-creation",
+    "plan-execution",
     "handoff",
     "pin-check",
 )
@@ -50,6 +52,7 @@ def documents(root: Path) -> list[Path]:
     docs = [root / "AGENTS.md", root / "CLAUDE.md", root / ".claude" / "skills" / "README.md"]
     docs += [root / ".claude" / "skills" / s / "SKILL.md" for s in PROCESS_SKILLS]
     docs += sorted((root / ".claude" / "agents").glob("*.md"))
+    docs += sorted((root / ".agents" / "roles").glob("*.md"))
     return docs
 
 

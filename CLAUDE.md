@@ -9,7 +9,8 @@
   `UserPromptSubmit` and a `PreToolUse` guard run `scripts/after_turn.py` (AGENTS.md, Commands;
   ADR-0104). They are silent to the model and need no agent action. A fixer runs as a headless
   `claude -p` on Sonnet 5.5 at the session's effort; subagents stopping don't trigger the hook.
-- **Subagent:** `.claude/agents/design-reviewer.md` runs the `design-review` skill with fresh
-  context. Give it the target and expected change scenarios; the binding selects tier and purpose.
+- **Subagents:** [shared roles](.agents/roles/README.md) define responsibility and handoff;
+  `.claude/agents/` supplies native model/tool configuration. `implementer` uses the executor
+  contract. Use fresh context for independent review; the binding selects formal tier and purpose.
 - **Memory:** project memory records the low-friction process preference; the repository binding under ADR-0040 owns current
   review mechanics; AGENTS.md owns agent instructions.
