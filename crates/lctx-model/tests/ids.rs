@@ -7,8 +7,23 @@ use lctx_model::id::{Id, IdHasher, IdKind};
 /// (the typed `domain` owns identity).
 mod recipes {
     use lctx_model::id::Id;
-    lctx_model::recipe!(occurrence, OCCURRENCE = Occurrence { module: Id, start: i64, end: i64, syntax_kind: &str });
-    lctx_model::recipe!(symbol_key, SYMBOL_KEY = SymbolKey { distribution: &str, qualified_path: &str, descriptor: &str });
+    lctx_model::recipe!(
+        occurrence,
+        OCCURRENCE = Occurrence {
+            module: Id,
+            start: i64,
+            end: i64,
+            syntax_kind: &str
+        }
+    );
+    lctx_model::recipe!(
+        symbol_key,
+        SYMBOL_KEY = SymbolKey {
+            distribution: &str,
+            qualified_path: &str,
+            descriptor: &str
+        }
+    );
     pub const ALL: &[lctx_model::id::Recipe] = &[OCCURRENCE, SYMBOL_KEY];
 }
 use proptest::prelude::*;
@@ -39,7 +54,12 @@ fn the_occurrence_recipe_is_the_documented_encoding() {
     let id = recipes::occurrence(module, 10, 24, "call");
     let expected = by_hand(
         "occurrence",
-        &[&module.0, &10i64.to_le_bytes(), &24i64.to_le_bytes(), b"call"],
+        &[
+            &module.0,
+            &10i64.to_le_bytes(),
+            &24i64.to_le_bytes(),
+            b"call",
+        ],
     );
     assert_eq!(id, expected);
 }

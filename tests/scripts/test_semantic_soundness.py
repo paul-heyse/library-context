@@ -31,8 +31,11 @@ from lctx_mcp.wire import Packet
 from postgres_bootstrap import write_secret
 from postgres_test_support import database
 
-
-pytest.skip("suspended: served-claim soundness needs `lctx compile-fixture` and MCP serving, removed in cutover P1.1/P1.3; returns with phase 5", allow_module_level=True)
+pytest.skip(
+    "suspended: served-claim soundness needs `lctx compile-fixture` and MCP serving, "
+    "removed in cutover P1.1/P1.3; returns with phase 5",
+    allow_module_level=True,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 LCTX = ROOT / "target/release/lctx"

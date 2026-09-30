@@ -24,14 +24,17 @@
 //! Nothing but spans, place text and our [`Condition`]s leaves this crate.
 
 mod db;
+pub mod native;
 mod predicate;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
-pub use cpg_schema::codebook::{BindingKind, FlowCallOperandRole, LexicalScopeKind};
-use cpg_schema::condition::{Atom, EvaluationIdentity};
-pub use cpg_schema::condition_kernel::BoundedCondition as Condition;
-use cpg_schema::id::IdHasher;
+pub use lctx_model::domain::{
+    flow::FlowCallOperandRole,
+    lexical::{BindingEventKind as BindingKind, LexicalScopeKind},
+};
+use native::Atom;
+pub type Condition = lctx_model::domain::conditions::CondGraph<Atom>;
 use ruff_db::Db as _;
 use ruff_db::files::system_path_to_file;
 use ruff_db::parsed::{ParsedModuleRef, parsed_module};
@@ -53,7 +56,7 @@ use ty_python_core::scope::{NodeWithScopeKind, NodeWithScopeRef};
 use ty_python_core::{FileScopeId, ProgramFile, UseDefMap, semantic_index};
 
 use crate::db::FlowDb;
-use crate::predicate::{Translator, diagram, runtime_in_diagram, synthetic_identity};
+use crate::predicate::{Translator, diagram, runtime_in_diagram};
 
 /// The provider, as `producers.revision` names it (ADR-0022 §Identity).
 pub const PROVIDER: &str = "ty_python_core 0.0.14 (ruff 0.0.14, salsa 0.28.2)";
@@ -141,6 +144,7 @@ pub struct Def {
 pub struct Reach {
     pub use_ix: u32,
     pub def_ix: Option<u32>,
+    pub nested: bool,
     pub condition: Condition,
     /// Reached around a loop's back edge (through ty's loop header): the condition is the use's
     /// side only.
@@ -204,10 +208,9 @@ pub struct Test {
 #[derive(Debug, Clone)]
 pub struct TestLeaf {
     pub scope: Scope,
-    pub predicate_key: String,
     pub test_span: Span,
     pub condition: Condition,
-    pub atom: String,
+    pub atom: Atom,
     pub leaf_span: Span,
     /// The structurally selected place operand of this leaf, when the translator can identify
     /// one. A contained use is never chosen by proximity alone; synthetic patterns need their
@@ -236,6 +239,8 @@ pub struct ModuleFlow {
     pub tests: Vec<Test>,
     pub test_leaves: Vec<TestLeaf>,
     pub attribute_loads: Vec<AttributeLoad>,
+    pub places: BTreeMap<Span, native::Place>,
+    pub nodes: Vec<native::Node>,
     /// `TYPE_CHECKING` words renamed.
     pub renamed: u32,
     /// Syntax errors ty's parser recovered from: the facts come from a recovered tree, as every
@@ -336,21 +341,8 @@ pub fn index(inputs: &[Input], context: &RuntimeContext) -> Vec<ModuleFlow> {
         .zip(prepared)
         .map(|(input, prepared)| {
             let result = prepared.and_then(|(path, n)| {
-                let module_key = IdHasher::new("flow-evaluation-module")
-                    .str(&input.path)
-                    .str(&input.text)
-                    .finish_id()
-                    .hex();
-                module(
-                    &db,
-                    program,
-                    &path,
-                    &input.text,
-                    &module_key,
-                    &input.runtime,
-                    context,
-                )
-                .map(|flow| (flow, n))
+                module(&db, program, &path, &input.text, &input.runtime, context)
+                    .map(|flow| (flow, n))
             });
             match result {
                 Ok((flow, n)) => ModuleFlow {
@@ -366,6 +358,34 @@ pub fn index(inputs: &[Input], context: &RuntimeContext) -> Vec<ModuleFlow> {
             }
         })
         .collect()
+}
+
+fn native_place(expr: &Expr, original: &str, depth: usize) -> Option<native::Place> {
+    if depth > 256 {
+        return None;
+    }
+    match expr {
+        Expr::Name(n) => Some(native::Place {
+            root: original[usize::from(n.range().start())..usize::from(n.range().end())].into(),
+            segments: vec![],
+        }),
+        Expr::Attribute(a) => {
+            let mut place = native_place(&a.value, original, depth + 1)?;
+            place
+                .segments
+                .push(native::PlaceSegment::Attribute(a.attr.to_string()));
+            Some(place)
+        }
+        Expr::Subscript(s) => {
+            let mut place = native_place(&s.value, original, depth + 1)?;
+            place
+                .segments
+                .push(native::PlaceSegment::Item(predicate::literal(&s.slice)?));
+            Some(place)
+        }
+        Expr::Named(n) => native_place(&n.target, original, depth + 1),
+        _ => None,
+    }
 }
 
 fn program_settings(db: &FlowDb, context: &RuntimeContext) -> ProgramSettings {
@@ -387,7 +407,6 @@ fn module(
     program: Program<'_>,
     path: &str,
     original: &str,
-    module_key: &str,
     runtime: &RuntimeBindings,
     context: &RuntimeContext,
 ) -> Result<ModuleFlow, String> {
@@ -402,7 +421,6 @@ fn module(
         original,
         context,
         runtime,
-        module_key: module_key.to_owned(),
     };
     let mut w = Walk {
         db,
@@ -436,6 +454,61 @@ fn module(
             w.def(sc, d);
         }
     }
+    struct Places<'a> {
+        original: &'a str,
+        places: BTreeMap<Span, native::Place>,
+        nodes: Vec<native::Node>,
+    }
+    impl<'a> SourceOrderVisitor<'a> for Places<'_> {
+        fn enter_node(&mut self, node: AnyNodeRef<'a>) -> TraversalSignal {
+            use lctx_model::domain::{
+                Codebook,
+                source::{OccurrenceRole, SyntaxKind},
+            };
+            let name = format!("{:?}", node.kind());
+            let kind = (0..128)
+                .filter_map(SyntaxKind::from_code)
+                .find(|k| format!("{k:?}") == name);
+            let role = match node {
+                AnyNodeRef::ExprName(n) => match n.ctx {
+                    ExprContext::Load => OccurrenceRole::Read,
+                    ExprContext::Store => OccurrenceRole::Binding,
+                    _ => OccurrenceRole::Syntax,
+                },
+                AnyNodeRef::StmtFunctionDef(_) | AnyNodeRef::StmtClassDef(_) => {
+                    OccurrenceRole::Declaration
+                }
+                AnyNodeRef::Parameter(_) => OccurrenceRole::Parameter,
+                AnyNodeRef::ExprCall(_) => OccurrenceRole::Call,
+                AnyNodeRef::WithItem(_) => OccurrenceRole::WithItem,
+                AnyNodeRef::Decorator(_) => OccurrenceRole::Decorator,
+                AnyNodeRef::StmtReturn(_) => OccurrenceRole::Return,
+                AnyNodeRef::ExprYield(_) | AnyNodeRef::ExprYieldFrom(_) => OccurrenceRole::Yield,
+                AnyNodeRef::StmtRaise(_) => OccurrenceRole::Raise,
+                _ => OccurrenceRole::Syntax,
+            };
+            self.nodes.push(native::Node {
+                span: Span::from(node.range()),
+                kind,
+                role,
+            });
+            TraversalSignal::Traverse
+        }
+        fn visit_expr(&mut self, expr: &'a Expr) {
+            if let Some(place) = native_place(expr, self.original, 0) {
+                self.places.insert(Span::from(expr.range()), place);
+            }
+            source_order::walk_expr(self, expr);
+        }
+    }
+    let mut places = Places {
+        original,
+        places: BTreeMap::new(),
+        nodes: vec![],
+    };
+    places.visit_body(parsed.suite());
+    w.flow.places = places.places;
+    w.flow.nodes = places.nodes;
     let mut v = Visitor {
         w: &mut w,
         aug: HashSet::new(),
@@ -449,7 +522,7 @@ fn module(
     for scope in index.scope_ids() {
         let fid = scope.file_scope_id(db);
         let Some(sc) = w.scope(fid) else { continue };
-        for (predicate_id, p) in index.use_def_map(fid).predicates().iter_enumerated() {
+        for p in index.use_def_map(fid).predicates().iter() {
             let (span, condition, test_expr) = match &p.node {
                 PredicateNode::Expression(x)
                 | PredicateNode::Condition(x)
@@ -459,55 +532,37 @@ fn module(
                 }
                 PredicateNode::Pattern(pattern) => {
                     let subject = pattern.subject(db).node_ref(db).node(&parsed);
-                    let evaluation = synthetic_identity(module_key, fid, predicate_id);
+                    let evaluation = t.pattern_site(pattern);
                     let mut c = t.pattern(subject, pattern.kind(db), &evaluation);
                     if let Some(guard) = pattern.guard(db) {
                         c = c.and(&t.test(guard.node_ref(db).node(&parsed)));
                     }
-                    (Span::from(subject.range()), c, None)
+                    (
+                        match evaluation {
+                            native::EvaluationSite::Source(span) => span,
+                            _ => Span::from(subject.range()),
+                        },
+                        c,
+                        None,
+                    )
                 }
                 _ => continue,
             };
-            let predicate_key = match synthetic_identity(module_key, fid, predicate_id) {
-                EvaluationIdentity::Synthetic { predicate, .. } => predicate,
-                _ => unreachable!("the provider predicate identity is synthetic"),
-            };
-            if let Ok(diagram) = condition.diagram() {
-                for encoded in diagram.support() {
-                    let atom = Atom::parse_encoded(encoded)
-                        .expect("the producer's atom encoding round-trips");
-                    let Atom::Evaluated { identity, .. } = &atom else {
-                        continue;
-                    };
-                    // The path condition also contains earlier predicates. A leaf row belongs
-                    // to this predicate only when its evaluation lies inside this test, or the
-                    // synthetic predicate identity itself is this provider predicate.
-                    let leaf_span = match identity {
-                        EvaluationIdentity::Site { start, end, .. }
-                            if *start >= span.start && *end <= span.end =>
-                        {
-                            Span {
-                                start: *start,
-                                end: *end,
-                            }
-                        }
-                        EvaluationIdentity::Synthetic { predicate, .. }
-                            if predicate == &predicate_key =>
-                        {
-                            span
-                        }
-                        _ => continue,
-                    };
-                    w.flow.test_leaves.push(TestLeaf {
-                        scope: sc,
-                        predicate_key: predicate_key.clone(),
-                        test_span: span,
-                        condition: condition.clone(),
-                        atom: encoded.clone(),
-                        leaf_span,
-                        operand_span: test_expr.and_then(|e| t.tested_place_operand(e, &atom)),
-                    });
+            for atom in condition.leaves() {
+                let Some(leaf_span) = atom.site() else {
+                    continue;
+                };
+                if leaf_span.start < span.start || leaf_span.end > span.end {
+                    continue;
                 }
+                w.flow.test_leaves.push(TestLeaf {
+                    scope: sc,
+                    test_span: span,
+                    condition: condition.clone(),
+                    atom: atom.clone(),
+                    leaf_span,
+                    operand_span: test_expr.and_then(|e| t.tested_place_operand(e, atom)),
+                });
             }
             if seen.insert(span) {
                 w.flow.tests.push(Test {
@@ -519,9 +574,9 @@ fn module(
         }
     }
     w.flow.tests.sort_by_key(|t| (t.span.start, t.span.end));
-    w.flow.test_leaves.sort_by(|a, b| {
-        (a.test_span, &a.predicate_key, &a.atom).cmp(&(b.test_span, &b.predicate_key, &b.atom))
-    });
+    w.flow
+        .test_leaves
+        .sort_by_key(|a| (a.test_span, a.leaf_span));
     Ok(ModuleFlow {
         syntax_errors,
         ..w.flow
@@ -780,10 +835,11 @@ impl<'db> Walk<'_, 'db> {
                 DefinitionState::Defined(d) => {
                     if let DefinitionKind::LoopHeader(h) = d.kind(self.db) {
                         let mut seen = HashSet::new();
-                        for def_ix in self.loop_bindings(fid, h, &mut seen) {
+                        for (def_ix, nested) in self.loop_bindings(fid, h, &mut seen) {
                             self.flow.reaching.push(Reach {
                                 use_ix: ix,
                                 def_ix,
+                                nested,
                                 condition: condition.clone(),
                                 loop_carried: true,
                             });
@@ -793,6 +849,7 @@ impl<'db> Walk<'_, 'db> {
                         self.flow.reaching.push(Reach {
                             use_ix: ix,
                             def_ix,
+                            nested: matches!(d.kind(self.db), DefinitionKind::NestedBindings(_)),
                             condition,
                             loop_carried: false,
                         });
@@ -802,6 +859,7 @@ impl<'db> Walk<'_, 'db> {
                     self.flow.reaching.push(Reach {
                         use_ix: ix,
                         def_ix: None,
+                        nested: false,
                         condition,
                         loop_carried: false,
                     });
@@ -816,26 +874,34 @@ impl<'db> Walk<'_, 'db> {
         fid: FileScopeId,
         h: &ty_python_core::definition::LoopHeaderDefinitionKind,
         seen: &mut HashSet<Definition<'db>>,
-    ) -> Vec<Option<u32>> {
+    ) -> Vec<(Option<u32>, bool)> {
         let scope = self.scope(fid).expect("a loop is in a real scope");
-        let live: Vec<_> = self
-            .map(fid)
-            .loop_header(h.loop_header_id())
-            .bindings_for_place(h.place())
-            .map(|b| self.map(fid).definition(b.binding()))
-            .collect();
+        let mut pending = vec![h.clone()];
         let mut out = Vec::new();
-        for state in live {
-            match state {
-                DefinitionState::Defined(d) if seen.insert(d) => {
-                    if let DefinitionKind::LoopHeader(inner) = d.kind(self.db) {
-                        out.extend(self.loop_bindings(fid, inner, seen));
-                    } else {
-                        out.push(self.def(scope, d));
+        while let Some(header) = pending.pop() {
+            let live: Vec<_> = self
+                .map(fid)
+                .loop_header(header.loop_header_id())
+                .bindings_for_place(header.place())
+                .map(|b| self.map(fid).definition(b.binding()))
+                .collect();
+            for state in live {
+                match state {
+                    DefinitionState::Defined(d) if seen.insert(d) => {
+                        if let DefinitionKind::LoopHeader(inner) = d.kind(self.db) {
+                            pending.push(inner.clone());
+                        } else {
+                            out.push((
+                                self.def(scope, d),
+                                matches!(d.kind(self.db), DefinitionKind::NestedBindings(_)),
+                            ));
+                        }
+                    }
+                    DefinitionState::Defined(_) => {}
+                    DefinitionState::Undefined | DefinitionState::Deleted => {
+                        out.push((None, false))
                     }
                 }
-                DefinitionState::Defined(_) => {}
-                DefinitionState::Undefined | DefinitionState::Deleted => out.push(None),
             }
         }
         out
@@ -1004,10 +1070,9 @@ impl<'db> Walk<'_, 'db> {
                     &callee_path,
                 );
                 for arg in &call.arguments.args {
-                    let operand = match arg {
-                        Expr::Starred(starred) => starred.value.range(),
-                        _ => arg.range(),
-                    };
+                    // The call syntax owns the actual operand, including a starred wrapper.
+                    // Uses inside that wrapper remain descendants of this crossing.
+                    let operand = arg.range();
                     let mut argument_path = call_path.to_vec();
                     argument_path.push(CallFrame {
                         call: call_span,

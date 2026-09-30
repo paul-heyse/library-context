@@ -1,0 +1,270 @@
+{
+  "catalog": {
+    "generation": "b2a14274a1892d33ada1ca8aeb4cb82a",
+    "content_digest": "3fea0558aa3ccc3895f86d8ea7b86b18a38201c4cfce668138f7f1701a08cb73",
+    "peak_reservation_bytes": 2350303801,
+    "process_peak_rss_bytes": 4158078976,
+    "rss_sampling_interval_ms": 20,
+    "stage_measurements": [
+      {
+        "stage": "acquire",
+        "elapsed_ms": 1516,
+        "sampled_peak_rss_bytes": 191311872,
+        "outcome": "passed"
+      },
+      {
+        "stage": "deployment",
+        "elapsed_ms": 27330,
+        "sampled_peak_rss_bytes": 106393600,
+        "outcome": "passed"
+      },
+      {
+        "stage": "pyrefly",
+        "elapsed_ms": 178201,
+        "sampled_peak_rss_bytes": 4161675264,
+        "outcome": "passed"
+      },
+      {
+        "stage": "documents",
+        "elapsed_ms": 2344,
+        "sampled_peak_rss_bytes": 1175617536,
+        "outcome": "passed"
+      },
+      {
+        "stage": "assemble",
+        "elapsed_ms": 14347,
+        "sampled_peak_rss_bytes": 669761536,
+        "outcome": "passed"
+      }
+    ],
+    "families": [
+      {
+        "family": "Exports",
+        "availability": "Complete"
+      },
+      {
+        "family": "Signatures",
+        "availability": "Partial"
+      },
+      {
+        "family": "Calls",
+        "availability": "Partial"
+      },
+      {
+        "family": "Syntax",
+        "availability": "Complete"
+      },
+      {
+        "family": "Lexical",
+        "availability": "Complete"
+      },
+      {
+        "family": "Types",
+        "availability": "Partial"
+      },
+      {
+        "family": "Docs",
+        "availability": "Partial"
+      },
+      {
+        "family": "Flow",
+        "availability": "NotRequested"
+      },
+      {
+        "family": "Artifacts",
+        "availability": "Complete"
+      },
+      {
+        "family": "Deployment",
+        "availability": "Complete"
+      }
+    ],
+    "profile_correct_flow": "passed",
+    "artifact-count": "passed",
+    "largest-python": "passed",
+    "bound-residuals": "passed"
+  },
+  "behavioral": {
+    "generation": "008fde9ddf74a5a0382464aa1eab71ab",
+    "content_digest": "13bb1140f0b3dd35391002b3c2b7e338144932713f5a1c5a3771034ca0fa6a5b",
+    "peak_reservation_bytes": 2693597645,
+    "process_peak_rss_bytes": 4234682368,
+    "rss_sampling_interval_ms": 20,
+    "stage_measurements": [
+      {
+        "stage": "acquire",
+        "elapsed_ms": 1393,
+        "sampled_peak_rss_bytes": 188678144,
+        "outcome": "passed"
+      },
+      {
+        "stage": "deployment",
+        "elapsed_ms": 25049,
+        "sampled_peak_rss_bytes": 105730048,
+        "outcome": "passed"
+      },
+      {
+        "stage": "pyrefly",
+        "elapsed_ms": 156385,
+        "sampled_peak_rss_bytes": 4238467072,
+        "outcome": "passed"
+      },
+      {
+        "stage": "documents",
+        "elapsed_ms": 2378,
+        "sampled_peak_rss_bytes": 2063609856,
+        "outcome": "passed"
+      },
+      {
+        "stage": "ty_flow",
+        "elapsed_ms": 78020,
+        "sampled_peak_rss_bytes": 1450876928,
+        "outcome": "passed"
+      },
+      {
+        "stage": "assemble",
+        "elapsed_ms": 18516,
+        "sampled_peak_rss_bytes": 961667072,
+        "outcome": "passed"
+      }
+    ],
+    "families": [
+      {
+        "family": "Exports",
+        "availability": "Complete"
+      },
+      {
+        "family": "Signatures",
+        "availability": "Partial"
+      },
+      {
+        "family": "Calls",
+        "availability": "Partial"
+      },
+      {
+        "family": "Syntax",
+        "availability": "Complete"
+      },
+      {
+        "family": "Lexical",
+        "availability": "Complete"
+      },
+      {
+        "family": "Types",
+        "availability": "Partial"
+      },
+      {
+        "family": "Docs",
+        "availability": "Partial"
+      },
+      {
+        "family": "Flow",
+        "availability": "Partial"
+      },
+      {
+        "family": "Artifacts",
+        "availability": "Complete"
+      },
+      {
+        "family": "Deployment",
+        "availability": "Complete"
+      }
+    ],
+    "profile_correct_flow": "passed",
+    "artifact-count": "passed",
+    "largest-python": "passed",
+    "bound-residuals": "passed"
+  },
+  "behavioral-repeat": {
+    "generation": "794554675593cfccb31b71b606460ff6",
+    "content_digest": "13bb1140f0b3dd35391002b3c2b7e338144932713f5a1c5a3771034ca0fa6a5b",
+    "peak_reservation_bytes": 2693597645,
+    "process_peak_rss_bytes": 4227559424,
+    "rss_sampling_interval_ms": 20,
+    "stage_measurements": [
+      {
+        "stage": "acquire",
+        "elapsed_ms": 1527,
+        "sampled_peak_rss_bytes": 189485056,
+        "outcome": "passed"
+      },
+      {
+        "stage": "deployment",
+        "elapsed_ms": 30606,
+        "sampled_peak_rss_bytes": 104923136,
+        "outcome": "passed"
+      },
+      {
+        "stage": "pyrefly",
+        "elapsed_ms": 235445,
+        "sampled_peak_rss_bytes": 4232589312,
+        "outcome": "passed"
+      },
+      {
+        "stage": "documents",
+        "elapsed_ms": 2448,
+        "sampled_peak_rss_bytes": 1389395968,
+        "outcome": "passed"
+      },
+      {
+        "stage": "ty_flow",
+        "elapsed_ms": 79359,
+        "sampled_peak_rss_bytes": 1457876992,
+        "outcome": "passed"
+      },
+      {
+        "stage": "assemble",
+        "elapsed_ms": 17888,
+        "sampled_peak_rss_bytes": 975720448,
+        "outcome": "passed"
+      }
+    ],
+    "families": [
+      {
+        "family": "Exports",
+        "availability": "Complete"
+      },
+      {
+        "family": "Signatures",
+        "availability": "Partial"
+      },
+      {
+        "family": "Calls",
+        "availability": "Partial"
+      },
+      {
+        "family": "Syntax",
+        "availability": "Complete"
+      },
+      {
+        "family": "Lexical",
+        "availability": "Complete"
+      },
+      {
+        "family": "Types",
+        "availability": "Partial"
+      },
+      {
+        "family": "Docs",
+        "availability": "Partial"
+      },
+      {
+        "family": "Flow",
+        "availability": "Partial"
+      },
+      {
+        "family": "Artifacts",
+        "availability": "Complete"
+      },
+      {
+        "family": "Deployment",
+        "availability": "Complete"
+      }
+    ],
+    "profile_correct_flow": "passed",
+    "artifact-count": "passed",
+    "largest-python": "passed",
+    "bound-residuals": "passed"
+  },
+  "scope": "Shared-host elapsed/RSS evidence, not a performance comparison or total-RSS cap. Native parse/solver heaps, allocator retention, transient native adapter state and SQLx within-operation buffers remain external allowances; Arrow aliases are charged conservatively and B-tree/nested-growth calibration has a named P3 trigger."
+}

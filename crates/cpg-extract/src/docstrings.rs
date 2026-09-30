@@ -1,8 +1,8 @@
 //! Docstrings as Pyrefly finds them, and where a documented parameter's description lies in a
 //! docstring literal's source: the recognizer behind parameter documentation (slice 2.1).
+use pyrefly_python::docstring::Docstring;
 use ruff_python_ast::Stmt;
 use ruff_text_size::TextRange;
-use pyrefly_python::docstring::Docstring;
 
 /// The body's docstring and its statement's range, where Pyrefly finds one
 /// (`Docstring::range_from_stmts`, H1 C9).

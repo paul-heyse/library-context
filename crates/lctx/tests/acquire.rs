@@ -147,26 +147,43 @@ fn reinstall_rebuilds_every_package() {
     assert_eq!(args.last().map(String::as_str), Some("--reinstall"));
 }
 
-/// Until cutover phase 2, `compile` is unavailable: it exits 3 before doing any work, so neither
-/// `uv` nor `git` runs, whatever arguments the retired pipeline accepted (plan P1.1).
+/// Unsupported frontiers and retired flags fail before acquisition (plan Dc).
 #[test]
-fn compile_is_unavailable_and_never_acquires() {
+fn unsupported_frontier_never_acquires() {
     let dir = tempfile::tempdir().unwrap();
     let root = std::fs::canonicalize(dir.path()).unwrap();
     stub(&root);
     stub_git(&root);
-    let path = format!("{}:{}", root.display(), std::env::var("PATH").unwrap_or_default());
-    for extra in [&[][..], &["--store", "/nonexistent-store", "--reinstall", "--embedder", "none"][..]] {
+    let path = format!(
+        "{}:{}",
+        root.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    for (extra, code) in [
+        (&["--through", "analysis"][..], 3),
+        (
+            &["--through", "facts", "--store", "/nonexistent-store"][..],
+            2,
+        ),
+    ] {
         let output = Command::new(env!("CARGO_BIN_EXE_lctx"))
-            .args(["compile", "demo"]).args(extra)
-            .arg("--libraries").arg(root.join("libraries"))
-            .env("PATH", &path).env("STUB_OUT", &root)
-            .output().unwrap();
-        assert_eq!(output.status.code(), Some(3), "{}", String::from_utf8_lossy(&output.stderr));
-        assert!(String::from_utf8_lossy(&output.stderr).contains("unavailable until cutover phase 2"));
+            .args(["compile", "demo"])
+            .args(extra)
+            .arg("--libraries")
+            .arg(root.join("libraries"))
+            .env("PATH", &path)
+            .env("STUB_OUT", &root)
+            .output()
+            .unwrap();
+        assert_eq!(
+            output.status.code(),
+            Some(code),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
-    assert!(!root.join("args").exists(), "uv never ran");
-    assert!(!root.join("git-args").exists(), "git never ran");
+    assert!(!root.join("args").exists());
+    assert!(!root.join("git-args").exists());
 }
 
 #[test]

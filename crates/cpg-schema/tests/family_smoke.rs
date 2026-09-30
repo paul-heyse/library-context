@@ -22,8 +22,11 @@ fn batch(ids: &[i64]) -> RecordBatch {
 #[tokio::test]
 async fn arrow_batches_query_through_datafusion() {
     let schema = batch(&[]).schema();
-    let table = datafusion::datasource::MemTable::try_new(schema, vec![vec![batch(&[1, 2, 3]), batch(&[4])]])
-        .expect("a table of two batches");
+    let table = datafusion::datasource::MemTable::try_new(
+        schema,
+        vec![vec![batch(&[1, 2, 3]), batch(&[4])]],
+    )
+    .expect("a table of two batches");
     let ctx = SessionContext::new();
     ctx.register_table("t", Arc::new(table)).expect("register");
     let out = ctx

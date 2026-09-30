@@ -23,7 +23,15 @@ check: fmt-check lint test py-check rules-scan rules-test lint-agents
 # The SQLx offline check returns with serving (cutover phase 5, T12); the dormant serving queries
 # are frozen in `.sqlx`.
 # Everything: check + fixtures + dependency policy + real PostgreSQL
-test-all: check fixtures-check deps gold test-postgres
+test-all: check fixtures-check deps gold test-postgres test-doc
+
+# Compile-fail and positive Rust API contracts are outside nextest discovery.
+test-doc:
+    INSTA_UPDATE=no cargo test --release --workspace --doc
+
+# Explicit complete fixture registration over native producers and real PG comparisons.
+fixture-corpus:
+    INSTA_UPDATE=no cargo nextest run --release -p cpg-core --test fixture_corpus --no-fail-fast
 
 # rustfmt + ruff format check (no changes)
 fmt-check:
@@ -170,12 +178,11 @@ postgres-test-setup:
     docker pull "$(cat specs/postgres-vector-image.txt)"
 
 # The serving suites are dormant until cutover phase 5.
-# Real PostgreSQL 18 (disposable containers): generation store, provider sessions, CLI, transition
+# Real PostgreSQL 18 (disposable containers): generation store, provider sessions, CLI
 test-postgres:
     @docker image inspect "$(cat specs/postgres-vector-image.txt)" >/dev/null || { echo 'blocked: run just postgres-test-setup'; exit 2; }
     INSTA_UPDATE=no cargo nextest run --release -p lctx-postgres -p cpg-extract -p cpg-core -p lctx --no-fail-fast -E 'not binary(serving)'
     cargo build --release -p lctx
-    LCTX_POSTGRES_TEST=1 uv run pytest tests/scripts/test_postgres_transition.py -q
 
 sqlx-check:
     uv run python scripts/postgres_check.py

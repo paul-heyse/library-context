@@ -1,8 +1,0 @@
----
-source: crates/cpg-extract/tests/identity.rs
-expression: "lines.join(\"\\n\")"
----
-producer_id 0a927b015596d3f1895057947d7c4ab3
-context_id  4324aa0fdc28105822be36fa3f145f0f
-run_id      acfc7344c47482a8f7077bf52be02395
-source_files[0] lcfix/__init__.py 88f1d865f4c2b2e3490e3c3579a4942f 3ff82cda03e7a39c9a4fd2f8cddec24f

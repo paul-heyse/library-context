@@ -13,8 +13,10 @@ import pytest
 from postgres_backup import connection_env
 from postgres_bootstrap import bootstrap_sql, configurations, write_secret
 
-
-pytest.skip("suspended: PostgreSQL serving import is dormant until cutover phase 5 (plan P1.3)", allow_module_level=True)
+pytest.skip(
+    "suspended: PostgreSQL serving import is dormant until cutover phase 5 (plan P1.3)",
+    allow_module_level=True,
+)
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("LCTX_POSTGRES_TEST") != "1", reason="explicit real PostgreSQL functional check"

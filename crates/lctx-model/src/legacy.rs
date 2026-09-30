@@ -16,5 +16,4 @@ impl IdHasher {
         this.bytes(kind_tag.as_bytes());
         this
     }
-
 }

@@ -1,0 +1,1346 @@
+//! Pinned native Pyrefly types lowered directly into model terms and attributed observations.
+#![deny(clippy::wildcard_enum_match_arm)]
+use crate::{
+    natives::Natives,
+    syntax_records::{Records as Syntax, Spans},
+};
+use lctx_model::domain::{
+    assertion::AssertionQualification,
+    attribution::{Fidelity, Provider},
+    calls::{ParameterKind, ProviderModule, ProviderSymbol, SymbolKind},
+    charged::StateCharge,
+    lexical::SyntaxField,
+    obligation::ObligationKind,
+    resources::ResourceBudget,
+    source::{Occurrence, SyntaxKind},
+    types::*,
+    value::Literal,
+    *,
+};
+use pyrefly::report::pysa::context::ModuleContext;
+use pyrefly_python::{module_name::ModuleName, qname::QName};
+use pyrefly_types::{
+    callable::{Callable, Param, ParamList, Params, PrefixParam, Required},
+    class::Class,
+    literal::Lit,
+    quantified::{Quantified, QuantifiedKind, QuantifiedOrigin},
+    tuple::Tuple,
+    type_alias::TypeAliasData,
+    type_var::Restriction,
+    typed_dict::TypedDict,
+    types::{AnyStyle, BoundMethodType, Forallable, NeverStyle, Type},
+};
+use ruff_text_size::Ranged;
+use std::collections::BTreeSet;
+
+pub type ResolveModule<'a> =
+    dyn FnMut(&mut Natives, ModuleName) -> Result<Id<ProviderModule>, ModelError> + 'a;
+pub struct Records {
+    charge: StateCharge,
+    pub terms: Vec<TypeTerm>,
+    pub sequences: Vec<TypeSequence>,
+    pub members: Vec<TypeSequenceMember>,
+    pub lists: Vec<CallableParameterList>,
+    pub slots: Vec<CallableParameter>,
+    pub dict_lists: Vec<TypedDictFieldList>,
+    pub dict_fields: Vec<TypedDictField>,
+    pub variables: Vec<TypeVariable>,
+    pub literals: Vec<Literal>,
+    pub observations: Vec<(TypeObservation, Fidelity)>,
+    pub presentations: Vec<(TypePresentation, Fidelity)>,
+    pub restrictions: Vec<(TypeVariableRestriction, Fidelity)>,
+    pub bodies: Vec<FunctionBodyObservation>,
+    pub fields: Vec<(RecordFieldObservation, Fidelity)>,
+    pub boundaries: Vec<(Option<Id<Occurrence>>, ObligationKind, String)>,
+}
+impl Records {
+    fn new(budget: &ResourceBudget) -> Self {
+        Self {
+            charge: StateCharge::new(budget, "native_type_records"),
+            terms: vec![],
+            sequences: vec![],
+            members: vec![],
+            lists: vec![],
+            slots: vec![],
+            dict_lists: vec![],
+            dict_fields: vec![],
+            variables: vec![],
+            literals: vec![],
+            observations: vec![],
+            presentations: vec![],
+            restrictions: vec![],
+            bodies: vec![],
+            fields: vec![],
+            boundaries: vec![],
+        }
+    }
+    fn hold<T: HeapSize>(&mut self, value: &T) -> Result<(), ModelError> {
+        self.charge.grow(
+            size_of::<T>()
+                .saturating_mul(4)
+                .saturating_add(value.heap_bytes()),
+        )
+    }
+}
+#[derive(Clone, Copy)]
+struct Built {
+    id: Id<TypeTerm>,
+    opaque: bool,
+}
+impl Built {
+    fn fidelity(self) -> Fidelity {
+        if self.opaque {
+            Fidelity::DisplayOnly
+        } else {
+            Fidelity::NativeStructural
+        }
+    }
+}
+struct Builder<'a, 'r> {
+    context: &'a ModuleContext<'a>,
+    qualification: &'a AssertionQualification,
+    provider: &'a Provider,
+    natives: &'a mut Natives,
+    resolve: &'a mut ResolveModule<'r>,
+    out: Records,
+    variables: BTreeSet<Id<TypeVariable>>,
+    work: usize,
+}
+fn invalid(message: impl Into<String>) -> ModelError {
+    ModelError::Invalid(message.into())
+}
+fn required(r: &Required) -> bool {
+    match r {
+        Required::Required => true,
+        Required::Optional(_) => false,
+    }
+}
+fn variable_kind(k: QuantifiedKind) -> TypeVariableKind {
+    match k {
+        QuantifiedKind::TypeVar => TypeVariableKind::TypeVar,
+        QuantifiedKind::ParamSpec => TypeVariableKind::ParamSpec,
+        QuantifiedKind::TypeVarTuple => TypeVariableKind::TypeVarTuple,
+        QuantifiedKind::IntVar => TypeVariableKind::IntVar,
+    }
+}
+impl Builder<'_, '_> {
+    fn class(&mut self, class: &Class) -> Result<Id<ProviderSymbol>, ModelError> {
+        let reference = pyrefly::report::pysa::class::ClassRef::from_class(class, self.context);
+        let m = class.module();
+        let module = self.natives.module(&m.name().to_string(), m.path())?;
+        self.natives.symbol(
+            module,
+            reference.class_id.to_int().to_string(),
+            class.name().to_string(),
+            SymbolKind::Class,
+        )
+    }
+    fn function(
+        &mut self,
+        kind: &pyrefly_types::function::FunctionKind,
+    ) -> Result<Option<Id<ProviderSymbol>>, ModelError> {
+        let Some(id) = kind.as_func_def_id() else {
+            return Ok(None);
+        };
+        let m = id.qname.module();
+        let module = self.natives.module(&m.name().to_string(), m.path())?;
+        self.natives
+            .symbol(
+                module,
+                format!("F:{}", id.def_index.0),
+                id.qname.id().to_string(),
+                if id.cls.is_some() {
+                    SymbolKind::Method
+                } else {
+                    SymbolKind::Function
+                },
+            )
+            .map(Some)
+    }
+    fn sequence(
+        &mut self,
+        role: TypeChildRole,
+        mut children: Vec<Built>,
+        unordered: bool,
+    ) -> Result<(Id<TypeSequence>, bool), ModelError> {
+        let opaque = children.iter().any(|c| c.opaque);
+        if unordered {
+            children.sort_by_key(|c| c.id);
+            children.dedup_by_key(|c| c.id);
+        }
+        let values: Vec<_> = children.into_iter().map(|c| (role, c.id)).collect();
+        let (row, members) = TypeSequence::new(&values)?;
+        self.out.hold(&row)?;
+        self.out.sequences.push(row.clone());
+        for member in members {
+            self.out.hold(&member)?;
+            self.out.members.push(member);
+        }
+        Ok((row.id(), opaque))
+    }
+    fn types(
+        &mut self,
+        types: &[Type],
+        role: TypeChildRole,
+        depth: usize,
+        unordered: bool,
+    ) -> Result<(Id<TypeSequence>, bool), ModelError> {
+        let children = types
+            .iter()
+            .map(|t| self.term(t, depth + 1))
+            .collect::<Result<Vec<_>, _>>()?;
+        self.sequence(role, children, unordered)
+    }
+    fn slots(&mut self, slots: &[Slot]) -> Result<Id<CallableParameterList>, ModelError> {
+        let (row, members) = CallableParameterList::new(slots).map_err(|error| match error {
+            ModelError::Invalid(message) => {
+                ModelError::Invalid(format!("{message}; native callable slots {slots:?}"))
+            }
+            error @ (ModelError::Resource { .. }
+            | ModelError::Limit { .. }
+            | ModelError::Frontier(_)
+            | ModelError::Schema(_)
+            | ModelError::Identity(_)
+            | ModelError::Conflict(_)
+            | ModelError::Codec(_)
+            | ModelError::Infrastructure { .. }) => error,
+        })?;
+        self.out.hold(&row)?;
+        self.out.lists.push(row.clone());
+        for member in members {
+            self.out.hold(&member)?;
+            self.out.slots.push(member);
+        }
+        Ok(row.id())
+    }
+    fn dict_fields(
+        &mut self,
+        slots: &[TypedDictSlot],
+    ) -> Result<Id<TypedDictFieldList>, ModelError> {
+        let (row, members) = TypedDictFieldList::new(slots)?;
+        self.out.hold(&row)?;
+        let id = row.id();
+        self.out.dict_lists.push(row);
+        for member in members {
+            self.out.hold(&member)?;
+            self.out.dict_fields.push(member);
+        }
+        Ok(id)
+    }
+    fn params(&mut self, list: &ParamList, depth: usize) -> Result<(Vec<Slot>, bool), ModelError> {
+        let mut slots = Vec::new();
+        let mut opaque = false;
+        for p in list.items() {
+            let (name, kind, req) = match p {
+                Param::PosOnly(n, _, r) => (
+                    n.as_ref().map(ToString::to_string),
+                    ParameterKind::PositionalOnly,
+                    Some(required(r)),
+                ),
+                Param::Pos(n, _, r) => (
+                    Some(n.to_string()),
+                    ParameterKind::PositionalOrKeyword,
+                    Some(required(r)),
+                ),
+                Param::Varargs(n, _) => (
+                    n.as_ref().map(ToString::to_string),
+                    ParameterKind::VarPositional,
+                    None,
+                ),
+                Param::KwOnly(n, _, r) => (
+                    Some(n.to_string()),
+                    ParameterKind::KeywordOnly,
+                    Some(required(r)),
+                ),
+                Param::Kwargs(n, _) => (
+                    n.as_ref().map(ToString::to_string),
+                    ParameterKind::VarKeyword,
+                    None,
+                ),
+            };
+            let term = self.term(p.as_type(), depth + 1)?;
+            opaque |= term.opaque;
+            slots.push(Slot {
+                name: name.map(Into::into),
+                kind,
+                required: req,
+                term: term.id,
+            });
+        }
+        Ok((slots, opaque))
+    }
+    fn prefix(
+        &mut self,
+        list: &[PrefixParam],
+        depth: usize,
+    ) -> Result<(Vec<Slot>, bool), ModelError> {
+        let mut slots = Vec::new();
+        let mut opaque = false;
+        for p in list {
+            let (name, kind, req, ty) = match p {
+                PrefixParam::PosOnly(n, ty, r) => (
+                    n.as_ref().map(ToString::to_string),
+                    ParameterKind::PositionalOnly,
+                    required(r),
+                    ty,
+                ),
+                PrefixParam::Pos(n, ty, r) => (
+                    Some(n.to_string()),
+                    ParameterKind::PositionalOrKeyword,
+                    required(r),
+                    ty,
+                ),
+            };
+            let term = self.term(ty, depth + 1)?;
+            opaque |= term.opaque;
+            slots.push(Slot {
+                name: name.map(Into::into),
+                kind,
+                required: Some(req),
+                term: term.id,
+            });
+        }
+        Ok((slots, opaque))
+    }
+    fn callable(
+        &mut self,
+        callable: &Callable,
+        function: Option<Id<ProviderSymbol>>,
+        depth: usize,
+    ) -> Result<(TypeTerm, bool), ModelError> {
+        let (mut form, slots, mut opaque, param_spec) = match &callable.params {
+            Params::List(list) => {
+                let (s, o) = self.params(list, depth)?;
+                (CallableForm::List, s, o, None)
+            }
+            Params::Partial(list) => {
+                let (s, o) = self.params(list, depth)?;
+                (CallableForm::Partial, s, o, None)
+            }
+            Params::Ellipsis => (CallableForm::Ellipsis, vec![], false, None),
+            Params::Materialization => (CallableForm::Materialization, vec![], false, None),
+            Params::ParamSpec(prefix, p) => {
+                let (s, o) = self.prefix(prefix, depth)?;
+                let p = self.term(p, depth + 1)?;
+                (CallableForm::ParamSpec, s, o || p.opaque, Some(p.id))
+            }
+        };
+        if slots
+            .iter()
+            .any(|s| s.name.as_ref().is_some_and(|name| name.is_empty()))
+        {
+            if param_spec.is_some() {
+                return Err(invalid("native parameter prefix has an empty name"));
+            }
+            form = CallableForm::NativeUnavailable;
+            opaque = true;
+            self.boundary(
+                None,
+                ObligationKind::OutsideProviderModel,
+                "native expanded callable slots are unavailable for invocation".into(),
+            )?;
+        }
+        let parameters = self.slots(&slots)?;
+        let returns = self.term(&callable.ret, depth + 1)?;
+        opaque |= returns.opaque;
+        Ok((
+            TypeTerm::Callable {
+                function,
+                form,
+                parameters,
+                param_spec,
+                returns: returns.id,
+            },
+            opaque,
+        ))
+    }
+    fn variable(&mut self, q: &Quantified, depth: usize) -> Result<Id<TypeVariable>, ModelError> {
+        let id = q.identity();
+        let module = (self.resolve)(self.natives, id.module)?;
+        let origin = match id.origin {
+            QuantifiedOrigin::ScopedLegacy => TypeVariableOrigin::ScopedLegacy,
+            QuantifiedOrigin::Pep695 => TypeVariableOrigin::Pep695,
+            QuantifiedOrigin::Synthetic { is_self: false } => TypeVariableOrigin::Synthetic,
+            QuantifiedOrigin::Synthetic { is_self: true } => TypeVariableOrigin::SyntheticSelf,
+            QuantifiedOrigin::MapIntTuplesParameter => TypeVariableOrigin::MapIntTuples,
+            QuantifiedOrigin::NormalizedMapIntTuplesParameter => {
+                TypeVariableOrigin::NormalizedMapIntTuples
+            }
+        };
+        let row = TypeVariable {
+            provider: self.provider.id(),
+            context: self.qualification.context,
+            module,
+            anchor_start: i64::from(id.anchor.range.start().to_u32()),
+            anchor_end: i64::from(id.anchor.range.end().to_u32()),
+            slot: i64::from(id.anchor.index),
+            origin,
+            kind: variable_kind(q.kind),
+            name: q.name.to_string(),
+        };
+        let key = row.id();
+        if !self.variables.contains(&key) {
+            self.out.hold(&row)?;
+            self.out.charge.grow(96)?;
+            self.variables.insert(key);
+            self.out.variables.push(row);
+            self.restrictions(key, &q.restriction, q.default.as_ref(), depth)?;
+        }
+        Ok(key)
+    }
+    fn declaration_variable(
+        &mut self,
+        qname: &QName,
+        kind: TypeVariableKind,
+        restriction: &Restriction,
+        default: Option<&Type>,
+        depth: usize,
+    ) -> Result<Id<TypeVariable>, ModelError> {
+        let m = qname.module();
+        let module = self.natives.module(&m.name().to_string(), m.path())?;
+        let row = TypeVariable {
+            provider: self.provider.id(),
+            context: self.qualification.context,
+            module,
+            anchor_start: i64::from(qname.range().start().to_u32()),
+            anchor_end: i64::from(qname.range().end().to_u32()),
+            slot: 0,
+            origin: TypeVariableOrigin::ScopedLegacy,
+            kind,
+            name: qname.id().to_string(),
+        };
+        let key = row.id();
+        if !self.variables.contains(&key) {
+            self.out.hold(&row)?;
+            self.out.charge.grow(96)?;
+            self.variables.insert(key);
+            self.out.variables.push(row);
+            self.restrictions(key, restriction, default, depth)?;
+        }
+        Ok(key)
+    }
+    fn restrictions(
+        &mut self,
+        variable: Id<TypeVariable>,
+        restriction: &Restriction,
+        default: Option<&Type>,
+        depth: usize,
+    ) -> Result<(), ModelError> {
+        let mut values = Vec::new();
+        match restriction {
+            Restriction::Bound(ty) => values.push((TypeRestrictionKind::Bound, 0, ty)),
+            Restriction::Constraints(types) => {
+                for (i, ty) in types.iter().enumerate() {
+                    values.push((TypeRestrictionKind::Constraint, i as i64, ty));
+                }
+            }
+            Restriction::ShapeExtension(_) => self.boundary(
+                None,
+                ObligationKind::OutsideProviderModel,
+                "experimental type-variable shape restriction".into(),
+            )?,
+            Restriction::Unrestricted => {}
+        }
+        if let Some(ty) = default {
+            values.push((TypeRestrictionKind::Default, 0, ty));
+        }
+        for (kind, ordinal, ty) in values {
+            let term = self.term(ty, depth + 1)?;
+            let row = TypeVariableRestriction {
+                qualification: self.qualification.id(),
+                scope: self.qualification.scope,
+                variable,
+                kind,
+                ordinal,
+                term: term.id,
+            };
+            self.out.hold(&row)?;
+            self.out.restrictions.push((row, term.fidelity()));
+        }
+        Ok(())
+    }
+    fn opaque(&self, ty: &Type, variant: &str) -> TypeTerm {
+        TypeTerm::Other {
+            provider: self.provider.id(),
+            context: self.qualification.context,
+            variant: variant.into(),
+            display: ty.to_string(),
+        }
+    }
+    fn boundary(
+        &mut self,
+        subject: Option<Id<Occurrence>>,
+        reason: ObligationKind,
+        detail: String,
+    ) -> Result<(), ModelError> {
+        self.out.hold(&detail)?;
+        self.out.charge.grow(128)?;
+        self.out.boundaries.push((subject, reason, detail));
+        Ok(())
+    }
+    fn term(&mut self, ty: &Type, depth: usize) -> Result<Built, ModelError> {
+        self.work += 1;
+        let (row, mut opaque) = if depth > 32 || self.work > 100_000 {
+            (
+                TypeTerm::Truncated {
+                    provider: self.provider.id(),
+                    context: self.qualification.context,
+                    reason: ObligationKind::BudgetReached,
+                    display: ty.to_string(),
+                },
+                true,
+            )
+        } else {
+            self.build(ty, depth)?
+        };
+        opaque |= matches!(row, TypeTerm::Other { .. } | TypeTerm::Truncated { .. });
+        let built = Built {
+            id: row.id(),
+            opaque,
+        };
+        self.out.hold(&row)?;
+        self.out.terms.push(row);
+        let presentation = TypePresentation {
+            qualification: self.qualification.id(),
+            scope: self.qualification.scope,
+            term: built.id,
+            display: ty.to_string(),
+            detail: None,
+        };
+        self.out.hold(&presentation)?;
+        self.out
+            .presentations
+            .push((presentation, built.fidelity()));
+        Ok(built)
+    }
+    fn build(&mut self, ty: &Type, depth: usize) -> Result<(TypeTerm, bool), ModelError> {
+        Ok(match ty {
+            Type::Literal(lit) => match &lit.value {
+                Lit::Enum(e) => (
+                    TypeTerm::EnumLiteral {
+                        class: self.class(e.class.class_object())?,
+                        member: e.member.to_string(),
+                    },
+                    false,
+                ),
+                value @ (Lit::Str(_) | Lit::Int(_) | Lit::Bool(_) | Lit::Bytes(_)) => {
+                    let value = match value {
+                        Lit::Str(s) => Literal::String {
+                            value: s.to_string().into(),
+                        },
+                        Lit::Int(i) => Literal::Integer {
+                            decimal: i.to_string(),
+                        },
+                        Lit::Bool(b) => Literal::Bool { value: *b },
+                        Lit::Bytes(b) => Literal::Bytes {
+                            value: EvidenceBytes(b.to_vec()),
+                        },
+                        Lit::Enum(_) => unreachable!("enum handled above"),
+                    };
+                    self.out.hold(&value)?;
+                    let id = value.id();
+                    self.out.literals.push(value);
+                    (TypeTerm::Literal { value: id }, false)
+                }
+            },
+            Type::LiteralString(_) => (TypeTerm::LiteralString, false),
+            Type::Callable(c) => self.callable(c, None, depth)?,
+            Type::Function(f) => {
+                let function = self.function(&f.metadata.kind)?;
+                self.callable(&f.signature, function, depth)?
+            }
+            Type::BoundMethod(b) => {
+                let receiver = self.term(&b.obj, depth + 1)?;
+                let function = match &b.func {
+                    BoundMethodType::Function(f) => Type::Function(Box::new(f.clone())),
+                    BoundMethodType::Forall(f) => BoundMethodType::Forall(f.clone()).as_type(),
+                    BoundMethodType::Overload(o) => Type::Overload(o.clone()),
+                };
+                let function = self.term(&function, depth + 1)?;
+                (
+                    TypeTerm::BoundMethod {
+                        receiver: receiver.id,
+                        function: function.id,
+                    },
+                    receiver.opaque || function.opaque,
+                )
+            }
+            Type::Overload(o) => {
+                if let Some(function) = self.function(&o.metadata.kind)? {
+                    let signatures = o
+                        .signatures
+                        .iter()
+                        .map(|s| self.term(&s.as_type(), depth + 1))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let (signatures, opaque) =
+                        self.sequence(TypeChildRole::Signature, signatures, false)?;
+                    (
+                        TypeTerm::Overload {
+                            function,
+                            signatures,
+                        },
+                        opaque,
+                    )
+                } else {
+                    (self.opaque(ty, "unnamed_native_overload"), true)
+                }
+            }
+            Type::Union(u) => {
+                let (members, o) = self.types(&u.members, TypeChildRole::Member, depth, true)?;
+                (TypeTerm::Union { members }, o)
+            }
+            Type::Intersect(i) => {
+                let (members, o) = self.types(&i.0, TypeChildRole::Member, depth, true)?;
+                (TypeTerm::Intersection { members }, o)
+            }
+            Type::ClassDef(c) => (
+                TypeTerm::ClassObject {
+                    class: self.class(c)?,
+                },
+                false,
+            ),
+            Type::ClassType(c) | Type::SelfType(c) => {
+                let class = self.class(c.class_object())?;
+                let (arguments, o) =
+                    self.types(c.targs().as_slice(), TypeChildRole::Argument, depth, false)?;
+                (
+                    if matches!(ty, Type::SelfType(_)) {
+                        TypeTerm::SelfType { class, arguments }
+                    } else {
+                        TypeTerm::ClassInstance { class, arguments }
+                    },
+                    o,
+                )
+            }
+            Type::TypedDict(d) | Type::PartialTypedDict(d) => {
+                let partial = matches!(ty, Type::PartialTypedDict(_));
+                match d {
+                    TypedDict::TypedDict(c) => {
+                        let class = self.class(c.class_object())?;
+                        let (arguments, o) = self.types(
+                            c.targs().as_slice(),
+                            TypeChildRole::Argument,
+                            depth,
+                            false,
+                        )?;
+                        (
+                            TypeTerm::TypedDict {
+                                class,
+                                arguments,
+                                partial,
+                            },
+                            o,
+                        )
+                    }
+                    TypedDict::Anonymous(c) => {
+                        let mut slots = vec![];
+                        let mut opaque = false;
+                        for (name, field) in &c.fields {
+                            let term = self.term(&field.ty, depth + 1)?;
+                            opaque |= term.opaque;
+                            slots.push((name.to_string().into(), field.required, term.id));
+                        }
+                        (
+                            TypeTerm::AnonymousTypedDict {
+                                fields: self.dict_fields(&slots)?,
+                                partial,
+                            },
+                            opaque,
+                        )
+                    }
+                }
+            }
+            Type::Tuple(tuple) => {
+                let mut values = vec![];
+                match tuple {
+                    Tuple::Concrete(types) => {
+                        for t in types {
+                            values.push((TypeChildRole::Element, self.term(t, depth + 1)?));
+                        }
+                    }
+                    Tuple::Unbounded(t) => {
+                        values.push((TypeChildRole::Variadic, self.term(t, depth + 1)?))
+                    }
+                    Tuple::Unpacked(parts) => {
+                        for t in parts.prefix() {
+                            values.push((TypeChildRole::Element, self.term(t, depth + 1)?));
+                        }
+                        values.push((
+                            TypeChildRole::Variadic,
+                            self.term(parts.middle(), depth + 1)?,
+                        ));
+                        for t in parts.suffix() {
+                            values.push((TypeChildRole::Element, self.term(t, depth + 1)?));
+                        }
+                    }
+                };
+                let opaque = values.iter().any(|(_, t)| t.opaque);
+                let values: Vec<_> = values.into_iter().map(|(r, t)| (r, t.id)).collect();
+                let (row, members) = TypeSequence::new(&values)?;
+                self.out.hold(&row)?;
+                let elements = row.id();
+                self.out.sequences.push(row);
+                for m in members {
+                    self.out.hold(&m)?;
+                    self.out.members.push(m);
+                }
+                (TypeTerm::Tuple { elements }, opaque)
+            }
+            Type::Module(m) => {
+                let name = m
+                    .parts()
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(".");
+                (
+                    TypeTerm::Module {
+                        module: (self.resolve)(self.natives, ModuleName::from_str(&name))?,
+                    },
+                    false,
+                )
+            }
+            Type::Forall(f) => {
+                let mut parameters = vec![];
+                for q in f.tparams.as_vec() {
+                    parameters.push(self.term(&Type::Quantified(Box::new(q.clone())), depth + 1)?);
+                }
+                let (parameters, o) =
+                    self.sequence(TypeChildRole::TypeParameter, parameters, false)?;
+                let body = match &f.body {
+                    Forallable::TypeAlias(a) => Type::TypeAlias(Box::new(a.clone())),
+                    Forallable::Function(f) => Type::Function(Box::new(f.clone())),
+                    Forallable::Callable(c) => Type::Callable(Box::new(c.clone())),
+                };
+                let body = self.term(&body, depth + 1)?;
+                (
+                    TypeTerm::Generic {
+                        parameters,
+                        body: body.id,
+                    },
+                    o || body.opaque,
+                )
+            }
+            Type::Quantified(q) => {
+                let variable = self.variable(q, depth)?;
+                (
+                    match q.kind {
+                        QuantifiedKind::TypeVar | QuantifiedKind::IntVar => {
+                            TypeTerm::TypeVar { variable }
+                        }
+                        QuantifiedKind::ParamSpec => TypeTerm::ParamSpec { variable },
+                        QuantifiedKind::TypeVarTuple => TypeTerm::TypeVarTuple { variable },
+                    },
+                    false,
+                )
+            }
+            Type::QuantifiedValue(q)
+            | Type::ElementOfTypeVarTuple(q)
+            | Type::Args(q)
+            | Type::Kwargs(q)
+            | Type::ArgsValue(q)
+            | Type::KwargsValue(q) => {
+                let variable = self.variable(q, depth)?;
+                #[allow(
+                    clippy::wildcard_enum_match_arm,
+                    reason = "Outer exhaustive match restricts this branch to variable forms"
+                )]
+                let form = match ty {
+                    Type::QuantifiedValue(_) => VariableFormKind::Value,
+                    Type::ElementOfTypeVarTuple(_) => VariableFormKind::Element,
+                    Type::Args(_) => VariableFormKind::Args,
+                    Type::Kwargs(_) => VariableFormKind::Kwargs,
+                    Type::ArgsValue(_) => VariableFormKind::ArgsValue,
+                    Type::KwargsValue(_) => VariableFormKind::KwargsValue,
+                    _ => unreachable!("variable forms"),
+                };
+                (TypeTerm::VariableForm { variable, form }, false)
+            }
+            Type::TypeVar(v) => {
+                let variable = self.declaration_variable(
+                    v.qname(),
+                    variable_kind(v.kind()),
+                    v.restriction(),
+                    v.default(),
+                    depth,
+                )?;
+                (
+                    TypeTerm::VariableForm {
+                        variable,
+                        form: VariableFormKind::Value,
+                    },
+                    false,
+                )
+            }
+            Type::ParamSpec(v) => {
+                let variable = self.declaration_variable(
+                    v.qname(),
+                    TypeVariableKind::ParamSpec,
+                    &Restriction::Unrestricted,
+                    v.default(),
+                    depth,
+                )?;
+                (
+                    TypeTerm::VariableForm {
+                        variable,
+                        form: VariableFormKind::Value,
+                    },
+                    false,
+                )
+            }
+            Type::TypeVarTuple(v) => {
+                let variable = self.declaration_variable(
+                    v.qname(),
+                    TypeVariableKind::TypeVarTuple,
+                    &Restriction::Unrestricted,
+                    v.default(),
+                    depth,
+                )?;
+                (
+                    TypeTerm::VariableForm {
+                        variable,
+                        form: VariableFormKind::Value,
+                    },
+                    false,
+                )
+            }
+            Type::TypeGuard(t)
+            | Type::TypeIs(t)
+            | Type::Annotated(t, _)
+            | Type::Unpack(t)
+            | Type::Type(t)
+            | Type::TypeForm(t) => {
+                let t = self.term(t, depth + 1)?;
+                (
+                    #[allow(
+                        clippy::wildcard_enum_match_arm,
+                        reason = "Outer exhaustive match restricts this branch to unary forms"
+                    )]
+                    match ty {
+                        Type::TypeGuard(_) => TypeTerm::TypeGuard {
+                            form: GuardForm::TypeGuard,
+                            target: t.id,
+                        },
+                        Type::TypeIs(_) => TypeTerm::TypeGuard {
+                            form: GuardForm::TypeIs,
+                            target: t.id,
+                        },
+                        Type::Annotated(_, _) => TypeTerm::Annotated { target: t.id },
+                        Type::Unpack(_) => TypeTerm::Unpack { target: t.id },
+                        Type::Type(_) => TypeTerm::TypeOf { target: t.id },
+                        Type::TypeForm(_) => TypeTerm::TypeForm { target: t.id },
+                        _ => unreachable!("unary type forms"),
+                    },
+                    t.opaque,
+                )
+            }
+            Type::Concatenate(prefix, p) => {
+                let (slots, o) = self.prefix(prefix, depth)?;
+                let p = self.term(p, depth + 1)?;
+                (
+                    TypeTerm::ParamList {
+                        parameters: self.slots(&slots)?,
+                        param_spec: Some(p.id),
+                    },
+                    o || p.opaque,
+                )
+            }
+            Type::ParamSpecValue(list) => {
+                let (slots, o) = self.params(list, depth)?;
+                (
+                    TypeTerm::ParamList {
+                        parameters: self.slots(&slots)?,
+                        param_spec: None,
+                    },
+                    o,
+                )
+            }
+            Type::SpecialForm(form) => {
+                use pyrefly_types::special_form::SpecialForm as F;
+                let form = match form {
+                    F::Annotated => TypingForm::Annotated,
+                    F::Callable => TypingForm::Callable,
+                    F::ClassVar => TypingForm::ClassVar,
+                    F::Concatenate => TypingForm::Concatenate,
+                    F::Final => TypingForm::Final,
+                    F::Generic => TypingForm::Generic,
+                    F::Literal => TypingForm::Literal,
+                    F::LiteralString => TypingForm::LiteralString,
+                    F::Never => TypingForm::Never,
+                    F::NoReturn => TypingForm::NoReturn,
+                    F::NotRequired => TypingForm::NotRequired,
+                    F::Optional => TypingForm::Optional,
+                    F::Protocol => TypingForm::Protocol,
+                    F::ReadOnly => TypingForm::ReadOnly,
+                    F::Required => TypingForm::Required,
+                    F::SelfType => TypingForm::SelfType,
+                    F::Tuple => TypingForm::Tuple,
+                    F::Type => TypingForm::Type,
+                    F::TypeAlias => TypingForm::TypeAlias,
+                    F::TypeForm => TypingForm::TypeForm,
+                    F::TypeGuard => TypingForm::TypeGuard,
+                    F::TypeIs => TypingForm::TypeIs,
+                    F::TypedDict => TypingForm::TypedDict,
+                    F::Union => TypingForm::Union,
+                    F::Unpack => TypingForm::Unpack,
+                };
+                (TypeTerm::SpecialForm { form }, false)
+            }
+            Type::Ellipsis => (
+                TypeTerm::SpecialForm {
+                    form: TypingForm::Ellipsis,
+                },
+                false,
+            ),
+            Type::Any(style) => (
+                TypeTerm::Any {
+                    flavor: match style {
+                        AnyStyle::Explicit => AnyFlavor::Explicit,
+                        AnyStyle::Implicit => AnyFlavor::Implicit,
+                        AnyStyle::Error => AnyFlavor::Error,
+                    },
+                },
+                false,
+            ),
+            Type::Never(style) => (
+                TypeTerm::Never {
+                    flavor: match style {
+                        NeverStyle::NoReturn => NeverFlavor::NoReturn,
+                        NeverStyle::Never => NeverFlavor::Never,
+                    },
+                },
+                false,
+            ),
+            Type::None => (TypeTerm::None, false),
+            Type::TypeAlias(alias) | Type::UntypedAlias(alias) => {
+                let untyped = matches!(ty, Type::UntypedAlias(_));
+                match alias.as_ref() {
+                    TypeAliasData::Value(v) => {
+                        let t = self.term(&v.as_type(), depth + 1)?;
+                        (
+                            TypeTerm::TypeAlias {
+                                name: v.name.to_string(),
+                                untyped,
+                                target: t.id,
+                            },
+                            t.opaque,
+                        )
+                    }
+                    TypeAliasData::Ref(r) => {
+                        let module = (self.resolve)(self.natives, r.module_name)?;
+                        let (arguments, o) = self.types(
+                            r.args.as_ref().map_or(&[], |a| a.as_slice()),
+                            TypeChildRole::Argument,
+                            depth,
+                            false,
+                        )?;
+                        (
+                            TypeTerm::TypeAliasReference {
+                                module,
+                                name: r.name.to_string(),
+                                untyped,
+                                arguments,
+                            },
+                            o,
+                        )
+                    }
+                }
+            }
+            Type::CallableResidual(_) => (self.opaque(ty, "callable_residual"), true),
+            Type::TypeLevelDslCall(_) => (self.opaque(ty, "type_level_dsl_call"), true),
+            Type::ShapedArray(_) => (self.opaque(ty, "shaped_array"), true),
+            Type::IntTuple(_) => (self.opaque(ty, "int_tuple"), true),
+            Type::NNModule(_) => (self.opaque(ty, "nn_module"), true),
+            Type::DataFrame(_) => (self.opaque(ty, "data_frame"), true),
+            Type::Series(_) => (self.opaque(ty, "series"), true),
+            Type::Int(_) => (self.opaque(ty, "int"), true),
+            Type::Var(_) => (self.opaque(ty, "var"), true),
+            Type::Sentinel(_) => (self.opaque(ty, "sentinel"), true),
+            Type::SuperInstance(_) => (self.opaque(ty, "super_instance"), true),
+            Type::KwCall(_) => (self.opaque(ty, "kw_call"), true),
+            Type::Materialization => (self.opaque(ty, "materialization"), true),
+        })
+    }
+    fn observe(
+        &mut self,
+        subject: Id<Occurrence>,
+        role: TypeRole,
+        declared: bool,
+        ty: &Type,
+    ) -> Result<(), ModelError> {
+        let term = self.term(ty, 0)?;
+        let row = TypeObservation {
+            qualification: self.qualification.id(),
+            subject,
+            role,
+            declared,
+            term: term.id,
+        };
+        self.out.hold(&row)?;
+        self.out.observations.push((row, term.fidelity()));
+        if term.opaque {
+            self.boundary(
+                Some(subject),
+                ObligationKind::OutsideProviderModel,
+                "type closure includes display-only or bounded structure".into(),
+            )?;
+        }
+        Ok(())
+    }
+}
+
+/// Types from the same retained session and occurrence inventory as syntax and calls.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Shared generated contracts and fixtures require this scoped exception"
+)]
+#[allow(
+    clippy::type_complexity,
+    reason = "Native provider callbacks borrow the current module session"
+)]
+pub fn records<'a>(
+    context: &'a ModuleContext<'a>,
+    qualification: &'a AssertionQualification,
+    provider: &'a Provider,
+    natives: &'a mut Natives,
+    resolve: &'a mut ResolveModule<'_>,
+    syntax: &Syntax,
+    spans: &Spans,
+    solutions: Option<&pyrefly::alt::answers::Solutions>,
+    budget: &ResourceBudget,
+    module_context: &mut dyn FnMut(
+        &Class,
+    )
+        -> Option<pyrefly::report::pysa::context::ModuleAnswersContext>,
+    field_occurrence: &mut dyn FnMut(
+        &Class,
+        ruff_text_size::TextRange,
+    ) -> Result<Option<Id<Occurrence>>, ModelError>,
+) -> Result<Records, ModelError> {
+    use pyrefly::{
+        binding::binding::{Key, KeyAnnotation, KeyClassMetadata},
+        report::pysa::{
+            class::{
+                get_all_classes, get_class_field_declaration,
+                get_class_field_from_current_class_only, get_class_mro,
+            },
+            function::get_all_decorated_functions,
+        },
+    };
+    use pyrefly_types::function::BodyKind;
+    let ctx = &context.answers_context;
+    let mut b = Builder {
+        context,
+        qualification,
+        provider,
+        natives,
+        resolve,
+        out: Records::new(budget),
+        variables: BTreeSet::new(),
+        work: 0,
+    };
+    for f in get_all_decorated_functions(ctx) {
+        let name = spans
+            .get(f.undecorated.identifier.range(), SyntaxKind::Identifier)
+            .ok();
+        let declaration = name.and_then(|name| {
+            syntax
+                .declarations
+                .iter()
+                .find(|d| d.name == name)
+                .map(|d| d.declaration)
+        });
+        let Some(declaration) = declaration else {
+            b.boundary(
+                None,
+                ObligationKind::AttachmentUnmatched,
+                "typed def has no exact declaration name".into(),
+            )?;
+            continue;
+        };
+        let flags = &f.undecorated.metadata.flags;
+        let body = match flags.body_kind {
+            BodyKind::RaiseNotImplementedError => FunctionBodyKind::RaiseNotImplementedError,
+            BodyKind::ReturnNotImplemented => FunctionBodyKind::ReturnNotImplemented,
+            BodyKind::Ellipsis => FunctionBodyKind::Ellipsis,
+            BodyKind::Trivial => FunctionBodyKind::Trivial,
+            BodyKind::Other => FunctionBodyKind::Other,
+        };
+        let row = FunctionBodyObservation {
+            qualification: qualification.id(),
+            declaration,
+            body,
+            abstract_method: flags.is_abstract_method,
+            in_protocol_class: flags.is_in_protocol_class,
+            in_type_checking_block: flags.is_in_type_checking_block,
+            overload: flags.is_overload,
+        };
+        b.out.hold(&row)?;
+        b.out.bodies.push(row);
+        for (ordinal, p) in f.undecorated.params.iter().enumerate() {
+            let parameter = syntax
+                .parameters
+                .iter()
+                .find(|p| p.function == declaration && p.ordinal == ordinal as i64);
+            if let Some(parameter) = parameter {
+                let subject = syntax
+                    .formals
+                    .iter()
+                    .find(|(p, _)| *p == parameter.parameter)
+                    .map(|(_, formal)| *formal)
+                    .ok_or_else(|| invalid("typed parameter has no formal occurrence"))?;
+                b.observe(
+                    subject,
+                    TypeRole::Parameter,
+                    parameter.annotation.is_some(),
+                    p.as_type(),
+                )?;
+            } else {
+                b.boundary(
+                    Some(declaration),
+                    ObligationKind::MissingEvidence,
+                    format!("native parameter {ordinal} has no syntax parameter"),
+                )?;
+            }
+        }
+        let annotated = ctx
+            .answers
+            .get_annotation(
+                &ctx.bindings,
+                &KeyAnnotation::ReturnAnnotation(f.undecorated.identifier),
+            )
+            .and_then(|a| a.ty.clone());
+        if let Some(ty) = annotated {
+            b.observe(declaration, TypeRole::Return, true, &ty)?;
+        } else {
+            let idx = ctx
+                .bindings
+                .key_to_idx(&Key::ReturnType(f.undecorated.identifier));
+            if let Some(ty) = ctx.answers.get_type_at(idx) {
+                b.observe(declaration, TypeRole::Return, false, &ty)?;
+            } else {
+                b.boundary(
+                    Some(declaration),
+                    ObligationKind::MissingEvidence,
+                    "native return type unavailable".into(),
+                )?;
+            }
+        }
+    }
+    for (call, arguments) in &syntax.calls {
+        if call.in_annotation {
+            continue;
+        }
+        b.trace(call.site, TypeRole::CallResult, spans.range_of(call.site))?;
+        for argument in arguments {
+            b.trace(
+                argument.value,
+                TypeRole::Argument,
+                spans.range_of(argument.value),
+            )?;
+        }
+    }
+    let mut nodes: Vec<_> = spans.nodes().collect();
+    nodes.sort_by_key(|(id, _)| *id);
+    for (node, kind) in nodes {
+        if let Some((parent, SyntaxField::Exc)) = spans.parent(node) {
+            b.trace(parent, TypeRole::Raised, spans.range_of(node))?;
+        }
+        if matches!(
+            kind,
+            SyntaxKind::ExprName | SyntaxKind::ExprAttribute | SyntaxKind::ExprSubscript
+        ) {
+            let mut parent = node;
+            let mut test = false;
+            for _ in 0..256 {
+                let Some((owner, field)) = spans.parent(parent) else {
+                    break;
+                };
+                if field == SyntaxField::Test {
+                    test = true;
+                    break;
+                }
+                parent = owner;
+            }
+            if test {
+                b.trace(node, TypeRole::TestOperand, spans.range_of(node))?;
+            }
+        }
+    }
+    if let Some(solutions) = solutions {
+        for class in get_all_classes(ctx) {
+            let metadata = solutions.get(&KeyClassMetadata(class.index()));
+            let (record, names): (RecordKind, Vec<(String, Option<bool>)>) =
+                if let Some(td) = metadata.typed_dict_metadata() {
+                    (
+                        RecordKind::TypedDict,
+                        td.fields
+                            .iter()
+                            .map(|(n, total)| (n.to_string(), Some(*total)))
+                            .collect(),
+                    )
+                } else if let Some(nt) = metadata.named_tuple_metadata() {
+                    (
+                        RecordKind::NamedTuple,
+                        nt.elements.iter().map(|n| (n.to_string(), None)).collect(),
+                    )
+                } else if let Some(dm) = metadata.dataclass_metadata() {
+                    let kind = if metadata.is_pydantic_model() {
+                        RecordKind::Pydantic
+                    } else {
+                        match &dm.kind {
+                            pyrefly::alt::types::class_metadata::DataclassKind::Attrs {
+                                ..
+                            } => RecordKind::Attrs,
+                            pyrefly::alt::types::class_metadata::DataclassKind::Dataclass {
+                                ..
+                            } => RecordKind::Dataclass,
+                        }
+                    };
+                    (
+                        kind,
+                        dm.instance_fields()
+                            .map(|n| (n.to_string(), None))
+                            .collect(),
+                    )
+                } else {
+                    continue;
+                };
+            let native_class = b.class(&class)?;
+            let mut ordinal = 0;
+            for (name, total) in names {
+                let pname = ruff_python_ast::name::Name::new(&name);
+                // A method assignment does not redeclare an inherited record field. Walk the
+                // native MRO in order, keeping the declaring class's source as a referent.
+                let classes = std::iter::once(&class).chain(
+                    get_class_mro(&class, ctx)
+                        .ancestors_no_object()
+                        .iter()
+                        .map(|c| c.class_object()),
+                );
+                let mut found = None;
+                for declaring in classes {
+                    let foreign = if declaring.module() == &ctx.module_info {
+                        None
+                    } else {
+                        module_context(declaring)
+                    };
+                    let declaring_ctx = if declaring.module() == &ctx.module_info {
+                        ctx
+                    } else {
+                        let Some(foreign) = foreign.as_ref() else {
+                            continue;
+                        };
+                        foreign
+                    };
+                    if get_class_field_declaration(declaring,&pname,declaring_ctx).is_some_and(|d| matches!(d.definition,pyrefly::binding::binding::ClassFieldDefinition::DefinedInMethod { .. })) { continue; }
+                    if let Some(field) =
+                        get_class_field_from_current_class_only(declaring, &pname, declaring_ctx)
+                    {
+                        let range = declaring_ctx
+                            .bindings
+                            .metadata()
+                            .get_class(declaring.index())
+                            .fields
+                            .field_decl_range(&pname);
+                        let declaration = match range {
+                            Some(range) if declaring.module() == &ctx.module_info => {
+                                spans.event(range, Some(SyntaxKind::ExprName))
+                            }
+                            Some(range) => field_occurrence(declaring, range)?,
+                            None => None,
+                        };
+                        // The field and heap travel together; its type remains a native reference,
+                        // while inherited declarations refer to the captured declaring artifact.
+                        found = Some((field.clone(), declaring_ctx.answers.clone(), declaration));
+                        break;
+                    }
+                }
+                let Some((field, answers, declaration)) = found else {
+                    b.boundary(
+                        None,
+                        ObligationKind::NativeUnavailable,
+                        format!("record field {name} has no retained native field"),
+                    )?;
+                    continue;
+                };
+                let term = b.term(&field.ty(), 0)?;
+                let (has_default, init, alias, kw_only, required, read_only) = match record {
+                    RecordKind::Dataclass | RecordKind::Attrs | RecordKind::Pydantic => {
+                        let flags = field.dataclass_flags_of(answers.heap());
+                        (
+                            Some(flags.default.is_some()),
+                            Some(flags.init),
+                            flags.init_by_alias.as_ref().map(ToString::to_string),
+                            flags.kw_only,
+                            None,
+                            None,
+                        )
+                    }
+                    RecordKind::NamedTuple => (
+                        Some(!required(&field.as_named_tuple_requiredness())),
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                    ),
+                    RecordKind::TypedDict => {
+                        let info = field.as_typed_dict_field_info(total.unwrap_or(true));
+                        (
+                            None,
+                            None,
+                            None,
+                            None,
+                            info.as_ref().map(|i| i.required),
+                            info.as_ref().map(|i| i.read_only_reason.is_some()),
+                        )
+                    }
+                };
+                let row = RecordFieldObservation {
+                    qualification: qualification.id(),
+                    class: native_class,
+                    name: name.into(),
+                    record,
+                    ordinal,
+                    term: term.id,
+                    declared: field.has_explicit_annotation(),
+                    declaration,
+                    has_default,
+                    init,
+                    alias,
+                    kw_only,
+                    required,
+                    read_only,
+                };
+                b.out.hold(&row)?;
+                b.out.fields.push((row, term.fidelity()));
+                ordinal += 1;
+            }
+        }
+    } else {
+        b.boundary(
+            None,
+            ObligationKind::NativeUnavailable,
+            "native record solutions unavailable".into(),
+        )?;
+    }
+    Ok(b.out)
+}
+impl Builder<'_, '_> {
+    fn trace(
+        &mut self,
+        subject: Id<Occurrence>,
+        role: TypeRole,
+        range: Option<ruff_text_size::TextRange>,
+    ) -> Result<(), ModelError> {
+        match range.and_then(|range| self.context.answers_context.answers.get_type_trace(range)) {
+            Some(ty) => self.observe(subject, role, false, &ty),
+            None => self.boundary(
+                Some(subject),
+                ObligationKind::MissingEvidence,
+                format!("native type trace unavailable for {role:?}"),
+            ),
+        }
+    }
+}

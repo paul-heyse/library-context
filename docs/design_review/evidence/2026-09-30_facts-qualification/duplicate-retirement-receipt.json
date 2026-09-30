@@ -1,0 +1,20 @@
+{
+  "date": "2026-09-30",
+  "reason": "Final documentation rerun encountered full root filesystem. Behavioral repeat duplicates already measured and confirmed content, with no remaining runtime consumer.",
+  "inventory": "raw/generations.stdout; raw/final-generation-sizes.stdout",
+  "generation": "794554675593cfccb31b71b606460ff6",
+  "size_bytes": 2399879168,
+  "preconditions": {
+    "published_facts": true,
+    "selected": false,
+    "readers": 0,
+    "writer": "ended",
+    "same_content_as_primary_behavioral": true
+  },
+  "command": "target/release/lctx generation retire 794554675593cfccb31b71b606460ff6",
+  "outcome": "passed",
+  "retirement": "Removed",
+  "store_check": "passed",
+  "remaining_inventory": "raw/generations-final.json",
+  "preserved": "Catalog and primary behavioral facts generations, pinned acquisition, shared build cache, backups and benchmarks"
+}

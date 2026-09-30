@@ -1,51 +1,25 @@
-# Operator database transition rehearsal (cutover plan P1.13)
+# Operator database transition — completed 2026-09-30
 
-**Consumer:** plan §4.1.1 row P1.13 and §4.2; `scripts/postgres_transition.py`.
+**Consumer:** semantic-model cutover plan P1.13. This is dated execution evidence.
 
-**Question.** Does the transition move the operator database, which carries the pre-baseline
-migration history, onto the service baseline without losing its retained service rows?
+`cargo build --release -p lctx` passed through the normalized build environment. The disposable
+PG18 rehearsal restored the operator schema dump, refused legacy installation, prepared and
+switched successfully, and passed `store check` and `runs list`. The real database had no active
+connections before transition. The protected administrative configuration supplied authorized
+superuser access without using that role in product configuration.
 
-## The operator database (read-only `plan`, 2026-09-29)
+`uv run --locked python scripts/postgres_transition.py plan|prepare|switch|drop-retired`
+all passed on 2026-09-30 (the retired one-use tool is recoverable from Git).
+The four retained service tables had zero rows and identical fingerprints before preparation,
+after copying and after switching. The real archive `lctx_retired_20260930071346` was dropped
+after verification. The new database carries the service baseline and generated semantic store;
+legacy report/serving schemas were left in the removed archive.
 
-- Database `lctx`, 845 MB, with no connections.
-- Migration history 202609270001–202609280012: 12 legacy versions.
-- Retained service tables `lctx_cache.specs`, `lctx_cache.embedding_values`, `lctx_ops.attempts`
-  and `lctx_ops.events`: **0 rows each**. The fingerprint is the empty digest
-  `d41d8cd98f00b204e9800998ecf8427e`.
-- Left behind in the archive: `lctx_report` (empty) and `lctx_serving` (about 1 GB of pilot
-  projections, dormant until cutover phase 5).
+The protected retained-service backup is
+`build/backups/2026-09-30_retained-services/retained-services.dump` (22,812 bytes, mode 0600).
+It contains the retained services only. The transition utility, its disposable legacy-shape test
+and its rehearsal script were removed after their last execution.
 
-## Rehearsal (`rehearse.py`, 2026-09-29, HEAD c65c0c7)
-
-1. The operator database was dumped by its owner, which is read-only on the source: the retained
-   services, `lctx_report` and `public._sqlx_migrations` with their rows, and `lctx_serving`
-   schema-only (286 KB in all).
-2. The dump was restored into a disposable pinned PG18 provisioned by the real bootstrap SQL.
-3. The transition ran against the release `lctx` at c65c0c7.
-
-| Step | Outcome |
-|---|---|
-| `lctx store install` on the legacy database | refused, exit 1 (legacy history) |
-| `plan` | exit 0; legacy history reported; `lctx_serving` left behind |
-| `prepare` | exit 0: `lctx_next` created, `store install` ran there, retained rows copied, fingerprints equal |
-| `switch --confirm-switch lctx` | exit 0: archive `lctx_retired_20260930001329`; retained fingerprints equal |
-| `lctx store check` on the switched database | exit 0 (clean) |
-| `lctx runs list` | exit 0 |
-
-Evidence status: **Tested** on a disposable copy. The integrated control is
-`tests/scripts/test_postgres_transition.py`, which uses a legacy shape with rows.
-
-## The real run
-
-It is **blocked** on PostgreSQL superuser access. `prepare` creates a database and `switch` renames
-two, and this session's `sudo -u postgres` needs a password. The operator authorized the
-transition. The operator runs, in a terminal where sudo can prompt:
-
-```sh
-uv run python scripts/postgres_transition.py plan
-uv run python scripts/postgres_transition.py prepare --port 5432
-uv run python scripts/postgres_transition.py switch --confirm-switch lctx
-target/release/lctx store check && target/release/lctx runs list
-# later, separately:
-uv run python scripts/postgres_transition.py drop-retired --confirm-drop lctx_retired_<stamp>
-```
+[Structured receipt](receipt_2026-09-30.json) records the current rehearsal and real commands.
+The older receipt remains dated historical evidence while this phase finding consumes the folder.
+This transition does not qualify remaining producer, facts admission or product behavior.

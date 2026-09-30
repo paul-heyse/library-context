@@ -2,17 +2,23 @@
 //! application configuration (`postgres.json`); otherwise `LCTX_DATABASE_CONFIG`, then
 //! `~/.config/library-context/postgres.json`. Its sibling files select the roles:
 //! `postgres-admin.json` the service owner, `postgres-serving.json` the reader.
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use cpg_core::postgres::{Config, OwnerPool, Store, roles::RoleConfig};
 use lctx_model::domain::ValidatedModel;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-pub struct Database { path: PathBuf }
+pub struct Database {
+    path: PathBuf,
+}
 impl Database {
     pub fn discover(explicit: Option<&Path>) -> anyhow::Result<Self> {
-        Ok(Self { path: Config::path(explicit)? })
+        Ok(Self {
+            path: Config::path(explicit)?,
+        })
     }
-    fn config(&self) -> anyhow::Result<Config> { Ok(Config::load(&self.path)?) }
+    fn config(&self) -> anyhow::Result<Config> {
+        Ok(Config::load(&self.path)?)
+    }
     /// The verified service owner, through `postgres-admin.json`.
     pub async fn owner(&self) -> anyhow::Result<OwnerPool> {
         Ok(self.config()?.connect_migrator().await?.owner().await?)
@@ -27,7 +33,17 @@ impl Database {
     }
     /// The reader's protected configuration, `postgres-serving.json`.
     pub fn serving(&self) -> anyhow::Result<RoleConfig> {
-        Ok(RoleConfig::load(&self.path.with_file_name("postgres-serving.json"))?)
+        Ok(RoleConfig::load(
+            &self.path.with_file_name("postgres-serving.json"),
+        )?)
+    }
+    /// The facts generation writer's protected configuration.
+    pub async fn writer(&self) -> anyhow::Result<sqlx::PgPool> {
+        let config = RoleConfig::load(&self.path.with_file_name("postgres-importer.json"))?;
+        if config.role != cpg_core::postgres::roles::Role::Importer {
+            anyhow::bail!("facts writer requires importer credentials");
+        }
+        Ok(config.connect().await?)
     }
     pub async fn reader(&self) -> anyhow::Result<sqlx::PgPool> {
         Ok(self.serving()?.connect().await?)

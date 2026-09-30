@@ -48,11 +48,23 @@ fn relations() -> Vec<(&'static str, Relation)> {
         out.extend(relations.into_iter().map(|r| (module, r)));
     };
     add("cpg_schema::public", cpg_schema::public::all());
-    add("cpg_schema::public::candidates", cpg_schema::public::candidate_relations());
-    add("cpg_schema::public::members", cpg_schema::public::member_relations());
+    add(
+        "cpg_schema::public::candidates",
+        cpg_schema::public::candidate_relations(),
+    );
+    add(
+        "cpg_schema::public::members",
+        cpg_schema::public::member_relations(),
+    );
     add("cpg_schema::behavior", cpg_schema::behavior::all());
-    add("cpg_schema::behavior::boundaries", cpg_schema::behavior::boundaries());
-    add("cpg_schema::behavior::open_reads", cpg_schema::behavior::open_reads());
+    add(
+        "cpg_schema::behavior::boundaries",
+        cpg_schema::behavior::boundaries(),
+    );
+    add(
+        "cpg_schema::behavior::open_reads",
+        cpg_schema::behavior::open_reads(),
+    );
     add("cpg_core::catalog", cpg_core::catalog::relations());
     add("cpg_core::entry_links", cpg_core::entry_links::relations());
     add("cpg_core::behavior", cpg_core::behavior::relations());
@@ -69,7 +81,10 @@ async fn every_relation_declares_exactly_what_it_scans() {
     let ctx = session();
     let mut report = Vec::new();
     for (module, relation) in relations() {
-        let plan = ctx.sql(&relation.sql).await.map(|df| df.logical_plan().clone());
+        let plan = ctx
+            .sql(&relation.sql)
+            .await
+            .map(|df| df.logical_plan().clone());
         let plan = match plan {
             Ok(plan) => plan,
             Err(e) => {
@@ -108,7 +123,15 @@ async fn derived_tables_scan_only_raw_and_earlier_derived_tables() {
             .filter(|t| !raw.contains(t.as_str()) && !earlier.contains(*t))
             .cloned()
             .collect();
-        report.push(format!("{name}: {} scans{}", scanned.len(), if late.is_empty() { String::new() } else { format!(", reads before written: {late:?}") }));
+        report.push(format!(
+            "{name}: {} scans{}",
+            scanned.len(),
+            if late.is_empty() {
+                String::new()
+            } else {
+                format!(", reads before written: {late:?}")
+            }
+        ));
         earlier.insert(name.to_owned());
     }
     insta::assert_debug_snapshot!(report);

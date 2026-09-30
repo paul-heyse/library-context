@@ -1,52 +1,69 @@
 //! Typed domain authority. Physical layouts are lowerings of these definitions (ADR-0085).
-mod identity;
-mod ownership;
-mod model;
-mod record;
-pub mod source;
-pub mod lexical;
+pub mod admission;
+pub mod artifact;
+pub mod assertion;
+pub mod attachment;
+pub mod attribution;
+pub mod batching;
+pub mod calls;
+pub mod charged;
+pub mod composition;
+pub mod conditions;
+pub mod declarations;
+pub mod deployment;
+pub mod derivation;
 pub mod documents;
 pub mod flow;
-pub mod types;
-pub mod deployment;
-pub mod calls;
-pub mod declarations;
+mod identity;
+pub mod input;
+pub mod lexical;
+pub mod memory;
+mod model;
+pub mod obligation;
+pub mod occurrence_owner;
+mod ownership;
+pub mod place_composition;
+mod record;
+pub mod resources;
+pub mod source;
+pub mod stages;
 pub mod symbols;
 pub mod syntax;
 pub mod transfer;
-pub mod derivation;
-pub mod artifact;
+pub mod types;
 pub mod value;
-pub mod place_composition;
-pub mod conditions;
-pub mod assertion;
-pub mod input;
-pub mod attribution;
-pub mod attachment;
-pub mod stages;
-pub mod resources;
-pub mod batching;
-pub mod charged;
-pub mod memory;
-pub mod occurrence_owner;
-pub mod composition;
-pub mod obligation;
-pub mod admission;
 
-pub use identity::{ArmId, ContentHash, ContentHasher, EvidenceBytes, Id, Key, KeySink};
-pub use model::{Invariant, InvariantCheck, ValidationInput, Relation, RelationContent, ValidatedModel};
-pub use record::{Arm, ArmField, Sum, SumRecord, Batch, Codebook, Field, FieldValue, FlatValue, HeapSize, Record, Scalar};
+pub use identity::{ArmId, ContentHash, ContentHasher, EvidenceBytes, Id, Key, KeySink, Utf8Text};
+pub use model::{
+    Invariant, InvariantCheck, Relation, RelationContent, ValidatedModel, ValidationInput,
+};
+pub use record::{
+    Arm, ArmField, Batch, Codebook, Field, FieldValue, FlatValue, HeapSize, Record, Scalar, Sum,
+    SumRecord,
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ModelError {
-    #[error("{owner} memory reservation refused: requested {requested} bytes with {used}/{limit} reserved")]
-    Resource { owner: &'static str, requested: usize, used: usize, limit: usize },
+    #[error(
+        "{owner} memory reservation refused: requested {requested} bytes with {used}/{limit} reserved"
+    )]
+    Resource {
+        owner: &'static str,
+        requested: usize,
+        used: usize,
+        limit: usize,
+    },
     #[error("invalid model: {0}")]
     Invalid(String),
     /// A declared operational ceiling refused an input: a row, read or transfer larger than its
     /// bound. Producers turn it into `ResourceRefused` coverage; it is never an invalid model.
     #[error("{owner} {limit} limit refused {observed} (bound {bound})")]
-    Limit { owner: &'static str, limit: &'static str, observed: usize, bound: usize },
+    Limit {
+        owner: &'static str,
+        limit: &'static str,
+        observed: usize,
+        bound: usize,
+    },
     /// A request outside the generation's frontier, or a schedule or coverage that cannot be
     /// admitted to it.
     #[error("frontier: {0}")]
@@ -63,11 +80,21 @@ pub enum ModelError {
     /// is what a caller acts on: a transport loss or an unconfirmed commit interrupts the attempt,
     /// a refusal or conflict is reported, never retried as if it were a codec defect.
     #[error("{class:?} infrastructure failure: {detail}")]
-    Infrastructure { class: Infrastructure, detail: String },
+    Infrastructure {
+        class: Infrastructure,
+        detail: String,
+    },
 }
 impl ModelError {
-    pub fn codec(error: impl std::fmt::Display) -> Self { Self::Codec(error.to_string()) }
-    pub fn infrastructure(class: Infrastructure, error: impl std::fmt::Display) -> Self { Self::Infrastructure { class, detail: error.to_string() } }
+    pub fn codec(error: impl std::fmt::Display) -> Self {
+        Self::Codec(error.to_string())
+    }
+    pub fn infrastructure(class: Infrastructure, error: impl std::fmt::Display) -> Self {
+        Self::Infrastructure {
+            class,
+            detail: error.to_string(),
+        }
+    }
 }
 /// The class of an infrastructure failure.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -168,95 +195,213 @@ pub fn model() -> Result<ValidatedModel, ModelError> {
 pub fn analysis_relations() -> Vec<Relation> {
     use transfer::*;
     vec![
-        Relation::of::<TransferKey>(), Relation::of::<TransferAlternative>(), Relation::of::<TransferSupport>(),
-        Relation::of::<ControlInfluence>(), Relation::of::<ControlSupport>(), Relation::of::<Selection>(),
-        Relation::of::<conditions::stability::StabilityWitness>(), Relation::of::<conditions::stability::GuardSubstitution>(),
+        Relation::of::<TransferKey>(),
+        Relation::of::<TransferAlternative>(),
+        Relation::of::<TransferSupport>(),
+        Relation::of::<ControlInfluence>(),
+        Relation::of::<ControlSupport>(),
+        Relation::of::<Selection>(),
+        Relation::of::<conditions::stability::StabilityWitness>(),
+        Relation::of::<conditions::stability::GuardSubstitution>(),
         Relation::of::<composition::CallCompositionStep>(),
     ]
 }
 /// The relations a facts generation publishes: inputs, attribution and coverage, provider
 /// observations and the vocabulary they use (cutover phases 0–2).
 pub fn facts_relations() -> Vec<Relation> {
-    use input::*;
+    use assertion::*;
     use attribution::*;
-    use source::*;
-    use lexical::*;
+    use calls::*;
+    use conditions::*;
+    use deployment::*;
     use documents::*;
     use flow::*;
+    use input::*;
+    use lexical::*;
+    use source::*;
     use types::*;
-    use deployment::*;
     use value::*;
-    use conditions::*;
-    use assertion::*;
-    use calls::*;
     vec![
-        Relation::of::<ReportCollection>(), Relation::of::<ReportValue>(), Relation::of::<ReportEntry>(),
-        Relation::of::<ReportedEnvironment>(), Relation::of::<TaskReport>(), Relation::of::<TaskReportObservation>(), Relation::of::<TaskReportSupport>(),
-        Relation::of::<DeploymentObservation>(), Relation::of::<DeploymentSupport>(),
-        Relation::of::<TypeVariable>(), Relation::of::<TypeTerm>(), Relation::of::<TypeSequence>(), Relation::of::<TypeSequenceMember>(),
-        Relation::of::<CallableParameterList>(), Relation::of::<CallableParameter>(),
-        Relation::of::<FunctionBodyObservation>(), Relation::of::<FunctionBodySupport>(),
-        Relation::of::<RecordFieldObservation>(), Relation::of::<RecordFieldSupport>(),
-        Relation::of::<TypeObservation>(), Relation::of::<TypeSupport>(), Relation::of::<TypePresentation>(), Relation::of::<TypePresentationSupport>(),
-        Relation::of::<TypeVariableRestriction>(), Relation::of::<TypeRestrictionSupport>(),
-        Relation::of::<FlowUse>(), Relation::of::<FlowDefinition>(), Relation::of::<ReachingDefinition>(),
-        Relation::of::<FlowUseObservation>(), Relation::of::<FlowUseSupport>(),
-        Relation::of::<FlowDefinitionObservation>(), Relation::of::<FlowDefinitionSupport>(),
-        Relation::of::<FlowReachingObservation>(), Relation::of::<FlowReachingSupport>(),
-        Relation::of::<FlowValueObservation>(), Relation::of::<FlowValueSupport>(),
-        Relation::of::<FlowRegionObservation>(), Relation::of::<FlowRegionSupport>(),
-        Relation::of::<DocumentNode>(), Relation::of::<DocumentAttributeValue>(),
-        Relation::of::<DocumentObservation>(), Relation::of::<DocumentSupport>(),
-        Relation::of::<PassageObservation>(), Relation::of::<PassageSupport>(),
-        Relation::of::<CodeBlockObservation>(), Relation::of::<CodeBlockSupport>(),
-        Relation::of::<DocumentLinkObservation>(), Relation::of::<DocumentLinkSupport>(),
-        Relation::of::<DocumentMentionObservation>(), Relation::of::<DocumentMentionSupport>(),
-        Relation::of::<DocumentComponentObservation>(), Relation::of::<DocumentComponentSupport>(),
-        Relation::of::<DocumentAttributeObservation>(), Relation::of::<DocumentAttributeSupport>(),
-        Relation::of::<LexicalScope>(), Relation::of::<BindingEvent>(), Relation::of::<LexicalTarget>(),
-        Relation::of::<LexicalScopeObservation>(), Relation::of::<LexicalScopeSupport>(),
-        Relation::of::<BindingObservation>(), Relation::of::<BindingSupport>(),
-        Relation::of::<ReferenceObservation>(), Relation::of::<ReferenceSupport>(),
-        Relation::of::<LexicalResolution>(), Relation::of::<LexicalResolutionSupport>(),
-        Relation::of::<ProviderModule>(), Relation::of::<ProviderSymbol>(), Relation::of::<ParameterShape>(), Relation::of::<Signature>(),
-        Relation::of::<SignatureParameter>(), Relation::of::<SignatureSupport>(),
-        Relation::of::<CallChannel>(), Relation::of::<CallDestination>(), Relation::of::<Receiver>(),
-        Relation::of::<CallOrigin>(), Relation::of::<CallOriginStep>(),
-        Relation::of::<ProviderCallSite>(), Relation::of::<ProviderCallSiteSupport>(),
-        Relation::of::<CallTarget>(), Relation::of::<CallTargetSupport>(),
-        Relation::of::<CallResolution>(), Relation::of::<CallResolutionMember>(), Relation::of::<CallResolutionSupport>(),
-        Relation::of::<CallSyntax>(), Relation::of::<CallSyntaxSupport>(), Relation::of::<CallArgument>(),
-        Relation::of::<syntax::SyntaxPlacement>(), Relation::of::<syntax::SyntaxPlacementSupport>(), Relation::of::<syntax::SyntaxDetail>(),
-        Relation::of::<syntax::SyntaxDetailObservation>(), Relation::of::<syntax::SyntaxDetailSupport>(),
-        Relation::of::<syntax::DeclarationObservation>(), Relation::of::<syntax::DeclarationSupport>(),
-        Relation::of::<syntax::DeclarationDecorator>(), Relation::of::<syntax::DeclarationDecoratorSupport>(),
-        Relation::of::<syntax::ImportAliasObservation>(), Relation::of::<syntax::ImportAliasSupport>(),
-        Relation::of::<syntax::DunderAllObservation>(), Relation::of::<syntax::DunderAllSupport>(),
-        Relation::of::<syntax::ParameterSyntaxObservation>(), Relation::of::<syntax::ParameterSyntaxSupport>(),
-        Relation::of::<syntax::ClassFieldSyntaxObservation>(), Relation::of::<syntax::ClassFieldSyntaxSupport>(),
-        Relation::of::<syntax::SubjectBoundary>(), Relation::of::<syntax::AttachmentOutcome>(), Relation::of::<syntax::AttachmentCandidate>(),
-        Relation::of::<declarations::SymbolDeclaration>(), Relation::of::<declarations::SymbolDeclarationSupport>(),
-        Relation::of::<declarations::ParameterDeclaration>(), Relation::of::<declarations::ParameterDeclarationSupport>(),
-        Relation::of::<symbols::SymbolSequence>(), Relation::of::<symbols::SymbolSequenceMember>(),
-        Relation::of::<symbols::SymbolObservation>(), Relation::of::<symbols::SymbolSupport>(),
-        Relation::of::<symbols::FunctionTraitObservation>(), Relation::of::<symbols::FunctionTraitSupport>(),
-        Relation::of::<symbols::ClassTraitObservation>(), Relation::of::<symbols::ClassTraitSupport>(),
-        Relation::of::<symbols::ClassAncestryObservation>(), Relation::of::<symbols::ClassAncestrySupport>(),
-        Relation::of::<symbols::ParameterAnnotationObservation>(), Relation::of::<symbols::ParameterAnnotationSupport>(),
-        Relation::of::<symbols::ExportOrigin>(), Relation::of::<symbols::PublicNameObservation>(), Relation::of::<symbols::PublicNameSupport>(),
-        Relation::of::<symbols::ParameterDocObservation>(), Relation::of::<symbols::ParameterDocSupport>(),
-        Relation::of::<symbols::DependencyModuleObservation>(), Relation::of::<symbols::DependencyModuleSupport>(),
-        Relation::of::<AssertionQualification>(), Relation::of::<ProviderSurface>(), Relation::of::<Evidence>(),
-        Relation::of::<Literal>(), Relation::of::<LiteralSet>(), Relation::of::<LiteralSetMember>(),
-        Relation::of::<PlaceRoot>(), Relation::of::<PathSegment>(), Relation::of::<AccessPath>(), Relation::of::<Place>(),
-        Relation::of::<Predicate>(), Relation::of::<EvaluationAtom>(), Relation::of::<ConditionNode>(), Relation::of::<Condition>(),
-        Relation::of::<Package>(), Relation::of::<Release>(), Relation::of::<InputRevision>(),
-        Relation::of::<InputOrigin>(), Relation::of::<InputAcquisition>(), Relation::of::<CorpusLibrary>(),
-        Relation::of::<InputDistribution>(), Relation::of::<DistributionVerification>(),
-        Relation::of::<ArtifactOwnership>(), Relation::of::<UnownedArtifact>(), Relation::of::<DerivedArtifact>(), Relation::of::<EnvironmentFingerprint>(),
-        Relation::of::<ArtifactUse>(), Relation::of::<SourceArtifact>(), Relation::of::<artifact::ArtifactChunk>(), Relation::of::<Module>(),
-        Relation::of::<Occurrence>(), Relation::of::<Provider>(), Relation::of::<AnalysisContext>(),
-        Relation::of::<ProviderRun>(), Relation::of::<RunFamily>(), Relation::of::<SyntaxObservation>(), Relation::of::<SyntaxSupport>(),
-        Relation::of::<CoverageScope>(), Relation::of::<ProviderCoverage>(),
+        Relation::of::<ReportCollection>(),
+        Relation::of::<ReportValue>(),
+        Relation::of::<ReportEntry>(),
+        Relation::of::<ReportedEnvironment>(),
+        Relation::of::<TaskReport>(),
+        Relation::of::<TaskReportObservation>(),
+        Relation::of::<TaskReportSupport>(),
+        Relation::of::<DeploymentObservation>(),
+        Relation::of::<DeploymentSupport>(),
+        Relation::of::<TypeVariable>(),
+        Relation::of::<TypeTerm>(),
+        Relation::of::<TypeSequence>(),
+        Relation::of::<TypeSequenceMember>(),
+        Relation::of::<CallableParameterList>(),
+        Relation::of::<CallableParameter>(),
+        Relation::of::<TypedDictFieldList>(),
+        Relation::of::<TypedDictField>(),
+        Relation::of::<FunctionBodyObservation>(),
+        Relation::of::<FunctionBodySupport>(),
+        Relation::of::<RecordFieldObservation>(),
+        Relation::of::<RecordFieldSupport>(),
+        Relation::of::<TypeObservation>(),
+        Relation::of::<TypeSupport>(),
+        Relation::of::<TypePresentation>(),
+        Relation::of::<TypePresentationSupport>(),
+        Relation::of::<TypeVariableRestriction>(),
+        Relation::of::<TypeRestrictionSupport>(),
+        Relation::of::<FlowUse>(),
+        Relation::of::<FlowDefinition>(),
+        Relation::of::<ReachingDefinition>(),
+        Relation::of::<FlowUseObservation>(),
+        Relation::of::<FlowUseSupport>(),
+        Relation::of::<FlowDefinitionObservation>(),
+        Relation::of::<FlowDefinitionSupport>(),
+        Relation::of::<FlowReachingObservation>(),
+        Relation::of::<FlowReachingSupport>(),
+        Relation::of::<FlowValueObservation>(),
+        Relation::of::<FlowValueSupport>(),
+        Relation::of::<FlowRegionObservation>(),
+        Relation::of::<FlowRegionSupport>(),
+        Relation::of::<FlowTestObservation>(),
+        Relation::of::<FlowTestSupport>(),
+        Relation::of::<FlowTestLeafObservation>(),
+        Relation::of::<FlowTestLeafSupport>(),
+        Relation::of::<FlowAttributeLoadObservation>(),
+        Relation::of::<FlowAttributeLoadSupport>(),
+        Relation::of::<FlowCallPath>(),
+        Relation::of::<FlowCallStep>(),
+        Relation::of::<FlowValuePathObservation>(),
+        Relation::of::<FlowValuePathSupport>(),
+        Relation::of::<DocumentNode>(),
+        Relation::of::<DocumentAttributeValue>(),
+        Relation::of::<DocumentObservation>(),
+        Relation::of::<DocumentSupport>(),
+        Relation::of::<PassageObservation>(),
+        Relation::of::<PassageSupport>(),
+        Relation::of::<CodeBlockObservation>(),
+        Relation::of::<CodeBlockSupport>(),
+        Relation::of::<DocumentLinkObservation>(),
+        Relation::of::<DocumentLinkSupport>(),
+        Relation::of::<DocumentMentionObservation>(),
+        Relation::of::<DocumentMentionSupport>(),
+        Relation::of::<DocumentComponentObservation>(),
+        Relation::of::<DocumentComponentSupport>(),
+        Relation::of::<DocumentAttributeObservation>(),
+        Relation::of::<DocumentAttributeSupport>(),
+        Relation::of::<LexicalScope>(),
+        Relation::of::<BindingEvent>(),
+        Relation::of::<LexicalTarget>(),
+        Relation::of::<LexicalScopeObservation>(),
+        Relation::of::<LexicalScopeSupport>(),
+        Relation::of::<BindingObservation>(),
+        Relation::of::<BindingSupport>(),
+        Relation::of::<ReferenceObservation>(),
+        Relation::of::<ReferenceSupport>(),
+        Relation::of::<LexicalResolution>(),
+        Relation::of::<LexicalResolutionSupport>(),
+        Relation::of::<ProviderModule>(),
+        Relation::of::<ProviderCallable>(),
+        Relation::of::<ProviderSymbol>(),
+        Relation::of::<ParameterShape>(),
+        Relation::of::<Signature>(),
+        Relation::of::<SignatureParameter>(),
+        Relation::of::<SignatureSupport>(),
+        Relation::of::<CallChannel>(),
+        Relation::of::<CallDestination>(),
+        Relation::of::<Receiver>(),
+        Relation::of::<CallOrigin>(),
+        Relation::of::<CallOriginStep>(),
+        Relation::of::<ProviderCallSite>(),
+        Relation::of::<ProviderCallSiteSupport>(),
+        Relation::of::<CallTarget>(),
+        Relation::of::<CallTargetSupport>(),
+        Relation::of::<CallResolution>(),
+        Relation::of::<CallResolutionMember>(),
+        Relation::of::<CallResolutionSupport>(),
+        Relation::of::<CallSyntax>(),
+        Relation::of::<CallSyntaxSupport>(),
+        Relation::of::<CallArgument>(),
+        Relation::of::<syntax::SyntaxPlacement>(),
+        Relation::of::<syntax::SyntaxPlacementSupport>(),
+        Relation::of::<syntax::SyntaxDetail>(),
+        Relation::of::<syntax::SyntaxDetailObservation>(),
+        Relation::of::<syntax::SyntaxDetailSupport>(),
+        Relation::of::<syntax::DeclarationObservation>(),
+        Relation::of::<syntax::DeclarationSupport>(),
+        Relation::of::<syntax::DeclarationDecorator>(),
+        Relation::of::<syntax::DeclarationDecoratorSupport>(),
+        Relation::of::<syntax::ImportAliasObservation>(),
+        Relation::of::<syntax::ImportAliasSupport>(),
+        Relation::of::<syntax::DunderAllObservation>(),
+        Relation::of::<syntax::DunderAllSupport>(),
+        Relation::of::<syntax::ParameterSyntaxObservation>(),
+        Relation::of::<syntax::ParameterSyntaxSupport>(),
+        Relation::of::<syntax::ClassFieldSyntaxObservation>(),
+        Relation::of::<syntax::ClassFieldSyntaxSupport>(),
+        Relation::of::<syntax::SubjectBoundary>(),
+        Relation::of::<syntax::AttachmentOutcome>(),
+        Relation::of::<syntax::AttachmentCandidate>(),
+        Relation::of::<declarations::SymbolDeclaration>(),
+        Relation::of::<declarations::SymbolDeclarationSupport>(),
+        Relation::of::<declarations::ParameterDeclaration>(),
+        Relation::of::<declarations::ParameterDeclarationSupport>(),
+        Relation::of::<symbols::SymbolSequence>(),
+        Relation::of::<symbols::SymbolSequenceMember>(),
+        Relation::of::<symbols::SymbolObservation>(),
+        Relation::of::<symbols::SymbolSupport>(),
+        Relation::of::<symbols::FunctionTraitObservation>(),
+        Relation::of::<symbols::FunctionTraitSupport>(),
+        Relation::of::<symbols::ClassTraitObservation>(),
+        Relation::of::<symbols::ClassTraitSupport>(),
+        Relation::of::<symbols::ClassAncestryObservation>(),
+        Relation::of::<symbols::ClassAncestrySupport>(),
+        Relation::of::<symbols::ParameterAnnotationObservation>(),
+        Relation::of::<symbols::ParameterAnnotationSupport>(),
+        Relation::of::<symbols::ExportOrigin>(),
+        Relation::of::<symbols::PublicNameObservation>(),
+        Relation::of::<symbols::PublicNameSupport>(),
+        Relation::of::<symbols::ParameterDocObservation>(),
+        Relation::of::<symbols::ParameterDocSupport>(),
+        Relation::of::<symbols::DependencyModuleObservation>(),
+        Relation::of::<symbols::DependencyModuleSupport>(),
+        Relation::of::<AssertionQualification>(),
+        Relation::of::<ProviderSurface>(),
+        Relation::of::<Evidence>(),
+        Relation::of::<Literal>(),
+        Relation::of::<LiteralSet>(),
+        Relation::of::<LiteralSetMember>(),
+        Relation::of::<PlaceRoot>(),
+        Relation::of::<PathSegment>(),
+        Relation::of::<AccessPath>(),
+        Relation::of::<Place>(),
+        Relation::of::<Predicate>(),
+        Relation::of::<EvaluationAtom>(),
+        Relation::of::<ConditionNode>(),
+        Relation::of::<Condition>(),
+        Relation::of::<Package>(),
+        Relation::of::<Release>(),
+        Relation::of::<InputRevision>(),
+        Relation::of::<InputOrigin>(),
+        Relation::of::<InputAcquisition>(),
+        Relation::of::<CorpusLibrary>(),
+        Relation::of::<InputDistribution>(),
+        Relation::of::<DistributionVerification>(),
+        Relation::of::<ArtifactOwnership>(),
+        Relation::of::<UnownedArtifact>(),
+        Relation::of::<DerivedArtifact>(),
+        Relation::of::<EnvironmentFingerprint>(),
+        Relation::of::<ArtifactUse>(),
+        Relation::of::<SourceArtifact>(),
+        Relation::of::<artifact::ArtifactChunk>(),
+        Relation::of::<Module>(),
+        Relation::of::<Occurrence>(),
+        Relation::of::<Provider>(),
+        Relation::of::<AnalysisContext>(),
+        Relation::of::<ProviderRun>(),
+        Relation::of::<RunFamily>(),
+        Relation::of::<SyntaxObservation>(),
+        Relation::of::<SyntaxSupport>(),
+        Relation::of::<CoverageScope>(),
+        Relation::of::<ProviderCoverage>(),
     ]
 }

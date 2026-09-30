@@ -125,13 +125,13 @@ alone owns current status. `AP/Fxx` identifies this review; R01–R08 remain ext
 | <a id="F06"></a> F06 | **Existing exits do not establish the requested product outcome.** Current tools/semantic suite do not jointly qualify API invocation, setup and customized discovery against Context7. Richer internal facts alone cannot establish a benefit | FP-03/06, A3, G7. PR0 freezes independent baselines; PR5 bounded tools/packets; PR6 usability then matched comparative gain. Close only with task execution and negative/cost evidence, not a design approval |
 
 Source owners:
-[attempt](../../../crates/cpg-core/src/attempt.rs),
+attempt (`f6562d3^:crates/cpg-core/src/attempt.rs`, recover through Git),
 [generation](../../../python/lctx_mcp/src/lctx_mcp/generation.py),
 [projection](../../../crates/cpg-schema/src/serving_projection.rs),
 [hydration](../../../crates/lctx-postgres/src/hydration.rs),
 [synthesis](../../../crates/cpg-core/src/synth.rs),
 [flow admission](../../../crates/cpg-core/src/flow_model.rs),
-[types](../../../crates/cpg-extract/src/types.rs),
+types (`9efce30:crates/cpg-extract/src/types.rs`, recover through Git),
 [usage](../../../crates/cpg-core/src/usage.rs),
 [evidence closure](../../../crates/cpg-schema/src/bundle.rs),
 [acquisition](../../../crates/cpg-extract/src/library.rs),

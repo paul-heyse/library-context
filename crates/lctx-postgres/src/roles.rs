@@ -2,7 +2,10 @@
 //! P1.5). Role identity is shared by the generation store and the dormant serving code.
 use crate::{Error, load_protected};
 use serde::{Deserialize, Serialize};
-use sqlx::{ConnectOptions, postgres::{PgConnectOptions, PgSslMode}};
+use sqlx::{
+    ConnectOptions,
+    postgres::{PgConnectOptions, PgSslMode},
+};
 use std::{path::Path, str::FromStr};
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, schemars::JsonSchema)]
@@ -88,13 +91,17 @@ impl RoleConfig {
             .max_connections(self.max_connections - self.provider_connections)
             .acquire_timeout(std::time::Duration::from_secs(self.acquire_timeout_seconds))
             .idle_timeout(std::time::Duration::from_secs(60))
-            .connect_with(self.options()?).await?;
+            .connect_with(self.options()?)
+            .await?;
         let (role, version, elevated): (String, String, bool) = sqlx::query_as("SELECT current_user::text, current_setting('server_version_num'), \
             rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls FROM pg_catalog.pg_roles WHERE rolname = current_user")
             .fetch_one(&pool).await?;
-        if role != self.role.name() || version.parse::<u32>().unwrap_or(0) / 10000 != 18 || elevated {
+        if role != self.role.name() || version.parse::<u32>().unwrap_or(0) / 10000 != 18 || elevated
+        {
             pool.close().await;
-            return Err(Error::Config("server, role or privileges differ from the role contract"));
+            return Err(Error::Config(
+                "server, role or privileges differ from the role contract",
+            ));
         }
         Ok(pool)
     }

@@ -30,8 +30,8 @@ The pieces:
   `--profile behavioral` explicitly requests the flow provider and retained behavioral enrichment.
 - **Facts:** the typed model (`lctx-model::domain`) is the contract and PostgreSQL generations
   store it (ADR-0086); `lctx-postgres` owns the generation store and the retained
-  cache/operation services. The Delta store was removed in cutover phase 1 (P1.3/P1.4). Until
-  phase 2 publishes facts, only conformance generations exist.
+  cache/operation services. The Delta store was removed in cutover phase 1 (P1.3/P1.4). Facts publication is implemented through `lctx compile --through facts`; qualification
+  receipts and remaining work are in the cutover plan.
 - **Behavior:** conditions are bounded BDDs over evaluation atoms (biodivine-lib-bdd), with
   pinned models and finite summaries composed over petgraph SCCs; five verdicts, never a null.
 - **Analytics:** petgraph, leiden-rs and our own FCA/RCA.
@@ -95,7 +95,7 @@ real consumer.
 |---|---|
 | During a design/implementation phase | Compile checks (`cargo check`/`cargo build` on the touched crates) and targeted tests or probes for the scope just implemented. No formatting, linting or integrated gate after a slice or commit. |
 | After all functional scope in the plan is implemented | `just fmt`, then `just test-all`: fmt-check, clippy `-D warnings`, release-profile nextest, pytest + pyrefly, rules, ADR/agent lint, fixture parsing, `just deps` and `just gold` |
-| The real library, end to end | Unavailable during the cutover: `lctx compile` exits 3 until phase 2's `--through facts`; the facts pilots return at plan Q. Report `not_run`. |
+| The real library, end to end | `lctx compile fastmcp --through facts --profile catalog|behavioral`; reports a facts generation without selecting it. Analysis and serving remain unavailable. |
 | The store and its generations | `lctx store install\|check\|reset`, `lctx generation list\|show\|select\|retire\|abort`, `lctx query --generation <id> "SQL"` (read-only); runbook: `docs/postgresql.md` |
 | Add or upgrade a library | `lctx library init <name> --requirement '<req>'`; upgrade with `uv lock --project libraries/<name> --upgrade-package <dist>` (`libraries/README.md`) |
 | Format (mutating) | `just fmt`, once at the end of the scope (above) |

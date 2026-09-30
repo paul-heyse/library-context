@@ -1,7 +1,9 @@
 //! Role-specific, lifespan-owned serving/import connections. No compiler dependency.
 use crate::{Error, MIGRATOR};
 use serde::Serialize;
-use sqlx::{Connection, PgConnection, PgPool, Postgres, pool::PoolConnection, postgres::PgPoolOptions};
+use sqlx::{
+    Connection, PgConnection, PgPool, Postgres, pool::PoolConnection, postgres::PgPoolOptions,
+};
 use std::time::Duration;
 
 pub const EXTENSION_VERSION: &str = "0.8.6";

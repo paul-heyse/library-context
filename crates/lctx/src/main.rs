@@ -1,8 +1,8 @@
 //! `lctx`: pinned Python libraries and their compilation (DESIGN §4.0, ADR-0013). Every analyzed
 //! library is a committed uv project under `libraries/<name>/`.
 //!
-//! The semantic-model cutover (plan §4.1.1) retired the Delta pipeline's commands. Until phase 2
-//! lands `lctx compile --through facts`, `compile` exits 3 (unavailable) before doing any work.
+//! The semantic-model cutover exposes the facts frontier. Downstream commands return with
+//! phases 3–5; unsupported frontiers exit 3 before acquisition or database effects.
 //!
 //! ```text
 //! lctx library init <name> --requirement REQ [--python 3.14.7]   write, lock, acquire, propose release
@@ -15,12 +15,13 @@
 //! lctx query --generation ID SQL                                 read-only SQL over one leased generation
 //! lctx runs list|show|mark-interrupted                           operational compile-attempt history
 //! lctx flow FILE                                                 one file's flow facts (oracle input)
-//! lctx compile <name> …                                          unavailable until cutover phase 2
+//! lctx compile <name> --through facts --profile catalog|behavioral   publish facts; selection is explicit
 //! ```
 //! Common options: `--database FILE` (the protected `postgres.json`; its siblings select the roles),
 //! `--libraries DIR` (default `libraries`), `--envs DIR` (default `build/envs`), `--sources DIR`
 //! (default `build/sources`). Exit status: 0 ok, 1 error, 2 refused, 3 unavailable.
 
+mod compile;
 mod database;
 mod generation;
 mod model;
@@ -47,7 +48,11 @@ use lctx_workspace_hack as _; // Contributes Cargo features, not callable APIs (
 
 /// The command line (H1 C4: clap derive; each command takes only its own options).
 #[derive(Parser, Debug)]
-#[command(name = "lctx", version, about = "Pinned Python libraries and their compilation")]
+#[command(
+    name = "lctx",
+    version,
+    about = "Pinned Python libraries and their compilation"
+)]
 struct Cli {
     /// Protected PostgreSQL config (`postgres.json`; its siblings select the roles); otherwise
     /// LCTX_DATABASE_CONFIG or ~/.config/library-context/postgres.json.
@@ -108,12 +113,18 @@ enum Cmd {
     },
     /// The acquired environment's deployment identity, as JSON (scripts/deployment_check.py).
     DeploymentIdentity { name: String },
-    /// Unavailable until cutover phase 2 (`--through facts`); exits 3 before doing any work.
+    /// Publish a facts generation from pinned inputs; selection is a separate operator action.
     Compile {
         name: String,
-        /// Accepted and ignored so that no argument reaches a retired pipeline.
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true, hide = true)]
-        rest: Vec<String>,
+        #[arg(long)]
+        through: String,
+        #[arg(long,default_value="catalog",value_parser=compile::profile)]
+        profile: lctx_model::domain::stages::Profile,
+        /// Explicit captured task report, repeatable; never executes analyzed code.
+        #[arg(long)]
+        task_receipt: Vec<PathBuf>,
+        #[arg(long,default_value_t=lctx_model::domain::resources::DEFAULT_MEMORY_BYTES)]
+        memory_bytes: usize,
     },
     /// Inspect one generated Python file's flow facts as JSON (runtime oracle input).
     Flow {
@@ -123,9 +134,6 @@ enum Cmd {
         python: String,
         #[arg(long, default_value = "linux")]
         platform: String,
-        /// Optional resolved name-load spans, for the runtime differential oracle.
-        #[arg(long)]
-        runtime_bindings: Option<PathBuf>,
     },
 }
 
@@ -151,10 +159,28 @@ pub struct Refused(pub String);
 fn refused(error: &anyhow::Error) -> bool {
     use cpg_core::generation_read::ReadError;
     use cpg_core::postgres::generations::Error as Store;
-    let store = |e: &Store| matches!(e, Store::State | Store::Absent | Store::NotInstalled | Store::Busy | Store::Contract | Store::Frontier(_)
-        | Store::Confirmation | Store::Orphaned);
-    error.chain().any(|cause| cause.is::<Refused>() || cause.downcast_ref::<Store>().is_some_and(store)
-        || cause.downcast_ref::<ReadError>().is_some_and(|e| match e { ReadError::Frontier(_) => true, ReadError::Store(inner) => store(inner), _ => false }))
+    let store = |e: &Store| {
+        matches!(
+            e,
+            Store::State
+                | Store::Absent
+                | Store::NotInstalled
+                | Store::Busy
+                | Store::Contract
+                | Store::Frontier(_)
+                | Store::Confirmation
+                | Store::Orphaned
+        )
+    };
+    error.chain().any(|cause| {
+        cause.is::<Refused>()
+            || cause.downcast_ref::<Store>().is_some_and(store)
+            || cause.downcast_ref::<ReadError>().is_some_and(|e| match e {
+                ReadError::Frontier(_) => true,
+                ReadError::Store(inner) => store(inner),
+                _ => false,
+            })
+    })
 }
 
 fn parse_id(s: &str) -> Result<Id, String> {
@@ -380,74 +406,137 @@ fn init(
     Ok(())
 }
 
-fn flow_file(
-    file: &Path,
-    python: &str,
-    platform: &str,
-    runtime_bindings: Option<&Path>,
-) -> anyhow::Result<()> {
-    let parts: Vec<u32> = python
-        .split('.')
-        .map(str::parse)
-        .collect::<Result<_, _>>()
-        .with_context(|| format!("invalid Python version {python:?}"))?;
-    let [major, minor, micro] = parts.as_slice() else {
-        return Err(anyhow::anyhow!("Python version must be MAJOR.MINOR.MICRO"));
+fn flow_file(file: &Path, python: &str, platform: &str) -> anyhow::Result<()> {
+    if python != "3.14.7" || platform != "linux" {
+        return Err(anyhow::anyhow!(
+            "the flow probe uses the pinned 3.14.7/linux context"
+        ));
+    }
+    use lctx_model::domain::{
+        assertion::*, conditions::*, flow::*, lexical::BindingEvent, resources::ResourceBudget,
+        source::*, stages::Profile, syntax::SubjectBoundary, value::*, *,
     };
-    let text = fs_err::read_to_string(file)?;
-    let path = file
+    use std::sync::Arc;
+    let budget = ResourceBudget::fixed(1 << 30)?;
+    let name = file
         .file_name()
         .context("flow file has no name")?
-        .to_string_lossy()
-        .into_owned();
-    let runtime = if let Some(path) = runtime_bindings {
-        serde_json::from_slice::<cpg_flow::RuntimeBindings>(&fs_err::read(path)?)?
-    } else {
-        Default::default()
+        .to_str()
+        .context("flow file name is not UTF-8")?
+        .to_owned();
+    let captured = cpg_extract::capture::CapturedInput::capture(
+        file.parent().unwrap_or(Path::new(".")),
+        &[name],
+        &budget,
+    )?;
+    let captured = Arc::new(cpg_extract::bundle::CapturedInputs::new(vec![
+        cpg_extract::acquisition::AcquiredInput::tree(captured, "flow-probe"),
+    ]));
+    let (model, generation, digest) = tokio::runtime::Runtime::new()?.block_on(
+        cpg_core::facts::inspect(captured, budget.clone(), Profile::Behavioral),
+    )?;
+    let occurrences = generation.read::<Occurrence>(&model, &budget)?;
+    let uses = generation.read::<FlowUse>(&model, &budget)?;
+    let definitions = generation.read::<FlowDefinition>(&model, &budget)?;
+    let def_observations = generation.read::<FlowDefinitionObservation>(&model, &budget)?;
+    let qs = generation.read::<AssertionQualification>(&model, &budget)?;
+    let conditions = generation.read::<Condition>(&model, &budget)?;
+    let nodes = generation.read::<ConditionNode>(&model, &budget)?;
+    let places = generation.read::<Place>(&model, &budget)?;
+    let roots = generation.read::<PlaceRoot>(&model, &budget)?;
+    let paths = generation.read::<AccessPath>(&model, &budget)?;
+    let segments = generation.read::<PathSegment>(&model, &budget)?;
+    let targets = generation.read::<ReachingDefinition>(&model, &budget)?;
+    let events = generation.read::<BindingEvent>(&model, &budget)?;
+    let at = |id| {
+        occurrences
+            .rows()
+            .iter()
+            .find(|o| o.id() == id)
+            .context("flow occurrence missing")
     };
-    for span in runtime
-        .checking_names
-        .iter()
-        .chain(&runtime.typing_modules)
-        .chain(&runtime.sys_modules)
-        .chain(&runtime.os_modules)
-    {
-        let name = text
-            .get(span.start as usize..span.end as usize)
-            .filter(|name| !name.is_empty())
-            .context("runtime binding span lies outside the source or crosses a codepoint")?;
-        if !name.chars().all(|c| c == '_' || c.is_alphanumeric()) {
-            return Err(anyhow::anyhow!(
-                "runtime binding span does not cover a name: {span:?}"
-            ));
+    let span = |id| -> anyhow::Result<_> {
+        let o = at(id)?;
+        Ok(serde_json::json!([o.start, o.end]))
+    };
+    let condition = |id| -> anyhow::Result<_> {
+        let q = qs
+            .rows()
+            .iter()
+            .find(|q| q.id() == id)
+            .context("flow qualification missing")?;
+        let c = conditions
+            .rows()
+            .iter()
+            .find(|c| c.id() == q.condition)
+            .context("flow condition missing")?;
+        let d = Diagram::from_records(c, nodes.rows())?;
+        Ok(
+            serde_json::json!({"id":c.id().hex(),"root":c.root.hex(),"is_false":d.is_false(),"is_true":d.is_true(),"approximation":format!("{:?}",q.approximation)}),
+        )
+    };
+    let place_name = |id| -> anyhow::Result<String> {
+        let p = places
+            .rows()
+            .iter()
+            .find(|p| p.id() == id)
+            .context("flow place missing")?;
+        let root = roots
+            .rows()
+            .iter()
+            .find(|r| r.id() == p.root)
+            .context("flow place root missing")?;
+        let name = match root {
+            PlaceRoot::Formal { declaration } => events
+                .rows()
+                .iter()
+                .find(|e| e.site == *declaration)
+                .context("formal binding event missing")?
+                .name
+                .clone(),
+            PlaceRoot::Local { name, .. } | PlaceRoot::Global { name, .. } => name.clone(),
+            _ => format!("{root:?}"),
+        };
+        let path = paths
+            .rows()
+            .iter()
+            .find(|a| a.id() == p.path)
+            .context("flow access path missing")?;
+        let mut out = name;
+        for id in [path.first, path.second].into_iter().flatten() {
+            match segments
+                .rows()
+                .iter()
+                .find(|s| s.id() == id)
+                .context("flow path segment missing")?
+            {
+                PathSegment::Attribute { name } => {
+                    out.push('.');
+                    out.push_str(name);
+                }
+                PathSegment::Item { .. } | PathSegment::AnyItem => out.push_str("[item]"),
+            }
         }
-    }
-    let input = cpg_flow::Input {
-        path,
-        text,
-        runtime,
+        Ok(out)
     };
-    let flow = cpg_flow::index(
-        &[input],
-        &cpg_flow::RuntimeContext {
-            python_version: (*major, *minor, *micro),
-            platform: platform.to_owned(),
-        },
-    )
-    .pop()
-    .context("flow provider returned no module")?;
-    if let Some(error) = flow.error {
-        return Err(anyhow::anyhow!(error));
-    }
-    let span = |s: cpg_flow::Span| serde_json::json!([s.start, s.end]);
     let result = serde_json::json!({
-        "uses": flow.uses.iter().map(|u| serde_json::json!({"place": u.place, "span": span(u.span)})).collect::<Vec<_>>(),
-        "definitions": flow.defs.iter().map(|d| serde_json::json!({"place": d.place, "kind": format!("{:?}", d.kind), "target": span(d.target), "value": d.value.map(&span)})).collect::<Vec<_>>(),
-        "reaching": flow.reaching.iter().map(|r| serde_json::json!({"use_ix": r.use_ix, "def_ix": r.def_ix, "condition": r.condition.encode(), "loop_carried": r.loop_carried})).collect::<Vec<_>>(),
-        "values": flow.values.iter().map(|v| serde_json::json!({"sink": format!("{:?}", v.sink), "span": span(v.span), "use_ix": v.use_ix, "identity": v.identity, "through_call": v.through_call, "condition": v.condition.encode()})).collect::<Vec<_>>(),
-        "regions": flow.regions.iter().map(|r| serde_json::json!({"span": span(r.span), "condition": r.condition.encode()})).collect::<Vec<_>>(),
-        "skips": {"reaching_ty_false": flow.skips.reaching_ty_false, "reaching_runtime_view": flow.skips.reaching_runtime_view, "reaching_stable_contradiction": flow.skips.reaching_stable_contradiction,
-            "values_runtime_view": flow.skips.values_runtime_view, "values_stable_contradiction": flow.skips.values_stable_contradiction},
+        "model":model.digest().hex(),"content":digest.hex(),
+        "uses":uses.rows().iter().map(|u|Ok(serde_json::json!({"id":u.id().hex(),"occurrence":u.occurrence.hex(),"place_id":u.place.hex(),"place":place_name(u.place)?,"span":span(u.occurrence)?}))).collect::<anyhow::Result<Vec<_>>>()?,
+        "definitions":definitions.rows().iter().map(|d|{let obs=def_observations.rows().iter().find(|o|o.definition==d.id()).context("flow definition observation missing")?;Ok(serde_json::json!({"id":d.id().hex(),"place_id":d.place.hex(),"place":place_name(d.place)?,"target":span(d.occurrence)?,"kind":format!("{:?}",obs.kind)}))}).collect::<anyhow::Result<Vec<_>>>()?,
+        "reaching":generation.read::<FlowReachingObservation>(&model,&budget)?.rows().iter().map(|r|{let target=targets.rows().iter().find(|t|t.id()==r.target).context("flow reaching target missing")?;Ok(serde_json::json!({"id":r.id().hex(),"use":r.use_.hex(),"definition":match target {ReachingDefinition::Bound {definition}=>Some(definition.hex()),_=>None},"target":format!("{target:?}"),"condition":condition(r.qualification)?,"loop_carried":r.loop_carried}))}).collect::<anyhow::Result<Vec<_>>>()?,
+        "values":generation.read::<FlowValueObservation>(&model,&budget)?.rows().iter().map(|v|Ok(serde_json::json!({"id":v.id().hex(),"sink":format!("{:?}",v.kind),"span":span(v.sink)?,"use":v.use_.hex(),"identity":v.transfer==lctx_model::domain::transfer::TransferKind::Identity,"through_call":v.through_call,"condition":condition(v.qualification)?}))).collect::<anyhow::Result<Vec<_>>>()?,
+        "regions":generation.read::<FlowRegionObservation>(&model,&budget)?.rows().iter().map(|r|Ok(serde_json::json!({"id":r.id().hex(),"span":span(r.statement)?,"condition":condition(r.qualification)?}))).collect::<anyhow::Result<Vec<_>>>()?,
+        "tests":generation.read::<FlowTestObservation>(&model,&budget)?.rows().iter().map(|r|Ok(serde_json::json!({"id":r.id().hex(),"test":r.test.hex(),"span":span(r.test)?,"condition":condition(r.qualification)?}))).collect::<anyhow::Result<Vec<_>>>()?,
+        "test_leaves":generation.read::<FlowTestLeafObservation>(&model,&budget)?.rows().iter().map(|r|Ok(serde_json::json!({"id":r.id().hex(),"test":r.test.hex(),"atom":r.atom.hex(),"operand":r.operand.map(|id|id.hex()),"condition":condition(r.qualification)?}))).collect::<anyhow::Result<Vec<_>>>()?,
+        "attribute_loads":generation.read::<FlowAttributeLoadObservation>(&model,&budget)?.rows().iter().map(|r|serde_json::json!({"id":r.id().hex(),"qualification":r.qualification.hex(),"occurrence":r.occurrence.hex(),"name":r.name})).collect::<Vec<_>>(),
+        "evaluation_atoms":generation.read::<EvaluationAtom>(&model,&budget)?.rows().iter().map(|r|serde_json::json!({"id":r.id().hex(),"evaluation":r.evaluation.hex(),"context":r.context.hex(),"predicate":r.predicate.hex(),"operand":r.operand.map(|id|id.hex())})).collect::<Vec<_>>(),
+        "predicates":generation.read::<Predicate>(&model,&budget)?.rows().iter().map(|r|match r {Predicate::IsNone=>serde_json::json!({"id":r.id().hex(),"kind":"is_none"}),Predicate::IsValue {value}=>serde_json::json!({"id":r.id().hex(),"kind":"is_value","value":value.hex()}),Predicate::Equals {value}=>serde_json::json!({"id":r.id().hex(),"kind":"equals","value":value.hex()}),Predicate::MemberOf {values}=>serde_json::json!({"id":r.id().hex(),"kind":"member_of","values":values.hex()}),Predicate::Truthy=>serde_json::json!({"id":r.id().hex(),"kind":"truthy"}),Predicate::IsInstance {class_expression}=>serde_json::json!({"id":r.id().hex(),"kind":"is_instance","class_expression":class_expression}),Predicate::TypeIs {class_expression}=>serde_json::json!({"id":r.id().hex(),"kind":"type_is","class_expression":class_expression}),Predicate::Opaque {text}=>serde_json::json!({"id":r.id().hex(),"kind":"opaque","text":text}),Predicate::InvokedGuard {source}=>serde_json::json!({"id":r.id().hex(),"kind":"invoked_guard","source":source.hex()}),Predicate::BoundGuard {source}=>serde_json::json!({"id":r.id().hex(),"kind":"bound_guard","source":source.hex()})}).collect::<Vec<_>>(),
+        "call_paths":generation.read::<FlowCallPath>(&model,&budget)?.rows().iter().map(|r|serde_json::json!({"id":r.id().hex(),"steps_digest":r.steps.hex()})).collect::<Vec<_>>(),
+        "call_steps":generation.read::<FlowCallStep>(&model,&budget)?.rows().iter().map(|r|serde_json::json!({"id":r.id().hex(),"path":r.path.hex(),"ordinal":r.ordinal,"call":r.call.hex(),"operand":r.operand.hex(),"role":format!("{:?}",r.role)})).collect::<Vec<_>>(),
+        "value_paths":generation.read::<FlowValuePathObservation>(&model,&budget)?.rows().iter().map(|r|serde_json::json!({"id":r.id().hex(),"qualification":r.qualification.hex(),"value":r.value.hex(),"path":r.path.hex()})).collect::<Vec<_>>(),
+        "conditions":conditions.rows().iter().map(|c|serde_json::json!({"id":c.id().hex(),"root":c.root.hex()})).collect::<Vec<_>>(),
+        "condition_nodes":nodes.rows().iter().map(|node|match node {ConditionNode::False=>serde_json::json!({"id":node.id().hex(),"kind":"false"}),ConditionNode::True=>serde_json::json!({"id":node.id().hex(),"kind":"true"}),ConditionNode::Branch {atom,low,high}=>serde_json::json!({"id":node.id().hex(),"kind":"branch","atom":atom.hex(),"low":low.hex(),"high":high.hex()})}).collect::<Vec<_>>(),
+        "boundaries":generation.read::<SubjectBoundary>(&model,&budget)?.rows().iter().map(|b|serde_json::json!({"subject":b.subject.map(|id|id.hex()),"reason":format!("{:?}",b.reason),"detail":b.detail})).collect::<Vec<_>>()
     });
     println!("{}", serde_json::to_string(&result)?);
     Ok(())
@@ -474,7 +563,9 @@ fn run() -> anyhow::Result<()> {
     let sources = absolute(&cli.sources)?;
     let runtime = || tokio::runtime::Runtime::new();
     match cli.command {
-        Cmd::Model { command: ModelCommand::Describe { format } } => {
+        Cmd::Model {
+            command: ModelCommand::Describe { format },
+        } => {
             let described = model::describe(&*database::model()?);
             match format {
                 model::Format::Json => println!("{}", serde_json::to_string_pretty(&described)?),
@@ -512,23 +603,68 @@ fn run() -> anyhow::Result<()> {
             fetch_source(&library_dir, &sources.join(&name)).map(|_| ())
         }
         Cmd::DeploymentIdentity { name } => {
-            let input = library::acquired(&libraries.join(&name), &envs.join(&name), Id::ZERO)?;
-            println!(
-                "{}",
-                serde_json::to_string(&cpg_extract::observations::identity(&input)?)?
-            );
+            let inventory = cpg_extract::acquisition::inventory_installed(
+                &libraries.join(&name),
+                &envs.join(&name),
+            )?;
+            let budget = lctx_model::domain::resources::ResourceBudget::fixed(1 << 30)?;
+            let captured = cpg_extract::acquisition::capture(&inventory, &budget)?;
+            let mut identity =
+                serde_json::to_value(cpg_extract::deployment::identity(&captured.inputs()[0])?)?;
+            // These two hashes are observations by the explicit task operator. The facts
+            // compiler retains them as reports; neither expands analyzer acquisition.
+            fn reported_hash(path: &Path) -> anyhow::Result<lctx_model::domain::ContentHash> {
+                use std::io::Read;
+                let mut file = std::fs::File::open(path)?;
+                let mut buffer = [0u8; 65536];
+                let mut hash = lctx_model::domain::ContentHasher::default();
+                loop {
+                    let count = file.read(&mut buffer)?;
+                    if count == 0 {
+                        break;
+                    }
+                    hash.update(&buffer[..count]);
+                }
+                Ok(hash.finish())
+            }
+            let environment = envs.join(&name);
+            identity["runtime_digest"] =
+                serde_json::to_value(reported_hash(&environment.join("pyvenv.cfg"))?)?;
+            identity["interpreter_digest"] =
+                serde_json::to_value(reported_hash(&environment.join("bin/python"))?)?;
+            println!("{}", serde_json::to_string(&identity)?);
             Ok(())
         }
-        Cmd::Compile { .. } => Err(Unavailable(
-            "compile is unavailable until cutover phase 2 lands `lctx compile --through facts`",
-        )
-        .into()),
+        Cmd::Compile {
+            name,
+            through,
+            profile,
+            task_receipt,
+            memory_bytes,
+        } => {
+            if through != "facts" {
+                return Err(Unavailable(
+                    "only --through facts is available during the semantic cutover",
+                )
+                .into());
+            }
+            cpg_extract::bundle::refuse_ambient(std::env::vars_os())?;
+            runtime()?.block_on(compile::compile(
+                &name,
+                profile,
+                &task_receipt,
+                memory_bytes,
+                &libraries,
+                &envs,
+                &sources,
+                cli.database.as_deref(),
+            ))
+        }
         Cmd::Flow {
             file,
             python,
             platform,
-            runtime_bindings,
-        } => flow_file(&file, &python, &platform, runtime_bindings.as_deref()),
+        } => flow_file(&file, &python, &platform),
     }
 }
 
@@ -565,23 +701,49 @@ mod tests {
     #[test]
     fn each_command_takes_its_own_options() {
         let cli = parse(&["acquire", "fastmcp", "--envs", "e"]).unwrap();
-        assert!(matches!(cli.command, Cmd::Acquire { reinstall: false, .. }));
+        assert!(matches!(
+            cli.command,
+            Cmd::Acquire {
+                reinstall: false,
+                ..
+            }
+        ));
         assert_eq!(cli.envs, std::path::PathBuf::from("e"));
         // An option of another command is refused, not ignored.
         assert!(parse(&["acquire", "fastmcp", "--store", "s"]).is_err());
         // Retired pipeline commands no longer parse.
-        for retired in ["bundle", "diff", "serving", "rebuild", "parity", "db", "snapshots", "generations", "compile-fixture"] {
+        for retired in [
+            "bundle",
+            "diff",
+            "serving",
+            "rebuild",
+            "parity",
+            "db",
+            "snapshots",
+            "generations",
+            "compile-fixture",
+        ] {
             assert!(parse(&[retired]).is_err(), "{retired}");
         }
         // Compile parses any arguments so that it can refuse them all.
-        assert!(matches!(parse(&["compile", "fastmcp", "--store", "s", "--reinstall"]).unwrap().command, Cmd::Compile { .. }));
+        assert!(matches!(
+            parse(&["compile", "fastmcp", "--through", "facts"])
+                .unwrap()
+                .command,
+            Cmd::Compile { .. }
+        ));
     }
 
     /// The hand parsers accepted a sign (`from_str_radix` reads `+f`) and panicked slicing
     /// non-ASCII input (H1 C4).
     #[test]
     fn an_attempt_id_is_exactly_32_hex_digits() {
-        for bad in ["+f".repeat(16), "é".repeat(16), "ab".repeat(15), "zz".repeat(16)] {
+        for bad in [
+            "+f".repeat(16),
+            "é".repeat(16),
+            "ab".repeat(15),
+            "zz".repeat(16),
+        ] {
             assert!(parse(&["runs", "show", &bad]).is_err(), "{bad}");
         }
         assert!(parse(&["runs", "show", &"AB".repeat(16)]).is_ok());

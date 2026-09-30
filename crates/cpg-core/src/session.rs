@@ -41,7 +41,10 @@ pub fn config() -> SessionConfig {
         .set_bool("datafusion.sql_parser.enable_ident_normalization", false)
         // Hash-join dynamic filtering can panic on dictionary join keys at this DataFusion line.
         .set_usize("datafusion.optimizer.hash_join_inlist_pushdown_max_size", 0)
-        .set_usize("datafusion.optimizer.hash_join_inlist_pushdown_max_distinct_values", 0)
+        .set_usize(
+            "datafusion.optimizer.hash_join_inlist_pushdown_max_distinct_values",
+            0,
+        )
         .with_target_partitions(TARGET_PARTITIONS)
 }
 
@@ -84,7 +87,12 @@ mod tests {
         let options = state.config_options();
         assert!(!options.sql_parser.enable_ident_normalization);
         assert_eq!(options.optimizer.hash_join_inlist_pushdown_max_size, 0);
-        assert_eq!(options.optimizer.hash_join_inlist_pushdown_max_distinct_values, 0);
+        assert_eq!(
+            options
+                .optimizer
+                .hash_join_inlist_pushdown_max_distinct_values,
+            0
+        );
         assert_eq!(options.execution.target_partitions, TARGET_PARTITIONS);
         assert!(ctx.udf("lctx_id").is_ok() && ctx.udf("lctx_id_v2").is_err());
     }
@@ -92,15 +100,22 @@ mod tests {
     /// The pool bounds every operator: a sort that cannot fit is refused, not truncated.
     #[tokio::test]
     async fn the_memory_pool_refuses_instead_of_truncating() {
-        let ctx = new_session(SessionOptions { memory_limit: 64 * 1024 });
-        let err = ctx
-            .sql("SELECT v FROM generate_series(1, 2000000) AS t(v) ORDER BY v DESC")
-            .await
-            .unwrap()
-            .collect()
-            .await
-            .unwrap_err()
-            .to_string();
-        assert!(err.contains("Resources exhausted") || err.contains("ResourcesExhausted"), "{err}");
+        let ctx = new_session(SessionOptions {
+            memory_limit: 64 * 1024,
+        });
+        let err = crate::sql::query(
+            &ctx,
+            "SELECT v FROM generate_series(1, 2000000) AS t(v) ORDER BY v DESC",
+        )
+        .await
+        .unwrap()
+        .collect()
+        .await
+        .unwrap_err()
+        .to_string();
+        assert!(
+            err.contains("Resources exhausted") || err.contains("ResourcesExhausted"),
+            "{err}"
+        );
     }
 }

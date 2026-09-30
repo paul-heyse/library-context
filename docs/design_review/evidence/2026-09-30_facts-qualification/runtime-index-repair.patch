@@ -1,0 +1,437 @@
+diff --git a/build/ty-flow-pre-index.rs b/crates/cpg-extract/src/ty_flow.rs
+index 05eae74..ac40d29 100644
+--- a/build/ty-flow-pre-index.rs
++++ b/crates/cpg-extract/src/ty_flow.rs
+@@ -97,6 +97,16 @@ fn invalid(message: &str) -> ModelError {
+ }
+ /// Pipeline-owned typed indexes reserve before retaining their copies. Native analyzer heaps,
+ /// including ty's parse/semantic index, remain provider-owned and are measured separately at Q.
++#[derive(Clone, Copy, PartialEq, Eq)]
++enum RuntimeSpecial {
++    Checking,
++    Typing,
++    Sys,
++    Os,
++    Type,
++    Class,
++}
++type SourceIndex<T> = BTreeMap<Id<SourceArtifact>, Vec<T>>;
+ struct Index {
+     _charge: StateCharge,
+     occurrences: BTreeMap<Id<Occurrence>, Occurrence>,
+@@ -109,6 +119,13 @@ struct Index {
+     resolutions: BTreeMap<Id<Occurrence>, Vec<LexicalResolution>>,
+     references: Vec<ReferenceObservation>,
+     imports: Vec<ImportAliasObservation>,
++    runtime_imports: BTreeMap<Id<BindingEvent>, RuntimeSpecial>,
++    source_imports: SourceIndex<usize>,
++    source_identifiers: SourceIndex<Id<Occurrence>>,
++    source_references: SourceIndex<usize>,
++    source_scopes: SourceIndex<Id<LexicalScope>>,
++    scope_bindings: BTreeMap<Id<LexicalScope>, Vec<Id<BindingEvent>>>,
++    owner_declarations: BTreeMap<Id<Occurrence>, Vec<usize>>,
+ }
+ impl Index {
+     fn new<S: StageSink + 'static>(context: &mut StageContext<S>) -> Result<Self, ModelError> {
+@@ -127,20 +144,20 @@ impl Index {
+             }
+             Ok(rows)
+         }
+-        let occurrences = read::<Occurrence, _>(context, &mut charge)?
++        let occurrences: BTreeMap<_, _> = read::<Occurrence, _>(context, &mut charge)?
+             .into_iter()
+             .map(|r| (r.id(), r))
+             .collect();
+-        let scopes = read::<LexicalScope, _>(context, &mut charge)?
++        let scopes: BTreeMap<_, _> = read::<LexicalScope, _>(context, &mut charge)?
+             .into_iter()
+             .map(|r| (r.id(), r))
+             .collect();
+-        let declarations = read(context, &mut charge)?;
+-        let bindings = read::<BindingObservation, _>(context, &mut charge)?
++        let declarations: Vec<DeclarationObservation> = read(context, &mut charge)?;
++        let bindings: BTreeMap<_, _> = read::<BindingObservation, _>(context, &mut charge)?
+             .into_iter()
+             .map(|r| (r.event, r))
+             .collect();
+-        let events = read::<BindingEvent, _>(context, &mut charge)?
++        let events: BTreeMap<_, _> = read::<BindingEvent, _>(context, &mut charge)?
+             .into_iter()
+             .map(|r| (r.id(), r))
+             .collect();
+@@ -152,14 +169,74 @@ impl Index {
+         for row in read::<LexicalResolution, _>(context, &mut charge)? {
+             resolutions.entry(row.read).or_default().push(row);
+         }
+-        let references = read(context, &mut charge)?;
+-        let imports = read(context, &mut charge)?;
+-        let identifiers = read::<SyntaxObservation, _>(context, &mut charge)?
++        let references: Vec<ReferenceObservation> = read(context, &mut charge)?;
++        let imports: Vec<ImportAliasObservation> = read(context, &mut charge)?;
++        let identifiers: BTreeMap<_, _> = read::<SyntaxObservation, _>(context, &mut charge)?
+             .into_iter()
+             .map(|o| (o.occurrence, o.spelling))
+             .collect();
+-        Ok(Self {
++        // Derived lookup partitions preserve each original collection's order and predicates.
++        // Reserve before retaining each key/slot; these indexes own no additional semantic facts.
++        fn push<K: Ord, V>(
++            map: &mut BTreeMap<K, Vec<V>>,
++            charge: &mut StateCharge,
++            key: K,
++            value: V,
++        ) -> Result<(), ModelError> {
++            charge.grow(
++                size_of::<K>()
++                    .saturating_add(size_of::<V>().saturating_mul(2))
++                    .saturating_add(128),
++            )?;
++            map.entry(key).or_default().push(value);
++            Ok(())
++        }
++        let mut source_imports = BTreeMap::new();
++        for (position, import) in imports.iter().enumerate() {
++            if let Some(site) = occurrences.get(&import.alias) {
++                push(&mut source_imports, &mut charge, site.source, position)?;
++            }
++        }
++        let mut source_identifiers = BTreeMap::new();
++        for id in identifiers.keys() {
++            if let Some(site) = occurrences.get(id) {
++                push(&mut source_identifiers, &mut charge, site.source, *id)?;
++            }
++        }
++        let mut source_references = BTreeMap::new();
++        for (position, reference) in references.iter().enumerate() {
++            if let Some(site) = occurrences.get(&reference.read) {
++                push(&mut source_references, &mut charge, site.source, position)?;
++            }
++        }
++        let mut source_scopes = BTreeMap::new();
++        for (id, scope) in &scopes {
++            if let Some(site) = occurrences.get(&scope.owner) {
++                push(&mut source_scopes, &mut charge, site.source, *id)?;
++            }
++        }
++        let mut scope_bindings = BTreeMap::new();
++        for (id, binding) in &bindings {
++            push(&mut scope_bindings, &mut charge, binding.scope, *id)?;
++        }
++        let mut owner_declarations = BTreeMap::new();
++        for (position, declaration) in declarations.iter().enumerate() {
++            push(
++                &mut owner_declarations,
++                &mut charge,
++                declaration.declaration,
++                position,
++            )?;
++        }
++        let mut index = Self {
+             _charge: charge,
++            runtime_imports: BTreeMap::new(),
++            source_imports,
++            source_identifiers,
++            source_references,
++            source_scopes,
++            scope_bindings,
++            owner_declarations,
+             occurrences,
+             scopes,
+             declarations,
+@@ -170,41 +247,59 @@ impl Index {
+             references,
+             imports,
+             identifiers,
+-        })
++        };
++        for event in index.events.values() {
++            if let Some(special) = index.import_special(event) {
++                index._charge.grow(192)?;
++                index.runtime_imports.insert(event.id(), special);
++            }
++        }
++        Ok(index)
+     }
+     fn scope(
+         &self,
+         source: Id<SourceArtifact>,
+         scope: cpg_flow::Scope,
+     ) -> Option<Id<LexicalScope>> {
+-        let mut found = self.scopes.values().filter(|s| {
+-            if s.kind != scope.kind {
+-                return false;
+-            }
+-            let Some(owner) = self.occurrences.get(&s.owner) else {
+-                return false;
+-            };
+-            if owner.source != source {
+-                return false;
+-            }
+-            match scope.name {
+-                None => scope.kind == LexicalScopeKind::Module,
+-                Some(span)
+-                    if matches!(
+-                        scope.kind,
+-                        LexicalScopeKind::Function | LexicalScopeKind::Class
+-                    ) =>
+-                {
+-                    self.declarations.iter().any(|d| {
+-                        d.declaration == s.owner
+-                            && self.occurrences.get(&d.name).is_some_and(|n| {
+-                                n.start == span.start as i64 && n.end == span.end as i64
++        let mut found = self
++            .source_scopes
++            .get(&source)
++            .into_iter()
++            .flatten()
++            .filter_map(|id| self.scopes.get(id))
++            .filter(|s| {
++                if s.kind != scope.kind {
++                    return false;
++                }
++                let Some(owner) = self.occurrences.get(&s.owner) else {
++                    return false;
++                };
++                if owner.source != source {
++                    return false;
++                }
++                match scope.name {
++                    None => scope.kind == LexicalScopeKind::Module,
++                    Some(span)
++                        if matches!(
++                            scope.kind,
++                            LexicalScopeKind::Function | LexicalScopeKind::Class
++                        ) =>
++                    {
++                        self.owner_declarations
++                            .get(&s.owner)
++                            .into_iter()
++                            .flatten()
++                            .map(|position| &self.declarations[*position])
++                            .any(|d| {
++                                d.declaration == s.owner
++                                    && self.occurrences.get(&d.name).is_some_and(|n| {
++                                        n.start == span.start as i64 && n.end == span.end as i64
++                                    })
+                             })
+-                    })
++                    }
++                    Some(span) => owner.start == span.start as i64 && owner.end == span.end as i64,
+                 }
+-                Some(span) => owner.start == span.start as i64 && owner.end == span.end as i64,
+-            }
+-        });
++            });
+         let first = found.next()?.id();
+         found.next().is_none().then_some(first)
+     }
+@@ -221,12 +316,18 @@ impl Index {
+             .occurrences
+             .get(&occurrence)
+             .ok_or_else(|| invalid("flow place occurrence missing"))?;
+-        let root_read = self.references.iter().find(|r| {
+-            r.name == place.root
+-                && self.occurrences.get(&r.read).is_some_and(|o| {
+-                    o.source == site.source && o.start == site.start && o.end <= site.end
+-                })
+-        });
++        let root_read = self
++            .source_references
++            .get(&site.source)
++            .into_iter()
++            .flatten()
++            .map(|position| &self.references[*position])
++            .find(|r| {
++                r.name == place.root
++                    && self.occurrences.get(&r.read).is_some_and(|o| {
++                        o.source == site.source && o.start == site.start && o.end <= site.end
++                    })
++            });
+         if let Some(read) = root_read
+             && let Some(resolutions) = self.resolutions.get(&read.read)
+         {
+@@ -240,14 +341,21 @@ impl Index {
+             if let Some(event) = agreed
+                     && resolutions.iter().all(|r|matches!(self.targets.get(&r.target),Some(LexicalTarget::Binding {event:e}) if *e==event))&& let Some(binding)=self.bindings.get(&event) {owner=binding.scope;}
+         }
+-        if let Some(binding) = self.bindings.values().find(|b| {
+-            b.scope == owner
+-                && b.kind == BindingEventKind::Parameter
+-                && self
+-                    .events
+-                    .get(&b.event)
+-                    .is_some_and(|e| e.name == place.root)
+-        }) {
++        if let Some(binding) = self
++            .scope_bindings
++            .get(&owner)
++            .into_iter()
++            .flatten()
++            .filter_map(|id| self.bindings.get(id))
++            .find(|b| {
++                b.scope == owner
++                    && b.kind == BindingEventKind::Parameter
++                    && self
++                        .events
++                        .get(&b.event)
++                        .is_some_and(|e| e.name == place.root)
++            })
++        {
+             return Ok(PlaceRoot::Formal {
+                 declaration: self.events[&binding.event].site,
+             });
+@@ -261,54 +369,57 @@ impl Index {
+             name: place.root.clone(),
+         })
+     }
++    fn import_special(&self, event: &BindingEvent) -> Option<RuntimeSpecial> {
++        let site = self.occurrences.get(&event.site)?;
++        let source = site.source;
++        let alias = self
++            .source_imports
++            .get(&source)
++            .into_iter()
++            .flatten()
++            .map(|position| &self.imports[*position])
++            .find(|i| {
++                self.occurrences.get(&i.alias).is_some_and(|a| {
++                    a.source == site.source && a.start <= site.start && a.end >= site.end
++                })
++            })?;
++        let alias_site = self.occurrences.get(&alias.alias)?;
++        let is_from =
++            self.occurrences.get(&alias.statement)?.syntax_kind == SyntaxKind::StmtImportFrom;
++        let imported = self
++            .source_identifiers
++            .get(&source)
++            .into_iter()
++            .flatten()
++            .find(|id| {
++                self.occurrences.get(*id).is_some_and(|o| {
++                    o.source == alias_site.source
++                        && o.start == alias_site.start
++                        && o.end <= alias_site.end
++                })
++            })
++            .and_then(|id| self.identifiers.get(id))
++            .map(String::as_str);
++        let special = match (alias.resolved_module.as_deref(), is_from, imported) {
++            (Some("typing" | "typing_extensions"), true, Some("TYPE_CHECKING")) => {
++                RuntimeSpecial::Checking
++            }
++            (Some("typing" | "typing_extensions"), false, _) => RuntimeSpecial::Typing,
++            (Some("sys"), false, _) => RuntimeSpecial::Sys,
++            (Some("os"), false, _) => RuntimeSpecial::Os,
++            _ => return None,
++        };
++        Some(special)
++    }
+     fn runtime(&self, source: Id<SourceArtifact>) -> cpg_flow::RuntimeBindings {
+-        #[derive(Clone, Copy, PartialEq, Eq)]
+-        enum Special {
+-            Checking,
+-            Typing,
+-            Sys,
+-            Os,
+-            Type,
+-            Class,
+-        }
+         let mut out = cpg_flow::RuntimeBindings::default();
+-        let imports: BTreeMap<_, _> = self
+-            .events
+-            .values()
+-            .filter_map(|event| {
+-                let site = self.occurrences.get(&event.site)?;
+-                let alias = self.imports.iter().find(|i| {
+-                    self.occurrences.get(&i.alias).is_some_and(|a| {
+-                        a.source == site.source && a.start <= site.start && a.end >= site.end
+-                    })
+-                })?;
+-                let alias_site = self.occurrences.get(&alias.alias)?;
+-                let is_from = self.occurrences.get(&alias.statement)?.syntax_kind
+-                    == SyntaxKind::StmtImportFrom;
+-                let imported = self
+-                    .identifiers
+-                    .iter()
+-                    .find(|(id, _)| {
+-                        self.occurrences.get(id).is_some_and(|o| {
+-                            o.source == alias_site.source
+-                                && o.start == alias_site.start
+-                                && o.end <= alias_site.end
+-                        })
+-                    })
+-                    .map(|(_, name)| name.as_str());
+-                let special = match (alias.resolved_module.as_deref(), is_from, imported) {
+-                    (Some("typing" | "typing_extensions"), true, Some("TYPE_CHECKING")) => {
+-                        Special::Checking
+-                    }
+-                    (Some("typing" | "typing_extensions"), false, _) => Special::Typing,
+-                    (Some("sys"), false, _) => Special::Sys,
+-                    (Some("os"), false, _) => Special::Os,
+-                    _ => return None,
+-                };
+-                Some((event.id(), special))
+-            })
+-            .collect();
+-        for reference in &self.references {
++        for reference in self
++            .source_references
++            .get(&source)
++            .into_iter()
++            .flatten()
++            .map(|position| &self.references[*position])
++        {
+             let Some(occurrence) = self
+                 .occurrences
+                 .get(&reference.read)
+@@ -320,8 +431,10 @@ impl Index {
+                 continue;
+             };
+             let classify = |r: &LexicalResolution| match self.targets.get(&r.target) {
+-                Some(LexicalTarget::Binding { event }) => imports.get(event).copied(),
+-                Some(LexicalTarget::Builtin { name, .. }) if name == "type" => Some(Special::Type),
++                Some(LexicalTarget::Binding { event }) => self.runtime_imports.get(event).copied(),
++                Some(LexicalTarget::Builtin { name, .. }) if name == "type" => {
++                    Some(RuntimeSpecial::Type)
++                }
+                 Some(LexicalTarget::Builtin { name, .. })
+                     if matches!(
+                         name.as_str(),
+@@ -337,7 +450,7 @@ impl Index {
+                             | "set"
+                     ) =>
+                 {
+-                    Some(Special::Class)
++                    Some(RuntimeSpecial::Class)
+                 }
+                 _ => None,
+             };
+@@ -352,22 +465,22 @@ impl Index {
+                 end: occurrence.end as u32,
+             };
+             match special {
+-                Special::Checking => {
++                RuntimeSpecial::Checking => {
+                     out.checking_names.insert(span);
+                 }
+-                Special::Typing => {
++                RuntimeSpecial::Typing => {
+                     out.typing_modules.insert(span);
+                 }
+-                Special::Sys => {
++                RuntimeSpecial::Sys => {
+                     out.sys_modules.insert(span);
+                 }
+-                Special::Os => {
++                RuntimeSpecial::Os => {
+                     out.os_modules.insert(span);
+                 }
+-                Special::Type => {
++                RuntimeSpecial::Type => {
+                     out.builtin_type.insert(span);
+                 }
+-                Special::Class => {
++                RuntimeSpecial::Class => {
+                     out.builtin_classes
+                         .entry(reference.name.clone())
+                         .or_default()

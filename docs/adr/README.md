@@ -49,7 +49,15 @@ The [architecture map](../design/README.md) and its section owners own contracts
 | [ADR-0088](0088-canonical-artifact-chunks.md) | Preserve complete artifacts as canonical bounded chunks | 2026-09-29 | [§15.3](../design/sections/semantic-model.md#section-15-3) | Tested |  |
 | [ADR-0089](0089-stage-contributions-and-input-closure.md) | Assemble attributed facts through declared stage contributions over a captured input closure | 2026-09-29 | [§15.3](../design/sections/semantic-model.md#section-15-3), [§15.4](../design/sections/semantic-model.md#section-15-4), [§15.11](../design/sections/semantic-model.md#section-15-11) | Proposed |  |
 | [ADR-0090](0090-datafusion-family-without-delta.md) | Pin DataFusion 55.1 / Arrow 59.3 as one family, without delta-rs or federation | 2026-09-29 | [§B9](../design/DESIGN.md#section-b9), [§7](../design/DESIGN.md#section-7) | Tested | ADR-0002 |
+| [ADR-0092](0092-facts-scope-and-callable-identity.md) | Own facts roots, supporting scope and native callable identity | 2026-09-30 | [§15](../design/sections/semantic-model.md#section-15) | Proposed |  |
 | [ADR-0093](0093-domain-model-review-scope.md) | Assess domain modeling during bounded design reviews without mandatory flow tracing | 2026-09-30 | [§2](../design/DESIGN.md#section-2) | Implemented | ADR-0091 |
+| [ADR-0094](0094-generation-owned-compile-outcomes.md) | The generation registry owns new compile outcomes | 2026-09-30 | [§15](../design/sections/semantic-model.md#section-15) | Implemented |  |
+| [ADR-0095](0095-preserve-native-positional-order.md) | Preserve provider positional parameter order | 2026-09-30 | [§15](../design/sections/semantic-model.md#section-15) | Implemented |  |
+| [ADR-0096](0096-preserve-unavailable-native-signatures.md) | Preserve unavailable native signatures without binding them | 2026-09-30 | [§15](../design/sections/semantic-model.md#section-15) | Implemented |  |
+| [ADR-0097](0097-typed-dictionary-field-membership.md) | Model typed dictionary fields separately from callable parameters | 2026-09-30 | [§15](../design/sections/semantic-model.md#section-15) | Implemented |  |
+| [ADR-0098](0098-native-slot-interpretation.md) | Keep native slot text separate from callable interpretation | 2026-09-30 | [§15](../design/sections/semantic-model.md#section-15) | Implemented |  |
+| [ADR-0099](0099-preserve-unicode-values-as-utf8-bytes.md) | Preserve Unicode values as UTF-8 bytes | 2026-09-30 | [§15](../design/sections/semantic-model.md#section-15) | Implemented |  |
+| [ADR-0100](0100-preserve-residual-type-ports.md) | Preserve residual children in typed native envelopes | 2026-09-30 | [§15](../design/sections/semantic-model.md#section-15) | Implemented |  |
 
 ## Proposed: open choices, not accepted decisions
 

@@ -14,8 +14,23 @@ use lctx_model::id::{Id, IdKind};
 /// (the typed `domain` owns identity).
 mod recipes {
     use lctx_model::id::Id;
-    lctx_model::recipe!(occurrence, OCCURRENCE = Occurrence { module: Id, start: i64, end: i64, syntax_kind: &str });
-    lctx_model::recipe!(symbol_key, SYMBOL_KEY = SymbolKey { distribution: &str, qualified_path: &str, descriptor: &str });
+    lctx_model::recipe!(
+        occurrence,
+        OCCURRENCE = Occurrence {
+            module: Id,
+            start: i64,
+            end: i64,
+            syntax_kind: &str
+        }
+    );
+    lctx_model::recipe!(
+        symbol_key,
+        SYMBOL_KEY = SymbolKey {
+            distribution: &str,
+            qualified_path: &str,
+            descriptor: &str
+        }
+    );
 }
 use lctx_model::{model, relation};
 
@@ -148,7 +163,11 @@ fn provenance_never_reaches_identity() {
     let mut other_run = base.clone();
     other_run.run_id = Id([8; 16]);
     assert_eq!(ids(&batch(&base)), ids(&batch(&other_run)));
-    assert!(identity::mismatches(&Occurrences::DECL, &batch(&other_run)).unwrap().is_empty());
+    assert!(
+        identity::mismatches(&Occurrences::DECL, &batch(&other_run))
+            .unwrap()
+            .is_empty()
+    );
 
     let mut other_module = base.clone();
     other_module.module_id = Id([2; 16]);

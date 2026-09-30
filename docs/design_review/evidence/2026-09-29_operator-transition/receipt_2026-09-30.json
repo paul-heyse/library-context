@@ -1,0 +1,180 @@
+{
+  "backup": {
+    "bytes": 22812,
+    "mode": "0600",
+    "path": "build/backups/2026-09-30_retained-services/retained-services.dump",
+    "scope": "retained service schemas"
+  },
+  "drop_retired": {
+    "dropped": "lctx_retired_20260930071346",
+    "status": "passed"
+  },
+  "plan": {
+    "database": "lctx",
+    "history": [
+      202609270001,
+      202609270002,
+      202609270003,
+      202609270004,
+      202609280005,
+      202609280006,
+      202609280007,
+      202609280008,
+      202609280009,
+      202609280010,
+      202609280011,
+      202609280012
+    ],
+    "left_behind": [
+      "lctx_report",
+      "lctx_serving"
+    ],
+    "legacy_history": true,
+    "next_exists": false,
+    "retained": {
+      "lctx_cache.embedding_values": {
+        "digest": "d41d8cd98f00b204e9800998ecf8427e",
+        "rows": 0
+      },
+      "lctx_cache.specs": {
+        "digest": "d41d8cd98f00b204e9800998ecf8427e",
+        "rows": 0
+      },
+      "lctx_ops.attempts": {
+        "digest": "d41d8cd98f00b204e9800998ecf8427e",
+        "rows": 0
+      },
+      "lctx_ops.events": {
+        "digest": "d41d8cd98f00b204e9800998ecf8427e",
+        "rows": 0
+      }
+    }
+  },
+  "prepare": {
+    "prepared": "lctx_next",
+    "retained": {
+      "lctx_cache.embedding_values": {
+        "digest": "d41d8cd98f00b204e9800998ecf8427e",
+        "rows": 0
+      },
+      "lctx_cache.specs": {
+        "digest": "d41d8cd98f00b204e9800998ecf8427e",
+        "rows": 0
+      },
+      "lctx_ops.attempts": {
+        "digest": "d41d8cd98f00b204e9800998ecf8427e",
+        "rows": 0
+      },
+      "lctx_ops.events": {
+        "digest": "d41d8cd98f00b204e9800998ecf8427e",
+        "rows": 0
+      }
+    }
+  },
+  "rehearsal": {
+    "dump_bytes": 286063,
+    "legacy_install_refused": 1,
+    "operator_retained": {
+      "lctx_cache.embedding_values": {
+        "digest": "d41d8cd98f00b204e9800998ecf8427e",
+        "rows": 0
+      },
+      "lctx_cache.specs": {
+        "digest": "d41d8cd98f00b204e9800998ecf8427e",
+        "rows": 0
+      },
+      "lctx_ops.attempts": {
+        "digest": "d41d8cd98f00b204e9800998ecf8427e",
+        "rows": 0
+      },
+      "lctx_ops.events": {
+        "digest": "d41d8cd98f00b204e9800998ecf8427e",
+        "rows": 0
+      }
+    },
+    "plan": {
+      "exit": 0,
+      "result": {
+        "database": "lctx",
+        "history": [
+          202609270001,
+          202609270002,
+          202609270003,
+          202609270004,
+          202609280005,
+          202609280006,
+          202609280007,
+          202609280008,
+          202609280009,
+          202609280010,
+          202609280011,
+          202609280012
+        ],
+        "left_behind": [
+          "lctx_serving"
+        ],
+        "legacy_history": true,
+        "next_exists": false,
+        "retained": {}
+      }
+    },
+    "prepare": {
+      "exit": 0,
+      "result": {
+        "prepared": "lctx_next",
+        "retained": {}
+      }
+    },
+    "runs_list": 0,
+    "store_check": 0,
+    "switch": {
+      "exit": 0,
+      "result": {
+        "archive": "lctx_retired_20260930071010",
+        "retained": {
+          "lctx_cache.embedding_values": {
+            "digest": "d41d8cd98f00b204e9800998ecf8427e",
+            "rows": 0
+          },
+          "lctx_cache.specs": {
+            "digest": "d41d8cd98f00b204e9800998ecf8427e",
+            "rows": 0
+          },
+          "lctx_ops.attempts": {
+            "digest": "d41d8cd98f00b204e9800998ecf8427e",
+            "rows": 0
+          },
+          "lctx_ops.events": {
+            "digest": "d41d8cd98f00b204e9800998ecf8427e",
+            "rows": 0
+          }
+        },
+        "runs": "listed",
+        "store_check": "clean"
+      }
+    }
+  },
+  "switch": {
+    "archive": "lctx_retired_20260930071346",
+    "retained": {
+      "lctx_cache.embedding_values": {
+        "digest": "d41d8cd98f00b204e9800998ecf8427e",
+        "rows": 0
+      },
+      "lctx_cache.specs": {
+        "digest": "d41d8cd98f00b204e9800998ecf8427e",
+        "rows": 0
+      },
+      "lctx_ops.attempts": {
+        "digest": "d41d8cd98f00b204e9800998ecf8427e",
+        "rows": 0
+      },
+      "lctx_ops.events": {
+        "digest": "d41d8cd98f00b204e9800998ecf8427e",
+        "rows": 0
+      }
+    },
+    "runs": "listed",
+    "store_check": "clean"
+  }
+}

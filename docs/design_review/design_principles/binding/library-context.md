@@ -66,17 +66,17 @@ IDs are never reused or renumbered. Changing a §B decision needs an ADR and a d
 | ID | Binding decision (DESIGN.md §2 is authoritative) | Bears on |
 |---|---|---|
 | §B1 | Ruff and Pyrefly are the only semantic front ends, over one parse; `cpg-flow`'s flow facts from ty are the declared exception, joined by range under parity rules | DP-01, DP-08, DP-14, DP-16, CI-02 · G1, G7 |
-| §B2 | Arrow schemas in `cpg-schema` are the authoritative data contract; codebooks are append-only | DP-01, DP-02, DP-03, DP-16, DP-24 · G1, G2 |
-| §B3 | DataFusion constructs and validates relations; one query per rule, shared by tests and publication | DP-03, DP-08, DP-18, DP-23 · G3 |
+| §B2 | `lctx-model` typed domain declarations own facts and derive Arrow/PostgreSQL contracts; codebooks are append-only (ADR-0085–0088); `cpg-schema` remains only for dormant P3–P5 consumers | DP-01, DP-02, DP-03, DP-16, DP-24 · G1, G2 |
+| §B3 | Shared model invariant validators serve tests and publication; DataFusion is in-process compute; normalized derivations return in P3 | DP-03, DP-08, DP-18, DP-23 · G3 |
 | §B4 | Graph algorithms have named owners and named consumers | DP-07, DP-11, DP-13, DP-21, CI-05, CI-07, CI-09 · G6, G8 |
 | §B5 | Python semantics are custom Rust passes with stated abstractions | DP-05, DP-08, DP-11, DP-22, CI-06 · G2, G7, CI-G1 |
 | §B6 | Facts are first-class assertions with run, origin, fidelity and model; disagreement is retained; analysis results carry provenance in-row | DP-01, DP-02, DP-05, DP-21, CI-01 · G1, G2, CI-G1 |
-| §B7 | Delta canonical store, published by one `snapshots` append; readers pin versions and filter by `snapshot_id` | DP-04, DP-19 · G5 |
+| §B7 | Immutable PostgreSQL generations, attempt-owned seal/validate/publish with admission and pinned reader leases; publication and selection are distinct | DP-04, DP-19 · G5 |
 | §B8 | Pyrefly and Ruff linked in-process from a pinned fork with a constructed, explicit config | DP-09, DP-14, DP-15, DP-18, DP-21, CI-10 · G2, G4, G6 |
 | §B9 | One pinned Rust dependency family | DP-09, DP-15, DP-21 · G6, G7 |
 | §B10 | The standing exclusions | DP-16 · — |
 | §B11 | Insight synthesis is programmatic; no generative model in v1, and never in the query path | DP-02, DP-08, DP-11, DP-22, CI-11 · G2, G7, CI-G2 |
-| §B12 | Canonical Delta store vs rebuildable serving projections; no cross-store transactions | DP-01, DP-19, CI-13 · G1, G5 |
+| §B12 | One PostgreSQL relational store; facts generations are implemented, serving views/indexes return in P5 without a second semantic store | DP-01, DP-19, CI-13 · G1, G5 |
 | §B13 | The agent interface is a FastMCP server over one pinned generation per process; accepted PG serving uses a Rust repository and pure native executor | DP-10, DP-14, DP-15, CI-13 · G2, G3, G7 |
 | §B14 | One hashed embedding spec, cached vectors, conformance-checked Rust and Python clients | DP-09, DP-11, DP-21, CI-13 · G6 |
 
@@ -90,13 +90,13 @@ concrete change-propagation or testability defect can require revision without a
 |---|---|---|---|
 | 1 | Can every fact, finding and assertion be traced to its provider, analyzer revision, run, environment and source span? | G1, CI-G1 | CI-01, DP-21 |
 | 2 | Is any semantic fact editable in two places, such as a schema and a hand-written validator, a codebook and a match arm, a family table and a derived view, or the canonical store and the serving bundle? | G1 | DP-01 |
-| 3 | Does every brief assertion cite only findings and evidence that exist in the **same** snapshot, and does every named public symbol and parameter exist there? | CI-G2 | CI-11 |
+| 3 | Does every brief assertion cite only findings and evidence that exist in the **same** generation, and does every named public symbol and parameter exist there? | CI-G2 | CI-11 |
 | 4 | Are unavailable, not-requested, failed and unresolved distinguishable, and does an empty result or an `unresolved` slot stay distinct from "absent"? | CI-G1 | CI-04, DP-02 |
 | 5 | Is Pyrefly's inference graph relabelled as runtime dataflow, an `ifCalled` target as a call, or a call edge as "always reached" or "recommended"? | CI-G1 | CI-02 |
 | 6 | Can `statistically_derived` output (communities, centrality, kNN) state a control, a limit or a behavioral claim in a brief? | CI-G1 | CI-09 |
-| 7 | Can an unvalidated batch, or one with unmapped endpoints, reach the `snapshots` append? | G3, G5 | DP-03, DP-19 |
-| 8 | Can a reader load a table at "latest" or without the `snapshot_id` filter, or mistake an aborted attempt for a published one? | G5 | DP-19 |
-| 9 | Does the serving generation name its canonical snapshot, and does a server process hold exactly one generation for its lifetime? | G5 | CI-13 |
+| 7 | Can an unvalidated batch, or one with unmapped endpoints, reach generation publication? | G3, G5 | DP-03, DP-19 |
+| 8 | Can a reader load a table at "latest" or without a generation lease, or mistake an aborted attempt for a published one? | G5 | DP-19 |
+| 9 | Does the serving generation read its canonical generation, and does a server process hold exactly one generation for its lifetime? | G5 | CI-13 |
 | 10 | Does a projection, a parallel-arc collapse or a dense index lose the facts that support it, or leak into persistent identity? | G6 | CI-03, CI-05 |
 | 11 | Do traversal, community detection and concept analysis give identical output for shuffled input, with seeds, parameters and crate versions recorded? | G6 | CI-09, DP-11 |
 | 12 | Can a query-time vector and a compile-time vector come from different embedding specs, or a cached vector be reused after the spec changed? | G6 | CI-13, DP-09 |
@@ -114,7 +114,7 @@ concrete change-propagation or testability defect can require revision without a
 | Architectural judgments | Core §E, A1–A3; report separately from gate verdicts |
 | Correctness/fidelity gate verdicts | Core §A and profile gates |
 | Check execution outcomes | AGENTS.md Reporting; each outcome names its command |
-| Domain fidelity, verdicts and boundary reasons | `cpg-schema` contracts/codebooks and DESIGN §3/§9; never infer them from review labels |
+| Domain fidelity, verdicts and boundary reasons | `lctx-model::domain` and DESIGN §15 (ADR-0085–0088); dormant `cpg-schema`/§3/§9 carry only P3–P5 reconstruction obligations |
 
 Select scenarios from the active plan. The recurring architectural questions are:
 

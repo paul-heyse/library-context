@@ -1,5 +1,5 @@
-//! Delta persistence of the fact-family tables, the one read-only SQL helper, and the compile
-//! attempt: write, derive, validate, publish (DESIGN §4.3, §6, §8).
+//! Typed facts orchestration and generation-bound DataFusion reads. Downstream analysis,
+//! catalog and serving modules remain dormant until cutover phases 3–5 (DESIGN §15).
 
 pub mod analyze;
 pub mod arrow_types;
@@ -11,11 +11,11 @@ pub mod entry_links;
 pub mod evidence;
 pub mod facts;
 pub mod flow_model;
+pub mod generation_read;
+pub mod model_runtime;
 pub mod postgres;
 pub mod producer;
 pub mod session;
-pub mod model_runtime;
-pub mod generation_read;
 pub mod sql;
 pub mod summaries;
 pub mod synth;
@@ -58,7 +58,6 @@ pub enum CoreError {
     #[error("validation failed, nothing published: {}", summary(.0))]
     Invalid(Vec<Violation>),
 }
-
 
 pub mod surface;
 

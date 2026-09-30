@@ -1,10 +1,11 @@
 //! SQLx owns PostgreSQL effects; neither connections nor operational rows are semantic inputs.
 
-mod cache;
 pub mod bootstrap;
+mod cache;
 pub mod diagnostics;
 mod evidence;
 mod evidence_search;
+pub mod generations;
 mod hydration;
 pub mod import;
 mod journey_cursor;
@@ -17,10 +18,9 @@ pub mod report;
 pub mod repository;
 pub mod retrieval;
 pub mod roles;
+pub mod serving;
 #[cfg(feature = "testing")]
 pub mod testing;
-pub mod serving;
-pub mod generations;
 
 use serde::{Deserialize, Serialize};
 use sqlx::{
@@ -57,7 +57,9 @@ pub enum Error {
     Migration,
     /// The database carries migration history from before the service baseline. It is moved by the
     /// operator transition (cutover plan P1.13), never migrated in place.
-    #[error("the database's migration history predates the service baseline; it is refused, not upgraded")]
+    #[error(
+        "the database's migration history predates the service baseline; it is refused, not upgraded"
+    )]
     LegacyHistory,
     #[error("the configured store owner is not a verified service owner: {0}")]
     Owner(&'static str),
@@ -201,7 +203,14 @@ impl Config {
                 // The owner validates whole generations; its statements may run long.
                 (
                     "statement_timeout",
-                    format!("{}s", if migration { OWNER_STATEMENT_TIMEOUT_SECONDS } else { self.statement_timeout_seconds }),
+                    format!(
+                        "{}s",
+                        if migration {
+                            OWNER_STATEMENT_TIMEOUT_SECONDS
+                        } else {
+                            self.statement_timeout_seconds
+                        }
+                    ),
                 ),
                 ("lock_timeout", format!("{}s", self.lock_timeout_seconds)),
                 ("idle_in_transaction_session_timeout", "30s".to_owned()),
@@ -217,7 +226,11 @@ impl Config {
             ]);
         let pool = PgPoolOptions::new()
             // The owner pool serves an attempt's lifecycle connection plus its steps and cleanup.
-            .max_connections(if migration { OWNER_CONNECTIONS } else { self.max_connections })
+            .max_connections(if migration {
+                OWNER_CONNECTIONS
+            } else {
+                self.max_connections
+            })
             .acquire_timeout(Duration::from_secs(self.acquire_timeout_seconds))
             .idle_timeout(Duration::from_secs(60))
             .max_lifetime(Duration::from_secs(1800))
@@ -295,17 +308,29 @@ impl Store {
 }
 
 /// Whether the applied migration history is exactly the service baseline this binary declares.
-pub(crate) async fn history_current(connection: &mut sqlx::PgConnection) -> Result<bool, sqlx::Error> {
-    let present: Option<String> = sqlx::query_scalar("SELECT to_regclass('public._sqlx_migrations')::text")
-        .fetch_one(&mut *connection).await?;
+pub(crate) async fn history_current(
+    connection: &mut sqlx::PgConnection,
+) -> Result<bool, sqlx::Error> {
+    let present: Option<String> =
+        sqlx::query_scalar("SELECT to_regclass('public._sqlx_migrations')::text")
+            .fetch_one(&mut *connection)
+            .await?;
     if present.is_none() {
         return Ok(false);
     }
-    let rows: Vec<(i64, bool, Vec<u8>)> = sqlx::query_as("SELECT version, success, checksum FROM public._sqlx_migrations ORDER BY version")
-        .fetch_all(&mut *connection).await?;
-    let expected: Vec<_> = MIGRATOR.iter().filter(|m| !m.migration_type.is_down_migration()).collect();
+    let rows: Vec<(i64, bool, Vec<u8>)> = sqlx::query_as(
+        "SELECT version, success, checksum FROM public._sqlx_migrations ORDER BY version",
+    )
+    .fetch_all(&mut *connection)
+    .await?;
+    let expected: Vec<_> = MIGRATOR
+        .iter()
+        .filter(|m| !m.migration_type.is_down_migration())
+        .collect();
     Ok(rows.len() == expected.len()
-        && rows.iter().zip(expected).all(|((v, ok, digest), m)| *v == m.version && *ok && digest.as_slice() == m.checksum.as_ref()))
+        && rows.iter().zip(expected).all(|((v, ok, digest), m)| {
+            *v == m.version && *ok && digest.as_slice() == m.checksum.as_ref()
+        }))
 }
 
 /// The service owner's pool size and statement timeout (cutover plan P1.12).
@@ -322,24 +347,39 @@ pub const RUNTIME_ROLES: [&str; 3] = ["lctx_app", "lctx_importer", "lctx_serving
 pub struct OwnerPool(sqlx::PgPool);
 impl OwnerPool {
     pub async fn verify(pool: sqlx::PgPool) -> Result<Self, Error> {
-        let (superuser, createrole, bypassrls, create, joined): (bool, bool, bool, bool, bool) = sqlx::query_as(
-            "SELECT r.rolsuper, r.rolcreaterole, r.rolbypassrls, \
+        let (superuser, createrole, bypassrls, create, joined): (bool, bool, bool, bool, bool) =
+            sqlx::query_as(
+                "SELECT r.rolsuper, r.rolcreaterole, r.rolbypassrls, \
                     has_database_privilege(current_user, current_database(), 'CREATE'), \
                     EXISTS (SELECT FROM pg_catalog.pg_auth_members m \
                             JOIN pg_catalog.pg_roles granted ON granted.oid = m.roleid \
                             JOIN pg_catalog.pg_roles member ON member.oid = m.member \
                             WHERE (member.rolname = current_user AND granted.rolname = ANY($1)) \
                                OR (granted.rolname = current_user AND member.rolname = ANY($1))) \
-             FROM pg_catalog.pg_roles r WHERE r.rolname = current_user")
-            .bind(RUNTIME_ROLES.to_vec()).fetch_one(&pool).await?;
-        let refusal = if superuser { Some("a superuser may not own the store") }
-            else if createrole || bypassrls { Some("the owner may not hold CREATEROLE or BYPASSRLS") }
-            else if !create { Some("the owner lacks CREATE on its database") }
-            else if joined { Some("the owner shares a membership edge with a runtime role") }
-            else { None };
-        match refusal { Some(reason) => Err(Error::Owner(reason)), None => Ok(Self(pool)) }
+             FROM pg_catalog.pg_roles r WHERE r.rolname = current_user",
+            )
+            .bind(RUNTIME_ROLES.to_vec())
+            .fetch_one(&pool)
+            .await?;
+        let refusal = if superuser {
+            Some("a superuser may not own the store")
+        } else if createrole || bypassrls {
+            Some("the owner may not hold CREATEROLE or BYPASSRLS")
+        } else if !create {
+            Some("the owner lacks CREATE on its database")
+        } else if joined {
+            Some("the owner shares a membership edge with a runtime role")
+        } else {
+            None
+        };
+        match refusal {
+            Some(reason) => Err(Error::Owner(reason)),
+            None => Ok(Self(pool)),
+        }
     }
-    pub fn pool(&self) -> &sqlx::PgPool { &self.0 }
+    pub fn pool(&self) -> &sqlx::PgPool {
+        &self.0
+    }
 }
 
 /// Only the explicitly opened migration identity exposes DDL.
@@ -351,12 +391,19 @@ impl MigrationStore {
     /// binary does not declare is refused before any change.
     pub async fn migrate(&self) -> Result<(), Error> {
         self.owner().await?;
-        let present: Option<String> = sqlx::query_scalar("SELECT to_regclass('public._sqlx_migrations')::text")
-            .fetch_one(&self.inner.pool).await?;
+        let present: Option<String> =
+            sqlx::query_scalar("SELECT to_regclass('public._sqlx_migrations')::text")
+                .fetch_one(&self.inner.pool)
+                .await?;
         if present.is_some() {
-            let applied: Vec<i64> = sqlx::query_scalar("SELECT version FROM public._sqlx_migrations")
-                .fetch_all(&self.inner.pool).await?;
-            if applied.iter().any(|version| !MIGRATOR.iter().any(|m| m.version == *version)) {
+            let applied: Vec<i64> =
+                sqlx::query_scalar("SELECT version FROM public._sqlx_migrations")
+                    .fetch_all(&self.inner.pool)
+                    .await?;
+            if applied
+                .iter()
+                .any(|version| !MIGRATOR.iter().any(|m| m.version == *version))
+            {
                 return Err(Error::LegacyHistory);
             }
         }

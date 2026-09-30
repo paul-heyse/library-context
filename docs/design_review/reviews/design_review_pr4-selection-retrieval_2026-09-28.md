@@ -142,7 +142,7 @@ context/basis claims before quantification, retains conflicts and requires nonva
 **Closure evidence:** Pure controls cover incomplete domains, same-context disagreement,
 cross-overload disagreement, clean universal counterexample and empty domains. This review read
 their definitions without a fresh separate kernel-test receipt. The wrapped intrinsic predicates
-and missing-type controls in [`tests/catalog/pr4.rs`](../../../crates/cpg-core/tests/catalog/pr4.rs)
+and missing-type controls in `tests/catalog/pr4.rs` (`f6562d3^:crates/cpg-core/tests/catalog/pr4.rs`, recover through Git)
 passed in the current code-gate account (§10).
 Owner: schema selection and Core domain derivation; ongoing disposition: forward-plan §6.2.
 
@@ -163,7 +163,7 @@ filters active declaration ownership and distinguishes reader nodes from formal/
 
 **Closure evidence:** The active-class plus injected-shadowed-binding control,
 cross-field reader and generated exact-storage controls in
-[`tests/catalog/pr4.rs`](../../../crates/cpg-core/tests/catalog/pr4.rs). The corrected control uses
+`tests/catalog/pr4.rs` (`f6562d3^:crates/cpg-core/tests/catalog/pr4.rs`, recover through Git). The corrected control uses
 the actual `Options` declaration and an attributed shadowed alternative; it does not assume that
 an alias fixture preserved the original class. Exact relationship kind and endpoint survive the
 served packet. The corrected controls are covered by the [current code gate](../evidence/2026-09-28_pr4/raw/code-gate.json).
@@ -187,7 +187,7 @@ Alignment reads that span's artifact at lines 300–305. Release/deployment and 
 retain scoped original and typed support evidence at lines 288–328.
 
 **Focused receipt:** Actual evidence-producer controls in
-[`selection_evidence.rs`](../../../crates/cpg-core/tests/catalog/selection_evidence.rs): package
+`selection_evidence.rs` (`f6562d3^:crates/cpg-core/tests/catalog/selection_evidence.rs`, recover through Git): package
 metadata and version, declared scenario checks, resolved-target edge witness, scenario-only source
 alignment, unrelated artifact and failed deployment interpretation ran under
 `original_contexts_independent_roots_and_pure_rebuild` and **passed**; the
@@ -233,7 +233,7 @@ load/prepare/save/restore responsibilities.
 
 **Closure evidence:** Changed-text, wrong-existing-member, reversed-input, two-spec/same-snapshot
 and artifact restore/corruption controls in
-[`tests/catalog/pr4.rs`](../../../crates/cpg-core/tests/catalog/pr4.rs) passed in the
+`tests/catalog/pr4.rs` (`f6562d3^:crates/cpg-core/tests/catalog/pr4.rs`, recover through Git) passed in the
 [current code gate](../evidence/2026-09-28_pr4/raw/code-gate.json). The
 embedders there are synthetic controls, not live embedding or product-quality evidence. F10 names
 the persistence controls included in the same code-gate account.
@@ -353,7 +353,7 @@ general rebuild framework.
 
 **Source disposition:** Implemented / reinspected 2026-09-28. Two-spec and replay controls,
 same-spec token-unavailable/rematerialization and foreign-snapshot controls
-in [`tests/catalog/pr4.rs`](../../../crates/cpg-core/tests/catalog/pr4.rs) are included in the
+in `tests/catalog/pr4.rs` (`f6562d3^:crates/cpg-core/tests/catalog/pr4.rs`, recover through Git) are included in the
 current composite Rust account: 473 passed in the complete run plus the sole guard repair passed.
 Their embedding providers are deterministic fixtures.
 Owner: Core artifact persistence and bundle publication; current disposition:
@@ -568,7 +568,7 @@ module selection/fallback is deterministic. Existing source contexts already uni
 references through ordered sets, and repeated scenario contexts carry the same original scenario
 reference. Completeness flags and distinct evidence identities remain intact.
 
-[`domain_scan_order`](../../../crates/cpg-core/tests/catalog/pr4.rs) loads the real published fixture
+`domain_scan_order` (`f6562d3^:crates/cpg-core/tests/catalog/pr4.rs`, recover through Git) loads the real published fixture
 facts/evidence, derives contracts, then reverses names, sources, releases, declarations, candidates,
 coverage, members, bindings, signatures, constructors, configurations, field links, surfaces and
 associations. It compares both complete serialized detail and domain IDs by member. The catalog

@@ -1,8 +1,8 @@
-//! Operational compile-attempt history in the retained `lctx_ops` services (plan P1.1).
+//! Historical operational compile-attempt records in the retained `lctx_ops` services (plan P1.1; ADR-0094). New compiles use only the generation registry.
+use crate::database::Database;
 use anyhow::{Context, bail};
 use clap::Subcommand;
 use cpg_schema::id::Id;
-use crate::database::Database;
 
 #[derive(Debug, Subcommand)]
 pub enum Runs {

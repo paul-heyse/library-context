@@ -30,7 +30,7 @@ LOCK = f'source = "{fork.FORK}?rev={REV}#{REV}"\n'
 PATCH = b"diff --git a/x b/x\n"
 SHA = hashlib.sha256(PATCH).hexdigest()
 DRIVER = (
-    f'pub const PYREFLY_REV: &str = "{REV}";\n'
+    f'pub const PYREFLY_REVISION: &str = "{REV}";\n'
     f'pub const PYREFLY_PATCH_SHA256: &str =\n    "{SHA}";\n'
 )
 PINS = f"| pyrefly | {REV} | {SHA} |"
@@ -44,7 +44,7 @@ def test_a_lock_the_driver_does_not_name_fails() -> None:
     other = "0" * 40
     rev, problems = fork.one_revision(LOCK.replace(REV, other), DRIVER, PINS, PATCH)
     assert rev == other
-    assert any("PYREFLY_REV" in p for p in problems)
+    assert any("PYREFLY_REVISION" in p for p in problems)
     assert any("pins.md lacks the revision" in p for p in problems)
 
 

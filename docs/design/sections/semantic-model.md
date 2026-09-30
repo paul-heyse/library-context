@@ -22,13 +22,17 @@ focused-Tested**:
 
 The assembled P0 exit review accepted them, scoped, on 2026-09-29. It excludes the P4 composition
 engine and the store-side frontier enforcement (P1.7). Exact contracts, commands and exclusions are
-in cutover plan §4.2; finding dispositions are in §8. No phase is release-qualified. The store,
-facts producers and later capabilities are **Proposed** until their phases land.
+in cutover plan §4.2; finding dispositions are in §8. The generation store and complete facts producers are **Implemented / Tested**,
+2026-09-30, after the complete gate, both full profiles, repeated behavioral content and refusal
+controls. The [assembled P0–P2 exit review](../../design_review/reviews/design_review_p0-p2-exit_2026-09-30.md)
+is **Accept scoped** for facts, with explicit resource allowances and downstream exclusions.
+Commands and measured envelope are in the plan. Phases 3–5 are **Proposed**.
 
 **Current state.** The Delta canonical store and its compile orchestration were removed in cutover
 phase 1 (P1.3/P1.4). The legacy `cpg-schema` contracts and the analysis, catalog and serving code
-described by §3–§14 remain dormant until phases 3–5 rebuild them; until phase 2 publishes facts,
-no product generation exists.
+described by §3–§14 remain dormant until phases 3–5 rebuild them.
+`lctx compile --through facts` publishes either facts profile and never selects it.
+`lctx-model` owns all facts contracts; extraction and native flow have no `cpg-schema` dependency.
 
 **Execution owner.** The [semantic model cutover plan](../../plans/semantic-model-cutover-plan_2026-09-29.md)
 owns the execution order, qualification and deletion obligations.
@@ -43,7 +47,7 @@ supplies it, F01–F13 especially:
 
 The review's evidence folder holds the probes.
 
-> Decision: ADR-0085, ADR-0086, ADR-0087
+> Decision: ADR-0085, ADR-0086, ADR-0087, ADR-0092, ADR-0094, ADR-0095, ADR-0096, ADR-0097, ADR-0098, ADR-0099, ADR-0100
 
 <a id="section-15-1"></a>
 
@@ -556,7 +560,14 @@ Reuse keeps recompute-and-compare admission. Skipping on key stays behind ADR-00
 **Performance** of publication and provider reads is measured at phase exits and tuned later. It is
 not a decision gate.
 
-> Decision: ADR-0086, ADR-0089
+**Compile outcomes (Implemented, ADR-0094).** The generation registry, failure record and live
+attempt lock own new compile outcomes. `cpg-core::facts` never writes the retained `lctx_ops`
+attempt/events; `runs` reads those historical records. `generation list|show` reports current
+compilation. Required producer failure removes its generation and every registry record;
+preflight refusal has no generation. Publication never selects. No durable history is promised
+for a removed generation or an acquisition failure before registration.
+
+> Decision: ADR-0086, ADR-0089, ADR-0094
 
 <a id="section-15-12"></a>
 
@@ -597,3 +608,57 @@ answers. Independent semantic expectations and protected evidence survive implem
 Deleting an engine does not retire its capability obligation; that needs a separate consumer decision.
 
 > Decision: ADR-0087
+
+### Facts scope and native identity (Accepted target, 2026-09-30)
+
+Artifact uses request analysis; captured dependency files supply supporting lookup context. The
+model derives one root universe for producers and admission. Signatures additionally state Input
+coverage of the supporting definitions referenced by those roots (imports, re-exports, call targets
+and nominal type references), not complete dependency analysis. NotRequested coverage has no
+provider or invocation. Native caller identity distinguishes module/class bodies and decorator
+applications from ordinary symbols. Named callable types retain nominal provider-qualified
+Function/Method references and validate their transitive ownership. Assembly owns shared vocabulary.
+New compile outcomes belong to generation control; operation attempts remain historical only.
+
+> Decision: ADR-0092
+
+**Native parameter order (Implemented, 2026-09-30; ADR-0095).** Signature ordinals retain provider
+order. Positional-only and positional-or-keyword slots may interleave in native method reports;
+their kinds remain distinct for keyword binding. Variadic/keyword groups, names and defaults
+retain their validation; no sorting or relabeling is performed.
+
+**Unavailable native signatures (Implemented, 2026-09-30; ADR-0096).** Native slots that fail
+bindable list grammar retain their ordered shapes and displayed annotations under
+`SignatureForm::NativeUnavailable`. Producers report partial signature coverage and a boundary;
+binding refuses the variant with `OutsideProviderModel`. Slots are never deduplicated, renamed or
+attached to source parameters through this form. Resource and operational ceilings remain fail-stop.
+> Decision: ADR-0096
+
+**Typed dictionary fields (Implemented, 2026-09-30; ADR-0097).** Anonymous TypedDicts reference
+`TypedDictFieldList` with ordered `TypedDictField` members. Arbitrary string keys, requiredness and
+term references retain mapping meaning; callable parameter-name rules belong to callable slots.
+The shared membership validator refuses duplicate keys, gaps and content changes in memory and
+PostgreSQL. Nominal TypedDict field observations also retain arbitrary string keys.
+> Decision: ADR-0097
+
+**Native slot interpretation (Implemented, 2026-09-30; ADR-0098).** Structural native shapes retain
+empty text; bindable signature/type lists refuse empty parameter names. Unavailable native
+signatures preserve slots and refuse binding. Unavailable type callables preserve members and
+returns with display-only support and Partial coverage; type closure enforces that fidelity.
+> Decision: ADR-0098
+
+**Unicode values (Implemented, 2026-09-30; ADR-0099).** Literal strings and arbitrary mapping/native
+slot names use `Utf8Text`: valid Unicode owned once, lowered mechanically to Arrow Binary and
+PostgreSQL bytea. UTF-8 decoding rejects invalid bytes; NUL is preserved. The semantic text key
+encoding and string/byte-literal distinction remain unchanged. Identifier and display columns keep
+their declared text contracts. The shared round-trip controls and facts pilots own qualification.
+
+> Decision: ADR-0099
+
+**Residual type ports (Implemented, 2026-09-30; ADR-0100).** Bound-method function, overload signature
+and generic parameter/body ports retain explicit Other/Truncated children from the bounded native
+builder. Role/order/nonempty checks remain; ordinary wrong arms refuse. Shared transitive support
+requires DisplayOnly and matching provider/context throughout the residual closure. These envelopes
+do not establish invocation or type-variable meaning for the unresolved child.
+
+> Decision: ADR-0100

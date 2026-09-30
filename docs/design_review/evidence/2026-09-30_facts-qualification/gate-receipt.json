@@ -1,0 +1,24 @@
+{
+  "date": "2026-09-30",
+  "model_digest": "dad6dc7983136391c358394dfd3befb7a23aaf30e42719b8e0b57f513a6ed0ef",
+  "command": "just test-all",
+  "outcome": "passed",
+  "rust": {
+    "passed": 674,
+    "skipped": 11
+  },
+  "python": {
+    "passed": 219,
+    "skipped": 56
+  },
+  "postgres_repeat": {
+    "passed": 217,
+    "skipped_tests": 1,
+    "skipped_binaries": 1
+  },
+  "doctests": "passed",
+  "scope": "P0-P2 active scope; product serving and preregistered quality/performance evaluation not_run",
+  "receipt_kind": "composite repairs followed by complete successful gate",
+  "raw": "raw/qualification-gate.log",
+  "producer_scope": "After charged source/scope lookup and comprehension-walrus binding-owner repairs; runtime binding control17modules and nine scope/member controls"
+}

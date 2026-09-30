@@ -158,10 +158,6 @@ def _flow(source: str, value: object, runtime_bindings: dict | None = None) -> t
         path = Path(temp) / "generated.py"
         path.write_text(source, encoding="utf-8")
         command = [str(binary), "flow", str(path)]
-        if runtime_bindings is not None:
-            bindings_path = Path(temp) / "runtime-bindings.json"
-            bindings_path.write_text(json.dumps(runtime_bindings), encoding="utf-8")
-            command += ["--runtime-bindings", str(bindings_path)]
         model = subprocess.run(
             command,
             cwd=temp,
@@ -196,7 +192,7 @@ def _assert_admitted(source: str, model: dict, observed: dict) -> None:
         regions = [r for r in model["regions"] if source.count("\n", 0, r["span"][0]) + 1 == line]
         assert regions, ("executed line has no modeled region", line, source)
         for region in regions:
-            assert region["condition"] != "false", (line, region, source)
+            assert not region["condition"]["is_false"], (line, region, source)
 
 
 def _assert_reaching(source: str, model: dict, observed: dict) -> int:
@@ -205,19 +201,19 @@ def _assert_reaching(source: str, model: dict, observed: dict) -> int:
         use_span = _span(source, access["load"])
         def_span = _span(source, access["store"])
         uses = [
-            i
-            for i, row in enumerate(model["uses"])
+            row["id"]
+            for row in model["uses"]
             if row["place"] == access["name"] and row["span"] == use_span
         ]
         defs = [
-            i
-            for i, row in enumerate(model["definitions"])
+            row["id"]
+            for row in model["definitions"]
             if row["place"] == access["name"]
             and def_span[0] <= row["target"][0]
             and row["target"][1] <= def_span[1]
         ]
         assert uses and defs, ("observed access has no modeled use or definition", access, model)
-        assert any(row["use_ix"] in uses and row["def_ix"] in defs for row in model["reaching"]), (
+        assert any(row["use"] in uses and row["definition"] in defs for row in model["reaching"]), (
             "observed definition absent from reaching relation",
             access,
         )
@@ -230,13 +226,13 @@ def _assert_return_value_flow(source: str, model: dict, observed: dict) -> int:
     for returned in observed["returns"]:
         use_span = _span(source, returned["load"])
         uses = [
-            i
-            for i, row in enumerate(model["uses"])
+            row["id"]
+            for row in model["uses"]
             if row["place"] == returned["name"] and row["span"] == use_span
         ]
         assert uses, ("returned local has no modeled use", returned, model)
         assert any(
-            row["sink"] == "Return" and row["use_ix"] in uses and row["condition"] != "false"
+            row["sink"] == "Return" and row["use"] in uses and not row["condition"]["is_false"]
             for row in model["values"]
         ), ("observed local-to-return flow absent", returned, model)
         matched += 1
@@ -251,7 +247,7 @@ def _assert_exit_admitted(source: str, model: dict, observed: dict) -> int:
             for row in model["regions"]
             if source.count("\n", 0, row["span"][0]) + 1 == fate["line"]
         ]
-        assert regions and any(row["condition"] != "false" for row in regions), (
+        assert regions and any(not row["condition"]["is_false"] for row in regions), (
             "observed exit or exception has no admitted region",
             fate,
             source,
@@ -476,7 +472,7 @@ result = run(INPUT)
     assert _assert_return_value_flow(source, model, observed) == 0
 
 
-def test_runtime_binding_spans_are_checked_before_the_oracle_runs() -> None:
+def test_retired_runtime_binding_override_is_refused_before_the_oracle_runs() -> None:
     source = "import sys\nif sys.version_info > (3, 14, 7):\n    reached = 1\n"
     with tempfile.TemporaryDirectory(prefix="lctx-flow-oracle-") as temp:
         path = Path(temp) / "generated.py"
@@ -490,4 +486,4 @@ def test_runtime_binding_spans_are_checked_before_the_oracle_runs() -> None:
             timeout=10,
         )
     assert result.returncode != 0
-    assert "runtime binding span lies outside" in result.stderr
+    assert "unexpected argument" in result.stderr and "--runtime-bindings" in result.stderr

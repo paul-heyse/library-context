@@ -4,9 +4,9 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use biodivine_lib_bdd::{Bdd, BddPointer, BddVariable, BddVariableSet, op_function};
 
+use super::EvaluationAtom;
 use super::kernel::{Diagram, KernelBoundary, MAX_ATOMS, MAX_NODES, MAX_PAIR_WORK, context};
 use crate::domain::Id;
-use super::EvaluationAtom;
 type AtomId = Id<EvaluationAtom>;
 
 const MAX_RETAINED_NODES: usize = 1_000_000;
@@ -154,7 +154,9 @@ pub(super) fn compose_with_limits(
                 let yes = self.budget.apply(&predicate, &high, op_function::and)?;
                 self.budget.work(predicate.size())?;
                 self.budget.retain(predicate.size())?;
-                let no = self.budget.apply(&predicate.not(), &low, op_function::and)?;
+                let no = self
+                    .budget
+                    .apply(&predicate.not(), &low, op_function::and)?;
                 self.budget.apply(&yes, &no, op_function::or)?
             };
             self.budget.retain(out.size())?;

@@ -1,32 +1,22 @@
 # Facts and identity
 
-**Target, 2026-09-29.** [§15](semantic-model.md) (ADR-0085/0083/0084) is the accepted target, and the [cutover plan](../../plans/semantic-model-cutover-plan_2026-09-29.md) delivers it layer by layer. Phases 2–3 replace the facts, identity recipes and graph registry with §15.2–§15.5. Until that phase exits, this page describes the implemented legacy pipeline.
+**Implemented / Tested, 2026-09-30, at the qualified facts frontier.** [§15](semantic-model.md) owns the current facts,
+nominal identities, provider-qualified assertions, typed supports, coverage and permanent lowerings
+(ADR-0085/0086/0089/0092). `lctx-model::domain` is the authority; PostgreSQL generations contain
+facts. Producers depend on that owner without `cpg-schema`; raw native provider data is transient.
+Profile-specific Flow NotRequested differs from partial, unavailable and complete-empty evidence.
+Qualification status and field dispositions are in the [cutover plan](../../plans/semantic-model-cutover-plan_2026-09-29.md).
 
-This owner defines what a fact is in the store: which typed table is the authority for it, how
-its identity is derived, which closed vocabularies describe it, how coverage and boundaries keep
-"not analyzed" distinct from "absent", and how the `nodes`/`edges` catalogs make the family tables
-a graph without a second authority. Producers are the extractor and the Stage C/D derivations
-([acquisition and extraction](acquisition-and-extraction.md#section-4)); consumers are validation
-([§8](validation-and-evaluation.md#section-8)), publication and projections
-([storage and publication](storage-and-publication.md#section-5)), analytics and synthesis. The
-dependency direction is one way: every crate depends on `cpg-schema`, which owns Arrow, id hashing,
-typed declarations and the BDD kernel, with pure wire-schema generation selected under ADR-0073;
-it never depends on DataFusion,
-Delta, an async runtime or I/O (§B2). The executable declarations are authoritative for columns and codes:
-`crates/cpg-schema/src/` (`tables.rs`, `derived.rs`, `codebook.rs`, `id.rs`, `graph.rs`,
-`rules.rs`, `findings.rs`, `flows.rs`), with snapshot tests in `crates/cpg-schema/tests/` and
-graph, syntax and corpus tests in `crates/cpg-core/tests/`. Flow semantics are in the
-[behavior model](behavior-model.md#section-3-9); the map is in the [architecture README](../README.md).
-
-**Product extension, Proposed under ADR-0071:** [§14.4–§14.8](api-and-evidence-product.md#section-14-4)
-defines the next public-member, signature-variant, option, scenario and retrieval-unit contracts.
-Those additions preserve these canonical identities and will use the same executable schema/validator
-owner. They are not claims that the current tables already contain every required field.
+**Retained downstream design, unavailable.** The legacy graph registry and normalization,
+analysis/catalog and serving contracts below are phase 3–5 obligations, inventoried in the plan
+§5–§6. Their dated implementation/test labels describe pre-cutover evidence. Legacy fact rows,
+ID recipes and Delta storage are no longer current authorities or runtime inputs. This retained
+material supplies independent expected answers until each owning phase reconstructs them.
 
 ## §3 Fact model
 
 Evidence labels are per section. The families, identity recipes, codebooks and catalogs described
-below are **Implemented** and **Tested** as each section states; the full ontology of §3.1 and the
+below retain their dated pre-cutover evidence; the full ontology of §3.1 and the
 tables marked **Proposed** are accepted targets, not implementation claims.
 
 

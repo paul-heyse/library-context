@@ -1,34 +1,24 @@
 # Acquisition and extraction
 
-**Target, 2026-09-29.** [§15](semantic-model.md) (ADR-0085/0083/0084) is the accepted target, and the [cutover plan](../../plans/semantic-model-cutover-plan_2026-09-29.md) delivers it layer by layer. Phase 2 moves extraction onto the §15 observation relations and occurrence identity (§15.3–§15.4). Until that phase exits, this page describes the implemented legacy pipeline.
+**Implemented / Tested, 2026-09-30, at the qualified facts frontier.** [§15](semantic-model.md) owns the current typed
+facts contracts (ADR-0085/0086/0089/0092). Acquisition captures the locked installed closure and
+selected pinned corpus before extraction. `lctx-model::domain` owns source, occurrence, attribution,
+call, type, flow, document and deployment meaning; permanent lowerings publish PostgreSQL facts
+generations. `catalog` omits the ty provider and reports Flow NotRequested; `behavioral` runs it.
+Both profiles run documents and deployment. Publication never selects a generation.
 
-This owner turns a pinned library definition into a verified analysis universe (Stage A) and
-attributed raw facts (Stage B), and orders the compile stages that follow. Its inputs are a
-committed uv project under `libraries/<name>/`, the environment uv builds from its lock, and the
-upstream tree at a pinned commit; its outputs are the `provenance` rows, the raw family tables of
-[§3.2](facts-and-identity.md#section-3-2) and their coverage and boundaries. Consumers are Stage
-C/D derivation, validation and publication ([storage and publication](storage-and-publication.md#section-6))
-and every analysis downstream. Dependencies point inward: `lctx` orchestrates, `cpg-extract` links
-the pinned Pyrefly fork and Ruff crates and writes `cpg-schema` contracts, and `cpg-flow` isolates
-the second parser line. Code: `crates/lctx` (`acquire`, `library init`, `compile`, `query`),
-`crates/cpg-extract/src/` (`library.rs` Stage A, `config.rs` context and run identity, `context.rs`
-dependency context, `walk.rs`, `pysa_map.rs`, `public.rs`, `lexical.rs`, `types.rs`, `docs.rs`,
-`flow.rs`), `crates/cpg-flow`. Tests: `crates/cpg-extract/tests/`, `crates/lctx/tests/acquire.rs`,
-`crates/cpg-core/tests/compile.rs`. Pins are in [`docs/pins.md`](../../pins.md); the map is in the
-[architecture README](../README.md).
+Current producers are `crates/cpg-extract/src/acquisition.rs`, `typed_syntax.rs`, `lexical.rs`,
+`symbol_records.rs`, `call_records.rs`, `type_records.rs`, `ty_flow.rs`, `document_parser.rs` and
+`deployment.rs`; `pyrefly_stage.rs` composes one Pyrefly/Ruff parse per input, and `cpg-flow`
+provides transient native flow data over ty's separate parse. `cpg-core/src/facts.rs` owns stage
+composition, admission and publication; `crates/lctx/src/compile.rs` is the facts-only CLI.
+Focused receipts and qualification status are in the [cutover plan](../../plans/semantic-model-cutover-plan_2026-09-29.md).
 
-**PR2 field syntax Implemented, 2026-09-28:** the existing Ruff parse records class-field
-annotation/default expressions and spans in `record_field_syntax`; pure catalog derivation joins
-provider record declarations without executing defaults or factories. Package/deployment metadata
-in [§14.4–§14.6](api-and-evidence-product.md#section-14-4) remains Proposed under PR3. [§14.10](api-and-evidence-product.md#section-14-10) separates mandatory catalog
-construction from selected analysis profiles. Static acquisition/extraction remains non-executing;
-any opt-in surface observation or executable product task is a separately attributed isolated lane.
-
-**PR1 Implemented and Tested, 2026-09-28:** `catalog` is the default extraction/compile profile;
-`behavioral` explicitly enables ty flow facts and the behavioral model context. The profile applies
-to both library and corpus extraction and enters run identity. Unselected flow coverage is
-`not_requested`, not complete or empty evidence. Public roots are validated dotted paths; no
-acceptance-task list restricts the public universe.
+**Retained downstream design, unavailable.** The historical Stage C/D and graph/catalog contracts
+below describe obligations for phases 3–5. Earlier implementation/test labels refer to their dated
+pre-cutover evidence, not current runtime availability. Legacy extraction files and ID recipes
+were removed; current source and identity contracts are §15. The acquisition requirements below
+remain applicable where they describe input verification rather than legacy row emission.
 
 > Decision: ADR-0078
 
@@ -91,7 +81,7 @@ needs to be a dependency of this project.
 - `lctx library init` locks without `--no-config`: a library's own `[tool.uv]` applies there, and
   the lock is reviewed.
 
-**Stage A** (`cpg_extract::library::acquired`) reads the definition, the lock, `pyvenv.cfg` and
+**Stage A** (`cpg_extract::acquisition::inventory`) reads the definition, the lock, `pyvenv.cfg` and
 every `*.dist-info`, with no network and no interpreter. It works under one equivalence: **the
 analyzer-readable bytes**, the files Pyrefly's module finder reads (`.py`, `.pyi`, `py.typed`;
 never `.pth`).
