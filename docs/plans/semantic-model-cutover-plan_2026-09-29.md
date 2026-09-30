@@ -829,6 +829,30 @@ The control drives the binary against disposable PG18 with 0600 configs:
 - reset dry-runs, refuses the wrong database name, then resets.
 
 `model describe` needs no database. P0 exit F06 snapshot added. Library additions: `RoleConfig::connect`, `GenerationStore::open` with `Error::NotInstalled`, `GenerationId::from_hex`, and `InspectionSession` refusing out-of-frontier relations with a typed `Frontier` |
+| P1.12: `LCTX_POSTGRES_TEST=1 uv run pytest tests/scripts/test_postgres_transition.py -q` (release `lctx` built); `uv run pytest tests/scripts -k "postgres or bootstrap or backup or recovery"`; `check_agents.py`; `adr.py lint`; `just --list` | passed 2026-09-29 (transition 2; the other script tests skip without opt-in; agents and ADR lint ok).
+
+**Transition.** `scripts/postgres_transition.py` has plan, prepare, switch and drop-retired:
+- `plan` is read-only.
+- `prepare` creates `lctx_next` with runtime grants, runs `lctx store install` there, copies the four retained tables by owner COPY and verifies equal fingerprints.
+- `switch` requires `--confirm-switch lctx` and no connections to either database. It renames the old database to `lctx_retired_<UTC stamp>` and `lctx_next` to `lctx`, then verifies the fingerprints, `store check` and `runs list`.
+- `drop-retired` accepts only an archive name.
+- Refusals exit 2. Server administration uses sudo `psql` or a protected admin config.
+
+The control runs on a disposable PG18 provisioned by the real bootstrap SQL, carrying the retired 0001/0002 service shape, 13 legacy versions, `lctx_serving` and rows:
+- the binary refuses the legacy history;
+- the plan reports it;
+- prepare works, and a second prepare and an unconfirmed switch are refused;
+- switch works, and the retained fingerprints are equal;
+- `store check` is clean and `runs list` shows both attempts, including a reconciled one;
+- the archive is the untouched legacy database;
+- only an archive can be dropped;
+- a current database has nothing to transition.
+
+**Bootstrap.** The serving role gets `provider_connections: 2`, and the next step is `lctx store install`. The owner pool is 4 with a 1800 s statement timeout. The backup tables are the service baseline's. `postgres_test_support` installs with `store install`.
+
+**Justfile.** `test-postgres` covers lctx-postgres, cpg-extract, cpg-core, lctx and the transition. `test-postgres-reference`, `structured-eval`, `score` and `ranking-check` are removed, returning with serving. `sqlx-check` is out of `test-all` (T12).
+
+**Docs.** `docs/postgresql.md` is rewritten for the current store. DESIGN §B7 has its implementation status; §6 is marked retired pending C3x. AGENTS.md and the evaluation section's recipe references are updated. The handoff skill no longer cites the removed `just pilot` recipe. Review F02's provisioning note: none is needed, since the phased reset fits PostgreSQL's default lock table |
 | `just fmt`, `just test-all`, facts pilots | not_run: functional scope incomplete |
 
 Independent bounded reviewers accepted artifact/capture/acquisition corrections and the

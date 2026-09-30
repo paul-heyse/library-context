@@ -198,9 +198,10 @@ impl Config {
             .disable_statement_logging()
             .application_name("lctx")
             .options([
+                // The owner validates whole generations; its statements may run long.
                 (
                     "statement_timeout",
-                    format!("{}s", self.statement_timeout_seconds),
+                    format!("{}s", if migration { OWNER_STATEMENT_TIMEOUT_SECONDS } else { self.statement_timeout_seconds }),
                 ),
                 ("lock_timeout", format!("{}s", self.lock_timeout_seconds)),
                 ("idle_in_transaction_session_timeout", "30s".to_owned()),
@@ -215,7 +216,8 @@ impl Config {
                 ),
             ]);
         let pool = PgPoolOptions::new()
-            .max_connections(if migration { 2 } else { self.max_connections })
+            // The owner pool serves an attempt's lifecycle connection plus its steps and cleanup.
+            .max_connections(if migration { OWNER_CONNECTIONS } else { self.max_connections })
             .acquire_timeout(Duration::from_secs(self.acquire_timeout_seconds))
             .idle_timeout(Duration::from_secs(60))
             .max_lifetime(Duration::from_secs(1800))
@@ -305,6 +307,10 @@ pub(crate) async fn history_current(connection: &mut sqlx::PgConnection) -> Resu
     Ok(rows.len() == expected.len()
         && rows.iter().zip(expected).all(|((v, ok, digest), m)| *v == m.version && *ok && digest.as_slice() == m.checksum.as_ref()))
 }
+
+/// The service owner's pool size and statement timeout (cutover plan P1.12).
+const OWNER_CONNECTIONS: u32 = 4;
+const OWNER_STATEMENT_TIMEOUT_SECONDS: u64 = 1800;
 
 /// The runtime roles a service owner must never be joined to.
 pub const RUNTIME_ROLES: [&str; 3] = ["lctx_app", "lctx_importer", "lctx_serving"];

@@ -412,10 +412,17 @@ PostgreSQL 18 is the single relational store.
 - Published relations are read-only by privilege.
 - Readers pin one generation ([§15.11](sections/semantic-model.md#section-15-11)).
 
-**Implemented so far:** conformance generations with stage-bound attempts, sealing, validation,
-publication and leases (plan §4.2). The production lifecycle, installation checks and provider
-sessions are plan P1.5–P1.11. The Delta store was removed at P1.3/P1.4; until phase 2 publishes
-facts, no product generation exists.
+**Implemented (plan P1.5–P1.12, focused-Tested 2026-09-29):**
+- the service baseline and the verified, non-elevated owner;
+- the generated install with a live-catalog `store check` and a phased, resumable reset;
+- the attempt-owned lifecycle: failed and interrupted states, facts admission, frontier-scoped
+  schemas;
+- the generation catalog;
+- generation-bound provider sessions over a driver-neutral lease;
+- the `lctx store|generation|query` commands and the operator transition.
+
+The Delta store was removed at P1.3/P1.4. Until phase 2 publishes facts, no product generation
+exists.
 
 > Decision: ADR-0086
 

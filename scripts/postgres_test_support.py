@@ -86,7 +86,7 @@ def database(tmp_path):
             tmp_path / "postgres-admin.json",
             {"migration_url": url.replace("lctx_app:", "lctx_migrator:")},
         )
-        call([str(ROOT / "target/release/lctx"), "--database-config", str(config), "db", "migrate"])
+        call([str(ROOT / "target/release/lctx"), "--database", str(config), "store", "install"])
         role = dict(
             format=1,
             role="serving",

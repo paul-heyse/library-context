@@ -142,7 +142,8 @@ research progress, with its existing unanswered targets and truth criteria.
 - **Pre-registration.** A set is written from the library's own source and docs **before** any
   output of the stage it judges is read, and committed first. It is append-only: a changed item is
   a new item that `supersedes` the old one.
-- **Assessment.** Each stage produces a packet (`just structured-eval <generation> <stage>`) with
+- **Assessment.** Each stage produces a packet (`scripts/structured_eval.py`; its recipe returns with
+  serving at cutover phase 5) with
   the targets, the tools' answers, the brief if any, and mechanical marks where a check is
   mechanical. The author assesses each item as present / partial / absent / incorrect /
   misleading, per item and never as a percentage, and the operator reviews it. No API agents
@@ -162,7 +163,8 @@ only a brief seeded by that class; unresolved operations stay in the union as st
 counted over all gold units: (a) node Jaccard per family; (b) hit@5 over every task alias, where a
 hit is a returned brief whose seed is in the family's node set; (c) recall of gold evidence spans.
 Every score records `matcher_version` and each alias's mode; a live run with a degraded alias is
-`blocked`. `just ranking-check <generation> vllm` is the §1.5 retrieval check. The matcher, fusion
+`blocked`. `scripts/ranking_check.py` is the §1.5 retrieval check (its recipe returns with serving
+at cutover phase 5). The matcher, fusion
 rule and brief-document template were registered before any rescore; none changes on the strength
 of gold scores, only with a rationale independent of the gold. **Tested** over constructed rows (`tests/scripts/test_gold_match.py`).
 

@@ -1,305 +1,159 @@
 # PostgreSQL operations
 
-**Implemented and bounded Tested, 2026-09-28; live embedding waived for PR4:**
-[current evidence](design_review/evidence/2026-09-28_pr4/README.md).
-[ADR-0078](adr/0078-current-design-cutover.md) owns the SQLx boundary;
-[the plan](plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-workstream) owns integration and
-owns conditional capabilities. These instructions concern one operator's local application database.
+**Implemented and focused-Tested, 2026-09-29** (semantic-model cutover phase 1). PostgreSQL 18 is
+the single relational store ([ADR-0086](adr/0086-immutable-postgresql-generations.md)):
+- retained services: the embedding cache and the operational attempt history;
+- immutable generation schemas.
+
+[DESIGN §15.11](design/sections/semantic-model.md#section-15-11) owns the store's semantics. The
+[cutover plan](plans/semantic-model-cutover-plan_2026-09-29.md) owns sequencing, receipts (§4.2) and
+finding dispositions (§8). These instructions concern one operator's local database.
+
+Serving (`lctx_serving`, projections and the MCP server) is dormant until cutover phase 5. Git holds
+its former operations.
 
 ## Local deployment and configuration
 
-The installed `18/main` PostgreSQL 18.6 cluster on port 5432 hosts database `lctx`.
-`lctx_migrator` owns the database/migrations; `lctx_app` is a separate limited login.
-The bootstrap leaves host authentication unchanged and uses loopback SCRAM. Neither login has
-superuser, createdb, createrole or replication privileges. Unrelated databases are outside this application deployment. pgvector 0.8.6 is installed explicitly in the protected `lctx_ext` schema.
+The installed `18/main` PostgreSQL 18.6 cluster on port 5432 hosts database `lctx`. Its roles:
 
-For a new deployment, install the pinned extension package with
-`sudo apt-get install postgresql-18-pgvector=0.8.6-1.pgdg24.04+2`, then run
-`uv run python scripts/postgres_bootstrap.py` interactively once.
-Bootstrap creates the application, migration, importer and serving roles, installs the extension
-in `lctx_ext` and writes the four separate credential files listed below. It does not run migrations.
-It requires postgres-administrator access through sudo. It refuses existing roles/database or
-configuration rather than rotating credentials implicitly. On partial failure it retains the
-protected generated credentials for operator diagnosis. Never rerun it as a repair/rotation tool.
+| Role | Owns or may do |
+|---|---|
+| `lctx_migrator` | Owns the database. It is the **service owner**: service baseline, control schema, generation schemas |
+| `lctx_app` | Retained services: reads and inserts cache values and attempt history, reads migration status |
+| `lctx_importer` | Writes staging generations. It holds TEMP and receives writer grants only while a generation is staging |
+| `lctx_serving` | Reads published generations and every control table. Its transactions default to read-only |
 
-Runtime configuration precedence is `--database-config PATH`, `LCTX_DATABASE_CONFIG`, then
-`~/.config/library-context/postgres.json`. The JSON file must exclude group/other permissions
-(`chmod 600`). It contains `application_url`, `max_connections` (default 6),
-`acquire_timeout_seconds` (5), `statement_timeout_seconds` (30), `lock_timeout_seconds` (5),
-and `max_receipt_bytes` (268435456). Upper bounds are 32 connections, 60/300/60 seconds, and
-1 GiB of retained vector payload. Map/text/returned-vector overhead is additional memory.
-Pool idle lifetime is 60 seconds, maximum connection lifetime 30 minutes, and idle transactions
-are limited to 30 seconds. Remote URLs require `sslmode=verify-full` and explicit trusted roots.
+None of them holds superuser, createdb, createrole, replication or bypassrls, and none is a member of
+another. `lctx store check` verifies all of this.
 
-URLs/passwords are never CLI arguments, traced queries or committed files. Rust driver errors
-expose only a class and SQLSTATE. `DATABASE_URL` belongs to SQLx metadata tooling; it is not
-runtime application configuration. A config/credential/role error is distinct from a missing
-migration. Do not solve it by weakening HBA authentication or granting superuser to the app.
+For a new deployment:
+1. Install `postgresql-18-pgvector=0.8.6-1.pgdg24.04+2`.
+2. Run `uv run python scripts/postgres_bootstrap.py` once, interactively. It needs sudo access to
+   `postgres`. It creates the database and the four roles and writes their protected configurations.
+   It refuses existing roles, databases or configurations; it is not a rotation or repair tool.
+3. Run `lctx store install`, then `lctx store check`.
+
+Configuration discovery:
+- `--database PATH` names the protected application configuration, `postgres.json`;
+- otherwise `LCTX_DATABASE_CONFIG`, then `~/.config/library-context/postgres.json`.
+
+Every file must be a regular mode-0600 file. The files beside it select the roles:
+
+| File | Used for |
+|---|---|
+| `postgres.json` | The retained services (`lctx runs`); pool, timeout and receipt limits |
+| `postgres-admin.json` | The service owner (`lctx store`, owner `lctx generation` commands). Pool of 4, 30-minute statement timeout for validation |
+| `postgres-serving.json` | The reader (`lctx generation list/show`, `lctx query`). Six connections by default, two reserved for provider sessions |
+| `postgres-importer.json` | The writer, used by attempts (P2 `lctx compile`) |
+
+Credentials:
+- URLs and passwords are never CLI arguments, traced queries or committed files.
+- Remote URLs require `sslmode=verify-full` with explicit trusted roots.
+- Driver errors expose only a class and SQLSTATE.
+- `DATABASE_URL` belongs to SQLx metadata tooling, not runtime configuration.
+
+## The generation store
 
 ```sh
 cargo build --release -p lctx
-target/release/lctx db migrate
-target/release/lctx db check
-target/release/lctx db status
+target/release/lctx store install     # apply the service baseline; install or confirm the store
+target/release/lctx store check       # compare the live catalog with this binary's lowering; exit 2 on findings
+target/release/lctx store reset       # dry run: what a reset drops; exit 2
+target/release/lctx store reset --confirm lctx
 ```
 
-Migration is explicit, embeds versioned SQL, serializes concurrent migrators with SQLx's
-PostgreSQL advisory lock and checks migration checksums. Runtime commands never apply DDL.
-The application role can SELECT/INSERT cache values and history, UPDATE rebuildable indexes,
-and read migration status; it cannot UPDATE/DELETE winners or durable history, or create tables.
+**Install.** `store install` applies the single service-baseline migration, then installs the
+control schema `lctx_model_store` for this binary's model. A migration history that predates the
+baseline is refused, never upgraded (see [The transition](#the-transition)). Runtime commands never
+apply DDL.
 
-## Development environment
+**Check.** `store check` compares every generation schema, and the control schema, with a
+rolled-back shadow install of this binary's lowering. It also checks:
+- the roles and database privileges;
+- the service migration history;
+- the owner's schemas and objects;
+- orphans in both directions.
 
-Use the root editable uv environment for Python and the existing cached Cargo target for Rust.
-Rebuild native bindings in that environment when their Rust sources change. PostgreSQL requires
-`lctx_storage` and the pure `lctx_semantics` bindings, not standalone wheel artifacts; packaging
-and clean-install checks are deferred until a distribution workflow needs them.
+**Reset.** `store reset` removes one generation per transaction and replaces the control schema
+last. It is resumable: rerun it after an interruption.
 
-## Consumers and recovery
+**Busy refusals.** Install, check and reset try the installation lock and refuse `Busy` (exit 2)
+rather than waiting behind work in flight.
 
-`lctx compile fastmcp --store build/store-pg --embedder fake|vllm` requires the configured cache.
-There is no automatic fallback after failure. `--embedder none`, extraction, Delta query/diff,
-bundle rebuild and pure native semantic evaluation remain usable without PostgreSQL. Online MCP
-serving requires a ready PostgreSQL generation. Optional journaling is
-disabled with a diagnostic when schema/connectivity is unavailable; that cannot unpublish Delta.
+Every generation belongs to the attempt that registers it. P2's `lctx compile --through facts`
+drives attempts; nothing else advances a generation. Operators see and steer generations with:
+
+```sh
+target/release/lctx generation list [--state published] [--frontier facts]
+target/release/lctx generation show GENERATION_HEX
+target/release/lctx generation select GENERATION_HEX      # facts generations only; compile never selects
+target/release/lctx generation clear-selection
+target/release/lctx generation retire GENERATION_HEX      # unselected, unleased, published
+target/release/lctx generation abort GENERATION_HEX       # failed or interrupted
+target/release/lctx query --generation GENERATION_HEX "SELECT count(*) FROM occurrences"
+```
+
+`show` reports:
+- state, frontier, profile and selection;
+- digests and relation receipts;
+- a facts generation's per-family availability;
+- a failed generation's from-state, class and safe detail (SQLSTATE, constraint, table);
+- the reader count;
+- whether its attempt is live or interrupted.
+
+`query` is read-only DataFusion SQL over one leased generation. DDL and DML are refused, and so is
+a relation outside the generation's frontier.
+
+Exit status: 0 ok, 1 error, 2 refused, 3 unavailable.
+
+## Retained services
 
 ```sh
 target/release/lctx runs list --limit 50 --offset 0
 target/release/lctx runs show ATTEMPT_HEX
-target/release/lctx snapshots list
-target/release/lctx generations list
-target/release/lctx db reconcile --store build/store-pg --generations build/generations
+target/release/lctx runs mark-interrupted ATTEMPT_HEX     # after confirming the process stopped
 ```
 
-A missing terminal event means `unfinished`, not failed/interrupted. After confirming the process
-stopped, `lctx runs mark-interrupted ATTEMPT_HEX` records the operator's observation. Reconciliation
-reads canonical Delta publication and verified manifest identities. It adds recovered publication
-observations; missing original start/library fields stay unknown. It does not reconstruct lost
-operator events. Stale discovery locations become unavailable; historical events remain. Newer
-concurrent discoveries survive reconciliation. Shared generation roots may contain other stores;
-only matching canonical publications enter this store's index. Reconcile both old/new paths after
-a move; query missing old paths by their same absolute spelling. Lists/show verify canonical
-metadata rather than accepting PostgreSQL as publication authority.
+A missing terminal event means `unfinished`, not failed or interrupted. Tracing target
+`lctx::postgres` (`LCTX_LOG=lctx::postgres=info`) reports cache reads and admissions without request
+text, vectors or connection strings.
 
-Runtime tracing target `lctx::postgres` reports cache-read requested/hit counts, insert candidates/
-inserted counts, vector bytes, duration and receipt payload/budget. Enable it through `LCTX_LOG=lctx::postgres=info` (the existing CLI subscriber).
-It does not emit request text, vectors or connection strings. Failed journaling is reported on
-stderr, preserving the original compile result. Use `db status` for effective role, PG version,
-schema compatibility and pool state; use normal PostgreSQL statistics for backend/WAL/disk use.
+## Backup, restore and upgrades
 
-## Backup, restore, retention and upgrades
+This is the design-phase policy ([ADR-0078](adr/0078-current-design-cutover.md)). Generations are
+rebuilt from pinned inputs, never restored across formats.
 
-**Accepted design-phase policy, 2026-09-28; [ADR-0078](adr/0078-current-design-cutover.md).**
-Validate a fresh current-schema build before changing operator state. Then stop project readers
-and writers, replace the application database/store and serving artifacts from pinned inputs,
-serve the validated current generation, and delete obsolete generations, runtime copies and
-rollback dumps. Old-format or mixed-version restore is not supported. Temporary baselines exist
-only while needed by current qualification.
+- `scripts/postgres_backup.py backup|restore-drill` fingerprints the retained service tables.
+- A model change is a `store reset` followed by a rebuild.
+- An old-format database moves through [the transition](#the-transition).
 
-A current-format backup/restore or cold-reconstruction test can verify the current artifact
-closure and selected generation. It creates no obligation to retain obsolete runtime epochs.
-Project acquisition inputs, current provenance and unexecuted evaluation inputs remain inputs;
-unrelated databases and workspaces are outside the reset.
+## The transition
+
+A database carrying the pre-baseline history (migrations 0001–0013) moves offline, with
+`scripts/postgres_transition.py`. Server administration runs as `postgres` through sudo on `--port`,
+or through a protected `--admin-config` JSON file `{"url": ...}`.
+
+```sh
+uv run python scripts/postgres_transition.py plan         # read-only: history, retained rows, legacy schemas
+uv run python scripts/postgres_transition.py prepare      # create lctx_next, `lctx store install`, copy, verify fingerprints
+# stop every reader and writer
+uv run python scripts/postgres_transition.py switch --confirm-switch lctx
+uv run python scripts/postgres_transition.py drop-retired --confirm-drop lctx_retired_YYYYMMDDHHMMSS
+```
+
+- The retained rows are the cache specs and values, and the attempts and events.
+- The old database is never written. `switch` renames it to an archive only after confirming that no
+  connection remains, then checks the new database (`store check`, `runs list`, equal fingerprints).
+- Dropping the archive is a separate, explicit step.
+- Refusals exit 2 and change nothing.
 
 ## Development checks
 
-`just postgres-test-setup` explicitly pulls the patch/digest in `specs/postgres-image.txt`.
-`just test-postgres` runs real PG18 tests through Testcontainers; missing Docker/image is `blocked`.
-`just sqlx-prepare` regenerates `.sqlx` against a freshly migrated disposable schema;
-`just sqlx-check` detects metadata drift. Both use pinned sqlx-cli 0.9.0. Normal builds default to
-`SQLX_OFFLINE=true` even with an ambient DSN; metadata tooling deliberately sets it false.
-The full `just test-all` includes these checks. Keep this repository's existing Cargo target/cache;
-if the shell inherits another project's `CARGO_TARGET_DIR`, explicitly select this repository's
-`target`. Do not clean the cache. `just pilot STORE LOG` and `just pilot-live STORE LOG` allow fresh
-stores/logs without overwriting the current generation.
-
-## Role separation
-
-Protected files in `~/.config/library-context/` now separate capabilities:
-
-| File | Capability |
-|---|---|
-| `postgres.json` | Existing cache/operations application connection and limits |
-| `postgres-admin.json` | Migration connection only; explicit commands and protected backup tooling |
-| `postgres-importer.json` | At most two import connections; TEMP staging allowed, application schema DDL denied |
-| `postgres-serving.json` | Read-only role; six total connections by default, zero provider connections until selected |
-
-All are regular mode-0600 files. The obsolete upgrade script and its pending credential copy
-are removed after validated cutover. Never copy credentials into command lines, logs or reports. Both clients use `pg_catalog,lctx_ext` as their trusted search path. Remote connections
-require hostname-verifying TLS; a provider budget is reserved from the total, not added to it.
-Runtime statements/locks/acquisition and cancelled leases are bounded. `lctx_storage` opens only
-when explicitly awaited and closes at lifespan exit; importing the module makes no connection.
-
-The SQLx migration history now lives in `crates/lctx-postgres/migrations`; the original two
-migrations are byte-preserved. Projection schema installation does not publish a ready generation.
-PG12 owns load/freeze/validation/promotion and child vector partition creation. Import uses TEMP
-COPY followed by generation-qualified inserts: RLS protects final tables. No ready-generation
-cleanup is available. Native/lexical artifacts remain digest-checked files with manifest references.
-
-## Publication and queries
-
-PR4's current format is bundle16/projection6/wire3 with migration012. Only the current format is
-accepted. The catalog profile and behavioral enrichment use the same typed member catalog and
-addressable retrieval artifacts. Exact PostgreSQL cosine is the sole current vector route.
-
-After the coordinated explicit `lctx db migrate`/`lctx db check`, publication uses:
-
-```sh
-target/release/lctx serving import --store STORE --snapshot SNAPSHOT_ID \
-  --bundles build/generations --artifacts build/serving-artifacts
-# Or import an existing verified portable export:
-target/release/lctx serving import-bundle --bundle BUNDLE_DIRECTORY \
-  --artifacts build/serving-artifacts
-target/release/lctx serving status --generation FULL_GENERATION_DIGEST
-target/release/lctx serving reconcile --generation FULL_GENERATION_DIGEST
-target/release/lctx serving select --library fastmcp --generation FULL_GENERATION_DIGEST
-uv run lctx-mcp --library fastmcp --embedder none
-```
-
-`serving --importer-config FILE COMMAND` selects an explicit protected importer file. Defaults
-use the sibling `postgres-importer.json` of `--database-config`/`LCTX_DATABASE_CONFIG`.
-`lctx-mcp --config FILE --library NAME --generation FULL_DIGEST --profile PROFILE_DIGEST`
-pins an explicit ready generation/profile; omitted generation uses the selected pointer once at
-startup. Omitting profile selects the exact default or the selection's explicit profile.
-Use the full 64-character projection digest printed by import, not the portable directory name.
-The Python service opens a read-only Rust repository and closes it at lifespan exit. It retains
-native/lexical state, with relational hydration and vector ranks fetched from PostgreSQL.
-
-Import validates source before opening a lease, freezes transport/batch identity, copies at most
-1,000 rows/16 MiB per transaction, and commits rows with their receipts. A generation advisory
-lock serializes retries. Interrupted loading/validation is resumable; conflicting content fails.
-Stored rows, complete support closure, artifact bytes and required indexes must pass before one
-ready transaction. Import/reconcile never select. Existing readers remain pinned after selection.
-`serving cleanup --generation DIGEST` removes only inactive unpublished rows/artifact locations;
-it keeps terminal metadata, attempts, receipts and content-addressed files. Ready generations and
-artifacts remain while the generation is current. Validated design-phase cutover removes the superseded runtime epoch.
-
-Exact vector ranks enumerate every eligible member in each of four evidence families before
-BM25 and reciprocal-rank fusion. Request-local selection is shared across channels and final
-assembly. Ranking carries the actual winning unit and fragment, whose metadata is checked against
-PostgreSQL; `get_evidence` expands its rendering and original sources. Bodies are not loaded to
-validate rank references. A missing query embedding permits explicit lexical-only ranking. The current operator deployment
-uses that route under the PR4 live-embedding waiver.
-
-The old fixed-view ANN tooling is removed. Future ANN adoption requires current-family recall,
-numerical and performance qualification under [ADR-0078](adr/0078-current-design-cutover.md).
-No prior index or qualification record activates a current retrieval route.
-
-For a coherent operational report, reserve one or two provider connections in a protected serving
-config's existing total budget (`provider_connections < max_connections`, maximum six total):
-
-```sh
-target/release/lctx db report --store STORE --snapshot SNAPSHOT_ID \
-  --generation FULL_GENERATION_DIGEST --serving-config REPORT_CONFIG --format json
-```
-
-The report verifies the canonical snapshot and summarizes its library and corpus releases once,
-using the same library identity as bundle publication. It captures the declared mutable operational views in one
-read-only repeatable-read transaction, then joins them to immutable generation data in DataFusion.
-An unready projection still produces a canonical summary and diagnostics. Attempts/events are
-explicitly scoped to store/compiler and can include other libraries. The report names its capture
-snapshot/time, transfer rows/bytes, query/transfer time and Arrow conversion time. Provider reads
-admit declared binary/text/bool/int64 schemas and a closed expression policy; generation-qualified
-inner key joins can federate, outer joins and unsupported expressions stay local.
-
-Budgets refuse explicitly: hydration 64 MiB decoded/8 MiB response; ranks 32 MiB; fusion 128 MiB;
-selection 200,000 rows per relation and two million indexed visits/witness elements; mutable report capture 100,000 rows/64 MiB/30 seconds. Native
-work has two slots, one-second admission and a whole MCP request deadline of 30 seconds. Cancelled
-native jobs retain slots until completion. Cancelled SQLx work retains its lease through wire drain
-and the configured server statement deadline; uncertain drain closes the pool. The provider sends
-CancelRequest and drains before releasing capacity, quarantining an unconfirmed slot. A cancellation
-response does not claim instantaneous server/CPU termination.
-
-`just pilot STORE LOG [SERVING_CONFIG] [PROFILE]` and `pilot-live` explicitly import the produced bundle
-and smoke-test that pinned PostgreSQL generation without selecting it. Their configured database
-must already be migrated. `PROFILE` defaults to `catalog`; `behavioral` exercises retained enrichment. Offline scoring references can be read without PostgreSQL, while online
-ranking/structured evaluation use `--config` and the same pinned repository. `just test-postgres`
-builds its own canonical fixture. `just test-postgres-reference PROJECTION REFERENCE_JSON` runs
-the separate saved-answer parity comparison; retained inputs and commands are in the
-[PG12–PG15 evidence](design_review/evidence/2026-09-28_postgresql-query/README.md).
-
-
-### Original evidence and deployment observations
-
-**Implemented and bounded Tested, 2026-09-28 (ADR-0076/0077).** The current contract retains original Binary/bytea artifacts, contextual scenarios, deployment
-observations and typed site associations. Delta remains canonical. `get_operation` returns
-bounded evidence references; `get_evidence` pages original source. Its `metadata_omitted` flag
-reports oversized detail while preserving primary-source access. No source executes during reads.
-
-Run task observations explicitly before compiling with their receipts:
-
-```sh
-uv run python scripts/deployment_check.py --source SOURCE_CHECKOUT --out build/task-checks
-target/release/lctx compile fastmcp --profile catalog --store STORE \
-  --evidence-observations build/task-checks/programmatic.json \
-  --evidence-observations build/task-checks/cli.json
-```
-
-The fixed policy uses the pinned upstream `examples/fastmcp_config/server.py`, a disposable locked
-environment, and real MCP list/add interactions for programmatic and CLI-entry-point launch.
-Receipts bind source, runner, interpreter/runtime, lock and metadata digests, exact commands,
-inputs and observed outcomes. A changed runner/environment/source requires fresh observations;
-failed tasks remain explicit failures. An all-extras task pass does not prove a minimal install.
-No wheel is built: product native modules remain editable fastdev artifacts.
-
-**Tested operator cutover, 2026-09-29.** Both current profiles passed real PG/MCP on lexical-only
-and NVFP4 exact-vector routes, followed by 88-relation current reconstruction. The database
-contains exactly two current ready generations. Behavioral is selected:
-
-- Catalog: `64313f7b7d989ff1fb39fcd89a3ff291641910225c6b5a9344dd5382dff284f2`.
-- Behavioral: `272b6ec52fb2cace30437394d3cb8ec763e7149e94af599abfd936c4b7d16f96`.
-
-`build/store` and `build/generations` point to the current behavioral publication under
-`build/pr5-qualified/behavioral/`. Superseded PR4/adoption runtime directories, obsolete artifacts,
-stale pointers and fixture generations were removed after validation. Temporary reconstruction
-archives were deleted. Cleanup verified 58 benchmark files unchanged.
-The [PR5 evidence](design_review/evidence/2026-09-28_pr5/README.md) owns exact receipts.
-
-The formerly oversized `fastmcp.cli.cli.run` and `fastmcp.server.auth.JWTVerifier` now expose
-complete expanded cores and independently paged behavior. All probed final MCP responses fit their
-requested budget; the largest was 34,100 bytes. No accuracy or comparative-quality claim follows.
-
-### Bounded agent journeys and rebuilds
-
-**Implemented (ADR-0081, 2026-09-29).** Wire4 replaces the whole operation packet with a complete
-invocation core and independent optional sections. `get_operation` accepts
-`view={"kind":"section","section":"behavior"}` (also `relationships`, `fields`, `facets`,
-`evidence`) and an opaque continuation cursor. `expanded=true` raises the final MCP result limit
-from 32 KiB to 256 KiB. Required signatures are never truncated. `browse_library` supplies scoped
-ownership, vocabulary and facet counts; `search_evidence` discovers original units independently
-of an API; `compare_operations` applies one selection to one through five named candidates.
-
-Rebuild from captured canonical facts explicitly; these commands publish but do not select:
-
-```sh
-target/release/lctx rebuild catalog --store STORE --snapshot SNAPSHOT --out GENERATIONS
-# Behavioral input additionally requires its pinned analytics configuration:
-target/release/lctx rebuild catalog --store STORE --snapshot SNAPSHOT --out GENERATIONS \
-  --analytics-config libraries/fastmcp/analytics.toml --embedder vllm
-# Rebuild retrieval only, retaining the canonical snapshot:
-target/release/lctx rebuild retrieval --store STORE --snapshot SNAPSHOT --out GENERATIONS \
-  --embedder vllm
-```
-
-`--clean` on catalog rebuild forces recomputation for an equality oracle. Input/provider/profile,
-coverage, source/evidence, roots, semantic policy and full embedding identity control admission.
-Invalid disposable stage entries recompute; invalid canonical inputs refuse. The printed receipt
-reports actual stage outcomes. Cache admission re-derives pure output for comparison; no speedup
-is claimed. Import, reconcile, validate and explicitly select before removing superseded runtime.
-
-### Complete recovery and diagnostics
-
-`serving status [--generation DIGEST] [--verify-artifacts]` is a bounded, redacted read-only
-observation that also reports unavailable databases and incompatible schemas. It separates
-publication, artifact availability, selections and profile admission. Startup logs only the pin;
-optional diagnostic queries do not become serving prerequisites. The importer configuration
-selects the database; `--verify-artifacts` explicitly hashes retained files.
-
-Backup receipt format 3 (inventory2) uses one exported snapshot for pg_dump, streaming logical-root table
-fingerprints, ready manifests and selections. It copies each required native/lexical artifact into
-`ARCHIVE.artifacts/SHA256/NAME`. The completion receipt appears only after checksums and fsync.
-Keep a current-format dump and its matching receipt/artifact directory together while exercising
-its restoration. Current reconstruction verifies all advertised relations and original bytes,
-reconciles locations and serves the selected generation under the exact profile. Older formats
-are rejected; there is no retained-runtime fallback. Once a validated replacement is active,
-remove obsolete backup and runtime artifacts under ADR-0078.
+- `just postgres-test-setup` pulls the pinned images.
+- `just test-postgres` runs the real-PG18 suites through Testcontainers: the store, provider sessions,
+  the CLI and the transition. Missing Docker or a missing image is `blocked`.
+- The `testing` feature of `lctx-postgres` provides `DisposableDatabase`, which is provisioned like
+  production with production session limits, and the attempt-semantics test harness.
+- `just sqlx-check` and `just sqlx-prepare` cover the dormant serving queries frozen in `.sqlx`. They
+  leave `test-all` until serving returns (plan T12).
+- Keep this repository's Cargo target and build cache; never clean them.

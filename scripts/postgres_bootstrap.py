@@ -121,13 +121,14 @@ def configurations(passwords: Mapping[str, str], port: int) -> dict[str, dict]:
         },
         "postgres-admin.json": {"migration_url": url("lctx_migrator")},
     }
-    for role, connections in [("importer", 2), ("serving", 6)]:
+    # The reader keeps two of its connections for generation-bound provider sessions (T13).
+    for role, connections, provider in [("importer", 2, 0), ("serving", 6, 2)]:
         result[f"postgres-{role}.json"] = {
             "format": 1,
             "role": role,
             "url": url(f"lctx_{role}"),
             "max_connections": connections,
-            "provider_connections": 0,
+            "provider_connections": provider,
             **limits,
         }
     return result
@@ -179,7 +180,7 @@ def main() -> None:
         )
     print(f"Provisioned lctx database, four roles and pgvector 0.8.6 on PG18 port {args.port}")
     print(f"Separate protected configurations written in {args.config.parent}")
-    print("Next: lctx db migrate, then lctx db check. No runtime migrations occur automatically.")
+    print("Next: lctx store install, then lctx store check. No runtime migrations occur automatically.")
 
 
 if __name__ == "__main__":

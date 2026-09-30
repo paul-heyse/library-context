@@ -8,14 +8,14 @@ import subprocess
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
 
+# The retained services of the service baseline. Generation schemas are rebuilt from pinned
+# inputs (ADR-0078), so their rows are not fingerprinted here.
 TABLES = (
     "public._sqlx_migrations",
     "lctx_cache.specs",
     "lctx_cache.embedding_values",
     "lctx_ops.attempts",
     "lctx_ops.events",
-    "lctx_ops.snapshots",
-    "lctx_ops.generations",
 )
 
 

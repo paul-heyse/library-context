@@ -20,8 +20,10 @@ skills-check:
 check: fmt-check lint test py-check rules-scan rules-test lint-agents
     uv run python scripts/adr.py lint
 
-# Everything: check + fixtures + dependency policy
-test-all: check fixtures-check deps gold test-postgres sqlx-check
+# The SQLx offline check returns with serving (cutover phase 5, T12); the dormant serving queries
+# are frozen in `.sqlx`.
+# Everything: check + fixtures + dependency policy + real PostgreSQL
+test-all: check fixtures-check deps gold test-postgres
 
 # rustfmt + ruff format check (no changes)
 fmt-check:
@@ -56,10 +58,8 @@ py-check:
 oracles:
     uv run pytest tests/scripts/test_flow_soundness.py tests/scripts/test_semantic_soundness.py -q
 
-# The structured evaluation's packet for one stage (ADR-0021; DESIGN §12): targets beside answers
-# Search items rank on live query vectors when embed_url names a running `just embed-serve`
-structured-eval generation stage embed_url="":
-    uv run python scripts/structured_eval.py {{generation}} eval/behavior/fastmcp-4.0.5.toml --stage {{stage}} --requests eval/behavior/fastmcp-4.0.5.requests.toml --out build/structured/stage{{stage}}.md {{ if embed_url != "" { "--embed-url " + embed_url } else { "" } }}
+# `structured-eval`, `score` and `ranking-check` read served generations; they return with serving
+# (cutover phase 5).
 
 # Pinned-family single-version check + cargo-deny sources/licenses + the Pyrefly fork (ADR-0046)
 deps:
@@ -103,16 +103,6 @@ embed-serve port="8000":
 embed-conformance url="http://127.0.0.1:8000":
     LCTX_EMBED_URL={{url}} LCTX_CONFORMANCE_OUT="$PWD/build/conformance-rust.json" cargo nextest run --release -p lctx-embed -E 'test(live_conformance_vectors)' --status-level none --final-status-level fail
     uv run python scripts/embed_conformance.py build/conformance-rust.json --url {{url}}
-
-# Gold scores of a generation (DESIGN §12; matcher 2, ADR-0068). Exits 2 when
-# `vllm` was asked for and any alias degraded (`blocked`)
-score generation embedder="none":
-    uv run python scripts/score_gold.py {{generation}} --embedder {{embedder}} --json build/score-$(basename {{generation}})-{{embedder}}.json
-
-# The §1.5 retrieval check over a generation (ADR-0068): exits 1 on a miss. Only
-# `--embedder vllm` (with `just embed-serve` running) makes a hybrid result evidence
-ranking-check generation embedder="none":
-    uv run python scripts/ranking_check.py {{generation}} --embedder {{embedder}}
 
 # ast-grep scan over the tree (rules/ grows from design-review findings)
 rules-scan:
@@ -174,15 +164,13 @@ postgres-test-setup:
     docker pull "postgres:$(cat specs/postgres-image.txt)"
     docker pull "$(cat specs/postgres-vector-image.txt)"
 
-# Real PostgreSQL 18 generation-store semantics in disposable containers. The serving suites are
-# dormant until cutover phase 5 (plan P1.3).
+# The serving suites are dormant until cutover phase 5.
+# Real PostgreSQL 18 (disposable containers): generation store, provider sessions, CLI, transition
 test-postgres:
     @docker image inspect "$(cat specs/postgres-vector-image.txt)" >/dev/null || { echo 'blocked: run just postgres-test-setup'; exit 2; }
-    INSTA_UPDATE=no cargo nextest run --release -p lctx-postgres -p cpg-extract --no-fail-fast -E 'not binary(serving)'
-
-# Explicit comparison with a previously frozen, same-input reference answer capture.
-test-postgres-reference projection reference:
-    LCTX_TEST_PROJECTION="{{projection}}" LCTX_TEST_REFERENCE="{{reference}}" cargo nextest run --release -p lctx-postgres --test serving --run-ignored only -E 'test(captured_reference_parity)' --success-output immediate
+    INSTA_UPDATE=no cargo nextest run --release -p lctx-postgres -p cpg-extract -p cpg-core -p lctx --no-fail-fast -E 'not binary(serving)'
+    cargo build --release -p lctx
+    LCTX_POSTGRES_TEST=1 uv run pytest tests/scripts/test_postgres_transition.py -q
 
 sqlx-check:
     uv run python scripts/postgres_check.py

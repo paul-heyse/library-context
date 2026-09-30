@@ -110,7 +110,13 @@ arc's row index (the arc columns stay in Arrow).
 
 > Decision: ADR-0086
 
-**Implemented** in `cpg-core` and **Tested** where a line names a test or says so
+**Retired, cutover P1.3/P1.4 (2026-09-29).** The Delta store described below was removed. The
+store is PostgreSQL generations: [§B7](../DESIGN.md#section-b7) and
+[§15.11](semantic-model.md#section-15-11) own it, and [the runbook](../../postgresql.md) covers its
+operation. The subsections below remain only until plan C3x removes them. They describe no running
+code.
+
+*Former status:* **Implemented** in `cpg-core` and **Tested** where a line names a test or says so
 (`cpg-core/tests/delta.rs`, `compile.rs`, `bundle.rs`; 2026-09-22 onward). Lines about delta-rs
 behaviour that no repository test asserts are **Interface-checked** against the pinned delta-rs and
 kernel sources (deltalake skill, 2026-09-22).
