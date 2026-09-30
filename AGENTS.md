@@ -77,7 +77,7 @@ real consumer.
 | `docs/adr/` | Current decision records (accepted and open proposals), a generated index, and `TEMPLATE.md` |
 | `docs/design_review/design_principles/` | The layered design standard, declared in `standard.toml`: six foundations (FP-01–06), independent architectural judgments A1–A3, supporting rules DP-01–24 and gates G1–G8, the CI profile, and the repository binding (ADR-0040/0093) |
 | `docs/design_review/reviews/` | Review outputs: evidence, never authority; kept while a finding they supply is open |
-| `docs/design_review/evidence/` | Probes, spikes and investigations behind decisions, one `YYYY-MM-DD_<topic>/` folder each with a README; raw outputs and binaries through Git LFS; never venvs or `target/`. Put probes here, not in the session scratchpad |
+| `docs/design_review/evidence/` | Optional probes, spikes and investigations behind decisions. When created, use one `YYYY-MM-DD_<topic>/` folder with a README; raw outputs and binaries through Git LFS; never venvs or `target/`. This location convention does not require a review to create or run probes |
 | `docs/pins.md` | Every pin, with dated verification |
 | `docs/library-utilization.md`, `.jsonl` | Potentially valuable context on library capabilities and integration patterns already used in the codebase; optional focused lookups can inform design alternatives |
 | `crates/` | The single Rust workspace. `cpg-schema` holds the authoritative Arrow contracts, derivations, rules and the graph registry (`graph.rs`: the `nodes`/`edges` catalogs, ADR-0086; the cutover replaces this crate with `lctx-model`); `cpg-extract` (Stage A in `library.rs`, extraction, the dependency context in `context.rs`), `cpg-core` (the stage runtime helpers, generation-bound provider sessions in `generation_read.rs`, the session and legacy `lctx_id` UDF, and the dormant analysis, catalog and serving code), `cpg-flow` (ty flow facts), `lctx-analytics` (passes, FCA/RCA, communities, summaries; Arrow in/out, no store), `lctx-embed` (compile-time embedding client), `lctx-postgres` (the generation store in `generations/`, the service baseline, role pools, the `testing` feature's disposable database and harness, and the dormant serving code) and `lctx` (the CLI). Further crates are added as increments need them (ADR-0046) |
@@ -213,6 +213,11 @@ capability is absent.
   `design-reviewer` subagent. The binding's **Reviews in this repository** section owns cadence
   and tier/purpose selection (ADR-0040/0093). Apply the principles and review skill within
   those bounded review periods. Review depth follows impact and uncertainty.
+- **Review evidence:** static review of documentation, source and types can be sufficient,
+  including for library features and fit. The reviewing agent judges whether complexity,
+  criticality or unresolved uncertainty warrants creating and running probes. No review tier
+  or kind requires probes or an evidence folder merely because it is a review. Existing
+  implementation acceptance checks and the evidence needed for Tested/Measured claims still apply.
 - **Findings** retain stable source-review IDs. The active plan's findings table owns current
   disposition for scheduled work (forward plan §6); unscheduled deferrals stay in the source review
   with a trigger (binding §4).

@@ -27,6 +27,12 @@ concrete question being assessed.
 ## Reviews in this repository
 
 - **Location:** `docs/design_review/reviews/design_review_{slug}_{YYYY-MM-DD}.md`.
+- **Evidence method:** static review can suffice, including for library features and fit.
+  The reviewing agent judges whether complexity, criticality or unresolved uncertainty warrants
+  creating and running probes; no review tier or kind requires them. When chosen, store probes
+  under `docs/design_review/evidence/YYYY-MM-DD_<topic>/` with a README. This storage convention
+  does not require an evidence folder for every review. Implementation acceptance checks and
+  the evidence needed for Tested/Measured claims still apply.
 - **Who:** the `design-review` skill with `design-review-code-intelligence`, usually through a
   fresh `design-reviewer` subagent, so the author of a change is not its reviewer.
 - **Cadence and purpose** (ADR-0040):

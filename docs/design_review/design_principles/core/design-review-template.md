@@ -216,8 +216,11 @@ Preserve independent semantic controls when removing obsolete implementation-spe
 |---|---|---|---|---|
 
 A traced extension, removed competing authority or bounded test setup can close an architectural
-finding. Independent oracles must challenge production contracts. Execute only checks that resolve
-material uncertainty; follow the binding's integrated acceptance timing.
+finding. Static review can suffice, including for library features and fit. The reviewing agent
+judges whether complexity, criticality or unresolved uncertainty warrants creating and running
+probes; this slot and the review tier do not require them or a separate evidence folder.
+Independent oracles, when used, must challenge production contracts. Follow the binding's
+integrated acceptance timing and retain the evidence required for Tested/Measured claims.
 
 ### 11. Authority changes and dispositions
 

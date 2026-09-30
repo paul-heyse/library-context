@@ -102,7 +102,12 @@ revision even when outputs are currently correct. A deferral alone is not confor
 Read every citation at the grain used. Proposals remain Proposed; interface inspection is
 Interface-checked; code existence is Implemented. Tested/Measured claims name commands, cases,
 conditions and dates. Attribute historical receipts rather than reporting them as current runs.
-Run a probe only where reasoning leaves material uncertainty; use repository acceptance timing.
+Static review of documentation, source and types can be sufficient, including for library
+features and fit. The reviewing agent decides whether complexity, criticality or unresolved
+uncertainty warrants creating and running a probe. No review tier or kind requires probes or
+an evidence folder merely because it is a review. When probes are useful, follow repository
+storage conventions and acceptance timing. Implementation acceptance checks and the evidence
+needed for Tested/Measured claims still apply.
 
 Library-first means considering established implementations of the required capability. Both
 adoption and bespoke code can add excessive coupling, lifecycle or configuration. A planned

@@ -58,6 +58,18 @@ SQLx high-water and sizing calibration remain named allowances rather than an ab
   they are outside this implementation's commits. ADR-0093 policy remains current. Prior generic
   skill-validation metadata failures were not changed or claimed repaired by the cutover gate.
 
+## Review evidence policy
+
+The [review binding](docs/design_review/design_principles/binding/library-context.md#reviews-in-this-repository)
+explicitly leaves static review versus optional probes to the reviewing agent's judgment of
+complexity, criticality and uncertainty. AGENTS.md, the skill and template carry the clarification;
+implementation acceptance checks and Tested/Measured evidence requirements remain in force.
+Documentation checks (2026-09-30): `git diff --check` passed; `just docs-check` failed on the
+ADR index left stale by concurrent ADR additions. `uv run --no-project python
+/home/paul/.codex/skills/.system/skill-creator/scripts/quick_validate.py .claude/skills/design-review`
+failed on existing `model-baseline`/`user-invocable` metadata. Product tests and catalog regeneration:
+not_run for this documentation-only clarification. Earlier qualification receipts above retain their scope.
+
 ## Next work
 
 Begin phase 3 normalized relations. Read DESIGN §15's owner and the cutover plan's phase 3 scope,
