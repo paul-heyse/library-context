@@ -36,6 +36,8 @@ pub enum Error {
     #[error("generation state does not permit this operation")] State,
     /// No generation with this id is registered: never created, aborted or retired.
     #[error("no such generation")] Absent,
+    /// The generation store is not installed in this database.
+    #[error("the generation store is not installed; run `lctx store install`")] NotInstalled,
     #[error("generation model or physical schema differs from this binary")] Contract,
     #[error("generation has active readers or is selected")] Busy,
     #[error("codec: {0}")] Codec(String),
@@ -63,7 +65,7 @@ impl Error {
                 }
             },
             Self::Commit(_) | Self::Rollback { .. } | Self::CopyAbort { .. } => Infrastructure::Unconfirmed,
-            Self::State | Self::Absent | Self::Busy | Self::Orphaned | Self::Confirmation => Infrastructure::State,
+            Self::State | Self::Absent | Self::NotInstalled | Self::Busy | Self::Orphaned | Self::Confirmation => Infrastructure::State,
             Self::Contract | Self::Frontier(_) | Self::Model(_) | Self::Codec(_) => Infrastructure::Contract,
             Self::Random => Infrastructure::Io,
             Self::Driver { class, .. } => *class,
@@ -92,8 +94,10 @@ impl GenerationId {
     pub fn hex(self) -> String { self.0.iter().map(|b| format!("{b:02x}")).collect() }
     pub fn schema(self) -> String { format!("lctx_g{}", self.hex()) }
     /// The generation a `lctx_g<32 hex>` schema name belongs to.
-    pub fn from_schema(name: &str) -> Option<Self> {
-        let hex = name.strip_prefix("lctx_g").filter(|h| h.len() == 32 && h.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')))?;
+    pub fn from_schema(name: &str) -> Option<Self> { Self::from_hex(name.strip_prefix("lctx_g")?) }
+    /// A generation id written as exactly 32 lowercase hex digits.
+    pub fn from_hex(hex: &str) -> Option<Self> {
+        if hex.len() != 32 || !hex.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) { return None; }
         let mut bytes = [0; 16];
         for (i, byte) in bytes.iter_mut().enumerate() { *byte = u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).ok()?; }
         Some(Self(bytes))
@@ -118,6 +122,15 @@ impl GenerationStore {
             locks::installation_exclusive(tx).await?;
             install::control(tx, &store.model, store.physical).await
         }).await?;
+        Ok(store)
+    }
+    /// Confirm an existing installation of this model and lowering, creating nothing.
+    pub async fn open(owner: crate::OwnerPool, model: Arc<ValidatedModel>) -> Result<Self, Error> {
+        let store = Self::assemble(owner.pool().clone(), model);
+        let installed: bool = sqlx::query_scalar("SELECT to_regclass('lctx_model_store.installation') IS NOT NULL").fetch_one(&store.owner).await?;
+        if !installed { return Err(Error::NotInstalled); }
+        let mut connection = store.owner.acquire().await?;
+        transaction_on(&mut connection, async |tx| store.lock_installation(tx).await).await?;
         Ok(store)
     }
     /// The installation's physical digest is the whole model's (conformance) lowering.

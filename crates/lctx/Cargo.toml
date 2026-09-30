@@ -11,6 +11,9 @@ cpg-schema = { path = "../cpg-schema" }
 cpg-extract = { path = "../cpg-extract" }
 cpg-flow = { path = "../cpg-flow" }
 cpg-core = { path = "../cpg-core" }
+lctx-model = { path = "../lctx-model" }
+datafusion.workspace = true
+sqlx.workspace = true
 clap.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
@@ -25,6 +28,8 @@ tikv-jemallocator.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+insta.workspace = true
+lctx-postgres = { path = "../lctx-postgres", features = ["testing"] }
 
 [lints]
 workspace = true

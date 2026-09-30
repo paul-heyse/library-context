@@ -1,24 +1,33 @@
 //! `lctx`: pinned Python libraries and their compilation (DESIGN §4.0, ADR-0013). Every analyzed
 //! library is a committed uv project under `libraries/<name>/`.
 //!
-//! The semantic-model cutover (plan §4.1.1, P1.1) retired the Delta pipeline's commands. Until
-//! phase 2 lands `lctx compile --through facts`, `compile` exits 3 (unavailable) before doing any
-//! work. The generation-store commands arrive with P1.11.
+//! The semantic-model cutover (plan §4.1.1) retired the Delta pipeline's commands. Until phase 2
+//! lands `lctx compile --through facts`, `compile` exits 3 (unavailable) before doing any work.
 //!
 //! ```text
 //! lctx library init <name> --requirement REQ [--python 3.14.7]   write, lock, acquire, propose release
 //! lctx acquire <name> [--reinstall]                              uv sync --frozen into build/envs/<name>,
 //!                                                                and the declared source tree at its
 //!                                                                commit into build/sources/<name>
+//! lctx model describe [--format text|json]                       the typed model, with no database
+//! lctx store install|check|reset [--confirm DB]                  the generation store (service owner)
+//! lctx generation list|show|select|clear-selection|retire|abort  generations (reader; owner changes)
+//! lctx query --generation ID SQL                                 read-only SQL over one leased generation
 //! lctx runs list|show|mark-interrupted                           operational compile-attempt history
 //! lctx flow FILE                                                 one file's flow facts (oracle input)
 //! lctx compile <name> …                                          unavailable until cutover phase 2
 //! ```
-//! Common options: `--libraries DIR` (default `libraries`), `--envs DIR` (default `build/envs`),
-//! `--sources DIR` (default `build/sources`).
+//! Common options: `--database FILE` (the protected `postgres.json`; its siblings select the roles),
+//! `--libraries DIR` (default `libraries`), `--envs DIR` (default `build/envs`), `--sources DIR`
+//! (default `build/sources`). Exit status: 0 ok, 1 error, 2 refused, 3 unavailable.
 
+mod database;
+mod generation;
+mod model;
 mod propose;
+mod query;
 mod runs;
+mod store;
 
 /// jemalloc, not glibc malloc (ADR-0016): glibc's per-thread arenas retained about half of a
 /// 6,100-7,300 MiB pilot peak; under jemalloc the peak stays flat at extraction's working set
@@ -40,9 +49,10 @@ use lctx_workspace_hack as _; // Contributes Cargo features, not callable APIs (
 #[derive(Parser, Debug)]
 #[command(name = "lctx", version, about = "Pinned Python libraries and their compilation")]
 struct Cli {
-    /// Protected PostgreSQL config; otherwise LCTX_DATABASE_CONFIG or ~/.config/library-context/postgres.json.
+    /// Protected PostgreSQL config (`postgres.json`; its siblings select the roles); otherwise
+    /// LCTX_DATABASE_CONFIG or ~/.config/library-context/postgres.json.
     #[arg(long, global = true)]
-    database_config: Option<PathBuf>,
+    database: Option<PathBuf>,
     /// Library projects: `<DIR>/<name>/`.
     #[arg(long, global = true, default_value = "libraries")]
     libraries: PathBuf,
@@ -58,6 +68,27 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Cmd {
+    /// The typed model this binary lowers.
+    Model {
+        #[command(subcommand)]
+        command: ModelCommand,
+    },
+    /// The generation store, as the service owner.
+    Store {
+        #[command(subcommand)]
+        command: store::StoreCommand,
+    },
+    /// Generations: listed and shown by the reader; selected, retired and aborted by the owner.
+    Generation {
+        #[command(subcommand)]
+        command: generation::GenerationCommand,
+    },
+    /// Read-only SQL over one leased generation.
+    Query {
+        #[arg(long, value_parser = generation::parse_generation)]
+        generation: cpg_core::postgres::generations::GenerationId,
+        sql: String,
+    },
     /// Operational compile-attempt history.
     Runs {
         #[command(subcommand)]
@@ -98,10 +129,33 @@ enum Cmd {
     },
 }
 
+#[derive(Subcommand, Debug)]
+enum ModelCommand {
+    Describe {
+        #[arg(long, value_enum, default_value = "text")]
+        format: model::Format,
+    },
+}
+
 /// A command that exists but whose capability is suspended by the cutover: exit status 3.
 #[derive(Debug, thiserror::Error)]
 #[error("{0}")]
 struct Unavailable(&'static str);
+
+/// A request the store or the read contract refuses by its rules: exit status 2.
+#[derive(Debug, thiserror::Error)]
+#[error("refused: {0}")]
+pub struct Refused(pub String);
+
+/// Whether an error is a refusal: the store, a lease or the read contract declined the request.
+fn refused(error: &anyhow::Error) -> bool {
+    use cpg_core::generation_read::ReadError;
+    use cpg_core::postgres::generations::Error as Store;
+    let store = |e: &Store| matches!(e, Store::State | Store::Absent | Store::NotInstalled | Store::Busy | Store::Contract | Store::Frontier(_)
+        | Store::Confirmation | Store::Orphaned);
+    error.chain().any(|cause| cause.is::<Refused>() || cause.downcast_ref::<Store>().is_some_and(store)
+        || cause.downcast_ref::<ReadError>().is_some_and(|e| match e { ReadError::Frontier(_) => true, ReadError::Store(inner) => store(inner), _ => false }))
+}
 
 fn parse_id(s: &str) -> Result<Id, String> {
     Id::from_hex(s).ok_or_else(|| format!("{s:?} is not 32 hex digits"))
@@ -418,9 +472,32 @@ fn run() -> anyhow::Result<()> {
     let libraries = absolute(&cli.libraries)?;
     let envs = absolute(&cli.envs)?;
     let sources = absolute(&cli.sources)?;
+    let runtime = || tokio::runtime::Runtime::new();
     match cli.command {
-        Cmd::Runs { command } => tokio::runtime::Runtime::new()?
-            .block_on(runs::runs(command, cli.database_config.as_deref())),
+        Cmd::Model { command: ModelCommand::Describe { format } } => {
+            let described = model::describe(&*database::model()?);
+            match format {
+                model::Format::Json => println!("{}", serde_json::to_string_pretty(&described)?),
+                model::Format::Text => print!("{}", model::text(&described)),
+            }
+            Ok(())
+        }
+        Cmd::Store { command } => {
+            let database = database::Database::discover(cli.database.as_deref())?;
+            runtime()?.block_on(store::store(command, &database))
+        }
+        Cmd::Generation { command } => {
+            let database = database::Database::discover(cli.database.as_deref())?;
+            runtime()?.block_on(generation::generation(command, &database))
+        }
+        Cmd::Query { generation, sql } => {
+            let database = database::Database::discover(cli.database.as_deref())?;
+            runtime()?.block_on(query::query(&database, generation, &sql))
+        }
+        Cmd::Runs { command } => {
+            let database = database::Database::discover(cli.database.as_deref())?;
+            runtime()?.block_on(runs::runs(command, &database))
+        }
         Cmd::Library {
             command:
                 LibraryCommand::Init {
@@ -463,6 +540,10 @@ fn main() -> ExitCode {
             eprintln!("lctx: {e}");
             ExitCode::from(3)
         }
+        Err(e) if refused(&e) => {
+            eprintln!("lctx: {e:#}");
+            ExitCode::from(2)
+        }
         Err(e) => {
             eprintln!("lctx: {e:#}");
             ExitCode::from(1)
@@ -489,7 +570,7 @@ mod tests {
         // An option of another command is refused, not ignored.
         assert!(parse(&["acquire", "fastmcp", "--store", "s"]).is_err());
         // Retired pipeline commands no longer parse.
-        for retired in ["query", "bundle", "diff", "serving", "rebuild", "parity", "db", "snapshots", "generations", "compile-fixture"] {
+        for retired in ["bundle", "diff", "serving", "rebuild", "parity", "db", "snapshots", "generations", "compile-fixture"] {
             assert!(parse(&[retired]).is_err(), "{retired}");
         }
         // Compile parses any arguments so that it can refuse them all.

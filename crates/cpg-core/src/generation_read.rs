@@ -152,13 +152,17 @@ impl GenerationSession {
     }
 }
 
-/// Read-only SQL over every relation of a pinned generation (`lctx query --generation`).
+/// Read-only SQL over every relation of a pinned generation (`lctx query --generation`). A model
+/// relation outside the generation's frontier is known but refuses with a typed `Frontier`
+/// error when planned, rather than reading as an unknown or an empty table (P0 exit F02).
 pub struct InspectionSession { session: GenerationSession, context: SessionContext }
 impl InspectionSession {
     pub fn new(session: GenerationSession) -> Result<Self, ReadError> {
         let context = SessionContext::new();
-        for relation in session.model.relations().iter().filter(|r| session.held.contains(r.name())) {
-            context.register_table(relation.name(), session.table_of(relation)?).map_err(|e| ReadError::Pool(e.to_string()))?;
+        for relation in session.model.relations() {
+            let table: Arc<dyn TableProvider> = if session.held.contains(relation.name()) { session.table_of(relation)? }
+                else { Arc::new(OutsideFrontier { relation: relation.name(), schema: relation.schema().clone(), frontier: session.frontier }) };
+            context.register_table(relation.name(), table).map_err(|e| ReadError::Pool(e.to_string()))?;
         }
         Ok(Self { session, context })
     }
@@ -166,6 +170,18 @@ impl InspectionSession {
         self.context.sql_with_options(sql, SQLOptions::new().with_allow_ddl(false).with_allow_dml(false).with_allow_statements(false)).await
     }
     pub async fn close(self) -> Result<(), ReadError> { self.session.close().await }
+}
+
+/// A model relation the generation's frontier does not hold.
+#[derive(Debug)]
+struct OutsideFrontier { relation: &'static str, schema: SchemaRef, frontier: Frontier }
+#[async_trait]
+impl TableProvider for OutsideFrontier {
+    fn schema(&self) -> SchemaRef { self.schema.clone() }
+    fn table_type(&self) -> TableType { TableType::Base }
+    async fn scan(&self, _: &dyn Session, _: Option<&Vec<usize>>, _: &[Expr], _: Option<usize>) -> Result<Arc<dyn ExecutionPlan>> {
+        Err(DataFusionError::External(Box::new(ReadError::Frontier(format!("{} is outside this generation's {} frontier", self.relation, self.frontier.name())))))
+    }
 }
 
 fn held(model: &ValidatedModel, frontier: Frontier) -> Result<BTreeSet<&'static str>, ReadError> {

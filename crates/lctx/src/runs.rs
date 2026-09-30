@@ -1,9 +1,8 @@
 //! Operational compile-attempt history in the retained `lctx_ops` services (plan P1.1).
 use anyhow::{Context, bail};
 use clap::Subcommand;
-use cpg_core::postgres::{Config, Store};
 use cpg_schema::id::Id;
-use std::path::Path;
+use crate::database::Database;
 
 #[derive(Debug, Subcommand)]
 pub enum Runs {
@@ -28,13 +27,8 @@ pub enum Runs {
     },
 }
 
-pub async fn connect(config: Option<&Path>) -> anyhow::Result<Store> {
-    let config = Config::load(&Config::path(config)?)?;
-    Ok(config.connect_application().await?)
-}
-
-pub async fn runs(command: Runs, config: Option<&Path>) -> anyhow::Result<()> {
-    let db = connect(config).await?;
+pub async fn runs(command: Runs, database: &Database) -> anyhow::Result<()> {
+    let db = database.application().await?;
     db.check().await?;
     match command {
         Runs::List { limit, offset } => println!(

@@ -21,14 +21,14 @@ impl GenerationStore {
             ModelError::Frontier(message) => Error::Frontier(message), other => Error::Model(other),
         })?;
         self.scope(Frontier::Facts)?;
-        self.open(writer, execution, Frontier::Facts, Some(preflight), budget).await
+        self.open_attempt(writer, execution, Frontier::Facts, Some(preflight), budget).await
     }
     /// Begin an attempt over a subset schedule. It exercises the permanent stage-bound sink and
     /// lifecycle without claiming the facts frontier.
     pub async fn begin_conformance(&self, writer: PgPool, execution: &mut Execution<'_>, budget: ResourceBudget) -> Result<GenerationAttempt, Error> {
-        self.open(writer, execution, Frontier::Conformance, None, budget).await
+        self.open_attempt(writer, execution, Frontier::Conformance, None, budget).await
     }
-    async fn open(&self, writer: PgPool, execution: &mut Execution<'_>, frontier: Frontier, preflight: Option<Preflight>, budget: ResourceBudget)
+    async fn open_attempt(&self, writer: PgPool, execution: &mut Execution<'_>, frontier: Frontier, preflight: Option<Preflight>, budget: ResourceBudget)
         -> Result<GenerationAttempt, Error> {
         if execution.schedule().model() != self.model.digest() { return Err(Error::Contract); }
         execution.bind_sink()?;

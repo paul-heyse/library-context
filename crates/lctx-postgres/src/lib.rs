@@ -136,7 +136,7 @@ impl Config {
                 std::env::var_os("HOME")
                     .map(|h| PathBuf::from(h).join(".config/library-context/postgres.json"))
             })
-            .ok_or(Error::Config("supply --database-config"))
+            .ok_or(Error::Config("supply --database"))
     }
 
     pub fn load(path: &Path) -> Result<Self, Error> {

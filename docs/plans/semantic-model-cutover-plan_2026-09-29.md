@@ -805,6 +805,30 @@ The lifecycle fixtures moved into `lctx_postgres::testing::fixtures`. P0 exit F0
 | Store-lifecycle review corrections (F01–F07): `cargo test --release -p lctx-postgres` for `services`, `installation`, `lifecycle`, `generation_catalog`, `generations`, `generation_stages`, the 13 `domain_*` suites and `--doc`, run twice; `-p cpg-core --test generation_read --test model_runtime`; `-p cpg-extract --test typed_conformance --test typed_limits`; `-p lctx-model` (all suites); `cargo check --workspace --all-targets` | passed 2026-09-29 (installation 9, lifecycle 12, catalog 2, generations 2, generation_read 9; the rest unchanged).
 
 Every generation is attempt-owned; the manual steps and `owned` are gone, and suites use the `testing` harness. Reset is phased and resumable. Operator commands try-lock. Failures carry SQLSTATE-aware classes. Availability is stored by codebook code. One `locks` module owns the keys and liveness. An attempt's end releases its lock with a confirmed round trip before closing: closing alone released it only when the backend exited, which made an immediate `abort`/`retire` flaky. Dispositions: §8, store-lifecycle review table |
+| P1.11: `INSTA_UPDATE=no cargo test --release -p lctx --test store_cli --test model_describe --test acquire --bin lctx`; `just build-features`; `cargo check --workspace --all-targets` | passed 2026-09-29 (store_cli 2, model_describe 1, acquire 5, unit 5; no Hakari change).
+
+The global `--database` replaces `--database-config`, with no alias. Discovery is kept (`LCTX_DATABASE_CONFIG`, then `~/.config/library-context/postgres.json`), and sibling files select the roles.
+
+New commands:
+- `model describe [--format text|json]`, with no database;
+- `store install|check|reset [--confirm DB]` as the owner. Install applies the service baseline and installs or confirms the store; check exits 2 on findings; reset without confirmation is a dry run that exits 2;
+- `generation list|show` as the reader (catalog JSON), and `select|clear-selection|retire|abort` as the owner (`GenerationStore::open` confirms and never creates);
+- `query --generation ID SQL` through an `InspectionSession` sized by the serving provider budget.
+
+Exit status is 0 ok, 1 error, 2 refused, 3 unavailable. Refusals are the store's state, absence, busy, contract, frontier, confirmation and orphan answers, and the read contract's frontier and SQLOptions refusals.
+
+The control drives the binary against disposable PG18 with 0600 configs:
+- check refuses before install and is clean after;
+- install is idempotent;
+- list, filtered list and show (admission families) work; an absent or invalid id is refused;
+- selecting a conformance generation is refused as frontier;
+- retiring the selected generation is refused;
+- query answers 2; DDL and `transfer_keys` are refused; malformed SQL is error 1;
+- `LCTX_DATABASE_CONFIG` discovery and runs work;
+- clear selection and retire work; compile exits 3;
+- reset dry-runs, refuses the wrong database name, then resets.
+
+`model describe` needs no database. P0 exit F06 snapshot added. Library additions: `RoleConfig::connect`, `GenerationStore::open` with `Error::NotInstalled`, `GenerationId::from_hex`, and `InspectionSession` refusing out-of-frontier relations with a typed `Frontier` |
 | `just fmt`, `just test-all`, facts pilots | not_run: functional scope incomplete |
 
 Independent bounded reviewers accepted artifact/capture/acquisition corrections and the
@@ -1043,11 +1067,11 @@ returned Revise on 2026-09-29 for one correction (F01). The review's §11 dispos
 | Finding | Responsible component | Current disposition and evidence |
 |---|---|---|
 | [F01](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F01) | `obligation::verdict`, §15.8 | closed (re-inspection at `7595557`, 2026-09-29, review "Re-inspection"): `VerdictInput.modality`; Candidate/Potential give Unknown(`NonDefiniteAlternative`, 50); refutation under partial coverage gives `IncompleteCoverage` (51); priority rationale documented; §15.8 amended. Controls: `a_candidate_or_potential_alternative_is_never_established_or_refuted` and the composition-to-verdict case (Candidate composed flow Unknown, Definite twin Established) |
-| [F02](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F02) | `lctx-postgres::generations`; P1.7/P1.10/P1.11 | closed at store level (store-lifecycle review, 2026-09-29) and at the readers: leases and provider tables refuse with a typed `Frontier` (P1.10 `pin_survives_selection_change_and_frontier_is_enforced`); the `query` CLI mapping → P1.11 |
+| [F02](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F02) | `lctx-postgres::generations`; P1.7/P1.10/P1.11 | closed at store level (store-lifecycle review, 2026-09-29) and at the readers: leases and provider tables refuse with a typed `Frontier` (P1.10 `pin_survives_selection_change_and_frontier_is_enforced`), and `lctx query` exits 2 with a frontier refusal for a model relation outside the frontier (P1.11 `store_generation_and_query_commands`) |
 | [F03](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F03) | `composition` | deferred → P4 with composition F04/F06/F07; trigger: P4 engine design or the first `compose_site` caller outside tests |
 | [F04](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F04) | `stages` | open → A0: batched outputs and contributed vocabulary dedup/refusal control |
 | [F05](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F05) | `ProviderCoverage`; B1 | open → B1 (catalog generation without a ty `Provider` row); D1 receipt wording corrected |
-| [F06](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F06) | model tests; P1.11 | open → P1.11: model and codebook snapshot from `model describe --format json` |
+| [F06](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F06) | model tests; P1.11 | closed (P1.11, 2026-09-29): `crates/lctx/tests/model_describe.rs` snapshots `lctx model describe --format json` (relations, fields with roles and types, references, sums, every codebook's code/label pairs) under `INSTA_UPDATE=no` |
 | [F07](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F07) | `StageSink`/`GenerationAttempt::copy`; P1.7/P1.10 | closed: the in-memory class at P1.7; the persisted class with store-lifecycle review F04 (a producer's transport failure stores `transport`); provider-session transport loss at P1.10 (`transport_loss_is_terminal`) |
 | [F08](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F08) | `typed_syntax`; A4 | wording addressed (`admit` states the transitive-load limit); import policy → A4 |
 

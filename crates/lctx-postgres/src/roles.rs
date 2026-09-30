@@ -80,6 +80,24 @@ impl RoleConfig {
         self.options()?;
         Ok(())
     }
+    /// A pool of this runtime role for the generation store: the role, PostgreSQL 18 and no
+    /// elevated attribute confirmed on the first connection.
+    pub async fn connect(&self) -> Result<sqlx::PgPool, Error> {
+        self.validate()?;
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(self.max_connections - self.provider_connections)
+            .acquire_timeout(std::time::Duration::from_secs(self.acquire_timeout_seconds))
+            .idle_timeout(std::time::Duration::from_secs(60))
+            .connect_with(self.options()?).await?;
+        let (role, version, elevated): (String, String, bool) = sqlx::query_as("SELECT current_user::text, current_setting('server_version_num'), \
+            rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls FROM pg_catalog.pg_roles WHERE rolname = current_user")
+            .fetch_one(&pool).await?;
+        if role != self.role.name() || version.parse::<u32>().unwrap_or(0) / 10000 != 18 || elevated {
+            pool.close().await;
+            return Err(Error::Config("server, role or privileges differ from the role contract"));
+        }
+        Ok(pool)
+    }
     pub(crate) fn options(&self) -> Result<PgConnectOptions, Error> {
         let options = PgConnectOptions::from_str(&self.url)
             .map_err(|_| Error::Config("invalid role connection URL"))?;
