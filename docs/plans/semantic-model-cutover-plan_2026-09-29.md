@@ -13,10 +13,12 @@ identity and invariants. A bounded derive lowers those definitions to Arrow and 
 DataFusion is compute, not another schema authority. There are no compatibility readers, adapters,
 legacy identity maps, old-store flags, or dual writers.
 
-**Authorized scope:** reconstruct phases 0–2. Analysis, catalog and MCP availability is suspended
-until phases 3–5 implement those capabilities on the same model. A facts-only generation advertises
-that frontier and cannot answer higher-layer requests with empty tables. Product work stays paused.
-The forward plan retains product context and unrelated findings.
+**Current scope, 2026-09-30:** phases 0–3 are implemented with the distinct qualification boundaries
+recorded below and in the Phase 3 plan. The Phase 4 detailed design is Proposed and independently reviewed; its
+production implementation has not begun. Analysis, catalog and MCP remain unavailable until the
+corresponding phases implement them on the same model. Lower-frontier generations cannot answer
+higher-layer requests with empty tables. Product work stays paused. The forward plan retains
+product context and unrelated findings.
 
 **Qualification:** compile checks and focused tests during execution; formatting and the integrated
 active-scope gate once all phase 0–2 functional work is implemented. A phase's decision is not evidence
@@ -147,6 +149,13 @@ analysis/catalog or P5 serving.
 Restore transfers, obligations, summaries, behavioral evidence, catalog and retrieval. Findings remain
 open until assembled consumers demonstrate the intended semantics. A removed implementation does not
 retire its capability obligation.
+
+The [Phase 4 detailed design and execution plan](semantic-model-phase4-detailed-plan_2026-09-30.md)
+is **Proposed, 2026-09-30**. It owns the immutable vocabulary prerequisite, normalized dispatch/
+receiver corrections, finite composition/proof design, library choices, analysis/catalog/selection/
+retrieval contracts, dependency-ordered packages, legacy retirement and independent acceptance
+controls. ADR-0105/0106 remain proposed. This parent retains cross-phase finding disposition;
+document completion does not close implementation findings or activate Phase 5 serving.
 
 ### Phase 5 — Serving
 
@@ -1366,6 +1375,10 @@ owners. Phases 3–5 update their owners when implemented. No documentation labe
 without corresponding evidence.
 
 ## 8. Findings disposition
+
+| Source finding | Current disposition | Owner and closure evidence |
+|---|---|---|
+| [phase4-plan F01](../design_review/reviews/design_review_phase4-plan_2026-09-30.md#F01) | design addressed; implementation pending | Detailed P4 plan §4.3/G0 requires invariant generative graph brands and callback-bounded tokens; independent reinspection accepted the Proposed contract. G0 still owes wrong-view and token-escape compile-fail controls; no runtime closure claimed |
 
 | Source finding | Current disposition | Owner and closure evidence |
 |---|---|---|

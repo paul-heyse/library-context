@@ -38,6 +38,9 @@ described by §3–§14 remain dormant until phases 3–5 rebuild them.
 owns the execution order, qualification and deletion obligations.
 The [Phase 3 detailed plan](../../plans/semantic-model-phase3-detailed-plan_2026-09-30.md)
 develops normalized relations and their runtime prerequisites. Its ADR-0101/0103 choices are implemented with focused controls; §11 owns qualification beyond the prior facts-only receipt.
+The [Phase 4 detailed plan](../../plans/semantic-model-phase4-detailed-plan_2026-09-30.md)
+is **Proposed, 2026-09-30**. It specifies analysis/catalog reconstruction, required normalized
+corrections and the immutable vocabulary mechanism below; it does not establish P4 implementation.
 
 **Where the requirement came from.** The
 [semantic data model target review](../../design_review/reviews/design_review_semantic-data-model_2026-09-29.md)
@@ -56,6 +59,9 @@ The review's evidence folder holds the probes.
 ## §15.1 Layers, owners and mechanisms
 
 Every relation belongs to exactly one layer and has exactly one producing stage.
+**Proposed P4 refinement (ADR-0105):** the finite shared vocabulary has one assembly owner and
+one writer per declared immutable epoch. Ordinary relations retain one producing stage;
+§15.11 specifies the publication/read boundary.
 
 | Layer | Holds | Producer |
 |---|---|---|
@@ -91,7 +97,7 @@ closure, coverage, checkpoints and admission. Fresh normalized compilation runs 
 schedule without intermediate publication or selection. P4/P5 extend the declared closure;
 external linked generations are not a P3 input mechanism.
 
-> Decision: ADR-0085, ADR-0086, ADR-0101
+> Decision: ADR-0085, ADR-0086, ADR-0101; proposed ADR-0105
 
 <a id="section-15-2"></a>
 
@@ -477,10 +483,16 @@ Sequential composition is an explicit table in one module, never an order over c
   the site. Where signature variants restate one guard differently, the composed condition names
   the restatement. The input must be the caller's, extended only through identity. The output must
   be the site, one of its actuals or its receiver, or a field or global.
-- **Open (P4).** Instantiation inside a strongly connected component mints a fresh atom per pass and
-  cannot reach a fixpoint. A widening decision precedes the SCC engine design.
+- **Proposed P4 decision (ADR-0106).** Keep exact invocation-distinct guards within the existing
+  depth-8/proof-step-64 evidence envelope. Semantic equality excludes proof ancestry and cost;
+  stable finite residual keys expose uncovered recursion without erasing guards and claiming
+  Exact. Separate evidence-occurrence DAGs from aggregate summary publication. An open residual
+  prevents universal discharge; an exact finite witness retains its own qualified meaning.
+  [Plan §6.4–§6.5](../../plans/semantic-model-phase4-detailed-plan_2026-09-30.md#6-behavioral-evidence-and-finite-composition)
+  owns the detailed proposed engine and independent controls. This replaces the formerly open
+  design question, not its outstanding implementation obligation.
 
-> Decision: ADR-0085
+> Decision: ADR-0085; proposed ADR-0106
 
 <a id="section-15-7"></a>
 
@@ -554,10 +566,16 @@ generated. It supports explanation lookup ("why", "why unresolved") and reverse 
 
 **Findings.** Analysis findings come from one emitter. Invocations record their input invocations.
 
+**Proposed P4 realization (ADR-0106).** Derived support cites AnalysisInvocation and typed premises,
+separately from native provider support, under one qualification operation. Finite composition
+witnesses cite earlier witnesses and source evidence; completed summary aggregates cite witnesses
+after SCC closure and never serve as their own proof premises. Coverage membership is retained
+independently of witness deduplication.
+
 **Witnesses** are selected at serve time from derivations, under response budgets. A smaller budget
 never removes an established conclusion.
 
-> Decision: ADR-0085
+> Decision: ADR-0085; proposed ADR-0106
 
 <a id="section-15-10"></a>
 
@@ -590,7 +608,12 @@ new collection lifecycle, with no graph reuse hash or incremental cache. The wra
 context, projection/format version and petgraph version; graph indices never become domain IDs.
 No separate graph schema or materialized path closure becomes semantic authority.
 
-> Decision: ADR-0085, ADR-0103
+**Proposed P4 consumers (ADR-0106).** Algorithms borrow read-only native visit views after hydration,
+without reconstructing edges from SQL. Dispatch expansion precedes the one graph build on every
+fresh collection. Numeric conversions have explicit universe/weight/lineage contracts and share
+the attempt budget. Optional analytics retain their existing disabled defaults.
+
+> Decision: ADR-0085, ADR-0103; proposed ADR-0106
 
 <a id="section-15-11"></a>
 
@@ -674,6 +697,19 @@ separate. Read leases last through drain, and query execution admits the full ph
 capacity before any scan starts. One attempt budget covers acquisition through publication.
 The [detailed protocol](../../plans/semantic-model-phase3-detailed-plan_2026-09-30.md#6-cumulative-frontiers-and-private-stage-reads)
 owns the implementation sequence and controls; none of this is included in P0–P2 qualification.
+
+**Proposed P4 vocabulary epochs (ADR-0105).** Analysis creates vocabulary already closed at the
+facts checkpoint. Private typed deltas plus one atomic publication group close a declared new
+prefix together with ordinary results referencing it. Computed-stage receipts grant no reads;
+group closure drains writers, revokes delta grants, merges and validates stored contents, then
+issues completed receipts atomically. Existing rows never change. Lower readers see immutable
+security-barrier views with literal prefix bounds, never a growing canonical table. Old receipts
+verify their original prefix. Failed/unconfirmed closes poison the attempt; final seal requires
+every group closed. [Plan §3](../../plans/semantic-model-phase4-detailed-plan_2026-09-30.md#3-prerequisite-immutable-shared-vocabulary)
+owns the finite whitelist, schedule and migration. This proposal leaves current Phase 3 completion
+semantics in force until adopted and implemented.
+
+> Decision: proposed ADR-0105
 
 **Normalized availability (Implemented; qualification in progress, 2026-09-30).** A final writer
 records capability/scope/context outcomes independently of successful computation. Model-owned

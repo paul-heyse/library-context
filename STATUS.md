@@ -2,6 +2,20 @@
 
 _Updated 2026-09-30 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
+## Phase 4 detailed design (2026-09-30)
+
+- The [detailed design and execution plan](docs/plans/semantic-model-phase4-detailed-plan_2026-09-30.md)
+  documents contracts, library choices, ordered packages, migration and independent controls.
+  ADR-0105/0106 and the new architecture text are **Proposed**; P4 production work has not begun.
+- The design preserves once-built stored graphs and resolves shared-vocabulary publication,
+  bounded recursive witnesses/residuals, catalog ownership and the Phase 5 serving boundary.
+- The [independent assembled review](docs/design_review/reviews/design_review_phase4-plan_2026-09-30.md)
+  is **Accept scoped** at Proposed design level; plan §13.2 owns the receipt. Parent §8 routes
+  graph-token F01: design addressed, G0 implementation controls pending.
+- Product tests/pilots are **not_run** for this documentation task. ADR/docs hygiene belongs to
+  the automatic end-of-turn hook; no result is claimed before it runs.
+- Concurrent hook/tooling/instruction changes remain outside this design's edits and qualification.
+
 ## Main consolidation (2026-09-30)
 
 - `main` is the sole local development branch and tracks `origin/main`. Repository-local
@@ -93,6 +107,6 @@ Reset initially refused absent old-installation control tables; its regression a
 Continue ordinary work directly on `main`. Existing after-turn hooks own formatting and catalog
 refresh; do not run or validate them manually. Additional pilot-scale qualification runs only if
 reactivated; detailed plan §11 retains its unmeasured scope.
-P4 owns analysis/composition/catalog. Its graph algorithms must use read-only adapters over
-hydrated materializations rather than reconstructing edges. P5 owns serving/product qualification;
-PR6 and new product features stay paused until phase 5.
+When P4 implementation is requested, begin detailed plan D0 (decision adoption), then R0/R1
+(immutable vocabulary publication and derived-result foundation). Follow its dependency graph
+and scheduled review boundaries. P5 owns serving/product qualification; PR6 remains paused.

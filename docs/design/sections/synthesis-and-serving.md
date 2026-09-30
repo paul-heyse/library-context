@@ -21,6 +21,16 @@ ADR-0078 (interface, retrieval, embeddings) and proposed ADR-0025 (native execut
 
 ## §10 Synthesis and briefs
 
+**Proposed Phase 4 reconstruction, 2026-09-30 (ADR-0106).** The
+[detailed plan §8](../../plans/semantic-model-phase4-detailed-plan_2026-09-30.md#8-catalog-selection-synthesis-and-retrieval)
+puts shared findings/assertion policy, mandatory catalog, pure requirement selection and optional
+grounded briefs under lctx-model. It retains original evidence and independent closure per value.
+Phase 5 owns request loading, generated wire schemas, leases, ranking and served journeys.
+The proposed conditional operator-review policy requires adoption before replacing ADR-0005's
+unimplemented unconditional review requirement; unreviewed content never claims review.
+
+> Decision: proposed ADR-0106
+
 **Label.** Programmatic synthesis is accepted (ADR-0005): there is no generative model in the
 pipeline or the query path. The assertion kinds, the kind policy, status derivation, the Outcome
 order and the grounding rules below are **Implemented** and **Tested** (2026-09-23/24;
@@ -315,6 +325,14 @@ Pins are in `docs/pins.md`.
 
 
 ### §11.1 Embedding spec and vectors
+
+**Proposed Phase 4 realization (ADR-0106):** one spec/value/admission/cache contract supports two
+one-shot consumption relations: early analytic text/vector use and later retrieval-unit use.
+Exact consumed bytes are canonical generation records for replay without a live service/cache.
+Early analytics never depend on later briefs. P5 pgvector is a derived serving representation.
+See [plan §8.6](../../plans/semantic-model-phase4-detailed-plan_2026-09-30.md#86-retrieval-inputs-and-embedding-realization).
+
+> Decision: proposed ADR-0106
 
 **Model (Implemented, 2026-09-28; ADR-0080).** The published gpu-stack
 Qwen3-Embedding-8B-NVFP4-r2 checkpoint (`docs/pins.md`), served by a **separate

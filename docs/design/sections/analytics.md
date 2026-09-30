@@ -2,6 +2,14 @@
 
 **Target, 2026-09-29.** [§15](semantic-model.md) (ADR-0085/0083/0084) is the accepted target, and the [cutover plan](../../plans/semantic-model-cutover-plan_2026-09-29.md) delivers it layer by layer. Phase 4 moves the passes onto call-policy views, the projection runtime and one findings emitter (§15.5, §15.9–§15.10). Until that phase exits, this page describes the implemented legacy pipeline.
 
+**Proposed, 2026-09-30:** the [Phase 4 detailed plan §7](../../plans/semantic-model-phase4-detailed-plan_2026-09-30.md#7-topology-and-concept-analytics)
+specifies borrowed access to persisted petgraph materializations, weighted rank, explicit Leiden
+conversion and bounded FCA/RCA. One-step relational scaling and optional technique defaults remain;
+universe, weighting, partiality and heuristic meaning are explicit. Early analytic vector consumption
+is independent of later retrieval/synthesis, under one embedding specification/value contract.
+
+> Decision: proposed ADR-0106
+
 This owner covers the analyses that run over published facts and derived projections to produce
 typed **findings** (ADR-0086): the three structural passes behind briefs (Pass A delegation,
 Pass B controls, Pass C handoffs), the whole-surface behavior scan, direct-usage ranking and seed
@@ -116,7 +124,7 @@ beside the config's. The config file and these parameters are frozen; a paramete
   subsystem callees only, and briefs state that stop as a limit, so a seed's brief and its
   behavior rows can differ past the subsystem edge.
 
-> Decision: ADR-0005, ADR-0086, ADR-0071, ADR-0044, ADR-0045
+> Decision: ADR-0005, ADR-0086, ADR-0071, ADR-0044, ADR-0045; proposed ADR-0106
 
 
 ### §9.1 Pass A — public entry point and delegation
