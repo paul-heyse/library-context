@@ -339,6 +339,14 @@ impl FrontierContract {
     /// requested family uncovered, writes a family's assertions from a stage that does not report
     /// that family's coverage, or has no coverage writer.
     pub fn preflight(&self, schedule: &Schedule) -> Result<Preflight, ModelError> {
+        self.preflight_scope(schedule, false)
+    }
+    /// Admission for a frozen prefix of a cumulative schedule. A stage cannot straddle the
+    /// checkpoint boundary; later writers are excluded, while the full schedule digest is bound.
+    pub fn checkpoint_preflight(&self, schedule: &Schedule) -> Result<Preflight, ModelError> {
+        self.preflight_scope(schedule, true)
+    }
+    fn preflight_scope(&self, schedule: &Schedule, checkpoint: bool) -> Result<Preflight, ModelError> {
         if schedule.model() != self.model || schedule.profile() != self.profile {
             return Err(refuse(
                 "the schedule's model or profile differs from the frontier contract",
@@ -348,6 +356,7 @@ impl FrontierContract {
         let mut stages = BTreeMap::new();
         let mut written = BTreeSet::new();
         for stage in schedule.stages() {
+            if checkpoint && stage.outputs.iter().all(|r| !self.contains(r.name())) { continue; }
             for relation in stage
                 .inputs
                 .iter()

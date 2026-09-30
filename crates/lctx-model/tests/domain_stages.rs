@@ -50,6 +50,42 @@ fn stages() -> Vec<Stage> {
         },
     ]
 }
+
+#[test]
+fn completed_store_inputs_release_handoffs_and_require_acknowledged_sources() {
+    use lctx_model::domain::{memory::MemoryGeneration, resources::ResourceBudget};
+    use std::sync::Arc;
+    let model = model().unwrap();
+    let mut declarations = stages();
+    declarations[1].inputs = vec![RelationUse::stored::<Package>()];
+    let schedule = Schedule::build(&model, declarations, &[], Profile::Catalog).unwrap();
+    assert_ne!(schedule.digest(), Schedule::build(&model, stages(), &[], Profile::Catalog).unwrap().digest());
+    let budget = ResourceBudget::fixed(1 << 20).unwrap();
+    let mut execution = schedule.execute();
+    let sink = MemoryGeneration::bind(&model, &budget, &mut execution).unwrap();
+    let batch = Arc::new(Batch::new(&model, vec![Package { name: "p".into() }], &budget).unwrap());
+    let weak = Arc::downgrade(&batch);
+    let mut source = execution.begin("packages").unwrap();
+    ready(source.write::<Package, _>(async |permit| sink.copy(permit, &batch).await)).unwrap();
+    source.retain(batch).unwrap();
+    assert!(weak.upgrade().is_none(), "store transport must not retain the producer's batch");
+    ready(source.complete(&sink, ProviderOutcome::Partial)).unwrap();
+    let target = execution.begin("releases").unwrap();
+    assert!(target.handoff::<Package>().is_err());
+    let permit = target.read::<Package>().unwrap();
+    assert_eq!(permit.transport(), InputTransport::CompletedStore);
+    let source = permit.source().unwrap();
+    assert_eq!(source.producer(), "packages");
+    assert_eq!(source.receipt().rows, 1);
+    assert_eq!(source.identity().attempt(), permit.identity().attempt());
+
+    let mut other = schedule.execute();
+    let _sink = MemoryGeneration::bind(&model, &budget, &mut other).unwrap();
+    let mut unacknowledged = other.begin("packages").unwrap();
+    ready(unacknowledged.write::<Package, _>(async |_| Ok(()))).unwrap();
+    assert!(unacknowledged.finish(ProviderOutcome::Complete).is_err());
+    assert!(other.begin("releases").is_err());
+}
 #[test]
 fn execution_capabilities_refuse_undeclared_reads_writes_and_incomplete_schedules() {
     let model = model().unwrap();

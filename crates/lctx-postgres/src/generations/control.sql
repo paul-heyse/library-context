@@ -51,6 +51,8 @@ CREATE TABLE {control}.stage_receipts (
     stage_name text NOT NULL,
     relation_name text NOT NULL,
     schedule_digest bytea NOT NULL CHECK(octet_length(schedule_digest)=32),
+    row_count bigint NOT NULL CHECK(row_count>=0),
+    content_digest bytea NOT NULL CHECK(octet_length(content_digest)=32),
     PRIMARY KEY(generation_id,stage_name,relation_name)
 );
 -- The outputs an attempt's schedule declares; publication requires exactly these stage receipts.
@@ -65,6 +67,18 @@ CREATE TABLE {control}.stage_outcomes (
     stage_name text NOT NULL,
     outcome smallint NOT NULL CHECK(outcome IN ({outcomes})),
     PRIMARY KEY(generation_id,stage_name)
+);
+-- An immutable validated prefix of a still-staging cumulative generation. This is private
+-- attempt evidence; it does not publish any schema or change the selected generation.
+CREATE TABLE {control}.checkpoints (
+    generation_id bytea NOT NULL REFERENCES {control}.generations(id),
+    frontier text NOT NULL CHECK(frontier IN ({frontiers})),
+    contract_digest bytea NOT NULL CHECK(octet_length(contract_digest)=32),
+    model_digest bytea NOT NULL CHECK(octet_length(model_digest)=32),
+    schedule_digest bytea NOT NULL CHECK(octet_length(schedule_digest)=32),
+    coverage_digest bytea NOT NULL CHECK(octet_length(coverage_digest)=32),
+    content_digest bytea NOT NULL CHECK(octet_length(content_digest)=32),
+    PRIMARY KEY(generation_id,frontier)
 );
 -- The facts admission a published facts generation carries; only admission constructs one.
 CREATE TABLE {control}.admissions (

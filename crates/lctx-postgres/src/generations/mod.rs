@@ -23,7 +23,7 @@ use lctx_model::domain::{
     admission::Frontier,
 };
 pub use lease::{Held, LeaseContract, LeaseDriver, LeaseParam};
-pub use lifecycle::{GenerationAttempt, SealedAttempt, ValidatedAttempt};
+pub use lifecycle::{CompletedCheckpoint, GenerationAttempt, SealedAttempt, ValidatedAttempt};
 use pgpq::encoders::{BuildEncoder, Encode, EncoderBuilder};
 use sqlx::{Connection, PgConnection, PgPool, Row, ValueRef};
 use std::{
@@ -669,12 +669,13 @@ fn copy_size(row: &RecordBatch, builders: &[EncoderBuilder]) -> Result<usize, Er
 }
 
 /// The control records a generation owns; cleanup removes them with its schema.
-const CONTROL_RECORDS: [&str; 9] = [
+const CONTROL_RECORDS: [&str; 10] = [
     "receipts",
     "validation_receipts",
     "stage_receipts",
     "planned_outputs",
     "stage_outcomes",
+    "checkpoints",
     "admission_families",
     "admissions",
     "failures",

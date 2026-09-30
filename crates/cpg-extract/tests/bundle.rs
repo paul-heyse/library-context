@@ -43,6 +43,11 @@ impl Recorder {
     }
 }
 impl StageSink for Recorder {
+        async fn complete(&self, completion: lctx_model::domain::stages::StageCompletion) -> Result<lctx_model::domain::stages::CompletedStage, ModelError> {
+            // This transport-only recorder has no persistence claim. Store controls use the real sink.
+            let outputs = completion.outputs().iter().map(|name| (*name, lctx_model::domain::stages::RelationReceipt { rows: 0, content: ContentHash::of(b"transport-recorder") })).collect();
+            completion.acknowledge(outputs)
+        }
     fn copy<R: Record>(
         &self,
         _: WritePermit<'_, R>,

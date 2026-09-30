@@ -67,6 +67,9 @@ pub struct ObservedSink<S> {
     pub tables: Tables,
 }
 impl<S: StageSink + Send> StageSink for ObservedSink<S> {
+    async fn complete(&self, completion: lctx_model::domain::stages::StageCompletion) -> Result<lctx_model::domain::stages::CompletedStage, ModelError> {
+        self.generation.complete(completion).await
+    }
     async fn copy<R: Record>(
         &self,
         permit: WritePermit<'_, R>,

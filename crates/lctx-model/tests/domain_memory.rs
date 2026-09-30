@@ -123,7 +123,7 @@ fn a_bound_generation_accepts_only_its_execution_and_charges_what_it_stores() {
     drop(foreign);
     let mut stage = first.begin("packages").unwrap();
     ready(stage.write::<Package, _>(async |permit| sink.copy(permit, &batch).await)).unwrap();
-    stage.finish(ProviderOutcome::Complete).unwrap();
+    ready(stage.complete(&sink, ProviderOutcome::Complete)).unwrap();
     first.finish().unwrap();
     assert!(
         store.reserved() >= batch.arrow().get_array_memory_size(),

@@ -11,7 +11,7 @@ use super::{
 };
 use lctx_model::domain::resources::ResourceBudget;
 use lctx_model::domain::stages::{
-    AttemptIdentity, Execution, ExecutionReceipt, StageSink, WritePermit,
+    AttemptIdentity, Execution, ExecutionReceipt, StageSink, WritePermit, StageCompletion, CompletedStage,
 };
 use lctx_model::domain::{
     Batch, ContentHash, ModelError, Record,
@@ -82,7 +82,10 @@ impl GenerationStore {
             )
             .await?;
         Ok(GenerationAttempt {
-            lifecycle,
+            generation: lifecycle.generation,
+            store: self.clone(),
+            lifecycle: tokio::sync::Mutex::new(lifecycle),
+            poisoned: std::sync::atomic::AtomicBool::new(false),
             writer,
             identity: Some(execution.identity()),
             schedule: schedule.digest(),
@@ -191,7 +194,10 @@ impl Lifecycle {
 /// An unpublished generation belongs to exactly one execution. Neither a copied schedule nor a
 /// different invocation of that schedule can write or seal it.
 pub struct GenerationAttempt {
-    lifecycle: Lifecycle,
+    lifecycle: tokio::sync::Mutex<Lifecycle>,
+    store: GenerationStore,
+    generation: GenerationId,
+    poisoned: std::sync::atomic::AtomicBool,
     writer: PgPool,
     /// The execution that owns the attempt; a test harness attempt has none and writes with `put`.
     identity: Option<AttemptIdentity>,
@@ -203,31 +209,50 @@ pub struct GenerationAttempt {
 impl std::fmt::Debug for GenerationAttempt {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_tuple("GenerationAttempt")
-            .field(&self.lifecycle.generation.hex())
+            .field(&self.generation.hex())
             .finish()
     }
 }
 impl GenerationAttempt {
     pub fn generation(&self) -> GenerationId {
-        self.lifecycle.generation
+        self.generation
+    }
+    /// Validate and freeze a completed frontier prefix without publishing it or ending execution.
+    pub async fn checkpoint(&self, execution: &Execution<'_>, contract: &FrontierContract) -> Result<CompletedCheckpoint, ModelError> {
+        if Some(execution.identity()) != self.identity || contract.model() != self.store.model.digest() {
+            return Err(ModelError::Invalid("foreign checkpoint attempt or model".into()));
+        }
+        if self.poisoned.swap(true, std::sync::atomic::Ordering::AcqRel) {
+            return Err(ModelError::Invalid("attempt is poisoned".into()));
+        }
+        let receipt = execution.checkpoint_receipt(contract)?;
+        let preflight = contract.checkpoint_preflight(execution.schedule())?;
+        let mut lifecycle = self.lifecycle.lock().await;
+        let admission = transaction_on(&mut lifecycle.connection, async |tx| {
+            self.store.checkpoint_step(tx, self.generation, &self.budget, &preflight, &receipt).await
+        }).await.map_err(ModelError::from)?;
+        self.poisoned.store(false, std::sync::atomic::Ordering::Release);
+        Ok(CompletedCheckpoint { generation: self.generation, admission })
     }
     pub async fn copy<R: Record>(
         &self,
         permit: WritePermit<'_, R>,
         batch: &Batch<R>,
     ) -> Result<(), ModelError> {
+        if self.poisoned.load(std::sync::atomic::Ordering::Acquire) {
+            return Err(ModelError::Invalid("attempt is poisoned".into()));
+        }
         if Some(permit.identity().attempt()) != self.identity
-            || permit.model() != self.lifecycle.store.model.digest()
+            || permit.model() != self.store.model.digest()
         {
             return Err(ModelError::Invalid(
                 "write permit belongs to another generation attempt".into(),
             ));
         }
-        self.lifecycle
-            .store
+        self.store
             .copy_attempt(
                 &self.writer,
-                self.lifecycle.generation,
+                self.generation,
                 batch,
                 self.schedule,
                 &self.budget,
@@ -244,7 +269,8 @@ impl GenerationAttempt {
     /// outcomes recorded, the writer revoked.
     pub async fn seal(self, receipt: ExecutionReceipt) -> Result<SealedAttempt, Error> {
         let Self {
-            mut lifecycle,
+            lifecycle,
+            poisoned,
             identity,
             schedule,
             budget,
@@ -252,7 +278,9 @@ impl GenerationAttempt {
             written,
             ..
         } = self;
+        let mut lifecycle = lifecycle.into_inner();
         let result = async {
+            if poisoned.into_inner() { return Err(Error::State); }
             if identity != Some(receipt.identity())
                 || receipt.model() != lifecycle.store.model.digest()
                 || receipt.schedule() != schedule
@@ -294,14 +322,49 @@ impl GenerationAttempt {
     }
     /// The producer failed the attempt: record `cause` with its class.
     pub async fn fail(self, cause: &ModelError) -> Result<GenerationId, Error> {
-        self.lifecycle.failed(Failure::of_model(cause)).await
+        self.lifecycle.into_inner().failed(Failure::of_model(cause)).await
     }
     /// Remove the generation and every record of it (T9: a required provider failed).
     pub async fn abort(self) -> Result<GenerationId, Error> {
-        self.lifecycle.abort().await
+        self.lifecycle.into_inner().abort().await
     }
 }
+/// Private-prefix evidence. It grants no publication or selection authority.
+#[derive(Debug)]
+pub struct CompletedCheckpoint {
+    generation: GenerationId,
+    admission: FrontierAdmission,
+}
+impl CompletedCheckpoint {
+    pub fn generation(&self) -> GenerationId { self.generation }
+    pub fn admission(&self) -> &FrontierAdmission { &self.admission }
+}
 impl StageSink for GenerationAttempt {
+    async fn complete(&self, completion: StageCompletion) -> Result<CompletedStage, ModelError> {
+        if Some(completion.identity().attempt()) != self.identity
+            || completion.model() != self.store.model.digest()
+            || completion.schedule() != self.schedule
+        { return Err(ModelError::Invalid("foreign stage completion".into())); }
+        // Leave poisoned on every failure or cancellation, including uncertain COMMIT. Never
+        // retry a transition on the same attempt even if the server may have committed it.
+        if self.poisoned.swap(true, std::sync::atomic::Ordering::AcqRel) {
+            return Err(ModelError::Invalid("attempt is poisoned".into()));
+        }
+        {
+            let written = self.written.lock().map_err(|_| ModelError::Invalid("generation output completion poisoned".into()))?;
+            if completion.outputs().iter().any(|name| !written.contains(&(completion.stage(), *name))) {
+                return Err(ModelError::Invalid("completion output was not written".into()));
+            }
+        }
+        let mut lifecycle = self.lifecycle.lock().await;
+        let receipts = transaction_on(&mut lifecycle.connection, async |tx| {
+            self.store.complete_stage_step(tx, self.generation, self.schedule,
+                completion.stage(), completion.outputs(), completion.outcome(), &self.budget).await
+        }).await.map_err(ModelError::from)?;
+        let acknowledged = completion.acknowledge(receipts)?;
+        self.poisoned.store(false, std::sync::atomic::Ordering::Release);
+        Ok(acknowledged)
+    }
     fn copy<R: Record>(
         &self,
         permit: WritePermit<'_, R>,
@@ -459,7 +522,10 @@ mod harness {
                 )
                 .await?;
             Ok(GenerationAttempt {
-                lifecycle,
+                generation: lifecycle.generation,
+                store: self.clone(),
+                lifecycle: tokio::sync::Mutex::new(lifecycle),
+                poisoned: std::sync::atomic::AtomicBool::new(false),
                 writer,
                 identity: None,
                 schedule,
@@ -479,11 +545,10 @@ mod harness {
             if self.identity.is_some() {
                 return Err(Error::State);
             }
-            self.lifecycle
-                .store
+            self.store
                 .copy_attempt(
                     &self.writer,
-                    self.lifecycle.generation,
+                    self.generation,
                     batch,
                     self.schedule,
                     budget,
@@ -498,13 +563,14 @@ mod harness {
         /// Seal a harness attempt: its planned outputs become the relations it wrote.
         pub async fn seal_harness(self) -> Result<SealedAttempt, Error> {
             let Self {
-                mut lifecycle,
+                lifecycle,
                 identity,
                 schedule,
                 budget,
                 written,
                 ..
             } = self;
+            let mut lifecycle = lifecycle.into_inner();
             let result = async {
                 if identity.is_some() {
                     return Err(Error::State);
@@ -527,6 +593,11 @@ mod harness {
                         .bind(relation)
                         .execute(&mut *tx)
                         .await?;
+                    }
+                    if !written.is_empty() {
+                        store.complete_stage_step(tx, g, schedule, "harness",
+                            &written.iter().map(|(_,r)| *r).collect(),
+                            lctx_model::domain::stages::ProviderOutcome::Complete, &budget).await?;
                     }
                     store.seal_step(tx, g, schedule, &written, None).await
                 })

@@ -20,6 +20,13 @@ pub(super) const STATES: [&str; 4] = ["staging", "sealed", "validated", "publish
 /// from, with the writer revoked, and permits only abort.
 pub(super) const FAILED: &str = "failed";
 
+/// The committed stage-completion privilege transition, shared by execution and shadow checking.
+pub(super) fn completed_output(schema: &str, relation: &str) -> [String; 2] {
+    let table = format!("{}.{}", quoted(schema), quoted(relation));
+    [format!("REVOKE INSERT ON {table} FROM lctx_importer"),
+     format!("GRANT SELECT ON {table} TO lctx_importer")]
+}
+
 /// The relations one frontier's generations lower, and the physical digest of that lowering.
 #[derive(Debug, Clone)]
 pub(super) struct Scope {
