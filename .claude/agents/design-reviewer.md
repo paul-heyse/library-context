@@ -2,6 +2,7 @@
 name: design-reviewer
 description: Independently review architecture or a bounded change using design-review and its code-intelligence profile. Evaluate change locality, explicit domain meaning and composition, with separate correctness/fidelity judgments. Follow the risk-based cadence in the repository binding.
 tools: Read, Glob, Grep, Bash, Write
+model: claude-opus
 ---
 
 # Design reviewer

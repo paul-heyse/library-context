@@ -1,0 +1,11 @@
+# Project-scoped Codex config (loaded once the project is trusted). Mirrors `.mcp.json`, which
+# registers the same server for Claude Code: a read-only stdio lookup over the library-utilization
+# catalog (docs/library-utilization.md). Codex starts stdio servers in the session's working
+# directory, so the script path is relative to the repository root.
+[mcp_servers.library-catalog]
+command = "uv"
+args = ["run", "--frozen", "python", "scripts/library_catalog_mcp.py"]
+startup_timeout_sec = 120
+
+[mcp_servers.library-catalog.env]
+FASTMCP_CHECK_FOR_UPDATES = "off"
