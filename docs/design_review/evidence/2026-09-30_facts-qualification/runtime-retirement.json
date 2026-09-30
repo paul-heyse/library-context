@@ -1,0 +1,70 @@
+{
+  "date": "2026-09-30",
+  "scope": "C3x exact obsolete runtime copies",
+  "reader_inventory": "ps: library-catalog MCP servers only; no semantic or serving reader",
+  "retired": [
+    {
+      "path": "build/store",
+      "kind": "symlink",
+      "target": "pr5-qualified/behavioral/store"
+    },
+    {
+      "path": "build/generations",
+      "kind": "symlink",
+      "target": "pr5-qualified/behavioral/generations"
+    },
+    {
+      "path": "build/serving-artifacts",
+      "kind": "directory",
+      "files": 42,
+      "bytes": 425718708
+    },
+    {
+      "path": "build/py-fixture",
+      "kind": "directory",
+      "files": 74,
+      "bytes": 1894816
+    },
+    {
+      "path": "build/catalog-fixture",
+      "kind": "directory",
+      "files": 694,
+      "bytes": 2644716
+    },
+    {
+      "path": "build/pr5-qualified/catalog/store",
+      "kind": "directory",
+      "files": 642,
+      "bytes": 643172294
+    },
+    {
+      "path": "build/pr5-qualified/catalog/generations",
+      "kind": "directory",
+      "files": 73,
+      "bytes": 373698448
+    },
+    {
+      "path": "build/pr5-qualified/behavioral/store",
+      "kind": "directory",
+      "files": 740,
+      "bytes": 709795674
+    },
+    {
+      "path": "build/pr5-qualified/behavioral/generations",
+      "kind": "directory",
+      "files": 73,
+      "bytes": 395122957
+    }
+  ],
+  "preserved_roots": [
+    "build/backups",
+    "build/perf",
+    "build/ablation",
+    "build/cargo-adoption",
+    "build/embedding-adoption",
+    "build/envs",
+    "build/sources"
+  ],
+  "protected_files": 13093,
+  "retained_evidence": "PR5 logs, receipts, task reports and committed review/probe output; downstream tests dormant until P3-P5"
+}

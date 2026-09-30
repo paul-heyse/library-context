@@ -1,0 +1,52 @@
+{
+  "reset": {
+    "command": [
+      "target/release/lctx",
+      "store",
+      "reset",
+      "--confirm",
+      "lctx"
+    ],
+    "exit": 0,
+    "elapsed_seconds": 0.06375300999934552,
+    "outcome": "passed"
+  },
+  "check-before": {
+    "command": [
+      "target/release/lctx",
+      "store",
+      "check"
+    ],
+    "exit": 0,
+    "elapsed_seconds": 0.031651257999328664,
+    "outcome": "passed"
+  },
+  "catalog": {
+    "command": [
+      "target/release/lctx",
+      "compile",
+      "fastmcp",
+      "--through",
+      "facts",
+      "--profile",
+      "catalog"
+    ],
+    "exit": 0,
+    "elapsed_seconds": 484.39170048899905,
+    "outcome": "passed"
+  },
+  "behavioral": {
+    "command": [
+      "target/release/lctx",
+      "compile",
+      "fastmcp",
+      "--through",
+      "facts",
+      "--profile",
+      "behavioral"
+    ],
+    "exit": 130,
+    "elapsed_seconds": 802.7034267829986,
+    "outcome": "failed"
+  }
+}

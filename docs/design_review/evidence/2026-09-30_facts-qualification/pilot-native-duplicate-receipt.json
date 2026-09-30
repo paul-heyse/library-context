@@ -1,0 +1,38 @@
+{
+  "reset": {
+    "command": [
+      "target/release/lctx",
+      "store",
+      "reset",
+      "--confirm",
+      "lctx"
+    ],
+    "exit": 0,
+    "elapsed_seconds": 0.06384608400185243,
+    "outcome": "passed"
+  },
+  "check-before": {
+    "command": [
+      "target/release/lctx",
+      "store",
+      "check"
+    ],
+    "exit": 0,
+    "elapsed_seconds": 0.03166109599987976,
+    "outcome": "passed"
+  },
+  "catalog": {
+    "command": [
+      "target/release/lctx",
+      "compile",
+      "fastmcp",
+      "--through",
+      "facts",
+      "--profile",
+      "catalog"
+    ],
+    "exit": 1,
+    "elapsed_seconds": 35.974411064999,
+    "outcome": "failed"
+  }
+}

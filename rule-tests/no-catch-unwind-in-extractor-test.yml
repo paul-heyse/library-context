@@ -1,5 +1,6 @@
 id: no-catch-unwind-in-extractor
 valid:
+  - "fn boundary() { std::panic::catch_unwind(AssertUnwindSafe(|| provider.run(&mut context))); }"
   - "fn run() -> Result<(), E> { extract(&input) }"
   - "fn join(h: JoinHandle<R>) { h.join().map_err(|_| E::Panicked) }"
 invalid:

@@ -1,0 +1,89 @@
+{
+  "reset": {
+    "command": [
+      "target/release/lctx",
+      "store",
+      "reset",
+      "--confirm",
+      "lctx"
+    ],
+    "exit": 0,
+    "elapsed_seconds": 0.4141072729980806,
+    "outcome": "passed"
+  },
+  "check-before": {
+    "command": [
+      "target/release/lctx",
+      "store",
+      "check"
+    ],
+    "exit": 0,
+    "elapsed_seconds": 0.0637346979965514,
+    "outcome": "passed"
+  },
+  "catalog": {
+    "command": [
+      "target/release/lctx",
+      "compile",
+      "fastmcp",
+      "--through",
+      "facts",
+      "--profile",
+      "catalog"
+    ],
+    "exit": 0,
+    "elapsed_seconds": 474.31682377799734,
+    "outcome": "passed"
+  },
+  "behavioral": {
+    "command": [
+      "target/release/lctx",
+      "compile",
+      "fastmcp",
+      "--through",
+      "facts",
+      "--profile",
+      "behavioral"
+    ],
+    "exit": 0,
+    "elapsed_seconds": 628.955905380004,
+    "outcome": "passed"
+  },
+  "behavioral-repeat": {
+    "command": [
+      "target/release/lctx",
+      "compile",
+      "fastmcp",
+      "--through",
+      "facts",
+      "--profile",
+      "behavioral"
+    ],
+    "exit": 0,
+    "elapsed_seconds": 669.4754811849998,
+    "outcome": "passed"
+  },
+  "check-after": {
+    "command": [
+      "target/release/lctx",
+      "store",
+      "check"
+    ],
+    "exit": 0,
+    "elapsed_seconds": 0.46417043400288094,
+    "outcome": "passed"
+  },
+  "generations": {
+    "command": [
+      "target/release/lctx",
+      "generation",
+      "list"
+    ],
+    "exit": 0,
+    "elapsed_seconds": 0.015522683999734,
+    "outcome": "passed"
+  },
+  "content_equality": "passed",
+  "no_automatic_selection": "passed",
+  "scope": "FastMCP 4.0.5 full locked closure and declared pinned corpus; facts only"
+}

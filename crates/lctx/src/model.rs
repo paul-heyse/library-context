@@ -5,12 +5,21 @@ use lctx_model::domain::{Scalar, ValidatedModel, admission::FrontierContract, st
 use serde_json::{Value, json};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-pub enum Format { Text, Json }
+pub enum Format {
+    Text,
+    Json,
+}
 
 fn scalar(scalar: Scalar) -> &'static str {
     match scalar {
-        Scalar::Text => "text", Scalar::Bool => "bool", Scalar::Int16 => "int16", Scalar::Int32 => "int32",
-        Scalar::Int64 => "int64", Scalar::Id => "id", Scalar::Digest => "digest", Scalar::Binary => "binary",
+        Scalar::Text => "text",
+        Scalar::Bool => "bool",
+        Scalar::Int16 => "int16",
+        Scalar::Int32 => "int32",
+        Scalar::Int64 => "int64",
+        Scalar::Id => "id",
+        Scalar::Digest => "digest",
+        Scalar::Binary => "binary",
     }
 }
 
@@ -36,26 +45,65 @@ pub fn describe(model: &ValidatedModel) -> Value {
         }
         described
     }).collect();
-    let invariants: Vec<Value> = model.invariants().iter().map(|invariant| json!({ "name": invariant.name,
-        "inputs": invariant.inputs.iter().map(|input| input.name()).collect::<Vec<_>>() })).collect();
+    let invariants: Vec<Value> = model
+        .invariants()
+        .iter()
+        .map(|invariant| {
+            json!({ "name": invariant.name,
+        "inputs": invariant.inputs.iter().map(|input| input.name()).collect::<Vec<_>>() })
+        })
+        .collect();
     json!({ "digest": model.digest().hex(), "relations": relations, "invariants": invariants })
 }
 
 pub fn text(description: &Value) -> String {
-    let mut out = format!("model {}\n", description["digest"].as_str().unwrap_or_default());
+    let mut out = format!(
+        "model {}\n",
+        description["digest"].as_str().unwrap_or_default()
+    );
     for relation in description["relations"].as_array().into_iter().flatten() {
-        out.push_str(&format!("\n{}{}\n", relation["name"].as_str().unwrap_or_default(), if relation["facts"] == json!(true) { "  [facts]" } else { "" }));
+        out.push_str(&format!(
+            "\n{}{}\n",
+            relation["name"].as_str().unwrap_or_default(),
+            if relation["facts"] == json!(true) {
+                "  [facts]"
+            } else {
+                ""
+            }
+        ));
         for field in relation["fields"].as_array().into_iter().flatten() {
             let ty = field["type"].as_str().unwrap_or_default();
-            let mut line = format!("  {} {}{}{}", field["name"].as_str().unwrap_or_default(), ty, if field["list"] == json!(true) { "[]" } else { "" },
-                if field["nullable"] == json!(true) { "?" } else { "" });
-            if field["key"] == json!(true) { line.push_str(" key"); }
-            if let Some(target) = field["target"].as_str() { line.push_str(&format!(" -> {target}")); }
-            if let Some(codes) = field["codes"].as_array() { line.push_str(&format!(" codes {}", codes.len())); }
+            let mut line = format!(
+                "  {} {}{}{}",
+                field["name"].as_str().unwrap_or_default(),
+                ty,
+                if field["list"] == json!(true) {
+                    "[]"
+                } else {
+                    ""
+                },
+                if field["nullable"] == json!(true) {
+                    "?"
+                } else {
+                    ""
+                }
+            );
+            if field["key"] == json!(true) {
+                line.push_str(" key");
+            }
+            if let Some(target) = field["target"].as_str() {
+                line.push_str(&format!(" -> {target}"));
+            }
+            if let Some(codes) = field["codes"].as_array() {
+                line.push_str(&format!(" codes {}", codes.len()));
+            }
             out.push_str(&line);
             out.push('\n');
         }
     }
-    out.push_str(&format!("\n{} invariants\n", description["invariants"].as_array().map_or(0, Vec::len)));
+    out.push_str(&format!(
+        "\n{} invariants\n",
+        description["invariants"].as_array().map_or(0, Vec::len)
+    ));
     out
 }

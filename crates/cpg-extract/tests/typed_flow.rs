@@ -1,0 +1,321 @@
+//! Native coordinates through the typed facts writer and shared invariants.
+#[path = "typed_driver/mod.rs"]
+mod typed_driver;
+use lctx_model::domain::{
+    assertion::*, attribution::*, conditions::*, flow::*, source::*, value::*, *,
+};
+use std::collections::{BTreeMap, BTreeSet};
+use typed_driver::{Tables, rows};
+inspector!(
+    Flow,
+    FlowUse,
+    FlowDefinition,
+    FlowReachingObservation,
+    FlowValueObservation,
+    FlowCallPath,
+    FlowCallStep,
+    EvaluationAtom,
+    ProviderCoverage,
+    SourceArtifact
+);
+#[tokio::test]
+async fn reaching_places_keep_the_binding_owner_across_scope_and_member_reads() {
+    let cases = [
+        "x = 1\nx = 2\ndef read():\n    return x\n",
+        "def outer(flag):\n    x = 1\n    if flag:\n        x = 2\n    def read():\n        return x\n    return read\n",
+        "class C:\n    def f(self):\n        self.x = 1\n        return self.x\n",
+        "def f(x):\n    x.a = 1\n    return x.a\n",
+        "def f(x):\n    x[0] = 1\n    return x[0]\n",
+        "def f(items):\n    return [path for item in items if (path := item)]\n",
+        "def f(path, items):\n    return [path for item in items if (path := item)]\n",
+        "def f(items):\n    return [[path for item in group if (path := item)] for group in items]\n",
+        "items = [1]\npaths = [path for item in items if (path := item)]\n",
+    ];
+    for (position, source) in cases.iter().enumerate() {
+        let input = BTreeMap::from([("example.py".into(), source.as_bytes().to_vec())]);
+        let tables = Tables::default();
+        typed_driver::run_behavioral(&input, Flow(tables.clone()))
+            .await
+            .unwrap_or_else(|error| panic!("case {position}: {error}"));
+        if position >= 5 {
+            let occurrences = rows::<Occurrence>(&tables);
+            let scopes = rows::<lctx_model::domain::lexical::LexicalScope>(&tables);
+            let places = rows::<Place>(&tables);
+            let roots = rows::<PlaceRoot>(&tables);
+            let targets: BTreeSet<_> =
+                rows::<lctx_model::domain::lexical::BindingObservation>(&tables)
+                    .iter()
+                    .filter(|binding| {
+                        binding.kind == lctx_model::domain::lexical::BindingEventKind::Walrus
+                    })
+                    .map(|binding| {
+                        rows::<lctx_model::domain::lexical::BindingEvent>(&tables)
+                            .into_iter()
+                            .find(|event| event.id() == binding.event)
+                            .unwrap()
+                            .site
+                    })
+                    .collect();
+            let definitions = rows::<FlowDefinition>(&tables);
+            assert!(
+                definitions
+                    .iter()
+                    .any(|definition| targets.contains(&definition.occurrence))
+            );
+            for definition in definitions
+                .iter()
+                .filter(|definition| targets.contains(&definition.occurrence))
+            {
+                let place = places
+                    .iter()
+                    .find(|place| place.id() == definition.place)
+                    .unwrap();
+                let root = roots.iter().find(|root| root.id() == place.root).unwrap();
+                match root {
+                    PlaceRoot::Local { scope, name } => {
+                        assert_eq!(name, "path");
+                        assert!(scopes.iter().any(|owner| owner.owner == *scope
+                            && owner.kind
+                                != lctx_model::domain::lexical::LexicalScopeKind::Comprehension));
+                    }
+                    PlaceRoot::Formal { declaration } => {
+                        assert_eq!(position, 6);
+                        assert_eq!(
+                            occurrences
+                                .iter()
+                                .find(|site| site.id() == *declaration)
+                                .unwrap()
+                                .start,
+                            6
+                        );
+                    }
+                    root => panic!("unexpected walrus root {root:?}"),
+                }
+            }
+        }
+    }
+}
+#[tokio::test]
+async fn nested_call_paths_survive_exact_attachment_and_shared_validation() {
+    let tables = Tables::default();
+    let input = typed_driver::files("flow_call_paths");
+    typed_driver::run_behavioral(&input, Flow(tables.clone()))
+        .await
+        .unwrap();
+    let uses = rows::<FlowUse>(&tables);
+    let values = rows::<FlowValueObservation>(&tables);
+    let steps = rows::<FlowCallStep>(&tables);
+    assert!(!uses.is_empty());
+    assert!(values.iter().any(|v| v.through_call));
+    let mut counts: BTreeMap<_, usize> = BTreeMap::new();
+    for step in &steps {
+        *counts.entry(step.path).or_default() += 1;
+    }
+    assert!(counts.values().any(|n| *n == 2));
+    assert!(
+        rows::<FlowValuePathObservation>(&tables)
+            .iter()
+            .all(|link| counts.contains_key(&link.path))
+    );
+    assert!(
+        rows::<ProviderCoverage>(&tables)
+            .iter()
+            .any(|c| c.family == FactFamily::Flow
+                && c.status == CoverageStatus::CompleteUnderStatedModel)
+    );
+}
+#[tokio::test]
+async fn repeated_predicates_keep_distinct_atoms_and_nonlocal_markers_stay_nested() {
+    let input=BTreeMap::from([("example.py".into(),b"def f(x):\n    if x is None:\n        x = 1\n    def change():\n        nonlocal x\n        x = 2\n    change()\n    if x is None:\n        return 3\n    return x\n".to_vec())]);
+    let tables = Tables::default();
+    typed_driver::run_behavioral(&input, Flow(tables.clone()))
+        .await
+        .unwrap();
+    let atoms = rows::<EvaluationAtom>(&tables);
+    let predicates = rows::<Predicate>(&tables);
+    let none = predicates
+        .iter()
+        .find(|p| matches!(p, Predicate::IsNone))
+        .unwrap()
+        .id();
+    let evaluations: BTreeSet<_> = atoms
+        .iter()
+        .filter(|a| a.predicate == none)
+        .map(|a| a.evaluation)
+        .collect();
+    assert_eq!(evaluations.len(), 2);
+    let leaves = rows::<FlowTestLeafObservation>(&tables);
+    assert_eq!(
+        leaves
+            .iter()
+            .filter(|l| atoms
+                .iter()
+                .any(|a| a.id() == l.atom && a.predicate == none))
+            .count(),
+        2
+    );
+    assert!(
+        rows::<ReachingDefinition>(&tables)
+            .iter()
+            .any(|r| matches!(r, ReachingDefinition::Nested))
+    );
+    assert!(
+        rows::<AssertionQualification>(&tables)
+            .iter()
+            .all(|q| q.approximation == Approximation::Exact
+                || q.approximation == Approximation::Unknown)
+    );
+    let again = Tables::default();
+    let digest = typed_driver::run_behavioral(&input, Flow(again.clone()))
+        .await
+        .unwrap();
+    let first = Tables::default();
+    assert_eq!(
+        digest,
+        typed_driver::run_behavioral(&input, Flow(first.clone()))
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        rows::<EvaluationAtom>(&first),
+        rows::<EvaluationAtom>(&again)
+    );
+}
+#[tokio::test]
+async fn runtime_specials_require_the_resolved_import_binding() {
+    let mut input=BTreeMap::from([("example.py".into(),b"from typing import TYPE_CHECKING as TC\nimport sys as system\nif TC:\n    checker = 1\nelse:\n    runtime = 2\ndef f(TC):\n    if TC:\n        return 3\n    return 4\nif system.platform == 'linux':\n    linux = 1\n".to_vec())]);
+    let example = input["example.py"].clone();
+    for n in 0..16 {
+        input.insert(format!("unrelated{n}.py"), example.clone());
+    }
+
+    let tables = Tables::default();
+    typed_driver::run_behavioral(&input, Flow(tables.clone()))
+        .await
+        .unwrap();
+    let occurrences = rows::<Occurrence>(&tables);
+    let regions = rows::<FlowRegionObservation>(&tables);
+    let qs = rows::<AssertionQualification>(&tables);
+    let conditions = rows::<Condition>(&tables);
+    let nodes = rows::<ConditionNode>(&tables);
+    let bytes = &input["example.py"];
+    let sources = rows::<SourceArtifact>(&tables);
+    let condition = |path: &str, text: &[u8]| {
+        let source = sources.iter().find(|s| s.path == path).unwrap().id();
+        let start = bytes.windows(text.len()).position(|s| s == text).unwrap() as i64;
+        let region = regions
+            .iter()
+            .find(|r| {
+                occurrences
+                    .iter()
+                    .any(|o| o.id() == r.statement && o.source == source && o.start == start)
+            })
+            .unwrap();
+        let q = qs.iter().find(|q| q.id() == region.qualification).unwrap();
+        Diagram::from_records(
+            conditions.iter().find(|c| c.id() == q.condition).unwrap(),
+            &nodes,
+        )
+        .unwrap()
+    };
+    for path in input.keys() {
+        assert!(condition(path, b"runtime = 2").is_true());
+        assert!(!condition(path, b"return 3").is_true());
+        assert!(condition(path, b"linux = 1").is_true());
+        assert!(condition(path, b"checker = 1").is_false());
+    }
+}
+
+#[tokio::test]
+async fn retired_runtime_resolution_answers_keep_typed_operand_identity() {
+    let input = typed_driver::files("type_guard");
+    let tables = Tables::default();
+    typed_driver::run_behavioral(&input, Flow(tables.clone()))
+        .await
+        .unwrap();
+    let predicates = rows::<Predicate>(&tables);
+    let atoms = rows::<EvaluationAtom>(&tables);
+    let leaves = rows::<FlowTestLeafObservation>(&tables);
+    let type_is = predicates
+        .iter()
+        .filter(|p| matches!(p,Predicate::TypeIs {class_expression} if class_expression=="str"))
+        .map(Record::id)
+        .collect::<BTreeSet<_>>();
+    let exact = atoms
+        .iter()
+        .filter(|a| type_is.contains(&a.predicate))
+        .map(Record::id)
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        leaves.iter().filter(|l| exact.contains(&l.atom)).count(),
+        4,
+        "unshadowed builtin guards are exact"
+    );
+    let opaque = predicates
+        .iter()
+        .filter(|p| matches!(p, Predicate::Opaque { .. }))
+        .map(Record::id)
+        .collect::<BTreeSet<_>>();
+    assert!(
+        atoms
+            .iter()
+            .filter(|a| opaque.contains(&a.predicate))
+            .count()
+            >= 2,
+        "shadowed names remain opaque"
+    );
+    let source = &input["guardpkg/cases.py"];
+    let start = source
+        .windows(b"if type(x) is str:".len())
+        .position(|b| b == b"if type(x) is str:")
+        .unwrap()
+        + 8;
+    let occurrences = rows::<Occurrence>(&tables);
+    assert!(
+        leaves
+            .iter()
+            .filter(|l| exact.contains(&l.atom))
+            .any(|l| l.operand.is_some_and(|id| occurrences
+                .iter()
+                .any(|o| o.id() == id && o.start == start as i64 && o.end == (start + 1) as i64)))
+    );
+    let input = typed_driver::files("flow_shapes");
+    let tables = Tables::default();
+    typed_driver::run_behavioral(&input, Flow(tables.clone()))
+        .await
+        .unwrap();
+    let occurrences = rows::<Occurrence>(&tables);
+    let regions = rows::<FlowRegionObservation>(&tables);
+    let qs = rows::<AssertionQualification>(&tables);
+    let conditions = rows::<Condition>(&tables);
+    let nodes = rows::<ConditionNode>(&tables);
+    let artifacts = rows::<SourceArtifact>(&tables);
+    let path = "release/flowpkg/shapes.py";
+    let source = &input[path];
+    let artifact = artifacts.iter().find(|a| a.path == path).unwrap();
+    let condition = |function: &str, statement: &str| {
+        let text = std::str::from_utf8(source).unwrap();
+        let begin = text.find(function).unwrap();
+        let start = begin + text[begin..].find(statement).unwrap();
+        let region = regions
+            .iter()
+            .find(|r| {
+                occurrences.iter().any(|o| {
+                    o.id() == r.statement && o.source == artifact.id() && o.start == start as i64
+                })
+            })
+            .unwrap();
+        let q = qs.iter().find(|q| q.id() == region.qualification).unwrap();
+        Diagram::from_records(
+            conditions.iter().find(|c| c.id() == q.condition).unwrap(),
+            &nodes,
+        )
+        .unwrap()
+    };
+    assert!(!condition("def choose", "return \"parameter\"").is_true());
+    assert!(!condition("def config_check", "return \"ordinary attribute\"").is_true());
+    assert!(condition("def checking_alias", "return \"checker only\"").is_false());
+    assert!(condition("def checking_module_alias", "return \"checker only\"").is_false());
+    assert!(condition("def version_prefix", "above = True").is_true());
+    assert!(condition("def version_prefix", "at_most = True").is_false());
+}

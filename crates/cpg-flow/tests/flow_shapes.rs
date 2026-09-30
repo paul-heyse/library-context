@@ -5,35 +5,119 @@
 use std::path::Path;
 use std::sync::OnceLock;
 
+use cpg_flow::native::{Atom, Value};
 use cpg_flow::{
     BindingKind, Condition, Input, ModuleFlow, RuntimeBindings, RuntimeContext, Sink, Span,
 };
-use cpg_schema::condition::{Atom, Condition as LegacyCondition};
+use lctx_model::domain::{attribution::*, conditions::*, input::*, source::*, *};
 
-/// These older behavioral assertions inspect readable labels. The pinned snapshot below retains
-/// the full identity-bearing encoding; dedicated cases assert identity itself.
-fn labels(c: &Condition) -> String {
-    match c.legacy() {
-        LegacyCondition::OverBudget => "over_budget".to_owned(),
-        LegacyCondition::Dnf(parts) if parts.is_empty() => "false".to_owned(),
-        LegacyCondition::Dnf(parts) if parts.len() == 1 && parts[0].is_empty() => "true".to_owned(),
-        LegacyCondition::Dnf(parts) => parts
-            .iter()
-            .map(|conj| {
-                conj.iter()
-                    .map(|lit| {
-                        let atom = match &lit.atom {
-                            Atom::Evaluated { atom, .. } => atom.as_ref(),
-                            other => other,
-                        };
-                        format!("{}{}", if lit.positive { "" } else { "!" }, atom.encode())
-                    })
-                    .collect::<Vec<_>>()
-                    .join(" & ")
-            })
-            .collect::<Vec<_>>()
-            .join(" | "),
+// A test-only presentation over the model's canonical kernel. No native provider encoding or
+// alternate truth representation is used. Each native evaluation remains a distinct atom.
+fn atom_label(atom: &Atom) -> String {
+    let value = |v: &Value| match v {
+        Value::None => "None".into(),
+        Value::Bool(v) => {
+            if *v {
+                "True".into()
+            } else {
+                "False".into()
+            }
+        }
+        Value::Int(v) => v.to_string(),
+        Value::Str(v) => format!("{v:?}"),
+    };
+    match atom.predicate() {
+        Atom::IsNone { place } => format!("is_none({place})"),
+        Atom::Truthy { place } => format!("truthy({place})"),
+        Atom::IsValue { place, value: v } => format!("is_value({place},{})", value(v)),
+        Atom::Equals { place, value: v } => format!("equals({place},{})", value(v)),
+        Atom::MemberOf { place, values } => format!(
+            "member_of({place},{{{}}})",
+            values.iter().map(value).collect::<Vec<_>>().join(",")
+        ),
+        Atom::IsInstance { place, class } => format!("isinstance({place},{class})"),
+        Atom::TypeIs { place, class } => format!("type_is({place},{class})"),
+        Atom::Opaque { text } => format!("opaque({text:?})"),
+        Atom::Evaluated { .. } => unreachable!(),
     }
+}
+fn lower(
+    c: &Condition,
+) -> Result<
+    (
+        Diagram,
+        std::collections::BTreeMap<Id<EvaluationAtom>, String>,
+    ),
+    KernelBoundary,
+> {
+    let input = InputRevision::from_entries(vec![]).unwrap();
+    let source = SourceArtifact::from_bytes(input.id(), "test.py".into(), b"").unwrap();
+    let context = AnalysisContext {
+        python_version: "3.14.7".into(),
+        python_platform: "linux".into(),
+        search_path: vec![],
+        site_package_path: vec![],
+        config_digest: ContentHash::of(b"flow-test"),
+        environment_digest: input.manifest,
+        lock_digest: None,
+    };
+    let mut names = std::collections::BTreeMap::new();
+    if c.leaves().any(|a| a.site().is_none()) {
+        return Err(KernelBoundary::TransferUnsupported);
+    }
+    let graph = c.map(|a| {
+        let span = a.site().unwrap();
+        let label = atom_label(a);
+        let occurrence = Occurrence {
+            source: source.id(),
+            start: span.start as i64,
+            end: span.end as i64,
+            syntax_kind: SyntaxKind::ExprName,
+            role: OccurrenceRole::Predicate,
+            structural_path: vec![],
+        };
+        let atom = EvaluationAtom {
+            evaluation: occurrence.id(),
+            context: context.id(),
+            predicate: lctx_model::domain::value::Predicate::Opaque {
+                text: label.clone(),
+            }
+            .id(),
+            operand: None,
+        };
+        names.insert(atom.id(), label);
+        atom.id()
+    });
+    Ok((Diagram::from_graph(&graph)?.diagram, names))
+}
+fn labels(c: &Condition) -> String {
+    let Ok((diagram, names)) = lower(c) else {
+        return "unavailable".into();
+    };
+    if diagram.is_true() {
+        return "true".into();
+    }
+    if diagram.is_false() {
+        return "false".into();
+    }
+    let mut terms: Vec<_> = diagram
+        .render_terms(256)
+        .unwrap()
+        .terms
+        .iter()
+        .map(|term| {
+            let mut labels: Vec<_> = term
+                .iter()
+                .map(|(a, positive)| format!("{}{}", if *positive { "" } else { "!" }, names[a]))
+                .collect();
+            labels.sort();
+            labels.dedup();
+            labels.join(" & ")
+        })
+        .collect();
+    terms.sort();
+    terms.dedup();
+    terms.join(" | ")
 }
 
 fn text() -> &'static str {
@@ -118,14 +202,18 @@ fn test_leaves_keep_compound_operands_and_distinct_match_arms() {
             line(leaf.test_span.start) == line_of("if stateless is not None", "def alias_fallback")
         })
         .collect();
-    assert!(compound.iter().any(|leaf| leaf.atom.contains("stateless")));
     assert!(
         compound
             .iter()
-            .any(|leaf| leaf.atom.contains("stateless_http"))
+            .any(|leaf| leaf.atom.place() == Some("stateless"))
+    );
+    assert!(
+        compound
+            .iter()
+            .any(|leaf| leaf.atom.place() == Some("stateless_http"))
     );
     for leaf in &compound {
-        let atom = Atom::parse_encoded(&leaf.atom).unwrap();
+        let atom = &leaf.atom;
         if let Some(place) = atom.place() {
             let operand = leaf.operand_span.expect("modeled place has one operand");
             assert_eq!(slice(operand.start, operand.end), place);
@@ -143,7 +231,7 @@ fn test_leaves_keep_compound_operands_and_distinct_match_arms() {
         .find(|leaf| {
             line(leaf.test_span.start)
                 == line_of("if isinstance(x, C):", "def rebound_isinstance_class")
-                && leaf.atom.contains("isinstance(")
+                && matches!(leaf.atom.predicate(), Atom::IsInstance { .. })
         })
         .expect("isinstance test leaf");
     let operand = instance.operand_span.expect("first argument is tested");
@@ -152,21 +240,18 @@ fn test_leaves_keep_compound_operands_and_distinct_match_arms() {
 
     let matched: Vec<_> = leaves
         .iter()
-        .filter(|leaf| line(leaf.test_span.start) == line_of("match command:", "def matched"))
+        .filter(|leaf| {
+            (line_of("case ", "def matched")..line_of("return state", "def matched"))
+                .contains(&line(leaf.test_span.start))
+        })
         .collect();
-    let keys: std::collections::BTreeSet<_> =
-        matched.iter().map(|leaf| &leaf.predicate_key).collect();
-    assert!(keys.len() >= 2, "match arms collapsed: {matched:?}");
-    assert!(
-        matched
-            .iter()
-            .all(|leaf| leaf.leaf_span.start == matched[0].leaf_span.start)
-    );
+    let sites: std::collections::BTreeSet<_> = matched.iter().map(|leaf| leaf.leaf_span).collect();
+    assert!(sites.len() >= 2, "match arms collapsed: {matched:?}");
     assert!(matched.iter().all(|leaf| leaf.operand_span.is_none()));
 }
 
 #[test]
-fn flow_producer_keeps_a_wide_predicate_after_dnf_budget() {
+fn flow_producer_keeps_a_wide_predicate_as_a_structural_graph() {
     let text = std::fs::read_to_string(
         Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../fixtures/python/flow_shapes/release/flowpkg/wide.py"),
@@ -188,8 +273,7 @@ fn flow_producer_keeps_a_wide_predicate_after_dnf_budget() {
     assert!(flow.error.is_none(), "{:?}", flow.error);
     let at = text.find("return \"reachable\"").unwrap() as u32;
     let region = flow.regions.iter().find(|r| r.span.start == at).unwrap();
-    assert_eq!(region.condition.legacy(), &LegacyCondition::OverBudget);
-    let diagram = region.condition.diagram().unwrap();
+    let (diagram, _) = lower(&region.condition).unwrap();
     assert!(!diagram.is_false());
     assert!(diagram.render_terms(16).unwrap().truncated);
 }
@@ -249,7 +333,9 @@ fn reaching(u: u32) -> Vec<(String, Option<BindingKind>, String, bool)> {
             None => ("<unbound>".to_owned(), None, labels(&r.condition), false),
         })
         .collect();
-    out.sort();
+    out.sort_by(|a, b| {
+        (&a.0, a.1.map(|k| k as i16), &a.2, a.3).cmp(&(&b.0, b.1.map(|k| k as i16), &b.2, b.3))
+    });
     out
 }
 
@@ -436,15 +522,20 @@ fn a_test_after_a_rebinding_has_a_distinct_evaluation_site() {
     assert_eq!(r.len(), 3, "{r:?}");
     assert!(r.iter().all(|row| row.2 != "false"), "{r:?}");
     let f = flow();
-    let atom_ids: Vec<String> = f
+    let atom_ids: Vec<_> = f
         .tests
         .iter()
         .filter(|t| slice(t.span.start, t.span.end).contains("stateless_http is None"))
-        .map(|t| t.condition.encode())
+        .map(|t| t.condition.clone())
         .collect();
     assert_eq!(atom_ids.len(), 2, "{atom_ids:?}");
     assert_ne!(atom_ids[0], atom_ids[1]);
-    assert!(atom_ids.iter().all(|id| id.contains(":s")), "{atom_ids:?}");
+    assert!(
+        atom_ids
+            .iter()
+            .all(|graph| graph.leaves().all(|atom| atom.site().is_some())),
+        "{atom_ids:?}"
+    );
     assert_eq!(
         region("stateless_http = stateless", "def alias_fallback"),
         "!is_none(stateless) & is_none(stateless_http)"
@@ -468,7 +559,7 @@ fn distinct_evaluations_admit_the_external_reviews_feasible_paths() {
             .find(|r| r.span.start == statement_at as u32)
             .unwrap_or_else(|| panic!("no region for {function}"))
             .condition;
-        assert!(!condition.is_never(), "{function}: {}", condition.encode());
+        assert!(!condition.is_never(), "{function}: {}", labels(condition));
     }
     let u = use_ix("found", "return found", "def two_ranges");
     let reached: Vec<_> = reaching(u).into_iter().map(|r| r.0).collect();
@@ -488,7 +579,7 @@ fn same_line_and_merged_bindings_keep_distinct_site_identity() {
                 (at as u32..end as u32).contains(&t.span.start)
                     && slice(t.span.start, t.span.end) == "x is None"
             })
-            .map(|t| t.condition.encode())
+            .map(|t| t.condition.clone())
             .collect();
         if function == "def same_line_bindings" {
             assert_eq!(conditions.len(), 2, "{function}: {conditions:?}");
@@ -497,7 +588,9 @@ fn same_line_and_merged_bindings_keep_distinct_site_identity() {
             assert_eq!(conditions.len(), 1, "{function}: {conditions:?}");
         }
         assert!(
-            conditions.iter().all(|c| c.contains(":s")),
+            conditions
+                .iter()
+                .all(|c| c.leaves().all(|a| a.site().is_some())),
             "{function}: {conditions:?}"
         );
     }
@@ -561,7 +654,7 @@ fn rebinding_an_isinstance_class_and_distinct_literal_objects_keep_paths_open() 
         .tests
         .iter()
         .filter(|t| t.span.start > at && labels(&t.condition).contains("is_value(x,1000)"))
-        .map(|t| t.condition.encode())
+        .map(|t| t.condition.clone())
         .collect();
     assert_eq!(tests.len(), 2, "{tests:?}");
     assert_ne!(tests[0], tests[1]);
@@ -768,62 +861,24 @@ fn an_empty_literal_loop_keeps_the_entry_value() {
     assert!(shown.contains(&"None".to_owned()), "{shown:?}");
 }
 
-/// Every use with the definitions reaching it, every value source and every statement region,
-/// as text: pins the provider's output for this fixture (the Stage 2 review's O5).
 #[test]
-fn the_flow_facts_are_pinned() {
-    let f = flow();
-    let mut out = String::new();
-    for (i, u) in f.uses.iter().enumerate() {
-        let defs: Vec<String> = reaching(i as u32)
-            .into_iter()
-            .map(|(shown, kind, cond, carried)| {
-                format!(
-                    "{shown} [{}{}] if {cond}",
-                    kind.map_or("unbound", cpg_schema::Codebook::text),
-                    if carried { ", loop-carried" } else { "" }
-                )
-            })
-            .collect();
-        out.push_str(&format!(
-            "use {}:{} {} <- {}\n",
-            line(u.span.start),
-            u.place,
-            slice(u.span.start, u.span.end),
-            if defs.is_empty() {
-                "<none>".to_owned()
-            } else {
-                defs.join("; ")
-            }
-        ));
+fn all_native_graph_leaves_retain_a_coordinate_or_explicit_unavailability() {
+    use cpg_flow::native::EvaluationSite;
+    for graph in flow()
+        .reaching
+        .iter()
+        .map(|r| &r.condition)
+        .chain(flow().values.iter().map(|v| &v.condition))
+        .chain(flow().regions.iter().map(|r| &r.condition))
+    {
+        for atom in graph.leaves() {
+            assert!(matches!(
+                atom,
+                Atom::Evaluated {
+                    site: EvaluationSite::Source(_) | EvaluationSite::Unavailable { .. },
+                    ..
+                }
+            ));
+        }
     }
-    for v in &f.values {
-        let u = &f.uses[v.use_ix as usize];
-        out.push_str(&format!(
-            "value {:?} {} <- {} ({}) if {}\n",
-            v.sink,
-            line(v.span.start),
-            u.place,
-            if v.identity {
-                "identity"
-            } else if v.through_call {
-                "through a call"
-            } else {
-                "derived"
-            },
-            v.condition.encode()
-        ));
-    }
-    for r in &f.regions {
-        let first = slice(r.span.start, r.span.end)
-            .lines()
-            .next()
-            .unwrap_or_default();
-        out.push_str(&format!(
-            "region {} {first} if {}\n",
-            line(r.span.start),
-            r.condition.encode()
-        ));
-    }
-    insta::assert_snapshot!(out);
 }

@@ -1,0 +1,14 @@
+{
+  "date": "2026-09-30",
+  "dry_run": "uv run python scripts/library_utilization.py",
+  "dry_run_exit": 1,
+  "dry_run_outcome": "drift identified before regeneration",
+  "command": "just library-catalog",
+  "outcome": "passed",
+  "libraries": 65,
+  "capabilities": 91,
+  "resolved_files": 352,
+  "resolved_nodes": 219748,
+  "library_items": 4957,
+  "order": "After final functional, documentation and store checks; followed only by handoff metadata and Git publication"
+}

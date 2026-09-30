@@ -7,33 +7,8 @@
 //! change that no version bump names still moves the run and producer ids. `TEMPLATE_VERSION`
 //! stays the published lineage, and the analysis ledger stays the alarm for output changes.
 
-/// The source trees whose code decides the compiler's output, relative to the workspace root.
-const SOURCES: &[&str] = &[
-    "crates/lctx-model/src",
-    "crates/cpg-core/src",
-    "crates/lctx-analytics/src",
-    "crates/cpg-schema/src",
-    "crates/lctx-postgres/src/cache.rs",
-];
-
-/// Every `.rs` or `.sql` file under `dir`, recursively, as workspace-relative paths.
-fn rust_files(root: &std::path::Path, dir: &std::path::Path, out: &mut Vec<String>) {
-    println!("cargo:rerun-if-changed={}", dir.display());
-    let mut entries: Vec<_> = std::fs::read_dir(dir)
-        .expect("a source directory")
-        .map(|e| e.expect("a directory entry").path())
-        .collect();
-    entries.sort();
-    for path in entries {
-        if path.is_dir() {
-            rust_files(root, &path, out);
-        } else if path.extension().is_some_and(|e| e == "rs" || e == "sql") {
-            println!("cargo:rerun-if-changed={}", path.display());
-            let relative = path.strip_prefix(root).expect("under the workspace");
-            out.push(relative.to_string_lossy().replace('\\', "/"));
-        }
-    }
-}
+#[path = "../../scripts/producer_fingerprint.rs"]
+mod producer;
 
 const ENGINES: &[&str] = &[
     "arrow-array",
@@ -80,17 +55,7 @@ fn main() {
         .join("../..")
         .canonicalize()
         .expect("the workspace");
-    let mut files = Vec::new();
-    for tree in SOURCES {
-        let source = root.join(tree);
-        if source.is_file() {
-            println!("cargo:rerun-if-changed={}", source.display());
-            files.push((*tree).to_owned());
-        } else {
-            rust_files(&root, &source, &mut files);
-        }
-    }
-    files.sort();
+    let files = producer::files(&root);
     let mut h = blake3::Hasher::new();
     for file in &files {
         let text = std::fs::read(root.join(file)).expect("a source file");
@@ -125,24 +90,24 @@ fn main() {
     semantic.update(found.join(";").as_bytes());
     // Producer identity (review F11): every canonical producer's code, association and evidence
     // included. Only serving-only realization code is outside it.
-    let mut producer = blake3::Hasher::new();
-    let mut excluded = Vec::new();
-    for file in &files {
-        if serving_only(file) {
-            excluded.push(file.clone());
-            continue;
-        }
-        let bytes = std::fs::read(root.join(file)).expect("producer source");
-        producer.update(file.as_bytes());
-        producer.update(&(bytes.len() as u64).to_le_bytes());
-        producer.update(&bytes);
-    }
-    producer.update(found.join(";").as_bytes());
+    let excluded: Vec<String> = files
+        .iter()
+        .filter(|file| serving_only(file))
+        .cloned()
+        .collect();
+    let included: Vec<String> = files
+        .iter()
+        .filter(|file| !serving_only(file))
+        .cloned()
+        .collect();
     println!(
         "cargo:rustc-env=LCTX_PRODUCER_SOURCE_DIGEST={}",
-        producer.finalize().to_hex()
+        producer::digest(&root, &included).to_hex()
     );
-    println!("cargo:rustc-env=LCTX_PRODUCER_EXCLUDED={}", excluded.join(";"));
+    println!(
+        "cargo:rustc-env=LCTX_PRODUCER_EXCLUDED={}",
+        excluded.join(";")
+    );
     let mut association = blake3::Hasher::new();
     for file in [
         "crates/cpg-core/src/evidence.rs",

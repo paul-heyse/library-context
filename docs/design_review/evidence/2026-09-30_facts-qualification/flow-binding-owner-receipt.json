@@ -1,0 +1,14 @@
+{
+  "date": "2026-09-30",
+  "failed_pilot": "pilot-reaching-place-receipt.json",
+  "diagnostic": "raw/behavioral-reaching-diagnostic.stderr",
+  "cause": "Walrus definition native evaluation scope is a comprehension; lexical binding owner is enclosing scope. Definition used fallback evaluation scope while read used lexical resolution.",
+  "repair": "Exact site/name binding target selects lexical owner; read alternatives agree on scope, not individual BindingEvent. Native observation scope and same-place validation remain unchanged. Charged occurrence index avoids global scans.",
+  "regression_before_repair": "failed: comprehension walrus case5",
+  "command": "python3 scripts/build_environment.py -- cargo test --release -p cpg-extract --test typed_flow --test determinism",
+  "outcome": "passed",
+  "typed_flow": 5,
+  "determinism": 2,
+  "owner_cases": 9,
+  "raw": "raw/flow-binding-owner-tests.log"
+}

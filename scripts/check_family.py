@@ -24,7 +24,8 @@ FAMILY = re.compile(
     r"|ty_.+|salsa(-.+)?)$"
 )
 
-# Declared extra families (ADR-0090, restating the 2026-09-24 ADR-0002 amendment): a second version of a family crate is
+# Declared extra families (ADR-0090, restating the 2026-09-24 ADR-0002 amendment):
+# a second version of a family crate is
 # allowed only in the declared scope. Each entry: the crates it covers (a pattern), the one extra
 # version, the exact versions its own dependencies must hold, and the only packages that may depend
 # on it from outside the family itself.

@@ -1,11 +1,13 @@
 //! Installing and resetting the generated store (cutover plan P1.6). Both run as the verified
 //! service owner under the exclusive installation lock, taken only by trying, so no lifecycle
 //! transition, pin or copy (which take it shared) overlaps them and none waits behind them.
-use std::sync::Arc;
+use super::{
+    CONTROL_RECORDS, Error, GenerationId, GenerationStore, ddl, locks, quoted, transaction,
+};
+use crate::OwnerPool;
 use lctx_model::domain::{ContentHash, ValidatedModel};
 use sqlx::PgConnection;
-use super::{CONTROL_RECORDS, Error, GenerationId, GenerationStore, ddl, locks, quoted, transaction};
-use crate::OwnerPool;
+use std::sync::Arc;
 
 /// The objects a reset drops: owner-owned generation schemas (registered or orphaned) and the
 /// control schema. Services, unrelated schemas and objects of other roles are never inventoried.
@@ -18,8 +20,15 @@ pub struct ResetInventory {
 
 /// Create the control schema for `model`, or confirm an installation of the same model and
 /// lowering. Any other installation is a contract mismatch.
-pub(super) async fn control(tx: &mut PgConnection, model: &ValidatedModel, physical: ContentHash) -> Result<(), Error> {
-    let present: bool = sqlx::query_scalar("SELECT to_regclass('lctx_model_store.installation') IS NOT NULL").fetch_one(&mut *tx).await?;
+pub(super) async fn control(
+    tx: &mut PgConnection,
+    model: &ValidatedModel,
+    physical: ContentHash,
+) -> Result<(), Error> {
+    let present: bool =
+        sqlx::query_scalar("SELECT to_regclass('lctx_model_store.installation') IS NOT NULL")
+            .fetch_one(&mut *tx)
+            .await?;
     if present {
         let existing: Option<(Vec<u8>, Vec<u8>)> = sqlx::query_as("SELECT model_digest, physical_digest FROM lctx_model_store.installation WHERE singleton FOR UPDATE")
             .fetch_optional(&mut *tx).await?;
@@ -28,36 +37,65 @@ pub(super) async fn control(tx: &mut PgConnection, model: &ValidatedModel, physi
             _ => Err(Error::Contract),
         };
     }
-    sqlx::raw_sql(sqlx::AssertSqlSafe(ddl::control(ddl::CONTROL))).execute(&mut *tx).await?;
+    sqlx::raw_sql(sqlx::AssertSqlSafe(ddl::control(ddl::CONTROL)))
+        .execute(&mut *tx)
+        .await?;
     sqlx::query("INSERT INTO lctx_model_store.installation VALUES (true,$1,$2)")
-        .bind(model.digest().0.to_vec()).bind(physical.0.to_vec()).execute(&mut *tx).await?;
+        .bind(model.digest().0.to_vec())
+        .bind(physical.0.to_vec())
+        .execute(&mut *tx)
+        .await?;
     Ok(())
 }
 
 async fn inventory(tx: &mut PgConnection) -> Result<(ResetInventory, Vec<GenerationId>), Error> {
-    let database: String = sqlx::query_scalar("SELECT current_database()::text").fetch_one(&mut *tx).await?;
+    let database: String = sqlx::query_scalar("SELECT current_database()::text")
+        .fetch_one(&mut *tx)
+        .await?;
     let control: bool = sqlx::query_scalar("SELECT EXISTS (SELECT FROM pg_namespace WHERE nspname = $1 AND nspowner = (SELECT oid FROM pg_roles WHERE rolname = current_user))")
         .bind(ddl::CONTROL).fetch_one(&mut *tx).await?;
     let schemas: Vec<String> = sqlx::query_scalar("SELECT nspname::text FROM pg_namespace WHERE nspowner = (SELECT oid FROM pg_roles WHERE rolname = current_user) \
         AND nspname ~ '^lctx_g[0-9a-f]{32}$' ORDER BY 1").fetch_all(&mut *tx).await?;
-    let mut generations: Vec<GenerationId> = schemas.iter().filter_map(|s| GenerationId::from_schema(s)).collect();
-    let registry: bool = sqlx::query_scalar("SELECT to_regclass('lctx_model_store.generations') IS NOT NULL").fetch_one(&mut *tx).await?;
+    let mut generations: Vec<GenerationId> = schemas
+        .iter()
+        .filter_map(|s| GenerationId::from_schema(s))
+        .collect();
+    let registry: bool =
+        sqlx::query_scalar("SELECT to_regclass('lctx_model_store.generations') IS NOT NULL")
+            .fetch_one(&mut *tx)
+            .await?;
     if control && registry {
-        let registered: Vec<Vec<u8>> = sqlx::query_scalar("SELECT id FROM lctx_model_store.generations").fetch_all(&mut *tx).await?;
+        let registered: Vec<Vec<u8>> =
+            sqlx::query_scalar("SELECT id FROM lctx_model_store.generations")
+                .fetch_all(&mut *tx)
+                .await?;
         for id in registered {
-            generations.push(GenerationId(id.try_into().map_err(|_| Error::Codec("generation id length".into()))?));
+            generations.push(GenerationId(
+                id.try_into()
+                    .map_err(|_| Error::Codec("generation id length".into()))?,
+            ));
         }
     }
     generations.sort_by_key(|g| g.0);
     generations.dedup();
-    Ok((ResetInventory { database, schemas, control }, generations))
+    Ok((
+        ResetInventory {
+            database,
+            schemas,
+            control,
+        },
+        generations,
+    ))
 }
 
 pub(super) async fn plan(owner: &OwnerPool) -> Result<ResetInventory, Error> {
     transaction(owner.pool(), async |tx| {
-        sqlx::query(locks::INSTALLATION_SHARED).execute(&mut *tx).await?;
+        sqlx::query(locks::INSTALLATION_SHARED)
+            .execute(&mut *tx)
+            .await?;
         Ok(inventory(tx).await?.0)
-    }).await
+    })
+    .await
 }
 
 /// Reset in phases (store-lifecycle review F02). A generation's cascade takes a lock per
@@ -70,19 +108,32 @@ pub(super) async fn plan(owner: &OwnerPool) -> Result<ResetInventory, Error> {
 /// 3. replace the control schema and install `model`.
 ///
 /// Each phase is idempotent, so a rerun finishes an interrupted reset.
-pub(super) async fn reset(owner: OwnerPool, model: Arc<ValidatedModel>, confirm: &str) -> Result<(ResetInventory, GenerationStore), Error> {
+pub(super) async fn reset(
+    owner: OwnerPool,
+    model: Arc<ValidatedModel>,
+    confirm: &str,
+) -> Result<(ResetInventory, GenerationStore), Error> {
     let store = GenerationStore::assemble(owner.pool().clone(), model);
     let pool = store.owner.clone();
     let (inventory, generations) = transaction(&pool, async |tx| {
         locks::installation_exclusive(tx).await?;
         let (inventory, generations) = inventory(tx).await?;
-        if confirm != inventory.database { return Err(Error::Confirmation); }
-        for g in &generations {
-            if !locks::try_generation_exclusive(tx, *g).await? { return Err(Error::Busy); }
+        if confirm != inventory.database {
+            return Err(Error::Confirmation);
         }
-        if registry(tx).await? { sqlx::query("DELETE FROM lctx_model_store.installation").execute(&mut *tx).await?; }
+        for g in &generations {
+            if !locks::try_generation_exclusive(tx, *g).await? {
+                return Err(Error::Busy);
+            }
+        }
+        if registry(tx).await? {
+            sqlx::query("DELETE FROM lctx_model_store.installation")
+                .execute(&mut *tx)
+                .await?;
+        }
         Ok((inventory, generations))
-    }).await?;
+    })
+    .await?;
     for g in generations {
         transaction(&pool, async |tx| {
             locks::installation_exclusive(tx).await?;
@@ -111,5 +162,9 @@ pub(super) async fn reset(owner: OwnerPool, model: Arc<ValidatedModel>, confirm:
 }
 
 async fn registry(tx: &mut PgConnection) -> Result<bool, Error> {
-    Ok(sqlx::query_scalar("SELECT to_regclass('lctx_model_store.generations') IS NOT NULL").fetch_one(&mut *tx).await?)
+    Ok(
+        sqlx::query_scalar("SELECT to_regclass('lctx_model_store.generations') IS NOT NULL")
+            .fetch_one(&mut *tx)
+            .await?,
+    )
 }

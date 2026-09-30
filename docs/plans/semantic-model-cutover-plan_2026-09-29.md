@@ -123,7 +123,7 @@ storage wheel. Retirement must not rely on DETACH CONCURRENTLY recovery.
 | P2.3 | Single assembly owner and indexed source/span/kind/role join | Scalar oracle agrees; names, attributes, subscripts, nested/same spans and `.py`/`.pyi` controls; ambiguous stays unresolved |
 | P2.4 | Canonical atoms/BDD; structured paths; attributed support and coverage | Shuffled-input determinism; unknown/partial/not-requested distinguished; no independent DNF |
 | P2.5 | `compile <library> --through facts --profile catalog\|behavioral --database …` | Required provider failure aborts; explicit partial facts disclose limits; actual availability frontier |
-| P2.6 | Delete obsolete extraction schemas/hashes/conditions and finally `cpg-schema`; rebuild facts generations | Both profile facts pilots and fixture corpus; no old runtime copy; MCP remains unavailable |
+| P2.6 | Delete obsolete extraction schemas/hashes/conditions and native producer dependencies on `cpg-schema`; retain only its inventoried dormant P3–P5 consumers (§5); rebuild facts generations | Both profile facts pilots and fixture corpus; no old runtime copy; MCP remains unavailable |
 
 Content equality excludes timestamps and measurements. Fresh recomputation is required; stage cache
 optimization is deferred. Once all functional packages are done, run `just fmt`, updated
@@ -250,7 +250,7 @@ handoff.
 
 #### Phase 1
 
-**Status (2026-09-30):** P1.1–P1.12 are done; P1.13 is blocked on PostgreSQL superuser access (§4.2).
+**Status (2026-09-30):** P1.1–P1.13 are implemented and Tested, with focused controls and assembled Q. The real operator transition passed; its [receipt](../design_review/evidence/2026-09-29_operator-transition/README.md) records retained-service fingerprints, store checks and archive removal. Assembled Q passed; the exit review is Accept scoped for facts.
 
 Every commit leaves `cargo check --workspace --all-targets` passing with dormant code compiling.
 
@@ -308,20 +308,20 @@ name and declaration inputs; the Ruff-vs-Pysa call and `__all__` comparisons sta
 | A7 | **Done** (`804a5c1`, corrected `827135d`). Calls amendment: provider call site, receiver class and traits, `Overrides`, native unresolved reason | Overrides never direct in `site_facts` | `domain_calls` (model and PG) |
 | A8 | **Done** (`38ba3ea`, corrected `827135d`). Type completion: remaining term arms, roles, parameter lists, test operand, function bodies, record fields | Truncated nesting display-only; record flags round-trip | `domain_types` (model and PG); review A6–A8 |
 | A9 | **Done** (`002d254`, `7f4a0b5`). Symbols producer incl. declaration links, public names, parameter docs and dependency context (referenced ∪ exported; `Catalog`/runtime-exception reads deleted); deleted the legacy definition, `public_names`, `parameter_docs` and `context_*` rows | Pysa CLI `harness` (session hook); `keys`; `dunder_all` public sets | `typed_symbols`, `harness` |
-| A10 | Calls producer via `normalize_site`; call boundaries; `variants` as known answers; delete the legacy `pysa_calls` rows | pysa_variants, `map`, `C()`, missing range boundary | `typed_calls` |
-| A11 | Types producer incl. T8; delete the legacy `types` rows (the `context`/`public` rows went at A9, the `pysa_map` call rows at A10) | type_shapes, type_guard operands | `typed_types` |
-| A12 | Flow model and kernel: test, leaf, call path/step, attribute load, value path records; `CondGraph<L>`; bounded `Diagram::from_graph` | Independent truth tables; malformed graph; limits → boundary | `domain_flow`, `domain_conditions`; PG `domain_flow` |
-| A13 | `cpg-flow` off `cpg-schema`: provider-local leaves and condition graphs; no BDD, id hasher or predicate keys; structural known answers replace insta snapshots | Distinct occurrences and with-items; opaque synthetic predicates | `cpg-flow` `flow_shapes`, `call_paths`; `cargo tree -p cpg-flow -i cpg-schema` empty |
-| A14 | `ty_flow` stage: exact attachment, Places, atoms, canonical BDDs; `lctx flow` retargeted; `cpg-extract/src/flow.rs` deleted | flow_shapes, call paths, type_guard, runtime resolution; index permutation identity (F05); C11 one predicate → one atom per generation; no DNF/literal writes; a `nonlocal` rebinding in a nested function emits `ReachingDefinition::Nested` (C4/C5 review F01); Python flow oracle | `typed_flow`; `test_flow_soundness.py` |
-| A15 | `documents` stage with materialized block digest check; delete `docs.rs` rows | docs_shapes, semantic_documents, corrupt block | `typed_documents` |
-| A16 | `deployment` stage: metadata, entry points, configuration, receipts, fingerprint; malformed receipts retained as Failed interpretation with Partial coverage; delete `metadata`/`observations` rows | semantic_deployment, malformed receipt, identity mismatch | `typed_deployment` |
-| B1 | Assembler: vocabulary writer, exact coverage matrix into `AdmissionCheck` through P1.7 `begin`, required failure aborts, Partial reasons | Missing/extra row refused; profiles differ only in Flow | `cpg-core` `facts_admission`; PG `facts_generation` |
-| B2 | Attachment scalar-oracle matrix (names, attributes, subscripts, same-span kinds, decorators, f-strings, BOM, `.py`/`.pyi`, forced Ambiguous/Unmatched/BudgetExceeded) and determinism (shuffle, 4096/1/97-row batches, relocation, repeats, ambient refusal) | Equal content digests | `attachment_oracle`, `determinism`; review |
-| B3 | Fixture-corpus runner in `cpg-core/tests/fixture_corpus.rs`: listing equals registered cases; both profiles in memory; three cases also PG with equal digests; re-homed raw known answers; P3–P5 obligation pointers; `just fixture-corpus` | Unregistered fixture fails | `fixture_corpus` |
-| Dc | `lctx compile <library> --through facts --profile catalog\|behavioral --database <cfg>`: other frontiers refused before side effects; digest check; acquire → capture → schedule → publish; availability report; never selects | `--through analysis` side-effect free; injected required failure leaves no registry row | `lctx` `compile_facts` |
-| C1x | Remove the extraction husk (`extract`, `run_release`, `ExtractOutput`, `FactSink`, `fact_row!`, `write_ipc`, `lctx-extract` binary, legacy ids/recipes, cpg-schema dependencies) | Gates below | workspace check |
-| C2x | Selective pruning; dormant-test answers re-homed or recorded as obligations with the Git revision; regenerate the surviving `cpg-schema` module → consumer → phase map into §5 | Gates below | workspace check |
-| C3x | §4.1.2 dispositions with evidence, §4.2, §5, §6, DESIGN §15 labels, AGENTS.md, ADR-0089 consequences brought current; `build/` runtime-copy deletion from an inventory | docs and ADR lint | `just docs-check` |
+| A10 | **Implemented and focused-Tested (2026-09-30).** Calls producer via `normalize_site`; call boundaries; `variants` as known answers; delete the legacy `pysa_calls` rows | pysa_variants, `map`, `C()`, missing range boundary | `typed_calls` |
+| A11 | **Implemented and focused-Tested (2026-09-30).** Types producer incl. T8; delete the legacy `types` rows (the `context`/`public` rows went at A9, the `pysa_map` call rows at A10) | type_shapes, type_guard operands | `typed_types` |
+| A12 | **Implemented and focused-Tested (2026-09-30).** Flow model and kernel: test, leaf, call path/step, attribute load, value path records; `CondGraph<L>`; bounded `Diagram::from_graph` | Independent truth tables; malformed graph; limits → boundary | `domain_flow`, `domain_conditions`; PG `domain_flow` |
+| A13 | **Implemented and focused-Tested (2026-09-30).** `cpg-flow` off `cpg-schema`: provider-local leaves and condition graphs; no BDD, id hasher or predicate keys; structural known answers replace insta snapshots | Distinct occurrences and with-items; opaque synthetic predicates | `cpg-flow` `flow_shapes`, `call_paths`; `cargo tree -p cpg-flow -i cpg-schema` empty |
+| A14 | **Implemented and focused-Tested (2026-09-30).** `ty_flow` stage: exact attachment, Places, atoms, canonical BDDs; `lctx flow` retargeted; `cpg-extract/src/flow.rs` deleted | flow_shapes, call paths, type_guard, runtime resolution; index permutation identity (F05); C11 one predicate → one atom per generation; no DNF/literal writes; a `nonlocal` rebinding in a nested function emits `ReachingDefinition::Nested` (C4/C5 review F01); Python flow oracle | `typed_flow`; `test_flow_soundness.py` |
+| A15 | **Implemented and focused-Tested (2026-09-30).** `documents` stage with materialized block digest check; delete `docs.rs` rows | docs_shapes, semantic_documents, corrupt block | `typed_documents` |
+| A16 | **Implemented and focused-Tested (2026-09-30).** `deployment` stage: metadata, entry points, configuration, receipts, fingerprint; malformed receipts retained as Failed interpretation with Partial coverage; delete `metadata`/`observations` rows | semantic_deployment, malformed receipt, identity mismatch | `typed_deployment` |
+| B1 | **Implemented and focused-Tested (2026-09-30).** Assembler: vocabulary writer, exact coverage matrix into `AdmissionCheck` through P1.7 `begin`, required failure aborts, Partial reasons | Missing/extra row refused; profiles differ only in Flow | `cpg-core` `facts_admission`; PG `facts_generation` |
+| B2 | **Implemented and focused-Tested (2026-09-30).** Attachment scalar-oracle matrix (names, attributes, subscripts, same-span kinds, decorators, f-strings, BOM, `.py`/`.pyi`, forced Ambiguous/Unmatched/BudgetExceeded) and determinism (shuffle, 4096/1/97-row batches, relocation, repeats, ambient refusal) | Equal content digests | `attachment_oracle`, `determinism`; review |
+| B3 | **Implemented and focused-Tested (2026-09-30).** Fixture-corpus runner in `cpg-core/tests/fixture_corpus.rs`: listing equals registered cases; both profiles in memory; three cases also PG with equal digests; re-homed raw known answers; P3–P5 obligation pointers; `just fixture-corpus` | Unregistered fixture fails | `fixture_corpus` |
+| Dc | **Implemented and focused-Tested (2026-09-30).** `lctx compile <library> --through facts --profile catalog\|behavioral --database <cfg>`: other frontiers refused before side effects; digest check; acquire → capture → schedule → publish; availability report; never selects | `--through analysis` side-effect free; injected required failure leaves no registry row | `lctx` `compile_facts` |
+| C1x | **Implemented and focused-Tested (2026-09-30).** Remove the extraction husk (`extract`, `run_release`, `ExtractOutput`, `FactSink`, `fact_row!`, `write_ipc`, `lctx-extract` binary, legacy ids/recipes, cpg-schema dependencies) | Gates below | workspace check |
+| C2x | **Implemented and focused-Tested (2026-09-30).** Selective pruning; dormant-test answers re-homed or recorded as obligations with the Git revision; regenerate the surviving `cpg-schema` module → consumer → phase map into §5 | Gates below | workspace check |
+| C3x | **Implemented and focused-Tested (2026-09-30).** §4.1.2 dispositions with evidence, §4.2, §5, §6, DESIGN §15 labels, AGENTS.md, ADR-0089 consequences brought current; `build/` runtime-copy deletion from an inventory | docs and ADR lint | `just docs-check` |
 
 **Gates.** `rg` over `crates/cpg-extract` and `crates/cpg-flow` finds no `cpg_schema`,
 `FactSink`, `fact_row!`, `IdHasher`, `recipe::`, `ExtractOutput`, `write_ipc`,
@@ -350,7 +350,7 @@ its retained obligation.
 
 ### 4.1.2 Raw-field migration inventory
 
-**Proposed mappings; source inventory inspected 2026-09-29.** This is the deletion checklist for P2,
+**Implemented mappings, 2026-09-30; source inventory inspected 2026-09-29.** This is the deletion checklist for P2,
 not a second executable schema. All 57 `for_each_table!` entries are listed, including inline
 macro fields. The destination domain owns all listed payload fields unless an explicit transformation
 below applies. No table is marked migrated merely because its owner appears here.
@@ -421,28 +421,26 @@ or validated options. Display names remain presentation and cannot replace sourc
 | `coverage` | `run_id`, `scope_kind`, `scope_node_id`, `fact_family`, `status`, `reason`, `detail` | attribution: ProviderCoverage plus structured scope/subject boundaries |
 | `boundaries` | `module_node_id`, `subject_node_id`, `fact_family`, `reason`, `start_byte`, `end_byte`, `detail` | attribution: ProviderCoverage plus structured scope/subject boundaries |
 
-**Migration status (2026-09-30).**
-- **Migrated:** the typed producer states the family and its legacy emission is deleted.
-- **Owner live:** the typed relations exist and are produced, but the husk still emits the legacy rows until C1x.
-- **Open:** the typed producer is the named package.
-
-The husk still emits `facts`, `runs`, `contexts`, `producers`, `source_files`, `coverage`, `boundaries`, the type, document, flow and condition families, and `pysa_calls`.
+**Migration status (2026-09-30).** All P2 raw producer groups are migrated: typed production
+writes the corresponding domain relations, and legacy emission and extraction dependencies on
+`cpg-schema` are deleted. Independent raw answers live in the typed and fixture-corpus controls;
+dormant downstream answers remain inventoried in §6. Facts qualification passed at Q; downstream acceptance is deferred to its owning phase.
 
 | Families | Typed owner | Status |
 |---|---|---|
-| `facts`, `runs`, `contexts`, `producers` | typed `*Support` per assertion; `ProviderRun`/`RunFamily`, `AnalysisContext`, `Provider` | owner live (A0 onward); husk rows until C1x |
+| `facts`, `runs`, `contexts`, `producers` | typed `*Support` per assertion; `ProviderRun`/`RunFamily`, `AnalysisContext`, `Provider` | migrated (A0, B1, C1x) |
 | `releases`, `distributions`, `captured_artifacts` | `Package`/`Release`/`InputRevision`/`InputOrigin`/`InputAcquisition`, `InputDistribution`/`DistributionVerification`, `SourceArtifact`+`ArtifactChunk`, `EnvironmentFingerprint` | migrated (A1–A2) |
-| `source_files` | `SourceArtifact`, `Module`, `ArtifactOwnership`/`UnownedArtifact`/`DerivedArtifact`, `ArtifactUse`; text, UTF-8, package and stub derived from bytes and path | owner live (A2, A4); husk rows until C1x |
+| `source_files` | `SourceArtifact`, `Module`, `ArtifactOwnership`/`UnownedArtifact`/`DerivedArtifact`, `ArtifactUse`; text, UTF-8, package and stub derived from bytes and path | migrated (A2, A4, C1x) |
 | `declarations`, `export_syntax`, `parameter_syntax`, `record_field_syntax`, `syntax_nodes`, `call_syntax`, `arguments` | `DeclarationObservation`(+`DeclarationDecorator`), `ImportAliasObservation`, `DunderAllObservation`, `ParameterSyntaxObservation`, `ClassFieldSyntaxObservation`, `Occurrence`+`SyntaxPlacement`+`SyntaxDetail`, `CallSyntax`/`CallArgument` | migrated (A3–A4) |
 | `scopes`, `bindings`, `references`, `reference_resolutions` | `LexicalScope`/`BindingEvent`/`LexicalTarget` and their four qualified observations | migrated (A5) |
 | `context_modules`, `context_definitions`, `context_parameters`, `context_class_mro` | `ProviderModule` + `DependencyModuleObservation`; `ProviderSymbol` + `SymbolObservation`/traits under the Input qualification; `Signature`/`SignatureParameter`/`ParameterShape`; `ClassAncestryObservation` with `Linearization`. Derived: qualified name and top-levelness (parent chain), signature count (variants), distribution and version (ownership), site-packages versus search path (artifact role) | migrated (A6, A9) |
 | `public_names`, `parameter_docs`, `pysa_functions`, `parameter_semantics`, `class_ancestry`, `pysa_classes` | `PublicNameObservation` + `ExportOrigin`; `ParameterDocObservation`; `ProviderSymbol` + `SymbolObservation` + `FunctionTraitObservation`/`ClassTraitObservation`; `Signature` + display-only `ParameterAnnotationObservation`; `ClassAncestryObservation`; `SymbolDeclaration`/`ParameterDeclaration` for name spans | migrated (A6, A9). Pysa's annotation class sets, exhaustiveness and scalar properties are retired to the type observations (A11); the P4 derivation owner is review F07 |
-| `pysa_calls` | `ProviderCallSite`, `CallOrigin`, `CallTarget` (receiver class and evidence), `CallDestination` (`Overrides`, native `Unresolved`), `CallChannel::HigherOrder`, `CallResolution` | model ready (A7 + `827135d`); **open: A10**; husk rows until then |
-| `type_terms`, `type_term_args`, `type_observations`, `function_implementations`, `record_fields` | `TypeTerm`/`TypeSequence`/`CallableParameterList`, `TypeVariable` + restrictions, `TypeObservation`/`TypePresentation`, `FunctionBodyObservation`, `RecordFieldObservation` | model ready (A8 + `827135d`); **open: A11**; husk rows until then |
-| `flow_uses` … `flow_attribute_loads` (10) and `conditions`, `condition_nodes`, `condition_literals` | P0 flow records and canonical BDD conditions; A12 adds tests, leaves, call paths, attribute loads and value paths. `encoding`, the literals and `display_truncated` are retired | **open: A12–A14**; husk rows until then |
-| `documents` … `doc_component_attributes` (7) | P0 document records plus `materialized` | **open: A15**; husk rows until then |
-| `coverage`, `boundaries` | `ProviderCoverage` + `CoverageScope`, `SubjectBoundary` | owner live (A3 onward); the exact matrix is **open: B1**; husk rows until C1x |
-| Nested deployment and task evidence | `DeploymentObservation`, `TaskReport`(+`Observation`), `ReportedEnvironment` and report records | **open: A16** |
+| `pysa_calls` | `ProviderCallSite`, `CallOrigin`, `CallTarget` (receiver class and evidence), `CallDestination` (`Overrides`, native `Unresolved`), `CallChannel::HigherOrder`, `CallResolution` | migrated (A10); `typed_calls` native-variant and qualified alternatives controls |
+| `type_terms`, `type_term_args`, `type_observations`, `function_implementations`, `record_fields` | `TypeTerm`/`TypeSequence`/`CallableParameterList`, `TypeVariable` + restrictions, `TypeObservation`/`TypePresentation`, `FunctionBodyObservation`, `RecordFieldObservation` | migrated (A11); `typed_types` complete native forms and opacity controls |
+| `flow_uses` … `flow_attribute_loads` (10) and `conditions`, `condition_nodes`, `condition_literals` | P0 flow records and canonical BDD conditions; A12 adds tests, leaves, call paths, attribute loads and value paths. `encoding`, the literals and `display_truncated` are retired | migrated (A12–A14); model/PG flow and typed/native flow controls |
+| `documents` … `doc_component_attributes` (7) | P0 document records plus `materialized` | migrated (A15); `typed_documents`, corruption and native MDX controls |
+| `coverage`, `boundaries` | `ProviderCoverage` + `CoverageScope`, `SubjectBoundary` | migrated (A3, B1); `facts_admission`, real PG `facts_generation` and both-profile fixture corpus |
+| Nested deployment and task evidence | `DeploymentObservation`, `TaskReport`(+`Observation`), `ReportedEnvironment` and report records | migrated (A16); `typed_deployment`, retained failed receipts and duplicate ordered values |
 | Nested catalog conclusions (checks, requirements, scenarios, bindings, associations) | P4, kept in the dormant `cpg-schema::evidence`; P2 records carry their raw inputs | P4 (§6) |
 
 Specific transformations and deletion conditions:
@@ -491,36 +489,49 @@ runtime reader. Malformed interpretation retains the original artifact with expl
 ### 4.2 Execution status
 
 **Progress (2026-09-30).** This overview owns what is finished and what is open. The dated receipts
-below own the evidence for each finished package. No phase is qualified: Q runs after all P0–P2
-functional scope.
+below own the evidence for each finished package. P0–P2 are qualified at the facts frontier after
+complete Q on 2026-09-30. The assembled exit review is **Accept scoped**; P3–P5 remain unavailable
+and retain their explicit obligations and resource triggers.
 
 | Phase | Finished (focused-Tested; receipts below) | Open |
 |---|---|---|
 | P0 | R1, R2, K1, D0, C1–C6, C5r, R3, D1, E1; exit review X0 **Accept scoped** (excludes the P4 composition engine) | — (routed findings: §8) |
-| P1 | P1.1–P1.12; the store-lifecycle and provider-session reviews re-inspected **Accept scoped** | **P1.13** real transition: **blocked** on PostgreSQL superuser access (rehearsed; operator commands in its evidence README). Afterwards: record receipts, delete the transition tool |
-| P2 | A0 `de89800`, A1 `0213048`, A2 `a7c71a1`, A3 `c87c672`, A4 `9dc55dc`, A5 `d4e980d`, A6 `b46ede2`, A7 `804a5c1`, A8 `38ba3ea`, [A6–A8 review](../design_review/reviews/design_review_semantic-symbols-calls-types_2026-09-29.md) corrections `827135d`, A9 `002d254` + `7f4a0b5` | A10–A16, B1–B3, Dc, C1x–C3x (below) |
-| Q | — | fmt, `test-all`, facts pilots in both profiles, docs-check, assembled P0–P2 review (core 3.2, ADR-0093), handoff |
+| P1 | P1.1–P1.13; store-lifecycle and provider-session reviews **Accept scoped**. Real transition passed 2026-09-30: equal retained fingerprints, store check, runs list and archive removal; one-use tooling deleted. [Receipt](../design_review/evidence/2026-09-29_operator-transition/README.md) | — |
+| P2 | A0–A16, B1–B3, Dc, C1x–C3x implemented; focused native/model/real PG controls passed 2026-09-30; scoped foundation, flow, producer and lifecycle reviews Accept | — (routed P3–P5 findings: §8) |
+| Q | **Passed 2026-09-30:** final formatting and complete `just test-all`; three full FastMCP facts publications; repeated behavioral content; profile-correct coverage; no selection; capture/provider-stage refusals with unchanged registry; measured stage/process envelope. [Evidence](../design_review/evidence/2026-09-30_facts-qualification/README.md); [exit review Accept scoped](../design_review/reviews/design_review_p0-p2-exit_2026-09-30.md) | — (documentation/catalog receipts below; phase 3 is next) |
 
-**Open P2 packages, each with the obligations routed to it:**
-- **A10, the call producer.**
-  - Pysa call graphs through `normalize_site`/`classify_receiver` into `ProviderCallSite`, `CallTarget` and `CallResolution`, per call event.
-  - Origin steps run from the outermost context to the operation, and format-string sites use steps 22/23 (review F01).
-  - `Overrides` targets carry their receiver class (F02).
-  - Higher-order and potential unresolved remainders stay on their own channel and modality. Identifier and attribute-access callees are potential or conditional.
-  - Pysa's `MTL`/`CTL`/`FDT` callers use the appended `SymbolKind`s; the caller predicate is F05's trigger.
-  - Ruff-vs-Pysa boundaries.
-  - Delete the legacy `pysa_calls` rows (`pysa_map`) and the remaining legacy `keys`/`variants`/`identity` call tests.
-- **A11, the type producer.** Exhaustive `Type` mapping incl. T8 test operands, function bodies and record fields (inherited fields as referents). Review F06 (unqualified names in `Callable`/`Overload`/`SpecialForm`) and F07 (disclose display-only annotations; name the P4 class-set owner) trigger here. Delete the legacy `types` rows.
-- **A12–A14, flow.** The flow model and kernel; `cpg-flow` off `cpg-schema`; the `ty_flow` stage. A14 also owns C11's one predicate → one atom per generation and the retargeted `lctx flow`.
-- **A15, `documents`.** The legacy docs vocabulary is still built from the husk's in-memory public names; it goes with this stage.
-- **A16, `deployment`.**
-- **B1, the assembler and exact coverage matrix.** P0 exit F05 applies. `expected_coverage` should follow uses and roots, not every Python source. Dependency context and public names sit under Input-scoped qualifications, and the matrix must admit that grain.
-- **B2, attachment and determinism.** Then a bounded review; C12 attachment half.
-- **B3, the fixture-corpus runner.** Register `semantic_symbols`, `dunder_all`, `pysa_keys` and the other typed fixtures.
-- **Dc, `lctx compile --through facts`.** Store-lifecycle F09 applies.
-- **C1x, remove the extraction husk.** It still runs `extract`: calls, types, flow and docs keep legacy structures until A10/A11/A14/A15.
-- **C2x, selective pruning.**
-- **C3x, documents and `build/` inventory.** Includes the five stale review links that fail `just docs-check`.
+**Current P2 implementation (2026-09-30).** Native calls/types/flow/documents/deployment now run
+through typed stage sinks and shared admission. The 50 registered fixture families run both
+profiles; three compare permanent PostgreSQL content with memory. Attachment uses an independent
+scalar oracle; relocation, shuffled order and 4096/1/97-row batches preserve content. A required
+provider failure removes its generation and reservations. CLI facts publication reports availability
+without selection; other frontiers and short capture budgets fail before a generation exists.
+The extraction husk, legacy producer rows and native flow's schema/BDD dependencies are removed.
+Surviving downstream modules and dormant independent answers are inventoried in §5–§6.
+C3x removed nine exact runtime paths and repaired stale source links; a separately inventoried
+960-file generated `_lctx_blocks` residue in the acquired checkout was removed after its expected
+acquisition refusal. Locked source files, environments, service backup and benchmarks remain.
+
+**Qualified facts frontier (2026-09-30).** The final `just test-all` passed 674 Rust tests
+(11 skipped), 219 Python tests (56 skipped), 217 tests in the PostgreSQL repeat suite (one test
+and one binary skipped), plus positive/compile-fail doctests and the other gate components.
+Full catalog/behavioral/behavioral-repeat pilots passed in 474.317/628.956/669.475 seconds.
+Behavioral repeats have identical content; catalog content differs. All three published without
+selection. Catalog Flow is NotRequested and behavioral Flow is Partial. Capture and provider-stage
+reservation refusals preserved a byte-identical published registry and passed store checks.
+The captured closure has 10149 artifacts/69507733 bytes; stage time, 20ms VmRSS samples, whole-process
+time-v RSS and reservation high-water are recorded in the evidence. Native heaps, allocator
+retention, transient adapter state, SQLx within-operation buffers and sizing calibration remain
+named allowances with P3 triggers; this is not an absolute RSS cap.
+
+This is a **composite receipt**: initial formatting, Clippy, stale expectations/snapshots,
+DataFusion nested-function registration, rules and native pilot failures were repaired before
+complete successful reruns. ADR-0095–0100 preserve native ordering, unavailable shapes, arbitrary
+dictionary keys, Unicode/NUL and residual type children. Charged lookup indexes removed repeated
+global scans; exact lexical binding ownership repaired comprehension walrus places while retaining
+native evaluation scope and the shared same-place invariant. These controls do not establish
+served-product quality, full native semantics or injected network-loss recovery. Detailed dated
+receipts below keep their original bounded scope; the current overview owns restart status.
 
 **Implemented / Tested (2026-09-29, bounded):**
 
@@ -922,19 +933,10 @@ The control runs on a disposable PG18 provisioned by the real bootstrap SQL, car
 
 **Bootstrap.** The serving role gets `provider_connections: 2`, and the next step is `lctx store install`. The owner pool is 4 with a 1800 s statement timeout. The backup tables are the service baseline's. `postgres_test_support` installs with `store install`.
 
-**Justfile.** `test-postgres` covers lctx-postgres, cpg-extract, cpg-core, lctx and the transition. `test-postgres-reference`, `structured-eval`, `score` and `ranking-check` are removed, returning with serving. `sqlx-check` is out of `test-all` (T12).
+**Justfile.** `test-postgres` covers lctx-postgres, cpg-extract, cpg-core and lctx. `test-postgres-reference`, `structured-eval`, `score` and `ranking-check` are removed, returning with serving. `sqlx-check` is out of `test-all` (T12).
 
 **Docs.** `docs/postgresql.md` is rewritten for the current store. DESIGN §B7 has its implementation status; §6 is marked retired pending C3x. AGENTS.md and the evaluation section's recipe references are updated. The handoff skill no longer cites the removed `just pilot` recipe. Review F02's provisioning note: none is needed, since the phased reset fits PostgreSQL's default lock table |
-| P1.13: `uv run python scripts/postgres_transition.py plan` against the operator database (read-only); `uv run python docs/design_review/evidence/2026-09-29_operator-transition/rehearse.py` | rehearsal passed 2026-09-29; **real run blocked**.
-
-The operator database carries 12 legacy versions. Its four retained service tables are empty. `lctx_report` and `lctx_serving` (about 1 GB of dormant pilot projections) stay in the archive.
-
-The rehearsal restored an owner dump of the operator database into a bootstrap-provisioned disposable PG18:
-- `store install` refused the legacy history;
-- plan, prepare and switch passed with equal fingerprints;
-- `store check` was clean and `runs list` worked.
-
-The real `prepare`/`switch` is blocked: it needs the PostgreSQL superuser, and this session's `sudo -u postgres` requires a password. The operator's commands are in the [evidence](../design_review/evidence/2026-09-29_operator-transition/README.md). `plan` no longer needs administration, and reports every owner schema left behind. The transition tool is deleted after the real run |
+| P1.13: normalized `cargo build --release -p lctx`; disposable rehearsal; real plan/prepare/switch/drop-retired | **passed 2026-09-30**. [Receipt](../design_review/evidence/2026-09-29_operator-transition/README.md): no active operator connections; all four retained-service fingerprints equal; `store check` and `runs list` passed; archive removed; protected retained-service backup retained. One-use transition, legacy-shape test and rehearsal tooling deleted. No facts/product qualification implied. |
 | A0: `cargo test --release -p cpg-extract --test bundle --test typed_conformance --test typed_limits --test typed_owner`; `-p cpg-core --test facts_driver`; `-p lctx-model` (all suites); `just build-features`; `cargo check --workspace --all-targets` | passed 2026-09-29 (bundle 6, facts_driver 2, domain_stages 9; typed_conformance 6 + 1 ignored).
 
 **Framework.** `cpg-extract/src/bundle.rs`:
@@ -1221,13 +1223,9 @@ assembled review; none of these bounded receipts establishes enclosing architect
 
 **Acknowledged transaction cleanup (Implemented; focused Tested, 2026-09-29):** the generation store awaits commit/rollback for completed operations and explicitly aborts active COPY before rollback on encoding/send/budget refusal. Failed finalization remains an unconfirmed outcome and quarantines the connection. This corrects the observed immediate-abort Busy failure; paired low/high COPY budget controls and adjacent lifecycle/transfer tests pass. The [bounded rollback review](../design_review/reviews/design_review_semantic-generation-rollback_2026-09-29.md) accepts the source correction. Cancellation retains SQLx drop cleanup; production cancellation, transport-failure injection and assembled provider lifecycle remain open.
 
-**Restart checkpoint (2026-09-29):** stopped at the user's requested boundary after completing the guard and transaction corrections. No phase exit is qualified. The old production pipeline remains active; representative domain fixtures do not establish producer migration. Resume from the next paragraph, preserving §4.1.1 order. Formatting, integrated gates and pilots remain not_run until the authorized functional scope is complete.
-
-**Next / still open:** the §4.1.1 packages in order, starting at R1 (reserved batches and the
-bounded writer). Whole-call composition, stability-witnessed substitution, call-site facts,
-occurrence ownership, coordinated allocation (including total Ruff traversal work), the facts
-frontier contract and the stage-bound production subset complete P0; P1 and P2 follow their
-tables. Earlier Phase 0 receipts do not qualify this target.
+**Resume authority:** the current overview at the start of §4.2 owns the restart state.
+The detailed dated receipts above retain their original bounded scope; their earlier open-work
+statements do not supersede completed packages or the current phase-exit result.
 
 ## 5. Deletion and preservation obligations
 
@@ -1241,6 +1239,70 @@ compiling workspace member without a runnable path; tests needing removed runtim
 an owner or moved to a non-target `tests/dormant/` directory. `cpg-schema` survives P2: P2-C
 removes only what loses its last consumer, and C2x records each surviving module's dormant consumer
 and retiring phase here. `cpg-extract` and `cpg-flow` must not depend on it after C1x.
+
+### P2 retirement inventory (2026-09-30)
+
+The extraction husk and its raw emission tests are removed. Their independent answers now live
+in `typed_calls`, `typed_types`, `typed_flow`, `typed_symbols`, `typed_syntax_shapes`,
+`typed_conformance`, acquisition/capture and B2's determinism/attachment controls. The fixture
+runner registers all 47 top-level families; it does not claim downstream derivation correctness.
+`cpg-extract` and `cpg-flow` no longer import or depend on `cpg-schema`.
+
+The following live source consumers keep each surviving schema module compiling. These are
+retirement routes, not target authority for facts. Internal dependencies retire with their named
+consumer; serving cache embedding specifications remain retained service contracts until their
+consumer migrates. Direct exports and dormant test answers are preserved until re-homed.
+
+| Surviving module | Current source consumer or retained answer | Retiring phase |
+|---|---|---|
+| `behavior` | `crates/cpg-core/src/catalog.rs`, `crates/cpg-core/src/flow_model.rs` | P4 |
+| `bundle` | `crates/cpg-core/src/bundle.rs`, `crates/cpg-core/src/retrieval.rs` | P5 |
+| `call_execution` | `crates/cpg-core/src/validate.rs`, `crates/lctx-analytics/src/completion.rs` | P4 |
+| `catalog` | `crates/cpg-core/src/catalog.rs`, `crates/cpg-core/src/bundle.rs` | P4 |
+| `codebook` | `crates/cpg-core/src/catalog.rs`, `crates/cpg-core/src/flow_model.rs` | P3, then P4 |
+| `column` | `crates/cpg-schema/src/table.rs`, `crates/cpg-schema/src/rules.rs` | P3, then P4 |
+| `communities` | `crates/cpg-core/src/analyze.rs`, `crates/cpg-core/src/producer.rs` | P4 |
+| `concept_attributes` | `crates/cpg-core/src/catalog.rs`, `crates/cpg-core/src/analyze.rs` | P4 |
+| `concepts` | `crates/cpg-core/src/analyze.rs`, `crates/cpg-core/src/synth.rs` | P4 |
+| `condition` | `crates/cpg-core/src/flow_model.rs`, `crates/cpg-core/src/behavior.rs` | P4 |
+| `condition_kernel` | `crates/cpg-core/src/flow_model.rs`, `crates/cpg-core/src/behavior.rs` | P4 |
+| `context_observations` | `crates/lctx-analytics/src/evaluation.rs` | P4 |
+| `context_protocol` | `crates/cpg-core/src/validate.rs`, `crates/lctx-analytics/src/context_protocol.rs` | P4 |
+| `context_value` | `crates/cpg-core/src/summaries.rs`, `crates/cpg-core/src/validate.rs` | P4 |
+| `derived` | `crates/cpg-core/src/producer.rs`, `crates/lctx-analytics/src/source_call.rs` | P3, then P4 |
+| `embedding` | `crates/cpg-core/src/embed.rs`, `crates/cpg-core/src/validate.rs` | P4 |
+| `embedding_spec` | `crates/cpg-core/src/embed.rs`, `crates/lctx-postgres/src/cache.rs` | P4 |
+| `evidence` | `crates/cpg-core/src/catalog.rs`, `crates/cpg-core/src/catalog_domains.rs` | P4 |
+| `findings` | `crates/cpg-core/src/catalog.rs`, `crates/cpg-core/src/behavior.rs` | P4 |
+| `flows` | `crates/cpg-core/src/flow_model.rs`, `crates/cpg-core/src/analyze.rs` | P4 |
+| `frame_exit` | `crates/cpg-core/src/validate.rs`, `crates/lctx-analytics/src/completion.rs` | P4 |
+| `graph` | `crates/cpg-core/src/evidence.rs` | P4 |
+| `hash` | `crates/cpg-schema/src/table.rs`, `crates/cpg-schema/src/embedding.rs` | P3, then P4 |
+| `id` | `crates/cpg-core/src/catalog.rs`, `crates/cpg-core/src/flow_model.rs` | P3, then P4 |
+| `mdx` | `crates/cpg-core/src/synth.rs` | P4 |
+| `metrics` | `crates/cpg-core/src/catalog.rs`, `crates/cpg-core/src/behavior.rs` | P4 |
+| `modeled_identity` | `crates/cpg-core/src/summaries.rs`, `crates/cpg-core/src/validate.rs` | P4 |
+| `models` | `crates/cpg-core/src/bundle.rs`, `crates/cpg-core/src/validate.rs` | P4 |
+| `neighbours` | `crates/cpg-core/src/analyze.rs`, `crates/cpg-core/src/producer.rs` | P4 |
+| `parameter_identity` | `crates/cpg-core/src/summaries.rs`, `crates/cpg-core/src/validate.rs` | P4 |
+| `primitive_theory` | `crates/cpg-core/tests/dormant/compile.rs` | P4 |
+| `projection` | `crates/cpg-core/src/analyze.rs`, `crates/cpg-core/src/validate.rs` | P4 |
+| `public` | `crates/cpg-core/src/catalog.rs`, `crates/cpg-core/src/analyze.rs` | P3, then P4 |
+| `query` | `crates/cpg-core/src/catalog.rs`, `crates/cpg-core/src/flow_model.rs` | P4 |
+| `rules` | `crates/cpg-core/src/validate.rs`, `crates/cpg-core/src/producer.rs` | P3, then P4 |
+| `summary_contract` | `crates/lctx-analytics/src/context_protocol.rs`, `crates/lctx-analytics/src/completion.rs` | P4 |
+| `table` | `crates/cpg-core/src/catalog.rs`, `crates/cpg-core/src/behavior.rs` | P3, then P4 |
+| `tables` | `crates/cpg-core/src/analyze.rs`, `crates/cpg-core/src/entry_links.rs` | P3, then P4 |
+| `completion_proof` | `crates/cpg-core/src/validate.rs`, `crates/lctx-analytics/src/completion.rs` | P4 |
+| `action` | `crates/cpg-core/src/validate.rs`, `crates/lctx-analytics/src/actions.rs` | P4 |
+| `source_body` | `crates/cpg-core/src/validate.rs`, `crates/lctx-analytics/src/completion.rs` | P4 |
+| `source_call` | `crates/cpg-core/src/validate.rs`, `crates/lctx-analytics/src/source_call.rs` | P4 |
+| `serving_projection` | `crates/cpg-core/src/bundle.rs`, `crates/lctx-postgres/examples/projection_probe.rs` | P5 |
+| `serving_support` | `crates/cpg-schema/src/serving_projection.rs` | P5 |
+| `postgres_report` | `crates/lctx-postgres/src/report.rs` | P5 |
+| `wire` | `crates/lctx-postgres/src/hydration.rs`, `crates/lctx-postgres/src/journey_cursor.rs` | P5 |
+| `selection` | `crates/cpg-core/src/catalog.rs` | P5 |
+| `retrieval` | `crates/cpg-core/src/bundle.rs`, `crates/cpg-core/src/retrieval.rs` | P5 |
 
 ## 6. Deferred capability obligations
 
@@ -1264,6 +1326,30 @@ Phase 4 also owns two call obligations from the A6–A8 review:
 Phase 3 owns cross-provider symbol equivalence, stored call bindings and SQL policy views (C04
 remainder), stored occurrence ownership and the test-leaf to operand-type join.
 
+### Dormant answer routes
+
+Historical source anchor: `9efce30` (the main-tree baseline before this execution). The retained
+files below remain non-target recovery aids; removed Delta setup and old IDs are reconstructed,
+never adapted. Raw syntax/symbol/call/type/flow/document/deployment assertions are qualified by the
+typed suites named in §5; normalized graph/derivation answers return at P3, analysis/catalog at P4,
+and wire, cursor, evidence hydration and journeys at P5. Each layer must re-home its independent
+expectations before deleting that source and its snapshots. `catalog/pr4.rs` and
+`catalog/selection_evidence.rs` retain P4 selection/retrieval expectations with P5 wire consumers.
+No held-out or gold input enters compilation.
+
+| Retained source | Owner | Recovery obligation |
+|---|---|---|
+| `crates/cpg-core/tests/dormant/analysis.rs` | P4 | 30 test/helper functions; preserve fixture expectations and snapshots |
+| `crates/cpg-core/tests/dormant/behavior.rs` | P4 | 18 test/helper functions; preserve fixture expectations and snapshots |
+| `crates/cpg-core/tests/dormant/bundle.rs` | P5 | 11 test/helper functions; preserve fixture expectations and snapshots |
+| `crates/cpg-core/tests/dormant/catalog.rs` | P4 | 3 test/helper functions; preserve fixture expectations and snapshots |
+| `crates/cpg-core/tests/dormant/catalog_evidence.rs` | P4 | 5 test/helper functions; preserve fixture expectations and snapshots |
+| `crates/cpg-core/tests/dormant/compile.rs` | P3 | 47 test/helper functions; preserve fixture expectations and snapshots |
+| `crates/cpg-core/tests/dormant/function_implementation.rs` | P4 | 1 test/helper functions; preserve fixture expectations and snapshots |
+| `crates/cpg-core/tests/dormant/graph.rs` | P3 | 12 test/helper functions; preserve fixture expectations and snapshots |
+| `crates/cpg-core/tests/dormant/resolved_attribute_access.rs` | P4 | 1 test/helper functions; preserve fixture expectations and snapshots |
+| `crates/cpg-core/tests/dormant/syntax.rs` | P4 | 46 test/helper functions; preserve fixture expectations and snapshots |
+
 ## 7. Tooling, pins, skills and documents
 
 Phase 0 adds the bounded derive and explicit Arrow codec dependencies. Phase 1 removes Delta family
@@ -1285,7 +1371,8 @@ without corresponding evidence.
 
 
 The bounded [lexical review](../design_review/reviews/design_review_semantic-lexical_2026-09-29.md)
-accepted corrected representative contracts on 2026-09-29; P2 mapping remains open.
+accepted corrected representative contracts on 2026-09-29. P2 lexical mapping is implemented
+and covered by native fixtures and assembled Q; §4.1.2 owns its raw-field disposition.
 
 | Source finding | Current disposition | Owner and closure evidence |
 |---|---|---|
@@ -1294,7 +1381,8 @@ accepted corrected representative contracts on 2026-09-29; P2 mapping remains op
 
 
 The bounded [stage/sink review](../design_review/reviews/design_review_semantic-stage-sink_2026-09-29.md)
-accepted the corrected boundary on 2026-09-29; full production admission remains open.
+accepted the corrected boundary on 2026-09-29. B1 and assembled Q now exercise full production
+facts admission through the same model and permanent PostgreSQL store.
 
 | Source finding | Current disposition | Owner and closure evidence |
 |---|---|---|
@@ -1306,7 +1394,7 @@ has the following separate finding namespace (2026-09-29):
 | Source finding | Current disposition | Owner and closure evidence |
 |---|---|---|
 | input-validation F01/F03/F04/F05 | addressed within reviewed slice | `lctx-model` input/source invariants; real PG manifest/span/cross-input ownership refusals and multi-distribution positive; reviewer source reinspection accepted |
-| input-validation F02 | narrowed (R1–R3, resource-review corrections, E1 Measured) → A0, P1.9/P1.10, Q | Addressed: reserved batch encode/decode and transfer bounds (R1); charged invariant state and a linear, memoized type-closure walk (R2, resource F03); source admission before Pyrefly handles and a total traversal bound (R3/E1); fail-stop writers and stages (resource F01); typed limits (resource F09); E1 envelope on fastmcp 4.0.5 with clean mid-attempt exhaustion. A0 (2026-09-29): batches carry their charge across the provider channel, and 41 MB of output to a slow sink peaked at 3.27 MB (the window plus the provider's duplicate index). Remaining: P1.9/P1.10 provider chunks on the reservation, SQLx buffer retention and shared Arrow buffer accounting; Q both-profile envelope over the full captured closure, with charged-map calibration (resource F08) |
+| input-validation F02 | narrowed (R1–R3, resource-review corrections, E1 Measured) → A0, P1.9/P1.10, Q | Addressed: reserved batch encode/decode and transfer bounds (R1); charged invariant state and a linear, memoized type-closure walk (R2, resource F03); source admission before Pyrefly handles and a total traversal bound (R3/E1); fail-stop writers and stages (resource F01); typed limits (resource F09); E1 envelope on fastmcp 4.0.5 with clean mid-attempt exhaustion. A0 (2026-09-29): batches carry their charge across the provider channel, and 41 MB of output to a slow sink peaked at 3.27 MB (the window plus the provider's duplicate index). P1.9/P1.10 provider chunks share the reservation; Q corrections charge native retained indexes and small typed reads and shrink SQLx buffers after operations. Retained limits: bounded pre-admission SQLx row/high-water during an operation, conservative Arrow alias charging, native parse/solver heaps, allocator retention, B-tree calibration and transient native adapter collections. Q measures both profiles over the full captured closure; this is reservation-bounded admission with measured external allowances, not a total-process RSS cap |
 
 
 This table owns the current disposition of the review's findings. Each closes by construction in the
@@ -1324,7 +1412,7 @@ phase named, and only on its closure evidence.
 | [F08](../design_review/reviews/design_review_semantic-data-model_2026-09-29.md#F08) no derived-result contract; lineage gaps | open → phase 4 | 4.6, 4.7 | one emitter; input invocations; finding-ID rule; derivation views |
 | [F09](../design_review/reviews/design_review_semantic-data-model_2026-09-29.md#F09) nominal projection layer | open → phases 3–4 | 3.2, 4.6 | projection by declaration; ADR-0044 amendment (made 2026-09-29) |
 | [F10](../design_review/reviews/design_review_semantic-data-model_2026-09-29.md#F10) serving is a second hand authority | open → phases 0, 5 | 0.2, 5.1, 5.5 | generated DDL, views and inventories; no hand serving file |
-| [F11](../design_review/reviews/design_review_semantic-data-model_2026-09-29.md#F11) implicit stage composition; producer identity mislabelled | open → P2 (A0 progress, 2026-09-29: `build_digest` covers lockfile, Pyrefly patch and sources; `compile_facts` runs exactly the scheduled providers) | 0.7, 1.2 | stage-table refusal controls; producer identity covers every canonical producer; the pipeline schedules from the table |
+| [F11](../design_review/reviews/design_review_semantic-data-model_2026-09-29.md#F11) implicit stage composition; producer identity mislabelled | closed scoped (2026-09-30): one framed shared production-source fingerprint covers every canonical producer and excludes ambient bytecode; native providers execute exactly their scheduled declarations | 0.7, 1.2 | `producer_fingerprint`, shared admission/stage-table refusal tests, `facts_generation`; foundation reinspection Accept scoped |
 | [F12](../design_review/reviews/design_review_semantic-data-model_2026-09-29.md#F12) per-request rebuilds and round trips | open → phase 5 | 5.1 | generation-scoped prepared catalog; set-based hydration |
 | [F13](../design_review/reviews/design_review_semantic-data-model_2026-09-29.md#F13) pilot recognizer; lexical parameters outside the digest | open → phases 4–5 | 4.4, 5.4 | named authored model; policy digest |
 | Review observations: browse unknown ownership, `EmptyUnderCoverage`, lexical-only reason | open → phase 5 | 5.1 | disclosed in responses |
@@ -1418,8 +1506,9 @@ re-inspects them.
 | [F03](../design_review/reviews/design_review_resource-slices_2026-09-29.md#F03) | `TypeIndex` | addressed: verified closures are memoized per (term, provider, context, display-only) in a charged set, the walk's scratch is charged, and the cumulative cap is gone; 600 supports over a 2,000-member union validate, and the fidelity-keyed twin refuses |
 | [F04](../design_review/reviews/design_review_resource-slices_2026-09-29.md#F04) | `typed_syntax` docs, plan; E1 | wording addressed ("before traversal"; the Pyrefly stage owes the pre-parse call); implementation and control routed to E1 |
 | [F05](../design_review/reviews/design_review_resource-slices_2026-09-29.md#F05) | A0 | closed (A0, 2026-09-29): typed `Batch<R>` deliveries carry their reservations across the provider channel into `StageOutput::push_batch`/`contribute_batch` |
-| [F06](../design_review/reviews/design_review_resource-slices_2026-09-29.md#F06), [F07](../design_review/reviews/design_review_resource-slices_2026-09-29.md#F07) | `lctx-postgres`, P1.9/P1.10 | routed to P1.9/P1.10 |
-| [F08](../design_review/reviews/design_review_resource-slices_2026-09-29.md#F08) | `charged` | deferred to E1: measured against peak RSS; trigger: the E1 envelope shows the charged high-water below observed use |
+| [F06](../design_review/reviews/design_review_resource-slices_2026-09-29.md#F06) | `lctx-postgres::generations` | narrowed (2026-09-30): COPY transactions and physical-read operations shrink SQLx buffers after acknowledged completion or refusal; small reads reserve retained typed rows before cloning. One bounded SQLx row is materialized before reservation, and within-operation high-water is an explicit allowance. Q measures it; no total-RSS guarantee |
+| [F07](../design_review/reviews/design_review_resource-slices_2026-09-29.md#F07) | `record::Batch`, generation reads, DataFusion provider | conservative alias charging retained intentionally: every holder reserves shared Arrow buffers. This can refuse below physical memory capacity, but cannot admit unsupported facts. Deferred ownership optimization; trigger: a measured P3 reader is materially constrained by duplicate charges |
+| [F08](../design_review/reviews/design_review_resource-slices_2026-09-29.md#F08) | `charged`, native providers | retained calibration allowance: B-tree inline undercount, post-mutation nested capacity growth and transient native adapter collections remain outside exact reservation accounting. Q records high-water and sampled/whole-process RSS. P3 reader/provider growth that exceeds the measured envelope triggers sizing correction; no absolute process-memory cap is claimed |
 | [F09](../design_review/reviews/design_review_resource-slices_2026-09-29.md#F09) | `ModelError`, `generations` | addressed: `ModelError::Limit { owner, limit, observed, bound }` for the writer row limit, the COPY row limit, the small-read cap and the stored-row read limit; the 70 MiB control matches it |
 | O1 | `MemoryGeneration::validate` | deferred; trigger: any use beyond fixture-sized inputs (B3 at scale) |
 
@@ -1434,7 +1523,7 @@ returned Revise on 2026-09-29 for one correction (F01). The review's §11 dispos
 | [F02](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F02) | `lctx-postgres::generations`; P1.7/P1.10/P1.11 | closed at store level (store-lifecycle review, 2026-09-29) and at the readers: leases and provider tables refuse with a typed `Frontier` (P1.10 `pin_survives_selection_change_and_frontier_is_enforced`), and `lctx query` exits 2 with a frontier refusal for a model relation outside the frontier (P1.11 `store_generation_and_query_commands`). The inspection control asserts the typed refusal after `collect` since the provider-session review F01 correction |
 | [F03](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F03) | `composition` | deferred → P4 with composition F04/F06/F07; trigger: P4 engine design or the first `compose_site` caller outside tests |
 | [F04](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F04) | `stages`, `batching` | closed (A0, 2026-09-29): a batched output with scheduled contributors indexes its identities (`BatchWriter::observe`); an equal contributed row is stored once, and a conflicting payload or a repeated batched identity is refused (`domain_stages` `contributed_rows_deduplicate_against_a_batched_output_and_conflicts_refuse`; `bundle` handoff control) |
-| [F05](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F05) | `ProviderCoverage`; B1 | open → B1 (catalog generation without a ty `Provider` row); D1 receipt wording corrected |
+| [F05](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F05) | `ProviderCoverage`; B1 | closed scoped (2026-09-30): catalog provider/coverage absence semantics exercised in `facts_admission`, `facts_generation`, both-profile fixture corpus and CLI control; lifecycle review Accept scoped |
 | [F06](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F06) | model tests; P1.11 | closed (P1.11, 2026-09-29): `crates/lctx/tests/model_describe.rs` snapshots `lctx model describe --format json` (relations, fields with roles and types, references, sums, every codebook's code/label pairs) under `INSTA_UPDATE=no` |
 | [F07](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F07) | `StageSink`/`GenerationAttempt::copy`; P1.7/P1.10 | closed: the in-memory class at P1.7; the persisted class with store-lifecycle review F04 (a producer's transport failure stores `transport`); provider-session transport loss at P1.10 (`transport_loss_is_terminal`) |
 | [F08](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F08) | `typed_syntax`, `pyrefly_stage`; A4 | closed (A4, 2026-09-29): the declared transitive-load limit is kept rather than `replace-imports-with-any`. A refused module that an admitted one imports may be parsed provider-internally and states nothing; `pyrefly_stage.rs` and `typed_syntax::admit` document it |
@@ -1457,7 +1546,7 @@ SQLSTATE class) and R2 (availability at the reader) moved to provider-session re
 | [F06](../design_review/reviews/design_review_p1-store-lifecycle_2026-09-29.md#F06) | tests; §4.2 | closed (re-inspection 2026-09-29): live-attempt and step-in-flight reset twins; a post-effect publication fault on a facts attempt; the seal race asserts both orderings; two receipt sentences corrected |
 | [F07](../design_review/reviews/design_review_p1-store-lifecycle_2026-09-29.md#F07) | `locks`, `lease` | closed (re-inspection 2026-09-29): one `locks` module owns the keys, the try-lock and the read-only `pg_locks` probe used by `interrupted()` and the catalog; `LeaseContract` is the lease terms P1.10 consumes |
 | [F08](../design_review/reviews/design_review_p1-store-lifecycle_2026-09-29.md#F08) | P3 frontier design | deferred; trigger: P3 frontier design |
-| [F09](../design_review/reviews/design_review_p1-store-lifecycle_2026-09-29.md#F09) | Dc / P1.11 `runs` | deferred; trigger: Dc or P1.11 `runs` |
+| [F09](../design_review/reviews/design_review_p1-store-lifecycle_2026-09-29.md#F09) | generation registry; CLI | closed scoped (2026-09-30; ADR-0094): new compile outcomes belong to the generation registry; `lctx_ops` retains historical service records without new dual writes. Abort/pre-generation refusal deliberately leave no durable attempt history. Lifecycle review Accept scoped |
 
 ### P1 provider-session review findings
 
@@ -1506,7 +1595,9 @@ triggers.
 - A class method called on an object is Unknown, the conservative choice. A `ClassOf` binding is deferred to P4 flows through `cls`.
 - `attribute_access` is removed, and the rule cites Pysa's `has_implicit_receiver`.
 - A stored receiver must be the one its stored evidence classifies (`domain_calls`). |
-| [F05](../design_review/reviews/design_review_semantic-symbols-calls-types_2026-09-29.md#F05)–[F07](../design_review/reviews/design_review_semantic-symbols-calls-types_2026-09-29.md#F07) | `calls`, `types` | deferred with triggers in the review (A10/P3, A11, A11/P4) |
+| [F05](../design_review/reviews/design_review_semantic-symbols-calls-types_2026-09-29.md#F05) | `calls`, A10; P3 normalization | closed scoped at the model/producer boundary (reinspection 2026-09-30): `ProviderCallable::{Symbol, ModuleBody, ClassBody, DecoratorApplication}` owns native caller identity; implicit legacy `SymbolKind` codes remain reserved and cannot construct provider symbols. Controls: `domain_calls::call_site_support_authenticates_implicit_and_symbolic_callers_transitively` checks all four forms and crossed provider/context refusals; `typed_calls::variants_keep_channels_phases_and_native_owners` exercises the real producer and excludes pseudo-symbols. Residual P3 obligation: normalize native callable identities and relate them to the sole occurrence-owner rule without conflating provider attribution with semantic ownership; trigger: P3 entity/owner projections. |
+| [F06](../design_review/reviews/design_review_semantic-symbols-calls-types_2026-09-29.md#F06) | `types`, A11 | closed scoped (reinspection 2026-09-30): named Callable/Overload terms reference nominal provider-qualified Function/Method symbols; unnamed Callable terms retain structural slots/returns. TypeVar/ParamSpec/TypeVarTuple declaration values map to anchored, module/provider/context-qualified `TypeVariable` references and restrictions rather than bare-name special forms. Controls: `domain_types::named_callable_closures_keep_provider_context_and_function_kind`, `type_structure_keeps_large_literals_variable_identity_and_recursive_restrictions`, `a_nested_type_variable_cannot_switch_provider_namespace`, and `every_native_form_validates_and_keeps_its_distinctions` (including changed nominal callable identity); `typed_types::native_types_keep_structural_terms_record_flags_and_declared_async_return` exercises native ParamSpec/structural terms. Cross-provider equivalence remains P3, never spelling equality. |
+| [F07](../design_review/reviews/design_review_semantic-symbols-calls-types_2026-09-29.md#F07) | A11 `type_records`; P4 `lctx-model::domain::{types, derivation}` contract and `lctx-analytics` guard/type derivation | A11 producer obligation closed scoped (reinspection 2026-09-30): `typed_types::declared_def_parameters_have_typed_observations_at_their_formal_declarations` checks every linked annotated def parameter has a declared Parameter observation. Non-def native callable signature annotations remain `ParameterAnnotationObservation` with enforced DisplayOnly support; they grant no structural class/scalar claim. Residual P4 obligation remains open: derive class sets, exhaustiveness and scalar predicates from structural TypeTerms and Complete MRO evidence, with explicit uncertainty for opaque/truncated or display-only inputs; trigger: before the first guard-refutation consumer of those derived predicates. |
 | [F08](../design_review/reviews/design_review_semantic-symbols-calls-types_2026-09-29.md#F08) | `natives` (A9b) | closed (2026-09-30): Pyrefly reports one namespace portion (`ModulePathDetails::Namespace` holds one directory); its location is relative to the frozen root holding it, and a portion outside every root is refused |
 
 ### Core review findings
@@ -1544,3 +1635,11 @@ root model, real concurrency tests and generation availability frontier address 
 Stage reuse requires the existing measured-workload trigger. New reasoning engines and application
 Salsa require a concrete consumer. PostgreSQL performance tuning follows measured phase-exit costs.
 Cross-release symbol matching waits for its consumer. Product PR6 waits for phase 5 qualification.
+
+### A13–A16/B2 and B1/Dc review findings (2026-09-30)
+
+| Source finding | Component | Disposition and evidence |
+|---|---|---|
+| [producer F01](../design_review/reviews/design_review_a13-a16-b2-producers_2026-09-30.md) | `cpg-extract::ty_flow` | closed scoped: model `obligation::from_kernel` preserves the actual refusal class; review reinspection Accept scoped; typed flow rerun passed |
+| [producer F04](../design_review/reviews/design_review_a13-a16-b2-producers_2026-09-30.md#F04) | `cpg-extract::ty_flow` | closed scoped: exact binding site/name and unanimous read-owner scopes fix comprehension walrus place identity; native evaluation scope and shared same-place invariant remain intact. Five native flow and two determinism tests passed, including nine scope/member cases; ambiguity branches source-inspected only. Q evidence records the failed full pilot and diagnostic before repair |
+| [lifecycle F01](../design_review/reviews/design_review_b1-dc-lifecycle_2026-09-30.md) | `cpg-core::facts` | closed scoped: cleanup failure keeps the primary error, generation and phase with Unconfirmed recovery uncertainty; diagnostic unit and corrected PG/CLI receipts passed; source reinspection Accept scoped; actual lost-commit/transport injection not_run |

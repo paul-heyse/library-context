@@ -38,10 +38,12 @@ impl Store {
         sqlx::query("INSERT INTO lctx_cache.specs(spec_hash, canonical_spec, dimensions) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING")
             .bind(hash.0.as_slice()).bind(&canonical).bind(dimensions).execute(&self.pool).await?;
         // A separate READ COMMITTED statement sees the winner after a concurrent insert waits.
-        let existing: (String, i32) = sqlx::query_as("SELECT canonical_spec, dimensions FROM lctx_cache.specs WHERE spec_hash=$1")
-            .bind(hash.0.as_slice())
-            .fetch_one(&self.pool)
-            .await?;
+        let existing: (String, i32) = sqlx::query_as(
+            "SELECT canonical_spec, dimensions FROM lctx_cache.specs WHERE spec_hash=$1",
+        )
+        .bind(hash.0.as_slice())
+        .fetch_one(&self.pool)
+        .await?;
         if existing != (canonical, dimensions) {
             return Err(Error::Integrity("canonical spec conflict"));
         }

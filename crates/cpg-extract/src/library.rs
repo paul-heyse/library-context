@@ -10,52 +10,17 @@
 //!   interpreter is `.python-version`'s.
 //! - Every analyzer-readable file of every distribution matches its `RECORD` sha256.
 //! - The release's modules are exactly its distributions' `.py`/`.pyi` `RECORD` entries, and
-//!   `release_id` hashes their names, versions and verified content, never the lock entry.
+//!   nominal release identity is owned by the typed domain, not this inventory reader.
 //! - A release distribution the lock records without artifact hashes (a git or local source) is
 //!   refused: nothing would have verified it.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use base64::Engine as _;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use cpg_schema::id::{Digest, IdHasher, content_digest, kind};
 use globset::{Glob, GlobBuilder, GlobSet, GlobSetBuilder};
 use serde::Deserialize;
-use sha2::{Digest as _, Sha256};
 
 use crate::ExtractError;
-use crate::config::{ExtractInput, Release, ReleaseOrigin, TestHooks};
-
-/// A distribution installed in the environment.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Distribution {
-    /// PEP 503 normalized.
-    pub name: String,
-    pub version: String,
-    /// sha256 (hex) of every artifact the lock records for this version, sorted.
-    pub artifact_sha256: Vec<String>,
-    pub record_digest: Digest,
-    /// Exact metadata bytes verified in the same RECORD pass as Python input.
-    pub metadata: Vec<(String, Vec<u8>)>,
-}
-
-/// The library an acquired release came from.
-#[derive(Debug, Clone, PartialEq)]
-pub struct AcquiredLibrary {
-    /// The library directory's name (`libraries/<name>`).
-    pub name: String,
-    pub requirement: String,
-    pub lock_digest: Digest,
-    /// The release distributions as `name==version`, sorted.
-    pub release: Vec<String>,
-    /// The installer `pyvenv.cfg` names (`uv 0.12.18`).
-    pub installer: Option<String>,
-    pub distributions: Vec<Distribution>,
-    /// Every verified analyzer-readable file, site-relative, → the distribution whose `RECORD`
-    /// lists it: `source_files.distribution` and `context_modules.distribution` (ADR-0014).
-    pub owners: BTreeMap<String, String>,
-}
 
 pub(crate) fn fail(msg: impl Into<String>) -> ExtractError {
     ExtractError::Library(msg.into())
@@ -86,7 +51,7 @@ pub fn analyzer_readable(path: &str) -> bool {
 
 /// The distribution name a requirement names: the text before any extras, specifier or marker.
 pub fn requirement_name(requirement: &str) -> String {
-    crate::metadata::requirement(requirement)
+    crate::deployment_parser::requirement(requirement)
         .map(|r| r.name.to_string())
         .unwrap_or_default()
 }
@@ -133,7 +98,7 @@ fn parse_definition(text: &str) -> Result<Definition, String> {
     let p: PyProject = toml::from_str(text).map_err(|e| e.to_string())?;
     let [requirement] = <[String; 1]>::try_from(p.project.dependencies)
         .map_err(|_| "[project] dependencies must be one requirement".to_owned())?;
-    crate::metadata::requirement(&requirement)?;
+    crate::deployment_parser::requirement(&requirement)?;
     let release: Vec<String> = p.tool.lctx.release.iter().map(|r| normalize(r)).collect();
     if release.is_empty() {
         return Err("[tool.lctx] release must name distributions".to_owned());
@@ -251,7 +216,9 @@ pub(crate) fn record_entries(record: &[u8]) -> Result<Vec<(String, Option<String
 }
 
 /// Installed distributions: normalized name → (version, dist-info directory).
-pub(crate) fn installed(site_packages: &Path) -> Result<BTreeMap<String, (String, PathBuf)>, ExtractError> {
+pub(crate) fn installed(
+    site_packages: &Path,
+) -> Result<BTreeMap<String, (String, PathBuf)>, ExtractError> {
     let mut out = BTreeMap::new();
     let entries = fs_err::read_dir(site_packages)
         .map_err(|e| fail(format!("{}: {e}", site_packages.display())))?;
@@ -296,175 +263,6 @@ pub(crate) fn check_source(
         )));
     }
     Ok(())
-}
-
-/// Build the extraction input for an acquired library: `library_dir` holds the definition and
-/// lock, `env_dir` the environment `uv sync --frozen` built from them. Both absolute.
-pub fn acquired(
-    library_dir: &Path,
-    env_dir: &Path,
-    snapshot_id: cpg_schema::id::Id,
-) -> Result<ExtractInput, ExtractError> {
-    let name = library_dir
-        .file_name()
-        .and_then(|n| n.to_str())
-        .ok_or_else(|| fail("library directory has no name"))?
-        .to_owned();
-    let def = definition(library_dir)?;
-    let lock_text = read(&library_dir.join("uv.lock"))?;
-    let locked = lock(&lock_text)?;
-    check_source(
-        def.source.as_ref(),
-        &requirement_name(&def.requirement),
-        &locked,
-    )?;
-    let remedy = format!("run `lctx acquire {name} --reinstall`");
-
-    let cfg = pyvenv(env_dir)?;
-    let installed_python = cfg
-        .get("version_info")
-        .ok_or_else(|| fail("pyvenv.cfg has no version_info"))?;
-    let pinned_python = read(&library_dir.join(".python-version"))?
-        .trim()
-        .to_owned();
-    if *installed_python != pinned_python {
-        return Err(fail(format!(
-            "the environment runs Python {installed_python}, .python-version pins {pinned_python}; {remedy}"
-        )));
-    }
-    let python = version_triple(installed_python)?;
-    let site_packages = env_dir
-        .join("lib")
-        .join(format!("python{}.{}", python.0, python.1))
-        .join("site-packages");
-    let dists = installed(&site_packages)?;
-
-    let mut release = def.release.clone();
-    release.sort();
-    for dist in &release {
-        let (_, artifacts) = locked
-            .get(dist)
-            .ok_or_else(|| fail(format!("release distribution {dist} is not in uv.lock")))?;
-        if artifacts.is_empty() {
-            return Err(fail(format!(
-                "release distribution {dist} is locked without artifact hashes (a git or local \
-                 source); ADR-0013 compiles only hash-verified releases"
-            )));
-        }
-        if !dists.contains_key(dist) {
-            return Err(fail(format!(
-                "release distribution {dist} is not installed; {remedy}"
-            )));
-        }
-    }
-
-    let mut files = Vec::new();
-    let mut owners = BTreeMap::new();
-    let mut release_content: BTreeMap<&str, Vec<(String, String)>> = BTreeMap::new();
-    let mut distributions = Vec::new();
-    for (dist, (version, dist_info)) in &dists {
-        match locked.get(dist) {
-            Some((locked_version, _)) if locked_version == version => {}
-            Some((locked_version, _)) => {
-                return Err(fail(format!(
-                    "{dist} {version} is installed but uv.lock has {locked_version}; {remedy}"
-                )));
-            }
-            None => {
-                return Err(fail(format!(
-                    "{dist} {version} is installed but not in uv.lock; {remedy}"
-                )));
-            }
-        }
-        let record_bytes = fs_err::read(dist_info.join("RECORD"))
-            .map_err(|e| fail(format!("{}: {e}", dist_info.display())))?;
-        let in_release = release.contains(dist);
-        let mut metadata = Vec::new();
-        let entries = record_entries(&record_bytes)
-            .map_err(|e| fail(format!("{}/RECORD: {e}", dist_info.display())))?;
-        for (path, hash) in entries {
-            let metadata_file = ["METADATA", "entry_points.txt"]
-                .iter()
-                .any(|name| site_packages.join(&path) == dist_info.join(name));
-            if !analyzer_readable(&path) && !metadata_file {
-                continue;
-            }
-            let expected =
-                hash.ok_or_else(|| fail(format!("{dist}: {path} has no RECORD hash")))?;
-            let file = site_packages.join(&path);
-            let bytes =
-                fs_err::read(&file).map_err(|e| fail(format!("{dist}: {path}: {e}; {remedy}")))?;
-            if URL_SAFE_NO_PAD.encode(Sha256::digest(&bytes)) != expected {
-                return Err(fail(format!(
-                    "{dist}: {path} does not match its RECORD sha256; {remedy}"
-                )));
-            }
-            if metadata_file {
-                metadata.push((path, bytes));
-                continue;
-            }
-            owners.insert(path.clone(), dist.clone());
-            if in_release {
-                if path.ends_with(".py") || path.ends_with(".pyi") {
-                    files.push(file);
-                }
-                release_content
-                    .entry(dist.as_str())
-                    .or_default()
-                    .push((path, expected));
-            }
-        }
-        distributions.push(Distribution {
-            name: dist.clone(),
-            version: version.clone(),
-            artifact_sha256: locked.get(dist).map(|(_, a)| a.clone()).unwrap_or_default(),
-            record_digest: content_digest(&record_bytes),
-            metadata,
-        });
-    }
-    files.sort();
-
-    // release_id: what is analyzed, so a re-listed artifact or a lock-only change leaves it.
-    let mut hasher = IdHasher::new(kind::RELEASE);
-    hasher.str("library").i64(release.len() as i64);
-    for dist in &release {
-        let version = &dists[dist].0;
-        let mut entries = release_content.remove(dist.as_str()).unwrap_or_default();
-        entries.sort();
-        hasher.str(dist).str(version).i64(entries.len() as i64);
-        for (path, sha) in &entries {
-            hasher.str(path).str(sha);
-        }
-    }
-
-    Ok(ExtractInput {
-        profile: cpg_schema::catalog::CompileProfile::Behavioral,
-        release: Release {
-            root: site_packages.clone(),
-            files,
-            release_id: hasher.finish_id(),
-            origin: ReleaseOrigin::Library(AcquiredLibrary {
-                name,
-                requirement: def.requirement,
-                lock_digest: content_digest(lock_text.as_bytes()),
-                release: release
-                    .iter()
-                    .map(|d| format!("{d}=={}", dists[d].0))
-                    .collect(),
-                installer: cfg.get("uv").map(|v| format!("uv {v}")),
-                distributions,
-                owners,
-            }),
-        },
-        venv_root: env_dir.to_path_buf(),
-        site_packages: vec![site_packages],
-        python_version: python,
-        python_platform: std::env::consts::OS.to_owned(),
-        snapshot_id,
-        corpus: None,
-        keep_pysa_json: false,
-        test_hooks: TestHooks::default(),
-    })
 }
 
 #[cfg(test)]

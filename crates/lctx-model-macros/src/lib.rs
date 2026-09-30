@@ -13,14 +13,44 @@ pub fn assertion(input: TokenStream) -> TokenStream {
     }
 }
 fn expand_assertion(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
-    let Data::Struct(data) = &input.data else { return Err(syn::Error::new_spanned(&input,"assertion requires a concrete record")); };
-    let qualification = data.fields.iter().find(|field| field.ident.as_ref().is_some_and(|name| name == "qualification"))
-        .ok_or_else(|| syn::Error::new_spanned(&input.ident,"assertion requires a keyed qualification field"))?;
+    let Data::Struct(data) = &input.data else {
+        return Err(syn::Error::new_spanned(
+            &input,
+            "assertion requires a concrete record",
+        ));
+    };
+    let qualification = data
+        .fields
+        .iter()
+        .find(|field| {
+            field
+                .ident
+                .as_ref()
+                .is_some_and(|name| name == "qualification")
+        })
+        .ok_or_else(|| {
+            syn::Error::new_spanned(
+                &input.ident,
+                "assertion requires a keyed qualification field",
+            )
+        })?;
     let mut keyed = false;
     for attr in &qualification.attrs {
-        if attr.path().is_ident("model") { attr.parse_nested_meta(|meta| { if meta.path.is_ident("key") { keyed = true; } Ok(()) })?; }
+        if attr.path().is_ident("model") {
+            attr.parse_nested_meta(|meta| {
+                if meta.path.is_ident("key") {
+                    keyed = true;
+                }
+                Ok(())
+            })?;
+        }
     }
-    if !keyed { return Err(syn::Error::new_spanned(qualification,"assertion qualification must participate in the semantic key")); }
+    if !keyed {
+        return Err(syn::Error::new_spanned(
+            qualification,
+            "assertion qualification must participate in the semantic key",
+        ));
+    }
     let mut support: Option<syn::Ident> = None;
     let mut table: Option<LitStr> = None;
     let mut family: Option<syn::Path> = None;
@@ -30,35 +60,71 @@ fn expand_assertion(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
     for attr in &input.attrs {
         if attr.path().is_ident("assertion") {
             attr.parse_nested_meta(|meta| {
-                if meta.path.is_ident("support") { support = Some(meta.value()?.parse()?); }
-                else if meta.path.is_ident("name") { table = Some(meta.value()?.parse()?); }
-                else if meta.path.is_ident("family") { family = Some(meta.value()?.parse()?); }
-                else if meta.path.is_ident("fidelity") { fidelity = Some(meta.value()?.parse()?); }
-                else if meta.path.is_ident("referents") {
+                if meta.path.is_ident("support") {
+                    support = Some(meta.value()?.parse()?);
+                } else if meta.path.is_ident("name") {
+                    table = Some(meta.value()?.parse()?);
+                } else if meta.path.is_ident("family") {
+                    family = Some(meta.value()?.parse()?);
+                } else if meta.path.is_ident("fidelity") {
+                    fidelity = Some(meta.value()?.parse()?);
+                } else if meta.path.is_ident("referents") {
                     meta.parse_nested_meta(|field| {
-                        referents.push(field.path.get_ident().cloned().ok_or_else(|| field.error("expected referent field"))?);
+                        referents.push(
+                            field
+                                .path
+                                .get_ident()
+                                .cloned()
+                                .ok_or_else(|| field.error("expected referent field"))?,
+                        );
                         Ok(())
                     })?;
+                } else if meta.path.is_ident("subjects") {
+                    meta.parse_nested_meta(|field| {
+                        subjects.push(
+                            field
+                                .path
+                                .get_ident()
+                                .cloned()
+                                .ok_or_else(|| field.error("expected subject field"))?,
+                        );
+                        Ok(())
+                    })?;
+                } else {
+                    return Err(meta
+                        .error("expected support, name, family, fidelity, subjects or referents"));
                 }
-                else if meta.path.is_ident("subjects") {
-                    meta.parse_nested_meta(|field| {
-                        subjects.push(field.path.get_ident().cloned().ok_or_else(|| field.error("expected subject field"))?);
-                        Ok(())
-                    })?;
-                } else { return Err(meta.error("expected support, name, family, fidelity, subjects or referents")); }
                 Ok(())
             })?;
         }
     }
-    let error = || syn::Error::new_spanned(&input.ident, "assertion requires support, name, family and nonempty subjects");
+    let error = || {
+        syn::Error::new_spanned(
+            &input.ident,
+            "assertion requires support, name, family and nonempty subjects",
+        )
+    };
     let support = support.ok_or_else(error)?;
     let table = table.ok_or_else(error)?;
     let family = family.ok_or_else(error)?;
-    if subjects.is_empty() { return Err(error()); }
-    let subject_types = subjects.iter().chain(&referents).map(|subject| data.fields.iter().find(|field| field.ident.as_ref() == Some(subject))
-        .map(|field| &field.ty).ok_or_else(|| syn::Error::new_spanned(subject,"unknown subject or referent field")))
+    if subjects.is_empty() {
+        return Err(error());
+    }
+    let subject_types = subjects
+        .iter()
+        .chain(&referents)
+        .map(|subject| {
+            data.fields
+                .iter()
+                .find(|field| field.ident.as_ref() == Some(subject))
+                .map(|field| &field.ty)
+                .ok_or_else(|| {
+                    syn::Error::new_spanned(subject, "unknown subject or referent field")
+                })
+        })
         .collect::<syn::Result<Vec<_>>>()?;
-    let name = &input.ident; let vis = &input.vis;
+    let name = &input.ident;
+    let vis = &input.vis;
     let fidelity = fidelity.map(|fidelity| quote! { const FIDELITY: Option<::lctx_model::domain::attribution::Fidelity> = Some(#fidelity); });
     Ok(quote! {
         impl ::lctx_model::domain::assertion::Assertion for #name {
@@ -112,7 +178,10 @@ pub fn domain(input: TokenStream) -> TokenStream {
 
 fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
     if !input.generics.params.is_empty() {
-        return Err(syn::Error::new_spanned(&input.generics, "domain records are concrete"));
+        return Err(syn::Error::new_spanned(
+            &input.generics,
+            "domain records are concrete",
+        ));
     }
     let mut table = None;
     let mut rule: Option<LitStr> = None;
@@ -125,33 +194,55 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
     for attr in &input.attrs {
         if attr.path().is_ident("assertion") {
             attr.parse_nested_meta(|meta| {
-                if meta.path.is_ident("support") { required_support = Some(meta.value()?.parse()?); }
-                else if meta.path.is_ident("subjects") || meta.path.is_ident("referents") { meta.parse_nested_meta(|_| Ok(()))?; }
-                else if meta.path.is_ident("family") { family = Some(meta.value()?.parse()?); }
-                else { let _: syn::Expr = meta.value()?.parse()?; }
+                if meta.path.is_ident("support") {
+                    required_support = Some(meta.value()?.parse()?);
+                } else if meta.path.is_ident("subjects") || meta.path.is_ident("referents") {
+                    meta.parse_nested_meta(|_| Ok(()))?;
+                } else if meta.path.is_ident("family") {
+                    family = Some(meta.value()?.parse()?);
+                } else {
+                    let _: syn::Expr = meta.value()?.parse()?;
+                }
                 Ok(())
             })?;
         }
         if attr.path().is_ident("model") {
             attr.parse_nested_meta(|meta| {
-                if meta.path.is_ident("name") { table = Some(meta.value()?.parse::<LitStr>()?); }
-                else if meta.path.is_ident("rule") { rule = Some(meta.value()?.parse()?); }
-                else if meta.path.is_ident("conclusion") { conclusion = Some(meta.value()?.parse()?); }
-                else if meta.path.is_ident("validate") { validator = Some(meta.value()?.parse()?); }
-                else if meta.path.is_ident("invariants") { invariants = Some(meta.value()?.parse()?); }
-                else if meta.path.is_ident("semantic_source") { semantic_source = Some(meta.value()?.parse()?); }
-                else if meta.path.is_ident("family") { family = Some(meta.value()?.parse()?); }
-                else { return Err(meta.error("expected name, validate, invariants, family or semantic_source")); }
+                if meta.path.is_ident("name") {
+                    table = Some(meta.value()?.parse::<LitStr>()?);
+                } else if meta.path.is_ident("rule") {
+                    rule = Some(meta.value()?.parse()?);
+                } else if meta.path.is_ident("conclusion") {
+                    conclusion = Some(meta.value()?.parse()?);
+                } else if meta.path.is_ident("validate") {
+                    validator = Some(meta.value()?.parse()?);
+                } else if meta.path.is_ident("invariants") {
+                    invariants = Some(meta.value()?.parse()?);
+                } else if meta.path.is_ident("semantic_source") {
+                    semantic_source = Some(meta.value()?.parse()?);
+                } else if meta.path.is_ident("family") {
+                    family = Some(meta.value()?.parse()?);
+                } else {
+                    return Err(meta
+                        .error("expected name, validate, invariants, family or semantic_source"));
+                }
                 Ok(())
             })?;
         }
     }
-    let table = table.ok_or_else(|| syn::Error::new_spanned(&input.ident, "model(name = \"…\") is required"))?;
+    let table = table
+        .ok_or_else(|| syn::Error::new_spanned(&input.ident, "model(name = \"…\") is required"))?;
     let Data::Struct(data) = &input.data else {
-        return Err(syn::Error::new_spanned(&input, "Domain requires a named record; model sum values separately"));
+        return Err(syn::Error::new_spanned(
+            &input,
+            "Domain requires a named record; model sum values separately",
+        ));
     };
     let Fields::Named(fields) = &data.fields else {
-        return Err(syn::Error::new_spanned(&data.fields, "Domain requires named fields"));
+        return Err(syn::Error::new_spanned(
+            &data.fields,
+            "Domain requires named fields",
+        ));
     };
     let mut keys = Vec::new();
     let mut key_types = Vec::new();
@@ -163,7 +254,10 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
     for field in &fields.named {
         let name = field.ident.as_ref().expect("named fields");
         if name == "id" || name == "generation_id" {
-            return Err(syn::Error::new_spanned(name, "identity and generation columns are generated"));
+            return Err(syn::Error::new_spanned(
+                name,
+                "identity and generation columns are generated",
+            ));
         }
         let ty = &field.ty;
         let mut key = false;
@@ -171,34 +265,67 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
         for attr in &field.attrs {
             if attr.path().is_ident("model") {
                 attr.parse_nested_meta(|meta| {
-                    if meta.path.is_ident("key") { key = true; }
-                    else if meta.path.is_ident("premise") { premises.push(name); premise_types.push(ty); }
-                    else if meta.path.is_ident("provenance") { provenance = true; }
-                    else { return Err(meta.error("expected key or provenance")); }
+                    if meta.path.is_ident("key") {
+                        key = true;
+                    } else if meta.path.is_ident("premise") {
+                        premises.push(name);
+                        premise_types.push(ty);
+                    } else if meta.path.is_ident("provenance") {
+                        provenance = true;
+                    } else {
+                        return Err(meta.error("expected key or provenance"));
+                    }
                     Ok(())
                 })?;
             }
         }
-        if key { keys.push(name); key_types.push(ty); }
-        names.push(name); types.push(ty);
+        if key {
+            keys.push(name);
+            key_types.push(ty);
+        }
+        names.push(name);
+        types.push(ty);
         descriptors.push(quote! {
             ::lctx_model::domain::Field::of::<#ty>(stringify!(#name), #key, #provenance)
         });
     }
-    if keys.is_empty() { return Err(syn::Error::new_spanned(&input.ident, "at least one semantic key field is required")); }
+    if keys.is_empty() {
+        return Err(syn::Error::new_spanned(
+            &input.ident,
+            "at least one semantic key field is required",
+        ));
+    }
     if rule.is_none() && (conclusion.is_some() || !premises.is_empty()) {
-        return Err(syn::Error::new_spanned(&input,"derivation fields require a declared rule"));
+        return Err(syn::Error::new_spanned(
+            &input,
+            "derivation fields require a declared rule",
+        ));
     }
     let derivation = if let Some(rule) = rule {
-        if premises.is_empty() { return Err(syn::Error::new_spanned(&input,"derivation requires typed premises")); }
-        let (conclusion_metadata,conclusion_row) = if let Some(column) = conclusion {
-            let field = fields.named.iter().find(|f| f.ident.as_ref() == Some(&column))
-                .ok_or_else(|| syn::Error::new_spanned(&column,"unknown derivation conclusion"))?;
+        if premises.is_empty() {
+            return Err(syn::Error::new_spanned(
+                &input,
+                "derivation requires typed premises",
+            ));
+        }
+        let (conclusion_metadata, conclusion_row) = if let Some(column) = conclusion {
+            let field = fields
+                .named
+                .iter()
+                .find(|f| f.ident.as_ref() == Some(&column))
+                .ok_or_else(|| syn::Error::new_spanned(&column, "unknown derivation conclusion"))?;
             let ty = &field.ty;
-            (quote!(Some(::lctx_model::domain::derivation::ReferenceColumn::of::<#ty>(stringify!(#column)))),
-             quote!(::lctx_model::domain::derivation::DerivationReference::row_ref(&self.#column)?))
+            (
+                quote!(Some(::lctx_model::domain::derivation::ReferenceColumn::of::<#ty>(stringify!(#column)))),
+                quote!(::lctx_model::domain::derivation::DerivationReference::row_ref(&self.#column)?),
+            )
         } else {
-            (quote!(None),quote!(::lctx_model::domain::derivation::RowRef::of(<Self as ::lctx_model::domain::Record>::id(self))))
+            (
+                quote!(None),
+                quote!(::lctx_model::domain::derivation::RowRef::of(
+                    <Self as ::lctx_model::domain::Record>::id(self)
+                )),
+            )
         };
         quote! {
             fn derivation() -> Option<::lctx_model::domain::derivation::Derivation> {
@@ -210,9 +337,13 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
                     premises: [#(::lctx_model::domain::derivation::DerivationReference::row_ref(&self.#premises),)*].into_iter().flatten().collect() })
             }
         }
-    } else { quote!() };
-    let family_fn = family.map(|family| quote! {
-        fn family() -> Option<::lctx_model::domain::attribution::FactFamily> { Some(#family) }
+    } else {
+        quote!()
+    };
+    let family_fn = family.map(|family| {
+        quote! {
+            fn family() -> Option<::lctx_model::domain::attribution::FactFamily> { Some(#family) }
+        }
     });
     let declaration = quote!(#input).to_string();
     let name = &input.ident;
@@ -220,9 +351,13 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
     let physical = format_ident!("__{}Physical", name);
     let physical_ref = format_ident!("__{}PhysicalRef", name);
     let vis = &input.vis;
-    let semantic_source = semantic_source.map(|expr| quote!(#expr)).unwrap_or_else(|| quote!(b""));
+    let semantic_source = semantic_source
+        .map(|expr| quote!(#expr))
+        .unwrap_or_else(|| quote!(b""));
     let validation = validator.map(|v| quote! { #v(self)?; });
-    let invariants = invariants.map(|v| quote! { #v() }).unwrap_or_else(|| quote! { Vec::new() });
+    let invariants = invariants
+        .map(|v| quote! { #v() })
+        .unwrap_or_else(|| quote! { Vec::new() });
     let required_support = required_support.map(|support| quote! {
         vec![(::std::any::TypeId::of::<#support>(), <#support as ::lctx_model::domain::Record>::NAME)]
     }).unwrap_or_else(|| quote! { Vec::new() });
@@ -318,19 +453,42 @@ pub fn domain_code(input: TokenStream) -> TokenStream {
     }
 }
 fn expand_code(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
-    let Data::Enum(data) = &input.data else { return Err(syn::Error::new_spanned(&input, "DomainCode requires an enum")); };
+    let Data::Enum(data) = &input.data else {
+        return Err(syn::Error::new_spanned(
+            &input,
+            "DomainCode requires an enum",
+        ));
+    };
     let name = &input.ident;
     let mut variants = Vec::new();
     let mut codes = Vec::new();
     let mut seen = std::collections::HashSet::new();
     for variant in &data.variants {
-        if !matches!(variant.fields, Fields::Unit) { return Err(syn::Error::new_spanned(variant, "codebook variants have no payload")); }
-        let Some((_, syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Int(code), .. }))) = &variant.discriminant else {
-            return Err(syn::Error::new_spanned(variant, "codebook requires an explicit nonnegative i16 code"));
+        if !matches!(variant.fields, Fields::Unit) {
+            return Err(syn::Error::new_spanned(
+                variant,
+                "codebook variants have no payload",
+            ));
+        }
+        let Some((
+            _,
+            syn::Expr::Lit(syn::ExprLit {
+                lit: syn::Lit::Int(code),
+                ..
+            }),
+        )) = &variant.discriminant
+        else {
+            return Err(syn::Error::new_spanned(
+                variant,
+                "codebook requires an explicit nonnegative i16 code",
+            ));
         };
         let value = code.base10_parse::<i16>()?;
-        if !seen.insert(value) { return Err(syn::Error::new_spanned(code, "duplicate code")); }
-        variants.push(&variant.ident); codes.push(value);
+        if !seen.insert(value) {
+            return Err(syn::Error::new_spanned(code, "duplicate code"));
+        }
+        variants.push(&variant.ident);
+        codes.push(value);
     }
     Ok(quote! {
         impl ::lctx_model::domain::FlatValue for #name {}
@@ -374,8 +532,18 @@ pub fn domain_sum(input: TokenStream) -> TokenStream {
     }
 }
 fn expand_sum(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
-    let Data::Enum(data) = &input.data else { return Err(syn::Error::new_spanned(&input, "DomainSum requires an enum")); };
-    if !input.generics.params.is_empty() { return Err(syn::Error::new_spanned(&input.generics, "domain sums are concrete")); }
+    let Data::Enum(data) = &input.data else {
+        return Err(syn::Error::new_spanned(
+            &input,
+            "DomainSum requires an enum",
+        ));
+    };
+    if !input.generics.params.is_empty() {
+        return Err(syn::Error::new_spanned(
+            &input.generics,
+            "domain sums are concrete",
+        ));
+    }
     let mut table = None;
     let mut validator: Option<syn::Path> = None;
     let mut invariants: Option<syn::Path> = None;
@@ -383,18 +551,33 @@ fn expand_sum(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
     for attr in &input.attrs {
         if attr.path().is_ident("model") {
             attr.parse_nested_meta(|meta| {
-                if meta.path.is_ident("name") { table = Some(meta.value()?.parse::<LitStr>()?); Ok(()) }
-                else if meta.path.is_ident("semantic_source") { semantic_source = Some(meta.value()?.parse()?); Ok(()) }
-                else if meta.path.is_ident("validate") { validator = Some(meta.value()?.parse()?); Ok(()) }
-                else if meta.path.is_ident("invariants") { invariants = Some(meta.value()?.parse()?); Ok(()) }
-                else { Err(meta.error("expected name, semantic_source, validate or invariants")) }
+                if meta.path.is_ident("name") {
+                    table = Some(meta.value()?.parse::<LitStr>()?);
+                    Ok(())
+                } else if meta.path.is_ident("semantic_source") {
+                    semantic_source = Some(meta.value()?.parse()?);
+                    Ok(())
+                } else if meta.path.is_ident("validate") {
+                    validator = Some(meta.value()?.parse()?);
+                    Ok(())
+                } else if meta.path.is_ident("invariants") {
+                    invariants = Some(meta.value()?.parse()?);
+                    Ok(())
+                } else {
+                    Err(meta.error("expected name, semantic_source, validate or invariants"))
+                }
             })?;
         }
     }
-    let table = table.ok_or_else(|| syn::Error::new_spanned(&input.ident, "model(name = …) is required"))?;
-    let semantic_source = semantic_source.map(|expr| quote!(#expr)).unwrap_or_else(|| quote!(b""));
+    let table = table
+        .ok_or_else(|| syn::Error::new_spanned(&input.ident, "model(name = …) is required"))?;
+    let semantic_source = semantic_source
+        .map(|expr| quote!(#expr))
+        .unwrap_or_else(|| quote!(b""));
     let validation = validator.map(|v| quote! { #v(self)?; });
-    let invariant_creation = invariants.map(|v| quote! { #v() }).unwrap_or_else(|| quote! { Vec::new() });
+    let invariant_creation = invariants
+        .map(|v| quote! { #v() })
+        .unwrap_or_else(|| quote! { Vec::new() });
     let name = &input.ident;
     let physical = format_ident!("__{}Physical", name);
     let physical_ref = format_ident!("__{}PhysicalRef", name);
@@ -411,58 +594,96 @@ fn expand_sum(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
         for attr in &variant.attrs {
             if attr.path().is_ident("model") {
                 attr.parse_nested_meta(|meta| {
-                    if meta.path.is_ident("code") { code = Some(meta.value()?.parse::<syn::LitInt>()?.base10_parse::<i16>()?); Ok(()) }
-                    else { Err(meta.error("expected code")) }
+                    if meta.path.is_ident("code") {
+                        code = Some(
+                            meta.value()?
+                                .parse::<syn::LitInt>()?
+                                .base10_parse::<i16>()?,
+                        );
+                        Ok(())
+                    } else {
+                        Err(meta.error("expected code"))
+                    }
                 })?;
             }
         }
-        let code = code.ok_or_else(|| syn::Error::new_spanned(variant, "each arm requires an explicit model(code = N)"))?;
-        if !seen.insert(code) { return Err(syn::Error::new_spanned(variant, "duplicate arm code")); }
+        let code = code.ok_or_else(|| {
+            syn::Error::new_spanned(variant, "each arm requires an explicit model(code = N)")
+        })?;
+        if !seen.insert(code) {
+            return Err(syn::Error::new_spanned(variant, "duplicate arm code"));
+        }
         let mut members = Vec::new();
         match &variant.fields {
-            Fields::Named(fields) => for field in &fields.named {
-                let member = field.ident.as_ref().expect("named");
-                let column = format_ident!("{}_{}", variant.ident.to_string().to_lowercase(), member);
-                let (storage_ty, optional) = optional_inner(&field.ty);
-                physical_names.push(column.clone()); physical_types.push(storage_ty.clone());
-                let mut provenance = false;
-                for attr in &field.attrs {
-                    if attr.path().is_ident("model") {
-                        attr.parse_nested_meta(|meta| {
+            Fields::Named(fields) => {
+                for field in &fields.named {
+                    let member = field.ident.as_ref().expect("named");
+                    let column =
+                        format_ident!("{}_{}", variant.ident.to_string().to_lowercase(), member);
+                    let (storage_ty, optional) = optional_inner(&field.ty);
+                    physical_names.push(column.clone());
+                    physical_types.push(storage_ty.clone());
+                    let mut provenance = false;
+                    for attr in &field.attrs {
+                        if attr.path().is_ident("model") {
+                            attr.parse_nested_meta(|meta| {
                             if meta.path.is_ident("provenance") { provenance = true; Ok(()) }
                             else { Err(meta.error("sum payloads are key fields; only provenance may be annotated")) }
                         })?;
+                        }
                     }
+                    descriptors.push(quote! { ::lctx_model::domain::Field::of::<Option<#storage_ty>>(stringify!(#column), true, #provenance) });
+                    members.push((member.clone(), column, optional));
                 }
-                descriptors.push(quote! { ::lctx_model::domain::Field::of::<Option<#storage_ty>>(stringify!(#column), true, #provenance) });
-                members.push((member.clone(), column, optional));
-            },
-            Fields::Unit => {},
-            _ => return Err(syn::Error::new_spanned(variant, "sum payloads require named fields")),
+            }
+            Fields::Unit => {}
+            _ => {
+                return Err(syn::Error::new_spanned(
+                    variant,
+                    "sum payloads require named fields",
+                ));
+            }
         }
-        variants.push(&variant.ident); codes.push(code); arm_fields.push(members);
+        variants.push(&variant.ident);
+        codes.push(code);
+        arm_fields.push(members);
     }
     let visibility = &input.vis;
-    let aliases: Vec<_> = variants.iter().map(|variant| format_ident!("{}{}Id", name, variant)).collect();
+    let aliases: Vec<_> = variants
+        .iter()
+        .map(|variant| format_ident!("{}{}Id", name, variant))
+        .collect();
     let mut key_arms = Vec::new();
     let mut heap_arms = Vec::new();
     let mut encode_arms = Vec::new();
     let mut decode_arms = Vec::new();
     let mut sum_arms = Vec::new();
     for ((variant, code), fields) in variants.iter().zip(&codes).zip(&arm_fields) {
-        let names: Vec<_> = fields.iter().map(|(name,_,_)| name).collect();
+        let names: Vec<_> = fields.iter().map(|(name, _, _)| name).collect();
         key_arms.push(quote! { Self::#variant { #(#names,)* } => {
             ::lctx_model::domain::Key::encode(&(#code as i16), sink);
             #(::lctx_model::domain::Key::encode(#names, sink);)*
         }});
         heap_arms.push(quote! { Self::#variant { #(#names,)* } => 0usize #(.saturating_add(::lctx_model::domain::HeapSize::heap_bytes(#names)))* });
-        let values: Vec<_> = physical_names.iter().map(|column| {
-            if let Some((member, _, optional)) = fields.iter().find(|(_,c,_)| c == column) {
-                if *optional { quote! { #column: #member.as_ref() } } else { quote! { #column: Some(#member) } }
-            } else { quote! { #column: None } }
-        }).collect();
+        let values: Vec<_> = physical_names
+            .iter()
+            .map(|column| {
+                if let Some((member, _, optional)) = fields.iter().find(|(_, c, _)| c == column) {
+                    if *optional {
+                        quote! { #column: #member.as_ref() }
+                    } else {
+                        quote! { #column: Some(#member) }
+                    }
+                } else {
+                    quote! { #column: None }
+                }
+            })
+            .collect();
         encode_arms.push(quote! { Self::#variant { #(#names,)* } => #physical_ref { id: Self::id(row), kind: #code, #(#values,)* } });
-        let inactive: Vec<_> = physical_names.iter().filter(|column| !fields.iter().any(|(_,c,_)| c == *column)).collect();
+        let inactive: Vec<_> = physical_names
+            .iter()
+            .filter(|column| !fields.iter().any(|(_, c, _)| c == *column))
+            .collect();
         let decoded: Vec<_> = fields.iter().map(|(member, column, optional)| {
             if *optional { quote! { #member: physical.#column } }
             else { quote! { #member: physical.#column.ok_or_else(|| ::lctx_model::domain::ModelError::Invalid(concat!("missing active payload ", stringify!(#column)).into()))? } }
@@ -475,9 +696,15 @@ fn expand_sum(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
             let required = !optional;
             quote! { ::lctx_model::domain::ArmField { name: stringify!(#column), required: #required } }
         });
-        sum_arms.push(quote! { ::lctx_model::domain::Arm { code: #code, fields: vec![#(#requirements,)*] } });
+        sum_arms.push(
+            quote! { ::lctx_model::domain::Arm { code: #code, fields: vec![#(#requirements,)*] } },
+        );
     }
-    let borrow_lifetime = if physical_names.is_empty() { quote! {} } else { quote! { <'a> } };
+    let borrow_lifetime = if physical_names.is_empty() {
+        quote! {}
+    } else {
+        quote! { <'a> }
+    };
     Ok(quote! {
         #(#visibility type #aliases = ::lctx_model::domain::ArmId<#name, #codes>;)*
         impl ::lctx_model::domain::SumRecord for #name {
@@ -537,14 +764,13 @@ fn expand_sum(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
     })
 }
 fn optional_inner(ty: &syn::Type) -> (syn::Type, bool) {
-    if let syn::Type::Path(path) = ty {
-        if let Some(segment) = path.path.segments.last() {
-            if segment.ident == "Option" {
-                if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
-                    if let Some(syn::GenericArgument::Type(inner)) = args.args.first() { return (inner.clone(), true); }
-                }
-            }
-        }
+    if let syn::Type::Path(path) = ty
+        && let Some(segment) = path.path.segments.last()
+        && segment.ident == "Option"
+        && let syn::PathArguments::AngleBracketed(args) = &segment.arguments
+        && let Some(syn::GenericArgument::Type(inner)) = args.args.first()
+    {
+        return (inner.clone(), true);
     }
     (ty.clone(), false)
 }

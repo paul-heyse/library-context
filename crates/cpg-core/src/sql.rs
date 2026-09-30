@@ -1,5 +1,5 @@
 //! The one SQL entry point (DESIGN §4.3; review F7): DDL, DML and statements are disallowed, so no
-//! query can write to a table and bypass `DeltaTable::write`'s CHECK and invariant validation.
+//! compute query can write to a fact table and bypass generation admission or validation.
 
 use cpg_schema::query::{QueryRow, Relation};
 use cpg_schema::{Digest, Id};

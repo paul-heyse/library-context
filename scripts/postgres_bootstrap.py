@@ -180,7 +180,10 @@ def main() -> None:
         )
     print(f"Provisioned lctx database, four roles and pgvector 0.8.6 on PG18 port {args.port}")
     print(f"Separate protected configurations written in {args.config.parent}")
-    print("Next: lctx store install, then lctx store check. No runtime migrations occur automatically.")
+    print(
+        "Next: lctx store install, then lctx store check. "
+        "No runtime migrations occur automatically."
+    )
 
 
 if __name__ == "__main__":

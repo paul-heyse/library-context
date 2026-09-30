@@ -30,8 +30,8 @@ The pieces:
   `--profile behavioral` explicitly requests the flow provider and retained behavioral enrichment.
 - **Facts:** the typed model (`lctx-model::domain`) is the contract and PostgreSQL generations
   store it (ADR-0086); `lctx-postgres` owns the generation store and the retained
-  cache/operation services. The Delta store was removed in cutover phase 1 (P1.3/P1.4). Until
-  phase 2 publishes facts, only conformance generations exist.
+  cache/operation services. The Delta store was removed in cutover phase 1 (P1.3/P1.4). Facts publication is implemented through `lctx compile --through facts`; qualification
+  receipts and remaining work are in the cutover plan.
 - **Behavior:** conditions are bounded BDDs over evaluation atoms (biodivine-lib-bdd), with
   pinned models and finite summaries composed over petgraph SCCs; five verdicts, never a null.
 - **Analytics:** petgraph, leiden-rs and our own FCA/RCA.
@@ -95,7 +95,7 @@ real consumer.
 |---|---|
 | During a design/implementation phase | Compile checks (`cargo check`/`cargo build` on the touched crates) and targeted tests or probes for the scope just implemented. No formatting, linting or integrated gate after a slice or commit. |
 | After all functional scope in the plan is implemented | `just fmt`, then `just test-all`: fmt-check, clippy `-D warnings`, release-profile nextest, pytest + pyrefly, rules, ADR/agent lint, fixture parsing, `just deps` and `just gold` |
-| The real library, end to end | Unavailable during the cutover: `lctx compile` exits 3 until phase 2's `--through facts`; the facts pilots return at plan Q. Report `not_run`. |
+| The real library, end to end | `lctx compile fastmcp --through facts --profile catalog|behavioral`; reports a facts generation without selecting it. Analysis and serving remain unavailable. |
 | The store and its generations | `lctx store install\|check\|reset`, `lctx generation list\|show\|select\|retire\|abort`, `lctx query --generation <id> "SQL"` (read-only); runbook: `docs/postgresql.md` |
 | Add or upgrade a library | `lctx library init <name> --requirement '<req>'`; upgrade with `uv lock --project libraries/<name> --upgrade-package <dist>` (`libraries/README.md`) |
 | Format (mutating) | `just fmt`, once at the end of the scope (above) |
@@ -124,6 +124,21 @@ explicit override for an external target. Keep paths and rustflags stable during
 it. Lower libraries and Python bindings stay outside its dependency closure. Isolated benchmark
 trials own both artifact directories and never clean the shared build directory.
 
+## PostgreSQL superuser access for agents
+
+The operator has granted agents full superuser access to the local PostgreSQL 18 cluster
+(port 5432), to use however they see fit. Everything in it is regenerable from pinned inputs, and
+no other data lives there. This covers all databases (`lctx`, `pse` and the `pse_test_*` leftovers)
+and any administration: create, alter, drop, inspect, repair.
+- Connect as `lctx_superuser`; `~/.pgpass` supplies the password:
+  `psql -h 127.0.0.1 -U lctx_superuser -d lctx` (use `-d postgres` for cluster-level work).
+- The same credential as a URL is in `~/.config/library-context/postgres-superuser.json`
+  (`{"url": ...}`, mode 0600), for authorized local administration.
+- This is the agents' own access. The four service roles (`lctx_migrator`, `lctx_app`,
+  `lctx_importer`, `lctx_serving`) stay non-superuser, and `lctx store check` still enforces that.
+  Product code and runtime configuration never use the superuser.
+- Never print the password or commit either file.
+
 ## Writing code against the pinned libraries
 
 Select library skills in `.config/library-skills.toml`, then run `just skills-sync` (or
@@ -132,8 +147,7 @@ copy per skill from `~/.local/share/library-skills/skills/` to both Codex and Cl
 Improvements there reach every selecting repo; process skills remain local. Set
 `LIBRARY_SKILLS_ROOT` if the shared store is elsewhere. New worktrees need `just skills-sync`.
 
-The library capability skills under `.claude/skills/` are pinned, offline indexes. Use them
-**before** writing against an API, rather than relying on memory:
+The library capability skills under `.claude/skills/` are pinned, offline indexes. They are helpful reference for identifying and understanding library functionality in depth:
 - `datafusion` (DataFusion, Arrow, object_store)
 - `rust-graphs` (petgraph plus rustworkx-core, leiden-rs, graphops and others: which library, how
   to reach it from a petgraph graph, and each one's silent failures)
@@ -162,7 +176,7 @@ The library capability skills under `.claude/skills/` are pinned, offline indexe
   families are never a compiler input (DESIGN §1.4).
 
 For a library no skill covers (e.g. vLLM, the Qwen embedding models, LanceDB, pyarrow),
-**Context7 is the first stop**, then the `library-research` skill. The Context7 MCP server needs
+**Context7 is the first stop**. The Context7 MCP server needs
 a reconnect after its API key changes. Check a skill's pinned version
 against `docs/pins.md` before transferring a claim. An empty search result is not evidence that a
 capability is absent.

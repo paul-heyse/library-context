@@ -25,7 +25,6 @@ aho-corasick = { version = "1.1.5" }
 arc-swap = { version = "1.9.2", default-features = false, features = ["weak"] }
 arrayvec = { version = "0.7.8" }
 arrow-array = { version = "59.3.0", default-features = false, features = ["chrono-tz"] }
-arrow-cast = { version = "59.3.0", default-features = false, features = ["prettyprint"] }
 arrow-ipc = { version = "59.3.0", features = ["lz4", "zstd"] }
 arrow-schema = { version = "59.3.0", default-features = false, features = ["canonical_extension_types", "serde"] }
 base64-2b5c6dc72f624058 = { package = "base64", version = "0.23.1" }

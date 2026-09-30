@@ -1,7 +1,7 @@
 """Check the pinned Pyrefly fork (ADR-0012, DESIGN §4.2.6; review F11, slice-1 review F4).
 
 1. One revision: `Cargo.lock` is the authority for what is built. Every pyrefly crate is locked to
-   one fork commit, and the driver's `PYREFLY_REV` (which feeds `producer_id`) and `docs/pins.md`
+   one fork commit. The driver's `PYREFLY_REVISION` and `docs/pins.md`
    name that commit. The driver's `PYREFLY_PATCH_SHA256` and `docs/pins.md` name the sha256 of
    `third_party/pyrefly-1.3.1.patch`.
 2. The locked commit in cargo's git checkout is the upstream tag plus exactly the committed patch:
@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parent.parent
 TAG_COMMIT = "3e3177d0f4755b56c2d5a710d830eed89b14c2e3"
 FORK = "git+https://github.com/paul-heyse/pyrefly"
 LOCK = ROOT / "Cargo.lock"
-DRIVER = ROOT / "crates" / "cpg-extract" / "src" / "config.rs"
+DRIVER = ROOT / "crates" / "cpg-extract" / "src" / "typed_syntax.rs"
 PINS = ROOT / "docs" / "pins.md"
 PATCH = ROOT / "third_party" / "pyrefly-1.3.1.patch"
 
@@ -80,7 +80,9 @@ CONST_READ = re.compile(r"env::var(?:_os)?\(\s*([A-Z0-9_]+)\s*\)")
 CONST_DEF = re.compile(r'const\s+([A-Z0-9_]+)\s*:\s*&(?:\'static\s+)?str\s*=\s*"([A-Z0-9_]+)"')
 PREFIX = re.compile(r'"(PYREFLY_|PYSA_DUMP)"')
 LOCKED = re.compile(r'source = "' + re.escape(FORK) + r'\?[^"#]*#([0-9a-f]{40})"')
-DRIVER_CONST = re.compile(r'pub const (PYREFLY_REV|PYREFLY_PATCH_SHA256): &str =\s*"([0-9a-f]+)"')
+DRIVER_CONST = re.compile(
+    r'pub const (PYREFLY_REVISION|PYREFLY_PATCH_SHA256): &str =\s*"([0-9a-f]+(?:;ruff=[0-9.]+)?)"'
+)
 
 
 def one_revision(lock: str, driver: str, pins: str, patch: bytes) -> tuple[str | None, list[str]]:
@@ -92,8 +94,10 @@ def one_revision(lock: str, driver: str, pins: str, patch: bytes) -> tuple[str |
     rev = locked.pop()
     consts = dict(DRIVER_CONST.findall(driver))
     sha = hashlib.sha256(patch).hexdigest()
-    if consts.get("PYREFLY_REV") != rev:
-        problems.append(f"PYREFLY_REV is {consts.get('PYREFLY_REV')}, Cargo.lock has {rev}")
+    if consts.get("PYREFLY_REVISION", "").split(";")[0] != rev:
+        problems.append(
+            f"PYREFLY_REVISION is {consts.get('PYREFLY_REVISION')}, Cargo.lock has {rev}"
+        )
     if consts.get("PYREFLY_PATCH_SHA256") != sha:
         problems.append(f"PYREFLY_PATCH_SHA256 differs from {PATCH.name} ({sha[:12]}...)")
     for name, value in (("revision", rev), ("patch sha256", sha)):

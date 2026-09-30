@@ -158,11 +158,11 @@ hydration adds configuration/type closure. **Correction source-inspected, 2026-0
 
 **FP-04/05, DP-03/09/19, A2, G3/G6.** Hash/schema/row decoding alone admitted a semantically
 wrong cache entry; final publication validation refused repeatedly instead of rebuilding that
-disposable stage. [`stage_cache.rs`](../../../crates/cpg-core/src/stage_cache.rs) now compares
+disposable stage. `stage_cache.rs` (`f6562d3^:crates/cpg-core/src/stage_cache.rs`, recover through Git) now compares
 snapshot-neutral canonical table batches against the existing pure derivation before admitting
 cached results. Canonical comparison avoids scan-order-dependent false misses. A mismatch uses
 the computed expected result and replaces the cache; final Delta validation remains independent
-of cache admission. [`tests/rebuild.rs`](../../../crates/cpg-core/tests/rebuild.rs) includes both
+of cache admission. `tests/rebuild.rs` (`f6562d3^:crates/cpg-core/tests/rebuild.rs`, recover through Git) includes both
 malformed-byte and valid-Arrow/wrong-value controls. **Correction source-inspected, 2026-09-29;
 test outcome not claimed.**
 

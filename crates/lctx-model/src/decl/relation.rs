@@ -159,14 +159,19 @@ impl RelationDecl {
     /// The Arrow schema of a producer's batch: the declared columns, without the generation.
     pub fn schema(&self) -> SchemaRef {
         Arc::new(
-            Schema::new(self.columns.iter().map(ColumnDecl::arrow).collect::<Vec<_>>())
-                .with_metadata(
-                    [
-                        (RELATION_KEY.to_owned(), self.name.to_owned()),
-                        (LAYER_KEY.to_owned(), self.layer.text().to_owned()),
-                    ]
-                    .into(),
-                ),
+            Schema::new(
+                self.columns
+                    .iter()
+                    .map(ColumnDecl::arrow)
+                    .collect::<Vec<_>>(),
+            )
+            .with_metadata(
+                [
+                    (RELATION_KEY.to_owned(), self.name.to_owned()),
+                    (LAYER_KEY.to_owned(), self.layer.text().to_owned()),
+                ]
+                .into(),
+            ),
         )
     }
 
@@ -250,9 +255,9 @@ pub fn validate(model: &[&RelationDecl]) -> Result<(), Vec<DeclError>> {
         for k in decl.key {
             match decl.column(k) {
                 None => err(format!("key column {k} is not declared")),
-                Some(c) if c.arrow().is_nullable() => {
-                    err(format!("key column {k} is nullable; declare a unique key instead"))
-                }
+                Some(c) if c.arrow().is_nullable() => err(format!(
+                    "key column {k} is nullable; declare a unique key instead"
+                )),
                 Some(_) => {}
             }
         }
@@ -272,7 +277,10 @@ pub fn validate(model: &[&RelationDecl]) -> Result<(), Vec<DeclError>> {
         }
         if let Some(identity) = decl.identity {
             match decl.column(identity.column) {
-                None => err(format!("identity column {} is not declared", identity.column)),
+                None => err(format!(
+                    "identity column {} is not declared",
+                    identity.column
+                )),
                 Some(c) if c.arrow().data_type() != &DataType::FixedSizeBinary(16) => {
                     err(format!("identity column {} is not an Id", identity.column))
                 }
@@ -304,15 +312,16 @@ pub fn validate(model: &[&RelationDecl]) -> Result<(), Vec<DeclError>> {
             match model.iter().find(|d| d.name == relation) {
                 None => err(format!("{column} refers to undeclared relation {relation}")),
                 Some(t) => {
-                    let keyed = t.key == [target]
-                        || t.unique.iter().any(|u| *u == [target]);
+                    let keyed = t.key == [target] || t.unique.iter().any(|u| *u == [target]);
                     if !keyed {
                         err(format!(
                             "{column} refers to {relation}.{target}, which is not a single-column key"
                         ));
                     }
                     let (Some(from), Some(to)) = (decl.column(column), t.column(target)) else {
-                        err(format!("{column} refers to missing column {relation}.{target}"));
+                        err(format!(
+                            "{column} refers to missing column {relation}.{target}"
+                        ));
                         continue;
                     };
                     if from.arrow().data_type() != to.arrow().data_type() {

@@ -1,6 +1,6 @@
 [package]
 name = "lctx"
-description = "The production entry point: acquire a library, then extract, derive, validate and publish its snapshot (DESIGN §4.0, ADR-0013)."
+description = "Acquire pinned libraries and publish typed PostgreSQL facts generations (DESIGN §15)."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,7 +9,6 @@ publish.workspace = true
 [dependencies]
 cpg-schema = { path = "../cpg-schema" }
 cpg-extract = { path = "../cpg-extract" }
-cpg-flow = { path = "../cpg-flow" }
 cpg-core = { path = "../cpg-core" }
 lctx-model = { path = "../lctx-model" }
 datafusion.workspace = true
@@ -19,7 +18,6 @@ anyhow.workspace = true
 thiserror.workspace = true
 fs-err.workspace = true
 serde_json.workspace = true
-getrandom.workspace = true
 tokio.workspace = true
 lctx-workspace-hack = { version = "0.1", path = "../lctx-workspace-hack" }
 
@@ -27,6 +25,8 @@ lctx-workspace-hack = { version = "0.1", path = "../lctx-workspace-hack" }
 tikv-jemallocator.workspace = true
 
 [dev-dependencies]
+base64.workspace = true
+sha2.workspace = true
 tempfile.workspace = true
 insta.workspace = true
 lctx-postgres = { path = "../lctx-postgres", features = ["testing"] }

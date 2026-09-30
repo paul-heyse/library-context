@@ -24,8 +24,7 @@ Review the proposal and the lock, then commit the three files.
 
 1. Edit the pin in `pyproject.toml`.
 2. `uv lock --project libraries/<name> --upgrade-package <dist>`, and review the lock diff.
-3. `lctx compile <name> --store build/store` (acquires, verifies, extracts, derives, validates,
-   publishes).
+3. `lctx compile <name> --through facts --profile catalog` (acquires, captures, extracts, validates and publishes facts).
 4. For `fastmcp`, move the `fastmcp` skill (the gold reference) to the same version through its own
    `MAINTENANCE.md`; `just gold` (run by `just test-all`) fails until they agree.
 
@@ -33,8 +32,8 @@ Review the proposal and the lock, then commit the three files.
 
 ```sh
 lctx acquire <name> [--reinstall]       # uv sync --frozen into build/envs/<name>
-lctx compile <name> --store build/store # the snapshot id, per-table rows and versions
-just pilot                              # lctx compile fastmcp, release build
+lctx compile <name> --through facts --profile catalog # a facts generation; never selects it
+lctx compile <name> --through facts --profile behavioral # also requests ty flow
 ```
 
 `lctx acquire` runs `uv sync --frozen --no-install-project --no-config --python <.python-version>
@@ -46,3 +45,6 @@ not the lock's or the pin's, a release locked without artifact hashes, and any a
 file (`.py`, `.pyi`, `py.typed`) that differs from its `RECORD`; `lctx acquire <name> --reinstall`
 repairs it. A declared `[tool.lctx.source]` must pin a 40-hex `commit` whose `tag` names the
 locked version.
+
+Facts publication is implemented; analysis, catalog construction and serving return in cutover
+phases 3–5. Select a generation explicitly only for a consumer supporting its frontier.

@@ -1,60 +1,95 @@
 //! Source and attributed syntax facts. Identity never depends on a normalized L1 entity.
 use super::charged::{ChargedMap, StateCharge};
-use crate::{Domain, DomainCode, DomainSum, Assertion};
-use super::{ContentHash, Id, ModelError, Record};
 use super::input::{InputRevision, Release};
-use super::{attribution::FactFamily, assertion::AssertionQualification};
+use super::{ContentHash, Id, ModelError, Record};
+use super::{assertion::AssertionQualification, attribution::FactFamily};
+use crate::{Assertion, Domain, DomainCode, DomainSum};
 
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name = "source_artifacts", validate = validate_source, invariants = super::artifact::content_invariants)]
 pub struct SourceArtifact {
-    #[model(key)] pub input: Id<InputRevision>,
-    #[model(key)] pub path: String,
-    #[model(key)] pub content: ContentHash,
+    #[model(key)]
+    pub input: Id<InputRevision>,
+    #[model(key)]
+    pub path: String,
+    #[model(key)]
+    pub content: ContentHash,
     pub byte_len: i64,
 }
 impl SourceArtifact {
     /// Metadata for a captured revision. Its bytes are emitted as canonical ArtifactChunk records.
     /// Publication reconstructs the bytes; this constructor is not a stored-content receipt.
-    pub fn from_bytes(input: Id<InputRevision>, path: String, body: &[u8]) -> Result<Self, ModelError> {
-        let row = Self { input, path, content: ContentHash::of(body),
-            byte_len: i64::try_from(body.len()).map_err(|_| ModelError::Invalid("artifact too large".into()))? };
+    pub fn from_bytes(
+        input: Id<InputRevision>,
+        path: String,
+        body: &[u8],
+    ) -> Result<Self, ModelError> {
+        let row = Self {
+            input,
+            path,
+            content: ContentHash::of(body),
+            byte_len: i64::try_from(body.len())
+                .map_err(|_| ModelError::Invalid("artifact too large".into()))?,
+        };
         row.validate()?;
         Ok(row)
     }
-    pub fn is_stub(&self) -> bool { self.path.ends_with(".pyi") }
-    pub fn is_package(&self) -> bool { matches!(self.path.rsplit('/').next(), Some("__init__.py" | "__init__.pyi")) }
+    pub fn is_stub(&self) -> bool {
+        self.path.ends_with(".pyi")
+    }
+    pub fn is_package(&self) -> bool {
+        matches!(
+            self.path.rsplit('/').next(),
+            Some("__init__.py" | "__init__.pyi")
+        )
+    }
     pub fn manifest_entry(&self) -> super::input::ManifestEntry {
-        super::input::ManifestEntry { path: self.path.clone(), content: self.content, byte_len: self.byte_len }
+        super::input::ManifestEntry {
+            path: self.path.clone(),
+            content: self.content,
+            byte_len: self.byte_len,
+        }
     }
 }
 fn validate_source(row: &SourceArtifact) -> Result<(), ModelError> {
     super::input::validate_path(&row.path)?;
     if row.byte_len < 0 || (row.byte_len == 0 && row.content != ContentHash::of(b"")) {
-        return Err(ModelError::Invalid("invalid artifact length or empty content digest".into()));
+        return Err(ModelError::Invalid(
+            "invalid artifact length or empty content digest".into(),
+        ));
     }
     Ok(())
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name = "modules")]
 pub struct Module {
-    #[model(key)] pub source: Id<SourceArtifact>,
-    #[model(key)] pub qualified_name: String,
+    #[model(key)]
+    pub source: Id<SourceArtifact>,
+    #[model(key)]
+    pub qualified_name: String,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name = "occurrences", validate = validate_occurrence, invariants = occurrence_invariants)]
 pub struct Occurrence {
-    #[model(key)] pub source: Id<SourceArtifact>,
-    #[model(key)] pub start: i64,
-    #[model(key)] pub end: i64,
-    #[model(key)] pub syntax_kind: SyntaxKind,
+    #[model(key)]
+    pub source: Id<SourceArtifact>,
+    #[model(key)]
+    pub start: i64,
+    #[model(key)]
+    pub end: i64,
+    #[model(key)]
+    pub syntax_kind: SyntaxKind,
     /// Structural role distinguishes events sharing a span (e.g. individual with-items).
-    #[model(key)] pub role: OccurrenceRole,
-    #[model(key)] pub structural_path: Vec<i32>,
+    #[model(key)]
+    pub role: OccurrenceRole,
+    #[model(key)]
+    pub structural_path: Vec<i32>,
 }
 fn validate_occurrence(row: &Occurrence) -> Result<(), ModelError> {
     if row.start < 0 || row.end < row.start || row.structural_path.iter().any(|index| *index < 0) {
-        return Err(ModelError::Invalid("invalid occurrence span/kind/role".into()));
+        return Err(ModelError::Invalid(
+            "invalid occurrence span/kind/role".into(),
+        ));
     }
     Ok(())
 }
@@ -62,17 +97,30 @@ fn validate_occurrence(row: &Occurrence) -> Result<(), ModelError> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
 #[repr(i16)]
 pub enum OccurrenceRole {
-    Syntax = 0, Declaration = 1, Parameter = 2, Binding = 3, Read = 4,
-    Call = 5, Argument = 6, Predicate = 7, WithItem = 8, Decorator = 9,
-    Return = 10, Yield = 11, Raise = 12,
+    Syntax = 0,
+    Declaration = 1,
+    Parameter = 2,
+    Binding = 3,
+    Read = 4,
+    Call = 5,
+    Argument = 6,
+    Predicate = 7,
+    WithItem = 8,
+    Decorator = 9,
+    Return = 10,
+    Yield = 11,
+    Raise = 12,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
 #[model(name = "syntax_observations")]
 #[assertion(support = SyntaxSupport, name = "syntax_supports", family = FactFamily::Syntax, subjects(occurrence))]
 pub struct SyntaxObservation {
-    #[model(key)] pub qualification: Id<AssertionQualification>,
-    #[model(key)] pub occurrence: Id<Occurrence>,
-    #[model(key)] pub spelling: String,
+    #[model(key)]
+    pub qualification: Id<AssertionQualification>,
+    #[model(key)]
+    pub occurrence: Id<Occurrence>,
+    #[model(key)]
+    pub spelling: String,
 }
 
 /// Ruff syntax kinds; existing codes retained from the extraction contract.
@@ -179,34 +227,71 @@ pub enum SyntaxKind {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
 #[model(name = "coverage_scopes")]
 pub enum CoverageScope {
-    #[model(code = 0)] Release { release: Id<Release> },
-    #[model(code = 1)] Module { module: Id<Module> },
-    #[model(code = 2)] Input { input: Id<InputRevision> },
-    #[model(code = 3)] Artifact { artifact: Id<SourceArtifact> },
+    #[model(code = 0)]
+    Release { release: Id<Release> },
+    #[model(code = 1)]
+    Module { module: Id<Module> },
+    #[model(code = 2)]
+    Input { input: Id<InputRevision> },
+    #[model(code = 3)]
+    Artifact { artifact: Id<SourceArtifact> },
 }
-
 
 fn occurrence_invariants() -> Vec<super::Invariant> {
-    vec![super::Invariant { name: "occurrence_source_bounds", inputs: vec![
-        super::ValidationInput::of::<SourceArtifact>(&["id"]),
-        super::ValidationInput::of::<Occurrence>(&["source", "start", "end"]),
-    ], create: std::sync::Arc::new(|budget| Box::new(OccurrenceBounds { charge: StateCharge::new(budget, "occurrence_source_bounds"), lengths: Default::default() })) }]
+    vec![super::Invariant {
+        name: "occurrence_source_bounds",
+        inputs: vec![
+            super::ValidationInput::of::<SourceArtifact>(&["id"]),
+            super::ValidationInput::of::<Occurrence>(&["source", "start", "end"]),
+        ],
+        create: std::sync::Arc::new(|budget| {
+            Box::new(OccurrenceBounds {
+                charge: StateCharge::new(budget, "occurrence_source_bounds"),
+                lengths: Default::default(),
+            })
+        }),
+    }]
 }
-struct OccurrenceBounds { charge: StateCharge, lengths: ChargedMap<Id<SourceArtifact>, i64> }
+struct OccurrenceBounds {
+    charge: StateCharge,
+    lengths: ChargedMap<Id<SourceArtifact>, i64>,
+}
 impl super::InvariantCheck for OccurrenceBounds {
-    fn visit(&mut self, relation: &str, batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
+    fn visit(
+        &mut self,
+        relation: &str,
+        batch: &arrow_array::RecordBatch,
+    ) -> Result<(), ModelError> {
         if relation == SourceArtifact::NAME {
             for source in SourceArtifact::decode(batch)? {
-                if self.lengths.insert(&mut self.charge, source.id(), source.byte_len)?.is_some() { return Err(ModelError::Conflict(SourceArtifact::NAME)); }
+                if self
+                    .lengths
+                    .insert(&mut self.charge, source.id(), source.byte_len)?
+                    .is_some()
+                {
+                    return Err(ModelError::Conflict(SourceArtifact::NAME));
+                }
             }
         } else if relation == Occurrence::NAME {
             for occurrence in Occurrence::decode(batch)? {
-                if !self.lengths.get(&occurrence.source).is_some_and(|length| occurrence.end <= *length) {
-                    return Err(ModelError::Invalid("occurrence is outside its source bytes".into()));
+                if !self
+                    .lengths
+                    .get(&occurrence.source)
+                    .is_some_and(|length| occurrence.end <= *length)
+                {
+                    return Err(ModelError::Invalid(
+                        "occurrence is outside its source bytes".into(),
+                    ));
                 }
             }
-        } else { return Err(ModelError::Invalid("undeclared span validation input".into())); }
+        } else {
+            return Err(ModelError::Invalid(
+                "undeclared span validation input".into(),
+            ));
+        }
         Ok(())
     }
-    fn finish(self: Box<Self>) -> Result<(), ModelError> { Ok(()) }
+    fn finish(self: Box<Self>) -> Result<(), ModelError> {
+        Ok(())
+    }
 }

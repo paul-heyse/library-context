@@ -177,7 +177,6 @@ impl IdHasher {
     }
 }
 
-
 /// The current identity domain (DESIGN §15.3). Part of every model id and digest.
 pub const ID_TAG_V2: &[u8] = b"lctx-id/v2";
 

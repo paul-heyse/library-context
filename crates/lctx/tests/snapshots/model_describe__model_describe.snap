@@ -3,7 +3,7 @@ source: crates/lctx/tests/model_describe.rs
 expression: "String::from_utf8(output.stdout).unwrap()"
 ---
 {
-  "digest": "f4a713ee4b88d016984714637fecd1a5bbcf6a710ac07bcc1e5d97abfed8641b",
+  "digest": "dad6dc7983136391c358394dfd3befb7a23aaf30e42719b8e0b57f513a6ed0ef",
   "relations": [
     {
       "name": "access_paths",
@@ -374,7 +374,7 @@ expression: "String::from_utf8(output.stdout).unwrap()"
           "name": "syntax_kind",
           "type": "int16",
           "list": false,
-          "nullable": false,
+          "nullable": true,
           "key": true,
           "provenance": false,
           "codes": [
@@ -760,7 +760,7 @@ expression: "String::from_utf8(output.stdout).unwrap()"
           "name": "role",
           "type": "int16",
           "list": false,
-          "nullable": false,
+          "nullable": true,
           "key": true,
           "provenance": false,
           "codes": [
@@ -1704,6 +1704,15 @@ expression: "String::from_utf8(output.stdout).unwrap()"
           "key": true,
           "provenance": false,
           "target": "provider_symbols"
+        },
+        {
+          "name": "callable_callable",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "provider_callables"
         }
       ],
       "facts": true,
@@ -1740,6 +1749,19 @@ expression: "String::from_utf8(output.stdout).unwrap()"
                 "required": true
               }
             ]
+          },
+          {
+            "code": 3,
+            "fields": [
+              {
+                "name": "callable_callable",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 4,
+            "fields": []
           }
         ]
       }
@@ -2979,7 +3001,7 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         },
         {
           "name": "name",
-          "type": "text",
+          "type": "binary",
           "list": false,
           "nullable": true,
           "key": false,
@@ -3736,6 +3758,15 @@ expression: "String::from_utf8(output.stdout).unwrap()"
           "nullable": true,
           "key": true,
           "provenance": false
+        },
+        {
+          "name": "materialized",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "source_artifacts"
         }
       ],
       "facts": true,
@@ -5196,63 +5227,118 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       "name": "derived_artifacts",
       "fields": [
         {
-          "name": "artifact",
-          "type": "id",
-          "list": false,
-          "nullable": false,
-          "key": true,
-          "provenance": false,
-          "target": "source_artifacts"
-        },
-        {
-          "name": "document",
-          "type": "id",
-          "list": false,
-          "nullable": false,
-          "key": true,
-          "provenance": false,
-          "target": "source_artifacts"
-        },
-        {
-          "name": "derivation",
+          "name": "kind",
           "type": "int16",
           "list": false,
           "nullable": false,
           "key": true,
-          "provenance": false,
-          "codes": [
-            [
-              0,
-              "PythonCodeBlock"
-            ]
-          ]
+          "provenance": false
         },
         {
-          "name": "ordinal",
+          "name": "pythoncodeblock_artifact",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "source_artifacts"
+        },
+        {
+          "name": "pythoncodeblock_document",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "source_artifacts"
+        },
+        {
+          "name": "pythoncodeblock_ordinal",
           "type": "int64",
           "list": false,
-          "nullable": false,
+          "nullable": true,
           "key": true,
           "provenance": false
         },
         {
-          "name": "fence_start",
+          "name": "pythoncodeblock_fence_start",
           "type": "int64",
           "list": false,
-          "nullable": false,
-          "key": false,
+          "nullable": true,
+          "key": true,
           "provenance": false
         },
         {
-          "name": "fence_end",
+          "name": "pythoncodeblock_fence_end",
           "type": "int64",
           "list": false,
-          "nullable": false,
-          "key": false,
+          "nullable": true,
+          "key": true,
           "provenance": false
+        },
+        {
+          "name": "taskreceipt_artifact",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "source_artifacts"
+        },
+        {
+          "name": "taskreceipt_input",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "input_revisions"
         }
       ],
-      "facts": true
+      "facts": true,
+      "sum": {
+        "tag": "kind",
+        "arms": [
+          {
+            "code": 0,
+            "fields": [
+              {
+                "name": "pythoncodeblock_artifact",
+                "required": true
+              },
+              {
+                "name": "pythoncodeblock_document",
+                "required": true
+              },
+              {
+                "name": "pythoncodeblock_ordinal",
+                "required": true
+              },
+              {
+                "name": "pythoncodeblock_fence_start",
+                "required": true
+              },
+              {
+                "name": "pythoncodeblock_fence_end",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 1,
+            "fields": [
+              {
+                "name": "taskreceipt_artifact",
+                "required": true
+              },
+              {
+                "name": "taskreceipt_input",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
     },
     {
       "name": "distribution_verifications",
@@ -7146,6 +7232,261 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       }
     },
     {
+      "name": "flow_attribute_load_observations",
+      "fields": [
+        {
+          "name": "qualification",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "assertion_qualifications"
+        },
+        {
+          "name": "occurrence",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "occurrences"
+        },
+        {
+          "name": "name",
+          "type": "text",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        }
+      ],
+      "facts": true,
+      "family": "Flow"
+    },
+    {
+      "name": "flow_attribute_load_supports",
+      "fields": [
+        {
+          "name": "assertion",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "flow_attribute_load_observations"
+        },
+        {
+          "name": "run",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "provider_runs"
+        },
+        {
+          "name": "surface",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "provider_surfaces"
+        },
+        {
+          "name": "evidence",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "evidence"
+        },
+        {
+          "name": "origin",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "InputContext"
+            ],
+            [
+              1,
+              "SourceObservation"
+            ],
+            [
+              2,
+              "AnalyzerAssertion"
+            ],
+            [
+              3,
+              "DerivedAnalysis"
+            ],
+            [
+              4,
+              "SyntheticModel"
+            ]
+          ]
+        },
+        {
+          "name": "mode",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "NativeTraversal"
+            ],
+            [
+              1,
+              "ReportDecode"
+            ],
+            [
+              2,
+              "RelationalDerivation"
+            ],
+            [
+              3,
+              "GraphAnalysis"
+            ],
+            [
+              4,
+              "Recognizer"
+            ],
+            [
+              5,
+              "StatisticalAnalysis"
+            ],
+            [
+              6,
+              "TemplateSynthesis"
+            ],
+            [
+              7,
+              "FixtureExecution"
+            ],
+            [
+              8,
+              "ManualReview"
+            ]
+          ]
+        },
+        {
+          "name": "fidelity",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "Raw"
+            ],
+            [
+              1,
+              "NativeStructural"
+            ],
+            [
+              2,
+              "NormalizedStructural"
+            ],
+            [
+              3,
+              "ReportProjection"
+            ],
+            [
+              4,
+              "DisplayOnly"
+            ]
+          ]
+        }
+      ],
+      "facts": true,
+      "family": "Flow"
+    },
+    {
+      "name": "flow_call_paths",
+      "fields": [
+        {
+          "name": "steps",
+          "type": "digest",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        }
+      ],
+      "facts": true
+    },
+    {
+      "name": "flow_call_steps",
+      "fields": [
+        {
+          "name": "path",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "flow_call_paths"
+        },
+        {
+          "name": "ordinal",
+          "type": "int64",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "call",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "occurrences"
+        },
+        {
+          "name": "operand",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "occurrences"
+        },
+        {
+          "name": "role",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "Argument"
+            ],
+            [
+              1,
+              "Callee"
+            ]
+          ]
+        }
+      ],
+      "facts": true
+    },
+    {
       "name": "flow_definition_observations",
       "fields": [
         {
@@ -7834,6 +8175,381 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       "family": "Flow"
     },
     {
+      "name": "flow_test_leaf_observations",
+      "fields": [
+        {
+          "name": "qualification",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "assertion_qualifications"
+        },
+        {
+          "name": "test",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "occurrences"
+        },
+        {
+          "name": "atom",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "evaluation_atoms"
+        },
+        {
+          "name": "operand",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "occurrences"
+        }
+      ],
+      "facts": true,
+      "family": "Flow"
+    },
+    {
+      "name": "flow_test_leaf_supports",
+      "fields": [
+        {
+          "name": "assertion",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "flow_test_leaf_observations"
+        },
+        {
+          "name": "run",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "provider_runs"
+        },
+        {
+          "name": "surface",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "provider_surfaces"
+        },
+        {
+          "name": "evidence",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "evidence"
+        },
+        {
+          "name": "origin",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "InputContext"
+            ],
+            [
+              1,
+              "SourceObservation"
+            ],
+            [
+              2,
+              "AnalyzerAssertion"
+            ],
+            [
+              3,
+              "DerivedAnalysis"
+            ],
+            [
+              4,
+              "SyntheticModel"
+            ]
+          ]
+        },
+        {
+          "name": "mode",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "NativeTraversal"
+            ],
+            [
+              1,
+              "ReportDecode"
+            ],
+            [
+              2,
+              "RelationalDerivation"
+            ],
+            [
+              3,
+              "GraphAnalysis"
+            ],
+            [
+              4,
+              "Recognizer"
+            ],
+            [
+              5,
+              "StatisticalAnalysis"
+            ],
+            [
+              6,
+              "TemplateSynthesis"
+            ],
+            [
+              7,
+              "FixtureExecution"
+            ],
+            [
+              8,
+              "ManualReview"
+            ]
+          ]
+        },
+        {
+          "name": "fidelity",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "Raw"
+            ],
+            [
+              1,
+              "NativeStructural"
+            ],
+            [
+              2,
+              "NormalizedStructural"
+            ],
+            [
+              3,
+              "ReportProjection"
+            ],
+            [
+              4,
+              "DisplayOnly"
+            ]
+          ]
+        }
+      ],
+      "facts": true,
+      "family": "Flow"
+    },
+    {
+      "name": "flow_test_observations",
+      "fields": [
+        {
+          "name": "qualification",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "assertion_qualifications"
+        },
+        {
+          "name": "test",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "occurrences"
+        },
+        {
+          "name": "scope",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "lexical_scopes"
+        }
+      ],
+      "facts": true,
+      "family": "Flow"
+    },
+    {
+      "name": "flow_test_supports",
+      "fields": [
+        {
+          "name": "assertion",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "flow_test_observations"
+        },
+        {
+          "name": "run",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "provider_runs"
+        },
+        {
+          "name": "surface",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "provider_surfaces"
+        },
+        {
+          "name": "evidence",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "evidence"
+        },
+        {
+          "name": "origin",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "InputContext"
+            ],
+            [
+              1,
+              "SourceObservation"
+            ],
+            [
+              2,
+              "AnalyzerAssertion"
+            ],
+            [
+              3,
+              "DerivedAnalysis"
+            ],
+            [
+              4,
+              "SyntheticModel"
+            ]
+          ]
+        },
+        {
+          "name": "mode",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "NativeTraversal"
+            ],
+            [
+              1,
+              "ReportDecode"
+            ],
+            [
+              2,
+              "RelationalDerivation"
+            ],
+            [
+              3,
+              "GraphAnalysis"
+            ],
+            [
+              4,
+              "Recognizer"
+            ],
+            [
+              5,
+              "StatisticalAnalysis"
+            ],
+            [
+              6,
+              "TemplateSynthesis"
+            ],
+            [
+              7,
+              "FixtureExecution"
+            ],
+            [
+              8,
+              "ManualReview"
+            ]
+          ]
+        },
+        {
+          "name": "fidelity",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "Raw"
+            ],
+            [
+              1,
+              "NativeStructural"
+            ],
+            [
+              2,
+              "NormalizedStructural"
+            ],
+            [
+              3,
+              "ReportProjection"
+            ],
+            [
+              4,
+              "DisplayOnly"
+            ]
+          ]
+        }
+      ],
+      "facts": true,
+      "family": "Flow"
+    },
+    {
       "name": "flow_use_observations",
       "fields": [
         {
@@ -8133,6 +8849,189 @@ expression: "String::from_utf8(output.stdout).unwrap()"
           "nullable": false,
           "key": true,
           "provenance": false
+        }
+      ],
+      "facts": true,
+      "family": "Flow"
+    },
+    {
+      "name": "flow_value_path_observations",
+      "fields": [
+        {
+          "name": "qualification",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "assertion_qualifications"
+        },
+        {
+          "name": "value",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "flow_value_observations"
+        },
+        {
+          "name": "path",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "flow_call_paths"
+        }
+      ],
+      "facts": true,
+      "family": "Flow"
+    },
+    {
+      "name": "flow_value_path_supports",
+      "fields": [
+        {
+          "name": "assertion",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "flow_value_path_observations"
+        },
+        {
+          "name": "run",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "provider_runs"
+        },
+        {
+          "name": "surface",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "provider_surfaces"
+        },
+        {
+          "name": "evidence",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "evidence"
+        },
+        {
+          "name": "origin",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "InputContext"
+            ],
+            [
+              1,
+              "SourceObservation"
+            ],
+            [
+              2,
+              "AnalyzerAssertion"
+            ],
+            [
+              3,
+              "DerivedAnalysis"
+            ],
+            [
+              4,
+              "SyntheticModel"
+            ]
+          ]
+        },
+        {
+          "name": "mode",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "NativeTraversal"
+            ],
+            [
+              1,
+              "ReportDecode"
+            ],
+            [
+              2,
+              "RelationalDerivation"
+            ],
+            [
+              3,
+              "GraphAnalysis"
+            ],
+            [
+              4,
+              "Recognizer"
+            ],
+            [
+              5,
+              "StatisticalAnalysis"
+            ],
+            [
+              6,
+              "TemplateSynthesis"
+            ],
+            [
+              7,
+              "FixtureExecution"
+            ],
+            [
+              8,
+              "ManualReview"
+            ]
+          ]
+        },
+        {
+          "name": "fidelity",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "Raw"
+            ],
+            [
+              1,
+              "NativeStructural"
+            ],
+            [
+              2,
+              "NormalizedStructural"
+            ],
+            [
+              3,
+              "ReportProjection"
+            ],
+            [
+              4,
+              "DisplayOnly"
+            ]
+          ]
         }
       ],
       "facts": true,
@@ -9988,7 +10887,7 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         },
         {
           "name": "string_value",
-          "type": "text",
+          "type": "binary",
           "list": false,
           "nullable": true,
           "key": true,
@@ -11170,7 +12069,7 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       "fields": [
         {
           "name": "name",
-          "type": "text",
+          "type": "binary",
           "list": false,
           "nullable": true,
           "key": true,
@@ -12377,7 +13276,7 @@ expression: "String::from_utf8(output.stdout).unwrap()"
           "nullable": false,
           "key": true,
           "provenance": false,
-          "target": "provider_symbols"
+          "target": "provider_callables"
         },
         {
           "name": "callee",
@@ -12422,6 +13321,123 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       "family": "Calls"
     },
     {
+      "name": "provider_callables",
+      "fields": [
+        {
+          "name": "kind",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "symbol_symbol",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "provider_symbols"
+        },
+        {
+          "name": "modulebody_provider",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "providers"
+        },
+        {
+          "name": "modulebody_context",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "analysis_contexts"
+        },
+        {
+          "name": "modulebody_module",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "provider_modules"
+        },
+        {
+          "name": "classbody_class",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "provider_symbols"
+        },
+        {
+          "name": "decoratorapplication_function",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "provider_symbols"
+        }
+      ],
+      "facts": true,
+      "sum": {
+        "tag": "kind",
+        "arms": [
+          {
+            "code": 0,
+            "fields": [
+              {
+                "name": "symbol_symbol",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 1,
+            "fields": [
+              {
+                "name": "modulebody_provider",
+                "required": true
+              },
+              {
+                "name": "modulebody_context",
+                "required": true
+              },
+              {
+                "name": "modulebody_module",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 2,
+            "fields": [
+              {
+                "name": "classbody_class",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 3,
+            "fields": [
+              {
+                "name": "decoratorapplication_function",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "name": "provider_coverage",
       "fields": [
         {
@@ -12437,7 +13453,7 @@ expression: "String::from_utf8(output.stdout).unwrap()"
           "name": "provider",
           "type": "id",
           "list": false,
-          "nullable": false,
+          "nullable": true,
           "key": true,
           "provenance": true,
           "target": "providers"
@@ -13470,7 +14486,7 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         },
         {
           "name": "name",
-          "type": "text",
+          "type": "binary",
           "list": false,
           "nullable": false,
           "key": true,
@@ -14479,6 +15495,10 @@ expression: "String::from_utf8(output.stdout).unwrap()"
             [
               2,
               "ParamSpec"
+            ],
+            [
+              3,
+              "NativeUnavailable"
             ]
           ]
         },
@@ -17824,11 +18844,12 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         },
         {
           "name": "callable_function",
-          "type": "text",
+          "type": "id",
           "list": false,
           "nullable": true,
           "key": true,
-          "provenance": false
+          "provenance": false,
+          "target": "provider_symbols"
         },
         {
           "name": "callable_form",
@@ -17857,6 +18878,10 @@ expression: "String::from_utf8(output.stdout).unwrap()"
             [
               4,
               "ParamSpec"
+            ],
+            [
+              5,
+              "NativeUnavailable"
             ]
           ]
         },
@@ -17889,11 +18914,12 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         },
         {
           "name": "overload_function",
-          "type": "text",
+          "type": "id",
           "list": false,
           "nullable": true,
           "key": true,
-          "provenance": false
+          "provenance": false,
+          "target": "provider_symbols"
         },
         {
           "name": "overload_signatures",
@@ -18142,11 +19168,117 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         },
         {
           "name": "specialform_form",
-          "type": "text",
+          "type": "int16",
           "list": false,
           "nullable": true,
           "key": true,
-          "provenance": false
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "Annotated"
+            ],
+            [
+              1,
+              "Callable"
+            ],
+            [
+              2,
+              "ClassVar"
+            ],
+            [
+              3,
+              "Concatenate"
+            ],
+            [
+              4,
+              "Final"
+            ],
+            [
+              5,
+              "Generic"
+            ],
+            [
+              6,
+              "Literal"
+            ],
+            [
+              7,
+              "LiteralString"
+            ],
+            [
+              8,
+              "Never"
+            ],
+            [
+              9,
+              "NoReturn"
+            ],
+            [
+              10,
+              "NotRequired"
+            ],
+            [
+              11,
+              "Optional"
+            ],
+            [
+              12,
+              "Protocol"
+            ],
+            [
+              13,
+              "ReadOnly"
+            ],
+            [
+              14,
+              "Required"
+            ],
+            [
+              15,
+              "SelfType"
+            ],
+            [
+              16,
+              "Tuple"
+            ],
+            [
+              17,
+              "Type"
+            ],
+            [
+              18,
+              "TypeAlias"
+            ],
+            [
+              19,
+              "TypeForm"
+            ],
+            [
+              20,
+              "TypeGuard"
+            ],
+            [
+              21,
+              "TypeIs"
+            ],
+            [
+              22,
+              "TypedDict"
+            ],
+            [
+              23,
+              "Union"
+            ],
+            [
+              24,
+              "Unpack"
+            ],
+            [
+              25,
+              "Ellipsis"
+            ]
+          ]
         },
         {
           "name": "other_provider",
@@ -18441,7 +19573,7 @@ expression: "String::from_utf8(output.stdout).unwrap()"
           "nullable": true,
           "key": true,
           "provenance": false,
-          "target": "callable_parameter_lists"
+          "target": "typed_dict_field_lists"
         },
         {
           "name": "anonymoustypeddict_partial",
@@ -19165,6 +20297,68 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       "facts": true
     },
     {
+      "name": "typed_dict_field_lists",
+      "fields": [
+        {
+          "name": "members",
+          "type": "digest",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        }
+      ],
+      "facts": true
+    },
+    {
+      "name": "typed_dict_fields",
+      "fields": [
+        {
+          "name": "list",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "typed_dict_field_lists"
+        },
+        {
+          "name": "ordinal",
+          "type": "int64",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "name",
+          "type": "binary",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "required",
+          "type": "bool",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "term",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "target": "type_terms"
+        }
+      ],
+      "facts": true
+    },
+    {
       "name": "unowned_artifacts",
       "fields": [
         {
@@ -19359,6 +20553,10 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         "run_families",
         "provider_surfaces",
         "evidence",
+        "provider_modules",
+        "provider_symbols",
+        "provider_callables",
+        "call_destinations",
         "call_target_observations",
         "call_target_supports"
       ]
@@ -19757,6 +20955,7 @@ expression: "String::from_utf8(output.stdout).unwrap()"
     {
       "name": "document_structure",
       "inputs": [
+        "source_artifacts",
         "evidence",
         "document_nodes",
         "passage_observations",
@@ -19820,6 +21019,43 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       "inputs": [
         "source_artifacts",
         "evidence"
+      ]
+    },
+    {
+      "name": "flow_attribute_load_supports",
+      "inputs": [
+        "source_artifacts",
+        "occurrences",
+        "modules",
+        "corpus_libraries",
+        "place_roots",
+        "places",
+        "predicates",
+        "evaluation_atoms",
+        "condition_nodes",
+        "conditions",
+        "input_distributions",
+        "coverage_scopes",
+        "assertion_qualifications",
+        "provider_runs",
+        "run_families",
+        "provider_surfaces",
+        "evidence",
+        "flow_attribute_load_observations",
+        "flow_attribute_load_supports"
+      ]
+    },
+    {
+      "name": "flow_call_path_structure",
+      "inputs": [
+        "occurrences",
+        "flow_call_paths",
+        "call_syntax",
+        "call_arguments",
+        "flow_call_steps",
+        "flow_uses",
+        "flow_value_observations",
+        "flow_value_path_observations"
       ]
     },
     {
@@ -19919,7 +21155,60 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         "flow_use_observations",
         "flow_definition_observations",
         "flow_value_observations",
-        "flow_region_observations"
+        "flow_region_observations",
+        "evaluation_atoms",
+        "flow_test_observations",
+        "flow_test_leaf_observations",
+        "flow_attribute_load_observations"
+      ]
+    },
+    {
+      "name": "flow_test_leaf_supports",
+      "inputs": [
+        "source_artifacts",
+        "occurrences",
+        "modules",
+        "corpus_libraries",
+        "place_roots",
+        "places",
+        "predicates",
+        "evaluation_atoms",
+        "condition_nodes",
+        "conditions",
+        "input_distributions",
+        "coverage_scopes",
+        "assertion_qualifications",
+        "provider_runs",
+        "run_families",
+        "provider_surfaces",
+        "evidence",
+        "flow_test_leaf_observations",
+        "flow_test_leaf_supports"
+      ]
+    },
+    {
+      "name": "flow_test_supports",
+      "inputs": [
+        "source_artifacts",
+        "occurrences",
+        "modules",
+        "corpus_libraries",
+        "place_roots",
+        "places",
+        "predicates",
+        "evaluation_atoms",
+        "condition_nodes",
+        "conditions",
+        "input_distributions",
+        "coverage_scopes",
+        "assertion_qualifications",
+        "provider_runs",
+        "run_families",
+        "provider_surfaces",
+        "evidence",
+        "lexical_scopes",
+        "flow_test_observations",
+        "flow_test_supports"
       ]
     },
     {
@@ -19946,6 +21235,34 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         "lexical_scopes",
         "flow_use_observations",
         "flow_use_supports"
+      ]
+    },
+    {
+      "name": "flow_value_path_supports",
+      "inputs": [
+        "source_artifacts",
+        "occurrences",
+        "modules",
+        "corpus_libraries",
+        "place_roots",
+        "places",
+        "predicates",
+        "evaluation_atoms",
+        "condition_nodes",
+        "conditions",
+        "input_distributions",
+        "coverage_scopes",
+        "assertion_qualifications",
+        "provider_runs",
+        "run_families",
+        "provider_surfaces",
+        "evidence",
+        "flow_uses",
+        "flow_value_observations",
+        "flow_call_paths",
+        "flow_call_steps",
+        "flow_value_path_observations",
+        "flow_value_path_supports"
       ]
     },
     {
@@ -20301,6 +21618,7 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         "modules",
         "provider_modules",
         "provider_symbols",
+        "provider_callables",
         "occurrences",
         "call_origin_steps",
         "provider_call_sites"
@@ -20328,6 +21646,7 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         "evidence",
         "provider_modules",
         "provider_symbols",
+        "provider_callables",
         "provider_call_sites",
         "provider_call_site_supports"
       ]
@@ -20416,6 +21735,8 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         "type_variables",
         "type_sequences",
         "type_sequence_members",
+        "typed_dict_field_lists",
+        "typed_dict_fields",
         "callable_parameter_lists",
         "callable_parameters",
         "type_terms",
@@ -20496,6 +21817,8 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         "type_variables",
         "type_sequences",
         "type_sequence_members",
+        "typed_dict_field_lists",
+        "typed_dict_fields",
         "callable_parameter_lists",
         "callable_parameters",
         "type_terms"
@@ -20763,6 +22086,8 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         "type_variables",
         "type_sequences",
         "type_sequence_members",
+        "typed_dict_field_lists",
+        "typed_dict_fields",
         "callable_parameter_lists",
         "callable_parameters",
         "type_terms",
@@ -20795,6 +22120,8 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         "provider_symbols",
         "type_sequences",
         "type_sequence_members",
+        "typed_dict_field_lists",
+        "typed_dict_fields",
         "callable_parameter_lists",
         "callable_parameters",
         "type_terms",
@@ -20834,11 +22161,20 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         "type_variables",
         "type_sequences",
         "type_sequence_members",
+        "typed_dict_field_lists",
+        "typed_dict_fields",
         "callable_parameter_lists",
         "callable_parameters",
         "type_terms",
         "type_observations",
         "type_supports"
+      ]
+    },
+    {
+      "name": "typed_dictionary_membership",
+      "inputs": [
+        "typed_dict_field_lists",
+        "typed_dict_fields"
       ]
     },
     {

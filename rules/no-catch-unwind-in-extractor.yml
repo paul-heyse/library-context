@@ -9,12 +9,19 @@ severity: error
 message: catch_unwind in the extractor would continue after a Pyrefly panic
 note: Any panic in analyzer-touching code (Pyrefly, ty) aborts the extraction (DESIGN §4.2.5).
 rule:
-  any:
-    - pattern: catch_unwind($$$ARGS)
-    - pattern: panic::catch_unwind($$$ARGS)
-    - pattern: std::panic::catch_unwind($$$ARGS)
-    - pattern: thread::scope($$$ARGS)
-    - pattern: std::thread::scope($$$ARGS)
+  all:
+    - not:
+        pattern: std::panic::catch_unwind(AssertUnwindSafe(|| provider.run(&mut context)))
+    - any:
+        - pattern: catch_unwind($$$ARGS)
+        - pattern: panic::catch_unwind($$$ARGS)
+        - pattern: std::panic::catch_unwind($$$ARGS)
+        - pattern: thread::scope($$$ARGS)
+        - pattern: std::thread::scope($$$ARGS)
 files:
   - crates/cpg-extract/src/**/*.rs
   - crates/cpg-flow/src/**/*.rs
+
+# The exact whole-provider boundary above is fail-stop: context.close(Err) closes its outputs,
+# the driver poisons StageOutput and waits for provider state release, then fails the attempt.
+# It never catches per-module analysis or reuses native state after a panic (bundle panic control).

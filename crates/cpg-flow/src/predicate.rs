@@ -14,15 +14,12 @@
 
 use std::collections::HashMap;
 
-use cpg_schema::condition::{Atom, EvaluationIdentity, Value};
-use cpg_schema::id::IdHasher;
+use crate::native::{Atom, EvaluationSite, Value};
 use ruff_db::parsed::ParsedModuleRef;
 use ruff_python_ast_ty::{self as ast, CmpOp, Expr};
 use ruff_text_size_ty::Ranged;
 use ty_python_core::place::PlaceExpr;
-use ty_python_core::predicate::{
-    PatternPredicateKind, Predicate, PredicateNode, ScopedPredicateId,
-};
+use ty_python_core::predicate::{PatternPredicate, PatternPredicateKind, Predicate, PredicateNode};
 use ty_python_core::reachability_constraints::ScopedReachabilityConstraintId;
 use ty_python_core::{FileScopeId, UseDefMap};
 
@@ -45,7 +42,6 @@ pub(crate) struct Translator<'a> {
     pub original: &'a str,
     pub context: &'a RuntimeContext,
     pub runtime: &'a RuntimeBindings,
-    pub module_key: String,
 }
 
 impl Translator<'_> {
@@ -53,14 +49,54 @@ impl Translator<'_> {
         &self.original[usize::from(range.start())..usize::from(range.end())]
     }
 
-    fn site(&self, e: &Expr) -> EvaluationIdentity {
-        EvaluationIdentity::Site {
-            module: self.module_key.clone(),
-            start: e.range().start().into(),
-            end: e.range().end().into(),
-        }
+    fn site(&self, e: &Expr) -> EvaluationSite {
+        EvaluationSite::Source(Span::from(e.range()))
     }
-
+    pub(crate) fn pattern_site(&self, pattern: &PatternPredicate<'_>) -> EvaluationSite {
+        let subject = pattern.subject(self.db).node_ref(self.db).node(self.module);
+        let mut ordinal = 0;
+        let mut previous = pattern.previous_predicate(self.db);
+        while let Some(p) = previous {
+            ordinal += 1;
+            if ordinal > 256 {
+                return EvaluationSite::Unavailable {
+                    reason: "pattern depth refused",
+                };
+            }
+            previous = p.previous_predicate(self.db);
+        }
+        struct Finder {
+            subject: Span,
+            ordinal: usize,
+            found: Option<Span>,
+        }
+        impl<'a> ruff_python_ast_ty::visitor::source_order::SourceOrderVisitor<'a> for Finder {
+            fn visit_stmt(&mut self, stmt: &'a ast::Stmt) {
+                if let ast::Stmt::Match(m) = stmt
+                    && Span::from(m.subject.range()) == self.subject
+                {
+                    self.found = m
+                        .cases
+                        .get(self.ordinal)
+                        .map(|case| Span::from(case.range()));
+                }
+                ruff_python_ast_ty::visitor::source_order::walk_stmt(self, stmt);
+            }
+        }
+        let mut finder = Finder {
+            subject: Span::from(subject.range()),
+            ordinal,
+            found: None,
+        };
+        use ruff_python_ast_ty::visitor::source_order::SourceOrderVisitor;
+        finder.visit_body(self.module.suite());
+        finder.found.map_or(
+            EvaluationSite::Unavailable {
+                reason: "pattern case coordinate unavailable",
+            },
+            EvaluationSite::Source,
+        )
+    }
     fn atom(&self, atom: Atom, whole: &Expr) -> Condition {
         Condition::atom(atom.evaluated(self.site(whole)))
     }
@@ -240,19 +276,12 @@ impl Translator<'_> {
     pub(crate) fn tested_place_operand(&self, e: &Expr, leaf: &Atom) -> Option<Span> {
         let Atom::Evaluated {
             atom,
-            identity: EvaluationIdentity::Site { start, end, .. },
+            site: EvaluationSite::Source(span),
         } = leaf
         else {
             return None;
         };
-        self.find_tested_place(
-            e,
-            Span {
-                start: *start,
-                end: *end,
-            },
-            atom,
-        )
+        self.find_tested_place(e, *span, atom)
     }
 
     fn find_tested_place(&self, e: &Expr, site: Span, atom: &Atom) -> Option<Span> {
@@ -443,7 +472,7 @@ impl Translator<'_> {
     }
 
     /// The truth of one predicate, its polarity applied.
-    fn predicate(&self, p: &Predicate, synthetic: &EvaluationIdentity) -> Condition {
+    fn predicate(&self, p: &Predicate, synthetic: &EvaluationSite) -> Condition {
         let c = match &p.node {
             PredicateNode::Expression(x)
             | PredicateNode::Condition(x)
@@ -451,18 +480,21 @@ impl Translator<'_> {
                 self.test(x.node_ref(self.db).node(self.module))
             }
             PredicateNode::IsNonTerminalCall(_) => Condition::always(),
-            PredicateNode::IsNonEmptyIterable(_) => {
-                Condition::atom(Atom::opaque(NON_EMPTY).evaluated(synthetic.clone()))
+            PredicateNode::IsNonEmptyIterable(expression) => {
+                let expression = expression.node_ref(self.db).node(self.module);
+                self.atom(Atom::opaque(NON_EMPTY), expression)
             }
-            PredicateNode::ContextManagerSuppresses { .. } => {
-                Condition::atom(Atom::opaque(SUPPRESSES).evaluated(synthetic.clone()))
+            PredicateNode::ContextManagerSuppresses { expression, .. } => {
+                let expression = expression.node_ref(self.db).node(self.module);
+                self.atom(Atom::opaque(SUPPRESSES), expression)
             }
             PredicateNode::FinallyNormalPathImpossible { .. } => {
                 Condition::atom(Atom::opaque(FINALLY).evaluated(synthetic.clone()))
             }
             PredicateNode::Pattern(pattern) => {
                 let subject = pattern.subject(self.db).node_ref(self.db).node(self.module);
-                let mut c = self.pattern(subject, pattern.kind(self.db), synthetic);
+                let mut c =
+                    self.pattern(subject, pattern.kind(self.db), &self.pattern_site(pattern));
                 if let Some(guard) = pattern.guard(self.db) {
                     c = c.and(&self.test(guard.node_ref(self.db).node(self.module)));
                 }
@@ -481,7 +513,7 @@ impl Translator<'_> {
         &self,
         subject: &Expr,
         kind: &PatternPredicateKind,
-        evaluation: &EvaluationIdentity,
+        evaluation: &EvaluationSite,
     ) -> Condition {
         let Some(place) = self.place(subject) else {
             return Condition::atom(
@@ -547,7 +579,7 @@ impl Translator<'_> {
         }
     }
 
-    fn pattern_opaque(&self, subject: &Expr, evaluation: &EvaluationIdentity) -> Condition {
+    fn pattern_opaque(&self, subject: &Expr, evaluation: &EvaluationSite) -> Condition {
         Condition::atom(
             Atom::opaque(&strip_comments(self.source(subject.range())))
                 .evaluated(evaluation.clone()),
@@ -558,11 +590,23 @@ impl Translator<'_> {
 /// A reachability diagram's condition, memoized per diagram node of one scope's use-def map.
 pub(crate) fn diagram(
     t: &Translator<'_>,
-    fid: FileScopeId,
+    _fid: FileScopeId,
     map: &UseDefMap<'_>,
     memo: &mut HashMap<ScopedReachabilityConstraintId, Condition>,
     id: ScopedReachabilityConstraintId,
 ) -> Condition {
+    diagram_at(t, map, memo, id, 0)
+}
+fn diagram_at(
+    t: &Translator<'_>,
+    map: &UseDefMap<'_>,
+    memo: &mut HashMap<ScopedReachabilityConstraintId, Condition>,
+    id: ScopedReachabilityConstraintId,
+    depth: usize,
+) -> Condition {
+    if depth > 256 || memo.len() > 4096 {
+        return Condition::refused();
+    }
     if id == ScopedReachabilityConstraintId::ALWAYS_TRUE {
         return Condition::always();
     }
@@ -579,29 +623,15 @@ pub(crate) fn diagram(
         return c.clone();
     }
     let node = map.reachability_constraints().get_interior_node(id);
-    let synthetic = synthetic_identity(&t.module_key, fid, node.atom());
+    let synthetic = EvaluationSite::Unavailable {
+        reason: "native synthetic predicate has no source coordinate",
+    };
     let p = t.predicate(&map.predicates()[node.atom()], &synthetic);
-    let on_true = diagram(t, fid, map, memo, node.if_true());
-    let on_false = diagram(t, fid, map, memo, node.if_false());
+    let on_true = diagram_at(t, map, memo, node.if_true(), depth + 1);
+    let on_false = diagram_at(t, map, memo, node.if_false(), depth + 1);
     let c = p.and(&on_true).or(&p.not().and(&on_false));
     memo.insert(id, c.clone());
     c
-}
-
-pub(crate) fn synthetic_identity(
-    module_key: &str,
-    fid: FileScopeId,
-    predicate_id: ScopedPredicateId,
-) -> EvaluationIdentity {
-    let predicate = IdHasher::new("flow-synthetic-predicate")
-        .str(&format!("{fid:?}"))
-        .str(&format!("{predicate_id:?}"))
-        .finish_id()
-        .hex();
-    EvaluationIdentity::Synthetic {
-        module: module_key.to_owned(),
-        predicate,
-    }
 }
 
 /// Whether a diagram depends on a test our resolved runtime view decided. A false root is
@@ -613,6 +643,18 @@ pub(crate) fn runtime_in_diagram(
     memo: &mut HashMap<ScopedReachabilityConstraintId, bool>,
     id: ScopedReachabilityConstraintId,
 ) -> bool {
+    runtime_in_diagram_bounded(t, map, memo, id, 0)
+}
+fn runtime_in_diagram_bounded(
+    t: &Translator<'_>,
+    map: &UseDefMap<'_>,
+    memo: &mut HashMap<ScopedReachabilityConstraintId, bool>,
+    id: ScopedReachabilityConstraintId,
+    depth: usize,
+) -> bool {
+    if depth >= 256 || memo.len() >= 4096 {
+        return false;
+    }
     if matches!(
         id,
         ScopedReachabilityConstraintId::ALWAYS_TRUE
@@ -635,8 +677,8 @@ pub(crate) fn runtime_in_diagram(
         _ => false,
     };
     let found = here
-        || runtime_in_diagram(t, map, memo, node.if_true())
-        || runtime_in_diagram(t, map, memo, node.if_false());
+        || runtime_in_diagram_bounded(t, map, memo, node.if_true(), depth + 1)
+        || runtime_in_diagram_bounded(t, map, memo, node.if_false(), depth + 1);
     memo.insert(id, found);
     found
 }

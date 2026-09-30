@@ -129,29 +129,17 @@ rebuilt from pinned inputs, never restored across formats.
 
 ## The transition
 
-A database carrying the pre-baseline history (migrations 0001–0013) moves offline, with
-`scripts/postgres_transition.py`. Server administration runs as `postgres` through sudo on `--port`,
-or through a protected `--admin-config` JSON file `{"url": ...}`.
-
-```sh
-uv run python scripts/postgres_transition.py plan         # read-only: history, retained rows, legacy schemas
-uv run python scripts/postgres_transition.py prepare      # create lctx_next, `lctx store install`, copy, verify fingerprints
-# stop every reader and writer
-uv run python scripts/postgres_transition.py switch --confirm-switch lctx
-uv run python scripts/postgres_transition.py drop-retired --confirm-drop lctx_retired_YYYYMMDDHHMMSS
-```
-
-- The retained rows are the cache specs and values, and the attempts and events.
-- The old database is never written. `switch` renames it to an archive only after confirming that no
-  connection remains, then checks the new database (`store check`, `runs list`, equal fingerprints).
-- Dropping the archive is a separate, explicit step.
-- Refusals exit 2 and change nothing.
+The operator database moved to the service baseline on 2026-09-30. Retained service
+fingerprints matched, `store check` and `runs list` passed, and the retired archive was removed.
+The one-use transition tool was deleted. [Execution evidence](design_review/evidence/2026-09-29_operator-transition/README.md)
+records the rehearsal, transition and protected retained-service backup.
+Old-format stores are refused; reconstruct semantic state from pinned inputs.
 
 ## Development checks
 
 - `just postgres-test-setup` pulls the pinned images.
 - `just test-postgres` runs the real-PG18 suites through Testcontainers: the store, provider sessions,
-  the CLI and the transition. Missing Docker or a missing image is `blocked`.
+  the CLI. Missing Docker or a missing image is `blocked`.
 - The `testing` feature of `lctx-postgres` provides `DisposableDatabase`, which is provisioned like
   production with production session limits, and the attempt-semantics test harness.
 - `just sqlx-check` and `just sqlx-prepare` cover the dormant serving queries frozen in `.sqlx`. They
