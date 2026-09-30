@@ -216,3 +216,40 @@ fn a_module_resolution_is_located_by_its_origin() {
     f.modules.insert("alien", alien.clone()); f.dependencies[2].module = alien.id(); f.sync();
     refused(&f, "another provider's namespace resolution", "a provider module is stated only by its own provider and context");
 }
+
+#[test]
+fn a_reexport_is_about_its_access_module_and_refers_to_its_origin() {
+    use lctx_model::domain::{input::InputRevision, source::{CoverageScope, SourceArtifact}};
+    // Under the access module's own scope, a name re-exported from another captured module.
+    let f = Fixture::new();
+    let artifact = CoverageScope::Artifact { artifact: f.module.source };
+    let scoped = AssertionQualification { scope: artifact.id(), ..f.qualification.clone() };
+    let reexport = |f: &mut Fixture, module: Id<ProviderModule>| {
+        let mut qualifications = f.rows::<AssertionQualification>(); qualifications.push(scoped.clone()); f.put(qualifications);
+        let mut scopes = f.rows::<CoverageScope>(); scopes.push(artifact.clone()); f.put(scopes);
+        let origin = ExportOrigin::Traced { module, name: "X".into(), kind: Some(ExportKind::Variable) };
+        f.origins.push(origin.clone());
+        f.public.push(PublicNameObservation { qualification: scoped.id(), access: f.module.id(), name: "X".into(), via_dunder_all: false, origin: origin.id() });
+        f.sync();
+    };
+    let mut accepted = Fixture::new();
+    let other = accepted.modules["other"].id();
+    reexport(&mut accepted, other);
+    accepted.validate().expect("a re-export from a module of the same input, under the access module's scope");
+    // Its twin: an origin over bytes another input captured.
+    let mut foreign = Fixture::new();
+    let stray_bytes: &[u8] = b"X = 2\n";
+    let elsewhere = InputRevision::from_entries(vec![lctx_model::domain::input::ManifestEntry { path: "stray.py".into(), content: ContentHash::of(stray_bytes),
+        byte_len: stray_bytes.len() as i64 }]).unwrap();
+    let stray = SourceArtifact::from_bytes(elsewhere.id(), "stray.py".into(), b"X = 2\n").unwrap();
+    let module = lctx_model::domain::source::Module { source: stray.id(), qualified_name: "stray".into() };
+    let provider_module = ProviderModule::Acquired { module: module.id() };
+    foreign.modules.insert("stray", provider_module.clone());
+    let mut modules = foreign.rows::<lctx_model::domain::source::Module>(); modules.push(module); foreign.put(modules);
+    let mut chunks = foreign.rows::<lctx_model::domain::artifact::ArtifactChunk>();
+    chunks.extend(lctx_model::domain::artifact::ArtifactChunk::split(&stray, b"X = 2\n").unwrap()); foreign.put(chunks);
+    let mut artifacts = foreign.rows::<SourceArtifact>(); artifacts.push(stray); foreign.put(artifacts);
+    let mut inputs = foreign.rows::<InputRevision>(); inputs.push(elsewhere); foreign.put(inputs);
+    reexport(&mut foreign, provider_module.id());
+    refused(&foreign, "an origin over bytes this invocation did not capture", "invocation input");
+}

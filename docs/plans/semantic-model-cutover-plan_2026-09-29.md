@@ -1080,6 +1080,9 @@ The PG suite publishes and reads the fixture back and refuses a self-ancestor at
 - each shape refusal fires with its message, as do a module another provider bundles and each record model's foreign flags, gaps and mixed models;
 - a module's body is refused;
 - PG reads back record fields, the function body, every term and the parameter slots. |
+| A6–A8 review corrections ([review](../design_review/reviews/design_review_semantic-symbols-calls-types_2026-09-29.md)): `cargo test --release -p lctx-model` (all suites), `-p lctx-postgres --test domain_symbols --test domain_calls --test domain_composition --test domain_types --test domain_transfer`, `-p lctx --test model_describe` | passed 2026-09-30.
+
+The findings F01–F04 are corrected (§8). The pyrefly stage's typed producer suites were rerun with the uncommitted A9 producer in the tree; that receipt belongs to A9. Schema migration: `OriginStep` appends codes 22 and 23. |
 | `just fmt`, `just test-all`, facts pilots | not_run: functional scope incomplete |
 
 Independent bounded reviewers accepted artifact/capture/acquisition corrections and the
@@ -1147,9 +1150,17 @@ and an explicit decision; deleting old code during reconstruction does not retir
 Also retained for Phase 4: behavioral-profile dependency context for authored-model classes and
 exact runtime exceptions (deferred from P2 by operator decision 3); the producer build digest's
 authored-model catalog component; scenario, option-binding, association, requirement and check
-conclusions, whose raw inputs P2 records must carry. Phase 3 owns cross-provider symbol
-equivalence, stored call bindings and SQL policy views (C04 remainder), stored occurrence
-ownership and the test-leaf to operand-type join.
+conclusions, whose raw inputs P2 records must carry.
+
+Phase 4 also owns two call obligations from the A6–A8 review:
+- The expansion of override dispatch sets (F02): the named method and its overriders in classes
+  extending the receiver class, decided by complete MROs. Until then the invocation view keeps the
+  named member, and flow composition discloses `OverrideDispatch`.
+- A class-of receiver binding for class methods called on an object (F04), which are Unknown until
+  then.
+
+Phase 3 owns cross-provider symbol equivalence, stored call bindings and SQL policy views (C04
+remainder), stored occurrence ownership and the test-leaf to operand-type join.
 
 ## 7. Tooling, pins, skills and documents
 
@@ -1366,6 +1377,34 @@ as "invalid model") with Q.
 | [F05](../design_review/reviews/design_review_p1-provider-sessions_2026-09-29.md#F05) | `generation_read`, `lctx query` | closed (re-inspection 2026-09-29): `ProviderOptions::inspection_memory` (default 4 GiB) bounds the inspection pool; 1 MiB refuses with Resources exhausted and the session stays Ready |
 | [F06](../design_review/reviews/design_review_p1-provider-sessions_2026-09-29.md#F06) | `lease`; P3 design | relation set closed (re-inspection 2026-09-29): `acquire` returns `Held` with the frontier's relations. Input lineage deferred with store-lifecycle F08; trigger: P3 frontier design |
 | [F07](../design_review/reviews/design_review_p1-provider-sessions_2026-09-29.md#F07) | `generation_read` | open; trigger: before the first P3/P4/P5 reader of a family-scoped relation |
+
+### A6–A8 review findings
+
+The [bounded A6–A8 review](../design_review/reviews/design_review_semantic-symbols-calls-types_2026-09-29.md) (2026-09-29) found **Revise**. F01–F04 are corrected in the model
+before the call producer (A10) and the public names (A9); F05–F08 stay deferred in the review with their
+triggers.
+
+| Finding | Responsible component | Current disposition and evidence |
+|---|---|---|
+| [F01](../design_review/reviews/design_review_semantic-symbols-calls-types_2026-09-29.md#F01) | `calls` (`CallOrigin`, `ProviderCallSite`) | closed (2026-09-30):
+- Format-string calls carry their own origin steps (codes 22 and 23).
+- Every artificial site kind has steps, and a format-string site has exactly its own step.
+- Steps run from the outermost context to the operation (Pysa's `tail`, then `head`), and the origin is the one authority on implicitness.
+- Controls: `f"{g()}"`'s stringify is its own event, and misplaced steps are refused (`domain_calls`). |
+| [F02](../design_review/reviews/design_review_semantic-symbols-calls-types_2026-09-29.md#F02) | `calls` (dispatch sets, policies); P4 | closed at contract level (2026-09-30):
+- `Overrides` is the named method or any override below the receiver class, and it requires `receiver_class`.
+- In the interim, Invocation admits its named member; Dataflow and Summary do not; composition yields `OverrideDispatch`.
+- The control is Pysa's single-dispatch shape (`domain_sites`).
+- The expansion from complete MROs is a P4 obligation (§6). |
+| [F03](../design_review/reviews/design_review_semantic-symbols-calls-types_2026-09-29.md#F03) | `assertion` (`referents`), `symbols`, `types` | closed (2026-09-30):
+- The `Assertion` derive's `referents(...)` are owned by the asserting provider and must be bytes the invocation captured, but are not located in the scope.
+- Public-name origins and record-field declarations are referents, and a declaration lies inside a class statement.
+- Controls: a cross-module re-export and an inherited field under an Artifact scope are accepted, and foreign or loose twins are refused. |
+| [F04](../design_review/reviews/design_review_semantic-symbols-calls-types_2026-09-29.md#F04) | `calls` (`classify_receiver`, `TargetCheck`) | closed (2026-09-30):
+- A class method called on an object is Unknown, the conservative choice. A `ClassOf` binding is deferred to P4 flows through `cls`.
+- `attribute_access` is removed, and the rule cites Pysa's `has_implicit_receiver`.
+- A stored receiver must be the one its stored evidence classifies (`domain_calls`). |
+| [F05](../design_review/reviews/design_review_semantic-symbols-calls-types_2026-09-29.md#F05)–[F08](../design_review/reviews/design_review_semantic-symbols-calls-types_2026-09-29.md#F08) | `calls`, `types`, `symbols` | deferred with triggers in the review (A10/P3, A11, A11/P4, A9) |
 
 ### Core review findings
 

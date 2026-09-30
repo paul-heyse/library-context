@@ -76,7 +76,8 @@ pub struct FunctionTraitObservation {
     pub classmethod: bool,
     pub property_getter: bool,
     pub property_setter: bool,
-    /// The body is a stub: only `pass`, `...` or a docstring.
+    /// The provider's stub: a `...` body, or a trivial one (`pass` or a docstring) where an
+    /// implementation may be missing (a protocol, `TYPE_CHECKING`, an abstract method, an overload).
     pub stub: bool,
     /// Defined by a `def` statement, not synthesized (a dataclass `__init__`) or assigned.
     pub def_statement: bool,
@@ -166,10 +167,11 @@ fn validate_origin(row: &ExportOrigin) -> Result<(), ModelError> {
     if matches!(row, ExportOrigin::Traced { name, .. } if name.is_empty()) { return Err(invalid("a traced export names its origin")); } Ok(())
 }
 /// A provider asserts that `name` is public in module `access`, listed by `__all__` or by its
-/// definition of public, and defined where `origin` says. One public name has one origin.
+/// definition of public, and defined where `origin` says. One public name has one origin. The
+/// claim is about the access module; the origin is a reference, which may lie in another module.
 #[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
 #[model(name = "public_name_observations", validate = validate_public_name)]
-#[assertion(support = PublicNameSupport, name = "public_name_supports", family = FactFamily::Exports, subjects(access, origin))]
+#[assertion(support = PublicNameSupport, name = "public_name_supports", family = FactFamily::Exports, subjects(access), referents(origin))]
 pub struct PublicNameObservation {
     #[model(key)] pub qualification: Id<AssertionQualification>,
     #[model(key)] pub access: Id<Module>,

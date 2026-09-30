@@ -26,6 +26,7 @@ fn expand_assertion(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
     let mut family: Option<syn::Path> = None;
     let mut subjects: Vec<syn::Ident> = Vec::new();
     let mut fidelity: Option<syn::Path> = None;
+    let mut referents: Vec<syn::Ident> = Vec::new();
     for attr in &input.attrs {
         if attr.path().is_ident("assertion") {
             attr.parse_nested_meta(|meta| {
@@ -33,12 +34,18 @@ fn expand_assertion(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
                 else if meta.path.is_ident("name") { table = Some(meta.value()?.parse()?); }
                 else if meta.path.is_ident("family") { family = Some(meta.value()?.parse()?); }
                 else if meta.path.is_ident("fidelity") { fidelity = Some(meta.value()?.parse()?); }
+                else if meta.path.is_ident("referents") {
+                    meta.parse_nested_meta(|field| {
+                        referents.push(field.path.get_ident().cloned().ok_or_else(|| field.error("expected referent field"))?);
+                        Ok(())
+                    })?;
+                }
                 else if meta.path.is_ident("subjects") {
                     meta.parse_nested_meta(|field| {
                         subjects.push(field.path.get_ident().cloned().ok_or_else(|| field.error("expected subject field"))?);
                         Ok(())
                     })?;
-                } else { return Err(meta.error("expected support, name, family, fidelity or subjects")); }
+                } else { return Err(meta.error("expected support, name, family, fidelity, subjects or referents")); }
                 Ok(())
             })?;
         }
@@ -48,8 +55,8 @@ fn expand_assertion(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
     let table = table.ok_or_else(error)?;
     let family = family.ok_or_else(error)?;
     if subjects.is_empty() { return Err(error()); }
-    let subject_types = subjects.iter().map(|subject| data.fields.iter().find(|field| field.ident.as_ref() == Some(subject))
-        .map(|field| &field.ty).ok_or_else(|| syn::Error::new_spanned(subject,"unknown subject field")))
+    let subject_types = subjects.iter().chain(&referents).map(|subject| data.fields.iter().find(|field| field.ident.as_ref() == Some(subject))
+        .map(|field| &field.ty).ok_or_else(|| syn::Error::new_spanned(subject,"unknown subject or referent field")))
         .collect::<syn::Result<Vec<_>>>()?;
     let name = &input.ident; let vis = &input.vis;
     let fidelity = fidelity.map(|fidelity| quote! { const FIDELITY: Option<::lctx_model::domain::attribution::Fidelity> = Some(#fidelity); });
@@ -62,6 +69,11 @@ fn expand_assertion(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
                 let mut subjects = Vec::new();
                 #(::lctx_model::domain::assertion::SubjectValue::append_subjects(&self.#subjects, &mut subjects);)*
                 subjects
+            }
+            fn referents(&self) -> Vec<::lctx_model::domain::assertion::Subject> {
+                let mut referents = Vec::new();
+                #(::lctx_model::domain::assertion::SubjectValue::append_subjects(&self.#referents, &mut referents);)*
+                referents
             }
             fn subject_inputs() -> Vec<::lctx_model::domain::ValidationInput> {
                 let mut inputs = Vec::new();
@@ -114,7 +126,7 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
         if attr.path().is_ident("assertion") {
             attr.parse_nested_meta(|meta| {
                 if meta.path.is_ident("support") { required_support = Some(meta.value()?.parse()?); }
-                else if meta.path.is_ident("subjects") { meta.parse_nested_meta(|_| Ok(()))?; }
+                else if meta.path.is_ident("subjects") || meta.path.is_ident("referents") { meta.parse_nested_meta(|_| Ok(()))?; }
                 else if meta.path.is_ident("family") { family = Some(meta.value()?.parse()?); }
                 else { let _: syn::Expr = meta.value()?.parse()?; }
                 Ok(())

@@ -25,7 +25,7 @@ impl World {
 }
 fn callee(phase: CallPhase, channel: CallChannel, symbol: &ProviderSymbol) -> NativeCallee {
     NativeCallee { phase, channel, destination: CallDestination::Resolved { symbol: symbol.id() },
-        receiver: ReceiverEvidence { passing: Some(ReceiverPassing::NotPassed), static_method: None, class_method: None, attribute_access: false, actual: None },
+        receiver: ReceiverEvidence { passing: Some(ReceiverPassing::NotPassed), static_method: None, class_method: None, actual: None },
         implicit: false, modality: Modality::Definite, receiver_class: None }
 }
 struct Report { rows: NormalizedSite, supports: BTreeMap<Id<CallTarget>, Vec<CallTargetSupport>> }
@@ -130,12 +130,12 @@ fn receivers_come_only_from_the_one_classifier() {
     let w = World::new();
     let method = w.symbol(&w.a, "C.method", SymbolKind::Method);
     let obj = occurrence(1).id();
-    let evidence = |passing, static_method, attribute_access, actual| ReceiverEvidence { passing, static_method, class_method: None, attribute_access, actual };
-    let cases = [(evidence(Some(ReceiverPassing::NotPassed), None, true, None), Receiver::None),
-        (evidence(None, Some(true), true, None), Receiver::None),
-        (evidence(None, None, true, None), Receiver::Unknown { reason: ObligationKind::AmbiguousBinding }),
-        (evidence(Some(ReceiverPassing::Object), None, true, Some(obj)), Receiver::Bound { actual: obj }),
-        (evidence(Some(ReceiverPassing::Class), None, true, Some(obj)), Receiver::Bound { actual: obj })];
+    let evidence = |passing, static_method, actual| ReceiverEvidence { passing, static_method, class_method: None, actual };
+    let cases = [(evidence(Some(ReceiverPassing::NotPassed), None, None), Receiver::None),
+        (evidence(None, Some(true), None), Receiver::None),
+        (evidence(None, None, None), Receiver::Unknown { reason: ObligationKind::AmbiguousBinding }),
+        (evidence(Some(ReceiverPassing::Object), None, Some(obj)), Receiver::Bound { actual: obj }),
+        (evidence(Some(ReceiverPassing::Class), None, Some(obj)), Receiver::Bound { actual: obj })];
     for (receiver, expected) in cases {
         let reports = [report(&w.base, &[NativeCallee { receiver, ..callee(CallPhase::Call, CallChannel::Direct, &method) }], &[(CallChannel::Direct, CallPhase::Call)], None)];
         assert_eq!(reports[0].rows.receivers, vec![expected.clone()]);
@@ -148,24 +148,25 @@ fn receivers_come_only_from_the_one_classifier() {
 fn an_override_dispatch_set_is_never_a_direct_target() {
     let w = World::new();
     let base = w.symbol(&w.a, "Base.m", SymbolKind::Method);
-    let symbols = vec![base.clone()];
+    let service = w.symbol(&w.a, "Service", SymbolKind::Class);
+    let symbols = vec![base.clone(), service.clone()];
     let call = [(CallChannel::Direct, CallPhase::Call)];
-    let direct = callee(CallPhase::Call, CallChannel::Direct, &base);
-    let dispatch = NativeCallee { destination: CallDestination::Overrides { symbol: base.id() }, ..direct.clone() };
-    // `self.m()`: Base.m and every override of it. The dispatch set names no target and makes the event dispatched.
-    let reports = [report(&w.base, &[direct.clone(), dispatch], &call, None)];
+    // `self.m()` in Service, as Pysa reports it: one dispatch set, Base.m or any override below Service.
+    let dispatch = NativeCallee { destination: CallDestination::Overrides { symbol: base.id() }, receiver_class: Some(service.id()),
+        ..callee(CallPhase::Call, CallChannel::Direct, &base) };
+    let reports = [report(&w.base, &[dispatch], &call, None)];
     let dispatched = site(&reports, &symbols);
-    assert_eq!(dispatched.facts().targets, BTreeMap::from([(CallPhase::Call, BTreeSet::from([base.id()]))]));
+    assert!(dispatched.facts().targets.is_empty(), "a dispatch set names no direct target");
     assert!(dispatched.facts().dispatch && !dispatched.facts().unique);
+    assert_eq!(admitted(&dispatched, CallPolicy::Invocation), 1, "the invocation view keeps the call through its named member");
+    assert_eq!(admitted(&dispatched, CallPolicy::Dataflow), 0, "flow waits for the set's expansion");
     assert_eq!(admitted(&dispatched, CallPolicy::Summary), 0);
-    assert_eq!(admitted(&dispatched, CallPolicy::Dataflow), 1, "only the direct Base.m flows; the dispatch set waits for its expansion");
-    assert_eq!(admitted(&dispatched, CallPolicy::Invocation), 1);
-    assert_eq!(admitted(&dispatched, CallPolicy::Association), 2);
-    // Its twin without the dispatch set is unique.
-    let reports = [report(&w.base, &[direct], &call, None)];
+    assert_eq!(admitted(&dispatched, CallPolicy::Association), 1);
+    // Its twin, a direct call of Base.m, is unique and flows.
+    let reports = [report(&w.base, &[callee(CallPhase::Call, CallChannel::Direct, &base)], &call, None)];
     let unique = site(&reports, &symbols);
     assert!(unique.facts().unique && !unique.facts().dispatch);
-    assert_eq!(admitted(&unique, CallPolicy::Summary), 1);
+    assert_eq!((admitted(&unique, CallPolicy::Summary), admitted(&unique, CallPolicy::Dataflow)), (1, 1));
 }
 
 #[test]

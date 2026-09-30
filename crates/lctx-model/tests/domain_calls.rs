@@ -29,7 +29,7 @@ impl Fixture {
         let destination = CallDestination::Resolved { symbol: symbol.id() };
         let channel = CallChannel::Direct; let receiver = Receiver::None;
         let target = CallTarget { qualification: qualification.id(),site: occurrence(0).id(),destination: destination.id(),
-            channel: channel.id(),phase: CallPhase::Call,receiver: receiver.id(),implicit: false, origin: CallOrigin::explicit(), receiver_class: None, passing: None, class_method: None, static_method: None };
+            channel: channel.id(),phase: CallPhase::Call,receiver: receiver.id(),implicit: false, origin: CallOrigin::explicit(), receiver_class: None, passing: Some(ReceiverPassing::NotPassed), class_method: None, static_method: None };
         let surface = ProviderSurface { provider: provider.id(),family: FactFamily::Calls,name: "targets".into() };
         let evidence = Evidence::Occurrence { occurrence: target.site };
         let support = CallTargetSupport { assertion: target.id(),run: run.id(),surface: surface.id(),evidence: evidence.id(),
@@ -118,7 +118,7 @@ fn binder_requires_whole_variant_and_preserves_all_formals_without_inventing_val
 
 #[test]
 fn receiver_classification_refuses_incomplete_evidence_and_missing_actuals() {
-    let base = ReceiverEvidence { passing: None,static_method: None,class_method: None,attribute_access: true,actual: None };
+    let base = ReceiverEvidence { passing: None,static_method: None,class_method: None,actual: None };
     assert!(matches!(classify_receiver(base),Receiver::Unknown { .. }));
     assert!(matches!(classify_receiver(ReceiverEvidence { passing: Some(ReceiverPassing::Object),..base }),Receiver::Unknown { .. }));
     assert_eq!(classify_receiver(ReceiverEvidence { passing: Some(ReceiverPassing::NotPassed),..base }),Receiver::None);
@@ -126,6 +126,10 @@ fn receiver_classification_refuses_incomplete_evidence_and_missing_actuals() {
     assert!(matches!(classify_receiver(ReceiverEvidence { static_method: Some(true),class_method: Some(true),..base }),Receiver::Unknown { .. }));
     let actual = occurrence(0).id();
     assert_eq!(classify_receiver(ReceiverEvidence { passing: Some(ReceiverPassing::Object),actual: Some(actual),..base }),Receiver::Bound { actual });
+    // Review F04: `c.cm()` passes the object's class, which no actual denotes; `C.cm()` passes `C`.
+    assert!(matches!(classify_receiver(ReceiverEvidence { passing: Some(ReceiverPassing::Object),class_method: Some(true),actual: Some(actual),..base }),
+        Receiver::Unknown { .. }));
+    assert_eq!(classify_receiver(ReceiverEvidence { passing: Some(ReceiverPassing::Class),class_method: Some(true),actual: Some(actual),..base }),Receiver::Bound { actual });
     let mut f = Fixture::new(); f.receiver = classify_receiver(base); f.target.receiver = f.receiver.id();
     let (signature,members,shapes) = f.signature(&[shape("self",ParameterKind::PositionalOnly,true)]);
     assert_eq!(bind(BindingInput { target: &f.target,qualification: &f.qualification,signature_qualification: &f.qualification,destination: &f.destination,channel: &f.channel,receiver: &f.receiver,
@@ -404,8 +408,24 @@ fn provider_call_sites_state_their_event_record_and_caller() {
     refused(membership(vec![]), "an origin missing its step", "call origin has missing steps");
     assert!(CallOrigin::new(&[(OriginStep::ChainedAssign, None)]).is_err());
     assert!(CallOrigin::new(&[(OriginStep::ForNext, Some(0))]).is_err());
-    let (chained, _) = CallOrigin::new(&[(OriginStep::SubscriptSetItem, None), (OriginStep::ChainedAssign, Some(1))]).unwrap();
-    assert_ne!(chained.id(), CallOrigin::new(&[(OriginStep::SubscriptSetItem, None), (OriginStep::ChainedAssign, Some(0))]).unwrap().0.id());
+    // Steps run from the outer context to the operation: `a[0] = b[1] = v` sets the second target's item.
+    let (chained, _) = CallOrigin::new(&[(OriginStep::ChainedAssign, Some(1)), (OriginStep::SubscriptSetItem, None)]).unwrap();
+    assert_ne!(chained.id(), CallOrigin::new(&[(OriginStep::ChainedAssign, Some(0)), (OriginStep::SubscriptSetItem, None)]).unwrap().0.id());
+    // Review F01: `f"{g()}"` stringifies g's result at g()'s span. The stringify is its own event,
+    // never an alternative of the explicit call.
+    let (stringify, stringify_steps) = CallOrigin::new(&[(OriginStep::FormatStringStringify, None)]).unwrap();
+    let format = ProviderCallSite { origin: stringify.id(), kind: PysaSiteKind::FormatStringStringify, callee: PysaCalleeKind::FormatStringStringify, ..site.clone() };
+    format.validate().unwrap();
+    assert!(ProviderCallSite { origin: CallOrigin::explicit(), ..format.clone() }.validate().is_err(), "a format-string site on the explicit call");
+    assert_ne!(stringify.id(), CallOrigin::explicit());
+    let sited = |row: &ProviderCallSite, steps: Vec<CallOriginStep>| check!(f.model, ProviderCallSite, 0, [(Module, vec![module.clone()]),
+        (ProviderModule, vec![acquired.clone()]), (ProviderSymbol, vec![caller.clone()]), (Occurrence, vec![occurrence(0)]), (CallOriginStep, steps),
+        (ProviderCallSite, vec![row.clone()])]);
+    sited(&format, stringify_steps.clone()).expect("a stringify under its own step");
+    let for_steps = CallOrigin::new(&[(OriginStep::ForIter, None)]).unwrap().1;
+    refused(sited(&ProviderCallSite { origin: for_iter.id(), ..format.clone() }, for_steps.clone()), "a stringify under a for step", "exactly its format-string step");
+    refused(sited(&ProviderCallSite { origin: stringify.id(), kind: PysaSiteKind::ArtificialCall, callee: PysaCalleeKind::Call, ..site.clone() }, stringify_steps),
+        "an artificial call under a format-string step", "exactly its format-string step");
 }
 
 #[test]
@@ -413,16 +433,20 @@ fn receiver_classes_and_dispatch_sets_name_the_right_kinds() {
     let f = Fixture::new();
     let class = ProviderSymbol { native_key: "class:C".into(), name: "C".into(), kind: SymbolKind::Class, ..f.symbol.clone() };
     let method = ProviderSymbol { native_key: "method:C.m".into(), name: "m".into(), kind: SymbolKind::Method, ..f.symbol.clone() };
-    let stored = |destination: &CallDestination, receiver_class: Option<Id<ProviderSymbol>>| {
-        let target = CallTarget { destination: destination.id(), receiver_class, passing: Some(ReceiverPassing::Object), class_method: Some(false),
+    let stored_with = |destination: &CallDestination, receiver_class: Option<Id<ProviderSymbol>>, passing: ReceiverPassing| {
+        let target = CallTarget { destination: destination.id(), receiver_class, passing: Some(passing), class_method: Some(false),
             static_method: Some(false), ..f.target.clone() };
         check!(f.model, CallTarget, 0, [(AssertionQualification, vec![f.qualification.clone()]), (ProviderSymbol, vec![f.symbol.clone(), class.clone(), method.clone()]),
             (Occurrence, vec![occurrence(0)]), (Receiver, vec![f.receiver.clone()]), (CallDestination, vec![destination.clone()]), (CallTarget, vec![target])])
     };
+    // The fixture's receiver is None: a function called without an implicit receiver.
+    let stored = |destination: &CallDestination, receiver_class| stored_with(destination, receiver_class, ReceiverPassing::NotPassed);
+    refused(stored_with(&f.destination, None, ReceiverPassing::Object), "no receiver where the object is passed", "differs from what its native evidence classifies");
     stored(&CallDestination::Resolved { symbol: method.id() }, Some(class.id())).expect("a method through its receiver class");
     refused(stored(&CallDestination::Resolved { symbol: method.id() }, Some(method.id())), "a method as a receiver class", "a receiver class is a class");
     stored(&CallDestination::Overrides { symbol: method.id() }, Some(class.id())).expect("the overrides of a method");
-    refused(stored(&CallDestination::Overrides { symbol: f.symbol.id() }, None), "the overrides of a plain function", "an override dispatch set names a method");
+    refused(stored(&CallDestination::Overrides { symbol: f.symbol.id() }, Some(class.id())), "the overrides of a plain function", "names a method and its receiver class");
+    refused(stored(&CallDestination::Overrides { symbol: method.id() }, None), "a dispatch set without its receiver class", "names a method and its receiver class");
     // A receiver class is native to the supporting provider.
     let alien = Provider { tool: "other-provider".into(), revision: "same".into(), build_digest: ContentHash::of(b"other") };
     let foreign = ProviderSymbol { provider: alien.id(), ..class.clone() };

@@ -163,7 +163,12 @@ pub trait Assertion: Record {
     /// rendering is display-only and never establishes structure).
     const FIDELITY: Option<Fidelity> = None;
     fn qualification(&self) -> Id<AssertionQualification>;
+    /// What the proposition is about: each is located inside the qualification's scope.
     fn subjects(&self) -> Vec<Subject>;
+    /// What the proposition refers to elsewhere (a re-export's origin, an inherited field's
+    /// declaration): each belongs to the asserting provider and to bytes the invocation captured,
+    /// wherever they lie.
+    fn referents(&self) -> Vec<Subject> { Vec::new() }
     fn subject_inputs() -> Vec<ValidationInput> { Vec::new() }
 }
 pub struct SupportAttribution { pub run: Id<ProviderRun>, pub surface: Id<ProviderSurface>, pub evidence: Id<Evidence>, pub fidelity: Fidelity }
@@ -374,7 +379,8 @@ impl<A: Assertion, S: Support<Assertion=A>> SupportCheck<A,S> {
             }
         }
         let mut sources = BTreeSet::new();
-        for subject in assertion.subjects() {
+        let located = assertion.subjects().into_iter().map(|s| (s, true));
+        for (subject, located) in located.chain(assertion.referents().into_iter().map(|s| (s, false))) {
             let subject = match subject {
                 Subject::ExportOrigin(id) => match self.export_origins.get(&id).ok_or_else(|| invalid("export origin absent"))? {
                     Some(module) => Subject::ProviderModule(*module),
@@ -399,11 +405,14 @@ impl<A: Assertion, S: Support<Assertion=A>> SupportCheck<A,S> {
                 _ => {},
             }
             if let Subject::Scope(id) = subject {
-                if id != q.scope { return Err(invalid("assertion subject scope differs")); }
+                if id != q.scope || !located { return Err(invalid("assertion subject scope differs")); }
             } else {
                 for source in self.subject_sources(subject)? {
-                    if !self.ownership.within(source,scope)? || !self.ownership.acquired(run.input,source)? { return Err(invalid("assertion crosses declared scope or invocation input")); }
-                    sources.insert(source);
+                    if !self.ownership.acquired(run.input,source)? { return Err(invalid("assertion crosses declared scope or invocation input")); }
+                    if located {
+                        if !self.ownership.within(source,scope)? { return Err(invalid("assertion crosses declared scope or invocation input")); }
+                        sources.insert(source);
+                    }
                 }
             }
         }

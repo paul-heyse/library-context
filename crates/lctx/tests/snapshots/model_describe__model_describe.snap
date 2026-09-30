@@ -3,7 +3,7 @@ source: crates/lctx/tests/model_describe.rs
 expression: "String::from_utf8(output.stdout).unwrap()"
 ---
 {
-  "digest": "61b5dd2209e70726843ce9b7da9612091ffad2b93d75ac0b4e6c9f268f6cc434",
+  "digest": "f4a713ee4b88d016984714637fecd1a5bbcf6a710ac07bcc1e5d97abfed8641b",
   "relations": [
     {
       "name": "access_paths",
@@ -1859,6 +1859,14 @@ expression: "String::from_utf8(output.stdout).unwrap()"
             [
               21,
               "ChainedAssign"
+            ],
+            [
+              22,
+              "FormatStringArtificial"
+            ],
+            [
+              23,
+              "FormatStringStringify"
             ]
           ]
         },
@@ -20294,6 +20302,7 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         "provider_modules",
         "provider_symbols",
         "occurrences",
+        "call_origin_steps",
         "provider_call_sites"
       ]
     },
@@ -20377,6 +20386,7 @@ expression: "String::from_utf8(output.stdout).unwrap()"
     {
       "name": "record_field_order",
       "inputs": [
+        "occurrences",
         "provider_symbols",
         "record_field_observations"
       ]

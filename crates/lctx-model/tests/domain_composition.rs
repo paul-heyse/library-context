@@ -74,7 +74,7 @@ impl World {
         let destination = CallDestination::Resolved { symbol: symbol.id() };
         let receiver = if has_receiver { Receiver::Bound { actual: receiver_actual.id() } } else { Receiver::None };
         let qualification = AssertionQualification { modality: self.target_modality, ..self.base.clone() };
-        let target = CallTarget { qualification: qualification.id(), site: site.id(), destination: destination.id(), channel: CallChannel::Direct.id(), phase: CallPhase::Call, receiver: receiver.id(), implicit: false, origin: CallOrigin::explicit(), receiver_class: None, passing: None, class_method: None, static_method: None };
+        let target = CallTarget { qualification: qualification.id(), site: site.id(), destination: destination.id(), channel: CallChannel::Direct.id(), phase: CallPhase::Call, receiver: receiver.id(), implicit: false, origin: CallOrigin::explicit(), receiver_class: None, passing: Some(ReceiverPassing::NotPassed), class_method: None, static_method: None };
         let (syntax, arguments) = CallSyntax::new(self.base.id(), site.id(), callee_name.id(), false, &actuals.iter().zip(&actual_rows)
             .map(|((kind, keyword), occurrence)| Actual { occurrence: occurrence.id(), kind: *kind, keyword: keyword.map(str::to_owned) }).collect::<Vec<_>>()).unwrap();
         let shape_map = shapes.iter().map(|s| (s.id(), s.clone())).collect();

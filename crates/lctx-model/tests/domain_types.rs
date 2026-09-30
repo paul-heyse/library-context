@@ -232,3 +232,26 @@ fn record_fields_state_their_models_flags_in_field_order() {
     refused(stored(&module), "a module's body", "a function body belongs to a def");
     assert_eq!(body.body, FunctionBodyKind::Ellipsis);
 }
+
+#[test]
+fn an_inherited_field_refers_to_its_declaration_in_another_module() {
+    use lctx_model::domain::source::{Occurrence, SyntaxKind};
+    let stored = |f: &Fixture| -> Result<(), ModelError> {
+        f.base.check(&RecordFieldObservation::invariants()[0])?;
+        f.base.check(&RecordFieldSupport::invariants()[0])
+    };
+    // The base class sits in `other.py`; the record class's claim stays under `example.py`'s scope.
+    let declare = |f: &mut Fixture, inside_class: bool| {
+        let (mut fields, body) = f.records();
+        let declaration = f.base.foreign.clone();
+        let mut occurrences = f.base.rows::<Occurrence>();
+        if inside_class { occurrences.push(Occurrence { syntax_kind: SyntaxKind::StmtClassDef, structural_path: vec![7], ..declaration.clone() }); }
+        f.base.put(occurrences);
+        fields[0].declaration = Some(declaration.id());
+        f.set_records(fields, body);
+    };
+    let mut inherited = Fixture::new(false); declare(&mut inherited, true);
+    stored(&inherited).expect("an inherited field declared in another module of the input");
+    let mut loose = Fixture::new(false); declare(&mut loose, false);
+    refused(stored(&loose), "a declaration outside any class", "lies inside a class statement");
+}

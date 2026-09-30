@@ -198,7 +198,10 @@ The same spelling in different origins is never one module.
 - docstring parameter documentation;
 - how it resolved a module it references.
 
-Every symbol a record names belongs to the provider and context of its subject. An annotation display
+Every symbol a record names belongs to the provider and context of its subject. A record is
+*about* its subjects, which lie in its scope. It *refers to* its referents: a re-export's origin, or an
+inherited field's declaration. A referent belongs to the asserting provider and to bytes the invocation
+captured, wherever those lie. An annotation display
 is display-only and establishes no structure; types are type observations. Qualified names,
 signature counts and a module's distribution are derived.
 
@@ -260,9 +263,13 @@ whose body holds it, otherwise the module. It is the only definition of "caller"
   explicit call, or the ordered desugaring steps of an implicit one: `for` calls `__iter__` and then
   `__next__` at its iterable, which are two events. Events at one site are distinct calls, never
   alternatives of one call (Implemented, focused Tested 2026-09-29, plan A7).
+  - Steps run from the outermost context to the implicit operation.
+  - A format string's calls have their own steps.
+  - The origin is the one authority on whether an event is implicit; a support's origin states
+    only who asserts it.
 - **Call targets** are provider-attributed alternatives of one event. Each carries:
-  - its destination: one symbol; every override of a method, a dispatch set that is never one
-    callee; or unresolved, with the model's reason and the provider's native one;
+  - its destination: one symbol; a dispatch set, never one callee; or unresolved, with the model's
+    reason and the provider's native one;
   - modality, fidelity and phase;
   - the receiver class the provider resolved it through, and the native receiver evidence its
     classified receiver comes from.
@@ -272,9 +279,15 @@ whose body holds it, otherwise the module. It is the only definition of "caller"
   reports it. That caller is the provider's attribution; the owner rule stays the model's caller.
 - Implicit invocations, such as decorator applications, are call targets with a disclosed origin and
   implicit flag. They are never silently merged with explicit calls.
-- An override dispatch set makes its event dispatched. Until a later layer expands the set, no
-  invocation, dataflow or summary policy admits it, and composing it yields an `OverrideDispatch`
-  obligation.
+- An override dispatch set is the named method or any override of it in a class extending the
+  target's receiver class, which the set requires. It makes its event dispatched, never unique.
+  - Until P4 expands it from complete MROs, the invocation view admits its named member.
+  - Dataflow and summaries do not bind through it.
+  - Composing it yields an `OverrideDispatch` obligation.
+- A receiver follows Pysa's implicit-receiver rule. A method called on an object, or a class method
+  called on a class, receives that expression. A class method called on an object receives the
+  object's class, which no actual denotes, so it is Unknown. A stored receiver is the one its stored
+  native evidence classifies.
 
 **Call policies.** "Which calls count" is decided only by **named call policies**. Each is a declared
 admission predicate, compiled once to a view:

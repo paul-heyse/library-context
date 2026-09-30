@@ -242,8 +242,10 @@ pub enum PysaUnresolvedReason {
     UnsupportedFunctionTarget = 5, UnexpectedDefiningClass = 6, UnexpectedInitMethod = 7, UnexpectedNewMethod = 8, UnexpectedCalleeExpression = 9,
     UnresolvedMagicDunderAttr = 10, UnresolvedMagicDunderAttrDueToNoBase = 11, UnresolvedMagicDunderAttrDueToNoAttribute = 12, Mixed = 13,
 }
-/// Where a call goes: one symbol; every override of a method, a dispatch set that is never one
-/// callee; or nowhere the provider resolved, with the model's reason and the provider's own.
+/// Where a call goes: one symbol; a virtual dispatch set, never one callee; or nowhere the provider
+/// resolved, with the model's reason and the provider's own. A dispatch set is the named method or
+/// any override of it in a class extending the target's receiver class (decided by complete MROs);
+/// until a later layer expands it, only the invocation view admits it, as its named member.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
 #[model(name = "call_destinations", validate = validate_destination)]
 pub enum CallDestination {
@@ -299,12 +301,17 @@ pub enum OriginStep {
     ForNext = 13, ForAssign = 14, ReprCall = 15, AbsCall = 16, IterCall = 17, NextCall = 18, StrCallToDunderMethod = 19, Slice = 20,
     /// The `index`th target of a chained assignment.
     ChainedAssign = 21,
+    /// A format string's implicit calls: its artificial call, and the stringify of an interpolated value.
+    FormatStringArtificial = 22, FormatStringStringify = 23,
 }
 /// The most steps one origin holds.
 pub const MAX_ORIGIN_STEPS: usize = 64;
 /// Which call event at a site: the empty sequence is the explicit call written there; otherwise
 /// the ordered desugaring steps of an implicit call (`for` calls `__iter__` then `__next__` at its
 /// iterable, two events). Events at one site are distinct calls, never alternatives of one call.
+/// Steps run from the outermost context to the implicit operation: Pysa's `Nested { head, tail }`
+/// is `tail`'s steps, then `head`'s (the order it displays). The origin is the one authority on
+/// whether an event is implicit; a support's origin states only who asserts it.
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name = "call_origins", invariants = origin_invariants)]
 pub struct CallOrigin { #[model(key)] pub steps: ContentHash }
@@ -396,7 +403,8 @@ pub struct ProviderCallSite {
     pub is_attribute: Option<bool>,
 }
 fn validate_provider_site(row: &ProviderCallSite) -> Result<(),ModelError> {
-    let artificial = matches!(row.kind, PysaSiteKind::ArtificialCall | PysaSiteKind::ArtificialAttributeAccess);
+    let artificial = matches!(row.kind, PysaSiteKind::ArtificialCall | PysaSiteKind::ArtificialAttributeAccess
+        | PysaSiteKind::FormatStringArtificial | PysaSiteKind::FormatStringStringify);
     if artificial == (row.origin == CallOrigin::explicit()) { return Err(invalid("an artificial site has origin steps, and only such a site")); }
     let fits = match row.kind {
         PysaSiteKind::Regular | PysaSiteKind::ArtificialCall | PysaSiteKind::ArtificialAttributeAccess => matches!(row.callee, PysaCalleeKind::Call | PysaCalleeKind::AttributeAccess),
@@ -411,13 +419,15 @@ fn validate_provider_site(row: &ProviderCallSite) -> Result<(),ModelError> {
 fn provider_site_invariants() -> Vec<Invariant> {
     vec![Invariant { name: "provider_call_site_callers", inputs: vec![
         ValidationInput::of::<Module>(&["id"]), ValidationInput::of::<ProviderModule>(&["id"]), ValidationInput::of::<ProviderSymbol>(&["id"]),
-        ValidationInput::of::<Occurrence>(&["id"]), ValidationInput::of::<ProviderCallSite>(&["id"]),
+        ValidationInput::of::<Occurrence>(&["id"]), ValidationInput::of::<CallOriginStep>(&["origin", "ordinal"]), ValidationInput::of::<ProviderCallSite>(&["id"]),
     ], create: std::sync::Arc::new(|budget| Box::new(CallerCheck { charge: StateCharge::new(budget, "provider_call_site_callers"), ..Default::default() })) }]
 }
-/// A site's caller is a callable of the site's own module.
+/// A site's caller is a callable of the site's own module, and a format-string site's origin is
+/// exactly its format-string step.
 #[derive(Default)]
 struct CallerCheck { charge: StateCharge, modules: ChargedMap<Id<Module>, Id<SourceArtifact>>, provider_modules: ChargedMap<Id<ProviderModule>, Option<Id<Module>>>,
-    symbols: ChargedMap<Id<ProviderSymbol>, (SymbolKind, Id<ProviderModule>)>, occurrences: ChargedMap<Id<Occurrence>, Id<SourceArtifact>> }
+    symbols: ChargedMap<Id<ProviderSymbol>, (SymbolKind, Id<ProviderModule>)>, occurrences: ChargedMap<Id<Occurrence>, Id<SourceArtifact>>,
+    steps: ChargedMap<Id<CallOrigin>, Vec<OriginStep>> }
 impl InvariantCheck for CallerCheck {
     fn visit(&mut self, relation: &str, batch: &arrow_array::RecordBatch) -> Result<(),ModelError> {
         if relation == Module::NAME { for row in Module::decode(batch)? { self.modules.insert(&mut self.charge, row.id(), row.source)?; } }
@@ -427,7 +437,16 @@ impl InvariantCheck for CallerCheck {
         } }
         else if relation == ProviderSymbol::NAME { for row in ProviderSymbol::decode(batch)? { self.symbols.insert(&mut self.charge, row.id(), (row.kind, row.module))?; } }
         else if relation == Occurrence::NAME { for row in Occurrence::decode(batch)? { self.occurrences.insert(&mut self.charge, row.id(), row.source)?; } }
+        else if relation == CallOriginStep::NAME { for row in CallOriginStep::decode(batch)? { self.steps.update(&mut self.charge, row.origin, |steps| steps.push(row.step))?; } }
         else if relation == ProviderCallSite::NAME { for row in ProviderCallSite::decode(batch)? {
+            let steps = self.steps.get(&row.origin).map(Vec::as_slice).unwrap_or_default();
+            let format = steps.iter().any(|s| matches!(s, OriginStep::FormatStringArtificial | OriginStep::FormatStringStringify));
+            let fits = match row.kind {
+                PysaSiteKind::FormatStringArtificial => steps == [OriginStep::FormatStringArtificial],
+                PysaSiteKind::FormatStringStringify => steps == [OriginStep::FormatStringStringify],
+                PysaSiteKind::Regular | PysaSiteKind::Identifier | PysaSiteKind::ArtificialCall | PysaSiteKind::ArtificialAttributeAccess => !format,
+            };
+            if !fits { return Err(invalid("a format-string site's origin is exactly its format-string step")); }
             let (kind, module) = *self.symbols.get(&row.caller).ok_or_else(|| invalid("call-site caller absent"))?;
             if !matches!(kind, SymbolKind::Function | SymbolKind::Method | SymbolKind::ModuleBody | SymbolKind::ClassBody | SymbolKind::DecoratorApplication) {
                 return Err(invalid("a call-site caller is a callable"));
@@ -692,19 +711,24 @@ pub fn bind(input: BindingInput<'_>) -> Result<BoundCall,ObligationKind> {
 #[derive(Debug, Clone, Copy)]
 pub struct ReceiverEvidence {
     pub passing: Option<ReceiverPassing>, pub static_method: Option<bool>,
-    pub class_method: Option<bool>, pub attribute_access: bool, pub actual: Option<Id<Occurrence>>,
+    pub class_method: Option<bool>, pub actual: Option<Id<Occurrence>>,
 }
+/// The receiver a call binds, following Pysa's implicit-receiver rule (`has_implicit_receiver` in
+/// its call graph): a method called on an object, or a class method called on a class, receives the
+/// expression it is called on. A class method called on an object receives the object's class,
+/// which no actual denotes, so it is Unknown; so is any contradictory or missing evidence.
 pub fn classify_receiver(evidence: ReceiverEvidence) -> Receiver {
     let unknown = || Receiver::Unknown { reason: ObligationKind::AmbiguousBinding };
+    let bound = || evidence.actual.map(|actual| Receiver::Bound { actual }).unwrap_or_else(unknown);
     if evidence.static_method == Some(true) && evidence.class_method == Some(true) { return unknown(); }
-    match evidence.passing.map(|passing| passing != ReceiverPassing::NotPassed) {
-        Some(true) if evidence.static_method == Some(true) => unknown(),
-        Some(true) => evidence.actual.map(|actual| Receiver::Bound { actual }).unwrap_or_else(unknown),
-        Some(false) if evidence.class_method == Some(true) => unknown(),
-        Some(false) => Receiver::None,
+    match evidence.passing {
+        Some(ReceiverPassing::Class | ReceiverPassing::Object) if evidence.static_method == Some(true) => unknown(),
+        Some(ReceiverPassing::Object) if evidence.class_method == Some(true) => unknown(),
+        Some(ReceiverPassing::Class | ReceiverPassing::Object) => bound(),
+        Some(ReceiverPassing::NotPassed) if evidence.class_method == Some(true) => unknown(),
+        Some(ReceiverPassing::NotPassed) => Receiver::None,
         None if evidence.static_method == Some(true) => Receiver::None,
-        None if evidence.class_method == Some(true) => evidence.actual.map(|actual| Receiver::Bound { actual }).unwrap_or_else(unknown),
-        None if evidence.attribute_access => unknown(),
+        None if evidence.class_method == Some(true) => bound(),
         None => unknown(),
     }
 }
@@ -947,12 +971,14 @@ impl CallPolicy {
         let target = candidate.target; let qualified = candidate.qualification;
         let ordinary_modality = matches!(qualified.modality,Modality::Definite|Modality::Candidate);
         let origin = |wanted| candidate.supports.iter().any(|support| support.origin == wanted);
-        // An override dispatch set is expanded by a later layer; until then it binds no invocation.
-        let direct = matches!(set.channel,CallChannel::Direct) && !matches!(candidate.destination, CallDestination::Overrides { .. });
+        // An override dispatch set is expanded by a later layer. Until then the invocation view
+        // admits its named member; flow and summaries do not bind through it.
+        let direct_channel = matches!(set.channel,CallChannel::Direct);
+        let direct = direct_channel && !matches!(candidate.destination, CallDestination::Overrides { .. });
         let callable = candidate.symbol.is_some_and(|symbol| matches!(symbol.kind,SymbolKind::Function|SymbolKind::Method));
         let flow_phase = matches!(target.phase,CallPhase::Call|CallPhase::Init);
         match self {
-            Self::Invocation => direct && ordinary_modality && origin(Origin::AnalyzerAssertion)
+            Self::Invocation => direct_channel && ordinary_modality && origin(Origin::AnalyzerAssertion)
                 && matches!(target.phase,CallPhase::Call|CallPhase::PropertyGet|CallPhase::PropertySet),
             Self::Dataflow => direct && ordinary_modality && callable && flow_phase,
             Self::Summary => direct && callable && matches!(target.phase,CallPhase::Call|CallPhase::New|CallPhase::Init)
@@ -1005,13 +1031,23 @@ impl InvariantCheck for TargetCheck {
                 if let Some(symbol) = destination.symbol() {
                     let symbol = self.symbols.get(&symbol).ok_or_else(|| invalid("call symbol absent"))?;
                     if symbol.context != qualification.context { return Err(invalid("call symbol context differs from assertion")); }
-                    if matches!(destination, CallDestination::Overrides { .. }) && symbol.kind != SymbolKind::Method { return Err(invalid("an override dispatch set names a method")); }
+                    if matches!(destination, CallDestination::Overrides { .. }) && (symbol.kind != SymbolKind::Method || row.receiver_class.is_none()) {
+                        return Err(invalid("an override dispatch set names a method and its receiver class"));
+                    }
                 }
                 if let Some(class) = row.receiver_class {
                     let class = self.symbols.get(&class).ok_or_else(|| invalid("receiver class absent"))?;
                     if class.kind != SymbolKind::Class || class.context != qualification.context { return Err(invalid("a receiver class is a class of the assertion's context")); }
                 }
                 let receiver = self.receivers.get(&row.receiver).ok_or_else(|| invalid("call receiver absent"))?;
+                // The stored receiver is the one its stored native evidence classifies.
+                let evidence = |actual| ReceiverEvidence { passing: row.passing, static_method: row.static_method, class_method: row.class_method, actual };
+                let consistent = match receiver {
+                    Receiver::Bound { actual } => classify_receiver(evidence(Some(*actual))) == *receiver,
+                    Receiver::None => classify_receiver(evidence(None)) == Receiver::None,
+                    Receiver::Unknown { .. } => matches!(classify_receiver(evidence(None)), Receiver::Unknown { .. }),
+                };
+                if !consistent { return Err(invalid("a call's receiver differs from what its native evidence classifies")); }
                 if let Receiver::Bound { actual } = receiver {
                     let site = self.occurrences.get(&row.site).ok_or_else(|| invalid("call site absent"))?;
                     let actual = self.occurrences.get(actual).ok_or_else(|| invalid("call receiver occurrence absent"))?;

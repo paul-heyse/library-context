@@ -30,14 +30,14 @@ async fn call_signature_membership_support_ownership_and_readback() {
         ParameterShape { name: Some("kwargs".into()),kind: ParameterKind::VarKeyword,required: false }];
     let (signature,parameters) = Signature::new(&qualification,symbol.id(),0,SignatureForm::List,&shapes).unwrap();
     let destination = CallDestination::Resolved { symbol: symbol.id() }; let channel = CallChannel::Direct; let receiver = Receiver::None;
-    let target = CallTarget { qualification: qualification.id(),site: site.id(),destination: destination.id(),channel: channel.id(),phase: CallPhase::Call,receiver: receiver.id(),implicit: false, origin: CallOrigin::explicit(), receiver_class: None, passing: None, class_method: None, static_method: None };
+    let target = CallTarget { qualification: qualification.id(),site: site.id(),destination: destination.id(),channel: channel.id(),phase: CallPhase::Call,receiver: receiver.id(),implicit: false, origin: CallOrigin::explicit(), receiver_class: None, passing: Some(ReceiverPassing::NotPassed), class_method: None, static_method: None };
     let (resolution,members) = CallResolution::new(&qualification,site.id(),CallOrigin::explicit(),channel.id(),CallPhase::Call,true,&[target.clone()]).unwrap();
     let explicit = CallOrigin::new(&[]).unwrap().0;
     // `for` at the same site: an implicit call event whose native unresolved reason is kept.
     let (for_iter, for_iter_steps) = CallOrigin::new(&[(OriginStep::ForIter, None)]).unwrap();
     let unresolved = CallDestination::Unresolved { reason: ObligationKind::UnresolvedTarget, native: Some(PysaUnresolvedReason::Mixed) };
     let unknown = Receiver::Unknown { reason: ObligationKind::AmbiguousBinding };
-    let implicit_target = CallTarget { origin: for_iter.id(), destination: unresolved.id(), receiver: unknown.id(), ..target.clone() };
+    let implicit_target = CallTarget { origin: for_iter.id(), destination: unresolved.id(), receiver: unknown.id(), passing: None, ..target.clone() };
     let (implicit_resolution, implicit_members) = CallResolution::new(&qualification,site.id(),for_iter.id(),channel.id(),CallPhase::Call,false,&[implicit_target.clone()]).unwrap();
     let module_row = Module { source: source.id(), qualified_name: "example".into() };
     let acquired = ProviderModule::Acquired { module: module_row.id() };

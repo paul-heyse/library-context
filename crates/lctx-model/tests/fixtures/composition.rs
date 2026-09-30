@@ -65,7 +65,7 @@ impl Fixture {
         let parameter_declaration = ParameterDeclaration { qualification: qualification.id(), parameter: members[0].id(), declaration: base.parameter.id() };
         let destination = CallDestination::Resolved { symbol: callee_symbol.id() };
         let target = CallTarget { qualification: qualification.id(), site: base.site.id(), destination: destination.id(), channel: CallChannel::Direct.id(),
-            phase: CallPhase::Call, receiver: Receiver::None.id(), implicit: false, origin: CallOrigin::explicit(), receiver_class: None, passing: None, class_method: None, static_method: None };
+            phase: CallPhase::Call, receiver: Receiver::None.id(), implicit: false, origin: CallOrigin::explicit(), receiver_class: None, passing: Some(ReceiverPassing::NotPassed), class_method: None, static_method: None };
         let bound = bind(BindingInput { target: &target, qualification: &qualification, signature_qualification: &qualification, destination: &destination,
             channel: &CallChannel::Direct, receiver: &Receiver::None, signature: &signature, parameters: &members,
             shapes: &BTreeMap::from([(shape.id(), shape.clone())]), call: &base.call, arguments: &base.arguments }).unwrap();

@@ -24,7 +24,7 @@ pub struct Fixture {
     pub model: ValidatedModel, pub batches: BTreeMap<&'static str, RecordBatch>,
     pub provider: Provider, pub alien: Provider, pub context: AnalysisContext, pub run: ProviderRun, pub alien_run: ProviderRun,
     pub surfaces: BTreeMap<FactFamily, ProviderSurface>, pub alien_surfaces: BTreeMap<FactFamily, ProviderSurface>,
-    pub qualification: AssertionQualification, pub scope: CoverageScope, pub module: Module,
+    pub qualification: AssertionQualification, pub scope: CoverageScope, pub module: Module, pub other: Module,
     pub modules: BTreeMap<&'static str, ProviderModule>, pub sym: BTreeMap<&'static str, ProviderSymbol>, pub occ: BTreeMap<&'static str, Occurrence>,
     pub signature: Signature, pub members: Vec<SignatureParameter>, pub description: Evidence,
     pub sequences: Vec<(SymbolSequence, Vec<SymbolSequenceMember>)>,
@@ -39,8 +39,12 @@ pub struct Fixture {
 impl Fixture {
     pub fn new() -> Self {
         let model = model().unwrap();
-        let input = InputRevision::from_entries(vec![ManifestEntry { path: "example.py".into(), content: ContentHash::of(BYTES), byte_len: BYTES.len() as i64 }]).unwrap();
+        let other_bytes: &[u8] = b"X = 1\n";
+        let input = InputRevision::from_entries(vec![ManifestEntry { path: "example.py".into(), content: ContentHash::of(BYTES), byte_len: BYTES.len() as i64 },
+            ManifestEntry { path: "other.py".into(), content: ContentHash::of(other_bytes), byte_len: other_bytes.len() as i64 }]).unwrap();
         let source = SourceArtifact::from_bytes(input.id(), "example.py".into(), BYTES).unwrap();
+        let other_source = SourceArtifact::from_bytes(input.id(), "other.py".into(), other_bytes).unwrap();
+        let other = Module { source: other_source.id(), qualified_name: "other".into() };
         let origin = InputOrigin::Tree { label: "symbol contract".into() };
         let acquisition = InputAcquisition { input: input.id(), origin: origin.id() };
         let context = AnalysisContext { python_version: "3.14.7".into(), python_platform: "linux".into(), search_path: vec![], site_package_path: vec![],
@@ -59,6 +63,7 @@ impl Fixture {
         let module = Module { source: source.id(), qualified_name: "example".into() };
         let modules: BTreeMap<&'static str, ProviderModule> = [
             ("example", ProviderModule::Acquired { module: module.id() }),
+            ("other", ProviderModule::Acquired { module: other.id() }),
             ("typing", ProviderModule::Bundled { provider: provider.id(), bundle: ModuleBundle::Typeshed, name: "typing".into() }),
             ("nspkg", ProviderModule::Namespace { provider: provider.id(), context: context.id(), name: "nspkg".into() }),
             ("gone", ProviderModule::Unresolved { provider: provider.id(), context: context.id(), name: "gone".into() }),
@@ -93,7 +98,7 @@ impl Fixture {
             classmethod: false, property_getter: false, property_setter: false, stub: false, def_statement: true, defining_class: defining_class.map(id), overrides: None };
         let mut fixture = Self { model, batches: BTreeMap::new(), provider: provider.clone(), alien: alien.clone(), context: context.clone(), run: run.clone(),
             alien_run: alien_run.clone(), surfaces: surfaces.clone(), alien_surfaces: alien_surfaces.clone(), qualification: qualification.clone(), scope: scope.clone(),
-            module: module.clone(), modules: modules.clone(), sym: sym.clone(), occ: occ.clone(), signature: signature.clone(), members: members.clone(),
+            module: module.clone(), other: other.clone(), modules: modules.clone(), sym: sym.clone(), occ: occ.clone(), signature: signature.clone(), members: members.clone(),
             description: description.clone(), sequences: vec![empty.clone(), service_ancestors.clone()],
             symbols: vec![SymbolObservation { qualification: q, symbol: id("Base"), parent: None },
                 SymbolObservation { qualification: q, symbol: id("Base.run"), parent: Some(id("Base")) },
@@ -122,14 +127,18 @@ impl Fixture {
             dependencies: vec![DependencyModuleObservation { qualification: q, module: modules["example"].id(), location: None },
                 DependencyModuleObservation { qualification: q, module: modules["typing"].id(), location: Some("stdlib/typing.pyi".into()) },
                 DependencyModuleObservation { qualification: q, module: modules["nspkg"].id(), location: Some("nspkg".into()) },
-                DependencyModuleObservation { qualification: q, module: modules["gone"].id(), location: None }],
+                DependencyModuleObservation { qualification: q, module: modules["gone"].id(), location: None },
+                DependencyModuleObservation { qualification: q, module: modules["other"].id(), location: None }],
             annotation_fidelity: Fidelity::DisplayOnly, supporting: None };
         macro_rules! one { ($($row:expr),+ $(,)?) => { $(fixture.put(vec![$row.clone()]);)+ }; }
-        one!(input, origin, acquisition, context, scope, condition, qualification, module, signature);
+        one!(input, origin, acquisition, context, scope, condition, qualification, signature);
+        fixture.put(vec![module, other]);
         fixture.put(vec![provider, alien]); fixture.put(vec![run.clone(), alien_run]);
         let mut families = run_families; families.extend(alien_families); fixture.put(families);
         fixture.put(nodes); fixture.put(surfaces.values().chain(alien_surfaces.values()).cloned().collect());
-        fixture.put(ArtifactChunk::split(&source, BYTES).unwrap().collect()); fixture.put(vec![source]);
+        let mut chunks: Vec<ArtifactChunk> = ArtifactChunk::split(&source, BYTES).unwrap().collect();
+        chunks.extend(ArtifactChunk::split(&other_source, other_bytes).unwrap());
+        fixture.put(chunks); fixture.put(vec![source, other_source]);
         fixture.put(occ.values().cloned().collect()); fixture.put(shapes); fixture.put(members);
         fixture.put(vec![SignatureSupport { assertion: signature.id(), run: run.id(), surface: surfaces[&FactFamily::Signatures].id(),
             evidence: Evidence::Invocation { run: run.id() }.id(), origin: Origin::AnalyzerAssertion, mode: ExtractionMode::NativeTraversal, fidelity: Fidelity::NativeStructural }]);

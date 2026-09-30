@@ -538,10 +538,11 @@ pub enum RecordKind { Dataclass = 0, Attrs = 1, Pydantic = 2, TypedDict = 3, Nam
 /// One field of a record class in the provider's field order (inherited fields first), with its
 /// type and the flags its record model defines: dataclass-like fields state a default and whether
 /// `__init__` takes them (with an alias and `kw_only` when set); named-tuple fields state a default;
-/// `TypedDict` fields state requiredness and read-only.
+/// `TypedDict` fields state requiredness and read-only. The claim is about the class; an inherited
+/// field's declaration is a reference inside the class that declares it, possibly another module's.
 #[derive(Debug,Clone,PartialEq,Eq,Domain,Assertion)]
 #[model(name = "record_field_observations", validate = validate_record_field, invariants = record_invariants)]
-#[assertion(support = RecordFieldSupport, name = "record_field_supports", family = FactFamily::Types, subjects(class, term, declaration))]
+#[assertion(support = RecordFieldSupport, name = "record_field_supports", family = FactFamily::Types, subjects(class, term), referents(declaration))]
 pub struct RecordFieldObservation {
     #[model(key)] pub qualification: Id<AssertionQualification>,
     #[model(key)] pub class: Id<ProviderSymbol>,
@@ -570,18 +571,31 @@ fn validate_record_field(row: &RecordFieldObservation) -> Result<(),ModelError> 
     Ok(())
 }
 fn record_invariants() -> Vec<Invariant> {
-    vec![Invariant { name: "record_field_order",inputs: vec![ValidationInput::of::<ProviderSymbol>(&["id"]),ValidationInput::of::<RecordFieldObservation>(&["id"])],
+    vec![Invariant { name: "record_field_order",inputs: vec![ValidationInput::of::<Occurrence>(&["id"]),ValidationInput::of::<ProviderSymbol>(&["id"]),
+        ValidationInput::of::<RecordFieldObservation>(&["id"])],
         create: std::sync::Arc::new(|budget| Box::new(RecordCheck { charge: StateCharge::new(budget,"record_field_order"),..Default::default() })) }]
 }
-/// A class's fields under one qualification come from one record model, at ordinals 0..n.
+/// A class's fields under one qualification come from one record model, at ordinals 0..n; a field's
+/// declaration lies inside a class statement.
 #[derive(Default)]
 struct RecordCheck { charge: StateCharge, classes: ChargedSet<Id<ProviderSymbol>>,
-    fields: ChargedMap<(Id<AssertionQualification>,Id<ProviderSymbol>),Vec<(i64,RecordKind)>> }
+    fields: ChargedMap<(Id<AssertionQualification>,Id<ProviderSymbol>),Vec<(i64,RecordKind)>>,
+    spans: ChargedMap<Id<Occurrence>,(Id<super::source::SourceArtifact>,i64,i64)>,
+    class_statements: ChargedMap<Id<super::source::SourceArtifact>,Vec<(i64,i64)>> }
 impl InvariantCheck for RecordCheck {
     fn visit(&mut self, relation: &str,batch: &arrow_array::RecordBatch) -> Result<(),ModelError> {
-        if relation == ProviderSymbol::NAME { for row in ProviderSymbol::decode(batch)? { if row.kind == SymbolKind::Class { self.classes.insert(&mut self.charge,row.id())?; } } }
+        if relation == Occurrence::NAME { for row in Occurrence::decode(batch)? {
+            self.spans.insert(&mut self.charge,row.id(),(row.source,row.start,row.end))?;
+            if row.syntax_kind == super::source::SyntaxKind::StmtClassDef { self.class_statements.update(&mut self.charge,row.source,|spans| spans.push((row.start,row.end)))?; }
+        } }
+        else if relation == ProviderSymbol::NAME { for row in ProviderSymbol::decode(batch)? { if row.kind == SymbolKind::Class { self.classes.insert(&mut self.charge,row.id())?; } } }
         else if relation == RecordFieldObservation::NAME { for row in RecordFieldObservation::decode(batch)? {
             if !self.classes.contains(&row.class) { return Err(invalid("a record field belongs to a class")); }
+            if let Some(declaration) = row.declaration {
+                let (source,start,end) = *self.spans.get(&declaration).ok_or_else(|| invalid("record field declaration absent"))?;
+                let classes = self.class_statements.get(&source).map(Vec::as_slice).unwrap_or_default();
+                if !classes.iter().any(|(s,e)| *s <= start && end <= *e) { return Err(invalid("a record field's declaration lies inside a class statement")); }
+            }
             self.fields.update(&mut self.charge,(row.qualification,row.class),|fields| fields.push((row.ordinal,row.record)))?;
         } } else { return Err(invalid("undeclared record field input")); }
         Ok(())
