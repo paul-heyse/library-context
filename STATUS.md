@@ -8,9 +8,12 @@ _Updated 2026-09-29 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
   3.1 and profile guidance 1.2. Domain modeling is mandatory; FP-04/A2 require an adequate model
   governing behavior. Reviewer, process skills, AGENTS and DESIGN §2 are aligned. Library
   exploration and capability skills are unchanged; this does not qualify product code.
+- **Implemented review guidance:** relevant library-catalog entries are optional context for
+  alternatives; design principles govern the judgment. AGENTS and the catalog introduction align.
 - `just docs-check`: **failed** on five existing review links to deleted cutover files
   (`attempt.rs`, `db.rs`, `snapshot.rs`, catalog `pr4.rs`, `rebuild.rs`). Its ADR and agent checks
-  **passed**. HEAD inspection confirmed all five broken links predate this policy change.
+  and HTML build **passed**, including after the advisory wording change. HEAD inspection
+  confirmed all five broken links predate this policy change.
 - Generic skill validation (`uv run --no-project --offline --with pyyaml python
   /home/paul/.codex/skills/.system/skill-creator/scripts/quick_validate.py`): with
   `.claude/skills/design-review-code-intelligence`, **passed**; with `.claude/skills/design-review`,
