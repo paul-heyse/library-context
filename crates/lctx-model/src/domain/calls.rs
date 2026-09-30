@@ -1323,33 +1323,36 @@ impl InvariantCheck for CallSyntaxCheck {
 }
 /// Call-shape binding does not evaluate defaults or certify normal completion. A Default source
 /// names the definition-time slot; value transfer needs its separately proven value/certificate.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[model(name = "binding_sources")]
 pub enum BindingSource {
-    Actual(Id<Occurrence>),
-    Default,
-    EmptyVarargs,
-    EmptyKwargs,
+    #[model(code = 0)] Actual { occurrence: Id<Occurrence> },
+    #[model(code = 1)] Default,
+    #[model(code = 2)] EmptyVarargs,
+    #[model(code = 3)] EmptyKwargs,
 }
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
+#[repr(i16)]
 pub enum BindingKind {
-    Positional,
-    Keyword,
-    Default,
-    Varargs,
-    Kwargs,
-    Receiver,
-    Implicit,
+    Positional = 0,
+    Keyword = 1,
+    Default = 2,
+    Varargs = 3,
+    Kwargs = 4,
+    Receiver = 5,
+    Implicit = 6,
 }
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[model(name = "binding_projections")]
 pub enum BindingProjection {
-    Whole,
+    #[model(code = 0)] Whole,
     /// Element position inside the collected *args tuple, including any inserted receiver.
-    Positional {
+    #[model(code = 1)] Positional {
         index: i64,
     },
     /// Dictionary key inside the collected **kwargs mapping.
-    Keyword {
-        name: String,
+    #[model(code = 2)] Keyword {
+        name: Utf8Text,
     },
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1365,6 +1368,12 @@ pub struct BoundCall {
     target: Id<CallTarget>,
     signature: Id<Signature>,
     bindings: Vec<Binding>,
+}
+impl HeapSize for BoundCall {
+    fn heap_bytes(&self) -> usize {
+        self.bindings.capacity().saturating_mul(size_of::<Binding>())
+            .saturating_add(self.bindings.iter().map(|b| b.source.heap_bytes() + b.projection.heap_bytes()).sum::<usize>())
+    }
 }
 impl BoundCall {
     pub fn site(&self) -> Id<Occurrence> {
@@ -1383,69 +1392,52 @@ impl BoundCall {
 /// All joins and all parameters of one signature are required. A caller cannot pass an arbitrary
 /// subset of successfully bound rows and ask it to certify the whole invocation.
 pub struct BindingInput<'a> {
-    pub target: &'a CallTarget,
-    pub qualification: &'a AssertionQualification,
-    pub signature_qualification: &'a AssertionQualification,
-    pub destination: &'a CallDestination,
-    pub channel: &'a CallChannel,
-    pub receiver: &'a Receiver,
-    pub signature: &'a Signature,
+    pub application: &'a super::normalized::signature_applicability::ApplicableSignature<'a>,
     pub parameters: &'a [SignatureParameter],
     pub shapes: &'a BTreeMap<Id<ParameterShape>, ParameterShape>,
     /// The call's syntax and its complete ordered argument set; a partial set refuses.
-    pub call: &'a CallSyntax,
     pub arguments: &'a [CallArgument],
 }
-pub fn bind(input: BindingInput<'_>) -> Result<BoundCall, ObligationKind> {
-    let BindingInput {
-        target,
-        qualification,
-        signature_qualification,
-        destination,
-        channel,
-        receiver,
-        signature,
-        parameters,
-        shapes,
-        call,
-        arguments,
-    } = input;
-    if call.site != target.site {
-        return Err(ObligationKind::MissingEvidence);
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
+#[repr(i16)]
+pub enum BindingFailureClass { ProvenIncompatible = 0, Undetermined = 1 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BindingFailure { pub reason: ObligationKind, pub class: BindingFailureClass }
+impl BindingFailure {
+    fn incompatible() -> Self { Self { reason: ObligationKind::AmbiguousBinding, class: BindingFailureClass::ProvenIncompatible } }
+}
+impl From<ObligationKind> for BindingFailure {
+    fn from(reason: ObligationKind) -> Self { Self { reason, class: BindingFailureClass::Undetermined } }
+}
+/// The argument algorithm consumes a validated normalized application, never raw symbol equality.
+/// An unsupported or missing premise is not proof that Python rejects the invocation.
+pub fn bind(input: BindingInput<'_>) -> Result<BoundCall, BindingFailure> {
+    let BindingInput { application, parameters, shapes, arguments } = input;
+    let raw = application.raw();
+    let (target, signature, channel, receiver, call) = (raw.target, raw.signature, raw.channel, raw.receiver, raw.call);
     let actuals = &call
         .actuals(arguments)
         .map_err(|_| ObligationKind::MissingEvidence)?;
-    if target.qualification != qualification.id()
-        || signature.qualification != signature_qualification.id()
-        || qualification.context != signature_qualification.context
-        || target.destination != destination.id()
-        || target.channel != channel.id()
-        || target.receiver != receiver.id()
-        || !matches!(destination,CallDestination::Resolved { symbol } if *symbol == signature.symbol)
-    {
-        return Err(ObligationKind::MissingEvidence);
-    }
     if !matches!(channel, CallChannel::Direct) {
-        return Err(ObligationKind::CallTransfer);
+        return Err(ObligationKind::CallTransfer.into());
     }
     if !matches!(
         target.phase,
         CallPhase::Call | CallPhase::Init | CallPhase::New
     ) {
-        return Err(ObligationKind::OutsideProviderModel);
+        return Err(ObligationKind::OutsideProviderModel.into());
     }
     if let Receiver::Unknown { reason } = receiver {
-        return Err(*reason);
+        return Err((*reason).into());
     }
     let formals = resolve_parameters(signature, parameters, shapes)
         .map_err(|_| ObligationKind::MissingEvidence)?;
     validate_shapes(signature.form, &formals).map_err(|_| ObligationKind::AmbiguousBinding)?;
     if signature.form != SignatureForm::List {
-        return Err(ObligationKind::OutsideProviderModel);
+        return Err(ObligationKind::OutsideProviderModel.into());
     }
     if actuals.len() > 128 {
-        return Err(ObligationKind::InvocationArgumentLimit);
+        return Err(ObligationKind::InvocationArgumentLimit.into());
     }
     // Unexpanded operands cannot establish a complete binding. Keep the original call evidence;
     // refusing this value transfer is not evidence that Python would reject the invocation.
@@ -1453,7 +1445,7 @@ pub fn bind(input: BindingInput<'_>) -> Result<BoundCall, ObligationKind> {
         .iter()
         .any(|a| matches!(a.kind, ArgumentKind::Starred | ArgumentKind::DoubleStarred))
     {
-        return Err(ObligationKind::UnsupportedUnpacking);
+        return Err(ObligationKind::UnsupportedUnpacking.into());
     }
     let mut out = vec![];
     let mut bound = vec![false; formals.len()];
@@ -1479,9 +1471,9 @@ pub fn bind(input: BindingInput<'_>) -> Result<BoundCall, ObligationKind> {
                     .filter(|f| f.kind == ParameterKind::VarPositional)
                     .map(|_| 0)
             })
-            .ok_or(ObligationKind::AmbiguousBinding)?;
+            .ok_or_else(BindingFailure::incompatible)?;
         if first != 0 {
-            return Err(ObligationKind::AmbiguousBinding);
+            return Err(BindingFailure::incompatible());
         }
         let projection = if formals[first].kind == ParameterKind::VarPositional {
             vararg_index += 1;
@@ -1491,7 +1483,7 @@ pub fn bind(input: BindingInput<'_>) -> Result<BoundCall, ObligationKind> {
         };
         out.push(Binding {
             formal: parameters[first].id(),
-            source: BindingSource::Actual(*actual),
+            source: BindingSource::Actual { occurrence: *actual },
             kind: BindingKind::Receiver,
             projection,
         });
@@ -1514,12 +1506,12 @@ pub fn bind(input: BindingInput<'_>) -> Result<BoundCall, ObligationKind> {
         if !occurrences.insert(actual.occurrence)
             || (matches!(actual.kind, ArgumentKind::Keyword) != actual.keyword.is_some())
         {
-            return Err(ObligationKind::AmbiguousBinding);
+            return Err(ObligationKind::MissingEvidence.into());
         }
         let index = match actual.kind {
             ArgumentKind::Positional | ArgumentKind::Implicit => {
                 if keyword_seen {
-                    return Err(ObligationKind::AmbiguousBinding);
+                    return Err(ObligationKind::MissingEvidence.into());
                 }
                 let found = positional.get(next).copied().or(varargs);
                 next += 1;
@@ -1530,9 +1522,10 @@ pub fn bind(input: BindingInput<'_>) -> Result<BoundCall, ObligationKind> {
                 let name = actual
                     .keyword
                     .as_deref()
-                    .ok_or(ObligationKind::AmbiguousBinding)?;
-                if name.is_empty() || !names.insert(name) {
-                    return Err(ObligationKind::AmbiguousBinding);
+                    .ok_or(ObligationKind::MissingEvidence)?;
+                if name.is_empty() { return Err(ObligationKind::MissingEvidence.into()); }
+                if !names.insert(name) {
+                    return Err(BindingFailure::incompatible());
                 }
                 formals
                     .iter()
@@ -1547,9 +1540,9 @@ pub fn bind(input: BindingInput<'_>) -> Result<BoundCall, ObligationKind> {
             }
             ArgumentKind::Starred | ArgumentKind::DoubleStarred => unreachable!("refused above"),
         }
-        .ok_or(ObligationKind::AmbiguousBinding)?;
+        .ok_or_else(BindingFailure::incompatible)?;
         if bound[index] && Some(index) != varargs && Some(index) != kwargs {
-            return Err(ObligationKind::AmbiguousBinding);
+            return Err(BindingFailure::incompatible());
         }
         bound[index] = true;
         let (kind, projection) = if Some(index) == varargs {
@@ -1572,7 +1565,7 @@ pub fn bind(input: BindingInput<'_>) -> Result<BoundCall, ObligationKind> {
                     name: actual
                         .keyword
                         .clone()
-                        .ok_or(ObligationKind::AmbiguousBinding)?,
+                        .ok_or(ObligationKind::AmbiguousBinding)?.into(),
                 },
             )
         } else {
@@ -1587,7 +1580,7 @@ pub fn bind(input: BindingInput<'_>) -> Result<BoundCall, ObligationKind> {
         };
         out.push(Binding {
             formal: parameters[index].id(),
-            source: BindingSource::Actual(actual.occurrence),
+            source: BindingSource::Actual { occurrence: actual.occurrence },
             kind,
             projection,
         });
@@ -1600,7 +1593,7 @@ pub fn bind(input: BindingInput<'_>) -> Result<BoundCall, ObligationKind> {
             ParameterKind::VarPositional => BindingSource::EmptyVarargs,
             ParameterKind::VarKeyword => BindingSource::EmptyKwargs,
             _ if !formal.required => BindingSource::Default,
-            _ => return Err(ObligationKind::AmbiguousBinding),
+            _ => return Err(BindingFailure::incompatible()),
         };
         let kind = match formal.kind {
             ParameterKind::VarPositional => BindingKind::Varargs,

@@ -85,7 +85,7 @@ fn missing_syntax_coverage_cannot_prove_an_empty_decorator_chain() {
 }
 #[test]
 fn uncertain_qualifications_and_conflicting_native_traits_do_not_admit_a_body() {
-    for mode in 0..3 {
+    for mode in 0..4 {
         let (mut data, budget, symbol, q) = fixture();
         if mode == 0 {
             let candidate = AssertionQualification { modality: Modality::Candidate, ..q }; data.qualifications.insert(candidate.clone()).unwrap();
@@ -95,15 +95,49 @@ fn uncertain_qualifications_and_conflicting_native_traits_do_not_admit_a_body() 
             let other_q = AssertionQualification { approximation: Approximation::Under, ..q }; data.qualifications.insert(other_q.clone()).unwrap();
             let native = data.traits.iter().next().unwrap().clone();
             data.traits.insert(FunctionTraitObservation { qualification: other_q.id(), ..native }).unwrap();
-        } else {
+        } else if mode == 2 {
             let other = ProviderSymbol { native_key: "other-f".into(), ..symbol };
             let resolution = data.resolutions.iter().next().unwrap().clone();
             data.resolutions.insert(SymbolEntityResolution { symbol: other.id(), ..resolution }).unwrap();
             let native = data.traits.iter().next().unwrap().clone();
             data.traits.insert(FunctionTraitObservation { symbol: other.id(), stub: true, ..native }).unwrap();
+        } else {
+            let conditional = AssertionQualification { condition: Diagram::never().id(), ..q }; data.qualifications.insert(conditional.clone()).unwrap();
+            let body = data.bodies.iter().next().unwrap().clone(); data.bodies = Rows::new(&budget);
+            data.bodies.insert(FunctionBodyObservation { qualification: conditional.id(), ..body }).unwrap();
         }
         let output = normalize(&data, &budget).unwrap(); let a = output.assessments.iter().next().unwrap();
         assert!(!a.body_admitted); assert_eq!(a.body, if mode == 2 { Knowledge::Conflicting } else { Knowledge::Unknown });
         if mode == 0 { assert_eq!(a.identity, Knowledge::Known); }
+    }
+}
+
+#[test]
+fn qualified_signatures_and_async_syntax_do_not_advertise_context_wide_knowledge() {
+    for external in [false, true] {
+        let (mut data, budget, symbol, q) = fixture();
+        if external {
+            let callable = CallableEntity::External { symbol: symbol.id() }; data.callables.insert(callable.clone()).unwrap();
+            let entity = EntityRef::Callable { callable: callable.id() }; data.refs.insert(entity.clone()).unwrap();
+            data.resolutions = Rows::new(&budget);
+            data.resolutions.insert(SymbolEntityResolution { symbol: symbol.id(), context: q.context, policy: normalized::policy_revision(), status: ResolutionStatus::Resolved, entity: Some(entity.id()), reason: EntityReason::ProviderExternal }).unwrap();
+        }
+        let conditional = AssertionQualification { condition: Diagram::never().id(), ..q }; data.qualifications.insert(conditional.clone()).unwrap();
+        let shape = data.shapes.iter().next().unwrap().clone();
+        let (signature, parameters) = Signature::new(&conditional, symbol.id(), 0, SignatureForm::List, &[shape]).unwrap();
+        data.signatures = Rows::new(&budget); data.parameters = Rows::new(&budget);
+        data.signatures.insert(signature).unwrap(); for parameter in parameters { data.parameters.insert(parameter).unwrap(); }
+        let output = normalize(&data, &budget).unwrap(); let variant = output.variants.iter().next().unwrap();
+        let assessment = output.assessments.get(variant.assessment.unwrap()).unwrap();
+        assert_eq!(assessment.signatures, Knowledge::Unknown); assert_eq!(assessment.signature_reason, CallableReason::QualifiedUncertainty);
+    }
+    for conditional in [false, true] {
+        let (mut data, budget, _, q) = fixture();
+        let uncertain = if conditional { AssertionQualification { condition: Diagram::never().id(), ..q } } else { AssertionQualification { modality: Modality::Candidate, ..q } };
+        data.qualifications.insert(uncertain.clone()).unwrap();
+        let declaration = data.declarations.iter().next().unwrap().clone(); data.declarations = Rows::new(&budget);
+        data.declarations.insert(DeclarationObservation { qualification: uncertain.id(), kind: DeclarationKind::AsyncFunction, ..declaration }).unwrap();
+        let output = normalize(&data, &budget).unwrap(); let a = output.assessments.iter().next().unwrap();
+        assert_eq!(a.asynchronous, None); assert_eq!(a.identity, Knowledge::Unknown); assert!(!a.body_admitted);
     }
 }

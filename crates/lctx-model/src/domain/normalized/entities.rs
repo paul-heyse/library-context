@@ -50,7 +50,7 @@ pub enum ResolutionStatus { Resolved = 0, Ambiguous = 1, Unresolved = 2 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
 #[repr(i16)]
 pub enum EntityReason { DeclarationAgreement = 0, ProviderSynthetic = 1, ProviderExternal = 2,
-    AcquiredModule = 3, MissingDeclaration = 4, ConflictingDeclarations = 5, UnsupportedKind = 6, UntracedExposure = 7, MissingCorrespondence = 8 }
+    AcquiredModule = 3, MissingDeclaration = 4, ConflictingDeclarations = 5, UnsupportedKind = 6, UntracedExposure = 7, MissingCorrespondence = 8, QualifiedUncertainty = 9 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name = "symbol_entity_resolutions", validate = validate_resolution, invariants = super::entity_normalization::invariants)]
 pub struct SymbolEntityResolution {

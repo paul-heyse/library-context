@@ -1,4 +1,6 @@
 #[path = "fixtures/events.rs"] mod event_fixture;
+#[path = "fixtures/binding.rs"] mod binding_fixture;
+use binding_fixture::{InspectionCase, bind_inspection};
 use lctx_model::domain::normalized::{events::CallPolicy, event_normalization};
 use lctx_model::domain::{
     assertion::*, attribution::*, calls::*, conditions::Diagram, input::*, source::*, *,
@@ -219,7 +221,8 @@ fn binder_requires_whole_variant_and_preserves_all_formals_without_inventing_val
     let args = [actual(1, ArgumentKind::Positional, None)];
     let bind_with = |parameters: &[SignatureParameter], actuals: &[Actual]| {
         let (call, arguments) = f.call(actuals);
-        bind(BindingInput {
+        bind_inspection(InspectionCase {
+            input: InputRevision::from_entries(vec![]).unwrap().id(),
             target: &f.target,
             qualification: &f.qualification,
             signature_qualification: &f.qualification,
@@ -268,7 +271,7 @@ fn binder_requires_whole_variant_and_preserves_all_formals_without_inventing_val
         "positional-only remains unbound even if x enters kwargs"
     );
     assert_eq!(
-        bind_with(&members, &[actual(1, ArgumentKind::Starred, None)]).unwrap_err(),
+        bind_with(&members, &[actual(1, ArgumentKind::Starred, None)]).unwrap_err().reason,
         ObligationKind::UnsupportedUnpacking
     );
     assert!(
@@ -307,7 +310,8 @@ fn binder_requires_whole_variant_and_preserves_all_formals_without_inventing_val
     assert!(bind_with(&crossed, &args).is_err());
     let (empty, empty_members, empty_shapes) = f.signature(&[]);
     assert!(
-        bind(BindingInput {
+        bind_inspection(InspectionCase {
+            input: InputRevision::from_entries(vec![]).unwrap().id(),
             target: &f.target,
             qualification: &f.qualification,
             signature_qualification: &f.qualification,
@@ -397,7 +401,8 @@ fn receiver_classification_refuses_incomplete_evidence_and_missing_actuals() {
     let (signature, members, shapes) =
         f.signature(&[shape("self", ParameterKind::PositionalOnly, true)]);
     assert_eq!(
-        bind(BindingInput {
+        bind_inspection(InspectionCase {
+            input: InputRevision::from_entries(vec![]).unwrap().id(),
             target: &f.target,
             qualification: &f.qualification,
             signature_qualification: &f.qualification,
@@ -410,7 +415,7 @@ fn receiver_classification_refuses_incomplete_evidence_and_missing_actuals() {
             call: &f.call(&[]).0,
             arguments: &f.call(&[]).1
         })
-        .unwrap_err(),
+        .unwrap_err().reason,
         ObligationKind::AmbiguousBinding
     );
 }
@@ -515,7 +520,8 @@ fn binding_context_and_receiver_varargs_are_explicit() {
     let (signature, members, shapes) =
         f.signature(&[shape("args", ParameterKind::VarPositional, false)]);
     let (call, arguments) = f.call(&[actual(1, ArgumentKind::Positional, None)]);
-    let input = |qualification| BindingInput {
+    let input = |qualification| InspectionCase {
+            input: InputRevision::from_entries(vec![]).unwrap().id(),
         target: &f.target,
         qualification: &f.qualification,
         signature_qualification: qualification,
@@ -529,7 +535,7 @@ fn binding_context_and_receiver_varargs_are_explicit() {
         arguments: &arguments,
     };
     assert_eq!(
-        bind(input(&f.qualification)).unwrap().bindings().len(),
+        bind_inspection(input(&f.qualification)).unwrap().bindings().len(),
         2,
         "bound receiver and explicit value both reach args"
     );
@@ -537,7 +543,7 @@ fn binding_context_and_receiver_varargs_are_explicit() {
         modality: Modality::Potential,
         ..f.qualification.clone()
     };
-    assert!(bind(input(&other)).is_err());
+    assert!(bind_inspection(input(&other)).is_err());
     let mut f = Fixture::new();
     f.qualification.modality = Modality::Potential;
     f.target.qualification = f.qualification.id();
@@ -650,7 +656,8 @@ fn binder_checks_shape_lookup_identity_and_retains_aggregate_coordinates() {
         },
     );
     assert_eq!(
-        bind(BindingInput {
+        bind_inspection(InspectionCase {
+            input: InputRevision::from_entries(vec![]).unwrap().id(),
             target: &f.target,
             qualification: &f.qualification,
             signature_qualification: &f.qualification,
@@ -663,7 +670,7 @@ fn binder_checks_shape_lookup_identity_and_retains_aggregate_coordinates() {
             call: &f.call(&[]).0,
             arguments: &f.call(&[]).1
         })
-        .unwrap_err(),
+        .unwrap_err().reason,
         ObligationKind::MissingEvidence
     );
     let (signature, members, shapes) =
@@ -671,7 +678,8 @@ fn binder_checks_shape_lookup_identity_and_retains_aggregate_coordinates() {
     let mut bindings = vec![];
     for name in ["left", "right"] {
         let args = [actual(1, ArgumentKind::Keyword, Some(name))];
-        let bound = bind(BindingInput {
+        let bound = bind_inspection(InspectionCase {
+            input: InputRevision::from_entries(vec![]).unwrap().id(),
             target: &f.target,
             qualification: &f.qualification,
             signature_qualification: &f.qualification,
@@ -704,7 +712,8 @@ fn binder_checks_shape_lookup_identity_and_retains_aggregate_coordinates() {
         actual(1, ArgumentKind::Positional, None),
         actual(2, ArgumentKind::Implicit, None),
     ];
-    let bound = bind(BindingInput {
+    let bound = bind_inspection(InspectionCase {
+            input: InputRevision::from_entries(vec![]).unwrap().id(),
         target: &f.target,
         qualification: &f.qualification,
         signature_qualification: &f.qualification,
@@ -1010,7 +1019,8 @@ fn positional_keyword_receiver_and_refused_variants() {
     let bind_to = |f: &Fixture, shapes: &[ParameterShape], actuals: &[Actual]| {
         let (signature, members, shapes) = f.signature(shapes);
         let (call, arguments) = f.call(actuals);
-        bind(BindingInput {
+        bind_inspection(InspectionCase {
+            input: InputRevision::from_entries(vec![]).unwrap().id(),
             target: &f.target,
             qualification: &f.qualification,
             signature_qualification: &f.qualification,
@@ -1029,7 +1039,7 @@ fn positional_keyword_receiver_and_refused_variants() {
         bound
             .bindings()
             .iter()
-            .find(|b| b.source == BindingSource::Actual(occurrence(n).id()))
+            .find(|b| b.source == BindingSource::Actual { occurrence: occurrence(n).id() })
             .map(|b| (b.formal, b.kind.clone()))
     };
     let ab = [
@@ -1131,7 +1141,7 @@ fn positional_keyword_receiver_and_refused_variants() {
                 actual(2, ArgumentKind::DoubleStarred, None)
             ]
         )
-        .unwrap_err(),
+        .unwrap_err().reason,
         ObligationKind::UnsupportedUnpacking
     );
     // A bound receiver takes the first formal; the next actual the second.
@@ -1590,7 +1600,8 @@ fn native_positional_kind_order_is_preserved_and_keyword_groups_cannot_go_backwa
         actual(2, ArgumentKind::Positional, None),
     ];
     let (call, arguments) = f.call(&actuals);
-    let result = bind(BindingInput {
+    let result = bind_inspection(InspectionCase {
+            input: InputRevision::from_entries(vec![]).unwrap().id(),
         target: &f.target,
         qualification: &f.qualification,
         signature_qualification: &f.qualification,
@@ -1647,7 +1658,8 @@ fn unavailable_native_slots_roundtrip_and_refuse_binding() {
     .unwrap();
     let shapes = definitions.iter().map(|s| (s.id(), s.clone())).collect();
     let (call, arguments) = f.call(&[]);
-    let result = bind(BindingInput {
+    let result = bind_inspection(InspectionCase {
+            input: InputRevision::from_entries(vec![]).unwrap().id(),
         target: &f.target,
         qualification: &f.qualification,
         signature_qualification: &f.qualification,
@@ -1660,10 +1672,50 @@ fn unavailable_native_slots_roundtrip_and_refuse_binding() {
         call: &call,
         arguments: &arguments,
     });
-    assert_eq!(result.unwrap_err(), ObligationKind::OutsideProviderModel);
+    assert_eq!(result.unwrap_err().reason, ObligationKind::OutsideProviderModel);
     let batch = Batch::new(&f.model, vec![signature.clone()], &budget()).unwrap();
     assert_eq!(Signature::decode(batch.arrow()).unwrap(), vec![signature]);
     assert_eq!(parameters.len(), 2);
     assert_eq!(parameters[0].ordinal, 0);
     assert_eq!(parameters[1].ordinal, 1);
+}
+
+#[test]
+fn applicability_uses_supported_entities_without_relabeling_provider_symbols() {
+    use lctx_model::domain::normalized::{Rows, entities::*, callables::*, signature_applicability::*};
+    for mutation in 0..5 {
+        let f = Fixture::new(); let budget = budget();
+        let mut scopes = Rows::new(&budget); let artifacts = Rows::new(&budget); let modules = Rows::new(&budget);
+        scopes.insert(CoverageScope::Input { input: InputRevision::from_entries(vec![]).unwrap().id() }).unwrap();
+        let provider = Provider { tool: "second-provider".into(), revision: "1".into(), build_digest: ContentHash::of(b"second") };
+        let symbol = ProviderSymbol { provider: provider.id(), ..f.symbol.clone() };
+        let callable = CallableEntity::Source { declaration: occurrence(40).id(), kind: CallableKind::Function };
+        let entity = EntityRef::Callable { callable: callable.id() };
+        let resolution = SymbolEntityResolution { symbol: f.symbol.id(), context: f.qualification.context, policy: lctx_model::domain::normalized::policy_revision(), status: ResolutionStatus::Resolved, entity: Some(entity.id()), reason: EntityReason::DeclarationAgreement };
+        let mut signature_resolution = SymbolEntityResolution { symbol: symbol.id(), ..resolution.clone() };
+        let mut q = f.qualification.clone();
+        if mutation == 1 { signature_resolution.entity = Some(EntityRef::Callable { callable: CallableEntity::Source { declaration: occurrence(41).id(), kind: CallableKind::Function }.id() }.id()); }
+        if mutation == 2 {
+            q.context = AnalysisContext { python_version: "3.14".into(), python_platform: "foreign".into(), search_path: vec![], site_package_path: vec![], config_digest: ContentHash::of(b"foreign"), environment_digest: ContentHash::of(b"foreign"), lock_digest: None }.id();
+            signature_resolution.context = q.context;
+        }
+        if mutation == 3 {
+            let scope = CoverageScope::Input { input: InputRevision::from_entries(vec![ManifestEntry { path: "foreign.py".into(), content: ContentHash::of(b"x"), byte_len: 1 }]).unwrap().id() };
+            q.scope = scopes.insert(scope).unwrap();
+        }
+        if mutation == 4 { signature_resolution.reason = EntityReason::ProviderExternal; }
+        let (signature, parameters) = Signature::new(&q, symbol.id(), 0, SignatureForm::List, &[]).unwrap();
+        let variant = SignatureVariant { signature: signature.id(), context: q.context, resolution: signature_resolution.id(), callable: Some(callable.id()), assessment: None, adjustment: SignatureAdjustment::Unknown };
+        let (call, arguments) = f.call(&[]);
+        let application = establish(Application { target: &f.target, qualification: &f.qualification, destination: &f.destination, channel: &f.channel, receiver: &f.receiver,
+            signature: &signature, signature_qualification: &q, call: &call, call_qualification: &f.qualification, target_resolution: &resolution, signature_resolution: &signature_resolution,
+            entity: &entity, callable: &callable, variant: &variant, effective: None, scopes: ScopeCatalog { scopes: &scopes, artifacts: &artifacts, modules: &modules } });
+        assert_eq!(application.is_ok(), mutation == 0, "mutation {mutation}");
+        if let Ok(application) = application {
+            assert_eq!(application.authority(), BindingAuthority::SourceInspection);
+            let bound = bind(BindingInput { application: &application, parameters: &parameters, shapes: &BTreeMap::new(), arguments: &arguments }).unwrap();
+            assert_eq!(bound.target(), f.target.id()); assert_eq!(bound.signature(), signature.id());
+            assert_ne!(f.symbol.id(), signature.symbol);
+        }
+    }
 }

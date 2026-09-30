@@ -61,3 +61,23 @@ fn normalized_codec_preserves_unicode_nul_and_rejects_false_resolved_shape() {
     resolution.status = ResolutionStatus::Unresolved; resolution.validate().unwrap();
     drop(data); assert_eq!(budget.reserved(), 0);
 }
+
+#[test]
+fn tentative_or_conditional_declaration_links_remain_candidates_without_resolution_authority() {
+    use lctx_model::domain::declarations::*;
+    for mutation in 0..4 {
+        let (mut data, budget, symbol) = fixture();
+        let mut q = data.qualifications.iter().next().unwrap().clone();
+        match mutation { 1 => q.modality = Modality::Candidate, 2 => q.approximation = Approximation::Over, 3 => q.condition = Diagram::never().id(), _ => {} }
+        data.qualifications.insert(q.clone()).unwrap();
+        let declaration = SymbolDeclaration { qualification: q.id(), symbol: symbol.id(), declaration: data.occurrences.iter().find(|o| o.syntax_kind == SyntaxKind::StmtFunctionDef).unwrap().id() };
+        let (run, _) = ProviderRun::new(symbol.provider, symbol.context, InputRevision::from_entries(vec![]).unwrap().id(), ContentHash::of(b"fixture"), [FactFamily::Signatures]).unwrap();
+        let surface = ProviderSurface { provider: symbol.provider, family: FactFamily::Signatures, name: "declarations".into() };
+        data.declaration_supports.insert(SymbolDeclarationSupport { assertion: declaration.id(), run: run.id(), surface: surface.id(), evidence: Evidence::Occurrence { occurrence: declaration.declaration }.id(), origin: Origin::AnalyzerAssertion, mode: ExtractionMode::NativeTraversal, fidelity: Fidelity::NativeStructural }).unwrap();
+        data.declarations.insert(declaration).unwrap();
+        let output = normalize(data.inputs(), &budget).unwrap(); let resolution = output.resolutions.iter().next().unwrap();
+        assert_eq!(resolution.status, if mutation == 0 { ResolutionStatus::Resolved } else { ResolutionStatus::Unresolved });
+        assert_eq!(resolution.reason, if mutation == 0 { EntityReason::DeclarationAgreement } else { EntityReason::QualifiedUncertainty });
+        assert_eq!(output.candidates.len(), 1); assert_eq!(output.evidence.len(), 1);
+    }
+}

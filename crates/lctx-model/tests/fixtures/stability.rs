@@ -61,7 +61,10 @@ pub struct Fixture {
 }
 impl Fixture {
     pub fn new() -> Self {
-        let model = model().unwrap();
+        // This retained analysis fixture exercises the P0 composition contract. It does not
+        // synthesize N1-N5 outputs; their totality is tested by normalized pipeline fixtures.
+        let mut relations = facts_relations(); relations.extend(analysis_relations());
+        let model = ValidatedModel::validate(relations).unwrap();
         let input = InputRevision::from_entries(vec![
             ManifestEntry {
                 path: "callee.py".into(),

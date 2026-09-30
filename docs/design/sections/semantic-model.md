@@ -221,8 +221,10 @@ signature counts and a module's distribution are derived.
 The model owns nominal source, synthetic and external identities, total symbol resolutions,
 correspondence evidence, occurrence ownership, parameter/field links and public exposures.
 Source/stub anchors stay distinct; agreement on a source declaration can join providers, while
-external spelling cannot. Missing source attachment is unresolved. Native function origin uses
-Pyrefly's declaration map to distinguish synthesized methods from callable-valued source fields;
+external spelling cannot. Missing source attachment is unresolved.
+Only Definite, Exact, unconditional declaration/native-origin premises establish correspondence;
+tentative candidates and their support remain inspectable without resolved identity authority.
+Pyrefly's declaration map distinguishes synthesized methods from callable-valued source fields;
 its `is_def_statement` flag alone cannot establish that distinction. The completed-stage driver
 and shared exact-output invariant enforce the same contract. N1 is a tested internal stage;
 normalized publication remains unavailable until N7 and full Phase 3 qualification.
@@ -381,7 +383,7 @@ in the same context and recording missing correspondence. They establish no tran
 views and DataFusion logical views use the same model-owned membership query. The latter require
 completed sources including the event invariant owner; inlining preserves physical-scan admission.
 
-**Stored binding realization (Accepted target; Proposed implementation evidence, 2026-09-30; N5).**
+**Stored binding realization (Implemented, focused Tested 2026-09-30; N5).**
 The sole binder consumes complete raw variants and actuals. Store successful and refused attempts,
 their exact premises and member-set digest. Shared validation replays the binder; only a validated
 complete event, ownership and binding can create the private composition-admission token for P4.
@@ -393,6 +395,13 @@ an Undetermined variant, including native-unavailable or unsupported arguments, 
 Normalized signature applicability replaces raw provider-symbol equality at the binder boundary:
 both attributed owners must resolve to the same callable in the same input/context, retaining
 their evidence and effective-signature authority. One argument algorithm remains behind that check.
+`normalized::binding_normalization` stores every alternative/variant/syntax attempt and its raw
+argument digest, receiver, authority, outcome and formal-slot members. Effective variant-set
+classification includes every refusal and requires complete scoped signature coverage. Different
+syntax reports remain alternatives. Implicit events do not reuse explicit syntax; annotation calls
+do not establish runtime invocation authority. The public verifier replays N1–N4 and the sole
+binder before issuing `ValidatedBoundCall` and `CompositionAdmission`; arbitrary stored lower
+assessments or member rows cannot mint these tokens. P4 still owns the composition engine cutover.
 
 > Decision: ADR-0085, ADR-0102
 

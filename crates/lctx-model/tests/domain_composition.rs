@@ -1,6 +1,8 @@
 //! Whole-call composition (C05/C06/C07) with pre-written answers over in-memory frames.
 #[path = "fixtures/composition.rs"]
 mod fixture;
+#[path = "fixtures/binding.rs"] mod binding_fixture;
+use binding_fixture::{InspectionCase, bind_inspection};
 use lctx_model::domain::{
     assertion::*,
     attribution::*,
@@ -275,7 +277,8 @@ impl World {
         )
         .unwrap();
         let shape_map = shapes.iter().map(|s| (s.id(), s.clone())).collect();
-        let bound = bind(BindingInput {
+        let bound = bind_inspection(InspectionCase {
+            input: InputRevision::from_entries(vec![]).unwrap().id(),
             target: &target,
             qualification: &qualification,
             signature_qualification: &self.base,
@@ -1290,7 +1293,8 @@ fn every_admitted_alternative_composes_separately_and_modality_follows_the_site(
     .unwrap();
     second.links[0].parameter = members[0].id();
     second.members = members.clone();
-    second.bound = bind(BindingInput {
+    second.bound = bind_inspection(InspectionCase {
+            input: InputRevision::from_entries(vec![]).unwrap().id(),
         target: &second.target,
         qualification: &w.base,
         signature_qualification: &w.base,

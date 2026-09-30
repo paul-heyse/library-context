@@ -77,17 +77,21 @@ impl<'a> Index<'a> {
 }
 /// Only complete normalized input reconstruction creates this token. Neither a stored assessment
 /// nor a filtered set of admitted rows has a public conversion to it.
-pub struct CompleteEvent { event: Id<NormalizedCallEvent>, assessment: Id<EventAssessment>, members: ContentHash }
+pub(super) struct CompleteEvent { event: Id<NormalizedCallEvent>, assessment: Id<EventAssessment>, members: ContentHash }
 impl CompleteEvent {
-    pub fn event(&self) -> Id<NormalizedCallEvent> { self.event }
     pub fn assessment(&self) -> Id<EventAssessment> { self.assessment }
     pub fn members(&self) -> ContentHash { self.members }
 }
 impl HeapSize for CompleteEvent { fn heap_bytes(&self) -> usize { 0 } }
-pub struct VerifiedEvents { complete: ChargedMap<Id<NormalizedCallEvent>, CompleteEvent>, _charge: StateCharge }
+pub(super) struct VerifiedEvents { complete: ChargedMap<Id<NormalizedCallEvent>, CompleteEvent>, _charge: StateCharge }
 impl VerifiedEvents { pub fn get(&self, event: Id<NormalizedCallEvent>) -> Option<&CompleteEvent> { self.complete.get(&event) } }
-pub fn verify(data: &EventData, stored: &EventOutput, budget: &ResourceBudget) -> Result<VerifiedEvents, ModelError> {
+/// Internal reconstruction assumes checked N1/N2 premises. Only full binding replay exposes an
+/// admission token outside this module family. Public validation returns no authority token.
+pub(super) fn verify(data: &EventData, stored: &EventOutput, budget: &ResourceBudget) -> Result<VerifiedEvents, ModelError> {
     let (expected, tokens) = evaluate(data, budget)?; stored.matches(&expected)?; Ok(tokens)
+}
+pub fn validate(data: &EventData, stored: &EventOutput, budget: &ResourceBudget) -> Result<(), ModelError> {
+    stored.matches(&normalize(data, budget)?)
 }
 pub fn normalize(data: &EventData, budget: &ResourceBudget) -> Result<EventOutput, ModelError> { Ok(evaluate(data, budget)?.0) }
 

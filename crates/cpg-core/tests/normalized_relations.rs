@@ -1,7 +1,7 @@
 //! Real native facts -> frozen checkpoint -> completed-stage normalization and policy views.
 use cpg_core::model_runtime::{AttemptRuntime, RuntimeOptions};
 use cpg_extract::{acquisition::AcquiredInput, bundle::{CapturedInputs, run_stage}, capture::CapturedInput};
-use lctx_model::domain::{admission::FrontierContract, normalized::{entity_normalization, relation_normalization, callable_normalization, event_normalization, events::*}, stages::*, *};
+use lctx_model::domain::{admission::FrontierContract, normalized::{entity_normalization, relation_normalization, callable_normalization, event_normalization, binding_normalization, events::*}, stages::*, *};
 use lctx_postgres::{generations::GenerationStore, roles::{Role, RoleConfig}, testing::DisposableDatabase};
 use std::sync::Arc;
 #[derive(Debug, Clone, PartialEq, Eq, lctx_model::Domain)]
@@ -27,6 +27,7 @@ async fn run(profile: Profile) {
     declarations.push(relation_normalization::stage(profile));
     declarations.push(callable_normalization::stage(profile));
     declarations.push(event_normalization::stage(profile));
+    declarations.push(binding_normalization::stage(profile));
     let mut probe_inputs = event_normalization::stage(profile).inputs;
     macro_rules! probe_input { ($($field:ident: $ty:ty,)*) => { $(probe_inputs.push(RelationUse::stored::<$ty>());)* }; }
     lctx_model::normalized_event_outputs!(probe_input);
@@ -54,6 +55,10 @@ async fn run(profile: Profile) {
         } else if declaration.name == "normalize_events" {
             cpg_core::stage_runtime::run_declared_stage(&mut execution, declaration, async |access| {
                 cpg_core::normalize::events(access, &attempt, &config, &runtime, &model).await
+            }, &mut |_| {}).await.unwrap();
+        } else if declaration.name == "normalize_bindings" {
+            cpg_core::stage_runtime::run_declared_stage(&mut execution, declaration, async |access| {
+                cpg_core::normalize::bindings(access, &attempt, &config, &runtime, &model).await
             }, &mut |_| {}).await.unwrap();
         } else if declaration.name == "probe_policy_views" {
             cpg_core::stage_runtime::run_declared_stage(&mut execution, declaration, async |access| {

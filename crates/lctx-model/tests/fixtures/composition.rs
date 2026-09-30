@@ -8,6 +8,8 @@
 )]
 #[path = "stability.rs"]
 mod stability;
+#[path = "binding.rs"] mod binding_fixture;
+use binding_fixture::{InspectionCase, bind_inspection};
 use lctx_model::domain::{
     artifact::*,
     assertion::*,
@@ -181,7 +183,8 @@ impl Fixture {
             class_method: None,
             static_method: None,
         };
-        let bound = bind(BindingInput {
+        let bound = bind_inspection(InspectionCase {
+            input: input.id(),
             target: &target,
             qualification: &qualification,
             signature_qualification: &qualification,

@@ -179,9 +179,10 @@ fn supported_cross_provider_identity_agreement_is_not_raw_symbol_equality() {
     let old: Vec<_> = data.symbol_resolutions.iter().cloned().collect(); data.symbol_resolutions = normalized::Rows::new(&budget);
     for row in old { data.symbol_resolutions.insert(SymbolEntityResolution { entity: Some(entity.id()), reason: EntityReason::DeclarationAgreement, ..row }).unwrap(); }
     let agreed = event_fixture::evaluate(data, budget); assert!(agreed.assessment().unique); assert_eq!(agreed.admitted(CallPolicy::Summary).len(), 2);
-    assert!(event_normalization::verify(&agreed.data, &agreed.output, &agreed.budget).unwrap().get(agreed.assessment().event).is_some());
+    event_normalization::validate(&agreed.data, &agreed.output, &agreed.budget).unwrap();
+    assert!(agreed.assessment().complete && agreed.assessment().unique);
     let mut output = agreed.output; output.alternative_evidence = normalized::Rows::new(&agreed.budget);
-    assert!(event_normalization::verify(&agreed.data, &output, &agreed.budget).is_err(), "omitted duplicate evidence cannot yield a complete token");
+    assert!(event_normalization::validate(&agreed.data, &output, &agreed.budget).is_err(), "omitted duplicate evidence cannot yield a complete token");
 }
 
 #[test]
@@ -207,7 +208,7 @@ fn stored_policy_mutation_and_short_resources_refuse_complete_event_admission() 
     let assessment = result.output.policy_assessments.iter().find(|a| a.policy == CallPolicy::Summary).unwrap().id();
     let alternative = result.output.alternatives.iter().next().unwrap().id();
     result.output.admissions.insert(CallPolicyAdmission { assessment, alternative }).unwrap();
-    assert!(event_normalization::verify(&result.data, &result.output, &result.budget).is_err());
+    assert!(event_normalization::validate(&result.data, &result.output, &result.budget).is_err());
     let budget = lctx_model::domain::resources::ResourceBudget::fixed(64).unwrap();
     assert!(matches!(event_normalization::normalize(&result.data, &budget), Err(ModelError::Resource { .. }))); assert_eq!(budget.reserved(), 0);
 }

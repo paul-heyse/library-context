@@ -245,7 +245,7 @@ impl Ports {
                 let binding = match bindings.as_slice() {
                     [
                         PortBinding {
-                            source: BindingSource::Actual(actual),
+                            source: BindingSource::Actual { occurrence: actual },
                             projection: BindingProjection::Whole,
                         },
                     ] => RootBinding::Actual(
@@ -339,7 +339,7 @@ impl Composer<'_> {
                 Some(Port::Entry(bindings)) => bindings
                     .iter()
                     .map(|binding| match &binding.source {
-                        BindingSource::Actual(actual) => {
+                        BindingSource::Actual { occurrence: actual } => {
                             let prefix = self.projection(&binding.projection);
                             Mapped::Root {
                                 root: PlaceRoot::Occurrence {
@@ -465,7 +465,7 @@ pub fn compose_call(
     };
     let Some(binding) = bindings
         .into_iter()
-        .find(|b| b.source == BindingSource::Actual(*actual))
+        .find(|b| b.source == BindingSource::Actual { occurrence: *actual })
     else {
         return Ok(vec![CallComposition::Disjoint]);
     };
@@ -678,26 +678,9 @@ fn binding_digest(bound: &BoundCall) -> ContentHash {
     let mut sink = KeySink::new("composed-bindings");
     for binding in bound.bindings() {
         binding.formal.encode(&mut sink);
-        match &binding.source {
-            BindingSource::Actual(actual) => {
-                0i16.encode(&mut sink);
-                actual.encode(&mut sink);
-            }
-            BindingSource::Default => 1i16.encode(&mut sink),
-            BindingSource::EmptyVarargs => 2i16.encode(&mut sink),
-            BindingSource::EmptyKwargs => 3i16.encode(&mut sink),
-        }
-        match &binding.projection {
-            BindingProjection::Whole => 0i16.encode(&mut sink),
-            BindingProjection::Positional { index } => {
-                1i16.encode(&mut sink);
-                index.encode(&mut sink);
-            }
-            BindingProjection::Keyword { name } => {
-                2i16.encode(&mut sink);
-                name.encode(&mut sink);
-            }
-        }
+        binding.source.encode(&mut sink);
+        binding.kind.encode(&mut sink);
+        binding.projection.encode(&mut sink);
     }
     (bound.bindings().len() as i64).encode(&mut sink);
     sink.finish()

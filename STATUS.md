@@ -15,18 +15,18 @@ _Updated 2026-09-30 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
   Accept scoped after F01/F02/O1 correction and reinspection.
 - **Implemented / focused-Tested:** N1 entities, total symbol correspondence, owner materialization,
   parameter/field links and public exposures, charged store-read stage and shared exact-output
-  validation. Native function origin distinguishes callable source fields from synthesized methods.
-  This changes the model schema and requires a rebuilt store.
+  validation; native origin distinguishes callable source fields from synthesis. Store rebuild due Q.
 - **Implemented / focused-Tested:** N2 total lexical/import/ancestry/mention/type/binder/place/
   test-operand relations, charged driver and shared exact-output validation. Native and pure
   controls preserve module coordinates, missing outcomes and exact role/context linkage;
   real PostgreSQL controls passed for both profiles. Catalog relies on validated NotRequested
   flow coverage. Normalized publication remains unavailable until N7.
 - **Implemented / focused-Tested:** N3 effective callable/body authority and raw signature slots;
-  N4 complete events, normalized policies, source-bound membership views and qualified flow links.
-  Native, pure and real PostgreSQL profile controls passed; plan §11 owns the exact receipts.
-- N5–N7/X/Q remain. No formatting, lint, integrated gate, new pilot or phase exit has run;
-  these wait until all functional scope is implemented. N1–N5 assembled review follows N5.
+  N4 events/policies/views/flow links; N5 stored bindings, total variant sets and private admission.
+  Pure/native and both PostgreSQL profile controls passed; plan §11 owns exact composite receipts.
+- [N1–N5 review](docs/design_review/reviews/design_review_phase3-normalization_2026-09-30.md): Accept scoped after F01/F02 corrections and focused controls.
+  N6–N7/X/Q remain. Formatting, lint, integrated gate, pilots and phase exit are not_run until
+  all functional scope is implemented; Q must measure complete charged index/output/replay residency.
 
 ## Semantic model cutover
 
@@ -106,7 +106,7 @@ Cargo commands below run through `python3 scripts/build_environment.py --`.
 | Release `normalized_entities`, `domain_symbols`, `typed_symbols`, `domain_owner` | passed: 4, 11, 5 and 2 focused tests |
 | Release `normalized_stage` | passed: N1 then N1→N2 real store controls, including validation and release of retained resources |
 | Release `cpg-extract --test normalized_relations`; `cpg-core --test normalized_relations`; `lctx-model --test domain_normalized` | passed: 7 native controls, 2 real store profiles and 3 pure/codec controls |
-| Release N3/N4 native and pure suites; `cpg-core --test normalized_relations` through N4 | passed: callable and event controls; both PostgreSQL profiles and all five view counts; plan §11 |
+| Release N3–N5 native/pure suites and core `normalized_relations` through N5 | passed: both PG profiles, policy views, binding/admission and review correction controls; plan §11 |
 | `just fmt`, `just test-all`, schema snapshot acceptance, Phase 3 pilots/measurements, final review/docs/catalog | not_run: functional implementation is ongoing |
 
 Initial focused failures exposed facts-fixture scope, retained capture accounting and catalog's
@@ -115,6 +115,6 @@ part of implementation and Q, not evidence that the full gate currently passes.
 
 ## Next work
 
-Execute N5 stored bindings and composition admission. Review N1–N5 before N6/N7,
+Implement N6 projections, then N7 normalized publication,
 legacy retirement and whole-scope qualification. P4 owns composition/analysis/catalog; P5 owns
 serving and product qualification. Product PR6/new features remain paused until phase 5.

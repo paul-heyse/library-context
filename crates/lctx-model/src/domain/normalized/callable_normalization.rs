@@ -38,7 +38,8 @@ fn need<R: Record>(rows: &Rows<R>, id: Id<R>) -> Result<&R, ModelError> { rows.g
 fn context(data: &CallableData, qualification: Id<AssertionQualification>) -> Result<Id<AnalysisContext>, ModelError> { Ok(need(&data.qualifications, qualification)?.context) }
 fn exact(data: &CallableData, qualification: Id<AssertionQualification>) -> Result<bool, ModelError> {
     let q = need(&data.qualifications, qualification)?;
-    Ok(q.modality == Modality::Definite && q.approximation == assertion::Approximation::Exact)
+    Ok(q.modality == Modality::Definite && q.approximation == assertion::Approximation::Exact
+        && q.condition == conditions::Diagram::always().id())
 }
 type CallableContext = (Id<CallableEntity>, Id<AnalysisContext>);
 struct Index<'a> {
@@ -162,8 +163,9 @@ fn trait_descriptor(row: &FunctionTraitObservation) -> Option<DescriptorKind> {
         _ => None,
     }
 }
-fn signature_knowledge(rows: &[&Signature], budget: &ResourceBudget) -> Result<(Knowledge, CallableReason), ModelError> {
+fn signature_knowledge(data: &CallableData, rows: &[&Signature], budget: &ResourceBudget) -> Result<(Knowledge, CallableReason), ModelError> {
     if rows.is_empty() { return Ok((Knowledge::Unknown, CallableReason::MissingSignature)); }
+    for row in rows { if !exact(data, row.qualification)? { return Ok((Knowledge::Unknown, CallableReason::QualifiedUncertainty)); } }
     let mut charge = StateCharge::new(budget, "callable-signature-contracts");
     let mut providers: ChargedMap<Id<ProviderSymbol>, Vec<&Signature>> = Default::default();
     for row in rows { providers.update(&mut charge, row.symbol, |v| v.push(*row))?; }
@@ -195,7 +197,7 @@ pub fn normalize(data: &CallableData, budget: &ResourceBudget) -> Result<Callabl
         for row in traits { let p = EffectiveCallablePremise::Traits { observation: row.id() }; held.admit(&p)?; premises.push(p); }
         for row in signatures { let p = EffectiveCallablePremise::Signature { signature: row.id() }; held.admit(&p)?; premises.push(p); }
         for row in index.mappings.get(&(callable, ctx)).into_iter().flatten() { let p = EffectiveCallablePremise::Resolution { resolution: row.id() }; held.admit(&p)?; premises.push(p); }
-        let (signature_state, signature_reason) = signature_knowledge(signatures, budget)?;
+        let (signature_state, signature_reason) = signature_knowledge(data, signatures, budget)?;
         let mut row = EffectiveCallableAssessment { callable, context: ctx, decorators: ContentHash::of(b""), policy: policy_revision(),
             identity: Knowledge::Unknown, identity_reason: CallableReason::NoSourceBody, signatures: signature_state, signature_reason,
             descriptor: Knowledge::Unknown, descriptor_kind: None, descriptor_reason: CallableReason::NoSourceBody,
@@ -209,11 +211,13 @@ pub fn normalize(data: &CallableData, budget: &ResourceBudget) -> Result<Callabl
             for c in coverage { let p = EffectiveCallablePremise::Coverage { coverage: c.id() }; held.admit(&p)?; premises.push(p); }
             let declarations = index.declarations.get(&(*declaration, ctx)).map(Vec::as_slice).unwrap_or(&[]);
             let mut async_values = (false, false);
+            let mut async_certain = true;
             for d in declarations {
                 let p = EffectiveCallablePremise::Syntax { declaration: d.id() }; held.admit(&p)?; premises.push(p);
+                async_certain &= exact(data, d.qualification)?;
                 match d.kind { DeclarationKind::AsyncFunction => async_values.0 = true, DeclarationKind::Function => async_values.1 = true, DeclarationKind::Class => {} }
             }
-            row.asynchronous = match async_values { (true, false) => Some(true), (false, true) => Some(false), _ => None };
+            row.asynchronous = if async_certain { match async_values { (true, false) => Some(true), (false, true) => Some(false), _ => None } } else { None };
             row.generator = if index.generators.contains(declaration) { Some(true) } else if syntax_complete { Some(false) } else { None };
             let mut conflicting_chain = false;
             for d in index.decorators.get(&(*declaration, ctx)).into_iter().flatten() {

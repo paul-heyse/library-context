@@ -57,6 +57,11 @@ fn missing(what: &str) -> ModelError { ModelError::Invalid(format!("normalizatio
 fn context(input: &EntityInputs<'_>, id: Id<AssertionQualification>) -> Result<Id<crate::domain::attribution::AnalysisContext>, ModelError> {
     Ok(input.qualifications.get(id).ok_or_else(|| missing("assertion qualification"))?.context)
 }
+fn certain(input: &EntityInputs<'_>, id: Id<AssertionQualification>) -> Result<bool, ModelError> {
+    let q = input.qualifications.get(id).ok_or_else(|| missing("correspondence qualification"))?;
+    Ok(q.modality == attribution::Modality::Definite && q.approximation == assertion::Approximation::Exact
+        && q.condition == conditions::Diagram::always().id())
+}
 
 pub fn normalize(input: EntityInputs<'_>, budget: &ResourceBudget) -> Result<EntityOutput, ModelError> {
     let mut output = EntityOutput::new(budget);
@@ -97,6 +102,7 @@ pub fn normalize(input: EntityInputs<'_>, budget: &ResourceBudget) -> Result<Ent
     for row in input.class_traits.iter() { class_traits.update(&mut charge, row.symbol, |rows| rows.push(row))?; }
     for symbol in input.symbols.iter() {
         let mut candidates: ChargedMap<Id<EntityRef>, Vec<SymbolEntityPremise>> = Default::default();
+        let mut established: ChargedSet<Id<EntityRef>> = Default::default();
         let mut candidate_charge = StateCharge::new(budget, "symbol-candidates");
         let mut unsupported = false;
         for declaration in declarations.get(&symbol.id()).into_iter().flatten() {
@@ -106,6 +112,7 @@ pub fn normalize(input: EntityInputs<'_>, budget: &ResourceBudget) -> Result<Ent
             let module = match input.provider_modules.get(symbol.module) { Some(ProviderModule::Acquired { module }) => Some(*module), _ => None };
             let entity = output.source(occurrence, module)?;
             let evidence = supports.get(&declaration.id()).ok_or_else(|| missing("declaration support"))?;
+            if !evidence.is_empty() && certain(&input, declaration.qualification)? { established.insert(&mut candidate_charge, entity)?; }
             for support in evidence {
                 candidates.update(&mut candidate_charge, entity, |rows| rows.push(SymbolEntityPremise::Declaration { declaration: declaration.id(), support: support.id() }))?;
             }
@@ -117,6 +124,7 @@ pub fn normalize(input: EntityInputs<'_>, budget: &ResourceBudget) -> Result<Ent
                 (SymbolKind::Module, ProviderModule::Acquired { module }) => {
                     let entity = output.refs.insert(EntityRef::Module { module: *module })?;
                     candidates.update(&mut candidate_charge, entity, |rows| rows.push(SymbolEntityPremise::Module { module: symbol.module }))?;
+                    established.insert(&mut candidate_charge, entity)?;
                     reason = EntityReason::AcquiredModule;
                 }
                 (SymbolKind::Function | SymbolKind::Method | SymbolKind::Class, ProviderModule::Bundled { .. }) => {
@@ -124,6 +132,7 @@ pub fn normalize(input: EntityInputs<'_>, budget: &ResourceBudget) -> Result<Ent
                         else { EntityRef::Callable { callable: output.callables.insert(CallableEntity::External { symbol: symbol.id() })? } };
                     let entity = output.refs.insert(entity)?;
                     candidates.update(&mut candidate_charge, entity, |rows| rows.push(SymbolEntityPremise::Module { module: symbol.module }))?;
+                    established.insert(&mut candidate_charge, entity)?;
                     reason = EntityReason::ProviderExternal;
                 }
                 (SymbolKind::Function | SymbolKind::Method, _) => {
@@ -135,7 +144,10 @@ pub fn normalize(input: EntityInputs<'_>, budget: &ResourceBudget) -> Result<Ent
                     }
                     if !eligible.is_empty() && !conflict {
                         let entity = output.refs.insert(EntityRef::Callable { callable: output.callables.insert(CallableEntity::Synthetic { symbol: symbol.id() })? })?;
-                        for observation in eligible { candidates.update(&mut candidate_charge, entity, |rows| rows.push(SymbolEntityPremise::FunctionTraits { observation }))?; }
+                        for observation in eligible {
+                            if certain(&input, input.function_traits.get(observation).expect("indexed traits").qualification)? { established.insert(&mut candidate_charge, entity)?; }
+                            candidates.update(&mut candidate_charge, entity, |rows| rows.push(SymbolEntityPremise::FunctionTraits { observation }))?;
+                        }
                         reason = EntityReason::ProviderSynthetic;
                     }
                 }
@@ -147,16 +159,22 @@ pub fn normalize(input: EntityInputs<'_>, budget: &ResourceBudget) -> Result<Ent
                     }
                     if !eligible.is_empty() && !conflict {
                         let entity = output.refs.insert(EntityRef::Class { class: output.classes.insert(ClassEntity::Synthetic { symbol: symbol.id() })? })?;
-                        for observation in eligible { candidates.update(&mut candidate_charge, entity, |rows| rows.push(SymbolEntityPremise::ClassTraits { observation }))?; }
+                        for observation in eligible {
+                            if certain(&input, input.class_traits.get(observation).expect("indexed traits").qualification)? { established.insert(&mut candidate_charge, entity)?; }
+                            candidates.update(&mut candidate_charge, entity, |rows| rows.push(SymbolEntityPremise::ClassTraits { observation }))?;
+                        }
                         reason = EntityReason::ProviderSynthetic;
                     }
                 }
                 _ => { reason = EntityReason::UnsupportedKind; }
             }
         }
-        let status = if unsupported { ResolutionStatus::Unresolved } else { match candidates.len() { 0 => ResolutionStatus::Unresolved, 1 => ResolutionStatus::Resolved, _ => ResolutionStatus::Ambiguous } };
+        let status = if unsupported { ResolutionStatus::Unresolved } else { match candidates.len() {
+            0 => ResolutionStatus::Unresolved, 1 if established.len() == 1 => ResolutionStatus::Resolved,
+            1 => ResolutionStatus::Unresolved, _ => ResolutionStatus::Ambiguous } };
         if unsupported { reason = EntityReason::UnsupportedKind; }
         else if status == ResolutionStatus::Ambiguous { reason = EntityReason::ConflictingDeclarations; }
+        else if candidates.len() == 1 && established.is_empty() { reason = EntityReason::QualifiedUncertainty; }
         else if candidates.is_empty() && reason != EntityReason::UnsupportedKind { reason = EntityReason::MissingDeclaration; }
         let resolution = SymbolEntityResolution { symbol: symbol.id(), context: symbol.context, policy: policy_revision(), status,
             entity: (status == ResolutionStatus::Resolved).then(|| *candidates.keys().next().expect("one candidate")), reason };
