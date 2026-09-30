@@ -4,11 +4,8 @@ _Updated 2026-09-29 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
 
 ## Restart checkpoint: semantic model cutover
 
-- **Accepted target:** ADR-0085 typed definitions, ADR-0086 immutable PostgreSQL generations,
-  ADR-0087 no compatibility, ADR-0088 canonical chunks, ADR-0089 stage contributions and input
-  closure, ADR-0090 the DataFusion family without delta-rs.
-  - [Cutover plan §4.1.1](docs/plans/semantic-model-cutover-plan_2026-09-29.md) owns the order.
-  - §4.2 owns dated receipts; §8 owns finding dispositions.
+- **Accepted target:** ADR-0085–0090. [Cutover plan](docs/plans/semantic-model-cutover-plan_2026-09-29.md)
+  §4.1.1 owns the order, §4.2 dated receipts, §8 finding dispositions.
 - **Phase 0** is complete; its exit review is Accept scoped. It excludes the P4 composition engine.
 - **Phase 1 (implemented, focused-Tested 2026-09-29; P1.1–P1.12 committed, `cd22ca6`…`cb0e5e1`):**
   - service baseline and verified owner; generated install, live-catalog `store check`, phased
@@ -19,11 +16,9 @@ _Updated 2026-09-29 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
     lease (`cpg-core/src/generation_read.rs`);
   - CLI `model describe`, `store`, `generation`, `query`; operator transition, bootstrap and
     runbook (`docs/postgresql.md`).
-- **Reviews:**
-  - The P1.5–P1.7 [store-lifecycle review](docs/design_review/reviews/design_review_p1-store-lifecycle_2026-09-29.md)
-    returned Revise. F01–F07 are corrected in `5beafd8`; dispositions are in plan §8.
-  - A re-inspection of those corrections and the bounded P1.10 provider-session review were
-    running at this checkpoint. Their outcome is not recorded here.
+- **Reviews:** the P1.5–P1.7 [store-lifecycle review](docs/design_review/reviews/design_review_p1-store-lifecycle_2026-09-29.md)
+  returned Revise; F01–F07 are corrected in `5beafd8`. Its re-inspection and the bounded P1.10
+  review were running at this checkpoint; their outcome is not recorded here.
 - **Parallel operator work:** the library-utilization catalog and resolver (`645a8bf`, `e78405a`)
   was committed at the operator's request. This session ran only its tests.
 
@@ -48,20 +43,15 @@ Cargo commands use `python3 scripts/build_environment.py --`; per-slice receipts
   requires a password. The operator's commands are in the
   [evidence](docs/design_review/evidence/2026-09-29_operator-transition/README.md). The operator
   database has empty retained service tables; `lctx` refuses its legacy history until it is moved.
-- **Routed findings (plan §8):**
-  - P0 exit F03 → P4; F04 → A0; F05 → B1; F08 → A4;
-  - store-lifecycle F08 → P3; F09 → Dc;
-  - input-validation F02 → A0, P1.9/P1.10 and Q.
+- **Routed findings (plan §8):** P0 exit F03 → P4, F04 → A0, F05 → B1, F08 → A4; store-lifecycle
+  F08 → P3, F09 → Dc; input-validation F02 → A0, P1.9/P1.10 and Q.
 - **Deadlocking editor flychecks.** Two concurrent rust-analyzer flychecks can deadlock on
   build-unit locks. If builds hang with no `rustc` running, look for them.
 
 ## Resume here
 
-1. Read the background reviews' outcomes:
-   - the re-inspection appended to the store-lifecycle review;
-   - `docs/design_review/reviews/design_review_p1-provider-sessions_2026-09-29.md`.
-
-   Correct any Revise findings, and record C01/C02 closure in plan §8.
+1. Read the background reviews (the re-inspection section of the store-lifecycle review;
+   `design_review_p1-provider-sessions_2026-09-29.md`); correct Revise findings; record C01/C02 in §8.
 2. P2 in plan order: A0 (provider framework: `ProviderStage`, `StageContext`, `compile_facts`)
    → A1–A16 → B1–B3 → Dc (`lctx compile --through facts`) → C1x–C3x. Then Q qualification and
    the assembled P0–P2 review.
