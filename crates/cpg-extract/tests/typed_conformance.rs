@@ -110,8 +110,10 @@ async fn stages_relocate_deterministically_and_disclose_coverage() {
     let undecodable = syntax_of(&left, &artifact(&files, "_invalid/undecodable.py"));
     assert_eq!((undecodable.status, undecodable.reason), (CoverageStatus::Unavailable, Some(ObligationKind::UndecodableSource)));
     assert!(left.rows.occurrences.iter().all(|o| o.source != artifact(&files, "_invalid/undecodable.py").id()), "undecodable bytes never reach the analyzer");
-    assert!(left.rows.coverage.iter().filter(|c| c.family != FactFamily::Syntax).all(|c| c.status != CoverageStatus::CompleteUnderStatedModel),
-        "exports and signatures wait for the symbol producer");
+    assert!(left.rows.coverage.iter().filter(|c| matches!(c.family, FactFamily::Exports | FactFamily::Signatures))
+        .all(|c| c.status != CoverageStatus::CompleteUnderStatedModel), "exports and signatures wait for the symbol producer");
+    let lexical = left.rows.coverage.iter().find(|c| c.family == FactFamily::Lexical && c.scope == CoverageScope::Artifact { artifact: artifact(&files, "sample.py").id() }.id()).unwrap();
+    assert_eq!(lexical.status, CoverageStatus::CompleteUnderStatedModel, "the recognizer covers a clean module");
     assert!(left.rows.observations.iter().any(|row| row.spelling == "α"));
     let with_items: Vec<_> = left.rows.occurrences.iter().filter(|o| o.role == OccurrenceRole::WithItem).collect();
     assert_eq!(with_items.len(), 2); assert_ne!(with_items[0].id(), with_items[1].id());

@@ -147,8 +147,9 @@ async fn syntax_shapes_states_declarations_parameters_calls_and_operators() {
     let cause = f.placements.iter().find(|p| p.parent == Some(raise.id()) && p.field == lctx_model::domain::lexical::SyntaxField::Cause).unwrap();
     assert_eq!(f.text(cause.occurrence), "err");
     let syntax = f.coverage.iter().find(|c| c.family == FactFamily::Syntax).unwrap();
-    assert_eq!((syntax.status, f.coverage.len()), (CoverageStatus::CompleteUnderStatedModel, 3));
-    assert!(f.coverage.iter().filter(|c| c.family != FactFamily::Syntax).all(|c| c.status == CoverageStatus::Partial && c.reason == Some(ObligationKind::OutsideProviderModel)));
+    assert_eq!((syntax.status, f.coverage.len()), (CoverageStatus::CompleteUnderStatedModel, 4), "Syntax, Lexical, Exports and Signatures");
+    assert!(f.coverage.iter().filter(|c| matches!(c.family, FactFamily::Exports | FactFamily::Signatures))
+        .all(|c| c.status == CoverageStatus::Partial && c.reason == Some(ObligationKind::OutsideProviderModel)));
     let _ = path;
 }
 

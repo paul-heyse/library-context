@@ -23,7 +23,7 @@ use cpg_schema::tables::{
 };
 
 use crate::facts::{FactSink, Provenance, Surface, fact_row};
-use crate::lexical::LexicalOut;
+use crate::lexical::husk::LexicalOut;
 
 /// One module handed to the provider.
 pub(crate) struct FlowModule {

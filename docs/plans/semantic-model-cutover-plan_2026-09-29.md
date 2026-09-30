@@ -998,6 +998,26 @@ Deleted: E1's `typed_stages.rs` and `typed_syntax::extract`/`SyntaxFacts`/`synta
 `typed_conformance` now runs `acquire → pyrefly → assemble` into memory and a PG conformance generation that validate the same content. A clean module's Syntax coverage is now complete.
 
 P0 exit F08: the declared transitive-load limit is kept. A refused module that an admitted one imports may be parsed by Pyrefly, and it states nothing; this is documented in `pyrefly_stage.rs` and `typed_syntax::admit` |
+| A5: `cargo test --release -p cpg-extract` (all suites); `-p cpg-core --test facts_driver`; `cargo check --workspace --all-targets` | passed 2026-09-29 (typed_lexical 2; typed_syntax_shapes 4, typed_conformance 6 + 1 ignored, bundle 6; the legacy suites unchanged).
+
+**The lexical recognizer is identity-neutral** (`lexical.rs`). It is driven with each node's identity and returns `LexicalFacts` in the model's codebooks: scopes, binding events with ordinals, values (span and kind) and static branches; reads with parent and field; resolutions to a binding, a builtin (variable-like or not) or an unresolved reason; the candidate flag; the builtins used. The algorithm is unchanged.
+
+Its drivers:
+- **The `pyrefly` stage** (`lexical_records.rs`) drives it over the emitted occurrences, whose index now keeps each occurrence's parent and field. It supplies Pyrefly's builtins, implicit globals and per-module star-import wildcard sets, and states `LexicalScope`, `BindingEvent`, `LexicalTarget` and the four qualified observations with their supports. A candidate resolution is qualified `Candidate`. Lexical is covered like Syntax.
+- **The husk** keeps the rows its flow and context still read, rebuilt by `lexical::husk::rows` (legacy codebooks share the model's codes) until A9/A14. Its lexical tables (`scopes`, `bindings`, `references`, `reference_resolutions`) are no longer emitted.
+
+`static_branches` moved into `typed_lexical`.
+
+**Controls** (`lexical_shapes`, answers from the fixture's comments):
+- every assignment's static polarity equals Pyrefly's recursive pruning (more than 20 bindings checked);
+- captures (`scale`, `total` via `nonlocal`), and a method or comprehension element skipping the class scope (`name` is unresolved, while `range` is the builtin);
+- walrus in the enclosing function, and two module candidates for `limit`;
+- a local shadowing a builtin, `max` as the builtin, and the `import os.path` binding;
+- the star wildcard set binding both `helper_from_star` and `open` over the builtin;
+- the implicit `__name__`; read-before-bind candidates (the later binding and the builtin) at module and class level;
+- the `__class__` cell (captured) and unresolved `Callable`;
+- `global` binding at module scope, `nonlocal` targets, and the decorator's lambda evaluating in the enclosing scope;
+- `global g1, g1` as one event; no scope inside an annotation; every scope's parent where it evaluates |
 | `just fmt`, `just test-all`, facts pilots | not_run: functional scope incomplete |
 
 Independent bounded reviewers accepted artifact/capture/acquisition corrections and the

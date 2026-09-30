@@ -27,7 +27,7 @@ use ruff_text_size::{Ranged, TextRange, TextSize};
 use crate::facts::{FactSink, Provenance, Surface, fact_row};
 use pyrefly_python::docstring::Docstring;
 
-use crate::lexical::{Lexical, LexicalOut, Outside, Stars};
+use crate::lexical::{Lexical, Outside, Stars, husk::LexicalOut};
 use crate::syntax;
 
 pub(crate) struct ModuleCtx<'s> {
@@ -129,7 +129,7 @@ struct Walker<'s, 'f> {
     frames: Vec<Option<Frame>>,
 
     /// The lexical recognizer (C3), in the same walk so name ids agree.
-    lex: Lexical<'f>,
+    lex: Lexical<'f, Id>,
     /// Each `def` parameter's range → its `parameter_syntax` node id.
     param_ids: HashMap<TextRange, Id>,
     /// Structural occurrence path of the current node: `Kind#ordinal` from the module body down.
@@ -176,7 +176,8 @@ pub(crate) fn walk_module(
     let Walker {
         lex, sink, mut out, ..
     } = w;
-    out.lexical = lex.finish(sink);
+    out.lexical = crate::lexical::husk::rows(&lex.finish(), ctx.module_node_id);
+    let _ = sink;
     out
 }
 
@@ -864,14 +865,16 @@ impl<'a> SourceOrderVisitor<'a> for Walker<'_, '_> {
             AnyNodeRef::Parameter(p) => self.param_ids.get(&p.range()).copied(),
             _ => None,
         };
+        // The recognizer speaks the model's codebook; the legacy one shares its codes.
+        let field = <lctx_model::domain::lexical::SyntaxField as lctx_model::domain::Codebook>::from_code(
+            cpg_schema::codebook::Codebook::code(parent.1)).expect("the syntax field codebooks share codes");
         self.lex.enter(
             node,
             syntax_id,
             own_id,
             param_id,
-            parent,
+            (parent.0, field),
             self.annotation_depth > 0,
-            self.sink,
         );
         self.place(node, own_id);
         match node {

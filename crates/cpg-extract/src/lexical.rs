@@ -19,67 +19,76 @@
 //! implicit globals (`ImplicitGlobal`), the builtins (Pyrefly's real, public `builtins`
 //! definitions) and each star import's wildcard set. A name in none of them is unresolved. Names
 //! inside annotations are the `types` family's (C4): nothing there opens a scope or binds.
+//!
+//! The recognizer is identity-neutral (cutover plan A5): it is driven with each node's identity `I`
+//! and returns [`LexicalFacts`] in the model's codebooks. The `pyrefly` stage drives it with typed
+//! occurrences and states the lexical records; the retiring extraction husk drives it with legacy
+//! ids for its flow and context until those producers move (A9, A14).
 
 use std::collections::{HashMap, HashSet};
+use std::hash::Hash;
 
-use cpg_schema::codebook::{
-    BindingKind, BoundaryReason, ExtractionMode, Fidelity, LexicalScopeKind, Modality, Origin,
-    StaticBranch, SymbolKind, SyntaxField,
-};
-use cpg_schema::id::{Id, recipe};
-use cpg_schema::tables::{
-    Bindings, BindingsRow, ReferenceResolutions, ReferenceResolutionsRow, References,
-    ReferencesRow, Scopes, ScopesRow,
-};
+use lctx_model::domain::{lexical::{BindingEventKind as BindingKind, LexicalScopeKind, StaticBranch, SyntaxField}, obligation::ObligationKind, source::SyntaxKind};
 use pyrefly_python::ast::Ast;
 use pyrefly_python::sys_info::SysInfo;
 use ruff_python_ast::helpers::any_over_expr;
-use ruff_python_ast::{Expr, Stmt, StmtIf};
+use ruff_python_ast::{AnyNodeRef, Expr, Stmt, StmtIf};
 use ruff_text_size::{Ranged, TextRange, TextSize};
 
-use crate::facts::{FactSink, Provenance, Surface, fact_row};
-use crate::walk::span;
+/// What a read resolves to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Target {
+    /// One of the module's binding events, by index into [`LexicalFacts::binds`].
+    Binding(usize),
+    /// A builtin, and whether it is variable-like rather than a function, class or method.
+    Builtin { name: String, variable: bool },
+    Unresolved(ObligationKind),
+}
+/// One resolution of a read: its target and whether it is a closure capture.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Resolution { pub target: Target, pub captured: bool }
+type Resolved = Resolution;
+fn bound(index: usize, captured: bool) -> Resolved { Resolution { target: Target::Binding(index), captured } }
 
-/// One resolution row: the binding, whether captured, the builtin, the reason.
-type Resolved = (Option<Id>, bool, Option<String>, Option<BoundaryReason>);
+/// A scope: its kind, the node that opens it, the scope its position evaluates in, and its span.
+#[derive(Debug, Clone)]
+pub struct ScopeFact<I> { pub kind: LexicalScopeKind, pub owner: I, pub parent: Option<usize>, pub span: TextRange }
+/// A binding event, with its ordinal among its scope's events in source order.
+#[derive(Debug, Clone)]
+pub struct BindFact<I> {
+    pub kind: BindingKind, pub scope: usize, pub name: String, pub site: I, pub range: TextRange,
+    /// The bound value expression, by span and kind.
+    pub value: Option<(TextRange, SyntaxKind)>,
+    pub branch: Option<(StaticBranch, bool)>, pub ordinal: i64,
+}
+/// A read: the name node, its scope, the parent that holds it and in which field, its spelling.
+#[derive(Debug, Clone)]
+pub struct RefFact<I> { pub read: I, pub scope: usize, pub name: String, pub parent: (I, SyntaxField), pub range: TextRange }
+/// One module's lexical facts. `resolutions[i]` resolves `refs[i]`; `candidate` is set when it has
+/// more than one resolution or an unknown star import may bind the name.
+#[derive(Debug, Clone)]
+pub struct LexicalFacts<I> {
+    pub scopes: Vec<ScopeFact<I>>, pub binds: Vec<BindFact<I>>, pub refs: Vec<RefFact<I>>,
+    pub resolutions: Vec<(Vec<Resolution>, bool)>,
+    /// Builtin functions and classes the reads resolve to.
+    pub builtins_used: HashSet<String>,
+}
 
-/// Names from outside the module's text, as Pyrefly defines them: the builtins with their symbol
-/// kind, and a module's implicit globals.
+/// Names from outside the module's text, as Pyrefly defines them: the builtins, each with whether
+/// it is variable-like, and a module's implicit globals.
 #[derive(Default)]
-pub(crate) struct Outside {
-    pub builtins: HashMap<String, Option<SymbolKind>>,
+pub struct Outside {
+    pub builtins: HashMap<String, bool>,
     pub implicit_globals: Vec<String>,
 }
 
 /// One module's star imports: each `*` alias (by its start) → the names it binds, or `None` when
 /// Pyrefly cannot find the module.
-pub(crate) type Stars = HashMap<u32, Option<HashSet<String>>>;
+pub type Stars = HashMap<u32, Option<HashSet<String>>>;
 
-#[derive(Default)]
-pub(crate) struct LexicalOut {
-    pub scopes: Vec<ScopesRow>,
-    pub bindings: Vec<BindingsRow>,
-    pub references: Vec<ReferencesRow>,
-    pub resolutions: Vec<ReferenceResolutionsRow>,
-    /// Builtin functions and classes references resolve to: their definitions become
-    /// `context_definitions` (external symbols).
-    pub builtins_used: HashSet<String>,
-}
-
-fn provenance(modality: Modality) -> Provenance {
-    Provenance {
-        surface: Surface::Lexical,
-        mode: ExtractionMode::Recognizer,
-        origin: Origin::DerivedAnalysis,
-        modality,
-        fidelity: Fidelity::NormalizedStructural,
-    }
-}
-
-struct ScopeRec {
-    id: Id,
+struct ScopeRec<I> {
     kind: LexicalScopeKind,
-    owner: Id,
+    owner: I,
     parent: Option<usize>,
     span: TextRange,
     /// Where names belong to this scope (a function's body, a class's body, a lambda's body, a
@@ -96,32 +105,35 @@ struct ScopeRec {
 }
 
 /// A binding event: emitted in `finish`, once `nonlocal` targets are known.
-struct BindRec {
-    id: Id,
+struct BindRec<I> {
     kind: BindingKind,
     scope: usize,
     name: String,
-    site: Id,
+    site: I,
     range: TextRange,
-    value: Option<TextRange>,
+    value: Option<(TextRange, SyntaxKind)>,
     branch: Option<(StaticBranch, bool)>,
     /// Bound under a `nonlocal` declaration: its scope is decided in `finish`.
     nonlocal: bool,
 }
 
-struct RefRec {
-    id: Id,
+struct RefRec<I> {
+    read: I,
     scope: usize,
     name: String,
     at: TextSize,
+    range: TextRange,
+    parent: (I, SyntaxField),
 }
 
 /// What an enclosing construct makes of a name stored inside `range`.
 struct StoreCtx {
     range: TextRange,
     kind: BindingKind,
-    value: Option<TextRange>,
+    value: Option<(TextRange, SyntaxKind)>,
 }
+/// An expression's span and the model's kind for it.
+fn valued(expr: &Expr) -> (TextRange, SyntaxKind) { (expr.range(), crate::typed_syntax::kind(AnyNodeRef::from(expr).kind())) }
 
 /// The per-node undo record: what entering the node pushed.
 #[derive(Default)]
@@ -131,28 +143,27 @@ struct Pushed {
     scope: bool,
 }
 
-pub(crate) struct Lexical<'b> {
-    module_node_id: Id,
+pub struct Lexical<'b, I> {
     /// The module's Python version and platform, for Pyrefly's static tests.
     sys: &'b SysInfo,
     outside: &'b Outside,
     stars: &'b Stars,
-    scopes: Vec<ScopeRec>,
+    scopes: Vec<ScopeRec<I>>,
     open: Vec<usize>,
     stores: Vec<StoreCtx>,
     branches: Vec<(TextRange, StaticBranch, bool)>,
     pushed: Vec<Pushed>,
-    binds: Vec<BindRec>,
-    /// Binding ids already recorded: a repeated name in one `global`/`nonlocal` is one event.
-    bound: HashSet<Id>,
+    binds: Vec<BindRec<I>>,
+    /// Events already recorded: a repeated name in one `global`/`nonlocal` is one event.
+    bound: HashSet<(I, String)>,
     /// Each star-import binding's wildcard set.
     star_sets: HashMap<usize, Option<HashSet<String>>>,
     /// Each class scope's `__class__` cell, made when a method reads `__class__`.
     class_cells: HashMap<usize, usize>,
-    refs: Vec<RefRec>,
+    refs: Vec<RefRec<I>>,
     /// Inside a `from m import …` statement: its aliases bind as `from_import`.
     in_from_import: bool,
-    out: LexicalOut,
+    builtins_used: HashSet<String>,
 }
 
 /// Each clause of an `if` statement as Pyrefly decides it (H1 C1): `SysInfo::evaluate_bool` per
@@ -227,16 +238,15 @@ fn suite(body: &[Stmt]) -> Option<TextRange> {
     Some(TextRange::new(body.first()?.start(), body.last()?.end()))
 }
 
-impl<'b> Lexical<'b> {
-    pub(crate) fn new(
-        module_node_id: Id,
+impl<'b, I: Copy + Eq + Hash> Lexical<'b, I> {
+    pub fn new(
+        module_node_id: I,
         module_span: TextRange,
         sys: &'b SysInfo,
         outside: &'b Outside,
         stars: &'b Stars,
     ) -> Self {
         let mut this = Self {
-            module_node_id,
             sys,
             outside,
             stars,
@@ -251,7 +261,7 @@ impl<'b> Lexical<'b> {
             class_cells: HashMap::new(),
             refs: Vec::new(),
             in_from_import: false,
-            out: LexicalOut::default(),
+            builtins_used: HashSet::new(),
         };
         this.open_scope(
             LexicalScopeKind::Module,
@@ -272,7 +282,7 @@ impl<'b> Lexical<'b> {
     fn open_scope(
         &mut self,
         kind: LexicalScopeKind,
-        owner: Id,
+        owner: I,
         span: TextRange,
         region: TextRange,
         excluded: Option<TextRange>,
@@ -282,7 +292,6 @@ impl<'b> Lexical<'b> {
         // decorator belongs to the enclosing scope, not to the function it decorates.
         let parent = (!self.open.is_empty()).then(|| self.scope_at(span.start()));
         self.scopes.push(ScopeRec {
-            id: recipe::scope(owner),
             kind,
             owner,
             parent,
@@ -324,15 +333,14 @@ impl<'b> Lexical<'b> {
         clippy::too_many_arguments,
         reason = "a registry row or binding event is these fields"
     )]
-    pub(crate) fn enter(
+    pub fn enter(
         &mut self,
         node: ruff_python_ast::AnyNodeRef<'_>,
-        syntax_id: Id,
-        own_id: Option<Id>,
-        param_id: Option<Id>,
-        parent: (Id, SyntaxField),
+        syntax_id: I,
+        own_id: Option<I>,
+        param_id: Option<I>,
+        parent: (I, SyntaxField),
         in_annotation: bool,
-        sink: &mut FactSink,
     ) {
         use ruff_python_ast::AnyNodeRef as N;
         let mut pushed = Pushed::default();
@@ -437,7 +445,7 @@ impl<'b> Lexical<'b> {
                     self.stores.push(StoreCtx {
                         range: t.range(),
                         kind: BindingKind::Assignment,
-                        value: Some(s.value.range()),
+                        value: Some(valued(&s.value)),
                     });
                     pushed.stores += 1;
                 }
@@ -450,7 +458,7 @@ impl<'b> Lexical<'b> {
                     } else {
                         BindingKind::AnnotationOnly
                     },
-                    value: s.value.as_ref().map(|v| v.range()),
+                    value: s.value.as_deref().map(valued),
                 });
                 pushed.stores += 1;
             }
@@ -458,7 +466,7 @@ impl<'b> Lexical<'b> {
                 self.stores.push(StoreCtx {
                     range: s.target.range(),
                     kind: BindingKind::AugAssignment,
-                    value: Some(s.value.range()),
+                    value: Some(valued(&s.value)),
                 });
                 pushed.stores += 1;
             }
@@ -466,7 +474,7 @@ impl<'b> Lexical<'b> {
                 self.stores.push(StoreCtx {
                     range: s.target.range(),
                     kind: BindingKind::ForTarget,
-                    value: Some(s.iter.range()),
+                    value: Some(valued(&s.iter)),
                 });
                 pushed.stores += 1;
             }
@@ -475,7 +483,7 @@ impl<'b> Lexical<'b> {
                     self.stores.push(StoreCtx {
                         range: v.range(),
                         kind: BindingKind::WithTarget,
-                        value: Some(w.context_expr.range()),
+                        value: Some(valued(&w.context_expr)),
                     });
                     pushed.stores += 1;
                 }
@@ -484,7 +492,7 @@ impl<'b> Lexical<'b> {
                 self.stores.push(StoreCtx {
                     range: c.target.range(),
                     kind: BindingKind::ComprehensionTarget,
-                    value: Some(c.iter.range()),
+                    value: Some(valued(&c.iter)),
                 });
                 pushed.stores += 1;
             }
@@ -492,7 +500,7 @@ impl<'b> Lexical<'b> {
                 self.stores.push(StoreCtx {
                     range: n.target.range(),
                     kind: BindingKind::Walrus,
-                    value: Some(n.value.range()),
+                    value: Some(valued(&n.value)),
                 });
                 pushed.stores += 1;
             }
@@ -500,7 +508,7 @@ impl<'b> Lexical<'b> {
                 self.stores.push(StoreCtx {
                     range: t.name.range(),
                     kind: BindingKind::TypeAlias,
-                    value: Some(t.value.range()),
+                    value: Some(valued(&t.value)),
                 });
                 pushed.stores += 1;
             }
@@ -626,7 +634,7 @@ impl<'b> Lexical<'b> {
                 let here = self.scope_at(r.start());
                 match n.ctx {
                     ruff_python_ast::ExprContext::Load => {
-                        self.reference(here, syntax_id, &n.id, r, parent, sink);
+                        self.reference(here, syntax_id, &n.id, r, parent);
                     }
                     ruff_python_ast::ExprContext::Store => {
                         let ctx = self.stores.iter().rev().find(|s| s.range.contains_range(r));
@@ -639,7 +647,7 @@ impl<'b> Lexical<'b> {
                         };
                         // `x += 1` reads `x` before it binds it (and Pysa reports the read).
                         if kind == BindingKind::AugAssignment {
-                            self.reference(here, syntax_id, &n.id, r, parent, sink);
+                            self.reference(here, syntax_id, &n.id, r, parent);
                         }
                         self.bind(target, &n.id, kind, syntax_id, r, value);
                     }
@@ -657,47 +665,13 @@ impl<'b> Lexical<'b> {
         self.pushed.push(pushed);
     }
 
-    /// A name read in scope `here`: its `references` row, resolved in `finish`.
-    fn reference(
-        &mut self,
-        here: usize,
-        syntax_id: Id,
-        name: &str,
-        r: TextRange,
-        parent: (Id, SyntaxField),
-        sink: &mut FactSink,
-    ) {
-        let id = recipe::reference(syntax_id);
-        let (start, end) = span(r);
-        let row = fact_row!(
-            sink,
-            References,
-            provenance(Modality::Definite),
-            ReferencesRow {
-                snapshot_id: Id::ZERO,
-                fact_id: Id::ZERO,
-                node_id: id,
-                name_node_id: syntax_id,
-                scope_id: self.scopes[here].id,
-                module_node_id: self.module_node_id,
-                name: name.to_owned(),
-                parent_node_id: parent.0,
-                field: parent.1,
-                start_byte: start,
-                end_byte: end,
-            }
-        );
-        self.out.references.push(row);
-        self.refs.push(RefRec {
-            id,
-            scope: here,
-            name: name.to_owned(),
-            at: r.start(),
-        });
+    /// A name read in scope `here`, resolved in `finish`.
+    fn reference(&mut self, here: usize, syntax_id: I, name: &str, r: TextRange, parent: (I, SyntaxField)) {
+        self.refs.push(RefRec { read: syntax_id, scope: here, name: name.to_owned(), at: r.start(), range: r, parent });
     }
 
     /// Leave a node: undo what entering it pushed.
-    pub(crate) fn leave(&mut self, node: ruff_python_ast::AnyNodeRef<'_>) {
+    pub fn leave(&mut self, node: ruff_python_ast::AnyNodeRef<'_>) {
         if matches!(node, ruff_python_ast::AnyNodeRef::StmtImportFrom(_)) {
             self.in_from_import = false;
         }
@@ -741,12 +715,11 @@ impl<'b> Lexical<'b> {
         here: usize,
         name: &str,
         kind: BindingKind,
-        site: Id,
+        site: I,
         range: TextRange,
-        value: Option<TextRange>,
+        value: Option<(TextRange, SyntaxKind)>,
     ) {
-        let id = recipe::binding(site, name);
-        if !self.bound.insert(id) {
+        if !self.bound.insert((site, name.to_owned())) {
             return;
         }
         let (scope, nonlocal) = match kind {
@@ -783,7 +756,6 @@ impl<'b> Lexical<'b> {
             .map(|b| (b.1, b.2));
         let index = self.binds.len();
         self.binds.push(BindRec {
-            id,
             kind,
             scope,
             name: name.to_owned(),
@@ -861,7 +833,6 @@ impl<'b> Lexical<'b> {
         let (owner, start) = (self.scopes[c].owner, self.scopes[c].span.start());
         let index = self.binds.len();
         self.binds.push(BindRec {
-            id: recipe::binding(owner, "__class__"),
             kind: BindingKind::Implicit,
             scope: c,
             name: "__class__".to_owned(),
@@ -875,9 +846,8 @@ impl<'b> Lexical<'b> {
         index
     }
 
-    /// Resolve every reference, then emit the scope, binding and resolution rows (DESIGN §3.2
-    /// `lexical`).
-    pub(crate) fn finish(mut self, sink: &mut FactSink) -> LexicalOut {
+    /// Resolve every reference and return the module's facts (DESIGN §3.2 `lexical`).
+    pub fn finish(mut self) -> LexicalFacts<I> {
         // `nonlocal` targets, now that every scope's bindings are known (review F5).
         let waiting: Vec<usize> = (0..self.binds.len())
             .filter(|&i| self.binds[i].nonlocal)
@@ -904,84 +874,26 @@ impl<'b> Lexical<'b> {
         for c in cells {
             self.class_cell(c);
         }
-
         let refs = std::mem::take(&mut self.refs);
-        let mut resolutions = Vec::new();
-        for r in &refs {
-            let (rows, modality) = self.resolve_ref(r);
-            for (binding, captured, builtin, reason) in rows {
-                resolutions.push(fact_row!(
-                    sink,
-                    ReferenceResolutions,
-                    provenance(modality),
-                    ReferenceResolutionsRow {
-                        snapshot_id: Id::ZERO,
-                        fact_id: Id::ZERO,
-                        reference_id: r.id,
-                        binding_id: binding,
-                        captured,
-                        builtin_name: builtin,
-                        reason,
-                    }
-                ));
-            }
-        }
-
-        for s in &self.scopes {
-            let (start, end) = span(s.span);
-            let row = fact_row!(
-                sink,
-                Scopes,
-                provenance(Modality::Definite),
-                ScopesRow {
-                    snapshot_id: Id::ZERO,
-                    fact_id: Id::ZERO,
-                    node_id: s.id,
-                    module_node_id: self.module_node_id,
-                    kind: s.kind,
-                    owner_node_id: s.owner,
-                    parent_scope_id: s.parent.map(|p| self.scopes[p].id),
-                    start_byte: start,
-                    end_byte: end,
-                }
-            );
-            self.out.scopes.push(row);
-        }
+        let resolutions = refs.iter().map(|r| self.resolve_ref(r)).collect();
         // Ordinals: each scope's events in source order.
         let mut order: Vec<usize> = (0..self.binds.len()).collect();
         order.sort_by_key(|&i| (self.binds[i].scope, self.binds[i].range.start(), i));
+        let mut ordinals = vec![0i64; self.binds.len()];
         let mut next: HashMap<usize, i64> = HashMap::new();
         for i in order {
-            let b = &self.binds[i];
-            let ordinal = next.entry(b.scope).or_insert(0);
-            let (start, end) = span(b.range);
-            let row = fact_row!(
-                sink,
-                Bindings,
-                provenance(Modality::Definite),
-                BindingsRow {
-                    snapshot_id: Id::ZERO,
-                    fact_id: Id::ZERO,
-                    node_id: b.id,
-                    scope_id: self.scopes[b.scope].id,
-                    module_node_id: self.module_node_id,
-                    name: b.name.clone(),
-                    kind: b.kind,
-                    ordinal: *ordinal,
-                    site_node_id: b.site,
-                    start_byte: start,
-                    end_byte: end,
-                    value_start_byte: b.value.map(|v| span(v).0),
-                    value_end_byte: b.value.map(|v| span(v).1),
-                    static_branch: b.branch.map(|x| x.0),
-                    static_polarity: b.branch.map(|x| x.1),
-                }
-            );
+            let ordinal = next.entry(self.binds[i].scope).or_insert(0);
+            ordinals[i] = *ordinal;
             *ordinal += 1;
-            self.out.bindings.push(row);
         }
-        self.out.resolutions = resolutions;
-        self.out
+        LexicalFacts {
+            scopes: self.scopes.iter().map(|s| ScopeFact { kind: s.kind, owner: s.owner, parent: s.parent, span: s.span }).collect(),
+            binds: self.binds.iter().zip(ordinals).map(|(b, ordinal)| BindFact { kind: b.kind, scope: b.scope, name: b.name.clone(), site: b.site,
+                range: b.range, value: b.value, branch: b.branch, ordinal }).collect(),
+            refs: refs.into_iter().map(|r| RefFact { read: r.read, scope: r.scope, name: r.name, parent: r.parent, range: r.range }).collect(),
+            resolutions,
+            builtins_used: self.builtins_used,
+        }
     }
 
     /// The class scope whose `__class__` cell a read in scope `s` names: the nearest class
@@ -1003,18 +915,16 @@ impl<'b> Lexical<'b> {
     }
 
     fn binding_rows(&self, hits: &[usize], captured: bool) -> Vec<Resolved> {
-        hits.iter()
-            .map(|&i| (Some(self.binds[i].id), captured, None, None))
-            .collect()
+        hits.iter().map(|&i| bound(i, captured)).collect()
     }
 
-    /// A reference's resolution rows and their modality.
-    fn resolve_ref(&mut self, r: &RefRec) -> (Vec<Resolved>, Modality) {
+    /// A reference's resolutions, and whether they are candidates.
+    fn resolve_ref(&mut self, r: &RefRec<I>) -> (Vec<Resolved>, bool) {
         if r.name == "__class__"
             && let Some(c) = self.enclosing_class(r.scope)
             && let Some(&cell) = self.class_cells.get(&c)
         {
-            return (self.binding_rows(&[cell], true), Modality::Definite);
+            return (self.binding_rows(&[cell], true), false);
         }
         let (hits, captured, local) = self.resolve(r.scope, &r.name);
         if hits.is_empty() {
@@ -1039,23 +949,19 @@ impl<'b> Lexical<'b> {
                 rows.extend(
                     outside
                         .into_iter()
-                        .filter(|x| x.3 != Some(BoundaryReason::UnresolvedTarget)),
+                        .filter(|x| x.target != Target::Unresolved(ObligationKind::UnresolvedTarget)),
                 );
             } else {
                 rows.extend(self.binding_rows(&outer, outer_captured));
             }
         }
-        let modality = if rows.len() > 1 {
-            Modality::Candidate
-        } else {
-            Modality::Definite
-        };
-        (rows, modality)
+        let candidate = rows.len() > 1;
+        (rows, candidate)
     }
 
     /// Past the module: the star imports whose wildcard set holds `name`, then the builtins. A star
     /// import Pyrefly cannot find may bind any name, so it stays a candidate beside the rest.
-    fn outside(&mut self, name: &str) -> (Vec<Resolved>, Modality) {
+    fn outside(&mut self, name: &str) -> (Vec<Resolved>, bool) {
         let mut known = Vec::new();
         let mut unknown = Vec::new();
         let mut stars: Vec<(&usize, &Option<HashSet<String>>)> = self.star_sets.iter().collect();
@@ -1069,36 +975,19 @@ impl<'b> Lexical<'b> {
         }
         let mut rows = self.binding_rows(&known, false);
         if rows.is_empty()
-            && let Some(kind) = self.outside.builtins.get(name)
+            && let Some(&variable_like) = self.outside.builtins.get(name)
         {
-            let variable_like = !matches!(
-                kind,
-                Some(SymbolKind::Function | SymbolKind::Class | SymbolKind::Method)
-            );
             if !variable_like {
-                self.out.builtins_used.insert(name.to_owned());
+                self.builtins_used.insert(name.to_owned());
             }
-            rows.push((
-                None,
-                false,
-                Some(name.to_owned()),
-                variable_like.then_some(BoundaryReason::VariableOrigin),
-            ));
+            rows.push(Resolution { target: Target::Builtin { name: name.to_owned(), variable: variable_like }, captured: false });
         }
         let exact = rows.len() == 1 && unknown.is_empty();
         rows.extend(self.binding_rows(&unknown, false));
         if rows.is_empty() {
-            let unresolved = (None, false, None, Some(BoundaryReason::UnresolvedTarget));
-            return (vec![unresolved], Modality::Definite);
+            return (vec![Resolution { target: Target::Unresolved(ObligationKind::UnresolvedTarget), captured: false }], false);
         }
-        (
-            rows,
-            if exact {
-                Modality::Definite
-            } else {
-                Modality::Candidate
-            },
-        )
+        (rows, !exact)
     }
 
     /// The bindings `name` resolves to from scope `s`, whether they are in an enclosing function
@@ -1216,5 +1105,66 @@ mod tests {
             }
         }
         assert!(checked >= 8, "only {checked} `if` statements checked");
+    }
+}
+
+/// The retiring extraction husk's lexical rows, rebuilt from the neutral facts for its flow and
+/// context producers until they move (cutover plan A5; deleted with them at A9/A14). No table is
+/// emitted from them: the `pyrefly` stage states the lexical records.
+pub(crate) mod husk {
+    use std::collections::HashSet;
+    use cpg_schema::codebook::{BindingKind, BoundaryReason, LexicalScopeKind, StaticBranch, SyntaxField};
+    use cpg_schema::id::{Id, recipe};
+    use cpg_schema::tables::{BindingsRow, ReferenceResolutionsRow, ReferencesRow, ScopesRow};
+    use lctx_model::domain::Codebook as _;
+    use super::{LexicalFacts, Target};
+    use crate::walk::span;
+
+    #[derive(Default)]
+    pub(crate) struct LexicalOut {
+        pub scopes: Vec<ScopesRow>,
+        pub bindings: Vec<BindingsRow>,
+        pub references: Vec<ReferencesRow>,
+        pub resolutions: Vec<ReferenceResolutionsRow>,
+        /// Builtin functions and classes references resolve to: their definitions become
+        /// `context_definitions` (external symbols).
+        pub builtins_used: HashSet<String>,
+    }
+    /// The legacy codebook entry with the model entry's code: the two codebooks share codes.
+    fn legacy<T: cpg_schema::codebook::Codebook>(code: i16) -> T { T::from_code(code).expect("the legacy codebook shares the model's codes") }
+    pub(crate) fn rows(facts: &LexicalFacts<Id>, module_node_id: Id) -> LexicalOut {
+        let scope_id = |i: usize| recipe::scope(facts.scopes[i].owner);
+        let binding_id = |i: usize| recipe::binding(facts.binds[i].site, &facts.binds[i].name);
+        let mut out = LexicalOut { builtins_used: facts.builtins_used.clone(), ..LexicalOut::default() };
+        for scope in &facts.scopes {
+            let (start, end) = span(scope.span);
+            out.scopes.push(ScopesRow { snapshot_id: Id::ZERO, fact_id: Id::ZERO, node_id: recipe::scope(scope.owner), module_node_id,
+                kind: legacy::<LexicalScopeKind>(scope.kind.code()), owner_node_id: scope.owner, parent_scope_id: scope.parent.map(scope_id),
+                start_byte: start, end_byte: end });
+        }
+        for (i, bind) in facts.binds.iter().enumerate() {
+            let (start, end) = span(bind.range);
+            out.bindings.push(BindingsRow { snapshot_id: Id::ZERO, fact_id: Id::ZERO, node_id: binding_id(i), scope_id: scope_id(bind.scope), module_node_id,
+                name: bind.name.clone(), kind: legacy::<BindingKind>(bind.kind.code()), ordinal: bind.ordinal, site_node_id: bind.site,
+                start_byte: start, end_byte: end, value_start_byte: bind.value.map(|(v, _)| span(v).0), value_end_byte: bind.value.map(|(v, _)| span(v).1),
+                static_branch: bind.branch.map(|b| legacy::<StaticBranch>(b.0.code())), static_polarity: bind.branch.map(|b| b.1) });
+        }
+        for (reference, (resolutions, _)) in facts.refs.iter().zip(&facts.resolutions) {
+            let (start, end) = span(reference.range);
+            let id = recipe::reference(reference.read);
+            out.references.push(ReferencesRow { snapshot_id: Id::ZERO, fact_id: Id::ZERO, node_id: id, name_node_id: reference.read,
+                scope_id: scope_id(reference.scope), module_node_id, name: reference.name.clone(), parent_node_id: reference.parent.0,
+                field: legacy::<SyntaxField>(reference.parent.1.code()), start_byte: start, end_byte: end });
+            for resolution in resolutions {
+                let (binding, builtin, reason) = match &resolution.target {
+                    Target::Binding(i) => (Some(binding_id(*i)), None, None),
+                    Target::Builtin { name, variable } => (None, Some(name.clone()), variable.then_some(BoundaryReason::VariableOrigin)),
+                    Target::Unresolved(kind) => (None, None, Some(legacy::<BoundaryReason>(kind.code()))),
+                };
+                out.resolutions.push(ReferenceResolutionsRow { snapshot_id: Id::ZERO, fact_id: Id::ZERO, reference_id: id, binding_id: binding,
+                    captured: resolution.captured, builtin_name: builtin, reason });
+            }
+        }
+        out
     }
 }

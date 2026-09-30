@@ -12,17 +12,22 @@ use ruff_text_size::{Ranged, TextRange};
 
 fn invalid(message: String) -> ModelError { ModelError::Invalid(message) }
 
-/// The occurrences one module's traversal emitted, by span and kind.
+/// The occurrences one module's traversal emitted, by span and kind, with each one's parent and
+/// the parent's field that holds it.
 #[derive(Default)]
-pub struct Spans { map: HashMap<(i64, i64, i16), Option<Id<Occurrence>>> }
+pub struct Spans { map: HashMap<(i64, i64, i16), Option<Id<Occurrence>>>, parents: HashMap<Id<Occurrence>, (Id<Occurrence>, lctx_model::domain::lexical::SyntaxField)> }
 impl Spans {
     pub fn insert(&mut self, occurrence: &Occurrence) {
         self.map.entry((occurrence.start, occurrence.end, occurrence.syntax_kind as i16))
             .and_modify(|id| *id = None).or_insert(Some(occurrence.id()));
     }
+    pub fn place(&mut self, occurrence: Id<Occurrence>, parent: Id<Occurrence>, field: lctx_model::domain::lexical::SyntaxField) {
+        self.parents.insert(occurrence, (parent, field));
+    }
+    pub fn parent(&self, occurrence: Id<Occurrence>) -> Option<(Id<Occurrence>, lctx_model::domain::lexical::SyntaxField)> { self.parents.get(&occurrence).copied() }
     pub fn len(&self) -> usize { self.map.len() }
     pub fn is_empty(&self) -> bool { self.map.is_empty() }
-    fn get(&self, range: TextRange, kind: SyntaxKind) -> Result<Id<Occurrence>, ModelError> {
+    pub fn get(&self, range: TextRange, kind: SyntaxKind) -> Result<Id<Occurrence>, ModelError> {
         match self.map.get(&(i64::from(u32::from(range.start())), i64::from(u32::from(range.end())), kind as i16)) {
             Some(Some(id)) => Ok(*id),
             Some(None) => Err(invalid(format!("two {kind:?} occurrences share the span {range:?}"))),

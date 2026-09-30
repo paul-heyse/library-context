@@ -15,6 +15,7 @@ mod docs;
 mod facts;
 mod flow;
 mod lexical;
+pub mod lexical_records;
 pub mod library;
 pub mod logging;
 pub mod metadata;
@@ -42,14 +43,14 @@ use cpg_schema::id::{Id, IdHasher, content_digest, kind};
 use cpg_schema::metrics::{Stage, Stages};
 use cpg_schema::table::Table;
 use cpg_schema::tables::{
-    Bindings, Boundaries, BoundariesRow, ClassAncestry, CodeBlocks,
+    Boundaries, BoundariesRow, ClassAncestry, CodeBlocks,
     ConditionLiterals, ConditionNodes, Conditions, ContextClassMro, ContextDefinitions,
     ContextModules, ContextParameters, Contexts, ContextsRow, Coverage, CoverageRow, DocComponentAttributes, DocComponents, DocLinks, Documents,
     Facts, FlowAttributeLoads, FlowDefinitions, FlowReaching, FlowRegions,
     FlowTestLeaves, FlowTestTypes, FlowTests, FlowUses, FlowValueCalls, FlowValues,
     FunctionImplementations, Mentions, ParameterDocs, ParameterSemantics, Passages, Producers, ProducersRow, PublicNames, PysaCalls, PysaClasses, PysaFunctions,
-    RecordFields, ReferenceResolutions, References, Runs,
-    RunsRow, Scopes, SourceFiles, SourceFilesRow, TypeObservations, TypeTermArgs,
+    RecordFields, Runs,
+    RunsRow, SourceFiles, SourceFilesRow, TypeObservations, TypeTermArgs,
     TypeTerms,
 };
 use pyrefly::commands::coverage::collect::is_public_name;
@@ -494,7 +495,8 @@ fn run_release(
                         ExportLocation::ThisModule(e)
                             if is_public_name(n) && !implicit_globals.iter().any(|g| g == n) =>
                         {
-                            Some((n.to_owned(), e.symbol_kind.map(public::symbol_kind)))
+                            Some((n.to_owned(), !matches!(e.symbol_kind.map(public::symbol_kind),
+                                Some(cpg_schema::codebook::SymbolKind::Function | cpg_schema::codebook::SymbolKind::Class | cpg_schema::codebook::SymbolKind::Method))))
                         }
                         ExportLocation::ThisModule(_) | ExportLocation::OtherModule(..) => None,
                     }
@@ -507,7 +509,6 @@ fn run_release(
         implicit_globals,
     };
     let mut builtins_used: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-    let mut lexical_out = lexical::LexicalOut::default();
     let (mut walk_time, mut pysa_time, mut types_time) =
         (Duration::ZERO, Duration::ZERO, Duration::ZERO);
     let mut types_out = types::TypesOut::default();
@@ -659,10 +660,6 @@ fn run_release(
             });
         }
         builtins_used.extend(lex.builtins_used);
-        lexical_out.scopes.extend(lex.scopes);
-        lexical_out.bindings.extend(lex.bindings);
-        lexical_out.references.extend(lex.references);
-        lexical_out.resolutions.extend(lex.resolutions);
         walk_time += clock.elapsed();
         let clock = Instant::now();
         let solutions = txn.get_solutions(&m.handle);
@@ -1058,10 +1055,6 @@ fn run_release(
     dedup_by_fact(&mut walked.call_syntax, |r| r.fact_id);
     dedup_by_fact(&mut walked.arguments, |r| r.fact_id);
     dedup_by_fact(&mut walked.syntax_nodes, |r| r.fact_id);
-    dedup_by_fact(&mut lexical_out.scopes, |r| r.fact_id);
-    dedup_by_fact(&mut lexical_out.bindings, |r| r.fact_id);
-    dedup_by_fact(&mut lexical_out.references, |r| r.fact_id);
-    dedup_by_fact(&mut lexical_out.resolutions, |r| r.fact_id);
     dedup_by_fact(&mut types_out.terms, |r| r.fact_id);
     dedup_by_fact(&mut types_out.args, |r| r.fact_id);
     dedup_by_fact(&mut types_out.observations, |r| r.fact_id);
@@ -1138,19 +1131,6 @@ fn run_release(
         (
             PysaClasses::NAME,
             PysaClasses::to_sorted_batch(&pysa.classes)?,
-        ),
-        (Scopes::NAME, Scopes::to_sorted_batch(&lexical_out.scopes)?),
-        (
-            Bindings::NAME,
-            Bindings::to_sorted_batch(&lexical_out.bindings)?,
-        ),
-        (
-            References::NAME,
-            References::to_sorted_batch(&lexical_out.references)?,
-        ),
-        (
-            ReferenceResolutions::NAME,
-            ReferenceResolutions::to_sorted_batch(&lexical_out.resolutions)?,
         ),
         (
             TypeTerms::NAME,

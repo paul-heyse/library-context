@@ -15,8 +15,6 @@ pub(crate) enum Surface {
     Source,
     /// The extractor's own comparison of two surfaces (boundary facts; slice-1 review O4).
     Compare,
-    /// Our lexical recognizer (C3).
-    Lexical,
     /// Pyrefly's native types (C4).
     PyreflyTypes,
     /// markdown-rs's syntax tree of a document (C5).
@@ -37,7 +35,6 @@ impl Surface {
             Surface::PyreflyPublic => "pyrefly-public",
             Surface::Source => "source",
             Surface::Compare => "compare",
-            Surface::Lexical => "lctx-lexical",
             Surface::PyreflyTypes => "pyrefly-types",
             Surface::MarkdownRs => "markdown-rs",
             Surface::Docs => "lctx-docs",
