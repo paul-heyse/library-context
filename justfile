@@ -1,6 +1,8 @@
 # The only command surface agents need. `just` lists recipes.
-# Check recipes do not edit source; tests may create their own data fixtures.
-# `fmt`, `library-catalog` and `adr new|supersede|index` edit the working tree.
+# Check recipes do not edit source, except `ruff`'s auto-fixes; tests may create their own data.
+# `fmt`, `library-catalog`, `skills-sync`, `build-features` and `adr new|supersede|index` edit the
+# working tree. Agents run functional tests; the end-of-turn hook (`scripts/after_turn.py`) runs
+# formatting, generators and every `hygiene` check.
 
 set shell := ["python3", "scripts/build_environment.py", "--", "bash", "-euo", "pipefail", "-c"]
 
@@ -16,14 +18,17 @@ skills-sync:
 skills-check:
     python3 scripts/library_skills.py --check
 
-# The default loop: format check, lints, optimized cached core tests, rules, ADRs, agent config
-check: fmt-check lint test py-check rules-scan rules-test lint-agents
-    uv run python scripts/adr.py lint
+# The default functional loop: optimized cached core tests and Python tests
+check: test py-test
+
+# Everything functional: check + real PostgreSQL + compile-fail and doc contracts
+test-all: check test-postgres test-doc
 
 # The SQLx offline check returns with serving (cutover phase 5, T12); the dormant serving queries
-# are frozen in `.sqlx`.
-# Everything: check + fixtures + dependency policy + real PostgreSQL
-test-all: check fixtures-check deps gold test-postgres test-doc
+# are frozen in `.sqlx`. The end-of-turn hook runs every dependency below after each turn
+# (`scripts/after_turn.py check <id>` re-runs one); agents do not.
+# Every non-functional check, one check id per dependency
+hygiene: lint-agents adr-lint fixtures-check gold rules-scan rules-test ruff types docs-check deps clippy store-check
 
 # Compile-fail and positive Rust API contracts are outside nextest discovery.
 test-doc:
@@ -33,22 +38,34 @@ test-doc:
 fixture-corpus:
     INSTA_UPDATE=no cargo nextest run --release -p cpg-core --test fixture_corpus --no-fail-fast
 
-# rustfmt + ruff format check (no changes)
-fmt-check:
-    cargo fmt --check
-    uv run ruff format --check
-
 # Format everything (mutating)
 fmt:
     # Virtual-root defaults cover workspace members; --all would also rewrite vendored patches.
     cargo fmt
     uv run ruff format
+    # Apply ruff's auto-fixes; what remains is the `ruff` check's to report.
+    uv run ruff check --fix --quiet --exit-zero
+
+# clippy, denying warnings
+clippy:
+    cargo clippy --release --workspace --all-targets --quiet -- -D warnings
+
+# ruff lint, applying its safe auto-fixes first
+ruff:
     uv run ruff check --fix --quiet
 
-# clippy (deny warnings) + ruff lint
-lint:
-    cargo clippy --release --workspace --all-targets --quiet -- -D warnings
-    uv run ruff check --quiet
+# pyrefly type check
+types:
+    uv run pyrefly check --summary=none
+
+# ADR metadata and index
+adr-lint:
+    uv run python scripts/adr.py lint
+
+# The live store against this tree's lowering: build the release CLI, then `lctx store check`
+store-check:
+    cargo build --release -p lctx --quiet
+    target/release/lctx store check
 
 # Core Rust tests share the release profile with the shipped binary. Cargo rebuilds only changed
 # Rust inputs; repeated runs execute cached optimized test binaries. Tests own their data state.
@@ -56,13 +73,12 @@ lint:
 test *args:
     INSTA_UPDATE=no cargo nextest run --release --workspace --no-fail-fast --no-tests=pass {{args}}
 
-# Python tests (scripts and lctx_mcp over the fixture generation) + pyrefly
-py-check:
+# Python tests (scripts and lctx_mcp over the fixture generation)
+py-test:
     uv run pytest
-    uv run pyrefly check --summary=none
 
 # Independent runtime challenges of the release producer (S7): CPython admission of flow facts
-# and of served claims over compiled generated packages. Also part of `py-check`.
+# and of served claims over compiled generated packages. Also part of `py-test`.
 oracles:
     uv run pytest tests/scripts/test_flow_soundness.py tests/scripts/test_semantic_soundness.py -q
 
@@ -129,7 +145,7 @@ adr *args:
 lint-agents:
     uv run --no-project --offline --no-python-downloads python scripts/check_agents.py
 
-# Edits the working tree; one to two minutes (tools/lu-resolve). Run last, after tests and checks.
+# Edits the working tree; one to two minutes (tools/lu-resolve). The end-of-turn hook runs it last.
 # Regenerate the library catalog and the usage index behind the library-catalog MCP server
 library-catalog:
     uv run python scripts/library_utilization.py --write

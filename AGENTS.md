@@ -93,17 +93,16 @@ real consumer.
 
 | When | Run |
 |---|---|
-| During a design/implementation phase | Compile checks (`cargo check`/`cargo build` on the touched crates) and targeted tests or probes for the scope just implemented. No formatting, linting or integrated gate after a slice or commit. |
-| After all functional scope in the plan is implemented | `just fmt`, then `just test-all`: fmt-check, clippy `-D warnings`, release-profile nextest, pytest + pyrefly, rules, ADR/agent lint, fixture parsing, `just deps` and `just gold` |
+| During a design/implementation phase | Compile checks (`cargo check`/`cargo build` on the touched crates) and targeted tests or probes for the scope just implemented. No integrated gate after a slice or commit. |
+| After all functional scope in the plan is implemented | `just test-all`: release-profile nextest, pytest (including the oracles), real PostgreSQL and compile-fail doc tests. Qualification also cites a clean end-of-turn report for the same tree (`.git/after-turn/report.json`) |
 | The real library, end to end | `lctx compile fastmcp --through facts --profile catalog|behavioral`; reports a facts generation without selecting it. Analysis and serving remain unavailable. |
 | The store and its generations | `lctx store install\|check\|reset`, `lctx generation list\|show\|select\|retire\|abort`, `lctx query --generation <id> "SQL"` (read-only); runbook: `docs/postgresql.md` |
 | Add or upgrade a library | `lctx library init <name> --requirement '<req>'`; upgrade with `uv lock --project libraries/<name> --upgrade-package <dist>` (`libraries/README.md`) |
-| Format (mutating) | Automatic after every turn (below). Run `just fmt` yourself only immediately before `just test-all`, which checks formatting |
-| Dependency policy | `just deps`: one version each of Arrow/DataFusion/object_store/ruff/pyrefly/blake3, cargo-deny, and the Pyrefly fork check (tag + patch, classified env reads) |
-| Decisions | `just adr new <slug> --title "…"`, `just adr supersede ADR-NNNN <slug>`, `just adr index`, `just adr lint`, `just adr revisit` |
-| Documentation changes | `just docs-test` for publisher/resolver changes; `just docs-check` for publication. First run: `just bootstrap-docs`; preview: `just docs-serve`. No product gate solely for docs. |
-| After every turn (automatic) | A Stop hook (`scripts/after_turn.sh`, wired in `.claude/settings.json` and `.codex/hooks.json`) runs `just fmt`, then `just library-catalog` in the background, once the main agent stops. Don't run, check or troubleshoot either, and don't treat a catalog failure as yours to fix: the catalog is a temporary aid |
-| Tools present? | `just doctor` |
+| Dependency policy | `just deps`, an end-of-turn check: one version each of Arrow/DataFusion/object_store/ruff/pyrefly/blake3, cargo-deny, and the Pyrefly fork check (tag + patch, classified env reads) |
+| Decisions | `just adr new <slug> --title "…"`, `just adr supersede ADR-NNNN <slug>`, `just adr revisit`; the end-of-turn hook regenerates the index and runs the ADR lint |
+| Documentation changes | `just docs-test` for publisher/resolver changes; `just docs-check` (publication) runs at the end of each turn. First run: `just bootstrap-docs`; preview: `just docs-serve`. No product gate solely for docs. |
+| After every turn (automatic) | The end-of-turn hook (`scripts/after_turn.py`, ADR-0104, wired in `.claude/settings.json` and `.codex/hooks.json`) runs once the main agent stops: `just skills-sync`, `just adr index`, `just build-features` after dependency changes and `just fmt`; then, in the background, missing PostgreSQL images and tools and every `just hygiene` check (clippy, ruff with auto-fixes, pyrefly, rules, ADR and agent lint, fixtures, gold, `docs-check`, `deps`, `store-check`). A Sonnet or GPT fixer repairs what it can, the operator sees what is left, and `just library-catalog` runs last; the next prompt waits for the checks. Never run, check or troubleshoot any of this yourself |
+| Tools present? | `just doctor`; the end-of-turn checks report a missing tool |
 
 The Rust toolchain is pinned to `nightly-2026-09-29` in `rust-toolchain.toml` (ADR-0079).
 Do not pass floating `+nightly` or `+stable`. Python is 3.14.7 via `uv`; run Python tools as
@@ -120,8 +119,8 @@ including path dependencies. Keep release tests and the default single frontend 
 shell use `eval "$(python3 scripts/build_environment.py --shell)"` before building. Prefer Cargo
 config `build.target-dir`/`build.build-dir` to exported target paths; `LCTX_CARGO_TARGET_DIR` is an
 explicit override for an external target. Keep paths and rustflags stable during ordinary edits.
-`just build-features` refreshes the CLI's Hakari crate after dependency changes; `just deps` checks
-it. Lower libraries and Python bindings stay outside its dependency closure. Isolated benchmark
+The end-of-turn hook runs `just build-features` after dependency changes, refreshing the CLI's
+Hakari crate; `just deps` checks it. Lower libraries and Python bindings stay outside its dependency closure. Isolated benchmark
 trials own both artifact directories and never clean the shared build directory.
 
 ## PostgreSQL superuser access for agents
@@ -141,11 +140,11 @@ and any administration: create, alter, drop, inspect, repair.
 
 ## Writing code against the pinned libraries
 
-Select library skills in `.config/library-skills.toml`, then run `just skills-sync` (or
-`just skills-check` to inspect). The gitignored `.claude/skills/<name>` links expose one live
+Select library skills in `.config/library-skills.toml`; the end-of-turn hook runs `just skills-sync`
+(`just skills-check` inspects). The gitignored `.claude/skills/<name>` links expose one live
 copy per skill from `~/.local/share/library-skills/skills/` to both Codex and Claude Code.
 Improvements there reach every selecting repo; process skills remain local. Set
-`LIBRARY_SKILLS_ROOT` if the shared store is elsewhere. New worktrees need `just skills-sync`.
+`LIBRARY_SKILLS_ROOT` if the shared store is elsewhere. A new worktree gets its links when its first turn ends.
 
 The library capability skills under `.claude/skills/` are pinned, offline indexes. They are helpful reference for identifying and understanding library functionality in depth:
 - `datafusion` (DataFusion, Arrow, object_store)
@@ -187,11 +186,10 @@ capability is absent.
   scope with a compile check and the focused tests or probes that exercise it. Integrated tests
   (`just test`, `just check`, `just test-all`, facts pilots) wait until all functional scope in
   the plan is implemented; repeat them only for a failure or a subsequent material change.
-- **No formatting or linting while you work.** Don't run `just fmt`, `cargo fmt`, `ruff format`,
-  `cargo clippy`, `ruff check` or `pyrefly check` mid-plan: they add nothing during execution and
-  rewrite code other than yours, which you then have to reassess. The Stop hook formats the tree
-  after each turn. At the end of the scope, run `just fmt` immediately before the integrated gates,
-  since `just test-all` checks formatting.
+- **No formatting, linting or other non-functional checks.** The end-of-turn hook runs them all after
+  each turn and a fixer agent repairs what it can (ADR-0104). Don't run `just fmt`, `cargo fmt`,
+  `cargo clippy`, `ruff`, `pyrefly check`, `just deps` or any other `just hygiene` check, and don't
+  troubleshoot their failures: they rewrite code other than yours, which you then have to reassess.
 - Reuse cached release-profile Rust code for tests. Test data may be fresh, existing, or empty
   according to the test's purpose.
 - **Schema contracts** are insta snapshots. `just check` runs with `INSTA_UPDATE=no`. To accept

@@ -86,9 +86,11 @@ uv projects (ADR-0046). ADR-0040 owns review cadence. ADR-0079 owns the current-
 workspace feature unification, a CLI-only Hakari crate and shared intermediates with fine-grain
 locking. Final artifacts stay in local `target/`: workspace O2 with incremental compilation,
 imported dependencies O3 with sccache, and the existing release test workflow. No wheel
-project is selected.
+project is selected. Agents run functional tests; an end-of-turn hook runs formatting, generators
+and every non-functional check (`just hygiene`), with a cheaper fixer agent for what fails and the
+rest shown to the operator (ADR-0104).
 
-> Decision: ADR-0071, ADR-0086, ADR-0087, ADR-0046, ADR-0079, ADR-0040
+> Decision: ADR-0071, ADR-0086, ADR-0087, ADR-0046, ADR-0079, ADR-0040, ADR-0104
 
 <a id="section-1-3"></a>
 

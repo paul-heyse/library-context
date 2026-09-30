@@ -1,8 +1,8 @@
 # Pins
 
 Every pin with how and when it was last verified. Change a pin with the
-`pin-check` skill: read the primary source; product pin changes run `just deps` and the
-tests, and add a dated row here. Design authority for the Rust family is
+`pin-check` skill: read the primary source; product pin changes run the tests (the end-of-turn
+checks run `just deps`), and add a dated row here. Design authority for the Rust family is
 DESIGN §7 / ADR-0090. A row without a date is not verified.
 
 ## Rust

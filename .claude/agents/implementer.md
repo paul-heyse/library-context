@@ -33,7 +33,8 @@ anything left unfinished, unverified or outside the brief.
 
 Read AGENTS.md first and follow its Execution rhythm: compile checks and targeted unit
 tests while implementing, immediate deletion of provably replaced code; no formatting,
-lint or integration suites until all functional scope in the plan is implemented. Use the repository command surface and pinned tools. Search with rg and
+lint or other non-functional checks (the end-of-turn hook owns them), and no integration suites
+until all functional scope in the plan is implemented. Use the repository command surface and pinned tools. Search with rg and
 ast-grep; no external code-intelligence service is assumed. Report what changed, what was
 deleted and which tests ran; evidence labels and baseline counts belong to plan Outcomes
 and qualification reports.
