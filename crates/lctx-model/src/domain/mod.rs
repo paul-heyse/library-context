@@ -11,6 +11,7 @@ pub mod types;
 pub mod deployment;
 pub mod calls;
 pub mod declarations;
+pub mod symbols;
 pub mod syntax;
 pub mod transfer;
 pub mod derivation;
@@ -231,6 +232,15 @@ pub fn facts_relations() -> Vec<Relation> {
         Relation::of::<syntax::SubjectBoundary>(), Relation::of::<syntax::AttachmentOutcome>(), Relation::of::<syntax::AttachmentCandidate>(),
         Relation::of::<declarations::SymbolDeclaration>(), Relation::of::<declarations::SymbolDeclarationSupport>(),
         Relation::of::<declarations::ParameterDeclaration>(), Relation::of::<declarations::ParameterDeclarationSupport>(),
+        Relation::of::<symbols::SymbolSequence>(), Relation::of::<symbols::SymbolSequenceMember>(),
+        Relation::of::<symbols::SymbolObservation>(), Relation::of::<symbols::SymbolSupport>(),
+        Relation::of::<symbols::FunctionTraitObservation>(), Relation::of::<symbols::FunctionTraitSupport>(),
+        Relation::of::<symbols::ClassTraitObservation>(), Relation::of::<symbols::ClassTraitSupport>(),
+        Relation::of::<symbols::ClassAncestryObservation>(), Relation::of::<symbols::ClassAncestrySupport>(),
+        Relation::of::<symbols::ParameterAnnotationObservation>(), Relation::of::<symbols::ParameterAnnotationSupport>(),
+        Relation::of::<symbols::ExportOrigin>(), Relation::of::<symbols::PublicNameObservation>(), Relation::of::<symbols::PublicNameSupport>(),
+        Relation::of::<symbols::ParameterDocObservation>(), Relation::of::<symbols::ParameterDocSupport>(),
+        Relation::of::<symbols::DependencyModuleObservation>(), Relation::of::<symbols::DependencyModuleSupport>(),
         Relation::of::<AssertionQualification>(), Relation::of::<ProviderSurface>(), Relation::of::<Evidence>(),
         Relation::of::<Literal>(), Relation::of::<LiteralSet>(), Relation::of::<LiteralSetMember>(),
         Relation::of::<PlaceRoot>(), Relation::of::<PathSegment>(), Relation::of::<AccessPath>(), Relation::of::<Place>(),

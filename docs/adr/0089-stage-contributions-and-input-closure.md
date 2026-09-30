@@ -79,3 +79,7 @@ relation and the captured-input boundary.
   input depend on where the environment sits. Acquisition verifies every captured byte a `RECORD`
   lists against the frozen copy and records the `RECORD`'s in-site entries as the verification's
   digest; `METADATA` and `entry_points.txt` are captured. The decision is unchanged.
+- 2026-09-29 (plan A6): the provider-module sum distinguishes origins the provider reports. A
+  bundled stub carries its bundle (typeshed, typeshed third-party, the provider's third-party
+  stubs), and a namespace package is its own arm, scoped like an unresolved module to its provider
+  and context. The same spelling from two origins stays two modules. The decision is unchanged.

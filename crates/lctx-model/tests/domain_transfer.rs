@@ -17,7 +17,7 @@ impl Fixture {
         let provider = Provider { tool: "flow-fixture".into(),revision: "v1".into(),build_digest: ContentHash::of(b"build") };
         let (run,families) = ProviderRun::new(provider.id(),context.id(),input.id(),context.config_digest,[FactFamily::Flow]).unwrap();
         let surface = ProviderSurface { provider: provider.id(),family: FactFamily::Flow,name: "flow".into() };
-        let symbol = ProviderSymbol { provider: provider.id(),context: context.id(),module: ProviderModule::Bundled { provider: provider.id(),name: "x".into() }.id(),native_key: "f".into(),name: "f".into(),kind: SymbolKind::Function };
+        let symbol = ProviderSymbol { provider: provider.id(),context: context.id(),module: ProviderModule::Bundled { provider: provider.id(), bundle: ModuleBundle::Typeshed, name: "x".into() }.id(),native_key: "f".into(),name: "f".into(),kind: SymbolKind::Function };
         let occurrences: Vec<_> = (0..3).map(|i| Occurrence { source: source.id(),start: i,end: i+1,syntax_kind: SyntaxKind::ExprName,
             role: OccurrenceRole::Read,structural_path: vec![i as i32] }).collect();
         let roots: Vec<_> = occurrences.iter().map(|o| PlaceRoot::Occurrence { occurrence: o.id() }).collect();

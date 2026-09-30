@@ -3,7 +3,7 @@ source: crates/lctx/tests/model_describe.rs
 expression: "String::from_utf8(output.stdout).unwrap()"
 ---
 {
-  "digest": "ceec0dc426cf0769ada2b09b7ef8ce41d6efc8a067beb30e0d9f55043e32426c",
+  "digest": "14a2bf4bd9f8fa79ec2a106796543d285b3f7d72a6e6b9e658416541c8a174f5",
   "relations": [
     {
       "name": "access_paths",
@@ -2640,6 +2640,229 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       "family": "Calls"
     },
     {
+      "name": "class_ancestry_observations",
+      "fields": [
+        {
+          "name": "qualification",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "assertion_qualifications"
+        },
+        {
+          "name": "class",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "provider_symbols"
+        },
+        {
+          "name": "relation",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "Bases"
+            ],
+            [
+              1,
+              "Mro"
+            ]
+          ]
+        },
+        {
+          "name": "ancestors",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "target": "symbol_sequences"
+        },
+        {
+          "name": "linearization",
+          "type": "int16",
+          "list": false,
+          "nullable": true,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "Complete"
+            ],
+            [
+              1,
+              "Prefix"
+            ],
+            [
+              2,
+              "Cyclic"
+            ]
+          ]
+        }
+      ],
+      "facts": true,
+      "family": "Signatures"
+    },
+    {
+      "name": "class_ancestry_supports",
+      "fields": [
+        {
+          "name": "assertion",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "class_ancestry_observations"
+        },
+        {
+          "name": "run",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "provider_runs"
+        },
+        {
+          "name": "surface",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "provider_surfaces"
+        },
+        {
+          "name": "evidence",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "evidence"
+        },
+        {
+          "name": "origin",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "InputContext"
+            ],
+            [
+              1,
+              "SourceObservation"
+            ],
+            [
+              2,
+              "AnalyzerAssertion"
+            ],
+            [
+              3,
+              "DerivedAnalysis"
+            ],
+            [
+              4,
+              "SyntheticModel"
+            ]
+          ]
+        },
+        {
+          "name": "mode",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "NativeTraversal"
+            ],
+            [
+              1,
+              "ReportDecode"
+            ],
+            [
+              2,
+              "RelationalDerivation"
+            ],
+            [
+              3,
+              "GraphAnalysis"
+            ],
+            [
+              4,
+              "Recognizer"
+            ],
+            [
+              5,
+              "StatisticalAnalysis"
+            ],
+            [
+              6,
+              "TemplateSynthesis"
+            ],
+            [
+              7,
+              "FixtureExecution"
+            ],
+            [
+              8,
+              "ManualReview"
+            ]
+          ]
+        },
+        {
+          "name": "fidelity",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "Raw"
+            ],
+            [
+              1,
+              "NativeStructural"
+            ],
+            [
+              2,
+              "NormalizedStructural"
+            ],
+            [
+              3,
+              "ReportProjection"
+            ],
+            [
+              4,
+              "DisplayOnly"
+            ]
+          ]
+        }
+      ],
+      "facts": true,
+      "family": "Signatures"
+    },
+    {
       "name": "class_field_syntax_observations",
       "fields": [
         {
@@ -2839,6 +3062,212 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       ],
       "facts": true,
       "family": "Syntax"
+    },
+    {
+      "name": "class_trait_observations",
+      "fields": [
+        {
+          "name": "qualification",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "assertion_qualifications"
+        },
+        {
+          "name": "symbol",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "provider_symbols"
+        },
+        {
+          "name": "synthesized",
+          "type": "bool",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "dataclass",
+          "type": "bool",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "named_tuple",
+          "type": "bool",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "typed_dict",
+          "type": "bool",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        }
+      ],
+      "facts": true,
+      "family": "Signatures"
+    },
+    {
+      "name": "class_trait_supports",
+      "fields": [
+        {
+          "name": "assertion",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "class_trait_observations"
+        },
+        {
+          "name": "run",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "provider_runs"
+        },
+        {
+          "name": "surface",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "provider_surfaces"
+        },
+        {
+          "name": "evidence",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "evidence"
+        },
+        {
+          "name": "origin",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "InputContext"
+            ],
+            [
+              1,
+              "SourceObservation"
+            ],
+            [
+              2,
+              "AnalyzerAssertion"
+            ],
+            [
+              3,
+              "DerivedAnalysis"
+            ],
+            [
+              4,
+              "SyntheticModel"
+            ]
+          ]
+        },
+        {
+          "name": "mode",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "NativeTraversal"
+            ],
+            [
+              1,
+              "ReportDecode"
+            ],
+            [
+              2,
+              "RelationalDerivation"
+            ],
+            [
+              3,
+              "GraphAnalysis"
+            ],
+            [
+              4,
+              "Recognizer"
+            ],
+            [
+              5,
+              "StatisticalAnalysis"
+            ],
+            [
+              6,
+              "TemplateSynthesis"
+            ],
+            [
+              7,
+              "FixtureExecution"
+            ],
+            [
+              8,
+              "ManualReview"
+            ]
+          ]
+        },
+        {
+          "name": "fidelity",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "Raw"
+            ],
+            [
+              1,
+              "NativeStructural"
+            ],
+            [
+              2,
+              "NormalizedStructural"
+            ],
+            [
+              3,
+              "ReportProjection"
+            ],
+            [
+              4,
+              "DisplayOnly"
+            ]
+          ]
+        }
+      ],
+      "facts": true,
+      "family": "Signatures"
     },
     {
       "name": "code_block_observations",
@@ -3879,6 +4308,188 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       ],
       "facts": true,
       "family": "Syntax"
+    },
+    {
+      "name": "dependency_module_observations",
+      "fields": [
+        {
+          "name": "qualification",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "assertion_qualifications"
+        },
+        {
+          "name": "module",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "provider_modules"
+        },
+        {
+          "name": "location",
+          "type": "text",
+          "list": false,
+          "nullable": true,
+          "key": false,
+          "provenance": false
+        }
+      ],
+      "facts": true,
+      "family": "Signatures"
+    },
+    {
+      "name": "dependency_module_supports",
+      "fields": [
+        {
+          "name": "assertion",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "dependency_module_observations"
+        },
+        {
+          "name": "run",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "provider_runs"
+        },
+        {
+          "name": "surface",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "provider_surfaces"
+        },
+        {
+          "name": "evidence",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "evidence"
+        },
+        {
+          "name": "origin",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "InputContext"
+            ],
+            [
+              1,
+              "SourceObservation"
+            ],
+            [
+              2,
+              "AnalyzerAssertion"
+            ],
+            [
+              3,
+              "DerivedAnalysis"
+            ],
+            [
+              4,
+              "SyntheticModel"
+            ]
+          ]
+        },
+        {
+          "name": "mode",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "NativeTraversal"
+            ],
+            [
+              1,
+              "ReportDecode"
+            ],
+            [
+              2,
+              "RelationalDerivation"
+            ],
+            [
+              3,
+              "GraphAnalysis"
+            ],
+            [
+              4,
+              "Recognizer"
+            ],
+            [
+              5,
+              "StatisticalAnalysis"
+            ],
+            [
+              6,
+              "TemplateSynthesis"
+            ],
+            [
+              7,
+              "FixtureExecution"
+            ],
+            [
+              8,
+              "ManualReview"
+            ]
+          ]
+        },
+        {
+          "name": "fidelity",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "Raw"
+            ],
+            [
+              1,
+              "NativeStructural"
+            ],
+            [
+              2,
+              "NormalizedStructural"
+            ],
+            [
+              3,
+              "ReportProjection"
+            ],
+            [
+              4,
+              "DisplayOnly"
+            ]
+          ]
+        }
+      ],
+      "facts": true,
+      "family": "Signatures"
     },
     {
       "name": "deployment_observations",
@@ -6032,6 +6643,113 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       }
     },
     {
+      "name": "export_origins",
+      "fields": [
+        {
+          "name": "kind",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "traced_module",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "provider_modules"
+        },
+        {
+          "name": "traced_name",
+          "type": "text",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "traced_kind",
+          "type": "int16",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "Module"
+            ],
+            [
+              1,
+              "Attribute"
+            ],
+            [
+              2,
+              "Variable"
+            ],
+            [
+              3,
+              "Constant"
+            ],
+            [
+              4,
+              "Parameter"
+            ],
+            [
+              5,
+              "TypeParameter"
+            ],
+            [
+              6,
+              "TypeAlias"
+            ],
+            [
+              7,
+              "Function"
+            ],
+            [
+              8,
+              "Method"
+            ],
+            [
+              9,
+              "Class"
+            ]
+          ]
+        }
+      ],
+      "facts": true,
+      "sum": {
+        "tag": "kind",
+        "arms": [
+          {
+            "code": 0,
+            "fields": [
+              {
+                "name": "traced_module",
+                "required": true
+              },
+              {
+                "name": "traced_name",
+                "required": true
+              },
+              {
+                "name": "traced_kind",
+                "required": false
+              }
+            ]
+          },
+          {
+            "code": 1,
+            "fields": []
+          }
+        ]
+      }
+    },
+    {
       "name": "flow_definition_observations",
       "fields": [
         {
@@ -7172,6 +7890,254 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       ],
       "facts": true,
       "family": "Flow"
+    },
+    {
+      "name": "function_trait_observations",
+      "fields": [
+        {
+          "name": "qualification",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "assertion_qualifications"
+        },
+        {
+          "name": "symbol",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "provider_symbols"
+        },
+        {
+          "name": "overload",
+          "type": "bool",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "staticmethod",
+          "type": "bool",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "classmethod",
+          "type": "bool",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "property_getter",
+          "type": "bool",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "property_setter",
+          "type": "bool",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "stub",
+          "type": "bool",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "def_statement",
+          "type": "bool",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "defining_class",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": false,
+          "provenance": false,
+          "target": "provider_symbols"
+        },
+        {
+          "name": "overrides",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": false,
+          "provenance": false,
+          "target": "provider_symbols"
+        }
+      ],
+      "facts": true,
+      "family": "Signatures"
+    },
+    {
+      "name": "function_trait_supports",
+      "fields": [
+        {
+          "name": "assertion",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "function_trait_observations"
+        },
+        {
+          "name": "run",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "provider_runs"
+        },
+        {
+          "name": "surface",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "provider_surfaces"
+        },
+        {
+          "name": "evidence",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "evidence"
+        },
+        {
+          "name": "origin",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "InputContext"
+            ],
+            [
+              1,
+              "SourceObservation"
+            ],
+            [
+              2,
+              "AnalyzerAssertion"
+            ],
+            [
+              3,
+              "DerivedAnalysis"
+            ],
+            [
+              4,
+              "SyntheticModel"
+            ]
+          ]
+        },
+        {
+          "name": "mode",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "NativeTraversal"
+            ],
+            [
+              1,
+              "ReportDecode"
+            ],
+            [
+              2,
+              "RelationalDerivation"
+            ],
+            [
+              3,
+              "GraphAnalysis"
+            ],
+            [
+              4,
+              "Recognizer"
+            ],
+            [
+              5,
+              "StatisticalAnalysis"
+            ],
+            [
+              6,
+              "TemplateSynthesis"
+            ],
+            [
+              7,
+              "FixtureExecution"
+            ],
+            [
+              8,
+              "ManualReview"
+            ]
+          ]
+        },
+        {
+          "name": "fidelity",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "Raw"
+            ],
+            [
+              1,
+              "NativeStructural"
+            ],
+            [
+              2,
+              "NormalizedStructural"
+            ],
+            [
+              3,
+              "ReportProjection"
+            ],
+            [
+              4,
+              "DisplayOnly"
+            ]
+          ]
+        }
+      ],
+      "facts": true,
+      "family": "Signatures"
     },
     {
       "name": "guard_substitutions",
@@ -8994,6 +9960,197 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       "facts": true
     },
     {
+      "name": "parameter_annotation_observations",
+      "fields": [
+        {
+          "name": "qualification",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "assertion_qualifications"
+        },
+        {
+          "name": "scope",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "coverage_scopes"
+        },
+        {
+          "name": "parameter",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "signature_parameters"
+        },
+        {
+          "name": "display",
+          "type": "text",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        }
+      ],
+      "facts": true,
+      "family": "Signatures"
+    },
+    {
+      "name": "parameter_annotation_supports",
+      "fields": [
+        {
+          "name": "assertion",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "parameter_annotation_observations"
+        },
+        {
+          "name": "run",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "provider_runs"
+        },
+        {
+          "name": "surface",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "provider_surfaces"
+        },
+        {
+          "name": "evidence",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "evidence"
+        },
+        {
+          "name": "origin",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "InputContext"
+            ],
+            [
+              1,
+              "SourceObservation"
+            ],
+            [
+              2,
+              "AnalyzerAssertion"
+            ],
+            [
+              3,
+              "DerivedAnalysis"
+            ],
+            [
+              4,
+              "SyntheticModel"
+            ]
+          ]
+        },
+        {
+          "name": "mode",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "NativeTraversal"
+            ],
+            [
+              1,
+              "ReportDecode"
+            ],
+            [
+              2,
+              "RelationalDerivation"
+            ],
+            [
+              3,
+              "GraphAnalysis"
+            ],
+            [
+              4,
+              "Recognizer"
+            ],
+            [
+              5,
+              "StatisticalAnalysis"
+            ],
+            [
+              6,
+              "TemplateSynthesis"
+            ],
+            [
+              7,
+              "FixtureExecution"
+            ],
+            [
+              8,
+              "ManualReview"
+            ]
+          ]
+        },
+        {
+          "name": "fidelity",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "Raw"
+            ],
+            [
+              1,
+              "NativeStructural"
+            ],
+            [
+              2,
+              "NormalizedStructural"
+            ],
+            [
+              3,
+              "ReportProjection"
+            ],
+            [
+              4,
+              "DisplayOnly"
+            ]
+          ]
+        }
+      ],
+      "facts": true,
+      "family": "Signatures"
+    },
+    {
       "name": "parameter_declaration_supports",
       "fields": [
         {
@@ -9171,6 +10328,206 @@ expression: "String::from_utf8(output.stdout).unwrap()"
           "key": true,
           "provenance": false,
           "target": "occurrences"
+        }
+      ],
+      "facts": true,
+      "family": "Signatures"
+    },
+    {
+      "name": "parameter_doc_observations",
+      "fields": [
+        {
+          "name": "qualification",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "assertion_qualifications"
+        },
+        {
+          "name": "declaration",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "occurrences"
+        },
+        {
+          "name": "name",
+          "type": "text",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "text",
+          "type": "text",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "description",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "target": "evidence",
+          "subtype": 1
+        }
+      ],
+      "facts": true,
+      "family": "Signatures"
+    },
+    {
+      "name": "parameter_doc_supports",
+      "fields": [
+        {
+          "name": "assertion",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "parameter_doc_observations"
+        },
+        {
+          "name": "run",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "provider_runs"
+        },
+        {
+          "name": "surface",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "provider_surfaces"
+        },
+        {
+          "name": "evidence",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "evidence"
+        },
+        {
+          "name": "origin",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "InputContext"
+            ],
+            [
+              1,
+              "SourceObservation"
+            ],
+            [
+              2,
+              "AnalyzerAssertion"
+            ],
+            [
+              3,
+              "DerivedAnalysis"
+            ],
+            [
+              4,
+              "SyntheticModel"
+            ]
+          ]
+        },
+        {
+          "name": "mode",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "NativeTraversal"
+            ],
+            [
+              1,
+              "ReportDecode"
+            ],
+            [
+              2,
+              "RelationalDerivation"
+            ],
+            [
+              3,
+              "GraphAnalysis"
+            ],
+            [
+              4,
+              "Recognizer"
+            ],
+            [
+              5,
+              "StatisticalAnalysis"
+            ],
+            [
+              6,
+              "TemplateSynthesis"
+            ],
+            [
+              7,
+              "FixtureExecution"
+            ],
+            [
+              8,
+              "ManualReview"
+            ]
+          ]
+        },
+        {
+          "name": "fidelity",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "Raw"
+            ],
+            [
+              1,
+              "NativeStructural"
+            ],
+            [
+              2,
+              "NormalizedStructural"
+            ],
+            [
+              3,
+              "ReportProjection"
+            ],
+            [
+              4,
+              "DisplayOnly"
+            ]
+          ]
         }
       ],
       "facts": true,
@@ -10554,6 +11911,28 @@ expression: "String::from_utf8(output.stdout).unwrap()"
           "target": "providers"
         },
         {
+          "name": "bundled_bundle",
+          "type": "int16",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "Typeshed"
+            ],
+            [
+              1,
+              "TypeshedThirdParty"
+            ],
+            [
+              2,
+              "ThirdParty"
+            ]
+          ]
+        },
+        {
           "name": "bundled_name",
           "type": "text",
           "list": false,
@@ -10586,6 +11965,32 @@ expression: "String::from_utf8(output.stdout).unwrap()"
           "nullable": true,
           "key": true,
           "provenance": false
+        },
+        {
+          "name": "namespace_provider",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "providers"
+        },
+        {
+          "name": "namespace_context",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "analysis_contexts"
+        },
+        {
+          "name": "namespace_name",
+          "type": "text",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false
         }
       ],
       "facts": true,
@@ -10609,6 +12014,10 @@ expression: "String::from_utf8(output.stdout).unwrap()"
                 "required": true
               },
               {
+                "name": "bundled_bundle",
+                "required": true
+              },
+              {
                 "name": "bundled_name",
                 "required": true
               }
@@ -10627,6 +12036,23 @@ expression: "String::from_utf8(output.stdout).unwrap()"
               },
               {
                 "name": "unresolved_name",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 3,
+            "fields": [
+              {
+                "name": "namespace_provider",
+                "required": true
+              },
+              {
+                "name": "namespace_context",
+                "required": true
+              },
+              {
+                "name": "namespace_name",
                 "required": true
               }
             ]
@@ -10868,6 +12294,205 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         }
       ],
       "facts": true
+    },
+    {
+      "name": "public_name_observations",
+      "fields": [
+        {
+          "name": "qualification",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "assertion_qualifications"
+        },
+        {
+          "name": "access",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "modules"
+        },
+        {
+          "name": "name",
+          "type": "text",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "via_dunder_all",
+          "type": "bool",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "origin",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "target": "export_origins"
+        }
+      ],
+      "facts": true,
+      "family": "Exports"
+    },
+    {
+      "name": "public_name_supports",
+      "fields": [
+        {
+          "name": "assertion",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "public_name_observations"
+        },
+        {
+          "name": "run",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "provider_runs"
+        },
+        {
+          "name": "surface",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "provider_surfaces"
+        },
+        {
+          "name": "evidence",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "evidence"
+        },
+        {
+          "name": "origin",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "InputContext"
+            ],
+            [
+              1,
+              "SourceObservation"
+            ],
+            [
+              2,
+              "AnalyzerAssertion"
+            ],
+            [
+              3,
+              "DerivedAnalysis"
+            ],
+            [
+              4,
+              "SyntheticModel"
+            ]
+          ]
+        },
+        {
+          "name": "mode",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "NativeTraversal"
+            ],
+            [
+              1,
+              "ReportDecode"
+            ],
+            [
+              2,
+              "RelationalDerivation"
+            ],
+            [
+              3,
+              "GraphAnalysis"
+            ],
+            [
+              4,
+              "Recognizer"
+            ],
+            [
+              5,
+              "StatisticalAnalysis"
+            ],
+            [
+              6,
+              "TemplateSynthesis"
+            ],
+            [
+              7,
+              "FixtureExecution"
+            ],
+            [
+              8,
+              "ManualReview"
+            ]
+          ]
+        },
+        {
+          "name": "fidelity",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "Raw"
+            ],
+            [
+              1,
+              "NativeStructural"
+            ],
+            [
+              2,
+              "NormalizedStructural"
+            ],
+            [
+              3,
+              "ReportProjection"
+            ],
+            [
+              4,
+              "DisplayOnly"
+            ]
+          ]
+        }
+      ],
+      "facts": true,
+      "family": "Exports"
     },
     {
       "name": "reaching_definitions",
@@ -12447,6 +14072,235 @@ expression: "String::from_utf8(output.stdout).unwrap()"
           "key": true,
           "provenance": false,
           "target": "occurrences"
+        }
+      ],
+      "facts": true,
+      "family": "Signatures"
+    },
+    {
+      "name": "symbol_observations",
+      "fields": [
+        {
+          "name": "qualification",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "assertion_qualifications"
+        },
+        {
+          "name": "symbol",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "provider_symbols"
+        },
+        {
+          "name": "parent",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": false,
+          "provenance": false,
+          "target": "provider_symbols"
+        }
+      ],
+      "facts": true,
+      "family": "Signatures"
+    },
+    {
+      "name": "symbol_sequence_members",
+      "fields": [
+        {
+          "name": "sequence",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "symbol_sequences"
+        },
+        {
+          "name": "ordinal",
+          "type": "int64",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "symbol",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "target": "provider_symbols"
+        }
+      ],
+      "facts": true
+    },
+    {
+      "name": "symbol_sequences",
+      "fields": [
+        {
+          "name": "members",
+          "type": "digest",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        }
+      ],
+      "facts": true
+    },
+    {
+      "name": "symbol_supports",
+      "fields": [
+        {
+          "name": "assertion",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "symbol_observations"
+        },
+        {
+          "name": "run",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "provider_runs"
+        },
+        {
+          "name": "surface",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "provider_surfaces"
+        },
+        {
+          "name": "evidence",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "evidence"
+        },
+        {
+          "name": "origin",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "InputContext"
+            ],
+            [
+              1,
+              "SourceObservation"
+            ],
+            [
+              2,
+              "AnalyzerAssertion"
+            ],
+            [
+              3,
+              "DerivedAnalysis"
+            ],
+            [
+              4,
+              "SyntheticModel"
+            ]
+          ]
+        },
+        {
+          "name": "mode",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "NativeTraversal"
+            ],
+            [
+              1,
+              "ReportDecode"
+            ],
+            [
+              2,
+              "RelationalDerivation"
+            ],
+            [
+              3,
+              "GraphAnalysis"
+            ],
+            [
+              4,
+              "Recognizer"
+            ],
+            [
+              5,
+              "StatisticalAnalysis"
+            ],
+            [
+              6,
+              "TemplateSynthesis"
+            ],
+            [
+              7,
+              "FixtureExecution"
+            ],
+            [
+              8,
+              "ManualReview"
+            ]
+          ]
+        },
+        {
+          "name": "fidelity",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "Raw"
+            ],
+            [
+              1,
+              "NativeStructural"
+            ],
+            [
+              2,
+              "NormalizedStructural"
+            ],
+            [
+              3,
+              "ReportProjection"
+            ],
+            [
+              4,
+              "DisplayOnly"
+            ]
+          ]
         }
       ],
       "facts": true,
@@ -15663,6 +17517,32 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       ]
     },
     {
+      "name": "class_ancestry_supports",
+      "inputs": [
+        "source_artifacts",
+        "occurrences",
+        "modules",
+        "corpus_libraries",
+        "place_roots",
+        "places",
+        "predicates",
+        "evaluation_atoms",
+        "condition_nodes",
+        "conditions",
+        "input_distributions",
+        "coverage_scopes",
+        "assertion_qualifications",
+        "provider_runs",
+        "run_families",
+        "provider_surfaces",
+        "evidence",
+        "provider_modules",
+        "provider_symbols",
+        "class_ancestry_observations",
+        "class_ancestry_supports"
+      ]
+    },
+    {
       "name": "class_field_syntax_supports",
       "inputs": [
         "source_artifacts",
@@ -15684,6 +17564,32 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         "evidence",
         "class_field_syntax_observations",
         "class_field_syntax_supports"
+      ]
+    },
+    {
+      "name": "class_trait_supports",
+      "inputs": [
+        "source_artifacts",
+        "occurrences",
+        "modules",
+        "corpus_libraries",
+        "place_roots",
+        "places",
+        "predicates",
+        "evaluation_atoms",
+        "condition_nodes",
+        "conditions",
+        "input_distributions",
+        "coverage_scopes",
+        "assertion_qualifications",
+        "provider_runs",
+        "run_families",
+        "provider_surfaces",
+        "evidence",
+        "provider_modules",
+        "provider_symbols",
+        "class_trait_observations",
+        "class_trait_supports"
       ]
     },
     {
@@ -15827,6 +17733,31 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         "evidence",
         "declaration_observations",
         "declaration_supports"
+      ]
+    },
+    {
+      "name": "dependency_module_supports",
+      "inputs": [
+        "source_artifacts",
+        "occurrences",
+        "modules",
+        "corpus_libraries",
+        "place_roots",
+        "places",
+        "predicates",
+        "evaluation_atoms",
+        "condition_nodes",
+        "conditions",
+        "input_distributions",
+        "coverage_scopes",
+        "assertion_qualifications",
+        "provider_runs",
+        "run_families",
+        "provider_surfaces",
+        "evidence",
+        "provider_modules",
+        "dependency_module_observations",
+        "dependency_module_supports"
       ]
     },
     {
@@ -16182,6 +18113,32 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       ]
     },
     {
+      "name": "function_trait_supports",
+      "inputs": [
+        "source_artifacts",
+        "occurrences",
+        "modules",
+        "corpus_libraries",
+        "place_roots",
+        "places",
+        "predicates",
+        "evaluation_atoms",
+        "condition_nodes",
+        "conditions",
+        "input_distributions",
+        "coverage_scopes",
+        "assertion_qualifications",
+        "provider_runs",
+        "run_families",
+        "provider_surfaces",
+        "evidence",
+        "provider_modules",
+        "provider_symbols",
+        "function_trait_observations",
+        "function_trait_supports"
+      ]
+    },
+    {
       "name": "import_alias_supports",
       "inputs": [
         "source_artifacts",
@@ -16326,6 +18283,30 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       ]
     },
     {
+      "name": "parameter_annotation_supports",
+      "inputs": [
+        "source_artifacts",
+        "occurrences",
+        "modules",
+        "corpus_libraries",
+        "place_roots",
+        "places",
+        "predicates",
+        "evaluation_atoms",
+        "condition_nodes",
+        "conditions",
+        "input_distributions",
+        "coverage_scopes",
+        "assertion_qualifications",
+        "provider_runs",
+        "run_families",
+        "provider_surfaces",
+        "evidence",
+        "parameter_annotation_observations",
+        "parameter_annotation_supports"
+      ]
+    },
+    {
       "name": "parameter_declaration_supports",
       "inputs": [
         "source_artifacts",
@@ -16347,6 +18328,30 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         "evidence",
         "parameter_declarations",
         "parameter_declaration_supports"
+      ]
+    },
+    {
+      "name": "parameter_doc_supports",
+      "inputs": [
+        "source_artifacts",
+        "occurrences",
+        "modules",
+        "corpus_libraries",
+        "place_roots",
+        "places",
+        "predicates",
+        "evaluation_atoms",
+        "condition_nodes",
+        "conditions",
+        "input_distributions",
+        "coverage_scopes",
+        "assertion_qualifications",
+        "provider_runs",
+        "run_families",
+        "provider_surfaces",
+        "evidence",
+        "parameter_doc_observations",
+        "parameter_doc_supports"
       ]
     },
     {
@@ -16412,6 +18417,32 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         "provider_modules",
         "provider_symbols",
         "type_variables"
+      ]
+    },
+    {
+      "name": "public_name_supports",
+      "inputs": [
+        "source_artifacts",
+        "occurrences",
+        "modules",
+        "corpus_libraries",
+        "place_roots",
+        "places",
+        "predicates",
+        "evaluation_atoms",
+        "condition_nodes",
+        "conditions",
+        "input_distributions",
+        "coverage_scopes",
+        "assertion_qualifications",
+        "provider_runs",
+        "run_families",
+        "provider_surfaces",
+        "evidence",
+        "provider_modules",
+        "export_origins",
+        "public_name_observations",
+        "public_name_supports"
       ]
     },
     {
@@ -16533,6 +18564,58 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         "evidence",
         "symbol_declarations",
         "symbol_declaration_supports"
+      ]
+    },
+    {
+      "name": "symbol_sequence_membership",
+      "inputs": [
+        "symbol_sequences",
+        "symbol_sequence_members"
+      ]
+    },
+    {
+      "name": "symbol_structure",
+      "inputs": [
+        "provider_modules",
+        "provider_symbols",
+        "occurrences",
+        "evidence",
+        "signature_observations",
+        "signature_parameters",
+        "symbol_sequence_members",
+        "symbol_observations",
+        "function_trait_observations",
+        "class_trait_observations",
+        "class_ancestry_observations",
+        "parameter_annotation_observations",
+        "parameter_doc_observations",
+        "dependency_module_observations"
+      ]
+    },
+    {
+      "name": "symbol_supports",
+      "inputs": [
+        "source_artifacts",
+        "occurrences",
+        "modules",
+        "corpus_libraries",
+        "place_roots",
+        "places",
+        "predicates",
+        "evaluation_atoms",
+        "condition_nodes",
+        "conditions",
+        "input_distributions",
+        "coverage_scopes",
+        "assertion_qualifications",
+        "provider_runs",
+        "run_families",
+        "provider_surfaces",
+        "evidence",
+        "provider_modules",
+        "provider_symbols",
+        "symbol_observations",
+        "symbol_supports"
       ]
     },
     {

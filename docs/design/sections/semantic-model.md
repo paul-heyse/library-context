@@ -179,9 +179,28 @@ that scope. An `AttachmentOutcome` is disclosed by its matching reason (`Attachm
 `AttachmentUnmatched`, `BudgetReached`) and keeps exactly its candidates: one innermost container,
 two or more when ambiguous, none when unmatched.
 
-**Provider modules.** Symbols and type variables name a provider module: the acquired module over
-captured bytes, a provider-bundled stub, or an unresolved spelling in one analysis context. The
-same spelling in different origins is never one module.
+**Provider modules.** Symbols and type variables name a provider module:
+- the acquired module over captured bytes;
+- a stub in one of the provider's bundles (typeshed, typeshed third-party, or the provider's own
+  third-party stubs);
+- a namespace package, which has no bytes, in one analysis context;
+- an unresolved spelling in one analysis context.
+
+The same spelling in different origins is never one module.
+
+**Symbols** (Implemented, focused Tested 2026-09-29, plan A6). A provider states:
+- that it defines a symbol, nested in a class or function of the same module or at top level;
+- a function's and a class's native traits;
+- a class's bases and its MRO, whose linearization is complete, a recovery prefix, or cyclic with
+  no ancestors;
+- a parameter annotation's display;
+- public names with a traced or untraced origin;
+- docstring parameter documentation;
+- how it resolved a module it references.
+
+Every symbol a record names belongs to the provider and context of its subject. An annotation display
+is display-only and establishes no structure; types are type observations. Qualified names,
+signature counts and a module's distribution are derived.
 
 **Owner rule.** One owner rule assigns each occurrence its enclosing entity: the innermost declaration
 whose body holds it, otherwise the module. It is the only definition of "caller".

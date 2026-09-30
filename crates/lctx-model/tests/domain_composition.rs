@@ -36,7 +36,7 @@ impl World {
         Occurrence { source: self.source.id(), start: self.next, end: self.next + 1, syntax_kind: kind, role, structural_path: vec![0, self.next as i32] }
     }
     fn symbol(&mut self, name: &str) -> (ProviderSymbol, SymbolDeclaration) {
-        let symbol = ProviderSymbol { provider: self.provider.id(), context: self.context.id(), module: ProviderModule::Bundled { provider: self.provider.id(), name: "m".into() }.id(),
+        let symbol = ProviderSymbol { provider: self.provider.id(), context: self.context.id(), module: ProviderModule::Bundled { provider: self.provider.id(), bundle: ModuleBundle::Typeshed, name: "m".into() }.id(),
             native_key: name.into(), name: name.into(), kind: SymbolKind::Function };
         let declaration = SymbolDeclaration { qualification: self.base.id(), symbol: symbol.id(), declaration: self.occurrence(SyntaxKind::StmtFunctionDef, OccurrenceRole::Declaration).id() };
         (symbol, declaration)

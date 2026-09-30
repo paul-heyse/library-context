@@ -1018,6 +1018,34 @@ Its drivers:
 - the `__class__` cell (captured) and unresolved `Callable`;
 - `global` binding at module scope, `nonlocal` targets, and the decorator's lambda evaluating in the enclosing scope;
 - `global g1, g1` as one event; no scope inside an annotation; every scope's parent where it evaluates |
+| A6: `cargo test --release -p lctx-model` (all suites), `-p lctx-postgres --test domain_symbols` plus the calls, transfer, types, syntax, declarations, lexical and documents PG suites, `-p cpg-extract --test typed_lexical --test typed_syntax_shapes --test typed_conformance`, `-p lctx --test model_describe`; `cargo check --workspace --all-targets` | passed 2026-09-29 (domain_symbols 10 model, 1 PG). Schema migration: the model description snapshot gains the symbol relations and the amended `provider_modules`.
+
+**The symbol model** (`domain/symbols.rs`) re-owns the legacy dependency-context, Pysa definition, public-name and docstring families:
+- `SymbolObservation{symbol, parent}` (a symbol nests only in a class or function of its own module; the chain ends at top level);
+- `FunctionTraitObservation` and `ClassTraitObservation` (the native flags; a method exactly when it has a defining class, which is the class it nests in; `overrides` names a method);
+- `ClassAncestryObservation{Bases|Mro, SymbolSequence, linearization}`, with `Linearization{Complete, Prefix, Cyclic}` in place of the two legacy flags;
+- the display-only `ParameterAnnotationObservation`, stated with its signature;
+- `PublicNameObservation{access, name, via_dunder_all, origin}` with `ExportOrigin{Traced{module, name, kind}|Untraced}` and Pyrefly's `ExportKind`;
+- `ParameterDocObservation{declaration, name, text, description}`, whose description span lies inside its `def`;
+- `DependencyModuleObservation{module, location}`, located by a relative path exactly for a bundled or namespace module.
+
+Derived, never stored: qualified names (parent chain), signature counts (signature variants), a module's distribution and version (artifact ownership), site-packages versus search-path origin (artifact role).
+
+Retired to the type facts (A8/A11): Pysa's annotation class set, its exhaustiveness and scalar properties. The display is the only annotation fact.
+
+Mechanisms:
+- `Subject::{Symbol, ProviderModule, ExportOrigin}`: a symbol or provider module is stated only by its own provider (and context), and is located in its module's source when acquired;
+- the `Assertion` derive's `fidelity` requires one support fidelity, which is how a display-only proposition refuses structural support;
+- `ProviderModule` gains `ModuleBundle` on `Bundled` and a `Namespace` arm (DESIGN §15.4; ADR-0089 amendment).
+
+**Controls** (`domain_symbols`, over `fixtures/python/semantic_symbols/example.py`):
+- the fixture's derived answers: `inner` is `Service.run.inner`; Base's bases are the complete empty sequence; Service's MRO is Base, then the bundled `typing.Generic`;
+- a cyclic MRO with ancestors is refused, and its empty-sequence twin is accepted; a class in its own MRO, a repeated ancestor, a method base and a base from another context are refused;
+- untraced never equals traced; one name with two origins conflicts; a trace into another provider's bundle is refused;
+- structural support of an annotation display is refused, and its display-only twin is accepted;
+- trait/nesting mismatches, parent cycles and cross-module parents are refused, as are alien-provider support, descriptions outside their `def`, and misplaced module locations.
+
+The PG suite publishes and reads the fixture back and refuses a self-ancestor at validation. |
 | `just fmt`, `just test-all`, facts pilots | not_run: functional scope incomplete |
 
 Independent bounded reviewers accepted artifact/capture/acquisition corrections and the

@@ -234,6 +234,7 @@ impl TypeIndex {
         for term in seen.iter() { self.verified.insert(&mut self.charge,key(*term))?; }
         Ok(())
     }
+    pub fn symbol(&self, id: Id<ProviderSymbol>) -> Result<&ProviderSymbol,ModelError> { self.symbols.get(&id).ok_or_else(|| invalid("provider symbol absent")) }
     fn class_owner(&self, id: Id<ProviderSymbol>,run: &ProviderRun) -> Result<(),ModelError> {
         let symbol = self.symbols.get(&id).ok_or_else(|| invalid("type class symbol absent"))?;
         if (symbol.provider,symbol.context) != (run.provider,run.context) { return Err(invalid("type class belongs to another provider/context")); } Ok(())

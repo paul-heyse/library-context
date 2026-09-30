@@ -19,7 +19,7 @@ impl World {
         Self { base, a: provider("pysa"), b: provider("other"), context }
     }
     fn symbol(&self, provider: &Provider, key: &str, kind: SymbolKind) -> ProviderSymbol {
-        ProviderSymbol { provider: provider.id(), context: self.context.id(), module: ProviderModule::Bundled { provider: provider.id(), name: "m".into() }.id(),
+        ProviderSymbol { provider: provider.id(), context: self.context.id(), module: ProviderModule::Bundled { provider: provider.id(), bundle: ModuleBundle::Typeshed, name: "m".into() }.id(),
             native_key: key.into(), name: key.into(), kind }
     }
 }

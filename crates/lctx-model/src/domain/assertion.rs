@@ -62,7 +62,15 @@ fn validate_evidence(row: &Evidence) -> Result<(), ModelError> {
 }
 #[derive(Debug, Clone, Copy)]
 pub enum Subject { TypeTerm(Id<super::types::TypeTerm>), TypeVariable(Id<super::types::TypeVariable>), FlowUse(Id<super::flow::FlowUse>), FlowDefinition(Id<super::flow::FlowDefinition>), ReachingDefinition(Id<super::flow::ReachingDefinition>), DocumentNode { id: Id<super::documents::DocumentNode>, tag: i16 }, SourceSpan(Id<Evidence>), Occurrence(Id<Occurrence>), Artifact(Id<SourceArtifact>), Module(Id<Module>), Scope(Id<CoverageScope>), Place(Id<Place>), Transfer(Id<TransferKey>),
-    LexicalScope(Id<super::lexical::LexicalScope>), BindingEvent(Id<super::lexical::BindingEvent>), LexicalTarget(Id<super::lexical::LexicalTarget>) }
+    LexicalScope(Id<super::lexical::LexicalScope>), BindingEvent(Id<super::lexical::BindingEvent>), LexicalTarget(Id<super::lexical::LexicalTarget>),
+    /// A native symbol: stated only by its own provider in its own context, and located in its
+    /// module's source when that module is acquired.
+    Symbol(Id<super::calls::ProviderSymbol>),
+    /// A provider module: an acquired one is located in its source; a bundled, namespace or
+    /// unresolved one belongs to its provider (and context) and has no captured source.
+    ProviderModule(Id<super::calls::ProviderModule>),
+    /// A public name's origin: a traced one is its provider module; an untraced one names nothing.
+    ExportOrigin(Id<super::symbols::ExportOrigin>) }
 impl From<Id<Occurrence>> for Subject { fn from(value: Id<Occurrence>) -> Self { Self::Occurrence(value) } }
 impl From<Id<SourceArtifact>> for Subject { fn from(value: Id<SourceArtifact>) -> Self { Self::Artifact(value) } }
 impl From<Id<Module>> for Subject { fn from(value: Id<Module>) -> Self { Self::Module(value) } }
@@ -133,12 +141,27 @@ impl SubjectValue for Id<super::lexical::BindingEvent> {
     fn inputs() -> Vec<ValidationInput> { vec![ValidationInput::of::<super::lexical::BindingEvent>(&["id"])] }
     fn append_subjects(&self, subjects: &mut Vec<Subject>) { subjects.push((*self).into()); }
 }
+impl SubjectValue for Id<super::calls::ProviderModule> {
+    fn inputs() -> Vec<ValidationInput> { vec![ValidationInput::of::<super::calls::ProviderModule>(&["id"])] }
+    fn append_subjects(&self, subjects: &mut Vec<Subject>) { subjects.push(Subject::ProviderModule(*self)); }
+}
+impl SubjectValue for Id<super::symbols::ExportOrigin> {
+    fn inputs() -> Vec<ValidationInput> { vec![ValidationInput::of::<super::calls::ProviderModule>(&["id"]),ValidationInput::of::<super::symbols::ExportOrigin>(&["id"])] }
+    fn append_subjects(&self, subjects: &mut Vec<Subject>) { subjects.push(Subject::ExportOrigin(*self)); }
+}
+impl SubjectValue for Id<super::calls::ProviderSymbol> {
+    fn inputs() -> Vec<ValidationInput> { vec![ValidationInput::of::<super::calls::ProviderModule>(&["id"]),ValidationInput::of::<super::calls::ProviderSymbol>(&["id"])] }
+    fn append_subjects(&self, subjects: &mut Vec<Subject>) { subjects.push(Subject::Symbol(*self)); }
+}
 impl SubjectValue for Id<super::lexical::LexicalTarget> {
     fn inputs() -> Vec<ValidationInput> { vec![ValidationInput::of::<super::lexical::BindingEvent>(&["id"]),ValidationInput::of::<super::lexical::LexicalTarget>(&["id"])] }
     fn append_subjects(&self, subjects: &mut Vec<Subject>) { subjects.push((*self).into()); }
 }
 pub trait Assertion: Record {
     const FAMILY: FactFamily;
+    /// The fidelity every support must state, when the proposition admits only one (a display
+    /// rendering is display-only and never establishes structure).
+    const FIDELITY: Option<Fidelity> = None;
     fn qualification(&self) -> Id<AssertionQualification>;
     fn subjects(&self) -> Vec<Subject>;
     fn subject_inputs() -> Vec<ValidationInput> { Vec::new() }
@@ -240,6 +263,8 @@ struct SupportCheck<A: Assertion, S: Support<Assertion=A>> {
     lexical_scopes: ChargedMap<Id<super::lexical::LexicalScope>,Id<Occurrence>>,
     bindings: ChargedMap<Id<super::lexical::BindingEvent>,Id<Occurrence>>,
     lexical_targets: ChargedMap<Id<super::lexical::LexicalTarget>,super::lexical::LexicalTarget>,
+    provider_modules: ChargedMap<Id<super::calls::ProviderModule>,super::calls::ProviderModule>,
+    export_origins: ChargedMap<Id<super::symbols::ExportOrigin>,Option<Id<super::calls::ProviderModule>>>,
     ownership: super::ownership::ScopeIndex,
     places: ChargedMap<Id<Place>,Place>, roots: ChargedMap<Id<PlaceRoot>,PlaceRoot>, transfers: ChargedMap<Id<TransferKey>,TransferKey>,
     occurrences: ChargedMap<Id<Occurrence>, Id<SourceArtifact>>,
@@ -256,7 +281,7 @@ struct SupportCheck<A: Assertion, S: Support<Assertion=A>> {
 impl<A: Assertion, S: Support<Assertion=A>> SupportCheck<A,S> {
     fn new(budget: &super::resources::ResourceBudget) -> Self { Self { charge: StateCharge::new(budget,S::NAME),
         types: super::types::TypeIndex::new(budget,S::NAME),flow_uses: Default::default(),flow_definitions: Default::default(),reaching: Default::default(),document_nodes: Default::default(), lexical_scopes: Default::default(), bindings: Default::default(), lexical_targets: Default::default(),
-        places: Default::default(), roots: Default::default(), transfers: Default::default(), ownership: super::ownership::ScopeIndex::new(budget,S::NAME), occurrences: Default::default(),
+        provider_modules: Default::default(), export_origins: Default::default(), places: Default::default(), roots: Default::default(), transfers: Default::default(), ownership: super::ownership::ScopeIndex::new(budget,S::NAME), occurrences: Default::default(),
         qualifications: Default::default(),
         guards: super::conditions::rebase::GuardIndex::new(budget,S::NAME), nodes: Default::default(), conditions: Default::default(),
         runs: Default::default(), families: Default::default(), surfaces: Default::default(), evidence: Default::default(),
@@ -282,6 +307,15 @@ impl<A: Assertion, S: Support<Assertion=A>> SupportCheck<A,S> {
             Subject::Occurrence(id) => Some(*self.occurrences.get(&id).ok_or_else(|| invalid("assertion occurrence missing"))?),
             Subject::Module(id) => Some(self.ownership.module_source(id)?),
             Subject::Scope(_) => None,
+            Subject::Symbol(id) => self.source(Subject::ProviderModule(self.types.symbol(id)?.module))?,
+            Subject::ExportOrigin(id) => match self.export_origins.get(&id).ok_or_else(|| invalid("export origin absent"))? {
+                Some(module) => self.source(Subject::ProviderModule(*module))?,
+                None => None,
+            },
+            Subject::ProviderModule(id) => match self.provider_modules.get(&id).ok_or_else(|| invalid("provider module absent"))? {
+                super::calls::ProviderModule::Acquired { module } => Some(self.ownership.module_source(*module)?),
+                _ => None,
+            },
             Subject::Place(id) => {
                 let place = self.places.get(&id).ok_or_else(|| invalid("assertion place absent"))?;
                 let root = self.roots.get(&place.root).ok_or_else(|| invalid("assertion place root absent"))?;
@@ -331,6 +365,7 @@ impl<A: Assertion, S: Support<Assertion=A>> SupportCheck<A,S> {
         let provenance = support.attribution();
         let run = self.runs.get(&provenance.run).ok_or_else(|| invalid("support invocation missing"))?;
         let surface = self.surfaces.get(&provenance.surface).ok_or_else(|| invalid("support surface missing"))?;
+        if A::FIDELITY.is_some_and(|required| required != provenance.fidelity) { return Err(invalid("assertion requires another support fidelity")); }
         if q.context != run.context || surface.provider != run.provider || surface.family != A::FAMILY
             || !self.families.contains(&(provenance.run,A::FAMILY)) { return Err(invalid("support disagrees with qualified assertion or invocation")); }
         if !self.ownership.owns_scope(run.input,scope)? { return Err(invalid("support invocation does not own assertion scope")); }
@@ -341,9 +376,27 @@ impl<A: Assertion, S: Support<Assertion=A>> SupportCheck<A,S> {
         }
         let mut sources = BTreeSet::new();
         for subject in assertion.subjects() {
+            let subject = match subject {
+                Subject::ExportOrigin(id) => match self.export_origins.get(&id).ok_or_else(|| invalid("export origin absent"))? {
+                    Some(module) => Subject::ProviderModule(*module),
+                    None => continue,
+                },
+                subject => subject,
+            };
             match subject {
                 Subject::TypeTerm(id) => self.types.term_support(id,run,provenance.fidelity)?,
                 Subject::TypeVariable(id) => self.types.variable_owner(id,run)?,
+                Subject::Symbol(id) => {
+                    let symbol = self.types.symbol(id)?;
+                    if (symbol.provider,symbol.context) != (run.provider,q.context) { return Err(invalid("a symbol is stated only by its own provider and context")); }
+                }
+                Subject::ProviderModule(id) => match self.provider_modules.get(&id).ok_or_else(|| invalid("provider module absent"))? {
+                    super::calls::ProviderModule::Acquired { .. } => {},
+                    super::calls::ProviderModule::Bundled { provider,.. } if *provider == run.provider => {},
+                    super::calls::ProviderModule::Namespace { provider,context,.. } | super::calls::ProviderModule::Unresolved { provider,context,.. }
+                        if (*provider,*context) == (run.provider,q.context) => {},
+                    _ => return Err(invalid("a provider module is stated only by its own provider and context")),
+                },
                 _ => {},
             }
             if let Subject::Scope(id) = subject {
@@ -407,6 +460,11 @@ impl<A: Assertion, S: Support<Assertion=A>> InvariantCheck for SupportCheck<A,S>
         else if relation == super::lexical::LexicalScope::NAME { for r in super::lexical::LexicalScope::decode(batch)? { self.lexical_scopes.insert(&mut self.charge,r.id(),r.owner)?; } }
         else if relation == super::lexical::BindingEvent::NAME { for r in super::lexical::BindingEvent::decode(batch)? { self.bindings.insert(&mut self.charge,r.id(),r.site)?; } }
         else if relation == super::lexical::LexicalTarget::NAME { for r in super::lexical::LexicalTarget::decode(batch)? { self.lexical_targets.insert(&mut self.charge,r.id(),r)?; } }
+        else if relation == super::calls::ProviderModule::NAME { for r in super::calls::ProviderModule::decode(batch)? { self.provider_modules.insert(&mut self.charge,r.id(),r)?; } }
+        else if relation == super::symbols::ExportOrigin::NAME { for r in super::symbols::ExportOrigin::decode(batch)? {
+            let module = match &r { super::symbols::ExportOrigin::Traced { module,.. } => Some(*module), super::symbols::ExportOrigin::Untraced => None };
+            self.export_origins.insert(&mut self.charge,r.id(),module)?;
+        } }
         else if relation == A::NAME { for r in A::decode(batch)? { self.assertions.insert(&mut self.charge,r.id(),r)?; } }
         else if relation == S::NAME { for r in S::decode(batch)? { self.check_support(r)?; } }
         else { return Err(invalid("undeclared support validation input")); }

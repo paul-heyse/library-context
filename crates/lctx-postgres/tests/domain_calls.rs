@@ -24,7 +24,7 @@ async fn call_signature_membership_support_ownership_and_readback() {
     let (run,families) = ProviderRun::new(provider.id(),context.id(),input.id(),context.config_digest,[FactFamily::Calls,FactFamily::Signatures]).unwrap();
     let (condition,nodes) = Diagram::always().records();
     let qualification = AssertionQualification { context: context.id(),scope: scope.id(),condition: condition.id(),modality: Modality::Definite,approximation: Approximation::Exact };
-    let module = ProviderModule::Bundled { provider: provider.id(),name: "example".into() };
+    let module = ProviderModule::Bundled { provider: provider.id(), bundle: ModuleBundle::Typeshed, name: "example".into() };
     let symbol = ProviderSymbol { provider: provider.id(),context: context.id(),module: module.id(),native_key: "fixture:f".into(),name: "f".into(),kind: SymbolKind::Function };
     let shapes = vec![ParameterShape { name: Some("value".into()),kind: ParameterKind::PositionalOnly,required: true },
         ParameterShape { name: Some("kwargs".into()),kind: ParameterKind::VarKeyword,required: false }];

@@ -24,7 +24,7 @@ impl Fixture {
         let scope = CoverageScope::Input { input: input.id() };
         let qualification = AssertionQualification { context: context.id(),scope: scope.id(),
             condition: Diagram::always().id(),modality: Modality::Definite,approximation: Approximation::Exact };
-        let symbol = ProviderSymbol { provider: provider.id(),context: context.id(),module: ProviderModule::Bundled { provider: provider.id(),name: "a".into() }.id(),
+        let symbol = ProviderSymbol { provider: provider.id(),context: context.id(),module: ProviderModule::Bundled { provider: provider.id(), bundle: ModuleBundle::Typeshed, name: "a".into() }.id(),
             native_key: "function:f".into(),name: "f".into(),kind: SymbolKind::Function };
         let destination = CallDestination::Resolved { symbol: symbol.id() };
         let channel = CallChannel::Direct; let receiver = Receiver::None;
@@ -258,11 +258,11 @@ fn provider_modules_distinguish_origin_and_belong_to_their_provider() {
     let input = InputRevision::from_entries(vec![]).unwrap();
     let source = SourceArtifact::from_bytes(input.id(),"pkg/mod.py".into(),b"x = 1").unwrap();
     let acquired = ProviderModule::Acquired { module: Module { source: source.id(),qualified_name: "pkg.mod".into() }.id() };
-    let bundled = ProviderModule::Bundled { provider: provider.id(),name: "pkg.mod".into() };
+    let bundled = ProviderModule::Bundled { provider: provider.id(), bundle: ModuleBundle::Typeshed, name: "pkg.mod".into() };
     let unresolved = ProviderModule::Unresolved { provider: provider.id(),context: context.id(),name: "pkg.mod".into() };
     let ids = [acquired.id(),bundled.id(),unresolved.id()];
     assert!(ids[0] != ids[1] && ids[1] != ids[2] && ids[0] != ids[2], "the same spelling in different origins is not one module");
-    assert!(ProviderModule::Bundled { provider: provider.id(),name: String::new() }.validate().is_err());
+    assert!(ProviderModule::Bundled { provider: provider.id(), bundle: ModuleBundle::Typeshed, name: String::new() }.validate().is_err());
     let symbol = |owner: &Provider, context: &AnalysisContext, module: &ProviderModule| ProviderSymbol { provider: owner.id(),context: context.id(),
         module: module.id(),native_key: "pkg.mod.f".into(),name: "f".into(),kind: SymbolKind::Function };
     let check = |modules: Vec<ProviderModule>, symbols: Vec<ProviderSymbol>| {

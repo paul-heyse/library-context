@@ -8,19 +8,28 @@ use super::{*, assertion::*, attribution::*, source::*};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
 #[repr(i16)]
 pub enum SymbolKind { Function = 0, Method = 1, Class = 2, Variable = 3, Module = 4, Unknown = 5 }
+/// The stub bundles a provider ships: the standard library's typeshed, typeshed's third-party
+/// stubs, and the provider's own third-party stubs. One name in two bundles is two modules.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
+#[repr(i16)]
+pub enum ModuleBundle { Typeshed = 0, TypeshedThirdParty = 1, ThirdParty = 2 }
 /// The module a provider places a symbol or type variable in. An acquired module is the typed
-/// module over captured bytes. A provider-bundled stub (such as vendored typeshed) is scoped to
-/// its provider; an unresolved module keeps the provider's spelling and never equals a resolved one.
+/// module over captured bytes. A provider-bundled stub is scoped to its provider and bundle. A
+/// namespace package (directories without an `__init__`) has no bytes and is scoped to its
+/// provider and context, as is an unresolved module, which keeps the provider's spelling and never
+/// equals a resolved one.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
 #[model(name = "provider_modules", validate = validate_provider_module, invariants = provider_module_invariants)]
 pub enum ProviderModule {
     #[model(code = 0)] Acquired { module: Id<Module> },
-    #[model(code = 1)] Bundled { provider: Id<Provider>, name: String },
+    #[model(code = 1)] Bundled { provider: Id<Provider>, bundle: ModuleBundle, name: String },
     #[model(code = 2)] Unresolved { provider: Id<Provider>, context: Id<AnalysisContext>, name: String },
+    #[model(code = 3)] Namespace { provider: Id<Provider>, context: Id<AnalysisContext>, name: String },
 }
 fn validate_provider_module(row: &ProviderModule) -> Result<(),ModelError> {
     match row {
-        ProviderModule::Bundled { name, .. } | ProviderModule::Unresolved { name, .. } if name.is_empty() => Err(invalid("provider module needs a name")),
+        ProviderModule::Bundled { name, .. } | ProviderModule::Unresolved { name, .. } | ProviderModule::Namespace { name, .. } if name.is_empty() =>
+            Err(invalid("provider module needs a name")),
         _ => Ok(()),
     }
 }
@@ -54,7 +63,8 @@ impl ModuleOwners {
         match self.modules.get(&module).ok_or_else(|| invalid("provider module absent"))? {
             ProviderModule::Acquired { .. } => Ok(()),
             ProviderModule::Bundled { provider: owner, .. } if *owner == provider => Ok(()),
-            ProviderModule::Unresolved { provider: owner, context: scope, .. } if (*owner, *scope) == (provider, context) => Ok(()),
+            ProviderModule::Unresolved { provider: owner, context: scope, .. } | ProviderModule::Namespace { provider: owner, context: scope, .. }
+                if (*owner, *scope) == (provider, context) => Ok(()),
             _ => Err(invalid("provider module belongs to another provider or context")),
         }
     }

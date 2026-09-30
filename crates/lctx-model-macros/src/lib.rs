@@ -25,18 +25,20 @@ fn expand_assertion(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
     let mut table: Option<LitStr> = None;
     let mut family: Option<syn::Path> = None;
     let mut subjects: Vec<syn::Ident> = Vec::new();
+    let mut fidelity: Option<syn::Path> = None;
     for attr in &input.attrs {
         if attr.path().is_ident("assertion") {
             attr.parse_nested_meta(|meta| {
                 if meta.path.is_ident("support") { support = Some(meta.value()?.parse()?); }
                 else if meta.path.is_ident("name") { table = Some(meta.value()?.parse()?); }
                 else if meta.path.is_ident("family") { family = Some(meta.value()?.parse()?); }
+                else if meta.path.is_ident("fidelity") { fidelity = Some(meta.value()?.parse()?); }
                 else if meta.path.is_ident("subjects") {
                     meta.parse_nested_meta(|field| {
                         subjects.push(field.path.get_ident().cloned().ok_or_else(|| field.error("expected subject field"))?);
                         Ok(())
                     })?;
-                } else { return Err(meta.error("expected support, name, family or subjects")); }
+                } else { return Err(meta.error("expected support, name, family, fidelity or subjects")); }
                 Ok(())
             })?;
         }
@@ -50,9 +52,11 @@ fn expand_assertion(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
         .map(|field| &field.ty).ok_or_else(|| syn::Error::new_spanned(subject,"unknown subject field")))
         .collect::<syn::Result<Vec<_>>>()?;
     let name = &input.ident; let vis = &input.vis;
+    let fidelity = fidelity.map(|fidelity| quote! { const FIDELITY: Option<::lctx_model::domain::attribution::Fidelity> = Some(#fidelity); });
     Ok(quote! {
         impl ::lctx_model::domain::assertion::Assertion for #name {
             const FAMILY: ::lctx_model::domain::attribution::FactFamily = #family;
+            #fidelity
             fn qualification(&self) -> ::lctx_model::domain::Id<::lctx_model::domain::assertion::AssertionQualification> { self.qualification }
             fn subjects(&self) -> Vec<::lctx_model::domain::assertion::Subject> {
                 let mut subjects = Vec::new();

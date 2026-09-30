@@ -11,10 +11,10 @@ impl Fixture {
         let alien = Provider { tool: "other-type-provider".into(),..provider.clone() };
         let (run,families) = ProviderRun::new(provider.id(),context.id(),input,context.config_digest,[FactFamily::Types]).unwrap();
         let surface = ProviderSurface { provider: provider.id(),family: FactFamily::Types,name: "native types".into() };
-        let module = ProviderModule::Bundled { provider: provider.id(),name: "example".into() };
+        let module = ProviderModule::Bundled { provider: provider.id(), bundle: ModuleBundle::Typeshed, name: "example".into() };
         let variable_provider = if foreign_variable { alien.id() } else { provider.id() };
         // The variable's module belongs to the variable's own provider, isolating the ownership refusal.
-        let variable_module = ProviderModule::Bundled { provider: variable_provider,name: "example".into() };
+        let variable_module = ProviderModule::Bundled { provider: variable_provider, bundle: ModuleBundle::Typeshed, name: "example".into() };
         let class = ProviderSymbol { provider: provider.id(),context: context.id(),module: module.id(),native_key: "Container".into(),name: "Container".into(),kind: SymbolKind::Class };
         let variable = TypeVariable { provider: variable_provider,context: context.id(),module: variable_module.id(),anchor_start: 6,anchor_end: 12,
             slot: 0,origin: TypeVariableOrigin::Pep695,kind: TypeVariableKind::TypeVar,name: "T".into() };

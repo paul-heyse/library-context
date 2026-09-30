@@ -1,7 +1,7 @@
 //! The facts frontier (plan D1; review focus #2): absent, unknown, unrequested and empty stay
 //! distinct from producer schedule through coverage to admission.
 use std::{collections::BTreeMap, future::Future, task::{Context, Poll, Waker}};
-use lctx_model::domain::{*, admission::*, attribution::*, calls::*, declarations::*, deployment::*, documents::*, flow::*, input::*,
+use lctx_model::domain::{*, admission::*, attribution::*, calls::*, declarations::*, symbols::*, deployment::*, documents::*, flow::*, input::*,
     lexical::*, resources::ResourceBudget, source::*, stages::*, syntax::*, transfer::TransferKey, types::*};
 
 fn ready<T>(future: impl Future<Output = T>) -> T {
@@ -24,7 +24,9 @@ fn write_pyrefly(access: &mut StageAccess<'_, '_>) -> Result<(), ModelError> {
         BindingObservation, BindingSupport, ReferenceObservation, ReferenceSupport, LexicalResolution, LexicalResolutionSupport,
         Signature, SignatureSupport, SymbolDeclaration, SymbolDeclarationSupport, ParameterDeclaration, ParameterDeclarationSupport,
         CallTarget, CallTargetSupport, CallResolution, CallResolutionSupport, TypeObservation, TypeSupport, TypePresentation,
-        TypePresentationSupport, TypeVariableRestriction, TypeRestrictionSupport);
+        TypePresentationSupport, TypeVariableRestriction, TypeRestrictionSupport, SymbolObservation, SymbolSupport, FunctionTraitObservation, FunctionTraitSupport,
+        ClassTraitObservation, ClassTraitSupport, ClassAncestryObservation, ClassAncestrySupport, ParameterAnnotationObservation, ParameterAnnotationSupport,
+        PublicNameObservation, PublicNameSupport, ParameterDocObservation, ParameterDocSupport, DependencyModuleObservation, DependencyModuleSupport);
     Ok(())
 }
 fn pyrefly_outputs() -> Vec<RelationUse> {
@@ -35,7 +37,9 @@ fn pyrefly_outputs() -> Vec<RelationUse> {
         BindingObservation, BindingSupport, ReferenceObservation, ReferenceSupport, LexicalResolution, LexicalResolutionSupport,
         Signature, SignatureSupport, SymbolDeclaration, SymbolDeclarationSupport, ParameterDeclaration, ParameterDeclarationSupport,
         CallTarget, CallTargetSupport, CallResolution, CallResolutionSupport, TypeObservation, TypeSupport, TypePresentation,
-        TypePresentationSupport, TypeVariableRestriction, TypeRestrictionSupport)
+        TypePresentationSupport, TypeVariableRestriction, TypeRestrictionSupport, SymbolObservation, SymbolSupport, FunctionTraitObservation, FunctionTraitSupport,
+        ClassTraitObservation, ClassTraitSupport, ClassAncestryObservation, ClassAncestrySupport, ParameterAnnotationObservation, ParameterAnnotationSupport,
+        PublicNameObservation, PublicNameSupport, ParameterDocObservation, ParameterDocSupport, DependencyModuleObservation, DependencyModuleSupport)
 }
 fn write_flow(access: &mut StageAccess<'_, '_>) -> Result<(), ModelError> {
     macro_rules! all { ($($ty:ty),+) => { $( ready(access.write::<$ty, _>(async |_| Ok(())))?; )+ }; }
