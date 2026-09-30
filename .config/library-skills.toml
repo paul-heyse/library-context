@@ -16,6 +16,7 @@ enabled = [
   "rust-reasoning",
   "salsa",
   "serde-arrow",
+  "sqlx-postgres",
   "ty-flow",
   "typer-rich",
 ]
