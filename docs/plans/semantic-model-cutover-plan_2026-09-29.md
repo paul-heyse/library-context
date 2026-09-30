@@ -1108,6 +1108,27 @@ Pysa's no-write reporter numbers modules; references to other modules resolve by
 **Harness.** `Pyrefly::with_tap` is the session hook: `harness` compares each analyzed module's Pysa definitions and call graphs with the pinned CLI's JSON over the same frozen root. Its public-name half moves with A9b.
 
 **Deleted:** the legacy `pysa_functions`, `parameter_semantics`, `class_ancestry` and `pysa_classes` emission (`map_definitions`). The legacy `keys` and `coverage` tests keep only their call and coverage parts. |
+| A9b (symbol producer, public names, parameter docs and dependency context): `cargo test --release -p cpg-extract` (all suites), `-p cpg-core --test facts_driver`, `-p lctx-model --test domain_symbols`, `-p lctx-postgres --test domain_symbols`; `cargo check --workspace --all-targets` | passed 2026-09-30 (typed_symbols 4).
+
+**The `pyrefly` stage also states:**
+- **Public names** (`public_records.rs`), each under its module's qualification. The origin is traced by `trace_export_origin` and is a referent. The set must equal `compute_public_fqns`, or the stage fails.
+- **Docstring parameter documentation** (`docstrings.rs`, moved from the walk), located in the literal's bytes. An unlocated description is a Signatures boundary (`ProviderDisagreement`), and a documented name that is not a parameter is not stated.
+- **The input's dependency context**, under the Input-scoped qualification:
+  - each non-root module its facts, imports or export origins reference, as a `DependencyModuleObservation`; an unresolved import keeps its spelling;
+  - the referenced definitions in those modules, with their parent chains (symbols, traits, ancestry, signatures, annotations), from a second Pysa pass over the rebuilt dependency handles.
+
+The behavioral `Catalog`/`ExactRuntimeException` context reads are gone with `context.rs`; the §6 P4 obligation keeps them.
+
+**Coverage.** Exports and Signatures follow the syntax. A computed `__all__` leaves Exports Partial (`OutsideProviderModel`); an unattached declaration or an unlocated description leaves Signatures Partial.
+
+**Producer rule.** Pysa reports `object.__init__`/`__new__` in the bundled stubs as overriding themselves; a self-override states nothing.
+
+**Answers written from Pyrefly's stated model:**
+- A name `__all__` lists but nothing defines is traced to the listing module with no kind.
+- A name imported from an unresolvable module is untraced.
+- The `dunder_all` oracles (literal `+=`/`append`; Pyrefly's reading of computed `__all__`s) moved from the legacy `coverage` test.
+
+**Deleted:** the legacy `public_names` table, the walk's `parameter_docs` rows and their boundaries, and `context.rs` (`context_modules/definitions/parameters/class_mro`). The public-name computation stays in the husk only as the legacy docs vocabulary until A15. The harness keeps only its Pysa-report half; its public half is the `__all__` controls. |
 | `just fmt`, `just test-all`, facts pilots | not_run: functional scope incomplete |
 
 Independent bounded reviewers accepted artifact/capture/acquisition corrections and the
@@ -1429,7 +1450,8 @@ triggers.
 - A class method called on an object is Unknown, the conservative choice. A `ClassOf` binding is deferred to P4 flows through `cls`.
 - `attribute_access` is removed, and the rule cites Pysa's `has_implicit_receiver`.
 - A stored receiver must be the one its stored evidence classifies (`domain_calls`). |
-| [F05](../design_review/reviews/design_review_semantic-symbols-calls-types_2026-09-29.md#F05)–[F08](../design_review/reviews/design_review_semantic-symbols-calls-types_2026-09-29.md#F08) | `calls`, `types`, `symbols` | deferred with triggers in the review (A10/P3, A11, A11/P4, A9) |
+| [F05](../design_review/reviews/design_review_semantic-symbols-calls-types_2026-09-29.md#F05)–[F07](../design_review/reviews/design_review_semantic-symbols-calls-types_2026-09-29.md#F07) | `calls`, `types` | deferred with triggers in the review (A10/P3, A11, A11/P4) |
+| [F08](../design_review/reviews/design_review_semantic-symbols-calls-types_2026-09-29.md#F08) | `natives` (A9b) | closed (2026-09-30): Pyrefly reports one namespace portion (`ModulePathDetails::Namespace` holds one directory); its location is relative to the frozen root holding it, and a portion outside every root is refused |
 
 ### Core review findings
 

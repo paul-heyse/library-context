@@ -4,7 +4,7 @@
 //! declaration links from each symbol and signature parameter to the occurrence that declares it.
 //! A link is made only at an exact name span; any other outcome is a boundary, never a name match.
 #![deny(clippy::wildcard_enum_match_arm)]
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use lctx_model::domain::{Id, ModelError, Record, assertion::AssertionQualification, calls::*, declarations::{ParameterDeclaration, SymbolDeclaration},
     source::{Occurrence, SyntaxKind}, symbols::*, syntax::{DeclarationObservation, ParameterSyntaxObservation}};
 use pyrefly::report::pysa::{PysaModuleDefinitions, class::{PysaClassMro, ClassRef}, function::{FunctionParameter, FunctionParameters, FunctionRef},
@@ -79,23 +79,62 @@ pub struct SymbolRecords {
 
 /// Resolves a module a reference names by Pysa's id and the name it carries.
 pub type Resolve<'r> = dyn FnMut(&mut Natives, ModuleId, &ModuleName) -> Result<Id<ProviderModule>, ModelError> + 'r;
+/// How an analyzed module's records link to its occurrences.
+pub struct Linking<'a> { pub locator: &'a Locator<'a>, pub spans: &'a Spans, pub declared: &'a Declared }
 
-/// The records of `definitions`, the module `module` Pysa numbered `module_id`. `complete` states,
-/// per class id, whether its resolved MRO is the complete C3 linearization.
+/// Pysa's key of a definition's enclosing scope.
+fn parent_key(scope: &ScopeParent) -> Option<String> {
+    match scope {
+        ScopeParent::TopLevel => None,
+        ScopeParent::Class { class_id } => Some(class_id.to_int().to_string()),
+        ScopeParent::Function { func_def_index } => Some(format!("F:{}", func_def_index.0)),
+    }
+}
+/// The keys of the module's top-level definitions named `name`.
+pub fn top_level(definitions: &PysaModuleDefinitions, name: &str) -> Vec<String> {
+    let classes = definitions.class_definitions.iter().filter(|(_, c)| c.name == name && matches!(c.parent, ScopeParent::TopLevel))
+        .map(|(id, _)| id.to_int().to_string());
+    let functions = definitions.function_definitions.as_map().iter().filter(|(_, f)| f.base.name.as_str() == name && matches!(f.base.parent, ScopeParent::TopLevel))
+        .map(|(id, _)| id.serialize_to_string());
+    classes.chain(functions).collect()
+}
+
+/// The records of `definitions`, the module `module`. `complete` states, per class id, whether its
+/// resolved MRO is the complete C3 linearization. An analyzed module is `linked` to its
+/// occurrences and states every definition; a dependency module states only the definitions
+/// `keep` names, with their enclosing definitions.
 #[allow(clippy::too_many_arguments, reason = "the module's definitions and the indices that place them, each distinct")]
 pub fn records(definitions: &PysaModuleDefinitions, module: Id<ProviderModule>, qualification: &AssertionQualification, natives: &mut Natives,
-    resolve: &mut Resolve<'_>, complete: &HashMap<u32, bool>, locator: &Locator<'_>, spans: &Spans, declared: &Declared) -> Result<SymbolRecords, ModelError> {
+    resolve: &mut Resolve<'_>, complete: &HashMap<u32, bool>, linking: Option<Linking<'_>>, keep: Option<&BTreeSet<String>>) -> Result<SymbolRecords, ModelError> {
     let q = qualification.id();
     let mut out = SymbolRecords::default();
-    // Every symbol the module defines, first, so parents can name one another.
+    // Which definitions are stated: all, or the kept ones and every definition enclosing them.
+    let mut parents: HashMap<String, Option<String>> = HashMap::new();
+    for (id, class) in &definitions.class_definitions { parents.insert(id.to_int().to_string(), parent_key(&class.parent)); }
+    for (id, function) in definitions.function_definitions.as_map() { parents.insert(id.serialize_to_string(), parent_key(&function.base.parent)); }
+    let stated: BTreeSet<String> = match keep {
+        None => parents.keys().cloned().collect(),
+        Some(keep) => {
+            let mut stated = BTreeSet::new();
+            for key in keep {
+                let mut current = parents.contains_key(key).then(|| key.clone());
+                while let Some(key) = current { if !stated.insert(key.clone()) { break; } current = parents.get(&key).cloned().flatten(); }
+            }
+            stated
+        }
+    };
     let mut classes: BTreeMap<u32, Id<ProviderSymbol>> = BTreeMap::new();
     let mut functions: BTreeMap<String, Id<ProviderSymbol>> = BTreeMap::new();
     for (id, class) in &definitions.class_definitions {
-        classes.insert(id.to_int(), natives.symbol(module, id.to_int().to_string(), class.name.clone(), SymbolKind::Class)?);
+        if stated.contains(&id.to_int().to_string()) {
+            classes.insert(id.to_int(), natives.symbol(module, id.to_int().to_string(), class.name.clone(), SymbolKind::Class)?);
+        }
     }
     for (id, function) in definitions.function_definitions.as_map() {
-        let kind = if function.base.defining_class.is_some() { SymbolKind::Method } else { SymbolKind::Function };
-        functions.insert(id.serialize_to_string(), natives.symbol(module, id.serialize_to_string(), function.base.name.to_string(), kind)?);
+        if stated.contains(&id.serialize_to_string()) {
+            let kind = if function.base.defining_class.is_some() { SymbolKind::Method } else { SymbolKind::Function };
+            functions.insert(id.serialize_to_string(), natives.symbol(module, id.serialize_to_string(), function.base.name.to_string(), kind)?);
+        }
     }
     let parent = |scope: &ScopeParent| -> Result<Option<Id<ProviderSymbol>>, ModelError> {
         Ok(match scope {
@@ -118,15 +157,16 @@ pub fn records(definitions: &PysaModuleDefinitions, module: Id<ProviderModule>, 
     };
     // A declaration link at an exact name span, or the reason there is none.
     let attach = |out: &mut SymbolRecords, symbol: Id<ProviderSymbol>, location: Option<&PysaLocation>| -> Option<Id<Occurrence>> {
-        let location = location?;
-        let found = spans.get(locator.range(location), SyntaxKind::Identifier).ok().and_then(|name| declared.names.get(&name).copied());
+        let (Some(linking), Some(location)) = (linking.as_ref(), location) else { return None };
+        let range = linking.locator.range(location);
+        let found = linking.spans.get(range, SyntaxKind::Identifier).ok().and_then(|name| linking.declared.names.get(&name).copied());
         match found {
             Some(declaration) => { out.declarations.push(SymbolDeclaration { qualification: q, symbol, declaration }); Some(declaration) }
-            None => { out.unattached.push((symbol, format!("no declaration names the span {:?}", locator.range(location)))); None }
+            None => { out.unattached.push((symbol, format!("no declaration names the span {range:?}"))); None }
         }
     };
     for (id, class) in &definitions.class_definitions {
-        let symbol = classes[&id.to_int()];
+        let Some(symbol) = classes.get(&id.to_int()).copied() else { continue };
         out.symbols.push(SymbolObservation { qualification: q, symbol, parent: parent(&class.parent)? });
         out.classes.push(ClassTraitObservation { qualification: q, symbol, synthesized: class.is_synthesized, dataclass: class.is_dataclass,
             named_tuple: class.is_named_tuple, typed_dict: class.is_typed_dict });
@@ -146,11 +186,14 @@ pub fn records(definitions: &PysaModuleDefinitions, module: Id<ProviderModule>, 
         }
     }
     for (id, function) in definitions.function_definitions.as_map() {
+        let Some(symbol) = functions.get(&id.serialize_to_string()).copied() else { continue };
         let base = &function.base;
-        let symbol = functions[&id.serialize_to_string()];
         out.symbols.push(SymbolObservation { qualification: q, symbol, parent: parent(&base.parent)? });
         let defining_class = base.defining_class.as_ref().map(|class| class_ref(natives, class)).transpose()?;
-        let overrides = function.overridden_base_method.as_ref().map(|base| function_ref(natives, resolve, base, SymbolKind::Method)).transpose()?;
+        // Pysa reports the root class's methods in the bundled stubs (`object.__init__`) as overriding
+        // themselves; a self-override states nothing, so none is stated.
+        let overrides = function.overridden_base_method.as_ref().map(|base| function_ref(natives, resolve, base, SymbolKind::Method)).transpose()?
+            .filter(|base| *base != symbol);
         out.functions.push(FunctionTraitObservation { qualification: q, symbol, overload: base.is_overload, staticmethod: base.is_staticmethod,
             classmethod: base.is_classmethod, property_getter: base.is_property_getter, property_setter: base.is_property_setter, stub: base.is_stub,
             def_statement: base.is_def_statement, defining_class, overrides });
@@ -166,8 +209,8 @@ pub fn records(definitions: &PysaModuleDefinitions, module: Id<ProviderModule>, 
             }
             // A signature's parameters link to the `def`'s own parameters only when the lists
             // agree slot by slot in kind; otherwise the symbol's declaration stands alone.
-            if let Some(declaration) = declaration {
-                let written = declared.parameters.get(&declaration).map(Vec::as_slice).unwrap_or_default();
+            if let (Some(declaration), Some(linking)) = (declaration, linking.as_ref()) {
+                let written = linking.declared.parameters.get(&declaration).map(Vec::as_slice).unwrap_or_default();
                 if written.len() == shapes.len() && written.iter().zip(&shapes).all(|((_, _, kind), shape)| *kind == shape.kind) {
                     out.parameter_declarations.extend(members.iter().zip(written).map(|(member, (_, parameter, _))|
                         ParameterDeclaration { qualification: q, parameter: member.id(), declaration: *parameter }));
@@ -177,6 +220,51 @@ pub fn records(definitions: &PysaModuleDefinitions, module: Id<ProviderModule>, 
             }
             out.shapes.extend(shapes);
             out.signatures.push((row, members));
+        }
+    }
+    Ok(out)
+}
+
+/// Each `def`'s documented parameters: Pyrefly's parse of its docstring, each description located
+/// in the literal's bytes. A documented name that is not one of the `def`'s parameters is not
+/// stated; a description whose bytes are not located is disclosed, never guessed.
+#[derive(Default)]
+pub struct ParameterDocs { pub docs: Vec<(ParameterDocObservation, lctx_model::domain::assertion::Evidence)>, pub unlocated: Vec<String> }
+pub fn parameter_docs(ast: &ruff_python_ast::ModModule, text: &str, source: Id<lctx_model::domain::source::SourceArtifact>, spans: &Spans,
+    qualification: Id<AssertionQualification>) -> Result<ParameterDocs, ModelError> {
+    use ruff_python_ast::statement_visitor::{StatementVisitor, walk_stmt};
+    use ruff_text_size::Ranged;
+    use lctx_model::domain::assertion::{Evidence, EvidenceSourceSpanId};
+    use crate::docstrings::{Located, docstring, locate_description};
+    struct Defs<'a>(Vec<&'a ruff_python_ast::StmtFunctionDef>);
+    impl<'a> StatementVisitor<'a> for Defs<'a> {
+        fn visit_stmt(&mut self, stmt: &'a ruff_python_ast::Stmt) {
+            if let ruff_python_ast::Stmt::FunctionDef(def) = stmt { self.0.push(def); }
+            walk_stmt(self, stmt);
+        }
+    }
+    let mut defs = Defs(vec![]);
+    defs.visit_body(&ast.body);
+    let mut out = ParameterDocs::default();
+    for def in defs.0 {
+        let Some((value, range)) = docstring(&def.body) else { continue };
+        let declaration = spans.get(def.range(), SyntaxKind::StmtFunctionDef)?;
+        let names: BTreeSet<String> = def.parameters.iter().map(|p| p.name().to_string()).collect();
+        let base = usize::from(range.start());
+        let literal = text.get(base..usize::from(range.end())).ok_or_else(|| invalid("a docstring lies outside the module's text".into()))?;
+        let mut documented: Vec<(String, String)> = pyrefly_python::docstring::parse_parameter_documentation(&value).into_iter()
+            .map(|(name, text)| (name.trim_start_matches('*').to_owned(), text))
+            .filter(|(name, text)| names.contains(name) && !text.trim().is_empty()).collect();
+        documented.sort();
+        for (name, text) in documented {
+            let (start, end, text) = match locate_description(literal, &name, &text) {
+                Some(Located::Exact(start, end)) => (start, end, text),
+                Some(Located::Extended(start, end, whole)) => (start, end, whole),
+                None => { out.unlocated.push(format!("the description of parameter `{name}` is not located in its docstring's bytes")); continue; }
+            };
+            let evidence = Evidence::SourceSpan { source, start: (base + start) as i64, end: (base + end) as i64 };
+            let description = EvidenceSourceSpanId::of(&evidence)?;
+            out.docs.push((ParameterDocObservation { qualification, declaration, name, text, description }, evidence));
         }
     }
     Ok(out)

@@ -10,14 +10,15 @@ pub mod acquisition;
 pub mod assembly;
 pub mod bundle;
 pub mod capture;
-mod context;
 mod docs;
 mod facts;
 mod flow;
 mod lexical;
 pub mod lexical_records;
 pub mod natives;
+mod docstrings;
 pub mod symbol_records;
+pub mod public_records;
 pub mod library;
 pub mod logging;
 pub mod metadata;
@@ -46,11 +47,10 @@ use cpg_schema::metrics::{Stage, Stages};
 use cpg_schema::table::Table;
 use cpg_schema::tables::{
     Boundaries, BoundariesRow, CodeBlocks,
-    ConditionLiterals, ConditionNodes, Conditions, ContextClassMro, ContextDefinitions,
-    ContextModules, ContextParameters, Contexts, ContextsRow, Coverage, CoverageRow, DocComponentAttributes, DocComponents, DocLinks, Documents,
+    ConditionLiterals, ConditionNodes, Conditions, Contexts, ContextsRow, Coverage, CoverageRow, DocComponentAttributes, DocComponents, DocLinks, Documents,
     Facts, FlowAttributeLoads, FlowDefinitions, FlowReaching, FlowRegions,
     FlowTestLeaves, FlowTestTypes, FlowTests, FlowUses, FlowValueCalls, FlowValues,
-    FunctionImplementations, Mentions, ParameterDocs, Passages, Producers, ProducersRow, PublicNames, PysaCalls, RecordFields, Runs,
+    FunctionImplementations, Mentions, Passages, Producers, ProducersRow, PysaCalls, RecordFields, Runs,
     RunsRow, SourceFiles, SourceFilesRow, TypeObservations, TypeTermArgs,
     TypeTerms,
 };
@@ -509,7 +509,6 @@ fn run_release(
         builtins,
         implicit_globals,
     };
-    let mut builtins_used: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     let (mut walk_time, mut pysa_time, mut types_time) =
         (Duration::ZERO, Duration::ZERO, Duration::ZERO);
     let mut types_out = types::TypesOut::default();
@@ -659,7 +658,6 @@ fn run_release(
                 runtime: flow::runtime_bindings(&lex, &module_walk.export_syntax),
             });
         }
-        builtins_used.extend(lex.builtins_used);
         walk_time += clock.elapsed();
         let clock = Instant::now();
         let solutions = txn.get_solutions(&m.handle);
@@ -795,22 +793,6 @@ fn run_release(
                 Some("__all__ is not a literal list or tuple of strings".to_owned()),
             );
         }
-        for (function, name, docstring) in &module_walk.unlocated_parameter_docs {
-            partial
-                .entry(FactFamily::Signatures)
-                .or_insert(BoundaryReason::ProviderDisagreement);
-            report.boundary(
-                &mut sink,
-                m.node_id,
-                Some(*function),
-                FactFamily::Signatures,
-                BoundaryReason::ProviderDisagreement,
-                Some(*docstring),
-                Some(format!(
-                    "the description of parameter `{name}` is not located in the docstring's bytes"
-                )),
-            );
-        }
         // The flow family's coverage comes from its own indexing, below.
         for &family in code_families.iter().filter(|f| **f != FactFamily::Flow) {
             let (status, reason) = match partial.get(&family) {
@@ -826,7 +808,6 @@ fn run_release(
         walked
             .record_field_syntax
             .extend(module_walk.record_field_syntax);
-        walked.parameter_docs.extend(module_walk.parameter_docs);
         walked.call_syntax.extend(module_walk.call_syntax);
         walked.arguments.extend(module_walk.arguments);
         walked.syntax_nodes.extend(module_walk.syntax_nodes);
@@ -927,33 +908,12 @@ fn run_release(
         .iter()
         .map(|m| (m.handle.clone(), m.node_id))
         .collect();
-    let (mut public, mut export_origins) = if families.contains(&FactFamily::Exports) {
+    let (mut public, _) = if families.contains(&FactFamily::Exports) {
         public::public_names(&readable, &release_files, &txn, &mut sink)?
     } else {
         (Vec::new(), Vec::new())
     };
-    // Every module an import names that is not the release's (C3's `imports_module`).
-    let release_modules: std::collections::BTreeSet<&str> =
-        modules.iter().map(|m| m.name.as_str()).collect();
-    // The library's modules a corpus imports are the library run's release modules, not context.
-    let library_modules: std::collections::BTreeSet<String> = library_files
-        .iter()
-        .map(|(h, _)| h.module().to_string())
-        .collect();
-    let imported: std::collections::BTreeSet<String> = walked
-        .export_syntax
-        .iter()
-        .filter_map(|r| r.resolved_module.clone())
-        .filter(|m| !release_modules.contains(m.as_str()) && !library_modules.contains(m))
-        .collect();
-    // The builtin functions and classes names resolve to are described like re-exports (C3).
-    if let Some(h) = &builtins_handle {
-        export_origins.extend(builtins_used.iter().map(|n| (h.clone(), n.clone())));
-    }
-
-    // The dependency context the facts reference (ADR-0014): a second check, over those modules.
     stages.mark("extract: public names");
-    let mut txn = txn;
     if !input.profile.behavioral() {
         for m in &modules {
             report.cover(
@@ -966,16 +926,6 @@ fn run_release(
             );
         }
     }
-    let mut context_out = context::context_facts(
-        &mut txn,
-        handles.first(),
-        &refs,
-        &export_origins,
-        &imported,
-        input,
-        &mut sink,
-        &mut stages,
-    )?;
 
     // A corpus's documents (C5), recognized against the library's vocabulary.
     let mut docs_out = docs::DocsOut::default();
@@ -1047,7 +997,6 @@ fn run_release(
     dedup_by_fact(&mut walked.export_syntax, |r| r.fact_id);
     dedup_by_fact(&mut walked.parameter_syntax, |r| r.fact_id);
     dedup_by_fact(&mut walked.record_field_syntax, |r| r.fact_id);
-    dedup_by_fact(&mut walked.parameter_docs, |r| r.fact_id);
     dedup_by_fact(&mut walked.call_syntax, |r| r.fact_id);
     dedup_by_fact(&mut walked.arguments, |r| r.fact_id);
     dedup_by_fact(&mut walked.syntax_nodes, |r| r.fact_id);
@@ -1056,9 +1005,6 @@ fn run_release(
     dedup_by_fact(&mut types_out.observations, |r| r.fact_id);
     dedup_by_fact(&mut types_out.implementations, |r| r.fact_id);
     dedup_by_fact(&mut types_out.fields, |r| r.fact_id);
-    dedup_by_fact(&mut context_out.modules, |r| r.fact_id);
-    dedup_by_fact(&mut context_out.definitions, |r| r.fact_id);
-    dedup_by_fact(&mut context_out.parameters, |r| r.fact_id);
     dedup_by_fact(&mut pysa.calls, |r| r.fact_id);
     dedup_by_fact(&mut public, |r| r.fact_id);
     dedup_by_fact(&mut docs_out.documents, |r| r.fact_id);
@@ -1086,27 +1032,6 @@ fn run_release(
         (
             SourceFiles::NAME,
             SourceFiles::to_sorted_batch(&source_files)?,
-        ),
-        (
-            ContextModules::NAME,
-            ContextModules::to_sorted_batch(&context_out.modules)?,
-        ),
-        (
-            ContextDefinitions::NAME,
-            ContextDefinitions::to_sorted_batch(&context_out.definitions)?,
-        ),
-        (
-            ContextParameters::NAME,
-            ContextParameters::to_sorted_batch(&context_out.parameters)?,
-        ),
-        (
-            ContextClassMro::NAME,
-            ContextClassMro::to_sorted_batch(&context_out.mro)?,
-        ),
-        (PublicNames::NAME, PublicNames::to_sorted_batch(&public)?),
-        (
-            ParameterDocs::NAME,
-            ParameterDocs::to_sorted_batch(&walked.parameter_docs)?,
         ),
         (
             TypeTerms::NAME,

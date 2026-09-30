@@ -207,5 +207,5 @@ fn provider_identity_covers_the_lockfile_the_pyrefly_patch_and_the_sources() {
     assert_eq!(cpg_extract::pyrefly_stage::pyrefly_provider().build_digest,
         build_digest(&[include_str!("../src/pyrefly_stage.rs"), include_str!("../src/typed_syntax.rs"), include_str!("../src/syntax_records.rs"),
             include_str!("../src/lexical.rs"), include_str!("../src/lexical_records.rs"), include_str!("../src/natives.rs"),
-            include_str!("../src/symbol_records.rs")]));
+            include_str!("../src/symbol_records.rs"), include_str!("../src/public_records.rs"), include_str!("../src/docstrings.rs")]));
 }

@@ -1,8 +1,10 @@
 from typing import Generic, TypeVar
 
+from gone import Vanished
+
 T = TypeVar("T")
 
-__all__ = ["Service", "Missing"]
+__all__ = ["Service", "Missing", "Vanished"]
 
 
 class Base:

@@ -110,14 +110,14 @@ async fn stages_relocate_deterministically_and_disclose_coverage() {
     let undecodable = syntax_of(&left, &artifact(&files, "_invalid/undecodable.py"));
     assert_eq!((undecodable.status, undecodable.reason), (CoverageStatus::Unavailable, Some(ObligationKind::UndecodableSource)));
     assert!(left.rows.occurrences.iter().all(|o| o.source != artifact(&files, "_invalid/undecodable.py").id()), "undecodable bytes never reach the analyzer");
-    assert!(left.rows.coverage.iter().filter(|c| c.family == FactFamily::Exports)
-        .all(|c| c.status != CoverageStatus::CompleteUnderStatedModel), "exports wait for the public names");
-    // Signatures follow the syntax: complete for the clean module, partial or unavailable otherwise.
-    let signatures = |path: &str| left.rows.coverage.iter().find(|c| c.family == FactFamily::Signatures
-        && c.scope == CoverageScope::Artifact { artifact: artifact(&files, path).id() }.id()).map(|c| (c.status, c.reason)).unwrap();
-    assert_eq!(signatures("sample.py"), (CoverageStatus::CompleteUnderStatedModel, None));
-    assert_eq!(signatures("_invalid/broken.py"), (CoverageStatus::Partial, Some(ObligationKind::SyntaxError)));
-    assert_eq!(signatures("_invalid/undecodable.py"), (CoverageStatus::Unavailable, Some(ObligationKind::UndecodableSource)));
+    // Exports and Signatures follow the syntax: complete for the clean module, partial or unavailable otherwise.
+    for family in [FactFamily::Exports, FactFamily::Signatures] {
+        let of = |path: &str| left.rows.coverage.iter().find(|c| c.family == family
+            && c.scope == CoverageScope::Artifact { artifact: artifact(&files, path).id() }.id()).map(|c| (c.status, c.reason)).unwrap();
+        assert_eq!(of("sample.py"), (CoverageStatus::CompleteUnderStatedModel, None), "{family:?}");
+        assert_eq!(of("_invalid/broken.py"), (CoverageStatus::Partial, Some(ObligationKind::SyntaxError)), "{family:?}");
+        assert_eq!(of("_invalid/undecodable.py"), (CoverageStatus::Unavailable, Some(ObligationKind::UndecodableSource)), "{family:?}");
+    }
     let lexical = left.rows.coverage.iter().find(|c| c.family == FactFamily::Lexical && c.scope == CoverageScope::Artifact { artifact: artifact(&files, "sample.py").id() }.id()).unwrap();
     assert_eq!(lexical.status, CoverageStatus::CompleteUnderStatedModel, "the recognizer covers a clean module");
     assert!(left.rows.observations.iter().any(|row| row.spelling == "α"));

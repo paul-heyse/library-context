@@ -127,3 +127,73 @@ async fn keys_are_per_file_and_nested_classes_stay_apart() {
     assert_eq!(displays.len(), 2, "{displays:?}");
     assert!(f.rows::<SubjectBoundary>().iter().all(|b| b.family != FactFamily::Signatures), "every definition attaches");
 }
+
+inspector!(Names, SourceArtifact, Module, Occurrence, ProviderModule, ExportOrigin, PublicNameObservation, ParameterDocObservation,
+    lctx_model::domain::assertion::Evidence, DependencyModuleObservation, ProviderCoverage);
+
+#[tokio::test]
+async fn public_names_docs_and_module_resolutions_are_stated() {
+    use lctx_model::domain::assertion::Evidence;
+    let tables = typed_driver::Tables::default();
+    let files = files("semantic_symbols");
+    run(&files, Names(tables.clone())).await.unwrap();
+    let f = Facts { tables, files };
+    // `__all__ = ["Service", "Missing", "Vanished"]`: Service traces to its class; Pyrefly traces a
+    // listed name nothing defines to the listing module, with no kind; `Vanished` is imported from a
+    // module that does not resolve, so its trace fails.
+    let origins: BTreeMap<_, _> = f.rows::<ExportOrigin>().into_iter().map(|o| (o.id(), o)).collect();
+    let public: BTreeMap<String, (bool, ExportOrigin)> = f.rows::<PublicNameObservation>().into_iter()
+        .map(|p| (p.name.clone(), (p.via_dunder_all, origins[&p.origin].clone()))).collect();
+    assert_eq!(public.keys().cloned().collect::<Vec<_>>(), vec!["Missing".to_owned(), "Service".to_owned(), "Vanished".to_owned()]);
+    assert!(public.values().all(|(via, _)| *via), "all are listed by __all__");
+    let traced = |name: &str| match &public[name].1 {
+        ExportOrigin::Traced { module, name, kind } => Some((f.module(*module), name.clone(), *kind)),
+        ExportOrigin::Untraced => None,
+    };
+    assert_eq!(traced("Service"), Some(("example.py".to_owned(), "Service".to_owned(), Some(ExportKind::Class))));
+    assert_eq!(traced("Missing"), Some(("example.py".to_owned(), "Missing".to_owned(), None)));
+    assert_eq!(traced("Vanished"), None);
+    // Base.run documents `timeout`; its description is the docstring's own bytes.
+    let docs = f.rows::<ParameterDocObservation>();
+    assert_eq!(docs.len(), 1);
+    assert_eq!((docs[0].name.as_str(), docs[0].text.as_str()), ("timeout", "Seconds to wait."));
+    assert!(f.text(docs[0].declaration).starts_with("def run(self, timeout: float = 1.0) -> None:"));
+    let Some(Evidence::SourceSpan { start, end, .. }) = f.rows::<Evidence>().into_iter().find(|e| e.id() == docs[0].description.id()) else { panic!("a span") };
+    assert_eq!(&f.files["example.py"][start as usize..end as usize], b"Seconds to wait.");
+    // `from typing import ...` resolves to the provider's bundled typeshed stub.
+    let resolved: BTreeMap<String, Option<String>> = f.rows::<DependencyModuleObservation>().into_iter().map(|d| (f.module(d.module), d.location)).collect();
+    let typing = resolved.get("Typeshed:typing").expect("typing resolves to the bundled stub");
+    assert!(typing.as_deref().is_some_and(|l| l.ends_with("typing.pyi")), "{typing:?}");
+    // `from gone import Vanished`: the module does not resolve and keeps its spelling.
+    assert_eq!(resolved.get("gone"), Some(&None));
+    // The example's exports are complete.
+    assert!(f.rows::<ProviderCoverage>().iter().filter(|c| c.family == FactFamily::Exports).all(|c| c.status == CoverageStatus::CompleteUnderStatedModel));
+}
+
+inspector!(Public, SourceArtifact, Module, ProviderModule, ExportOrigin, PublicNameObservation, ProviderCoverage);
+
+#[tokio::test]
+async fn a_literal_dunder_all_built_by_assignment_augmentation_and_append_is_the_public_set() {
+    // The runtime `dunder.lit.__all__` is ["exported", "also", "third"]; `hidden` is not public.
+    let tables = typed_driver::Tables::default();
+    let files = files("dunder_all");
+    run(&files, Public(tables.clone())).await.unwrap();
+    let modules: BTreeMap<_, _> = rows::<Module>(&tables).into_iter().map(|m| (m.id(), m.qualified_name)).collect();
+    let public: BTreeSet<String> = rows::<PublicNameObservation>(&tables).into_iter().filter(|p| modules[&p.access] == "dunder.lit")
+        .map(|p| p.name).collect();
+    assert_eq!(public, BTreeSet::from(["also".to_owned(), "exported".to_owned(), "third".to_owned()]));
+    // Where Pyrefly's reading differs from the runtime `__all__`, the module's exports are partial.
+    // The runtime `dunder.__all__` is ["alpha", "beta", "top"]; Pyrefly keeps only "top". The runtime
+    // `dunder.dyn.__all__` is ["dyn_public", "dyn_other"]; Pyrefly falls back to every
+    // non-underscore name, so `alpha_call` is over-reported.
+    let of = |module: &str| -> BTreeSet<String> { rows::<PublicNameObservation>(&tables).into_iter().filter(|p| modules[&p.access] == module).map(|p| p.name).collect() };
+    assert_eq!(of("dunder"), BTreeSet::from(["top".to_owned()]));
+    assert_eq!(of("dunder.dyn"), BTreeSet::from(["alpha_call", "dyn_other", "dyn_public"].map(str::to_owned)));
+    let artifacts: BTreeMap<_, _> = rows::<SourceArtifact>(&tables).into_iter().map(|a| (a.path.clone(), a.id())).collect();
+    let exports = |path: &str| rows::<ProviderCoverage>(&tables).into_iter().find(|c| c.family == FactFamily::Exports
+        && c.scope == lctx_model::domain::source::CoverageScope::Artifact { artifact: artifacts[path] }.id()).map(|c| (c.status, c.reason)).unwrap();
+    for path in ["dunder/__init__.py", "dunder/dyn.py"] {
+        assert_eq!(exports(path), (CoverageStatus::Partial, Some(lctx_model::domain::obligation::ObligationKind::OutsideProviderModel)), "{path}");
+    }
+    assert_eq!(exports("dunder/lit.py").0, CoverageStatus::CompleteUnderStatedModel, "a literal __all__ built by +=, append");
+}

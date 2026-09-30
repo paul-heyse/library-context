@@ -10,8 +10,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use cpg_schema::codebook::ExtractionMode;
 use cpg_schema::codebook::{
     DefinitionKind, Fidelity, ImplicitReceiver, InvocationPhase, Modality,
-    Origin, ParameterKind, PysaCalleeKind, PysaSiteKind, PysaTargetKind, PysaUnresolvedReason,
-    SignatureForm,
+    Origin, PysaCalleeKind, PysaSiteKind, PysaTargetKind, PysaUnresolvedReason,
 };
 use cpg_schema::id::{Id, IdHasher, kind};
 use cpg_schema::tables::{PysaCalls, PysaCallsRow};
@@ -20,7 +19,7 @@ use pyrefly::report::pysa::call_graph::{
     OriginKind, PysaCallTarget, Target, Unresolved, UnresolvedReason,
 };
 use pyrefly::report::pysa::class::ClassRef;
-use pyrefly::report::pysa::function::{FunctionParameter, FunctionParameters, FunctionRef};
+use pyrefly::report::pysa::function::FunctionRef;
 use pyrefly::report::pysa::location::PysaLocation;
 use pyrefly::report::pysa::module::ModuleId;
 use pyrefly::report::pysa::PysaModuleCallGraphs;
@@ -239,91 +238,6 @@ fn unresolved(u: &Unresolved) -> Option<PysaUnresolvedReason> {
     }
 }
 
-/// The one pinned-Pysa parameter-shape mapping shared by release signatures and referenced
-/// external definitions. An ellipsis or ParamSpec is retained as an unresolved signature form.
-pub(crate) struct ParameterShape {
-    pub form: SignatureForm,
-    pub ordinal: Option<i64>,
-    pub kind: Option<ParameterKind>,
-    pub name: Option<String>,
-    pub required: Option<bool>,
-}
-
-pub(crate) fn parameter_shapes(parameters: &FunctionParameters) -> Vec<ParameterShape> {
-    match parameters {
-        FunctionParameters::List(ps) => ps
-            .iter()
-            .enumerate()
-            .map(|(i, p)| {
-                let (kind, name, required, _) = match p {
-                    FunctionParameter::PosOnly {
-                        name,
-                        annotation,
-                        required,
-                    } => (
-                        ParameterKind::PositionalOnly,
-                        name.as_ref().map(ToString::to_string),
-                        Some(*required),
-                        annotation,
-                    ),
-                    FunctionParameter::Pos {
-                        name,
-                        annotation,
-                        required,
-                    } => (
-                        ParameterKind::PositionalOrKeyword,
-                        Some(name.to_string()),
-                        Some(*required),
-                        annotation,
-                    ),
-                    FunctionParameter::VarArg { name, annotation } => (
-                        ParameterKind::VarPositional,
-                        name.as_ref().map(ToString::to_string),
-                        None,
-                        annotation,
-                    ),
-                    FunctionParameter::KwOnly {
-                        name,
-                        annotation,
-                        required,
-                    } => (
-                        ParameterKind::KeywordOnly,
-                        Some(name.to_string()),
-                        Some(*required),
-                        annotation,
-                    ),
-                    FunctionParameter::Kwargs { name, annotation } => (
-                        ParameterKind::VarKeyword,
-                        name.as_ref().map(ToString::to_string),
-                        None,
-                        annotation,
-                    ),
-                };
-                ParameterShape {
-                    form: SignatureForm::List,
-                    ordinal: Some(i as i64),
-                    kind: Some(kind),
-                    name,
-                    required,
-                }
-            })
-            .collect(),
-        FunctionParameters::Ellipsis => vec![ParameterShape {
-            form: SignatureForm::Ellipsis,
-            ordinal: None,
-            kind: None,
-            name: None,
-            required: None,
-        }],
-        FunctionParameters::ParamSpec => vec![ParameterShape {
-            form: SignatureForm::ParamSpec,
-            ordinal: None,
-            kind: None,
-            name: None,
-            required: None,
-        }],
-    }
-}
 
 
 struct Site<'h> {

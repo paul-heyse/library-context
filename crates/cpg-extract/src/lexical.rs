@@ -1112,7 +1112,6 @@ mod tests {
 /// context producers until they move (cutover plan A5; deleted with them at A9/A14). No table is
 /// emitted from them: the `pyrefly` stage states the lexical records.
 pub(crate) mod husk {
-    use std::collections::HashSet;
     use cpg_schema::codebook::{BindingKind, BoundaryReason, LexicalScopeKind, StaticBranch, SyntaxField};
     use cpg_schema::id::{Id, recipe};
     use cpg_schema::tables::{BindingsRow, ReferenceResolutionsRow, ReferencesRow, ScopesRow};
@@ -1126,16 +1125,13 @@ pub(crate) mod husk {
         pub bindings: Vec<BindingsRow>,
         pub references: Vec<ReferencesRow>,
         pub resolutions: Vec<ReferenceResolutionsRow>,
-        /// Builtin functions and classes references resolve to: their definitions become
-        /// `context_definitions` (external symbols).
-        pub builtins_used: HashSet<String>,
     }
     /// The legacy codebook entry with the model entry's code: the two codebooks share codes.
     fn legacy<T: cpg_schema::codebook::Codebook>(code: i16) -> T { T::from_code(code).expect("the legacy codebook shares the model's codes") }
     pub(crate) fn rows(facts: &LexicalFacts<Id>, module_node_id: Id) -> LexicalOut {
         let scope_id = |i: usize| recipe::scope(facts.scopes[i].owner);
         let binding_id = |i: usize| recipe::binding(facts.binds[i].site, &facts.binds[i].name);
-        let mut out = LexicalOut { builtins_used: facts.builtins_used.clone(), ..LexicalOut::default() };
+        let mut out = LexicalOut::default();
         for scope in &facts.scopes {
             let (start, end) = span(scope.span);
             out.scopes.push(ScopesRow { snapshot_id: Id::ZERO, fact_id: Id::ZERO, node_id: recipe::scope(scope.owner), module_node_id,

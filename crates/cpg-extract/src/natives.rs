@@ -25,8 +25,10 @@ pub struct Natives {
     /// Modules over captured artifacts, keyed by their provider module.
     pub modules: BTreeMap<Id<ProviderModule>, (ProviderModule, Option<Module>)>,
     pub symbols: BTreeMap<Id<ProviderSymbol>, ProviderSymbol>,
-    /// Each non-analyzed module's resolution, by provider module.
+    /// Each module's resolution, by provider module.
     pub resolutions: BTreeMap<Id<ProviderModule>, Resolution>,
+    /// Each found module's name and path, from which its handle is rebuilt.
+    pub paths: BTreeMap<Id<ProviderModule>, (String, ModulePath)>,
 }
 impl Natives {
     /// `roots` pairs each frozen root with its captured artifacts (relative paths).
@@ -36,7 +38,7 @@ impl Natives {
             frozen.push(root.to_path_buf());
             artifacts.extend(captured.iter().map(|a| (root.join(&a.path), a.id())));
         }
-        Self { provider, context, roots: frozen, artifacts, modules: BTreeMap::new(), symbols: BTreeMap::new(), resolutions: BTreeMap::new() }
+        Self { provider, context, roots: frozen, artifacts, modules: BTreeMap::new(), symbols: BTreeMap::new(), resolutions: BTreeMap::new(), paths: BTreeMap::new() }
     }
     /// The provider module of a module the provider found at `path`.
     pub fn module(&mut self, name: &str, path: &ModulePath) -> Result<Id<ProviderModule>, ModelError> {
@@ -60,6 +62,7 @@ impl Natives {
         let id = module.id();
         self.modules.entry(id).or_insert((module, typed));
         self.resolutions.entry(id).or_insert(Resolution { module: id, location });
+        self.paths.entry(id).or_insert_with(|| (name.to_owned(), path.clone()));
         Ok(id)
     }
     /// A module the provider could not find, under its spelling.

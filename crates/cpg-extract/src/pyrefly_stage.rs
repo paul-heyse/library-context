@@ -27,7 +27,7 @@ use lctx_model::domain::{ContentHash, ModelError, Record, admission::ArtifactCla
     conditions::{Condition, ConditionNode, Diagram}, input::SourceRole, lexical::*, source::*, stages::{Effect, Profile, ProviderOutcome, RelationUse, Stage, StageSink},
     syntax::*, value::{Literal, LiteralSet, LiteralSetMember}};
 use crate::{acquisition::{AcquiredInput, Acquisition}, bundle::{self, Declared, ProviderStage, StageContext}, lexical::{Outside, Stars}, lexical_records,
-    natives::Natives, symbol_records,
+    natives::Natives, public_records, symbol_records,
     syntax_records::{self, Spans},
     typed_syntax::{self, PYREFLY_REVISION, SyntaxInvocation, SyntaxLimits}};
 
@@ -39,7 +39,8 @@ pub const FAMILIES: [FactFamily; 4] = [FactFamily::Syntax, FactFamily::Lexical, 
 pub fn pyrefly_provider() -> Provider {
     Provider { tool: "pyrefly".into(), revision: PYREFLY_REVISION.into(),
         build_digest: bundle::build_digest(&[include_str!("pyrefly_stage.rs"), include_str!("typed_syntax.rs"), include_str!("syntax_records.rs"),
-            include_str!("lexical.rs"), include_str!("lexical_records.rs"), include_str!("natives.rs"), include_str!("symbol_records.rs")]) }
+            include_str!("lexical.rs"), include_str!("lexical_records.rs"), include_str!("natives.rs"), include_str!("symbol_records.rs"),
+            include_str!("public_records.rs"), include_str!("docstrings.rs")]) }
 }
 fn invalid(message: String) -> ModelError { ModelError::Invalid(message) }
 
@@ -63,7 +64,8 @@ fn outputs() -> Vec<RelationUse> {
         ProviderModule, ProviderSymbol, ParameterShape, Signature, SignatureSupport, SignatureParameter, SymbolDeclaration, SymbolDeclarationSupport,
         ParameterDeclaration, ParameterDeclarationSupport, SymbolSequence, SymbolSequenceMember, SymbolObservation, SymbolSupport,
         FunctionTraitObservation, FunctionTraitSupport, ClassTraitObservation, ClassTraitSupport, ClassAncestryObservation, ClassAncestrySupport,
-        ParameterAnnotationObservation, ParameterAnnotationSupport)
+        ParameterAnnotationObservation, ParameterAnnotationSupport, ExportOrigin, PublicNameObservation, PublicNameSupport, ParameterDocObservation,
+        ParameterDocSupport, DependencyModuleObservation, DependencyModuleSupport)
 }
 /// Vocabulary the `assemble` stage writes once for every provider.
 pub fn vocabulary() -> Vec<RelationUse> {
@@ -104,7 +106,8 @@ impl<S: StageSink + 'static> ProviderStage<S> for Pyrefly {
             ProviderModule, ProviderSymbol, ParameterShape, Signature, SignatureSupport, SignatureParameter, SymbolDeclaration, SymbolDeclarationSupport,
             ParameterDeclaration, ParameterDeclarationSupport, SymbolSequence, SymbolSequenceMember, SymbolObservation, SymbolSupport,
             FunctionTraitObservation, FunctionTraitSupport, ClassTraitObservation, ClassTraitSupport, ClassAncestryObservation, ClassAncestrySupport,
-            ParameterAnnotationObservation, ParameterAnnotationSupport);
+            ParameterAnnotationObservation, ParameterAnnotationSupport, ExportOrigin, PublicNameObservation, PublicNameSupport, ParameterDocObservation,
+            ParameterDocSupport, DependencyModuleObservation, DependencyModuleSupport);
         let provider = pyrefly_provider();
         let (condition, nodes) = Diagram::always().records();
         context.contribute(provider.clone())?;
@@ -192,6 +195,10 @@ fn session<S: StageSink + 'static>(context: &mut StageContext<S>, provider: &Pro
     let sys = pyrefly_python::sys_info::SysInfo::new(PythonVersion::new(major, minor, micro), PythonPlatform::new(&analysis.python_platform));
     let outside = outside_names(&transaction, handles.first());
     let mut partial = false;
+    // What the public names and dependency context need after every module is stated.
+    let mut accesses: Vec<(usize, lctx_model::domain::Id<Module>, lctx_model::domain::Id<AssertionQualification>)> = vec![];
+    let mut imports: Vec<(usize, String)> = vec![];
+    let mut root_modules = std::collections::BTreeSet::new();
     let coverage = |scope: &CoverageScope, family: FactFamily, status: CoverageStatus, reason: Option<ObligationKind>, diagnostic: Option<String>| ProviderCoverage {
         scope: scope.id(), provider: provider.id(), context: analysis.id(), family, run: Some(run.id()), status, reason, diagnostic };
     for artifact in roots {
@@ -202,13 +209,18 @@ fn session<S: StageSink + 'static>(context: &mut StageContext<S>, provider: &Pro
             partial = true;
             continue;
         }
-        let handle = &handles[analyzed.iter().position(|a| a.id() == artifact.id()).expect("an analyzed root")];
+        let index = analyzed.iter().position(|a| a.id() == artifact.id()).expect("an analyzed root");
+        let handle = &handles[index];
         let module_name = handle.module().to_string();
         let is_package = matches!(artifact.path.rsplit('/').next(), Some("__init__.py" | "__init__.pyi"));
-        context.emit(Module { source: artifact.id(), qualified_name: module_name.clone() })?;
+        let typed_module = Module { source: artifact.id(), qualified_name: module_name.clone() };
+        let module_id = typed_module.id();
+        context.emit(typed_module)?;
+        root_modules.insert(natives.module(&module_name, handle.path())?);
         let qualification = AssertionQualification { context: analysis.id(), scope: scope.id(), condition: condition.id(),
             modality: Modality::Definite, approximation: Approximation::Exact };
         context.contribute(qualification.clone())?;
+        accesses.push((index, module_id, qualification.id()));
         let ast = transaction.get_ast(handle).ok_or_else(|| invalid("the analyzer did not retain the module's AST".into()))?;
         let info = transaction.get_module_info(handle).ok_or_else(|| invalid("the analyzer did not retain the module's text".into()))?;
         let text = info.lined_buffer().contents().clone();
@@ -242,11 +254,13 @@ fn session<S: StageSink + 'static>(context: &mut StageContext<S>, provider: &Pro
         let errors = transaction.get_errors([handle]).collect_errors();
         let parse_error = [&errors.ordinary, &errors.directives, &errors.suppressed, &errors.disabled, &errors.baseline]
             .into_iter().flatten().any(|error| error.error_kind() == ErrorKind::ParseError);
-        let mut unattached = 0;
+        let (mut unattached, mut unlocated, mut computed_all) = (0, 0, false);
         let syntax = match emitted {
             Ok(_) => {
                 let records = syntax_records::records(&ast, &module_name, is_package, &spans, qualification.id())?;
                 let computed = records.computed_all.clone();
+                computed_all = !computed.is_empty();
+                imports.extend(records.imports.iter().filter_map(|i| i.resolved_module.clone()).map(|name| (index, name)));
                 let declared = symbol_records::Declared::new(&records.declarations, &records.parameters, &records.formals)?;
                 write_records(context, records, &|family, subject| support(family, subject))?;
                 let stars = star_imports(&transaction, handle, &module_name, is_package, &ast);
@@ -256,8 +270,12 @@ fn session<S: StageSink + 'static>(context: &mut StageContext<S>, provider: &Pro
                 let lexical = lexical_records::records(&facts, &spans, qualification.id(), candidate.id())?;
                 write_lexical(context, lexical, &|subject| support(FactFamily::Lexical, subject))?;
                 let locator = symbol_records::Locator { line_index: info.lined_buffer().line_index(), text: &text };
-                let definitions = definitions(&transaction, handle, &module_name, &qualification, &mut natives, &locator, &spans, &declared, tap)?;
+                let linking = symbol_records::Linking { locator: &locator, spans: &spans, declared: &declared };
+                let definitions = definitions(&transaction, handle, &qualification, &mut natives, Some(linking), None, tap)?;
                 unattached = write_symbols(context, definitions, &scope, provider, &analysis, &run, &surfaces, &pysa_evidence)?;
+                let docs = symbol_records::parameter_docs(&ast, &text, artifact.id(), &spans, qualification.id())?;
+                unlocated = docs.unlocated.len();
+                write_docs(context, docs, &scope, provider, &analysis, &run, &surfaces)?;
                 for statement in computed {
                     context.contribute(SubjectBoundary { scope: scope.id(), provider: provider.id(), context: analysis.id(), family: FactFamily::Exports,
                         subject: Some(statement), reason: ObligationKind::OutsideProviderModel, detail: Some("__all__ is computed; its names are not stated by the syntax".into()) })?;
@@ -272,17 +290,70 @@ fn session<S: StageSink + 'static>(context: &mut StageContext<S>, provider: &Pro
         };
         context.contribute(coverage(&scope, FactFamily::Syntax, syntax.0, syntax.1, syntax.2.clone()))?;
         context.contribute(coverage(&scope, FactFamily::Lexical, syntax.0, syntax.1, syntax.2.clone()))?;
-        let pending = |family: &str| Some(format!("syntax only; the symbol producer (plan A9) states {family}"));
-        let (status, reason) = if syntax.0 == CoverageStatus::Unavailable { (CoverageStatus::Unavailable, syntax.1) }
-            else { (CoverageStatus::Partial, Some(ObligationKind::OutsideProviderModel)) };
-        context.contribute(coverage(&scope, FactFamily::Exports, status, reason, pending("public names")))?;
-        // Signatures follow the syntax they attach to, and are partial where a declaration did not attach.
-        let signatures = if unattached > 0 && syntax.0 == CoverageStatus::CompleteUnderStatedModel {
-            (CoverageStatus::Partial, Some(ObligationKind::AttachmentUnmatched), Some(format!("{unattached} declarations did not attach at their name spans")))
+        // Exports and Signatures follow the syntax; a computed `__all__`, a declaration that did not
+        // attach and an unlocated parameter description each leave their family partial.
+        let complete = syntax.0 == CoverageStatus::CompleteUnderStatedModel;
+        let exports = if complete && computed_all {
+            (CoverageStatus::Partial, Some(ObligationKind::OutsideProviderModel), Some("__all__ is computed; its names are not stated".into()))
         } else { syntax.clone() };
+        let signatures = if complete && unattached > 0 {
+            (CoverageStatus::Partial, Some(ObligationKind::AttachmentUnmatched), Some(format!("{unattached} declarations did not attach at their name spans")))
+        } else if complete && unlocated > 0 {
+            (CoverageStatus::Partial, Some(ObligationKind::ProviderDisagreement), Some(format!("{unlocated} parameter descriptions are not located")))
+        } else { syntax.clone() };
+        partial |= [&syntax, &exports, &signatures].iter().any(|c| c.0 != CoverageStatus::CompleteUnderStatedModel);
+        context.contribute(coverage(&scope, FactFamily::Exports, exports.0, exports.1, exports.2))?;
         context.contribute(coverage(&scope, FactFamily::Signatures, signatures.0, signatures.1, signatures.2))?;
-        // Exports stay Partial until the public names are stated.
-        partial = true;
+    }
+    // The public names of the analyzed modules, under each module's own qualification.
+    let access: Vec<public_records::Access<'_>> = accesses.iter()
+        .map(|(index, module, qualification)| public_records::Access { handle: &handles[*index], module: *module, qualification: *qualification }).collect();
+    let public = public_records::public_names(&access, &transaction, &mut natives)?;
+    drop(access);
+    let exports = surfaces[&FactFamily::Exports].id();
+    for origin in public.origins { context.emit(origin)?; }
+    for row in public.names {
+        context.emit(PublicNameSupport { assertion: row.id(), run: run.id(), surface: exports, evidence: pysa_evidence.id(), origin: Origin::AnalyzerAssertion,
+            mode: ExtractionMode::NativeTraversal, fidelity: Fidelity::NativeStructural })?;
+        context.emit(row)?;
+    }
+    // The input's dependency context: every module its facts or imports reference, and the
+    // referenced definitions in them, under the input's qualification.
+    let input_scope = CoverageScope::Input { input: captured.revision().id() };
+    let input_qualification = AssertionQualification { context: analysis.id(), scope: input_scope.id(), condition: condition.id(),
+        modality: Modality::Definite, approximation: Approximation::Exact };
+    context.contribute(input_scope.clone())?;
+    context.contribute(input_qualification.clone())?;
+    for (index, name) in imports {
+        match transaction.import_handle(&handles[index], pyrefly_python::module_name::ModuleName::from_str(&name), None).finding() {
+            Some(found) => { natives.module(&found.module().to_string(), found.path())?; }
+            None => { natives.unresolved(&name); }
+        }
+    }
+    let mut keep: BTreeMap<lctx_model::domain::Id<ProviderModule>, (std::collections::BTreeSet<String>, Vec<String>)> = BTreeMap::new();
+    for symbol in natives.symbols.values().filter(|s| !root_modules.contains(&s.module)) { keep.entry(symbol.module).or_default().0.insert(symbol.native_key.clone()); }
+    for (found, name) in public.traced {
+        let module = natives.module(&found.module().to_string(), found.path())?;
+        if !root_modules.contains(&module) { keep.entry(module).or_default().1.push(name); }
+    }
+    if let Some(anchor) = handles.first() {
+        let dependencies: Vec<(lctx_model::domain::Id<ProviderModule>, pyrefly_build::handle::Handle)> = keep.keys()
+            .filter_map(|module| natives.paths.get(module).map(|(name, path)| (*module, pyrefly_build::handle::Handle::new(
+                pyrefly_python::module_name::ModuleName::from_str(name), path.clone(), *anchor.sys_info())))).collect();
+        transaction.run(&dependencies.iter().map(|(_, h)| h.clone()).collect::<Vec<_>>(), Require::Everything, None);
+        for (module, handle) in &dependencies {
+            let (keys, names) = &keep[module];
+            let records = definitions(&transaction, handle, &input_qualification, &mut natives, None, Some((keys, names)), None)?;
+            write_symbols(context, records, &input_scope, provider, &analysis, &run, &surfaces, &pysa_evidence)?;
+        }
+    }
+    let signatures = surfaces[&FactFamily::Signatures].id();
+    let resolutions: Vec<_> = natives.resolutions.values().filter(|r| !root_modules.contains(&r.module)).cloned().collect();
+    for resolution in resolutions {
+        let row = DependencyModuleObservation { qualification: input_qualification.id(), module: resolution.module, location: resolution.location };
+        context.emit(DependencyModuleSupport { assertion: row.id(), run: run.id(), surface: signatures, evidence: pysa_evidence.id(), origin: Origin::AnalyzerAssertion,
+            mode: ExtractionMode::NativeTraversal, fidelity: Fidelity::NativeStructural })?;
+        context.emit(row)?;
     }
     for (module, typed) in natives.modules.values() {
         if let Some(typed) = typed { context.emit(typed.clone())?; }
@@ -292,11 +363,14 @@ fn session<S: StageSink + 'static>(context: &mut StageContext<S>, provider: &Pro
     Ok(partial)
 }
 
-/// Pysa's definitions of one analyzed module as symbol records.
-#[allow(clippy::too_many_arguments, reason = "the session's analyzer state and the module's indices, each distinct")]
-fn definitions(transaction: &pyrefly::state::state::Transaction<'_>, handle: &pyrefly_build::handle::Handle, module_name: &str, qualification: &AssertionQualification,
-    natives: &mut Natives, locator: &symbol_records::Locator<'_>, spans: &Spans, declared: &symbol_records::Declared, tap: Option<&PysaTap>)
+/// Pysa's definitions of one module as symbol records: an analyzed module linked to its
+/// occurrences, or a dependency module's kept definitions (native keys, and top-level names an
+/// export traces to).
+fn definitions(transaction: &pyrefly::state::state::Transaction<'_>, handle: &pyrefly_build::handle::Handle, qualification: &AssertionQualification,
+    natives: &mut Natives, linking: Option<symbol_records::Linking<'_>>, keep: Option<(&std::collections::BTreeSet<String>, &[String])>, tap: Option<&PysaTap>)
     -> Result<symbol_records::SymbolRecords, ModelError> {
+    let module_name = handle.module().to_string();
+    let module_name = module_name.as_str();
     use pyrefly::report::pysa::{captured_variable::collect_captured_variables_for_module, class::{ClassId, get_all_classes, get_class_mro},
         context::{ModuleAnswersContext, ModuleContext, PysaResolver}, export_module_definitions, override_graph::create_reversed_override_graph_for_module};
     let module_ids = &transaction.pysa_reporter().ok_or_else(|| invalid("the Pysa reporter is not installed".into()))?.module_ids;
@@ -323,9 +397,31 @@ fn definitions(transaction: &pyrefly::state::state::Transaction<'_>, handle: &py
         if module_ids.get_from_handle(&found) != id { return Err(invalid(format!("{name} resolves to another module than the one Pysa referenced"))); }
         natives.module(&name.to_string(), found.path())
     };
-    symbol_records::records(&definitions, this, qualification, natives, &mut resolve, &complete, locator, spans, declared)
+    let kept = keep.map(|(keys, names)| {
+        let mut kept = keys.clone();
+        for name in names { kept.extend(symbol_records::top_level(&definitions, name)); }
+        kept
+    });
+    symbol_records::records(&definitions, this, qualification, natives, &mut resolve, &complete, linking, kept.as_ref())
 }
 
+/// Emit one module's parameter documentation with its supports; an unlocated description is a
+/// boundary of the module's Signatures coverage.
+#[allow(clippy::too_many_arguments, reason = "the session's attribution, each distinct")]
+fn write_docs<S: StageSink + 'static>(context: &mut StageContext<S>, docs: symbol_records::ParameterDocs, scope: &CoverageScope, provider: &Provider,
+    analysis: &AnalysisContext, run: &ProviderRun, surfaces: &BTreeMap<FactFamily, ProviderSurface>) -> Result<(), ModelError> {
+    for (row, evidence) in docs.docs {
+        context.contribute(evidence.clone())?;
+        context.emit(ParameterDocSupport { assertion: row.id(), run: run.id(), surface: surfaces[&FactFamily::Signatures].id(), evidence: evidence.id(),
+            origin: Origin::SourceObservation, mode: ExtractionMode::Recognizer, fidelity: Fidelity::NormalizedStructural })?;
+        context.emit(row)?;
+    }
+    for detail in docs.unlocated {
+        context.contribute(SubjectBoundary { scope: scope.id(), provider: provider.id(), context: analysis.id(), family: FactFamily::Signatures,
+            subject: None, reason: ObligationKind::ProviderDisagreement, detail: Some(detail) })?;
+    }
+    Ok(())
+}
 /// Emit one module's symbol records with their supports; returns how many declarations did not
 /// attach, each a boundary of the module's Signatures coverage.
 #[allow(clippy::too_many_arguments, reason = "the session's attribution, each distinct")]

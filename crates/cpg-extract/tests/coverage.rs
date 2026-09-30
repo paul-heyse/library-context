@@ -2,9 +2,9 @@
 
 mod common;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
-use common::{cell, column, run};
+use common::{cell, run};
 use cpg_extract::ExtractOutput;
 
 /// module name → [(family, status, reason)] with codebook codes.
@@ -68,35 +68,7 @@ fn dunder_all_forms_hand_written_expectations() {
         "__all__ = _names() is not literal"
     );
 
-    // Hand-written runtime `__all__` for the literal module: the independent oracle (DM-53).
-    let public: BTreeSet<String> = column(out.table("public_names").unwrap(), "access_path")
-        .into_iter()
-        .collect();
-    for name in ["dunder.lit.exported", "dunder.lit.also", "dunder.lit.third"] {
-        assert!(public.contains(name), "{name} is public");
-    }
-    assert!(!public.contains("dunder.lit.hidden"));
-    // Where Pyrefly's reading differs from the runtime `__all__`, the module is `partial` (above).
-    // The runtime `dunder.__all__` is ["alpha", "beta", "top"]; Pyrefly keeps only "top". The
-    // runtime `dunder.dyn.__all__` is ["dyn_public", "dyn_other"]; Pyrefly falls back to every
-    // non-underscore name, so `alpha_call` is over-reported.
-    let under = |prefix: &str| -> BTreeSet<String> {
-        public
-            .iter()
-            .filter(|p| {
-                p.strip_prefix(prefix)
-                    .is_some_and(|rest| !rest.contains('.'))
-            })
-            .cloned()
-            .collect()
-    };
-    assert_eq!(under("dunder."), BTreeSet::from(["dunder.top".to_owned()]));
-    assert_eq!(
-        under("dunder.dyn."),
-        BTreeSet::from(
-            ["alpha_call", "dyn_other", "dyn_public"].map(|n| format!("dunder.dyn.{n}"))
-        )
-    );
+    // The public sets, against the runtime `__all__`s, are `typed_symbols`'.
 
     let b = out.table("boundaries").unwrap();
     let flagged = (0..b.num_rows())
