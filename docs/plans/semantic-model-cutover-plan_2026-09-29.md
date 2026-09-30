@@ -853,6 +853,16 @@ The control runs on a disposable PG18 provisioned by the real bootstrap SQL, car
 **Justfile.** `test-postgres` covers lctx-postgres, cpg-extract, cpg-core, lctx and the transition. `test-postgres-reference`, `structured-eval`, `score` and `ranking-check` are removed, returning with serving. `sqlx-check` is out of `test-all` (T12).
 
 **Docs.** `docs/postgresql.md` is rewritten for the current store. DESIGN §B7 has its implementation status; §6 is marked retired pending C3x. AGENTS.md and the evaluation section's recipe references are updated. The handoff skill no longer cites the removed `just pilot` recipe. Review F02's provisioning note: none is needed, since the phased reset fits PostgreSQL's default lock table |
+| P1.13: `uv run python scripts/postgres_transition.py plan` against the operator database (read-only); `uv run python docs/design_review/evidence/2026-09-29_operator-transition/rehearse.py` | rehearsal passed 2026-09-29; **real run blocked**.
+
+The operator database carries 12 legacy versions. Its four retained service tables are empty. `lctx_report` and `lctx_serving` (about 1 GB of dormant pilot projections) stay in the archive.
+
+The rehearsal restored an owner dump of the operator database into a bootstrap-provisioned disposable PG18:
+- `store install` refused the legacy history;
+- plan, prepare and switch passed with equal fingerprints;
+- `store check` was clean and `runs list` worked.
+
+The real `prepare`/`switch` is blocked: it needs the PostgreSQL superuser, and this session's `sudo -u postgres` requires a password. The operator's commands are in the [evidence](../design_review/evidence/2026-09-29_operator-transition/README.md). `plan` no longer needs administration, and reports every owner schema left behind. The transition tool is deleted after the real run |
 | `just fmt`, `just test-all`, facts pilots | not_run: functional scope incomplete |
 
 Independent bounded reviewers accepted artifact/capture/acquisition corrections and the

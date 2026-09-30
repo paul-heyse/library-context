@@ -147,15 +147,17 @@ def plan(files: dict[str, dict], admin: Admin) -> dict:
     owner = Owner(files["postgres-admin.json"]["migration_url"], DATABASE)
     history = owner.history()
     present = [t for t in RETAINED if owner.query(f"SELECT to_regclass('{t}') IS NOT NULL;") == "t"]
+    # Every schema the owner owns stays behind except the retained services.
     legacy = owner.query("SELECT coalesce(string_agg(nspname, ',' ORDER BY nspname), '') FROM pg_namespace "
-                         "WHERE nspname IN ('lctx_serving','lctx_store') OR nspname LIKE 'lctx\\_g%' OR nspname = 'lctx_model_store';")
+                         "WHERE nspowner = (SELECT oid FROM pg_roles WHERE rolname = current_user) AND nspname NOT IN ('lctx_cache', 'lctx_ops');")
     return {
         "database": DATABASE,
         "history": history,
         "legacy_history": bool(history) and min(history) < 202609300014,
         "retained": fingerprints(owner.query, tuple(present)),
         "left_behind": [s for s in legacy.split(",") if s],
-        "next_exists": admin.sql("postgres", f"SELECT EXISTS (SELECT FROM pg_database WHERE datname = '{NEXT}');") == "t",
+        # Any role may read pg_database: the plan needs no server administration.
+        "next_exists": owner.query(f"SELECT EXISTS (SELECT FROM pg_database WHERE datname = '{NEXT}');") == "t",
     }
 
 
