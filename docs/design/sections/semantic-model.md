@@ -26,7 +26,7 @@ in cutover plan §4.2; finding dispositions are in §8. The generation store and
 2026-09-30, after the complete gate, both full profiles, repeated behavioral content and refusal
 controls. The [assembled P0–P2 exit review](../../design_review/reviews/design_review_p0-p2-exit_2026-09-30.md)
 is **Accept scoped** for facts, with explicit resource allowances and downstream exclusions.
-Commands and measured envelope are in the plan. Phases 3–5 are **Proposed**.
+Commands and measured envelope are in the plan. Phase 3 runtime foundations (R1–R3) are **Implemented / focused-Tested**, 2026-09-30, with [scoped independent acceptance](../../design_review/reviews/design_review_phase3-foundation_2026-09-30.md). Normalized producers and Phase 3 exit qualification remain in progress; Phases 4–5 remain **Proposed**.
 
 **Current state.** The Delta canonical store and its compile orchestration were removed in cutover
 phase 1 (P1.3/P1.4). The legacy `cpg-schema` contracts and the analysis, catalog and serving code

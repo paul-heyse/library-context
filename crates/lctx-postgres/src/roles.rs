@@ -52,12 +52,14 @@ impl RoleConfig {
         Ok(config)
     }
     pub fn validate(&self) -> Result<(), Error> {
-        let max = if self.role == Role::Importer { 2 } else { 6 };
+        let pools_valid = match self.role {
+            Role::Importer => (1..=32).contains(&self.provider_connections)
+                && self.max_connections == self.provider_connections + 2,
+            Role::Serving => (1..=6).contains(&self.max_connections)
+                && self.provider_connections <= 2 && self.provider_connections < self.max_connections,
+        };
         if self.format != 1
-            || !(1..=max).contains(&self.max_connections)
-            || self.provider_connections >= self.max_connections
-            || self.provider_connections > 2
-            || self.role == Role::Importer && self.provider_connections != 0
+            || !pools_valid
             || !(1..=60).contains(&self.acquire_timeout_seconds)
             || !(1..=300).contains(&self.statement_timeout_seconds)
             || !(1..=60).contains(&self.lock_timeout_seconds)
@@ -103,7 +105,29 @@ impl RoleConfig {
                 "server, role or privileges differ from the role contract",
             ));
         }
+        if self.role == Role::Importer {
+            self.check_capacity(&pool).await?;
+        }
         Ok(pool)
+    }
+    /// Preflight the configured combined importer budget before an attempt is registered.
+    /// The two owner slots cover lifecycle and control work and are accounted separately.
+    /// PostgreSQL still arbitrates races with other clients when the bound pool opens.
+    pub async fn check_capacity(&self, pool: &sqlx::PgPool) -> Result<(), Error> {
+        self.validate()?;
+        let (server_free, role_limit, role_used, database_limit, database_used): (i64, i64, i64, i64, i64) = sqlx::query_as(
+            "SELECT current_setting('max_connections')::bigint-current_setting('superuser_reserved_connections')::bigint-current_setting('reserved_connections')::bigint-(SELECT count(*) FROM pg_stat_activity WHERE backend_type='client backend'),\
+             r.rolconnlimit::bigint,(SELECT count(*) FROM pg_stat_activity WHERE usename=current_user),\
+             d.datconnlimit::bigint,(SELECT count(*) FROM pg_stat_activity WHERE datname=current_database())\
+             FROM pg_roles r, pg_database d WHERE r.rolname=current_user AND d.datname=current_database()")
+            .fetch_one(pool).await?;
+        let importer_remaining = i64::from(self.max_connections.saturating_sub(pool.size()));
+        let with_owner = importer_remaining + 2;
+        if server_free < with_owner || (role_limit >= 0 && role_limit - role_used < importer_remaining)
+            || (database_limit >= 0 && database_limit - database_used < with_owner) {
+            return Err(Error::Config("insufficient PostgreSQL capacity for importer budget plus two owner connections"));
+        }
+        Ok(())
     }
     pub(crate) fn options(&self) -> Result<PgConnectOptions, Error> {
         let options = PgConnectOptions::from_str(&self.url)

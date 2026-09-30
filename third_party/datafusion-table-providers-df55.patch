@@ -359,7 +359,7 @@ index 0000000..893bed2
 +    }
 +}
 diff --git a/crates/postgres/src/conn.rs b/crates/postgres/src/conn.rs
-index 644a576..11166cc 100644
+index 644a576..02a6048 100644
 --- a/crates/postgres/src/conn.rs
 +++ b/crates/postgres/src/conn.rs
 @@ -4,6 +4,8 @@ use std::error::Error;
@@ -432,7 +432,7 @@ index 644a576..11166cc 100644
          };
  
          Ok(Box::pin(RecordBatchStreamAdapter::new(
-@@ -499,7 +523,152 @@ impl<'a> AsyncDbConnection<PostgresPooledConnection, &'a (dyn ToSql + Sync)>
+@@ -499,7 +523,149 @@ impl<'a> AsyncDbConnection<PostgresPooledConnection, &'a (dyn ToSql + Sync)>
      }
  }
  
@@ -442,6 +442,7 @@ index 644a576..11166cc 100644
 +struct Lease {
 +    connection: Option<PostgresConnection>,
 +    drain_timeout: std::time::Duration,
++    reservation: Option<MemoryReservation>,
 +}
 +
 +impl Lease {
@@ -461,19 +462,21 @@ index 644a576..11166cc 100644
 +            return;
 +        };
 +        let timeout = self.drain_timeout;
++        let reservation = self.reservation.take();
 +        match tokio::runtime::Handle::try_current() {
 +            Ok(runtime) => {
 +                runtime.spawn(async move {
++                    let _reservation = reservation;
 +                    let drained = tokio::time::timeout(timeout, connection.conn.drain()).await;
 +                    if matches!(drained, Ok(Ok(()))) {
 +                        connection.conn.finish_request();
 +                    } else {
-+                        connection.conn.mark_lost();
++                        connection.conn.abort_request();
 +                    }
 +                    drop(connection);
 +                });
 +            }
-+            Err(_) => connection.conn.mark_lost(),
++            Err(_) => connection.conn.abort_request(),
 +        }
 +    }
 +}
@@ -506,23 +509,17 @@ index 644a576..11166cc 100644
 +        limits
 +            .validate()
 +            .map_err(|message| DataFusionError::Configuration(message.into()))?;
-+        self.conn.start_request();
-+        let rows = match self.conn.query_raw(sql, params.iter().copied()).await {
++        self.conn.start_request().map_err(|error| DataFusionError::External(Box::new(error)))?;
++        // Own the drain guard before the first await: cancellation can precede RowStream creation.
++        let mut lease = Lease { connection: Some(self), drain_timeout, reservation };
++        let rows = match lease.connection.as_ref().expect("live request").conn.query_raw(sql, params.iter().copied()).await {
 +            Ok(rows) => rows,
 +            Err(error) => {
-+                Lease {
-+                    connection: Some(self),
-+                    drain_timeout,
-+                }
-+                .end();
++                lease.end();
 +                return Err(DataFusionError::External(Box::new(
 +                    PostgresError::QueryError { source: error },
 +                )));
 +            }
-+        };
-+        let mut lease = Lease {
-+            connection: Some(self),
-+            drain_timeout,
 +        };
 +        let schema = declared.clone();
 +        let output = stream! {
@@ -533,7 +530,7 @@ index 644a576..11166cc 100644
 +                let completed = match rows.next().await {
 +                    Some(Ok(row)) => {
 +                        let size = row.raw_size_bytes();
-+                        if let Err(error) = charge(&reservation, retained.saturating_add(size)) {
++                        if let Err(error) = charge(&lease.reservation, retained.saturating_add(size)) {
 +                            yield Err(error);
 +                            return;
 +                        }
@@ -562,7 +559,7 @@ index 644a576..11166cc 100644
 +                        Ok(batch) => {
 +                            drop(rows);
 +                            retained -= bytes;
-+                            let _ = charge(&reservation, retained);
++                            let _ = charge(&lease.reservation, retained);
 +                            yield Ok(batch);
 +                        }
 +                        Err(error) => {
@@ -575,7 +572,7 @@ index 644a576..11166cc 100644
 +                    break;
 +                }
 +            }
-+            if let Some(reservation) = &reservation {
++            if let Some(reservation) = &lease.reservation {
 +                reservation.free();
 +            }
 +        };
@@ -625,7 +622,7 @@ index 12df531..aadc209 100644
          &self,
          table_reference: TableReference,
 diff --git a/crates/postgres/src/pool.rs b/crates/postgres/src/pool.rs
-index b1b7e3c..af1ff0f 100644
+index b1b7e3c..2f1ec72 100644
 --- a/crates/postgres/src/pool.rs
 +++ b/crates/postgres/src/pool.rs
 @@ -82,6 +82,14 @@ pub enum Error {
@@ -673,7 +670,7 @@ index b1b7e3c..af1ff0f 100644
          }
      }
  }
-@@ -127,18 +142,75 @@ impl From<tokio_postgres::Error> for ConnectionManagerError {
+@@ -127,18 +142,103 @@ impl From<tokio_postgres::Error> for ConnectionManagerError {
  ///
  /// When no provider is set (passwordless auth), the manager connects using the
  /// stored [`Config`] as-is.
@@ -712,6 +709,8 @@ index b1b7e3c..af1ff0f 100644
 +        &self,
 +        client: &tokio_postgres::Client,
 +    ) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>>;
++    /// Release caller-owned session state before physical close. Called once during terminal close.
++    async fn release(&self, _client: &tokio_postgres::Client) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> { Ok(()) }
 +}
 +
 +/// Limits of a bound pool.
@@ -727,14 +726,40 @@ index b1b7e3c..af1ff0f 100644
 +#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 +pub enum PoolHealth {
 +    Ready { connections: u32, idle: u32 },
++    Closing,
++    Closed,
 +    Lost,
++}
++
++// 0 ready, 1 closing, 2 closed, 3 lost. All connections and retained tables share one state.
++struct BoundState {
++    health: std::sync::atomic::AtomicU8,
++    connections: std::sync::Mutex<Vec<ConnectionEnd>>,
++    close: tokio::sync::Mutex<()>,
++    binder: Arc<dyn SessionBinder>,
++}
++impl std::fmt::Debug for BoundState {
++    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++        f.debug_struct("BoundState").field("health", &self.health.load(std::sync::atomic::Ordering::Acquire)).finish()
++    }
++}
++#[derive(Clone)]
++struct ConnectionEnd {
++    cancel: tokio_postgres::CancelToken,
++    task: tokio::task::AbortHandle,
++    tls: MakeTlsConnector,
++    streaming: Arc<std::sync::atomic::AtomicBool>,
++}
++impl BoundState {
++    fn ready(&self) -> bool { self.health.load(std::sync::atomic::Ordering::Acquire) == 0 }
++    fn lose(&self) { let _ = self.health.compare_exchange(0, 3, std::sync::atomic::Ordering::AcqRel, std::sync::atomic::Ordering::Acquire); }
 +}
 +
 +#[derive(Debug)]
 +struct Bound {
 +    binder: Arc<dyn SessionBinder>,
 +    remaining: std::sync::atomic::AtomicU32,
-+    lost: Arc<std::sync::atomic::AtomicBool>,
++    state: Arc<BoundState>,
  }
  
  impl ConnectionManager {
@@ -750,7 +775,7 @@ index b1b7e3c..af1ff0f 100644
          }
      }
  
-@@ -185,11 +257,107 @@ async fn configure_session(
+@@ -185,11 +285,116 @@ async fn configure_session(
      Ok(())
  }
  
@@ -763,7 +788,7 @@ index b1b7e3c..af1ff0f 100644
 +    permit: Option<tokio::sync::OwnedSemaphorePermit>,
 +    pub(crate) streaming: Arc<std::sync::atomic::AtomicBool>,
 +    /// A bound pool's terminal loss flag, shared by all of its connections.
-+    pub(crate) lost: Option<Arc<std::sync::atomic::AtomicBool>>,
++    state: Option<Arc<BoundState>>,
 +}
 +impl std::fmt::Debug for ManagedClient {
 +    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -804,6 +829,13 @@ index b1b7e3c..af1ff0f 100644
 +    }
 +}
 +impl ManagedClient {
++    /// A bounded drain failed: abandon this transport terminally, without starting a second
++    /// destructor drain after the request's reservation has been released.
++    pub(crate) fn abort_request(&self) {
++        self.mark_lost();
++        self.streaming.store(false, std::sync::atomic::Ordering::Release);
++        self.connection_task.abort();
++    }
 +    /// Cancel the in-flight request and prove it left the server: CancelRequest has no
 +    /// acknowledgement, so a following round trip confirms the drain.
 +    pub async fn drain(&self) -> std::result::Result<(), tokio_postgres::Error> {
@@ -813,13 +845,16 @@ index b1b7e3c..af1ff0f 100644
 +    }
 +    /// Mark the bound pool this connection belongs to as lost.
 +    pub fn mark_lost(&self) {
-+        if let Some(lost) = &self.lost {
-+            lost.store(true, std::sync::atomic::Ordering::Release);
-+        }
++        if let Some(state) = &self.state { state.lose(); }
 +    }
-+    pub fn start_request(&self) {
-+        self.streaming
-+            .store(true, std::sync::atomic::Ordering::Release);
++    pub fn start_request(&self) -> Result<()> {
++        if self.state.as_ref().is_some_and(|s| !s.ready()) { return BoundPoolLostSnafu.fail(); }
++        self.streaming.store(true, std::sync::atomic::Ordering::Release);
++        if self.state.as_ref().is_some_and(|s| !s.ready()) {
++            self.streaming.store(false, std::sync::atomic::Ordering::Release);
++            return BoundPoolLostSnafu.fail();
++        }
++        Ok(())
 +    }
 +    pub fn finish_request(&self) {
 +        self.streaming
@@ -833,9 +868,7 @@ index b1b7e3c..af1ff0f 100644
 +    }
 +}
 +impl std::ops::DerefMut for ManagedClient {
-+    fn deref_mut(&mut self) -> &mut Self::Target {
-+        self.client.as_mut().expect("owned client")
-+    }
++    fn deref_mut(&mut self) -> &mut Self::Target { self.client.as_mut().expect("owned client") }
 +}
  impl bb8::ManageConnection for ConnectionManager {
 -    type Connection = tokio_postgres::Client;
@@ -846,8 +879,9 @@ index b1b7e3c..af1ff0f 100644
 +    async fn connect(&self) -> std::result::Result<ManagedClient, ConnectionManagerError> {
 +        if let Some(bound) = &self.bound {
 +            use std::sync::atomic::Ordering;
++            if !bound.state.ready() { return Err(ConnectionManagerError::Lost); }
 +            if bound.remaining.fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| n.checked_sub(1)).is_err() {
-+                bound.lost.store(true, Ordering::Release);
++                bound.state.lose();
 +                return Err(ConnectionManagerError::Lost);
 +            }
 +        }
@@ -860,7 +894,7 @@ index b1b7e3c..af1ff0f 100644
          let (client, connection) = if let Some(provider) = &self.password_provider {
              let password = provider
                  .get_password()
-@@ -201,39 +369,203 @@ impl bb8::ManageConnection for ConnectionManager {
+@@ -201,39 +406,258 @@ impl bb8::ManageConnection for ConnectionManager {
          } else {
              self.config.connect(self.tls.clone()).await?
          };
@@ -881,11 +915,15 @@ index b1b7e3c..af1ff0f 100644
 +            connection_task: task.abort_handle(),
 +            metrics: self.metrics.clone(),
 +            streaming: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
-+            lost: self.bound.as_ref().map(|bound| bound.lost.clone()),
++            state: self.bound.as_ref().map(|bound| bound.state.clone()),
 +        };
 +        configure_session(&managed).await?;
 +        if let Some(bound) = &self.bound {
 +            bound.binder.bind(&managed).await.map_err(ConnectionManagerError::Bind)?;
++            bound.state.connections.lock().expect("connection registry").push(ConnectionEnd {
++                cancel: managed.cancel_token(),
++                task: managed.connection_task.clone(), tls: managed.tls.clone(), streaming: managed.streaming.clone(),
++            });
 +        }
 +        Ok(managed)
      }
@@ -918,7 +956,7 @@ index b1b7e3c..af1ff0f 100644
      join_push_down: JoinPushDown,
      unsupported_type_action: UnsupportedTypeAction,
      io_handle: Option<Handle>,
-+    lost: Option<Arc<std::sync::atomic::AtomicBool>>,
++    state: Option<Arc<BoundState>>,
 +    drain_timeout: std::time::Duration,
  }
  
@@ -977,7 +1015,7 @@ index b1b7e3c..af1ff0f 100644
 +            join_push_down,
 +            unsupported_type_action: UnsupportedTypeAction::Error,
 +            io_handle: None,
-+            lost: None,
++            state: None,
 +            drain_timeout: std::time::Duration::from_secs(2),
 +        })
 +    }
@@ -1013,12 +1051,13 @@ index b1b7e3c..af1ff0f 100644
 +        };
 +        let tls = get_tls_connector(ssl_mode, certs)?;
 +        let join_push_down = get_join_context(&config);
-+        let lost = Arc::new(std::sync::atomic::AtomicBool::new(false));
++        let state = Arc::new(BoundState { health: std::sync::atomic::AtomicU8::new(0),
++            connections: Default::default(), close: Default::default(), binder: binder.clone() });
 +        let mut manager = ConnectionManager::new(config, MakeTlsConnector::new(tls), limits.connections);
 +        manager.bound = Some(Bound {
 +            binder,
 +            remaining: std::sync::atomic::AtomicU32::new(limits.connections),
-+            lost: lost.clone(),
++            state: state.clone(),
 +        });
 +        let metrics = manager.metrics.clone();
 +        let pool = bb8::Pool::builder()
@@ -1031,8 +1070,8 @@ index b1b7e3c..af1ff0f 100644
 +            .build(manager)
 +            .await
 +            .map_err(map_pool_build_error)?;
-+        let state = pool.state();
-+        if state.connections != limits.connections || lost.load(std::sync::atomic::Ordering::Acquire) {
++        let counts = pool.state();
++        if counts.connections != limits.connections || !state.ready() {
 +            return BoundPoolLostSnafu.fail();
 +        }
 +        Ok(Self {
@@ -1041,7 +1080,7 @@ index b1b7e3c..af1ff0f 100644
 +            join_push_down,
 +            unsupported_type_action: UnsupportedTypeAction::Error,
 +            io_handle: None,
-+            lost: Some(lost),
++            state: Some(state),
 +            drain_timeout: limits.drain_timeout,
 +        })
 +    }
@@ -1049,8 +1088,13 @@ index b1b7e3c..af1ff0f 100644
 +    /// Whether a bound pool can still serve reads, and its connection counts. An unbound pool
 +    /// is never lost.
 +    pub fn health(&self) -> PoolHealth {
-+        if self.is_lost() {
-+            return PoolHealth::Lost;
++        if let Some(state) = &self.state {
++            match state.health.load(std::sync::atomic::Ordering::Acquire) {
++                1 => return PoolHealth::Closing,
++                2 => return PoolHealth::Closed,
++                3 => return PoolHealth::Lost,
++                _ => {}
++            }
 +        }
 +        let state = self.pool.state();
 +        PoolHealth::Ready {
@@ -1060,7 +1104,52 @@ index b1b7e3c..af1ff0f 100644
 +    }
 +
 +    fn is_lost(&self) -> bool {
-+        self.lost.as_ref().is_some_and(|lost| lost.load(std::sync::atomic::Ordering::Acquire))
++        self.state.as_ref().is_some_and(|state| !state.ready())
++    }
++
++    /// Terminal close shared by every retained table and connection. Stop new requests first,
++    /// drain within one deadline, release caller state, and physically close every transport.
++    /// A failed close is terminal loss and still aborts all transports; it never reconnects.
++    pub async fn close(&self) -> Result<()> {
++        use std::sync::atomic::Ordering::{Acquire, Release};
++        let state = self.state.as_ref().ok_or(Error::InvalidParameterError { parameter_name: "close requires a bound pool".into() })?;
++        let _closing = state.close.lock().await;
++        if state.health.load(Acquire) == 2 { return Ok(()); }
++        let mut healthy = state.health.load(Acquire) == 0;
++        state.health.store(1, Release);
++        let connections = state.connections.lock().expect("connection registry").clone();
++        // This guard also makes cancellation of close terminal and closes every transport.
++        struct Closing<'a> { state: &'a BoundState, connections: Vec<ConnectionEnd>, finished: bool }
++        impl Drop for Closing<'_> {
++            fn drop(&mut self) {
++                for connection in &self.connections { connection.task.abort(); }
++                if !self.finished { self.state.health.store(3, std::sync::atomic::Ordering::Release); }
++            }
++        }
++        let mut closing = Closing { state, connections, finished: false };
++        let deadline = tokio::time::Instant::now() + self.drain_timeout;
++        // Ask every active backend to cancel before waiting for checked-out leases. Their
++        // request guards own the acknowledgement and keep their pool slots until it arrives.
++        for connection in &closing.connections {
++            if connection.streaming.load(Acquire) {
++                let cancelled = tokio::time::timeout_at(deadline, connection.cancel.cancel_query(connection.tls.clone())).await;
++                healthy &= matches!(cancelled, Ok(Ok(())));
++            }
++        }
++        let mut held = Vec::new();
++        for _ in &closing.connections {
++            match tokio::time::timeout_at(deadline, self.pool.get_owned()).await {
++                Ok(Ok(connection)) => {
++                    healthy &= matches!(tokio::time::timeout_at(deadline, state.binder.release(&connection)).await, Ok(Ok(())));
++                    held.push(connection);
++                }
++                _ => { healthy = false; break; }
++            }
++        }
++        for connection in &closing.connections { connection.task.abort(); }
++        state.health.store(if healthy { 2 } else { 3 }, Release);
++        closing.finished = true;
++        if healthy { Ok(()) } else { BoundPoolLostSnafu.fail() }
 +    }
 +
 +    /// How long a cancelled read on this pool may take to drain.
@@ -1071,7 +1160,7 @@ index b1b7e3c..af1ff0f 100644
      /// Creates a new instance of `PostgresConnectionPool`.
      ///
      /// If a `pass` parameter is present, it is wrapped in a [`StaticPasswordProvider`]
-@@ -386,12 +718,6 @@ impl PostgresConnectionPool {
+@@ -386,12 +810,6 @@ impl PostgresConnectionPool {
  
          let join_push_down = get_join_context(&config);
  
@@ -1084,7 +1173,7 @@ index b1b7e3c..af1ff0f 100644
          let mut connection_pool_size = 10; // The BB8 default is 10
          if let Some(pg_pool_size) = params
              .get("connection_pool_size")
-@@ -402,6 +728,13 @@ impl PostgresConnectionPool {
+@@ -402,6 +820,13 @@ impl PostgresConnectionPool {
              })?;
          }
  
@@ -1098,7 +1187,7 @@ index b1b7e3c..af1ff0f 100644
          let pool = bb8::Pool::builder()
              .max_size(connection_pool_size)
              .error_sink(Box::new(error_sink))
-@@ -418,10 +751,13 @@ impl PostgresConnectionPool {
+@@ -418,10 +843,13 @@ impl PostgresConnectionPool {
          }
  
          Ok(PostgresConnectionPool {
@@ -1107,12 +1196,12 @@ index b1b7e3c..af1ff0f 100644
              join_push_down,
              unsupported_type_action: UnsupportedTypeAction::default(),
              io_handle: None,
-+            lost: None,
++            state: None,
 +            drain_timeout: std::time::Duration::from_secs(2),
          })
      }
  
-@@ -445,6 +781,9 @@ impl PostgresConnectionPool {
+@@ -445,6 +873,9 @@ impl PostgresConnectionPool {
      ///
      /// Returns an error if there is a problem creating the connection pool.
      pub async fn connect_direct(&self) -> Result<PostgresConnection> {
@@ -1122,7 +1211,15 @@ index b1b7e3c..af1ff0f 100644
          let pool = Arc::clone(&self.pool);
          let conn = if let Some(handle) = &self.io_handle {
              handle
-@@ -551,6 +890,8 @@ fn map_pool_build_error(e: ConnectionManagerError) -> Error {
+@@ -454,6 +885,7 @@ impl PostgresConnectionPool {
+         } else {
+             pool.get_owned().await.map_err(map_pool_run_error)?
+         };
++        if self.is_lost() { return BoundPoolLostSnafu.fail(); }
+         Ok(PostgresConnection::new(conn))
+     }
+ }
+@@ -551,6 +983,8 @@ fn map_pool_build_error(e: ConnectionManagerError) -> Error {
      match e {
          ConnectionManagerError::Postgres(e) => Error::ConnectionPoolError { source: e },
          ConnectionManagerError::PasswordProvider(e) => Error::PasswordProviderError { source: e },
@@ -1131,7 +1228,7 @@ index b1b7e3c..af1ff0f 100644
      }
  }
  
-@@ -562,6 +903,8 @@ fn map_pool_run_error(e: bb8::RunError<ConnectionManagerError>) -> Error {
+@@ -562,6 +996,8 @@ fn map_pool_run_error(e: bb8::RunError<ConnectionManagerError>) -> Error {
          bb8::RunError::User(ConnectionManagerError::PasswordProvider(e)) => {
              Error::PasswordProviderError { source: e }
          }
@@ -1140,7 +1237,7 @@ index b1b7e3c..af1ff0f 100644
          bb8::RunError::TimedOut => Error::ConnectionPoolRunError {
              source: bb8::RunError::TimedOut,
          },
-@@ -750,3 +1093,39 @@ mod tests {
+@@ -750,3 +1186,39 @@ mod tests {
          assert_eq!(config.get_application_name(), None);
      }
  }
@@ -1179,4 +1276,123 @@ index b1b7e3c..af1ff0f 100644
 +            .is_err());
 +        }
 +    }
++}
+diff --git a/crates/postgres/tests/bound_lifecycle.rs b/crates/postgres/tests/bound_lifecycle.rs
+new file mode 100644
+index 0000000..d704a58
+--- /dev/null
++++ b/crates/postgres/tests/bound_lifecycle.rs
+@@ -0,0 +1,113 @@
++//! Real PostgreSQL controls for terminal bound pools. PROVIDER_TEST_URL is a disposable/local
++//! operator database; each control creates and removes its own uniquely named lock table.
++use std::{sync::{Arc, atomic::{AtomicUsize, Ordering}}, time::Duration};
++use arrow_schema::{Schema, Field, DataType};
++use async_trait::async_trait;
++use datafusion_table_providers_postgres::{pool::{PostgresConnectionPool, SessionBinder, BoundLimits, PoolHealth}, bounded::ChunkLimits};
++use futures::TryStreamExt;
++use datafusion::execution::memory_pool::{MemoryPool, MemoryConsumer, GreedyMemoryPool};
++use tokio_postgres::{Client, Config, NoTls};
++
++#[derive(Debug, Default)]
++struct Binding { acquired: AtomicUsize, released: AtomicUsize }
++#[async_trait]
++impl SessionBinder for Binding {
++    async fn bind(&self, client: &Client) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
++        client.batch_execute("SELECT pg_advisory_lock_shared(190930003)").await?;
++        self.acquired.fetch_add(1, Ordering::SeqCst);
++        Ok(())
++    }
++    async fn release(&self, client: &Client) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
++        let released: bool = client.query_one("SELECT pg_advisory_unlock_shared(190930003)", &[]).await?.get(0);
++        if !released { return Err("lease was not held".into()); }
++        self.released.fetch_add(1, Ordering::SeqCst);
++        Ok(())
++    }
++}
++fn config() -> Config { std::env::var("PROVIDER_TEST_URL").expect("PROVIDER_TEST_URL required").parse().expect("PostgreSQL config") }
++fn limits() -> BoundLimits { BoundLimits { connections: 1, acquire_timeout: Duration::from_secs(3), drain_timeout: Duration::from_secs(2) } }
++fn schema() -> Arc<Schema> { Arc::new(Schema::new(vec![Field::new("n", DataType::Int64, false)])) }
++
++#[tokio::test]
++async fn close_is_terminal_for_retained_pools_and_releases_each_lease_once() {
++    let binding = Arc::new(Binding::default());
++    let pool = Arc::new(PostgresConnectionPool::new_bound(config(), "disable", None, binding.clone(), limits()).await.unwrap());
++    let retained = pool.clone();
++    let rows = pool.connect_direct().await.unwrap().query_arrow_bounded("SELECT 1::bigint AS n", &[], schema(), ChunkLimits::default(), None, limits().drain_timeout).await.unwrap().try_collect::<Vec<_>>().await.unwrap();
++    assert_eq!(rows[0].num_rows(), 1);
++    pool.close().await.unwrap();
++    assert_eq!(retained.health(), PoolHealth::Closed);
++    assert!(retained.connect_direct().await.is_err());
++    retained.close().await.unwrap();
++    assert_eq!(binding.acquired.load(Ordering::SeqCst), 1);
++    assert_eq!(binding.released.load(Ordering::SeqCst), 1);
++}
++
++#[tokio::test]
++async fn cancellation_before_row_stream_creation_drains_without_replacing_the_connection() {
++    let (client, connection) = config().connect(NoTls).await.unwrap();
++    let driver = tokio::spawn(connection);
++    let name = format!("provider_early_cancel_{}", client.query_one("SELECT pg_backend_pid()", &[]).await.unwrap().get::<_,i32>(0));
++    client.batch_execute(&format!("CREATE TABLE {name}(n bigint NOT NULL)")).await.unwrap();
++    client.batch_execute(&format!("BEGIN; LOCK TABLE {name} IN ACCESS EXCLUSIVE MODE")).await.unwrap();
++    let binding = Arc::new(Binding::default());
++    let pool = PostgresConnectionPool::new_bound(config(), "disable", None, binding.clone(), limits()).await.unwrap();
++    let connection = pool.connect_direct().await.unwrap();
++    let sql = format!("SELECT n FROM {name}");
++    let memory: Arc<dyn MemoryPool> = Arc::new(GreedyMemoryPool::new(1 << 20));
++    let reservation = MemoryConsumer::new("cancelled-scan").register(&memory);
++    reservation.try_grow(4096).unwrap();
++    let future = connection.query_arrow_bounded(&sql, &[], schema(), ChunkLimits::default(), Some(reservation), limits().drain_timeout);
++    assert!(tokio::time::timeout(Duration::from_millis(100), future).await.is_err());
++    assert_eq!(memory.reserved(), 4096, "dropped future retains its charge in the queued drain");
++    client.batch_execute("ROLLBACK").await.unwrap();
++    for _ in 0..100 {
++        if matches!(pool.health(), PoolHealth::Ready { idle: 1, .. }) { break; }
++        tokio::time::sleep(Duration::from_millis(20)).await;
++    }
++    assert!(matches!(pool.health(), PoolHealth::Ready { connections: 1, idle: 1 }));
++    assert_eq!(memory.reserved(), 0, "confirmed drain releases its reservation");
++    let rows = pool.connect_direct().await.unwrap().query_arrow_bounded("SELECT 2::bigint AS n", &[], schema(), ChunkLimits::default(), None, limits().drain_timeout).await.unwrap().try_collect::<Vec<_>>().await.unwrap();
++    assert_eq!(rows[0].num_rows(), 1);
++    assert_eq!(binding.acquired.load(Ordering::SeqCst), 1);
++    pool.close().await.unwrap();
++    client.batch_execute(&format!("DROP TABLE IF EXISTS {name}")).await.unwrap();
++    driver.abort();
++}
++
++#[tokio::test]
++async fn failed_bounded_drain_aborts_transport_without_a_second_drain() {
++    let (client, connection) = config().connect(NoTls).await.unwrap();
++    let driver = tokio::spawn(connection);
++    let name = format!("provider_failed_drain_{}", client.query_one("SELECT pg_backend_pid()", &[]).await.unwrap().get::<_,i32>(0));
++    client.batch_execute(&format!("CREATE TABLE {name}(n bigint NOT NULL)")).await.unwrap();
++    client.batch_execute(&format!("BEGIN; LOCK TABLE {name} IN ACCESS EXCLUSIVE MODE")).await.unwrap();
++    let pool = PostgresConnectionPool::new_bound(config(), "disable", None, Arc::new(Binding::default()), limits()).await.unwrap();
++    let connection = pool.connect_direct().await.unwrap();
++    let pid: i32 = connection.conn.query_one("SELECT pg_backend_pid()", &[]).await.unwrap().get(0);
++    let memory: Arc<dyn MemoryPool> = Arc::new(GreedyMemoryPool::new(1 << 20));
++    let reservation = MemoryConsumer::new("failed-drain").register(&memory);
++    reservation.try_grow(4096).unwrap();
++    let sql = format!("SELECT n FROM {name}");
++    let future = connection.query_arrow_bounded(&sql, &[], schema(), ChunkLimits::default(), Some(reservation), Duration::ZERO);
++    assert!(tokio::time::timeout(Duration::from_millis(100), future).await.is_err());
++    assert_eq!(memory.reserved(), 4096);
++    tokio::time::timeout(Duration::from_secs(1), async {
++        loop {
++            if pool.health() == PoolHealth::Lost && memory.reserved() == 0 { break; }
++            tokio::task::yield_now().await;
++        }
++    }).await.unwrap();
++    assert!(pool.connect_direct().await.is_err());
++    // Release the server lock so it can observe the already-aborted client socket.
++    client.batch_execute("ROLLBACK").await.unwrap();
++    tokio::time::timeout(Duration::from_secs(1), async {
++        loop {
++            let alive: bool = client.query_one("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE pid=$1)", &[&pid]).await.unwrap().get(0);
++            if !alive { break; }
++            tokio::time::sleep(Duration::from_millis(10)).await;
++        }
++    }).await.unwrap();
++    client.batch_execute(&format!("DROP TABLE {name}")).await.unwrap();
++    driver.abort();
 +}

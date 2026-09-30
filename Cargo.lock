@@ -2265,7 +2265,7 @@ dependencies = [
 [[package]]
 name = "datafusion-table-providers-common"
 version = "0.13.1"
-source = "git+https://github.com/paul-heyse/datafusion-table-providers?rev=09cc8a8f7e5401ad4424e47247e17f5b74cbe86b#09cc8a8f7e5401ad4424e47247e17f5b74cbe86b"
+source = "git+https://github.com/paul-heyse/datafusion-table-providers?rev=a41da224caf9cae4feff48764d5f6df5ffcb4933#a41da224caf9cae4feff48764d5f6df5ffcb4933"
 dependencies = [
  "arrow",
  "arrow-json",
@@ -2299,7 +2299,7 @@ dependencies = [
 [[package]]
 name = "datafusion-table-providers-postgres"
 version = "0.13.1"
-source = "git+https://github.com/paul-heyse/datafusion-table-providers?rev=09cc8a8f7e5401ad4424e47247e17f5b74cbe86b#09cc8a8f7e5401ad4424e47247e17f5b74cbe86b"
+source = "git+https://github.com/paul-heyse/datafusion-table-providers?rev=a41da224caf9cae4feff48764d5f6df5ffcb4933#a41da224caf9cae4feff48764d5f6df5ffcb4933"
 dependencies = [
  "arrow",
  "arrow-json",

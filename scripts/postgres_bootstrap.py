@@ -122,7 +122,7 @@ def configurations(passwords: Mapping[str, str], port: int) -> dict[str, dict]:
         "postgres-admin.json": {"migration_url": url("lctx_migrator")},
     }
     # The reader keeps two of its connections for generation-bound provider sessions (T13).
-    for role, connections, provider in [("importer", 2, 0), ("serving", 6, 2)]:
+    for role, connections, provider in [("importer", 10, 8), ("serving", 6, 2)]:
         result[f"postgres-{role}.json"] = {
             "format": 1,
             "role": role,

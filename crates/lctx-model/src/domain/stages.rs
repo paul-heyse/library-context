@@ -75,7 +75,13 @@ pub struct RelationUse {
     pub(crate) type_id: TypeId,
     name: &'static str,
     transport: InputTransport,
+    requirement: Option<InputRequirement>,
+    validators: &'static [&'static str],
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AvailabilityPolicy { RequireComplete, ObserveAvailability }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InputRequirement { pub group: FactFamily, pub policy: AvailabilityPolicy }
 /// Declared once with each input. A store read creates a dependency without retaining batches.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InputTransport { Handoff, CompletedStore }
@@ -85,6 +91,8 @@ impl RelationUse {
             type_id: TypeId::of::<R>(),
             name: R::NAME,
             transport: InputTransport::Handoff,
+            requirement: None,
+            validators: &[],
         }
     }
     pub fn name(self) -> &'static str {
@@ -94,12 +102,21 @@ impl RelationUse {
         Self { transport: InputTransport::CompletedStore, ..Self::of::<R>() }
     }
     pub fn transport(self) -> InputTransport { self.transport }
+    pub fn availability(mut self, group: FactFamily, policy: AvailabilityPolicy) -> Self {
+        self.requirement = Some(InputRequirement { group, policy }); self
+    }
+    pub fn requirement(self) -> Option<InputRequirement> { self.requirement }
+    pub fn validated_by(mut self, validators: &'static [&'static str]) -> Self {
+        self.validators = validators; self
+    }
     /// The use of a declared relation, for schedules built from a relation list.
     pub fn of_relation(relation: &super::Relation) -> Self {
         Self {
             type_id: relation.type_id(),
             name: relation.name(),
             transport: InputTransport::Handoff,
+            requirement: None,
+            validators: &[],
         }
     }
 }
@@ -120,6 +137,19 @@ pub struct Stage {
     pub configuration: ContentHash,
 }
 impl Stage {
+    /// Required checks come from relation owners plus explicitly named shared input checks.
+    /// A stage cannot opt out of its stored relation's own invariants.
+    pub fn read_invariants<'m>(&self, model: &'m ValidatedModel) -> Result<Vec<&'m super::Invariant>, ModelError> {
+        let mut names = BTreeSet::new();
+        for input in self.inputs.iter().filter(|i| i.transport == InputTransport::CompletedStore) {
+            let relation = model.relations().iter().find(|r| r.name() == input.name)
+                .ok_or_else(|| ModelError::Invalid("undeclared stored input".into()))?;
+            names.extend(relation.invariants().iter().map(|i| i.name));
+            names.extend(input.validators.iter().copied());
+        }
+        names.into_iter().map(|name| model.invariants().iter().find(|i| i.name == name)
+            .ok_or_else(|| ModelError::Invalid(format!("unknown shared input invariant {name}")))).collect()
+    }
     pub fn reads<R: Record>(&self) -> bool {
         self.inputs.iter().any(|r| r.type_id == TypeId::of::<R>())
     }
@@ -154,6 +184,16 @@ impl Stage {
                 InputTransport::Handoff => b"handoff",
                 InputTransport::CompletedStore => b"completed-store",
             });
+            if let Some(requirement) = input.requirement {
+                requirement.group.encode(digest);
+                digest.part(b"availability", match requirement.policy {
+                    AvailabilityPolicy::RequireComplete => b"require-complete",
+                    AvailabilityPolicy::ObserveAvailability => b"observe-availability",
+                });
+            }
+            let mut validators = input.validators.to_vec();
+            validators.sort_unstable();
+            for validator in validators { digest.part(b"input-validator", validator.as_bytes()); }
         }
         for name in writes {
             digest.part(b"write", name.as_bytes());
@@ -231,6 +271,12 @@ impl Schedule {
             }
             if stage.outputs.iter().chain(&stage.contributes).any(|r| r.transport != InputTransport::Handoff) {
                 return Err(ModelError::Invalid("store transport applies only to inputs".into()));
+            }
+            let mut groups = BTreeMap::new();
+            for requirement in stage.inputs.iter().filter_map(|input| input.requirement) {
+                if groups.insert(requirement.group, requirement.policy).is_some_and(|old| old != requirement.policy) {
+                    return Err(ModelError::Invalid("one availability policy is required per semantic input group".into()));
+                }
             }
             if !names.insert(stage.name) {
                 return Err(ModelError::Invalid(format!(
@@ -315,6 +361,15 @@ impl Schedule {
         let mut readers = HashMap::new();
         let mut contributed = HashSet::new();
         for (i, stage) in stages.iter().enumerate() {
+            // Invariant inputs are part of the declaration's input closure. Native handoffs
+            // keep their existing boundary; completed-store consumers declare every premise.
+            for invariant in stage.read_invariants(model)? {
+                for input in &invariant.inputs {
+                    if let Some(writer) = writers.get(&input.type_id()) {
+                        dependencies.get_mut(&i).expect("stage index").insert(*writer);
+                    }
+                }
+            }
             for r in &stage.inputs {
                 let writer = writers
                     .get(&r.type_id)
@@ -563,6 +618,7 @@ pub struct StageIdentity {
     stage: &'static str,
 }
 impl StageIdentity {
+    pub fn stage(self) -> &'static str { self.stage }
     pub fn attempt(self) -> AttemptIdentity {
         self.attempt
     }
@@ -573,6 +629,7 @@ pub struct ReadPermit<'a, R> {
     identity: StageIdentity,
     transport: InputTransport,
     source: Option<CompletedRelation>,
+    requirement: Option<InputRequirement>,
     marker: std::marker::PhantomData<&'a R>,
 }
 pub struct WritePermit<'a, R> {
@@ -582,6 +639,7 @@ pub struct WritePermit<'a, R> {
     marker: std::marker::PhantomData<&'a R>,
 }
 impl<R: Record> ReadPermit<'_, R> {
+    pub fn requirement(&self) -> Option<InputRequirement> { self.requirement }
     pub fn transport(&self) -> InputTransport { self.transport }
     pub fn source(&self) -> Option<&CompletedRelation> { self.source.as_ref() }
     pub fn identity(&self) -> StageIdentity {
@@ -631,6 +689,11 @@ impl StageAccess<'_, '_> {
     pub fn stage(&self) -> &Stage {
         self.stage
     }
+    pub fn stored_sources(&self) -> Result<Vec<CompletedRelation>, ModelError> {
+        self.stage.inputs.iter().filter(|r| r.transport == InputTransport::CompletedStore).map(|r| {
+            self.execution.sources.get(r.name).cloned().ok_or_else(|| ModelError::Invalid(format!("{} lacks a completed source", r.name)))
+        }).collect()
+    }
     /// Every declared input's handed-off batches.
     pub fn handoffs(&self) -> Result<Handoffs, ModelError> {
         if self.execution.failed {
@@ -671,6 +734,7 @@ impl StageAccess<'_, '_> {
             identity: self.identity(),
             transport: input.transport,
             source,
+            requirement: input.requirement,
             marker: std::marker::PhantomData,
         })
     }

@@ -49,6 +49,7 @@ impl Relation {
     pub fn family(&self) -> Option<super::attribution::FactFamily> {
         self.family
     }
+    pub fn invariants(&self) -> &[Invariant] { &self.invariants }
     pub fn sum(&self) -> Option<&super::Sum> {
         self.sum.as_ref()
     }
@@ -455,6 +456,7 @@ pub struct ValidationInput {
     order: Vec<&'static str>,
 }
 impl ValidationInput {
+    pub fn type_id(&self) -> TypeId { self.type_id }
     pub fn name(&self) -> &'static str {
         self.name
     }

@@ -18,6 +18,8 @@ use super::{
     *,
 };
 use std::collections::{BTreeMap, BTreeSet};
+mod availability;
+pub use availability::{CoverageEvidence, ScopedAvailability};
 
 /// What a generation can answer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -610,6 +612,7 @@ pub struct FrontierAdmission {
     content: ContentHash,
     profile: Profile,
     availability: BTreeMap<FactFamily, Availability>,
+    scoped: std::sync::Arc<ScopedAvailability>,
 }
 impl FrontierAdmission {
     pub fn frontier(&self) -> Frontier {
@@ -636,6 +639,7 @@ impl FrontierAdmission {
     pub fn availability(&self) -> &BTreeMap<FactFamily, Availability> {
         &self.availability
     }
+    pub fn scoped(&self) -> &std::sync::Arc<ScopedAvailability> { &self.scoped }
 }
 
 /// Reads a sealed generation's inputs, artifacts, their classes and coverage, charged to the
@@ -851,6 +855,7 @@ impl AdmissionCheck {
             coverage: coverage.finish(),
             content,
             profile: contract.profile,
+            scoped: std::sync::Arc::new(ScopedAvailability::validated(&self.rows, &self.scopes, &availability, self.charge.budget().expect("bound admission"))?),
             availability,
         })
     }

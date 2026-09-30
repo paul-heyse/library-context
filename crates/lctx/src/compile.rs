@@ -2,7 +2,6 @@
 use cpg_core::postgres::generations::{GenerationAttempt, GenerationStore};
 use lctx_model::domain::{
     admission::FrontierContract,
-    resources::ResourceBudget,
     stages::{Profile, Schedule},
 };
 use std::{
@@ -38,7 +37,10 @@ pub async fn compile(
     {
         anyhow::bail!("library name must be one normalized path component");
     }
-    let budget = ResourceBudget::fixed(memory_bytes)?;
+    let runtime = cpg_core::model_runtime::AttemptRuntime::new(cpg_core::model_runtime::RuntimeOptions {
+        memory_bytes, ..Default::default()
+    })?;
+    let budget = runtime.budget().clone();
     let library = libraries.join(name);
     let environment = envs.join(name);
     crate::acquire(&library, &environment, false)?;

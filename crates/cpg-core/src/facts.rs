@@ -2,6 +2,7 @@
 //! provider that declares it, into one attempt's sink. The providers are exactly the schedule's
 //! stages for its profile, and each declaration equals its scheduled stage; anything else is
 //! refused before any stage runs. Ambient analyzer configuration is refused first.
+use crate::stage_runtime::{StageMeasurement, run_declared_stage};
 use cpg_extract::bundle::{self, CapturedInputs, ProviderStage};
 use lctx_model::domain::{
     ModelError, ValidatedModel,
@@ -20,27 +21,6 @@ pub async fn compile_facts<S: StageSink + 'static>(
     budget: &ResourceBudget,
 ) -> Result<ExecutionReceipt, ModelError> {
     compile_facts_measured(execution, providers, sink, model, captured, budget, |_| {}).await
-}
-/// Operational telemetry is outside all semantic records and content digests.
-#[derive(Debug, serde::Serialize)]
-pub struct StageMeasurement {
-    pub stage: &'static str,
-    pub elapsed_ms: u128,
-    pub sampled_peak_rss_bytes: Option<usize>,
-    pub outcome: &'static str,
-}
-fn process_rss() -> Option<usize> {
-    let status = std::fs::read_to_string("/proc/self/status").ok()?;
-    status.lines().find_map(|line| {
-        line.strip_prefix("VmRSS:").and_then(|value| {
-            value
-                .split_whitespace()
-                .next()?
-                .parse::<usize>()
-                .ok()?
-                .checked_mul(1024)
-        })
-    })
 }
 pub async fn compile_facts_measured<S: StageSink + 'static>(
     mut execution: Execution<'_>,
@@ -85,36 +65,11 @@ pub async fn compile_facts_measured<S: StageSink + 'static>(
             profile.name()
         )));
     }
-    for (name, provider) in ordered {
-        let access = execution.begin(name)?;
-        let started = std::time::Instant::now();
-        let mut peak = process_rss();
-        let work = bundle::run_stage(
-            provider,
-            access,
-            sink,
-            model,
-            captured,
-            budget,
-            TransferLimits::default(),
-        );
-        tokio::pin!(work);
-        let result = loop {
-            tokio::select! {
-                result=&mut work=>break result,
-                _=tokio::time::sleep(std::time::Duration::from_millis(20))=>{if let Some(rss)=process_rss() {peak=Some(peak.unwrap_or(0).max(rss));}},
-            }
-        };
-        if let Some(rss) = process_rss() {
-            peak = Some(peak.unwrap_or(0).max(rss));
-        }
-        observe(StageMeasurement {
-            stage: name,
-            elapsed_ms: started.elapsed().as_millis(),
-            sampled_peak_rss_bytes: peak,
-            outcome: if result.is_ok() { "passed" } else { "failed" },
-        });
-        result?;
+    for (_name, provider) in ordered {
+        let declaration = provider.declaration(profile);
+        run_declared_stage(&mut execution, &declaration, async move |access| {
+            bundle::run_stage(provider, access, sink, model, captured, budget, TransferLimits::default()).await
+        }, &mut observe).await?;
     }
     execution.finish()
 }

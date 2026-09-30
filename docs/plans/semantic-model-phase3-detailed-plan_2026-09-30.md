@@ -709,16 +709,16 @@ required ownership, lost alternatives, unhandled availability or unbounded failu
 **2026-09-30: implementation started.** The independent assembled review is **Accept scoped**, at Proposed
 strength: A1–A3 satisfied; G1–G8 and CI-G1/CI-G3 pass; served-claim CI-G2 is outside this P3 scope.
 D0's design review and adoption of ADR-0101/0102 are complete. The independent expected-answer
-and deletion inventories in §§9–10 govern the implementation. R1/R2 foundations are implemented; R3 is in progress; N1–Q are
-not started. No implementation finding is closed by decision acceptance.
+and deletion inventories in §§9–10 govern the implementation. R1–R3 foundations are implemented and independently accepted within their scope; N1 is in progress. N2–Q are not started. No implementation finding is closed by decision acceptance.
 
 | Package | State and bounded receipt |
 |---|---|
 | D0 | Accepted ADR-0101/0102 and retained the independently reviewed design and migration inventory; 2026-09-30. |
 | R1 | Implemented: model-owned frontier closure/validators/selectability and generic `FrontierAdmission`; store dispatch removed. Passed `cargo check -p lctx-model -p lctx-postgres` and release `domain_admission` (10) + `generation_stages` (1), through the build-environment wrapper, 2026-09-30. Normalized declaration/admission activates only with N7. |
 | R2 | Implemented: acknowledged atomic completion, content receipts, input transports, private completed handles and shared-validator checkpoint. Control-schema migration. Passed release `domain_memory`, `domain_resources`, `domain_stages`, `generation_stages`, `stage_reads` (direct-write race, cancellation, atomic rollback) and native `stage_checkpoint`; commands through `scripts/build_environment.py --`, 2026-09-30. Foundation review follows R3. |
-| R3 | In progress: provider fork terminal close/early drain; attempt readers and query admission follow. |
-| N1–Q | Not started. |
+| R3 | Implemented / focused-Tested, 2026-09-30: private attempt reads, scoped availability, invariant/reference eligibility receipts, whole physical-scan admission, charged prepared results/source lifetimes, terminal drain/close, shared runtime/coordinator, importer capacity. Release `domain_admission` (10), `stage_checkpoint` (1), `generation_read` (11), `model_runtime` (3), `stage_validation` (1 with three cases) passed; fork `bound_lifecycle` (3) passed; exact fork `a41da22` root reader suite (11) passed. Commands use the build-environment wrapper. `just build-features` passed with no changes. [Foundation review](../design_review/reviews/design_review_phase3-foundation_2026-09-30.md): Accept scoped after F01/F02/O1 corrections. Full pin/phase gates remain Q. |
+| N1 | In progress: nominal entity contracts and pure correspondence/owner operations; native function-origin fidelity refinement. Compile checks only so far; stage wiring, invariants and independent semantic controls remain. |
+| N2–Q | Not started. |
 
 The [assembled design review](../design_review/reviews/design_review_phase3-plan_2026-09-30.md)
 owns dated evidence for these new findings; this table owns their current disposition.
@@ -727,6 +727,9 @@ owns dated evidence for these new findings; this table owns their current dispos
 |---|---|---|
 | [Phase 3 plan F01](../design_review/reviews/design_review_phase3-plan_2026-09-30.md#F01) | Closed as a design gap by static reinspection, 2026-09-30: §4.3 requires effective-invocation/body authority and a total Bound/ProvenIncompatible/Undetermined variant-set assessment. | N3/N5/Q; wrapper and unknown-variant negative controls not_run. |
 | [Phase 3 plan F02](../design_review/reviews/design_review_phase3-plan_2026-09-30.md#F02) | Closed as a design gap by static reinspection, 2026-09-30: §4.3 replaces raw provider-symbol equality with private normalized `ApplicableSignature` premises, retaining the sole shape algorithm and original attribution. | N5/Q; cross-provider positive and foreign-entity/context negatives not_run. |
+| [Foundation F01](../design_review/reviews/design_review_phase3-foundation_2026-09-30.md#F01) | Corrected and focused-Tested: source-bound read capability requires owned and declared shared invariants plus nominal closure over frozen/checkpoint premises; durable receipts are checked by every connection. | Closed at R3; normalized stages must declare complete shared input premises. |
+| [Foundation F02](../design_review/reviews/design_review_phase3-foundation_2026-09-30.md#F02) | Corrected and focused-Tested: prepared plans and streams retain source provider/batch reservation owners after session and stage finish. | Closed at R3; detached handoff control passed. |
+| Foundation O1 (same review) | Corrected and focused-Tested: fork lease retains reservation through drain; failed bounded drain aborts transport without a second uncharged drain. | Closed at R3; confirmed and failed drain controls passed at `a41da22`. |
 
 | Existing finding/obligation | P3 package and closure evidence | Current disposition owner |
 |---|---|---|

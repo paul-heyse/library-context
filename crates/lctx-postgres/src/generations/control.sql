@@ -56,6 +56,13 @@ CREATE TABLE {control}.stage_receipts (
     PRIMARY KEY(generation_id,stage_name,relation_name)
 );
 -- The outputs an attempt's schedule declares; publication requires exactly these stage receipts.
+CREATE TABLE {control}.stage_read_checks (
+    generation_id bytea NOT NULL REFERENCES {control}.generations(id),
+    consumer text NOT NULL,
+    check_name text NOT NULL,
+    input_digest bytea NOT NULL CHECK(octet_length(input_digest)=32),
+    PRIMARY KEY(generation_id,consumer,check_name)
+);
 CREATE TABLE {control}.planned_outputs (
     generation_id bytea NOT NULL REFERENCES {control}.generations(id),
     stage_name text NOT NULL,
@@ -119,4 +126,7 @@ REVOKE ALL ON ALL TABLES IN SCHEMA {control} FROM PUBLIC;
 GRANT USAGE ON SCHEMA {control} TO lctx_importer,lctx_serving;
 GRANT SELECT ON {control}.generations TO lctx_importer;
 GRANT SELECT ON {control}.installation TO lctx_importer;
+GRANT SELECT ON {control}.stage_receipts TO lctx_importer;
+GRANT SELECT ON {control}.checkpoints TO lctx_importer;
+GRANT SELECT ON {control}.stage_read_checks TO lctx_importer;
 GRANT SELECT ON ALL TABLES IN SCHEMA {control} TO lctx_serving;

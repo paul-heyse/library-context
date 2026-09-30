@@ -8,6 +8,7 @@ mod lease;
 mod lifecycle;
 pub(crate) mod locks;
 mod receipts;
+mod stage_validation;
 mod verify;
 use arrow_array::RecordBatch;
 use bytes::BytesMut;
@@ -22,7 +23,7 @@ use lctx_model::domain::{
     Batch, ContentHash, Infrastructure, ModelError, Record, Relation, ValidatedModel,
     admission::Frontier,
 };
-pub use lease::{Held, LeaseContract, LeaseDriver, LeaseParam};
+pub use lease::{AttemptReadContract, Held, LeaseContract, LeaseDriver, LeaseParam};
 pub use lifecycle::{CompletedCheckpoint, GenerationAttempt, SealedAttempt, ValidatedAttempt};
 use pgpq::encoders::{BuildEncoder, Encode, EncoderBuilder};
 use sqlx::{Connection, PgConnection, PgPool, Row, ValueRef};
@@ -669,10 +670,11 @@ fn copy_size(row: &RecordBatch, builders: &[EncoderBuilder]) -> Result<usize, Er
 }
 
 /// The control records a generation owns; cleanup removes them with its schema.
-const CONTROL_RECORDS: [&str; 10] = [
+const CONTROL_RECORDS: [&str; 11] = [
     "receipts",
     "validation_receipts",
     "stage_receipts",
+    "stage_read_checks",
     "planned_outputs",
     "stage_outcomes",
     "checkpoints",

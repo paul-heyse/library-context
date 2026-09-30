@@ -563,9 +563,6 @@ async fn pin_survives_selection_change_and_frontier_is_enforced() {
     let refused = inspection
         .query("SELECT count(*) FROM transfer_keys")
         .await
-        .unwrap()
-        .collect()
-        .await
         .unwrap_err();
     assert!(
         matches!(read_error(&refused), Some(ReadError::Frontier(_))),
@@ -818,84 +815,53 @@ async fn transport_loss_is_terminal() {
 }
 
 #[tokio::test]
-async fn stage_session_registers_generation_table() {
-    use cpg_core::model_runtime::{AttemptRuntime, RuntimeOptions};
+async fn stage_session_reads_only_its_completed_source_and_admits_all_scan_instances() {
+    use cpg_core::{model_runtime::{AttemptRuntime, RuntimeOptions}, generation_read::AttemptSession};
     let db = DisposableDatabase::start().await;
-    let fixture = rich(&db).await;
-    let model = Arc::new(model().unwrap());
-    let session =
-        GenerationSession::open(&serving(&db), model.clone(), fixture.generation, options())
-            .await
-            .unwrap();
-    let schedule = Schedule::build(
-        &model,
-        vec![
-            Stage {
-                name: "source",
-                inputs: vec![],
-                outputs: vec![RelationUse::of::<Package>()],
-                contributes: vec![],
-                coverage: vec![],
-                provider: None,
-                profiles: vec![Profile::Catalog],
-                effect: Effect::Pure,
-                code: ContentHash::of(b"source"),
-                configuration: ContentHash::of(b"cfg"),
-            },
-            Stage {
-                name: "consumer",
-                inputs: vec![RelationUse::of::<Package>()],
-                outputs: vec![RelationUse::of::<Release>()],
-                contributes: vec![],
-                coverage: vec![],
-                provider: None,
-                profiles: vec![Profile::Catalog],
-                effect: Effect::Pure,
-                code: ContentHash::of(b"consumer"),
-                configuration: ContentHash::of(b"cfg"),
-            },
-        ],
-        &[],
-        Profile::Catalog,
-    )
-    .unwrap();
+    let config_dir = tempfile::tempdir().unwrap();
+    db.write_configs(config_dir.path()).unwrap();
+    let mut importer = RoleConfig::load(&config_dir.path().join("postgres-importer.json")).unwrap();
+    let model = Arc::new(ValidatedModel::validate(vec![Relation::of::<Package>(), Relation::of::<Release>()]).unwrap());
+    let store = GenerationStore::install(db.owner.clone(), model.clone()).await.unwrap();
+    let stage = |name, inputs, outputs| Stage { name, inputs, outputs, contributes: vec![], coverage: vec![], provider: None,
+        profiles: vec![Profile::Catalog], effect: Effect::Store, code: ContentHash::of(b"stage reader"), configuration: ContentHash::of(b"config") };
+    let schedule = Schedule::build(&model, vec![
+        stage("source", vec![], vec![RelationUse::of::<Package>()]),
+        stage("consumer", vec![RelationUse::stored::<Package>()], vec![RelationUse::of::<Release>()]),
+    ], &[], Profile::Catalog).unwrap();
     let runtime = AttemptRuntime::new(RuntimeOptions::default()).unwrap();
     let mut execution = schedule.execute();
-    let mut source = execution.begin("source").unwrap();
-    source.write::<Package, _>(async |_| Ok(())).await.unwrap();
-    source
-        .retain(Arc::new(
-            Batch::<Package>::new(&model, vec![], &budget()).unwrap(),
-        ))
-        .unwrap();
-    source.finish(ProviderOutcome::Complete).unwrap();
+    let attempt = store.begin_conformance(db.writer.clone(), &mut execution, runtime.budget().clone()).await.unwrap();
+    let mut source = StageOutput::new(execution.begin("source").unwrap(), &attempt, &model, runtime.budget().clone(), Default::default()).unwrap();
+    source.declare::<Package>().unwrap();
+    for name in ["alpha", "beta", "gamma"] { source.push(Package { name: name.into() }).await.unwrap(); }
+    source.finish(ProviderOutcome::Complete).await.unwrap();
     let consumer = execution.begin("consumer").unwrap();
+    let read = AttemptSession::open(&importer, &attempt, &consumer, model.clone(), options()).await.unwrap();
+    assert!(AttemptSession::open(&importer, &attempt, &consumer, model.clone(), options()).await.is_err(), "one importer provider budget cannot be allocated twice");
+    assert!(AttemptSession::open(&serving(&db), &attempt, &consumer, model.clone(), options()).await.is_err(), "serving cannot read staging outputs");
     let stage = runtime.session(&consumer);
-    stage
-        .register(
-            &consumer.read::<Package>().unwrap(),
-            session.table::<Package>().unwrap(),
-        )
-        .unwrap();
-    let rows = stage
-        .sql("SELECT name FROM packages WHERE name <> 'alpha'")
-        .await
-        .unwrap()
-        .collect()
-        .await
-        .unwrap();
-    assert_eq!(rows.iter().map(RecordBatch::num_rows).sum::<usize>(), 2);
-    assert!(
-        stage
-            .register(
-                &consumer.read::<Package>().unwrap(),
-                session.table::<Package>().unwrap()
-            )
-            .is_err(),
-        "one registration per relation"
-    );
-    drop(consumer);
-    session.close().await.unwrap();
+    let permit = consumer.read::<Package>().unwrap();
+    stage.register(&permit, read.table(&permit).unwrap()).unwrap();
+    assert!(stage.register(&permit, read.table(&permit).unwrap()).is_err());
+    let sql = "SELECT a.name AS a, b.name AS b, c.name AS c FROM packages a JOIN packages b ON a.id=b.id JOIN packages c ON b.id=c.id";
+    let planned = stage.sql(sql).await.unwrap();
+    assert_eq!(planned.scan_demand(), 3, "aliases consume separate physical scans");
+    assert_eq!(planned.collect().await.unwrap().iter().map(RecordBatch::num_rows).sum::<usize>(), 3);
+    read.close().await.unwrap();
+    assert!(stage.sql("SELECT * FROM packages").await.unwrap().collect().await.is_err(), "retained tables cannot read after terminal close");
+    importer.provider_connections = 1;
+    importer.max_connections = 3;
+    let read = AttemptSession::open(&importer, &attempt, &consumer, model.clone(), options()).await.unwrap();
+    let limited = runtime.session(&consumer);
+    limited.register(&permit, read.table(&permit).unwrap()).unwrap();
+    assert!(matches!(limited.sql(sql).await, Err(datafusion::error::DataFusionError::ResourcesExhausted(_))), "whole demand refuses before acquiring one connection");
+    read.close().await.unwrap();
+    drop(permit);
+    let mut output = StageOutput::new(consumer, &attempt, &model, runtime.budget().clone(), Default::default()).unwrap();
+    output.declare::<Release>().unwrap();
+    output.finish(ProviderOutcome::Complete).await.unwrap();
+    attempt.seal(execution.finish().unwrap()).await.unwrap().validate().await.unwrap().abort().await.unwrap();
 }
 
 /// P1.10 review F05: inspection queries run in a bounded pool.

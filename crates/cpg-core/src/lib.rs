@@ -13,6 +13,7 @@ pub mod facts;
 pub mod flow_model;
 pub mod generation_read;
 pub mod model_runtime;
+pub mod stage_runtime;
 pub mod postgres;
 pub mod producer;
 pub mod session;

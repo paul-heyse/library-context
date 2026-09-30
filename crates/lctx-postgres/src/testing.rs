@@ -140,7 +140,7 @@ impl DisposableDatabase {
             serde_json::json!({ "migration_url": self.url("lctx_migrator") }),
         )?;
         for (name, role, connections, provider) in [
-            ("postgres-importer.json", "importer", 2, 0),
+            ("postgres-importer.json", "importer", 10, 8),
             ("postgres-serving.json", "serving", 3, 2),
         ] {
             write(
@@ -673,7 +673,7 @@ pub mod fixtures {
                     }
                     other => panic!("unscheduled stage {other}"),
                 }
-                access.finish(ProviderOutcome::Complete).unwrap();
+                access.complete(&attempt, ProviderOutcome::Complete).await.unwrap();
             }
             (attempt, execution.finish().unwrap())
         }

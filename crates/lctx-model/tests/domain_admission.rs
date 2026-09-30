@@ -775,6 +775,18 @@ fn faithful_coverage_is_admitted_with_disclosed_availability() {
             )
         );
         let availability = admission.availability();
+        let scoped = admission.scoped();
+        assert_eq!(scoped.evidence().len(), rows.len());
+        for row in &rows {
+            let evidence = scoped.evidence().iter().find(|e| e.coverage == row.id()).unwrap();
+            assert_eq!((evidence.scope, evidence.context, evidence.provider), (row.scope, row.context, row.provider));
+            assert!(scoped.scope(evidence.scope).is_some());
+        }
+        assert!(scoped.admit(InputRequirement { group: FactFamily::Syntax, policy: AvailabilityPolicy::RequireComplete }).is_err());
+        assert!(scoped.admit(InputRequirement { group: FactFamily::Syntax, policy: AvailabilityPolicy::ObserveAvailability }).is_ok());
+        assert!(scoped.admit(InputRequirement { group: FactFamily::Docs, policy: AvailabilityPolicy::RequireComplete }).is_ok());
+        assert!(scoped.evidence().iter().any(|r| r.family == FactFamily::Syntax && r.availability == Availability::Unavailable));
+        assert!(scoped.evidence().iter().any(|r| r.family == FactFamily::Syntax && r.availability == Availability::Complete));
         assert_eq!(
             availability[&FactFamily::Syntax],
             Availability::Partial,

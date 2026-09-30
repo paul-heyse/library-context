@@ -83,9 +83,12 @@ impl GenerationStore {
             .await?;
         Ok(GenerationAttempt {
             generation: lifecycle.generation,
+            frontier,
             store: self.clone(),
             lifecycle: tokio::sync::Mutex::new(lifecycle),
             poisoned: std::sync::atomic::AtomicBool::new(false),
+            checkpoint: Mutex::new(None),
+            reader: std::sync::Arc::default(),
             writer,
             identity: Some(execution.identity()),
             schedule: schedule.digest(),
@@ -197,7 +200,10 @@ pub struct GenerationAttempt {
     lifecycle: tokio::sync::Mutex<Lifecycle>,
     store: GenerationStore,
     generation: GenerationId,
+    frontier: Frontier,
     poisoned: std::sync::atomic::AtomicBool,
+    checkpoint: Mutex<Option<FrontierAdmission>>,
+    reader: std::sync::Arc<tokio::sync::Mutex<()>>,
     writer: PgPool,
     /// The execution that owns the attempt; a test harness attempt has none and writes with `put`.
     identity: Option<AttemptIdentity>,
@@ -214,6 +220,38 @@ impl std::fmt::Debug for GenerationAttempt {
     }
 }
 impl GenerationAttempt {
+    pub fn reserve_reader(&self) -> Result<tokio::sync::OwnedMutexGuard<()>, ModelError> {
+        self.reader.clone().try_lock_owned().map_err(|_| ModelError::Invalid("another attempt reader is active or draining".into()))
+    }
+    pub async fn read_contract(&self, stage: &lctx_model::domain::stages::StageAccess<'_, '_>) -> Result<super::lease::AttemptReadContract, ModelError> {
+        if self.identity != Some(stage.identity().attempt()) || self.poisoned.load(std::sync::atomic::Ordering::Acquire) {
+            return Err(ModelError::Invalid("foreign or poisoned attempt reader".into()));
+        }
+        let sources = stage.stored_sources()?;
+        let checkpoint = self.checkpoint.lock().map_err(|_| ModelError::Invalid("checkpoint state poisoned".into()))?.clone();
+        if self.frontier != Frontier::Conformance && checkpoint.is_none() {
+            return Err(ModelError::Invalid("product store reads require the validated facts checkpoint".into()));
+        }
+        for requirement in stage.stage().inputs.iter().filter_map(|input| input.requirement()) {
+            checkpoint.as_ref().ok_or_else(|| ModelError::Invalid("scoped input requires a validated facts checkpoint".into()))?
+                .scoped().admit(requirement)?;
+        }
+        for source in &sources {
+            if source.model() != self.store.model.digest() || source.schedule() != self.schedule
+                || Some(source.identity().attempt()) != self.identity
+                || !self.expected.contains(&(source.producer(), source.relation()))
+            { return Err(ModelError::Invalid("foreign completed source".into())); }
+        }
+        if self.poisoned.swap(true, std::sync::atomic::Ordering::AcqRel) {
+            return Err(ModelError::Invalid("attempt is poisoned".into()));
+        }
+        let mut lifecycle = self.lifecycle.lock().await;
+        let checks = transaction_on(&mut lifecycle.connection, async |tx| {
+            self.store.check_stage_inputs(tx, self.generation, self.schedule, stage.stage(), &sources, checkpoint.as_ref(), &self.budget).await
+        }).await.map_err(ModelError::from)?;
+        self.poisoned.store(false, std::sync::atomic::Ordering::Release);
+        Ok(super::lease::AttemptReadContract::new(self.store.lease_contract(self.generation), stage.identity(), self.schedule, sources, checkpoint, checks))
+    }
     pub fn generation(&self) -> GenerationId {
         self.generation
     }
@@ -231,6 +269,7 @@ impl GenerationAttempt {
         let admission = transaction_on(&mut lifecycle.connection, async |tx| {
             self.store.checkpoint_step(tx, self.generation, &self.budget, &preflight, &receipt).await
         }).await.map_err(ModelError::from)?;
+        *self.checkpoint.lock().map_err(|_| ModelError::Invalid("checkpoint state poisoned".into()))? = Some(admission.clone());
         self.poisoned.store(false, std::sync::atomic::Ordering::Release);
         Ok(CompletedCheckpoint { generation: self.generation, admission })
     }
@@ -523,9 +562,12 @@ mod harness {
                 .await?;
             Ok(GenerationAttempt {
                 generation: lifecycle.generation,
+                frontier: Frontier::Conformance,
                 store: self.clone(),
                 lifecycle: tokio::sync::Mutex::new(lifecycle),
                 poisoned: std::sync::atomic::AtomicBool::new(false),
+                checkpoint: Mutex::new(None),
+                reader: std::sync::Arc::default(),
                 writer,
                 identity: None,
                 schedule,

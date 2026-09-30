@@ -427,6 +427,8 @@ async fn production_import_is_atomic_repeatable_and_selection_is_explicit() {
     let source = empty_source(input.path());
     let mut config = f.config.clone();
     config.role = Role::Importer;
+    config.max_connections = 10;
+    config.provider_connections = 8;
     config.url = config.url.replace("lctx_serving:", "lctx_importer:");
     config.statement_timeout_seconds = 30;
     let store = config.open_importer().await.unwrap();
@@ -548,6 +550,8 @@ async fn published_pilot_import_and_repository_queries() {
     let artifacts = tempfile::tempdir().unwrap();
     let mut config = f.config.clone();
     config.role = Role::Importer;
+    config.max_connections = 10;
+    config.provider_connections = 8;
     config.url = config.url.replace("lctx_serving:", "lctx_importer:");
     config.statement_timeout_seconds = 30;
     let importer = config.open_importer().await.unwrap();
@@ -661,6 +665,8 @@ async fn captured_reference_parity() {
     let artifacts = tempfile::tempdir().unwrap();
     let mut config = f.config.clone();
     config.role = Role::Importer;
+    config.max_connections = 10;
+    config.provider_connections = 8;
     config.url = config.url.replace("lctx_serving:", "lctx_importer:");
     config.statement_timeout_seconds = 30;
     let importer = config.open_importer().await.unwrap();
@@ -715,6 +721,8 @@ async fn exact_ranks_and_profile_isolation() {
     let artifacts = tempfile::tempdir().unwrap();
     let mut config = f.config.clone();
     config.role = Role::Importer;
+    config.max_connections = 10;
+    config.provider_connections = 8;
     config.url = config.url.replace("lctx_serving:", "lctx_importer:");
     config.statement_timeout_seconds = 30;
     let importer = config.open_importer().await.unwrap();
@@ -859,6 +867,8 @@ async fn current_artifact_relocation_and_diagnostics() {
     let second = tempfile::tempdir().unwrap();
     let mut config = f.config.clone();
     config.role = Role::Importer;
+    config.max_connections = 10;
+    config.provider_connections = 8;
     config.url = config.url.replace("lctx_serving:", "lctx_importer:");
     config.statement_timeout_seconds = 30;
     let importer = config.open_importer().await.unwrap();
@@ -928,6 +938,8 @@ async fn interrupted_import_resumes_without_partial_visibility() {
     let artifacts = tempfile::tempdir().unwrap();
     let mut config = f.config.clone();
     config.role = Role::Importer;
+    config.max_connections = 10;
+    config.provider_connections = 8;
     config.url = config.url.replace("lctx_serving:", "lctx_importer:");
     config.statement_timeout_seconds = 30;
     config.lock_timeout_seconds = 30;
@@ -1061,6 +1073,8 @@ async fn publication_refuses_conflicts_and_incomplete_stored_content() {
         }
         let mut config = f.config.clone();
         config.role = Role::Importer;
+    config.max_connections = 10;
+    config.provider_connections = 8;
         config.url = config.url.replace("lctx_serving:", "lctx_importer:");
         config.statement_timeout_seconds = 30;
         let importer = config.open_importer().await.unwrap();
@@ -1134,6 +1148,8 @@ async fn catalog_specificity_import_and_typed_hydration() {
     let artifacts = tempfile::tempdir().unwrap();
     let mut config = f.config.clone();
     config.role = Role::Importer;
+    config.max_connections = 10;
+    config.provider_connections = 8;
     config.statement_timeout_seconds = 30;
     config.url = config.url.replace("lctx_serving:", "lctx_importer:");
     let importer = config.open_importer().await.unwrap();
