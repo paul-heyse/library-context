@@ -2,6 +2,22 @@
 
 _Updated 2026-09-30 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
+## Phase 3 design
+
+- **Proposed:** the [detailed Phase 3 plan](docs/plans/semantic-model-phase3-detailed-plan_2026-09-30.md)
+  specifies normalized entities/resolutions, effective callables, complete events, policy memberships,
+  binding applicability/admission, projections, scoped coverage and dependency-ordered packages.
+- Proposed ADR-0101/0102 cover cumulative self-contained generations with completed-stage reads,
+  and typed normalized semantic ownership. DESIGN §15 links the proposals. No production model,
+  dependency pin or runtime database changed in this design scope.
+- [Design evidence](docs/design_review/evidence/2026-09-30_phase3-design/README.md) records exact
+  resolved library features and 13 existing reader/runtime tests. These establish the baseline,
+  not completed-stage reads or normalized compilation. Plan §11 owns new design findings;
+  the parent cutover plan §8 retains cross-phase implementation dispositions.
+- [Independent review](docs/design_review/reviews/design_review_phase3-plan_2026-09-30.md):
+  **Accept scoped**, at Proposed strength; both design findings corrected and reinspected.
+  Their N5/Q implementation and independent controls remain not_run.
+
 ## Semantic model cutover
 
 - **Implemented and Tested:** remaining phase 0–phase 2 scope, including P1.13, A10–A16,
@@ -23,7 +39,7 @@ _Updated 2026-09-30 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
   [Qualification evidence](docs/design_review/evidence/2026-09-30_facts-qualification/README.md)
   records commands, composite repairs, profiles, repeated content and resource limits.
 
-## Verification (2026-09-30)
+## P0–P2 qualification (historical receipt, 2026-09-30)
 
 Cargo commands use `python3 scripts/build_environment.py --`; detailed focused receipts: plan §4.2.
 
@@ -64,16 +80,26 @@ The [review binding](docs/design_review/design_principles/binding/library-contex
 explicitly leaves static review versus optional probes to the reviewing agent's judgment of
 complexity, criticality and uncertainty. AGENTS.md, the skill and template carry the clarification;
 implementation acceptance checks and Tested/Measured evidence requirements remain in force.
-Documentation checks (2026-09-30): `git diff --check` passed; `just docs-check` failed on the
-ADR index left stale by concurrent ADR additions. `uv run --no-project python
-/home/paul/.codex/skills/.system/skill-creator/scripts/quick_validate.py .claude/skills/design-review`
-failed on existing `model-baseline`/`user-invocable` metadata. Product tests and catalog regeneration:
-not_run for this documentation-only clarification. Earlier qualification receipts above retain their scope.
+The earlier documentation-policy check failed on a stale ADR index; the Phase 3 design check
+regenerated the index and passed. The unrelated generic skill-validator rejection of existing
+`model-baseline`/`user-invocable` metadata was not repaired or claimed verified by this work.
+
+## Phase 3 design checks (2026-09-30)
+
+| Command | Outcome |
+|---|---|
+| `uv run python docs/design_review/evidence/2026-09-30_phase3-design/inspect_dependencies.py` | passed: locked/offline metadata, 24 selected resolved packages |
+| `python3 scripts/build_environment.py -- cargo test --release -p cpg-core --test model_runtime --test generation_read` | passed: 13 existing tests, including real PostgreSQL readers |
+| `just adr index`; `just adr lint` | passed: 56 records |
+| `just docs-check`; `git diff --check` | passed for the design documents; no product qualification implied |
+| `uv run python scripts/library_utilization.py`; `just library-catalog` | passed: no catalog drift; refreshed 65-library/91-capability usage index under the supplied end-of-session workflow |
+| Phase 3 implementation, `just test-all`, pilots, product journeys | not_run: this task produces the detailed design; P0–P2 receipts above retain their scope |
 
 ## Next work
 
-Begin phase 3 normalized relations. Read DESIGN §15's owner and the cutover plan's phase 3 scope,
-then move each dormant consumer at its ownership boundary and delete its legacy declaration.
-Before introducing P3/P4 stage readers, resolve provider-session F04/F07 and store lineage F08.
+Resolve proposed ADR-0101/0102 at the implementation boundary (D0), then implement the detailed
+plan's R1 → R2 → R3: frontier descriptors, atomic completed-stage/facts checkpoints, source-bound
+readers and resource/connection admission. Review that assembled boundary before N1–N7.
+Provider-session F04/F07 and store lineage F08 remain implementation obligations, not design closures.
 P4 still owns the composition engine, attributed derived type/guard claims and dispatch policies;
 P5 owns serving and product qualification. Product PR6/new features remain paused until phase 5.

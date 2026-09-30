@@ -36,6 +36,9 @@ described by §3–§14 remain dormant until phases 3–5 rebuild them.
 
 **Execution owner.** The [semantic model cutover plan](../../plans/semantic-model-cutover-plan_2026-09-29.md)
 owns the execution order, qualification and deletion obligations.
+The [Phase 3 detailed plan](../../plans/semantic-model-phase3-detailed-plan_2026-09-30.md)
+develops normalized relations and their runtime prerequisites. Its ADR-0101/0102 choices remain
+**Proposed**; they do not extend the facts-only implementation receipt.
 
 **Where the requirement came from.** The
 [semantic data model target review](../../design_review/reviews/design_review_semantic-data-model_2026-09-29.md)
@@ -83,7 +86,13 @@ Every relation belongs to exactly one layer and has exactly one producing stage.
 - **`cpg-schema`** is retired by the cutover. Its surviving wire, selection and retrieval contracts move
   to `lctx-model`.
 
-> Decision: ADR-0085, ADR-0086
+**Phase 3 generation closure (Proposed, 2026-09-30).** Facts contains L0; Normalized contains
+L0+L1 in one self-contained generation. A model-owned frontier descriptor declares relation
+closure, coverage, checkpoints and admission. Fresh normalized compilation runs the combined
+schedule without intermediate publication or selection. P4/P5 extend the declared closure;
+external linked generations are not a P3 input mechanism.
+
+> Decision: ADR-0085, ADR-0086, ADR-0101
 
 <a id="section-15-2"></a>
 
@@ -255,7 +264,15 @@ whose body holds it, otherwise the module. It is the only definition of "caller"
   raise.
 - No other place encoding exists. Node-hex keys, name paths and rendered strings are presentations.
 
-> Decision: ADR-0085, ADR-0089
+**Phase 3 identity realization (Proposed, 2026-09-30).** Declaration occurrences establish
+callable/class identities and cross-provider correspondence. Source and stub declarations stay
+distinct, with evidenced correspondence relationships. Synthetic and external identities remain
+provider-qualified until a supported correspondence exists. Total resolution outcomes retain
+conflicting and missing alternatives. Public exposure is a relationship, not another identity.
+Existing P2 place identities remain authoritative; normalized entity links add correspondence
+without recoding places. The shared occurrence-owner rule supplies execution ownership.
+
+> Decision: ADR-0085, ADR-0089, ADR-0102
 
 <a id="section-15-5"></a>
 
@@ -294,7 +311,7 @@ whose body holds it, otherwise the module. It is the only definition of "caller"
   native evidence classifies.
 
 **Call policies.** "Which calls count" is decided only by **named call policies**. Each is a declared
-admission predicate, compiled once to a view:
+admission policy, exposed through one generated view:
 
 | Policy | Admits | Consumers |
 |---|---|---|
@@ -315,7 +332,28 @@ call site × target alternative × signature variant × actual → formal place.
 unmapped, refused). Signature alternatives stay separate rows. Independent alternatives never jointly
 establish one valid invocation.
 
-> Decision: ADR-0085
+**Phase 3 policy and binding realization (Proposed, 2026-09-30).** Assemble complete normalized
+events and their alternatives before applying policy; preserve context, origin, channel, phase,
+open remainders and qualifications. One model evaluator stores total policy assessments and
+admissions. Generated views select these memberships by policy code; they do not reimplement
+the predicates. Association retains Potential evidence without granting invocation or summary
+admission. Keep source signatures separate from effective-callable assessments; current producer
+evidence leaves arbitrary decorator transformations explicitly unknown. Recognizing descriptor
+metadata does not itself admit a body.
+
+The sole binder consumes complete raw variants and actuals. Store successful and refused attempts,
+their exact premises and member-set digest. Shared validation replays the binder; only a validated
+complete event, ownership and binding can create the private composition-admission token for P4.
+Source-inspection binding is distinct from established effective-invocation authority. The token
+also requires the exact effective target/context/descriptor and compatible variant to admit the
+body; a source signature that binds beneath an unknown wrapper grants no body-composition right.
+Unique binding requires one Bound variant and all other declared variants ProvenIncompatible;
+an Undetermined variant, including native-unavailable or unsupported arguments, prevents uniqueness.
+Normalized signature applicability replaces raw provider-symbol equality at the binder boundary:
+both attributed owners must resolve to the same callable in the same input/context, retaining
+their evidence and effective-signature authority. One argument algorithm remains behind that check.
+
+> Decision: ADR-0085, ADR-0102
 
 <a id="section-15-6"></a>
 
@@ -491,7 +529,12 @@ views.
 - The SCC schedule uses `kosaraju_scc` with the canonical callee-first order.
 - Heuristic analytics remain governed and never reach a served claim as fact.
 
-> Decision: ADR-0085
+**Phase 3 projection realization (Proposed, 2026-09-30).** Typed endpoint roles in the relation
+model supply projection structure. Preserve isolates, parallel arcs, canonical ordering, evidence
+membership and unresolved side records. Dense petgraph indices stay private to a bounded immutable
+adapter; no separate graph schema or materialized path closure becomes semantic authority.
+
+> Decision: ADR-0085, ADR-0102
 
 <a id="section-15-11"></a>
 
@@ -567,7 +610,16 @@ compilation. Required producer failure removes its generation and every registry
 preflight refusal has no generation. Publication never selects. No durable history is promised
 for a removed generation or an acquisition failure before registration.
 
-> Decision: ADR-0086, ADR-0089, ADR-0094
+**Completed-stage reads (Proposed, 2026-09-30).** A cumulative attempt freezes each completed
+stage's outputs atomically with receipts and importer read grants, after draining readers/writers.
+An immutable validated facts checkpoint precedes normalization. Private source-bound input
+capabilities carry completed content and scoped availability; published-reader authorization stays
+separate. Read leases last through drain, and query execution admits the full physical plan's scan
+capacity before any scan starts. One attempt budget covers acquisition through publication.
+The [detailed protocol](../../plans/semantic-model-phase3-detailed-plan_2026-09-30.md#6-cumulative-frontiers-and-private-stage-reads)
+owns the implementation sequence and controls; none of this is included in P0–P2 qualification.
+
+> Decision: ADR-0086, ADR-0089, ADR-0094, ADR-0101
 
 <a id="section-15-12"></a>
 
