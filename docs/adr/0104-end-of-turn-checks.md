@@ -68,3 +68,12 @@ clean end-of-turn report for the same tree. `LCTX_AFTER_TURN_FIXER=off` disables
   - focused tests: `tests/scripts/test_after_turn.py`;
   - a live Claude fixer repaired five failing checks, and the re-run passed;
   - a live Claude child had `just --version` refused by the guard, and its scoped check ran.
+
+## Amendments
+
+- 2026-09-30: No decision changes. Repository facts (sync, ready, operator-only, after steps,
+  protected paths, timeouts) moved from the script to `.config/after-turn.toml`. The script is
+  shared with project-template, which holds the canonical copy. Its environment variables are now
+  `AFTER_TURN_ROLE`, `AFTER_TURN_CHECKS` and `AFTER_TURN_FIXER`. Hooks and the fixer's check command
+  run it on a pinned interpreter, `uv run --no-project --python 3.14 python`, not a bare `python3`.
+  Root ruff excludes `libraries/` and `services/`, which are separate uv projects.

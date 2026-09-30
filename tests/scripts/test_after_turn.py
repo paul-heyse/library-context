@@ -1,162 +1,228 @@
+"""The end-of-turn pipeline (scripts/after_turn.py): stdlib unittest, one file for every repo."""
+
 from __future__ import annotations
 
+import contextlib
+import importlib.util
+import io
 import json
 import os
 import subprocess
+import sys
+import tempfile
+import unittest
 from pathlib import Path
-
-import pytest
-
-import after_turn
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
+SCRIPT = ROOT / "scripts" / "after_turn.py"
 
 
-def test_hygiene_ids_are_the_recipe_dependencies_in_order() -> None:
-    dump = {"recipes": {"hygiene": {"dependencies": [{"recipe": "ruff"}, {"recipe": "clippy"}]}}}
-    assert after_turn.checks_from_dump(dump) == ["ruff", "clippy"]
-    live = after_turn.hygiene_checks(ROOT)
-    assert "clippy" in live and "store-check" in live and "types" in live
+def load_script():  # returns the module
+    spec = importlib.util.spec_from_file_location("after_turn", SCRIPT)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["after_turn"] = module
+    spec.loader.exec_module(module)
+    return module
 
 
-def test_guard_allows_only_the_assigned_checks() -> None:
-    allowed = {"clippy", "types"}
-    assert after_turn.guard_decision("python3 scripts/after_turn.py check clippy", allowed) is None
-    assert (
-        after_turn.guard_decision("python3 scripts/after_turn.py check clippy types", allowed)
-        is None
-    )
-    for command in (
-        "python3 scripts/after_turn.py check ruff",
-        "python3 scripts/after_turn.py check clippy && just test-all",
-        "just clippy",
-        "cargo clippy",
-        "python3 scripts/after_turn.py stop --harness claude",
-    ):
-        assert after_turn.guard_decision(command, allowed), command
-
-
-def run_guard(env: dict[str, str], payload: dict[str, object]) -> str:
-    out = subprocess.run(
-        ["python3", str(ROOT / "scripts" / "after_turn.py"), "guard"],
-        input=json.dumps(payload),
-        capture_output=True,
-        text=True,
-        env=env,
-        check=True,
-    )
-    return out.stdout
-
-
-def test_guard_denies_in_a_fixer_and_is_silent_otherwise(monkeypatch: pytest.MonkeyPatch) -> None:
-    payload: dict[str, object] = {"tool_name": "Bash", "tool_input": {"command": "just test-all"}}
-    monkeypatch.delenv(after_turn.ROLE_ENV, raising=False)
-    base = dict(os.environ)
-    assert run_guard(base, payload) == ""
-    fixer = {**base, after_turn.ROLE_ENV: "fixer", after_turn.CHECKS_ENV: "clippy"}
-    decision = json.loads(run_guard(fixer, payload))["hookSpecificOutput"]
-    assert decision["permissionDecision"] == "deny"
-    allowed: dict[str, object] = {
-        "tool_name": "Bash",
-        "tool_input": {"command": "python3 scripts/after_turn.py check clippy"},
-    }
-    assert run_guard(fixer, allowed) == ""
-
-
-def test_claude_fixer_is_sonnet_at_the_session_effort_else_high(tmp_path: Path) -> None:
-    command = after_turn.fixer_command("claude", "xhigh", ROOT, tmp_path)
-    assert command[command.index("--model") + 1] == "claude-sonnet-5-5"
-    assert command[command.index("--effort") + 1] == "xhigh"
-    fallback = after_turn.fixer_command("claude", "", ROOT, tmp_path)
-    assert fallback[fallback.index("--effort") + 1] == "high"
-    settings = json.loads(command[command.index("--settings") + 1])
-    assert "Bash(python3 scripts/after_turn.py check *)" in settings["permissions"]["allow"]
-
-
-def test_codex_fixer_is_gpt_6_1_sol_at_medium(tmp_path: Path) -> None:
-    command = after_turn.fixer_command("codex", "xhigh", ROOT, tmp_path)
-    assert command[:2] == ["codex", "exec"]
-    assert command[command.index("-m") + 1] == "gpt-6.1-sol"
-    assert 'model_reasoning_effort="medium"' in command
-    assert "--dangerously-bypass-hook-trust" in command
-
-
-def test_fixer_env_is_its_own_session(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("CLAUDECODE", "1")
-    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "parent")
-    env = after_turn.fixer_env(["clippy", "types"])
-    assert not any(key.startswith("CLAUDE") for key in env)
-    assert env[after_turn.ROLE_ENV] == "fixer"
-    assert env[after_turn.CHECKS_ENV] == "clippy,types"
-
-
-def test_operator_message_lists_leftovers_and_fixer_changes(tmp_path: Path) -> None:
-    log = tmp_path / "store-check.log"
-    log.write_text("$ just store-check\nconnecting\nerror: role lctx_app is missing\n")
-    passed = {"status": "passed", "rc": 0, "log": str(tmp_path / "none.log")}
-    report = {
-        "checks": {"clippy": passed, "store-check": {"status": "failed", "rc": 2, "log": str(log)}},
-        "fixer": {"model": "claude-sonnet-5-5", "changed": ["crates/a.rs"]},
-    }
-    message = after_turn.operator_message(report)
-    assert message is not None
-    assert "1 left: store-check: error: role lctx_app is missing" in message
-    assert "changed 1 file(s): crates/a.rs" in message
-    assert after_turn.operator_message({"checks": {"clippy": passed}, "fixer": None}) is None
-
-
-def test_operator_only_checks_never_reach_the_fixer() -> None:
-    for check in ("store-check", "gold", "tools", "postgres-images", "adr-index"):
-        assert check in after_turn.OPERATOR_ONLY
-    for check in ("clippy", "ruff", "types", "fmt", "docs-check", "lint-agents"):
-        assert check not in after_turn.OPERATOR_ONLY
+after_turn = load_script()
 
 
 def git(repo: Path, *args: str) -> None:
-    subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
+    identity = ["-c", "commit.gpgsign=false", "-c", "user.email=t@t", "-c", "user.name=t"]
+    subprocess.run(["git", "-C", str(repo), *identity, *args], check=True, capture_output=True)
 
 
-def test_fingerprint_ignores_the_catalog_outputs(tmp_path: Path) -> None:
-    git(tmp_path, "init", "-q")
-    (tmp_path / "docs").mkdir()
-    (tmp_path / "docs" / "library-utilization.jsonl").write_text("a\n")
-    (tmp_path / "code.py").write_text("x = 1\n")
-    git(tmp_path, "add", ".")
-    git(tmp_path, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init")
-    base = after_turn.fingerprint(tmp_path)
-    (tmp_path / "docs" / "library-utilization.jsonl").write_text("b\n")
-    assert after_turn.fingerprint(tmp_path) == base
-    (tmp_path / "code.py").write_text("x = 2\n")
-    assert after_turn.fingerprint(tmp_path) != base
+def committed_repo(files: dict[str, str]) -> Path:
+    repo = Path(tempfile.mkdtemp(prefix="after-turn-"))
+    git(repo, "init", "-q")
+    for name, text in files.items():
+        (repo / name).parent.mkdir(parents=True, exist_ok=True)
+        (repo / name).write_text(text)
+    git(repo, "add", ".")
+    git(repo, "commit", "-qm", "init")
+    return repo
 
 
-def test_prompt_shows_leftovers_once_and_never_in_a_fixer(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    state = tmp_path / "after-turn"
-    (state / "checks").mkdir(parents=True)
-    log = state / "checks" / "types.log"
-    log.write_text("$ just types\nerror: bad type\n")
-    report = {
-        "complete": True,
-        "shown": False,
-        "checks": {"types": {"status": "failed", "rc": 1, "log": str(log)}},
-    }
-    (state / "report.json").write_text(json.dumps(report))
-    monkeypatch.setattr(after_turn, "repo_root", lambda: tmp_path)
-    monkeypatch.setattr(after_turn, "state_dir", lambda root: state)
-    monkeypatch.setattr(after_turn, "read_payload", lambda: {})
-    monkeypatch.delenv(after_turn.ROLE_ENV, raising=False)
+class ConfigTests(unittest.TestCase):
+    def test_defaults_without_a_config(self) -> None:
+        config = after_turn.load_config(Path(tempfile.mkdtemp()))
+        self.assertEqual(config.sync, ())
+        self.assertEqual(config.claude_model, "claude-sonnet-5-5")
+        self.assertEqual(config.codex_model, "gpt-6.1-sol")
 
-    assert after_turn.cmd_prompt("claude") == 0
-    shown = json.loads(capsys.readouterr().out)
-    assert shown["systemMessage"].startswith("End-of-turn checks: 1 left: types: error: bad type")
-    assert shown["suppressOutput"] is True
-    assert set(shown) == {"systemMessage", "suppressOutput"}  # nothing for the model
+    def test_values_and_operator_set(self) -> None:
+        root = Path(tempfile.mkdtemp())
+        (root / ".config").mkdir()
+        (root / ".config" / "after-turn.toml").write_text(
+            'sync = ["fmt"]\nready = ["doctor-check"]\noperator_only = ["store-check"]\n'
+            'after_outputs = ["docs/catalog.*"]\ncheck_timeout = 5\n'
+            '[sync_when]\nbuild-features = ["Cargo.lock"]\n[fixer]\nclaude_default_effort = "max"\n'
+        )
+        config = after_turn.load_config(root)
+        self.assertEqual(config.sync, ("fmt",))
+        self.assertEqual(config.sync_when, {"build-features": ("Cargo.lock",)})
+        self.assertEqual(config.not_fixable, frozenset({"doctor-check", "store-check"}))
+        self.assertEqual(config.check_timeout, 5.0)
+        self.assertEqual(config.claude_default_effort, "max")
 
-    assert after_turn.cmd_prompt("claude") == 0
-    assert capsys.readouterr().out == ""  # shown once
+    def test_hygiene_ids_are_the_recipe_dependencies_in_order(self) -> None:
+        deps = [{"recipe": "ruff"}, {"recipe": "clippy"}]
+        dump = {"recipes": {"hygiene": {"dependencies": deps}}}
+        self.assertEqual(after_turn.checks_from_dump(dump), ["ruff", "clippy"])
+        self.assertEqual(after_turn.checks_from_dump({"recipes": {}}), [])
 
-    monkeypatch.setenv(after_turn.ROLE_ENV, "fixer")
-    assert after_turn.cmd_prompt("codex") == 0
-    assert capsys.readouterr().out == ""
+
+class GuardTests(unittest.TestCase):
+    command = after_turn.FIXER_COMMAND
+
+    def test_only_the_assigned_checks_in_the_pinned_form(self) -> None:
+        allowed = {"clippy", "types"}
+        self.assertIsNone(after_turn.guard_decision(f"{self.command} clippy", allowed))
+        self.assertIsNone(after_turn.guard_decision(f"{self.command} clippy types", allowed))
+        for command in (
+            f"{self.command} ruff",
+            f"{self.command} clippy && just test-all",
+            "python3 scripts/after_turn.py check clippy",
+            "just clippy",
+            f"{after_turn.PYTHON} scripts/after_turn.py stop --harness claude",
+        ):
+            self.assertIsNotNone(after_turn.guard_decision(command, allowed), command)
+
+    def run_guard(self, env: dict[str, str], command: str) -> str:
+        payload = json.dumps({"tool_name": "Bash", "tool_input": {"command": command}})
+        out = subprocess.run(
+            [sys.executable, str(SCRIPT), "guard"],
+            input=payload,
+            capture_output=True,
+            text=True,
+            env=env,
+            check=True,
+        )
+        return out.stdout
+
+    def test_hook_denies_in_a_fixer_and_is_silent_otherwise(self) -> None:
+        base = {k: v for k, v in os.environ.items() if k != after_turn.ROLE_ENV}
+        self.assertEqual(self.run_guard(base, "just test-all"), "")
+        fixer = {**base, after_turn.ROLE_ENV: "fixer", after_turn.CHECKS_ENV: "clippy"}
+        decision = json.loads(self.run_guard(fixer, "just test-all"))["hookSpecificOutput"]
+        self.assertEqual(decision["permissionDecision"], "deny")
+        self.assertEqual(self.run_guard(fixer, f"{self.command} clippy"), "")
+
+
+class FixerTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.root = Path(tempfile.mkdtemp())
+        (self.root / "scripts").mkdir()
+        (self.root / "scripts" / "after_turn_fixer.md").write_text("Brief.\n")
+        self.config = after_turn.Config(protected=("tools/x",), after_outputs=("docs/c.*",))
+
+    def test_claude_is_sonnet_at_the_session_effort_else_the_default(self) -> None:
+        command = after_turn.fixer_command("claude", "xhigh", self.root, self.root, self.config)
+        self.assertEqual(command[command.index("--model") + 1], "claude-sonnet-5-5")
+        self.assertEqual(command[command.index("--effort") + 1], "xhigh")
+        fallback = after_turn.fixer_command("claude", "", self.root, self.root, self.config)
+        self.assertEqual(fallback[fallback.index("--effort") + 1], "high")
+        settings = json.loads(command[command.index("--settings") + 1])
+        self.assertIn(f"Bash({after_turn.FIXER_COMMAND} *)", settings["permissions"]["allow"])
+
+    def test_codex_is_gpt_6_1_sol_at_medium(self) -> None:
+        command = after_turn.fixer_command("codex", "xhigh", self.root, self.root, self.config)
+        self.assertEqual(command[:2], ["codex", "exec"])
+        self.assertEqual(command[command.index("-m") + 1], "gpt-6.1-sol")
+        self.assertIn('model_reasoning_effort="medium"', command)
+        self.assertIn("--dangerously-bypass-hook-trust", command)
+
+    def test_brief_names_the_protected_paths(self) -> None:
+        brief = after_turn.fixer_brief(self.root, self.config)
+        self.assertIn("`tools/x`", brief)
+        self.assertIn("`docs/c.*`", brief)
+
+    def test_env_is_its_own_session(self) -> None:
+        with mock.patch.dict(os.environ, {"CLAUDECODE": "1", "CLAUDE_CODE_SESSION_ID": "parent"}):
+            env = after_turn.fixer_env(["clippy", "types"])
+        self.assertFalse(any(key.startswith("CLAUDE") for key in env))
+        self.assertEqual(env[after_turn.ROLE_ENV], "fixer")
+        self.assertEqual(env[after_turn.CHECKS_ENV], "clippy,types")
+
+
+class ReportTests(unittest.TestCase):
+    def test_operator_message_lists_leftovers_and_fixer_changes(self) -> None:
+        log = Path(tempfile.mkdtemp()) / "store-check.log"
+        log.write_text("$ just store-check\nconnecting\nerror: role lctx_app is missing\n")
+        passed = {"status": "passed", "rc": 0, "log": str(log.parent / "none.log")}
+        failed = {"status": "failed", "rc": 2, "log": str(log)}
+        report = {
+            "checks": {"clippy": passed, "store-check": failed},
+            "fixer": {"model": "claude-sonnet-5-5", "changed": ["crates/a.rs"]},
+        }
+        message = after_turn.operator_message(report)
+        self.assertIsNotNone(message)
+        self.assertIn("1 left: store-check: error: role lctx_app is missing", message)
+        self.assertIn("changed 1 file(s): crates/a.rs", message)
+        self.assertIsNone(after_turn.operator_message({"checks": {"clippy": passed}}))
+
+    def test_fingerprint_ignores_the_after_outputs(self) -> None:
+        repo = committed_repo({"docs/catalog.jsonl": "a\n", "code.py": "x = 1\n"})
+        config = after_turn.Config(after_outputs=("docs/catalog.*",))
+        base = after_turn.fingerprint(repo, config)
+        (repo / "docs" / "catalog.jsonl").write_text("b\n")
+        self.assertEqual(after_turn.fingerprint(repo, config), base)
+        (repo / "code.py").write_text("x = 2\n")
+        self.assertNotEqual(after_turn.fingerprint(repo, config), base)
+
+    def test_sync_when_matches_root_and_nested_manifests(self) -> None:
+        repo = committed_repo({"Cargo.toml": "[workspace]\n", "crates/a/Cargo.toml": "[package]\n"})
+        patterns = ("Cargo.lock", "**/Cargo.toml")
+        self.assertFalse(after_turn.changed_since_head(repo, patterns))
+        (repo / "Cargo.toml").write_text("[workspace]\nmembers = []\n")
+        self.assertTrue(after_turn.changed_since_head(repo, patterns))
+        git(repo, "commit", "-qam", "root")
+        (repo / "crates" / "a" / "Cargo.toml").write_text("[package]\nname = 'a'\n")
+        self.assertTrue(after_turn.changed_since_head(repo, patterns))
+
+
+class PromptTests(unittest.TestCase):
+    def test_leftovers_shown_once_and_never_in_a_fixer(self) -> None:
+        root = Path(tempfile.mkdtemp())
+        state = root / "after-turn"
+        (state / "checks").mkdir(parents=True)
+        log = state / "checks" / "types.log"
+        log.write_text("$ just types\nerror: bad type\n")
+        failed = {"status": "failed", "rc": 1, "log": str(log)}
+        report = {"complete": True, "shown": False, "checks": {"types": failed}}
+        (state / "report.json").write_text(json.dumps(report))
+        patches = (
+            mock.patch.object(after_turn, "repo_root", return_value=root),
+            mock.patch.object(after_turn, "state_dir", return_value=state),
+            mock.patch.object(after_turn, "read_payload", return_value={}),
+        )
+        env = {k: v for k, v in os.environ.items() if k != after_turn.ROLE_ENV}
+        with contextlib.ExitStack() as stack:
+            for patch in patches:
+                stack.enter_context(patch)
+            stack.enter_context(mock.patch.dict(os.environ, env, clear=True))
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                self.assertEqual(after_turn.cmd_prompt("claude"), 0)
+            shown = json.loads(out.getvalue())
+            self.assertTrue(shown["systemMessage"].startswith("End-of-turn checks: 1 left: types"))
+            # Nothing for the model: the operator sees the message, the model sees no output.
+            self.assertEqual(set(shown), {"systemMessage", "suppressOutput"})
+
+            again = io.StringIO()
+            with contextlib.redirect_stdout(again):
+                after_turn.cmd_prompt("claude")
+            self.assertEqual(again.getvalue(), "")  # shown once
+
+            os.environ[after_turn.ROLE_ENV] = "fixer"
+            fixer = io.StringIO()
+            with contextlib.redirect_stdout(fixer):
+                after_turn.cmd_prompt("codex")
+            self.assertEqual(fixer.getvalue(), "")
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,0 +1,21 @@
+# End-of-turn pipeline (scripts/after_turn.py, ADR-0104). Every step is a just recipe; the checks
+# are the dependencies of `just hygiene`. Keys before any [table].
+
+# At stop, synchronously, in order.
+sync = ["skills-sync", "adr-index", "build-features", "fmt"]
+# First in the background job; failures always go to the operator.
+ready = ["images-ready", "doctor-check"]
+# Failures the fixer never gets.
+operator_only = ["skills-sync", "adr-index", "build-features", "gold", "store-check"]
+# After the job, one run per burst of stops; nothing waits on them.
+after = ["library-catalog"]
+# Outputs of `after`: excluded from the tree fingerprint, and the fixer never edits them.
+after_outputs = ["docs/library-utilization.*"]
+# Further paths the fixer never edits (the library catalog belongs to its own agent).
+protected = ["scripts/library_*.py", "tests/scripts/test_library_*.py", "tools/lu-resolve"]
+# Seconds before a hung step is killed.
+check_timeout = 1200
+
+# Run a sync step only when these glob pathspecs differ from HEAD or are untracked.
+[sync_when]
+build-features = ["Cargo.lock", "**/Cargo.toml"]

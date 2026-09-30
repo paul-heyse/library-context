@@ -141,6 +141,10 @@ rules-test:
 adr *args:
     @uv run --no-project --offline --no-python-downloads python scripts/adr.py "$@"
 
+# Regenerate the ADR index (an end-of-turn sync step)
+adr-index:
+    @uv run --no-project --offline --no-python-downloads python scripts/adr.py index
+
 # Claude/Codex parity and dead-reference check for agent instructions and skills
 lint-agents:
     uv run --no-project --offline --no-python-downloads python scripts/check_agents.py
@@ -161,6 +165,14 @@ doctor:
     printf '%-14s ' pyrefly; uv run pyrefly --version
     printf '%-14s ' python; uv run python --version
     uv run --no-project --offline --no-python-downloads python scripts/docs.py doctor
+
+# Fail when `doctor` reports a missing or failing tool (end-of-turn readiness)
+doctor-check:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    out=$(just doctor 2>&1); status=$?
+    printf '%s\n' "$out"
+    [ "$status" -eq 0 ] && ! grep -qE 'MISSING|FAILED|below the declared floor' <<<"$out"
 
 # Isolated build measurements: `preflight`, `capture <dir>`, `run <dir> --variant ...`, `report <dir>`.
 # `run` is the only subcommand that compiles the Rust workspace.
@@ -192,6 +204,14 @@ docs-serve port="8000":
 postgres-test-setup:
     docker pull "postgres:$(cat specs/postgres-image.txt)"
     docker pull "$(cat specs/postgres-vector-image.txt)"
+
+# Pull a pinned PostgreSQL image only when it is missing (end-of-turn readiness)
+images-ready:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for image in "postgres:$(cat specs/postgres-image.txt)" "$(cat specs/postgres-vector-image.txt)"; do
+      docker image inspect "$image" >/dev/null 2>&1 || docker pull "$image"
+    done
 
 # The serving suites are dormant until cutover phase 5.
 # Real PostgreSQL 18 (disposable containers): generation store, provider sessions, CLI

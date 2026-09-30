@@ -50,7 +50,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$CLAUDE_PROJECT_DIR\"/scripts/after_turn.py stop --harness claude",
+            "command": "uv run --no-project --python 3.14 python \"$CLAUDE_PROJECT_DIR\"/scripts/after_turn.py stop --harness claude",
             "timeout": 120
           }
         ]
@@ -61,7 +61,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$CLAUDE_PROJECT_DIR\"/scripts/after_turn.py prompt --harness claude",
+            "command": "uv run --no-project --python 3.14 python \"$CLAUDE_PROJECT_DIR\"/scripts/after_turn.py prompt --harness claude",
             "timeout": 1800,
             "statusMessage": "End-of-turn checks"
           }
@@ -74,7 +74,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "[ -z \"${LCTX_AFTER_TURN_ROLE:-}\" ] || python3 \"$CLAUDE_PROJECT_DIR\"/scripts/after_turn.py guard",
+            "command": "[ -z \"${AFTER_TURN_ROLE:-}\" ] || uv run --no-project --python 3.14 python \"$CLAUDE_PROJECT_DIR\"/scripts/after_turn.py guard",
             "timeout": 30
           }
         ]

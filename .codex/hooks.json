@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$(git rev-parse --show-toplevel)\"/scripts/after_turn.py stop --harness codex",
+            "command": "uv run --no-project --python 3.14 python \"$(git rev-parse --show-toplevel)\"/scripts/after_turn.py stop --harness codex",
             "timeout": 120
           }
         ]
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$(git rev-parse --show-toplevel)\"/scripts/after_turn.py prompt --harness codex",
+            "command": "uv run --no-project --python 3.14 python \"$(git rev-parse --show-toplevel)\"/scripts/after_turn.py prompt --harness codex",
             "timeout": 1800,
             "statusMessage": "End-of-turn checks"
           }
@@ -29,7 +29,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "[ -z \"${LCTX_AFTER_TURN_ROLE:-}\" ] || python3 \"$(git rev-parse --show-toplevel)\"/scripts/after_turn.py guard",
+            "command": "[ -z \"${AFTER_TURN_ROLE:-}\" ] || uv run --no-project --python 3.14 python \"$(git rev-parse --show-toplevel)\"/scripts/after_turn.py guard",
             "timeout": 30
           }
         ]

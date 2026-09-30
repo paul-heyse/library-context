@@ -1,24 +1,27 @@
 #!/usr/bin/env python3
-"""End-of-turn pipeline for Claude Code and Codex (ADR-0104).
+"""End-of-turn pipeline for Claude Code and Codex.
 
 Everything that is not functional testing happens when the main agent stops, in one place:
 
-- ``stop`` (Stop hook) regenerates derived files and formats the tree, then starts the job;
-- the job prepares the environment, runs every ``just hygiene`` check, lets a fixer agent repair
-  what failed, re-runs those checks and refreshes the library catalog;
-- ``prompt`` (UserPromptSubmit hook) holds the next turn until the job is done and shows the
-  findings the fixer left to the operator only;
-- ``check <id>...`` re-runs named checks; ``guard`` (PreToolUse hook) confines a fixer's shell to
+- ``stop`` (Stop hook) runs the ``sync`` recipes (generators and formatting), then starts the job;
+- the job runs the ``ready`` recipes and every dependency of ``just hygiene``, lets a fixer agent
+  repair what it can, re-runs those checks, then runs the ``after`` recipes without waiting on them;
+- ``prompt`` (UserPromptSubmit hook) holds the next turn until the job is done and shows findings
+  the fixer left to the operator only;
+- ``check <id>...`` re-runs named steps; ``guard`` (PreToolUse hook) confines a fixer's shell to
   exactly those.
 
-Nothing here reaches the main agent's context and every hook exits 0. State and logs live in the
-worktree's git directory under ``after-turn/``. ``LCTX_AFTER_TURN_FIXER=off`` disables the fixer.
+Repository facts live in ``.config/after-turn.toml``; this file is the same in every repository
+(canonical copy: project-template). Nothing reaches the main agent's context and every hook exits
+0. State and logs live in the worktree's git directory under ``after-turn/``.
+``AFTER_TURN_FIXER=off`` disables the fixer. Hooks run it on Python 3.14 through ``PYTHON``.
 """
 
 from __future__ import annotations
 
 import argparse
 import contextlib
+import dataclasses
 import datetime
 import fcntl
 import hashlib
@@ -30,43 +33,75 @@ import signal
 import subprocess
 import sys
 import time
+import tomllib
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import Any
 
-ROLE_ENV = "LCTX_AFTER_TURN_ROLE"
-CHECKS_ENV = "LCTX_AFTER_TURN_CHECKS"
-FIXER_ENV = "LCTX_AFTER_TURN_FIXER"
+ROLE_ENV = "AFTER_TURN_ROLE"
+CHECKS_ENV = "AFTER_TURN_CHECKS"
+FIXER_ENV = "AFTER_TURN_FIXER"
 
-CLAUDE_MODEL = "claude-sonnet-5-5"
+CONFIG_PATH = Path(".config") / "after-turn.toml"
+HYGIENE_RECIPE = "hygiene"
+# The interpreter every hook and fixer command uses: pinned, whatever `python3` is on PATH.
+PYTHON = "uv run --no-project --python 3.14 python"
+FIXER_COMMAND = f"{PYTHON} scripts/after_turn.py check"
+FIXER_TOOLS = ("Read", "Edit", "Write", "Grep", "Glob")
 CLAUDE_EFFORTS = ("low", "medium", "high", "xhigh", "max")
-CLAUDE_DEFAULT_EFFORT = "high"
-CODEX_MODEL = "gpt-6.1-sol"
-CODEX_EFFORT = "medium"
 
-FIXER_TIMEOUT = 20 * 60
 PENDING_GRACE = 30
 # The next prompt waits at most this long; the hook's own timeout (1800 s) stays above it.
 PROMPT_WAIT = 25 * 60
 
-# Generators run synchronously at stop, in this order. `build-features` only after a dependency
-# manifest changed.
-GENERATORS: dict[str, list[str]] = {
-    "skills-sync": ["just", "skills-sync"],
-    "adr-index": ["just", "adr", "index"],
-    "build-features": ["just", "build-features"],
-    "fmt": ["just", "fmt"],
-}
-# Readiness steps run first in the job. Their failures are the operator's, never the fixer's.
-READINESS = ("postgres-images", "tools")
-# Checks the fixer never gets: they need the operator (a store, a skill refresh, a tool, a pull).
-OPERATOR_ONLY = frozenset(
-    {"store-check", "gold", "skills-sync", "adr-index", "build-features", *READINESS}
-)
-# The catalog's own outputs never count as a change to the tree.
-FINGERPRINT_EXCLUDES = (":(exclude,glob)docs/library-utilization.*",)
-FIXER_COMMAND = "python3 scripts/after_turn.py check"
-FIXER_TOOLS = ("Read", "Edit", "Write", "Grep", "Glob")
+
+@dataclasses.dataclass(frozen=True)
+class Config:
+    """The repository's steps, read from ``.config/after-turn.toml``; each step is a just recipe."""
+
+    sync: tuple[str, ...] = ()
+    sync_when: dict[str, tuple[str, ...]] = dataclasses.field(default_factory=dict)
+    ready: tuple[str, ...] = ()
+    operator_only: frozenset[str] = frozenset()
+    after: tuple[str, ...] = ()
+    after_outputs: tuple[str, ...] = ()
+    protected: tuple[str, ...] = ()
+    check_timeout: float = 1200
+    claude_model: str = "claude-sonnet-5-5"
+    claude_default_effort: str = "high"
+    codex_model: str = "gpt-6.1-sol"
+    codex_effort: str = "medium"
+    fixer_timeout: float = 20 * 60
+
+    @property
+    def not_fixable(self) -> frozenset[str]:
+        """Steps whose failures always go to the operator."""
+        return self.operator_only | frozenset(self.ready)
+
+
+def load_config(root: Path) -> Config:
+    path = root / CONFIG_PATH
+    if not path.exists():
+        return Config()
+    data = tomllib.loads(path.read_text(encoding="utf-8"))
+    fixer = data.get("fixer", {})
+    defaults = Config()
+    return Config(
+        sync=tuple(data.get("sync", ())),
+        sync_when={k: tuple(v) for k, v in data.get("sync_when", {}).items()},
+        ready=tuple(data.get("ready", ())),
+        operator_only=frozenset(data.get("operator_only", ())),
+        after=tuple(data.get("after", ())),
+        after_outputs=tuple(data.get("after_outputs", ())),
+        protected=tuple(data.get("protected", ())),
+        check_timeout=float(data.get("check_timeout", defaults.check_timeout)),
+        claude_model=fixer.get("claude_model", defaults.claude_model),
+        claude_default_effort=fixer.get("claude_default_effort", defaults.claude_default_effort),
+        codex_model=fixer.get("codex_model", defaults.codex_model),
+        codex_effort=fixer.get("codex_effort", defaults.codex_effort),
+        fixer_timeout=float(fixer.get("timeout", defaults.fixer_timeout)),
+    )
+
 
 Payload = dict[str, Any]
 Report = dict[str, Any]
@@ -149,7 +184,7 @@ def job_busy(state: Path) -> bool:
     return False
 
 
-# --- running commands --------------------------------------------------------------------------
+# --- running steps -----------------------------------------------------------------------------
 
 
 def run_logged(
@@ -157,12 +192,11 @@ def run_logged(
     root: Path,
     log: Path,
     *,
-    echo: bool = False,
     env: dict[str, str] | None = None,
     stdin_text: str | None = None,
     timeout: float | None = None,
 ) -> int:
-    """Run ``command`` in ``root``, writing its output to ``log`` (and stdout when ``echo``)."""
+    """Run ``command`` in ``root`` with its output in ``log``; kill it after ``timeout`` s."""
     with log.open("w", encoding="utf-8") as fh:
         fh.write(f"$ {' '.join(command)}\n")
         fh.flush()
@@ -171,18 +205,12 @@ def run_logged(
             cwd=root,
             env=env,
             stdin=subprocess.PIPE if stdin_text is not None else subprocess.DEVNULL,
-            stdout=subprocess.PIPE if echo else fh,
+            stdout=fh,
             stderr=subprocess.STDOUT,
             text=True,
             start_new_session=True,
         )
         try:
-            if echo:
-                assert proc.stdout is not None
-                for line in proc.stdout:
-                    fh.write(line)
-                    sys.stdout.write(line)
-                return proc.wait(timeout=timeout)
             proc.communicate(input=stdin_text, timeout=timeout)
             return proc.returncode
         except subprocess.TimeoutExpired:
@@ -206,33 +234,17 @@ def hygiene_checks(root: Path) -> list[str]:
 
 
 def checks_from_dump(dump: dict[str, Any]) -> list[str]:
-    return [dep["recipe"] for dep in dump["recipes"]["hygiene"]["dependencies"]]
+    recipe = dump["recipes"].get(HYGIENE_RECIPE)
+    return [dep["recipe"] for dep in recipe["dependencies"]] if recipe else []
 
 
-def check_command(check: str, root: Path) -> list[str]:
-    if check in GENERATORS:
-        return GENERATORS[check]
-    if check == "postgres-images":
-        return ["bash", "-c", postgres_images_script(root)]
-    if check == "tools":
-        return ["bash", "-c", 'out=$(just doctor 2>&1); echo "$out"; ! grep -q MISSING <<<"$out"']
-    return ["just", check]
-
-
-def postgres_images_script(root: Path) -> str:
-    specs = [root / "specs" / "postgres-image.txt", root / "specs" / "postgres-vector-image.txt"]
-    images = ["postgres:" + specs[0].read_text().strip(), specs[1].read_text().strip()]
-    inspect = " && ".join(f"docker image inspect {image!r} >/dev/null 2>&1" for image in images)
-    return f"if {inspect}; then echo 'images present'; else just postgres-test-setup; fi"
-
-
-def run_check(check: str, root: Path, state: Path, *, echo: bool = False) -> dict[str, Any]:
+def run_check(check: str, root: Path, state: Path, config: Config) -> dict[str, Any]:
     log = state / "checks" / f"{check}.log"
     started = time.monotonic()
     try:
-        rc = run_logged(check_command(check, root), root, log, echo=echo)
-    except Exception as exc:
-        log.write_text(f"$ {check}\nerror: could not run the check: {exc!r}\n")
+        rc = run_logged(["just", check], root, log, timeout=config.check_timeout)
+    except Exception as exc:  # a step that cannot start is a failed step
+        log.write_text(f"$ just {check}\nerror: could not run the step: {exc!r}\n")
         rc = 127
     return {
         "status": "passed" if rc == 0 else "failed",
@@ -242,11 +254,12 @@ def run_check(check: str, root: Path, state: Path, *, echo: bool = False) -> dic
     }
 
 
-def dependencies_changed(root: Path) -> bool:
-    manifests = ["Cargo.lock", ":(glob)**/Cargo.toml"]
-    diff = subprocess.run(["git", "diff", "--quiet", "HEAD", "--", *manifests], cwd=root)
+def changed_since_head(root: Path, patterns: Sequence[str]) -> bool:
+    """Whether any file matching the glob ``patterns`` differs from HEAD or is untracked."""
+    specs = [f":(glob){p}" for p in patterns]
+    diff = subprocess.run(["git", "diff", "--quiet", "HEAD", "--", *specs], cwd=root)
     untracked = subprocess.run(
-        ["git", "ls-files", "--others", "--exclude-standard", "--", *manifests],
+        ["git", "ls-files", "--others", "--exclude-standard", "--", *specs],
         cwd=root,
         capture_output=True,
         text=True,
@@ -254,16 +267,17 @@ def dependencies_changed(root: Path) -> bool:
     return diff.returncode != 0 or bool(untracked.stdout.strip())
 
 
-def fingerprint(root: Path) -> str:
-    """HEAD, the tracked diff and untracked files, without the catalog's own outputs."""
+def fingerprint(root: Path, config: Config) -> str:
+    """HEAD, the tracked diff and untracked files, without the ``after`` recipes' outputs."""
+    excludes = [f":(exclude,glob){p}" for p in config.after_outputs]
 
     def git(*args: str) -> bytes:
         return subprocess.run(["git", *args], cwd=root, capture_output=True, check=True).stdout
 
     digest = hashlib.sha256()
     digest.update(git("rev-parse", "HEAD"))
-    digest.update(git("diff", "HEAD", "--binary", "--", ".", *FINGERPRINT_EXCLUDES))
-    untracked = git("ls-files", "-o", "--exclude-standard", "-z", "--", ".", *FINGERPRINT_EXCLUDES)
+    digest.update(git("diff", "HEAD", "--binary", "--", ".", *excludes))
+    untracked = git("ls-files", "-o", "--exclude-standard", "-z", "--", ".", *excludes)
     for name in sorted(filter(None, untracked.split(b"\0"))):
         with contextlib.suppress(OSError):
             stat = os.lstat(root / os.fsdecode(name))
@@ -308,8 +322,10 @@ def fixer_enabled() -> bool:
     return os.environ.get(FIXER_ENV, "on").lower() not in {"off", "0", "false", "no"}
 
 
-def claude_effort(value: object) -> str:
-    return value if isinstance(value, str) and value in CLAUDE_EFFORTS else CLAUDE_DEFAULT_EFFORT
+def claude_effort(value: object, config: Config) -> str:
+    if isinstance(value, str) and value in CLAUDE_EFFORTS:
+        return value
+    return config.claude_default_effort
 
 
 def fixer_env(checks: Sequence[str]) -> dict[str, str]:
@@ -320,8 +336,13 @@ def fixer_env(checks: Sequence[str]) -> dict[str, str]:
     return env
 
 
-def fixer_brief(root: Path) -> str:
-    return (root / "scripts" / "after_turn_fixer.md").read_text()
+def fixer_brief(root: Path, config: Config) -> str:
+    brief = (root / "scripts" / "after_turn_fixer.md").read_text(encoding="utf-8")
+    protected = (*config.protected, *config.after_outputs)
+    if protected:
+        paths = ", ".join(f"`{p}`" for p in protected)
+        brief += f"\nNever edit these paths, whatever a finding says: {paths}.\n"
+    return brief
 
 
 def fixer_prompt(checks: Sequence[str], results: dict[str, Any], tail_lines: int = 150) -> str:
@@ -337,17 +358,17 @@ def fixer_prompt(checks: Sequence[str], results: dict[str, Any], tail_lines: int
     return "\n\n".join(parts)
 
 
-def fixer_command(harness: str, effort: str, root: Path, state: Path) -> list[str]:
+def fixer_command(harness: str, effort: str, root: Path, state: Path, config: Config) -> list[str]:
     if harness == "codex":
         return [
             "codex",
             "exec",
             "-m",
-            CODEX_MODEL,
+            config.codex_model,
             "-c",
-            f'model_reasoning_effort="{CODEX_EFFORT}"',
-            # The guard hook, not the sandbox, confines commands; checks need the shared cargo
-            # build directory and the local PostgreSQL, both outside a workspace sandbox.
+            f'model_reasoning_effort="{config.codex_effort}"',
+            # The guard hook, not the sandbox, confines commands; checks may need shared build
+            # directories and local services outside a workspace sandbox.
             "-s",
             "danger-full-access",
             "--dangerously-bypass-hook-trust",
@@ -362,9 +383,9 @@ def fixer_command(harness: str, effort: str, root: Path, state: Path) -> list[st
         "claude",
         "-p",
         "--model",
-        CLAUDE_MODEL,
+        config.claude_model,
         "--effort",
-        claude_effort(effort),
+        claude_effort(effort, config),
         "--permission-mode",
         "dontAsk",
         "--tools",
@@ -373,7 +394,7 @@ def fixer_command(harness: str, effort: str, root: Path, state: Path) -> list[st
         "--settings",
         json.dumps(settings),
         "--append-system-prompt",
-        fixer_brief(root),
+        fixer_brief(root, config),
         "--output-format",
         "text",
     ]
@@ -386,15 +407,16 @@ def run_fixer(
     results: dict[str, Any],
     root: Path,
     state: Path,
+    config: Config,
 ) -> dict[str, Any]:
-    command = fixer_command(harness, effort, root, state)
+    command = fixer_command(harness, effort, root, state, config)
     prompt = fixer_prompt(checks, results)
     if harness == "codex":
-        prompt = fixer_brief(root) + "\n\n" + prompt
+        prompt = fixer_brief(root, config) + "\n\n" + prompt
     info: dict[str, Any] = {
         "harness": harness,
-        "model": CODEX_MODEL if harness == "codex" else CLAUDE_MODEL,
-        "effort": CODEX_EFFORT if harness == "codex" else claude_effort(effort),
+        "model": config.codex_model if harness == "codex" else config.claude_model,
+        "effort": config.codex_effort if harness == "codex" else claude_effort(effort, config),
         "checks": list(checks),
         "log": str(state / "fixer.log"),
     }
@@ -409,7 +431,7 @@ def run_fixer(
         state / "fixer.log",
         env=fixer_env(checks),
         stdin_text=prompt,
-        timeout=FIXER_TIMEOUT,
+        timeout=config.fixer_timeout,
     )
     info["seconds"] = round(time.monotonic() - started, 1)
     after = file_hashes(root)
@@ -432,7 +454,7 @@ def leftovers(report: Report) -> list[str]:
     return [cid for cid, result in report.get("checks", {}).items() if result["status"] != "passed"]
 
 
-def operator_message(report: Report) -> str | None:
+def operator_message(report: Report, logs: str = ".git/after-turn/") -> str | None:
     left = leftovers(report)
     fixer = report.get("fixer") or {}
     changed = fixer.get("changed") or []
@@ -452,7 +474,14 @@ def operator_message(report: Report) -> str | None:
             text = log.read_text(errors="replace") if log.exists() else ""
             details.append(f"{cid}: {first_finding(text)}".rstrip(": "))
         parts.append(f"{len(left)} left: " + "; ".join(details))
-    return "End-of-turn checks: " + " | ".join(parts) + " (logs: .git/after-turn/)"
+    return "End-of-turn checks: " + " | ".join(parts) + f" (logs: {logs})"
+
+
+def logs_label(root: Path, state: Path) -> str:
+    try:
+        return str(state.relative_to(root)) + "/"
+    except ValueError:
+        return str(state) + "/"
 
 
 # --- subcommands -------------------------------------------------------------------------------
@@ -464,16 +493,18 @@ def cmd_stop(harness: str) -> int:
     payload = read_payload()
     root = repo_root()
     state = state_dir(root)
+    config = load_config(root)
     effort_field = payload.get("effort")
     effort = (
         effort_field.get("level") if isinstance(effort_field, dict) else None
     ) or os.environ.get("CLAUDE_EFFORT", "")
     append_log(state, "stop.log", f"{harness} payload={sorted(payload)} effort={effort or '-'}")
     results: dict[str, Any] = {}
-    for gen in GENERATORS:
-        if gen == "build-features" and not dependencies_changed(root):
+    for step in config.sync:
+        when = config.sync_when.get(step)
+        if when and not changed_since_head(root, when):
             continue
-        results[gen] = run_check(gen, root, state)
+        results[step] = run_check(step, root, state, config)
     (state / "sync.json").write_text(json.dumps(results, indent=2) + "\n")
     (state / "job-pending").touch()
     subprocess.Popen(
@@ -498,6 +529,7 @@ def cmd_stop(harness: str) -> int:
 def cmd_job(harness: str, effort: str) -> int:
     root = repo_root()
     state = state_dir(root)
+    config = load_config(root)
     pending = state / "job-pending"
     while pending.exists():
         with try_lock(state / "job.lock") as acquired:
@@ -505,44 +537,48 @@ def cmd_job(harness: str, effort: str) -> int:
                 return 0  # the running job re-checks the pending mark after releasing its lock
             while pending.exists():
                 pending.unlink(missing_ok=True)
-                run_job_once(harness, effort, root, state)
-    refresh_catalog(root, state)
+                run_job_once(harness, effort, root, state, config)
+    run_after(root, state, config)
     return 0
 
 
-def run_job_once(harness: str, effort: str, root: Path, state: Path) -> None:
+def run_job_once(harness: str, effort: str, root: Path, state: Path, config: Config) -> None:
     sync = json.loads((state / "sync.json").read_text()) if (state / "sync.json").exists() else {}
-    current = fingerprint(root)
+    current = fingerprint(root, config)
     last = load_report(state)
     if last and last.get("complete") and last.get("fingerprint") == current:
         append_log(state, "job.log", "tree unchanged since the last report; skipped")
         return
     report: Report = {"id": now(), "harness": harness, "complete": False, "shown": False}
     results: dict[str, Any] = dict(sync)
-    for step in READINESS:
-        results[step] = run_check(step, root, state)
-    for check in hygiene_checks(root):
-        results[check] = run_check(check, root, state)
+    for step in (*config.ready, *hygiene_checks(root)):
+        results[step] = run_check(step, root, state, config)
     failed = [cid for cid, r in results.items() if r["status"] != "passed"]
-    fixable = [cid for cid in failed if cid not in OPERATOR_ONLY]
+    fixable = [cid for cid in failed if cid not in config.not_fixable]
     append_log(state, "job.log", f"failed={failed} fixable={fixable}")
     if fixable and fixer_enabled():
-        report["fixer"] = run_fixer(harness, effort, fixable, results, root, state)
+        report["fixer"] = run_fixer(harness, effort, fixable, results, root, state, config)
         for check in fixable:
-            results[check] = run_check(check, root, state)
+            results[check] = run_check(check, root, state, config)
         append_log(state, "job.log", f"fixer rc={report['fixer'].get('rc')}")
-    report.update(checks=results, fingerprint=fingerprint(root), complete=True, finished=now())
+    report.update(
+        checks=results, fingerprint=fingerprint(root, config), complete=True, finished=now()
+    )
     save_report(state, report)
 
 
-def refresh_catalog(root: Path, state: Path) -> None:
-    (state / "catalog-pending").touch()
-    with try_lock(state / "catalog.lock") as acquired:
+def run_after(root: Path, state: Path, config: Config) -> None:
+    """Run the ``after`` recipes once per burst of stops; nothing waits on them."""
+    if not config.after:
+        return
+    (state / "after-pending").touch()
+    with try_lock(state / "after.lock") as acquired:
         if not acquired:
             return
-        while (state / "catalog-pending").exists():
-            (state / "catalog-pending").unlink(missing_ok=True)
-            run_logged(["just", "library-catalog"], root, state / "catalog.log")
+        while (state / "after-pending").exists():
+            (state / "after-pending").unlink(missing_ok=True)
+            for step in config.after:
+                run_logged(["just", step], root, state / f"{step}.log")
 
 
 def cmd_prompt(harness: str) -> int:
@@ -551,19 +587,20 @@ def cmd_prompt(harness: str) -> int:
     read_payload()
     root = repo_root()
     state = state_dir(root)
+    logs = logs_label(root, state)
     deadline = time.monotonic() + PROMPT_WAIT
     while job_busy(state) and time.monotonic() < deadline:
         time.sleep(1)
     if job_busy(state):
         message: str | None = (
             f"End-of-turn checks still running after {PROMPT_WAIT // 60} min; "
-            "this turn started without waiting (logs: .git/after-turn/)"
+            f"this turn started without waiting (logs: {logs})"
         )
     else:
         report = load_report(state)
         message = None
         if report and report.get("complete") and not report.get("shown"):
-            message = operator_message(report)
+            message = operator_message(report, logs)
             report["shown"] = True
             save_report(state, report)
     if message:
@@ -576,7 +613,7 @@ def cmd_prompt(harness: str) -> int:
 
 def guard_decision(command: str, allowed: set[str]) -> str | None:
     """None when a fixer may run ``command``; otherwise the reason it may not."""
-    match = re.fullmatch(r"\s*python3 scripts/after_turn\.py check((?: [a-z0-9-]+)+)\s*", command)
+    match = re.fullmatch(rf"\s*{re.escape(FIXER_COMMAND)}((?: [a-z0-9-]+)+)\s*", command)
     if match and set(match.group(1).split()) <= allowed:
         return None
     names = ", ".join(sorted(allowed))
@@ -602,15 +639,16 @@ def cmd_guard() -> int:
 def cmd_check(checks: Sequence[str]) -> int:
     root = repo_root()
     state = state_dir(root)
-    known = {*GENERATORS, *READINESS, *hygiene_checks(root)}
+    config = load_config(root)
+    known = {*config.sync, *config.ready, *hygiene_checks(root)}
     unknown = [c for c in checks if c not in known]
     if unknown:
         print(f"unknown check id(s): {', '.join(unknown)}; known: {', '.join(sorted(known))}")
         return 2
     failed = []
     for check in checks:
-        print(f"== {check}", flush=True)
-        result = run_check(check, root, state, echo=True)
+        result = run_check(check, root, state, config)
+        print(Path(result["log"]).read_text(errors="replace"), end="", flush=True)
         print(
             f"== {check}: {result['status']} (exit {result['rc']}, {result['seconds']} s)",
             flush=True,
@@ -643,7 +681,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "prompt":
             return cmd_prompt(args.harness)
         return cmd_job(args.harness, args.effort)
-    except Exception as exc:
+    except Exception as exc:  # a hook must not surface errors to the agent
         with contextlib.suppress(Exception):
             append_log(state_dir(repo_root()), "error.log", f"{args.command}: {exc!r}")
         return 0

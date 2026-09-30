@@ -36,7 +36,9 @@ line-length = 100
 src = ["scripts", "python/lctx_mcp/src"]
 target-version = "py314"
 # Fixtures are analyzer input; docs contain archived probes and illustrative code fences.
-extend-exclude = ["fixtures", ".claude/skills", "target", "docs"]
+# `libraries/` and `services/` are separate uv projects with their own environments.
+extend-exclude = ["fixtures", ".claude/skills", "target", "docs", "libraries", "services"]
+force-exclude = true
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
