@@ -115,7 +115,7 @@ impl MemoryGeneration {
         budget: &ResourceBudget,
         preflight: super::admission::Preflight,
         receipt: &super::stages::ExecutionReceipt,
-    ) -> Result<super::admission::FactsAdmission, ModelError> {
+    ) -> Result<super::admission::FrontierAdmission, ModelError> {
         if model.digest() != self.model || preflight.contract().model() != model.digest() {
             return Err(ModelError::Invalid("memory facts model differs".into()));
         }

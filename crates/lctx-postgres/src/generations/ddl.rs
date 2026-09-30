@@ -5,7 +5,7 @@ use super::failure::FailureClass;
 use super::{GenerationId, quoted};
 use lctx_model::domain::{
     ContentHash, FieldValue, Relation, Scalar, ValidatedModel,
-    admission::{Availability, Frontier, FrontierContract},
+    admission::{Availability, Frontier},
     attribution::FactFamily,
     stages::{Profile, ProviderOutcome},
 };
@@ -36,24 +36,9 @@ pub(super) fn scopes(model: &ValidatedModel) -> BTreeMap<Frontier, Scope> {
         columns: column_signature(model, &relations),
         relations,
     };
-    let mut scopes = BTreeMap::from([(
-        Frontier::Conformance,
-        scope(model.relations().iter().map(Relation::name).collect()),
-    )]);
-    if let Ok(contract) = FrontierContract::facts(model, Profile::Catalog) {
-        scopes.insert(
-            Frontier::Facts,
-            scope(
-                model
-                    .relations()
-                    .iter()
-                    .map(Relation::name)
-                    .filter(|name| contract.contains(name))
-                    .collect(),
-            ),
-        );
-    }
-    scopes
+    Frontier::ALL.into_iter().filter_map(|frontier| {
+        frontier.descriptor().relations(model).ok().map(|relations| (frontier, scope(relations)))
+    }).collect()
 }
 /// The live-column signature of a lowering: `relation.column:type:not-null`, in relation-name
 /// and column order, exactly as `pg_attribute` and `format_type` report the tables `lower` creates.

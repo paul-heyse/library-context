@@ -15,7 +15,7 @@ use lctx_model::domain::stages::{
 };
 use lctx_model::domain::{
     Batch, ContentHash, ModelError, Record,
-    admission::{FactsAdmission, Frontier, FrontierContract, Preflight},
+    admission::{FrontierAdmission, Frontier, FrontierContract, Preflight},
 };
 use sqlx::{PgPool, Postgres, pool::PoolConnection};
 use std::{collections::BTreeSet, sync::Mutex};
@@ -39,8 +39,8 @@ impl GenerationStore {
                 ModelError::Frontier(message) => Error::Frontier(message),
                 other => Error::Model(other),
             })?;
-        self.scope(Frontier::Facts)?;
-        self.open_attempt(writer, execution, Frontier::Facts, Some(preflight), budget)
+        self.scope(contract.frontier())?;
+        self.open_attempt(writer, execution, contract.frontier(), Some(preflight), budget)
             .await
     }
     /// Begin an attempt over a subset schedule. It exercises the permanent stage-bound sink and
@@ -378,7 +378,7 @@ impl SealedAttempt {
 pub struct ValidatedAttempt {
     lifecycle: Lifecycle,
     content: ContentHash,
-    admission: Option<FactsAdmission>,
+    admission: Option<FrontierAdmission>,
 }
 impl std::fmt::Debug for ValidatedAttempt {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -394,7 +394,7 @@ impl ValidatedAttempt {
     pub fn content(&self) -> ContentHash {
         self.content
     }
-    pub fn admission(&self) -> Option<&FactsAdmission> {
+    pub fn admission(&self) -> Option<&FrontierAdmission> {
         self.admission.as_ref()
     }
     /// Publish atomically: admission recorded, reader granted, state changed. The attempt ends

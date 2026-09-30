@@ -709,14 +709,15 @@ required ownership, lost alternatives, unhandled availability or unbounded failu
 **2026-09-30: implementation started.** The independent assembled review is **Accept scoped**, at Proposed
 strength: A1–A3 satisfied; G1–G8 and CI-G1/CI-G3 pass; served-claim CI-G2 is outside this P3 scope.
 D0's design review and adoption of ADR-0101/0102 are complete. The independent expected-answer
-and deletion inventories in §§9–10 govern the implementation. R1 is in progress; R2–Q are
+and deletion inventories in §§9–10 govern the implementation. R1 foundation is implemented; R2 is in progress; R3–Q are
 not started. No implementation finding is closed by decision acceptance.
 
 | Package | State and bounded receipt |
 |---|---|
 | D0 | Accepted ADR-0101/0102 and retained the independently reviewed design and migration inventory; 2026-09-30. |
-| R1 | In progress: model-owned frontier descriptors and generic admission. Checks not_run. |
-| R2–Q | Not started. |
+| R1 | Implemented: model-owned frontier closure/validators/selectability and generic `FrontierAdmission`; store dispatch removed. Passed `cargo check -p lctx-model -p lctx-postgres` and release `domain_admission` (10) + `generation_stages` (1), through the build-environment wrapper, 2026-09-30. Normalized declaration/admission activates only with N7. |
+| R2 | In progress: durable completion, transport declarations and completed-source capabilities. |
+| R3–Q | Not started. |
 
 The [assembled design review](../design_review/reviews/design_review_phase3-plan_2026-09-30.md)
 owns dated evidence for these new findings; this table owns their current disposition.

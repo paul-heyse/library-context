@@ -9,7 +9,7 @@ use super::{
 use lctx_model::domain::resources::ResourceBudget;
 use lctx_model::domain::{
     Codebook, ContentHash, KeySink,
-    admission::{AdmissionCheck, FactsAdmission, Frontier, Preflight},
+    admission::{AdmissionCheck, FrontierAdmission, Frontier, Preflight},
     stages::{ExecutionReceipt, ProviderOutcome},
 };
 use sqlx::{PgConnection, Row};
@@ -81,15 +81,17 @@ impl GenerationStore {
         g: GenerationId,
         budget: &ResourceBudget,
         admitting: Option<Admitting<'_>>,
-    ) -> Result<(ContentHash, Option<FactsAdmission>), Error> {
+    ) -> Result<(ContentHash, Option<FrontierAdmission>), Error> {
         self.lock_installation(tx).await?;
         lock(tx, g, false).await?;
         let registered = self.registered(tx, g).await?;
         registered.expect("sealed")?;
         let frontier = registered.frontier;
-        if (frontier == Frontier::Facts) != admitting.is_some() {
+        if frontier.descriptor().requires_admission() != admitting.is_some()
+            || admitting.as_ref().is_some_and(|a| a.preflight.contract().frontier() != frontier)
+        {
             return Err(Error::Frontier(
-                "a facts generation, and only one, is validated with its admission".into(),
+                "frontier validation requires exactly its declared admission".into(),
             ));
         }
         execute(tx, self.lowering(g, frontier)?.phase("validated")).await?;
@@ -164,7 +166,7 @@ impl GenerationStore {
         &self,
         tx: &mut PgConnection,
         g: GenerationId,
-        admission: Option<&FactsAdmission>,
+        admission: Option<&FrontierAdmission>,
     ) -> Result<(), Error> {
         self.lock_installation(tx).await?;
         lock(tx, g, false).await?;
@@ -217,9 +219,10 @@ impl GenerationStore {
         if unplanned != 0 {
             return Err(Error::State);
         }
-        match (frontier, admission) {
-            (Frontier::Facts, Some(admission)) => {
-                if admission.model() != self.model.digest()
+        match (frontier.descriptor().requires_admission(), admission) {
+            (true, Some(admission)) => {
+                if admission.frontier() != frontier
+                    || admission.model() != self.model.digest()
                     || admission.content() != digest
                     || admission.profile().name() != profile
                     || schedule != admission.schedule().0
@@ -245,13 +248,13 @@ impl GenerationStore {
                         .await?;
                 }
             }
-            (Frontier::Facts, None) => {
+            (true, None) => {
                 return Err(Error::Frontier(
-                    "a facts generation publishes only with its admission".into(),
+                    "the frontier publishes only with its declared admission".into(),
                 ));
             }
-            (Frontier::Conformance, Some(_)) => return Err(Error::Contract),
-            (Frontier::Conformance, None) => {}
+            (false, Some(_)) => return Err(Error::Contract),
+            (false, None) => {}
         }
         execute(tx, self.lowering(g, frontier)?.phase("published")).await?;
         transition(tx, g, "published").await

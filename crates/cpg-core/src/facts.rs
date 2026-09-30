@@ -337,7 +337,7 @@ pub async fn memory(
     budget: ResourceBudget,
     profile: lctx_model::domain::stages::Profile,
     configuration: lctx_model::domain::ContentHash,
-) -> Result<lctx_model::domain::admission::FactsAdmission, ModelError> {
+) -> Result<lctx_model::domain::admission::FrontierAdmission, ModelError> {
     let model = Arc::new(lctx_model::domain::model()?);
     let providers = providers::<lctx_model::domain::memory::MemoryGeneration>(configuration);
     let schedule = lctx_model::domain::stages::Schedule::build(

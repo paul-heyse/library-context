@@ -297,9 +297,9 @@ impl GenerationStore {
             lock(tx, g, true).await?;
             let registered = self.registered(tx, g).await?;
             registered.expect("published")?;
-            if registered.frontier != Frontier::Facts {
+            if !registered.frontier.descriptor().selectable() {
                 return Err(Error::Frontier(
-                    "only a facts generation can be selected".into(),
+                    "the generation's frontier is not selectable".into(),
                 ));
             }
             sqlx::query("UPDATE lctx_model_store.selection SET generation_id=$1 WHERE singleton")
@@ -454,11 +454,7 @@ impl GenerationStore {
                 .iter()
                 .filter(|r| scope.contains(r.name()))
                 .collect(),
-            self.model
-                .invariants()
-                .iter()
-                .filter(|i| i.inputs.iter().all(|input| scope.contains(input.name())))
-                .collect(),
+            frontier.descriptor().invariants(&self.model)?,
         ))
     }
     /// A generation's registry row, after confirming its model and frontier-scoped lowering.

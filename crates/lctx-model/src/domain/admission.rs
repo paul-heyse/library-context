@@ -4,7 +4,7 @@
 //! states the coverage of every scope the family is stated over; for every other family it states
 //! `NotRequested`. Preflight refuses a schedule that cannot produce that frontier before any store
 //! effect. Admission reconciles the sealed coverage rows with the stage outcomes; it is the only
-//! way to obtain a [`FactsAdmission`].
+//! way to obtain a [`FrontierAdmission`].
 use super::{
     attribution::*,
     charged::{ChargedMap, ChargedSet, ChargedVec, StateCharge},
@@ -32,6 +32,73 @@ impl Frontier {
             Self::Conformance => "conformance",
             Self::Facts => "facts",
         }
+    }
+    /// The model is the sole owner of frontier closure and admission semantics. A frontier is
+    /// added here only when its complete producer and validator envelope is implemented.
+    pub fn descriptor(self) -> FrontierDescriptor {
+        match self {
+            Self::Conformance => FrontierDescriptor {
+                frontier: self,
+                declared: None,
+                requirements: &[],
+                checkpoints: &[],
+                selectable: false,
+                admission: false,
+            },
+            Self::Facts => FrontierDescriptor {
+                frontier: self,
+                declared: Some(facts_relations),
+                requirements: FACTS_REQUIREMENTS,
+                checkpoints: &[],
+                selectable: true,
+                admission: true,
+            },
+        }
+    }
+}
+
+/// A closed model-owned frontier declaration (ADR-0101). Physical stores consume this contract;
+/// they do not decide which semantic layer a relation, validator or admission belongs to.
+#[derive(Clone, Copy)]
+pub struct FrontierDescriptor {
+    frontier: Frontier,
+    declared: Option<fn() -> Vec<Relation>>,
+    requirements: &'static [FamilyRequirement],
+    checkpoints: &'static [Frontier],
+    selectable: bool,
+    admission: bool,
+}
+impl FrontierDescriptor {
+    pub fn frontier(self) -> Frontier { self.frontier }
+    pub fn selectable(self) -> bool { self.selectable }
+    pub fn requires_admission(self) -> bool { self.admission }
+    pub fn checkpoints(self) -> &'static [Frontier] { self.checkpoints }
+    pub fn requirements(self) -> &'static [FamilyRequirement] { self.requirements }
+    /// Refuse an incomplete model or a reference above the declared frontier. Conformance alone
+    /// takes the caller's entire validated model, including deliberately small fixture models.
+    pub fn relations(self, model: &ValidatedModel) -> Result<BTreeSet<&'static str>, ModelError> {
+        let relations: BTreeSet<_> = match self.declared {
+            Some(declare) => declare().iter().map(Relation::name).collect(),
+            None => model.relations().iter().map(Relation::name).collect(),
+        };
+        for name in &relations {
+            let relation = model.relations().iter().find(|r| r.name() == *name)
+                .ok_or_else(|| refuse(format!("the model lacks {} relation {name}", self.frontier.name())))?;
+            for field in relation.fields() {
+                if let Some((_, target)) = field.target()
+                    && !relations.contains(target)
+                {
+                    return Err(refuse(format!("{name}.{} references {target}, above the {} frontier", field.name(), self.frontier.name())));
+                }
+            }
+        }
+        Ok(relations)
+    }
+    pub fn invariants<'a>(self, model: &'a ValidatedModel) -> Result<Vec<&'a Invariant>, ModelError> {
+        let relations = self.relations(model)?;
+        Ok(model.invariants().iter()
+            .filter(|i| i.inputs.iter().all(|input| relations.contains(input.name())))
+            .collect())
     }
 }
 /// The captured artifacts a family is stated over.
@@ -165,6 +232,7 @@ fn refuse(message: impl Into<String>) -> ModelError {
 /// The facts frontier of one profile over one model.
 #[derive(Debug, Clone)]
 pub struct FrontierContract {
+    frontier: Frontier,
     profile: Profile,
     model: ContentHash,
     relations: BTreeSet<&'static str>,
@@ -177,7 +245,14 @@ impl FrontierContract {
     /// Facts relations may reference only facts relations: nothing at the facts frontier depends
     /// on a relation a later layer derives.
     pub fn facts(model: &ValidatedModel, profile: Profile) -> Result<Self, ModelError> {
-        let relations: BTreeSet<_> = facts_relations().iter().map(Relation::name).collect();
+        Self::for_frontier(model, profile, Frontier::Facts)
+    }
+    pub fn for_frontier(model: &ValidatedModel, profile: Profile, frontier: Frontier) -> Result<Self, ModelError> {
+        let descriptor = frontier.descriptor();
+        if !descriptor.requires_admission() {
+            return Err(refuse("conformance has no product admission contract"));
+        }
+        let relations = descriptor.relations(model)?;
         let mut families = BTreeMap::new();
         for name in &relations {
             let relation = model
@@ -188,19 +263,11 @@ impl FrontierContract {
             if let Some(family) = relation.family() {
                 families.insert(*name, family);
             }
-            for field in relation.fields() {
-                if let Some((_, target)) = field.target()
-                    && !relations.contains(target)
-                {
-                    return Err(refuse(format!(
-                        "facts relation {name}.{} references {target}, above the facts frontier",
-                        field.name()
-                    )));
-                }
-            }
+
         }
-        let stated: BTreeSet<_> = FACTS_REQUIREMENTS.iter().map(|r| r.family as i16).collect();
-        if stated.len() != FACTS_REQUIREMENTS.len()
+        let requirements = descriptor.requirements();
+        let stated: BTreeSet<_> = requirements.iter().map(|r| r.family as i16).collect();
+        if stated.len() != requirements.len()
             || stated.len() != <FactFamily as FieldValue>::codes().len()
         {
             return Err(refuse(
@@ -208,13 +275,17 @@ impl FrontierContract {
             ));
         }
         let mut digest = KeySink::new("frontier-contract");
-        digest.part(b"frontier", Frontier::Facts.name().as_bytes());
+        digest.part(b"frontier", frontier.name().as_bytes());
+        digest.part(b"selectable", &[u8::from(descriptor.selectable())]);
+        for checkpoint in descriptor.checkpoints() {
+            digest.part(b"checkpoint", checkpoint.name().as_bytes());
+        }
         digest.part(b"profile", profile.name().as_bytes());
         digest.part(b"model", &model.digest().0);
         for name in &relations {
             digest.part(b"relation", name.as_bytes());
         }
-        for requirement in FACTS_REQUIREMENTS {
+        for requirement in requirements {
             Key::encode(&requirement.family, &mut digest);
             for grain in requirement.grains {
                 let grain = match grain {
@@ -231,16 +302,17 @@ impl FrontierContract {
             digest.part(b"required", &[u8::from(requirement.required)]);
         }
         Ok(Self {
+            frontier,
             profile,
             model: model.digest(),
             relations,
-            requirements: FACTS_REQUIREMENTS.to_vec(),
+            requirements: requirements.to_vec(),
             digest: digest.finish(),
             families,
         })
     }
     pub fn frontier(&self) -> Frontier {
-        Frontier::Facts
+        self.frontier
     }
     pub fn profile(&self) -> Profile {
         self.profile
@@ -510,17 +582,18 @@ impl Availability {
 /// [`AdmissionCheck::finish`] constructs one.
 ///
 /// ```compile_fail
-/// use lctx_model::domain::admission::FactsAdmission;
-/// let forged = FactsAdmission { contract: todo!(), model: todo!(), schedule: todo!(), coverage: todo!(),
+/// use lctx_model::domain::admission::FrontierAdmission;
+/// let forged = FrontierAdmission { contract: todo!(), model: todo!(), schedule: todo!(), coverage: todo!(),
 ///     content: todo!(), profile: todo!(), availability: todo!() };
 /// ```
 ///
 /// ```
-/// use lctx_model::domain::{ContentHash, admission::FactsAdmission};
-/// fn recorded(admission: &FactsAdmission) -> (ContentHash, ContentHash) { (admission.contract(), admission.coverage()) }
+/// use lctx_model::domain::{ContentHash, admission::FrontierAdmission};
+/// fn recorded(admission: &FrontierAdmission) -> (ContentHash, ContentHash) { (admission.contract(), admission.coverage()) }
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FactsAdmission {
+pub struct FrontierAdmission {
+    frontier: Frontier,
     contract: ContentHash,
     model: ContentHash,
     schedule: ContentHash,
@@ -529,9 +602,9 @@ pub struct FactsAdmission {
     profile: Profile,
     availability: BTreeMap<FactFamily, Availability>,
 }
-impl FactsAdmission {
+impl FrontierAdmission {
     pub fn frontier(&self) -> Frontier {
-        Frontier::Facts
+        self.frontier
     }
     pub fn contract(&self) -> ContentHash {
         self.contract
@@ -645,7 +718,7 @@ impl AdmissionCheck {
         self,
         receipt: &ExecutionReceipt,
         content: ContentHash,
-    ) -> Result<FactsAdmission, ModelError> {
+    ) -> Result<FrontierAdmission, ModelError> {
         let contract = &self.preflight.contract;
         if receipt.model() != contract.model || receipt.schedule() != self.preflight.schedule {
             return Err(refuse(
@@ -761,7 +834,8 @@ impl AdmissionCheck {
         for row in stated.values() {
             row.id().encode(&mut coverage);
         }
-        Ok(FactsAdmission {
+        Ok(FrontierAdmission {
+            frontier: contract.frontier,
             contract: contract.digest,
             model: contract.model,
             schedule: self.preflight.schedule,

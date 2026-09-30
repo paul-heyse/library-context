@@ -25,6 +25,30 @@ fn budget() -> ResourceBudget {
 }
 
 #[test]
+fn frontier_descriptors_own_relation_closure_validation_and_selection() {
+    let model = model().unwrap();
+    let facts = Frontier::Facts.descriptor();
+    let closure = facts.relations(&model).unwrap();
+    assert!(facts.requires_admission());
+    assert!(facts.selectable());
+    assert!(!closure.contains(TransferKey::NAME));
+    assert!(closure.contains(ProviderCoverage::NAME));
+    assert!(facts.invariants(&model).unwrap().iter().all(|i|
+        i.inputs.iter().all(|input| closure.contains(input.name()))));
+    let contract = FrontierContract::for_frontier(&model, Profile::Catalog, facts.frontier()).unwrap();
+    assert_eq!(contract.frontier(), Frontier::Facts);
+    assert!(closure.iter().all(|name| contract.contains(name)));
+
+    let tiny = ValidatedModel::validate(vec![Relation::of::<Package>()]).unwrap();
+    assert!(facts.relations(&tiny).is_err(), "an incomplete facts model is refused");
+    let conformance = Frontier::Conformance.descriptor();
+    assert!(!conformance.requires_admission());
+    assert!(!conformance.selectable());
+    assert_eq!(conformance.relations(&tiny).unwrap(), [Package::NAME].into());
+    assert!(FrontierContract::for_frontier(&tiny, Profile::Catalog, Frontier::Conformance).is_err());
+}
+
+#[test]
 fn analyzed_roots_follow_selected_uses_and_keep_captured_dependencies_separate() {
     let w = World::new(&[
         "release.py",
@@ -624,7 +648,7 @@ impl World {
         receipt: &ExecutionReceipt,
         scopes: &[CoverageScope],
         rows: &[ProviderCoverage],
-    ) -> Result<FactsAdmission, ModelError> {
+    ) -> Result<FrontierAdmission, ModelError> {
         self.admit_classified(preflight, receipt, scopes, rows, &self.artifacts)
     }
     /// Admission with `unowned` stated as unowned artifacts; any other artifact has no class.
@@ -635,7 +659,7 @@ impl World {
         scopes: &[CoverageScope],
         rows: &[ProviderCoverage],
         unowned: &[SourceArtifact],
-    ) -> Result<FactsAdmission, ModelError> {
+    ) -> Result<FrontierAdmission, ModelError> {
         let mut check = AdmissionCheck::new(preflight.clone(), &budget());
         let acquisition = InputAcquisition {
             input: self.input.id(),
