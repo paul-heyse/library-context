@@ -7,7 +7,9 @@ use super::{*, assertion::*, attribution::*, source::*};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
 #[repr(i16)]
-pub enum SymbolKind { Function = 0, Method = 1, Class = 2, Variable = 3, Module = 4, Unknown = 5 }
+/// `ModuleBody`, `ClassBody` and `DecoratorApplication` are a provider's implicit callables: a
+/// module's top-level statements, a class body, and the application of a function's decorators.
+pub enum SymbolKind { Function = 0, Method = 1, Class = 2, Variable = 3, Module = 4, Unknown = 5, ModuleBody = 6, ClassBody = 7, DecoratorApplication = 8 }
 /// The stub bundles a provider ships: the standard library's typeshed, typeshed's third-party
 /// stubs, and the provider's own third-party stubs. One name in two bundles is two modules.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
@@ -232,11 +234,28 @@ pub enum CallChannel {
 fn validate_channel(row: &CallChannel) -> Result<(),ModelError> {
     if matches!(row,CallChannel::HigherOrder { argument_index } if *argument_index < 0) { return Err(invalid("negative higher-order argument index")); } Ok(())
 }
+/// Pysa's reasons for an unresolved call at the pinned Pyrefly, as it spells them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
+#[repr(i16)]
+pub enum PysaUnresolvedReason {
+    LambdaArgument = 0, UnexpectedPyreflyTarget = 1, EmptyPyreflyCallTarget = 2, UnknownClassField = 3, ClassFieldOnlyExistInObject = 4,
+    UnsupportedFunctionTarget = 5, UnexpectedDefiningClass = 6, UnexpectedInitMethod = 7, UnexpectedNewMethod = 8, UnexpectedCalleeExpression = 9,
+    UnresolvedMagicDunderAttr = 10, UnresolvedMagicDunderAttrDueToNoBase = 11, UnresolvedMagicDunderAttrDueToNoAttribute = 12, Mixed = 13,
+}
+/// Where a call goes: one symbol; every override of a method, a dispatch set that is never one
+/// callee; or nowhere the provider resolved, with the model's reason and the provider's own.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
 #[model(name = "call_destinations", validate = validate_destination)]
 pub enum CallDestination {
     #[model(code = 0)] Resolved { symbol: Id<ProviderSymbol> },
-    #[model(code = 1)] Unresolved { reason: ObligationKind },
+    #[model(code = 1)] Unresolved { reason: ObligationKind, native: Option<PysaUnresolvedReason> },
+    #[model(code = 2)] Overrides { symbol: Id<ProviderSymbol> },
+}
+impl CallDestination {
+    /// The symbol a resolved destination or a dispatch set names.
+    pub fn symbol(&self) -> Option<Id<ProviderSymbol>> {
+        match self { Self::Resolved { symbol } | Self::Overrides { symbol } => Some(*symbol), Self::Unresolved { .. } => None }
+    }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
 #[model(name = "call_receivers", validate = validate_receiver)]
@@ -251,11 +270,174 @@ pub enum Receiver {
 pub struct CallTarget {
     #[model(key)] pub qualification: Id<AssertionQualification>,
     #[model(key)] pub site: Id<Occurrence>,
+    /// Which call event at the site: the explicit call, or an implicit one the syntax makes.
+    #[model(key)] pub origin: Id<CallOrigin>,
     #[model(key)] pub destination: Id<CallDestination>,
     #[model(key)] pub channel: Id<CallChannel>,
     #[model(key)] pub phase: CallPhase,
     #[model(key)] pub receiver: Id<Receiver>,
+    /// An implicit `__call__` of the callee object.
     #[model(key)] pub implicit: bool,
+    /// The receiver's class the provider resolved the callee through.
+    #[model(key)] pub receiver_class: Option<Id<ProviderSymbol>>,
+    /// The native receiver evidence `receiver` classifies: how an implicit receiver is passed,
+    /// and whether the callee is a class or static method.
+    #[model(key)] pub passing: Option<ReceiverPassing>,
+    pub class_method: Option<bool>,
+    pub static_method: Option<bool>,
+}
+/// How a provider passes an implicit receiver: not at all, the class, or the object.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
+#[repr(i16)]
+pub enum ReceiverPassing { NotPassed = 0, Class = 1, Object = 2 }
+/// One step of the desugaring that makes an occurrence call something implicitly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
+#[repr(i16)]
+pub enum OriginStep {
+    GetAttrConstantLiteral = 0, Comparison = 1, GeneratorIter = 2, GeneratorNext = 3, WithEnter = 4, ForDecoratedTarget = 5, SubscriptGetItem = 6,
+    SubscriptSetItem = 7, BinaryOperator = 8, AugmentedAssignDunderCall = 9, AugmentedAssignRhs = 10, AugmentedAssignStatement = 11, ForIter = 12,
+    ForNext = 13, ForAssign = 14, ReprCall = 15, AbsCall = 16, IterCall = 17, NextCall = 18, StrCallToDunderMethod = 19, Slice = 20,
+    /// The `index`th target of a chained assignment.
+    ChainedAssign = 21,
+}
+/// The most steps one origin holds.
+pub const MAX_ORIGIN_STEPS: usize = 64;
+/// Which call event at a site: the empty sequence is the explicit call written there; otherwise
+/// the ordered desugaring steps of an implicit call (`for` calls `__iter__` then `__next__` at its
+/// iterable, two events). Events at one site are distinct calls, never alternatives of one call.
+#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[model(name = "call_origins", invariants = origin_invariants)]
+pub struct CallOrigin { #[model(key)] pub steps: ContentHash }
+#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[model(name = "call_origin_steps", validate = validate_origin_step)]
+pub struct CallOriginStep {
+    #[model(key)] pub origin: Id<CallOrigin>,
+    #[model(key)] pub ordinal: i64,
+    pub step: OriginStep,
+    /// The chained-assignment target's index, exactly for that step.
+    pub index: Option<i64>,
+}
+fn validate_origin_step(row: &CallOriginStep) -> Result<(),ModelError> {
+    if row.ordinal < 0 || (row.step == OriginStep::ChainedAssign) != row.index.is_some() || row.index.is_some_and(|i| i < 0) {
+        return Err(invalid("an origin step has a nonnegative ordinal, and an index exactly for a chained assignment"));
+    }
+    Ok(())
+}
+fn origin_digest(steps: &[(OriginStep, Option<i64>)]) -> ContentHash {
+    let mut sink = KeySink::new("call-origin");
+    for (ordinal, (step, index)) in steps.iter().enumerate() { (ordinal as i64).encode(&mut sink); step.encode(&mut sink); index.encode(&mut sink); }
+    (steps.len() as i64).encode(&mut sink); sink.finish()
+}
+impl CallOrigin {
+    pub fn new(steps: &[(OriginStep, Option<i64>)]) -> Result<(Self, Vec<CallOriginStep>),ModelError> {
+        if steps.len() > MAX_ORIGIN_STEPS { return Err(invalid("call-origin work limit")); }
+        let row = Self { steps: origin_digest(steps) };
+        let members: Vec<_> = steps.iter().enumerate().map(|(ordinal, (step, index))| CallOriginStep { origin: row.id(), ordinal: ordinal as i64, step: *step, index: *index }).collect();
+        for member in &members { member.validate()?; }
+        Ok((row, members))
+    }
+    /// The explicit call's origin: no steps.
+    pub fn explicit() -> Id<CallOrigin> { Self { steps: origin_digest(&[]) }.id() }
+}
+fn origin_invariants() -> Vec<Invariant> {
+    vec![Invariant { name: "call_origin_membership", inputs: vec![ValidationInput::of::<CallOrigin>(&["id"]),
+        ValidationInput::of::<CallOriginStep>(&["origin", "ordinal"])],
+        create: std::sync::Arc::new(|budget| Box::new(OriginCheck { charge: StateCharge::new(budget, "call_origin_membership"), ..Default::default() })) }]
+}
+#[derive(Default)]
+struct OriginCheck { charge: StateCharge, expected: ChargedMap<Id<CallOrigin>, ContentHash>, current: Option<(Id<CallOrigin>, Vec<(OriginStep, Option<i64>)>)> }
+impl OriginCheck {
+    fn flush(&mut self) -> Result<(),ModelError> {
+        if let Some((id, steps)) = self.current.take() {
+            if self.expected.remove(&mut self.charge, &id) != Some(origin_digest(&steps)) { return Err(invalid("call origin steps differ")); }
+        } Ok(())
+    }
+}
+impl InvariantCheck for OriginCheck {
+    fn visit(&mut self, relation: &str, batch: &arrow_array::RecordBatch) -> Result<(),ModelError> {
+        if relation == CallOrigin::NAME { for row in CallOrigin::decode(batch)? { self.expected.insert(&mut self.charge, row.id(), row.steps)?; } }
+        else if relation == CallOriginStep::NAME { for row in CallOriginStep::decode(batch)? {
+            if self.current.as_ref().is_none_or(|(id, _)| *id != row.origin) { self.flush()?; self.current = Some((row.origin, Vec::new())); }
+            let (_, steps) = self.current.as_mut().expect("current origin");
+            if row.ordinal != steps.len() as i64 || steps.len() >= MAX_ORIGIN_STEPS { return Err(invalid("call origin gaps, duplicates or work limit")); }
+            steps.push((row.step, row.index));
+        } } else { return Err(invalid("undeclared call origin input")); }
+        Ok(())
+    }
+    fn finish(mut self: Box<Self>) -> Result<(),ModelError> {
+        self.flush()?;
+        if self.expected.values().any(|digest| *digest != origin_digest(&[])) { return Err(invalid("call origin has missing steps")); }
+        Ok(())
+    }
+}
+/// Pysa's identifier kind for a call-graph site.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
+#[repr(i16)]
+pub enum PysaSiteKind { Regular = 0, ArtificialCall = 1, ArtificialAttributeAccess = 2, Identifier = 3, FormatStringArtificial = 4, FormatStringStringify = 5 }
+/// Which Pysa callee record reports a site's callees.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
+#[repr(i16)]
+pub enum PysaCalleeKind { Call = 0, Identifier = 1, AttributeAccess = 2, FormatStringArtificial = 3, FormatStringStringify = 4 }
+/// A provider's call-graph site: one call event (site and origin), the callable whose graph
+/// reports it, and the native record kinds. The caller is the provider's attribution; the owner
+/// rule remains the model's only definition of a caller, and a difference stays visible.
+#[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
+#[model(name = "provider_call_sites", validate = validate_provider_site, invariants = provider_site_invariants)]
+#[assertion(support = ProviderCallSiteSupport, name = "provider_call_site_supports", family = FactFamily::Calls, subjects(site, caller))]
+pub struct ProviderCallSite {
+    #[model(key)] pub qualification: Id<AssertionQualification>,
+    #[model(key)] pub site: Id<Occurrence>,
+    #[model(key)] pub origin: Id<CallOrigin>,
+    #[model(key)] pub kind: PysaSiteKind,
+    #[model(key)] pub caller: Id<ProviderSymbol>,
+    pub callee: PysaCalleeKind,
+    /// For an attribute access: some execution reads a plain attribute, so its property calls are
+    /// conditional.
+    pub is_attribute: Option<bool>,
+}
+fn validate_provider_site(row: &ProviderCallSite) -> Result<(),ModelError> {
+    let artificial = matches!(row.kind, PysaSiteKind::ArtificialCall | PysaSiteKind::ArtificialAttributeAccess);
+    if artificial == (row.origin == CallOrigin::explicit()) { return Err(invalid("an artificial site has origin steps, and only such a site")); }
+    let fits = match row.kind {
+        PysaSiteKind::Regular | PysaSiteKind::ArtificialCall | PysaSiteKind::ArtificialAttributeAccess => matches!(row.callee, PysaCalleeKind::Call | PysaCalleeKind::AttributeAccess),
+        PysaSiteKind::Identifier => row.callee == PysaCalleeKind::Identifier,
+        PysaSiteKind::FormatStringArtificial => row.callee == PysaCalleeKind::FormatStringArtificial,
+        PysaSiteKind::FormatStringStringify => row.callee == PysaCalleeKind::FormatStringStringify,
+    };
+    if !fits { return Err(invalid("a site's callee record does not fit its identifier kind")); }
+    if (row.callee == PysaCalleeKind::AttributeAccess) != row.is_attribute.is_some() { return Err(invalid("only an attribute access states whether it reads an attribute")); }
+    Ok(())
+}
+fn provider_site_invariants() -> Vec<Invariant> {
+    vec![Invariant { name: "provider_call_site_callers", inputs: vec![
+        ValidationInput::of::<Module>(&["id"]), ValidationInput::of::<ProviderModule>(&["id"]), ValidationInput::of::<ProviderSymbol>(&["id"]),
+        ValidationInput::of::<Occurrence>(&["id"]), ValidationInput::of::<ProviderCallSite>(&["id"]),
+    ], create: std::sync::Arc::new(|budget| Box::new(CallerCheck { charge: StateCharge::new(budget, "provider_call_site_callers"), ..Default::default() })) }]
+}
+/// A site's caller is a callable of the site's own module.
+#[derive(Default)]
+struct CallerCheck { charge: StateCharge, modules: ChargedMap<Id<Module>, Id<SourceArtifact>>, provider_modules: ChargedMap<Id<ProviderModule>, Option<Id<Module>>>,
+    symbols: ChargedMap<Id<ProviderSymbol>, (SymbolKind, Id<ProviderModule>)>, occurrences: ChargedMap<Id<Occurrence>, Id<SourceArtifact>> }
+impl InvariantCheck for CallerCheck {
+    fn visit(&mut self, relation: &str, batch: &arrow_array::RecordBatch) -> Result<(),ModelError> {
+        if relation == Module::NAME { for row in Module::decode(batch)? { self.modules.insert(&mut self.charge, row.id(), row.source)?; } }
+        else if relation == ProviderModule::NAME { for row in ProviderModule::decode(batch)? {
+            let module = match &row { ProviderModule::Acquired { module } => Some(*module), _ => None };
+            self.provider_modules.insert(&mut self.charge, row.id(), module)?;
+        } }
+        else if relation == ProviderSymbol::NAME { for row in ProviderSymbol::decode(batch)? { self.symbols.insert(&mut self.charge, row.id(), (row.kind, row.module))?; } }
+        else if relation == Occurrence::NAME { for row in Occurrence::decode(batch)? { self.occurrences.insert(&mut self.charge, row.id(), row.source)?; } }
+        else if relation == ProviderCallSite::NAME { for row in ProviderCallSite::decode(batch)? {
+            let (kind, module) = *self.symbols.get(&row.caller).ok_or_else(|| invalid("call-site caller absent"))?;
+            if !matches!(kind, SymbolKind::Function | SymbolKind::Method | SymbolKind::ModuleBody | SymbolKind::ClassBody | SymbolKind::DecoratorApplication) {
+                return Err(invalid("a call-site caller is a callable"));
+            }
+            let source = self.provider_modules.get(&module).copied().flatten().and_then(|module| self.modules.get(&module).copied());
+            if source.is_none() || source != self.occurrences.get(&row.site).copied() { return Err(invalid("a call-site caller is defined in the site's module")); }
+        } } else { return Err(invalid("undeclared call-site caller input")); }
+        Ok(())
+    }
+    fn finish(self: Box<Self>) -> Result<(),ModelError> { Ok(()) }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
@@ -509,13 +691,13 @@ pub fn bind(input: BindingInput<'_>) -> Result<BoundCall,ObligationKind> {
 /// Incomplete receiver evidence is a first-class Unknown, never an implicit plain function.
 #[derive(Debug, Clone, Copy)]
 pub struct ReceiverEvidence {
-    pub implicit_receiver: Option<bool>, pub static_method: Option<bool>,
+    pub passing: Option<ReceiverPassing>, pub static_method: Option<bool>,
     pub class_method: Option<bool>, pub attribute_access: bool, pub actual: Option<Id<Occurrence>>,
 }
 pub fn classify_receiver(evidence: ReceiverEvidence) -> Receiver {
     let unknown = || Receiver::Unknown { reason: ObligationKind::AmbiguousBinding };
     if evidence.static_method == Some(true) && evidence.class_method == Some(true) { return unknown(); }
-    match evidence.implicit_receiver {
+    match evidence.passing.map(|passing| passing != ReceiverPassing::NotPassed) {
         Some(true) if evidence.static_method == Some(true) => unknown(),
         Some(true) => evidence.actual.map(|actual| Receiver::Bound { actual }).unwrap_or_else(unknown),
         Some(false) if evidence.class_method == Some(true) => unknown(),
@@ -536,6 +718,7 @@ pub fn classify_receiver(evidence: ReceiverEvidence) -> Receiver {
 pub struct CallResolution {
     #[model(key)] pub qualification: Id<AssertionQualification>,
     #[model(key)] pub site: Id<Occurrence>,
+    #[model(key)] pub origin: Id<CallOrigin>,
     #[model(key)] pub channel: Id<CallChannel>,
     #[model(key)] pub phase: CallPhase,
     #[model(key)] pub alternatives: ContentHash,
@@ -553,13 +736,13 @@ fn alternative_digest(alternatives: &BTreeSet<Id<CallTarget>>) -> ContentHash {
     (alternatives.len() as i64).encode(&mut sink); sink.finish()
 }
 impl CallResolution {
-    pub fn new(qualification: &AssertionQualification, site: Id<Occurrence>, channel: Id<CallChannel>,
+    pub fn new(qualification: &AssertionQualification, site: Id<Occurrence>, origin: Id<CallOrigin>, channel: Id<CallChannel>,
         phase: CallPhase, complete: bool, targets: &[CallTarget]) -> Result<(Self,Vec<CallResolutionMember>),ModelError> {
-        if targets.len() > 4096 || targets.iter().any(|target| target.site != site || target.channel != channel || target.phase != phase) {
-            return Err(invalid("call alternatives differ in site/channel/phase or exceed work limit"));
+        if targets.len() > 4096 || targets.iter().any(|target| target.site != site || target.origin != origin || target.channel != channel || target.phase != phase) {
+            return Err(invalid("call alternatives differ in site/origin/channel/phase or exceed work limit"));
         }
         let targets: BTreeSet<_> = targets.iter().map(Record::id).collect();
-        let row = Self { qualification: qualification.id(),site,channel,phase,complete,alternatives: alternative_digest(&targets) };
+        let row = Self { qualification: qualification.id(),site,origin,channel,phase,complete,alternatives: alternative_digest(&targets) };
         let members = targets.into_iter().map(|target| CallResolutionMember { resolution: row.id(),target }).collect();
         Ok((row,members))
     }
@@ -597,9 +780,9 @@ impl InvariantCheck for ResolutionCheck {
             for id in members {
                 let target = self.targets.get(id).ok_or_else(|| invalid("call resolution target absent"))?;
                 let target_qualification = self.qualifications.get(&target.qualification).ok_or_else(|| invalid("target qualification absent"))?;
-                if target.site != resolution.site || target.channel != resolution.channel || target.phase != resolution.phase
+                if target.site != resolution.site || target.origin != resolution.origin || target.channel != resolution.channel || target.phase != resolution.phase
                     || qualification.context != target_qualification.context || qualification.scope != target_qualification.scope {
-                    return Err(invalid("call alternative outside resolution site/channel/phase/context/scope"));
+                    return Err(invalid("call alternative outside resolution site/origin/channel/phase/context/scope"));
                 }
             }
         }
@@ -626,7 +809,7 @@ impl<'a> TargetSet<'a> {
         let mut ids = BTreeSet::new();
         for candidate in &candidates {
             let target = candidate.target;
-            if !ids.insert(target.id()) || target.site != resolution.site || target.phase != resolution.phase
+            if !ids.insert(target.id()) || target.site != resolution.site || target.origin != resolution.origin || target.phase != resolution.phase
                 || target.channel != channel.id() || target.qualification != candidate.qualification.id()
                 || candidate.qualification.context != qualification.context || candidate.qualification.scope != qualification.scope
                 || target.destination != candidate.destination.id() || target.receiver != candidate.receiver.id()
@@ -634,7 +817,7 @@ impl<'a> TargetSet<'a> {
                 return Err(invalid("incomplete or crossed call candidate"));
             }
             match (candidate.destination,candidate.symbol) {
-                (CallDestination::Resolved { symbol },Some(row)) if *symbol == row.id() && row.context == qualification.context => {},
+                (CallDestination::Resolved { symbol } | CallDestination::Overrides { symbol },Some(row)) if *symbol == row.id() && row.context == qualification.context => {},
                 (CallDestination::Unresolved { .. },None) => {},
                 _ => return Err(invalid("call destination symbol mismatch")),
             }
@@ -657,41 +840,44 @@ impl PhaseGroup {
         }
     }
 }
-/// What every resolution at one site jointly says (C04). Only direct, non-potential alternatives
-/// count. The site is unique when one phase group is present, each of its phases names one symbol
-/// and no alternative is unresolved; differing symbols are a disagreement (cross-provider
-/// equivalence is a later relationship). It is complete only if every direct resolution is.
+/// What every resolution of one call event (a site and origin) jointly says (C04). Only direct,
+/// non-potential alternatives count. An override dispatch set is never a target: it makes the
+/// event dispatched. The event is unique when one phase group is present, each of its phases names
+/// one symbol, and no alternative is unresolved or dispatched; differing symbols are a disagreement
+/// (cross-provider equivalence is a later relationship). It is complete only if every direct
+/// resolution is.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SiteFacts {
     pub targets: BTreeMap<CallPhase, BTreeSet<Id<ProviderSymbol>>>, pub group: Option<PhaseGroup>,
-    pub unique: bool, pub complete: bool, pub disagreement: bool, pub unresolved: bool,
+    pub unique: bool, pub complete: bool, pub disagreement: bool, pub unresolved: bool, pub dispatch: bool,
 }
 pub fn site_facts(sets: &[TargetSet<'_>]) -> SiteFacts {
     let mut targets: BTreeMap<CallPhase, BTreeSet<Id<ProviderSymbol>>> = BTreeMap::new();
-    let (mut unresolved, mut complete) = (false, true);
+    let (mut unresolved, mut dispatch, mut complete) = (false, false, true);
     for set in sets.iter().filter(|set| matches!(set.channel, CallChannel::Direct)) {
         complete &= set.resolution.complete;
         for candidate in set.candidates.iter().filter(|c| c.qualification.modality != Modality::Potential) {
             match candidate.destination {
                 CallDestination::Resolved { symbol } => { targets.entry(candidate.target.phase).or_default().insert(*symbol); },
                 CallDestination::Unresolved { .. } => unresolved = true,
+                CallDestination::Overrides { .. } => dispatch = true,
             }
         }
     }
     let groups: BTreeSet<_> = targets.keys().map(|phase| PhaseGroup::of(*phase)).collect();
     let disagreement = targets.values().any(|symbols| symbols.len() > 1);
     SiteFacts { group: (groups.len() == 1).then(|| *groups.first().expect("one group")),
-        unique: groups.len() == 1 && !disagreement && !unresolved, complete: complete && !targets.is_empty(), disagreement, unresolved, targets }
+        unique: groups.len() == 1 && !disagreement && !unresolved && !dispatch, complete: complete && !targets.is_empty(), disagreement, unresolved, dispatch, targets }
 }
-/// Every resolution at one site. Policies are asked here, never of one resolution alone, so
-/// uniqueness cannot be decided from a filtered or partial view of the site.
+/// Every resolution of one call event. Policies are asked here, never of one resolution alone, so
+/// uniqueness cannot be decided from a filtered or partial view of the event.
 pub struct SiteTargets<'a> { sets: Vec<TargetSet<'a>>, facts: SiteFacts }
 impl<'a> SiteTargets<'a> {
     pub fn new(sets: Vec<TargetSet<'a>>) -> Result<Self,ModelError> {
         let first = sets.first().ok_or_else(|| invalid("a call site needs at least one resolution"))?;
-        let (site, context) = (first.resolution.site, first.qualification.context);
-        if sets.iter().any(|set| set.resolution.site != site || set.qualification.context != context) {
-            return Err(invalid("site targets mix call sites or analysis contexts"));
+        let (site, origin, context) = (first.resolution.site, first.resolution.origin, first.qualification.context);
+        if sets.iter().any(|set| set.resolution.site != site || set.resolution.origin != origin || set.qualification.context != context) {
+            return Err(invalid("site targets mix call events or analysis contexts"));
         }
         let facts = site_facts(&sets);
         Ok(Self { sets, facts })
@@ -706,7 +892,7 @@ impl<'a> SiteTargets<'a> {
 #[derive(Debug, Clone)]
 pub struct NativeCallee {
     pub phase: CallPhase, pub channel: CallChannel, pub destination: CallDestination,
-    pub receiver: ReceiverEvidence, pub implicit: bool, pub modality: Modality,
+    pub receiver: ReceiverEvidence, pub implicit: bool, pub modality: Modality, pub receiver_class: Option<Id<ProviderSymbol>>,
 }
 /// The typed rows one site normalizes to: one resolution per (channel, phase) with its complete
 /// alternative membership.
@@ -715,17 +901,21 @@ pub struct NormalizedSite {
     pub qualifications: Vec<AssertionQualification>, pub channels: Vec<CallChannel>, pub destinations: Vec<CallDestination>,
     pub receivers: Vec<Receiver>, pub targets: Vec<CallTarget>, pub resolutions: Vec<CallResolution>, pub members: Vec<CallResolutionMember>,
 }
-/// Normalize one provider's callee reports for a site. Receivers are classified only by
+/// Normalize one provider's callee reports for one call event (`site`, `origin`). Receivers are classified only by
 /// `classify_receiver`. A (channel, phase) group is complete only when the provider says so in
 /// `complete`; absence of further callees never implies completeness. An empty report, or an
 /// explicit `unresolved` remainder, adds an unresolved direct call alternative.
-pub fn normalize_site(base: &AssertionQualification, site: Id<Occurrence>, callees: &[NativeCallee],
-    complete: &BTreeSet<(Id<CallChannel>, CallPhase)>, unresolved: Option<ObligationKind>) -> Result<NormalizedSite,ModelError> {
+pub fn normalize_site(base: &AssertionQualification, site: Id<Occurrence>, origin: Id<CallOrigin>, callees: &[NativeCallee],
+    complete: &BTreeSet<(Id<CallChannel>, CallPhase)>, unresolved: Option<(ObligationKind, Option<PysaUnresolvedReason>)>) -> Result<NormalizedSite,ModelError> {
     let mut groups: BTreeMap<(i64, CallPhase), (CallChannel, Vec<CallTarget>)> = BTreeMap::new();
     let mut site_rows = NormalizedSite::default();
-    let mut add = |channel: &CallChannel, phase: CallPhase, destination: CallDestination, receiver: Receiver, implicit: bool, modality: Modality, rows: &mut NormalizedSite| {
+    let mut add = |channel: &CallChannel, phase: CallPhase, destination: CallDestination, evidence: Option<(ReceiverEvidence, Option<Id<ProviderSymbol>>)>, implicit: bool,
+        modality: Modality, rows: &mut NormalizedSite| {
         let qualification = AssertionQualification { modality, ..base.clone() };
-        let target = CallTarget { qualification: qualification.id(), site, destination: destination.id(), channel: channel.id(), phase, receiver: receiver.id(), implicit };
+        let receiver = evidence.map_or(Receiver::Unknown { reason: ObligationKind::AmbiguousBinding }, |(evidence, _)| classify_receiver(evidence));
+        let target = CallTarget { qualification: qualification.id(), site, origin, destination: destination.id(), channel: channel.id(), phase, receiver: receiver.id(), implicit,
+            receiver_class: evidence.and_then(|(_, class)| class), passing: evidence.and_then(|(e, _)| e.passing),
+            class_method: evidence.and_then(|(e, _)| e.class_method), static_method: evidence.and_then(|(e, _)| e.static_method) };
         let order = match channel { CallChannel::Direct => -1, CallChannel::HigherOrder { argument_index } => *argument_index };
         groups.entry((order, phase)).or_insert_with(|| (channel.clone(), Vec::new())).1.push(target);
         if !rows.qualifications.contains(&qualification) { rows.qualifications.push(qualification); }
@@ -734,19 +924,18 @@ pub fn normalize_site(base: &AssertionQualification, site: Id<Occurrence>, calle
         if !rows.receivers.contains(&receiver) { rows.receivers.push(receiver); }
     };
     for callee in callees {
-        add(&callee.channel, callee.phase, callee.destination.clone(), classify_receiver(callee.receiver), callee.implicit, callee.modality, &mut site_rows);
+        add(&callee.channel, callee.phase, callee.destination.clone(), Some((callee.receiver, callee.receiver_class)), callee.implicit, callee.modality, &mut site_rows);
     }
     if callees.is_empty() || unresolved.is_some() {
-        let reason = unresolved.unwrap_or(ObligationKind::UnresolvedTarget);
-        add(&CallChannel::Direct, CallPhase::Call, CallDestination::Unresolved { reason }, Receiver::Unknown { reason: ObligationKind::AmbiguousBinding },
-            false, base.modality, &mut site_rows);
+        let (reason, native) = unresolved.unwrap_or((ObligationKind::UnresolvedTarget, None));
+        add(&CallChannel::Direct, CallPhase::Call, CallDestination::Unresolved { reason, native }, None, false, base.modality, &mut site_rows);
     }
     if !site_rows.qualifications.contains(base) { site_rows.qualifications.push(base.clone()); }
     for (_, (channel, targets)) in groups {
         let phase = targets[0].phase;
         let has_unresolved = targets.iter().any(|t| site_rows.destinations.iter().any(|d| d.id() == t.destination && matches!(d, CallDestination::Unresolved { .. })));
         let claimed = complete.contains(&(channel.id(), phase)) && !has_unresolved;
-        let (resolution, members) = CallResolution::new(base, site, channel.id(), phase, claimed, &targets)?;
+        let (resolution, members) = CallResolution::new(base, site, origin, channel.id(), phase, claimed, &targets)?;
         site_rows.targets.extend(targets); site_rows.resolutions.push(resolution); site_rows.members.extend(members);
     }
     Ok(site_rows)
@@ -758,7 +947,8 @@ impl CallPolicy {
         let target = candidate.target; let qualified = candidate.qualification;
         let ordinary_modality = matches!(qualified.modality,Modality::Definite|Modality::Candidate);
         let origin = |wanted| candidate.supports.iter().any(|support| support.origin == wanted);
-        let direct = matches!(set.channel,CallChannel::Direct);
+        // An override dispatch set is expanded by a later layer; until then it binds no invocation.
+        let direct = matches!(set.channel,CallChannel::Direct) && !matches!(candidate.destination, CallDestination::Overrides { .. });
         let callable = candidate.symbol.is_some_and(|symbol| matches!(symbol.kind,SymbolKind::Function|SymbolKind::Method));
         let flow_phase = matches!(target.phase,CallPhase::Call|CallPhase::Init);
         match self {
@@ -777,7 +967,7 @@ impl CallPolicy {
 }
 
 fn validate_destination(row: &CallDestination) -> Result<(),ModelError> {
-    if matches!(row,CallDestination::Unresolved { reason: ObligationKind::ResponseBudget|ObligationKind::NotRequested }) {
+    if matches!(row,CallDestination::Unresolved { reason: ObligationKind::ResponseBudget|ObligationKind::NotRequested, .. }) {
         return Err(invalid("presentation/not-requested is not an unresolved call cause"));
     }
     Ok(())
@@ -812,9 +1002,14 @@ impl InvariantCheck for TargetCheck {
             for row in CallTarget::decode(batch)? {
                 let qualification = self.qualifications.get(&row.qualification).ok_or_else(|| invalid("call qualification absent"))?;
                 let destination = self.destinations.get(&row.destination).ok_or_else(|| invalid("call destination absent"))?;
-                if let CallDestination::Resolved { symbol } = destination {
-                    let symbol = self.symbols.get(symbol).ok_or_else(|| invalid("call symbol absent"))?;
+                if let Some(symbol) = destination.symbol() {
+                    let symbol = self.symbols.get(&symbol).ok_or_else(|| invalid("call symbol absent"))?;
                     if symbol.context != qualification.context { return Err(invalid("call symbol context differs from assertion")); }
+                    if matches!(destination, CallDestination::Overrides { .. }) && symbol.kind != SymbolKind::Method { return Err(invalid("an override dispatch set names a method")); }
+                }
+                if let Some(class) = row.receiver_class {
+                    let class = self.symbols.get(&class).ok_or_else(|| invalid("receiver class absent"))?;
+                    if class.kind != SymbolKind::Class || class.context != qualification.context { return Err(invalid("a receiver class is a class of the assertion's context")); }
                 }
                 let receiver = self.receivers.get(&row.receiver).ok_or_else(|| invalid("call receiver absent"))?;
                 if let Receiver::Bound { actual } = receiver {
@@ -845,7 +1040,7 @@ fn native_support_invariants() -> Vec<Invariant> {
 struct NativeSupportCheck { charge: StateCharge,
     symbols: ChargedMap<Id<ProviderSymbol>,Id<Provider>>,runs: ChargedMap<Id<ProviderRun>,Id<Provider>>,
     destinations: ChargedMap<Id<CallDestination>,CallDestination>,
-    signatures: ChargedMap<Id<Signature>,Id<ProviderSymbol>>,targets: ChargedMap<Id<CallTarget>,Id<CallDestination>>,
+    signatures: ChargedMap<Id<Signature>,Id<ProviderSymbol>>,targets: ChargedMap<Id<CallTarget>,(Id<CallDestination>,Option<Id<ProviderSymbol>>)>,
 }
 impl NativeSupportCheck {
     fn check(&self, symbol: Id<ProviderSymbol>,run: Id<ProviderRun>) -> Result<(),ModelError> {
@@ -860,15 +1055,16 @@ impl InvariantCheck for NativeSupportCheck {
         else if relation == ProviderRun::NAME { for row in ProviderRun::decode(batch)? { self.runs.insert(&mut self.charge, row.id(),row.provider)?; } }
         else if relation == CallDestination::NAME { for row in CallDestination::decode(batch)? { self.destinations.insert(&mut self.charge, row.id(),row)?; } }
         else if relation == Signature::NAME { for row in Signature::decode(batch)? { self.signatures.insert(&mut self.charge, row.id(),row.symbol)?; } }
-        else if relation == CallTarget::NAME { for row in CallTarget::decode(batch)? { self.targets.insert(&mut self.charge, row.id(),row.destination)?; } }
+        else if relation == CallTarget::NAME { for row in CallTarget::decode(batch)? { self.targets.insert(&mut self.charge, row.id(),(row.destination,row.receiver_class))?; } }
         else if relation == SignatureSupport::NAME { for row in SignatureSupport::decode(batch)? {
             self.check(*self.signatures.get(&row.assertion).ok_or_else(|| invalid("supported signature absent"))?,row.run)?;
         } }
         else if relation == CallTargetSupport::NAME { for row in CallTargetSupport::decode(batch)? {
-            let destination = self.targets.get(&row.assertion).ok_or_else(|| invalid("supported call target absent"))?;
-            if let CallDestination::Resolved { symbol } = self.destinations.get(destination).ok_or_else(|| invalid("supported call destination absent"))? {
-                self.check(*symbol,row.run)?;
+            let (destination, receiver_class) = self.targets.get(&row.assertion).ok_or_else(|| invalid("supported call target absent"))?;
+            if let Some(symbol) = self.destinations.get(destination).ok_or_else(|| invalid("supported call destination absent"))?.symbol() {
+                self.check(symbol,row.run)?;
             }
+            if let Some(class) = receiver_class { self.check(*class,row.run)?; }
         } } else { return Err(invalid("undeclared native symbol support input")); }
         Ok(())
     }

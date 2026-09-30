@@ -26,7 +26,7 @@ async fn composed_transfers_round_trip_and_mismatched_steps_refuse() {
             Literal, PathSegment, PlaceRoot, AccessPath, Place, Predicate, EvaluationAtom, FlowUse, FlowDefinition, ReachingDefinition,
             FlowDefinitionObservation, FlowDefinitionSupport, FlowReachingObservation, FlowReachingSupport, CallSyntax, CallSyntaxSupport, CallArgument,
             Evidence, StabilityWitness, GuardSubstitution, SymbolDeclaration, SymbolDeclarationSupport, ParameterShape, Signature, SignatureParameter,
-            SignatureSupport, ParameterDeclaration, ParameterDeclarationSupport, CallDestination, CallChannel, Receiver, CallTarget, CallTargetSupport,
+            SignatureSupport, ParameterDeclaration, ParameterDeclarationSupport, CallDestination, CallChannel, Receiver, CallOrigin, CallTarget, CallTargetSupport,
             TransferKey, TransferAlternative, TransferSupport, ControlInfluence, ControlSupport, Selection, CallCompositionStep);
         generation_h.seal().await.unwrap();
         if let Some(mutation) = mutation {

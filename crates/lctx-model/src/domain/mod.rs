@@ -218,6 +218,8 @@ pub fn facts_relations() -> Vec<Relation> {
         Relation::of::<ProviderModule>(), Relation::of::<ProviderSymbol>(), Relation::of::<ParameterShape>(), Relation::of::<Signature>(),
         Relation::of::<SignatureParameter>(), Relation::of::<SignatureSupport>(),
         Relation::of::<CallChannel>(), Relation::of::<CallDestination>(), Relation::of::<Receiver>(),
+        Relation::of::<CallOrigin>(), Relation::of::<CallOriginStep>(),
+        Relation::of::<ProviderCallSite>(), Relation::of::<ProviderCallSiteSupport>(),
         Relation::of::<CallTarget>(), Relation::of::<CallTargetSupport>(),
         Relation::of::<CallResolution>(), Relation::of::<CallResolutionMember>(), Relation::of::<CallResolutionSupport>(),
         Relation::of::<CallSyntax>(), Relation::of::<CallSyntaxSupport>(), Relation::of::<CallArgument>(),

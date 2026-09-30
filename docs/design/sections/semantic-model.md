@@ -236,11 +236,25 @@ whose body holds it, otherwise the module. It is the only definition of "caller"
 
 **The call relations**
 - A **call site** is an occurrence.
-- **Call targets** are provider-attributed alternatives. Each carries its target entity, or its
-  unresolved state, plus modality, origin, fidelity and phase.
-- **Resolutions** state status, completeness under the model, remainder and reason.
+- A **call event** is a site plus its **call origin**. The origin is the empty sequence for the
+  explicit call, or the ordered desugaring steps of an implicit one: `for` calls `__iter__` and then
+  `__next__` at its iterable, which are two events. Events at one site are distinct calls, never
+  alternatives of one call (Implemented, focused Tested 2026-09-29, plan A7).
+- **Call targets** are provider-attributed alternatives of one event. Each carries:
+  - its destination: one symbol; every override of a method, a dispatch set that is never one
+    callee; or unresolved, with the model's reason and the provider's native one;
+  - modality, fidelity and phase;
+  - the receiver class the provider resolved it through, and the native receiver evidence its
+    classified receiver comes from.
+- **Resolutions** state status, completeness under the model, remainder and reason, per event.
+- A **provider call site** keeps the provider's native classification of an event: its identifier and
+  callee record kinds, whether an attribute access reads a plain attribute, and the callable whose graph
+  reports it. That caller is the provider's attribution; the owner rule stays the model's caller.
 - Implicit invocations, such as decorator applications, are call targets with a disclosed origin and
   implicit flag. They are never silently merged with explicit calls.
+- An override dispatch set makes its event dispatched. Until a later layer expands the set, no
+  invocation, dataflow or summary policy admits it, and composing it yields an `OverrideDispatch`
+  obligation.
 
 **Call policies.** "Which calls count" is decided only by **named call policies**. Each is a declared
 admission predicate, compiled once to a view:

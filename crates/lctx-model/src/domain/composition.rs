@@ -202,7 +202,8 @@ pub fn compose_call(caller: &TransferBranch, callee: &TransferBranch, call: &Cal
         return Err(invalid("call frame site, destination, receiver or qualification differs from its target"));
     }
     match call.destination {
-        CallDestination::Unresolved { reason } => return Ok(vec![CallComposition::Obligation(*reason)]),
+        CallDestination::Unresolved { reason, .. } => return Ok(vec![CallComposition::Obligation(*reason)]),
+        CallDestination::Overrides { .. } => return Ok(vec![CallComposition::Obligation(ObligationKind::OverrideDispatch)]),
         CallDestination::Resolved { symbol } if *symbol != callee_key.owner || *symbol != callee_frame.symbol.id()
             || callee_frame.declaration.symbol != *symbol => return Err(invalid("callee transfer's owner is not the call's target")),
         CallDestination::Resolved { .. } => {},
@@ -336,7 +337,9 @@ pub fn compose_site(callers: &[TransferBranch], calls: &[SiteCall<'_>], caller_f
     let mut results = Vec::new();
     for caller in callers { for call in calls {
         match (call.frame.destination, &call.callee) {
-            (CallDestination::Unresolved { reason }, _) => if delivers(caller, &call.frame, catalog)? { results.push(CallComposition::Obligation(*reason)); },
+            (CallDestination::Unresolved { reason, .. }, _) => if delivers(caller, &call.frame, catalog)? { results.push(CallComposition::Obligation(*reason)); },
+            // An override dispatch set is expanded by a later layer.
+            (CallDestination::Overrides { .. }, _) => if delivers(caller, &call.frame, catalog)? { results.push(CallComposition::Obligation(ObligationKind::OverrideDispatch)); },
             (CallDestination::Resolved { .. }, Some(callee)) => for branch in call.branches {
                 results.extend(compose_call(caller, branch, &call.frame, caller_frame, callee, catalog)?);
             },

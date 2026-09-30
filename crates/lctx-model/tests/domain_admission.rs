@@ -23,7 +23,7 @@ fn write_pyrefly(access: &mut StageAccess<'_, '_>) -> Result<(), ModelError> {
         ParameterSyntaxObservation, ParameterSyntaxSupport, ClassFieldSyntaxObservation, ClassFieldSyntaxSupport, CallSyntax, CallSyntaxSupport, LexicalScopeObservation, LexicalScopeSupport,
         BindingObservation, BindingSupport, ReferenceObservation, ReferenceSupport, LexicalResolution, LexicalResolutionSupport,
         Signature, SignatureSupport, SymbolDeclaration, SymbolDeclarationSupport, ParameterDeclaration, ParameterDeclarationSupport,
-        CallTarget, CallTargetSupport, CallResolution, CallResolutionSupport, TypeObservation, TypeSupport, TypePresentation,
+        CallTarget, CallTargetSupport, CallResolution, CallResolutionSupport, ProviderCallSite, ProviderCallSiteSupport, TypeObservation, TypeSupport, TypePresentation,
         TypePresentationSupport, TypeVariableRestriction, TypeRestrictionSupport, SymbolObservation, SymbolSupport, FunctionTraitObservation, FunctionTraitSupport,
         ClassTraitObservation, ClassTraitSupport, ClassAncestryObservation, ClassAncestrySupport, ParameterAnnotationObservation, ParameterAnnotationSupport,
         PublicNameObservation, PublicNameSupport, ParameterDocObservation, ParameterDocSupport, DependencyModuleObservation, DependencyModuleSupport);
@@ -36,7 +36,7 @@ fn pyrefly_outputs() -> Vec<RelationUse> {
         ParameterSyntaxObservation, ParameterSyntaxSupport, ClassFieldSyntaxObservation, ClassFieldSyntaxSupport, CallSyntax, CallSyntaxSupport, LexicalScopeObservation, LexicalScopeSupport,
         BindingObservation, BindingSupport, ReferenceObservation, ReferenceSupport, LexicalResolution, LexicalResolutionSupport,
         Signature, SignatureSupport, SymbolDeclaration, SymbolDeclarationSupport, ParameterDeclaration, ParameterDeclarationSupport,
-        CallTarget, CallTargetSupport, CallResolution, CallResolutionSupport, TypeObservation, TypeSupport, TypePresentation,
+        CallTarget, CallTargetSupport, CallResolution, CallResolutionSupport, ProviderCallSite, ProviderCallSiteSupport, TypeObservation, TypeSupport, TypePresentation,
         TypePresentationSupport, TypeVariableRestriction, TypeRestrictionSupport, SymbolObservation, SymbolSupport, FunctionTraitObservation, FunctionTraitSupport,
         ClassTraitObservation, ClassTraitSupport, ClassAncestryObservation, ClassAncestrySupport, ParameterAnnotationObservation, ParameterAnnotationSupport,
         PublicNameObservation, PublicNameSupport, ParameterDocObservation, ParameterDocSupport, DependencyModuleObservation, DependencyModuleSupport)

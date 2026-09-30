@@ -25,8 +25,8 @@ impl World {
 }
 fn callee(phase: CallPhase, channel: CallChannel, symbol: &ProviderSymbol) -> NativeCallee {
     NativeCallee { phase, channel, destination: CallDestination::Resolved { symbol: symbol.id() },
-        receiver: ReceiverEvidence { implicit_receiver: Some(false), static_method: None, class_method: None, attribute_access: false, actual: None },
-        implicit: false, modality: Modality::Definite }
+        receiver: ReceiverEvidence { passing: Some(ReceiverPassing::NotPassed), static_method: None, class_method: None, attribute_access: false, actual: None },
+        implicit: false, modality: Modality::Definite, receiver_class: None }
 }
 struct Report { rows: NormalizedSite, supports: BTreeMap<Id<CallTarget>, Vec<CallTargetSupport>> }
 fn report(base: &AssertionQualification, callees: &[NativeCallee], complete: &[(CallChannel, CallPhase)], unresolved: Option<ObligationKind>) -> Report {
@@ -34,7 +34,7 @@ fn report(base: &AssertionQualification, callees: &[NativeCallee], complete: &[(
     let (run, _) = ProviderRun::new(w.a.id(), w.context.id(), InputRevision::from_entries(vec![]).unwrap().id(), w.context.config_digest, [FactFamily::Calls]).unwrap();
     let surface = ProviderSurface { provider: w.a.id(), family: FactFamily::Calls, name: "calls".into() };
     let complete: BTreeSet<_> = complete.iter().map(|(channel, phase)| (channel.id(), *phase)).collect();
-    let rows = normalize_site(base, occurrence(0).id(), callees, &complete, unresolved).unwrap();
+    let rows = normalize_site(base, occurrence(0).id(), CallOrigin::explicit(), callees, &complete, unresolved.map(|reason| (reason, None))).unwrap();
     let evidence = Evidence::Occurrence { occurrence: occurrence(0).id() }.id();
     let supports = rows.targets.iter().map(|t| (t.id(), vec![CallTargetSupport { assertion: t.id(), run: run.id(), surface: surface.id(), evidence,
         origin: Origin::AnalyzerAssertion, mode: ExtractionMode::ReportDecode, fidelity: Fidelity::NativeStructural }])).collect();
@@ -50,7 +50,7 @@ fn site<'a>(reports: &'a [Report], symbols: &'a [ProviderSymbol]) -> SiteTargets
             let candidates = r.members.iter().filter(|m| m.resolution == resolution.id()).map(|member| {
                 let target = r.targets.iter().find(|t| t.id() == member.target).unwrap();
                 let destination = r.destinations.iter().find(|d| d.id() == target.destination).unwrap();
-                let symbol = match destination { CallDestination::Resolved { symbol } => symbols.iter().find(|s| s.id() == *symbol), _ => None };
+                let symbol = destination.symbol().and_then(|symbol| symbols.iter().find(|s| s.id() == symbol));
                 CallCandidate { target, qualification: r.qualifications.iter().find(|q| q.id() == target.qualification).unwrap(), destination, symbol,
                     receiver: r.receivers.iter().find(|x| x.id() == target.receiver).unwrap(), supports: &report.supports[&target.id()] }
             }).collect();
@@ -119,7 +119,7 @@ fn higher_order_potential_and_unresolved_alternatives_never_become_direct_calls(
     // No reported callee is an unresolved, incomplete alternative, not an empty complete answer.
     let empty = report(&w.base, &[], &[(CallChannel::Direct, CallPhase::Call)], None);
     assert_eq!(empty.rows.targets.len(), 1); assert!(!empty.rows.resolutions[0].complete);
-    assert!(matches!(empty.rows.destinations[0], CallDestination::Unresolved { reason: ObligationKind::UnresolvedTarget }));
+    assert!(matches!(empty.rows.destinations[0], CallDestination::Unresolved { reason: ObligationKind::UnresolvedTarget, native: None }));
     // A reported unresolved remainder keeps the resolved callee but forbids completeness.
     let remainder = report(&w.base, &[callee(CallPhase::Call, CallChannel::Direct, &f)], &[(CallChannel::Direct, CallPhase::Call)], Some(ObligationKind::UnresolvedTarget));
     assert_eq!(remainder.rows.targets.len(), 2); assert!(!remainder.rows.resolutions[0].complete);
@@ -130,15 +130,88 @@ fn receivers_come_only_from_the_one_classifier() {
     let w = World::new();
     let method = w.symbol(&w.a, "C.method", SymbolKind::Method);
     let obj = occurrence(1).id();
-    let evidence = |implicit_receiver, static_method, attribute_access, actual| ReceiverEvidence { implicit_receiver, static_method, class_method: None, attribute_access, actual };
-    let cases = [(evidence(Some(false), None, true, None), Receiver::None),
+    let evidence = |passing, static_method, attribute_access, actual| ReceiverEvidence { passing, static_method, class_method: None, attribute_access, actual };
+    let cases = [(evidence(Some(ReceiverPassing::NotPassed), None, true, None), Receiver::None),
         (evidence(None, Some(true), true, None), Receiver::None),
         (evidence(None, None, true, None), Receiver::Unknown { reason: ObligationKind::AmbiguousBinding }),
-        (evidence(Some(true), None, true, Some(obj)), Receiver::Bound { actual: obj })];
+        (evidence(Some(ReceiverPassing::Object), None, true, Some(obj)), Receiver::Bound { actual: obj }),
+        (evidence(Some(ReceiverPassing::Class), None, true, Some(obj)), Receiver::Bound { actual: obj })];
     for (receiver, expected) in cases {
         let reports = [report(&w.base, &[NativeCallee { receiver, ..callee(CallPhase::Call, CallChannel::Direct, &method) }], &[(CallChannel::Direct, CallPhase::Call)], None)];
         assert_eq!(reports[0].rows.receivers, vec![expected.clone()]);
         let unknown = matches!(expected, Receiver::Unknown { .. });
         assert_eq!(admitted(&site(&reports, std::slice::from_ref(&method)), CallPolicy::Summary), usize::from(!unknown), "an unknown receiver is never summarized");
     }
+}
+
+#[test]
+fn an_override_dispatch_set_is_never_a_direct_target() {
+    let w = World::new();
+    let base = w.symbol(&w.a, "Base.m", SymbolKind::Method);
+    let symbols = vec![base.clone()];
+    let call = [(CallChannel::Direct, CallPhase::Call)];
+    let direct = callee(CallPhase::Call, CallChannel::Direct, &base);
+    let dispatch = NativeCallee { destination: CallDestination::Overrides { symbol: base.id() }, ..direct.clone() };
+    // `self.m()`: Base.m and every override of it. The dispatch set names no target and makes the event dispatched.
+    let reports = [report(&w.base, &[direct.clone(), dispatch], &call, None)];
+    let dispatched = site(&reports, &symbols);
+    assert_eq!(dispatched.facts().targets, BTreeMap::from([(CallPhase::Call, BTreeSet::from([base.id()]))]));
+    assert!(dispatched.facts().dispatch && !dispatched.facts().unique);
+    assert_eq!(admitted(&dispatched, CallPolicy::Summary), 0);
+    assert_eq!(admitted(&dispatched, CallPolicy::Dataflow), 1, "only the direct Base.m flows; the dispatch set waits for its expansion");
+    assert_eq!(admitted(&dispatched, CallPolicy::Invocation), 1);
+    assert_eq!(admitted(&dispatched, CallPolicy::Association), 2);
+    // Its twin without the dispatch set is unique.
+    let reports = [report(&w.base, &[direct], &call, None)];
+    let unique = site(&reports, &symbols);
+    assert!(unique.facts().unique && !unique.facts().dispatch);
+    assert_eq!(admitted(&unique, CallPolicy::Summary), 1);
+}
+
+#[test]
+fn the_native_unresolved_reason_is_kept() {
+    let w = World::new();
+    let lambda = normalize_site(&w.base, occurrence(0).id(), CallOrigin::explicit(), &[], &BTreeSet::new(),
+        Some((ObligationKind::UnresolvedTarget, Some(PysaUnresolvedReason::LambdaArgument)))).unwrap();
+    assert_eq!(lambda.destinations, vec![CallDestination::Unresolved { reason: ObligationKind::UnresolvedTarget, native: Some(PysaUnresolvedReason::LambdaArgument) }]);
+    let bare = normalize_site(&w.base, occurrence(0).id(), CallOrigin::explicit(), &[], &BTreeSet::new(), None).unwrap();
+    assert_eq!(bare.destinations, vec![CallDestination::Unresolved { reason: ObligationKind::UnresolvedTarget, native: None }]);
+    assert_ne!(lambda.destinations[0].id(), bare.destinations[0].id(), "a native reason is part of the destination");
+    assert_ne!(lambda.targets[0].id(), bare.targets[0].id());
+}
+
+#[test]
+fn implicit_calls_at_one_site_are_distinct_events() {
+    let w = World::new();
+    let (iter, next) = (w.symbol(&w.a, "list.__iter__", SymbolKind::Method), w.symbol(&w.a, "list_iterator.__next__", SymbolKind::Method));
+    let symbols = vec![iter.clone(), next.clone()];
+    let complete: BTreeSet<_> = [(CallChannel::Direct.id(), CallPhase::Call)].into_iter().collect();
+    let event = |step: OriginStep, symbol: &ProviderSymbol| {
+        let origin = CallOrigin::new(&[(step, None)]).unwrap().0.id();
+        let rows = normalize_site(&w.base, occurrence(0).id(), origin, &[callee(CallPhase::Call, CallChannel::Direct, symbol)], &complete, None).unwrap();
+        let (run, _) = ProviderRun::new(w.a.id(), w.context.id(), InputRevision::from_entries(vec![]).unwrap().id(), w.context.config_digest, [FactFamily::Calls]).unwrap();
+        let surface = ProviderSurface { provider: w.a.id(), family: FactFamily::Calls, name: "calls".into() };
+        let supports = rows.targets.iter().map(|t| (t.id(), vec![CallTargetSupport { assertion: t.id(), run: run.id(), surface: surface.id(),
+            evidence: Evidence::Occurrence { occurrence: occurrence(0).id() }.id(), origin: Origin::AnalyzerAssertion, mode: ExtractionMode::ReportDecode,
+            fidelity: Fidelity::NativeStructural }])).collect();
+        Report { rows, supports }
+    };
+    // `for x in xs`: __iter__ and __next__ at the iterable are two calls, each unique.
+    let (for_iter, for_next) = ([event(OriginStep::ForIter, &iter)], [event(OriginStep::ForNext, &next)]);
+    assert!(site(&for_iter, &symbols).facts().unique && site(&for_next, &symbols).facts().unique);
+    assert_ne!(for_iter[0].rows.targets[0].origin, for_next[0].rows.targets[0].origin);
+    // Asked as one event they would disagree; the site view refuses to mix them.
+    let both = [event(OriginStep::ForIter, &iter), event(OriginStep::ForNext, &next)];
+    let resolutions: Vec<_> = both.iter().flat_map(|r| r.rows.resolutions.iter()).collect();
+    assert_eq!(resolutions.len(), 2);
+    let sets: Vec<_> = both.iter().map(|report| {
+        let r = &report.rows; let target = &r.targets[0];
+        TargetSet::new(&r.resolutions[0], &r.qualifications[0], &r.channels[0], vec![CallCandidate { target, qualification: &r.qualifications[0],
+            destination: &r.destinations[0], symbol: symbols.iter().find(|s| Some(s.id()) == r.destinations[0].symbol()), receiver: &r.receivers[0],
+            supports: &report.supports[&target.id()] }]).unwrap()
+    }).collect();
+    assert!(matches!(SiteTargets::new(sets), Err(ModelError::Invalid(message)) if message.contains("mix call events")));
+    // A resolution cannot hold a target of another event.
+    let r = &both[0].rows;
+    assert!(CallResolution::new(&w.base, occurrence(0).id(), CallOrigin::explicit(), r.channels[0].id(), CallPhase::Call, true, &r.targets).is_err());
 }

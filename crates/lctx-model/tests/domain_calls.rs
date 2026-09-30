@@ -29,7 +29,7 @@ impl Fixture {
         let destination = CallDestination::Resolved { symbol: symbol.id() };
         let channel = CallChannel::Direct; let receiver = Receiver::None;
         let target = CallTarget { qualification: qualification.id(),site: occurrence(0).id(),destination: destination.id(),
-            channel: channel.id(),phase: CallPhase::Call,receiver: receiver.id(),implicit: false };
+            channel: channel.id(),phase: CallPhase::Call,receiver: receiver.id(),implicit: false, origin: CallOrigin::explicit(), receiver_class: None, passing: None, class_method: None, static_method: None };
         let surface = ProviderSurface { provider: provider.id(),family: FactFamily::Calls,name: "targets".into() };
         let evidence = Evidence::Occurrence { occurrence: target.site };
         let support = CallTargetSupport { assertion: target.id(),run: run.id(),surface: surface.id(),evidence: evidence.id(),
@@ -57,14 +57,14 @@ fn actual(n: i64,kind: ArgumentKind,name: Option<&str>) -> Actual {
 #[test]
 fn complete_alternatives_precede_policies_and_higher_order_never_becomes_direct() {
     let fixture = Fixture::new(); let f = &fixture;
-    let (resolution,_) = CallResolution::new(&f.qualification,f.target.site,f.channel.id(),CallPhase::Call,true,&[f.target.clone()]).unwrap();
+    let (resolution,_) = CallResolution::new(&f.qualification,f.target.site,CallOrigin::explicit(),f.channel.id(),CallPhase::Call,true,&[f.target.clone()]).unwrap();
     let set = SiteTargets::new(vec![TargetSet::new(&resolution,&f.qualification,&f.channel,vec![f.candidate()]).unwrap()]).unwrap();
     assert_eq!(set.admitted(CallPolicy::Summary),vec![f.target.id()]);
     assert_eq!(set.admitted(CallPolicy::Invocation),vec![f.target.id()]);
-    let unresolved = CallDestination::Unresolved { reason: ObligationKind::UnresolvedTarget };
+    let unresolved = CallDestination::Unresolved { reason: ObligationKind::UnresolvedTarget, native: None };
     let unknown = CallTarget { destination: unresolved.id(),..f.target.clone() };
     let support = CallTargetSupport { assertion: unknown.id(),..f.support.clone() };
-    let (resolution,_) = CallResolution::new(&f.qualification,f.target.site,f.channel.id(),CallPhase::Call,true,&[f.target.clone(),unknown.clone()]).unwrap();
+    let (resolution,_) = CallResolution::new(&f.qualification,f.target.site,CallOrigin::explicit(),f.channel.id(),CallPhase::Call,true,&[f.target.clone(),unknown.clone()]).unwrap();
     assert!(TargetSet::new(&resolution,&f.qualification,&f.channel,vec![f.candidate()]).is_err(),"a filtered set cannot claim unique resolution");
     let supports = [support];
     let set = SiteTargets::new(vec![TargetSet::new(&resolution,&f.qualification,&f.channel,vec![f.candidate(),CallCandidate {
@@ -75,7 +75,7 @@ fn complete_alternatives_precede_policies_and_higher_order_never_becomes_direct(
     let channel = CallChannel::HigherOrder { argument_index: 0 };
     let higher = CallTarget { channel: channel.id(),..f.target.clone() };
     let support = CallTargetSupport { assertion: higher.id(),..f.support.clone() };
-    let (resolution,_) = CallResolution::new(&f.qualification,higher.site,channel.id(),CallPhase::Call,true,&[higher.clone()]).unwrap();
+    let (resolution,_) = CallResolution::new(&f.qualification,higher.site,CallOrigin::explicit(),channel.id(),CallPhase::Call,true,&[higher.clone()]).unwrap();
     let supports = [support];
     let set = SiteTargets::new(vec![TargetSet::new(&resolution,&f.qualification,&channel,vec![CallCandidate { target: &higher,supports: &supports,..f.candidate() }]).unwrap()]).unwrap();
     for policy in [CallPolicy::Invocation,CallPolicy::Dataflow,CallPolicy::Summary] { assert!(set.admitted(policy).is_empty()); }
@@ -118,14 +118,14 @@ fn binder_requires_whole_variant_and_preserves_all_formals_without_inventing_val
 
 #[test]
 fn receiver_classification_refuses_incomplete_evidence_and_missing_actuals() {
-    let base = ReceiverEvidence { implicit_receiver: None,static_method: None,class_method: None,attribute_access: true,actual: None };
+    let base = ReceiverEvidence { passing: None,static_method: None,class_method: None,attribute_access: true,actual: None };
     assert!(matches!(classify_receiver(base),Receiver::Unknown { .. }));
-    assert!(matches!(classify_receiver(ReceiverEvidence { implicit_receiver: Some(true),..base }),Receiver::Unknown { .. }));
-    assert_eq!(classify_receiver(ReceiverEvidence { implicit_receiver: Some(false),..base }),Receiver::None);
+    assert!(matches!(classify_receiver(ReceiverEvidence { passing: Some(ReceiverPassing::Object),..base }),Receiver::Unknown { .. }));
+    assert_eq!(classify_receiver(ReceiverEvidence { passing: Some(ReceiverPassing::NotPassed),..base }),Receiver::None);
     assert_eq!(classify_receiver(ReceiverEvidence { static_method: Some(true),..base }),Receiver::None);
     assert!(matches!(classify_receiver(ReceiverEvidence { static_method: Some(true),class_method: Some(true),..base }),Receiver::Unknown { .. }));
     let actual = occurrence(0).id();
-    assert_eq!(classify_receiver(ReceiverEvidence { implicit_receiver: Some(true),actual: Some(actual),..base }),Receiver::Bound { actual });
+    assert_eq!(classify_receiver(ReceiverEvidence { passing: Some(ReceiverPassing::Object),actual: Some(actual),..base }),Receiver::Bound { actual });
     let mut f = Fixture::new(); f.receiver = classify_receiver(base); f.target.receiver = f.receiver.id();
     let (signature,members,shapes) = f.signature(&[shape("self",ParameterKind::PositionalOnly,true)]);
     assert_eq!(bind(BindingInput { target: &f.target,qualification: &f.qualification,signature_qualification: &f.qualification,destination: &f.destination,channel: &f.channel,receiver: &f.receiver,
@@ -150,7 +150,7 @@ fn stored_membership_checks_refuse_missing_parameters_and_missing_call_alternati
     assert!(check_signature(members[..1].to_vec()).is_err());
     let mut changed = members.clone(); changed[1].shape = changed[0].shape;
     assert!(check_signature(changed).is_err());
-    let (resolution,members) = CallResolution::new(&f.qualification,f.target.site,f.channel.id(),CallPhase::Call,true,&[f.target.clone()]).unwrap();
+    let (resolution,members) = CallResolution::new(&f.qualification,f.target.site,CallOrigin::explicit(),f.channel.id(),CallPhase::Call,true,&[f.target.clone()]).unwrap();
     for include in [true,false] {
         let invariant = CallResolution::invariants().remove(0); let mut check = (invariant.create)(&budget());
         check.visit(AssertionQualification::NAME,Batch::new(&f.model,vec![f.qualification.clone()], &budget()).unwrap().arrow()).unwrap();
@@ -173,7 +173,7 @@ fn binding_context_and_receiver_varargs_are_explicit() {
     let other = AssertionQualification { modality: Modality::Potential,..f.qualification.clone() };
     assert!(bind(input(&other)).is_err());
     let mut f = Fixture::new(); f.qualification.modality = Modality::Potential; f.target.qualification = f.qualification.id(); f.support.assertion = f.target.id();
-    let (resolution,_) = CallResolution::new(&f.qualification,f.target.site,f.channel.id(),CallPhase::Call,true,&[f.target.clone()]).unwrap();
+    let (resolution,_) = CallResolution::new(&f.qualification,f.target.site,CallOrigin::explicit(),f.channel.id(),CallPhase::Call,true,&[f.target.clone()]).unwrap();
     let set = SiteTargets::new(vec![TargetSet::new(&resolution,&f.qualification,&f.channel,vec![f.candidate()]).unwrap()]).unwrap();
     assert!(set.admitted(CallPolicy::Dataflow).is_empty());
     assert!(set.admitted(CallPolicy::Invocation).is_empty());
@@ -355,4 +355,80 @@ fn positional_keyword_receiver_and_refused_variants() {
         &[actual(2, ArgumentKind::Positional, None)]).unwrap();
     assert_eq!(formal_of(&method, 9), Some((members[0].id(), BindingKind::Receiver)));
     assert_eq!(formal_of(&method, 2), Some((members[1].id(), BindingKind::Positional)));
+}
+
+fn refused(result: Result<(), ModelError>, why: &str, expected: &str) {
+    assert!(matches!(&result, Err(ModelError::Invalid(message)) if message.contains(expected)), "{why}: expected `{expected}`, got {result:?}");
+}
+/// Visit `rows` of each relation, in order, into the named invariant of `R`, and finish it.
+macro_rules! check {
+    ($model:expr, $owner:ty, $index:expr, [$(($ty:ty, $rows:expr)),+ $(,)?]) => {{
+        let invariant = <$owner>::invariants().remove($index); let mut check = (invariant.create)(&budget());
+        (|| -> Result<(), ModelError> {
+            $( check.visit(<$ty>::NAME, Batch::new(&$model, $rows, &budget()).unwrap().arrow())?; )+
+            check.finish()
+        })()
+    }};
+}
+
+#[test]
+fn provider_call_sites_state_their_event_record_and_caller() {
+    let f = Fixture::new();
+    let (for_iter, steps) = CallOrigin::new(&[(OriginStep::ForIter, None)]).unwrap();
+    let source = SourceArtifact::from_bytes(InputRevision::from_entries(vec![]).unwrap().id(), "a.py".into(), b"f(x)").unwrap();
+    let module = Module { source: source.id(), qualified_name: "a".into() };
+    let acquired = ProviderModule::Acquired { module: module.id() };
+    let caller = ProviderSymbol { module: acquired.id(), native_key: "MTL".into(), name: "a".into(), kind: SymbolKind::ModuleBody, ..f.symbol.clone() };
+    let site = ProviderCallSite { qualification: f.qualification.id(), site: occurrence(0).id(), origin: CallOrigin::explicit(), kind: PysaSiteKind::Regular,
+        caller: caller.id(), callee: PysaCalleeKind::Call, is_attribute: None };
+    site.validate().unwrap();
+    let artificial = ProviderCallSite { origin: for_iter.id(), kind: PysaSiteKind::ArtificialCall, ..site.clone() };
+    artificial.validate().unwrap();
+    for (row, why) in [(ProviderCallSite { kind: PysaSiteKind::ArtificialCall, ..site.clone() }, "an artificial call without origin steps"),
+        (ProviderCallSite { origin: for_iter.id(), ..site.clone() }, "a regular call with origin steps"),
+        (ProviderCallSite { kind: PysaSiteKind::Identifier, ..site.clone() }, "an identifier site reported by a call record"),
+        (ProviderCallSite { is_attribute: Some(true), ..site.clone() }, "a call record stating an attribute read")] {
+        assert!(row.validate().is_err(), "{why} is refused");
+    }
+    assert!(ProviderCallSite { callee: PysaCalleeKind::AttributeAccess, is_attribute: Some(false), ..site.clone() }.validate().is_ok());
+    let stored = |caller: &ProviderSymbol, row: &ProviderCallSite| check!(f.model, ProviderCallSite, 0, [(Module, vec![module.clone()]),
+        (ProviderModule, vec![acquired.clone(), ProviderModule::Bundled { provider: f.symbol.provider, bundle: ModuleBundle::Typeshed, name: "a".into() }]),
+        (ProviderSymbol, vec![caller.clone(), f.symbol.clone()]), (Occurrence, vec![occurrence(0)]), (ProviderCallSite, vec![row.clone()])]);
+    stored(&caller, &site).expect("a module body calls in its own module");
+    let class = ProviderSymbol { kind: SymbolKind::Class, ..caller.clone() };
+    refused(stored(&class, &ProviderCallSite { caller: class.id(), ..site.clone() }), "a class is not a caller", "a call-site caller is a callable");
+    refused(stored(&caller, &ProviderCallSite { caller: f.symbol.id(), ..site.clone() }), "a caller of a bundled module", "defined in the site's module");
+    // Origin steps: stored membership, and an index exactly for a chained assignment.
+    let membership = |steps: Vec<CallOriginStep>| check!(f.model, CallOrigin, 0, [(CallOrigin, vec![for_iter.clone()]), (CallOriginStep, steps)]);
+    membership(steps.clone()).unwrap();
+    refused(membership(vec![]), "an origin missing its step", "call origin has missing steps");
+    assert!(CallOrigin::new(&[(OriginStep::ChainedAssign, None)]).is_err());
+    assert!(CallOrigin::new(&[(OriginStep::ForNext, Some(0))]).is_err());
+    let (chained, _) = CallOrigin::new(&[(OriginStep::SubscriptSetItem, None), (OriginStep::ChainedAssign, Some(1))]).unwrap();
+    assert_ne!(chained.id(), CallOrigin::new(&[(OriginStep::SubscriptSetItem, None), (OriginStep::ChainedAssign, Some(0))]).unwrap().0.id());
+}
+
+#[test]
+fn receiver_classes_and_dispatch_sets_name_the_right_kinds() {
+    let f = Fixture::new();
+    let class = ProviderSymbol { native_key: "class:C".into(), name: "C".into(), kind: SymbolKind::Class, ..f.symbol.clone() };
+    let method = ProviderSymbol { native_key: "method:C.m".into(), name: "m".into(), kind: SymbolKind::Method, ..f.symbol.clone() };
+    let stored = |destination: &CallDestination, receiver_class: Option<Id<ProviderSymbol>>| {
+        let target = CallTarget { destination: destination.id(), receiver_class, passing: Some(ReceiverPassing::Object), class_method: Some(false),
+            static_method: Some(false), ..f.target.clone() };
+        check!(f.model, CallTarget, 0, [(AssertionQualification, vec![f.qualification.clone()]), (ProviderSymbol, vec![f.symbol.clone(), class.clone(), method.clone()]),
+            (Occurrence, vec![occurrence(0)]), (Receiver, vec![f.receiver.clone()]), (CallDestination, vec![destination.clone()]), (CallTarget, vec![target])])
+    };
+    stored(&CallDestination::Resolved { symbol: method.id() }, Some(class.id())).expect("a method through its receiver class");
+    refused(stored(&CallDestination::Resolved { symbol: method.id() }, Some(method.id())), "a method as a receiver class", "a receiver class is a class");
+    stored(&CallDestination::Overrides { symbol: method.id() }, Some(class.id())).expect("the overrides of a method");
+    refused(stored(&CallDestination::Overrides { symbol: f.symbol.id() }, None), "the overrides of a plain function", "an override dispatch set names a method");
+    // A receiver class is native to the supporting provider.
+    let alien = Provider { tool: "other-provider".into(), revision: "same".into(), build_digest: ContentHash::of(b"other") };
+    let foreign = ProviderSymbol { provider: alien.id(), ..class.clone() };
+    let target = CallTarget { receiver_class: Some(foreign.id()), ..f.target.clone() };
+    let support = CallTargetSupport { assertion: target.id(), ..f.support.clone() };
+    let native = check!(f.model, ProviderSymbol, 0, [(ProviderSymbol, vec![f.symbol.clone(), foreign.clone()]), (ProviderRun, vec![f.run.clone()]),
+        (CallDestination, vec![f.destination.clone()]), (Signature, Vec::<Signature>::new()), (CallTarget, vec![target]), (SignatureSupport, Vec::<SignatureSupport>::new()), (CallTargetSupport, vec![support])]);
+    assert!(matches!(native, Err(ModelError::Invalid(message)) if message.contains("different provider")), "a receiver class of another provider");
 }

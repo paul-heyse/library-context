@@ -3,7 +3,7 @@ source: crates/lctx/tests/model_describe.rs
 expression: "String::from_utf8(output.stdout).unwrap()"
 ---
 {
-  "digest": "14a2bf4bd9f8fa79ec2a106796543d285b3f7d72a6e6b9e658416541c8a174f5",
+  "digest": "9effcd804af36afed9ad8050eaa43aa2683d9deb1e6b96a46c8f1bf98719b29a",
   "relations": [
     {
       "name": "access_paths",
@@ -1629,6 +1629,81 @@ expression: "String::from_utf8(output.stdout).unwrap()"
               "AttachmentUnmatched"
             ]
           ]
+        },
+        {
+          "name": "unresolved_native",
+          "type": "int16",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "LambdaArgument"
+            ],
+            [
+              1,
+              "UnexpectedPyreflyTarget"
+            ],
+            [
+              2,
+              "EmptyPyreflyCallTarget"
+            ],
+            [
+              3,
+              "UnknownClassField"
+            ],
+            [
+              4,
+              "ClassFieldOnlyExistInObject"
+            ],
+            [
+              5,
+              "UnsupportedFunctionTarget"
+            ],
+            [
+              6,
+              "UnexpectedDefiningClass"
+            ],
+            [
+              7,
+              "UnexpectedInitMethod"
+            ],
+            [
+              8,
+              "UnexpectedNewMethod"
+            ],
+            [
+              9,
+              "UnexpectedCalleeExpression"
+            ],
+            [
+              10,
+              "UnresolvedMagicDunderAttr"
+            ],
+            [
+              11,
+              "UnresolvedMagicDunderAttrDueToNoBase"
+            ],
+            [
+              12,
+              "UnresolvedMagicDunderAttrDueToNoAttribute"
+            ],
+            [
+              13,
+              "Mixed"
+            ]
+          ]
+        },
+        {
+          "name": "overrides_symbol",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "provider_symbols"
         }
       ],
       "facts": true,
@@ -1650,11 +1725,167 @@ expression: "String::from_utf8(output.stdout).unwrap()"
               {
                 "name": "unresolved_reason",
                 "required": true
+              },
+              {
+                "name": "unresolved_native",
+                "required": false
+              }
+            ]
+          },
+          {
+            "code": 2,
+            "fields": [
+              {
+                "name": "overrides_symbol",
+                "required": true
               }
             ]
           }
         ]
       }
+    },
+    {
+      "name": "call_origin_steps",
+      "fields": [
+        {
+          "name": "origin",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "call_origins"
+        },
+        {
+          "name": "ordinal",
+          "type": "int64",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "step",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "GetAttrConstantLiteral"
+            ],
+            [
+              1,
+              "Comparison"
+            ],
+            [
+              2,
+              "GeneratorIter"
+            ],
+            [
+              3,
+              "GeneratorNext"
+            ],
+            [
+              4,
+              "WithEnter"
+            ],
+            [
+              5,
+              "ForDecoratedTarget"
+            ],
+            [
+              6,
+              "SubscriptGetItem"
+            ],
+            [
+              7,
+              "SubscriptSetItem"
+            ],
+            [
+              8,
+              "BinaryOperator"
+            ],
+            [
+              9,
+              "AugmentedAssignDunderCall"
+            ],
+            [
+              10,
+              "AugmentedAssignRhs"
+            ],
+            [
+              11,
+              "AugmentedAssignStatement"
+            ],
+            [
+              12,
+              "ForIter"
+            ],
+            [
+              13,
+              "ForNext"
+            ],
+            [
+              14,
+              "ForAssign"
+            ],
+            [
+              15,
+              "ReprCall"
+            ],
+            [
+              16,
+              "AbsCall"
+            ],
+            [
+              17,
+              "IterCall"
+            ],
+            [
+              18,
+              "NextCall"
+            ],
+            [
+              19,
+              "StrCallToDunderMethod"
+            ],
+            [
+              20,
+              "Slice"
+            ],
+            [
+              21,
+              "ChainedAssign"
+            ]
+          ]
+        },
+        {
+          "name": "index",
+          "type": "int64",
+          "list": false,
+          "nullable": true,
+          "key": false,
+          "provenance": false
+        }
+      ],
+      "facts": true
+    },
+    {
+      "name": "call_origins",
+      "fields": [
+        {
+          "name": "steps",
+          "type": "digest",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        }
+      ],
+      "facts": true
     },
     {
       "name": "call_receivers",
@@ -2127,6 +2358,15 @@ expression: "String::from_utf8(output.stdout).unwrap()"
           "target": "occurrences"
         },
         {
+          "name": "origin",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "call_origins"
+        },
+        {
           "name": "channel",
           "type": "id",
           "list": false,
@@ -2414,6 +2654,15 @@ expression: "String::from_utf8(output.stdout).unwrap()"
           "target": "occurrences"
         },
         {
+          "name": "origin",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "call_origins"
+        },
+        {
           "name": "destination",
           "type": "id",
           "list": false,
@@ -2484,6 +2733,53 @@ expression: "String::from_utf8(output.stdout).unwrap()"
           "list": false,
           "nullable": false,
           "key": true,
+          "provenance": false
+        },
+        {
+          "name": "receiver_class",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "provider_symbols"
+        },
+        {
+          "name": "passing",
+          "type": "int16",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "NotPassed"
+            ],
+            [
+              1,
+              "Class"
+            ],
+            [
+              2,
+              "Object"
+            ]
+          ]
+        },
+        {
+          "name": "class_method",
+          "type": "bool",
+          "list": false,
+          "nullable": true,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "static_method",
+          "type": "bool",
+          "list": false,
+          "nullable": true,
+          "key": false,
           "provenance": false
         }
       ],
@@ -11526,6 +11822,270 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       }
     },
     {
+      "name": "provider_call_site_supports",
+      "fields": [
+        {
+          "name": "assertion",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "provider_call_sites"
+        },
+        {
+          "name": "run",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "provider_runs"
+        },
+        {
+          "name": "surface",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "provider_surfaces"
+        },
+        {
+          "name": "evidence",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "evidence"
+        },
+        {
+          "name": "origin",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "InputContext"
+            ],
+            [
+              1,
+              "SourceObservation"
+            ],
+            [
+              2,
+              "AnalyzerAssertion"
+            ],
+            [
+              3,
+              "DerivedAnalysis"
+            ],
+            [
+              4,
+              "SyntheticModel"
+            ]
+          ]
+        },
+        {
+          "name": "mode",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "NativeTraversal"
+            ],
+            [
+              1,
+              "ReportDecode"
+            ],
+            [
+              2,
+              "RelationalDerivation"
+            ],
+            [
+              3,
+              "GraphAnalysis"
+            ],
+            [
+              4,
+              "Recognizer"
+            ],
+            [
+              5,
+              "StatisticalAnalysis"
+            ],
+            [
+              6,
+              "TemplateSynthesis"
+            ],
+            [
+              7,
+              "FixtureExecution"
+            ],
+            [
+              8,
+              "ManualReview"
+            ]
+          ]
+        },
+        {
+          "name": "fidelity",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "Raw"
+            ],
+            [
+              1,
+              "NativeStructural"
+            ],
+            [
+              2,
+              "NormalizedStructural"
+            ],
+            [
+              3,
+              "ReportProjection"
+            ],
+            [
+              4,
+              "DisplayOnly"
+            ]
+          ]
+        }
+      ],
+      "facts": true,
+      "family": "Calls"
+    },
+    {
+      "name": "provider_call_sites",
+      "fields": [
+        {
+          "name": "qualification",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "assertion_qualifications"
+        },
+        {
+          "name": "site",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "occurrences"
+        },
+        {
+          "name": "origin",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "call_origins"
+        },
+        {
+          "name": "kind",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "Regular"
+            ],
+            [
+              1,
+              "ArtificialCall"
+            ],
+            [
+              2,
+              "ArtificialAttributeAccess"
+            ],
+            [
+              3,
+              "Identifier"
+            ],
+            [
+              4,
+              "FormatStringArtificial"
+            ],
+            [
+              5,
+              "FormatStringStringify"
+            ]
+          ]
+        },
+        {
+          "name": "caller",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "provider_symbols"
+        },
+        {
+          "name": "callee",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "Call"
+            ],
+            [
+              1,
+              "Identifier"
+            ],
+            [
+              2,
+              "AttributeAccess"
+            ],
+            [
+              3,
+              "FormatStringArtificial"
+            ],
+            [
+              4,
+              "FormatStringStringify"
+            ]
+          ]
+        },
+        {
+          "name": "is_attribute",
+          "type": "bool",
+          "list": false,
+          "nullable": true,
+          "key": false,
+          "provenance": false
+        }
+      ],
+      "facts": true,
+      "family": "Calls"
+    },
+    {
       "name": "provider_coverage",
       "fields": [
         {
@@ -12259,6 +12819,18 @@ expression: "String::from_utf8(output.stdout).unwrap()"
             [
               5,
               "Unknown"
+            ],
+            [
+              6,
+              "ModuleBody"
+            ],
+            [
+              7,
+              "ClassBody"
+            ],
+            [
+              8,
+              "DecoratorApplication"
             ]
           ]
         }
@@ -17419,6 +17991,13 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       ]
     },
     {
+      "name": "call_origin_membership",
+      "inputs": [
+        "call_origins",
+        "call_origin_steps"
+      ]
+    },
+    {
       "name": "call_resolution_supports",
       "inputs": [
         "source_artifacts",
@@ -18401,6 +18980,42 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         "document_nodes",
         "passage_observations",
         "passage_supports"
+      ]
+    },
+    {
+      "name": "provider_call_site_callers",
+      "inputs": [
+        "modules",
+        "provider_modules",
+        "provider_symbols",
+        "occurrences",
+        "provider_call_sites"
+      ]
+    },
+    {
+      "name": "provider_call_site_supports",
+      "inputs": [
+        "source_artifacts",
+        "occurrences",
+        "modules",
+        "corpus_libraries",
+        "place_roots",
+        "places",
+        "predicates",
+        "evaluation_atoms",
+        "condition_nodes",
+        "conditions",
+        "input_distributions",
+        "coverage_scopes",
+        "assertion_qualifications",
+        "provider_runs",
+        "run_families",
+        "provider_surfaces",
+        "evidence",
+        "provider_modules",
+        "provider_symbols",
+        "provider_call_sites",
+        "provider_call_site_supports"
       ]
     },
     {

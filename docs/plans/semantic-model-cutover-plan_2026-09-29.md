@@ -1046,6 +1046,23 @@ Mechanisms:
 - trait/nesting mismatches, parent cycles and cross-module parents are refused, as are alien-provider support, descriptions outside their `def`, and misplaced module locations.
 
 The PG suite publishes and reads the fixture back and refuses a self-ancestor at validation. |
+| A7: `cargo test --release -p lctx-model` (all suites), `-p lctx-postgres --test domain_calls --test domain_composition --test domain_transfer`, `-p cpg-extract --test typed_conformance --test typed_lexical --test typed_syntax_shapes`, `-p cpg-core --test facts_driver`, `-p lctx --test model_describe`; `cargo check --workspace --all-targets` | passed 2026-09-29 (domain_calls 12, domain_sites 6, PG domain_calls 1). Schema migration: the call relations gain origins, receiver class and traits, and the new destinations; `provider_call_sites` and `call_origins` are added.
+
+**The calls amendment** (`domain/calls.rs`, DESIGN §15.5):
+- **Call events.** `CallOrigin` is the content-addressed `OriginStep` sequence that makes an occurrence call something implicitly; the empty sequence is the explicit call. `CallTarget` and `CallResolution` are keyed by site and origin, and `SiteTargets` refuses to mix events. Pysa's `for` iterable holds two events, `__iter__` then `__next__`, not two disagreeing alternatives of one call.
+- **`ProviderCallSite{site, origin, kind: PysaSiteKind, caller, callee: PysaCalleeKind, is_attribute}`.**
+  - Origin steps are present exactly for an artificial site.
+  - The callee record fits the identifier kind, and only an attribute access states `is_attribute`.
+  - The caller is a callable of the site's module. `SymbolKind` appends `ModuleBody`, `ClassBody` and `DecoratorApplication` for Pysa's implicit callables.
+- **`CallTarget` additions.** `CallTarget` gains `receiver_class` (a class of the context, native to the supporting provider) and the native `passing`/`class_method`/`static_method` evidence that `classify_receiver` reads. `ReceiverEvidence` states `ReceiverPassing{NotPassed, Class, Object}`.
+- **`CallDestination` arms.** `Overrides{symbol}` names a method and is never a direct target: the event is `dispatch`ed and not unique; Invocation, Dataflow and Summary do not admit it; composing it yields `OverrideDispatch`. `Unresolved{reason, native}` keeps Pysa's `PysaUnresolvedReason`.
+
+**Controls:**
+- `self.m()` with `Base.m` and its overrides: the target is `{Base.m}`, the event is dispatched, Summary admits 0 and Dataflow 1. Its twin without the dispatch set is unique.
+- A native reason distinguishes destinations and targets.
+- ForIter and ForNext events are each unique, and are refused when mixed.
+- Refused, each by its message: a site's caller that is a class or lies in a bundled module, a missing origin step, a method as a receiver class, and the overrides of a plain function. A receiver class of another provider is refused as native support.
+- The PG suite reads back the implicit event, its native unresolved reason, the provider call sites and origin steps. |
 | `just fmt`, `just test-all`, facts pilots | not_run: functional scope incomplete |
 
 Independent bounded reviewers accepted artifact/capture/acquisition corrections and the

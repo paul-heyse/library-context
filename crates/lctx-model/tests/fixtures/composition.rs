@@ -65,7 +65,7 @@ impl Fixture {
         let parameter_declaration = ParameterDeclaration { qualification: qualification.id(), parameter: members[0].id(), declaration: base.parameter.id() };
         let destination = CallDestination::Resolved { symbol: callee_symbol.id() };
         let target = CallTarget { qualification: qualification.id(), site: base.site.id(), destination: destination.id(), channel: CallChannel::Direct.id(),
-            phase: CallPhase::Call, receiver: Receiver::None.id(), implicit: false };
+            phase: CallPhase::Call, receiver: Receiver::None.id(), implicit: false, origin: CallOrigin::explicit(), receiver_class: None, passing: None, class_method: None, static_method: None };
         let bound = bind(BindingInput { target: &target, qualification: &qualification, signature_qualification: &qualification, destination: &destination,
             channel: &CallChannel::Direct, receiver: &Receiver::None, signature: &signature, parameters: &members,
             shapes: &BTreeMap::from([(shape.id(), shape.clone())]), call: &base.call, arguments: &base.arguments }).unwrap();
@@ -117,7 +117,7 @@ impl Fixture {
         f.extend(modules.to_vec()); f.extend(provider_modules.to_vec()); f.extend(vec![caller_symbol, callee_symbol]);
         f.extend(vec![caller_declaration.clone(), callee_declaration.clone()]); f.extend(vec![parameter_declaration.clone()]);
         f.extend(vec![shape]); f.extend(vec![signature.clone()]); f.extend(members);
-        f.extend(vec![destination]); f.extend(vec![CallChannel::Direct]); f.extend(vec![Receiver::None]); f.extend(vec![target.clone()]);
+        f.extend(vec![destination]); f.extend(vec![CallChannel::Direct]); f.extend(vec![Receiver::None]); f.extend(vec![CallOrigin::new(&[]).unwrap().0]); f.extend(vec![target.clone()]);
         f.extend(vec![evidence(&caller_root), evidence(&def)]);
         f.extend(vec![
             SymbolDeclarationSupport { assertion: caller_declaration.id(), run: support.0, surface: declared.id(), evidence: evidence(&caller_root).id(), origin: support.1, mode: support.2, fidelity: support.3 },
@@ -199,7 +199,7 @@ impl Fixture {
             Literal, PathSegment, PlaceRoot, AccessPath, Place, Predicate, EvaluationAtom, FlowUse, FlowDefinition, ReachingDefinition,
             FlowDefinitionObservation, FlowDefinitionSupport, FlowReachingObservation, FlowReachingSupport, CallSyntax, CallSyntaxSupport, CallArgument,
             Evidence, StabilityWitness, GuardSubstitution, SymbolDeclaration, SymbolDeclarationSupport, ParameterShape, Signature, SignatureParameter,
-            SignatureSupport, ParameterDeclaration, ParameterDeclarationSupport, CallDestination, CallChannel, Receiver, CallTarget, CallTargetSupport,
+            SignatureSupport, ParameterDeclaration, ParameterDeclarationSupport, CallDestination, CallChannel, Receiver, CallOrigin, CallTarget, CallTargetSupport,
             TransferKey, TransferAlternative, TransferSupport, ControlInfluence, ControlSupport, Selection, CallCompositionStep);
         generation.validate(model, &budget())
     }

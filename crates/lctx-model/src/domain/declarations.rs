@@ -79,8 +79,9 @@ impl InvariantCheck for DeclarationCheck {
             let kind = self.occurrence(row.declaration)?.syntax_kind;
             let matches = match symbol.kind {
                 SymbolKind::Function | SymbolKind::Method => matches!(kind, SyntaxKind::StmtFunctionDef | SyntaxKind::ExprLambda),
-                SymbolKind::Class => kind == SyntaxKind::StmtClassDef,
-                SymbolKind::Module => kind == SyntaxKind::ModModule,
+                SymbolKind::Class | SymbolKind::ClassBody => kind == SyntaxKind::StmtClassDef,
+                SymbolKind::Module | SymbolKind::ModuleBody => kind == SyntaxKind::ModModule,
+                SymbolKind::DecoratorApplication => kind == SyntaxKind::StmtFunctionDef,
                 SymbolKind::Variable | SymbolKind::Unknown => false,
             };
             if !matches { return Err(invalid("declaring occurrence does not define the symbol's kind")); }
