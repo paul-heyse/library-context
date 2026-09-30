@@ -9,11 +9,8 @@ use crate::{Refused, database::{Database, model}};
 /// A planning or execution error the read contract refuses, rather than one that failed.
 fn refusal(error: &DataFusionError) -> Option<String> {
     match error.find_root() {
-        DataFusionError::External(inner) => inner.downcast_ref::<ReadError>().and_then(|read| match read {
-            ReadError::Frontier(message) => Some(format!("frontier: {message}")),
-            _ => None,
-        }),
-        DataFusionError::Plan(message) if message.contains("not supported") => Some(message.clone()),
+        DataFusionError::External(inner) => inner.downcast_ref::<ReadError>()
+            .filter(|read| matches!(read, ReadError::Frontier(_) | ReadError::ReadOnly(_))).map(ToString::to_string),
         _ => None,
     }
 }

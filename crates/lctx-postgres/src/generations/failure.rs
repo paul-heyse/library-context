@@ -41,11 +41,28 @@ impl FailureClass {
         }
     }
     pub fn parse(name: &str) -> Option<Self> { Self::ALL.into_iter().find(|c| c.name() == name) }
-    fn infrastructure(class: Infrastructure) -> Self {
+    /// The one classification of a server SQLSTATE, whichever driver received it (P1.10 review F03).
+    pub fn sqlstate(code: &str) -> Self {
+        if code.starts_with("08") || code.starts_with("57P") { Self::Transport }
+        else if matches!(code, "55P03" | "57014" | "40P01" | "40001") { Self::Contention }
+        else if code.starts_with("23") { Self::Invalid }
+        else if code.starts_with("53") || code.starts_with("54") { Self::Limit }
+        else { Self::Refused }
+    }
+    /// The infrastructure class a driver reports for this failure class. Content violations have no
+    /// infrastructure class; a stage sink reports them as invalid content instead.
+    pub fn infrastructure(self) -> Infrastructure {
+        match self {
+            Self::Transport => Infrastructure::Transport, Self::Unconfirmed => Infrastructure::Unconfirmed, Self::Contention => Infrastructure::Contention,
+            Self::State => Infrastructure::State, Self::Contract | Self::Frontier | Self::Codec => Infrastructure::Contract, Self::Io => Infrastructure::Io,
+            Self::Limit | Self::Resource => Infrastructure::Exhausted, Self::Refused | Self::Invalid => Infrastructure::Refused,
+        }
+    }
+    fn from_infrastructure(class: Infrastructure) -> Self {
         match class {
             Infrastructure::Transport => Self::Transport, Infrastructure::Unconfirmed => Self::Unconfirmed, Infrastructure::Refused => Self::Refused,
             Infrastructure::Contention => Self::Contention, Infrastructure::State => Self::State, Infrastructure::Contract => Self::Contract,
-            Infrastructure::Io => Self::Io,
+            Infrastructure::Io => Self::Io, Infrastructure::Exhausted => Self::Limit,
         }
     }
     pub fn of_model(error: &ModelError) -> Self {
@@ -54,7 +71,7 @@ impl FailureClass {
             ModelError::Limit { .. } => Self::Limit,
             ModelError::Frontier(_) => Self::Frontier,
             ModelError::Codec(_) => Self::Codec,
-            ModelError::Infrastructure { class, .. } => Self::infrastructure(*class),
+            ModelError::Infrastructure { class, .. } => Self::from_infrastructure(*class),
             ModelError::Invalid(_) | ModelError::Schema(_) | ModelError::Identity(_) | ModelError::Conflict(_) => Self::Invalid,
         }
     }
@@ -63,13 +80,11 @@ impl FailureClass {
             Error::Model(error) => Self::of_model(error),
             Error::Frontier(_) => Self::Frontier,
             Error::Codec(_) => Self::Codec,
-            Error::Database(database) => {
-                let code = database.as_database_error().and_then(|e| e.code()).unwrap_or_default();
-                if code.starts_with("23") { Self::Invalid }
-                else if code.starts_with("53") || code.starts_with("54") { Self::Limit }
-                else { Self::infrastructure(error.class()) }
+            Error::Database(database) => match database.as_database_error().and_then(|e| e.code()) {
+                Some(code) => Self::sqlstate(&code),
+                None => Self::from_infrastructure(error.class()),
             },
-            other => Self::infrastructure(other.class()),
+            other => Self::from_infrastructure(other.class()),
         }
     }
 }

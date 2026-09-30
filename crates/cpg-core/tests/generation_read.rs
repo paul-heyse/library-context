@@ -2,12 +2,12 @@
 //! P1.10, T13; core review C02; review focus #4). Every control states its answer first.
 use std::{sync::Arc, time::Duration};
 use cpg_core::generation_read::{GenerationSession, InspectionSession, ProviderOptions, ReadError};
-use datafusion::{arrow::array::RecordBatch, datasource::TableProvider, execution::runtime_env::RuntimeEnvBuilder,
-    logical_expr::TableProviderFilterPushDown, prelude::{SessionConfig, SessionContext, col, lit}};
+use datafusion::{arrow::array::{Int64Array, RecordBatch, StringArray}, common::ScalarValue, datasource::TableProvider, error::DataFusionError,
+    execution::runtime_env::RuntimeEnvBuilder, logical_expr::{Expr, TableProviderFilterPushDown}, prelude::{SessionConfig, SessionContext, col, lit}};
 use datafusion_table_providers_postgres::{bounded::ChunkLimits, pool::PoolHealth};
 use futures::StreamExt;
 use lctx_model::domain::{*, artifact::*, attribution::*, input::*, source::*, stages::*, transfer::TransferKey};
-use lctx_postgres::generations::{CleanupOutcome, Error as StoreError, GenerationId, GenerationStore};
+use lctx_postgres::generations::{CleanupOutcome, Error as StoreError, GenerationCatalog, GenerationId, GenerationStore};
 use lctx_postgres::roles::{Role, RoleConfig};
 use lctx_postgres::testing::Harness;
 use lctx_postgres::testing::{DisposableDatabase, fixtures::{Facts, budget}};
@@ -30,13 +30,23 @@ fn decode<R: Record>(batches: &[RecordBatch]) -> Vec<R> {
     rows.sort_by_key(Record::id);
     rows
 }
+/// The typed read error at the root of a DataFusion error, if any.
+fn read_error(error: &DataFusionError) -> Option<&ReadError> {
+    match error.find_root() { DataFusionError::External(inner) => inner.downcast_ref::<ReadError>(), _ => None }
+}
+fn strings(batches: &[RecordBatch]) -> Vec<String> {
+    batches.iter().flat_map(|b| b.column(0).as_any().downcast_ref::<StringArray>().unwrap().iter().map(|v| v.unwrap().to_owned()).collect::<Vec<_>>()).collect()
+}
+fn count(batches: &[RecordBatch]) -> i64 { batches[0].column(0).as_any().downcast_ref::<Int64Array>().unwrap().value(0) }
 async fn provider_backends(db: &DisposableDatabase) -> Vec<i32> {
     sqlx::query_scalar("SELECT pid FROM pg_stat_activity WHERE application_name = 'lctx-provider' ORDER BY pid").fetch_all(&db.superuser).await.unwrap()
 }
 
 /// A published conformance generation holding lists, a sum, fixed binaries, a 65 MiB chunked
-/// artifact, three packages and one empty relation.
-struct Rich { store: GenerationStore, generation: GenerationId, chunks: Vec<ArtifactChunk>, context: AnalysisContext, scopes: Vec<CoverageScope>, packages: Vec<Package> }
+/// artifact, three packages, releases whose versions differ in case, contexts whose optional lock
+/// digest is null, `d1` or `d2`, and one empty relation.
+struct Rich { store: GenerationStore, generation: GenerationId, chunks: Vec<ArtifactChunk>, contexts: Vec<AnalysisContext>, scopes: Vec<CoverageScope>,
+    packages: Vec<Package>, locks: [ContentHash; 2] }
 async fn rich(db: &DisposableDatabase) -> Rich {
     let model = Arc::new(model().unwrap());
     let store = GenerationStore::install(db.owner.clone(), model.clone()).await.unwrap();
@@ -47,15 +57,19 @@ async fn rich(db: &DisposableDatabase) -> Rich {
     let chunks: Vec<ArtifactChunk> = ArtifactChunk::split(&artifact, &bytes).unwrap().collect();
     let context = AnalysisContext { python_version: "3.14.7".into(), python_platform: "linux".into(), search_path: vec!["$input".into(), "src".into()],
         site_package_path: vec![], config_digest: ContentHash::of(b"cfg"), environment_digest: input.manifest, lock_digest: None };
+    let locks = [ContentHash::of(b"d1"), ContentHash::of(b"d2")];
+    let contexts: Vec<AnalysisContext> = [None, Some(locks[0]), Some(locks[1])].into_iter()
+        .map(|lock_digest| AnalysisContext { lock_digest, ..context.clone() }).collect();
     let scopes = vec![CoverageScope::Input { input: input.id() }, CoverageScope::Artifact { artifact: artifact.id() }];
     let packages: Vec<Package> = ["alpha", "beta", "gamma"].iter().map(|n| Package { name: (*n).into() }).collect();
     macro_rules! copy { ($rows:expr) => { g_h.copy(&Batch::new(&model, $rows, &budget()).unwrap(), &budget()).await.unwrap() }; }
-    copy!(vec![input]); copy!(vec![artifact]); copy!(vec![context.clone()]); copy!(scopes.clone()); copy!(packages.clone());
+    let releases = ["Beta", "alpha"].iter().map(|v| Release { package: packages[0].id(), version: (*v).into() }).collect();
+    copy!(vec![input]); copy!(vec![artifact]); copy!(contexts.clone()); copy!(scopes.clone()); copy!(packages.clone()); copy!(releases);
     for chunk in &chunks { copy!(vec![chunk.clone()]); }
     g_h.seal().await.unwrap();
     g_h.validate(&budget()).await.unwrap();
     g_h.publish().await.unwrap();
-    Rich { store, generation: g, chunks, context, scopes, packages }
+    Rich { store, generation: g, chunks, contexts, scopes, packages, locks }
 }
 
 #[tokio::test]
@@ -67,10 +81,11 @@ async fn provider_reads_equal_typed_readback() {
     assert!(batches.len() > 1, "65 MiB arrives in byte-bounded batches");
     let mut chunks = fixture.chunks.clone(); chunks.sort_by_key(Record::id);
     assert_eq!(decode::<ArtifactChunk>(&batches), chunks);
-    assert_eq!(decode::<AnalysisContext>(&collect(session.table::<AnalysisContext>().unwrap()).await.unwrap()), [fixture.context.clone()], "lists round-trip");
+    let mut contexts = fixture.contexts.clone(); contexts.sort_by_key(Record::id);
+    assert_eq!(decode::<AnalysisContext>(&collect(session.table::<AnalysisContext>().unwrap()).await.unwrap()), contexts, "lists and nulls round-trip");
     let mut scopes = fixture.scopes.clone(); scopes.sort_by_key(Record::id);
     assert_eq!(decode::<CoverageScope>(&collect(session.table::<CoverageScope>().unwrap()).await.unwrap()), scopes, "sums round-trip");
-    let empty = collect(session.table::<Release>().unwrap()).await.unwrap();
+    let empty = collect(session.table::<CorpusLibrary>().unwrap()).await.unwrap();
     assert_eq!(empty.iter().map(RecordBatch::num_rows).sum::<usize>(), 0);
     // The typed SQLx readback of the same generation agrees.
     let mut lease = fixture.store.pin(&db.reader, fixture.generation, budget()).await.unwrap();
@@ -107,7 +122,28 @@ async fn closed_filter_pushdown() {
         assert_eq!(names, expected, "{sql}");
     }
     let tail = ctx.sql("SELECT count(*) FROM artifact_chunks WHERE ordinal >= 64").await.unwrap().collect().await.unwrap();
-    assert_eq!(tail[0].column(0).as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap().value(0), 2);
+    assert_eq!(count(&tail), 2);
+    // Executed known answers for the pushed-down bytea rewrite and three-valued NULL logic
+    // (P1.10 review F02). Each filter is pushed down whole.
+    let beta = ctx.table("packages").await.unwrap().filter(exact[1].clone()).unwrap().select_columns(&["name"]).unwrap().collect().await.unwrap();
+    assert_eq!(strings(&beta), ["beta"], "an identity equality selects exactly its row");
+    let contexts = session.table::<AnalysisContext>().unwrap();
+    ctx.register_table("analysis_contexts", contexts.clone()).unwrap();
+    let d1 = || lit(ScalarValue::FixedSizeBinary(32, Some(fixture.locks[0].0.to_vec())));
+    let null_logic = [(col("lock_digest").not_eq(d1()), 1), (Expr::Not(Box::new(col("lock_digest").eq(d1()))), 1), (col("lock_digest").eq(d1()), 1),
+        (col("lock_digest").is_null(), 1), (col("lock_digest").is_not_null().and(col("lock_digest").not_eq(d1())), 1)];
+    for (filter, expected) in null_logic {
+        assert_eq!(contexts.supports_filters_pushdown(&[&filter]).unwrap(), [TableProviderFilterPushDown::Exact], "{filter}");
+        let rows = ctx.table("analysis_contexts").await.unwrap().filter(filter.clone()).unwrap().count().await.unwrap();
+        assert_eq!(rows, expected, "a null lock digest is neither equal nor unequal: {filter}");
+    }
+    // Text orders by bytes, as DataFusion does: `Beta` sorts before `alpha`. A linguistic
+    // collation, which the server offers, orders them the other way.
+    ctx.register_table("releases", session.table::<Release>().unwrap()).unwrap();
+    let before = ctx.sql("SELECT version FROM releases WHERE version < 'alpha' ORDER BY version").await.unwrap().collect().await.unwrap();
+    assert_eq!(strings(&before), ["Beta"]);
+    let linguistic: bool = sqlx::query_scalar("SELECT 'Beta' < ('alpha' COLLATE \"und-x-icu\")").fetch_one(&db.superuser).await.unwrap();
+    assert!(!linguistic, "the negative twin: a pushed-down linguistic order would return nothing");
     let plan = ctx.sql("SELECT name FROM packages WHERE name = 'beta'").await.unwrap().create_physical_plan().await.unwrap();
     let shown = datafusion::physical_plan::displayable(plan.as_ref()).indent(true).to_string();
     assert!(shown.contains("WHERE") && shown.contains("GenerationScan"), "{shown}");
@@ -136,23 +172,32 @@ async fn digest_and_column_mismatch_rejected_before_scan() {
 async fn pin_survives_selection_change_and_frontier_is_enforced() {
     let db = DisposableDatabase::start().await;
     let facts = Facts::new();
+    // The second generation's analysis context differs, so a read tells the two apart.
+    let other = Facts { context: AnalysisContext { python_version: "3.13.9".into(), ..facts.context.clone() }, ..Facts::new() };
     let store = GenerationStore::install(db.owner.clone(), facts.model.clone()).await.unwrap();
     let first = facts.published(&store, db.writer.clone()).await;
-    let second = facts.published(&store, db.writer.clone()).await;
+    let second = other.published(&store, db.writer.clone()).await;
     store.select(first).await.unwrap();
     let session = GenerationSession::open(&serving(&db), facts.model.clone(), first, options()).await.unwrap();
     store.select(second).await.unwrap();
-    let coverage = decode::<ProviderCoverage>(&collect(session.table::<ProviderCoverage>().unwrap()).await.unwrap());
-    assert_eq!(coverage.len(), 2, "the session still reads its own generation");
+    let context = decode::<AnalysisContext>(&collect(session.table::<AnalysisContext>().unwrap()).await.unwrap());
+    assert_eq!(context, [facts.context.clone()], "the session still reads its own generation, not the selected one");
+    let selected = GenerationSession::open(&serving(&db), facts.model.clone(), second, options()).await.unwrap();
+    assert_eq!(decode::<AnalysisContext>(&collect(selected.table::<AnalysisContext>().unwrap()).await.unwrap()), [other.context.clone()],
+        "the negative twin: the selected generation reads differently");
+    selected.close().await.unwrap();
     assert_eq!(session.generation(), first);
     assert!(matches!(store.retire(first).await, Err(StoreError::Busy)), "the unselected generation is still leased");
     // F02 at the reader: nothing above the facts frontier exists to read as empty.
     assert!(matches!(session.table::<TransferKey>(), Err(ReadError::Frontier(_))));
     let inspection = InspectionSession::new(session).unwrap();
-    assert!(inspection.sql("SELECT count(*) FROM transfer_keys").await.is_err());
+    // A relation above the frontier plans (P1.11 registers it) and refuses, typed, when scanned.
+    let refused = inspection.sql("SELECT count(*) FROM transfer_keys").await.unwrap().collect().await.unwrap_err();
+    assert!(matches!(read_error(&refused), Some(ReadError::Frontier(_))), "{refused}");
     let counted = inspection.sql("SELECT count(*) FROM provider_coverage").await.unwrap().collect().await.unwrap();
-    assert_eq!(counted[0].column(0).as_any().downcast_ref::<datafusion::arrow::array::Int64Array>().unwrap().value(0), 2);
-    assert!(inspection.sql("CREATE TABLE leak AS SELECT * FROM provider_coverage").await.is_err());
+    assert_eq!(count(&counted), 2);
+    let ddl = inspection.sql("CREATE TABLE leak AS SELECT * FROM provider_coverage").await.unwrap_err();
+    assert!(matches!(read_error(&ddl), Some(ReadError::ReadOnly(_))), "{ddl}");
     inspection.close().await.unwrap();
     assert_eq!(store.retire(first).await.unwrap(), CleanupOutcome::Removed);
 }
@@ -212,6 +257,10 @@ async fn cancellation_mid_stream_drains_and_returns() {
     }
     assert!(matches!(session.health(), PoolHealth::Ready { connections: 2, idle: 2 }), "{:?}", session.health());
     assert_eq!(provider_backends(&db).await, before, "drained connections return; none is replaced");
+    // A drain keeps each connection's lease: the generation still has two readers and cannot retire.
+    let detail = GenerationCatalog::new(db.reader.clone()).show(fixture.generation).await.unwrap().unwrap();
+    assert_eq!(detail.summary.readers, 2);
+    assert!(matches!(fixture.store.retire(fixture.generation).await, Err(StoreError::Busy)));
     assert_eq!(decode::<ArtifactChunk>(&collect(session.table::<ArtifactChunk>().unwrap()).await.unwrap()).len(), fixture.chunks.len());
     session.close().await.unwrap();
 }
@@ -223,11 +272,13 @@ async fn transport_loss_is_terminal() {
     let session = GenerationSession::open(&serving(&db), Arc::new(model().unwrap()), fixture.generation, options()).await.unwrap();
     assert!(matches!(session.health(), PoolHealth::Ready { .. }));
     sqlx::query("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name = 'lctx-provider'").execute(&db.superuser).await.unwrap();
-    assert!(collect(session.table::<Package>().unwrap()).await.is_err(), "a lost session reads nothing");
+    let lost = collect(session.table::<Package>().unwrap()).await.unwrap_err();
+    assert!(matches!(read_error(&lost), Some(ReadError::Lost)), "a lost session reads nothing: {lost}");
     assert_eq!(session.health(), PoolHealth::Lost);
-    assert!(collect(session.table::<Package>().unwrap()).await.is_err(), "and never recovers");
+    let again = collect(session.table::<Package>().unwrap()).await.unwrap_err();
+    assert!(matches!(read_error(&again), Some(ReadError::Lost)), "and never recovers: {again}");
     assert!(provider_backends(&db).await.is_empty(), "no connection was opened to replace the lost ones");
-    assert!(matches!(session.close().await, Err(ReadError::Pool(_))));
+    assert!(matches!(session.close().await, Err(ReadError::Lost)));
     assert_eq!(fixture.store.retire(fixture.generation).await.unwrap(), CleanupOutcome::Removed, "the lost leases are gone with their backends");
 }
 
@@ -258,4 +309,40 @@ async fn stage_session_registers_generation_table() {
     assert!(stage.register(&consumer.read::<Package>().unwrap(), session.table::<Package>().unwrap()).is_err(), "one registration per relation");
     drop(consumer);
     session.close().await.unwrap();
+}
+
+/// P1.10 review F05: inspection queries run in a bounded pool.
+#[tokio::test]
+async fn inspection_memory_is_bounded() {
+    let db = DisposableDatabase::start().await;
+    let fixture = rich(&db).await;
+    let small = ProviderOptions { inspection_memory: 1 << 20, ..options() };
+    let session = GenerationSession::open(&serving(&db), Arc::new(model().unwrap()), fixture.generation, small).await.unwrap();
+    let inspection = InspectionSession::new(session).unwrap();
+    let refused = inspection.sql("SELECT * FROM artifact_chunks ORDER BY ordinal DESC").await.unwrap().collect().await;
+    assert!(matches!(&refused, Err(error) if error.to_string().contains("Resources exhausted")), "{refused:?}");
+    for _ in 0..50 {
+        if matches!(inspection.health(), PoolHealth::Ready { idle: 2, .. }) { break; }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(matches!(inspection.health(), PoolHealth::Ready { connections: 2, .. }), "{:?}", inspection.health());
+    assert_eq!(count(&inspection.sql("SELECT count(*) FROM packages").await.unwrap().collect().await.unwrap()), 3, "the session stays usable");
+    inspection.close().await.unwrap();
+}
+
+/// P1.10 review F03: a provider connection classifies SQLSTATEs as the store does. A lock timeout
+/// while taking the lease is contention.
+#[tokio::test]
+async fn a_lease_lock_timeout_is_contention() {
+    let db = DisposableDatabase::start().await;
+    let fixture = rich(&db).await;
+    let mut holder = db.superuser.acquire().await.unwrap();
+    sqlx::query("SELECT pg_advisory_lock(1279476824, 0)").execute(&mut *holder).await.unwrap();
+    let impatient = RoleConfig { lock_timeout_seconds: 1, ..serving(&db) };
+    let refused = GenerationSession::open(&impatient, Arc::new(model().unwrap()), fixture.generation, options()).await;
+    assert!(matches!(&refused, Err(ReadError::Store(StoreError::Driver { class: lctx_model::domain::Infrastructure::Contention, detail }))
+        if detail.contains("55P03")), "{:?}", refused.as_ref().err());
+    sqlx::query("SELECT pg_advisory_unlock(1279476824, 0)").execute(&mut *holder).await.unwrap();
+    drop(holder);
+    GenerationSession::open(&impatient, Arc::new(model().unwrap()), fixture.generation, options()).await.unwrap().close().await.unwrap();
 }

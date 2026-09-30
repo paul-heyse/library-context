@@ -74,7 +74,7 @@ pub enum Infrastructure {
     Transport,
     /// A commit, rollback or COPY abort was sent without confirmation; the outcome is unknown.
     Unconfirmed,
-    /// The server refused a statement: a privilege, constraint or protocol refusal.
+    /// The server refused a statement: a privilege or protocol refusal outside the content.
     Refused,
     /// A lock or statement timeout, a deadlock or a serialization conflict: another holder was
     /// in the way.
@@ -85,6 +85,8 @@ pub enum Infrastructure {
     Contract,
     /// Local input could not be read.
     Io,
+    /// The server exhausted a resource: disk, memory or a program limit (SQLSTATE 53, 54).
+    Exhausted,
 }
 
 #[doc(hidden)]

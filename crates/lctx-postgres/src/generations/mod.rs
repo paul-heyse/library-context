@@ -12,7 +12,7 @@ mod verify;
 pub use catalog::{GenerationCatalog, GenerationDetail, GenerationState, GenerationSummary, ListFilter, Writer};
 pub use failure::{Failure, FailureClass};
 pub use install::ResetInventory;
-pub use lease::{LeaseContract, LeaseDriver, LeaseParam};
+pub use lease::{Held, LeaseContract, LeaseDriver, LeaseParam};
 pub use lifecycle::{GenerationAttempt, SealedAttempt, ValidatedAttempt};
 pub use verify::{CheckReport, Finding, FindingKind};
 use std::{collections::{BTreeMap, BTreeSet}, sync::Arc};
@@ -59,9 +59,7 @@ impl Error {
                 match error {
                     sqlx::Error::Io(_) | sqlx::Error::Tls(_) | sqlx::Error::Protocol(_) | sqlx::Error::PoolClosed | sqlx::Error::WorkerCrashed => Infrastructure::Transport,
                     sqlx::Error::PoolTimedOut => Infrastructure::Contention,
-                    _ if code.starts_with("08") || code.starts_with("57P") => Infrastructure::Transport,
-                    _ if code == "55P03" || code == "57014" || code == "40P01" || code == "40001" => Infrastructure::Contention,
-                    _ => Infrastructure::Refused,
+                    _ => FailureClass::sqlstate(&code).infrastructure(),
                 }
             },
             Self::Commit(_) | Self::Rollback { .. } | Self::CopyAbort { .. } => Infrastructure::Unconfirmed,
@@ -72,14 +70,19 @@ impl Error {
         }
     }
 }
-/// A store failure keeps its class across the stage sink boundary.
+/// A store failure keeps its class and safe detail (SQLSTATE, constraint, table) across the stage
+/// sink boundary: a content violation the server found is invalid content, like one found here.
 impl From<Error> for ModelError {
     fn from(error: Error) -> Self {
         match error {
             Error::Model(error) => error,
             Error::Frontier(message) => ModelError::Frontier(message),
             Error::Codec(message) => ModelError::Codec(message),
-            other => ModelError::infrastructure(other.class(), other),
+            other => {
+                let failure = Failure::of(&other);
+                if failure.class == FailureClass::Invalid { ModelError::Invalid(failure.detail) }
+                else { ModelError::Infrastructure { class: other.class(), detail: failure.detail } }
+            },
         }
     }
 }
@@ -269,13 +272,12 @@ impl GenerationStore {
         let mut connection = reader.acquire().await?;
         connection.close_on_drop();
         let contract = self.lease_contract(g);
-        let frontier = contract.acquire(&mut lease::Sqlx(&mut connection)).await?;
-        let relations = self.scope(frontier)?.relations.clone();
-        Ok(GenerationLease { connection, contract, model: self.model.clone(), budget, relations })
+        let held = contract.acquire(&mut lease::Sqlx(&mut connection)).await?;
+        Ok(GenerationLease { connection, contract, model: self.model.clone(), budget, relations: held.relations })
     }
     /// The lease protocol for one generation of this store's model.
     pub fn lease_contract(&self, g: GenerationId) -> LeaseContract {
-        LeaseContract::from_scopes(self.model.digest(), self.physical, self.scopes.iter().map(|(f, s)| (*f, (s.physical, s.columns.clone()))).collect(), g)
+        LeaseContract::from_scopes(self.model.digest(), self.physical, self.scopes.clone(), g)
     }
     /// An attempt's COPY, charged to its budget.
     async fn copy_attempt<R: Record>(&self, writer: &PgPool, g: GenerationId, batch: &Batch<R>, schedule: ContentHash, budget: &ResourceBudget) -> Result<(), Error> {

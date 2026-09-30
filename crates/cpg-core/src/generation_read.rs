@@ -13,7 +13,7 @@ use datafusion::{
     common::{Column, DFSchema, ScalarValue, tree_node::{Transformed, TreeNode, TreeNodeRecursion}},
     datasource::TableProvider,
     error::{DataFusionError, Result},
-    execution::{TaskContext, context::{SQLOptions, SessionContext}, memory_pool::MemoryConsumer},
+    execution::{TaskContext, context::{SQLOptions, SessionConfig, SessionContext}, memory_pool::MemoryConsumer, runtime_env::RuntimeEnvBuilder},
     logical_expr::{Expr, ExprSchemable, Operator, TableProviderFilterPushDown, TableType},
     physical_expr::EquivalenceProperties,
     physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, Partitioning, PlanProperties, SendableRecordBatchStream,
@@ -21,9 +21,9 @@ use datafusion::{
     prelude::lit,
     sql::unparser::{Unparser, dialect::PostgreSqlDialect},
 };
-use datafusion_table_providers_postgres::{bounded::ChunkLimits, pool::{BoundLimits, PoolHealth, PostgresConnectionPool, SessionBinder}};
-use lctx_model::domain::{Infrastructure, Record, Relation, ValidatedModel, admission::{Frontier, FrontierContract}, stages::Profile};
-use lctx_postgres::{generations::{Error as StoreError, GenerationId, LeaseContract, LeaseDriver, LeaseParam}, roles::{Role, RoleConfig}};
+use datafusion_table_providers_postgres::{bounded::ChunkLimits, conn::PostgresError, pool::{self, BoundLimits, PoolHealth, PostgresConnectionPool, SessionBinder}};
+use lctx_model::domain::{Infrastructure, Record, Relation, ValidatedModel, admission::Frontier};
+use lctx_postgres::{generations::{Error as StoreError, FailureClass, GenerationId, Held, LeaseContract, LeaseDriver, LeaseParam}, roles::{Role, RoleConfig}};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ReadError {
@@ -38,23 +38,39 @@ pub enum ReadError {
     /// A relation outside the generation's frontier.
     #[error("frontier: {0}")]
     Frontier(String),
+    /// The session lost a connection. It never reconnects; open a new session.
+    #[error("the provider session is lost; it never reconnects")]
+    Lost,
+    /// Inspection is read-only: DDL, DML and other statements are refused.
+    #[error("read-only inspection: {0}")]
+    ReadOnly(String),
 }
 
-/// A session's connections, timeouts and transfer bounds.
+/// A session's connections, timeouts and transfer bounds, and the memory an inspection query may use.
 #[derive(Debug, Clone, Copy)]
-pub struct ProviderOptions { pub connections: u32, pub acquire_timeout: Duration, pub drain_timeout: Duration, pub chunks: ChunkLimits }
+pub struct ProviderOptions { pub connections: u32, pub acquire_timeout: Duration, pub drain_timeout: Duration, pub chunks: ChunkLimits, pub inspection_memory: usize }
 impl Default for ProviderOptions {
     fn default() -> Self {
-        Self { connections: 2, acquire_timeout: Duration::from_secs(10), drain_timeout: Duration::from_secs(2), chunks: ChunkLimits::default() }
+        Self { connections: 2, acquire_timeout: Duration::from_secs(10), drain_timeout: Duration::from_secs(2), chunks: ChunkLimits::default(),
+            inspection_memory: 4 << 30 }
     }
 }
 
 /// The lease driver over a provider connection.
 struct Tokio<'c>(&'c tokio_postgres::Client);
-fn classify(error: tokio_postgres::Error) -> StoreError {
-    let transport = error.is_closed() || error.as_db_error().is_none()
-        || error.code().is_some_and(|code| code.code().starts_with("08") || code.code().starts_with("57P"));
-    StoreError::driver(if transport { Infrastructure::Transport } else { Infrastructure::Refused }, error)
+/// A provider-connection failure, classified as the store classifies SQLSTATEs. Its detail is the
+/// SQLSTATE and the constraint and table it names, never the server's message text.
+fn classify(error: &tokio_postgres::Error) -> StoreError {
+    match error.as_db_error() {
+        Some(server) if !error.is_closed() => {
+            let code = server.code().code();
+            let mut detail = format!("SQLSTATE {code}");
+            if let Some(constraint) = server.constraint() { detail.push_str(&format!(" constraint {constraint}")); }
+            if let Some(table) = server.table() { detail.push_str(&format!(" table {table}")); }
+            StoreError::driver(FailureClass::sqlstate(code).infrastructure(), detail)
+        },
+        _ => StoreError::driver(Infrastructure::Transport, error),
+    }
 }
 impl LeaseDriver for Tokio<'_> {
     async fn text(&mut self, sql: &str, params: &[LeaseParam<'_>]) -> Result<Option<String>, StoreError> {
@@ -64,25 +80,25 @@ impl LeaseDriver for Tokio<'_> {
             LeaseParam::Text(text) => Box::new(text.to_string()),
         }).collect();
         let refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = values.iter().map(|v| v.as_ref() as &(dyn tokio_postgres::types::ToSql + Sync)).collect();
-        let row = self.0.query_opt(sql, &refs).await.map_err(classify)?;
-        row.map(|row| row.try_get::<_, String>(0)).transpose().map_err(classify)
+        let row = self.0.query_opt(sql, &refs).await.map_err(|e| classify(&e))?;
+        row.map(|row| row.try_get::<_, String>(0)).transpose().map_err(|e| classify(&e))
     }
     async fn batch(&mut self, sql: &str) -> Result<(), StoreError> {
-        self.0.batch_execute(sql).await.map_err(classify)
+        self.0.batch_execute(sql).await.map_err(|e| classify(&e))
     }
 }
 
 /// Takes the lease on every connection the pool opens and remembers the first refusal.
 #[derive(Debug)]
-struct Binder { contract: LeaseContract, frontier: Mutex<Option<Frontier>>, refusal: Mutex<Option<StoreError>> }
+struct Binder { contract: LeaseContract, held: Mutex<Option<Held>>, refusal: Mutex<Option<StoreError>> }
 #[async_trait]
 impl SessionBinder for Binder {
     async fn bind(&self, client: &tokio_postgres::Client) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
         match self.contract.acquire(&mut Tokio(client)).await {
-            Ok(frontier) => {
-                let mut bound = self.frontier.lock().map_err(|_| "binder poisoned")?;
-                if bound.is_some_and(|f| f != frontier) { return Err("connections disagree on the frontier".into()); }
-                *bound = Some(frontier);
+            Ok(held) => {
+                let mut bound = self.held.lock().map_err(|_| "binder poisoned")?;
+                if bound.as_ref().is_some_and(|h| *h != held) { return Err("connections disagree on the frontier".into()); }
+                *bound = Some(held);
                 Ok(())
             },
             Err(error) => {
@@ -109,7 +125,7 @@ impl GenerationSession {
             return Err(ReadError::Config("provider connections exceed the configured provider budget"));
         }
         let (driver, ssl, root) = driver_config(config)?;
-        let binder = Arc::new(Binder { contract: LeaseContract::new(&model, generation), frontier: Mutex::new(None), refusal: Mutex::new(None) });
+        let binder = Arc::new(Binder { contract: LeaseContract::new(&model, generation), held: Mutex::new(None), refusal: Mutex::new(None) });
         let limits = BoundLimits { connections: options.connections, acquire_timeout: options.acquire_timeout, drain_timeout: options.drain_timeout };
         let pool = match PostgresConnectionPool::new_bound(driver, &ssl, root, binder.clone(), limits).await {
             Ok(pool) => pool,
@@ -118,8 +134,7 @@ impl GenerationSession {
                 return Err(refusal.map_or_else(|| ReadError::Pool(error.to_string()), ReadError::Store));
             },
         };
-        let frontier = binder.frontier.lock().ok().and_then(|f| *f).ok_or(ReadError::Pool("no connection was bound".into()))?;
-        let held = held(&model, frontier)?;
+        let Held { frontier, relations: held } = binder.held.lock().ok().and_then(|h| h.clone()).ok_or(ReadError::Pool("no connection was bound".into()))?;
         Ok(Self { pool: Arc::new(pool), contract: binder.contract.clone(), model, frontier, held, options })
     }
     pub fn generation(&self) -> GenerationId { self.contract.generation() }
@@ -140,10 +155,10 @@ impl GenerationSession {
     /// Release every lease and close the connections. Returns only after the server confirmed
     /// each release; a lost session releases by closing.
     pub async fn close(self) -> Result<(), ReadError> {
-        if self.pool.health() == PoolHealth::Lost { return Err(ReadError::Pool("the session is lost".into())); }
+        if self.pool.health() == PoolHealth::Lost { return Err(ReadError::Lost); }
         let mut released = Vec::new();
         for _ in 0..self.options.connections {
-            let connection = self.pool.connect_direct().await.map_err(|e| ReadError::Pool(e.to_string()))?;
+            let connection = self.pool.connect_direct().await.map_err(|e| match e { pool::Error::BoundPoolLost => ReadError::Lost, e => ReadError::Pool(e.to_string()) })?;
             self.contract.release(&mut Tokio(&connection.conn)).await?;
             released.push(connection);
         }
@@ -153,12 +168,15 @@ impl GenerationSession {
 }
 
 /// Read-only SQL over every relation of a pinned generation (`lctx query --generation`). A model
-/// relation outside the generation's frontier is known but refuses with a typed `Frontier`
-/// error when planned, rather than reading as an unknown or an empty table (P0 exit F02).
+/// relation outside the generation's frontier is known but refuses with a typed `Frontier` error
+/// when scanned, rather than reading as an unknown or an empty table (P0 exit F02). Queries run
+/// in a memory pool bounded by the session's `inspection_memory`.
 pub struct InspectionSession { session: GenerationSession, context: SessionContext }
 impl InspectionSession {
     pub fn new(session: GenerationSession) -> Result<Self, ReadError> {
-        let context = SessionContext::new();
+        let runtime = RuntimeEnvBuilder::new().with_memory_limit(session.options.inspection_memory, 1.0).build_arc()
+            .map_err(|_| ReadError::Config("invalid inspection memory limit"))?;
+        let context = SessionContext::new_with_config_rt(SessionConfig::new(), runtime);
         for relation in session.model.relations() {
             let table: Arc<dyn TableProvider> = if session.held.contains(relation.name()) { session.table_of(relation)? }
                 else { Arc::new(OutsideFrontier { relation: relation.name(), schema: relation.schema().clone(), frontier: session.frontier }) };
@@ -166,9 +184,14 @@ impl InspectionSession {
         }
         Ok(Self { session, context })
     }
+    /// Plan one read-only query. A statement the read contract refuses is a typed `ReadOnly` error.
     pub async fn sql(&self, sql: &str) -> Result<datafusion::dataframe::DataFrame> {
-        self.context.sql_with_options(sql, SQLOptions::new().with_allow_ddl(false).with_allow_dml(false).with_allow_statements(false)).await
+        let plan = self.context.state().create_logical_plan(sql).await?;
+        SQLOptions::new().with_allow_ddl(false).with_allow_dml(false).with_allow_statements(false).verify_plan(&plan)
+            .map_err(|error| DataFusionError::External(Box::new(ReadError::ReadOnly(error.message().to_string()))))?;
+        self.context.execute_logical_plan(plan).await
     }
+    pub fn health(&self) -> PoolHealth { self.session.health() }
     pub async fn close(self) -> Result<(), ReadError> { self.session.close().await }
 }
 
@@ -182,17 +205,6 @@ impl TableProvider for OutsideFrontier {
     async fn scan(&self, _: &dyn Session, _: Option<&Vec<usize>>, _: &[Expr], _: Option<usize>) -> Result<Arc<dyn ExecutionPlan>> {
         Err(DataFusionError::External(Box::new(ReadError::Frontier(format!("{} is outside this generation's {} frontier", self.relation, self.frontier.name())))))
     }
-}
-
-fn held(model: &ValidatedModel, frontier: Frontier) -> Result<BTreeSet<&'static str>, ReadError> {
-    let all = model.relations().iter().map(Relation::name);
-    Ok(match frontier {
-        Frontier::Conformance => all.collect(),
-        Frontier::Facts => {
-            let contract = FrontierContract::facts(model, Profile::Catalog).map_err(|e| ReadError::Frontier(e.to_string()))?;
-            all.filter(|name| contract.contains(name)).collect()
-        },
-    })
 }
 
 fn driver_config(config: &RoleConfig) -> Result<(tokio_postgres::Config, String, Option<std::path::PathBuf>), ReadError> {
@@ -215,8 +227,9 @@ fn driver_config(config: &RoleConfig) -> Result<(tokio_postgres::Config, String,
             "prefer" => tokio_postgres::config::SslMode::Prefer,
             _ => tokio_postgres::config::SslMode::Require,
         })
-        .options(format!("-c search_path=pg_catalog -c default_transaction_read_only=on -c statement_timeout={}s -c lock_timeout={}s \
-            -c idle_in_transaction_session_timeout=30s", config.statement_timeout_seconds, config.lock_timeout_seconds));
+        // Pushed-down literals, including `'\x…'` bytea text, assume standard strings.
+        .options(format!("-c search_path=pg_catalog -c default_transaction_read_only=on -c standard_conforming_strings=on -c statement_timeout={}s \
+            -c lock_timeout={}s -c idle_in_transaction_session_timeout=30s", config.statement_timeout_seconds, config.lock_timeout_seconds));
     Ok((driver, ssl, root))
 }
 
@@ -333,9 +346,30 @@ impl ExecutionPlan for GenerationScan {
         let (pool, sql, schema, options) = (self.pool.clone(), self.sql.clone(), self.schema.clone(), self.options);
         let reservation = MemoryConsumer::new("generation_scan").register(context.memory_pool());
         let stream = futures::stream::once(async move {
-            let connection = pool.connect_direct().await.map_err(|e| DataFusionError::External(Box::new(e)))?;
+            // A bound pool refuses to replace a lost connection: an acquisition that fails on a lost
+            // pool is the loss, whichever way the pool reported it.
+            let connection = pool.connect_direct().await.map_err(|e| match pool.health() {
+                PoolHealth::Lost => DataFusionError::External(Box::new(ReadError::Lost)),
+                PoolHealth::Ready { .. } => DataFusionError::External(Box::new(e)),
+            })?;
             connection.query_arrow_bounded(&sql, &[], schema, options.chunks, Some(reservation), pool.drain_timeout()).await
-        }).try_flatten().boxed();
+        }).try_flatten().map_err(scan_error).boxed();
         Ok(Box::pin(RecordBatchStreamAdapter::new(self.schema.clone(), stream)))
     }
+}
+/// Scan failures reach consumers as `ReadError`: a lost session as `Lost`, a server refusal with the
+/// store's class. Other errors, such as an exhausted memory pool, pass through.
+fn scan_error(error: DataFusionError) -> DataFusionError {
+    let read = match &error {
+        DataFusionError::External(inner) => match (inner.downcast_ref::<pool::Error>(), inner.downcast_ref::<PostgresError>()) {
+            (Some(pool::Error::BoundPoolLost), _) => Some(ReadError::Lost),
+            (_, Some(PostgresError::QueryError { source })) => Some(match classify(source) {
+                StoreError::Driver { class: Infrastructure::Transport, .. } => ReadError::Lost,
+                other => ReadError::Store(other),
+            }),
+            _ => None,
+        },
+        _ => None,
+    };
+    read.map_or(error, |read| DataFusionError::External(Box::new(read)))
 }

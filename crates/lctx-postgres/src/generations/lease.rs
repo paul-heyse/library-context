@@ -4,7 +4,7 @@
 //! installation, the generation's state and its frontier-scoped model and physical digests are
 //! this binary's. `pin` runs it through SQLx; provider sessions run it through tokio-postgres on
 //! every connection they bind. Neither ever reconnects to take a lease again.
-use std::collections::BTreeMap;
+use std::{collections::{BTreeMap, BTreeSet}, sync::Arc};
 use lctx_model::domain::{ContentHash, Infrastructure, ValidatedModel, admission::Frontier};
 use super::{Error, GenerationId, ddl};
 
@@ -19,22 +19,26 @@ pub trait LeaseDriver: Send {
     fn batch(&mut self, sql: &str) -> impl Future<Output = Result<(), Error>> + Send;
 }
 
-/// What a lease on one generation must confirm.
+/// What a lease on one generation must confirm: the installation, and each frontier's lowering
+/// (its relations, physical digest and live columns).
 #[derive(Debug, Clone)]
-pub struct LeaseContract { generation: GenerationId, model: ContentHash, installation: ContentHash, scopes: BTreeMap<Frontier, (ContentHash, String)> }
+pub struct LeaseContract { generation: GenerationId, model: ContentHash, installation: ContentHash, scopes: Arc<BTreeMap<Frontier, ddl::Scope>> }
+/// What a lease holds: the generation's frontier and the relations that frontier lowers. Readers
+/// take their relation set from here rather than recomputing the frontier's scope.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Held { pub frontier: Frontier, pub relations: BTreeSet<&'static str> }
 impl LeaseContract {
-    pub(super) fn from_scopes(model: ContentHash, installation: ContentHash, scopes: BTreeMap<Frontier, (ContentHash, String)>, generation: GenerationId) -> Self {
+    pub(super) fn from_scopes(model: ContentHash, installation: ContentHash, scopes: Arc<BTreeMap<Frontier, ddl::Scope>>, generation: GenerationId) -> Self {
         Self { generation, model, installation, scopes }
     }
     pub fn new(model: &ValidatedModel, generation: GenerationId) -> Self {
         let scopes = ddl::scopes(model);
-        Self { generation, model: model.digest(), installation: scopes[&Frontier::Conformance].physical,
-            scopes: scopes.into_iter().map(|(frontier, scope)| (frontier, (scope.physical, scope.columns))).collect() }
+        Self { generation, model: model.digest(), installation: scopes[&Frontier::Conformance].physical, scopes: Arc::new(scopes) }
     }
     pub fn generation(&self) -> GenerationId { self.generation }
-    /// Take the lease; return the generation's frontier. On any refusal the transaction rolls
-    /// back and no lock is held.
-    pub async fn acquire<D: LeaseDriver>(&self, driver: &mut D) -> Result<Frontier, Error> {
+    /// Take the lease; return what it holds. On any refusal the transaction rolls back and no lock
+    /// is held.
+    pub async fn acquire<D: LeaseDriver>(&self, driver: &mut D) -> Result<Held, Error> {
         driver.batch("BEGIN").await?;
         match self.checked(driver).await {
             Ok(frontier) => {
@@ -52,7 +56,7 @@ impl LeaseContract {
             },
         }
     }
-    async fn checked<D: LeaseDriver>(&self, driver: &mut D) -> Result<Frontier, Error> {
+    async fn checked<D: LeaseDriver>(&self, driver: &mut D) -> Result<Held, Error> {
         let g = self.generation;
         driver.text(super::locks::INSTALLATION_SHARED_TEXT, &[]).await?;
         let compatible = driver.text("SELECT (model_digest=$1 AND physical_digest=$2)::text FROM lctx_model_store.installation WHERE singleton",
@@ -64,14 +68,14 @@ impl LeaseContract {
         let fields: Vec<&str> = registered.split(' ').collect();
         let [state, frontier, model, physical] = fields.as_slice() else { return Err(Error::Contract); };
         let frontier = ddl::frontier(frontier).ok_or(Error::Contract)?;
-        let Some((expected, columns)) = self.scopes.get(&frontier) else { return Err(Error::Contract); };
-        if *model != self.model.hex() || expected.hex() != *physical { return Err(Error::Contract); }
+        let Some(scope) = self.scopes.get(&frontier) else { return Err(Error::Contract); };
+        if *model != self.model.hex() || scope.physical.hex() != *physical { return Err(Error::Contract); }
         if *state != "published" { return Err(Error::State); }
         // The registry's digests say what was lowered; the live catalog says what is there now.
         let live = driver.text(ddl::LIVE_COLUMNS, &[LeaseParam::Text(&g.schema())]).await?;
-        if live.as_deref() != Some(columns.as_str()) { return Err(Error::Contract); }
+        if live.as_deref() != Some(scope.columns.as_str()) { return Err(Error::Contract); }
         driver.text("SELECT 'locked' FROM (SELECT pg_advisory_lock_shared($1)) AS l", &[LeaseParam::Int(g.lock())]).await?;
-        Ok(frontier)
+        Ok(Held { frontier, relations: scope.relations.clone() })
     }
     /// Release the lease and confirm the server held it.
     pub async fn release<D: LeaseDriver>(&self, driver: &mut D) -> Result<(), Error> {

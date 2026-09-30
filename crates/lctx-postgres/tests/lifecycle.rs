@@ -218,6 +218,23 @@ async fn interrupted_attempts_are_listed_never_published_and_failures_keep_their
         .fetch_one(&db.superuser).await.unwrap();
     assert_eq!(class, "transport", "the producer's failure keeps the class the stage saw");
     store.abort(id).await.unwrap();
+    // A content violation the server finds in a stage COPY is invalid content, with its SQLSTATE and
+    // constraint (P1.10 review F03), not a refusal.
+    let mut execution = small.schedule.execute();
+    let attempt = store.begin_conformance(db.writer.clone(), &mut execution, budget()).await.unwrap();
+    sqlx::query(sqlx::AssertSqlSafe(format!("ALTER TABLE {}.packages ADD CONSTRAINT probe CHECK (name <> 'refused')", attempt.generation().schema())))
+        .execute(db.owner.pool()).await.unwrap();
+    let mut access = execution.begin("packages").unwrap();
+    let batch = Batch::new(&small.model, vec![Package { name: "refused".into() }], &budget()).unwrap();
+    let copied = access.write::<Package, _>(async |permit| attempt.copy(permit, &batch).await).await;
+    assert!(matches!(&copied, Err(ModelError::Invalid(detail)) if detail.contains("SQLSTATE 23514 constraint probe")), "{copied:?}");
+    drop(access);
+    let id = attempt.fail(&copied.unwrap_err()).await.unwrap();
+    let (class, detail): (String, String) = sqlx::query_as("SELECT class, detail FROM lctx_model_store.failures WHERE generation_id = decode($1, 'hex')")
+        .bind(id.hex()).fetch_one(&db.superuser).await.unwrap();
+    assert_eq!(class, "invalid", "{detail}");
+    assert!(detail.contains("SQLSTATE 23514 constraint probe") && detail.contains("table packages"), "{detail}");
+    store.abort(id).await.unwrap();
     assert_eq!(Error::Commit(sqlx::Error::PoolClosed).class(), Infrastructure::Unconfirmed, "an unconfirmed commit is its own class");
 }
 
