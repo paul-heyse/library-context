@@ -1,0 +1,2 @@
+def same[T](value: T) -> T:
+    return value

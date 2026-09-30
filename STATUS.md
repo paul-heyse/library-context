@@ -2,21 +2,28 @@
 
 _Updated 2026-09-30 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-## Phase 3 design
+## Phase 3 implementation
 
-- **Proposed:** the [detailed Phase 3 plan](docs/plans/semantic-model-phase3-detailed-plan_2026-09-30.md)
-  specifies normalized entities/resolutions, effective callables, complete events, policy memberships,
-  binding applicability/admission, projections, scoped coverage and dependency-ordered packages.
-- Proposed ADR-0101/0102 cover cumulative self-contained generations with completed-stage reads,
-  and typed normalized semantic ownership. DESIGN §15 links the proposals. No production model,
-  dependency pin or runtime database changed in this design scope.
-- [Design evidence](docs/design_review/evidence/2026-09-30_phase3-design/README.md) records exact
-  resolved library features and 13 existing reader/runtime tests. These establish the baseline,
-  not completed-stage reads or normalized compilation. Plan §11 owns new design findings;
-  the parent cutover plan §8 retains cross-phase implementation dispositions.
-- [Independent review](docs/design_review/reviews/design_review_phase3-plan_2026-09-30.md):
-  **Accept scoped**, at Proposed strength; both design findings corrected and reinspected.
-  Their N5/Q implementation and independent controls remain not_run.
+- **Accepted target:** [ADR-0101](docs/adr/0101-cumulative-normalized-generations.md) and
+  [ADR-0102](docs/adr/0102-normalized-semantic-ownership.md). The
+  [detailed execution plan](docs/plans/semantic-model-phase3-detailed-plan_2026-09-30.md) §11
+  owns package receipts and finding disposition; the parent owns cross-phase obligations.
+- **Implemented / focused-Tested:** R1–R3 frontier descriptors, atomic stage completion and
+  private facts checkpoint, source-bound readers, invariant eligibility, scoped availability,
+  shared resource and physical-scan admission, terminal drain/close. Fork pin `a41da22`.
+  [Foundation review](docs/design_review/reviews/design_review_phase3-foundation_2026-09-30.md):
+  Accept scoped after F01/F02/O1 correction and reinspection.
+- **Implemented / focused-Tested:** N1 entities, total symbol correspondence, owner materialization,
+  parameter/field links and public exposures, charged store-read stage and shared exact-output
+  validation. Native function origin distinguishes callable source fields from synthesized methods.
+  Committed through `82a805f`; this changes the model schema and requires a rebuilt store.
+- **Implemented / focused-Tested:** N2 total lexical/import/ancestry/mention/type/binder/place/
+  test-operand relations, charged driver and shared exact-output validation. Native and pure
+  controls preserve module coordinates, missing outcomes and exact role/context linkage;
+  real PostgreSQL controls passed for both profiles. Catalog relies on validated NotRequested
+  flow coverage. Normalized publication remains unavailable until N7.
+- N3–N7/X/Q remain. No formatting, lint, integrated gate, new pilot or phase exit has run;
+  these wait until all functional scope is implemented. N1–N5 assembled review follows N5.
 
 ## Semantic model cutover
 
@@ -33,8 +40,8 @@ _Updated 2026-09-30 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
   unavailable expanded signatures/slots; ADR-0097 separates dictionary keys; ADR-0099 preserves
   Unicode/NUL as typed UTF-8 bytes; ADR-0100 retains residual child ports with DisplayOnly closure.
   ADR-0094 makes the generation registry the sole owner of new compile outcomes.
-- Model digest: `dad6dc7983136391c358394dfd3befb7a23aaf30e42719b8e0b57f513a6ed0ef`.
-  Schema snapshot diffs were read before acceptance; this is a rebuilt schema migration.
+- The historical P0–P2 schema snapshots were reviewed and accepted. Phase 3 changes the schema;
+  its final snapshot acceptance and store rebuild are still part of Q.
 - [Exit review](docs/design_review/reviews/design_review_p0-p2-exit_2026-09-30.md): Accept scoped for the P0–P2 facts frontier; resource and downstream exclusions remain explicit.
   [Qualification evidence](docs/design_review/evidence/2026-09-30_facts-qualification/README.md)
   records commands, composite repairs, profiles, repeated content and resource limits.
@@ -84,22 +91,26 @@ The earlier documentation-policy check failed on a stale ADR index; the Phase 3 
 regenerated the index and passed. The unrelated generic skill-validator rejection of existing
 `model-baseline`/`user-invocable` metadata was not repaired or claimed verified by this work.
 
-## Phase 3 design checks (2026-09-30)
+## Current implementation checks (2026-09-30)
 
-| Command | Outcome |
+Cargo commands below run through `python3 scripts/build_environment.py --`.
+
+| Command / scope | Outcome |
 |---|---|
-| `uv run python docs/design_review/evidence/2026-09-30_phase3-design/inspect_dependencies.py` | passed: locked/offline metadata, 24 selected resolved packages |
-| `python3 scripts/build_environment.py -- cargo test --release -p cpg-core --test model_runtime --test generation_read` | passed: 13 existing tests, including real PostgreSQL readers |
-| `just adr index`; `just adr lint` | passed: 56 records |
-| `just docs-check`; `git diff --check` | passed for the design documents; no product qualification implied |
-| `uv run python scripts/library_utilization.py`; `just library-catalog` | passed: no catalog drift; refreshed 65-library/91-capability usage index under the supplied end-of-session workflow |
-| Phase 3 implementation, `just test-all`, pilots, product journeys | not_run: this task produces the detailed design; P0–P2 receipts above retain their scope |
+| R1–R3 release `domain_admission`, `domain_memory`, `domain_resources`, `domain_stages`, `generation_stages`, `stage_reads`, `stage_checkpoint`, `generation_read`, `model_runtime`, `stage_validation` | passed; exact commands/counts in detailed plan §11 |
+| Fork release `bound_lifecycle` at `a41da22` | passed: three real PostgreSQL terminal-close/cancellation/drain controls |
+| `cargo check -p cpg-core` | passed: N1 and initial N2 compile checks |
+| Release `normalized_entities`, `domain_symbols`, `typed_symbols`, `domain_owner` | passed: 4, 11, 5 and 2 focused tests |
+| Release `normalized_stage` | passed: N1 then N1→N2 real store controls, including validation and release of retained resources |
+| Release `cpg-extract --test normalized_relations`; `cpg-core --test normalized_relations`; `lctx-model --test domain_normalized` | passed: 7 native controls, 2 real store profiles and 3 pure/codec controls |
+| `just fmt`, `just test-all`, schema snapshot acceptance, Phase 3 pilots/measurements, final review/docs/catalog | not_run: functional implementation is ongoing |
+
+Initial focused failures exposed facts-fixture scope, retained capture accounting and catalog's
+unrequested flow source; those were corrected. Remaining owner/fixture scope adjustments are
+part of implementation and Q, not evidence that the full gate currently passes.
 
 ## Next work
 
-Resolve proposed ADR-0101/0102 at the implementation boundary (D0), then implement the detailed
-plan's R1 → R2 → R3: frontier descriptors, atomic completed-stage/facts checkpoints, source-bound
-readers and resource/connection admission. Review that assembled boundary before N1–N7.
-Provider-session F04/F07 and store lineage F08 remain implementation obligations, not design closures.
-P4 still owns the composition engine, attributed derived type/guard claims and dispatch policies;
-P5 owns serving and product qualification. Product PR6/new features remain paused until phase 5.
+Execute N3 effective callables → N4 complete events/policies → N5 stored bindings. Review N1–N5 before N6/N7,
+legacy retirement and whole-scope qualification. P4 owns composition/analysis/catalog; P5 owns
+serving and product qualification. Product PR6/new features remain paused until phase 5.

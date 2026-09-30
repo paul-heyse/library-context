@@ -1,0 +1,164 @@
+//! Total attributed relationship outcomes retain their original observation and alternatives.
+use crate::{Domain, DomainCode, DomainSum};
+use crate::domain::{*, normalized::entities::*};
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
+#[repr(i16)]
+pub enum LinkReason {
+    ExplicitIdentity = 0, MissingCorrespondence = 1, MissingResolution = 2,
+    ConflictingCandidates = 3, OutsideCapturedScope = 4, UnsupportedNativeOrigin = 5,
+    MissingOperand = 6, NoTypeObservation = 7, IncompleteInput = 8, NotRequested = 9,
+    Unavailable = 10, UntracedName = 11,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[model(name = "reference_entity_targets")]
+pub enum ReferenceEntityTarget {
+    #[model(code = 0)] Binding { event: Id<lexical::BindingEvent>, entity: Id<EntityRef> },
+    #[model(code = 1)] Builtin { target: Id<lexical::LexicalTarget> },
+    #[model(code = 2)] Unresolved { target: Id<lexical::LexicalTarget> },
+}
+#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[model(name = "reference_entity_assessments", invariants = super::relation_normalization::invariants)]
+pub struct ReferenceEntityAssessment {
+    #[model(key)]
+    pub reference: Id<lexical::ReferenceObservation>,
+    pub status: ResolutionStatus,
+    pub reason: LinkReason,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[model(name = "reference_entity_candidates")]
+pub struct ReferenceEntityCandidate {
+    #[model(key)]
+    pub assessment: Id<ReferenceEntityAssessment>,
+    #[model(key)]
+    pub resolution: Id<lexical::LexicalResolution>,
+    #[model(key)]
+    pub target: Id<ReferenceEntityTarget>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[model(name = "import_module_assessments")]
+pub struct ImportModuleAssessment {
+    #[model(key)]
+    pub observation: Id<syntax::ImportAliasObservation>,
+    pub status: ResolutionStatus,
+    pub reason: LinkReason,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[model(name = "import_module_candidates")]
+pub struct ImportModuleCandidate {
+    #[model(key)]
+    pub assessment: Id<ImportModuleAssessment>,
+    #[model(key)]
+    pub observation: Id<symbols::DependencyModuleObservation>,
+    pub module: Id<calls::ProviderModule>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[model(name = "ancestry_entity_assessments")]
+pub struct AncestryEntityAssessment {
+    #[model(key)]
+    pub observation: Id<symbols::ClassAncestryObservation>,
+    pub class: Id<SymbolEntityResolution>,
+    pub status: ResolutionStatus,
+    pub reason: LinkReason,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[model(name = "ancestry_entity_members")]
+pub struct AncestryEntityMember {
+    #[model(key)]
+    pub assessment: Id<AncestryEntityAssessment>,
+    #[model(key)]
+    pub member: Id<symbols::SymbolSequenceMember>,
+    pub resolution: Id<SymbolEntityResolution>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[model(name = "mention_entity_assessments")]
+pub struct MentionEntityAssessment {
+    #[model(key)]
+    pub observation: Id<documents::DocumentMentionObservation>,
+    pub status: ResolutionStatus,
+    pub reason: LinkReason,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[model(name = "mention_entity_candidates")]
+pub struct MentionEntityCandidate {
+    #[model(key)]
+    pub assessment: Id<MentionEntityAssessment>,
+    #[model(key)]
+    pub exposure: Id<PublicExposure>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[model(name = "type_entity_links")]
+pub struct TypeEntityLink {
+    #[model(key)]
+    pub term: Id<types::TypeTerm>,
+    pub resolution: Option<Id<SymbolEntityResolution>>,
+    pub module: Option<Id<calls::ProviderModule>>,
+    pub entity: Option<Id<EntityRef>>,
+    pub status: ResolutionStatus,
+    pub reason: LinkReason,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[model(name = "type_binder_assessments")]
+pub struct TypeBinderAssessment {
+    #[model(key)]
+    pub variable: Id<types::TypeVariable>,
+    pub status: ResolutionStatus,
+    pub reason: LinkReason,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[model(name = "type_binder_candidates")]
+pub struct TypeBinderCandidate {
+    #[model(key)]
+    pub assessment: Id<TypeBinderAssessment>,
+    #[model(key)]
+    pub declaration: Id<source::Occurrence>,
+    #[model(key)] pub premise: Id<TypeBinderPremise>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[model(name = "place_entity_links")]
+pub struct PlaceEntityLink {
+    #[model(key)]
+    pub place: Id<value::Place>,
+    pub entity: Option<Id<EntityRef>>,
+    pub status: ResolutionStatus,
+    pub reason: LinkReason,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[model(name = "test_operand_type_assessments")]
+pub struct TestOperandTypeAssessment {
+    #[model(key)]
+    pub leaf: Id<flow::FlowTestLeafObservation>,
+    pub status: ResolutionStatus,
+    pub reason: LinkReason,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[model(name = "test_operand_type_links")]
+pub struct TestOperandTypeLink {
+    #[model(key)]
+    pub assessment: Id<TestOperandTypeAssessment>,
+    #[model(key)]
+    pub observation: Id<types::TypeObservation>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[model(name = "test_operand_coverage")]
+pub struct TestOperandCoverage {
+    #[model(key)]
+    pub assessment: Id<TestOperandTypeAssessment>,
+    #[model(key)]
+    pub coverage: Id<attribution::ProviderCoverage>,
+}
+pub fn relations() -> Vec<Relation> { vec![Relation::of::<MentionSymbolCandidate>(),Relation::of::<TypeBinderPremise>(),Relation::of::<ReferenceEntityTarget>(),Relation::of::<ReferenceEntityAssessment>(),Relation::of::<ReferenceEntityCandidate>(),Relation::of::<ImportModuleAssessment>(),Relation::of::<ImportModuleCandidate>(),Relation::of::<AncestryEntityAssessment>(),Relation::of::<AncestryEntityMember>(),Relation::of::<MentionEntityAssessment>(),Relation::of::<MentionEntityCandidate>(),Relation::of::<TypeEntityLink>(),Relation::of::<TypeBinderAssessment>(),Relation::of::<TypeBinderCandidate>(),Relation::of::<PlaceEntityLink>(),Relation::of::<TestOperandTypeAssessment>(),Relation::of::<TestOperandTypeLink>(),Relation::of::<TestOperandCoverage>()] }
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[model(name = "type_binder_premises")]
+pub enum TypeBinderPremise {
+    #[model(code = 0)] Declaration { observation: Id<syntax::DeclarationObservation> },
+    #[model(code = 1)] Binding { observation: Id<lexical::BindingObservation> },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[model(name = "mention_symbol_candidates")]
+pub struct MentionSymbolCandidate {
+    #[model(key)] pub assessment: Id<MentionEntityAssessment>,
+    #[model(key)] pub observation: Id<symbols::SymbolObservation>,
+    #[model(key)] pub resolution: Id<SymbolEntityResolution>,
+}

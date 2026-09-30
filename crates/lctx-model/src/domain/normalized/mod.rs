@@ -1,5 +1,8 @@
 //! Normalized semantic identities and total attributed relationships (ADR-0102).
 mod inventory;
+mod relation_inventory;
+pub mod links;
+pub mod relation_normalization;
 pub mod entities;
 pub mod entity_normalization;
 mod rows;
@@ -8,4 +11,4 @@ use super::*;
 
 /// Revision of semantic normalization, included in every assessment key and stage declaration.
 pub fn policy_revision() -> ContentHash { ContentHash::of(b"lctx-normalization/phase3/v1") }
-pub fn relations() -> Vec<Relation> { entities::relations() }
+pub fn relations() -> Vec<Relation> { let mut relations = entities::relations(); relations.extend(links::relations()); relations }

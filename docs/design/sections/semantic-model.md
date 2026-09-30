@@ -273,13 +273,22 @@ whose body holds it, otherwise the module. It is the only definition of "caller"
   raise.
 - No other place encoding exists. Node-hex keys, name paths and rendered strings are presentations.
 
-**Phase 3 identity realization (Accepted target; Proposed implementation evidence, 2026-09-30).** Declaration occurrences establish
+**Phase 3 identity realization (Implemented, focused Tested 2026-09-30; N1/N2).** Declaration occurrences establish
 callable/class identities and cross-provider correspondence. Source and stub declarations stay
-distinct, with evidenced correspondence relationships. Synthetic and external identities remain
+distinct. Cross-provider correspondence requires supported source anchors. Synthetic and external identities remain
 provider-qualified until a supported correspondence exists. Total resolution outcomes retain
 conflicting and missing alternatives. Public exposure is a relationship, not another identity.
 Existing P2 place identities remain authoritative; normalized entity links add correspondence
 without recoding places. The shared occurrence-owner rule supplies execution ownership.
+
+N2 preserves total lexical, import-module, ancestry and mention outcomes, named structural type
+links, native type-binder outcomes, place links and exact test-leaf/type links. Original observations,
+all candidate members and ordered ancestry evidence remain referenced. Binder coordinates apply
+only to their explicit acquired provider module; synthetic and external coordinates do not attach
+by offset. Test operand matches require exact occurrence, context and role, with coverage premises
+and typed missing outcomes. Catalog has no flow-leaf read; its checkpoint establishes NotRequested.
+Shared exact-output validators reject missing outcomes/candidates and altered operand/type links.
+These are tested internal stages; normalized publication and phase exit remain N7/Q obligations.
 
 > Decision: ADR-0085, ADR-0089, ADR-0102
 
