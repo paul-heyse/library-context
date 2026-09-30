@@ -5,7 +5,7 @@ description: Update STATUS.md from the actual tree after work changes the projec
 
 # Handoff
 
-Keep STATUS.md within 60 lines. It is a current checkpoint; the architectural collection owns architecture, ADRs own
+Keep STATUS.md within 120 lines. It is a current checkpoint; the architectural collection owns architecture, ADRs own
 rationale, reviews own dated evidence and the active plan owns scheduled findings' current status.
 The binding defines disposition transfer and closure. Link to that owner rather than maintaining
 another mutable finding list. Replace the checkpoint rather than appending a session narrative;
