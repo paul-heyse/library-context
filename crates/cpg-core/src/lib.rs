@@ -9,6 +9,7 @@ pub mod catalog;
 pub mod embed;
 pub mod entry_links;
 pub mod evidence;
+pub mod facts;
 pub mod flow_model;
 pub mod postgres;
 pub mod producer;

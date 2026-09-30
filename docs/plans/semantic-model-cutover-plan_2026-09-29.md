@@ -879,6 +879,27 @@ The rehearsal restored an owner dump of the operator database into a bootstrap-p
 - `store check` was clean and `runs list` worked.
 
 The real `prepare`/`switch` is blocked: it needs the PostgreSQL superuser, and this session's `sudo -u postgres` requires a password. The operator's commands are in the [evidence](../design_review/evidence/2026-09-29_operator-transition/README.md). `plan` no longer needs administration, and reports every owner schema left behind. The transition tool is deleted after the real run |
+| A0: `cargo test --release -p cpg-extract --test bundle --test typed_conformance --test typed_limits --test typed_owner`; `-p cpg-core --test facts_driver`; `-p lctx-model` (all suites); `just build-features`; `cargo check --workspace --all-targets` | passed 2026-09-29 (bundle 6, facts_driver 2, domain_stages 9; typed_conformance 6 + 1 ignored).
+
+**Framework.** `cpg-extract/src/bundle.rs`:
+- `ProviderStage<S>` (`declaration(profile)`, `run(&mut StageContext)`) and `StageContext` (declare, emit, emit_batch, contribute, handoff, attacher, captured, budget, model);
+- `run_stage` runs the provider on a 512 MiB-stack thread; typed deliveries, each batch carrying its reservation, cross a bounded channel (window 2) to an async pump that holds the stage's `StageOutput`;
+- the first refusal poisons the context, so an ignored refusal still fails the stage; a panic is caught and fails the attempt, and the pump waits for the provider thread before returning;
+- `build_digest` covers `Cargo.lock`, the Pyrefly patch and the provider's sources (F11); the syntax provider uses it;
+- `refuse_ambient` refuses the analyzer's ambient knobs.
+
+`assembly.rs` holds the `Attacher`: only an exact span match attaches, and every other outcome returns its candidates. `cpg-core/src/facts.rs` holds `compile_facts`, which refuses ambient configuration, matches the providers to the schedule's stages (by declaration digest; providers outside the profile are ignored), and refuses a missing, extra, duplicate or differing provider before any stage runs. In lctx-model: `Handoffs`, `Stage::{reads, writes, contributes_to, digest}`, `StageOutput::contribute_batch`, `BatchWriter::observe`, `OccurrenceIndex::from_parts`.
+
+**Controls:**
+- 20,000 rows of about 2 KiB (41 MB of output) to a slow sink arrive in 313 batches in emission order, each batch the next run of rows; the peak reservation is 3.27 MB, and 0 after;
+- six undeclared or mixed operations are refused, and each fails the stage and attempt even when the provider ignores the refusal;
+- a provider panic after emitting fails the attempt, with reservations back at 0;
+- handoffs reach their reader; nothing attaches to an empty occurrence input; the provider's outcome is the stage's; an undeclared attacher is refused;
+- P0 exit F04: a contributed row equal to a batched row is stored once, and a conflicting payload or a repeated batched identity is refused (`domain_stages`, and through the bundle path);
+- the fixture-corpus skeleton captures `typed_semantics` twice per profile, runs `compile_facts` into a stage-bound `MemoryGeneration` and validates equal content digests;
+- four mismatched provider sets are refused before any stage runs.
+
+Capture and syntax stay on E1's `run_capture`/`run_syntax` until A2 and A4 make them providers |
 | `just fmt`, `just test-all`, facts pilots | not_run: functional scope incomplete |
 
 Independent bounded reviewers accepted artifact/capture/acquisition corrections and the
@@ -992,7 +1013,7 @@ has the following separate finding namespace (2026-09-29):
 | Source finding | Current disposition | Owner and closure evidence |
 |---|---|---|
 | input-validation F01/F03/F04/F05 | addressed within reviewed slice | `lctx-model` input/source invariants; real PG manifest/span/cross-input ownership refusals and multi-distribution positive; reviewer source reinspection accepted |
-| input-validation F02 | narrowed (R1–R3, resource-review corrections, E1 Measured) → A0, P1.9/P1.10, Q | Addressed: reserved batch encode/decode and transfer bounds (R1); charged invariant state and a linear, memoized type-closure walk (R2, resource F03); source admission before Pyrefly handles and a total traversal bound (R3/E1); fail-stop writers and stages (resource F01); typed limits (resource F09); E1 envelope on fastmcp 4.0.5 with clean mid-attempt exhaustion. Remaining: A0 batches carry their charge across the provider channel, with peak reservation bounded by the channel window rather than total output; P1.9/P1.10 provider chunks on the reservation, SQLx buffer retention and shared Arrow buffer accounting; Q both-profile envelope over the full captured closure, with charged-map calibration (resource F08) |
+| input-validation F02 | narrowed (R1–R3, resource-review corrections, E1 Measured) → A0, P1.9/P1.10, Q | Addressed: reserved batch encode/decode and transfer bounds (R1); charged invariant state and a linear, memoized type-closure walk (R2, resource F03); source admission before Pyrefly handles and a total traversal bound (R3/E1); fail-stop writers and stages (resource F01); typed limits (resource F09); E1 envelope on fastmcp 4.0.5 with clean mid-attempt exhaustion. A0 (2026-09-29): batches carry their charge across the provider channel, and 41 MB of output to a slow sink peaked at 3.27 MB (the window plus the provider's duplicate index). Remaining: P1.9/P1.10 provider chunks on the reservation, SQLx buffer retention and shared Arrow buffer accounting; Q both-profile envelope over the full captured closure, with charged-map calibration (resource F08) |
 
 
 This table owns the current disposition of the review's findings. Each closes by construction in the
@@ -1010,7 +1031,7 @@ phase named, and only on its closure evidence.
 | [F08](../design_review/reviews/design_review_semantic-data-model_2026-09-29.md#F08) no derived-result contract; lineage gaps | open → phase 4 | 4.6, 4.7 | one emitter; input invocations; finding-ID rule; derivation views |
 | [F09](../design_review/reviews/design_review_semantic-data-model_2026-09-29.md#F09) nominal projection layer | open → phases 3–4 | 3.2, 4.6 | projection by declaration; ADR-0044 amendment (made 2026-09-29) |
 | [F10](../design_review/reviews/design_review_semantic-data-model_2026-09-29.md#F10) serving is a second hand authority | open → phases 0, 5 | 0.2, 5.1, 5.5 | generated DDL, views and inventories; no hand serving file |
-| [F11](../design_review/reviews/design_review_semantic-data-model_2026-09-29.md#F11) implicit stage composition; producer identity mislabelled | open → phases 0–1 | 0.7, 1.2 | stage-table refusal controls; producer identity covers every canonical producer; the pipeline schedules from the table |
+| [F11](../design_review/reviews/design_review_semantic-data-model_2026-09-29.md#F11) implicit stage composition; producer identity mislabelled | open → P2 (A0 progress, 2026-09-29: `build_digest` covers lockfile, Pyrefly patch and sources; `compile_facts` runs exactly the scheduled providers) | 0.7, 1.2 | stage-table refusal controls; producer identity covers every canonical producer; the pipeline schedules from the table |
 | [F12](../design_review/reviews/design_review_semantic-data-model_2026-09-29.md#F12) per-request rebuilds and round trips | open → phase 5 | 5.1 | generation-scoped prepared catalog; set-based hydration |
 | [F13](../design_review/reviews/design_review_semantic-data-model_2026-09-29.md#F13) pilot recognizer; lexical parameters outside the digest | open → phases 4–5 | 4.4, 5.4 | named authored model; policy digest |
 | Review observations: browse unknown ownership, `EmptyUnderCoverage`, lexical-only reason | open → phase 5 | 5.1 | disclosed in responses |
@@ -1103,7 +1124,7 @@ re-inspects them.
 | [F02](../design_review/reviews/design_review_resource-slices_2026-09-29.md#F02) | `typed_syntax`; E1 | addressed (contract): `SyntaxError::coverage` gives `Unavailable(ResourceRefused)` for source size and `Partial(ResourceRefused)` with the ancestor-closed prefix kept for traversal bounds; the docs agree; `typed_limits` checks prefix closure. The stored control lands in E1 |
 | [F03](../design_review/reviews/design_review_resource-slices_2026-09-29.md#F03) | `TypeIndex` | addressed: verified closures are memoized per (term, provider, context, display-only) in a charged set, the walk's scratch is charged, and the cumulative cap is gone; 600 supports over a 2,000-member union validate, and the fidelity-keyed twin refuses |
 | [F04](../design_review/reviews/design_review_resource-slices_2026-09-29.md#F04) | `typed_syntax` docs, plan; E1 | wording addressed ("before traversal"; the Pyrefly stage owes the pre-parse call); implementation and control routed to E1 |
-| [F05](../design_review/reviews/design_review_resource-slices_2026-09-29.md#F05) | A0 | routed to A0 (`Batch<R>` across the channel) |
+| [F05](../design_review/reviews/design_review_resource-slices_2026-09-29.md#F05) | A0 | closed (A0, 2026-09-29): typed `Batch<R>` deliveries carry their reservations across the provider channel into `StageOutput::push_batch`/`contribute_batch` |
 | [F06](../design_review/reviews/design_review_resource-slices_2026-09-29.md#F06), [F07](../design_review/reviews/design_review_resource-slices_2026-09-29.md#F07) | `lctx-postgres`, P1.9/P1.10 | routed to P1.9/P1.10 |
 | [F08](../design_review/reviews/design_review_resource-slices_2026-09-29.md#F08) | `charged` | deferred to E1: measured against peak RSS; trigger: the E1 envelope shows the charged high-water below observed use |
 | [F09](../design_review/reviews/design_review_resource-slices_2026-09-29.md#F09) | `ModelError`, `generations` | addressed: `ModelError::Limit { owner, limit, observed, bound }` for the writer row limit, the COPY row limit, the small-read cap and the stored-row read limit; the 70 MiB control matches it |
@@ -1119,7 +1140,7 @@ returned Revise on 2026-09-29 for one correction (F01). The review's §11 dispos
 | [F01](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F01) | `obligation::verdict`, §15.8 | closed (re-inspection at `7595557`, 2026-09-29, review "Re-inspection"): `VerdictInput.modality`; Candidate/Potential give Unknown(`NonDefiniteAlternative`, 50); refutation under partial coverage gives `IncompleteCoverage` (51); priority rationale documented; §15.8 amended. Controls: `a_candidate_or_potential_alternative_is_never_established_or_refuted` and the composition-to-verdict case (Candidate composed flow Unknown, Definite twin Established) |
 | [F02](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F02) | `lctx-postgres::generations`; P1.7/P1.10/P1.11 | closed at store level (store-lifecycle review, 2026-09-29) and at the readers: leases and provider tables refuse with a typed `Frontier` (P1.10 `pin_survives_selection_change_and_frontier_is_enforced`), and `lctx query` exits 2 with a frontier refusal for a model relation outside the frontier (P1.11 `store_generation_and_query_commands`). The inspection control asserts the typed refusal after `collect` since the provider-session review F01 correction |
 | [F03](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F03) | `composition` | deferred → P4 with composition F04/F06/F07; trigger: P4 engine design or the first `compose_site` caller outside tests |
-| [F04](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F04) | `stages` | open → A0: batched outputs and contributed vocabulary dedup/refusal control |
+| [F04](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F04) | `stages`, `batching` | closed (A0, 2026-09-29): a batched output with scheduled contributors indexes its identities (`BatchWriter::observe`); an equal contributed row is stored once, and a conflicting payload or a repeated batched identity is refused (`domain_stages` `contributed_rows_deduplicate_against_a_batched_output_and_conflicts_refuse`; `bundle` handoff control) |
 | [F05](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F05) | `ProviderCoverage`; B1 | open → B1 (catalog generation without a ty `Provider` row); D1 receipt wording corrected |
 | [F06](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F06) | model tests; P1.11 | closed (P1.11, 2026-09-29): `crates/lctx/tests/model_describe.rs` snapshots `lctx model describe --format json` (relations, fields with roles and types, references, sums, every codebook's code/label pairs) under `INSTA_UPDATE=no` |
 | [F07](../design_review/reviews/design_review_p0-exit_2026-09-29.md#F07) | `StageSink`/`GenerationAttempt::copy`; P1.7/P1.10 | closed: the in-memory class at P1.7; the persisted class with store-lifecycle review F04 (a producer's transport failure stores `transport`); provider-session transport loss at P1.10 (`transport_loss_is_terminal`) |
@@ -1149,16 +1170,21 @@ SQLSTATE class) and R2 (availability at the reader) moved to provider-session re
 
 The bounded [provider-session review](../design_review/reviews/design_review_p1-provider-sessions_2026-09-29.md) of P1.10 returned Revise on 2026-09-29 (F01 required):
 the architecture needs no structural change, but the named reader controls did not discriminate and
-one failed at `244eda4`. Corrections: §4.2, provider-session review corrections receipt.
+one failed at `244eda4`. Corrections: §4.2, provider-session review corrections receipt. The re-inspection
+(2026-09-29) accepts them, scoped. Its observations travel with the open rows: O12 (a non-database driver
+error scans as `Lost` without consulting pool health; conversion and row-size refusals stay fork types)
+and O11 (the collation twin should use the session's default collation) with F04; O14 (the inspection
+bound comes from a default, not the serving configuration) with F07; O13 (content violations display
+as "invalid model") with Q.
 
 | Finding | Responsible component | Current disposition and evidence |
 |---|---|---|
-| [F01](../design_review/reviews/design_review_p1-provider-sessions_2026-09-29.md#F01) | `cpg-core` test; §4.2 | corrected, re-inspection pending: distinguishable generations with a negative twin; typed `Frontier` after `collect`; readers and `Busy` after drains; receipt sentence corrected. The wrong-drain twin was not run |
-| [F02](../design_review/reviews/design_review_p1-provider-sessions_2026-09-29.md#F02) | `generation_read` | corrected, re-inspection pending: `standard_conforming_strings=on`; executed identity, NULL-logic and byte-order controls with an ICU negative twin |
-| [F03](../design_review/reviews/design_review_p1-provider-sessions_2026-09-29.md#F03) | `generations::failure`, `generation_read` | corrected, re-inspection pending: one `FailureClass::sqlstate`; class and safe detail cross `StageSink` (23 → `ModelError::Invalid`, 53/54 → `Exhausted`); typed `ReadError::Lost`/`Store` scan errors; `query.rs` downcasts only |
+| [F01](../design_review/reviews/design_review_p1-provider-sessions_2026-09-29.md#F01) | `cpg-core` test; §4.2 | closed (re-inspection 2026-09-29): distinguishable generations with a negative twin; typed `Frontier` after `collect`; readers and `Busy` after drains; receipt sentence corrected. The wrong-drain twin was not run |
+| [F02](../design_review/reviews/design_review_p1-provider-sessions_2026-09-29.md#F02) | `generation_read` | closed (re-inspection 2026-09-29): `standard_conforming_strings=on`; executed identity, NULL-logic and byte-order controls with an ICU negative twin |
+| [F03](../design_review/reviews/design_review_p1-provider-sessions_2026-09-29.md#F03) | `generations::failure`, `generation_read` | closed (re-inspection 2026-09-29): one `FailureClass::sqlstate`; class and safe detail cross `StageSink` (23 → `ModelError::Invalid`, 53/54 → `Exhausted`); typed `ReadError::Lost`/`Store` scan errors; `query.rs` downcasts only |
 | [F04](../design_review/reviews/design_review_p1-provider-sessions_2026-09-29.md#F04) | fork `pool`/`conn`; `generation_read` | open; trigger: before the first P3/P4 stage session (a pool closed by `close`; the drain guard before `query_raw`) |
-| [F05](../design_review/reviews/design_review_p1-provider-sessions_2026-09-29.md#F05) | `generation_read`, `lctx query` | corrected, re-inspection pending: `ProviderOptions::inspection_memory` (default 4 GiB) bounds the inspection pool; 1 MiB refuses with Resources exhausted and the session stays Ready |
-| [F06](../design_review/reviews/design_review_p1-provider-sessions_2026-09-29.md#F06) | `lease`; P3 design | relation set corrected: `acquire` returns `Held` with the frontier's relations. Input lineage deferred with store-lifecycle F08; trigger: P3 frontier design |
+| [F05](../design_review/reviews/design_review_p1-provider-sessions_2026-09-29.md#F05) | `generation_read`, `lctx query` | closed (re-inspection 2026-09-29): `ProviderOptions::inspection_memory` (default 4 GiB) bounds the inspection pool; 1 MiB refuses with Resources exhausted and the session stays Ready |
+| [F06](../design_review/reviews/design_review_p1-provider-sessions_2026-09-29.md#F06) | `lease`; P3 design | relation set closed (re-inspection 2026-09-29): `acquire` returns `Held` with the frontier's relations. Input lineage deferred with store-lifecycle F08; trigger: P3 frontier design |
 | [F07](../design_review/reviews/design_review_p1-provider-sessions_2026-09-29.md#F07) | `generation_read` | open; trigger: before the first P3/P4/P5 reader of a family-scoped relation |
 
 ### Core review findings

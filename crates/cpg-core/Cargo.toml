@@ -9,6 +9,7 @@ publish.workspace = true
 [dependencies]
 lctx-model = { path = "../lctx-model" }
 lctx-postgres = { path = "../lctx-postgres" }
+cpg-extract = { path = "../cpg-extract" }
 cpg-schema = { path = "../cpg-schema" }
 lctx-analytics = { path = "../lctx-analytics" }
 arrow-array.workspace = true
@@ -40,7 +41,6 @@ url.workspace = true
 lctx-postgres = { path = "../lctx-postgres", features = ["testing"] }
 salsa.workspace = true
 sqlx.workspace = true
-cpg-extract = { path = "../cpg-extract" }
 insta.workspace = true
 petgraph.workspace = true
 tempfile.workspace = true

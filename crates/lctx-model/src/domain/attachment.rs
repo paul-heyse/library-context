@@ -71,19 +71,26 @@ fn allocation(bytes: Option<usize>) -> Result<usize,ModelError> {
 }
 impl OccurrenceIndex {
     pub fn new(occurrences: &[Occurrence], resources: ResourceBudget) -> Result<Self, ModelError> {
-        let mut bytes = allocation(occurrences.len().checked_mul(size_of::<Entry>()+size_of::<i64>()))?;
-        for occurrence in occurrences {
+        Self::from_parts(&[occurrences], resources)
+    }
+    /// One index over several batches of occurrences, such as a stage's handed-off input.
+    pub fn from_parts(parts: &[&[Occurrence]], resources: ResourceBudget) -> Result<Self, ModelError> {
+        let occurrences = || parts.iter().flat_map(|part| part.iter());
+        let count = parts.iter().try_fold(0usize, |total, part| total.checked_add(part.len()));
+        let count = allocation(count)?;
+        let mut bytes = allocation(count.checked_mul(size_of::<Entry>()+size_of::<i64>()))?;
+        for occurrence in occurrences() {
             occurrence.validate()?;
             bytes = allocation(occurrence.structural_path.len().checked_mul(size_of::<i32>()).and_then(|path| bytes.checked_add(path)))?;
         }
         let reservation = resources.reserve("occurrence index",bytes)?;
-        let scratch = resources.reserve("occurrence identity check",allocation(occurrences.len().checked_mul(size_of::<Id<Occurrence>>()))?)?;
-        let mut ids = Vec::with_capacity(occurrences.len());
-        ids.extend(occurrences.iter().map(Record::id)); ids.sort_unstable();
+        let scratch = resources.reserve("occurrence identity check",allocation(count.checked_mul(size_of::<Id<Occurrence>>()))?)?;
+        let mut ids = Vec::with_capacity(count);
+        ids.extend(occurrences().map(Record::id)); ids.sort_unstable();
         if ids.windows(2).any(|pair| pair[0] == pair[1]) { return Err(ModelError::Conflict(Occurrence::NAME)); }
         drop(ids); drop(scratch);
-        let mut entries = Vec::with_capacity(occurrences.len());
-        entries.extend(occurrences.iter().map(|o| Entry { key: (o.source,o.syntax_kind as i16,o.role as i16),id: o.id(),start: o.start,end: o.end,path: o.structural_path.clone().into_boxed_slice() }));
+        let mut entries = Vec::with_capacity(count);
+        entries.extend(occurrences().map(|o| Entry { key: (o.source,o.syntax_kind as i16,o.role as i16),id: o.id(),start: o.start,end: o.end,path: o.structural_path.clone().into_boxed_slice() }));
         entries.sort_unstable_by_key(|e| (e.key,e.start,e.end,e.id));
         let mut max_end = vec![0;entries.len()];
         let mut start = 0;

@@ -58,13 +58,7 @@ impl<R: Record> BatchWriter<R> {
             && (self.pending.len() >= self.limits.rows || self.pending_bytes.saturating_add(encoded) > self.limits.bytes) {
             Some(self.flush(model)?)
         } else { None };
-        if self.seen.len() == self.seen.capacity() {
-            // Hash tables round buckets up and add control bytes; charge twice the entry payload.
-            let capacity = self.seen.capacity().saturating_mul(2).max(64);
-            let entry = size_of::<(Id<R>, ContentHash)>() + 1;
-            self.seen_held.try_resize(capacity.checked_mul(entry).and_then(|b| b.checked_mul(2)).ok_or_else(|| overflow::<R>())?)?;
-            self.seen.reserve(capacity - self.seen.len());
-        }
+        self.grow_index()?;
         let capacity = if self.pending.len() == self.pending.capacity() {
             self.pending.capacity().saturating_mul(2).max(16).min(self.limits.rows)
         } else { self.pending.capacity() };
@@ -76,6 +70,31 @@ impl<R: Record> BatchWriter<R> {
         self.pending_heap = heap_total;
         self.pending_bytes += encoded;
         Ok(flushed)
+    }
+    /// Index the rows of a batch built by another writer, so later rows deduplicate against it.
+    /// Those rows are already on their way to the store: an identity repeated among indexed
+    /// batches, with any payload, is refused.
+    pub fn observe(&mut self, batch: &Batch<R>) -> Result<(), ModelError> {
+        if self.failed { return Err(poisoned::<R>()); }
+        let result = batch.rows().iter().try_for_each(|row| {
+            let id = row.id();
+            if self.seen.contains_key(&id) { return Err(ModelError::Conflict(R::NAME)); }
+            self.grow_index()?;
+            self.seen.insert(id, row.content_digest());
+            Ok(())
+        });
+        self.failed = result.is_err();
+        result
+    }
+    fn grow_index(&mut self) -> Result<(), ModelError> {
+        if self.seen.len() == self.seen.capacity() {
+            // Hash tables round buckets up and add control bytes; charge twice the entry payload.
+            let capacity = self.seen.capacity().saturating_mul(2).max(64);
+            let entry = size_of::<(Id<R>, ContentHash)>() + 1;
+            self.seen_held.try_resize(capacity.checked_mul(entry).and_then(|b| b.checked_mul(2)).ok_or_else(|| overflow::<R>())?)?;
+            self.seen.reserve(capacity - self.seen.len());
+        }
+        Ok(())
     }
     /// Emit the remaining rows, if any. The duplicate index and its reservation end here.
     pub fn finish(mut self, model: &ValidatedModel) -> Result<Option<Batch<R>>, ModelError> {

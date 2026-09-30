@@ -111,7 +111,7 @@ fn write_permits_and_receipts_retain_the_exact_attempt() {
 
 mod contributions {
     use std::{future::Future, task::{Context, Poll, Waker}};
-    use lctx_model::domain::{*, attribution::FactFamily, batching::TransferLimits, input::*, memory::MemoryGeneration, resources::ResourceBudget, stages::*};
+    use lctx_model::domain::{*, attribution::FactFamily, batching::TransferLimits, input::*, memory::MemoryGeneration, resources::ResourceBudget, source::SourceArtifact, stages::*};
     fn ready<T>(future: impl Future<Output = T>) -> T {
         match std::pin::pin!(future).as_mut().poll(&mut Context::from_waker(Waker::noop())) {
             Poll::Ready(value) => value, Poll::Pending => panic!("in-memory sink unexpectedly pending"),
@@ -180,6 +180,55 @@ mod contributions {
         assert_eq!(stage_budget.reserved(), 0, "handoffs and contributions are released after the last reader");
         execution.finish().unwrap();
         sink.validate(&model, &store_budget).unwrap();
+    }
+
+    /// P0 exit F04: a writer that emits prebuilt batches still owns the duplicates of what other
+    /// stages contribute to its output.
+    #[test]
+    fn contributed_rows_deduplicate_against_a_batched_output_and_conflicts_refuse() {
+        let model = model().unwrap();
+        let stages = vec![stage("contributor", vec![], vec![RelationUse::of::<Package>()], vec![RelationUse::of::<SourceArtifact>()]),
+            stage("artifacts", vec![], vec![RelationUse::of::<SourceArtifact>()], vec![]),
+            stage("reader", vec![RelationUse::of::<SourceArtifact>()], vec![RelationUse::of::<CorpusLibrary>()], vec![])];
+        let schedule = Schedule::build(&model, stages, &[], Profile::Catalog).unwrap();
+        let (budget, store) = (ResourceBudget::fixed(1 << 30).unwrap(), ResourceBudget::fixed(1 << 30).unwrap());
+        let input = InputRevision::from_entries(vec![]).unwrap();
+        let artifact = |path: &str| SourceArtifact::from_bytes(input.id(), path.into(), path.as_bytes()).unwrap();
+        let batch = |paths: &[&str]| Batch::new(&model, paths.iter().map(|p| artifact(p)).collect(), &budget).unwrap();
+        for case in ["equal", "conflict", "repeated"] {
+            let mut execution = schedule.execute();
+            let sink = MemoryGeneration::bind(&model, &store, &mut execution).unwrap();
+            let mut output = StageOutput::new(execution.begin("contributor").unwrap(), &sink, &model, budget.clone(), TransferLimits::default()).unwrap();
+            output.declare::<Package>().unwrap();
+            let contributed = if case == "conflict" { SourceArtifact { byte_len: 99, ..artifact("a.py") } } else { artifact("a.py") };
+            output.contribute(contributed).unwrap();
+            output.contribute(artifact("c.py")).unwrap();
+            ready(output.finish(ProviderOutcome::Complete)).unwrap();
+            let mut output = StageOutput::new(execution.begin("artifacts").unwrap(), &sink, &model, budget.clone(), TransferLimits::default()).unwrap();
+            output.declare::<SourceArtifact>().unwrap();
+            ready(output.push_batch(batch(&["a.py", "b.py"]))).unwrap();
+            if case == "repeated" {
+                assert!(matches!(ready(output.push_batch(batch(&["b.py"]))), Err(ModelError::Conflict(_))), "a batched identity cannot repeat");
+                drop(output);
+                assert!(execution.finish().is_err());
+                continue;
+            }
+            let finished = ready(output.finish(ProviderOutcome::Complete));
+            if case == "conflict" {
+                assert!(matches!(finished, Err(ModelError::Conflict(_))), "a contributed payload differing from a batched row is refused: {finished:?}");
+                assert!(execution.finish().is_err());
+                continue;
+            }
+            finished.unwrap();
+            let mut output = StageOutput::new(execution.begin("reader").unwrap(), &sink, &model, budget.clone(), TransferLimits::default()).unwrap();
+            let mut paths: Vec<_> = output.handoff::<SourceArtifact>().unwrap().iter().flat_map(|b| b.rows().iter().map(|r| r.path.clone()).collect::<Vec<_>>()).collect();
+            paths.sort();
+            assert_eq!(paths, ["a.py", "b.py", "c.py"], "the contributed equal row is stored once");
+            output.declare::<CorpusLibrary>().unwrap();
+            ready(output.finish(ProviderOutcome::Complete)).unwrap();
+            execution.finish().unwrap();
+        }
+        assert_eq!(budget.reserved(), 0, "batches, contributions and the duplicate index are released");
     }
 
     #[test]

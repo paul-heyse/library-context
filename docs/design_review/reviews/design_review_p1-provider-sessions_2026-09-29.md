@@ -377,3 +377,79 @@ The assembled P0–P2 review is the next architectural checkpoint. Review accept
 | — | Availability at the reader; frontier scope in the lease; input lineage | F07, F06 | First family-scoped P3–P5 reader; P3 frontier design |
 
 **Next step:** the `cpg-core` read owner corrects F01 (with F02's controls in the same test pass), then re-runs `generation_read` at HEAD. A0 proceeds, with F03 scheduled before T9's failure handling.
+
+<a id="re-inspection"></a>
+## Re-inspection (2026-09-29)
+
+| Field | Value |
+|---|---|
+| Subject | Commit `7c1594d` (P1.10 review corrections). Scope: F01, F02, F03, F05, and the relation-set half of F06. F04 and F07 remain open with triggers in the plan §8 "P1 provider-session review findings" table, and F06's input lineage remains deferred; none of the three is re-judged here. Line citations are at `7c1594d` |
+| Reviewer | Fresh-context `design-reviewer` subagent (not the author) |
+| Method | Each finding's closure evidence (§7), read in source and tests, with the provider suite re-run at HEAD. The working tree carried the coordinator's uncommitted P2 edits (`lctx-model` `stages`/`batching`/`attachment`, `cpg-extract`, and later `cpg-core` `lib.rs`/`facts.rs`), so the runs below compiled with them. None of those files is on a reviewed path |
+
+### Per-finding outcome
+
+| Finding | Closure evidence required | Observed | Outcome |
+|---|---|---|---|
+| [F01](#F01) | The corrected suite passes at HEAD, and each new assertion fails against a deliberately wrong twin: same content, a planning-only assertion, an unlock in the drain | **Generations.** They now differ in their analysis context (`tests/generation_read.rs:172-190`). The pinned session reads `first`'s context after `select(second)`; a session on `second` reads the other one (`:186`). If a table resolved the selected generation, the first assertion would fail. **Frontier refusal.** It is asserted after `collect()`, by downcasting to `ReadError::Frontier` (`:196`). The planning-only assertion's failure is on record: this review's run at `244eda4`. **Drains.** After three drains, the catalog counts two readers and `retire` is `Busy` (`:262-263`). The reader count comes from `pg_locks`, independently of the drain code, so an unlocking drain would yield 0 and `Removed`. The receipt sentence is corrected (no "by SQL" remains in the plan). The suite **passed** at HEAD (§ checks). The wrong-drain twin was **not_run** (author and here); that assertion discriminates by reasoning, not by execution | **closed** (drain twin by reasoning) |
+| [F02](#F02) | The controls pass, and the option is present in `driver_config` | **Session option.** `-c standard_conforming_strings=on` (`generation_read.rs:231`). **Executed identity equality.** An FSB16 literal selects exactly `beta`, and the pushdown is asserted Exact (`closed_filter_pushdown`). **Three-valued logic.** Over `lock_digest` values {NULL, d1, d2}, five pushed-down filters (`<>`, `NOT (=)`, `=`, `IS NULL`, `IS NOT NULL AND <>`) each return 1 row (`:133-139`). This also executes the 32-byte bytea literal path. Treating NULL as unequal would give 2. **Byte-order answer.** `version < 'alpha'` returns `["Beta"]`. The twin (`:145`) shows that an ICU collation orders the pair the other way. It checks a collation the server *offers*, not the database default that a pushed-down comparison would *use*. The pinned image initialises with `LANG=en_US.utf8` (`docker image inspect`, 2026-09-29), which also puts `alpha` before `Beta`, so the main assertion would catch a text-order pushdown. **passed** | **closed** (O11) |
+| [F03](#F03) | A stage COPY CHECK violation persists `invalid` with SQLSTATE and constraint; a provider 55P03 classifies `Contention`; a scan after transport loss yields a downcastable `ReadError::Lost`; `query.rs` drops its string match | **One classifier.** `FailureClass::sqlstate` (`failure.rs:45-52`) serves `Error::class` (`mod.rs:62`), `FailureClass::of`, and the tokio `classify` (`generation_read.rs:63-74`), whose detail is the safe SQLSTATE, constraint and table. `Infrastructure::Exhausted` carries 53/54, via `infrastructure()` (`failure.rs:54-60`). **Across the sink.** `From<Error> for ModelError` maps the Invalid class to `ModelError::Invalid(detail)` and keeps other classes with the safe detail (`mod.rs:75-86`). **Stage COPY.** A CHECK violation persists `invalid` with `SQLSTATE 23514 constraint probe … table packages` (`tests/lifecycle.rs:221-237`; **passed** here). **Provider 55P03.** A lease lock timeout on a provider connection is `Driver{Contention}` with 55P03 (`a_lease_lock_timeout_is_contention`), and its twin opens after unlock. **Transport loss.** Scans after it, including an acquisition that fails on a lost pool, return `ReadError::Lost` (`generation_read.rs:348-356, 362-373`; `transport_loss_is_terminal`), and `close` returns `Lost`. **CLI.** `query.rs` downcasts `Frontier`/`ReadOnly` only | **closed** (O12, O13) |
+| [F05](#F05) | Over the 65 MiB artifact under a 1 MiB limit, an inspection query refuses with Resources exhausted, and the session stays Ready | `InspectionSession::new` builds a `RuntimeEnv` bounded by `ProviderOptions::inspection_memory` (default 4 GiB) (`generation_read.rs:55, 177-179`). `inspection_memory_is_bounded` (`tests/generation_read.rs:316-333`) sorts the artifact under 1 MiB and gets Resources exhausted. The pool is Ready with two connections, and a later count returns 3. **passed** | **closed** (O14) |
+| [F06](#F06), relation set | No scope computation in `cpg-core` | `LeaseContract::acquire` returns `Held{frontier, relations}` from the store's `ddl::Scope` (`lease.rs:29, 78`). `pin` and the provider `Binder` both take their relation set from it, and the binder requires equal `Held` on every connection (`generation_read.rs:137`). `held()` and every `FrontierContract` use are gone from `cpg-core/src` (`git grep`, 2026-09-29) | **closed**. Input lineage stays **deferred** (trigger: P3 frontier design) |
+| [F04](#F04), [F07](#F07) | — | Not re-judged. They are open in plan §8 with triggers: before the first P3/P4 stage session (F04), and before the first P3/P4/P5 reader of a family-scoped relation (F07) | open (plan §8) |
+
+`InspectionSession::sql` now plans, verifies with `SQLOptions::verify_plan`, and wraps a refusal as `ReadError::ReadOnly` (`generation_read.rs:188-193`). DDL is asserted typed (`tests/generation_read.rs:200`). This has the same effect as `sql_with_options`, with a typed refusal.
+
+### Observations (no finding)
+
+- **O11 (F02).** The collation twin names ICU `und-x-icu`. Asserting `'Beta' < 'alpha'` under the session's default collation would tie it to the collation a pushdown would actually use. The current default (en_US.utf8) makes the control discriminating as it stands.
+- **O12 (F03).** Two gaps remain:
+  - `scan_error` labels any non-database tokio error as `ReadError::Lost` (through `classify`), without consulting `pool.health()` (`generation_read.rs:362-373`). A protocol or decode error mid-stream on a connection that is still open would then say Lost while the pool stays Ready. Checking health, as the acquisition path does (`:350-353`), would keep `Lost` truthful.
+  - A declared-schema conversion refusal and `RowTooLarge` pass through as fork types. The code documents this.
+- **O13 (F03).** A server-found content violation now surfaces as `ModelError::Invalid`, whose display reads "invalid model: SQLSTATE 23514 …". The class is right; only the wording says "model".
+- **O14 (F05).** The bound is a fixed 4 GiB default. The correction proposed deriving it from the serving configuration, and `lctx query` uses the default. It is bounded, so the closure holds; making it configurable is a P1.12/P5 provisioning choice.
+
+### Checks (2026-09-29)
+
+| Command | Tree | Outcome |
+|---|---|---|
+| `python3 scripts/build_environment.py -- cargo test --release -p cpg-core --test generation_read` | `7c1594d`, plus the coordinator's uncommitted edits (see Method) | **passed** (11: including `pin_survives_selection_change_and_frontier_is_enforced`, `closed_filter_pushdown`, `cancellation_mid_stream_drains_and_returns`, `transport_loss_is_terminal`, `inspection_memory_is_bounded`, `a_lease_lock_timeout_is_contention`) |
+| `python3 scripts/build_environment.py -- cargo test --release -p lctx-postgres --test lifecycle interrupted_attempts_are_listed_never_published_and_failures_keep_their_class` | Same | **passed** (1; the stage COPY `invalid`/23514 control) |
+| `docker image inspect <pinned image> --format '{{json .Config.Env}}'` | — | `LANG=en_US.utf8` (Interface-checked) |
+| Wrong-drain twin (an unlock in the fork's drain) | — | **not_run** |
+| `-p lctx-postgres` `installation`, `generations`, `generation_stages`, `generation_catalog`; `-p lctx --test store_cli` | — | **not_run** here; the author's receipt (plan §4.2, "Provider-session review corrections", 2026-09-29) is historical |
+| `just fmt`, `just test-all`, facts pilots | — | **not_run** (binding acceptance timing) |
+
+### Updated dispositions (proposed for plan §8)
+
+| Finding | Proposed disposition | Evidence |
+|---|---|---|
+| F01 | closed | This re-inspection; the wrong-drain twin by reasoning |
+| F02 | closed | Executed identity, NULL-logic and byte-order controls; session option |
+| F03 | closed | One classifier; stage COPY `invalid`; provider `Contention`; typed `Lost` |
+| F05 | closed | `inspection_memory_is_bounded` |
+| F06 | relation set closed; input lineage deferred (trigger: P3 frontier design, with store-lifecycle F08) | `Held` |
+| F04, F07 | unchanged: open with their plan §8 triggers | — |
+
+### Updated gates, judgment and decision
+
+G7 now **passes**. The named reader controls discriminate and pass at HEAD; one drain assertion discriminates by reasoning. The latent G1 copies from F03 and F06 are removed: one SQLSTATE classifier, and one relation set from the lease. The other gates are unchanged.
+
+| Judgment | Verdict | Scenario evidence |
+|---|---|---|
+| A1 Localize change | **satisfied** for scenarios 2–5 | One classifier. Typed `ReadError::{Lost, ReadOnly, Store}` at the reader boundary, so the CLI no longer knows fork error types. Bounded inspection memory |
+| A2 Encode meaning structurally | **satisfied**, with F04/F07 open under triggers | The relation set comes from the lease (`Held`); session lifecycle (F04) and availability (F07) remain to be represented before P3/P4/P5 consumers |
+| A3 Extend through composition | **satisfied** for published-generation reads; P3/P4 input lineage scoped out (F06, deferred) | Unchanged |
+
+**Bounded change decision (re-inspection): Accept scoped.**
+- F01 (required), F02, F03, F05 and F06's relation set are corrected and closed against their evidence, with one drain twin by reasoning.
+- F04 and F07 stay open with triggers placed before their first consumers.
+- F06's input lineage is deferred to the P3 frontier design.
+
+**Enclosing architecture: unresolved**, as before. Still open:
+- P3/P4 input lineage and frontier ownership (F06, store-lifecycle F08);
+- the P2 in-attempt input route beyond the retention budget (O6);
+- P5 serving;
+- F04 and F07.
+
+Review acceptance is not release qualification.

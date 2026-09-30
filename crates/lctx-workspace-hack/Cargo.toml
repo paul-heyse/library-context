@@ -35,9 +35,7 @@ bit-set = { version = "0.8.0" }
 bit-vec = { version = "0.8.0" }
 bitvec = { version = "1.0.1" }
 blake3 = { version = "1.8.6", features = ["mmap", "rayon", "traits-preview"] }
-bstr = { version = "1.13.1" }
 byteorder = { version = "1.5.0" }
-char_str = { version = "0.0.2", features = ["get-size", "serde"] }
 chrono = { version = "0.4.45" }
 compact_str = { version = "0.10.0", features = ["serde"] }
 console = { version = "0.16.6", default-features = false, features = ["ansi-parsing", "std", "unicode-width"] }
@@ -45,7 +43,6 @@ crossbeam-epoch = { version = "0.9.21" }
 crossbeam-utils = { version = "0.8.23" }
 crypto-common = { version = "0.1.7", default-features = false, features = ["std"] }
 dashmap = { version = "6.2.1", default-features = false, features = ["rayon", "serde"] }
-data-encoding = { version = "2.11.1" }
 deranged = { version = "0.5.8", features = ["serde"] }
 digest-93f6ce9d446188ac = { package = "digest", version = "0.10.7", features = ["std"] }
 digest-a6292c17cd707f01 = { package = "digest", version = "0.11.3", features = ["alloc", "mac", "oid"] }
@@ -83,9 +80,6 @@ rand-c38e5c1d305a1b54 = { package = "rand", version = "0.8.8" }
 rand_chacha = { version = "0.9.0", default-features = false, features = ["std"] }
 regex-automata = { version = "0.4.18", default-features = false, features = ["dfa-build", "dfa-onepass", "hybrid", "meta", "nfa", "perf", "std", "unicode"] }
 regex-syntax = { version = "0.8.11" }
-ruff_python_ast = { version = "0.0.11", default-features = false, features = ["get-size", "serde"] }
-ruff_source_file = { version = "0.0.11", default-features = false, features = ["serde"] }
-ruff_text_size = { version = "0.0.11", default-features = false, features = ["get-size", "serde"] }
 rust_decimal = { version = "1.43.0", features = ["db-postgres"] }
 rustls = { version = "0.23.45", default-features = false, features = ["logging", "ring", "std", "tls12"] }
 sea-query = { version = "1.0.2", features = ["postgres-array", "with-bigdecimal", "with-chrono", "with-rust_decimal", "with-time"] }

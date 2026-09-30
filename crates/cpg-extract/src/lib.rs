@@ -6,6 +6,8 @@
 //! extraction (§4.2.5): there is no per-module recovery.
 
 mod config;
+pub mod assembly;
+pub mod bundle;
 pub mod capture;
 mod context;
 mod docs;

@@ -350,7 +350,7 @@ pub const PYREFLY_REVISION: &str = "a07b7baead9e0c7b496346d879b88e2fff9cbda7;ruf
 /// source, so a changed emitter or pin is a different provider.
 pub fn syntax_provider() -> Provider {
     Provider { tool: "pyrefly-retained-ruff-ast".into(), revision: PYREFLY_REVISION.into(),
-        build_digest: ContentHash::of(concat!(include_str!("../../../Cargo.lock"), include_str!("typed_syntax.rs")).as_bytes()) }
+        build_digest: crate::bundle::build_digest(&[include_str!("typed_syntax.rs")]) }
 }
 
 /// The typed syntax facts of one captured input. Occurrence and observation rows travel in
