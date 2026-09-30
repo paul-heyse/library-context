@@ -9,25 +9,21 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use cpg_schema::codebook::ExtractionMode;
 use cpg_schema::codebook::{
-    AncestryRelation, DefinitionKind, Fidelity, ImplicitReceiver, InvocationPhase, Modality,
+    DefinitionKind, Fidelity, ImplicitReceiver, InvocationPhase, Modality,
     Origin, ParameterKind, PysaCalleeKind, PysaSiteKind, PysaTargetKind, PysaUnresolvedReason,
     SignatureForm,
 };
 use cpg_schema::id::{Id, IdHasher, kind};
-use cpg_schema::tables::{
-    ClassAncestry, ClassAncestryRow, ParameterSemantics, ParameterSemanticsRow, PysaCalls,
-    PysaCallsRow, PysaClasses, PysaClassesRow, PysaFunctions, PysaFunctionsRow,
-};
+use cpg_schema::tables::{PysaCalls, PysaCallsRow};
 use pyrefly::report::pysa::call_graph::{
     CallCallees, ExpressionCallees, ExpressionIdentifier, ImplicitReceiver as PyImplicitReceiver,
     OriginKind, PysaCallTarget, Target, Unresolved, UnresolvedReason,
 };
-use pyrefly::report::pysa::class::{ClassRef, PysaClassMro};
+use pyrefly::report::pysa::class::ClassRef;
 use pyrefly::report::pysa::function::{FunctionParameter, FunctionParameters, FunctionRef};
 use pyrefly::report::pysa::location::PysaLocation;
 use pyrefly::report::pysa::module::ModuleId;
-use pyrefly::report::pysa::types::PysaType;
-use pyrefly::report::pysa::{PysaModuleCallGraphs, PysaModuleDefinitions};
+use pyrefly::report::pysa::PysaModuleCallGraphs;
 use pyrefly_python::module_name::ModuleName;
 use ruff_source_file::{LineIndex, OneIndexed, PositionEncoding, SourceLocation};
 use ruff_text_size::TextSize;
@@ -36,10 +32,6 @@ use crate::facts::{FactSink, Provenance, Surface, fact_row};
 
 #[derive(Default)]
 pub(crate) struct PysaOut {
-    pub functions: Vec<PysaFunctionsRow>,
-    pub parameters: Vec<ParameterSemanticsRow>,
-    pub ancestry: Vec<ClassAncestryRow>,
-    pub classes: Vec<PysaClassesRow>,
     pub calls: Vec<PysaCallsRow>,
     /// Byte ranges of regular call sites Pysa described (the S5 join key).
     pub regular_call_ranges: HashSet<(i64, i64)>,
@@ -158,10 +150,6 @@ impl ModuleRefs {
         format!("{module}:{}#{key}", c.class.name())
     }
 
-    fn function(&self, f: &FunctionRef) -> String {
-        let (module, key) = self.function_pair(f);
-        format!("{module}::{key}")
-    }
 }
 
 /// The file being mapped.
@@ -251,47 +239,23 @@ fn unresolved(u: &Unresolved) -> Option<PysaUnresolvedReason> {
     }
 }
 
-fn annotation(refs: &ModuleRefs, t: &PysaType) -> (Vec<String>, Option<bool>, Vec<String>) {
-    let mut classes: Vec<String> = t
-        .class_names
-        .classes
-        .iter()
-        .map(|c| refs.class(&c.class))
-        .collect();
-    classes.sort();
-    classes.dedup();
-    let s = &t.scalar_type_properties;
-    let scalar = [
-        (s.is_bool, "bool"),
-        (s.is_int, "int"),
-        (s.is_float, "float"),
-        (s.is_enum, "enum"),
-    ]
-    .iter()
-    .filter(|(on, _)| *on)
-    .map(|(_, n)| (*n).to_owned())
-    .collect();
-    (classes, Some(t.class_names.is_exhaustive), scalar)
-}
-
 /// The one pinned-Pysa parameter-shape mapping shared by release signatures and referenced
 /// external definitions. An ellipsis or ParamSpec is retained as an unresolved signature form.
-pub(crate) struct ParameterShape<'a> {
+pub(crate) struct ParameterShape {
     pub form: SignatureForm,
     pub ordinal: Option<i64>,
     pub kind: Option<ParameterKind>,
     pub name: Option<String>,
     pub required: Option<bool>,
-    pub annotation: Option<&'a PysaType>,
 }
 
-pub(crate) fn parameter_shapes(parameters: &FunctionParameters) -> Vec<ParameterShape<'_>> {
+pub(crate) fn parameter_shapes(parameters: &FunctionParameters) -> Vec<ParameterShape> {
     match parameters {
         FunctionParameters::List(ps) => ps
             .iter()
             .enumerate()
             .map(|(i, p)| {
-                let (kind, name, required, annotation) = match p {
+                let (kind, name, required, _) = match p {
                     FunctionParameter::PosOnly {
                         name,
                         annotation,
@@ -341,7 +305,6 @@ pub(crate) fn parameter_shapes(parameters: &FunctionParameters) -> Vec<Parameter
                     kind: Some(kind),
                     name,
                     required,
-                    annotation: Some(annotation),
                 }
             })
             .collect(),
@@ -351,7 +314,6 @@ pub(crate) fn parameter_shapes(parameters: &FunctionParameters) -> Vec<Parameter
             kind: None,
             name: None,
             required: None,
-            annotation: None,
         }],
         FunctionParameters::ParamSpec => vec![ParameterShape {
             form: SignatureForm::ParamSpec,
@@ -359,154 +321,10 @@ pub(crate) fn parameter_shapes(parameters: &FunctionParameters) -> Vec<Parameter
             kind: None,
             name: None,
             required: None,
-            annotation: None,
         }],
     }
 }
 
-pub(crate) fn map_definitions(
-    here: &Here<'_>,
-    defs: &PysaModuleDefinitions,
-    sink: &mut FactSink,
-    out: &mut PysaOut,
-) {
-    let refs = here.refs;
-    for (fid, def) in defs.function_definitions.as_map() {
-        let b = &def.base;
-        let key = fid.serialize_to_string();
-        let name_span = b.name_location.as_ref().map(|l| here.loc.range(l));
-        let defining = b.defining_class.as_ref().map(|c| refs.class_pair(c));
-        let overridden = def
-            .overridden_base_method
-            .as_ref()
-            .map(|f| refs.function_pair(f));
-        out.functions.push(fact_row!(
-            sink,
-            PysaFunctions,
-            pysa(Origin::AnalyzerAssertion, Modality::Definite),
-            PysaFunctionsRow {
-                snapshot_id: Id::ZERO,
-                fact_id: Id::ZERO,
-                module_node_id: here.module_node_id,
-                module_name: here.module_name.to_owned(),
-                function_key: key.clone(),
-                name: b.name.to_string(),
-                name_start_byte: name_span.map(|s| s.0),
-                name_end_byte: name_span.map(|s| s.1),
-                is_overload: b.is_overload,
-                is_staticmethod: b.is_staticmethod,
-                is_classmethod: b.is_classmethod,
-                is_property_getter: b.is_property_getter,
-                is_property_setter: b.is_property_setter,
-                is_stub: b.is_stub,
-                is_def_statement: b.is_def_statement,
-                defining_class: b.defining_class.as_ref().map(|c| refs.class(c)),
-                overridden_base: def
-                    .overridden_base_method
-                    .as_ref()
-                    .map(|f| refs.function(f)),
-                defining_class_module: defining.as_ref().map(|p| p.0.clone()),
-                defining_class_key: defining.map(|p| p.1),
-                overridden_module: overridden.as_ref().map(|p| p.0.clone()),
-                overridden_key: overridden.map(|p| p.1),
-                signature_count: def.undecorated_signatures.len() as i64,
-            }
-        ));
-        for (si, sig) in def.undecorated_signatures.iter().enumerate() {
-            for shape in parameter_shapes(&sig.parameters) {
-                let (classes, exhaustive, scalar) = shape
-                    .annotation
-                    .map(|a| annotation(refs, a))
-                    .unwrap_or_default();
-                out.parameters.push(fact_row!(
-                    sink,
-                    ParameterSemantics,
-                    pysa(Origin::AnalyzerAssertion, Modality::Definite),
-                    ParameterSemanticsRow {
-                        snapshot_id: Id::ZERO,
-                        fact_id: Id::ZERO,
-                        module_node_id: here.module_node_id,
-                        module_name: here.module_name.to_owned(),
-                        function_key: key.clone(),
-                        signature_index: si as i64,
-                        form: shape.form,
-                        ordinal: shape.ordinal,
-                        kind: shape.kind,
-                        name: shape.name,
-                        required: shape.required,
-                        annotation: shape.annotation.map(|a| a.string.clone()),
-                        annotation_classes: classes,
-                        annotation_classes_exhaustive: exhaustive,
-                        annotation_scalar: scalar,
-                    }
-                ));
-            }
-        }
-    }
-    for (cid, cdef) in &defs.class_definitions {
-        let class_key = cid.to_int().to_string();
-        let name_span = here.loc.range(&cdef.name_location);
-        out.classes.push(fact_row!(
-            sink,
-            PysaClasses,
-            pysa(Origin::AnalyzerAssertion, Modality::Definite),
-            PysaClassesRow {
-                snapshot_id: Id::ZERO,
-                fact_id: Id::ZERO,
-                module_node_id: here.module_node_id,
-                module_name: here.module_name.to_owned(),
-                class_key: class_key.clone(),
-                class_name: cdef.name.clone(),
-                name_start_byte: name_span.0,
-                name_end_byte: name_span.1,
-                is_synthesized: cdef.is_synthesized,
-                is_dataclass: cdef.is_dataclass,
-                is_named_tuple: cdef.is_named_tuple,
-                is_typed_dict: cdef.is_typed_dict,
-            }
-        ));
-        let mut rows: Vec<(AncestryRelation, Option<i64>, Option<&ClassRef>, bool)> = cdef
-            .bases
-            .iter()
-            .enumerate()
-            .map(|(i, c)| (AncestryRelation::Base, Some(i as i64), Some(c), false))
-            .collect();
-        match &cdef.mro {
-            PysaClassMro::Resolved(classes) => rows.extend(
-                classes
-                    .iter()
-                    .enumerate()
-                    .map(|(i, c)| (AncestryRelation::Mro, Some(i as i64), Some(c), false)),
-            ),
-            PysaClassMro::Cyclic => rows.push((AncestryRelation::Mro, None, None, true)),
-        }
-        for (relation, ordinal, ancestor_ref, cyclic) in rows {
-            let ancestor = ancestor_ref.map(|c| refs.class(c));
-            let pair = ancestor_ref.map(|c| refs.class_pair(c));
-            out.ancestry.push(fact_row!(
-                sink,
-                ClassAncestry,
-                pysa(Origin::AnalyzerAssertion, Modality::Definite),
-                ClassAncestryRow {
-                    snapshot_id: Id::ZERO,
-                    fact_id: Id::ZERO,
-                    module_node_id: here.module_node_id,
-                    module_name: here.module_name.to_owned(),
-                    class_key: class_key.clone(),
-                    class_name: cdef.name.clone(),
-                    name_start_byte: Some(name_span.0),
-                    name_end_byte: Some(name_span.1),
-                    relation,
-                    ordinal,
-                    ancestor,
-                    mro_cyclic: cyclic,
-                    ancestor_module: pair.as_ref().map(|p| p.0.clone()),
-                    ancestor_key: pair.map(|p| p.1),
-                }
-            ));
-        }
-    }
-}
 
 struct Site<'h> {
     here: &'h Here<'h>,

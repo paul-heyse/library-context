@@ -148,8 +148,10 @@ async fn syntax_shapes_states_declarations_parameters_calls_and_operators() {
     assert_eq!(f.text(cause.occurrence), "err");
     let syntax = f.coverage.iter().find(|c| c.family == FactFamily::Syntax).unwrap();
     assert_eq!((syntax.status, f.coverage.len()), (CoverageStatus::CompleteUnderStatedModel, 4), "Syntax, Lexical, Exports and Signatures");
-    assert!(f.coverage.iter().filter(|c| matches!(c.family, FactFamily::Exports | FactFamily::Signatures))
-        .all(|c| c.status == CoverageStatus::Partial && c.reason == Some(ObligationKind::OutsideProviderModel)));
+    assert!(f.coverage.iter().filter(|c| c.family == FactFamily::Exports)
+        .all(|c| c.status == CoverageStatus::Partial && c.reason == Some(ObligationKind::OutsideProviderModel)), "exports wait for the public names");
+    // Every definition attaches at its name span, so the symbol producer's signatures are complete.
+    assert!(f.coverage.iter().filter(|c| c.family == FactFamily::Signatures).all(|c| c.status == CoverageStatus::CompleteUnderStatedModel));
     let _ = path;
 }
 

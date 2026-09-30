@@ -15,13 +15,19 @@
 //! static branches, reads and their resolutions against Pyrefly's builtins, implicit globals and
 //! star-import sets.
 //!
-//! Exports and Signatures are covered as Partial: this phase states their syntax, and the symbol
-//! producer (A9) states public names and signatures. A computed `__all__` is a subject boundary.
+//! The symbol producer (A9) states Pysa's definitions of each analyzed module from the same
+//! session: symbols and their nesting, traits, bases and MROs, undecorated signatures with each
+//! parameter's displayed annotation, and declaration links at exact name spans. Signatures are
+//! complete unless a declaration fails to attach, which is a boundary. Exports stay Partial until
+//! the public names are stated. A computed `__all__` is a subject boundary.
 use std::{collections::BTreeMap, path::Path};
-use lctx_model::domain::{ContentHash, ModelError, Record, admission::ArtifactClass, assertion::*, attribution::*, calls::{CallArgument, CallSyntax, CallSyntaxSupport},
+use lctx_model::domain::{ContentHash, ModelError, Record, admission::ArtifactClass, assertion::*, attribution::*,
+    calls::{CallArgument, CallSyntax, CallSyntaxSupport, ParameterShape, ProviderModule, ProviderSymbol, Signature, SignatureParameter, SignatureSupport},
+    declarations::{ParameterDeclaration, ParameterDeclarationSupport, SymbolDeclaration, SymbolDeclarationSupport}, symbols::*,
     conditions::{Condition, ConditionNode, Diagram}, input::SourceRole, lexical::*, source::*, stages::{Effect, Profile, ProviderOutcome, RelationUse, Stage, StageSink},
     syntax::*, value::{Literal, LiteralSet, LiteralSetMember}};
 use crate::{acquisition::{AcquiredInput, Acquisition}, bundle::{self, Declared, ProviderStage, StageContext}, lexical::{Outside, Stars}, lexical_records,
+    natives::Natives, symbol_records,
     syntax_records::{self, Spans},
     typed_syntax::{self, PYREFLY_REVISION, SyntaxInvocation, SyntaxLimits}};
 
@@ -33,14 +39,19 @@ pub const FAMILIES: [FactFamily; 4] = [FactFamily::Syntax, FactFamily::Lexical, 
 pub fn pyrefly_provider() -> Provider {
     Provider { tool: "pyrefly".into(), revision: PYREFLY_REVISION.into(),
         build_digest: bundle::build_digest(&[include_str!("pyrefly_stage.rs"), include_str!("typed_syntax.rs"), include_str!("syntax_records.rs"),
-            include_str!("lexical.rs"), include_str!("lexical_records.rs")]) }
+            include_str!("lexical.rs"), include_str!("lexical_records.rs"), include_str!("natives.rs"), include_str!("symbol_records.rs")]) }
 }
 fn invalid(message: String) -> ModelError { ModelError::Invalid(message) }
 
+/// Pysa's reports of each analyzed module (definitions and call graphs as Pysa serializes them), by
+/// module name: the session hook the Pysa-CLI harness oracle compares.
+pub type PysaTap = std::sync::Arc<std::sync::Mutex<BTreeMap<String, serde_json::Value>>>;
 /// The `pyrefly` stage with its traversal limits.
-pub struct Pyrefly { limits: SyntaxLimits }
+pub struct Pyrefly { limits: SyntaxLimits, tap: Option<PysaTap> }
 impl Pyrefly {
-    pub fn new(limits: SyntaxLimits) -> Self { Self { limits } }
+    pub fn new(limits: SyntaxLimits) -> Self { Self { limits, tap: None } }
+    /// The stage, also handing each module's Pysa reports to `tap`.
+    pub fn with_tap(limits: SyntaxLimits, tap: PysaTap) -> Self { Self { limits, tap: Some(tap) } }
 }
 macro_rules! uses { ($($ty:ty),+ $(,)?) => { vec![$(RelationUse::of::<$ty>()),+] }; }
 fn outputs() -> Vec<RelationUse> {
@@ -48,7 +59,11 @@ fn outputs() -> Vec<RelationUse> {
         DeclarationObservation, DeclarationSupport, DeclarationDecorator, DeclarationDecoratorSupport, ImportAliasObservation, ImportAliasSupport,
         DunderAllObservation, DunderAllSupport, ParameterSyntaxObservation, ParameterSyntaxSupport, ClassFieldSyntaxObservation, ClassFieldSyntaxSupport,
         CallSyntax, CallSyntaxSupport, CallArgument, LexicalScope, BindingEvent, LexicalTarget, LexicalScopeObservation, LexicalScopeSupport,
-        BindingObservation, BindingSupport, ReferenceObservation, ReferenceSupport, LexicalResolution, LexicalResolutionSupport)
+        BindingObservation, BindingSupport, ReferenceObservation, ReferenceSupport, LexicalResolution, LexicalResolutionSupport,
+        ProviderModule, ProviderSymbol, ParameterShape, Signature, SignatureSupport, SignatureParameter, SymbolDeclaration, SymbolDeclarationSupport,
+        ParameterDeclaration, ParameterDeclarationSupport, SymbolSequence, SymbolSequenceMember, SymbolObservation, SymbolSupport,
+        FunctionTraitObservation, FunctionTraitSupport, ClassTraitObservation, ClassTraitSupport, ClassAncestryObservation, ClassAncestrySupport,
+        ParameterAnnotationObservation, ParameterAnnotationSupport)
 }
 /// Vocabulary the `assemble` stage writes once for every provider.
 pub fn vocabulary() -> Vec<RelationUse> {
@@ -85,7 +100,11 @@ impl<S: StageSink + 'static> ProviderStage<S> for Pyrefly {
             DeclarationObservation, DeclarationSupport, DeclarationDecorator, DeclarationDecoratorSupport, ImportAliasObservation, ImportAliasSupport,
             DunderAllObservation, DunderAllSupport, ParameterSyntaxObservation, ParameterSyntaxSupport, ClassFieldSyntaxObservation, ClassFieldSyntaxSupport,
             CallSyntax, CallSyntaxSupport, CallArgument, LexicalScope, BindingEvent, LexicalTarget, LexicalScopeObservation, LexicalScopeSupport,
-            BindingObservation, BindingSupport, ReferenceObservation, ReferenceSupport, LexicalResolution, LexicalResolutionSupport);
+            BindingObservation, BindingSupport, ReferenceObservation, ReferenceSupport, LexicalResolution, LexicalResolutionSupport,
+            ProviderModule, ProviderSymbol, ParameterShape, Signature, SignatureSupport, SignatureParameter, SymbolDeclaration, SymbolDeclarationSupport,
+            ParameterDeclaration, ParameterDeclarationSupport, SymbolSequence, SymbolSequenceMember, SymbolObservation, SymbolSupport,
+            FunctionTraitObservation, FunctionTraitSupport, ClassTraitObservation, ClassTraitSupport, ClassAncestryObservation, ClassAncestrySupport,
+            ParameterAnnotationObservation, ParameterAnnotationSupport);
         let provider = pyrefly_provider();
         let (condition, nodes) = Diagram::always().records();
         context.contribute(provider.clone())?;
@@ -98,7 +117,7 @@ impl<S: StageSink + 'static> ProviderStage<S> for Pyrefly {
                 Acquisition::Corpus { library, .. } => Some(captured.inputs().get(*library).ok_or_else(|| invalid("a corpus names an absent library input".into()))?),
                 _ => None,
             };
-            partial |= session(context, &provider, &condition, input, library, self.limits)?;
+            partial |= session(context, &provider, &condition, input, library, self.limits, self.tap.as_ref())?;
         }
         Ok(if partial { ProviderOutcome::Partial } else { ProviderOutcome::Complete })
     }
@@ -113,7 +132,7 @@ fn interpreter(input: &AcquiredInput, library: Option<&AcquiredInput>) -> Result
 }
 /// One input's session. Returns whether any of its coverage is less than complete.
 fn session<S: StageSink + 'static>(context: &mut StageContext<S>, provider: &Provider, condition: &Condition, input: &AcquiredInput,
-    library: Option<&AcquiredInput>, limits: SyntaxLimits) -> Result<bool, ModelError> {
+    library: Option<&AcquiredInput>, limits: SyntaxLimits, tap: Option<&PysaTap>) -> Result<bool, ModelError> {
     use pyrefly::state::{require::Require, state::State};
     use pyrefly_config::{config::{ConfigFile, ConfigSource}, error_kind::ErrorKind, finder::ConfigFinder};
     use pyrefly_python::{module_path::ModulePath, sys_info::{PythonPlatform, PythonVersion}};
@@ -159,7 +178,17 @@ fn session<S: StageSink + 'static>(context: &mut StageContext<S>, provider: &Pro
     let handles: Vec<_> = analyzed.iter().map(|a| cfg.handle_from_module_path(ModulePath::filesystem(root.join(&a.path)))).collect();
     let state = State::new(ConfigFinder::new_constant(ArcId::new(cfg)), ThreadCount::Inline);
     let mut transaction = state.new_transaction(Require::Exports, None);
+    // Pysa numbers modules through a reporter that writes nothing; dependencies are numbered lazily.
+    transaction.set_pysa_reporter(Some(Box::new(pyrefly::report::pysa::PysaReporter { module_ids: pyrefly::report::pysa::module::ModuleIds::new(&handles),
+        pysa_directory: Default::default(), definitions_directory: Default::default(), type_of_expressions_directory: Default::default(),
+        call_graphs_directory: Default::default(), format: pyrefly::report::pysa::PysaFormat::Json, write_files: false })));
     transaction.run(&handles, Require::Everything, None);
+    let mut frozen = vec![(root, captured.artifacts())];
+    if let Some(library) = library { frozen.push((library.captured().root(), library.captured().artifacts())); }
+    let mut natives = Natives::new(provider.id(), analysis.id(), frozen);
+    // Pysa's reports are evidence of the invocation, not of one span.
+    let pysa_evidence = Evidence::Invocation { run: run.id() };
+    context.contribute(pysa_evidence.clone())?;
     let sys = pyrefly_python::sys_info::SysInfo::new(PythonVersion::new(major, minor, micro), PythonPlatform::new(&analysis.python_platform));
     let outside = outside_names(&transaction, handles.first());
     let mut partial = false;
@@ -213,10 +242,12 @@ fn session<S: StageSink + 'static>(context: &mut StageContext<S>, provider: &Pro
         let errors = transaction.get_errors([handle]).collect_errors();
         let parse_error = [&errors.ordinary, &errors.directives, &errors.suppressed, &errors.disabled, &errors.baseline]
             .into_iter().flatten().any(|error| error.error_kind() == ErrorKind::ParseError);
+        let mut unattached = 0;
         let syntax = match emitted {
             Ok(_) => {
                 let records = syntax_records::records(&ast, &module_name, is_package, &spans, qualification.id())?;
                 let computed = records.computed_all.clone();
+                let declared = symbol_records::Declared::new(&records.declarations, &records.parameters, &records.formals)?;
                 write_records(context, records, &|family, subject| support(family, subject))?;
                 let stars = star_imports(&transaction, handle, &module_name, is_package, &ast);
                 let candidate = AssertionQualification { modality: Modality::Candidate, ..qualification.clone() };
@@ -224,6 +255,9 @@ fn session<S: StageSink + 'static>(context: &mut StageContext<S>, provider: &Pro
                 let facts = lexical_records::facts(&ast, &spans, &sys, &outside, &stars)?;
                 let lexical = lexical_records::records(&facts, &spans, qualification.id(), candidate.id())?;
                 write_lexical(context, lexical, &|subject| support(FactFamily::Lexical, subject))?;
+                let locator = symbol_records::Locator { line_index: info.lined_buffer().line_index(), text: &text };
+                let definitions = definitions(&transaction, handle, &module_name, &qualification, &mut natives, &locator, &spans, &declared, tap)?;
+                unattached = write_symbols(context, definitions, &scope, provider, &analysis, &run, &surfaces, &pysa_evidence)?;
                 for statement in computed {
                     context.contribute(SubjectBoundary { scope: scope.id(), provider: provider.id(), context: analysis.id(), family: FactFamily::Exports,
                         subject: Some(statement), reason: ObligationKind::OutsideProviderModel, detail: Some("__all__ is computed; its names are not stated by the syntax".into()) })?;
@@ -237,16 +271,98 @@ fn session<S: StageSink + 'static>(context: &mut StageContext<S>, provider: &Pro
             },
         };
         context.contribute(coverage(&scope, FactFamily::Syntax, syntax.0, syntax.1, syntax.2.clone()))?;
-        context.contribute(coverage(&scope, FactFamily::Lexical, syntax.0, syntax.1, syntax.2))?;
+        context.contribute(coverage(&scope, FactFamily::Lexical, syntax.0, syntax.1, syntax.2.clone()))?;
         let pending = |family: &str| Some(format!("syntax only; the symbol producer (plan A9) states {family}"));
         let (status, reason) = if syntax.0 == CoverageStatus::Unavailable { (CoverageStatus::Unavailable, syntax.1) }
             else { (CoverageStatus::Partial, Some(ObligationKind::OutsideProviderModel)) };
         context.contribute(coverage(&scope, FactFamily::Exports, status, reason, pending("public names")))?;
-        context.contribute(coverage(&scope, FactFamily::Signatures, status, reason, pending("signatures")))?;
-        // Exports and Signatures stay Partial until the symbol producer (A9).
+        // Signatures follow the syntax they attach to, and are partial where a declaration did not attach.
+        let signatures = if unattached > 0 && syntax.0 == CoverageStatus::CompleteUnderStatedModel {
+            (CoverageStatus::Partial, Some(ObligationKind::AttachmentUnmatched), Some(format!("{unattached} declarations did not attach at their name spans")))
+        } else { syntax.clone() };
+        context.contribute(coverage(&scope, FactFamily::Signatures, signatures.0, signatures.1, signatures.2))?;
+        // Exports stay Partial until the public names are stated.
         partial = true;
     }
+    for (module, typed) in natives.modules.values() {
+        if let Some(typed) = typed { context.emit(typed.clone())?; }
+        context.emit(module.clone())?;
+    }
+    for symbol in natives.symbols.values() { context.emit(symbol.clone())?; }
     Ok(partial)
+}
+
+/// Pysa's definitions of one analyzed module as symbol records.
+#[allow(clippy::too_many_arguments, reason = "the session's analyzer state and the module's indices, each distinct")]
+fn definitions(transaction: &pyrefly::state::state::Transaction<'_>, handle: &pyrefly_build::handle::Handle, module_name: &str, qualification: &AssertionQualification,
+    natives: &mut Natives, locator: &symbol_records::Locator<'_>, spans: &Spans, declared: &symbol_records::Declared, tap: Option<&PysaTap>)
+    -> Result<symbol_records::SymbolRecords, ModelError> {
+    use pyrefly::report::pysa::{captured_variable::collect_captured_variables_for_module, class::{ClassId, get_all_classes, get_class_mro},
+        context::{ModuleAnswersContext, ModuleContext, PysaResolver}, export_module_definitions, override_graph::create_reversed_override_graph_for_module};
+    let module_ids = &transaction.pysa_reporter().ok_or_else(|| invalid("the Pysa reporter is not installed".into()))?.module_ids;
+    let this = natives.module(module_name, handle.path())?;
+    let current = module_ids.get_from_handle(handle);
+    let resolver = PysaResolver::new(transaction, module_ids, handle.clone());
+    let pysa = ModuleContext { answers_context: ModuleAnswersContext::create(handle.clone(), transaction, module_ids), resolver: &resolver };
+    let captured = collect_captured_variables_for_module(&pysa);
+    let overrides = create_reversed_override_graph_for_module(&pysa);
+    let definitions = export_module_definitions(&pysa, &captured, &overrides);
+    if let Some(tap) = tap {
+        let graphs = pyrefly::report::pysa::export_module_call_graphs(&pysa, &captured);
+        let report = serde_json::json!({ "definitions": serde_json::to_value(&definitions).map_err(ModelError::codec)?,
+            "call_graphs": serde_json::to_value(&graphs).map_err(ModelError::codec)? });
+        tap.lock().map_err(|_| invalid("the Pysa tap is poisoned".into()))?.insert(module_name.to_owned(), report);
+    }
+    // The report drops the MRO's completeness; the analyzer states it.
+    let complete: std::collections::HashMap<u32, bool> = get_all_classes(&pysa.answers_context)
+        .map(|class| (ClassId::from_class(&class).to_int(), get_class_mro(&class, &pysa.answers_context).linearization_complete())).collect();
+    let mut resolve = |natives: &mut Natives, id: pyrefly::report::pysa::module::ModuleId, name: &pyrefly_python::module_name::ModuleName| {
+        if id == current { return Ok(this); }
+        let found = transaction.import_handle(handle, *name, None).finding()
+            .ok_or_else(|| invalid(format!("Pysa references {name}, which does not resolve from {module_name}")))?;
+        if module_ids.get_from_handle(&found) != id { return Err(invalid(format!("{name} resolves to another module than the one Pysa referenced"))); }
+        natives.module(&name.to_string(), found.path())
+    };
+    symbol_records::records(&definitions, this, qualification, natives, &mut resolve, &complete, locator, spans, declared)
+}
+
+/// Emit one module's symbol records with their supports; returns how many declarations did not
+/// attach, each a boundary of the module's Signatures coverage.
+#[allow(clippy::too_many_arguments, reason = "the session's attribution, each distinct")]
+fn write_symbols<S: StageSink + 'static>(context: &mut StageContext<S>, records: symbol_records::SymbolRecords, scope: &CoverageScope, provider: &Provider,
+    analysis: &AnalysisContext, run: &ProviderRun, surfaces: &BTreeMap<FactFamily, ProviderSurface>, invocation: &Evidence) -> Result<usize, ModelError> {
+    let surface = surfaces[&FactFamily::Signatures].id();
+    macro_rules! pysa { ($support:ident, $row:expr, $evidence:expr, $fidelity:expr) => {{
+        let row = $row;
+        context.emit($support { assertion: row.id(), run: run.id(), surface, evidence: $evidence, origin: Origin::AnalyzerAssertion,
+            mode: ExtractionMode::NativeTraversal, fidelity: $fidelity })?;
+        context.emit(row)?;
+    }}; }
+    for (sequence, members) in records.sequences { context.emit(sequence)?; for member in members { context.emit(member)?; } }
+    for shape in records.shapes { context.emit(shape)?; }
+    for (signature, members) in records.signatures {
+        pysa!(SignatureSupport, signature, invocation.id(), Fidelity::ReportProjection);
+        for member in members { context.emit(member)?; }
+    }
+    for row in records.symbols { pysa!(SymbolSupport, row, invocation.id(), Fidelity::ReportProjection); }
+    for row in records.functions { pysa!(FunctionTraitSupport, row, invocation.id(), Fidelity::ReportProjection); }
+    for row in records.classes { pysa!(ClassTraitSupport, row, invocation.id(), Fidelity::ReportProjection); }
+    for row in records.ancestry { pysa!(ClassAncestrySupport, row, invocation.id(), Fidelity::ReportProjection); }
+    for row in records.annotations { pysa!(ParameterAnnotationSupport, row, invocation.id(), Fidelity::DisplayOnly); }
+    for row in records.declarations {
+        let evidence = Evidence::Occurrence { occurrence: row.declaration }.id();
+        pysa!(SymbolDeclarationSupport, row, evidence, Fidelity::ReportProjection);
+    }
+    for row in records.parameter_declarations {
+        let evidence = Evidence::Occurrence { occurrence: row.declaration }.id();
+        pysa!(ParameterDeclarationSupport, row, evidence, Fidelity::ReportProjection);
+    }
+    let unattached = records.unattached.len();
+    for (_, detail) in records.unattached {
+        context.contribute(SubjectBoundary { scope: scope.id(), provider: provider.id(), context: analysis.id(), family: FactFamily::Signatures,
+            subject: None, reason: ObligationKind::AttachmentUnmatched, detail: Some(detail) })?;
+    }
+    Ok(unattached)
 }
 
 type Support = (lctx_model::domain::Id<ProviderRun>, lctx_model::domain::Id<ProviderSurface>, lctx_model::domain::Id<Evidence>);

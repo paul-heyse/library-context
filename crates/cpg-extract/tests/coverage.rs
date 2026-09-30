@@ -130,10 +130,8 @@ fn undecodable_and_broken_modules_are_never_silent() {
         .map(|r| (cell(files, "module_name", r), cell(files, "utf8", r)))
         .collect();
     assert_eq!(utf8["badpkg.latin1"], "false");
-    // Nothing from the undecodable module is asserted; typed syntax (`typed_conformance`) states the
-    // recovered module's declarations.
-    let pysa = column(out.table("pysa_functions").unwrap(), "module_name");
-    assert!(pysa.iter().all(|m| m != "badpkg.latin1"));
+    // Nothing from the undecodable module is stated (`typed_conformance`: no occurrence, and its
+    // families unavailable).
 }
 
 #[test]

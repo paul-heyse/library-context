@@ -16,6 +16,8 @@ mod facts;
 mod flow;
 mod lexical;
 pub mod lexical_records;
+pub mod natives;
+pub mod symbol_records;
 pub mod library;
 pub mod logging;
 pub mod metadata;
@@ -43,13 +45,12 @@ use cpg_schema::id::{Id, IdHasher, content_digest, kind};
 use cpg_schema::metrics::{Stage, Stages};
 use cpg_schema::table::Table;
 use cpg_schema::tables::{
-    Boundaries, BoundariesRow, ClassAncestry, CodeBlocks,
+    Boundaries, BoundariesRow, CodeBlocks,
     ConditionLiterals, ConditionNodes, Conditions, ContextClassMro, ContextDefinitions,
     ContextModules, ContextParameters, Contexts, ContextsRow, Coverage, CoverageRow, DocComponentAttributes, DocComponents, DocLinks, Documents,
     Facts, FlowAttributeLoads, FlowDefinitions, FlowReaching, FlowRegions,
     FlowTestLeaves, FlowTestTypes, FlowTests, FlowUses, FlowValueCalls, FlowValues,
-    FunctionImplementations, Mentions, ParameterDocs, ParameterSemantics, Passages, Producers, ProducersRow, PublicNames, PysaCalls, PysaClasses, PysaFunctions,
-    RecordFields, Runs,
+    FunctionImplementations, Mentions, ParameterDocs, Passages, Producers, ProducersRow, PublicNames, PysaCalls, RecordFields, Runs,
     RunsRow, SourceFiles, SourceFilesRow, TypeObservations, TypeTermArgs,
     TypeTerms,
 };
@@ -644,7 +645,6 @@ fn run_release(
             },
         };
         let mut module_pysa = PysaOut::default();
-        pysa_map::map_definitions(&here, &defs, &mut sink, &mut module_pysa);
         pysa_map::map_call_graphs(&here, &graphs, &mut sink, &mut module_pysa);
         pysa_time += clock.elapsed();
         let clock = Instant::now();
@@ -830,10 +830,6 @@ fn run_release(
         walked.call_syntax.extend(module_walk.call_syntax);
         walked.arguments.extend(module_walk.arguments);
         walked.syntax_nodes.extend(module_walk.syntax_nodes);
-        pysa.functions.extend(module_pysa.functions);
-        pysa.parameters.extend(module_pysa.parameters);
-        pysa.ancestry.extend(module_pysa.ancestry);
-        pysa.classes.extend(module_pysa.classes);
         pysa.calls.extend(module_pysa.calls);
     }
 
@@ -1060,10 +1056,6 @@ fn run_release(
     dedup_by_fact(&mut types_out.observations, |r| r.fact_id);
     dedup_by_fact(&mut types_out.implementations, |r| r.fact_id);
     dedup_by_fact(&mut types_out.fields, |r| r.fact_id);
-    dedup_by_fact(&mut pysa.functions, |r| r.fact_id);
-    dedup_by_fact(&mut pysa.parameters, |r| r.fact_id);
-    dedup_by_fact(&mut pysa.ancestry, |r| r.fact_id);
-    dedup_by_fact(&mut pysa.classes, |r| r.fact_id);
     dedup_by_fact(&mut context_out.modules, |r| r.fact_id);
     dedup_by_fact(&mut context_out.definitions, |r| r.fact_id);
     dedup_by_fact(&mut context_out.parameters, |r| r.fact_id);
@@ -1115,22 +1107,6 @@ fn run_release(
         (
             ParameterDocs::NAME,
             ParameterDocs::to_sorted_batch(&walked.parameter_docs)?,
-        ),
-        (
-            PysaFunctions::NAME,
-            PysaFunctions::to_sorted_batch(&pysa.functions)?,
-        ),
-        (
-            ParameterSemantics::NAME,
-            ParameterSemantics::to_sorted_batch(&pysa.parameters)?,
-        ),
-        (
-            ClassAncestry::NAME,
-            ClassAncestry::to_sorted_batch(&pysa.ancestry)?,
-        ),
-        (
-            PysaClasses::NAME,
-            PysaClasses::to_sorted_batch(&pysa.classes)?,
         ),
         (
             TypeTerms::NAME,

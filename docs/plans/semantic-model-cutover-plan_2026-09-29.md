@@ -1083,6 +1083,31 @@ The PG suite publishes and reads the fixture back and refuses a self-ancestor at
 | A6–A8 review corrections ([review](../design_review/reviews/design_review_semantic-symbols-calls-types_2026-09-29.md)): `cargo test --release -p lctx-model` (all suites), `-p lctx-postgres --test domain_symbols --test domain_calls --test domain_composition --test domain_types --test domain_transfer`, `-p lctx --test model_describe` | passed 2026-09-30.
 
 The findings F01–F04 are corrected (§8). The pyrefly stage's typed producer suites were rerun with the uncommitted A9 producer in the tree; that receipt belongs to A9. Schema migration: `OriginStep` appends codes 22 and 23. |
+| A9a (symbol producer, definitions half): `cargo test --release -p cpg-extract` (all suites, including `typed_symbols`, `harness`, `typed_conformance`, `typed_syntax_shapes`), `-p cpg-core --test facts_driver`; `cargo check --workspace --all-targets` | passed 2026-09-30 (typed_symbols 2, harness 2).
+
+**The `pyrefly` stage states Pysa's definitions of each analyzed module** (`symbol_records.rs`, `natives.rs`):
+- symbols and their nesting;
+- function and class traits;
+- bases and MROs, with completeness from Pyrefly's `linearization_complete`, which Pysa's report drops;
+- undecorated signatures with each parameter's displayed annotation (display-only support);
+- `SymbolDeclaration` at exact name spans, and `ParameterDeclaration` to the def's `Parameter` nodes when the lists agree slot by slot.
+
+A declaration that does not attach is a Signatures boundary (`AttachmentUnmatched`) and Partial coverage. Otherwise Signatures follow the syntax, and a clean module is complete. Exports stay Partial until A9b.
+
+`Natives` resolves Pyrefly module paths:
+- a captured file becomes an `Acquired` typed module, emitted for dependency artifacts too;
+- a stub becomes `Bundled` per bundle, and a namespace directory a `Namespace` at its root-relative location;
+- an in-memory or uncaptured path is refused.
+
+Pysa's no-write reporter numbers modules; references to other modules resolve by import and are checked against Pysa's id.
+
+**Answers corrected against the pinned source:**
+- `stub` is Pyrefly's (a `...` body, or a trivial body where an implementation may be missing), so a docstring-only method in an ordinary class is no stub.
+- Pyrefly leaves `Generic` out of bases and MROs ("does not participate in inheritance related computation").
+
+**Harness.** `Pyrefly::with_tap` is the session hook: `harness` compares each analyzed module's Pysa definitions and call graphs with the pinned CLI's JSON over the same frozen root. Its public-name half moves with A9b.
+
+**Deleted:** the legacy `pysa_functions`, `parameter_semantics`, `class_ancestry` and `pysa_classes` emission (`map_definitions`). The legacy `keys` and `coverage` tests keep only their call and coverage parts. |
 | `just fmt`, `just test-all`, facts pilots | not_run: functional scope incomplete |
 
 Independent bounded reviewers accepted artifact/capture/acquisition corrections and the

@@ -44,7 +44,11 @@ pub struct Records {
     pub dunder_all: Vec<DunderAllObservation>,
     /// `__all__` statements whose names the syntax does not state.
     pub computed_all: Vec<Id<Occurrence>>,
-    pub parameters: Vec<ParameterSyntaxObservation>, pub fields: Vec<ClassFieldSyntaxObservation>,
+    pub parameters: Vec<ParameterSyntaxObservation>,
+    /// Each parameter occurrence's formal: the `Parameter` node naming it (itself for `*args` and
+    /// `**kwargs`, the node inside `x: int = 1` otherwise), the occurrence a declaration link names.
+    pub formals: Vec<(Id<Occurrence>, Id<Occurrence>)>,
+    pub fields: Vec<ClassFieldSyntaxObservation>,
     pub calls: Vec<(CallSyntax, Vec<CallArgument>)>,
     pub literals: Vec<Literal>, pub sets: Vec<(LiteralSet, Vec<LiteralSetMember>)>,
 }
@@ -120,15 +124,27 @@ impl Walker<'_> {
         for (group, kind) in [(&parameters.posonlyargs, ParameterKind::PositionalOnly), (&parameters.args, ParameterKind::PositionalOrKeyword)] {
             for p in group {
                 let id = self.occ(p.range(), SyntaxKind::ParameterWithDefault)?;
+                let formal = self.occ(p.parameter.range(), SyntaxKind::Parameter)?;
+                self.records.formals.push((id, formal));
                 push(self, id, kind, p.default.as_deref(), p.parameter.annotation.as_deref())?;
             }
         }
-        if let Some(p) = &parameters.vararg { let id = self.occ(p.range(), SyntaxKind::Parameter)?; push(self, id, ParameterKind::VarPositional, None, p.annotation.as_deref())?; }
+        if let Some(p) = &parameters.vararg {
+            let id = self.occ(p.range(), SyntaxKind::Parameter)?;
+            self.records.formals.push((id, id));
+            push(self, id, ParameterKind::VarPositional, None, p.annotation.as_deref())?;
+        }
         for p in &parameters.kwonlyargs {
             let id = self.occ(p.range(), SyntaxKind::ParameterWithDefault)?;
+            let formal = self.occ(p.parameter.range(), SyntaxKind::Parameter)?;
+            self.records.formals.push((id, formal));
             push(self, id, ParameterKind::KeywordOnly, p.default.as_deref(), p.parameter.annotation.as_deref())?;
         }
-        if let Some(p) = &parameters.kwarg { let id = self.occ(p.range(), SyntaxKind::Parameter)?; push(self, id, ParameterKind::VarKeyword, None, p.annotation.as_deref())?; }
+        if let Some(p) = &parameters.kwarg {
+            let id = self.occ(p.range(), SyntaxKind::Parameter)?;
+            self.records.formals.push((id, id));
+            push(self, id, ParameterKind::VarKeyword, None, p.annotation.as_deref())?;
+        }
         Ok(())
     }
     fn dunder_all(&mut self, statement: TextRange, kind: SyntaxKind, names: Option<Vec<String>>) -> Result<(), ModelError> {
