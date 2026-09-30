@@ -19,7 +19,6 @@ use std::path::{Path, PathBuf};
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use cpg_schema::codebook::SourceRole;
 use cpg_schema::id::{Digest, IdHasher, content_digest, kind};
 use globset::{Glob, GlobBuilder, GlobSet, GlobSetBuilder};
 use serde::Deserialize;
@@ -58,7 +57,7 @@ pub struct AcquiredLibrary {
     pub owners: BTreeMap<String, String>,
 }
 
-fn fail(msg: impl Into<String>) -> ExtractError {
+pub(crate) fn fail(msg: impl Into<String>) -> ExtractError {
     ExtractError::Library(msg.into())
 }
 
@@ -92,7 +91,7 @@ pub fn requirement_name(requirement: &str) -> String {
         .unwrap_or_default()
 }
 
-fn read(path: &Path) -> Result<String, ExtractError> {
+pub(crate) fn read(path: &Path) -> Result<String, ExtractError> {
     fs_err::read_to_string(path).map_err(|e| fail(format!("{}: {e}", path.display())))
 }
 
@@ -124,10 +123,10 @@ struct Lctx {
 }
 
 /// The library definition: `[project].dependencies[0]`, `[tool.lctx]`.
-struct Definition {
-    requirement: String,
-    release: Vec<String>,
-    source: Option<Source>,
+pub(crate) struct Definition {
+    pub(crate) requirement: String,
+    pub(crate) release: Vec<String>,
+    pub(crate) source: Option<Source>,
 }
 
 fn parse_definition(text: &str) -> Result<Definition, String> {
@@ -146,7 +145,7 @@ fn parse_definition(text: &str) -> Result<Definition, String> {
     })
 }
 
-fn definition(library_dir: &Path) -> Result<Definition, ExtractError> {
+pub(crate) fn definition(library_dir: &Path) -> Result<Definition, ExtractError> {
     let path = library_dir.join("pyproject.toml");
     parse_definition(&read(&path)?).map_err(|e| fail(format!("{}: {e}", path.display())))
 }
@@ -180,7 +179,7 @@ struct LockArtifact {
 }
 
 /// Name → (version, sorted artifact sha256s) from `uv.lock`, skipping the virtual project.
-fn lock(bytes: &str) -> Result<BTreeMap<String, (String, Vec<String>)>, ExtractError> {
+pub(crate) fn lock(bytes: &str) -> Result<BTreeMap<String, (String, Vec<String>)>, ExtractError> {
     let lock: Lock = toml::from_str(bytes).map_err(|e| fail(format!("uv.lock: {e}")))?;
     let mut out = BTreeMap::new();
     for p in lock.package {
@@ -205,7 +204,7 @@ fn lock(bytes: &str) -> Result<BTreeMap<String, (String, Vec<String>)>, ExtractE
 }
 
 /// `key = value` lines of `pyvenv.cfg`.
-fn pyvenv(env_dir: &Path) -> Result<BTreeMap<String, String>, ExtractError> {
+pub(crate) fn pyvenv(env_dir: &Path) -> Result<BTreeMap<String, String>, ExtractError> {
     Ok(read(&env_dir.join("pyvenv.cfg"))?
         .lines()
         .filter_map(|l| {
@@ -215,7 +214,7 @@ fn pyvenv(env_dir: &Path) -> Result<BTreeMap<String, String>, ExtractError> {
         .collect())
 }
 
-fn version_triple(v: &str) -> Result<(u32, u32, u32), ExtractError> {
+pub(crate) fn version_triple(v: &str) -> Result<(u32, u32, u32), ExtractError> {
     let parts: Vec<u32> = v.split('.').filter_map(|p| p.parse().ok()).collect();
     match parts[..] {
         [a, b, c, ..] => Ok((a, b, c)),
@@ -228,7 +227,7 @@ fn version_triple(v: &str) -> Result<(u32, u32, u32), ExtractError> {
 ///
 /// `RECORD` is CSV (PEP 376): a path holding `,` or `"` is quoted, so it is read as CSV, never split
 /// on commas (H1 C5).
-fn record_entries(record: &[u8]) -> Result<Vec<(String, Option<String>)>, csv::Error> {
+pub(crate) fn record_entries(record: &[u8]) -> Result<Vec<(String, Option<String>)>, csv::Error> {
     let mut entries = Vec::new();
     let mut reader = csv::ReaderBuilder::new()
         .has_headers(false)
@@ -252,7 +251,7 @@ fn record_entries(record: &[u8]) -> Result<Vec<(String, Option<String>)>, csv::E
 }
 
 /// Installed distributions: normalized name → (version, dist-info directory).
-fn installed(site_packages: &Path) -> Result<BTreeMap<String, (String, PathBuf)>, ExtractError> {
+pub(crate) fn installed(site_packages: &Path) -> Result<BTreeMap<String, (String, PathBuf)>, ExtractError> {
     let mut out = BTreeMap::new();
     let entries = fs_err::read_dir(site_packages)
         .map_err(|e| fail(format!("{}: {e}", site_packages.display())))?;
@@ -275,7 +274,7 @@ fn installed(site_packages: &Path) -> Result<BTreeMap<String, (String, PathBuf)>
 
 /// `[tool.lctx.source]`, when declared, pins the upstream tree by a full commit, and its tag names
 /// the locked version of the requested distribution (so docs never drift from code).
-fn check_source(
+pub(crate) fn check_source(
     source: Option<&Source>,
     requested: &str,
     locked: &BTreeMap<String, (String, Vec<String>)>,
@@ -530,13 +529,13 @@ pub fn source(library_dir: &Path) -> Result<Option<Source>, ExtractError> {
 
 /// A tree walked once (H1 C2): every file outside dot-directories, relative (`/`-separated) and
 /// absolute, in path order, and every symlink met there. A symlink is never followed.
-struct Walked {
-    files: Vec<(String, PathBuf)>,
+pub(crate) struct Walked {
+    pub(crate) files: Vec<(String, PathBuf)>,
     /// `(relative path, is a directory link)`.
-    symlinks: Vec<(String, bool)>,
+    pub(crate) symlinks: Vec<(String, bool)>,
 }
 
-fn walk_tree(root: &Path) -> Result<Walked, ExtractError> {
+pub(crate) fn walk_tree(root: &Path) -> Result<Walked, ExtractError> {
     let mut walked = Walked {
         files: Vec::new(),
         symlinks: Vec::new(),
@@ -613,7 +612,7 @@ fn nested(a: &str, b: &str) -> bool {
 ///   under the other) is refused unless an exclude glob covers it (matches it, or a name directly
 ///   inside it): following it could escape the tree or loop, and skipping it would drop files
 ///   silently.
-fn pick(
+pub(crate) fn pick(
     tree: &Path,
     walked: &Walked,
     key: &str,
@@ -664,118 +663,6 @@ fn pick(
         )));
     }
     Ok(picked)
-}
-
-/// The corpus run's input (C5): the fetched `tree`'s selected documents, and its usage modules (the
-/// selected examples and tests, and each document's Python code blocks, written as modules of their
-/// own under `<tree>/_lctx_blocks/`, which is cleared first), in the environment of `library` (the
-/// library run's input). The blocks derive from the documents, so the release id, which hashes the
-/// documents, already covers them.
-pub fn corpus(
-    tree: &Path,
-    source: &Source,
-    library: &ExtractInput,
-) -> Result<crate::config::CorpusInput, ExtractError> {
-    // The previous compile's materialized blocks go first, so no glob can select them (C6 review
-    // O4).
-    let blocks = tree.join("_lctx_blocks");
-    if blocks.exists() {
-        fs_err::remove_dir_all(&blocks)?;
-    }
-    let walked = walk_tree(tree)?;
-    // The whole root is on the corpus import path. A selected example can import a helper that
-    // was not itself selected, so the helper's membership and bytes belong to release identity.
-    // Refuse links that could supply Python modules rather than hashing the link's text while
-    // the analyzer reads mutable content behind it.
-    if let Some((path, _)) = walked
-        .symlinks
-        .iter()
-        .find(|(path, is_dir)| *is_dir || analyzer_readable(path))
-    {
-        return Err(fail(format!(
-            "the corpus import root contains an analyzer-readable symlink {path} in {}; \
-             materialize it as regular files",
-            tree.display()
-        )));
-    }
-    let analyzer_files: Vec<(String, PathBuf)> = walked
-        .files
-        .iter()
-        .filter(|(path, _)| analyzer_readable(path))
-        .cloned()
-        .collect();
-    let documents = pick(
-        tree,
-        &walked,
-        "documents",
-        &source.documents,
-        &source.documents_exclude,
-    )?;
-    let examples = pick(
-        tree,
-        &walked,
-        "examples",
-        &source.examples,
-        &source.examples_exclude,
-    )?;
-    let tests = pick(tree, &walked, "tests", &source.tests, &source.tests_exclude)?;
-    let assets = pick(
-        tree,
-        &walked,
-        "assets",
-        &source.assets,
-        &source.assets_exclude,
-    )?;
-    // A module has one role (ADR-0015): a file both keys select is refused, not ranked.
-    if let Some(both) = examples.iter().find(|f| tests.contains(f)) {
-        return Err(fail(format!(
-            "[tool.lctx.source] `examples` and `tests` both select {}",
-            both.display()
-        )));
-    }
-    let mut usage: Vec<(PathBuf, SourceRole)> = examples
-        .into_iter()
-        .map(|f| (f, SourceRole::Example))
-        .chain(tests.into_iter().map(|f| (f, SourceRole::Test)))
-        .collect();
-    for d in &documents {
-        let rel = d
-            .strip_prefix(tree)
-            .map_err(|_| ExtractError::RelativePath(d.clone()))?
-            .display()
-            .to_string();
-        for (ordinal, code) in crate::docs::python_blocks(&fs_err::read(d)?) {
-            let module = tree.join(crate::docs::block_module_path(&rel, ordinal));
-            if let Some(dir) = module.parent() {
-                fs_err::create_dir_all(dir)?;
-            }
-            fs_err::write(&module, code)?;
-            usage.push((module, SourceRole::DocBlock));
-        }
-    }
-    let label = format!("{}@{}", source.repository, source.commit);
-    let environment = match &library.release.origin {
-        ReleaseOrigin::Library(l) => Some(l.clone()),
-        ReleaseOrigin::Tree { .. } | ReleaseOrigin::Corpus { .. } => None,
-    };
-    let mut captured = documents.clone();
-    captured.extend(assets.iter().cloned());
-    captured.sort();
-    captured.dedup();
-    let release = Release::corpus(
-        tree.to_path_buf(),
-        &label,
-        &captured,
-        usage,
-        &analyzer_files,
-        environment,
-        library.release.release_id,
-    )?;
-    Ok(crate::config::CorpusInput {
-        release,
-        documents,
-        assets,
-    })
 }
 
 #[cfg(test)]
@@ -878,171 +765,5 @@ mod definition_tests {
         let err = parsed("[tool.lctx]\nrelease = []\n").err().unwrap();
         assert!(err.contains("release"), "{err}");
         assert!(parsed(&format!("{src}documents = [\"docs/**\"]\n")).is_ok());
-    }
-}
-
-#[cfg(test)]
-mod corpus_identity_tests {
-    use super::{Source, corpus};
-    use crate::config::{ExtractInput, Release, TestHooks};
-    use crate::extract;
-    use cpg_schema::id::Id;
-    use std::path::Path;
-
-    fn source() -> Source {
-        Source {
-            repository: "https://example.test/pkg".to_owned(),
-            tag: "v1".to_owned(),
-            commit: "fixed".to_owned(),
-            documents: vec![],
-            documents_exclude: vec![],
-            examples: vec!["examples/main.py".to_owned()],
-            examples_exclude: vec![],
-            tests: vec![],
-            tests_exclude: vec![],
-            assets: vec![],
-            assets_exclude: vec![],
-        }
-    }
-
-    fn identity(root: &Path) -> Id {
-        let library = ExtractInput {
-            profile: cpg_schema::catalog::CompileProfile::Behavioral,
-            release: Release::from_tree(root.to_path_buf(), "library").unwrap(),
-            venv_root: root.to_path_buf(),
-            site_packages: vec![],
-            python_version: (3, 14, 7),
-            python_platform: "linux".to_owned(),
-            snapshot_id: Id::ZERO,
-            corpus: None,
-            keep_pysa_json: false,
-            test_hooks: TestHooks::default(),
-        };
-        corpus(root, &source(), &library)
-            .unwrap()
-            .release
-            .release_id
-    }
-
-    #[test]
-    fn unselected_imported_helper_content_and_membership_change_identity() {
-        let a = tempfile::tempdir().unwrap();
-        let b = tempfile::tempdir().unwrap();
-        for root in [a.path(), b.path()] {
-            fs_err::create_dir_all(root.join("examples")).unwrap();
-            fs_err::write(root.join("examples/main.py"), "import helper\n").unwrap();
-            fs_err::write(root.join("helper.py"), "VALUE = 1\n").unwrap();
-        }
-        let baseline = identity(a.path());
-        assert_eq!(baseline, identity(b.path()), "relocation changes identity");
-        fs_err::write(a.path().join("helper.py"), "VALUE = 2\n").unwrap();
-        assert_ne!(baseline, identity(a.path()), "helper edit was invisible");
-        fs_err::write(b.path().join("other_helper.pyi"), "VALUE: int\n").unwrap();
-        assert_ne!(
-            baseline,
-            identity(b.path()),
-            "helper addition was invisible"
-        );
-    }
-
-    #[test]
-    fn edited_or_added_unselected_helper_facts_equal_a_clean_recomputation() {
-        fn input(root: &Path, helper: &str) -> ExtractInput {
-            let release = root.join("release");
-            let tree = root.join("corpus");
-            let site = root.join("venv/site-packages");
-            fs_err::create_dir_all(release.join("pkg")).unwrap();
-            fs_err::create_dir_all(tree.join("examples")).unwrap();
-            fs_err::create_dir_all(&site).unwrap();
-            fs_err::write(
-                release.join("pkg/__init__.py"),
-                "def api(value: object) -> object:\n    return value\n",
-            )
-            .unwrap();
-            fs_err::write(
-                tree.join("examples/main.py"),
-                "from helper import transform\nresult = transform(1)\n",
-            )
-            .unwrap();
-            fs_err::write(tree.join("helper.py"), helper).unwrap();
-            let mut library = ExtractInput {
-                profile: cpg_schema::catalog::CompileProfile::Behavioral,
-                release: Release::from_tree(release.canonicalize().unwrap(), "pkg").unwrap(),
-                venv_root: root.join("venv").canonicalize().unwrap(),
-                site_packages: vec![site.canonicalize().unwrap()],
-                python_version: (3, 14, 7),
-                python_platform: "linux".to_owned(),
-                snapshot_id: Id::ZERO,
-                corpus: None,
-                keep_pysa_json: false,
-                test_hooks: TestHooks::default(),
-            };
-            library.corpus =
-                Some(corpus(&tree.canonicalize().unwrap(), &source(), &library).unwrap());
-            library
-        }
-
-        let reused = tempfile::tempdir().unwrap();
-        let clean = tempfile::tempdir().unwrap();
-        let before = "def transform(value: int) -> int:\n    return value\n";
-        let after = "def transform(value: int) -> str:\n    return str(value)\n";
-        let before_input = input(reused.path(), before);
-        let first = extract(&before_input).unwrap();
-        let changed_input = input(reused.path(), after);
-        let changed = extract(&changed_input).unwrap();
-        let fresh_input = input(clean.path(), after);
-        let fresh = extract(&fresh_input).unwrap();
-        assert_ne!(
-            before_input.corpus.as_ref().unwrap().release.release_id,
-            changed_input.corpus.as_ref().unwrap().release.release_id,
-            "the helper edit kept the old corpus input identity"
-        );
-        assert_eq!(
-            changed_input.corpus.as_ref().unwrap().release.release_id,
-            fresh_input.corpus.as_ref().unwrap().release.release_id,
-            "relocation changed the edited corpus input identity"
-        );
-        assert_eq!(
-            changed.tables, fresh.tables,
-            "warm extraction differs from clean facts"
-        );
-        assert_ne!(
-            first.table("type_observations"),
-            changed.table("type_observations"),
-            "the helper signature edit did not change the selected example's type facts"
-        );
-
-        let added_clean = tempfile::tempdir().unwrap();
-        for root in [reused.path(), added_clean.path()] {
-            fs_err::create_dir_all(root.join("corpus")).unwrap();
-            fs_err::write(
-                root.join("corpus/extra_helper.pyi"),
-                "def optional(value: str) -> str: ...\n",
-            )
-            .unwrap();
-        }
-        let added_input = input(reused.path(), after);
-        let added = extract(&added_input).unwrap();
-        let added_fresh_input = input(added_clean.path(), after);
-        let added_fresh = extract(&added_fresh_input).unwrap();
-        assert_ne!(
-            changed_input.corpus.as_ref().unwrap().release.release_id,
-            added_input.corpus.as_ref().unwrap().release.release_id,
-            "the added unselected helper kept the old corpus input identity"
-        );
-        assert_eq!(
-            added_input.corpus.as_ref().unwrap().release.release_id,
-            added_fresh_input
-                .corpus
-                .as_ref()
-                .unwrap()
-                .release
-                .release_id,
-            "relocation changed the added-helper corpus input identity"
-        );
-        assert_eq!(
-            added.tables, added_fresh.tables,
-            "warm extraction after helper addition differs from clean facts"
-        );
     }
 }

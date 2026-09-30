@@ -71,3 +71,11 @@ Implemented and focused-tested on 2026-09-29: `ProviderModule`, its owner invari
 open in the cutover plan, which owns their verification. Revisit if measured capture size or
 contribution buffering requires a different physical mechanism; any replacement keeps one writer per
 relation and the captured-input boundary.
+
+## Amendments
+
+- 2026-09-29 (plan A2): a distribution's `RECORD` is verification evidence, not analyzer input. Its
+  console-script lines carry the environment's location, so capturing its bytes would make the
+  input depend on where the environment sits. Acquisition verifies every captured byte a `RECORD`
+  lists against the frozen copy and records the `RECORD`'s in-site entries as the verification's
+  digest; `METADATA` and `entry_points.txt` are captured. The decision is unchanged.

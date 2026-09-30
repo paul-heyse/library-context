@@ -118,7 +118,9 @@ input revisions have separate identities. Installed, source-tree and corpus acqu
 explicit alternatives; multiple distributions and corpus attribution remain relationships. Original
 artifact bytes survive independently of interpretation as canonical 1 MiB `ArtifactChunk` records.
 Acquisition captures the complete analyzer-readable input (site-packages sources and stubs, `.pth`
-and `py.typed` files, distribution metadata and records, and selected corpus files). Derived
+and `py.typed` files, distribution `METADATA` and entry points, and selected corpus files). Every
+captured byte a `RECORD` lists is verified against the frozen copy; a `RECORD` itself is digested,
+not captured, because its console-script lines carry the environment's location. Derived
 artifacts, such as Markdown Python blocks and task receipts, are written only into a reserved
 `_lctx/` namespace of the frozen capture with typed provenance; the source tree is never written.
 Every captured artifact has one ownership class: owned by verified distributions, unowned (a loose

@@ -2,7 +2,7 @@
 //! threads and hand reserved batches across a bounded window to the stage's pump. Every control
 //! states its answer first.
 use std::{future::Future, sync::{Arc, Mutex}, time::Duration};
-use cpg_extract::{assembly::Attached, bundle::{CapturedInputs, ProviderStage, StageContext, run_stage}};
+use cpg_extract::{assembly::Attached, bundle::{CapturedInputs, Declared, ProviderStage, StageContext, run_stage}};
 use lctx_model::domain::{*, attachment::AttachmentQuery, batching::TransferLimits, input::*, resources::ResourceBudget, source::*, stages::*};
 
 /// Records every batch it receives, in order, and the budget's reservation at each copy. A delay
@@ -26,8 +26,10 @@ impl StageSink for Recorder {
 type Run<S> = Box<dyn FnMut(&mut StageContext<S>) -> Result<ProviderOutcome, ModelError> + Send>;
 /// A test provider: a declared stage and what it does when it runs.
 struct Provider<S: StageSink + 'static> { stage: Stage, run: Run<S> }
-impl<S: StageSink + 'static> ProviderStage<S> for Provider<S> {
+impl<S: StageSink + 'static> Declared for Provider<S> {
     fn declaration(&self, _: Profile) -> Stage { self.stage.clone() }
+}
+impl<S: StageSink + 'static> ProviderStage<S> for Provider<S> {
     fn run(&mut self, context: &mut StageContext<S>) -> Result<ProviderOutcome, ModelError> { (self.run)(context) }
 }
 fn provider<S: StageSink + 'static>(stage: &Stage, run: impl FnMut(&mut StageContext<S>) -> Result<ProviderOutcome, ModelError> + Send + 'static) -> Box<dyn ProviderStage<S>> {

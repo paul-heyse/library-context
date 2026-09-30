@@ -3317,7 +3317,7 @@ fn semantic() -> Vec<Rule> {
             // Slice 2.2 review F5: a published text names a doc block by its document, never by
             // the module the compiler materialized it as.
             "semantic:no-materialized-block-path",
-            "SELECT assertion_id FROM assertions WHERE strpos(text, '_lctx_blocks/') > 0"
+            "SELECT assertion_id FROM assertions WHERE strpos(text, '_lctx/') > 0"
                 .to_owned(),
         ),
         (

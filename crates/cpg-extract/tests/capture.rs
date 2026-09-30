@@ -64,3 +64,30 @@ fn input_symlinks_are_not_implicit_acquisition_members() {
     assert!(matches!(CapturedInput::capture(input.path(),&["linked/outside.py".into()],&budget),Err(CaptureError::Unsupported(_))));
     assert_eq!(budget.reserved(),0);
 }
+
+/// Plan A2 (T6): derived artifacts are written only into the frozen copy's reserved `_lctx/`
+/// namespace and join its manifest; no original may live there.
+#[test]
+fn derivations_live_only_in_the_frozen_reserved_namespace() {
+    use cpg_extract::capture::Derived;
+    let input = tempfile::tempdir().unwrap();
+    fs::write(input.path().join("doc.md"),b"# Doc\n").unwrap(); fs::write(input.path().join("x.py"),b"x = 1").unwrap();
+    let budget = ResourceBudget::fixed(4 << 20).unwrap();
+    let paths = vec!["doc.md".to_owned(),"x.py".to_owned()];
+    let block = |path: &str| Derived { path: path.into(),document: "doc.md".into(),ordinal: 0,fence: (0,1),bytes: b"y = 2".to_vec() };
+    let captured = CapturedInput::capture_derived(input.path(),&paths,&budget,&["doc.md".into()],|document,bytes| {
+        assert_eq!((document,bytes),("doc.md",b"# Doc\n".as_slice()),"derivations read the frozen document"); Ok(vec![block("_lctx/blocks/b.py")])
+    }).unwrap();
+    assert_eq!(captured.artifacts().iter().map(|a| a.path.as_str()).collect::<Vec<_>>(),["_lctx/blocks/b.py","doc.md","x.py"]);
+    assert_eq!(captured.derivations().len(),1);
+    assert!(captured.root().join("_lctx/blocks/b.py").exists() && !input.path().join("_lctx").exists(),"only the frozen copy holds the derivation");
+    captured.verify().unwrap(); drop(captured);
+    for (paths,derived,documents) in [(vec!["_lctx/x.py".to_owned()],"_lctx/y.py","doc.md"),(paths.clone(),"blocks/b.py","doc.md"),(paths.clone(),"_lctx/b.py","x.md")] {
+        let _ = fs::create_dir_all(input.path().join("_lctx")); let _ = fs::write(input.path().join("_lctx/x.py"),b"z");
+        let result = CapturedInput::capture_derived(input.path(),&paths,&budget,&[documents.into()],|_,_| Ok(vec![block(derived)]));
+        assert!(result.is_err(),"{paths:?} deriving {derived} from {documents}");
+        assert_eq!(budget.reserved(),0);
+    }
+    let twice = CapturedInput::capture_derived(input.path(),&["doc.md".to_owned()],&budget,&["doc.md".into()],|_,_| Ok(vec![block("_lctx/b.py"),block("_lctx/b.py")]));
+    assert!(matches!(twice,Err(CaptureError::Reserved(_))),"a derived path is written once");
+}

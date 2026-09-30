@@ -6,6 +6,7 @@
 //! extraction (§4.2.5): there is no per-module recovery.
 
 mod config;
+pub mod acquisition;
 pub mod assembly;
 pub mod bundle;
 pub mod capture;
@@ -43,12 +44,12 @@ use cpg_schema::tables::{
     Arguments, Bindings, Boundaries, BoundariesRow, CallSyntax, ClassAncestry, CodeBlocks,
     ConditionLiterals, ConditionNodes, Conditions, ContextClassMro, ContextDefinitions,
     ContextModules, ContextParameters, Contexts, ContextsRow, Coverage, CoverageRow, Declarations,
-    Distributions, DistributionsRow, DocComponentAttributes, DocComponents, DocLinks, Documents,
+    DocComponentAttributes, DocComponents, DocLinks, Documents,
     ExportSyntax, Facts, FlowAttributeLoads, FlowDefinitions, FlowReaching, FlowRegions,
     FlowTestLeaves, FlowTestTypes, FlowTests, FlowUses, FlowValueCalls, FlowValues,
     FunctionImplementations, Mentions, ParameterDocs, ParameterSemantics, ParameterSyntax,
     Passages, Producers, ProducersRow, PublicNames, PysaCalls, PysaClasses, PysaFunctions,
-    RecordFieldSyntax, RecordFields, ReferenceResolutions, References, Releases, ReleasesRow, Runs,
+    RecordFieldSyntax, RecordFields, ReferenceResolutions, References, Runs,
     RunsRow, Scopes, SourceFiles, SourceFilesRow, SyntaxNodes, TypeObservations, TypeTermArgs,
     TypeTerms,
 };
@@ -83,39 +84,6 @@ pub use config::{
 use facts::{FactSink, Provenance, Surface, dedup_by_fact, fact_row};
 use pysa_map::{Here, Locator, ModuleRefs, PysaOut};
 use walk::{ModuleCtx, span};
-
-#[allow(
-    clippy::too_many_arguments,
-    reason = "explicit captured artifact provenance"
-)]
-fn capture(
-    snapshot_id: Id,
-    release_id: Id,
-    context_id: Id,
-    path: &str,
-    source_kind: &str,
-    bytes: &[u8],
-    alignment: &str,
-    provenance: &str,
-    observations: &[cpg_schema::evidence::DeploymentDetail],
-) -> Result<cpg_schema::evidence::CapturedArtifactsRow, ExtractError> {
-    let source_digest = cpg_schema::id::content_digest(bytes);
-    Ok(cpg_schema::evidence::CapturedArtifactsRow {
-        snapshot_id,
-        artifact_id: cpg_schema::evidence::artifact_id(release_id, path, source_digest),
-        release_id,
-        context_id,
-        path: path.into(),
-        source_kind: source_kind.into(),
-        source_digest,
-        byte_len: bytes.len() as i64,
-        body: cpg_schema::column::Blob(bytes.to_vec()),
-        alignment: alignment.into(),
-        provenance: provenance.into(),
-        observations: serde_json::to_string(observations)
-            .map_err(|e| ExtractError::Library(e.to_string()))?,
-    })
-}
 
 /// The fact families this producer declares (coverage rows exist for each, per module).
 pub const FAMILIES: [FactFamily; 7] = [
@@ -348,8 +316,7 @@ fn merge(a: ExtractOutput, b: ExtractOutput) -> Result<ExtractOutput, ExtractErr
     let keys: HashMap<&str, &[&str]> = cpg_schema::for_each_table!(keys).into_iter().collect();
     let shared = |name: &str| {
         (name == Producers::NAME && a.producer_id == b.producer_id)
-            || ((name == Contexts::NAME || name == Distributions::NAME)
-                && a.context_id == b.context_id)
+            || (name == Contexts::NAME && a.context_id == b.context_id)
     };
     let mut tables = Vec::new();
     for (name, batch) in &a.tables {
@@ -1020,72 +987,7 @@ fn run_release(
 
     // A corpus's documents (C5), recognized against the library's vocabulary.
     let mut docs_out = docs::DocsOut::default();
-    let mut captured = Vec::new();
-    for source in &input.release.files {
-        let bytes = fs_err::read(source)?;
-        if std::str::from_utf8(&bytes).is_err() {
-            let path = source
-                .strip_prefix(&input.release.root)
-                .map_err(|_| ExtractError::RelativePath(source.clone()))?
-                .display()
-                .to_string();
-            captured.push(capture(
-                input.snapshot_id,
-                input.release.release_id,
-                context.id,
-                &path,
-                "invalid_python",
-                &bytes,
-                "unknown",
-                "Original source was not valid UTF-8; no parse or execution claimed.",
-                &[],
-            )?);
-        }
-    }
-    if let ReleaseOrigin::Library(library) = &input.release.origin {
-        for dist in &library.distributions {
-            for (path, bytes) in &dist.metadata {
-                let mut observations = if path.ends_with("/METADATA") {
-                    metadata::metadata(bytes)
-                } else {
-                    metadata::entry_points(bytes)
-                };
-                for row in &mut observations {
-                    if row
-                        .distribution
-                        .as_ref()
-                        .is_some_and(|d| library::normalize(d) != dist.name)
-                        || row.version.as_ref().is_some_and(|v| v != &dist.version)
-                    {
-                        row.interpretation = cpg_schema::evidence::CheckStatus::Failed;
-                        row.diagnostic =
-                            Some("metadata disagrees with installed distribution identity".into());
-                    }
-                    row.distribution = Some(dist.name.clone());
-                    row.version = Some(dist.version.clone());
-                    row.environment_digest = Some(context.environment_digest);
-                    row.lock_digest = Some(library.lock_digest);
-                }
-                captured.push(capture(
-                    input.snapshot_id,
-                    input.release.release_id,
-                    context.id,
-                    path,
-                    "distribution_metadata",
-                    bytes,
-                    "exact",
-                    &format!(
-                        "installed RECORD {} {} {}",
-                        dist.name,
-                        dist.version,
-                        dist.record_digest.hex()
-                    ),
-                    &observations,
-                )?);
-            }
-        }
-    }
-    if let Some((documents, vocabulary, assets)) = documents {
+    if let Some((documents, vocabulary, _assets)) = documents {
         for path in documents {
             let rel = path
                 .strip_prefix(&input.release.root)
@@ -1093,22 +995,6 @@ fn run_release(
                 .display()
                 .to_string();
             let bytes = fs_err::read(path)?;
-            captured.push(capture(
-                input.snapshot_id,
-                input.release.release_id,
-                context.id,
-                &rel,
-                "document",
-                &bytes,
-                "mapped_with_evidence",
-                &match &input.release.origin {
-                    ReleaseOrigin::Corpus { label, .. } => {
-                        format!("explicit pinned source mapping: {label}")
-                    }
-                    _ => "source mapping unavailable".into(),
-                },
-                &[],
-            )?);
             let c = docs::document(
                 &mut sink,
                 input.release.release_id,
@@ -1126,27 +1012,6 @@ fn run_release(
                 c.reason,
                 c.detail,
             );
-        }
-        for path in assets {
-            let rel = path
-                .strip_prefix(&input.release.root)
-                .map_err(|_| ExtractError::RelativePath(path.clone()))?
-                .display()
-                .to_string();
-            let bytes = fs_err::read(path)?;
-            if !captured.iter().any(|a| a.path == rel) {
-                captured.push(capture(
-                    input.snapshot_id,
-                    input.release.release_id,
-                    context.id,
-                    &rel,
-                    "configuration",
-                    &bytes,
-                    "mapped_with_evidence",
-                    "selected pinned source configuration",
-                    &metadata::configuration(&rel, &bytes),
-                )?);
-            }
         }
         stages.mark("extract: documents");
     }
@@ -1177,7 +1042,6 @@ fn run_release(
         environment_digest: context.environment_digest,
         lock_digest: context.lock_digest,
     }];
-    let (releases, distributions) = release_rows(input, snapshot_id, context.id);
     let producers = vec![ProducersRow {
         snapshot_id,
         producer_id: producer.id,
@@ -1235,15 +1099,6 @@ fn run_release(
         (Runs::NAME, Runs::to_sorted_batch(&runs)?),
         (Contexts::NAME, Contexts::to_sorted_batch(&contexts)?),
         (Producers::NAME, Producers::to_sorted_batch(&producers)?),
-        (
-            cpg_schema::evidence::CapturedArtifacts::NAME,
-            cpg_schema::evidence::CapturedArtifacts::to_sorted_batch(&captured)?,
-        ),
-        (Releases::NAME, Releases::to_sorted_batch(&releases)?),
-        (
-            Distributions::NAME,
-            Distributions::to_sorted_batch(&distributions)?,
-        ),
         (
             SourceFiles::NAME,
             SourceFiles::to_sorted_batch(&source_files)?,
@@ -1485,79 +1340,6 @@ fn star_imports(txn: &Transaction<'_>, m: &SourceModule, ast: &ModModule) -> lex
     stars
 }
 
-/// The `releases` row and, for an acquired library, one `distributions` row per installed
-/// distribution of the context's environment (ADR-0013). The extractor run writes both once per
-/// attempt, carrying Stage A's output; later producers reference `release_id`, never append.
-fn release_rows(
-    input: &ExtractInput,
-    snapshot_id: Id,
-    context_id: Id,
-) -> (Vec<ReleasesRow>, Vec<DistributionsRow>) {
-    let release_id = input.release.release_id;
-    match &input.release.origin {
-        ReleaseOrigin::Tree { label } => (
-            vec![ReleasesRow {
-                snapshot_id,
-                release_id,
-                library: None,
-                requirement: None,
-                lock_digest: None,
-                distributions: Vec::new(),
-                installer: None,
-                label: Some(label.clone()),
-            }],
-            Vec::new(),
-        ),
-        // The corpus runs in the library's environment: its context lists the same distributions.
-        ReleaseOrigin::Corpus { label, library, .. } => (
-            vec![ReleasesRow {
-                snapshot_id,
-                release_id,
-                library: library.as_ref().map(|l| l.name.clone()),
-                requirement: None,
-                lock_digest: None,
-                distributions: Vec::new(),
-                installer: None,
-                label: Some(label.clone()),
-            }],
-            library
-                .iter()
-                .flat_map(|lib| &lib.distributions)
-                .map(|d| DistributionsRow {
-                    snapshot_id,
-                    context_id,
-                    name: d.name.clone(),
-                    version: d.version.clone(),
-                    artifact_sha256: d.artifact_sha256.clone(),
-                    record_digest: d.record_digest,
-                })
-                .collect(),
-        ),
-        ReleaseOrigin::Library(lib) => (
-            vec![ReleasesRow {
-                snapshot_id,
-                release_id,
-                library: Some(lib.name.clone()),
-                requirement: Some(lib.requirement.clone()),
-                lock_digest: Some(lib.lock_digest),
-                distributions: lib.release.clone(),
-                installer: lib.installer.clone(),
-                label: None,
-            }],
-            lib.distributions
-                .iter()
-                .map(|d| DistributionsRow {
-                    snapshot_id,
-                    context_id,
-                    name: d.name.clone(),
-                    version: d.version.clone(),
-                    artifact_sha256: d.artifact_sha256.clone(),
-                    record_digest: d.record_digest,
-                })
-                .collect(),
-        ),
-    }
-}
 
 /// Write each table as an Arrow IPC file `<dir>/<table>.arrow`.
 pub fn write_ipc(dir: &Path, output: &ExtractOutput) -> Result<(), ExtractError> {

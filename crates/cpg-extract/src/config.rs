@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use cpg_schema::codebook::{Codebook, SourceRole};
+use cpg_schema::codebook::SourceRole;
 use cpg_schema::id::{Digest, Id, IdHasher, content_digest, kind};
 use pyrefly_config::config::{ConfigFile, ConfigSource};
 use pyrefly_python::sys_info::{PythonPlatform, PythonVersion};
@@ -102,68 +102,6 @@ impl Release {
             files,
             origin: ReleaseOrigin::Tree {
                 label: label.to_owned(),
-            },
-        })
-    }
-
-    /// A corpus release (C5): the modules are the usage files (examples, tests, doc blocks), and
-    /// the id hashes the label, selected documents and usage, and every analyzer-readable file
-    /// in the import root. An unselected helper can change an imported module's facts.
-    pub fn corpus(
-        root: PathBuf,
-        label: &str,
-        documents: &[PathBuf],
-        usage: Vec<(PathBuf, SourceRole)>,
-        analyzer_files: &[(String, PathBuf)],
-        library: Option<crate::library::AcquiredLibrary>,
-        library_release: Id,
-    ) -> std::io::Result<Release> {
-        let relative = |f: &PathBuf| {
-            f.strip_prefix(&root)
-                .map(|r| r.display().to_string())
-                .map_err(|_| std::io::Error::other(format!("{} is outside the tree", f.display())))
-        };
-        let mut selected: Vec<(String, Digest, Option<i64>)> = Vec::new();
-        for f in documents {
-            selected.push((relative(f)?, content_digest(&fs_err::read(f)?), None));
-        }
-        let mut roles = BTreeMap::new();
-        for (f, role) in &usage {
-            let rel = relative(f)?;
-            selected.push((
-                rel.clone(),
-                content_digest(&fs_err::read(f)?),
-                Some(i64::from(role.code())),
-            ));
-            roles.insert(rel, *role);
-        }
-        selected.sort();
-        let mut h = IdHasher::new(kind::RELEASE);
-        // The library release is an input: its public names are the documents' vocabulary, and
-        // its files are what the usage code reaches (C5 review F1).
-        h.str("corpus")
-            .str(label)
-            .id(library_release)
-            .i64(selected.len() as i64);
-        for (path, digest, role) in &selected {
-            h.str(path).digest_field(*digest).opt_i64(*role);
-        }
-        h.str("analyzer-readable-root")
-            .i64(analyzer_files.len() as i64);
-        for (path, file) in analyzer_files {
-            h.str(path)
-                .digest_field(content_digest(&fs_err::read(file)?));
-        }
-        let mut files: Vec<PathBuf> = usage.into_iter().map(|(f, _)| f).collect();
-        files.sort();
-        Ok(Release {
-            release_id: h.finish_id(),
-            root,
-            files,
-            origin: ReleaseOrigin::Corpus {
-                label: label.to_owned(),
-                library,
-                roles,
             },
         })
     }

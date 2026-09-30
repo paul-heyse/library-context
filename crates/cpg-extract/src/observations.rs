@@ -128,7 +128,7 @@ pub fn attach(
             referenced_path: None,
         };
         let logical = format!("task-observations/{}.json", content_digest(&bytes).hex());
-        captured.push(crate::capture(
+        captured.push(capture(
             input.snapshot_id,
             corpus.release.release_id,
             output.context_id,
@@ -262,4 +262,36 @@ mod tests {
         r.runner_sha256 = "bad".into();
         assert!(validate(&r, &environment).is_err());
     }
+}
+
+/// A captured-artifact row for the retiring receipt attachment above; the typed deployment stage
+/// (cutover plan A16) replaces both.
+#[allow(clippy::too_many_arguments, reason = "explicit captured artifact provenance")]
+fn capture(
+    snapshot_id: cpg_schema::id::Id,
+    release_id: cpg_schema::id::Id,
+    context_id: cpg_schema::id::Id,
+    path: &str,
+    source_kind: &str,
+    bytes: &[u8],
+    alignment: &str,
+    provenance: &str,
+    observations: &[cpg_schema::evidence::DeploymentDetail],
+) -> Result<cpg_schema::evidence::CapturedArtifactsRow, ExtractError> {
+    let source_digest = cpg_schema::id::content_digest(bytes);
+    Ok(cpg_schema::evidence::CapturedArtifactsRow {
+        snapshot_id,
+        artifact_id: cpg_schema::evidence::artifact_id(release_id, path, source_digest),
+        release_id,
+        context_id,
+        path: path.into(),
+        source_kind: source_kind.into(),
+        source_digest,
+        byte_len: bytes.len() as i64,
+        body: cpg_schema::column::Blob(bytes.to_vec()),
+        alignment: alignment.into(),
+        provenance: provenance.into(),
+        observations: serde_json::to_string(observations)
+            .map_err(|e| ExtractError::Library(e.to_string()))?,
+    })
 }

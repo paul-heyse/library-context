@@ -4,7 +4,7 @@
 //! this is a checked copy of that inventory, not a filesystem-wide atomic snapshot.
 use std::{fs::{self,File,Metadata}, io::{Read,Write}, path::{Path,PathBuf}};
 use lctx_model::domain::{*, artifact::{ArtifactCapture,ArtifactChunk,ARTIFACT_CHUNK_BYTES},
-    input::{InputRevision,ManifestEntry,validate_path}, resources::{Reservation,ResourceBudget},source::SourceArtifact};
+    input::{DERIVED_ROOT,InputRevision,ManifestEntry,validate_path}, resources::{Reservation,ResourceBudget},source::SourceArtifact};
 
 const BUFFER_BYTES: usize = 64 * 1024;
 #[derive(Debug,thiserror::Error)]
@@ -13,19 +13,39 @@ pub enum CaptureError {
     #[error(transparent)] Model(#[from] ModelError),
     #[error("input changed during capture: {0}")] Changed(PathBuf),
     #[error("input must contain only regular files under normalized paths: {0}")] Unsupported(PathBuf),
+    /// An original path inside the reserved derived namespace, or a derivation outside it.
+    #[error("the {DERIVED_ROOT} namespace is reserved for derived artifacts: {0}")] Reserved(String),
 }
+/// One artifact the compiler derives from a captured document: written only into the frozen copy's
+/// reserved `_lctx/` namespace, never into the source tree (ADR-0089). The fence is the derived
+/// bytes' origin span in the document.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Derived { pub path: String, pub document: String, pub ordinal: i64, pub fence: (i64, i64), pub bytes: Vec<u8> }
+/// A derivation's provenance, retained with the capture.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Derivation { pub path: String, pub document: String, pub ordinal: i64, pub fence: (i64, i64) }
 /// Owns its frozen tree and the reservation for retained artifact metadata. Keeping this value
 /// alive keeps provider paths valid; dropping it deletes only its own temporary directory.
 pub struct CapturedInput {
-    directory: tempfile::TempDir, revision: InputRevision, artifacts: Vec<SourceArtifact>,
+    directory: tempfile::TempDir, revision: InputRevision, artifacts: Vec<SourceArtifact>, derivations: Vec<Derivation>,
     budget: ResourceBudget, _metadata: Box<dyn Reservation>,
 }
 impl CapturedInput {
     pub fn capture(root: &Path, paths: &[String], budget: &ResourceBudget) -> Result<Self,CaptureError> {
-        Self::capture_with(root,paths,budget, |_| Ok(()))
+        Self::capture_with(root,paths,budget, |_| Ok(()), &[], |_, _| Ok(Vec::new()))
+    }
+    /// Capture `paths`, then derive artifacts from the frozen copy of each of `documents`: `derive`
+    /// receives a document's path and frozen bytes, and each derived artifact is written read-only
+    /// under `_lctx/` in the frozen copy and joins the input's manifest.
+    pub fn capture_derived(root: &Path, paths: &[String], budget: &ResourceBudget, documents: &[String],
+        derive: impl FnMut(&str, &[u8]) -> Result<Vec<Derived>,CaptureError>) -> Result<Self,CaptureError> {
+        Self::capture_with(root,paths,budget, |_| Ok(()), documents, derive)
     }
     fn capture_with(root: &Path, paths: &[String], budget: &ResourceBudget,
-        mut after_copy: impl FnMut(&Path) -> Result<(),CaptureError>) -> Result<Self,CaptureError> {
+        mut after_copy: impl FnMut(&Path) -> Result<(),CaptureError>, documents: &[String],
+        mut derive: impl FnMut(&str, &[u8]) -> Result<Vec<Derived>,CaptureError>) -> Result<Self,CaptureError> {
+        if let Some(document) = documents.iter().find(|d| !paths.contains(d)) { return Err(ModelError::Invalid(format!("derivation document {document} is not captured")).into()); }
+        if let Some(reserved) = paths.iter().find(|path| path.starts_with(DERIVED_ROOT)) { return Err(CaptureError::Reserved(reserved.clone())); }
         if fs::symlink_metadata(root)?.file_type().is_symlink() || !root.is_dir() { return Err(CaptureError::Unsupported(root.into())); }
         let root = root.canonicalize()?;
         // Admission precedes the new inventory, hash buffer and cloned metadata allocations.
@@ -73,6 +93,26 @@ impl CapturedInput {
             let path = regular_file(&root,relative)?;
             if Stamp::of(&fs::metadata(&path)?)? != *before { return Err(CaptureError::Changed(path)); }
         }
+        // Derivations read the frozen copies, so the source tree is never read twice or written.
+        let mut derivations = Vec::new();
+        for entry in entries.clone().into_iter().filter(|entry| documents.contains(&entry.path)) {
+            let _document = budget.reserve("derivation-document", usize::try_from(entry.byte_len).unwrap_or(usize::MAX))?;
+            let frozen = fs::read(directory.path().join(&entry.path))?;
+            for derived in derive(&entry.path, &frozen)? {
+                validate_path(&derived.path)?;
+                if !derived.path.starts_with(DERIVED_ROOT) || derived.document != entry.path { return Err(CaptureError::Reserved(derived.path)); }
+                let target = directory.path().join(&derived.path);
+                if target.exists() { return Err(CaptureError::Reserved(derived.path)); }
+                fs::create_dir_all(target.parent().expect("derived parent"))?;
+                fs::write(&target, &derived.bytes)?;
+                let mut permissions = fs::metadata(&target)?.permissions(); permissions.set_readonly(true);
+                fs::set_permissions(&target,permissions)?;
+                let byte_len = i64::try_from(derived.bytes.len()).map_err(|_| ModelError::Invalid("artifact length overflow".into()))?;
+                entries.push(ManifestEntry { path: derived.path.clone(), content: ContentHash::of(&derived.bytes), byte_len });
+                derivations.push(Derivation { path: derived.path, document: derived.document, ordinal: derived.ordinal, fence: derived.fence });
+            }
+        }
+        entries.sort_by(|a, b| a.path.cmp(&b.path));
         let revision = InputRevision::from_entries(entries.clone())?;
         let artifacts: Vec<_> = entries.into_iter().map(|entry| SourceArtifact {
             input: revision.id(),path: entry.path,content: entry.content,byte_len: entry.byte_len,
@@ -83,10 +123,12 @@ impl CapturedInput {
         // Temporary metadata must be released before shrinking its reservation.
         drop(stamps);
         metadata.try_resize(retained)?;
-        Ok(Self { directory,revision,artifacts,budget: budget.clone(),_metadata: metadata })
+        Ok(Self { directory,revision,artifacts,derivations,budget: budget.clone(),_metadata: metadata })
     }
     pub fn revision(&self) -> &InputRevision { &self.revision }
     pub fn artifacts(&self) -> &[SourceArtifact] { &self.artifacts }
+    /// The artifacts derived into `_lctx/`, with their provenance.
+    pub fn derivations(&self) -> &[Derivation] { &self.derivations }
     /// Read-only provider input. Retain this CapturedInput while any provider holds this path.
     pub fn root(&self) -> &Path { self.directory.path() }
     /// Feed canonical chunks through a borrowed callback. A retaining consumer must reserve its
@@ -156,7 +198,7 @@ mod tests {
         let budget = ResourceBudget::fixed(8 << 20).unwrap();
         let result = CapturedInput::capture_with(root.path(),&["input.py".into()],&budget,|original| {
             fs::write(original,b"changed during capture")?; Ok(())
-        });
+        }, &[], |_, _| Ok(Vec::new()));
         assert!(matches!(result,Err(CaptureError::Changed(_)))); assert_eq!(budget.reserved(),0);
     }
 }

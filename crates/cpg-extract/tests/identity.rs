@@ -1,58 +1,14 @@
-//! Review F1, F8, F9 and spike S2 oracles, and the slice-1 review's F2, F6 and F9: identity is
-//! location-independent but follows the dependency environment, output is deterministic across
-//! processes and module orders, panics abort, and ambient knobs are refused.
+//! Review F8 and spike S2 oracles, and the slice-1 review's F2, F6 and F9: output is deterministic
+//! across processes and module orders, panics abort, and ambient knobs are refused. Location
+//! independence and environment dependence (F1, F9) are acquisition's controls (`acquisition`).
 
 mod common;
 
 use std::path::Path;
 use std::process::Command;
 
-use common::{cell, copy_tree, fixture, input, layout};
-use cpg_extract::{ExtractError, ExtractOutput, extract};
-
-#[test]
-fn identities_do_not_depend_on_install_location() {
-    let a = tempfile::tempdir().unwrap();
-    let b = tempfile::tempdir().unwrap();
-    let la = layout("unicode_bom", &a.path().join("one/deeper"));
-    let lb = layout("unicode_bom", b.path());
-    let x = extract(&input(&la, "unicode_bom")).unwrap();
-    let y = extract(&input(&lb, "unicode_bom")).unwrap();
-    assert_eq!(
-        x.context_id, y.context_id,
-        "context digest is root-relative"
-    );
-    assert_eq!(x.run_id, y.run_id);
-    for ((n, bx), (_, by)) in x.tables.iter().zip(&y.tables) {
-        assert_eq!(bx, by, "table {n} differs between install locations");
-    }
-}
-
-#[test]
-fn identities_follow_the_dependency_environment() {
-    let dir = tempfile::tempdir().unwrap();
-    let run_with = |site: &str| {
-        let root = dir.path().join(site);
-        let l = layout("dep_env/release", &root);
-        copy_tree(&fixture("dep_env").join(site), &l.site_packages);
-        extract(&input(&l, "dep_env")).unwrap()
-    };
-    let (a, b) = (run_with("site_a"), run_with("site_b"));
-    let contexts = |o: &ExtractOutput| cell(o.table("contexts").unwrap(), "environment_digest", 0);
-    assert_ne!(contexts(&a), contexts(&b));
-    assert_ne!(
-        a.context_id, b.context_id,
-        "the context names the dependency content"
-    );
-    assert_ne!(a.run_id, b.run_id);
-    let pysa = |o: &ExtractOutput| {
-        let t = o.table("pysa_calls").unwrap();
-        (0..t.num_rows())
-            .map(|r| (cell(t, "phase", r), cell(t, "target_name", r)))
-            .collect::<Vec<_>>()
-    };
-    assert_ne!(pysa(&a), pysa(&b), "the environments give different facts");
-}
+use common::{cell, input, layout};
+use cpg_extract::{ExtractError, extract};
 
 #[test]
 fn module_order_does_not_change_the_cycle_output() {

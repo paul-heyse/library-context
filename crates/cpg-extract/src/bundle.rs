@@ -8,7 +8,7 @@ use lctx_model::domain::{Batch, ContentHash, Infrastructure, KeySink, ModelError
     batching::{BatchWriter, TransferLimits}, resources::ResourceBudget, source::Occurrence,
     stages::{Handoffs, Profile, ProviderOutcome, Stage, StageAccess, StageOutput, StageSink}};
 use tokio::sync::{mpsc, oneshot};
-use crate::{assembly::Attacher, capture::CapturedInput, config::{REFUSED_ENV, REFUSED_ENV_PREFIX}};
+use crate::{acquisition::AcquiredInput, assembly::Attacher, config::{REFUSED_ENV, REFUSED_ENV_PREFIX}};
 
 /// Batches a provider may hold in the channel beyond the one its pump is writing.
 pub const WINDOW: usize = 2;
@@ -37,16 +37,19 @@ pub fn refuse_ambient(variables: impl IntoIterator<Item = (OsString, OsString)>)
 }
 
 /// The frozen inputs of one attempt, in analysis order: the library, then its corpus.
-pub struct CapturedInputs { inputs: Vec<CapturedInput> }
+pub struct CapturedInputs { inputs: Vec<AcquiredInput> }
 impl CapturedInputs {
-    pub fn new(inputs: Vec<CapturedInput>) -> Self { Self { inputs } }
-    pub fn inputs(&self) -> &[CapturedInput] { &self.inputs }
+    pub fn new(inputs: Vec<AcquiredInput>) -> Self { Self { inputs } }
+    pub fn inputs(&self) -> &[AcquiredInput] { &self.inputs }
 }
 
-/// One provider as one scheduled stage. The schedule is built from `declaration`; `run` executes on
-/// the provider thread and reports the provider's outcome.
-pub trait ProviderStage<S: StageSink + 'static>: Send {
+/// A provider's scheduled stage, whichever sink it writes. The schedule is built from it.
+pub trait Declared {
     fn declaration(&self, profile: Profile) -> Stage;
+}
+/// One provider as one scheduled stage: `run` executes on the provider thread and reports the
+/// provider's outcome.
+pub trait ProviderStage<S: StageSink + 'static>: Declared + Send {
     fn run(&mut self, context: &mut StageContext<S>) -> Result<ProviderOutcome, ModelError>;
 }
 

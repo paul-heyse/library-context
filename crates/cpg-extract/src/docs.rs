@@ -450,20 +450,22 @@ fn is_python(language: &str) -> bool {
 }
 
 /// Where a document's Python code block `ordinal` is materialized, release-relative: a module of
-/// its own under `_lctx_blocks/`, named from the document's path so it is a valid module name.
+/// its own under the capture's reserved `_lctx/blocks/`, named from the document's path so it is a
+/// valid module name.
 pub(crate) fn block_module_path(document: &str, ordinal: i64) -> String {
     let name: String = document
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
         .collect();
     // The digest keeps the name injective: `a-b.mdx` and `a_b.mdx` read alike (C5 review F7).
-    let digest = content_digest(document.as_bytes()).hex();
-    format!("_lctx_blocks/d_{name}_{}/block_{ordinal}.py", &digest[..8])
+    let digest = lctx_model::domain::ContentHash::of(document.as_bytes()).hex();
+    format!("_lctx/blocks/d_{name}_{}/block_{ordinal}.py", &digest[..8])
 }
 
-/// A document's Python code blocks, with the ordinals `document` gives them: what the usage run
-/// materializes before it starts (C5b). A document that does not parse has none.
-pub(crate) fn python_blocks(bytes: &[u8]) -> Vec<(i64, String)> {
+/// A document's Python code blocks, with the ordinals `document` gives them and each block's byte
+/// span in the document: what acquisition derives into `_lctx/` (C5b). A document that does not
+/// parse has none.
+pub(crate) fn python_blocks(bytes: &[u8]) -> Vec<(i64, usize, usize, String)> {
     let Ok(text) = std::str::from_utf8(bytes) else {
         return Vec::new();
     };
@@ -479,7 +481,7 @@ pub(crate) fn python_blocks(bytes: &[u8]) -> Vec<(i64, String)> {
         .into_iter()
         .enumerate()
         .filter(|(_, (_, _, language, _, _))| is_python(language_of(language)))
-        .map(|(i, (_, _, _, _, code))| (i as i64, code))
+        .map(|(i, (start, end, _, _, code))| (i as i64, start, end, code))
         .collect()
 }
 

@@ -191,7 +191,7 @@ assembled reviews at the P0 and P0–P2 exits.
 | T3 | Contract amendments land in P0 (K1): `ProviderModule` (Artifact/Bundled/Unresolved) replaces `ProviderSymbol.module: String` and `TypeVariable.module`; `PlaceRoot::Local{scope, name}` (code 8), because reaching requires one place shared by a use and all its definitions; DESIGN §15.4 amended |
 | T4 | Composition policy: Yield/Raise yield a typed `UnsupportedControlFlow` obligation; substitutable guards are `IsNone`/`IsValue` only; unwitnessed formal guards keep refusing; the pure `discharge`/`Meter` policy is ported so its expectations stay executable |
 | T5 | `FactFamily` codes 0, 4, 5, 6, 11 and 12 leave the enum with their numbers reserved: documented, never reused, never renumbered. Code 4 (`Coverage`) was also not a coverage family and had no user (D1, 2026-09-29) |
-| T6 | Capture takes the complete analyzer-readable input closure (site-packages `.py`/`.pyi`/`py.typed`/`.pth`, dist-info METADATA/entry_points/RECORD, selected corpus files). Derived blocks and receipts live under a reserved `_lctx/` namespace in the frozen copy; a stale `_lctx_blocks/` in a source tree is refused |
+| T6 | Capture takes the complete analyzer-readable input closure (site-packages `.py`/`.pyi`/`py.typed`/`.pth`, dist-info METADATA/entry_points, selected corpus files); each RECORD verifies the frozen bytes and is digested, not captured (ADR-0089 amendment). Derived blocks and receipts live under a reserved `_lctx/` namespace in the frozen copy; a stale `_lctx_blocks/` in a source tree is refused |
 | T7 | Only an Exact span match attaches. Other outcomes write a `SubjectBoundary` retaining candidates plus Partial coverage with appended reasons `AttachmentAmbiguous`/`AttachmentUnmatched`; dependent facts are counted, never guessed |
 | T8 | Test-operand typing is decoupled from ty: Pyrefly types every test-position load; the leaf-to-type join is P3 |
 | T9 | Partial facts publish with disclosure and a structured reason; a required provider failure aborts; compile never selects |
@@ -321,7 +321,7 @@ name and declaration inputs; the Ruff-vs-Pysa call and `__all__` comparisons sta
 
 **Gates.** `rg` over `crates/cpg-extract` and `crates/cpg-flow` finds no `cpg_schema`,
 `FactSink`, `fact_row!`, `IdHasher`, `recipe::`, `ExtractOutput`, `write_ipc`,
-`BoundedCondition`, `condition_kernel`, `ConditionLiteral`, `_lctx_blocks` or `lctx_id`;
+`BoundedCondition`, `condition_kernel`, `ConditionLiteral`, `_lctx_blocks` (except acquisition's refusal of a stale directory) or `lctx_id`;
 `cargo tree -i cpg-schema` excludes both crates; `cargo tree -i deltalake` is empty;
 `scripts/check_family.py` passes; `cargo check --workspace --all-targets` passes.
 
@@ -920,6 +920,33 @@ The `artifact_classes` invariant allows at most one class per artifact. Only der
 - an unclassified artifact at admission, with a classified twin admitted.
 
 The PG twin publishes, reads back and refuses the same way |
+| A2: `cargo test --release -p cpg-extract` (all 15 suites); `-p cpg-core --test facts_driver`; `cargo check --workspace --all-targets` | passed 2026-09-29 (acquisition 9, capture 4, bundle 6, facts_driver 2, typed_conformance 6 + 1 ignored; the legacy suites unchanged).
+
+**Acquisition.** `cpg-extract/src/acquisition.rs`:
+- `inventory(library, env, tree)` is pure and writes nothing. It reads the definition, lock, `.python-version`, `pyvenv.cfg` and every `RECORD`, walks site-packages for the closure (`.py`, `.pyi`, `py.typed`, `.pth`, plus `METADATA` and `entry_points.txt`), and records owners, roles and the `RECORD` sha256 per file;
+- the corpus selection refuses a stale `_lctx_blocks/` or a reserved `_lctx/` in the tree, and analyzer-readable links;
+- `capture` freezes the closure and verifies every frozen byte a `RECORD` lists. The corpus is captured with its Markdown Python blocks derived into the frozen `_lctx/blocks/` (`CapturedInput::capture_derived`, fence spans from `python_blocks`);
+- `AcquiredInput` (Installed, Corpus or Tree) replaces bare captures in `CapturedInputs`;
+- the `acquire` provider emits the fifteen acquisition relations, including exactly one ownership class and the uses for every artifact, the fingerprint for the first-party release, and `CorpusLibrary`;
+- `ProviderStage` now extends the sink-independent `Declared`.
+
+A `RECORD` is digested over its in-site entries rather than captured: its console-script line carries the environment's location (ADR-0089 amendment).
+
+Deleted:
+- `library::corpus` (it wrote `_lctx_blocks/` into the source tree) and `Release::corpus` hashing;
+- the old pipeline's `capture()` rows (moved as a private helper to the retiring receipt attachment, which A16 replaces) and `release_rows`, together with the `releases`, `distributions` and `captured_artifacts` tables;
+- `tests/library.rs` and identity F1/F9.
+
+Their answers are re-homed in `acquisition`:
+- review focus #5: the tree, environment and definition are byte-identical afterwards, and no `_lctx*` directory appears;
+- a stale or reserved namespace is refused;
+- location independence across two roots with different console-script lines;
+- environment dependence: a reinstalled dependency, or an unowned stub in an owned package, changes the captured environment; a lock-only change changes only the fingerprint;
+- a tampered file, a missing hash or a missing listed file is refused;
+- lock and interpreter pins, hashless releases and source pins are refused;
+- a quoted `RECORD` path is captured and verified.
+
+The capture controls add derivation only in the frozen namespace, refusal of an original `_lctx/` path, and single writes. A change during capture aborts (the capture unit test). `lctx acquire` still only syncs and fetches; `lctx deployment-identity` and the old binary keep `library::acquired` until A16 and C1x |
 | `just fmt`, `just test-all`, facts pilots | not_run: functional scope incomplete |
 
 Independent bounded reviewers accepted artifact/capture/acquisition corrections and the
