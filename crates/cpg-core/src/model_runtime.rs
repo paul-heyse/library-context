@@ -92,6 +92,7 @@ impl AttemptRuntime {
             gate: self.gate.clone(),
             budget: self.budget.clone(),
             sources: std::sync::Mutex::new(Vec::new()),
+            completed_tables: Default::default(),
         }
     }
 }
@@ -103,8 +104,27 @@ pub struct StageSession {
     gate: Arc<tokio::sync::Mutex<()>>,
     budget: ResourceBudget,
     sources: std::sync::Mutex<Vec<Arc<dyn TableProvider>>>,
+    completed_tables: std::sync::Mutex<std::collections::BTreeSet<&'static str>>,
 }
 impl StageSession {
+    /// Register only the model's five membership views, over already admitted typed sources.
+    /// Logical views inline their plans, so remote-scan admission and retained source lifetime
+    /// remain owned by PreparedQuery; no materialization or arbitrary registration escapes.
+    pub async fn register_call_policy_views(&self) -> Result<(), ModelError> {
+        use lctx_model::domain::normalized::events::CallPolicy;
+        for name in CallPolicy::view_relations() {
+            if !self.completed_tables.lock().map_err(|_| ModelError::Invalid("stage source ownership poisoned".into()))?.contains(name) {
+                return Err(ModelError::Invalid(format!("call policy view requires admitted source {name}")));
+            }
+        }
+        for policy in CallPolicy::ALL {
+            if self.context.table_exist(policy.view_name()).map_err(ModelError::codec)? { return Err(ModelError::Invalid("call policy view already registered".into())); }
+            let sql = policy.select_sql(|name| format!("\"{name}\""));
+            let view = crate::sql::query(&self.context, &sql).await.map_err(ModelError::codec)?.into_view();
+            self.context.register_table(policy.view_name(), view).map_err(ModelError::codec)?;
+        }
+        Ok(())
+    }
     pub fn register<R: Record>(
         &self,
         permit: &ReadPermit<'_, R>,
@@ -134,6 +154,7 @@ impl StageSession {
         self.context
             .register_table(permit.relation(), table.provider.clone())
             .map_err(ModelError::codec)?;
+        if permit.transport() == InputTransport::CompletedStore { self.completed_tables.lock().map_err(|_| ModelError::Invalid("stage source ownership poisoned".into()))?.insert(permit.relation()); }
         self.sources.lock().map_err(|_| ModelError::Invalid("stage source ownership poisoned".into()))?.push(table.provider);
         Ok(())
     }

@@ -110,6 +110,9 @@ impl ValidatedModel {
         let mut types = HashSet::new();
         let mut names = HashSet::new();
         for relation in &relations {
+            if super::normalized::events::CallPolicy::ALL.iter().any(|policy| policy.view_name() == relation.name) {
+                return Err(ModelError::Invalid("relation name reserved for generated call policy view".into()));
+            }
             if !identifier(relation.name)
                 || !names.insert(relation.name)
                 || !types.insert(relation.type_id)

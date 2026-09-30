@@ -1,4 +1,6 @@
-//! Site-level call facts and provider normalization (C04, C10), with pre-written answers.
+//! Provider normalization and complete normalized event policies, with preserved independent answers.
+#[path = "fixtures/events.rs"] mod event_fixture;
+use lctx_model::domain::normalized::events::{CallPolicy, PhaseGroup};
 use lctx_model::domain::{
     assertion::*, attribution::*, calls::*, conditions::Diagram, input::*, source::*, *,
 };
@@ -158,60 +160,100 @@ fn report(
         .collect();
     Report { rows, supports }
 }
-fn site<'a>(reports: &'a [Report], symbols: &'a [ProviderSymbol]) -> SiteTargets<'a> {
-    let mut sets = Vec::new();
-    for report in reports {
-        let r = &report.rows;
-        for resolution in &r.resolutions {
-            let qualification = r
-                .qualifications
-                .iter()
-                .find(|q| q.id() == resolution.qualification)
-                .unwrap();
-            let channel = r
-                .channels
-                .iter()
-                .find(|c| c.id() == resolution.channel)
-                .unwrap();
-            let candidates = r
-                .members
-                .iter()
-                .filter(|m| m.resolution == resolution.id())
-                .map(|member| {
-                    let target = r.targets.iter().find(|t| t.id() == member.target).unwrap();
-                    let destination = r
-                        .destinations
-                        .iter()
-                        .find(|d| d.id() == target.destination)
-                        .unwrap();
-                    let symbol = destination
-                        .symbol()
-                        .and_then(|symbol| symbols.iter().find(|s| s.id() == symbol));
-                    CallCandidate {
-                        target,
-                        qualification: r
-                            .qualifications
-                            .iter()
-                            .find(|q| q.id() == target.qualification)
-                            .unwrap(),
-                        destination,
-                        symbol,
-                        receiver: r
-                            .receivers
-                            .iter()
-                            .find(|x| x.id() == target.receiver)
-                            .unwrap(),
-                        supports: &report.supports[&target.id()],
-                    }
-                })
-                .collect();
-            sets.push(TargetSet::new(resolution, qualification, channel, candidates).unwrap());
-        }
-    }
-    SiteTargets::new(sets).unwrap()
+fn site(reports: &[Report], symbols: &[ProviderSymbol]) -> event_fixture::Evaluated {
+    let reports: Vec<_> = reports.iter().map(|r| (&r.rows, &r.supports)).collect();
+    let (data, budget) = event_fixture::data(&reports, symbols);
+    event_fixture::evaluate(data, budget)
 }
-fn admitted(site: &SiteTargets<'_>, policy: CallPolicy) -> usize {
-    site.admitted(policy).len()
+fn admitted(site: &event_fixture::Evaluated, policy: CallPolicy) -> usize { site.admitted(policy).len() }
+
+#[test]
+fn supported_cross_provider_identity_agreement_is_not_raw_symbol_equality() {
+    use lctx_model::domain::normalized::{entities::*, event_normalization};
+    let w = World::new(); let first = w.symbol(&w.a, "native-f", SymbolKind::Function); let second = w.symbol(&w.b, "other-native-f", SymbolKind::Function);
+    let reports = [report(&w.base, &[callee(CallPhase::Call, CallChannel::Direct, &first)], &[(CallChannel::Direct, CallPhase::Call)], None),
+        report(&w.base, &[callee(CallPhase::Call, CallChannel::Direct, &second)], &[(CallChannel::Direct, CallPhase::Call)], None)];
+    let original = site(&reports, &[first, second.clone()]); assert!(!original.assessment().unique);
+    let event_fixture::Evaluated { mut data, budget, .. } = original;
+    let declaration = occurrence(17).id(); let entity = EntityRef::Callable { callable: CallableEntity::Source { declaration, kind: CallableKind::Function }.id() }; data.refs.insert(entity.clone()).unwrap();
+    let old: Vec<_> = data.symbol_resolutions.iter().cloned().collect(); data.symbol_resolutions = normalized::Rows::new(&budget);
+    for row in old { data.symbol_resolutions.insert(SymbolEntityResolution { entity: Some(entity.id()), reason: EntityReason::DeclarationAgreement, ..row }).unwrap(); }
+    let agreed = event_fixture::evaluate(data, budget); assert!(agreed.assessment().unique); assert_eq!(agreed.admitted(CallPolicy::Summary).len(), 2);
+    assert!(event_normalization::verify(&agreed.data, &agreed.output, &agreed.budget).unwrap().get(agreed.assessment().event).is_some());
+    let mut output = agreed.output; output.alternative_evidence = normalized::Rows::new(&agreed.budget);
+    assert!(event_normalization::verify(&agreed.data, &output, &agreed.budget).is_err(), "omitted duplicate evidence cannot yield a complete token");
+}
+
+#[test]
+fn an_unresolved_constructor_sibling_and_a_potential_remainder_prevent_summary() {
+    let w = World::new(); let new = w.symbol(&w.a, "new", SymbolKind::Function); let init = w.symbol(&w.a, "init", SymbolKind::Method);
+    let mut unresolved = callee(CallPhase::Init, CallChannel::Direct, &init);
+    unresolved.destination = CallDestination::Unresolved { reason: ObligationKind::UnresolvedTarget, native: Some(PysaUnresolvedReason::UnexpectedInitMethod) };
+    let reports = [report(&w.base, &[callee(CallPhase::New, CallChannel::Direct, &new), unresolved], &[(CallChannel::Direct, CallPhase::New), (CallChannel::Direct, CallPhase::Init)], None)];
+    let result = site(&reports, &[new.clone(), init.clone()]); assert!(result.assessment().unresolved); assert!(result.admitted(CallPolicy::Summary).is_empty());
+    assert_eq!(result.admitted(CallPolicy::Association).len(), 2);
+    let potential = NativeCallee { modality: Modality::Potential, ..callee(CallPhase::Call, CallChannel::Direct, &init) };
+    let reports = [report(&w.base, &[callee(CallPhase::Call, CallChannel::Direct, &new), potential], &[(CallChannel::Direct, CallPhase::Call)], None)];
+    let result = site(&reports, &[new, init]); assert!(!result.assessment().unique); assert!(result.admitted(CallPolicy::Summary).is_empty());
+    assert_eq!(result.admitted(CallPolicy::Invocation).len(), 1); assert_eq!(result.admitted(CallPolicy::Association).len(), 2);
+}
+
+#[test]
+fn stored_policy_mutation_and_short_resources_refuse_complete_event_admission() {
+    use lctx_model::domain::normalized::{event_normalization, events::*};
+    let w = World::new(); let f = w.symbol(&w.a, "f", SymbolKind::Function);
+    let reports = [report(&w.base, &[callee(CallPhase::Call, CallChannel::Direct, &f)], &[], None)];
+    let mut result = site(&reports, &[f]); assert!(result.admitted(CallPolicy::Summary).is_empty());
+    let assessment = result.output.policy_assessments.iter().find(|a| a.policy == CallPolicy::Summary).unwrap().id();
+    let alternative = result.output.alternatives.iter().next().unwrap().id();
+    result.output.admissions.insert(CallPolicyAdmission { assessment, alternative }).unwrap();
+    assert!(event_normalization::verify(&result.data, &result.output, &result.budget).is_err());
+    let budget = lctx_model::domain::resources::ResourceBudget::fixed(64).unwrap();
+    assert!(matches!(event_normalization::normalize(&result.data, &budget), Err(ModelError::Resource { .. }))); assert_eq!(budget.reserved(), 0);
+}
+
+#[test]
+fn flow_paths_link_exact_explicit_events_without_merging_distinct_paths_or_contexts() {
+    use lctx_model::domain::{flow::*, normalized::events::FlowEventReason};
+    let w = World::new(); let f = w.symbol(&w.a, "f", SymbolKind::Function);
+    let reports = [report(&w.base, &[callee(CallPhase::Call, CallChannel::Direct, &f)], &[(CallChannel::Direct, CallPhase::Call)], None)];
+    let event_fixture::Evaluated { mut data, budget, .. } = site(&reports, &[f]);
+    let place = value::Place { root: value::PlaceRoot::Occurrence { occurrence: occurrence(1).id() }.id(), path: value::AccessPath::empty().id() };
+    let use_ = FlowUse { occurrence: occurrence(1).id(), place: place.id() };
+    let value = FlowValueObservation { qualification: w.base.id(), use_: use_.id(), sink: occurrence(3).id(), kind: FlowSinkKind::Return, transfer: transfer::TransferKind::Derived, through_call: true };
+    for operand in [occurrence(1).id(), occurrence(2).id()] {
+        let (path, steps) = FlowCallPath::new(&[(occurrence(0).id(), operand, FlowCallOperandRole::Argument)]).unwrap();
+        for step in steps { data.steps.insert(step).unwrap(); }
+        data.paths.insert(FlowValuePathObservation { qualification: w.base.id(), value: value.id(), path: path.id() }).unwrap();
+    }
+    let (missing, steps) = FlowCallPath::new(&[(occurrence(19).id(), occurrence(2).id(), FlowCallOperandRole::Callee)]).unwrap();
+    for step in steps { data.steps.insert(step).unwrap(); }
+    data.paths.insert(FlowValuePathObservation { qualification: w.base.id(), value: value.id(), path: missing.id() }).unwrap();
+    let foreign = AnalysisContext { config_digest: ContentHash::of(b"foreign flow context"), ..w.context };
+    let foreign_q = AssertionQualification { context: foreign.id(), ..w.base }; data.qualifications.insert(foreign_q.clone()).unwrap();
+    let foreign_value = FlowValueObservation { qualification: foreign_q.id(), ..value };
+    let path = data.paths.iter().find(|p| p.path != missing.id()).unwrap().path;
+    data.paths.insert(FlowValuePathObservation { qualification: foreign_q.id(), value: foreign_value.id(), path }).unwrap();
+    let result = event_fixture::evaluate(data, budget);
+    assert_eq!(result.output.flow_links.len(), 4); assert_eq!(result.output.flow_links.iter().filter(|l| l.reason == FlowEventReason::ExactEvent).count(), 2);
+    assert_eq!(result.output.flow_links.iter().filter(|l| l.reason == FlowEventReason::NoReportedEvent).count(), 2);
+}
+
+#[test]
+fn a_declared_provider_site_without_its_resolution_keeps_the_event_open() {
+    let w = World::new(); let f = w.symbol(&w.a, "f", SymbolKind::Function);
+    let reports = [report(&w.base, &[callee(CallPhase::Call, CallChannel::Direct, &f)], &[(CallChannel::Direct, CallPhase::Call)], None)];
+    let event_fixture::Evaluated { mut data, budget, .. } = site(&reports, std::slice::from_ref(&f));
+    let module = ProviderModule::Acquired { module: Module { source: occurrence(0).source, qualified_name: "m".into() }.id() };
+    data.provider_modules.insert(module.clone()).unwrap();
+    let caller = ProviderCallable::ModuleBody { provider: w.b.id(), context: w.context.id(), module: module.id() }; data.provider_callables.insert(caller.clone()).unwrap();
+    let source = ProviderCallSite { qualification: w.base.id(), site: occurrence(0).id(), origin: CallOrigin::explicit(), kind: PysaSiteKind::Regular, caller: caller.id(), callee: PysaCalleeKind::Call, is_attribute: None };
+    data.call_sites.insert(source.clone()).unwrap();
+    let (run, _) = ProviderRun::new(w.b.id(), w.context.id(), InputRevision::from_entries(vec![]).unwrap().id(), w.context.config_digest, [FactFamily::Calls]).unwrap();
+    let surface = ProviderSurface { provider: w.b.id(), family: FactFamily::Calls, name: "extra-call-report".into() };
+    data.site_supports.insert(ProviderCallSiteSupport { assertion: source.id(), run: run.id(), surface: surface.id(), evidence: Evidence::Occurrence { occurrence: source.site }.id(), origin: Origin::AnalyzerAssertion, mode: ExtractionMode::ReportDecode, fidelity: Fidelity::NativeStructural }).unwrap();
+    let result = event_fixture::evaluate(data, budget); assert!(!result.assessment().complete); assert!(result.admitted(CallPolicy::Summary).is_empty());
+    assert_eq!(result.admitted(CallPolicy::Invocation).len(), 1);
 }
 
 #[test]
@@ -248,7 +290,7 @@ fn site_uniqueness_is_decided_over_every_resolution_at_the_site() {
         ),
     ];
     let agreement = site(&reports, &symbols);
-    assert!(agreement.facts().unique && agreement.facts().complete);
+    assert!(agreement.assessment().unique && agreement.assessment().complete);
     assert_eq!(admitted(&agreement, CallPolicy::Summary), 2);
     // Different symbols disagree: no Summary, but Dataflow keeps both alternatives.
     let reports = [
@@ -266,7 +308,7 @@ fn site_uniqueness_is_decided_over_every_resolution_at_the_site() {
         ),
     ];
     let disagreement = site(&reports, &symbols);
-    assert!(disagreement.facts().disagreement && !disagreement.facts().unique);
+    assert!(disagreement.assessment().disagreement && !disagreement.assessment().unique);
     assert_eq!(admitted(&disagreement, CallPolicy::Summary), 0);
     assert_eq!(admitted(&disagreement, CallPolicy::Dataflow), 2);
     // C(): __new__ and __init__ form one construction; each phase is unique, so both are summarized.
@@ -283,7 +325,7 @@ fn site_uniqueness_is_decided_over_every_resolution_at_the_site() {
         None,
     )];
     let constructed = site(&construct, &symbols);
-    assert_eq!(constructed.facts().group, Some(PhaseGroup::Construct));
+    assert_eq!(constructed.assessment().group, Some(PhaseGroup::Construct));
     assert_eq!(admitted(&constructed, CallPolicy::Summary), 2);
     // x(): a plain call and a construction are two events; nothing is summarized.
     let mixed = [report(
@@ -307,7 +349,7 @@ fn site_uniqueness_is_decided_over_every_resolution_at_the_site() {
         None,
     )];
     let partial = site(&incomplete, &symbols);
-    assert!(!partial.facts().complete);
+    assert!(!partial.assessment().complete);
     assert_eq!(admitted(&partial, CallPolicy::Summary), 0);
     assert_eq!(admitted(&partial, CallPolicy::Dataflow), 1);
 }
@@ -335,16 +377,16 @@ fn higher_order_potential_and_unresolved_alternatives_never_become_direct_calls(
         None,
     )];
     let mapped = site(&reports, &symbols);
-    assert!(mapped.facts().unique);
+    assert!(mapped.assessment().unique);
     assert_eq!(
-        mapped.facts().targets[&CallPhase::Call],
-        BTreeSet::from([map.id()])
+        mapped.phase_targets()[&CallPhase::Call],
+        BTreeSet::from([event_fixture::entity(&map).id()])
     );
     let dataflow = mapped.admitted(CallPolicy::Dataflow);
     assert_eq!(dataflow.len(), 1, "f is never a direct dataflow call");
     assert_eq!(mapped.admitted(CallPolicy::Summary), dataflow);
     assert_eq!(admitted(&mapped, CallPolicy::Association), 2);
-    // A potential target is excluded from site facts and from every call policy.
+    // Potential evidence remains in the complete event and Association; it never grants Summary.
     let potential = NativeCallee {
         modality: Modality::Potential,
         ..callee(CallPhase::Call, CallChannel::Direct, &f)
@@ -356,7 +398,8 @@ fn higher_order_potential_and_unresolved_alternatives_never_become_direct_calls(
         None,
     )];
     let maybe = site(&reports, &symbols);
-    assert!(!maybe.facts().unique);
+    assert!(!maybe.assessment().exact);
+    assert_eq!(admitted(&maybe, CallPolicy::Association), 1);
     for policy in [
         CallPolicy::Invocation,
         CallPolicy::Dataflow,
@@ -462,10 +505,10 @@ fn an_override_dispatch_set_is_never_a_direct_target() {
     let reports = [report(&w.base, &[dispatch], &call, None)];
     let dispatched = site(&reports, &symbols);
     assert!(
-        dispatched.facts().targets.is_empty(),
+        dispatched.phase_targets().is_empty(),
         "a dispatch set names no direct target"
     );
-    assert!(dispatched.facts().dispatch && !dispatched.facts().unique);
+    assert!(dispatched.assessment().dispatch && !dispatched.assessment().unique);
     assert_eq!(
         admitted(&dispatched, CallPolicy::Invocation),
         1,
@@ -486,7 +529,7 @@ fn an_override_dispatch_set_is_never_a_direct_target() {
         None,
     )];
     let unique = site(&reports, &symbols);
-    assert!(unique.facts().unique && !unique.facts().dispatch);
+    assert!(unique.assessment().unique && !unique.assessment().dispatch);
     assert_eq!(
         (
             admitted(&unique, CallPolicy::Summary),
@@ -605,12 +648,12 @@ fn implicit_calls_at_one_site_are_distinct_events() {
         [event(OriginStep::ForIter, &iter)],
         [event(OriginStep::ForNext, &next)],
     );
-    assert!(site(&for_iter, &symbols).facts().unique && site(&for_next, &symbols).facts().unique);
+    assert!(site(&for_iter, &symbols).assessment().unique && site(&for_next, &symbols).assessment().unique);
     assert_ne!(
         for_iter[0].rows.targets[0].origin,
         for_next[0].rows.targets[0].origin
     );
-    // Asked as one event they would disagree; the site view refuses to mix them.
+    // Normalization keeps both events distinct rather than collapsing their shared site.
     let both = [
         event(OriginStep::ForIter, &iter),
         event(OriginStep::ForNext, &next),
@@ -620,32 +663,9 @@ fn implicit_calls_at_one_site_are_distinct_events() {
         .flat_map(|r| r.rows.resolutions.iter())
         .collect();
     assert_eq!(resolutions.len(), 2);
-    let sets: Vec<_> = both
-        .iter()
-        .map(|report| {
-            let r = &report.rows;
-            let target = &r.targets[0];
-            TargetSet::new(
-                &r.resolutions[0],
-                &r.qualifications[0],
-                &r.channels[0],
-                vec![CallCandidate {
-                    target,
-                    qualification: &r.qualifications[0],
-                    destination: &r.destinations[0],
-                    symbol: symbols
-                        .iter()
-                        .find(|s| Some(s.id()) == r.destinations[0].symbol()),
-                    receiver: &r.receivers[0],
-                    supports: &report.supports[&target.id()],
-                }],
-            )
-            .unwrap()
-        })
-        .collect();
-    assert!(
-        matches!(SiteTargets::new(sets), Err(ModelError::Invalid(message)) if message.contains("mix call events"))
-    );
+    let separate = site(&both, &symbols);
+    assert_eq!(separate.output.events.len(), 2);
+    assert!(separate.output.assessments.iter().all(|a| a.unique));
     // A resolution cannot hold a target of another event.
     let r = &both[0].rows;
     assert!(

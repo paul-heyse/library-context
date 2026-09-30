@@ -360,8 +360,16 @@ pub(super) fn lower(
         tables.push(table.to_string(PostgresQueryBuilder));
     }
     let s = quoted(&schema);
+    let mut views = derivation_views(model, relations, &schema);
+    use lctx_model::domain::normalized::events::CallPolicy;
+    if CallPolicy::view_relations().iter().all(|name| relations.contains(name)) {
+        for policy in CallPolicy::ALL {
+            views.push(format!("CREATE VIEW {}.{} AS {}", s, quoted(policy.view_name()),
+                policy.select_sql(|name| format!("{s}.{}", quoted(name)))));
+        }
+    }
     Lowering {
-        views: derivation_views(model, relations, &schema),
+        views,
         grant_staging: vec![
             format!("GRANT USAGE ON SCHEMA {s} TO lctx_importer"),
             format!("GRANT INSERT ON ALL TABLES IN SCHEMA {s} TO lctx_importer"),

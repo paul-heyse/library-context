@@ -365,15 +365,23 @@ call site × target alternative × signature variant × actual → formal place.
 unmapped, refused). Signature alternatives stay separate rows. Independent alternatives never jointly
 establish one valid invocation.
 
-**Phase 3 policy and binding realization (Accepted target; Proposed implementation evidence, 2026-09-30).** Assemble complete normalized
+**Phase 3 event and policy realization (Implemented, focused Tested 2026-09-30; N4).** Assemble complete normalized
 events and their alternatives before applying policy; preserve context, origin, channel, phase,
 open remainders and qualifications. One model evaluator stores total policy assessments and
 admissions. Generated views select these memberships by policy code; they do not reimplement
 the predicates. Association retains Potential evidence without granting invocation or summary
 admission. Keep source signatures separate from effective-callable assessments; current producer
 evidence leaves arbitrary decorator transformations explicitly unknown. Recognizing descriptor
-metadata does not itself admit a body.
+metadata does not itself admit a body. Raw provider/site and resolution supports remain explicit;
+missing declared provider resolution evidence keeps an event open. `CompleteEvent` is privately
+constructed from the full normalized event and can be recovered only by shared validation, never
+from a policy-filtered query. The former public raw-symbol Summary route is removed. Flow-path
+links retain each qualified path and ordered argument/callee step, matching only the explicit event
+in the same context and recording missing correspondence. They establish no transfer. PostgreSQL
+views and DataFusion logical views use the same model-owned membership query. The latter require
+completed sources including the event invariant owner; inlining preserves physical-scan admission.
 
+**Stored binding realization (Accepted target; Proposed implementation evidence, 2026-09-30; N5).**
 The sole binder consumes complete raw variants and actuals. Store successful and refused attempts,
 their exact premises and member-set digest. Shared validation replays the binder; only a validated
 complete event, ownership and binding can create the private composition-admission token for P4.

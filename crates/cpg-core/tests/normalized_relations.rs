@@ -1,17 +1,21 @@
-//! Real native facts -> frozen checkpoint -> completed-stage N1 through N3 reads and outputs.
+//! Real native facts -> frozen checkpoint -> completed-stage normalization and policy views.
 use cpg_core::model_runtime::{AttemptRuntime, RuntimeOptions};
 use cpg_extract::{acquisition::AcquiredInput, bundle::{CapturedInputs, run_stage}, capture::CapturedInput};
-use lctx_model::domain::{admission::FrontierContract, normalized::{entity_normalization, relation_normalization, callable_normalization}, stages::*, *};
+use lctx_model::domain::{admission::FrontierContract, normalized::{entity_normalization, relation_normalization, callable_normalization, event_normalization, events::*}, stages::*, *};
 use lctx_postgres::{generations::GenerationStore, roles::{Role, RoleConfig}, testing::DisposableDatabase};
 use std::sync::Arc;
+#[derive(Debug, Clone, PartialEq, Eq, lctx_model::Domain)]
+#[model(name = "policy_view_probes", semantic_source = include_bytes!("normalized_relations.rs"))]
+struct PolicyProbe { #[model(key)] name: String }
 async fn run(profile: Profile) {
     let runtime = AttemptRuntime::new(RuntimeOptions { memory_bytes: 1 << 30, partitions: 2 }).unwrap();
     let budget = runtime.budget();
     let db = DisposableDatabase::start().await;
     db.migrate().await;
-    let config = RoleConfig { format: 1, role: Role::Importer, url: db.url("lctx_importer"), max_connections: 4,
-        provider_connections: 2, acquire_timeout_seconds: 5, statement_timeout_seconds: 60, lock_timeout_seconds: 10 };
-    let model = Arc::new(model().unwrap());
+    let config = RoleConfig { format: 1, role: Role::Importer, url: db.url("lctx_importer"), max_connections: 6,
+        provider_connections: 4, acquire_timeout_seconds: 5, statement_timeout_seconds: 60, lock_timeout_seconds: 10 };
+    let mut relations = model().unwrap().relations().to_vec(); relations.push(Relation::of::<PolicyProbe>());
+    let model = Arc::new(ValidatedModel::validate(relations).unwrap());
     let store = GenerationStore::install(db.owner.clone(), model.clone()).await.unwrap();
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/python/normalized_relations");
     let captured = Arc::new(CapturedInputs::new(vec![AcquiredInput::tree(
@@ -22,6 +26,12 @@ async fn run(profile: Profile) {
     declarations.push(entity_normalization::stage());
     declarations.push(relation_normalization::stage(profile));
     declarations.push(callable_normalization::stage(profile));
+    declarations.push(event_normalization::stage(profile));
+    let mut probe_inputs = event_normalization::stage(profile).inputs;
+    macro_rules! probe_input { ($($field:ident: $ty:ty,)*) => { $(probe_inputs.push(RelationUse::stored::<$ty>());)* }; }
+    lctx_model::normalized_event_outputs!(probe_input);
+    declarations.push(Stage { name: "probe_policy_views", inputs: probe_inputs, outputs: vec![RelationUse::of::<PolicyProbe>()], contributes: vec![], coverage: vec![], provider: None,
+        profiles: vec![profile], effect: Effect::Pure, code: ContentHash::of(include_bytes!("normalized_relations.rs")), configuration: ContentHash::of(b"policy views") });
     let schedule = Schedule::build(&model, declarations, &[], profile).unwrap();
     let facts = FrontierContract::facts(&model, profile).unwrap();
     let mut execution = schedule.execute();
@@ -40,6 +50,31 @@ async fn run(profile: Profile) {
         } else if declaration.name == "normalize_callables" {
             cpg_core::stage_runtime::run_declared_stage(&mut execution, declaration, async |access| {
                 cpg_core::normalize::callables(access, &attempt, &config, &runtime, &model).await
+            }, &mut |_| {}).await.unwrap();
+        } else if declaration.name == "normalize_events" {
+            cpg_core::stage_runtime::run_declared_stage(&mut execution, declaration, async |access| {
+                cpg_core::normalize::events(access, &attempt, &config, &runtime, &model).await
+            }, &mut |_| {}).await.unwrap();
+        } else if declaration.name == "probe_policy_views" {
+            cpg_core::stage_runtime::run_declared_stage(&mut execution, declaration, async |access| {
+                use cpg_core::generation_read::{AttemptSession, ProviderOptions};
+                let reader = AttemptSession::open(&config, &attempt, &access, model.clone(), ProviderOptions::default()).await.unwrap();
+                let session = runtime.session(&access);
+                assert!(session.register_call_policy_views().await.is_err(), "unregistered or unvalidated sources cannot supply policy views");
+                macro_rules! register { ($($ty:ty),+) => { $(let permit = access.read::<$ty>()?; session.register(&permit, reader.table(&permit).unwrap())?;)+ }; }
+                register!(NormalizedCallEvent, NormalizedCallAlternative, CallPolicyAssessment, CallPolicyAdmission);
+                session.register_call_policy_views().await?;
+                for policy in CallPolicy::ALL {
+                    let query = session.sql(&format!("SELECT COUNT(*) FROM {}", policy.view_name())).await.unwrap();
+                    assert_eq!(query.scan_demand(), 3, "logical view retains all three source scans");
+                    let batches = query.collect().await.unwrap();
+                    let actual = batches[0].column(0).as_any().downcast_ref::<arrow_array::Int64Array>().unwrap().value(0);
+                    let expected: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {}.{}", id.schema(), policy.view_name()))).fetch_one(db.owner.pool()).await.unwrap();
+                    assert_eq!(actual, expected, "{} membership parity", policy.view_name());
+                }
+                drop(session); reader.close().await.unwrap();
+                let mut output = StageOutput::new(access, &attempt, &model, budget.clone(), Default::default())?;
+                output.declare::<PolicyProbe>()?; output.finish(ProviderOutcome::Complete).await
             }, &mut |_| {}).await.unwrap();
         } else {
             let position = providers.iter().position(|p| p.declaration(profile).name == declaration.name).unwrap();

@@ -1,3 +1,5 @@
+#[path = "fixtures/events.rs"] mod event_fixture;
+use lctx_model::domain::normalized::{events::CallPolicy, event_normalization};
 use lctx_model::domain::{
     assertion::*, attribution::*, calls::*, conditions::Diagram, input::*, source::*, *,
 };
@@ -121,15 +123,11 @@ impl Fixture {
             run,
         }
     }
-    fn candidate(&self) -> CallCandidate<'_> {
-        CallCandidate {
-            target: &self.target,
-            qualification: &self.qualification,
-            destination: &self.destination,
-            symbol: Some(&self.symbol),
-            receiver: &self.receiver,
-            supports: std::slice::from_ref(&self.support),
-        }
+    fn event(&self, resolution: &CallResolution, targets: Vec<CallTarget>, destinations: Vec<CallDestination>, channel: CallChannel, supports: Vec<CallTargetSupport>) -> event_fixture::Evaluated {
+        let members = targets.iter().map(|target| CallResolutionMember { resolution: resolution.id(), target: target.id() }).collect();
+        let rows = NormalizedSite { qualifications: vec![self.qualification.clone()], channels: vec![channel], destinations, receivers: vec![self.receiver.clone()], targets, resolutions: vec![resolution.clone()], members };
+        let mut evidence: BTreeMap<_, Vec<_>> = BTreeMap::new(); for support in supports { evidence.entry(support.assertion).or_default().push(support); }
+        let (data, budget) = event_fixture::data(&[(&rows, &evidence)], std::slice::from_ref(&self.symbol)); event_fixture::evaluate(data, budget)
     }
     /// The call's syntax and complete ordered arguments, asserted by the fixture's qualification.
     fn call(&self, actuals: &[Actual]) -> (CallSyntax, Vec<CallArgument>) {
@@ -182,126 +180,26 @@ fn actual(n: i64, kind: ArgumentKind, name: Option<&str>) -> Actual {
 
 #[test]
 fn complete_alternatives_precede_policies_and_higher_order_never_becomes_direct() {
-    let fixture = Fixture::new();
-    let f = &fixture;
-    let (resolution, _) = CallResolution::new(
-        &f.qualification,
-        f.target.site,
-        CallOrigin::explicit(),
-        f.channel.id(),
-        CallPhase::Call,
-        true,
-        std::slice::from_ref(&f.target),
-    )
-    .unwrap();
-    let set = SiteTargets::new(vec![
-        TargetSet::new(
-            &resolution,
-            &f.qualification,
-            &f.channel,
-            vec![f.candidate()],
-        )
-        .unwrap(),
-    ])
-    .unwrap();
-    assert_eq!(set.admitted(CallPolicy::Summary), vec![f.target.id()]);
-    assert_eq!(set.admitted(CallPolicy::Invocation), vec![f.target.id()]);
-    let unresolved = CallDestination::Unresolved {
-        reason: ObligationKind::UnresolvedTarget,
-        native: None,
-    };
-    let unknown = CallTarget {
-        destination: unresolved.id(),
-        ..f.target.clone()
-    };
-    let support = CallTargetSupport {
-        assertion: unknown.id(),
-        ..f.support.clone()
-    };
-    let (resolution, _) = CallResolution::new(
-        &f.qualification,
-        f.target.site,
-        CallOrigin::explicit(),
-        f.channel.id(),
-        CallPhase::Call,
-        true,
-        &[f.target.clone(), unknown.clone()],
-    )
-    .unwrap();
-    assert!(
-        TargetSet::new(
-            &resolution,
-            &f.qualification,
-            &f.channel,
-            vec![f.candidate()]
-        )
-        .is_err(),
-        "a filtered set cannot claim unique resolution"
-    );
-    let supports = [support];
-    let set = SiteTargets::new(vec![
-        TargetSet::new(
-            &resolution,
-            &f.qualification,
-            &f.channel,
-            vec![
-                f.candidate(),
-                CallCandidate {
-                    target: &unknown,
-                    qualification: &f.qualification,
-                    destination: &unresolved,
-                    symbol: None,
-                    receiver: &f.receiver,
-                    supports: &supports,
-                },
-            ],
-        )
-        .unwrap(),
-    ])
-    .unwrap();
-    assert!(set.admitted(CallPolicy::Summary).is_empty());
-    assert_eq!(set.admitted(CallPolicy::Dataflow), vec![f.target.id()]);
+    let f = Fixture::new();
+    let resolution = |targets: &[CallTarget], channel: &CallChannel| CallResolution::new(&f.qualification, f.target.site, CallOrigin::explicit(), channel.id(), CallPhase::Call, true, targets).unwrap().0;
+    let initial = resolution(std::slice::from_ref(&f.target), &f.channel);
+    let known = f.event(&initial, vec![f.target.clone()], vec![f.destination.clone()], f.channel.clone(), vec![f.support.clone()]);
+    assert_eq!(known.admitted(CallPolicy::Summary), vec![f.target.id()]); assert_eq!(known.admitted(CallPolicy::Invocation), vec![f.target.id()]);
+    let unresolved = CallDestination::Unresolved { reason: ObligationKind::UnresolvedTarget, native: None };
+    let unknown = CallTarget { destination: unresolved.id(), ..f.target.clone() };
+    let support = CallTargetSupport { assertion: unknown.id(), ..f.support.clone() };
+    let complete = resolution(&[f.target.clone(), unknown.clone()], &f.channel);
+    let set = f.event(&complete, vec![f.target.clone(), unknown.clone()], vec![f.destination.clone(), unresolved], f.channel.clone(), vec![f.support.clone(), support]);
+    assert!(set.admitted(CallPolicy::Summary).is_empty()); assert_eq!(set.admitted(CallPolicy::Dataflow), vec![f.target.id()]);
+    let mut data = set.data; data.members = lctx_model::domain::normalized::Rows::new(&set.budget);
+    data.members.insert(CallResolutionMember { resolution: complete.id(), target: f.target.id() }).unwrap();
+    assert!(event_normalization::normalize(&data, &set.budget).is_err(), "a filtered set cannot manufacture uniqueness");
     let channel = CallChannel::HigherOrder { argument_index: 0 };
-    let higher = CallTarget {
-        channel: channel.id(),
-        ..f.target.clone()
-    };
-    let support = CallTargetSupport {
-        assertion: higher.id(),
-        ..f.support.clone()
-    };
-    let (resolution, _) = CallResolution::new(
-        &f.qualification,
-        higher.site,
-        CallOrigin::explicit(),
-        channel.id(),
-        CallPhase::Call,
-        true,
-        std::slice::from_ref(&higher),
-    )
-    .unwrap();
-    let supports = [support];
-    let set = SiteTargets::new(vec![
-        TargetSet::new(
-            &resolution,
-            &f.qualification,
-            &channel,
-            vec![CallCandidate {
-                target: &higher,
-                supports: &supports,
-                ..f.candidate()
-            }],
-        )
-        .unwrap(),
-    ])
-    .unwrap();
-    for policy in [
-        CallPolicy::Invocation,
-        CallPolicy::Dataflow,
-        CallPolicy::Summary,
-    ] {
-        assert!(set.admitted(policy).is_empty());
-    }
+    let higher = CallTarget { channel: channel.id(), ..f.target.clone() };
+    let support = CallTargetSupport { assertion: higher.id(), ..f.support.clone() };
+    let complete = resolution(std::slice::from_ref(&higher), &channel);
+    let set = f.event(&complete, vec![higher.clone()], vec![f.destination.clone()], channel, vec![support]);
+    for policy in [CallPolicy::Invocation, CallPolicy::Dataflow, CallPolicy::Summary] { assert!(set.admitted(policy).is_empty()); }
     assert_eq!(set.admitted(CallPolicy::Association), vec![higher.id()]);
     let arrow = Batch::new(&f.model, vec![higher.clone(), unknown], &budget()).unwrap();
     assert_eq!(CallTarget::decode(arrow.arrow()).unwrap(), arrow.rows());
@@ -654,16 +552,7 @@ fn binding_context_and_receiver_varargs_are_explicit() {
         &[f.target.clone()],
     )
     .unwrap();
-    let set = SiteTargets::new(vec![
-        TargetSet::new(
-            &resolution,
-            &f.qualification,
-            &f.channel,
-            vec![f.candidate()],
-        )
-        .unwrap(),
-    ])
-    .unwrap();
+    let set = f.event(&resolution, vec![f.target.clone()], vec![f.destination.clone()], f.channel.clone(), vec![f.support.clone()]);
     assert!(set.admitted(CallPolicy::Dataflow).is_empty());
     assert!(set.admitted(CallPolicy::Invocation).is_empty());
     assert_eq!(set.admitted(CallPolicy::Association), vec![f.target.id()]);
