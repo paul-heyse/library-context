@@ -1,7 +1,7 @@
 ---
 id: ADR-0101
 title: Build normalized frontiers in self-contained cumulative generations
-status: proposed
+status: accepted
 date: 2026-09-30
 supersedes: []
 superseded-by: null
@@ -36,7 +36,7 @@ Provider-session F04/F06/F07 and store-lifecycle F08 remain open under the
 
 ## Decision
 
-**Proposed:** choose option 4. `compile --through normalized` captures input once and runs facts
+**Accepted target:** choose option 4. `compile --through normalized` captures input once and runs facts
 and normalization in one attempt, producing a self-contained L0+L1 generation. It does not publish
 or select intermediate facts. Facts compilation remains supported; future serving admission is
 independent of the operator's generation-selection pointer.
@@ -71,4 +71,4 @@ No throughput benefit is claimed; PostgreSQL work increases relative to memory-o
 
 P3 deliberately has no reuse of an external facts generation. Reconsider a validated copy/import
 stage or this decision when a measured rebuild cost and a named incremental consumer justify it.
-Acceptance of this proposal would authorize the design, not close its implementation findings.
+Acceptance authorizes the design; implementation findings remain open until their controls pass.

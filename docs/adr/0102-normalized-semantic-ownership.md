@@ -1,7 +1,7 @@
 ---
 id: ADR-0102
 title: Normalize evidence through typed entities, complete events and stored policy admissions
-status: proposed
+status: accepted
 date: 2026-09-30
 supersedes: []
 superseded-by: null
@@ -34,7 +34,7 @@ Existing C04, composition F04 and related P3/P4 obligations remain under the
 
 ## Decision
 
-**Proposed:** establish nominal entities from declaration occurrences or explicitly qualified
+**Accepted target:** establish nominal entities from declaration occurrences or explicitly qualified
 synthetic/external identities. Preserve all correspondence evidence and total unresolved/ambiguous
 outcomes. Source and stub declarations remain distinct; public exposure is a relationship rather
 than an alternative entity identity. Reuse existing occurrence, module, type and place owners.

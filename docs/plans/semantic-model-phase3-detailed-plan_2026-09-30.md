@@ -1,10 +1,10 @@
 # Phase 3: normalized semantic relations — detailed design and execution plan
 
-**Proposed, 2026-09-30.** This is the detailed Phase 3 design subordinate to the
+**Accepted execution plan; implementation in progress, 2026-09-30.** This is the detailed Phase 3 design subordinate to the
 [cutover plan](semantic-model-cutover-plan_2026-09-29.md). The parent owns phase sequencing,
 the completed P0–P2 receipts and cross-phase finding dispositions; §11 below owns the newly
 scheduled P3 packages and their implementation status. [DESIGN §15](../design/sections/semantic-model.md)
-owns the architecture. Proposed decisions: [ADR-0101](../adr/0101-cumulative-normalized-generations.md)
+owns the architecture. Accepted decisions: [ADR-0101](../adr/0101-cumulative-normalized-generations.md)
 and [ADR-0102](../adr/0102-normalized-semantic-ownership.md).
 
 **Evidence boundary.** Source and pinned interfaces were inspected against `e4ab3ea` on
@@ -706,10 +706,17 @@ required ownership, lost alternatives, unhandled availability or unbounded failu
 
 ## 11. Current package status and finding routes
 
-**2026-09-30: design only.** The independent assembled review is **Accept scoped**, at Proposed
+**2026-09-30: implementation started.** The independent assembled review is **Accept scoped**, at Proposed
 strength: A1–A3 satisfied; G1–G8 and CI-G1/CI-G3 pass; served-claim CI-G2 is outside this P3 scope.
-D0's design review is complete; decision adoption and executable-declaration preparation precede
-R1. R1–Q are not started. No implementation finding is closed by this design assessment.
+D0's design review and adoption of ADR-0101/0102 are complete. The independent expected-answer
+and deletion inventories in §§9–10 govern the implementation. R1 is in progress; R2–Q are
+not started. No implementation finding is closed by decision acceptance.
+
+| Package | State and bounded receipt |
+|---|---|
+| D0 | Accepted ADR-0101/0102 and retained the independently reviewed design and migration inventory; 2026-09-30. |
+| R1 | In progress: model-owned frontier descriptors and generic admission. Checks not_run. |
+| R2–Q | Not started. |
 
 The [assembled design review](../design_review/reviews/design_review_phase3-plan_2026-09-30.md)
 owns dated evidence for these new findings; this table owns their current disposition.
