@@ -202,6 +202,26 @@ Every symbol a record names belongs to the provider and context of its subject. 
 is display-only and establishes no structure; types are type observations. Qualified names,
 signature counts and a module's distribution are derived.
 
+**Types** (Implemented, focused Tested 2026-09-29, plan A8).
+
+A type term is Pyrefly's structure. Codes keep the existing type kinds, and forms the old kinds told
+apart only by display text have their own codes. Those forms are:
+- anonymous `TypedDict`s;
+- recursive alias references;
+- enum and `LiteralString` literals;
+- `TypeForm`;
+- the forms of a type variable, such as `P.args`.
+
+Callables, parameter lists and anonymous `TypedDict`s hold ordered, named and kinded slots. Other
+children are content-addressed sequences whose roles each form checks. Structural identity carries
+no rendering; an alias's display name is a presentation. A closure that reaches an opaque or
+truncated leaf, at any depth, is supported only as display-only.
+
+The types family also states:
+- test operands;
+- what a provider resolved about a `def`'s body;
+- a record class's fields in field order, each with exactly the flags its record model defines.
+
 **Owner rule.** One owner rule assigns each occurrence its enclosing entity: the innermost declaration
 whose body holds it, otherwise the module. It is the only definition of "caller".
 

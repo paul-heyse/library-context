@@ -17,10 +17,12 @@ async fn structural_types_and_recursive_variable_restrictions_roundtrip_without_
     for (foreign,opaque,fidelity) in [(false,false,Fidelity::NativeStructural),(true,false,Fidelity::NativeStructural),
         (false,true,Fidelity::NativeStructural),(false,true,Fidelity::DisplayOnly)] {
         let mut fixture = Fixture::new(foreign);
+        fixture.vocabulary();
+        let (fields, body) = fixture.records();
         if opaque { fixture.opaque(true,true,fidelity); }
         let valid = !foreign && (!opaque || fidelity == Fidelity::DisplayOnly);
         assert!(fixture.base.rows::<TypeTerm>().iter().any(|t| t.id() == fixture.term.id()));
-        assert_eq!(fixture.base.rows::<TypeVariable>(),vec![fixture.variable.clone()]);
+        assert!(fixture.base.rows::<TypeVariable>().contains(&fixture.variable));
         // Exercise the same in-memory check before the independent persisted-content execution.
         assert_eq!(fixture.base.check(&TypeSupport::invariants()[0]).is_ok(), valid);
         let mut generation_h = Harness::begin(&store, writer.clone(), lctx_model::domain::stages::Profile::Catalog, budget()).await.unwrap(); let generation = generation_h.generation();
@@ -31,6 +33,7 @@ async fn structural_types_and_recursive_variable_restrictions_roundtrip_without_
             CoverageScope,ProviderCoverage,Condition,ConditionNode,AssertionQualification,SourceArtifact,ArtifactChunk,Occurrence,
             LexicalScope,BindingEvent,LexicalTarget,LexicalScopeObservation,LexicalScopeSupport,BindingObservation,BindingSupport,
             ReferenceObservation,ReferenceSupport,LexicalResolution,LexicalResolutionSupport,Evidence,ProviderSymbol,Literal,TypeVariable,TypeTerm,TypeSequence,TypeSequenceMember,
+            CallableParameterList,CallableParameter,RecordFieldObservation,RecordFieldSupport,FunctionBodyObservation,FunctionBodySupport,
             TypeObservation,TypeSupport,TypePresentation,TypePresentationSupport,TypeVariableRestriction,TypeRestrictionSupport);
         generation_h.seal().await.unwrap();
         if !valid {
@@ -43,6 +46,12 @@ async fn structural_types_and_recursive_variable_restrictions_roundtrip_without_
             assert_eq!(lease.read::<TypeObservation>().await.unwrap().rows(),fixture.base.rows::<TypeObservation>());
             assert_eq!(lease.read::<TypeVariableRestriction>().await.unwrap().rows(),fixture.base.rows::<TypeVariableRestriction>());
             assert_eq!(lease.read::<Literal>().await.unwrap().rows(),fixture.base.rows::<Literal>());
+            // Record-field flags and every structural form round-trip.
+            let mut expected = fields.clone(); expected.sort_by_key(Record::id);
+            assert_eq!(lease.read::<RecordFieldObservation>().await.unwrap().rows(),expected.as_slice());
+            assert_eq!(lease.read::<FunctionBodyObservation>().await.unwrap().rows(),&[body.clone()]);
+            assert_eq!(lease.read::<TypeTerm>().await.unwrap().rows(),fixture.base.rows::<TypeTerm>());
+            assert_eq!(lease.read::<CallableParameter>().await.unwrap().rows().len(),fixture.base.rows::<CallableParameter>().len());
             lease.release().await.unwrap(); store.retire(generation).await.unwrap();
         }
     }

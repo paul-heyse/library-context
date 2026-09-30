@@ -1063,6 +1063,23 @@ The PG suite publishes and reads the fixture back and refuses a self-ancestor at
 - ForIter and ForNext events are each unique, and are refused when mixed.
 - Refused, each by its message: a site's caller that is a class or lies in a bundled module, a missing origin step, a method as a receiver class, and the overrides of a plain function. A receiver class of another provider is refused as native support.
 - The PG suite reads back the implicit event, its native unresolved reason, the provider call sites and origin steps. |
+| A8: `cargo test --release -p lctx-model` (all suites), `-p lctx-postgres --test domain_types` plus the symbols, calls, composition, syntax, lexical, documents and flow PG suites, `-p cpg-extract --test typed_conformance --test typed_lexical --test typed_syntax_shapes`, `-p cpg-core --test facts_driver`, `-p lctx --test model_describe`; `cargo check --workspace --all-targets` | passed 2026-09-29 (domain_types 10, PG domain_types 1). Schema migration: the type terms gain their remaining arms, and `callable_parameter_lists`, `callable_parameters`, `function_body_observations` and `record_field_observations` are added.
+
+**Type completion** (`domain/types.rs`):
+- **`TypeTerm` arms at the legacy codes:** TypedDict 3, Callable 6, Overload 7, BoundMethod 8, Generic 9, Module 15 (a `ProviderModule`), TypeAlias 19, SelfType 20, Annotated 21, Unpack 22, TypeGuard 23 (`GuardForm`), ParamList 24, SpecialForm 25.
+- **Appended arms** for distinctions the legacy kept in display text: AnonymousTypedDict 28, TypeAliasReference 29, VariableForm 30 (`P.args`/`P.kwargs` and their values, a `TypeVarTuple` element, a variable as a value; the legacy folded `P.args` into `ParamSpec`), EnumLiteral 31, LiteralString 32, TypeForm 33.
+- **Dropped from identity:** a union's alias display name, now a presentation.
+- **Parameter lists and roles.** `CallableParameterList` (the plan's `TypeParameterList`) holds named, kinded slots with requiredness exactly for non-variadic ones. `TypeChildRole` gains Signature and TypeParameter, and `TypeRole` gains `TestOperand` (T8).
+- **Observations.** `FunctionBodyObservation` (body kind, abstract, protocol, `TYPE_CHECKING`, overload; on a `def`). `RecordFieldObservation` (one record model per class, ordinals 0..n, and exactly the model's flags).
+- **Checks.** The type closure walk and shape checks cover every arm: overload signatures are callables, a generic binds variables over a callable or alias, a callable's slots match its form, and a module is its own provider's. Provider modules now live in `TypeIndex`, shared by support checks.
+
+**Controls** (`domain_types`):
+- every form validates, and the display-told forms are distinct;
+- `TestOperand` is supported;
+- truncation two levels deep (a parameter inside an overload inside a bound method) refuses structural support and accepts display-only;
+- each shape refusal fires with its message, as do a module another provider bundles and each record model's foreign flags, gaps and mixed models;
+- a module's body is refused;
+- PG reads back record fields, the function body, every term and the parameter slots. |
 | `just fmt`, `just test-all`, facts pilots | not_run: functional scope incomplete |
 
 Independent bounded reviewers accepted artifact/capture/acquisition corrections and the

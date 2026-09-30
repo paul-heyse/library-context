@@ -33,36 +33,165 @@ pub struct TypeVariable {
     pub name: String,
 }
 fn invalid(message: &str) -> ModelError { ModelError::Invalid(message.into()) }
+fn validate_term(row: &TypeTerm) -> Result<(),ModelError> {
+    let named = match row {
+        TypeTerm::TypeAlias { name,.. } | TypeTerm::TypeAliasReference { name,.. } | TypeTerm::SpecialForm { form: name } | TypeTerm::EnumLiteral { member: name,.. }
+            | TypeTerm::Overload { function: name,.. } => !name.is_empty(),
+        TypeTerm::Callable { function,.. } => function.as_ref().is_none_or(|name| !name.is_empty()),
+        _ => true,
+    };
+    if !named { return Err(invalid("a named type form is named")); }
+    Ok(())
+}
 fn validate_variable(row: &TypeVariable) -> Result<(),ModelError> {
     if row.name.is_empty() || row.anchor_start < 0 || row.anchor_end < row.anchor_start || row.slot < 0 {
         return Err(invalid("invalid native type-variable identity"));
     }
     Ok(())
 }
-/// Representative structural vocabulary. Codes retain the corresponding existing type-kind
-/// codes. Further native forms are added by the complete P2 producer mapping, never relabelled.
+/// Pyrefly's structural type vocabulary. Codes retain the existing type-kind codes; forms the
+/// old kinds told apart only by display text have their own appended codes. Renderings, alias
+/// display names included, are presentations.
 #[derive(Debug,Clone,PartialEq,Eq,Hash,DomainSum)]
-#[model(name = "type_terms", invariants = type_invariants)]
+#[model(name = "type_terms", validate = validate_term, invariants = type_invariants)]
 pub enum TypeTerm {
     #[model(code = 0)] ClassInstance { class: Id<ProviderSymbol>, arguments: Id<TypeSequence> },
     #[model(code = 1)] ClassObject { class: Id<ProviderSymbol> },
     #[model(code = 2)] TypeOf { target: Id<TypeTerm> },
+    /// A `TypedDict` class instance; `partial` is its update form.
+    #[model(code = 3)] TypedDict { class: Id<ProviderSymbol>, arguments: Id<TypeSequence>, partial: bool },
     #[model(code = 4)] Union { members: Id<TypeSequence> },
     #[model(code = 5)] Intersection { members: Id<TypeSequence> },
+    /// A callable signature; a `def`'s type names its function.
+    #[model(code = 6)] Callable { function: Option<String>, form: CallableForm, parameters: Id<CallableParameterList>, param_spec: Option<Id<TypeTerm>>, returns: Id<TypeTerm> },
+    #[model(code = 7)] Overload { function: String, signatures: Id<TypeSequence> },
+    #[model(code = 8)] BoundMethod { receiver: Id<TypeTerm>, function: Id<TypeTerm> },
+    /// A callable or alias quantified over its own type parameters.
+    #[model(code = 9)] Generic { parameters: Id<TypeSequence>, body: Id<TypeTerm> },
     #[model(code = 10)] Tuple { elements: Id<TypeSequence> },
     #[model(code = 11)] Literal { value: Id<Literal> },
     #[model(code = 12)] TypeVar { variable: Id<TypeVariable> },
     #[model(code = 13)] ParamSpec { variable: Id<TypeVariable> },
     #[model(code = 14)] TypeVarTuple { variable: Id<TypeVariable> },
+    /// A module as a value.
+    #[model(code = 15)] Module { module: Id<super::calls::ProviderModule> },
     #[model(code = 16)] Any { flavor: AnyFlavor },
     #[model(code = 17)] Never { flavor: NeverFlavor },
     #[model(code = 18)] None,
+    /// A type alias with its value.
+    #[model(code = 19)] TypeAlias { name: String, untyped: bool, target: Id<TypeTerm> },
+    #[model(code = 20)] SelfType { class: Id<ProviderSymbol>, arguments: Id<TypeSequence> },
+    #[model(code = 21)] Annotated { target: Id<TypeTerm> },
+    #[model(code = 22)] Unpack { target: Id<TypeTerm> },
+    #[model(code = 23)] TypeGuard { form: GuardForm, target: Id<TypeTerm> },
+    /// A parameter list standing alone: a `ParamSpec`'s value, or `Concatenate[..., P]` with its
+    /// `ParamSpec`.
+    #[model(code = 24)] ParamList { parameters: Id<CallableParameterList>, param_spec: Option<Id<TypeTerm>> },
+    /// A special form, or a type-variable declaration used as a value, by the name it is written.
+    #[model(code = 25)] SpecialForm { form: String },
     #[model(code = 26)] Other { provider: Id<Provider>, context: Id<AnalysisContext>, variant: String, display: String },
     #[model(code = 27)] Truncated { provider: Id<Provider>, context: Id<AnalysisContext>, reason: ObligationKind, display: String },
+    /// A `TypedDict` without a class: its fields are keyword-only named slots.
+    #[model(code = 28)] AnonymousTypedDict { fields: Id<CallableParameterList>, partial: bool },
+    /// A recursive alias reference: its name and arguments, never an expansion.
+    #[model(code = 29)] TypeAliasReference { module: Id<super::calls::ProviderModule>, name: String, untyped: bool, arguments: Id<TypeSequence> },
+    /// A form of a type variable: `P.args`, `P.kwargs`, their values, an element of a
+    /// `TypeVarTuple`, or the variable used as a value.
+    #[model(code = 30)] VariableForm { variable: Id<TypeVariable>, form: VariableFormKind },
+    /// An enum member literal: its class keeps same-named enums apart.
+    #[model(code = 31)] EnumLiteral { class: Id<ProviderSymbol>, member: String },
+    #[model(code = 32)] LiteralString,
+    #[model(code = 33)] TypeForm { target: Id<TypeTerm> },
+}
+/// A callable's parameter form: a (possibly partial) list, `...`, a materialization, or a prefix
+/// followed by a `ParamSpec`.
+#[derive(Debug,Clone,Copy,PartialEq,Eq,Hash,DomainCode)]
+#[repr(i16)]
+pub enum CallableForm { List = 0, Partial = 1, Ellipsis = 2, Materialization = 3, ParamSpec = 4 }
+#[derive(Debug,Clone,Copy,PartialEq,Eq,Hash,DomainCode)]
+#[repr(i16)]
+pub enum GuardForm { TypeGuard = 0, TypeIs = 1 }
+#[derive(Debug,Clone,Copy,PartialEq,Eq,Hash,DomainCode)]
+#[repr(i16)]
+pub enum VariableFormKind { Value = 0, Args = 1, Kwargs = 2, ArgsValue = 3, KwargsValue = 4, Element = 5 }
+/// An ordered list of named, kinded slots with their types: a callable's parameters, a parameter
+/// list, or an anonymous `TypedDict`'s fields. Identified by its content.
+#[derive(Debug,Clone,PartialEq,Eq,Domain)]
+#[model(name = "callable_parameter_lists", invariants = parameter_list_invariants)]
+pub struct CallableParameterList { #[model(key)] pub members: ContentHash }
+#[derive(Debug,Clone,PartialEq,Eq,Domain)]
+#[model(name = "callable_parameters", validate = validate_callable_parameter)]
+pub struct CallableParameter {
+    #[model(key)] pub list: Id<CallableParameterList>,
+    #[model(key)] pub ordinal: i64,
+    pub name: Option<String>,
+    pub kind: super::calls::ParameterKind,
+    /// Absent exactly for a variadic slot.
+    pub required: Option<bool>,
+    pub term: Id<TypeTerm>,
+}
+fn validate_callable_parameter(row: &CallableParameter) -> Result<(),ModelError> {
+    use super::calls::ParameterKind as K;
+    let variadic = matches!(row.kind, K::VarPositional | K::VarKeyword);
+    if row.ordinal < 0 || variadic == row.required.is_some() || row.name.as_ref().is_some_and(String::is_empty)
+        || (row.name.is_none() && matches!(row.kind, K::PositionalOrKeyword | K::KeywordOnly)) {
+        return Err(invalid("a callable parameter has a nonnegative ordinal, a name when passable by keyword, and requiredness exactly when not variadic"));
+    }
+    Ok(())
+}
+/// One callable parameter before it is stored.
+#[derive(Debug,Clone,PartialEq,Eq)]
+pub struct Slot { pub name: Option<String>, pub kind: super::calls::ParameterKind, pub required: Option<bool>, pub term: Id<TypeTerm> }
+fn parameter_list_digest(slots: &[Slot]) -> ContentHash {
+    let mut sink = KeySink::new("callable-parameters");
+    for (ordinal,slot) in slots.iter().enumerate() {
+        (ordinal as i64).encode(&mut sink); slot.name.encode(&mut sink); slot.kind.encode(&mut sink); slot.required.encode(&mut sink); slot.term.encode(&mut sink);
+    }
+    (slots.len() as i64).encode(&mut sink); sink.finish()
+}
+impl CallableParameterList {
+    pub fn new(slots: &[Slot]) -> Result<(Self,Vec<CallableParameter>),ModelError> {
+        if slots.len() > 4096 { return Err(invalid("callable-parameter work limit")); }
+        let row = Self { members: parameter_list_digest(slots) };
+        let members: Vec<_> = slots.iter().enumerate().map(|(ordinal,slot)| CallableParameter { list: row.id(),ordinal: ordinal as i64,
+            name: slot.name.clone(),kind: slot.kind,required: slot.required,term: slot.term }).collect();
+        for member in &members { member.validate()?; }
+        Ok((row,members))
+    }
+}
+fn parameter_list_invariants() -> Vec<Invariant> {
+    vec![Invariant { name: "callable_parameter_membership",inputs: vec![ValidationInput::of::<CallableParameterList>(&["id"]),
+        ValidationInput::of::<CallableParameter>(&["list","ordinal"])],create: std::sync::Arc::new(|budget| Box::new(ParameterListCheck { charge: StateCharge::new(budget,"callable_parameter_membership"),..Default::default() })) }]
+}
+#[derive(Default)]
+struct ParameterListCheck { charge: StateCharge,expected: ChargedMap<Id<CallableParameterList>,ContentHash>,current: Option<(Id<CallableParameterList>,Vec<Slot>)> }
+impl ParameterListCheck {
+    fn flush(&mut self) -> Result<(),ModelError> {
+        if let Some((id,slots)) = self.current.take() {
+            if self.expected.remove(&mut self.charge,&id) != Some(parameter_list_digest(&slots)) { return Err(invalid("callable parameter membership differs")); }
+        } Ok(())
+    }
+}
+impl InvariantCheck for ParameterListCheck {
+    fn visit(&mut self, relation: &str,batch: &arrow_array::RecordBatch) -> Result<(),ModelError> {
+        if relation == CallableParameterList::NAME { for row in CallableParameterList::decode(batch)? { self.expected.insert(&mut self.charge,row.id(),row.members)?; } }
+        else if relation == CallableParameter::NAME { for row in CallableParameter::decode(batch)? {
+            if self.current.as_ref().is_none_or(|(id,_)| *id != row.list) { self.flush()?; self.current = Some((row.list,Vec::new())); }
+            let (_,slots) = self.current.as_mut().expect("current list");
+            if row.ordinal != slots.len() as i64 || slots.len() >= 4096 { return Err(invalid("callable parameter gaps, duplicates or work limit")); }
+            slots.push(Slot { name: row.name,kind: row.kind,required: row.required,term: row.term });
+        } } else { return Err(invalid("undeclared callable parameter input")); }
+        Ok(())
+    }
+    fn finish(mut self: Box<Self>) -> Result<(),ModelError> {
+        self.flush()?;
+        if self.expected.values().any(|digest| *digest != parameter_list_digest(&[])) { return Err(invalid("callable parameter list has missing members")); }
+        Ok(())
+    }
 }
 #[derive(Debug,Clone,Copy,PartialEq,Eq,Hash,DomainCode)]
 #[repr(i16)]
-pub enum TypeChildRole { Argument = 0, Member = 1, Element = 4, Variadic = 5 }
+pub enum TypeChildRole { Argument = 0, Member = 1, Element = 4, Variadic = 5, Signature = 6, TypeParameter = 9 }
 #[derive(Debug,Clone,PartialEq,Eq,Domain)]
 #[model(name = "type_sequences", invariants = sequence_invariants)]
 pub struct TypeSequence { #[model(key)] pub members: ContentHash }
@@ -94,7 +223,9 @@ impl TypeSequence {
 }
 #[derive(Debug,Clone,Copy,PartialEq,Eq,Hash,DomainCode)]
 #[repr(i16)]
-pub enum TypeRole { Parameter = 0, Return = 1, CallResult = 2, Argument = 3, Raised = 4 }
+/// What a type observation types. `TestOperand` is a load in a test position (a condition's
+/// operand), typed by the provider that owns occurrences.
+pub enum TypeRole { Parameter = 0, Return = 1, CallResult = 2, Argument = 3, Raised = 4, TestOperand = 5 }
 #[derive(Debug,Clone,PartialEq,Eq,Domain,Assertion)]
 #[model(name = "type_observations")]
 #[assertion(support = TypeSupport, name = "type_supports", family = FactFamily::Types, subjects(subject, term))]
@@ -176,25 +307,48 @@ fn type_invariants() -> Vec<Invariant> {
 #[derive(Default)]
 pub(crate) struct TypeIndex {
     charge: StateCharge,
+    modules: ChargedMap<Id<super::calls::ProviderModule>,super::calls::ProviderModule>,
     symbols: ChargedMap<Id<ProviderSymbol>,ProviderSymbol>,variables: ChargedMap<Id<TypeVariable>,TypeVariable>,
     terms: ChargedMap<Id<TypeTerm>,TypeTerm>,sequences: ChargedSet<Id<TypeSequence>>,
     members: ChargedMap<Id<TypeSequence>,Vec<TypeSequenceMember>>,
+    lists: ChargedSet<Id<CallableParameterList>>,slots: ChargedMap<Id<CallableParameterList>,Vec<CallableParameter>>,
     /// Terms whose closure is verified for (provider, context, display-only support); a shared
     /// term is walked once per key, so total work is linear in the term graph.
     verified: ChargedSet<(Id<TypeTerm>,Id<Provider>,Id<AnalysisContext>,bool)>,
 }
 impl TypeIndex {
     pub fn new(budget: &super::resources::ResourceBudget, owner: &'static str) -> Self { Self { charge: StateCharge::new(budget,owner),..Self::default() } }
-    pub fn inputs() -> Vec<ValidationInput> { vec![ValidationInput::of::<ProviderSymbol>(&["id"]),ValidationInput::of::<TypeVariable>(&["id"]),
-        ValidationInput::of::<TypeSequence>(&["id"]),ValidationInput::of::<TypeSequenceMember>(&["sequence","ordinal"]),ValidationInput::of::<TypeTerm>(&["id"])] }
+    pub fn inputs() -> Vec<ValidationInput> { vec![ValidationInput::of::<super::calls::ProviderModule>(&["id"]),ValidationInput::of::<ProviderSymbol>(&["id"]),
+        ValidationInput::of::<TypeVariable>(&["id"]),ValidationInput::of::<TypeSequence>(&["id"]),ValidationInput::of::<TypeSequenceMember>(&["sequence","ordinal"]),
+        ValidationInput::of::<CallableParameterList>(&["id"]),ValidationInput::of::<CallableParameter>(&["list","ordinal"]),ValidationInput::of::<TypeTerm>(&["id"])] }
     pub fn visit_input(&mut self, relation: &str,batch: &arrow_array::RecordBatch) -> Result<bool,ModelError> {
-        if relation == ProviderSymbol::NAME { for row in ProviderSymbol::decode(batch)? { self.symbols.insert(&mut self.charge,row.id(),row)?; } }
+        if relation == super::calls::ProviderModule::NAME { for row in super::calls::ProviderModule::decode(batch)? { self.modules.insert(&mut self.charge,row.id(),row)?; } }
+        else if relation == CallableParameterList::NAME { for row in CallableParameterList::decode(batch)? { self.lists.insert(&mut self.charge,row.id())?; } }
+        else if relation == CallableParameter::NAME { for row in CallableParameter::decode(batch)? { self.slots.update(&mut self.charge,row.list,|slots| slots.push(row))?; } }
+        else if relation == ProviderSymbol::NAME { for row in ProviderSymbol::decode(batch)? { self.symbols.insert(&mut self.charge,row.id(),row)?; } }
         else if relation == TypeVariable::NAME { for row in TypeVariable::decode(batch)? { self.variables.insert(&mut self.charge,row.id(),row)?; } }
         else if relation == TypeSequence::NAME { for row in TypeSequence::decode(batch)? { self.sequences.insert(&mut self.charge,row.id())?; } }
         else if relation == TypeSequenceMember::NAME { for row in TypeSequenceMember::decode(batch)? { self.members.update(&mut self.charge,row.sequence,|members| members.push(row))?; } }
         else if relation == TypeTerm::NAME { for row in TypeTerm::decode(batch)? { self.terms.insert(&mut self.charge,row.id(),row)?; } }
         else { return Ok(false); }
         Ok(true)
+    }
+    fn list(&self, id: Id<CallableParameterList>) -> Result<&[CallableParameter],ModelError> {
+        if !self.lists.contains(&id) { return Err(invalid("callable parameter list absent")); }
+        Ok(self.slots.get(&id).map(Vec::as_slice).unwrap_or_default())
+    }
+    pub fn module(&self, id: Id<super::calls::ProviderModule>) -> Result<&super::calls::ProviderModule,ModelError> {
+        self.modules.get(&id).ok_or_else(|| invalid("provider module absent"))
+    }
+    /// A module a provider names is acquired, or its own (bundled), or its own in its context.
+    fn module_owner(&self, id: Id<super::calls::ProviderModule>, run: &ProviderRun) -> Result<(),ModelError> {
+        use super::calls::ProviderModule as M;
+        match self.module(id)? {
+            M::Acquired { .. } => Ok(()),
+            M::Bundled { provider,.. } if *provider == run.provider => Ok(()),
+            M::Namespace { provider,context,.. } | M::Unresolved { provider,context,.. } if (*provider,*context) == (run.provider,run.context) => Ok(()),
+            _ => Err(invalid("type module belongs to another provider/context")),
+        }
     }
     fn sequence(&self, id: Id<TypeSequence>) -> Result<&[TypeSequenceMember],ModelError> {
         if !self.sequences.contains(&id) { return Err(invalid("type sequence absent")); }
@@ -216,17 +370,31 @@ impl TypeIndex {
             let mut children = Vec::new();
             let term = self.terms.get(&id).ok_or_else(|| invalid("type term absent"))?;
             match term {
-                TypeTerm::ClassInstance { class,arguments } => { self.class_owner(*class,run)?; children.extend(self.sequence(*arguments)?.iter().map(|m| m.child)); },
-                TypeTerm::ClassObject { class } => self.class_owner(*class,run)?,
-                TypeTerm::TypeOf { target } => children.push(*target),
+                TypeTerm::ClassInstance { class,arguments } | TypeTerm::TypedDict { class,arguments,.. } | TypeTerm::SelfType { class,arguments } => {
+                    self.class_owner(*class,run)?; children.extend(self.sequence(*arguments)?.iter().map(|m| m.child));
+                },
+                TypeTerm::ClassObject { class } | TypeTerm::EnumLiteral { class,.. } => self.class_owner(*class,run)?,
+                TypeTerm::TypeOf { target } | TypeTerm::TypeForm { target } | TypeTerm::Annotated { target } | TypeTerm::Unpack { target }
+                    | TypeTerm::TypeGuard { target,.. } | TypeTerm::TypeAlias { target,.. } => children.push(*target),
                 TypeTerm::Union { members } | TypeTerm::Intersection { members } => children.extend(self.sequence(*members)?.iter().map(|m| m.child)),
                 TypeTerm::Tuple { elements } => children.extend(self.sequence(*elements)?.iter().map(|m| m.child)),
-                TypeTerm::TypeVar { variable } | TypeTerm::ParamSpec { variable } | TypeTerm::TypeVarTuple { variable } => self.variable_owner(*variable,run)?,
+                TypeTerm::Overload { signatures,.. } => children.extend(self.sequence(*signatures)?.iter().map(|m| m.child)),
+                TypeTerm::Generic { parameters,body } => { children.extend(self.sequence(*parameters)?.iter().map(|m| m.child)); children.push(*body); },
+                TypeTerm::BoundMethod { receiver,function } => children.extend([*receiver,*function]),
+                TypeTerm::Callable { parameters,param_spec,returns,.. } => {
+                    children.extend(self.list(*parameters)?.iter().map(|slot| slot.term)); children.extend(*param_spec); children.push(*returns);
+                },
+                TypeTerm::ParamList { parameters,param_spec } => { children.extend(self.list(*parameters)?.iter().map(|slot| slot.term)); children.extend(*param_spec); },
+                TypeTerm::AnonymousTypedDict { fields,.. } => children.extend(self.list(*fields)?.iter().map(|slot| slot.term)),
+                TypeTerm::Module { module } => self.module_owner(*module,run)?,
+                TypeTerm::TypeAliasReference { module,arguments,.. } => { self.module_owner(*module,run)?; children.extend(self.sequence(*arguments)?.iter().map(|m| m.child)); },
+                TypeTerm::TypeVar { variable } | TypeTerm::ParamSpec { variable } | TypeTerm::TypeVarTuple { variable }
+                    | TypeTerm::VariableForm { variable,.. } => self.variable_owner(*variable,run)?,
                 TypeTerm::Other { provider,context,.. } | TypeTerm::Truncated { provider,context,.. } => {
                     if (*provider,*context) != (run.provider,run.context) { return Err(invalid("opaque type belongs to another provider/context")); }
                     if fidelity != Fidelity::DisplayOnly { return Err(invalid("opaque type closure requires display-only support")); }
                 },
-                TypeTerm::Literal { .. } | TypeTerm::Any { .. } | TypeTerm::Never { .. } | TypeTerm::None => {},
+                TypeTerm::Literal { .. } | TypeTerm::Any { .. } | TypeTerm::Never { .. } | TypeTerm::None | TypeTerm::LiteralString | TypeTerm::SpecialForm { .. } => {},
             }
             for child in children { pending.push(&mut scratch,child)?; }
         }
@@ -246,13 +414,65 @@ impl InvariantCheck for TypeIndex {
     }
     fn finish(self: Box<Self>) -> Result<(),ModelError> {
         for term in self.terms.values() {
-            let class = match term { TypeTerm::ClassInstance { class,.. } | TypeTerm::ClassObject { class } => Some(class),_ => None };
+            let class = match term { TypeTerm::ClassInstance { class,.. } | TypeTerm::ClassObject { class } | TypeTerm::TypedDict { class,.. }
+                | TypeTerm::SelfType { class,.. } | TypeTerm::EnumLiteral { class,.. } => Some(class),_ => None };
             if let Some(class) = class {
                 if self.symbols.get(class).is_none_or(|s| s.kind != SymbolKind::Class) { return Err(invalid("class term lacks a native class symbol")); }
             }
+            let arm = |id: &Id<TypeTerm>| self.terms.get(id).ok_or_else(|| invalid("type term child absent"));
+            let roles = |sequence: &Id<TypeSequence>, role: TypeChildRole| -> Result<&[TypeSequenceMember],ModelError> {
+                let items = self.sequence(*sequence)?;
+                if items.iter().any(|m| m.role != role) { return Err(invalid("type sequence children have another role")); }
+                Ok(items)
+            };
             match term {
-                TypeTerm::ClassInstance { arguments,.. } => {
+                TypeTerm::ClassInstance { arguments,.. } | TypeTerm::TypedDict { arguments,.. } | TypeTerm::SelfType { arguments,.. }
+                    | TypeTerm::TypeAliasReference { arguments,.. } => {
                     if self.sequence(*arguments)?.iter().any(|m| m.role != TypeChildRole::Argument) { return Err(invalid("class type children must be arguments")); }
+                },
+                TypeTerm::Overload { signatures,.. } => {
+                    let items = roles(signatures,TypeChildRole::Signature)?;
+                    if items.is_empty() || items.iter().try_fold(false,|bad,m| Ok::<_,ModelError>(bad || !matches!(arm(&m.child)?,TypeTerm::Callable { .. }|TypeTerm::Generic { .. })))? {
+                        return Err(invalid("an overload names its function and has callable signatures"));
+                    }
+                },
+                TypeTerm::BoundMethod { function,.. } => {
+                    if !matches!(arm(function)?,TypeTerm::Callable { .. }|TypeTerm::Generic { .. }|TypeTerm::Overload { .. }) { return Err(invalid("a bound method binds a callable")); }
+                },
+                TypeTerm::Generic { parameters,body } => {
+                    let items = roles(parameters,TypeChildRole::TypeParameter)?;
+                    if items.is_empty() || items.iter().try_fold(false,|bad,m| Ok::<_,ModelError>(bad || !matches!(arm(&m.child)?,TypeTerm::TypeVar { .. }|TypeTerm::ParamSpec { .. }|TypeTerm::TypeVarTuple { .. })))?
+                        || !matches!(arm(body)?,TypeTerm::Callable { .. }|TypeTerm::TypeAlias { .. }) {
+                        return Err(invalid("a generic binds type variables over a callable or alias"));
+                    }
+                },
+                TypeTerm::Callable { form,parameters,param_spec,.. } => {
+                    let slots = self.list(*parameters)?;
+                    let prefix = slots.iter().all(|s| matches!(s.kind,super::calls::ParameterKind::PositionalOnly|super::calls::ParameterKind::PositionalOrKeyword));
+                    let valid = match form {
+                        CallableForm::List | CallableForm::Partial => param_spec.is_none(),
+                        CallableForm::Ellipsis | CallableForm::Materialization => param_spec.is_none() && slots.is_empty(),
+                        CallableForm::ParamSpec => param_spec.is_some() && prefix,
+                    };
+                    if !valid { return Err(invalid("a callable's parameters differ from its form")); }
+                },
+                TypeTerm::ParamList { parameters,param_spec } => {
+                    let prefix = self.list(*parameters)?.iter().all(|s| matches!(s.kind,super::calls::ParameterKind::PositionalOnly|super::calls::ParameterKind::PositionalOrKeyword));
+                    if param_spec.is_some() && !prefix { return Err(invalid("a concatenation prefixes positional parameters")); }
+                },
+                TypeTerm::AnonymousTypedDict { fields,.. } => {
+                    if self.list(*fields)?.iter().any(|s| s.kind != super::calls::ParameterKind::KeywordOnly || s.name.is_none()) {
+                        return Err(invalid("a typed dict's fields are named keyword-only slots"));
+                    }
+                },
+                TypeTerm::VariableForm { variable,form } => {
+                    let v = self.variables.get(variable).ok_or_else(|| invalid("type variable absent"))?;
+                    let valid = match form {
+                        VariableFormKind::Args | VariableFormKind::Kwargs | VariableFormKind::ArgsValue | VariableFormKind::KwargsValue => v.kind == TypeVariableKind::ParamSpec,
+                        VariableFormKind::Element => v.kind == TypeVariableKind::TypeVarTuple,
+                        VariableFormKind::Value => true,
+                    };
+                    if !valid { return Err(invalid("a variable form needs its variable's kind")); }
                 },
                 TypeTerm::Union { members } | TypeTerm::Intersection { members } => {
                     let items = self.sequence(*members)?;
@@ -271,6 +491,106 @@ impl InvariantCheck for TypeIndex {
                     if !valid { return Err(invalid("type variable kind differs from term")); }
                 },
                 _ => {},
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Pyrefly's resolved classification of a function body, not a source-text guess.
+#[derive(Debug,Clone,Copy,PartialEq,Eq,Hash,DomainCode)]
+#[repr(i16)]
+pub enum FunctionBodyKind { RaiseNotImplementedError = 0, ReturnNotImplemented = 1, Ellipsis = 2, Trivial = 3, Other = 4 }
+/// What a provider resolved about a `def`'s body and the declarations around it: whether callers
+/// run a real body (an abstract method, a protocol member, a stub, an overload) or its override's.
+#[derive(Debug,Clone,PartialEq,Eq,Domain,Assertion)]
+#[model(name = "function_body_observations", invariants = body_invariants)]
+#[assertion(support = FunctionBodySupport, name = "function_body_supports", family = FactFamily::Types, subjects(declaration))]
+pub struct FunctionBodyObservation {
+    #[model(key)] pub qualification: Id<AssertionQualification>,
+    #[model(key)] pub declaration: Id<Occurrence>,
+    pub body: FunctionBodyKind,
+    pub abstract_method: bool,
+    pub in_protocol_class: bool,
+    pub in_type_checking_block: bool,
+    pub overload: bool,
+}
+fn body_invariants() -> Vec<Invariant> {
+    vec![Invariant { name: "function_body_declarations",inputs: vec![ValidationInput::of::<Occurrence>(&["id"]),ValidationInput::of::<FunctionBodyObservation>(&["id"])],
+        create: std::sync::Arc::new(|budget| Box::new(BodyCheck { charge: StateCharge::new(budget,"function_body_declarations"),..Default::default() })) }]
+}
+#[derive(Default)]
+struct BodyCheck { charge: StateCharge, kinds: ChargedMap<Id<Occurrence>,super::source::SyntaxKind> }
+impl InvariantCheck for BodyCheck {
+    fn visit(&mut self, relation: &str,batch: &arrow_array::RecordBatch) -> Result<(),ModelError> {
+        if relation == Occurrence::NAME { for row in Occurrence::decode(batch)? { self.kinds.insert(&mut self.charge,row.id(),row.syntax_kind)?; } }
+        else if relation == FunctionBodyObservation::NAME { for row in FunctionBodyObservation::decode(batch)? {
+            if self.kinds.get(&row.declaration) != Some(&super::source::SyntaxKind::StmtFunctionDef) { return Err(invalid("a function body belongs to a def")); }
+        } } else { return Err(invalid("undeclared function body input")); }
+        Ok(())
+    }
+    fn finish(self: Box<Self>) -> Result<(),ModelError> { Ok(()) }
+}
+/// Which record model a class's fields come from.
+#[derive(Debug,Clone,Copy,PartialEq,Eq,Hash,DomainCode)]
+#[repr(i16)]
+pub enum RecordKind { Dataclass = 0, Attrs = 1, Pydantic = 2, TypedDict = 3, NamedTuple = 4 }
+/// One field of a record class in the provider's field order (inherited fields first), with its
+/// type and the flags its record model defines: dataclass-like fields state a default and whether
+/// `__init__` takes them (with an alias and `kw_only` when set); named-tuple fields state a default;
+/// `TypedDict` fields state requiredness and read-only.
+#[derive(Debug,Clone,PartialEq,Eq,Domain,Assertion)]
+#[model(name = "record_field_observations", validate = validate_record_field, invariants = record_invariants)]
+#[assertion(support = RecordFieldSupport, name = "record_field_supports", family = FactFamily::Types, subjects(class, term, declaration))]
+pub struct RecordFieldObservation {
+    #[model(key)] pub qualification: Id<AssertionQualification>,
+    #[model(key)] pub class: Id<ProviderSymbol>,
+    #[model(key)] pub name: String,
+    pub record: RecordKind,
+    pub ordinal: i64,
+    pub term: Id<TypeTerm>,
+    /// The field has an explicit annotation.
+    pub declared: bool,
+    pub declaration: Option<Id<Occurrence>>,
+    pub has_default: Option<bool>,
+    pub init: Option<bool>,
+    pub alias: Option<String>,
+    pub kw_only: Option<bool>,
+    pub required: Option<bool>,
+    pub read_only: Option<bool>,
+}
+fn validate_record_field(row: &RecordFieldObservation) -> Result<(),ModelError> {
+    let dataclass_like = matches!(row.record, RecordKind::Dataclass | RecordKind::Attrs | RecordKind::Pydantic);
+    let typed_dict = row.record == RecordKind::TypedDict;
+    let valid = row.ordinal >= 0 && !row.name.is_empty() && row.alias.as_ref().is_none_or(|alias| !alias.is_empty())
+        && row.has_default.is_some() == !typed_dict
+        && row.init.is_some() == dataclass_like && (dataclass_like || (row.alias.is_none() && row.kw_only.is_none()))
+        && row.required.is_some() == typed_dict && row.read_only.is_some() == typed_dict;
+    if !valid { return Err(invalid("a record field states exactly the flags its record model defines")); }
+    Ok(())
+}
+fn record_invariants() -> Vec<Invariant> {
+    vec![Invariant { name: "record_field_order",inputs: vec![ValidationInput::of::<ProviderSymbol>(&["id"]),ValidationInput::of::<RecordFieldObservation>(&["id"])],
+        create: std::sync::Arc::new(|budget| Box::new(RecordCheck { charge: StateCharge::new(budget,"record_field_order"),..Default::default() })) }]
+}
+/// A class's fields under one qualification come from one record model, at ordinals 0..n.
+#[derive(Default)]
+struct RecordCheck { charge: StateCharge, classes: ChargedSet<Id<ProviderSymbol>>,
+    fields: ChargedMap<(Id<AssertionQualification>,Id<ProviderSymbol>),Vec<(i64,RecordKind)>> }
+impl InvariantCheck for RecordCheck {
+    fn visit(&mut self, relation: &str,batch: &arrow_array::RecordBatch) -> Result<(),ModelError> {
+        if relation == ProviderSymbol::NAME { for row in ProviderSymbol::decode(batch)? { if row.kind == SymbolKind::Class { self.classes.insert(&mut self.charge,row.id())?; } } }
+        else if relation == RecordFieldObservation::NAME { for row in RecordFieldObservation::decode(batch)? {
+            if !self.classes.contains(&row.class) { return Err(invalid("a record field belongs to a class")); }
+            self.fields.update(&mut self.charge,(row.qualification,row.class),|fields| fields.push((row.ordinal,row.record)))?;
+        } } else { return Err(invalid("undeclared record field input")); }
+        Ok(())
+    }
+    fn finish(self: Box<Self>) -> Result<(),ModelError> {
+        for fields in self.fields.values() {
+            let mut ordinals: Vec<i64> = fields.iter().map(|(ordinal,_)| *ordinal).collect(); ordinals.sort_unstable();
+            if ordinals.iter().enumerate().any(|(i,ordinal)| *ordinal != i as i64) || fields.iter().any(|(_,kind)| *kind != fields[0].1) {
+                return Err(invalid("a class's record fields have one record model and ordinals 0..n"));
             }
         }
         Ok(())

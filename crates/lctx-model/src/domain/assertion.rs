@@ -263,7 +263,6 @@ struct SupportCheck<A: Assertion, S: Support<Assertion=A>> {
     lexical_scopes: ChargedMap<Id<super::lexical::LexicalScope>,Id<Occurrence>>,
     bindings: ChargedMap<Id<super::lexical::BindingEvent>,Id<Occurrence>>,
     lexical_targets: ChargedMap<Id<super::lexical::LexicalTarget>,super::lexical::LexicalTarget>,
-    provider_modules: ChargedMap<Id<super::calls::ProviderModule>,super::calls::ProviderModule>,
     export_origins: ChargedMap<Id<super::symbols::ExportOrigin>,Option<Id<super::calls::ProviderModule>>>,
     ownership: super::ownership::ScopeIndex,
     places: ChargedMap<Id<Place>,Place>, roots: ChargedMap<Id<PlaceRoot>,PlaceRoot>, transfers: ChargedMap<Id<TransferKey>,TransferKey>,
@@ -281,7 +280,7 @@ struct SupportCheck<A: Assertion, S: Support<Assertion=A>> {
 impl<A: Assertion, S: Support<Assertion=A>> SupportCheck<A,S> {
     fn new(budget: &super::resources::ResourceBudget) -> Self { Self { charge: StateCharge::new(budget,S::NAME),
         types: super::types::TypeIndex::new(budget,S::NAME),flow_uses: Default::default(),flow_definitions: Default::default(),reaching: Default::default(),document_nodes: Default::default(), lexical_scopes: Default::default(), bindings: Default::default(), lexical_targets: Default::default(),
-        provider_modules: Default::default(), export_origins: Default::default(), places: Default::default(), roots: Default::default(), transfers: Default::default(), ownership: super::ownership::ScopeIndex::new(budget,S::NAME), occurrences: Default::default(),
+        export_origins: Default::default(), places: Default::default(), roots: Default::default(), transfers: Default::default(), ownership: super::ownership::ScopeIndex::new(budget,S::NAME), occurrences: Default::default(),
         qualifications: Default::default(),
         guards: super::conditions::rebase::GuardIndex::new(budget,S::NAME), nodes: Default::default(), conditions: Default::default(),
         runs: Default::default(), families: Default::default(), surfaces: Default::default(), evidence: Default::default(),
@@ -312,7 +311,7 @@ impl<A: Assertion, S: Support<Assertion=A>> SupportCheck<A,S> {
                 Some(module) => self.source(Subject::ProviderModule(*module))?,
                 None => None,
             },
-            Subject::ProviderModule(id) => match self.provider_modules.get(&id).ok_or_else(|| invalid("provider module absent"))? {
+            Subject::ProviderModule(id) => match self.types.module(id)? {
                 super::calls::ProviderModule::Acquired { module } => Some(self.ownership.module_source(*module)?),
                 _ => None,
             },
@@ -390,7 +389,7 @@ impl<A: Assertion, S: Support<Assertion=A>> SupportCheck<A,S> {
                     let symbol = self.types.symbol(id)?;
                     if (symbol.provider,symbol.context) != (run.provider,q.context) { return Err(invalid("a symbol is stated only by its own provider and context")); }
                 }
-                Subject::ProviderModule(id) => match self.provider_modules.get(&id).ok_or_else(|| invalid("provider module absent"))? {
+                Subject::ProviderModule(id) => match self.types.module(id)? {
                     super::calls::ProviderModule::Acquired { .. } => {},
                     super::calls::ProviderModule::Bundled { provider,.. } if *provider == run.provider => {},
                     super::calls::ProviderModule::Namespace { provider,context,.. } | super::calls::ProviderModule::Unresolved { provider,context,.. }
@@ -460,7 +459,6 @@ impl<A: Assertion, S: Support<Assertion=A>> InvariantCheck for SupportCheck<A,S>
         else if relation == super::lexical::LexicalScope::NAME { for r in super::lexical::LexicalScope::decode(batch)? { self.lexical_scopes.insert(&mut self.charge,r.id(),r.owner)?; } }
         else if relation == super::lexical::BindingEvent::NAME { for r in super::lexical::BindingEvent::decode(batch)? { self.bindings.insert(&mut self.charge,r.id(),r.site)?; } }
         else if relation == super::lexical::LexicalTarget::NAME { for r in super::lexical::LexicalTarget::decode(batch)? { self.lexical_targets.insert(&mut self.charge,r.id(),r)?; } }
-        else if relation == super::calls::ProviderModule::NAME { for r in super::calls::ProviderModule::decode(batch)? { self.provider_modules.insert(&mut self.charge,r.id(),r)?; } }
         else if relation == super::symbols::ExportOrigin::NAME { for r in super::symbols::ExportOrigin::decode(batch)? {
             let module = match &r { super::symbols::ExportOrigin::Traced { module,.. } => Some(*module), super::symbols::ExportOrigin::Untraced => None };
             self.export_origins.insert(&mut self.charge,r.id(),module)?;

@@ -24,7 +24,8 @@ fn write_pyrefly(access: &mut StageAccess<'_, '_>) -> Result<(), ModelError> {
         BindingObservation, BindingSupport, ReferenceObservation, ReferenceSupport, LexicalResolution, LexicalResolutionSupport,
         Signature, SignatureSupport, SymbolDeclaration, SymbolDeclarationSupport, ParameterDeclaration, ParameterDeclarationSupport,
         CallTarget, CallTargetSupport, CallResolution, CallResolutionSupport, ProviderCallSite, ProviderCallSiteSupport, TypeObservation, TypeSupport, TypePresentation,
-        TypePresentationSupport, TypeVariableRestriction, TypeRestrictionSupport, SymbolObservation, SymbolSupport, FunctionTraitObservation, FunctionTraitSupport,
+        TypePresentationSupport, TypeVariableRestriction, TypeRestrictionSupport, FunctionBodyObservation, FunctionBodySupport, RecordFieldObservation,
+        RecordFieldSupport, SymbolObservation, SymbolSupport, FunctionTraitObservation, FunctionTraitSupport,
         ClassTraitObservation, ClassTraitSupport, ClassAncestryObservation, ClassAncestrySupport, ParameterAnnotationObservation, ParameterAnnotationSupport,
         PublicNameObservation, PublicNameSupport, ParameterDocObservation, ParameterDocSupport, DependencyModuleObservation, DependencyModuleSupport);
     Ok(())
@@ -37,7 +38,8 @@ fn pyrefly_outputs() -> Vec<RelationUse> {
         BindingObservation, BindingSupport, ReferenceObservation, ReferenceSupport, LexicalResolution, LexicalResolutionSupport,
         Signature, SignatureSupport, SymbolDeclaration, SymbolDeclarationSupport, ParameterDeclaration, ParameterDeclarationSupport,
         CallTarget, CallTargetSupport, CallResolution, CallResolutionSupport, ProviderCallSite, ProviderCallSiteSupport, TypeObservation, TypeSupport, TypePresentation,
-        TypePresentationSupport, TypeVariableRestriction, TypeRestrictionSupport, SymbolObservation, SymbolSupport, FunctionTraitObservation, FunctionTraitSupport,
+        TypePresentationSupport, TypeVariableRestriction, TypeRestrictionSupport, FunctionBodyObservation, FunctionBodySupport, RecordFieldObservation,
+        RecordFieldSupport, SymbolObservation, SymbolSupport, FunctionTraitObservation, FunctionTraitSupport,
         ClassTraitObservation, ClassTraitSupport, ClassAncestryObservation, ClassAncestrySupport, ParameterAnnotationObservation, ParameterAnnotationSupport,
         PublicNameObservation, PublicNameSupport, ParameterDocObservation, ParameterDocSupport, DependencyModuleObservation, DependencyModuleSupport)
 }

@@ -3,7 +3,7 @@ source: crates/lctx/tests/model_describe.rs
 expression: "String::from_utf8(output.stdout).unwrap()"
 ---
 {
-  "digest": "9effcd804af36afed9ad8050eaa43aa2683d9deb1e6b96a46c8f1bf98719b29a",
+  "digest": "61b5dd2209e70726843ce9b7da9612091ffad2b93d75ac0b4e6c9f268f6cc434",
   "relations": [
     {
       "name": "access_paths",
@@ -2934,6 +2934,98 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       ],
       "facts": true,
       "family": "Calls"
+    },
+    {
+      "name": "callable_parameter_lists",
+      "fields": [
+        {
+          "name": "members",
+          "type": "digest",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        }
+      ],
+      "facts": true
+    },
+    {
+      "name": "callable_parameters",
+      "fields": [
+        {
+          "name": "list",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "callable_parameter_lists"
+        },
+        {
+          "name": "ordinal",
+          "type": "int64",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "name",
+          "type": "text",
+          "list": false,
+          "nullable": true,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "kind",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "PositionalOnly"
+            ],
+            [
+              1,
+              "PositionalOrKeyword"
+            ],
+            [
+              2,
+              "VarPositional"
+            ],
+            [
+              3,
+              "KeywordOnly"
+            ],
+            [
+              4,
+              "VarKeyword"
+            ]
+          ]
+        },
+        {
+          "name": "required",
+          "type": "bool",
+          "list": false,
+          "nullable": true,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "term",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "target": "type_terms"
+        }
+      ],
+      "facts": true
     },
     {
       "name": "class_ancestry_observations",
@@ -8188,6 +8280,242 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       "family": "Flow"
     },
     {
+      "name": "function_body_observations",
+      "fields": [
+        {
+          "name": "qualification",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "assertion_qualifications"
+        },
+        {
+          "name": "declaration",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "occurrences"
+        },
+        {
+          "name": "body",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "RaiseNotImplementedError"
+            ],
+            [
+              1,
+              "ReturnNotImplemented"
+            ],
+            [
+              2,
+              "Ellipsis"
+            ],
+            [
+              3,
+              "Trivial"
+            ],
+            [
+              4,
+              "Other"
+            ]
+          ]
+        },
+        {
+          "name": "abstract_method",
+          "type": "bool",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "in_protocol_class",
+          "type": "bool",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "in_type_checking_block",
+          "type": "bool",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "overload",
+          "type": "bool",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        }
+      ],
+      "facts": true,
+      "family": "Types"
+    },
+    {
+      "name": "function_body_supports",
+      "fields": [
+        {
+          "name": "assertion",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "function_body_observations"
+        },
+        {
+          "name": "run",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "provider_runs"
+        },
+        {
+          "name": "surface",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "provider_surfaces"
+        },
+        {
+          "name": "evidence",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "evidence"
+        },
+        {
+          "name": "origin",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "InputContext"
+            ],
+            [
+              1,
+              "SourceObservation"
+            ],
+            [
+              2,
+              "AnalyzerAssertion"
+            ],
+            [
+              3,
+              "DerivedAnalysis"
+            ],
+            [
+              4,
+              "SyntheticModel"
+            ]
+          ]
+        },
+        {
+          "name": "mode",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "NativeTraversal"
+            ],
+            [
+              1,
+              "ReportDecode"
+            ],
+            [
+              2,
+              "RelationalDerivation"
+            ],
+            [
+              3,
+              "GraphAnalysis"
+            ],
+            [
+              4,
+              "Recognizer"
+            ],
+            [
+              5,
+              "StatisticalAnalysis"
+            ],
+            [
+              6,
+              "TemplateSynthesis"
+            ],
+            [
+              7,
+              "FixtureExecution"
+            ],
+            [
+              8,
+              "ManualReview"
+            ]
+          ]
+        },
+        {
+          "name": "fidelity",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "Raw"
+            ],
+            [
+              1,
+              "NativeStructural"
+            ],
+            [
+              2,
+              "NormalizedStructural"
+            ],
+            [
+              3,
+              "ReportProjection"
+            ],
+            [
+              4,
+              "DisplayOnly"
+            ]
+          ]
+        }
+      ],
+      "facts": true,
+      "family": "Types"
+    },
+    {
       "name": "function_trait_observations",
       "fields": [
         {
@@ -13112,6 +13440,300 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       }
     },
     {
+      "name": "record_field_observations",
+      "fields": [
+        {
+          "name": "qualification",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "assertion_qualifications"
+        },
+        {
+          "name": "class",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "provider_symbols"
+        },
+        {
+          "name": "name",
+          "type": "text",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "record",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "Dataclass"
+            ],
+            [
+              1,
+              "Attrs"
+            ],
+            [
+              2,
+              "Pydantic"
+            ],
+            [
+              3,
+              "TypedDict"
+            ],
+            [
+              4,
+              "NamedTuple"
+            ]
+          ]
+        },
+        {
+          "name": "ordinal",
+          "type": "int64",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "term",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "target": "type_terms"
+        },
+        {
+          "name": "declared",
+          "type": "bool",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "declaration",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": false,
+          "provenance": false,
+          "target": "occurrences"
+        },
+        {
+          "name": "has_default",
+          "type": "bool",
+          "list": false,
+          "nullable": true,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "init",
+          "type": "bool",
+          "list": false,
+          "nullable": true,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "alias",
+          "type": "text",
+          "list": false,
+          "nullable": true,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "kw_only",
+          "type": "bool",
+          "list": false,
+          "nullable": true,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "required",
+          "type": "bool",
+          "list": false,
+          "nullable": true,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "read_only",
+          "type": "bool",
+          "list": false,
+          "nullable": true,
+          "key": false,
+          "provenance": false
+        }
+      ],
+      "facts": true,
+      "family": "Types"
+    },
+    {
+      "name": "record_field_supports",
+      "fields": [
+        {
+          "name": "assertion",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "record_field_observations"
+        },
+        {
+          "name": "run",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "provider_runs"
+        },
+        {
+          "name": "surface",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "provider_surfaces"
+        },
+        {
+          "name": "evidence",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "evidence"
+        },
+        {
+          "name": "origin",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "InputContext"
+            ],
+            [
+              1,
+              "SourceObservation"
+            ],
+            [
+              2,
+              "AnalyzerAssertion"
+            ],
+            [
+              3,
+              "DerivedAnalysis"
+            ],
+            [
+              4,
+              "SyntheticModel"
+            ]
+          ]
+        },
+        {
+          "name": "mode",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "NativeTraversal"
+            ],
+            [
+              1,
+              "ReportDecode"
+            ],
+            [
+              2,
+              "RelationalDerivation"
+            ],
+            [
+              3,
+              "GraphAnalysis"
+            ],
+            [
+              4,
+              "Recognizer"
+            ],
+            [
+              5,
+              "StatisticalAnalysis"
+            ],
+            [
+              6,
+              "TemplateSynthesis"
+            ],
+            [
+              7,
+              "FixtureExecution"
+            ],
+            [
+              8,
+              "ManualReview"
+            ]
+          ]
+        },
+        {
+          "name": "fidelity",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "Raw"
+            ],
+            [
+              1,
+              "NativeStructural"
+            ],
+            [
+              2,
+              "NormalizedStructural"
+            ],
+            [
+              3,
+              "ReportProjection"
+            ],
+            [
+              4,
+              "DisplayOnly"
+            ]
+          ]
+        }
+      ],
+      "facts": true,
+      "family": "Types"
+    },
+    {
       "name": "reference_observations",
       "fields": [
         {
@@ -16496,6 +17118,10 @@ expression: "String::from_utf8(output.stdout).unwrap()"
             [
               4,
               "Raised"
+            ],
+            [
+              5,
+              "TestOperand"
             ]
           ]
         },
@@ -16911,6 +17537,14 @@ expression: "String::from_utf8(output.stdout).unwrap()"
             [
               5,
               "Variadic"
+            ],
+            [
+              6,
+              "Signature"
+            ],
+            [
+              9,
+              "TypeParameter"
             ]
           ]
         },
@@ -17137,6 +17771,32 @@ expression: "String::from_utf8(output.stdout).unwrap()"
           "target": "type_terms"
         },
         {
+          "name": "typeddict_class",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "provider_symbols"
+        },
+        {
+          "name": "typeddict_arguments",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "type_sequences"
+        },
+        {
+          "name": "typeddict_partial",
+          "type": "bool",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false
+        },
+        {
           "name": "union_members",
           "type": "id",
           "list": false,
@@ -17153,6 +17813,124 @@ expression: "String::from_utf8(output.stdout).unwrap()"
           "key": true,
           "provenance": false,
           "target": "type_sequences"
+        },
+        {
+          "name": "callable_function",
+          "type": "text",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "callable_form",
+          "type": "int16",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "List"
+            ],
+            [
+              1,
+              "Partial"
+            ],
+            [
+              2,
+              "Ellipsis"
+            ],
+            [
+              3,
+              "Materialization"
+            ],
+            [
+              4,
+              "ParamSpec"
+            ]
+          ]
+        },
+        {
+          "name": "callable_parameters",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "callable_parameter_lists"
+        },
+        {
+          "name": "callable_param_spec",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "type_terms"
+        },
+        {
+          "name": "callable_returns",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "type_terms"
+        },
+        {
+          "name": "overload_function",
+          "type": "text",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "overload_signatures",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "type_sequences"
+        },
+        {
+          "name": "boundmethod_receiver",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "type_terms"
+        },
+        {
+          "name": "boundmethod_function",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "type_terms"
+        },
+        {
+          "name": "generic_parameters",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "type_sequences"
+        },
+        {
+          "name": "generic_body",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "type_terms"
         },
         {
           "name": "tuple_elements",
@@ -17200,6 +17978,15 @@ expression: "String::from_utf8(output.stdout).unwrap()"
           "target": "type_variables"
         },
         {
+          "name": "module_module",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "provider_modules"
+        },
+        {
           "name": "any_flavor",
           "type": "int16",
           "list": false,
@@ -17238,6 +18025,120 @@ expression: "String::from_utf8(output.stdout).unwrap()"
               "Never"
             ]
           ]
+        },
+        {
+          "name": "typealias_name",
+          "type": "text",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "typealias_untyped",
+          "type": "bool",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "typealias_target",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "type_terms"
+        },
+        {
+          "name": "selftype_class",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "provider_symbols"
+        },
+        {
+          "name": "selftype_arguments",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "type_sequences"
+        },
+        {
+          "name": "annotated_target",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "type_terms"
+        },
+        {
+          "name": "unpack_target",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "type_terms"
+        },
+        {
+          "name": "typeguard_form",
+          "type": "int16",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "TypeGuard"
+            ],
+            [
+              1,
+              "TypeIs"
+            ]
+          ]
+        },
+        {
+          "name": "typeguard_target",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "type_terms"
+        },
+        {
+          "name": "paramlist_parameters",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "callable_parameter_lists"
+        },
+        {
+          "name": "paramlist_param_spec",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "type_terms"
+        },
+        {
+          "name": "specialform_form",
+          "type": "text",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false
         },
         {
           "name": "other_provider",
@@ -17524,6 +18425,126 @@ expression: "String::from_utf8(output.stdout).unwrap()"
           "nullable": true,
           "key": true,
           "provenance": false
+        },
+        {
+          "name": "anonymoustypeddict_fields",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "callable_parameter_lists"
+        },
+        {
+          "name": "anonymoustypeddict_partial",
+          "type": "bool",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "typealiasreference_module",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "provider_modules"
+        },
+        {
+          "name": "typealiasreference_name",
+          "type": "text",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "typealiasreference_untyped",
+          "type": "bool",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "typealiasreference_arguments",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "type_sequences"
+        },
+        {
+          "name": "variableform_variable",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "type_variables"
+        },
+        {
+          "name": "variableform_form",
+          "type": "int16",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "Value"
+            ],
+            [
+              1,
+              "Args"
+            ],
+            [
+              2,
+              "Kwargs"
+            ],
+            [
+              3,
+              "ArgsValue"
+            ],
+            [
+              4,
+              "KwargsValue"
+            ],
+            [
+              5,
+              "Element"
+            ]
+          ]
+        },
+        {
+          "name": "enumliteral_class",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "provider_symbols"
+        },
+        {
+          "name": "enumliteral_member",
+          "type": "text",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "typeform_target",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "type_terms"
         }
       ],
       "facts": true,
@@ -17562,6 +18583,23 @@ expression: "String::from_utf8(output.stdout).unwrap()"
             ]
           },
           {
+            "code": 3,
+            "fields": [
+              {
+                "name": "typeddict_class",
+                "required": true
+              },
+              {
+                "name": "typeddict_arguments",
+                "required": true
+              },
+              {
+                "name": "typeddict_partial",
+                "required": true
+              }
+            ]
+          },
+          {
             "code": 4,
             "fields": [
               {
@@ -17575,6 +18613,70 @@ expression: "String::from_utf8(output.stdout).unwrap()"
             "fields": [
               {
                 "name": "intersection_members",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 6,
+            "fields": [
+              {
+                "name": "callable_function",
+                "required": false
+              },
+              {
+                "name": "callable_form",
+                "required": true
+              },
+              {
+                "name": "callable_parameters",
+                "required": true
+              },
+              {
+                "name": "callable_param_spec",
+                "required": false
+              },
+              {
+                "name": "callable_returns",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 7,
+            "fields": [
+              {
+                "name": "overload_function",
+                "required": true
+              },
+              {
+                "name": "overload_signatures",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 8,
+            "fields": [
+              {
+                "name": "boundmethod_receiver",
+                "required": true
+              },
+              {
+                "name": "boundmethod_function",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 9,
+            "fields": [
+              {
+                "name": "generic_parameters",
+                "required": true
+              },
+              {
+                "name": "generic_body",
                 "required": true
               }
             ]
@@ -17625,6 +18727,15 @@ expression: "String::from_utf8(output.stdout).unwrap()"
             ]
           },
           {
+            "code": 15,
+            "fields": [
+              {
+                "name": "module_module",
+                "required": true
+              }
+            ]
+          },
+          {
             "code": 16,
             "fields": [
               {
@@ -17645,6 +18756,89 @@ expression: "String::from_utf8(output.stdout).unwrap()"
           {
             "code": 18,
             "fields": []
+          },
+          {
+            "code": 19,
+            "fields": [
+              {
+                "name": "typealias_name",
+                "required": true
+              },
+              {
+                "name": "typealias_untyped",
+                "required": true
+              },
+              {
+                "name": "typealias_target",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 20,
+            "fields": [
+              {
+                "name": "selftype_class",
+                "required": true
+              },
+              {
+                "name": "selftype_arguments",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 21,
+            "fields": [
+              {
+                "name": "annotated_target",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 22,
+            "fields": [
+              {
+                "name": "unpack_target",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 23,
+            "fields": [
+              {
+                "name": "typeguard_form",
+                "required": true
+              },
+              {
+                "name": "typeguard_target",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 24,
+            "fields": [
+              {
+                "name": "paramlist_parameters",
+                "required": true
+              },
+              {
+                "name": "paramlist_param_spec",
+                "required": false
+              }
+            ]
+          },
+          {
+            "code": 25,
+            "fields": [
+              {
+                "name": "specialform_form",
+                "required": true
+              }
+            ]
           },
           {
             "code": 26,
@@ -17684,6 +18878,79 @@ expression: "String::from_utf8(output.stdout).unwrap()"
               },
               {
                 "name": "truncated_display",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 28,
+            "fields": [
+              {
+                "name": "anonymoustypeddict_fields",
+                "required": true
+              },
+              {
+                "name": "anonymoustypeddict_partial",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 29,
+            "fields": [
+              {
+                "name": "typealiasreference_module",
+                "required": true
+              },
+              {
+                "name": "typealiasreference_name",
+                "required": true
+              },
+              {
+                "name": "typealiasreference_untyped",
+                "required": true
+              },
+              {
+                "name": "typealiasreference_arguments",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 30,
+            "fields": [
+              {
+                "name": "variableform_variable",
+                "required": true
+              },
+              {
+                "name": "variableform_form",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 31,
+            "fields": [
+              {
+                "name": "enumliteral_class",
+                "required": true
+              },
+              {
+                "name": "enumliteral_member",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 32,
+            "fields": []
+          },
+          {
+            "code": 33,
+            "fields": [
+              {
+                "name": "typeform_target",
                 "required": true
               }
             ]
@@ -18086,6 +19353,13 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         "evidence",
         "call_target_observations",
         "call_target_supports"
+      ]
+    },
+    {
+      "name": "callable_parameter_membership",
+      "inputs": [
+        "callable_parameter_lists",
+        "callable_parameters"
       ]
     },
     {
@@ -18692,6 +19966,37 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       ]
     },
     {
+      "name": "function_body_declarations",
+      "inputs": [
+        "occurrences",
+        "function_body_observations"
+      ]
+    },
+    {
+      "name": "function_body_supports",
+      "inputs": [
+        "source_artifacts",
+        "occurrences",
+        "modules",
+        "corpus_libraries",
+        "place_roots",
+        "places",
+        "predicates",
+        "evaluation_atoms",
+        "condition_nodes",
+        "conditions",
+        "input_distributions",
+        "coverage_scopes",
+        "assertion_qualifications",
+        "provider_runs",
+        "run_families",
+        "provider_surfaces",
+        "evidence",
+        "function_body_observations",
+        "function_body_supports"
+      ]
+    },
+    {
       "name": "function_trait_supports",
       "inputs": [
         "source_artifacts",
@@ -19070,6 +20375,45 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       ]
     },
     {
+      "name": "record_field_order",
+      "inputs": [
+        "provider_symbols",
+        "record_field_observations"
+      ]
+    },
+    {
+      "name": "record_field_supports",
+      "inputs": [
+        "source_artifacts",
+        "occurrences",
+        "modules",
+        "corpus_libraries",
+        "place_roots",
+        "places",
+        "predicates",
+        "evaluation_atoms",
+        "condition_nodes",
+        "conditions",
+        "input_distributions",
+        "coverage_scopes",
+        "assertion_qualifications",
+        "provider_runs",
+        "run_families",
+        "provider_surfaces",
+        "evidence",
+        "provider_modules",
+        "provider_symbols",
+        "type_variables",
+        "type_sequences",
+        "type_sequence_members",
+        "callable_parameter_lists",
+        "callable_parameters",
+        "type_terms",
+        "record_field_observations",
+        "record_field_supports"
+      ]
+    },
+    {
       "name": "reference_supports",
       "inputs": [
         "source_artifacts",
@@ -19137,10 +20481,13 @@ expression: "String::from_utf8(output.stdout).unwrap()"
     {
       "name": "structural_type_shapes",
       "inputs": [
+        "provider_modules",
         "provider_symbols",
         "type_variables",
         "type_sequences",
         "type_sequence_members",
+        "callable_parameter_lists",
+        "callable_parameters",
         "type_terms"
       ]
     },
@@ -19401,10 +20748,13 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         "run_families",
         "provider_surfaces",
         "evidence",
+        "provider_modules",
         "provider_symbols",
         "type_variables",
         "type_sequences",
         "type_sequence_members",
+        "callable_parameter_lists",
+        "callable_parameters",
         "type_terms",
         "type_presentations",
         "type_presentation_supports"
@@ -19431,9 +20781,12 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         "provider_surfaces",
         "evidence",
         "type_variables",
+        "provider_modules",
         "provider_symbols",
         "type_sequences",
         "type_sequence_members",
+        "callable_parameter_lists",
+        "callable_parameters",
         "type_terms",
         "type_variable_restrictions",
         "type_restriction_supports"
@@ -19466,10 +20819,13 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         "run_families",
         "provider_surfaces",
         "evidence",
+        "provider_modules",
         "provider_symbols",
         "type_variables",
         "type_sequences",
         "type_sequence_members",
+        "callable_parameter_lists",
+        "callable_parameters",
         "type_terms",
         "type_observations",
         "type_supports"
