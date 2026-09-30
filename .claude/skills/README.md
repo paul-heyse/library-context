@@ -9,10 +9,14 @@ Workflows for building this repository. A skill is added when a workflow has act
 | Skill | Use |
 |---|---|
 | [`adr/`](adr/SKILL.md) | Record or supersede a decision; amend the owning architectural section in the same commit |
+| [`plan-design-review/`](plan-design-review/SKILL.md) | Plan an approach to the user's review goal, using the existing design-review skills and standard |
 | [`design-review/`](design-review/SKILL.md) | Review explicit domain models, ownership, contracts and change scenarios against the layered design standard (`docs/design_review/design_principles/standard.toml`); cadence in the library-context binding |
 | [`design-review-code-intelligence/`](design-review-code-intelligence/SKILL.md) | The code-intelligence profile, loaded with `design-review` |
 | [`handoff/`](handoff/SKILL.md) | Rewrite STATUS.md from the actual tree at session end |
 | [`pin-check/`](pin-check/SKILL.md) | Change or re-verify any dependency or tool pin |
+
+In Codex, invoke `/plan $plan-design-review <review goal>` to enter Plan mode and plan a review.
+The skill also works in an ordinary conversation; it does not itself switch modes.
 
 ## Library capability skills (shared live copies)
 

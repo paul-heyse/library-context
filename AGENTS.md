@@ -254,5 +254,5 @@ without a named current consumer. Quiesce project readers before replacing their
   test outcome.
 - Never force-push or `reset --hard`.
 - `.claude/skills/*` is gitignored except the process skills: `adr`, `design-review`,
-  `design-review-code-intelligence`, `handoff`, `pin-check`.
+  `design-review-code-intelligence`, `plan-design-review`, `handoff`, `pin-check`.
 - At the end of a session that changed what's true, run the `handoff` skill.

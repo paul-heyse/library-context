@@ -2,6 +2,13 @@
 
 _Updated 2026-09-30 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
+## Review planning skill (2026-09-30)
+
+- **Implemented:** [plan-design-review](.claude/skills/plan-design-review/SKILL.md) plans reviews
+  through the existing standard; Codex invocation: `/plan $plan-design-review <review goal>`.
+- Checks **not_run**: `just lint-agents` and `just docs-check` belong to the automatic hook;
+  `just test-all` is outside this process-only change. No new hook was added.
+
 ## Phase 4 detailed design (2026-09-30)
 
 - The [detailed design and execution plan](docs/plans/semantic-model-phase4-detailed-plan_2026-09-30.md)
