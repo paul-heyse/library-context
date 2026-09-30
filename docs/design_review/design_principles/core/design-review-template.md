@@ -1,6 +1,6 @@
 # Design review template
 
-**Version 3.0 · 2026-09-25** · Core layer: repository- and domain-agnostic.
+**Version 3.1 · 2026-09-29** · Core layer: repository- and domain-agnostic.
 Standard: [design principles](design-principles.md): FP-01–FP-06 organize architectural
 assessment; DP-01–DP-24 support it; A1–A3 and G1–G8 remain separate judgments.
 Profiles add domain constraints within the slots. The binding supplies local owners and cadence.
@@ -32,6 +32,8 @@ boundary. Do not narrow away an affected consumer to obtain acceptance.
 - **Code subject:** cite the actual ownership, dependencies, definitions and executing paths.
   *Implemented* establishes existence; *Tested* and *Measured* name the commands, cases and
   conditions. Historical receipts are explicitly dated and attributed, never reported as fresh runs.
+  Trace domain definitions into executing behavior; domain-named output records alone do not
+  establish model alignment.
 - **Both:** distinguish implemented state, accepted target and superseded design. State whether
   a discrepancy is incomplete implementation or stale authority. Link executable contracts from
   prose rather than independently restating their definitions.
@@ -68,6 +70,9 @@ repeated semantic ownership, then other justified improvements and measured cost
 interactions: resolving a correctness defect may require changing an architectural boundary.
 Library adoption and bespoke code both carry complexity. A concrete architectural violation is
 eligible for revision even when its supporting DP rule is a SHOULD.
+The core §1 domain-model MUST is assessed through FP-04 and A2: both model adequacy and
+authoritative realization must hold. Correct current outputs cannot compensate for that gap;
+recording a deferral does not waive it for supported behavior.
 
 | Situation | Decision |
 |---|---|
@@ -113,10 +118,14 @@ Use a small dependency diagram where useful. Distinguish compile-time dependenci
 coordination and representation flow where they differ. A module is a sufficient owner when its
 boundary holds; a crate split is not the objective.
 
-| Concept | Semantic authority and identity | Update/revision boundary | Derived forms and consumers |
+| Phenomenon, concept or operation | Semantic scope, authority and identity where applicable | Update/revision boundary | Implementation, derived forms and consumers |
 |---|---|---|---|
 
-Identify duplicated decisions, private mechanisms exposed to consumers, and opaque behavior.
+Trace **phenomenon → authoritative concept or operation → implementation → consumer → expected
+change**. Establish that the model captures consequential distinctions and that behavior uses
+its definitions. Identify duplicated decisions, semantics hidden in consumers, private
+mechanisms exposed to consumers, and opaque behavior. This is a reasoning trace, not a
+requirement for another artifact or a fixed implementation layout.
 
 ### 3. Contracts, constraints and testing boundaries
 
@@ -125,6 +134,9 @@ Identify duplicated decisions, private mechanisms exposed to consumers, and opaq
 
 State meaningful absence states, equality/approximation promises and where invalid construction
 is prevented. Explain necessary runtime enforcement and the dependencies needed to test it.
+Assess verbs as well as nouns: applicability, inputs, outcomes, state changes, effects and the
+invariants owned by each concept, relationship or operation. Distinguish repeated enforcement
+from independent definitions. Ordinary domain functions can supply these contracts.
 
 ### 4. Composition and execution
 
@@ -137,7 +149,7 @@ resource budgets where material. A graph projection states its universe and rela
 
 ### 5. Change and failure scenarios
 
-| Scenario and trigger | Owning component | Contract change | Expected vs observed affected consumers | Independent semantic edits/hidden knowledge/test setup | Evidence or settling check |
+| Scenario, trigger and kind of change | Owning component | Contract change | Expected vs observed affected consumers | Independent semantic edits/hidden knowledge/test setup | Evidence or settling check |
 |---|---|---|---|---|---|
 
 Choose relevant additions, analyzer/provider upgrades, new compositions/renderings, invariant
@@ -145,6 +157,11 @@ changes, implementation replacement and isolated tests. Use declared variation a
 concepts can legitimately change several contracts. Examine boundary round trips and
 interruption/failure where claimed behavior requires them. Observed implementation traces and
 proposed routes remain distinct.
+Classify the change as an instance, binding, composition, policy, domain concept or execution
+mechanism, and explain why the edits belong to the affected authorities. For a substantial
+architecture review, examine a relevant domain extension and a mechanism substitution where
+credible; give a scope reason when either does not apply. A bounded review still needs only its
+relevant scenario. Assess semantic ownership and propagation, not a promise of inexpensive replacement.
 
 ### 6. Correctness and fidelity gates
 
@@ -212,7 +229,7 @@ there. Preserve original findings and versioned evidence rather than rewriting h
 | Judgment | Verdict (satisfied/violated/unresolved/n.a.) | Scenario evidence and scope | Required action/disposition |
 |---|---|---|---|
 | A1 Localize change | | | |
-| A2 Encode meaning structurally | | | |
+| A2 Encode domain meaning explicitly | | | |
 | A3 Extend through composition | | | |
 
 **Bounded change decision:** Accept / Accept scoped / Revise / Reject, with reason.

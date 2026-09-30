@@ -1,6 +1,6 @@
 # Code-intelligence review additions
 
-**Version 1.1 · 2026-09-25** · What the [code-intelligence profile](principles.md) adds to
+**Version 1.2 · 2026-09-29** · What the [code-intelligence profile](principles.md) adds to
 each slot of the [core review template](../../core/design-review-template.md). The additions sit
 within the core slots; no slot is added or removed. Each applies only where the subject touches
 the behaviour concerned.
@@ -9,7 +9,7 @@ the behaviour concerned.
 |---|---|
 | 1 Scope and outcome | Name the fact families, analyses and served answers in scope, and the workloads considered (principles: *Functional target*). |
 | 2 Responsibilities and authority | Add the **fact and fidelity table** after the component/dependency map. |
-| 3 Contracts and testing boundaries | Coverage and absence: where extraction can stop short, and how that is recorded (CI-04). |
+| 3 Contracts and testing boundaries | Owned semantics of extraction, resolution, derivation and projection; coverage and absence: where extraction can stop short, and how that is recorded (CI-04). |
 | 4 Composition and execution | The **analysis record columns** (below) for every projection, analysis or synthesis stage. |
 | 5 Change scenarios | The **code-intelligence journeys** (below), selected by relevance. |
 | 6 Gates | Rows CI-G1, CI-G2, CI-G3. |
@@ -17,10 +17,12 @@ the behaviour concerned.
 | 9 Alternatives | Optional: how established code-intelligence tools handle the same question, read for behaviour only. |
 | 10 Verification | Where relevant, the known-answer shapes that would settle a doubtful claim (below). |
 
-For each domain journey, retain the core scenario columns: owner, contract change, affected
-consumers, repeated decisions, required context and test setup. A new semantic category can
-require a contract migration; an additional instance of an existing category should follow
-the established composition path. Assess A1–A3 separately from CI-G1–CI-G3.
+For each domain journey, retain the core scenario columns, including kind of change, owner,
+contract change, affected consumers, repeated decisions, required context and test setup. A
+new semantic category can require a contract migration; an additional instance or contextual
+binding should reuse its definition. Trace the modeled phenomenon and governing operation into
+the fact and fidelity table; common output columns alone do not establish a common meaning.
+Assess model adequacy and authoritative behavior under A2, separately from CI-G1–CI-G3.
 
 ## Fact and fidelity table (slot 2)
 

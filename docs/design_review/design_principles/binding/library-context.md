@@ -10,14 +10,16 @@ ADR-0040. Other design contracts and accepted decisions govern their domains; re
 
 | Layer | Document | Version |
 |---|---|---|
-| Core | [design principles](../core/design-principles.md), [review template](../core/design-review-template.md) | 3.0 (repository-owned edition, ADR-0040) |
-| Profile | [code-intelligence principles](../profiles/code-intelligence/principles.md), [review additions](../profiles/code-intelligence/review.md) | 1.1 |
+| Core | [design principles](../core/design-principles.md), [review template](../core/design-review-template.md) | 3.1 (repository-owned edition, ADR-0040/0091) |
+| Profile | [code-intelligence principles](../profiles/code-intelligence/principles.md), [review additions](../profiles/code-intelligence/review.md) | 1.2 |
 | Binding | this page | — |
 
 The version/path declaration in [`standard.toml`](../standard.toml) is authoritative for loading.
-ADR-0040 gives this repository ownership of core 3.0; it replaces ADR-0023's unlocated shared-copy
-requirement. Other repositories are not changed by a local revision. Preserve DP/CI IDs and historical
-version semantics; FP-01–FP-06 and A1–A3 supply the architecture structure.
+ADR-0040 establishes repository ownership; it replaces ADR-0023's unlocated shared-copy
+requirement. ADR-0091 adopts core/template 3.1 and profile guidance 1.2. Other repositories are
+not changed by a local revision. Preserve FP/DP/CI IDs and historical version semantics;
+FP-01–FP-06 and A1–A3 supply the architecture structure. FP-04/A2 assess whether an adequate,
+explicit domain model governs behavior, independently of other architectural and fidelity judgments.
 
 ## Reviews in this repository
 
@@ -98,7 +100,7 @@ concrete change-propagation or testability defect can require revision without a
 | 13 | Does an extractor, decoder or DESIGN claim cover a fact family it only partly extracts? | G7 | DP-15, CI-04 |
 | 14 | Does a read, validation or inspection path mutate, fetch, build, or read ambient state, including analyzer config discovery? | G4 | DP-18, CI-10 |
 | 15 | Can anything under `.claude/skills/` (the gold reference) reach the compiler's inputs, or can analytics parameters be tuned on the gold? | CI-G3 | CI-12 |
-| 16 | Does an ordinary model, analytic or rendering reuse contracts, and where is semantic meaning independently re-expressed? Distinguish a new concept from an instance. | A1, A2, A3 | FP-01–06, DP-16, core §E |
+| 16 | Which phenomena and owned operations govern this feature, and do consumers reuse their meaning? Distinguish instances, bindings, compositions, policies, concepts and mechanisms when tracing change. | A1, A2, A3 | FP-01–06, DP-08, DP-16, core §E |
 | 17 | Does each added layer or technique have a named consumer in the served model (a tool's output or a brief), and does its ablation change published output (§9.8)? | — | DP-16 |
 
 ## 3. Vocabulary and scenario authorities

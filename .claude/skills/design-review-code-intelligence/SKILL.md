@@ -10,6 +10,8 @@ This skill **layers onto `design-review`**; it never replaces it. Load the core 
 The core fixes slots 1–12, foundations FP-01–FP-06, architectural judgments A1–A3,
 gates G1–G8, findings and decisions. This profile adds domain constraints. Its fact and
 fidelity analysis supports ownership, contracts, change and composition; it does not replace them.
+Core FP-04/A2 require an adequate domain model that governs behavior; an attributed fact schema
+alone does not establish alignment.
 
 ## The standard
 
@@ -33,9 +35,11 @@ profile names none.
 3. **Analysis record columns in slot 4** for every projection, analysis or synthesis stage.
 4. **Code-intelligence journeys in slot 5**, chosen by relevance. In a target-purpose review the
    workloads in the profile's functional target are in scope even when current plans exclude them.
-5. **Architectural consequences of domain changes:** distinguish a new semantic category from
-   an ordinary model addition. Trace whether extraction, proofs, validation and serving
-   independently classify the same concept, and identify the affected owners.
+5. **Architectural consequences of domain changes:** distinguish instances, bindings,
+   compositions, policies, domain concepts and mechanisms. Trace the phenomena and owned
+   operations behind facts and relations into extraction, normalization, analysis and serving.
+   Check whether consumers independently classify the same concept or interpret an operation's
+   outcomes, and identify the affected owners.
 
 ## Lenses
 

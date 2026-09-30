@@ -15,12 +15,19 @@ findings from preferences; no broken output is required.
 | Upgrade a provider | An unrelated analytic inspects provider-private nodes to recover meaning absent from its input contract; upgrade propagates through private APIs. FP-01/02, A1. | Normalize the required semantic fact at the provider boundary and expose the narrow contract. |
 | Test a pure transformation | The entry point requires a live store to obtain policy and lookup state even though the computation only uses immutable inputs. FP-05/06, A1/A3. | Pass the actual inputs into the transformation; keep acquisition and publication in orchestration. |
 | Another workflow | Each orchestration branch duplicates validation/defaulting rather than composing one owned operation. FP-03/04, A2/A3. | Move the decision to its semantic owner and compose the existing contract. |
+| Add a new contextual role | A role is encoded as an intrinsic entity flag; different consumers infer its meaning from the workflow that supplied it. FP-04/05, A2. | Model the context and binding, with one owned interpretation reused by the affected operations. |
 | Proposed provider abstraction | One fixed implementation and no identified testing/variation need, but a new registry duplicates the adopted framework's selection lifecycle. FP-02/03, A3. | Keep the existing function/module boundary and revisit when a concrete consumer needs substitution. |
 
 A strong finding names the expected change, both dependency/definition sites, the contract that
 should contain it, and the consequence. A large module, many files or one implementation behind a
 trait proves nothing alone. A genuine new semantic category can properly affect several owners.
 An Arrow-shaped boundary may be the intentional shared contract; a wrapper must protect something.
+
+Model adequacy and authority are separate questions. Domain-named records may only standardize
+outputs while several procedures define what they mean. A single classifier may be authoritative
+yet collapse a distinction required by supported behavior. Trace the relevant phenomenon into
+its definition, operation and consumer before accepting A2. A typed domain function can satisfy
+this trace without a declarative engine or serializable operation object.
 
 **Example finding:** "Adding a second output rendering requires reinterpreting completion status
 in the rendering module as well as the analysis module. Both match on the same semantic variants,
@@ -46,7 +53,7 @@ instead of checking whether the document's own versions look complete. Every cel
 invent is a decision the design has not made, and the list of invented cells is the evidence:
 
 - the **responsibility/dependency map** (slot 2), followed by semantic authorities and their
-  revision/update paths;
+  revision/update paths, including domain operations and the phenomena they represent;
 - the **invariant table** (slot 3): enforcement point and failure behaviour per invariant. An
   invariant with neither is unresolved under DP-03, whatever the prose claims;
 - the **stage table** (slot 4): inputs, observed dependencies, output contract, effects and reuse
@@ -75,8 +82,10 @@ semantic or approximate — DP-08).
 The bar in the second column is what makes a shape reportable. Below it, record the item in the
 coverage note as examined and unsettled.
 
-| Shape | What makes it evidence | Gate · principles |
+| Shape | What makes it evidence | Judgment/gate · principles |
 |---|---|---|
+| **Output-only model** — domain records standardize results while procedures supply their meaning independently | The consequential distinction or operation, the definitions or executing sites, and a supported change that needs independent semantic edits. Correct current output does not settle the architectural defect | A2 · FP-04, DP-01, DP-08 |
+| **Inadequate single authority** — one definition owns a concept but omits a required distinction | The domain cases the supported contract must distinguish, the representation that collapses them, and the affected operation or consumer | A2 · FP-04, DP-02 |
 | **Second authority** — one fact independently editable in two places (constant and schema, schema and validator, validator and adapter, default and fixture) | Both sites cited, and no derivation, generation step or assertion linking them. Check for a derivation first | G1 · DP-01 |
 | **Unguarded boundary** — external input, partial construction or deserialization reaching an operation that assumes an invariant | Entry point, operation, and no rejecting check between them (a warning or opt-in check is advisory). Type-level enforcement counts | G3 · DP-03, DP-08 |
 | **Hidden effect** — `validate`, `inspect`, `plan`, `explain` paths that mutate, register, lazily initialize or read clock, environment, filesystem, globals or randomness | The mutation or read, and a caller that reasonably assumes purity | G4 · DP-18 |
@@ -195,8 +204,8 @@ DP-07, DP-12, G6."
 | Slot | Document subject | Code subject | Change review |
 |---|---|---|---|
 | 1 Scope and coverage | With method note | With method note | Compressed; keep the coverage note |
-| 2 Owners and authority | Reconstruct boundaries/dependencies | Actual owners and contracts | Affected boundary and consumers |
-| 3 Contracts | Often the core | Enforcement sites cited | Merged into findings |
+| 2 Owners and authority | Reconstruct domain model, boundaries/dependencies | Actual semantic definitions, operations and consumers | Affected boundary and consumers |
+| 3 Contracts | Concepts and operations | Invariant owners and enforcement sites cited | Merged into findings |
 | 4 Stage table | Reconstructed per stage | From the executing path | Only stages carrying a finding |
 | 5 Scenarios | Expected changes; failures where relevant | Trace real owners and consumers | One relevant change or explicit scope reason |
 | 6 Gates | Tabular | Tabular | Tabular |

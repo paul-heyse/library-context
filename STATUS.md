@@ -2,6 +2,24 @@
 
 _Updated 2026-09-29 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main; phase 0 accepted (scoped); phase 1 implemented through P1.12, P1.13 rehearsed._
 
+## Design standard (2026-09-29)
+
+- **Implemented policy:** [ADR-0091](docs/adr/0091-semantic-model-first-design.md) adopts core/template
+  3.1 and profile guidance 1.2. Domain modeling is mandatory; FP-04/A2 require an adequate model
+  governing behavior. Reviewer, process skills, AGENTS and DESIGN §2 are aligned. Library
+  exploration and capability skills are unchanged; this does not qualify product code.
+- `just docs-check`: **failed** on five existing review links to deleted cutover files
+  (`attempt.rs`, `db.rs`, `snapshot.rs`, catalog `pr4.rs`, `rebuild.rs`). Its ADR and agent checks
+  **passed**. HEAD inspection confirmed all five broken links predate this policy change.
+- Generic skill validation (`uv run --no-project --offline --with pyyaml python
+  /home/paul/.codex/skills/.system/skill-creator/scripts/quick_validate.py`): with
+  `.claude/skills/design-review-code-intelligence`, **passed**; with `.claude/skills/design-review`,
+  **failed** on unchanged `model-baseline`/`user-invocable` metadata. Repository agent validation accepts it.
+- Product checks: `just test-all`, facts pilots **not_run** for this documentation scope.
+  Concurrent P2 work, including A0 in `de89800`, was not validated by this session; the checkpoint
+  and receipts below remain attributed to the earlier cutover work. Next policy work: apply core
+  3.1 at the next scheduled review; publication link cleanup remains open.
+
 ## Restart checkpoint: semantic model cutover
 
 - **Accepted target:** ADR-0085–0090. [Cutover plan](docs/plans/semantic-model-cutover-plan_2026-09-29.md)
@@ -35,7 +53,7 @@ Cargo commands use `python3 scripts/build_environment.py --`; per-slice receipts
 | Transition rehearsal from the operator database ([evidence](docs/design_review/evidence/2026-09-29_operator-transition/README.md)) | passed at `c65c0c7` |
 | fork `cargo test -p datafusion-table-providers-postgres --no-default-features --lib` | passed at `09cc8a8` |
 | `cargo check --workspace --all-targets`; `check_agents.py`; `adr.py lint` | passed at `c65c0c7` |
-| `just fmt`, `just test-all`, `just docs-check`, facts pilots | not_run: P0–P2 functional scope incomplete |
+| `just fmt`, `just test-all`, facts pilots | not_run: P0–P2 functional scope incomplete |
 
 ## Known open items
 

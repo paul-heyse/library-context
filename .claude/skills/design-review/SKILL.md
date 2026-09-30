@@ -1,6 +1,6 @@
 ---
 name: design-review
-description: Review architecture or a bounded implementation through expected change scenarios, component ownership, contracts, composition and local reasoning. Apply the repository's layered standard and domain constraints, compare library fit and total complexity, and produce an evidence-grounded review. Use for architecture decisions, design reviews and architectural code audits.
+description: Review architecture or a bounded implementation through explicit domain models, expected change scenarios, ownership, contracts, composition and local reasoning. Apply the layered standard, compare library fit and total complexity, and produce an evidence-grounded review. Use for architecture decisions, design reviews and architectural code audits.
 allowed-tools: Read, Glob, Grep, Bash, Write, Edit, Agent
 user-invocable: true
 model-baseline: claude-5 (2026-08)
@@ -10,8 +10,9 @@ model-baseline: claude-5 (2026-08)
 
 Review a proposed design, implementation or both. Establish how the system accommodates realistic
 change, then judge correctness and domain fidelity independently. The six foundations organize
-the analysis: separation of concerns, stable contracts, composition, authoritative representations,
-explicit structure and local reasoning.
+the analysis: separation of concerns, stable contracts, composition, explicit domain models and
+scoped semantic authority, explicit structure and local reasoning. The model must govern
+implemented behavior wherever domain meaning is established or interpreted (core §1, FP-04, A2).
 
 ## Load the standard
 
@@ -49,18 +50,28 @@ Ask only if ambiguity would materially change the judgment; otherwise state the 
 
 Use judgment about investigation order and depth. These are outcomes, not a mandatory tool script.
 
-1. **Responsibilities and dependencies.** Reconstruct coherent owners, hidden decisions, public
-   contracts and dependency direction. Use source and accepted design, not just module names.
+1. **Domain model, responsibilities and dependencies.** Identify the phenomena, consequential
+   distinctions and domain operations, then reconstruct their owners, contracts and dependency
+   direction. Trace phenomenon → authoritative concept or operation → implementation → consumer
+   → expected change. Use source and accepted design, not just module or type names.
 2. **Realistic change scenarios.** Select changes from the next capabilities or known variation
-   axes. Trace trigger → owner → contract change → affected consumers → verification. Explain
-   why change propagates, which decisions repeat and what context/test setup is required.
+   axes. Distinguish instances, bindings, compositions, policies, domain concepts and mechanisms.
+   Trace trigger → owner → contract change → affected consumers → verification. Explain why
+   change propagates, which decisions repeat and what context/test setup is required. For a
+   substantial architecture review, examine a domain extension and mechanism substitution where
+   credible; state a scope reason when either does not apply. A bounded review keeps its one
+   relevant scenario.
 3. **Authority, constraints and composition.** Trace semantic definitions into derived forms and
-   workflows. Identify domain rules embedded in orchestration and private mechanics exposed to consumers.
+   workflows. Establish how domain operations realize their contracts and who owns their
+   invariants; distinguish repeated enforcement from independent definitions. Identify domain
+   rules embedded in orchestration and private mechanics exposed to consumers. Ordinary domain
+   functions can suffice; no registry, universal model or conversion of algorithms to data is required.
 4. **Alternatives and library fit.** Compare a suitable library mechanism and the simplest viable
    design where relevant. Qualify pinned semantics and total integration burden. Functions or
    modules may be sufficient; a wrapper or new crate must improve a real boundary.
 5. **Independent judgments.** Settle A1–A3 from scenario evidence, G1–G8 and profile gates from
-   their own evidence, and applicable foundation/supporting-rule verdicts. Unresolved stays unresolved.
+   their own evidence, and applicable foundation/supporting-rule verdicts. A2 requires both an
+   adequate domain model and behavior governed by its authorities. Unresolved stays unresolved.
 6. **Actionable findings and disposition.** Group by structural cause. Name a concrete semantic
    failure or architectural consequence, owner, correction and closure evidence. Link the single
    location owning current status. Follow the template's decision rules.
@@ -68,6 +79,8 @@ Use judgment about investigation order and depth. These are outcomes, not a mand
 A demonstrated architectural violation can require revision despite correct output or a SHOULD
 supporting rule. Scoped acceptance states the excluded scenario and revisit trigger, and cannot
 certify the enclosing architecture. No positive architectural result offsets a failed fidelity gate.
+The domain-model MUST cannot be waived for supported behavior: an in-scope A2 gap requires
+revision even when outputs are currently correct. A deferral alone is not conformance.
 
 ## Evidence and calibration
 
@@ -98,6 +111,8 @@ enclosing architectural status and path. Distinguish review acceptance from rele
 - Requiring a wrong output before reporting concrete architectural damage.
 - Accepting an enclosing architecture because successive narrow slices passed.
 - Treating file count, traits, crates, declarative vocabulary or library adoption as proof of quality.
+- Accepting output records as a domain model without tracing their governing operations, or
+  accepting one centralized definition that omits consequential distinctions.
 - Deriving all tests from production logic, then treating agreement as independent evidence.
 - Calling a proposed benefit measured, or an accepted ADR an implemented correction.
 - Repeating a finding's current status across reviews, plans and handoff prose.

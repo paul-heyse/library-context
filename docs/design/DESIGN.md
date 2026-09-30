@@ -191,12 +191,16 @@ must resolve, historical `supersedes` entries need not, and ADR ids are never re
 > Decision: ADR-0041, ADR-0042
 
 
-**Implemented policy (ADR-0040, 2026-09-25).** These are the load-bearing choices. The
-repository owns core 3.0 and declares its standard in
+**Implemented policy (ADR-0040/0091, 2026-09-29).** These are the load-bearing choices. The
+repository owns core 3.1 and declares its standard in
 `docs/design_review/design_principles/standard.toml`. The six foundations organize review of
-responsibilities, contracts, composition, authority, constraints and local reasoning. A1–A3
-judge architecture independently of correctness and domain-fidelity gates. Supporting DP/CI IDs
-retain their historical meaning at the version cited by each review.
+responsibilities, contracts, composition, explicit domain models and scoped semantic authority,
+constraints and local reasoning. Domain modeling is a MUST wherever implementation establishes
+or interprets domain meaning. Concepts, relationships, contextual bindings, invariants and
+operation contracts must govern behavior; ordinary domain functions are valid realizations.
+A2 assesses both model adequacy and authoritative behavior. A1–A3 judge architecture
+independently of correctness and domain-fidelity gates. Supporting DP/CI IDs retain their
+historical meaning at the version cited by each review.
 
 The library-context binding maps §B decisions to the standard and owns review cadence and
 finding disposition. Changing a §B decision needs an ADR and a design/target review. Library
@@ -209,7 +213,7 @@ own their detailed contracts. ADRs record decisions and alternatives. Reviews pr
 evidence, while the active plan owns current disposition of scheduled findings. STATUS links to
 that owner. Acceptance, implementation and verification remain distinct facts.
 
-> Decision: ADR-0040
+> Decision: ADR-0040, ADR-0091
 
 <a id="section-b1"></a>
 

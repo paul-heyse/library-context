@@ -1,9 +1,9 @@
 # Design principles
 
-**Version 3.0 · 2026-09-25** · Core layer: repository- and domain-agnostic.
-Supersedes core 2.0; §I preserves its lineage and the Data Model–Based Design Charter 1.0 ID map.
+**Version 3.1 · 2026-09-29** · Core layer: repository- and domain-agnostic.
+Supersedes core 3.0; §I preserves its lineage and the Data Model–Based Design Charter 1.0 ID map.
 
-> **Localize change. Encode meaning structurally. Extend through composition.**
+> **Localize change. Encode domain meaning explicitly. Extend through composition.**
 
 The six foundations below organize architectural judgment. DP-01–DP-24 retain their IDs as
 supporting rules; §I records the version lineage. Domain profiles supply additional constraints.
@@ -56,6 +56,28 @@ Minimize **independent semantic decisions** and **bespoke generic code**, not so
 A specialized algorithm behind a complete contract is aligned; a declarative-looking wrapper
 around hidden rules is not.
 
+**Semantic-model-first domain design — MUST.** The implementation must embody an explicit,
+coherent model of the phenomena and behavior the system is intended to represent. Distinctions
+that affect validity, interpretation, composition or observable behavior must have deliberate
+representations and authoritative definitions within a declared semantic scope.
+
+Domain-relevant operations must realize that model through identifiable contracts: what they
+consume, when they apply, what they produce or change, and the invariants, outcomes and effects
+that govern them. Consumers and implementation mechanisms must use these definitions rather
+than independently reconstruct their meaning.
+
+The model may be expressed through types, relations, schemas, constraints and ordinary domain
+functions. Its executable realization must govern construction, validation and behavior;
+documentation or standardized output structures alone are insufficient. Model only the
+distinctions needed for supported responsibilities and credible changes. No universal ontology,
+object-oriented design, custom language, registry or conversion of every algorithm into data
+is required.
+
+This requirement applies throughout the implementation wherever domain meaning is established
+or interpreted, including adapters, orchestration, persistence and presentation. Generic
+mechanisms may remain generic; any domain decisions they make remain subject to the same
+requirement. A MUST gap cannot be waived for supported behavior (§0, §H).
+
 Before choosing technology, identify responsibilities, expected changes, consumer contracts,
 dependency direction and semantic owners. Then evaluate which library capabilities fit them.
 
@@ -78,10 +100,13 @@ propagation required by a changed contract, or caused by knowledge of private me
 ### FP-02 — Stable contracts, replaceable implementations
 
 Consumers depend on explicit meaning and behavior: inputs, outputs, preconditions, invariants,
-effects, failure modes and compatibility. A substitute preserves that contract. Hide volatile
-provider details at the owning boundary; use shared library types intentionally when they are
-the chosen contract. Introduce a trait, protocol or adapter for a credible variation or testing
-need. Replacement need not mean supporting several backends at once.
+effects, failure modes and compatibility. A substitute preserves the domain meaning as well as
+the interface shape of that contract. Hide volatile provider details at the owning boundary;
+use shared library types intentionally when they are the chosen contract. Introduce a trait,
+protocol or adapter for a credible variation or testing need. Replacement need not mean
+supporting several backends at once. An incompatible replacement
+exposes the contract it cannot honor rather than silently redefining the domain; replacement
+locality does not promise that every substitute is inexpensive.
 
 **Audit.** What would an analyzer upgrade or mechanism replacement change in its consumers?
 Which conformance obligations distinguish a valid substitute? Which compatibility is actually needed?
@@ -90,24 +115,31 @@ Which conformance obligations distinguish a valid substitute? Which compatibilit
 
 Build workflows by composing independently understandable capabilities with explicit contracts.
 Keep policy with its semantic owner and effects at controlled boundaries. Orchestration orders
-and connects capabilities; new workflows should reuse primitives without duplicating their rules.
+and connects domain operations through their owned semantics; new workflows should reuse
+primitives without duplicating or independently interpreting their rules.
 Use functions, pipelines or library operators where sufficient. A universal workflow engine or
 plugin registry is justified only by real variation.
 
 **Audit.** Can the next supported workflow be assembled from existing capabilities? Which new
 semantics truly need implementation? Does it require another branch inside an unrelated core?
 
-### FP-04 — One authoritative representation per concept
+### FP-04 — Explicit domain model and scoped semantic authority
 
-Author each semantic decision once within its scope and revision, then derive mechanical
-representations. Authority is per concept and can be distributed among coherent domain modules.
-Physical layouts, typed values, tables and graphs may differ when their mapping is explicit.
-Generate or inspect schemas, metadata and constraints where practical; do not centralize unrelated
-meaning in a universal catalog. Independent tests challenge the contract rather than deriving all
-expected results from the production implementation.
+Represent the domain through the smallest sufficient set of meaningful concepts, relationships,
+contextual bindings, constraints and operations. Align implementation vocabulary and contracts
+with those meanings. Author each semantic decision once within its scope and revision, and
+make behavior consume or realize that authority.
 
-**Audit.** Which owner changes the meaning? Which consumers derive it, and which independently
-restate it? Can a projection be rebuilt? Would a shared mistake make the oracle agree?
+Authority can be distributed among coherent domain modules. Different contexts may use
+different models when their scope and translations are explicit. Physical layouts, typed
+values, tables and graphs may differ while preserving the meaning required by their contracts.
+Generate or inspect their mechanical representations where practical. Independent tests
+challenge the model and its realization rather than deriving every expectation from production
+definitions.
+
+**Audit.** Where are the phenomena and operations defined? Does that model govern behavior,
+or merely describe outputs? Which owner changes a meaning, and which consumers would otherwise
+reinterpret it? Can a projection be rebuilt? Would a shared mistake make the oracle agree?
 
 ### FP-05 — Explicit structure and constraints
 
@@ -136,7 +168,7 @@ exercised through its contract? Is uncertainty visible rather than hidden in amb
 | FP-01 Separation of concerns | DP-05, DP-17, DP-18, DP-19 | A1, A3 |
 | FP-02 Stable contracts | DP-02, DP-08, DP-15, DP-24 | A1, A3 |
 | FP-03 Composition | DP-06, DP-08, DP-13, DP-14, DP-16, DP-17 | A3 |
-| FP-04 Authoritative representations | DP-01, DP-04, DP-06, DP-09 | A2 |
+| FP-04 Domain model and semantic authority | DP-01, DP-02, DP-03, DP-04, DP-05, DP-06, DP-08, DP-09 | A2 |
 | FP-05 Explicit structure | DP-02, DP-03, DP-07, DP-11, DP-12, DP-19, DP-20, DP-24 | A2 |
 | FP-06 Local reasoning | DP-08, DP-10, DP-17, DP-18, DP-21, DP-22, DP-23 | A1, A3 |
 
@@ -151,7 +183,7 @@ exercised through its contract? Is uncertainty visible rather than hidden in amb
 | | DP-05 | Definitions, bindings, policies, observations and results stay separate | MUST | G1, G5 |
 | | DP-06 | Author structure once | SHOULD | — |
 | | DP-07 | Relationships keep their kind, direction and multiplicity | MUST | G2, G6 |
-| B. Derivation and computation | DP-08 | Transformations carry contracts and preserve meaning | MUST | G6 |
+| B. Derivation and computation | DP-08 | Domain operations and transformations carry contracts | MUST | G6 |
 | | DP-09 | One reuse mechanism, keyed on complete dependencies | MUST | G6 |
 | | DP-10 | Prepare once, execute many; cross boundaries coarsely | SHOULD | — |
 | | DP-11 | Precision, approximation and determinism are contracts | MUST | G6 |
@@ -194,7 +226,9 @@ discarded and rebuilt?
 
 **MUST · G2.** Define meaning before storage. Distinctions that change interpretation — role,
 category, unit or convention, basis, ordering, scope, shape — are types or checked references,
-not primitives that are interchangeable because their encodings match. Parse authored and
+not primitives that are interchangeable because their encodings match. The representations
+must capture the distinctions required by the domain's phenomena and operations; domain names
+or matching field shapes alone do not establish an adequate model. Parse authored and
 external input into those types at the boundary; make illegal states unrepresentable where
 practical. Represent *not supplied*, *not applicable*, *not yet computed*, *unknown*,
 *uncertain*, *invalid* and *failed* as distinct states when behaviour depends on the
@@ -211,8 +245,10 @@ free text or an untyped payload?
 ### DP-03 — Invariants have an enforcement point
 
 **MUST · G3.** Declare local, relational, conditional and lifecycle invariants, including valid
-combinations and domains — not every combination of individually valid values is valid. Each
-critical invariant has a boundary where it is enforced and an observable rejection.
+combinations and domains — not every combination of individually valid values is valid. Assign
+each invariant to the concept, relationship or operation whose meaning requires it. Each
+critical invariant has a boundary where it is enforced and an observable rejection. Multiple
+enforcement points may be appropriate; independently maintained definitions of one invariant are not.
 Documentation, annotations and schema metadata are not enforcement.
 
 **Audit.** For each critical invariant: where is it enforced, and what does a violation
@@ -235,7 +271,9 @@ sequence zipped against an unrelated iteration order?
 
 **MUST · G1, G5.** What exists, how it is bound for a case, which policy selects behaviour, what
 was observed and what an execution produced are separate concepts, versioned on their own
-lifecycles with explicit links. Execution never mutates the definition it executes; temporary
+lifecycles with explicit links. A contextual role or assignment belongs to its binding rather
+than becoming an intrinsic property of an entity. Genuinely authored assignments remain facts;
+do not invent derivations for them. Execution never mutates the definition it executes; temporary
 overrides are scoped overlays, not edits that need manual reversal.
 
 **Audit.** Can the same definition serve a new case unchanged? Can a failed execution leave the
@@ -245,8 +283,11 @@ definition altered? Does a result ever overwrite the input it came from?
 
 **SHOULD.** Represent repeated structure once, as a template with declared parameters,
 capability requirements and instantiation rules; instances are typed bindings that retain their
-origin. Keep compact and indexed structure until a consumer needs expansion, and make expansion
-inspectable. Declare the choices an author controls, not every loop or allocation.
+origin. Express recurring variation within a coherent semantic family through reusable
+definitions, composition and contextual bindings before adding another procedural path.
+Branching over a genuine domain alternative is valid; independent reinterpretation across
+consumers is not. Keep compact and indexed structure until a consumer needs expansion, and make
+expansion inspectable. Declare the choices an author controls, not every loop or allocation.
 
 **Audit.** Does a new instance need new meaning, or copied construction code? Is structure
 flattened earlier than any consumer requires?
@@ -267,19 +308,26 @@ heuristic result consumed where a structural fact is required?
 
 ## B. Derivation and computation
 
-### DP-08 — Transformations carry contracts and preserve meaning
+### DP-08 — Domain operations and transformations carry contracts
 
-**MUST · G6.** Every meaningful pass, lowering, rewrite, conversion or approximation declares
-inputs, outputs, preconditions, effects, failure modes and the equivalence it promises.
+**MUST · G6.** Every domain operation and meaningful pass, lowering, rewrite, conversion or
+approximation has an explicit, owned contract: inputs, applicability, outputs or state changes,
+invariants, effects and failure or uncertainty outcomes. Operations realize the domain model
+and its composition laws where applicable. A transformation states the equivalence it promises,
+the distinctions it preserves, permitted omissions, introduced assumptions and uses for which
+its output remains valid. A projection need not retain facts outside its promised semantics.
 Obligations a rewrite could erase — domain restrictions, ordering, precision — are captured
 before rewriting and enforced after it. A deliberate change of behaviour is a selected policy,
 not an "optimization". Use distinct intermediate representations where stages have different
 responsibilities, so no backend-specific structure becomes the only record of intent. Behaviour
-outside the declarative model enters through a registered contract with declared dependencies
-and limits, never through a hidden callback.
+implemented by specialized code has an explicit, owned operation contract with declared
+dependencies and limits, never a hidden callback. An ordinary domain function may be sufficient;
+registration or a first-class operation specification is needed only when a consumer must
+discover, inspect, compose, plan or persist operations in that form.
 
-**Audit.** Can the transformation be invoked, reused and tested without knowing its internals?
-Which equivalence does it promise, under which assumptions, and what enforces them?
+**Audit.** Can the operation or transformation be invoked, reused and tested without knowing
+its internals? Which domain rules govern it? For a transformation, which equivalence does it
+promise, under which assumptions, and what enforces them?
 
 ### DP-09 — One reuse mechanism, keyed on complete dependencies
 
@@ -544,7 +592,7 @@ correctness defect, unless the bespoke code also fails another gate.
 
 | Question | Default placement |
 |---|---|
-| Does it distinguish valid from invalid meaning or change an observable rule? | An authoritative declaration or a registered operation contract |
+| Does it distinguish valid from invalid meaning or change an observable rule? | An authoritative domain definition or operation contract, including an ordinary domain function |
 | Is it a reusable structural pattern or selection policy? | A typed template, binding or policy |
 | Is it a generic capability (math, numerics, graphs, relational work, storage, parsing, caching, concurrency)? | A library, behind a thin adapter owned by one module |
 | Is it a specialized domain algorithm implementing an existing contract? | Ordinary code behind that contract, after considering libraries (§F) |
@@ -573,7 +621,13 @@ incorrect, and an interface-checked design can still need substantial engineerin
 Choose realistic changes from the product's next capabilities or known variation axes: a new
 model, provider revision, analytic, workflow, rendering, invariant or isolated test. Trace:
 
-**Trigger → owning component → contract change → affected consumers → verification.**
+**Trigger and kind of change → owning component → contract change → affected consumers → verification.**
+
+Distinguish a new instance, contextual binding, composition, policy, domain concept or execution
+mechanism. New instances and bindings generally reuse definitions; compositions reuse operation
+contracts; genuinely new phenomena may require new concepts, invariants or algorithms. A
+mechanism replacement preserves the domain contract or makes its incompatibility explicit.
+Judge whether edits follow these semantic owners, not whether an extension avoids new code.
 
 Record expected and observed propagation, independent semantic edits, hidden knowledge and test
 setup. A scenario can be inspected in a proposal or traced through code without implementing it.
@@ -599,11 +653,13 @@ unsupported scenario and carries a disposition/revisit trigger. It never certifi
 | Judgment | What must be established for the selected scenarios |
 |---|---|
 | A1 Localize change | Coherent owners and narrow contracts constrain propagation; local behavior can be understood and tested with bounded dependencies. |
-| A2 Encode meaning structurally | Each changed semantic decision has one authority; derived forms, constraints, lifecycle and dependencies are explicit. |
+| A2 Encode domain meaning explicitly | Supported phenomena and consequential distinctions have a coherent, scoped model. Domain behavior realizes its owned definitions and operation contracts; constraints, lifecycle and dependencies are explicit, and derived representations preserve their promised semantics. Meaning is not independently reconstructed by consumers or recoverable only from incidental implementation details. |
 | A3 Extend through composition | Existing capabilities can be recombined or substituted through their contracts; new semantic code has an owner, and new machinery has a credible need. |
 
 Preserve each correctness/fidelity gate independently. Working behavior cannot compensate for an
 architectural violation, and architectural elegance cannot compensate for a failed semantic gate.
+A2 requires both model adequacy and semantic authority: one owner for an inadequate model does
+not satisfy it. An in-scope violation requires revision even when current outputs are correct.
 
 ## §F Library consideration
 
@@ -634,7 +690,10 @@ attractive claim.
 | "It is easy to test." | Local semantic behavior requires unrelated acquisition, storage or serving setup; assertions only repeat generated production expectations. |
 | "It composes." | Orchestration reimplements invariants and defaults instead of connecting capabilities through their contracts. |
 | "There is a single source of truth." | Several independently editable definitions share one storage format. |
-| "Everything is declarative." | Callbacks or scripts still decide important behaviour. |
+| "We have a domain model." | Only output records are modeled; operations establish their meaning independently. |
+| "The rule has one owner." | Consumers reinterpret it, or its single definition omits a consequential domain distinction. |
+| "Everything is generic." | Meaningful distinctions survive only in strings and conventions inside generic records. |
+| "Everything is declarative." | Callbacks or scripts independently define domain rules outside their declared contracts. |
 | "The schema enforces it." | The invariant is metadata that no path rejects on. |
 | "It uses library X." | A wrapper re-implements, bypasses or restricts the library's core capability. |
 | "It is incremental." | A hidden read, a mutable handle or untracked membership makes reuse stale. |
@@ -652,6 +711,12 @@ gap is never an exception: it narrows the supported scope or is recorded as unre
 concrete record is enough for a small deviation.
 
 ## §I Lineage: Data Model–Based Design Charter 1.0
+
+**Version 3.1 lineage.** FP-01–FP-06, A1–A3, DP-01–DP-24 and G1–G8 retain their IDs.
+§1 makes semantic-model-first domain design a MUST; FP-04 and A2 explicitly assess model
+adequacy and authority over behavior. Operation contracts, invariant ownership, contextual
+bindings and change classification strengthen existing rules without prescribing a modeling
+mechanism. Historical reviews retain their recorded versions and are not certified under 3.1.
 
 **Version 3.0 lineage.** Version 2.0's DP-01–DP-24 and G1–G8 identifiers remain stable.
 The six FP foundations and A1–A3 architectural judgments now organize assessment. DP-13,
@@ -692,7 +757,7 @@ dimensions are retired in favour of gate verdicts and findings.
 
 ## Closing standard
 
-A good design makes valid changes easy and invalid states hard to introduce. It keeps meaning
-inspectable, takes generic mechanisms from libraries, and keeps execution mechanisms
-replaceable. Its extensions add meaning rather than machinery. Its claims match its evidence,
-and its remaining uncertainty is visible.
+A good design makes valid changes easy and invalid states hard to introduce. Its explicit domain
+model governs behavior and keeps meaning inspectable. It takes generic mechanisms from libraries
+and keeps execution mechanisms replaceable. Its extensions add meaning rather than machinery.
+Its claims match its evidence, and its remaining uncertainty is visible.
