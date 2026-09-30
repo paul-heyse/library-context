@@ -2,10 +2,11 @@
 
 _Updated 2026-09-30 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-## Review planning skill (2026-09-30)
+## Planning skills (2026-09-30)
 
-- **Implemented:** [plan-design-review](.claude/skills/plan-design-review/SKILL.md) plans reviews
-  through the existing standard; Codex invocation: `/plan $plan-design-review <review goal>`.
+- **Implemented:** [planning skills](.claude/skills/README.md) cover review planning, plan
+  creation and planning the authoring approach. Plan creation includes focused dependency
+  review and a flexible document outline.
 - Checks **not_run**: `just lint-agents` and `just docs-check` belong to the automatic hook;
   `just test-all` is outside this process-only change. No new hook was added.
 

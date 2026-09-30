@@ -21,9 +21,11 @@ from repo_paths import local_skill
 ROOT = Path(__file__).resolve().parent.parent
 PROCESS_SKILLS = (
     "adr",
+    "create-plan",
     "design-review",
     "design-review-code-intelligence",
     "plan-design-review",
+    "plan-creation",
     "handoff",
     "pin-check",
 )

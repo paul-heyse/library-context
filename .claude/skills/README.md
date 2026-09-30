@@ -12,11 +12,19 @@ Workflows for building this repository. A skill is added when a workflow has act
 | [`plan-design-review/`](plan-design-review/SKILL.md) | Plan an approach to the user's review goal, using the existing design-review skills and standard |
 | [`design-review/`](design-review/SKILL.md) | Review explicit domain models, ownership, contracts and change scenarios against the layered design standard (`docs/design_review/design_principles/standard.toml`); cadence in the library-context binding |
 | [`design-review-code-intelligence/`](design-review-code-intelligence/SKILL.md) | The code-intelligence profile, loaded with `design-review` |
+| [`plan-creation/`](plan-creation/SKILL.md) | Plan the authoring approach from a design review or existing plan, including focused assessment of relevant dependencies |
+| [`create-plan/`](create-plan/SKILL.md) | Write the design and execution plan, including foundation improvements and an adaptable document structure |
 | [`handoff/`](handoff/SKILL.md) | Rewrite STATUS.md from the actual tree at session end |
 | [`pin-check/`](pin-check/SKILL.md) | Change or re-verify any dependency or tool pin |
 
 In Codex, invoke `/plan $plan-design-review <review goal>` to enter Plan mode and plan a review.
 The skill also works in an ordinary conversation; it does not itself switch modes.
+
+For a plan document, use `/plan $plan-creation <reference and goal>` to develop the authoring
+approach. When ready to write the document, leave Plan mode and invoke `$create-plan <reference and goal>`.
+Either skill can be used directly when the intended task is already clear. The
+[suggested outline](create-plan/references/plan-structure.md) provides a flexible starting point
+for the document.
 
 ## Library capability skills (shared live copies)
 
