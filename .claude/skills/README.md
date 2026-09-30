@@ -23,15 +23,13 @@ Edit the shared copy to improve it for every selecting repo. Process skills abov
 Each library skill retains its pinned references, lookup scripts, evidence and build inputs.
 Silence in an index is not evidence of absence.
 
-Check a skill's pinned profile against `docs/pins.md` before transferring a claim: `deltalake` is
-pinned to exactly this repo's delta-rs git profile; `pyrefly-ruff` indexes ruff 0.16.7 (crates
+Check a skill's pinned profile against `docs/pins.md` before transferring a claim: `pyrefly-ruff` indexes ruff 0.16.7 (crates
 0.0.13) / pyrefly 1.3.1. We link pyrefly 1.3.1 plus a visibility patch, and ruff crates **0.0.11**;
 the known 0.0.11 vs 0.0.13 deltas are listed in `docs/pins.md`.
 
 | Repository | Indexes | Built from |
 |---|---|---|
 | [`datafusion/`](datafusion/SKILL.md) | DataFusion and the Arrow family | hosted rustdoc JSON |
-| [`deltalake/`](deltalake/SKILL.md) | delta-rs and the kernel | rustdoc JSON, part locally built |
 | [`fastmcp/`](fastmcp/SKILL.md) | `fastmcp`, `mcp`, `mcp-types`, plus 774 files of upstream docs, examples and tests | Griffe + the ty language server + pinned GitHub tarballs |
 | [`pyrefly-ruff/`](pyrefly-ruff/SKILL.md) | 42 ruff and pyrefly crates, every catalog the two tools emit about themselves, a question router and 16 reviewed briefs, and source-derived maps of all 970 rules and 144 error kinds | rustdoc JSON + the tools' own JSON oracles + ast-grep facts from the pinned source, and 21 **executed** probes |
 | [`ast-grep-ripgrep/`](ast-grep-ripgrep/SKILL.md) | every flag, node kind, rule field and regex construct of both tools, plus the 23 library crates underneath | the installed binaries' own help, ast-grep's shipped schemas, PCRE2 10.48's manual, rustdoc JSON — and 49 **executed** probes |
@@ -43,3 +41,7 @@ the known 0.0.11 vs 0.0.13 deltas are listed in `docs/pins.md`.
 | [`rust-reasoning/`](rust-reasoning/SKILL.md) | symbolic reasoning over conditions and relations: biodivine-lib-bdd 0.6.3, OxiDD 0.12.0, z3 0.21.1 / z3-sys 0.13.1 on **Z3 5.1.0** (all 807 C functions and 1,040 z3 items in 28 capability groups, each marked safe or z3-sys-only), ascent 0.8.1, datafrog 2.0.1, fcars 0.2.2; a library ladder, 43 briefs, executed interop routes, and Z3's own parameter, tactic, probe and simplifier catalogs | docs.rs plus local all-features captures of 12 crates, catalogs read from Z3 5.1.0 through its C API, and 64 behaviour and 9 compile **executed** probes |
 | [`python-oracles/`](python-oracles/SKILL.md) | independent oracles for a static analyzer's claims: pyre-check/Pysa 0.10.0, crosshair-tool 0.0.110, Hypothesis 6.168.1, CPython 3.14.7 `sys.monitoring`, bytecode 0.19.0; a fact-family router and 14 briefs | Griffe + ty + pyrefly API models, pinned upstream tarballs, parser-walked CLI tables, and 25 **executed** probes |
 | [`pyomo-and-solvers/`](pyomo-and-solvers/SKILL.md) | Pyomo, and the eight open-source solvers it can reach -- Ipopt with sIpopt, SCIP, Bonmin, Couenne, Cbc, Clp, GLPK, HiGHS | **built from source into one prefix**, against one compiler, one BLAS and one ASL; each binary's own option registry; and 17 **executed** probes |
+| [`sqlx-postgres/`](sqlx-postgres/SKILL.md) | sqlx 0.9 with PostgreSQL and the libraries that meet it: sea-query 1.0, pgpq 0.12, pgvector 0.4, testcontainers-modules 0.15, and a DataFusion 55 table-provider fork -- 13 crates; probes against PostgreSQL 18, 31 briefs, seams and a router | docs.rs rustdoc JSON, local profile captures, and probes run against a disposable PostgreSQL 18 |
+| [`pyo3/`](pyo3/SKILL.md) | pyo3 0.29.2 (with ffi, macros, build-config) and pyo3-async-runtimes 0.29.0: a macro option matrix, obsolete-API catalog, 20 briefs, 66 probes | docs.rs rustdoc JSON, local captures, and probes against an embedded Python 3.14 |
+| [`serde-arrow/`](serde-arrow/SKILL.md) | serde_arrow 0.15.1 and marrow 0.3.1 on the `arrow-59` profile; 37 probes, 8 briefs, an Arrow 59 interop page | docs.rs rustdoc JSON plus a local `arrow-59` capture |
+| [`fixedbitset/`](fixedbitset/SKILL.md) | fixedbitset 0.5.7, one crate: set-operation length rules, tail bits, serde, the 0.4 delta; 11 probes | docs.rs rustdoc JSON plus local captures |

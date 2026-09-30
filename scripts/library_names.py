@@ -32,7 +32,7 @@ NON_ITEMS = {"module", "use"}
 @dataclass
 class Index:
     symbols: dict[str, str]  # defining path -> kind
-    aliases: dict[str, str]  # reachable path -> defining path
+    aliases: dict[str, list[str]]  # reachable path -> defining path(s); a path can name two items
     methods: set[tuple[str, str]]  # (defining type path, method name)
     by_name: dict[tuple[str, str], list[str]]  # (crate, last segment) -> defining paths
     crates: set[str]
@@ -42,7 +42,9 @@ class Index:
 class Resolved:
     item: str
     canonical: str | None
-    how: str  # canonical, alias, name, method, ambiguous, absent, unindexed
+    how: str  # canonical, alias, name, method, ambiguous, absent, unindexed, resolved
+    candidates: tuple[str, ...] = ()  # the defining paths an ambiguous item could mean
+    index_how: str = ""  # for `resolved`: how the skills' index places that compiler path
 
 
 def _rows(path: Path) -> list[list[str]]:
@@ -53,7 +55,7 @@ def load_index(root: Path) -> Index:
     """Union of the enabled skills' symbol, alias and method indexes (crate-prefixed paths)."""
     enabled = tomllib.loads((root / ".config" / "library-skills.toml").read_text())["enabled"]
     symbols: dict[str, str] = {}
-    aliases: dict[str, str] = {}
+    aliases: dict[str, list[str]] = defaultdict(list)
     methods: set[tuple[str, str]] = set()
     for skill in enabled:
         directory = root / ".claude" / "skills" / skill / "content" / "index"
@@ -62,7 +64,8 @@ def load_index(root: Path) -> Index:
                 symbols[row[0]] = row[1]
         if (directory / "aliases.tsv").exists():
             for row in _rows(directory / "aliases.tsv"):
-                aliases[row[0]] = row[1]
+                if row[1] not in aliases[row[0]]:
+                    aliases[row[0]].append(row[1])
         if (directory / "methods.tsv").exists():
             methods.update((row[0], row[1]) for row in _rows(directory / "methods.tsv"))
     by_name: dict[tuple[str, str], list[str]] = defaultdict(list)
@@ -70,15 +73,16 @@ def load_index(root: Path) -> Index:
         if kind not in NON_ITEMS:
             by_name[(path.split("::")[0], path.rsplit("::", 1)[-1])].append(path)
     crates = {path.split("::")[0] for path in symbols} | {a.split("::")[0] for a in aliases}
-    return Index(symbols, aliases, methods, dict(by_name), crates)
+    return Index(symbols, dict(aliases), methods, dict(by_name), crates)
 
 
 def _exact(path: str, index: Index) -> tuple[str | None, str]:
     if path in index.symbols:
         return path, "canonical"
-    if path in index.aliases:
-        return index.aliases[path], "alias"
-    return None, "absent"
+    targets = index.aliases.get(path, [])
+    if len(targets) == 1:
+        return targets[0], "alias"
+    return (None, "ambiguous") if targets else (None, "absent")
 
 
 def _by_name(path: str, index: Index) -> tuple[str | None, str]:
@@ -99,7 +103,8 @@ def resolve(item: str, index: Index) -> Resolved:
 
     Order: an exact path or alias; `Type::method` with the type resolved and the method listed;
     a unique same-crate name. The method reading comes before the name reading so a method is
-    never mistaken for a free function of the same name.
+    never mistaken for a free function of the same name. A path that names two items (a trait
+    and its derive macro) is `ambiguous` with both candidates, never guessed.
     """
     bang = "!" if item.endswith("!") else ""
     path = item.removesuffix("!")
@@ -108,6 +113,8 @@ def resolve(item: str, index: Index) -> Resolved:
     canonical, how = _exact(path, index)
     if canonical:
         return Resolved(item, canonical + bang, how)
+    if how == "ambiguous":
+        return Resolved(item, None, how, tuple(index.aliases[path]))
     owner, sep, method = path.rpartition("::")
     if sep:
         typ, owner_how = _type(owner, index)
@@ -116,7 +123,22 @@ def resolve(item: str, index: Index) -> Resolved:
                 item, f"{typ}::{method}", "method" if owner_how == "canonical" else owner_how
             )
     canonical, how = _by_name(path, index)
-    return Resolved(item, canonical + bang if canonical else None, how)
+    if canonical:
+        return Resolved(item, canonical + bang, how)
+    found = tuple(index.by_name.get((path.split("::")[0], path.rsplit("::", 1)[-1]), []))
+    return Resolved(item, None, how, found if how == "ambiguous" else ())
+
+
+def _kept(item: str, index: Index) -> Resolved:
+    """An item rust-analyzer resolved exactly: left as it is, with how the index places it."""
+    check = resolve(item, index)
+    return Resolved(
+        item,
+        None,
+        "resolved",
+        (check.canonical,) if check.how == "name" and check.canonical else (),
+        check.how,
+    )
 
 
 def normalize_items(
@@ -124,13 +146,10 @@ def normalize_items(
 ) -> tuple[list[str], list[str], list[Resolved]]:
     """Return the normalized items, the spellings replaced, and every resolution.
 
-    An item in `keep` (a path rust-analyzer resolved exactly) is already a defining path as the
-    compiler sees it, so the skills' index does not rewrite it.
+    An item in `keep` (a path rust-analyzer resolved exactly; a macro is kept as `path!`) is
+    already a defining path as the compiler sees it, so the skills' index does not rewrite it.
     """
-    resolved = [
-        Resolved(item, None, "resolved") if item.removesuffix("!") in keep else resolve(item, index)
-        for item in items
-    ]
+    resolved = [_kept(item, index) if item in keep else resolve(item, index) for item in items]
     out: list[str] = []
     replaced: list[str] = []
     for r in resolved:

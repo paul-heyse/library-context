@@ -1,6 +1,6 @@
 # The only command surface agents need. `just` lists recipes.
 # Check recipes do not edit source; tests may create their own data fixtures.
-# `fmt` and `adr new|supersede|index` edit the working tree.
+# `fmt`, `library-catalog` and `adr new|supersede|index` edit the working tree.
 
 set shell := ["python3", "scripts/build_environment.py", "--", "bash", "-euo", "pipefail", "-c"]
 
@@ -120,6 +120,11 @@ adr *args:
 # Claude/Codex parity and dead-reference check for agent instructions and skills
 lint-agents:
     uv run --no-project --offline --no-python-downloads python scripts/check_agents.py
+
+# Edits the working tree; one to two minutes (tools/lu-resolve). Run last, after tests and checks.
+# Regenerate the library catalog and the usage index behind the library-catalog MCP server
+library-catalog:
+    uv run python scripts/library_utilization.py --write
 
 # Tool presence and versions (compare with docs/pins.md)
 doctor:

@@ -26,7 +26,10 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use ra_ap_base_db::CrateOrigin;
-use ra_ap_hir::{AsAssocItem, AssocItemContainer, ModuleDef, PathResolution, Semantics};
+use ra_ap_hir::{
+    AsAssocItem, AssocItemContainer, Crate, Macro, MacroKind, ModuleDef, PathResolution, ScopeDef,
+    Semantics,
+};
 use ra_ap_ide_db::RootDatabase;
 use ra_ap_load_cargo::{LoadCargoConfig, ProcMacroServerChoice, load_workspace_at};
 use ra_ap_project_model::{CargoConfig, CargoFeatures, RustLibSource};
@@ -37,6 +40,7 @@ const SKIP_PARTS: [&str; 3] = ["/target/", "/third_party/", "/.sqlx/"];
 
 /// A library item a reference resolved to.
 struct Item {
+    kind: &'static str,
     package: String,
     version: Option<String>,
     path: String,
@@ -45,10 +49,48 @@ struct Item {
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
 struct Key {
     file: String,
+    kind: &'static str,
     package: String,
     version: String,
     path: String,
     via: &'static str,
+}
+
+/// What sort of definition this is, as the skills' indexes name kinds. An associated function
+/// reached through `method` is a `fn` whatever its owner is.
+fn kind_of(def: ModuleDef, method: bool) -> &'static str {
+    if method {
+        return "fn";
+    }
+    match def {
+        ModuleDef::Module(_) => "module",
+        ModuleDef::Function(_) => "fn",
+        ModuleDef::Adt(_) => "adt",
+        ModuleDef::EnumVariant(_) => "variant",
+        ModuleDef::Const(_) => "const",
+        ModuleDef::Static(_) => "static",
+        ModuleDef::Trait(_) => "trait",
+        ModuleDef::TypeAlias(_) => "type",
+        ModuleDef::BuiltinType(_) => "builtin",
+        ModuleDef::Macro(_) => "macro",
+    }
+}
+
+/// The name of a `#[macro_export]` macro at its crate root, which is where users write it.
+/// `canonical_path` reports the module the macro is defined in (`tracing::macros::info`), but an
+/// exported `macro_rules!` macro lives in the crate root's scope (`tracing::info`), and that root
+/// name is what the skills index and what code imports.
+fn exported_macro_name(db: &RootDatabase, mac: Macro, krate: Crate) -> Option<String> {
+    if mac.kind(db) != MacroKind::Declarative {
+        return None;
+    }
+    let edition = krate.edition(db);
+    krate.root_module(db).scope(db, None).into_iter().find_map(|(name, def)| match def {
+        ScopeDef::ModuleDef(ModuleDef::Macro(found)) if found == mac => {
+            Some(name.display(db, edition).to_string())
+        }
+        _ => None,
+    })
 }
 
 /// The library item a definition is, if it is defined in a non-workspace library crate. `method`
@@ -61,7 +103,12 @@ fn item_at(db: &RootDatabase, def: ModuleDef, method: Option<&str>) -> Option<It
     let CrateOrigin::Library { name, .. } = krate.origin(db) else {
         return None;
     };
-    let path = def.canonical_path(db, krate.edition(db))?;
+    let edition = krate.edition(db);
+    let path = match def {
+        ModuleDef::Macro(mac) => exported_macro_name(db, mac, krate)
+            .or_else(|| def.canonical_path(db, edition))?,
+        _ => def.canonical_path(db, edition)?,
+    };
     let path = match method {
         Some(method) => format!("{path}::{method}"),
         None => path,
@@ -71,7 +118,7 @@ fn item_at(db: &RootDatabase, def: ModuleDef, method: Option<&str>) -> Option<It
     let path = path.replace("r#", "");
     let crate_name = name.as_str().replace('-', "_");
     let path = if path.is_empty() { crate_name } else { format!("{crate_name}::{path}") };
-    Some(Item { package: name.as_str().to_owned(), version: krate.version(db), path })
+    Some(Item { kind: kind_of(def, method.is_some()), package: name.as_str().to_owned(), version: krate.version(db), path })
 }
 
 /// Every library item a definition stands for. A method that implements a trait method is both
@@ -137,6 +184,7 @@ fn resolve_all(
             let line = starts.partition_point(|&s| s <= offset);
             let key = Key {
                 file: file.clone(),
+                kind: item.kind,
                 package: item.package,
                 version: item.version.unwrap_or_default(),
                 path: item.path,
@@ -147,6 +195,11 @@ fn resolve_all(
         for node in source.syntax().descendants() {
             let offset = usize::from(node.text_range().start());
             if let Some(path) = ast::Path::cast(node.clone()) {
+                // The path of a macro invocation names a macro, not a module: it is resolved
+                // below with `resolve_macro_call`, so its own resolution is not reported.
+                if path.syntax().parent().is_some_and(|p| ast::MacroCall::can_cast(p.kind())) {
+                    continue;
+                }
                 visited += 1;
                 let resolution = sema.resolve_path(&path);
                 if debug.as_deref().is_some_and(|d| file.ends_with(d)) {
@@ -160,6 +213,13 @@ fn resolve_all(
                 if let Some(PathResolution::Def(def)) = resolution {
                     for item in library_items(db, def) {
                         record("path", item, offset);
+                    }
+                }
+            } else if let Some(call) = ast::MacroCall::cast(node.clone()) {
+                visited += 1;
+                if let Some(mac) = sema.resolve_macro_call(&call) {
+                    for item in library_items(db, ModuleDef::Macro(mac)) {
+                        record("macro", item, offset);
                     }
                 }
             } else if let Some(call) = ast::MethodCallExpr::cast(node) {
@@ -201,7 +261,7 @@ fn main() -> Result<()> {
             "{}",
             serde_json::json!({
                 "file": key.file, "package": key.package, "version": key.version,
-                "path": key.path, "via": key.via, "lines": lines,
+                "path": key.path, "kind": key.kind, "via": key.via, "lines": lines,
             })
         );
     }

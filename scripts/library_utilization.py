@@ -25,21 +25,27 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import hashlib
 import json
+import os
 import re
+import sqlite3
 import subprocess
 import sys
+import tempfile
 import tomllib
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import library_catalog_db as catalog_db
 import library_names as names
 import library_scan as scan
 import library_semantic as semantic
+import library_unitgraph as unitgraph
 
-HACK = scan.HACK  # cargo-hakari feature-unification stub, never real use
 JSONL = Path("docs/library-utilization.jsonl")
 CAPABILITY_KEYS = [
     "kind",
@@ -60,10 +66,12 @@ LIBRARY_KEYS = [
     "lib",
     "pin",
     "features",
+    "resolved_features",
     "default_features",
     "skill",
     "skill_pin_delta",
     "dependents",
+    "linked_by",
     "used_in",
     "crates",
     "status",
@@ -76,10 +84,12 @@ LIBRARY_KEYS = [
 GENERATED = (
     "pin",
     "features",
+    "resolved_features",
     "default_features",
     "skill",
     "skill_pin_delta",
     "dependents",
+    "linked_by",
     "used_in",
     "crates",
     "status",
@@ -111,6 +121,7 @@ class Group:
     name: str
     label: str
     crates: dict[str, str | None]
+    family: bool = False  # a per-library skill manifest: its crates are that library's own family
 
 
 def load_metadata(root: Path, metadata_file: Path | None) -> dict:
@@ -124,7 +135,7 @@ def load_metadata(root: Path, metadata_file: Path | None) -> dict:
         check=False,
     )
     if proc.returncode != 0:
-        sys.exit(f"cargo metadata failed: {proc.stderr.strip()[:400]}")
+        raise scan.SetupError(f"cargo metadata failed: {proc.stderr.strip()[:400]}")
     return json.loads(proc.stdout)
 
 
@@ -140,7 +151,7 @@ def direct_deps(meta: dict) -> dict[str, Dep]:
     members = {package["name"] for package in meta["packages"]}
     deps: dict[str, Dep] = {}
     for package in meta["packages"]:
-        if package["name"] == HACK:
+        if scan.is_hack(package["name"]):
             continue
         for dep in package["dependencies"]:
             if dep["name"] in members or dep.get("path"):
@@ -170,7 +181,9 @@ def load_groups(root: Path) -> list[Group]:
     groups: list[Group] = []
     for skill in enabled:
         if not (skills_dir / skill).exists():
-            sys.exit(f"skill {skill!r} is enabled but not linked: run `just skills-sync`")
+            raise scan.SetupError(
+                f"skill {skill!r} is enabled but not linked: run `just skills-sync`"
+            )
         manifest = skills_dir / skill / "build" / "manifests" / f"{skill}.json"
         if not manifest.exists():
             continue
@@ -199,7 +212,7 @@ def load_groups(root: Path) -> list[Group]:
             crates: dict[str, str | None] = {package: version}
             for entry in detail.get("crates", []):
                 crates.setdefault(entry if isinstance(entry, str) else entry["package"], None)
-            groups.append(Group(skill, library, library, crates))
+            groups.append(Group(skill, library, library, crates, family=True))
     return groups
 
 
@@ -260,8 +273,13 @@ def build(
     lock: dict[str, list[str]],
     groups: list[Group],
     refs: dict[str, list[scan.Ref]],
+    graph: dict[tuple[str, str], unitgraph.Summary] | None = None,
 ) -> tuple[list[dict], dict[str, list[str]]]:
-    """Return the new library records and report sections (cataloged, unlisted, orphans...)."""
+    """Return the new library records and report sections (cataloged, unlisted, orphans...).
+
+    `graph` is the compiled dependency graph (`library_unitgraph.summarize`); when it is None the
+    compiled-feature fields keep whatever the catalog already records.
+    """
     old = {r["lib"]: r for r in existing if r["kind"] == "library"}
     deps = direct_deps(meta)
     out: dict[str, dict] = {}
@@ -286,6 +304,10 @@ def build(
             prior.get("skill_pin_delta") if prior else None, cover, resolved
         )
         record["dependents"] = sorted(dep.dependents)
+        if graph is not None:
+            found = [graph[(dep.package, v)] for v in resolved if (dep.package, v) in graph]
+            record["resolved_features"] = sorted({f for g in found for f in g.features})
+            record["linked_by"] = sorted({c for g in found for c in g.linked_by})
         record.pop("crates", None)
         record["used_in"] = scan.used_in(refs.get(key, []))
         record["status"] = scan.status_of(refs.get(key, []))
@@ -334,6 +356,26 @@ def build(
     return list(out.values()), report
 
 
+def library_packages(
+    deps: dict[str, Dep], lock: dict[str, list[str]], groups: list[Group]
+) -> list[tuple[str, str, str | None]]:
+    """(library key, package, version) for the packages whose items count as that library's.
+
+    The library's own package at each resolved version (so a renamed 0.0.14 crate is not 0.0.11),
+    plus, for a per-library skill manifest, the sibling crates of its family (sqlx-core for sqlx)
+    at any version.
+    """
+    out: set[tuple[str, str, str | None]] = set()
+    for key, dep in deps.items():
+        out.update((key, dep.package, v) for v in resolved_versions(dep, lock))
+        for group, _ in covering(dep.package, groups):
+            if group.family:
+                out.update(
+                    (key, crate, None) for crate in group.crates if norm(crate) != norm(dep.package)
+                )
+    return sorted(out, key=lambda r: (r[0], r[1], r[2] or ""))
+
+
 def cross_check(root: Path, meta: dict, refs: dict[str, list[scan.Ref]]) -> list[str]:
     """Where the source scan and an independent ripgrep file list disagree, per library."""
     lines: list[str] = []
@@ -365,6 +407,7 @@ def normalize_capabilities(
     out: list[dict] = []
     drift: list[str] = []
     missing: list[str] = []
+    differs: list[str] = []
     unindexed: dict[str, int] = defaultdict(int)
     for record in existing:
         if record["kind"] != "capability":
@@ -372,22 +415,29 @@ def normalize_capabilities(
         record = dict(record)
         items, replaced, results = names.normalize_items(record["items"], index, resolved)
         for r in results:
-            if r.how in ("absent", "ambiguous"):
+            how = r.index_how if r.how == "resolved" else r.how
+            seen = f" (skill lists {', '.join(r.candidates)})" if r.candidates else ""
+            if r.how == "resolved" and how in ("absent", "ambiguous", "name"):
+                differs.append(f"{record['id']}: {r.item}{seen or f' ({how})'}")
+            elif how in ("absent", "ambiguous"):
                 hint = f" [{hints[record['lib']]}]" if hints.get(record["lib"]) else ""
-                missing.append(f"{record['id']}: {r.item} ({r.how}){hint}")
-            elif r.how == "unindexed":
+                missing.append(f"{record['id']}: {r.item} ({how}){seen}{hint}")
+            elif how == "unindexed":
                 unindexed[r.item.split("::")[0]] += 1
         prior = record.get("as_written", [])
-        written = prior + [x for x in replaced if x not in prior]
+        written = [w for w in prior + [x for x in replaced if x not in prior] if w not in items]
         if items != record["items"] or written != prior:
             drift.append(f"~ {record['id']}  items: {record['items']} -> {items}")
             record["items"] = items
             if written:
                 record["as_written"] = written
+            else:
+                record.pop("as_written", None)
             record["verified"] = stamp
         out.append(record)
     report = {
         "items not in the skill index": missing,
+        "compiler paths the skill index does not list": differs,
         "items in crates no skill indexes": [f"{c}: {n}" for c, n in sorted(unindexed.items())],
     }
     return out, drift, report
@@ -447,6 +497,108 @@ def git_stamp(root: Path) -> str:
     return f"{datetime.date.today().isoformat()}@{sha or 'unknown'}"
 
 
+EXIT_OK, EXIT_DRIFT, EXIT_SETUP, EXIT_CHANGED = 0, 1, 2, 3
+
+
+@dataclass
+class CatalogRun:
+    """Everything one run of the pipeline computed; `main` prints it, tests and servers read it."""
+
+    root: Path
+    path: Path
+    stamp: str
+    existing_hash: str  # of the catalog file as read, to detect a change before writing
+    libraries: list[dict]
+    capabilities: list[dict]
+    drift: list[str]
+    report: dict[str, list[str]]
+    hits: list[semantic.Hit]
+    meta: dict
+    packages: list[tuple[str, str, str | None]] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)  # facts about optional inputs (unit graph)
+
+    def records(self) -> list[dict]:
+        return self.libraries + self.capabilities
+
+
+def compute_catalog(
+    root: Path,
+    path: Path,
+    resolved_text: str | None = None,
+    metadata_file: Path | None = None,
+    graph_loader: Callable[[Path], tuple[dict | None, str]] = unitgraph.load,
+) -> CatalogRun:
+    """Run every stage and return the result; nothing is written.
+
+    S0 manifests (and the compiled dependency graph), S1 lexical scan, S2 rust-analyzer's resolved
+    references (`resolved_text` is a saved resolver output; otherwise the tool runs), S3 canonical
+    names. Raises `scan.SetupError` when a required input is missing.
+    """
+    stamp = git_stamp(root)
+    raw = path.read_bytes()
+    existing = [json.loads(line) for line in raw.decode().splitlines() if line.strip()]
+    meta, lock = load_metadata(root, metadata_file), load_lock(root)
+    notes: list[str] = []
+    graph_json, why = graph_loader(root)
+    summary = None
+    if graph_json is None:
+        notes.append(
+            f"compiled dependency graph not read ({why}); compiled fields left as recorded"
+        )
+    else:
+        summary = unitgraph.summarize(graph_json, {p["name"] for p in meta["packages"]})
+    lexical = scan.scan_workspace(root, meta)
+    hits = semantic.parse_hits(
+        resolved_text if resolved_text is not None else semantic.run_tool(root)
+    )
+    roles = semantic.Roles(root, meta)
+    deps = direct_deps(meta)
+    keys = semantic.package_keys(deps, {k: resolved_versions(d, lock) for k, d in deps.items()})
+    refs = semantic.augment_refs(lexical, hits, roles, keys)
+    groups = load_groups(root)
+    libraries, report = build(existing, meta, lock, groups, refs, summary)
+    report["scan vs ripgrep"] = cross_check(root, meta, lexical)
+    old = {r["lib"]: r for r in existing if r["kind"] == "library"}
+    drift = stamp_changed(libraries, old, stamp)
+    # S3 (canonical names from the skills' indexes), then S2's evidence for what they cannot place.
+    capabilities, cap_drift, cap_report = normalize_capabilities(
+        existing,
+        names.load_index(root),
+        libraries,
+        stamp,
+        {h.path for h in hits} | {h.path + "!" for h in hits if h.kind == "macro"},
+    )
+    capabilities, sem_drift, sem_report = semantic.apply(capabilities, hits, roles, stamp)
+    report.update(cap_report)
+    report.update(sem_report)
+    return CatalogRun(
+        root=root,
+        path=path,
+        stamp=stamp,
+        existing_hash=hashlib.sha256(raw).hexdigest(),
+        libraries=libraries,
+        capabilities=capabilities,
+        drift=drift + cap_drift + sem_drift,
+        report=report,
+        hits=hits,
+        meta=meta,
+        packages=library_packages(deps, lock, groups),
+        notes=notes,
+    )
+
+
+def write_atomically(path: Path, text: str) -> None:
+    """Replace `path` in one step: a reader sees the old file or the new one, not a partial one."""
+    handle, temp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(handle, "w") as out:
+            out.write(text)
+        os.replace(temp, path)
+    except BaseException:
+        Path(temp).unlink(missing_ok=True)
+        raise
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--write", action="store_true", help="rewrite the JSONL file")
@@ -456,45 +608,79 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--resolved", type=Path, help="a saved `lu-resolve` output, instead of running the tool"
     )
+    parser.add_argument("--json", action="store_true", help="print one JSON object, not text")
+    parser.add_argument(
+        "--index",
+        type=Path,
+        help="where --write puts the usage index (default: build/library-usage.sqlite)",
+    )
     args = parser.parse_args(argv)
     root: Path = args.root
     path: Path = args.jsonl or root / JSONL
-    stamp = git_stamp(root)
-    existing = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
-    meta, lock = load_metadata(root, args.metadata), load_lock(root)
-    # S1: the lexical scan; S2: what rust-analyzer resolves (no build of the workspace).
-    lexical = scan.scan_workspace(root, meta)
-    hits = semantic.parse_hits(
-        args.resolved.read_text() if args.resolved else semantic.run_tool(root)
-    )
-    roles = semantic.Roles(root, meta)
-    deps = direct_deps(meta)
-    keys = semantic.package_keys(deps, {k: resolved_versions(d, lock) for k, d in deps.items()})
-    refs = semantic.augment_refs(lexical, hits, roles, keys)
-    libraries, report = build(existing, meta, lock, load_groups(root), refs)
-    report["scan vs ripgrep"] = cross_check(root, meta, lexical)
-    old = {r["lib"]: r for r in existing if r["kind"] == "library"}
-    drift = stamp_changed(libraries, old, stamp)
-    # S3 (canonical names from the skills' indexes), then S2's evidence for what they cannot place.
-    capabilities, cap_drift, cap_report = normalize_capabilities(
-        existing, names.load_index(root), libraries, stamp, {h.path for h in hits}
-    )
-    capabilities, sem_drift, sem_report = semantic.apply(capabilities, hits, roles, stamp)
-    drift += cap_drift + sem_drift
-    report.update(cap_report)
-    report.update(sem_report)
-    for line in drift:
+    try:
+        run = compute_catalog(
+            root,
+            path,
+            args.resolved.read_text() if args.resolved else None,
+            args.metadata,
+        )
+    except scan.SetupError as error:
+        print(f"library_utilization: {error}", file=sys.stderr)
+        return EXIT_SETUP
+    code = EXIT_DRIFT if run.drift else EXIT_OK
+    wrote = False
+    if args.write:
+        if hashlib.sha256(path.read_bytes()).hexdigest() != run.existing_hash:
+            print(
+                f"library_utilization: {path} changed while the pipeline ran; nothing written",
+                file=sys.stderr,
+            )
+            return EXIT_CHANGED
+        text = render(run.records())
+        write_atomically(path, text)
+        wrote, code = True, EXIT_OK
+        try:
+            catalog_db.write_index(
+                args.index or root / catalog_db.INDEX, run, text, semantic.Roles(root, run.meta)
+            )
+        except (OSError, sqlite3.Error) as error:
+            print(
+                f"library_utilization: catalog written; usage index failed: {error}",
+                file=sys.stderr,
+            )
+            return EXIT_SETUP
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "exit": code,
+                    "wrote": wrote,
+                    "drift": run.drift,
+                    "report": {k: v for k, v in run.report.items() if v},
+                    "notes": run.notes,
+                    "counts": {
+                        "libraries": len(run.libraries),
+                        "capabilities": len(run.capabilities),
+                        "usage_rows": len(run.hits),
+                    },
+                }
+            )
+        )
+        return code
+    for line in run.drift:
         print(line)
-    for title, items in report.items():
+    for title, items in run.report.items():
         if items:
             print(f"\n{title} ({len(items)}):\n  " + "\n  ".join(items))
-    if args.write:
-        path.write_text(render(libraries + capabilities))
-        print(f"\nwrote {path} ({len(libraries)} libraries, {len(capabilities)} capabilities)")
-        return 0
-    if drift:
+    for note in run.notes:
+        print(f"\nnote: {note}")
+    if wrote:
+        print(
+            f"\nwrote {path} ({len(run.libraries)} libraries, {len(run.capabilities)} capabilities)"
+        )
+    elif run.drift:
         print("\ndrift: rerun with --write")
-    return 1 if drift else 0
+    return code
 
 
 if __name__ == "__main__":

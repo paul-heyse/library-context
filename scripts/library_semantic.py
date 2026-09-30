@@ -32,7 +32,6 @@ TOOL_SOURCES = ("src/main.rs", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml"
 # Roles the resolver cannot evidence, and any non-Rust file (it only sees Rust); entries like these
 # are kept as recorded.
 INDIRECT_ROLES = {"consumer", "macro-expansion", "sql-string", "dormant"}
-LISTED = 5  # files listed per capability, best example first
 CATALOG_ROLES = {"src": "consumer", "build": "consumer", "test": "test", "dormant": "dormant"}
 
 
@@ -50,6 +49,7 @@ class Hit:
     path: str
     via: str
     lines: tuple[int, ...]
+    kind: str = ""  # module, fn, adt, trait, type, macro, ...; empty in older resolver output
 
 
 def parse_hits(text: str) -> list[Hit]:
@@ -58,7 +58,15 @@ def parse_hits(text: str) -> list[Hit]:
         if line.strip():
             r = json.loads(line)
             hits.append(
-                Hit(r["file"], r["package"], r["version"], r["path"], r["via"], tuple(r["lines"]))
+                Hit(
+                    r["file"],
+                    r["package"],
+                    r["version"],
+                    r["path"],
+                    r["via"],
+                    tuple(r["lines"]),
+                    r.get("kind", ""),
+                )
             )
     return hits
 
@@ -77,7 +85,7 @@ def ensure_tool(root: Path) -> Path:
             check=False,
         )
         if proc.returncode != 0:
-            sys.exit(f"lu-resolve build failed:\n{proc.stderr[-1500:]}")
+            raise scan.SetupError(f"lu-resolve build failed:\n{proc.stderr[-1500:]}")
     return binary
 
 
@@ -87,7 +95,7 @@ def run_tool(root: Path) -> str:
         [str(ensure_tool(root)), str(root)], capture_output=True, text=True, check=False
     )
     if proc.returncode != 0:
-        sys.exit(f"lu-resolve failed:\n{proc.stderr[-1500:]}")
+        raise scan.SetupError(f"lu-resolve failed:\n{proc.stderr[-1500:]}")
     print(proc.stderr.strip().splitlines()[-1], file=sys.stderr)
     return proc.stdout
 
@@ -101,7 +109,7 @@ class Roles:
             (
                 (Path(p["manifest_path"]).parent.relative_to(root).as_posix(), p["name"])
                 for p in meta["packages"]
-                if p["name"] != scan.HACK
+                if not scan.is_hack(p["name"])
             ),
             key=lambda d: -len(d[0]),
         )
@@ -154,6 +162,12 @@ def augment_refs(
     return out
 
 
+def exact_hits(by_path: dict[str, list[Hit]], item: str) -> list[Hit]:
+    """The hits for `item`; a `!` item is a macro, so a module or type of that name is not it."""
+    hits = by_path.get(item.removesuffix("!"), [])
+    return [h for h in hits if h.kind in ("macro", "")] if item.endswith("!") else hits
+
+
 def _family(package: str, crate: str) -> bool:
     a, b = norm(package), norm(crate)
     return a.startswith(b) or b.startswith(a)
@@ -168,7 +182,10 @@ def evidence_normalize(
 ) -> tuple[list[str], list[str], list[str]]:
     """Rewrite items no index could place to the path rust-analyzer resolved.
 
-    Candidates share the item's last segment, its crate family and (for `Type::method`) its owner;
+    Candidates share the item's last segment, its crate family and (for `Type::method`) its owner,
+    and a `!` item must be a macro (a module or type that shares its name is not it). A method
+    whose recorded owner differs from where it is defined (reached through `Deref`) is accepted
+    when the capability's own files hold exactly one method of that name;
     the capability's own files are searched first, then the whole repository. One candidate path
     rewrites the item; none or several leave it and are reported.
     """
@@ -182,21 +199,35 @@ def evidence_normalize(
         owner = segments[-2] if len(segments) > 2 and segments[-2][:1].isupper() else None
 
         def pick(
-            hits: list[Hit], leaf: str = leaf, crate: str = crate, owner: str | None = owner
+            hits: list[Hit],
+            leaf: str = leaf,
+            crate: str = crate,
+            owner: str | None = owner,
+            bang: str = bang,
+            any_owner: bool = False,
         ) -> set[str]:
             return {
                 h.path
                 for h in hits
                 if h.path.rsplit("::", 1)[-1] == leaf
                 and _family(h.package, crate)
-                and (owner is None or h.path.split("::")[-2:-1] == [owner])
+                and (not bang or h.kind in ("macro", ""))
+                and (
+                    (any_owner and h.kind == "fn")
+                    or owner is None
+                    or h.path.split("::")[-2:-1] == [owner]
+                )
             }
 
         target = item
-        if item.removesuffix("!") not in by_path:
-            near = pick([h for f in files for h in by_file.get(f, [])]) or pick(
-                by_leaf.get(leaf, [])
-            )
+        if not exact_hits(by_path, item):
+            in_files = [h for f in files for h in by_file.get(f, [])]
+            near = pick(in_files) or pick(by_leaf.get(leaf, []))
+            if not near and owner is not None:
+                # A method reached through `Deref` or a blanket impl is defined on another type
+                # than the one written (`ContainerAsync` derefs to `RawContainer`): accept the one
+                # method of that name in the capability's own files.
+                near = pick(in_files, any_owner=True)
             if len(near) == 1:
                 target = next(iter(near)) + bang
                 replaced.append(item)
@@ -219,7 +250,7 @@ def merge_files(
     """
     lines: dict[str, set[int]] = defaultdict(set)
     for item in items:
-        for hit in by_path.get(item.removesuffix("!"), []):
+        for hit in exact_hits(by_path, item):
             lines[hit.file].update(hit.lines)
     resolved = {f: roles.role(f, tuple(sorted(n))) for f, n in lines.items()}
     files: list[dict] = []
@@ -283,15 +314,17 @@ def apply(
         )
         unplaced += [f"{record['id']}: {note}" for note in notes]
         prior = record.get("as_written", [])
-        written = prior + [x for x in replaced if x not in prior]
+        written = [w for w in prior + [x for x in replaced if x not in prior] if w not in items]
         files, dropped = merge_files(record.get("files", []), items, by_path, roles)
         matched.update(i.removesuffix("!") for i in items)
         new["items"] = items
         if written:
             new["as_written"] = written
-        if files and any(i.removesuffix("!") in by_path for i in items):
+        else:
+            new.pop("as_written", None)
+        if files and any(exact_hits(by_path, i) for i in items):
             dropped_lines += [f"{record['id']}: {d}" for d in dropped]
-            new["files"] = files[:LISTED]
+            new["files"] = files
             new["n_files"] = len(files)
             new["status"] = capability_status(files, record.get("status", "used"))
         else:  # nothing resolved (macro or derive use only): keep the files as recorded
@@ -305,19 +338,19 @@ def apply(
             drift.append(f"~ {record['id']}  " + ", ".join(changed))
             new["verified"] = stamp
         out.append(new)
-    uncatalogued = _uncatalogued(hits, matched)
+    uncataloged = _uncataloged(hits, matched)
     return (
         out,
         drift,
         {
             "items not resolved by rust-analyzer": unplaced,
             "capability files dropped (no resolution)": dropped_lines,
-            "resolved library items no capability records": uncatalogued,
+            "resolved library items no capability records": uncataloged,
         },
     )
 
 
-def _uncatalogued(hits: list[Hit], matched: set[str], per_package: int = 5) -> list[str]:
+def _uncataloged(hits: list[Hit], matched: set[str], per_package: int = 5) -> list[str]:
     files: dict[tuple[str, str], set[str]] = defaultdict(set)
     for hit in hits:
         if hit.path not in matched:

@@ -18,7 +18,10 @@ def workspace(tmp_path: Path, files: dict[str, str]) -> sem.Roles:
     meta = {
         "packages": [
             {"name": "a", "manifest_path": str(tmp_path / "crates" / "a" / "Cargo.toml")},
-            {"name": scan.HACK, "manifest_path": str(tmp_path / "crates" / "hack" / "Cargo.toml")},
+            {
+                "name": "lctx-workspace-hack",
+                "manifest_path": str(tmp_path / "crates" / "hack" / "Cargo.toml"),
+            },
         ]
     }
     return sem.Roles(tmp_path, meta)
@@ -178,11 +181,78 @@ def test_apply_regenerates_stays_stable_and_keeps_records_with_no_evidence(tmp_p
     assert drift2 == [] and again == out
 
 
-def test_uncatalogued_reports_items_used_in_two_files_or_more_per_package() -> None:
+def test_uncataloged_reports_items_used_in_two_files_or_more_per_package() -> None:
     hits = [
         hit("a.rs", "p::Seen", package="p"),
         hit("a.rs", "p::New", package="p"),
         hit("b.rs", "p::New", package="p"),
         hit("a.rs", "q::Once", package="q"),
     ]
-    assert sem._uncatalogued(hits, {"p::Seen"}) == ["p: p::New (2 files)"]
+    assert sem._uncataloged(hits, {"p::Seen"}) == ["p: p::New (2 files)"]
+
+
+def test_a_macro_item_is_never_rewritten_to_a_module_that_shares_its_name() -> None:
+    module = sem.Hit("f.rs", "lib-core", "1", "lib_core::migrate", "path", (1,), "module")
+    macro = sem.Hit("f.rs", "lib", "1", "lib::migrate", "macro", (2,), "macro")
+
+    def normalise(hits: list[sem.Hit]) -> tuple[list[str], list[str]]:
+        by_path: dict[str, list[sem.Hit]] = {}
+        by_file: dict[str, list[sem.Hit]] = {}
+        by_leaf: dict[str, list[sem.Hit]] = {}
+        for h in hits:
+            by_path.setdefault(h.path, []).append(h)
+            by_file.setdefault(h.file, []).append(h)
+            by_leaf.setdefault(h.path.rsplit("::", 1)[-1], []).append(h)
+        out, _, notes = sem.evidence_normalize(
+            ["lib::migrate!"], ["f.rs"], by_path, by_file, by_leaf
+        )
+        return out, notes
+
+    assert normalise([module]) == (["lib::migrate!"], ["lib::migrate! (not resolved)"])
+    assert normalise([module, macro]) == (["lib::migrate!"], [])  # exact: the macro is in by_path
+    only = sem.Hit("f.rs", "lib", "1", "lib::macros::migrate", "macro", (2,), "macro")
+    assert normalise([module, only]) == (["lib::macros::migrate!"], [])
+    assert (
+        sem.parse_hits(
+            '{"file":"f","package":"p","version":"1","path":"p::X","via":"path","lines":[1],"kind":"trait"}'
+        )[0].kind
+        == "trait"
+    )
+
+
+def test_a_method_defined_on_a_deref_target_is_accepted_only_within_the_capabilitys_files() -> None:
+    inner = sem.Hit("f.rs", "lib", "1", "lib::raw::RawBox::port", "method", (3,), "fn")
+    other = sem.Hit("g.rs", "lib", "1", "lib::raw::RawBox::port", "method", (3,), "fn")
+
+    def normalise(hits: list[sem.Hit], files: list[str]) -> tuple[list[str], list[str]]:
+        by_path: dict[str, list[sem.Hit]] = {}
+        by_file: dict[str, list[sem.Hit]] = {}
+        by_leaf: dict[str, list[sem.Hit]] = {}
+        for h in hits:
+            by_path.setdefault(h.path, []).append(h)
+            by_file.setdefault(h.file, []).append(h)
+            by_leaf.setdefault(h.path.rsplit("::", 1)[-1], []).append(h)
+        out, _, notes = sem.evidence_normalize(["lib::Box::port"], files, by_path, by_file, by_leaf)
+        return out, notes
+
+    assert normalise([inner], ["f.rs"]) == (["lib::raw::RawBox::port"], [])
+    assert normalise([other], ["f.rs"]) == (["lib::Box::port"], ["lib::Box::port (not resolved)"])
+
+
+def test_a_recorded_spelling_that_is_now_an_item_is_pruned_from_as_written() -> None:
+    caps = [
+        {
+            "kind": "capability",
+            "id": "p/m",
+            "lib": "p",
+            "items": ["p::info"],
+            "as_written": ["p::info", "p::macros::info"],
+            "files": [{"path": "crates/a/src/x.rs", "role": "consumer"}],
+            "n_files": 1,
+            "status": "used",
+            "verified": "old",
+        }
+    ]
+    roles = sem.Roles(Path("/nonexistent"), {"packages": []})
+    out, _, _ = sem.apply(caps, [], roles, "S")
+    assert out[0]["as_written"] == ["p::macros::info"] and out[0]["verified"] == "S"

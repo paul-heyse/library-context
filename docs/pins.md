@@ -192,3 +192,18 @@ SQLx and analyzer versions did not change. No capability-skill version evidence 
 
 `just deps` and `just test-all` are not_run until all phase 0–2 functional scope is implemented,
 as required by the execution timing in AGENTS.md. These focused checks do not qualify the cutover.
+
+## Library skills for the catalog's adjacent crates (built 2026-09-29)
+
+Shared skills (`.config/library-skills.toml`, `~/.local/share/library-skills/skills/<name>`), each
+pinned to the crate versions below. Check a claim against the resolved features here before
+transferring it: skills index a **named profile**, and the workspace-hack crate (cargo-hakari)
+widens some features in our resolved graph.
+
+| Skill | Indexes | Our pin | Delta to check | Verified |
+|---|---|---|---|---|
+| `sqlx-postgres` | sqlx 0.9.0 (5 crates), sea-query 1.0.2, pgpq 0.12.0, pgvector 0.4.2, testcontainers-modules 0.15.0 + testcontainers 0.27.3, the DataFusion 55 provider fork at git `09cc8a8` (crate 0.13.1) | the same versions | sqlx: skill `plain` profile is defaults off with postgres/runtime-tokio/macros/migrate/tls-rustls-ring-native-roots, as declared, but `sqlx-core` also resolves `any`, `json` and `offline` here. sea-query: declared defaults off, resolved with defaults plus chrono/time/bigdecimal/rust_decimal (from the provider crates and the hack crate). pgvector: crate 0.4.2 is not the extension (0.8.6). testcontainers 0.28 cannot resolve with testcontainers-modules 0.15 | 2026-09-29: `verify.py` 14/14, 86 probes confirmed on PostgreSQL 18.6 + pgvector 0.8.6 |
+| `pyo3` | pyo3 0.29.2 (+ ffi, macros, macros-backend, build-config), pyo3-async-runtimes 0.29.0 | the same | features here: `extension-module` (with default `macros`), `tokio-runtime`; docs.rs builds pyo3 with `full` and no defaults; probes ran on Python 3.14.7 | 2026-09-29: `verify.py` 13/13, 66 probes and 228 matrix cells confirmed |
+| `serde-arrow` | serde_arrow 0.15.1 + marrow 0.3.1, `arrow-59` profile | the same, feature `arrow-59` | the Arrow feature must equal the Arrow pin (`arrow-array`/`arrow-schema` 59.3.0); docs.rs shows the `arrow-60` build | 2026-09-29: `verify.py` 12/12, 37 probes confirmed |
+| `fixedbitset` | fixedbitset 0.5.7, default `std`, optional `serde` | the same, `std` only (petgraph's own dependency) | the `serde` claims need a feature we do not enable | 2026-09-29: `verify.py` 12/12, 11 probes confirmed |
+

@@ -17,7 +17,18 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
-HACK = "lctx-workspace-hack"
+HACK_SUFFIX = "workspace-hack"  # cargo-hakari's package: `<repo>-workspace-hack`
+
+
+def is_hack(name: str) -> bool:
+    """True for the workspace-hack package, which unifies features and holds no source."""
+    return name.endswith(HACK_SUFFIX)
+
+
+class SetupError(RuntimeError):
+    """The catalog run cannot proceed (a missing tool or skill link, a failed command)."""
+
+
 SKIP_PARTS = {"target", "third_party", ".sqlx"}
 
 _START = re.compile(r"//|/\*|(?<!\w)b?r(#*)\"|(?<!\w)b\"|\"|'")
@@ -172,7 +183,7 @@ def package_idents(meta: dict) -> dict[str, dict[str, str]]:
     members = {p["name"] for p in meta["packages"]}
     out: dict[str, dict[str, str]] = {}
     for package in meta["packages"]:
-        if package["name"] == HACK:
+        if is_hack(package["name"]):
             continue
         idents: dict[str, str] = {}
         for dep in package["dependencies"]:
@@ -184,13 +195,26 @@ def package_idents(meta: dict) -> dict[str, dict[str, str]]:
     return out
 
 
+def workspace_files(root: Path, meta: dict) -> list[Path]:
+    """Every `.rs` file of every workspace package, repo-relative, minus vendored and build dirs."""
+    found: list[Path] = []
+    for package in sorted(meta["packages"], key=lambda p: p["name"]):
+        if is_hack(package["name"]):
+            continue
+        for path in sorted(Path(package["manifest_path"]).parent.rglob("*.rs")):
+            rel = path.relative_to(root)
+            if not SKIP_PARTS & set(rel.parts):
+                found.append(rel)
+    return found
+
+
 def scan_workspace(root: Path, meta: dict) -> dict[str, list[Ref]]:
     """References per dependency key over every `.rs` file of every workspace package."""
     idents = package_idents(meta)
     refs: dict[str, list[Ref]] = defaultdict(list)
     for package in sorted(meta["packages"], key=lambda p: p["name"]):
         name = package["name"]
-        if name == HACK:
+        if is_hack(name):
             continue
         pkg_dir = Path(package["manifest_path"]).parent
         for path in sorted(pkg_dir.rglob("*.rs")):
@@ -233,7 +257,7 @@ def rg_files(root: Path, meta: dict, key: str) -> set[str] | None:
         {
             Path(p["manifest_path"]).parent.relative_to(root).as_posix()
             for p in meta["packages"]
-            if p["name"] != HACK
+            if not is_hack(p["name"])
         }
     )
     pattern = rf"(?<![\w:$])(?:::)?{ident}\s*::|(?<![\w:$])use\s+{ident}\s*;|__private::{ident}\b"

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
 import library_names as names
 import library_scan as scan
+import library_unitgraph as ug
 import library_utilization as lu
 
 
@@ -38,7 +40,7 @@ def test_direct_deps_skip_members_path_deps_and_the_hakari_stub() -> None:
             dep("ruff_python_ast", rename="ast_ty", kind="dev"),
         ],
         b=[],
-        **{lu.HACK: [dep("petgraph", "^0.8")]},
+        **{"lctx-workspace-hack": [dep("petgraph", "^0.8")]},
     )
     deps = lu.direct_deps(m)
     assert set(deps) == {"petgraph", "ast_ty"}
@@ -128,7 +130,7 @@ def test_only_changed_records_are_restamped_and_render_is_stable(tmp_path: Path)
 def test_normalize_capabilities_rewrites_items_once_and_keeps_the_spellings() -> None:
     index = names.Index(
         symbols={"lib::a::Type": "struct"},
-        aliases={"lib::Type": "lib::a::Type"},
+        aliases={"lib::Type": ["lib::a::Type"]},
         methods={("lib::a::Type", "go")},
         by_name={("lib", "Type"): ["lib::a::Type"]},
         crates={"lib"},
@@ -147,5 +149,106 @@ def test_normalize_capabilities_rewrites_items_once_and_keeps_the_spellings() ->
     assert out[0]["verified"] == "S" and len(drift) == 1
     assert report["items not in the skill index"] == ["lib/x: lib::Gone (absent) [skill indexes 2]"]
     assert report["items in crates no skill indexes"] == ["other: 1"]
+    assert report["compiler paths the skill index does not list"] == []
     again, drift2, _ = lu.normalize_capabilities(out, index, libs, "T")
     assert drift2 == [] and again[0]["verified"] == "S"
+
+
+def test_normalize_capabilities_reports_compiler_paths_the_index_does_not_list() -> None:
+    index = names.Index(
+        symbols={"lib::a::Type": "struct"},
+        aliases={"lib::Both": ["lib::a::Type", "lib_macros::Both"]},
+        methods=set(),
+        by_name={("lib", "Type"): ["lib::a::Type"]},
+        crates={"lib"},
+    )
+    cap = {
+        "kind": "capability",
+        "id": "lib/y",
+        "lib": "lib",
+        "items": ["lib::Type", "lib::Off", "lib::Both", "lib::a::Type"],
+    }
+    kept = {"lib::Type", "lib::Off", "lib::a::Type"}
+    out, _, report = lu.normalize_capabilities([cap], index, [{"lib": "lib"}], "S", kept)
+    assert out[0]["items"] == cap["items"]  # the compiler's paths stand
+    assert report["compiler paths the skill index does not list"] == [
+        "lib/y: lib::Type (skill lists lib::a::Type)",
+        "lib/y: lib::Off (absent)",
+    ]
+    assert report["items not in the skill index"] == [
+        "lib/y: lib::Both (ambiguous) (skill lists lib::a::Type, lib_macros::Both)"
+    ]
+
+
+def test_build_fills_compiled_fields_from_the_graph_and_leaves_them_when_there_is_none() -> None:
+    m = meta(a=[dep("lib", "=1.0.0", features=["x"])])
+    existing = [
+        {
+            "kind": "library",
+            "lib": "lib",
+            "status": "used",
+            "wrappers": [],
+            "resolved_features": ["old"],
+            "linked_by": ["old"],
+        }
+    ]
+    groups = [group("s", "lib", {"lib": "1.0.0"})]
+    graph = {("lib", "1.0.0"): ug.Summary(("x", "y"), ("a",))}
+    (record,), _ = lu.build(existing, m, {"lib": ["1.0.0"]}, groups, {}, graph)
+    assert record["resolved_features"] == ["x", "y"] and record["linked_by"] == ["a"]
+    (kept,), _ = lu.build(existing, m, {"lib": ["1.0.0"]}, groups, {}, None)
+    assert kept["resolved_features"] == ["old"] and kept["linked_by"] == ["old"]
+
+
+def stub_run(tmp_path: Path, drift: list[str]) -> lu.CatalogRun:
+    path = tmp_path / "catalog.jsonl"
+    path.write_text('{"kind":"library","lib":"a"}\n')
+    libraries = [{"kind": "library", "lib": "a", "status": "used"}]
+    return lu.CatalogRun(
+        root=tmp_path,
+        path=path,
+        stamp="S",
+        existing_hash=hashlib.sha256(path.read_bytes()).hexdigest(),
+        libraries=libraries,
+        capabilities=[],
+        drift=drift,
+        report={"unlisted": ["x (a)"], "empty": []},
+        hits=[],
+        meta={"packages": []},
+        notes=[
+            "compiled dependency graph not read (cargo not found); compiled fields left as recorded"
+        ],
+    )
+
+
+def test_main_exit_codes_and_json_output(tmp_path: Path, monkeypatch, capsys) -> None:
+    run = stub_run(tmp_path, ["~ a  status"])
+    monkeypatch.setattr(lu, "compute_catalog", lambda *a, **k: run)
+    argv = ["--root", str(tmp_path), "--jsonl", str(run.path), "--resolved", str(run.path)]
+    assert lu.main([*argv, "--json"]) == lu.EXIT_DRIFT
+    out = json.loads(capsys.readouterr().out)
+    assert out["exit"] == 1 and out["drift"] == ["~ a  status"] and out["wrote"] is False
+    assert out["report"] == {"unlisted": ["x (a)"]} and out["counts"]["libraries"] == 1
+    assert lu.main([*argv, "--write"]) == lu.EXIT_OK
+    assert json.loads(run.path.read_text().splitlines()[0])["lib"] == "a"
+    assert not list(tmp_path.glob(".catalog.jsonl.*"))  # no temporary file left behind
+    assert (tmp_path / "build" / "library-usage.sqlite").exists()  # --write also writes the index
+
+
+def test_main_refuses_to_write_when_the_catalog_changed_and_reports_setup_failures(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    run = stub_run(tmp_path, [])
+    monkeypatch.setattr(lu, "compute_catalog", lambda *a, **k: run)
+    run.path.write_text("edited by hand while the pipeline ran\n")
+    argv = ["--root", str(tmp_path), "--jsonl", str(run.path), "--resolved", str(run.path)]
+    assert lu.main([*argv, "--write"]) == lu.EXIT_CHANGED
+    assert run.path.read_text() == "edited by hand while the pipeline ran\n"
+    assert "changed while the pipeline ran" in capsys.readouterr().err
+
+    def broken(*a, **k):
+        raise scan.SetupError("skill 'x' is enabled but not linked")
+
+    monkeypatch.setattr(lu, "compute_catalog", broken)
+    assert lu.main(argv) == lu.EXIT_SETUP
+    assert "not linked" in capsys.readouterr().err

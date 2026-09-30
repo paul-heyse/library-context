@@ -102,7 +102,7 @@ real consumer.
 | Dependency policy | `just deps`: one version each of Arrow/DataFusion/object_store/ruff/pyrefly/blake3, cargo-deny, and the Pyrefly fork check (tag + patch, classified env reads) |
 | Decisions | `just adr new <slug> --title "…"`, `just adr supersede ADR-NNNN <slug>`, `just adr index`, `just adr lint`, `just adr revisit` |
 | Documentation changes | `just docs-test` for publisher/resolver changes; `just docs-check` for publication. First run: `just bootstrap-docs`; preview: `just docs-serve`. No product gate solely for docs. |
-| Refresh the library catalog | `uv run python scripts/library_utilization.py` (dry run; `--write` regenerates the catalog; stage S2 runs `tools/lu-resolve`, one to two minutes; `docs/library-utilization.md`) |
+| End of every turn or work session, last, after all tests and other checks have run | `just library-catalog`: regenerates the library catalog and the usage index the `library-catalog` MCP server reads, so design and review work only sees current data. It edits the tree, so run it after formatting and never as a gate; stage S2 runs `tools/lu-resolve`, one to two minutes. Inspect first with `uv run python scripts/library_utilization.py` (dry run, exit 1 on drift); `docs/library-utilization.md` |
 | Tools present? | `just doctor` |
 
 The Rust toolchain is pinned to `nightly-2026-09-29` in `rust-toolchain.toml` (ADR-0079).
@@ -149,6 +149,14 @@ The library capability skills under `.claude/skills/` are pinned, offline indexe
 - `rust-code-model`
 - `ast-grep-ripgrep`
 - `datafusion-tracing`
+- `sqlx-postgres` (sqlx 0.9 with PostgreSQL, plus sea-query, pgpq, pgvector, testcontainers-modules
+  and the DataFusion table-provider fork: `AssertSqlSafe`, `query!`/`.sqlx`, pools, COPY
+  finish/abort, migrations, disposable PG18; executed probes against PostgreSQL 18)
+- `pyo3` (pyo3 0.29.2 and pyo3-async-runtimes 0.29.0: attach/detach, `Bound`/`Py`, macro options,
+  exceptions, the async bridge, the obsolete-API catalog)
+- `serde-arrow` (serde_arrow 0.15.1 with the `arrow-59` profile, marrow: the Arrow major must equal
+  the Arrow crates we pin; explicit-schema traps)
+- `fixedbitset` (0.5.7, petgraph's own dependency: length rules, tail bits, the `serde` feature)
 - `fastmcp` (FastMCP; must match `libraries/fastmcp`, checked by `scripts/check_gold.py`). This is
   also the **gold reference for evaluation**: its capability
   families are never a compiler input (DESIGN §1.4).

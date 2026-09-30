@@ -37,9 +37,9 @@ One JSON object per line, sorted by `lib`, library record first; `kind` discrimi
 
 | Field | Meaning |
 |---|---|
-| `lib`, `pin`, `features`, `default_features` | Crate as Cargo spells it (renamed keys such as `ruff_python_ast_ty` are their own records), workspace pin, enabled features, `false` when default features are off (absent otherwise) |
+| `lib`, `pin`, `features`, `resolved_features`, `default_features` | Crate as Cargo spells it (renamed keys such as `ruff_python_ast_ty` are their own records), workspace pin, declared features, the features the library is *compiled* with (union over the nightly unit graph, after workspace-hack unification), `false` when default features are off (absent otherwise) |
 | `skill`, `skill_pin_delta` | Covering library skill (`null` = none) and where a covering skill indexes a version other than ours |
-| `dependents` | Crates that declare it; `(dev)` and `(build)` mark the dependency kind |
+| `dependents`, `linked_by` | Crates that declare it (`(dev)` and `(build)` mark the kind); workspace crates whose compiled units depend on it, from the unit graph |
 | `used_in` | Files referencing it per workspace package, by role: `src` (production code, build scripts included), `test` (`tests/`, `examples/`, `#[cfg(test)]` items), `dormant` (uncompiled) |
 | `crates` | On a `not-used` family record, the skill crates it stands for |
 | `status` | From the source scan: `used` (any production file), `test-only`, `dormant-only`, `declared-unused` (declared, no reference); `not-used` (skill-covered, no direct dependency: no local precedent; the note says if it is locked transitively) |
@@ -54,7 +54,7 @@ One JSON object per line, sorted by `lib`, library record first; `kind` discrimi
 | `items` | Defining paths (at most 6), as rust-analyzer or the skills' indexes name them: `arrow_schema::schema::Schema`, `sqlx_core::transaction::Transaction::commit`. A method that implements a trait method may be recorded at either level |
 | `as_written` | Spellings replaced by normalisation (facade or re-export paths our code uses), for grepping; absent when nothing was replaced |
 | `use` | One line: what we use it for |
-| `files`, `n_files` | At most 5 `{path, role}`, recorded roles and order first, then new evidence by number of references; `n_files` is every file with evidence plus the indirect entries kept |
+| `files`, `n_files` | Every `{path, role}` with evidence, recorded roles and order first, then new evidence by number of references, plus the indirect entries kept; `n_files` equals the length, except a capability whose use is through macro or derive output, where the recorded count can exceed the listed files |
 | `wrapper` | Abstraction consumers go through, or `null` |
 | `status`, `verified` | `used`, `test-only` or `dormant-only`; stamp |
 
@@ -74,9 +74,15 @@ Stages S0 (manifests), S1 (source scan), S2 (semantic resolution) and S3 (canoni
 
 ```
 uv run python scripts/library_utilization.py           # dry run: prints drift, exit 1 if any
-uv run python scripts/library_utilization.py --write   # regenerate the catalog
+uv run python scripts/library_utilization.py --write   # regenerate the catalog (`just library-catalog`)
 uv run python scripts/library_utilization.py --resolved FILE   # reuse a saved lu-resolve output
+uv run python scripts/library_utilization.py --json            # one JSON object instead of text
 ```
+
+Exit codes: 0 no drift (or written), 1 drift found in a dry run, 2 setup failure (a missing tool,
+an unlinked skill, a failed command; the message is on stderr), 3 the catalog file changed while the
+pipeline ran, so nothing was written. `--write` replaces the JSONL atomically and also writes the
+usage index (`--index PATH` overrides `build/library-usage.sqlite`).
 
 No stage builds the workspace. S0, S1 and S3 take about two seconds; S2 takes one to two minutes
 and several GB (it type-checks the function bodies that contain method calls) and builds
@@ -105,10 +111,18 @@ Advisory sections list what needs a human:
 - `scan vs ripgrep`: libraries where S1 and an independent `rg` file list disagree; the usual cause
   is a package that uses a path without declaring the dependency (a proc-macro crate emitting
   `serde_arrow::` tokens, a local function that shares a crate's name).
-- `items not in the skill index`: recorded items whose crate a skill indexes but which the index does
-  not list. Today these are pyrefly items that only exist or are public through the fork patch; a
-  version delta from `skill_pin_delta` is shown when there is one.
-- `items in crates no skill indexes`: a count per crate (sqlx, pyo3, pgpq, ...); S2 places these.
+- `items not in the skill index`: recorded items rust-analyzer did not resolve whose crate a skill
+  indexes but which the index does not list, or which name two items (a trait and its derive macro:
+  `ambiguous`, with both candidates shown; never guessed). A version delta from `skill_pin_delta` is
+  shown when there is one.
+- `compiler paths the skill index does not list`: items rust-analyzer resolved exactly (so they are
+  kept) that the skills' index places differently or not at all; the skill's path is shown when
+  there is one. This is the check that the catalog and the skills agree. For the sqlx-postgres, pyo3,
+  serde-arrow and fixedbitset skills it is empty; what remains are pyrefly items that only exist or
+  are public through the fork patch.
+- `items in crates no skill indexes`: a count per crate for recorded items whose crate no enabled skill
+  covers. Every library in the catalog has a skill now, so this section is normally empty; it returns
+  when a new library is cataloged before its skill exists.
 
 Tests: `tests/scripts/test_library_utilization.py`, `test_library_scan.py`,
 `test_library_names.py`, `test_library_semantic.py`.
@@ -127,16 +141,24 @@ call is not counted for it; S2 covers that.
 0.28.2 pinned exactly in its `Cargo.lock`, on the toolchain the rust-code-model skill pins) loads
 the workspace with `ra_ap_load_cargo::load_workspace_at` and no build: `load_out_dirs_from_check`
 off, no proc-macro server, no cache priming, all features, `cfg(test)` on. It resolves every path
-node (`Semantics::resolve_path`) and method call (`resolve_method_call`) in the workspace's own
-files and prints, per file and library item, the defining path, package, version and lines. A
-path that names a re-export resolves to the defining crate and module. A method that implements a
-trait method is reported as `Type::method` and `Trait::method`. Only items from non-workspace
-crates are printed. The Python side joins that to the catalog by exact path: a capability's files
-are the files where its items resolve, and a recorded item no index could place (`sqlx::query_as`,
-`tracing::info!`) is rewritten to the unique resolved path that shares its last segment, crate
-family and owner type, searched in the capability's own files first. Not visible by design:
-references inside macro expansions and derive output (the proc-macro server is off, since starting
-it means building proc macros), and files outside the module tree (`tests/dormant/`). Evidence for
+node (`Semantics::resolve_path`), method call (`resolve_method_call`) and macro invocation
+(`resolve_macro_call`) in the workspace's own files and prints, per file and library item, the
+defining path, kind (`module`, `fn`, `adt`, `trait`, `type`, `macro`, ...), package, version and
+lines. A path that names a re-export resolves to the defining crate and module. A method that
+implements a trait method is reported as `Type::method` and `Trait::method`. A `#[macro_export]`
+macro is reported at its crate root (`tracing::info`, `sqlx::query_file`), where users write it and
+the skills index it, not in the module that defines it (`tracing::macros::info`); a macro
+invocation is resolved as a macro, so a module of the same name (`sqlx::migrate`) is not taken for
+it. Only items from non-workspace crates are printed. The Python side joins that to the catalog by
+exact path and kind: a capability's files are the files where its items resolve, and a recorded
+item no index could place (`sqlx::query_as`, `tracing::info!`) is rewritten to the unique resolved
+path that shares its last segment, crate family and owner type, searched in the capability's own
+files first. A `!` item must be a macro. A method defined on a `Deref` target rather than the
+recorded owner (`ContainerAsync` derefs to `RawContainer`) is accepted when the capability's own
+files hold exactly one method of that name. Not visible by design:
+references inside macro expansions and derive output, and methods a proc macro generates
+(`enum_dispatch`'s `BuildEncoder::try_new`): the proc-macro server is off, since starting it means
+building proc macros. Also files outside the module tree (`tests/dormant/`). Evidence for
 this choice over `rust-analyzer scip`, which builds build scripts and proc macros whatever its
 config says: [the spike](design_review/evidence/2026-09-29_library-utilization-semantic-stage/README.md).
 
@@ -145,8 +167,13 @@ paths, the paths items are reachable by, and methods). Each recorded item resolv
 union: an exact defining path; an alias (re-export or facade) rewritten to the defining path; a
 `Type::method` with the type resolved and the method listed; or a unique same-crate name for
 crate-root re-exports such as `arrow_schema::Schema`. The method reading comes before the name
-reading so a method is never taken for a free function of the same name. The index is the version
-each skill pins, so a mismatch with ours shows as `skill_pin_delta`.
+reading so a method is never taken for a free function of the same name. An alias that names two
+items (`pyo3::FromPyObject` is a trait and a derive macro) is `ambiguous` and left alone. A path
+rust-analyzer resolved exactly is kept as the compiler sees it and only checked against the index
+(the section above). The index is the version each skill pins, so a mismatch with ours shows as
+`skill_pin_delta`. Skill manifests are read in either shape: `crate_sets` (a single crate set, as
+in `fixedbitset` and `serde-arrow`) or `libraries` with a manifest per library (as in `pyo3` and
+`sqlx-postgres`).
 
 | Stage | Source (rust-code-model layer) | Produces | Limits |
 |---|---|---|---|
@@ -162,3 +189,37 @@ have no production caller). It reflects the tree's current wiring, so it moves d
 
 Rejected layers: MIR and dataflow (no source names, and MIR refuses a tree that does not compile);
 rustdoc-json for our own code (no bodies, RD002).
+
+## The catalog server
+
+`scripts/library_catalog_mcp.py` is a local, read-only FastMCP server over stdio, registered in
+`.mcp.json` as `library-catalog`. It is separate from `python/lctx_mcp`, never writes either file
+it reads, and reads two things: the tracked catalog, and the **usage index**
+`build/library-usage.sqlite` (gitignored; written by a full `--write` run) holding every library
+item the source references (about 5,200 file-and-item rows), each source file's mtime and size
+when it was indexed, and which packages count as which library.
+
+| Tool | Answers |
+|---|---|
+| `capabilities_by_library` | Every capability the workspace uses, as JSON grouped by library (`{"libraries": {lib: {"capabilities": [...]}}}`); no parameters, nothing omitted, libraries without a capability record left out |
+| `get_library` | A library's record with all its capabilities, wrappers, declared and compiled features, skill and reader |
+| `library_usage` | Every resolved item of a library with all files and lines, grouped by item or by file |
+| `find_item` | An item under any spelling (facade path, macro `!`, `Type::method`, bare name): capabilities plus every resolved usage row |
+| `find_by_file` | Capabilities for a file or directory, and every library item the files use |
+| `search_capabilities` | Every curated capability matching the words, ranked, with optional filters |
+| `catalog_gaps` | Not-used libraries, declared-unused, pin deltas, capabilities without a wrapper, dependencies without a record |
+| `catalog_status` | Libraries with their status and capability ids, skills, verified stamps, and what the index covers with its blind spots |
+
+Answer rules the code keeps (`scripts/library_catalog_hints.py`): results are never truncated (a
+`limit` exists only if the caller passes it, and the response counts what it omitted); a miss is
+answered from the usage index together with its specific blind spots (macro and derive output,
+methods a proc macro generates, files outside the module tree, types never named in a path), never
+from a curated record's silence, and without an index the answer says none has been built. Every
+response carries a `state` and computed `hints`; nothing about hints is stored.
+
+Validation is specific or absent. A response names a cited file that changed since indexing
+(mtime or size), and for a miss the changed or new source files that mention the name; it names a
+compiled-feature or linking difference between the catalog and the live nightly unit graph
+(`cargo build --unit-graph`, no build). When nothing differs, the response says nothing about
+freshness.
+

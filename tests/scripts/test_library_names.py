@@ -15,7 +15,10 @@ def make_index() -> names.Index:
             "lib::x::Dup": "struct",
             "lib::y::Dup": "struct",
         },
-        aliases={"facade::Type": "lib::a::Type"},
+        aliases={
+            "facade::Type": ["lib::a::Type"],
+            "lib::Both": ["lib::a::Trait", "lib_macros::Both"],
+        },
         methods={("lib::a::Type", "go"), ("lib::a::Type", "run")},
         by_name={
             ("lib", "Type"): ["lib::a::Type"],
@@ -67,10 +70,17 @@ def test_load_index_reads_symbols_aliases_and_methods_of_the_enabled_skills(tmp_
     index_dir = tmp_path / ".claude" / "skills" / "s" / "content" / "index"
     index_dir.mkdir(parents=True)
     (index_dir / "symbols.tsv").write_text("lib::a::T\tstruct\tlib\nlib::m\tmodule\tlib\n")
-    (index_dir / "aliases.tsv").write_text("lib::T\tlib::a::T\tstruct\n")
+    (index_dir / "aliases.tsv").write_text(
+        "lib::T\tlib::a::T\tstruct\nlib::Both\tlib::a::Trait\ttrait\n"
+        "lib::Both\tlib_macros::Both\tmacro\nlib::Both\tlib_macros::Both\tmacro\n"
+    )
     (index_dir / "methods.tsv").write_text("lib::a::T\tgo\t-\tfn go()\n")
     index = names.load_index(tmp_path)
-    assert index.symbols["lib::a::T"] == "struct" and index.aliases == {"lib::T": "lib::a::T"}
+    assert index.symbols["lib::a::T"] == "struct"
+    assert index.aliases == {
+        "lib::T": ["lib::a::T"],
+        "lib::Both": ["lib::a::Trait", "lib_macros::Both"],
+    }
     assert index.methods == {("lib::a::T", "go")} and index.crates == {"lib"}
     assert index.by_name == {("lib", "T"): ["lib::a::T"]}
 
@@ -81,3 +91,40 @@ def test_an_item_the_compiler_resolved_exactly_is_not_rewritten_by_the_index() -
     assert items == ["lib::a::Type"] and replaced == ["facade::Type"]
     items, replaced, resolved = names.normalize_items(["facade::Type"], index, {"facade::Type"})
     assert items == ["facade::Type"] and replaced == [] and resolved[0].how == "resolved"
+
+
+def test_a_path_naming_two_items_is_ambiguous_with_both_candidates_and_never_guessed() -> None:
+    r = names.resolve("lib::Both", make_index())
+    assert (r.canonical, r.how, r.candidates) == (
+        None,
+        "ambiguous",
+        ("lib::a::Trait", "lib_macros::Both"),
+    )
+    items, replaced, _ = names.normalize_items(["lib::Both"], make_index())
+    assert items == ["lib::Both"] and replaced == []
+
+
+def test_a_kept_item_records_how_the_index_places_the_compiler_path() -> None:
+    index = make_index()
+    kept = {"lib::a::Type", "lib::Type", "lib::Elsewhere"}
+    _, _, resolved = names.normalize_items(
+        ["lib::a::Type", "lib::Type", "lib::Elsewhere"], index, kept
+    )
+    assert [(r.how, r.index_how) for r in resolved] == [
+        ("resolved", "canonical"),
+        ("resolved", "name"),  # the index would say lib::a::Type; the compiler path stands
+        ("resolved", "absent"),
+    ]
+    assert resolved[1].candidates == ("lib::a::Type",)
+
+
+def test_a_macro_is_only_kept_when_the_compiler_resolved_a_macro_of_that_path() -> None:
+    index = make_index()
+    items = ["lib::q::query!", "lib::mods!"]
+    _, _, as_module = names.normalize_items(items, index, {"lib::q::query", "lib::mods"})
+    assert [r.how for r in as_module] != [
+        "resolved",
+        "resolved",
+    ]  # module hits do not keep a `!` item
+    _, _, as_macro = names.normalize_items(items, index, {"lib::q::query!", "lib::mods!"})
+    assert [r.how for r in as_macro] == ["resolved", "resolved"]
