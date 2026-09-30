@@ -133,7 +133,7 @@ async fn run_memory(
     limits: SyntaxLimits,
     budget: &ResourceBudget,
 ) -> Result<Run, ModelError> {
-    let model = Arc::new(model()?);
+    let model = Arc::new(ValidatedModel::validate(facts_relations())?);
     let captured = capture(files, &ResourceBudget::fixed(1 << 30).unwrap());
     let schedule = schedule(&model, limits);
     let mut execution = schedule.execute();
@@ -451,7 +451,7 @@ async fn the_stages_publish_a_conformance_generation_equal_to_memory() {
         .await
         .unwrap();
     let db = DisposableDatabase::start().await;
-    let model = Arc::new(model().unwrap());
+    let model = Arc::new(ValidatedModel::validate(facts_relations()).unwrap());
     let store = GenerationStore::install(db.owner.clone(), model.clone())
         .await
         .unwrap();
@@ -545,7 +545,7 @@ async fn typed_subset_envelope() {
         CapturedInput::capture(&root, &paths, &budget).unwrap(),
         "envelope",
     )]));
-    let model = Arc::new(model().unwrap());
+    let model = Arc::new(ValidatedModel::validate(facts_relations()).unwrap());
     let schedule = schedule(&model, SyntaxLimits::default());
     let mut execution = schedule.execute();
     let generation = Arc::new(MemoryGeneration::bind(&model, &budget, &mut execution).unwrap());

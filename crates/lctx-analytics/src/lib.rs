@@ -62,3 +62,11 @@ pub mod actions;
 
 pub mod execution;
 pub mod source_call;
+
+/// Typed normalized snapshots for new analysis consumers; legacy graph consumers remain in P4.
+pub mod program_projection {
+    pub use lctx_model::domain::projection::snapshot::{
+        MaterializedGraph, SelectedEntities, hydrate,
+    };
+    pub use lctx_model::domain::projection::{Arc, ArcId, EndpointRole, ProjectionName};
+}

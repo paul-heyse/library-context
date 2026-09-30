@@ -20,6 +20,7 @@ serde.workspace = true
 schemars.workspace = true
 biodivine-lib-bdd.workspace = true
 petgraph.workspace = true
+postcard.workspace = true
 
 [dev-dependencies]
 insta.workspace = true

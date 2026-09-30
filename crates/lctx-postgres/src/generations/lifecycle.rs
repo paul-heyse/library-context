@@ -11,11 +11,12 @@ use super::{
 };
 use lctx_model::domain::resources::ResourceBudget;
 use lctx_model::domain::stages::{
-    AttemptIdentity, Execution, ExecutionReceipt, StageSink, WritePermit, StageCompletion, CompletedStage,
+    AttemptIdentity, CompletedStage, Execution, ExecutionReceipt, StageCompletion, StageSink,
+    WritePermit,
 };
 use lctx_model::domain::{
     Batch, ContentHash, ModelError, Record,
-    admission::{FrontierAdmission, Frontier, FrontierContract, Preflight},
+    admission::{Frontier, FrontierAdmission, FrontierContract, Preflight},
 };
 use sqlx::{PgPool, Postgres, pool::PoolConnection};
 use std::{collections::BTreeSet, sync::Mutex};
@@ -40,8 +41,14 @@ impl GenerationStore {
                 other => Error::Model(other),
             })?;
         self.scope(contract.frontier())?;
-        self.open_attempt(writer, execution, contract.frontier(), Some(preflight), budget)
-            .await
+        self.open_attempt(
+            writer,
+            execution,
+            contract.frontier(),
+            Some(preflight),
+            budget,
+        )
+        .await
     }
     /// Begin an attempt over a subset schedule. It exercises the permanent stage-bound sink and
     /// lifecycle without claiming the facts frontier.
@@ -221,57 +228,134 @@ impl std::fmt::Debug for GenerationAttempt {
 }
 impl GenerationAttempt {
     pub fn reserve_reader(&self) -> Result<tokio::sync::OwnedMutexGuard<()>, ModelError> {
-        self.reader.clone().try_lock_owned().map_err(|_| ModelError::Invalid("another attempt reader is active or draining".into()))
+        self.reader
+            .clone()
+            .try_lock_owned()
+            .map_err(|_| ModelError::Invalid("another attempt reader is active or draining".into()))
     }
-    pub async fn read_contract(&self, stage: &lctx_model::domain::stages::StageAccess<'_, '_>) -> Result<super::lease::AttemptReadContract, ModelError> {
-        if self.identity != Some(stage.identity().attempt()) || self.poisoned.load(std::sync::atomic::Ordering::Acquire) {
-            return Err(ModelError::Invalid("foreign or poisoned attempt reader".into()));
+    pub async fn read_contract(
+        &self,
+        stage: &lctx_model::domain::stages::StageAccess<'_, '_>,
+    ) -> Result<super::lease::AttemptReadContract, ModelError> {
+        if self.identity != Some(stage.identity().attempt())
+            || self.poisoned.load(std::sync::atomic::Ordering::Acquire)
+        {
+            return Err(ModelError::Invalid(
+                "foreign or poisoned attempt reader".into(),
+            ));
         }
         let sources = stage.stored_sources()?;
-        let checkpoint = self.checkpoint.lock().map_err(|_| ModelError::Invalid("checkpoint state poisoned".into()))?.clone();
+        let checkpoint = self
+            .checkpoint
+            .lock()
+            .map_err(|_| ModelError::Invalid("checkpoint state poisoned".into()))?
+            .clone();
         if self.frontier != Frontier::Conformance && checkpoint.is_none() {
-            return Err(ModelError::Invalid("product store reads require the validated facts checkpoint".into()));
+            return Err(ModelError::Invalid(
+                "product store reads require the validated facts checkpoint".into(),
+            ));
         }
-        for requirement in stage.stage().inputs.iter().filter_map(|input| input.requirement()) {
-            checkpoint.as_ref().ok_or_else(|| ModelError::Invalid("scoped input requires a validated facts checkpoint".into()))?
-                .scoped().admit(requirement)?;
+        for requirement in stage
+            .stage()
+            .inputs
+            .iter()
+            .filter_map(|input| input.requirement())
+        {
+            checkpoint
+                .as_ref()
+                .ok_or_else(|| {
+                    ModelError::Invalid("scoped input requires a validated facts checkpoint".into())
+                })?
+                .scoped()
+                .admit(requirement)?;
         }
         for source in &sources {
-            if source.model() != self.store.model.digest() || source.schedule() != self.schedule
+            if source.model() != self.store.model.digest()
+                || source.schedule() != self.schedule
                 || Some(source.identity().attempt()) != self.identity
-                || !self.expected.contains(&(source.producer(), source.relation()))
-            { return Err(ModelError::Invalid("foreign completed source".into())); }
+                || !self
+                    .expected
+                    .contains(&(source.producer(), source.relation()))
+            {
+                return Err(ModelError::Invalid("foreign completed source".into()));
+            }
         }
-        if self.poisoned.swap(true, std::sync::atomic::Ordering::AcqRel) {
+        if self
+            .poisoned
+            .swap(true, std::sync::atomic::Ordering::AcqRel)
+        {
             return Err(ModelError::Invalid("attempt is poisoned".into()));
         }
         let mut lifecycle = self.lifecycle.lock().await;
         let checks = transaction_on(&mut lifecycle.connection, async |tx| {
-            self.store.check_stage_inputs(tx, self.generation, self.schedule, stage.stage(), &sources, checkpoint.as_ref(), &self.budget).await
-        }).await.map_err(ModelError::from)?;
-        self.poisoned.store(false, std::sync::atomic::Ordering::Release);
-        Ok(super::lease::AttemptReadContract::new(self.store.lease_contract(self.generation), stage.identity(), self.schedule, sources, checkpoint, checks))
+            self.store
+                .check_stage_inputs(
+                    tx,
+                    self.generation,
+                    self.schedule,
+                    stage.stage(),
+                    &sources,
+                    checkpoint.as_ref(),
+                    &self.budget,
+                )
+                .await
+        })
+        .await
+        .map_err(ModelError::from)?;
+        self.poisoned
+            .store(false, std::sync::atomic::Ordering::Release);
+        Ok(super::lease::AttemptReadContract::new(
+            self.store.lease_contract(self.generation),
+            stage.identity(),
+            self.schedule,
+            sources,
+            checkpoint,
+            checks,
+        ))
     }
     pub fn generation(&self) -> GenerationId {
         self.generation
     }
     /// Validate and freeze a completed frontier prefix without publishing it or ending execution.
-    pub async fn checkpoint(&self, execution: &Execution<'_>, contract: &FrontierContract) -> Result<CompletedCheckpoint, ModelError> {
-        if Some(execution.identity()) != self.identity || contract.model() != self.store.model.digest() {
-            return Err(ModelError::Invalid("foreign checkpoint attempt or model".into()));
+    pub async fn checkpoint(
+        &self,
+        execution: &Execution<'_>,
+        contract: &FrontierContract,
+    ) -> Result<CompletedCheckpoint, ModelError> {
+        if Some(execution.identity()) != self.identity
+            || contract.model() != self.store.model.digest()
+        {
+            return Err(ModelError::Invalid(
+                "foreign checkpoint attempt or model".into(),
+            ));
         }
-        if self.poisoned.swap(true, std::sync::atomic::Ordering::AcqRel) {
+        if self
+            .poisoned
+            .swap(true, std::sync::atomic::Ordering::AcqRel)
+        {
             return Err(ModelError::Invalid("attempt is poisoned".into()));
         }
         let receipt = execution.checkpoint_receipt(contract)?;
         let preflight = contract.checkpoint_preflight(execution.schedule())?;
         let mut lifecycle = self.lifecycle.lock().await;
         let admission = transaction_on(&mut lifecycle.connection, async |tx| {
-            self.store.checkpoint_step(tx, self.generation, &self.budget, &preflight, &receipt).await
-        }).await.map_err(ModelError::from)?;
-        *self.checkpoint.lock().map_err(|_| ModelError::Invalid("checkpoint state poisoned".into()))? = Some(admission.clone());
-        self.poisoned.store(false, std::sync::atomic::Ordering::Release);
-        Ok(CompletedCheckpoint { generation: self.generation, admission })
+            self.store
+                .checkpoint_step(tx, self.generation, &self.budget, &preflight, &receipt)
+                .await
+        })
+        .await
+        .map_err(ModelError::from)?;
+        *self
+            .checkpoint
+            .lock()
+            .map_err(|_| ModelError::Invalid("checkpoint state poisoned".into()))? =
+            Some(admission.clone());
+        self.poisoned
+            .store(false, std::sync::atomic::Ordering::Release);
+        Ok(CompletedCheckpoint {
+            generation: self.generation,
+            admission,
+        })
     }
     pub async fn copy<R: Record>(
         &self,
@@ -319,7 +403,9 @@ impl GenerationAttempt {
         } = self;
         let mut lifecycle = lifecycle.into_inner();
         let result = async {
-            if poisoned.into_inner() { return Err(Error::State); }
+            if poisoned.into_inner() {
+                return Err(Error::State);
+            }
             if identity != Some(receipt.identity())
                 || receipt.model() != lifecycle.store.model.digest()
                 || receipt.schedule() != schedule
@@ -361,7 +447,10 @@ impl GenerationAttempt {
     }
     /// The producer failed the attempt: record `cause` with its class.
     pub async fn fail(self, cause: &ModelError) -> Result<GenerationId, Error> {
-        self.lifecycle.into_inner().failed(Failure::of_model(cause)).await
+        self.lifecycle
+            .into_inner()
+            .failed(Failure::of_model(cause))
+            .await
     }
     /// Remove the generation and every record of it (T9: a required provider failed).
     pub async fn abort(self) -> Result<GenerationId, Error> {
@@ -375,33 +464,63 @@ pub struct CompletedCheckpoint {
     admission: FrontierAdmission,
 }
 impl CompletedCheckpoint {
-    pub fn generation(&self) -> GenerationId { self.generation }
-    pub fn admission(&self) -> &FrontierAdmission { &self.admission }
+    pub fn generation(&self) -> GenerationId {
+        self.generation
+    }
+    pub fn admission(&self) -> &FrontierAdmission {
+        &self.admission
+    }
 }
 impl StageSink for GenerationAttempt {
     async fn complete(&self, completion: StageCompletion) -> Result<CompletedStage, ModelError> {
         if Some(completion.identity().attempt()) != self.identity
             || completion.model() != self.store.model.digest()
             || completion.schedule() != self.schedule
-        { return Err(ModelError::Invalid("foreign stage completion".into())); }
+        {
+            return Err(ModelError::Invalid("foreign stage completion".into()));
+        }
         // Leave poisoned on every failure or cancellation, including uncertain COMMIT. Never
         // retry a transition on the same attempt even if the server may have committed it.
-        if self.poisoned.swap(true, std::sync::atomic::Ordering::AcqRel) {
+        if self
+            .poisoned
+            .swap(true, std::sync::atomic::Ordering::AcqRel)
+        {
             return Err(ModelError::Invalid("attempt is poisoned".into()));
         }
         {
-            let written = self.written.lock().map_err(|_| ModelError::Invalid("generation output completion poisoned".into()))?;
-            if completion.outputs().iter().any(|name| !written.contains(&(completion.stage(), *name))) {
-                return Err(ModelError::Invalid("completion output was not written".into()));
+            let written = self
+                .written
+                .lock()
+                .map_err(|_| ModelError::Invalid("generation output completion poisoned".into()))?;
+            if completion
+                .outputs()
+                .iter()
+                .any(|name| !written.contains(&(completion.stage(), *name)))
+            {
+                return Err(ModelError::Invalid(
+                    "completion output was not written".into(),
+                ));
             }
         }
         let mut lifecycle = self.lifecycle.lock().await;
         let receipts = transaction_on(&mut lifecycle.connection, async |tx| {
-            self.store.complete_stage_step(tx, self.generation, self.schedule,
-                completion.stage(), completion.outputs(), completion.outcome(), &self.budget).await
-        }).await.map_err(ModelError::from)?;
+            self.store
+                .complete_stage_step(
+                    tx,
+                    self.generation,
+                    self.schedule,
+                    completion.stage(),
+                    completion.outputs(),
+                    completion.outcome(),
+                    &self.budget,
+                )
+                .await
+        })
+        .await
+        .map_err(ModelError::from)?;
         let acknowledged = completion.acknowledge(receipts)?;
-        self.poisoned.store(false, std::sync::atomic::Ordering::Release);
+        self.poisoned
+            .store(false, std::sync::atomic::Ordering::Release);
         Ok(acknowledged)
     }
     fn copy<R: Record>(
@@ -588,13 +707,7 @@ mod harness {
                 return Err(Error::State);
             }
             self.store
-                .copy_attempt(
-                    &self.writer,
-                    self.generation,
-                    batch,
-                    self.schedule,
-                    budget,
-                )
+                .copy_attempt(&self.writer, self.generation, batch, self.schedule, budget)
                 .await?;
             self.written
                 .lock()
@@ -637,9 +750,17 @@ mod harness {
                         .await?;
                     }
                     if !written.is_empty() {
-                        store.complete_stage_step(tx, g, schedule, "harness",
-                            &written.iter().map(|(_,r)| *r).collect(),
-                            lctx_model::domain::stages::ProviderOutcome::Complete, &budget).await?;
+                        store
+                            .complete_stage_step(
+                                tx,
+                                g,
+                                schedule,
+                                "harness",
+                                &written.iter().map(|(_, r)| *r).collect(),
+                                lctx_model::domain::stages::ProviderOutcome::Complete,
+                                &budget,
+                            )
+                            .await?;
                     }
                     store.seal_step(tx, g, schedule, &written, None).await
                 })

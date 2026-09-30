@@ -188,6 +188,7 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
     let mut conclusion: Option<syn::Ident> = None;
     let mut validator: Option<syn::Path> = None;
     let mut invariants: Option<syn::Path> = None;
+    let mut projection_roles: Option<syn::Path> = None;
     let mut semantic_source: Option<syn::Expr> = None;
     let mut required_support: Option<syn::Ident> = None;
     let mut family: Option<syn::Path> = None;
@@ -218,13 +219,15 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
                     validator = Some(meta.value()?.parse()?);
                 } else if meta.path.is_ident("invariants") {
                     invariants = Some(meta.value()?.parse()?);
+                } else if meta.path.is_ident("projection_roles") {
+                    projection_roles = Some(meta.value()?.parse()?);
                 } else if meta.path.is_ident("semantic_source") {
                     semantic_source = Some(meta.value()?.parse()?);
                 } else if meta.path.is_ident("family") {
                     family = Some(meta.value()?.parse()?);
                 } else {
                     return Err(meta
-                        .error("expected name, validate, invariants, family or semantic_source"));
+                        .error("expected name, validate, invariants, family, projection_roles or semantic_source"));
                 }
                 Ok(())
             })?;
@@ -345,6 +348,9 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
             fn family() -> Option<::lctx_model::domain::attribution::FactFamily> { Some(#family) }
         }
     });
+    let projection_roles_fn = projection_roles.map(|roles| quote! {
+        fn projection_roles() -> Vec<::lctx_model::domain::projection::EndpointRole> { #roles() }
+    });
     let declaration = quote!(#input).to_string();
     let name = &input.ident;
     let key_name = format_ident!("{}Key", name);
@@ -401,6 +407,7 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
             fn invariants() -> Vec<::lctx_model::domain::Invariant> { #invariants }
             fn required_relations() -> Vec<(::std::any::TypeId, &'static str)> { #required_support }
             #family_fn
+            #projection_roles_fn
             fn content_digest(&self) -> ::lctx_model::domain::ContentHash {
                 let mut sink = ::lctx_model::domain::KeySink::new(Self::NAME);
                 #(::lctx_model::domain::Key::encode(&self.#names, &mut sink);)*

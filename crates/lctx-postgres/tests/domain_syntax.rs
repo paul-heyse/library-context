@@ -16,7 +16,7 @@ use std::sync::Arc;
 #[tokio::test]
 async fn typed_syntax_publishes_and_refuses_misplaced_syntax() {
     let db = DisposableDatabase::start().await;
-    let model = Arc::new(model().unwrap());
+    let model = Arc::new(ValidatedModel::validate(facts_relations()).unwrap());
     let store = GenerationStore::install(db.owner.clone(), model.clone())
         .await
         .unwrap();

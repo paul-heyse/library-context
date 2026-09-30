@@ -4,7 +4,10 @@
 //! admission stays with the batch writer and the COPY boundary.
 use super::charged::{ChargedMap, ChargedSet, StateCharge};
 use super::resources::{ResourceBudget, TRANSFER_ROWS};
-use super::stages::{AttemptIdentity, Execution, StageSink, WritePermit, StageCompletion, CompletedStage, RelationReceipt};
+use super::stages::{
+    AttemptIdentity, CompletedStage, Execution, RelationReceipt, StageCompletion, StageSink,
+    WritePermit,
+};
 use super::{Batch, ContentHash, KeySink, ModelError, Record, Relation, ValidatedModel};
 use arrow_array::{Array, ArrayRef, FixedSizeBinaryArray, Int16Array, RecordBatch, UInt32Array};
 use arrow_row::{RowConverter, SortField};
@@ -30,7 +33,11 @@ impl MemoryGeneration {
         Self {
             model: model.digest(),
             attempt: None,
-            relations: model.relations().iter().map(|r| (r.name(), r.clone())).collect(),
+            relations: model
+                .relations()
+                .iter()
+                .map(|r| (r.name(), r.clone()))
+                .collect(),
             budget: budget.clone(),
             stored: Mutex::new(Stored {
                 charge: StateCharge::new(budget, "memory-generation"),
@@ -70,7 +77,9 @@ impl MemoryGeneration {
             .lock()
             .map_err(|_| ModelError::Invalid("memory generation poisoned".into()))?;
         if stored.frozen.contains(relation) {
-            return Err(ModelError::Invalid("completed relation is immutable".into()));
+            return Err(ModelError::Invalid(
+                "completed relation is immutable".into(),
+            ));
         }
         // Stored batches outlive their producer's reservation, so the generation charges them.
         stored.charge.grow(arrow.get_array_memory_size())?;
@@ -136,7 +145,7 @@ impl MemoryGeneration {
             .lock()
             .map_err(|_| ModelError::Invalid("memory generation poisoned".into()))?;
         let mut charge = StateCharge::new(budget, "memory-admission-input");
-        for input in super::admission::AdmissionCheck::inputs() {
+        for input in check.inputs() {
             let relation = model
                 .relations()
                 .iter()
@@ -223,17 +232,40 @@ impl MemoryGeneration {
 }
 impl StageSink for MemoryGeneration {
     async fn complete(&self, completion: StageCompletion) -> Result<CompletedStage, ModelError> {
-        if self.attempt != Some(completion.identity().attempt()) || completion.model() != self.model {
-            return Err(ModelError::Invalid("foreign memory stage completion".into()));
+        if self.attempt != Some(completion.identity().attempt()) || completion.model() != self.model
+        {
+            return Err(ModelError::Invalid(
+                "foreign memory stage completion".into(),
+            ));
         }
-        let mut stored = self.stored.lock().map_err(|_| ModelError::Invalid("memory generation poisoned".into()))?;
+        let mut stored = self
+            .stored
+            .lock()
+            .map_err(|_| ModelError::Invalid("memory generation poisoned".into()))?;
         let mut receipts = BTreeMap::new();
         for name in completion.outputs() {
-            if stored.frozen.contains(name) { return Err(ModelError::Invalid("stage already completed".into())); }
-            let relation = self.relations.get(name).ok_or_else(|| ModelError::Invalid("undeclared completion output".into()))?;
-            let parts = stored.relations.get(name).ok_or_else(|| ModelError::Invalid("stage output not written".into()))?;
-            let _reservation = self.budget.reserve("memory-stage-receipt", parts.iter().map(|b| b.get_array_memory_size()).sum::<usize>().saturating_mul(4).saturating_add(4096))?;
-            let all = arrow_select::concat::concat_batches(relation.schema(), parts).map_err(ModelError::codec)?;
+            if stored.frozen.contains(name) {
+                return Err(ModelError::Invalid("stage already completed".into()));
+            }
+            let relation = self
+                .relations
+                .get(name)
+                .ok_or_else(|| ModelError::Invalid("undeclared completion output".into()))?;
+            let parts = stored
+                .relations
+                .get(name)
+                .ok_or_else(|| ModelError::Invalid("stage output not written".into()))?;
+            let _reservation = self.budget.reserve(
+                "memory-stage-receipt",
+                parts
+                    .iter()
+                    .map(|b| b.get_array_memory_size())
+                    .sum::<usize>()
+                    .saturating_mul(4)
+                    .saturating_add(4096),
+            )?;
+            let all = arrow_select::concat::concat_batches(relation.schema(), parts)
+                .map_err(ModelError::codec)?;
             let ordered = order(relation, &all, &["id"])?;
             let mut content = relation.content();
             relation.hash_rows(&ordered, &mut content)?;

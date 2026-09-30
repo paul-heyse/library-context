@@ -37,12 +37,16 @@ impl Database {
             &self.path.with_file_name("postgres-serving.json"),
         )?)
     }
-    /// The facts generation writer's protected configuration.
-    pub async fn writer(&self) -> anyhow::Result<sqlx::PgPool> {
+    pub fn importer(&self) -> anyhow::Result<RoleConfig> {
         let config = RoleConfig::load(&self.path.with_file_name("postgres-importer.json"))?;
         if config.role != cpg_core::postgres::roles::Role::Importer {
-            anyhow::bail!("facts writer requires importer credentials");
+            anyhow::bail!("generation writer requires importer credentials");
         }
+        Ok(config)
+    }
+    /// The generation writer's protected configuration.
+    pub async fn writer(&self) -> anyhow::Result<sqlx::PgPool> {
+        let config = self.importer()?;
         Ok(config.connect().await?)
     }
     pub async fn reader(&self) -> anyhow::Result<sqlx::PgPool> {

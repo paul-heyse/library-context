@@ -2,7 +2,7 @@
 //! provider that declares it, into one attempt's sink. The providers are exactly the schedule's
 //! stages for its profile, and each declaration equals its scheduled stage; anything else is
 //! refused before any stage runs. Ambient analyzer configuration is refused first.
-use crate::stage_runtime::{StageMeasurement, run_declared_stage};
+use crate::stage_runtime::{StageMeasurement, run_declared_stage_with_resources};
 use cpg_extract::bundle::{self, CapturedInputs, ProviderStage};
 use lctx_model::domain::{
     ModelError, ValidatedModel,
@@ -67,9 +67,25 @@ pub async fn compile_facts_measured<S: StageSink + 'static>(
     }
     for (_name, provider) in ordered {
         let declaration = provider.declaration(profile);
-        run_declared_stage(&mut execution, &declaration, async move |access| {
-            bundle::run_stage(provider, access, sink, model, captured, budget, TransferLimits::default()).await
-        }, &mut observe).await?;
+        run_declared_stage_with_resources(
+            &mut execution,
+            &declaration,
+            budget,
+            async move |access| {
+                bundle::run_stage(
+                    provider,
+                    access,
+                    sink,
+                    model,
+                    captured,
+                    budget,
+                    TransferLimits::default(),
+                )
+                .await
+            },
+            &mut observe,
+        )
+        .await?;
     }
     execution.finish()
 }
@@ -113,7 +129,8 @@ pub async fn inspect(
     let mut execution = schedule.execute();
     let generation =
         lctx_model::domain::memory::MemoryGeneration::bind(&model, &budget, &mut execution)?;
-    let preflight = lctx_model::domain::admission::FrontierContract::facts(&model, profile)?.preflight(&schedule)?;
+    let preflight = lctx_model::domain::admission::FrontierContract::facts(&model, profile)?
+        .preflight(&schedule)?;
     let receipt = compile_facts(
         execution,
         providers,
@@ -123,13 +140,15 @@ pub async fn inspect(
         &budget,
     )
     .await?;
-    let digest = generation.validate_facts(&model, &budget, preflight, &receipt)?.content();
+    let digest = generation
+        .validate_facts(&model, &budget, preflight, &receipt)?
+        .content();
     Ok((model, generation, digest))
 }
 
 /// A published facts generation. Publication leaves selection to the operator.
 #[derive(Debug)]
-pub struct PublishedFacts {
+pub struct PublishedGeneration {
     pub generation: lctx_postgres::generations::GenerationId,
     pub content: lctx_model::domain::ContentHash,
     pub availability: std::collections::BTreeMap<
@@ -147,7 +166,7 @@ pub async fn publish(
     budget: ResourceBudget,
     profile: lctx_model::domain::stages::Profile,
     configuration: lctx_model::domain::ContentHash,
-) -> Result<PublishedFacts, ModelError> {
+) -> Result<PublishedGeneration, ModelError> {
     publish_declared(
         store,
         writer,
@@ -167,7 +186,7 @@ pub async fn publish_declared(
     budget: ResourceBudget,
     profile: lctx_model::domain::stages::Profile,
     providers: Vec<Box<dyn ProviderStage<lctx_postgres::generations::GenerationAttempt>>>,
-) -> Result<PublishedFacts, ModelError> {
+) -> Result<PublishedGeneration, ModelError> {
     bundle::refuse_ambient(std::env::vars_os())?;
     let model = Arc::new(lctx_model::domain::model()?);
     if store.model().digest() != model.digest() {
@@ -229,6 +248,15 @@ pub async fn publish_declared(
             return Err(error);
         }
     };
+    finish_publication(store, attempt, receipt, measurements).await
+}
+pub(crate) async fn finish_publication(
+    store: &lctx_postgres::generations::GenerationStore,
+    attempt: lctx_postgres::generations::GenerationAttempt,
+    receipt: ExecutionReceipt,
+    measurements: Vec<StageMeasurement>,
+) -> Result<PublishedGeneration, ModelError> {
+    let id = attempt.generation();
     let sealed = match attempt.seal(receipt).await {
         Ok(v) => v,
         Err(error) => {
@@ -280,7 +308,7 @@ pub async fn publish_declared(
             return Err(error);
         }
     };
-    Ok(PublishedFacts {
+    Ok(PublishedGeneration {
         generation,
         content,
         availability,
@@ -319,7 +347,7 @@ pub async fn memory(
     generation.validate_facts(&model, &budget, preflight, &receipt)
 }
 
-fn cleanup_error(
+pub(crate) fn cleanup_error(
     id: lctx_postgres::generations::GenerationId,
     phase: &str,
     primary: &ModelError,

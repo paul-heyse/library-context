@@ -23,8 +23,10 @@ pub(super) const FAILED: &str = "failed";
 /// The committed stage-completion privilege transition, shared by execution and shadow checking.
 pub(super) fn completed_output(schema: &str, relation: &str) -> [String; 2] {
     let table = format!("{}.{}", quoted(schema), quoted(relation));
-    [format!("REVOKE INSERT ON {table} FROM lctx_importer"),
-     format!("GRANT SELECT ON {table} TO lctx_importer")]
+    [
+        format!("REVOKE INSERT ON {table} FROM lctx_importer"),
+        format!("GRANT SELECT ON {table} TO lctx_importer"),
+    ]
 }
 
 /// The relations one frontier's generations lower, and the physical digest of that lowering.
@@ -43,9 +45,16 @@ pub(super) fn scopes(model: &ValidatedModel) -> BTreeMap<Frontier, Scope> {
         columns: column_signature(model, &relations),
         relations,
     };
-    Frontier::ALL.into_iter().filter_map(|frontier| {
-        frontier.descriptor().relations(model).ok().map(|relations| (frontier, scope(relations)))
-    }).collect()
+    Frontier::ALL
+        .into_iter()
+        .filter_map(|frontier| {
+            frontier
+                .descriptor()
+                .relations(model)
+                .ok()
+                .map(|relations| (frontier, scope(relations)))
+        })
+        .collect()
 }
 /// The live-column signature of a lowering: `relation.column:type:not-null`, in relation-name
 /// and column order, exactly as `pg_attribute` and `format_type` report the tables `lower` creates.
@@ -362,10 +371,17 @@ pub(super) fn lower(
     let s = quoted(&schema);
     let mut views = derivation_views(model, relations, &schema);
     use lctx_model::domain::normalized::events::CallPolicy;
-    if CallPolicy::view_relations().iter().all(|name| relations.contains(name)) {
+    if CallPolicy::view_relations()
+        .iter()
+        .all(|name| relations.contains(name))
+    {
         for policy in CallPolicy::ALL {
-            views.push(format!("CREATE VIEW {}.{} AS {}", s, quoted(policy.view_name()),
-                policy.select_sql(|name| format!("{s}.{}", quoted(name)))));
+            views.push(format!(
+                "CREATE VIEW {}.{} AS {}",
+                s,
+                quoted(policy.view_name()),
+                policy.select_sql(|name| format!("{s}.{}", quoted(name)))
+            ));
         }
     }
     Lowering {

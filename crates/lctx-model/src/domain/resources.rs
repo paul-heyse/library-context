@@ -24,6 +24,10 @@ pub trait ResourcePool: std::fmt::Debug + Send + Sync {
     fn peak(&self) -> Option<usize> {
         None
     }
+    fn reset_stage_peak(&self) {}
+    fn stage_peak(&self) -> Option<usize> {
+        None
+    }
 }
 pub trait Reservation: std::fmt::Debug + Send + Sync {
     fn size(&self) -> usize;
@@ -63,6 +67,12 @@ impl ResourceBudget {
     }
     pub fn peak(&self) -> Option<usize> {
         self.0.peak()
+    }
+    pub fn reset_stage_peak(&self) {
+        self.0.reset_stage_peak();
+    }
+    pub fn stage_peak(&self) -> Option<usize> {
+        self.0.stage_peak()
     }
     pub fn shares_pool(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)

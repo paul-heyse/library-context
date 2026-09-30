@@ -102,8 +102,14 @@ async fn binary_publishes_facts_reports_profiles_and_does_not_select() {
             .is_empty()
     );
     let mut behavior = None;
-    for profile in ["catalog", "behavioral", "behavioral"] {
-        let output = command(dir.path(), &cfg, "facts", profile)
+    for (through, profile) in [
+        ("facts", "catalog"),
+        ("normalized", "catalog"),
+        ("facts", "behavioral"),
+        ("normalized", "behavioral"),
+        ("normalized", "behavioral"),
+    ] {
+        let output = command(dir.path(), &cfg, through, profile)
             .output()
             .unwrap();
         assert!(
@@ -112,12 +118,13 @@ async fn binary_publishes_facts_reports_profiles_and_does_not_select() {
             String::from_utf8_lossy(&output.stderr)
         );
         let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-        assert_eq!(report["frontier"], "facts");
+        assert_eq!(report["frontier"], through);
         assert_eq!(report["profile"], profile);
         assert_eq!(report["selected"], false);
         assert_eq!(
             report["stage_measurements"].as_array().unwrap().len(),
-            if profile == "catalog" { 5 } else { 6 }
+            (if profile == "catalog" { 5 } else { 6 })
+                + if through == "normalized" { 7 } else { 0 }
         );
         let flow = report["families"]
             .as_array()
@@ -126,7 +133,7 @@ async fn binary_publishes_facts_reports_profiles_and_does_not_select() {
             .find(|f| f["family"] == "Flow")
             .unwrap();
         assert_eq!(flow["availability"] == "NotRequested", profile == "catalog");
-        if profile == "behavioral" {
+        if profile == "behavioral" && through == "normalized" {
             if let Some(expected) = behavior.as_ref() {
                 assert_eq!(&report["content_digest"], expected);
             } else {
@@ -135,12 +142,12 @@ async fn binary_publishes_facts_reports_profiles_and_does_not_select() {
         }
     }
     let listed = catalog.list(&ListFilter::default()).await.unwrap();
-    assert_eq!(listed.len(), 3);
+    assert_eq!(listed.len(), 5);
     assert!(listed.iter().all(|g| !g.selected));
     for g in listed {
         store.retire(g.id).await.unwrap();
     }
-    let exhausted = command(dir.path(), &cfg, "facts", "catalog")
+    let exhausted = command(dir.path(), &cfg, "normalized", "catalog")
         .args(["--memory-bytes", "65536"])
         .output()
         .unwrap();

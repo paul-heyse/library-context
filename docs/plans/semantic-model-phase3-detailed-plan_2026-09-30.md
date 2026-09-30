@@ -1,16 +1,18 @@
 # Phase 3: normalized semantic relations — detailed design and execution plan
 
-**Accepted execution plan; implementation in progress, 2026-09-30.** This is the detailed Phase 3 design subordinate to the
+**Implemented; qualification in progress, 2026-09-30.** This is the detailed Phase 3 design subordinate to the
 [cutover plan](semantic-model-cutover-plan_2026-09-29.md). The parent owns phase sequencing,
 the completed P0–P2 receipts and cross-phase finding dispositions; §11 below owns the newly
 scheduled P3 packages and their implementation status. [DESIGN §15](../design/sections/semantic-model.md)
 owns the architecture. Accepted decisions: [ADR-0101](../adr/0101-cumulative-normalized-generations.md)
-and [ADR-0102](../adr/0102-normalized-semantic-ownership.md).
+and [ADR-0103](../adr/0103-normalized-graph-materialization.md).
 
 **Evidence boundary.** Source and pinned interfaces were inspected against `e4ab3ea` on
 2026-09-30. The [investigation receipt](../design_review/evidence/2026-09-30_phase3-design/README.md)
-records resolved features and 13 passing existing reader/runtime tests. P3 implementation,
-performance and phase exit are **not_run**. P0–P2's assembled qualification remains valid only
+records resolved features and 13 passing existing reader/runtime tests at the design baseline.
+R1–R3/N1–N7/X are **Implemented / focused-Tested**, including persisted native graph snapshots;
+§11 and the [qualification evidence](../design_review/evidence/2026-09-30_phase3-qualification/README.md)
+own current receipts. Complete phase exit remains pending Q. P0–P2's assembled qualification remains valid only
 within its stated facts scope. This document does not activate production analysis or serving.
 
 ## 1. Outcome and design decisions
@@ -40,8 +42,9 @@ The selected design is:
 5. Evaluate call policy once in the model and store typed admissions. Generate SQL views over
    those admissions, rather than maintaining independent Rust and SQL predicates.
 6. Reuse the pure binder and owner rule. Persist their outcomes and premises, including refusals.
-7. Build typed program projections on demand for named consumers; do not persist dense graph
-   indices, transitive closures or a second semantic graph database.
+7. Build and serialize every named typed program projection during normalization. Reconstruct
+   them for each new collection lifecycle; hydrate them for analysis. Canonical records retain
+   semantic authority, and petgraph indices remain private computational coordinates.
 
 The review considered reopening P0–P2 broadly. The required foundation changes are frontier
 admission, stage completion/read capabilities, coordinated resources, and normalization's
@@ -50,9 +53,9 @@ codec and generation lifecycle are retained. There is no compatibility migration
 
 ## 2. Baseline and Phase 3–5 responsibility map
 
-### 2.1 What exists and what is missing
+### 2.1 Design baseline and changes required
 
-| Boundary | Current evidence | P3 consequence |
+| Boundary | Evidence at design baseline | P3 consequence |
 |---|---|---|
 | Model and facts | `lctx-model::domain`, native producers and shared validation are implemented; P0–P2 exit is scoped-Tested | Extend the same manifest and lowerings. L0 assertions stay immutable and attributed. |
 | Ownership and calls | [occurrence owner](../../crates/lctx-model/src/domain/occurrence_owner.rs), [declaration links](../../crates/lctx-model/src/domain/declarations.rs), [binder/policies](../../crates/lctx-model/src/domain/calls.rs) exist | Materialize and adapt these owners to complete normalized inputs; do not invent new classifiers. |
@@ -323,29 +326,36 @@ union of these meanings. Type/document relationships remain relational unless a 
 consumer selects them. Definition-time and potential relationships cannot become executable
 call arcs through a graph flag.
 
-`ProjectionInput` carries a pinned completed/readable source, spec digest, canonical entity
-universe, typed arcs and unresolved side records. Validate both endpoints against the universe;
-missing endpoints are a contract failure, while an unresolved destination is a valid side record.
-Keep isolates. Output selectors are applied after the universe required by an algorithm is built.
+`ProjectionInput` selects the current completed/readable source's canonical entity universe,
+typed arcs and unresolved side records. Validate both endpoints against that universe; a missing
+endpoint is a contract failure, while an unresolved destination is a valid side record. Keep
+isolates. Output selectors apply after the complete algorithm universe is constructed.
 
-Build one immutable `petgraph::Graph<EntityRef, ArcId, Directed, u32>` per requested projection.
-Sort entities and arcs by canonical IDs before construction, retain parallel edges/self-loops,
-and prepare stable outgoing/incoming iteration once. Bound capacity before converting to u32;
-graph indices never escape the adapter. Use borrowed `EdgeFiltered` and `Reversed` views where
-their semantics fit. Do not use `GraphMap` to collapse parallel facts or `StableGraph` solely
-for identity stability in an immutable graph.
+Build one immutable `petgraph::Graph<EntityRef, ArcId, Directed, u32>` per built-in spec and
+input/context during normalization. Sort entities and arcs by canonical IDs; retain parallel
+edges and self-loops. Prepare stable incoming/outgoing iteration on hydration. Bound capacities
+before converting to u32; graph indices never escape the adapter. Borrowed filtered/reversed
+views may serve analyses. GraphMap loses parallel identity, and StableGraph deletion guarantees
+have no consumer in this immutable full-rebuild lifecycle.
 
-Every arc maps to its typed relation and evidence. If a P4 consumer requires simple/weighted
-arcs, it selects an explicit collapse policy whose output retains member arc IDs. P3 ships
-the declaration/runtime/controls; P4 owns SCC scheduling and analytics. Full paths and
-all-pairs closure are not materialized. Program, derivation and stage graphs remain distinct.
+Every arc points to its typed canonical relation and evidence. P4 may request an explicit collapse
+policy retaining member IDs; P3 does not persist transitive closure or all-pairs paths. Program,
+derivation and stage graphs remain distinct.
 
-N6's publication stage validates each built-in spec's relational endpoint/universe contract and
-emits `ProjectionSourceAssessment` (spec × input/context, input receipts, availability and gaps).
-It does not build or persist dense graphs during compilation. The runtime constructs a graph
-only when a named consumer requests it; P3 supplies that callable adapter and independent tests,
-while P4 supplies production analytics consumers. Generated projection queries reuse canonical
-relation rows and typed arc references rather than storing another edges copy.
+**Materialized graph lifecycle (operator revision, 2026-09-30; ADR-0103).** N6 emits total
+`ProjectionSourceAssessment` records with availability/gaps and builds all named graph snapshots.
+The actual petgraph object uses `serde-1`, with a pinned Postcard binary wrapper identifying format,
+projection version, input revision, analysis context and petgraph version. Generation-owned BYTEA
+chunks keep transport rows bounded. Normalized admission requires the complete snapshot set and
+checks it against canonical projection inputs. Graphs are fully reconstructed on every collection
+lifecycle; there is no graph reuse hash or incremental invalidation machinery. Ordinary generation
+content receipts continue to cover stored relations uniformly. Consumers hydrate the serialized
+graph without repeating SQL edge reconstruction. Canonical relational records remain authoritative.
+
+The shared budget covers simultaneous graph, serialized buffers, validation and hydrated indexes.
+Test roundtrip topology/evidence, isolates, parallel arcs, loops, empty graphs, deterministic input
+order, wrapper/version mismatch, malformed/truncated/trailing bytes, missing chunks and resource
+refusal. Measure construction, serialization and hydration separately at Q before claiming speedup.
 
 ## 6. Cumulative frontiers and private stage reads
 
@@ -484,12 +494,24 @@ declared contexts, never from whichever output rows happened to be produced.
 | Test operand/type and place links | Flow-family source/context scope, with type/declaration dependencies | Catalog emits NotRequested for flow-derived groups. Behavioral input may be partial/unavailable; leaf-level outcomes preserve missing type/operand evidence. |
 | Projection inputs | Input/context and selected spec, covering its complete declared universe | Carry every dependency's scoped availability and unresolved side records. A whole-input aggregate cannot erase a missing artifact scope. |
 
-`NormalizationCoverage` is keyed by capability group × scope × context (where applicable) and
-links the exact input coverage/receipt set, producing stage, policy revision and completed output
-receipts. A final coverage writer assembles typed contributions from each normalized producer;
-there is one writer, and contributions use the existing bounded stage mechanism. Completed-stage
-handles expose the same frozen outcome premises before final coverage assembly. Final validation
-checks exact expected membership, no duplicates and equality with stage receipts.
+`NormalizationCoverage` is keyed by computation/capability × scope × context and links the exact
+input coverage sets, producing stage, policy revision and completed output receipts. Seventeen
+finite capabilities refine the groups above: source/entity universe and ownership, symbol
+correspondence, references, imports, ancestry, types/binders, mentions, callable surfaces, calls,
+bindings, place/test-operand links, four named projections, public exposures and flow-event links.
+Their single owner is `normalized::coverage::Capability`; each declares its anchor family,
+dependencies and owning producer. Computation receipts attest the complete producing stage;
+a capability does not thereby claim every other output of that stage.
+
+A final coverage writer uses acknowledged completed-stage handles through the existing bounded
+stage mechanism. Shared input/context/family premise sets retain every original ProviderCoverage
+ID once, including its reason and scope, and outcomes link those sets. The local anchor preserves
+Unavailable/NotRequested; Complete requires every required family across the input/context to be
+complete, conservatively retaining cross-source uncertainty. NoScope requires an empty admitted
+anchor universe. Completed-stage readers can run the same typed scoped-outcome operation over
+the private facts checkpoint before final assembly. Shared frontier admission recomputes exact
+outcome, premise membership and frozen output receipt equality; omitted scopes and substituted
+receipts refuse publication.
 
 Keep computation completion separate from evidence availability. A normalizer can complete a
 total `Unresolved` assessment over partial evidence; this does not promote that evidence to
@@ -554,7 +576,7 @@ flowchart LR
   R --> A[N4 complete call events and policies]
   S --> B[N5 binding outcomes and admission]
   A --> B
-  R --> P[N6 projection inputs and runtime]
+  R --> P[N6 materialized graph snapshots]
   A --> P
   B --> Q[N7 normalized admission and publication]
   P --> Q
@@ -571,7 +593,7 @@ flowchart LR
 | N3 — N2 | Effective assessments using N2 lexical outcomes, exact descriptor operation, complete signature/slot relations | Source-known/effective-unknown; shadowed/multiple/arbitrary decorators, native unavailable variants, default-slot distinction. Move supported surface semantics out of dormant catalog authority. |
 | N4 — N2 | Complete event assembly, flow-path/event links, normalized uniqueness, policy assessments/admissions and generated views | Five-policy independent truth table; same-event multiple providers and constructor phases; Potential Association; path identity; no Summary over filtered/incomplete inputs. Retire raw policy admission route. |
 | N5 — N3,N4 | Binding attempts/members, signature authority, stored binder validation and private composition admission | All variant successes/refusals preserved; source parameter links; exact rerun equality, effective-target/body admission, unknown receivers/unpacking, no default-value claim; tampered complete-set refusal. |
-| N6 — N2,N4 | Typed role declarations, projection sources and bounded runtime; `lctx-model`, `lctx-analytics` | Independent graph shapes, isolates/parallel arcs, unresolved evidence, selector/universe separation, canonical order, overflow/resource refusal. Retire migrated legacy projection authority. |
+| N6 — N2,N4 | Typed role declarations, total projection sources, persisted snapshots and bounded hydration; `lctx-model`, `lctx-analytics` | Independent graph shapes, isolates/parallel arcs, unresolved evidence, selector/universe separation, canonical order, overflow/resource refusal. Retire migrated legacy projection authority. |
 | N7 — N5,N6 | Combined driver, normalized admission, CLI reporting and inspectors; `cpg-core`, `lctx`, store | Both profiles publish without selection; failed normalization publishes nothing; facts still works; analysis/serving refuses explicitly. |
 | X — N7 | Re-home P3 test expectations and retire only last-consumer legacy declarations; all affected owners | Import/dependency search proves no migrated P3 path uses old IDs/schema/SQL. P4/P5 obligations and sources remain usable as recovery evidence. |
 | Q — X | Whole-scope qualification, assembled design/target review, current owners and handoff | §10 phase-exit evidence; disclose all skips and downstream exclusions. |
@@ -592,11 +614,11 @@ Paths marked new are proposed module boundaries, not extra packages or required 
 | `crates/lctx-model/src/domain/admission.rs`, `stages.rs`, `record.rs` and manifest registration | R1/R2: declared frontiers/checkpoints, stage input transport, completed handles and normalized validators/coverage; preserve generated codecs and append-only codes. |
 | `crates/lctx-model/src/domain/normalized/` (new) | N1–N5: cohesive identity/resolution, surfaces, complete-event/policy and binding operations with nominal relations. Pure operations take validated inputs and explicit budgets, without store/session dependencies. |
 | `crates/lctx-model/src/domain/calls.rs`, `occurrence_owner.rs`, `value.rs` | Reuse owner and place vocabulary; move policy/binding applicability to complete normalized input without copying the argument-shape algorithm. Review existing tests/callers before removing the old entry points. |
-| `crates/lctx-model/src/domain/projection.rs` (new) and relation metadata | N6: endpoint roles, spec, source assessment, typed arc references and validation; no petgraph index in stored contracts. |
+| `crates/lctx-model/src/domain/projection.rs` (new) and relation metadata | N6: endpoint roles, spec, source assessment, typed arc references, binary snapshot codec and shared validation; no petgraph index is a domain ID. |
 | `crates/lctx-postgres/src/generations/{ddl,lifecycle,receipts,lease,locks}.rs`, `control.sql`; `roles.rs` | R1–R3: generic descriptor lowering, completed-stage transaction/checkpoint, private read capability, scoped availability and explicit importer capacity. Update control-schema version/checks as a migration. |
 | Provider fork `pool.rs`, `conn.rs`, `bounded.rs`; workspace pin and `docs/pins.md` | R3: shared terminal close, early drain guard, attempt-reader transport and scan reservations. Change the fork source, prove its controls, then update the pinned revision; never patch Cargo's cache. |
 | `crates/cpg-core/src/{model_runtime,generation_read,facts}.rs` and `normalize/` (new) | R3/N1–N7: owned query wrapper, source-bound registration, combined runtime/schedule, typed normalization stages and bounded sink conversion. |
-| `crates/lctx-analytics/src/graph.rs` or a focused successor | N6: typed immutable projection adapter; migrate only normalized graph entry points, leaving dormant P4 analytics consumers inventoried. |
+| `crates/lctx-analytics/src/graph.rs` or a focused successor | N6: expose the model-owned immutable materialization adapter to analysis; the model keeps the shared snapshot validator beside its codec, leaving dormant P4 analytics consumers inventoried. |
 | `crates/lctx/src/compile.rs` and generation/query command owners | N7: normalized frontier option, one acquisition/runtime, cumulative report and availability-aware inspection; later-frontier refusals retained. |
 | Dormant `cpg-schema::{derived,graph,projection}` and legacy `cpg-core` consumers/tests | X: remove migrated ownership after expectations move; retain exact P4/P5 consumers from §9. |
 
@@ -635,11 +657,47 @@ legacy `lctx-model::decl/id/legacy`, dormant query/wire/catalog contracts and sh
 remain while a P4/P5 consumer still needs them. The final removal inventory names each survivor's
 consumer and phase. No whole-crate deletion is presumed at P3 exit.
 
+### 9.1 Executed ownership inventory (2026-09-30)
+
+The normalized compile route (`lctx/src/compile.rs`, `cpg-core/src/normalize/`,
+`lctx-model/src/domain/{normalized,projection}/`) has no `cpg_schema`, legacy ID, `lctx_id`
+or old derived-SQL import. Read-only `rg` inspection of those paths returned no matches.
+N4 removed the raw `CallCandidate`, `CallSiteFacts`, `CallSiteTargets`, `TargetSet` and raw
+`CallPolicy::admits` authority; independent call/site controls now exercise stored normalized
+memberships. No compatibility API was introduced. N6 adds computational snapshots to the same
+normalized generation; they are not an alternative semantic store.
+
+| Retained legacy declarations | Current consumer; deletion boundary |
+|---|---|
+| ProviderNodeMap, ProviderClassMap, SyntheticCallables | P4 `cpg-core::{flow_model,catalog,surface}` and `lctx-analytics::{source_call,parameter_identity,lexical_identity}`; remove when those consumers take typed N1 identities. |
+| Exports, Signatures, Parameters | P4 `cpg-core::{catalog,surface}` and the `cpg-schema::public` SQL; remove with catalog contract migration. |
+| Resolutions, ArgumentResolutions, CallTargets, SiteTargets | P4 `lctx-analytics::{source_call,call_binding,completion}` and the dormant producer/rules graph; remove when composition consumes N4/N5 private admissions. |
+| AncestryTargets, OverrideTargets | P4 catalog/class/dispatch consumers and graph registry; N2 preserves ancestry and N4 preserves explicit dispatch, while expansion remains P4. |
+| IdentifierTargets, ImportTargets, MentionTargets | P4 graph/catalog/association declarations reached through `cpg-core::producer` and `cpg-schema::{derived,graph,rules}`; replace that producer closure before deletion. |
+| FlowValueCallLinks, TypeClassTargets, TypeBinders | P4 `flow_model`, `behavior` and graph/rules closure; retain transfer, guard, protocol and completion expectations until their typed cutover. |
+| Nodes, Edges, GraphGaps, EdgeKinds and legacy ProjectionSpec | P4 `cpg-core::{analyze,producer,validate}` and `lctx-analytics::{pass_a,ranking,communities,graph}`. None is read by normalized compilation; remove when these named analytics migrate. |
+| `cpg-schema`, `lctx-model::{decl,id,legacy}`, query/wire/serving contracts | Mixed P4/P5 modules, `cpg-core::{bundle,retrieval}` and Python/native serving adapters. Whole-crate deletion remains outside P3. |
+
+Dormant assertion recovery is by meaning. `dormant/compile.rs` derived-text/key/variant/Unicode/
+re-export/source-stub assertions map to `domain_normalized`, native `normalized_entities`,
+`normalized_relations`, `normalized_callables`, `normalized_events`, `normalized_bindings` and the
+explicit source/stub, Unicode/re-export/ordinal and dataclass/conditional controls in
+`cpg-extract/tests/normalized_recovery.rs`;
+source signature ordinals and provider-qualified alternatives remain explicit. Its operand/type
+mutation maps to N2's shared-validation controls. Transfer, call completion, summary, handler and
+protocol assertions remain P4, with recovery anchor `9efce30` in the parent plan.
+`dormant/graph.rs` shape, lineage, repeated-run/order and doctored-output expectations map to N6's
+pure snapshot and native projection controls plus cumulative publication repeatability. The new
+contract intentionally separates definition arcs from invocation. Legacy node/edge enum counts
+are not preserved as a second schema. Shared snapshot validation refuses missing chunks, sources,
+coverage and gaps. The dormant files retain P4-specific algorithm expectations; their Delta
+harness is not restored.
+
 The migration changes model/schema digests. During implementation, inventory project generations
 and active readers, quiesce readers, rebuild from pinned inputs and retire obsolete project state
 under the existing authorization and preservation rules. Protect unrelated service data, pinned
 inputs and benchmarks. Do not add old-format readers, dual writers or legacy identity maps.
-Document raw/schema changes as migrations in commits. This planning task changes no live database.
+Document raw/schema changes as migrations in commits. The qualification step rebuilds only project-owned generation state after a read-only inventory.
 
 The parent plan remains the single current disposition owner for existing cross-phase findings.
 It links P3 obligations to these packages and retains P4 residuals. New review findings scheduled
@@ -657,7 +715,7 @@ does not close an implementation finding.
 | `domain_normalized_calls` | Distinct origins at equal site; duplicate-provider equivalent targets; conflicting target; open remainder; direct/higher-order; New+Init; override; Association Potential. Independent expected membership for all five policies, including empty outcomes. |
 | `domain_call_bindings` | Positional-only/keyword/default/empty collectors/variadic elements/receiver cases; supported cross-provider signature applicability and foreign-entity/context negative twins; one bound variant plus incompatible versus undetermined alternatives; incomplete argument/variant sets; stored tampering; arbitrary wrapper whose source signature binds but whose composition admission refuses; compatible effective-target/context/body positive twin; validated token construction only from full inputs. |
 | `cpg-core/tests/normalized_relations.rs` | Tiny frozen typed inputs through declared stages, total joins, independent owner oracle, operand/type absent/ambiguous/profile cases, native type-variable binder scopes and source/stub twins, equal-sink distinct flow paths, row-order and batch-boundary permutation equality. |
-| `lctx-analytics/tests/normalized_projection.rs` | Isolates, parallel events, self-loops, cross-file cycle, diamond, external entities, unresolved side records, reverse/filter views, selector retaining intermediate nodes, canonical IDs and capacity refusal. |
+| `lctx-model` projection unit controls and `cpg-extract/tests/normalized_projections.rs` | Isolates, parallel events, self-loops, cross-file cycle, diamond, external entities, unresolved side records, reverse/filter views, selector retaining intermediate nodes, canonical IDs and capacity refusal. |
 | Real PG18 `stage_reads`/`normalized_generations` | Output freeze/late write race, stage receipt atomicity, abandoned stage, closed retained table, early/mid-stream cancel, lost transport, too few scan slots, wrong attempt/schema/source, unrequested family and read/cleanup race. Serving cannot read staging. |
 | CLI normalized controls | Both profiles, publish without selection, unavailable later frontiers, unchanged selected generation on failure, inspection availability and exact generation digest/report. |
 
@@ -706,10 +764,13 @@ required ownership, lost alternatives, unhandled availability or unbounded failu
 
 ## 11. Current package status and finding routes
 
-**2026-09-30: implementation started.** The independent assembled review is **Accept scoped**, at Proposed
-strength: A1–A3 satisfied; G1–G8 and CI-G1/CI-G3 pass; served-claim CI-G2 is outside this P3 scope.
-D0's design review and adoption of ADR-0101/0102 are complete. The independent expected-answer
-and deletion inventories in §§9–10 govern the implementation. R1–R3 foundations are implemented and independently accepted within their scope; N1 is implemented with focused controls. N2–N5 are implemented with focused controls; N1–N5 independent review is Accept scoped after F01/F02 corrections; N6–Q remains. Phase qualification is not claimed. No implementation finding is closed by decision acceptance.
+**2026-09-30: functional scope implemented; Q in progress.** The independent
+[assembled implementation review](../design_review/reviews/design_review_phase3-exit_2026-09-30.md)
+is **Accept scoped** after F01/F02 correction and reinspection. A1–A3 are satisfied within the
+inspected supported scope; serving remains P5. ADR-0103 supersedes the initial graph decision
+in ADR-0102. Runtime, semantic normalization and graph persistence have focused controls;
+the [qualification evidence](../design_review/evidence/2026-09-30_phase3-qualification/README.md)
+owns the composite gate, store rebuild and pilot measurements. No phase exit is claimed before Q.
 
 | Package | State and bounded receipt |
 |---|---|
@@ -722,7 +783,10 @@ and deletion inventories in §§9–10 govern the implementation. R1–R3 founda
 | N3 | Implemented / focused-Tested, 2026-09-30: total callable/context outcomes, independently qualified identity/signature/descriptor/body components, exact builtin descriptor recognition, both decorator orders, complete raw variants/slots and parameter-entity evidence; charged stage and shared exact-output validation. Wrapped release `cpg-extract --test normalized_callables` (4), `lctx-model --test domain_effective_callables` (5 pure controls), and `cpg-core --test normalized_relations` (2 real PostgreSQL profiles through N3) passed. Initial compile/test fixture failures and the strengthened row-validation tamper setup were corrected before focused reruns. Arbitrary wrappers, uncertain qualifiers and unavailable forms cannot grant body authority. Assembled review remains after N5; mixed legacy answer recovery/deletion remains X. |
 | N4 | Implemented / focused-Tested, 2026-09-30: total events, raw site/resolution/alternative supports, normalized phase uniqueness, private `CompleteEvent`, five total policy assessments/memberships and exact flow-path/event links. Removed the public raw policy/uniqueness route and migrated its independent controls. PostgreSQL and source-bound DataFusion views share membership-only SQL; DataFusion requires the completed invariant owner and preserves three-scan physical admission. Wrapped release `domain_calls` (15), `domain_sites` (11), `cpg-extract --test normalized_events` (2) and `cpg-core --test normalized_relations` (2 real profiles through N4, including all five view counts) passed. The final multi-package command also reran the seven N2 native controls successfully. `cargo check -p cpg-core` passed during development; its unused-import warning was removed before the release controls. Complete phase/binding qualification remains N5/Q. |
 | N5 | Implemented / focused-Tested, 2026-09-30: normalized signature applicability, the sole binder with typed incompatible/undetermined failures, total stored attempts and formal-slot members, complete effective variant sets and private composition admission. Tokens replay N1–N4 plus exact bindings; uncertain correspondence, unknown variants/receivers, unpacking, source-only wrappers, missing signature coverage or body authority refuse admission. Wrapped release `domain_calls` (16), `domain_composition` (11), `domain_normalized` (4), `domain_sites` (11), native `normalized_bindings` (5), `normalized_entities` (4), `normalized_relations` (7), and core `normalized_relations` (2 real PG profiles through N5) passed as focused composite receipts. `cargo check -p cpg-core` passed. Initial fixture/compile errors and a mistaken native test assumption about provider identity were corrected; a separate pure control proves differing provider symbols. [N1–N5 review](../design_review/reviews/design_review_phase3-normalization_2026-09-30.md): Accept scoped after F01/F02 corrections and independent reinspection. Final wrapped release `domain_effective_callables` (6), native `normalized_callables` (4), `normalized_bindings` (5), and core `normalized_relations` (2 profiles) passed; incidental native relationship controls (7) also passed. Conditional signature/async/body premises cannot grant context-wide authority. |
-| N6–Q | Not started. |
+| N6 | Implemented / focused-Tested, 2026-09-30: model-owned roles, canonical universes and typed parallel arcs; four immutable petgraph Graph snapshots per input/context, versioned Postcard encoding in generation-owned BYTEA chunks, charged hydration and private runtime indices. Shared publication validation hydrates and compares against canonical inputs without rebuilding the graph. Wrapped release model projection unit controls (4, including empty and 70,000-node multi-chunk snapshots), native `normalized_projections` (3), and core `normalized_relations` (2 real profiles) passed. `cargo check -p lctx` passed. Initial fixed-array Serde/Arrow mismatch and malformed-header test setup were corrected before reruns. ADR-0103 replaces per-request construction; no graph reuse hash. |
+| N7 | Implemented / focused-Tested, 2026-09-30: cumulative normalized frontier, complete producer preflight, private facts checkpoint, seven normalization stages including final scoped coverage, atomic publication and explicit selection. Wrapped release core `normalized_generation` (4) and CLI `compile_facts` (1, five profile/frontier compiles) passed, including deterministic repeated content, failure after the facts checkpoint, cleanup and unchanged selected prior generation. The same current-source run passed both core profiles, all three native projection controls and seven native relationship controls. Shared DataFusion PeakRecordingPool records global and per-stage reservations; RSS sampling covers blocking normalization work. |
+| X | Implemented / focused-Tested, 2026-09-30: §9.1 inventories every retained legacy family and its named P4/P5 consumer. No legacy authority is imported by normalized compilation. Wrapped release native `normalized_recovery` passed three independent source/stub, Unicode/re-export/signature-ordinal, dataclass and conditional-declaration controls recovered from dormant assertions. Whole-crate deletion remains at the actual downstream ownership boundaries. |
+| Q | In progress: functional scope complete; integrated gate, pilots, measurements, assembled review and final handoff pending. |
 
 The [assembled design review](../design_review/reviews/design_review_phase3-plan_2026-09-30.md)
 owns dated evidence for these new findings; this table owns their current disposition.
@@ -736,7 +800,13 @@ owns dated evidence for these new findings; this table owns their current dispos
 | Foundation O1 (same review) | Corrected and focused-Tested: fork lease retains reservation through drain; failed bounded drain aborts transport without a second uncharged drain. | Closed at R3; confirmed and failed drain controls passed at `a41da22`. |
 | [Normalization F01](../design_review/reviews/design_review_phase3-normalization_2026-09-30.md#F01) | Corrected / focused-Tested: only Definite, Exact, unconditional correspondence premises can resolve a candidate; all tentative support remains. Pure qualifier twins and native/PG reruns passed. | Closed by independent reinspection; N1/N3 own qualifier sufficiency, including signature/async/body components. |
 | [Normalization F02](../design_review/reviews/design_review_phase3-normalization_2026-09-30.md#F02) | Corrected / focused-Tested: public binding-token verification replays the complete N1–N4 closure before admission. Standalone event validation returns no authority token. Forged lower correspondence/owner/lexical/support controls passed after recomputing higher results. | Closed by independent reinspection; N5 owns full lower-premise replay. |
-| Normalization O1 (same review) | Complete charged typed input/index/output collections implement semantic joins; DataFusion currently supplies source-bound transport and scan admission. Lower replay temporarily materializes charged closures by layer. | Q must measure stage/replay reservation and RSS; no streaming-join or pilot-scale memory improvement claim. |
+| [Phase 3 exit F01](../design_review/reviews/design_review_phase3-exit_2026-09-30.md#F01) | Corrected in implementation: final scoped normalization coverage with shared exact lower premise sets and frozen output receipts; family audit includes cross-source Types/Lexical dependencies and distinct exposure/flow-event capabilities. Pure scope and real-store controls are recorded in Q evidence. | Closed by independent source reinspection and focused controls; final current-source qualification remains Q. |
+| [Phase 3 exit F02](../design_review/reviews/design_review_phase3-exit_2026-09-30.md#F02) | Corrected in implementation: invocation-selected events retain assessment uncertainty as graph side records; known arcs remain. A native known-target/open-remainder twin and a wholly outside-policy twin exercise this boundary. | Closed by independent source reinspection and focused controls; final current-source qualification remains Q. |
+| Normalization O1 (normalization review), exit O1 | Complete charged typed input/index/output collections implement semantic joins; DataFusion currently supplies source-bound transport and scan admission. Lower replay temporarily materializes charged closures by layer. | Q must measure stage/replay reservation and RSS; no streaming-join or pilot-scale memory improvement claim. |
+
+Exit review O2 is a **P4 handoff**: add scoped read-only algorithm methods/adapters over the
+hydrated graph when implementing SCC, ranking or communities. Keep runtime indices private and
+reuse the stored graph; do not reconstruct its edges per request.
 
 | Existing finding/obligation | P3 package and closure evidence | Current disposition owner |
 |---|---|---|

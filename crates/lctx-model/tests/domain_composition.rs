@@ -1,8 +1,7 @@
 //! Whole-call composition (C05/C06/C07) with pre-written answers over in-memory frames.
 #[path = "fixtures/composition.rs"]
 mod fixture;
-#[path = "fixtures/binding.rs"] mod binding_fixture;
-use binding_fixture::{InspectionCase, bind_inspection};
+use fixture::binding_fixture::{InspectionCase, bind_inspection};
 use lctx_model::domain::{
     assertion::*,
     attribution::*,
@@ -1294,7 +1293,7 @@ fn every_admitted_alternative_composes_separately_and_modality_follows_the_site(
     second.links[0].parameter = members[0].id();
     second.members = members.clone();
     second.bound = bind_inspection(InspectionCase {
-            input: InputRevision::from_entries(vec![]).unwrap().id(),
+        input: InputRevision::from_entries(vec![]).unwrap().id(),
         target: &second.target,
         qualification: &w.base,
         signature_qualification: &w.base,

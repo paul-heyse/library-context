@@ -83,14 +83,12 @@ impl<T> fmt::Debug for Id<T> {
 }
 impl<T> Serialize for Id<T> {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        self.bytes.serialize(s)
+        self.bytes.as_slice().serialize(s)
     }
 }
 impl<'de, T> Deserialize<'de> for Id<T> {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let bytes = Vec::<u8>::deserialize(d)?
-            .try_into()
-            .map_err(|_| serde::de::Error::custom("expected 16-byte nominal ID"))?;
+        let bytes = deserialize_fixed::<D, 16>(d)?;
         Ok(Self {
             bytes,
             target: PhantomData,
@@ -102,16 +100,45 @@ impl<'de, T> Deserialize<'de> for Id<T> {
 pub struct ContentHash(pub [u8; 32]);
 impl Serialize for ContentHash {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        self.0.serialize(s)
+        self.0.as_slice().serialize(s)
     }
 }
 impl<'de> Deserialize<'de> for ContentHash {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let bytes = Vec::<u8>::deserialize(d)?
-            .try_into()
-            .map_err(|_| serde::de::Error::custom("expected 32-byte digest"))?;
+        let bytes = deserialize_fixed::<D, 32>(d)?;
         Ok(Self(bytes))
     }
+}
+
+/// Fixed-width IDs use Serde sequences, which both Arrow FixedSizeBinary and binary codecs
+/// support. The visitor admits exactly N elements without allocating from an untrusted hint.
+fn deserialize_fixed<'de, D: Deserializer<'de>, const N: usize>(d: D) -> Result<[u8; N], D::Error> {
+    struct Fixed<const N: usize>;
+    impl<'de, const N: usize> serde::de::Visitor<'de> for Fixed<N> {
+        type Value = [u8; N];
+        fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(f, "exactly {N} bytes")
+        }
+        fn visit_seq<A: serde::de::SeqAccess<'de>>(
+            self,
+            mut sequence: A,
+        ) -> Result<Self::Value, A::Error> {
+            if sequence.size_hint().is_some_and(|n| n != N) {
+                return Err(serde::de::Error::custom("incorrect nominal byte width"));
+            }
+            let mut bytes = [0; N];
+            for byte in &mut bytes {
+                *byte = sequence
+                    .next_element()?
+                    .ok_or_else(|| serde::de::Error::custom("truncated nominal bytes"))?;
+            }
+            if sequence.next_element::<u8>()?.is_some() {
+                return Err(serde::de::Error::custom("excess nominal bytes"));
+            }
+            Ok(bytes)
+        }
+    }
+    d.deserialize_seq(Fixed::<N>)
 }
 
 impl ContentHash {

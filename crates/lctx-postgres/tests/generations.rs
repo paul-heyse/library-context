@@ -4,7 +4,7 @@ use lctx_model::{
     Domain,
     domain::{
         Batch, ContentHash, Id, Record, Relation, ValidatedModel, artifact::*, attribution::*,
-        input::*, model, source::*,
+        facts_relations, input::*, source::*,
     },
 };
 use lctx_postgres::generations::{CleanupOutcome, Error, GenerationStore};
@@ -76,7 +76,7 @@ async fn immutable_generation_vertical_slice_and_lifecycle_refusals() {
         .connect(&db.url("lctx_serving"))
         .await
         .unwrap();
-    let mut relations = model().unwrap().relations().to_vec();
+    let mut relations = facts_relations();
     relations.push(Relation::of::<RecursiveNode>());
     relations.push(Relation::of::<ModuleScopeLink>());
     relations.push(Relation::of::<BinaryEvidence>());
@@ -866,7 +866,7 @@ async fn chunked_evidence_round_trips_beyond_row_limit_and_sealed_corruption_ref
     let db = DisposableDatabase::start().await;
     let writer = db.writer.clone();
     let reader = db.reader.clone();
-    let model = Arc::new(model().unwrap());
+    let model = Arc::new(ValidatedModel::validate(facts_relations()).unwrap());
     let store = GenerationStore::install(db.owner.clone(), model.clone())
         .await
         .unwrap();

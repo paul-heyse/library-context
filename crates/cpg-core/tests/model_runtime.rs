@@ -42,7 +42,14 @@ async fn declared_stage_catalogs_are_fresh_and_reject_foreign_capabilities() {
     source.write::<Package, _>(async |_| Ok(())).await.unwrap();
     source
         .retain(Arc::new(
-            Batch::<Package>::new(&model, vec![Package { name: "demo".into() }], &budget()).unwrap(),
+            Batch::<Package>::new(
+                &model,
+                vec![Package {
+                    name: "demo".into(),
+                }],
+                &budget(),
+            )
+            .unwrap(),
         ))
         .unwrap();
     source.finish(ProviderOutcome::Complete).unwrap();
@@ -50,10 +57,12 @@ async fn declared_stage_catalogs_are_fresh_and_reject_foreign_capabilities() {
     let permit = consumer.read::<Package>().unwrap();
     let first = runtime.session(&consumer);
     let second = runtime.session(&consumer);
-    first.register(&permit, StageTable::handoff(&consumer).unwrap()).unwrap();
+    first
+        .register(&permit, StageTable::handoff(&consumer).unwrap())
+        .unwrap();
     assert_eq!(
         first
-            .sql("SELECT * FROM packages")
+            .query("SELECT * FROM packages")
             .await
             .unwrap()
             .collect()
@@ -62,14 +71,18 @@ async fn declared_stage_catalogs_are_fresh_and_reject_foreign_capabilities() {
             .num_rows(),
         1
     );
-    assert!(second.sql("SELECT * FROM packages").await.is_err());
-    assert!(first.register(&permit, StageTable::handoff(&consumer).unwrap()).is_err());
+    assert!(second.query("SELECT * FROM packages").await.is_err());
+    assert!(
+        first
+            .register(&permit, StageTable::handoff(&consumer).unwrap())
+            .is_err()
+    );
     for sql in [
         "CREATE TABLE leak AS SELECT * FROM packages",
         "DROP TABLE packages",
         "SET datafusion.execution.target_partitions = 1",
     ] {
-        assert!(first.sql(sql).await.is_err(), "{sql}");
+        assert!(first.query(sql).await.is_err(), "{sql}");
     }
     let mut another = schedule.execute();
     let mut source = another.begin("source").unwrap();
@@ -83,11 +96,16 @@ async fn declared_stage_catalogs_are_fresh_and_reject_foreign_capabilities() {
     let different = another.begin("consumer").unwrap();
     assert!(
         second
-            .register(&different.read::<Package>().unwrap(), StageTable::handoff(&consumer).unwrap())
+            .register(
+                &different.read::<Package>().unwrap(),
+                StageTable::handoff(&consumer).unwrap()
+            )
             .is_err()
     );
-    second.register(&permit, StageTable::handoff(&consumer).unwrap()).unwrap();
-    assert!(second.sql("SELECT * FROM packages").await.is_ok());
+    second
+        .register(&permit, StageTable::handoff(&consumer).unwrap())
+        .unwrap();
+    assert!(second.query("SELECT * FROM packages").await.is_ok());
 }
 #[tokio::test]
 async fn compute_and_external_reservations_share_one_attempt_pool() {
@@ -123,11 +141,14 @@ async fn compute_and_external_reservations_share_one_attempt_pool() {
     let allocation = runtime.budget().reserve("producer", limit).unwrap();
     assert!(runtime.budget().reserve("validator", 1).is_err());
     let query = "SELECT v FROM generate_series(1, 20000) AS t(v) ORDER BY v DESC";
-    assert!(first.sql(query).await.unwrap().collect().await.is_err());
+    assert!(first.query(query).await.unwrap().collect().await.is_err());
     drop(allocation);
-    let rows = second.sql(query).await.unwrap().collect().await.unwrap();
+    let rows = second.query(query).await.unwrap().collect().await.unwrap();
     assert_eq!(rows.iter().map(|b| b.num_rows()).sum::<usize>(), 20000);
-    assert!(runtime.budget().reserved() > 0, "collected query output retains its reservation");
+    assert!(
+        runtime.budget().reserved() > 0,
+        "collected query output retains its reservation"
+    );
     drop(rows);
     assert_eq!(runtime.budget().reserved(), 0);
 }
@@ -143,27 +164,74 @@ fn budget() -> lctx_model::domain::resources::ResourceBudget {
 #[tokio::test]
 async fn prepared_handoff_retains_source_reservations_after_its_stage_finishes() {
     let model = model().unwrap();
-    let stage = |name, inputs, outputs| Stage { name, inputs, outputs, contributes: vec![], coverage: vec![], provider: None,
-        profiles: vec![Profile::Catalog], effect: Effect::Pure, code: ContentHash::of(b"handoff lifetime"), configuration: ContentHash::of(b"test") };
-    let schedule = Schedule::build(&model, vec![stage("source", vec![], vec![RelationUse::of::<Package>()]),
-        stage("consumer", vec![RelationUse::of::<Package>()], vec![RelationUse::of::<Release>()])], &[], Profile::Catalog).unwrap();
+    let stage = |name, inputs, outputs| Stage {
+        name,
+        inputs,
+        outputs,
+        contributes: vec![],
+        coverage: vec![],
+        provider: None,
+        profiles: vec![Profile::Catalog],
+        effect: Effect::Pure,
+        code: ContentHash::of(b"handoff lifetime"),
+        configuration: ContentHash::of(b"test"),
+    };
+    let schedule = Schedule::build(
+        &model,
+        vec![
+            stage("source", vec![], vec![RelationUse::of::<Package>()]),
+            stage(
+                "consumer",
+                vec![RelationUse::of::<Package>()],
+                vec![RelationUse::of::<Release>()],
+            ),
+        ],
+        &[],
+        Profile::Catalog,
+    )
+    .unwrap();
     let runtime = AttemptRuntime::new(RuntimeOptions::default()).unwrap();
     let mut execution = schedule.execute();
     let mut source = execution.begin("source").unwrap();
     source.write::<Package, _>(async |_| Ok(())).await.unwrap();
-    source.retain(Arc::new(Batch::new(&model, vec![Package { name: "retained".into() }], runtime.budget()).unwrap())).unwrap();
+    source
+        .retain(Arc::new(
+            Batch::new(
+                &model,
+                vec![Package {
+                    name: "retained".into(),
+                }],
+                runtime.budget(),
+            )
+            .unwrap(),
+        ))
+        .unwrap();
     source.finish(ProviderOutcome::Complete).unwrap();
     let mut consumer = execution.begin("consumer").unwrap();
     let session = runtime.session(&consumer);
-    session.register(&consumer.read::<Package>().unwrap(), StageTable::handoff(&consumer).unwrap()).unwrap();
-    let query = session.sql("SELECT * FROM packages").await.unwrap();
+    session
+        .register(
+            &consumer.read::<Package>().unwrap(),
+            StageTable::handoff(&consumer).unwrap(),
+        )
+        .unwrap();
+    let query = session.query("SELECT * FROM packages").await.unwrap();
     drop(session);
-    consumer.write::<Release, _>(async |_| Ok(())).await.unwrap();
+    consumer
+        .write::<Release, _>(async |_| Ok(()))
+        .await
+        .unwrap();
     consumer.finish(ProviderOutcome::Complete).unwrap();
     execution.finish().unwrap();
-    assert!(runtime.budget().reserved() > 0, "the detached physical plan owns the charged source");
+    assert!(
+        runtime.budget().reserved() > 0,
+        "the detached physical plan owns the charged source"
+    );
     let stream = query.execute_stream().await.unwrap();
-    assert!(runtime.budget().reserved() > 0, "execution retains that owner too");
+    assert!(
+        runtime.budget().reserved() > 0,
+        "execution retains that owner too"
+    );
     drop(stream);
     assert_eq!(runtime.budget().reserved(), 0);
 }

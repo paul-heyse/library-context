@@ -172,6 +172,10 @@ pub struct Harness {
     generation: crate::generations::GenerationId,
     state: Option<HarnessState>,
 }
+#[allow(
+    clippy::large_enum_variant,
+    reason = "One harness owns one linear lifecycle capability; boxing does not bound any retained collection"
+)]
 enum HarnessState {
     Staging(crate::generations::GenerationAttempt),
     Sealed(crate::generations::SealedAttempt),
@@ -366,7 +370,10 @@ pub mod fixtures {
                 .unwrap();
             let mut access = execution.begin("packages").unwrap();
             rows!(access, attempt, &self.model; Package => packages.iter().map(|name| Package { name: (*name).into() }).collect(), Release => releases);
-            access.finish(ProviderOutcome::Complete).unwrap();
+            access
+                .complete(&attempt, ProviderOutcome::Complete)
+                .await
+                .unwrap();
             (attempt, execution.finish().unwrap())
         }
         /// A published harness generation holding one package.
@@ -673,7 +680,10 @@ pub mod fixtures {
                     }
                     other => panic!("unscheduled stage {other}"),
                 }
-                access.complete(&attempt, ProviderOutcome::Complete).await.unwrap();
+                access
+                    .complete(&attempt, ProviderOutcome::Complete)
+                    .await
+                    .unwrap();
             }
             (attempt, execution.finish().unwrap())
         }

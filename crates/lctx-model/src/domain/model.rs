@@ -15,6 +15,7 @@ pub struct Relation {
     contract: &'static str,
     owner: &'static str,
     family: Option<super::attribution::FactFamily>,
+    projection_roles: Vec<super::projection::EndpointRole>,
     semantic_source: &'static [u8],
     validate: fn(&arrow_array::RecordBatch) -> Result<arrow_array::RecordBatch, ModelError>,
     proofs: fn(&arrow_array::RecordBatch) -> Result<Vec<super::derivation::Proof>, ModelError>,
@@ -34,6 +35,7 @@ impl Relation {
             contract: R::CONTRACT,
             owner: R::OWNER,
             family: R::family(),
+            projection_roles: R::projection_roles(),
             semantic_source: R::SEMANTIC_SOURCE,
             validate: canonical::<R>,
             hash_rows: hash_rows::<R>,
@@ -49,7 +51,12 @@ impl Relation {
     pub fn family(&self) -> Option<super::attribution::FactFamily> {
         self.family
     }
-    pub fn invariants(&self) -> &[Invariant] { &self.invariants }
+    pub fn projection_roles(&self) -> &[super::projection::EndpointRole] {
+        &self.projection_roles
+    }
+    pub fn invariants(&self) -> &[Invariant] {
+        &self.invariants
+    }
     pub fn sum(&self) -> Option<&super::Sum> {
         self.sum.as_ref()
     }
@@ -110,8 +117,13 @@ impl ValidatedModel {
         let mut types = HashSet::new();
         let mut names = HashSet::new();
         for relation in &relations {
-            if super::normalized::events::CallPolicy::ALL.iter().any(|policy| policy.view_name() == relation.name) {
-                return Err(ModelError::Invalid("relation name reserved for generated call policy view".into()));
+            if super::normalized::events::CallPolicy::ALL
+                .iter()
+                .any(|policy| policy.view_name() == relation.name)
+            {
+                return Err(ModelError::Invalid(
+                    "relation name reserved for generated call policy view".into(),
+                ));
             }
             if !identifier(relation.name)
                 || !names.insert(relation.name)
@@ -142,6 +154,16 @@ impl ValidatedModel {
             digest.part(b"semantic-source", relation.semantic_source);
             digest.part(b"declaration", relation.contract.as_bytes());
             digest.part(b"relation", relation.name.as_bytes());
+            let mut roles = HashSet::new();
+            for role in &relation.projection_roles {
+                if role.relation() != relation.name || !roles.insert(*role) {
+                    return Err(ModelError::Invalid(format!(
+                        "invalid projection role on {}",
+                        relation.name
+                    )));
+                }
+                digest.part(b"projection-role", &(*role as i16).to_le_bytes());
+            }
             for (type_id, name) in &relation.required {
                 if !relations
                     .iter()
@@ -320,6 +342,17 @@ impl ValidatedModel {
                 invariants.push(invariant.clone());
             }
         }
+        if types.contains(&TypeId::of::<super::projection::ProjectionSourceAssessment>()) {
+            for name in super::projection::ProjectionName::ALL {
+                for role in super::projection::ProjectionSpec::builtin(name).roles() {
+                    if !relations.iter().any(|r| r.projection_roles.contains(role)) {
+                        return Err(ModelError::Invalid(format!(
+                            "projection {name:?} lacks declared role {role:?}"
+                        )));
+                    }
+                }
+            }
+        }
         let sources: Vec<_> = relations
             .iter()
             .filter(|r| r.derivation().is_some())
@@ -459,7 +492,9 @@ pub struct ValidationInput {
     order: Vec<&'static str>,
 }
 impl ValidationInput {
-    pub fn type_id(&self) -> TypeId { self.type_id }
+    pub fn type_id(&self) -> TypeId {
+        self.type_id
+    }
     pub fn name(&self) -> &'static str {
         self.name
     }

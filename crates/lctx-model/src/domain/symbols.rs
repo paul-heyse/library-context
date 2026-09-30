@@ -107,7 +107,12 @@ pub struct SymbolObservation {
 /// whose body defines a method; `overrides` is the base-class method it directly overrides.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
 #[repr(i16)]
-pub enum FunctionOrigin { DefStatement = 0, Synthesized = 1, CallableField = 2, Unavailable = 3 }
+pub enum FunctionOrigin {
+    DefStatement = 0,
+    Synthesized = 1,
+    CallableField = 2,
+    Unavailable = 3,
+}
 #[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
 #[model(name = "function_trait_observations", validate = validate_function_traits)]
 #[assertion(support = FunctionTraitSupport, name = "function_trait_supports", family = FactFamily::Signatures, subjects(symbol))]

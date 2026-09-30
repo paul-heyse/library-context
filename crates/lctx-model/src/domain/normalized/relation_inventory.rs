@@ -1,26 +1,28 @@
 //! Additional N2 input and output inventories; N1 premises are also declared completed inputs.
 #[macro_export]
 macro_rules! normalized_relation_inputs {
-    ($apply:ident) => { $apply! {
-        symbol_observations: $crate::domain::symbols::SymbolObservation => Signatures,
-        references: $crate::domain::lexical::ReferenceObservation => Lexical,
-        lexical_resolutions: $crate::domain::lexical::LexicalResolution => Lexical,
-        lexical_targets: $crate::domain::lexical::LexicalTarget => Lexical,
-        imports: $crate::domain::syntax::ImportAliasObservation => Exports,
-        dependencies: $crate::domain::symbols::DependencyModuleObservation => Exports,
-        ancestry: $crate::domain::symbols::ClassAncestryObservation => Signatures,
-        sequence_members: $crate::domain::symbols::SymbolSequenceMember => Signatures,
-        mentions: $crate::domain::documents::DocumentMentionObservation => Docs,
-        variables: $crate::domain::types::TypeVariable => Types,
-        declaration_syntax: $crate::domain::syntax::DeclarationObservation => Syntax,
-        binding_observations: $crate::domain::lexical::BindingObservation => Lexical,
-        roots: $crate::domain::value::PlaceRoot => Flow,
-        leaves: $crate::domain::flow::FlowTestLeafObservation => Flow,
-        type_observations: $crate::domain::types::TypeObservation => Types,
-        coverage: $crate::domain::attribution::ProviderCoverage => Artifacts,
-        scopes: $crate::domain::source::CoverageScope => Artifacts,
-        artifacts: $crate::domain::source::SourceArtifact => Artifacts,
-    } };
+    ($apply:ident) => {
+        $apply! {
+            symbol_observations: $crate::domain::symbols::SymbolObservation => Signatures,
+            references: $crate::domain::lexical::ReferenceObservation => Lexical,
+            lexical_resolutions: $crate::domain::lexical::LexicalResolution => Lexical,
+            lexical_targets: $crate::domain::lexical::LexicalTarget => Lexical,
+            imports: $crate::domain::syntax::ImportAliasObservation => Exports,
+            dependencies: $crate::domain::symbols::DependencyModuleObservation => Exports,
+            ancestry: $crate::domain::symbols::ClassAncestryObservation => Signatures,
+            sequence_members: $crate::domain::symbols::SymbolSequenceMember => Signatures,
+            mentions: $crate::domain::documents::DocumentMentionObservation => Docs,
+            variables: $crate::domain::types::TypeVariable => Types,
+            declaration_syntax: $crate::domain::syntax::DeclarationObservation => Syntax,
+            binding_observations: $crate::domain::lexical::BindingObservation => Lexical,
+            roots: $crate::domain::value::PlaceRoot => Flow,
+            leaves: $crate::domain::flow::FlowTestLeafObservation => Flow,
+            type_observations: $crate::domain::types::TypeObservation => Types,
+            coverage: $crate::domain::attribution::ProviderCoverage => Artifacts,
+            scopes: $crate::domain::source::CoverageScope => Artifacts,
+            artifacts: $crate::domain::source::SourceArtifact => Artifacts,
+        }
+    };
 }
 #[macro_export]
 macro_rules! normalized_relation_outputs {

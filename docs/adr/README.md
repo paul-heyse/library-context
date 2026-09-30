@@ -59,7 +59,7 @@ The [architecture map](../design/README.md) and its section owners own contracts
 | [ADR-0099](0099-preserve-unicode-values-as-utf8-bytes.md) | Preserve Unicode values as UTF-8 bytes | 2026-09-30 | [§15](../design/sections/semantic-model.md#section-15) | Implemented |  |
 | [ADR-0100](0100-preserve-residual-type-ports.md) | Preserve residual children in typed native envelopes | 2026-09-30 | [§15](../design/sections/semantic-model.md#section-15) | Implemented |  |
 | [ADR-0101](0101-cumulative-normalized-generations.md) | Build normalized frontiers in self-contained cumulative generations | 2026-09-30 | [§15.1](../design/sections/semantic-model.md#section-15-1), [§15.11](../design/sections/semantic-model.md#section-15-11) | Proposed |  |
-| [ADR-0102](0102-normalized-semantic-ownership.md) | Normalize evidence through typed entities, complete events and stored policy admissions | 2026-09-30 | [§15.4](../design/sections/semantic-model.md#section-15-4), [§15.5](../design/sections/semantic-model.md#section-15-5), [§15.10](../design/sections/semantic-model.md#section-15-10) | Proposed |  |
+| [ADR-0103](0103-normalized-graph-materialization.md) | Materialize typed graph snapshots with each normalized generation | 2026-09-30 | [§15.4](../design/sections/semantic-model.md#section-15-4), [§15.5](../design/sections/semantic-model.md#section-15-5), [§15.10](../design/sections/semantic-model.md#section-15-10) | Proposed | ADR-0102 |
 
 ## Proposed: open choices, not accepted decisions
 

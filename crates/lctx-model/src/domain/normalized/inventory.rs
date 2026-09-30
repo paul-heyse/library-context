@@ -27,21 +27,23 @@ macro_rules! normalized_entity_inputs {
 }
 #[macro_export]
 macro_rules! normalized_entity_outputs {
-    ($apply:ident) => { $apply! {
-        callables: $crate::domain::normalized::entities::CallableEntity,
-        classes: $crate::domain::normalized::entities::ClassEntity,
-        parameters: $crate::domain::normalized::entities::ParameterEntity,
-        fields: $crate::domain::normalized::entities::FieldEntity,
-        refs: $crate::domain::normalized::entities::EntityRef,
-        resolutions: $crate::domain::normalized::entities::SymbolEntityResolution,
-        candidates: $crate::domain::normalized::entities::SymbolEntityCandidate,
-        premises: $crate::domain::normalized::entities::SymbolEntityPremise,
-        evidence: $crate::domain::normalized::entities::SymbolEntityEvidence,
-        owners: $crate::domain::normalized::entities::OccurrenceOwnership,
-        parameter_links: $crate::domain::normalized::entities::ParameterEntityLink,
-        field_links: $crate::domain::normalized::entities::FieldEntityLink,
-        field_declarations: $crate::domain::normalized::entities::FieldDeclarationLink,
-        exposures: $crate::domain::normalized::entities::PublicExposure,
-        exposure_candidates: $crate::domain::normalized::entities::PublicExposureCandidate,
-    } };
+    ($apply:ident) => {
+        $apply! {
+            callables: $crate::domain::normalized::entities::CallableEntity,
+            classes: $crate::domain::normalized::entities::ClassEntity,
+            parameters: $crate::domain::normalized::entities::ParameterEntity,
+            fields: $crate::domain::normalized::entities::FieldEntity,
+            refs: $crate::domain::normalized::entities::EntityRef,
+            resolutions: $crate::domain::normalized::entities::SymbolEntityResolution,
+            candidates: $crate::domain::normalized::entities::SymbolEntityCandidate,
+            premises: $crate::domain::normalized::entities::SymbolEntityPremise,
+            evidence: $crate::domain::normalized::entities::SymbolEntityEvidence,
+            owners: $crate::domain::normalized::entities::OccurrenceOwnership,
+            parameter_links: $crate::domain::normalized::entities::ParameterEntityLink,
+            field_links: $crate::domain::normalized::entities::FieldEntityLink,
+            field_declarations: $crate::domain::normalized::entities::FieldDeclarationLink,
+            exposures: $crate::domain::normalized::entities::PublicExposure,
+            exposure_candidates: $crate::domain::normalized::entities::PublicExposureCandidate,
+        }
+    };
 }

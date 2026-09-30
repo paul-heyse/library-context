@@ -9,7 +9,7 @@ use super::{
 use lctx_model::domain::resources::ResourceBudget;
 use lctx_model::domain::{
     Codebook, ContentHash, KeySink,
-    admission::{AdmissionCheck, FrontierAdmission, Frontier, Preflight},
+    admission::{AdmissionCheck, Frontier, FrontierAdmission, Preflight},
     stages::{ExecutionReceipt, ProviderOutcome, RelationReceipt},
 };
 use sqlx::{PgConnection, Row};
@@ -24,6 +24,10 @@ pub(super) struct Admitting<'a> {
 impl GenerationStore {
     /// Freeze outputs on the attempt's lifecycle connection. This connection already owns the
     /// exclusive attempt lock; acquiring a shared attempt lock from another session would deadlock.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "The atomic completion effect explicitly carries transaction, generation, stage and content authority"
+    )]
     pub(super) async fn complete_stage_step(
         &self,
         tx: &mut PgConnection,
@@ -39,34 +43,61 @@ impl GenerationStore {
         let registered = self.registered(tx, g).await?;
         registered.expect("staging")?;
         check_schedule(tx, g, schedule).await?;
-        if outcome == ProviderOutcome::Failed { return Err(Error::State); }
+        if outcome == ProviderOutcome::Failed {
+            return Err(Error::State);
+        }
         let planned: Vec<String> = sqlx::query_scalar("SELECT relation_name FROM lctx_model_store.planned_outputs WHERE generation_id=$1 AND stage_name=$2 ORDER BY relation_name COLLATE \"C\"")
             .bind(g.0.to_vec()).bind(stage).fetch_all(&mut *tx).await?;
         if planned.iter().map(String::as_str).collect::<BTreeSet<_>>() != *outputs {
             return Err(Error::Contract);
         }
         for name in outputs {
-            if !self.scope(registered.frontier)?.relations.contains(name) { return Err(Error::Contract); }
-            sqlx::query(sqlx::AssertSqlSafe(format!("LOCK TABLE {} IN ACCESS EXCLUSIVE MODE", qualified(g, name))))
-                .execute(&mut *tx).await?;
+            if !self.scope(registered.frontier)?.relations.contains(name) {
+                return Err(Error::Contract);
+            }
+            sqlx::query(sqlx::AssertSqlSafe(format!(
+                "LOCK TABLE {} IN ACCESS EXCLUSIVE MODE",
+                qualified(g, name)
+            )))
+            .execute(&mut *tx)
+            .await?;
         }
         let mut receipts = BTreeMap::new();
         for name in outputs {
             execute(tx, ddl::completed_output(&g.schema(), name).to_vec()).await?;
-            let relation = self.model.relations().iter().find(|r| r.name() == *name).ok_or(Error::Contract)?;
+            let relation = self
+                .model
+                .relations()
+                .iter()
+                .find(|r| r.name() == *name)
+                .ok_or(Error::Contract)?;
             let mut content = relation.content();
             visit_physical(tx, g, relation, &["id"], budget, |batch| {
-                relation.hash_rows(&batch, &mut content)?; Ok(())
-            }).await?;
+                relation.hash_rows(&batch, &mut content)?;
+                Ok(())
+            })
+            .await?;
             let (rows, content) = content.finish();
             sqlx::query("INSERT INTO lctx_model_store.stage_receipts VALUES($1,$2,$3,$4,$5,$6)")
-                .bind(g.0.to_vec()).bind(stage).bind(name).bind(schedule.0.to_vec())
-                .bind(i64::try_from(rows).map_err(|_| Error::Codec("stage row count overflow".into()))?)
-                .bind(content.0.to_vec()).execute(&mut *tx).await?;
+                .bind(g.0.to_vec())
+                .bind(stage)
+                .bind(name)
+                .bind(schedule.0.to_vec())
+                .bind(
+                    i64::try_from(rows)
+                        .map_err(|_| Error::Codec("stage row count overflow".into()))?,
+                )
+                .bind(content.0.to_vec())
+                .execute(&mut *tx)
+                .await?;
             receipts.insert(*name, RelationReceipt { rows, content });
         }
         sqlx::query("INSERT INTO lctx_model_store.stage_outcomes VALUES($1,$2,$3)")
-            .bind(g.0.to_vec()).bind(stage).bind(outcome.code()).execute(&mut *tx).await?;
+            .bind(g.0.to_vec())
+            .bind(stage)
+            .bind(outcome.code())
+            .execute(&mut *tx)
+            .await?;
         Ok(receipts)
     }
     pub(super) async fn seal_step(
@@ -87,16 +118,32 @@ impl GenerationStore {
             .bind(g.0.to_vec()).fetch_all(&mut *tx).await?;
         let mut actual = BTreeSet::new();
         for row in completed {
-            if row.try_get::<Vec<u8>, _>("schedule_digest")? != schedule.0 { return Err(Error::Contract); }
-            actual.insert((row.try_get::<String, _>("stage_name")?, row.try_get::<String, _>("relation_name")?));
+            if row.try_get::<Vec<u8>, _>("schedule_digest")? != schedule.0 {
+                return Err(Error::Contract);
+            }
+            actual.insert((
+                row.try_get::<String, _>("stage_name")?,
+                row.try_get::<String, _>("relation_name")?,
+            ));
         }
-        if actual.iter().map(|(s,r)| (s.as_str(), r.as_str())).collect::<BTreeSet<_>>() != *written {
+        if actual
+            .iter()
+            .map(|(s, r)| (s.as_str(), r.as_str()))
+            .collect::<BTreeSet<_>>()
+            != *written
+        {
             return Err(Error::State);
         }
         if let Some(outcomes) = outcomes {
             let stored: Vec<(String, i16)> = sqlx::query_as("SELECT stage_name,outcome FROM lctx_model_store.stage_outcomes WHERE generation_id=$1")
                 .bind(g.0.to_vec()).fetch_all(&mut *tx).await?;
-            if stored.len() != outcomes.len() || stored.iter().any(|(s,o)| outcomes.get(s.as_str()).is_none_or(|outcome| outcome.code() != *o)) {
+            if stored.len() != outcomes.len()
+                || stored.iter().any(|(s, o)| {
+                    outcomes
+                        .get(s.as_str())
+                        .is_none_or(|outcome| outcome.code() != *o)
+                })
+            {
                 return Err(Error::Contract);
             }
         }
@@ -135,14 +182,18 @@ impl GenerationStore {
         registered.expect("sealed")?;
         let frontier = registered.frontier;
         if frontier.descriptor().requires_admission() != admitting.is_some()
-            || admitting.as_ref().is_some_and(|a| a.preflight.contract().frontier() != frontier)
+            || admitting
+                .as_ref()
+                .is_some_and(|a| a.preflight.contract().frontier() != frontier)
         {
             return Err(Error::Frontier(
                 "frontier validation requires exactly its declared admission".into(),
             ));
         }
         execute(tx, self.lowering(g, frontier)?.phase("validated")).await?;
-        let (digest, admission) = self.validate_scope(tx, g, frontier, budget, admitting, true).await?;
+        let (digest, admission) = self
+            .validate_scope(tx, g, frontier, budget, admitting, true)
+            .await?;
         sqlx::query("UPDATE lctx_model_store.generations SET content_digest=$2 WHERE id=$1")
             .bind(g.0.to_vec())
             .bind(digest.0.to_vec())
@@ -154,8 +205,13 @@ impl GenerationStore {
     /// One validator path for private checkpoints and final publication. Checkpoint validation
     /// does not create final-generation receipts or change lifecycle state.
     async fn validate_scope(
-        &self, tx: &mut PgConnection, g: GenerationId, frontier: Frontier,
-        budget: &ResourceBudget, admitting: Option<Admitting<'_>>, persist: bool,
+        &self,
+        tx: &mut PgConnection,
+        g: GenerationId,
+        frontier: Frontier,
+        budget: &ResourceBudget,
+        admitting: Option<Admitting<'_>>,
+        persist: bool,
     ) -> Result<(ContentHash, Option<FrontierAdmission>), Error> {
         let (relations, invariants) = self.scoped(frontier)?;
         let physical = self.scope(frontier)?.physical;
@@ -170,12 +226,14 @@ impl GenerationStore {
             let (row_count, digest) = rows.finish();
             let frozen: Option<(i64, Vec<u8>)> = sqlx::query_as("SELECT row_count,content_digest FROM lctx_model_store.stage_receipts WHERE generation_id=$1 AND relation_name=$2")
                 .bind(g.0.to_vec()).bind(relation.name()).fetch_optional(&mut *tx).await?;
-            if frozen.is_some_and(|(count, bytes)| u64::try_from(count).ok() != Some(row_count) || bytes != digest.0) {
+            if frozen.is_some_and(|(count, bytes)| {
+                u64::try_from(count).ok() != Some(row_count) || bytes != digest.0
+            }) {
                 return Err(Error::Contract);
             }
             content.part(relation.name().as_bytes(), &digest.0);
             if persist {
-            sqlx::query("INSERT INTO lctx_model_store.receipts(generation_id,relation_name,row_count,content_digest) VALUES($1,$2,$3,$4)")
+                sqlx::query("INSERT INTO lctx_model_store.receipts(generation_id,relation_name,row_count,content_digest) VALUES($1,$2,$3,$4)")
                 .bind(g.0.to_vec()).bind(relation.name()).bind(i64::try_from(row_count).map_err(|_| Error::Codec("row count overflow".into()))?)
                 .bind(digest.0.to_vec()).execute(&mut *tx).await?;
             }
@@ -198,7 +256,7 @@ impl GenerationStore {
             }
             check.finish()?;
             if persist {
-            sqlx::query("INSERT INTO lctx_model_store.validation_receipts(generation_id,validator_name,content_digest,model_digest,physical_digest) VALUES($1,$2,$3,$4,$5)")
+                sqlx::query("INSERT INTO lctx_model_store.validation_receipts(generation_id,validator_name,content_digest,model_digest,physical_digest) VALUES($1,$2,$3,$4,$5)")
                 .bind(g.0.to_vec()).bind(invariant.name).bind(digest.0.to_vec())
                 .bind(self.model.digest().0.to_vec()).bind(physical.0.to_vec()).execute(&mut *tx).await?;
             }
@@ -206,7 +264,7 @@ impl GenerationStore {
         let admission = match admitting {
             Some(Admitting { preflight, receipt }) => {
                 let mut check = AdmissionCheck::new(preflight.clone(), budget);
-                for input in AdmissionCheck::inputs() {
+                for input in check.inputs() {
                     let relation = self
                         .model
                         .relations()
@@ -226,8 +284,12 @@ impl GenerationStore {
         Ok((digest, admission))
     }
     pub(super) async fn checkpoint_step(
-        &self, tx: &mut PgConnection, g: GenerationId, budget: &ResourceBudget,
-        preflight: &Preflight, receipt: &ExecutionReceipt,
+        &self,
+        tx: &mut PgConnection,
+        g: GenerationId,
+        budget: &ResourceBudget,
+        preflight: &Preflight,
+        receipt: &ExecutionReceipt,
     ) -> Result<FrontierAdmission, Error> {
         self.lock_installation(tx).await?;
         lock(tx, g, false).await?;
@@ -235,25 +297,46 @@ impl GenerationStore {
         check_schedule(tx, g, receipt.schedule()).await?;
         let frontier = preflight.contract().frontier();
         for name in &self.scope(frontier)?.relations {
-            sqlx::query(sqlx::AssertSqlSafe(format!("LOCK TABLE {} IN ACCESS EXCLUSIVE MODE", qualified(g, name))))
-                .execute(&mut *tx).await?;
+            sqlx::query(sqlx::AssertSqlSafe(format!(
+                "LOCK TABLE {} IN ACCESS EXCLUSIVE MODE",
+                qualified(g, name)
+            )))
+            .execute(&mut *tx)
+            .await?;
         }
         for name in &self.scope(frontier)?.relations {
             execute(tx, ddl::completed_output(&g.schema(), name).to_vec()).await?;
         }
         // Validate nominal references using the same generated constraints as final seal. Keep
         // the checked DDL transient so final cumulative validation installs each constraint once.
-        sqlx::query("SAVEPOINT checkpoint_references").execute(&mut *tx).await?;
+        sqlx::query("SAVEPOINT checkpoint_references")
+            .execute(&mut *tx)
+            .await?;
         execute(tx, self.lowering(g, frontier)?.phase("validated")).await?;
-        sqlx::query("ROLLBACK TO SAVEPOINT checkpoint_references").execute(&mut *tx).await?;
-        let (_, admission) = self.validate_scope(tx, g, frontier, budget,
-            Some(Admitting { preflight, receipt }), false).await?;
+        sqlx::query("ROLLBACK TO SAVEPOINT checkpoint_references")
+            .execute(&mut *tx)
+            .await?;
+        let (_, admission) = self
+            .validate_scope(
+                tx,
+                g,
+                frontier,
+                budget,
+                Some(Admitting { preflight, receipt }),
+                false,
+            )
+            .await?;
         let admission = admission.ok_or(Error::Contract)?;
         sqlx::query("INSERT INTO lctx_model_store.checkpoints VALUES($1,$2,$3,$4,$5,$6,$7)")
-            .bind(g.0.to_vec()).bind(frontier.name()).bind(admission.contract().0.to_vec())
-            .bind(admission.model().0.to_vec()).bind(admission.schedule().0.to_vec())
-            .bind(admission.coverage().0.to_vec()).bind(admission.content().0.to_vec())
-            .execute(&mut *tx).await?;
+            .bind(g.0.to_vec())
+            .bind(frontier.name())
+            .bind(admission.contract().0.to_vec())
+            .bind(admission.model().0.to_vec())
+            .bind(admission.schedule().0.to_vec())
+            .bind(admission.coverage().0.to_vec())
+            .bind(admission.content().0.to_vec())
+            .execute(&mut *tx)
+            .await?;
         Ok(admission)
     }
     /// Publication binds the receipts, the validator set, the planned outputs and, for a facts

@@ -14,7 +14,8 @@ DESIGN §7 / ADR-0090. A row without a date is not verified.
 | datafusion | =55.1.0 | 2026-09-29 | `family_smoke` (Arrow batches queried by DataFusion SQL) passed; single version in `Cargo.lock`. The delta-rs family and `datafusion-federation` were removed with the Delta store (plan P1.4, ADR-0090) |
 | arrow-*, parquet | =59.3.0; `parquet` is a direct dependency since H1 P6 (`default-features = false, features = ["zstd"]`: the codec was already compiled) | 2026-09-23 | same; `data_files_are_zstd` |
 | object_store | 0.13.2, held by `Cargo.lock` (no crate depends on it directly, so a workspace pin would pin nothing; H1 O2) and kept single by `check_family.py` | 2026-09-23 | `Cargo.lock`; `cargo shear` in `just deps` |
-| petgraph | =0.8.3, default features (no `rayon`, `serde-1`): the §5 adapter and Pass A in `lctx-analytics` (increment 1 slice 1.4) | 2026-09-23 | resolves; `lctx-analytics` tests (shuffled arcs give identical adjacency; parallel arcs and isolates kept) |
+| petgraph | =0.8.3, default features plus `serde-1`, no `rayon`; immutable typed graph snapshots (ADR-0103) | 2026-09-30 | pinned source `graph_impl/serialization.rs` inspected; four focused snapshot controls passed (including 70,000-node multi-chunk roundtrip); full gate at Q |
+| postcard | =1.1.3, no defaults, `alloc`; binary graph wrapper and actual petgraph Serde object | 2026-09-30 | downloaded registry Cargo.toml and `to_slice`/`take_from_bytes`/`experimental::serialized_size` inspected; compile and roundtrip/size/truncation/resource controls passed; full gate at Q |
 | reqwest | =0.12.28, `default-features = false`: the compile-time embedding client over plain HTTP to the local vLLM service (`lctx-embed`, DESIGN §11.1) | 2026-09-23 | already in `Cargo.lock` at this version (object_store), no feature added and no package added; MIT OR Apache-2.0; `lctx-embed` tests (stub service) |
 | sha2 | =0.10.9 in `cpg-core`: the embedding spec hash and input hashes (SHA-256, so Python recomputes them) | 2026-09-23 | already a workspace pin (Stage A's `RECORD` hashes) |
 | unicode-segmentation | =1.13.3: Stage F's lead sentences, UAX #29 `split_sentence_bound_indices` with byte offsets (DESIGN §10.3, slice 1.5) | 2026-09-23 | already in `Cargo.lock` at this version (arrow-cast → comfy-table), so no version is added; MIT OR Apache-2.0 |
@@ -190,8 +191,9 @@ SQLx and analyzer versions did not change. No capability-skill version evidence 
 | syn | =2.0.119, full | Exact registry manifest; bounded Domain/DomainCode derives compile |
 | quote | =1.0.47 | Exact registry manifest; derive output is compiled in production domain declarations |
 
-`just deps` and `just test-all` are not_run until all phase 0–2 functional scope is implemented,
-as required by the execution timing in AGENTS.md. These focused checks do not qualify the cutover.
+The P0–P2 assembled qualification subsequently passed on 2026-09-30; its bounded receipt is in
+the cutover plan §4.2. Phase 3 dependency and assembled checks have their own receipt in the
+Phase 3 detailed plan §11. These pin observations alone do not qualify a phase.
 
 ## Library skills for the catalog's adjacent crates (built 2026-09-29)
 

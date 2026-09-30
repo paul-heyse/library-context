@@ -297,7 +297,7 @@ impl Composer<'_> {
                 decimal: index.to_string(),
             },
             BindingProjection::Keyword { name } => Literal::String {
-                value: name.clone().into(),
+                value: name.clone(),
             },
         };
         let segment = PathSegment::Item { key: literal.id() };
@@ -463,10 +463,12 @@ pub fn compose_call(
         Some(Port::Variable(bindings)) => (bindings, false),
         None => return Ok(vec![CallComposition::Disjoint]),
     };
-    let Some(binding) = bindings
-        .into_iter()
-        .find(|b| b.source == BindingSource::Actual { occurrence: *actual })
-    else {
+    let Some(binding) = bindings.into_iter().find(|b| {
+        b.source
+            == BindingSource::Actual {
+                occurrence: *actual,
+            }
+    }) else {
         return Ok(vec![CallComposition::Disjoint]);
     };
     // The callee reads its variable, which need not hold the caller's value any more.

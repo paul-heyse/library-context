@@ -3,7 +3,7 @@ source: crates/lctx/tests/model_describe.rs
 expression: "String::from_utf8(output.stdout).unwrap()"
 ---
 {
-  "digest": "dad6dc7983136391c358394dfd3befb7a23aaf30e42719b8e0b57f513a6ed0ef",
+  "digest": "36c03560c4ef7fd01b46cd7462bef9db5ac6313e9df33ad90d39218f493e074a",
   "relations": [
     {
       "name": "access_paths",
@@ -98,6 +98,143 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         }
       ],
       "facts": true
+    },
+    {
+      "name": "ancestry_entity_assessments",
+      "fields": [
+        {
+          "name": "observation",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "class_ancestry_observations"
+        },
+        {
+          "name": "class",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "target": "symbol_entity_resolutions"
+        },
+        {
+          "name": "status",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "Resolved"
+            ],
+            [
+              1,
+              "Ambiguous"
+            ],
+            [
+              2,
+              "Unresolved"
+            ]
+          ]
+        },
+        {
+          "name": "reason",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "ExplicitIdentity"
+            ],
+            [
+              1,
+              "MissingCorrespondence"
+            ],
+            [
+              2,
+              "MissingResolution"
+            ],
+            [
+              3,
+              "ConflictingCandidates"
+            ],
+            [
+              4,
+              "OutsideCapturedScope"
+            ],
+            [
+              5,
+              "UnsupportedNativeOrigin"
+            ],
+            [
+              6,
+              "MissingOperand"
+            ],
+            [
+              7,
+              "NoTypeObservation"
+            ],
+            [
+              8,
+              "IncompleteInput"
+            ],
+            [
+              9,
+              "NotRequested"
+            ],
+            [
+              10,
+              "Unavailable"
+            ],
+            [
+              11,
+              "UntracedName"
+            ]
+          ]
+        }
+      ],
+      "facts": false
+    },
+    {
+      "name": "ancestry_entity_members",
+      "fields": [
+        {
+          "name": "assessment",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "ancestry_entity_assessments"
+        },
+        {
+          "name": "member",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "symbol_sequence_members"
+        },
+        {
+          "name": "resolution",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "target": "symbol_entity_resolutions"
+        }
+      ],
+      "facts": false
     },
     {
       "name": "artifact_chunks",
@@ -1058,6 +1195,317 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       "family": "Lexical"
     },
     {
+      "name": "binding_projections",
+      "fields": [
+        {
+          "name": "kind",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "positional_index",
+          "type": "int64",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "keyword_name",
+          "type": "binary",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false
+        }
+      ],
+      "facts": false,
+      "sum": {
+        "tag": "kind",
+        "arms": [
+          {
+            "code": 0,
+            "fields": []
+          },
+          {
+            "code": 1,
+            "fields": [
+              {
+                "name": "positional_index",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 2,
+            "fields": [
+              {
+                "name": "keyword_name",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "binding_set_assessments",
+      "fields": [
+        {
+          "name": "event",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "normalized_call_events"
+        },
+        {
+          "name": "entity",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "entity_refs"
+        },
+        {
+          "name": "phase",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "Call"
+            ],
+            [
+              1,
+              "New"
+            ],
+            [
+              2,
+              "Init"
+            ],
+            [
+              3,
+              "Decorator"
+            ],
+            [
+              4,
+              "PropertyGet"
+            ],
+            [
+              5,
+              "PropertySet"
+            ],
+            [
+              6,
+              "Definition"
+            ]
+          ]
+        },
+        {
+          "name": "channel",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "call_channels"
+        },
+        {
+          "name": "policy",
+          "type": "digest",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "members",
+          "type": "digest",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "bound",
+          "type": "int64",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "incompatible",
+          "type": "int64",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "undetermined",
+          "type": "int64",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "coverage_complete",
+          "type": "bool",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "unique",
+          "type": "bool",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "reason",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "Unique"
+            ],
+            [
+              1,
+              "NoBoundVariant"
+            ],
+            [
+              2,
+              "MultipleBoundVariants"
+            ],
+            [
+              3,
+              "UndeterminedVariant"
+            ],
+            [
+              4,
+              "IncompleteCoverage"
+            ]
+          ]
+        }
+      ],
+      "facts": false
+    },
+    {
+      "name": "binding_set_coverage",
+      "fields": [
+        {
+          "name": "set",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "binding_set_assessments"
+        },
+        {
+          "name": "coverage",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "provider_coverage"
+        }
+      ],
+      "facts": false
+    },
+    {
+      "name": "binding_set_members",
+      "fields": [
+        {
+          "name": "variant",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "binding_variant_assessments"
+        },
+        {
+          "name": "attempt",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "call_binding_attempts"
+        }
+      ],
+      "facts": false
+    },
+    {
+      "name": "binding_sources",
+      "fields": [
+        {
+          "name": "kind",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "actual_occurrence",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "occurrences"
+        }
+      ],
+      "facts": false,
+      "sum": {
+        "tag": "kind",
+        "arms": [
+          {
+            "code": 0,
+            "fields": [
+              {
+                "name": "actual_occurrence",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 1,
+            "fields": []
+          },
+          {
+            "code": 2,
+            "fields": []
+          },
+          {
+            "code": 3,
+            "fields": []
+          }
+        ]
+      }
+    },
+    {
       "name": "binding_supports",
       "fields": [
         {
@@ -1207,6 +1655,60 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       "family": "Lexical"
     },
     {
+      "name": "binding_variant_assessments",
+      "fields": [
+        {
+          "name": "set",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "binding_set_assessments"
+        },
+        {
+          "name": "variant",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "signature_variants"
+        },
+        {
+          "name": "outcome",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "Bound"
+            ],
+            [
+              1,
+              "ProvenIncompatible"
+            ],
+            [
+              2,
+              "Undetermined"
+            ]
+          ]
+        },
+        {
+          "name": "members",
+          "type": "digest",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        }
+      ],
+      "facts": false
+    },
+    {
       "name": "call_arguments",
       "fields": [
         {
@@ -1275,6 +1777,571 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         }
       ],
       "facts": true
+    },
+    {
+      "name": "call_binding_attempts",
+      "fields": [
+        {
+          "name": "alternative",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "normalized_call_alternatives"
+        },
+        {
+          "name": "variant",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "signature_variants"
+        },
+        {
+          "name": "syntax",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "call_syntax"
+        },
+        {
+          "name": "policy",
+          "type": "digest",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "event",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "target": "normalized_call_events"
+        },
+        {
+          "name": "signature",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": false,
+          "provenance": false,
+          "target": "signature_observations"
+        },
+        {
+          "name": "arguments",
+          "type": "digest",
+          "list": false,
+          "nullable": true,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "receiver",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "target": "call_receivers"
+        },
+        {
+          "name": "effective",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": false,
+          "provenance": false,
+          "target": "effective_callable_assessments"
+        },
+        {
+          "name": "adjustment",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "None"
+            ],
+            [
+              1,
+              "BindInstanceReceiver"
+            ],
+            [
+              2,
+              "BindClassReceiver"
+            ],
+            [
+              3,
+              "PropertyAccess"
+            ],
+            [
+              4,
+              "Unknown"
+            ]
+          ]
+        },
+        {
+          "name": "authority",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "SourceInspection"
+            ],
+            [
+              1,
+              "EffectiveInvocation"
+            ]
+          ]
+        },
+        {
+          "name": "authority_reason",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "Established"
+            ],
+            [
+              1,
+              "EffectiveUnknown"
+            ],
+            [
+              2,
+              "EffectiveConflicting"
+            ],
+            [
+              3,
+              "SignatureUnknown"
+            ],
+            [
+              4,
+              "DescriptorUnknown"
+            ],
+            [
+              5,
+              "ReceiverUnknown"
+            ],
+            [
+              6,
+              "ReceiverDisagreement"
+            ],
+            [
+              7,
+              "ObjectToClassUnsupported"
+            ],
+            [
+              8,
+              "QualifiedUncertainty"
+            ],
+            [
+              9,
+              "AnnotationSyntax"
+            ]
+          ]
+        },
+        {
+          "name": "outcome",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "Bound"
+            ],
+            [
+              1,
+              "ProvenIncompatible"
+            ],
+            [
+              2,
+              "Undetermined"
+            ]
+          ]
+        },
+        {
+          "name": "reason",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "Bound"
+            ],
+            [
+              1,
+              "MissingSignature"
+            ],
+            [
+              2,
+              "MissingSyntax"
+            ],
+            [
+              3,
+              "UnprovedApplicability"
+            ],
+            [
+              4,
+              "ArgumentMismatch"
+            ],
+            [
+              5,
+              "UnsupportedShape"
+            ],
+            [
+              6,
+              "ImplicitEvent"
+            ]
+          ]
+        },
+        {
+          "name": "refusal",
+          "type": "int16",
+          "list": false,
+          "nullable": true,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "NativeUnavailable"
+            ],
+            [
+              1,
+              "UnresolvedTarget"
+            ],
+            [
+              2,
+              "UnsupportedUnpacking"
+            ],
+            [
+              3,
+              "AmbiguousBinding"
+            ],
+            [
+              4,
+              "UnsupportedControlFlow"
+            ],
+            [
+              5,
+              "ScopeBoundary"
+            ],
+            [
+              6,
+              "BudgetReached"
+            ],
+            [
+              7,
+              "MissingEvidence"
+            ],
+            [
+              8,
+              "NotRequested"
+            ],
+            [
+              9,
+              "ProviderDisagreement"
+            ],
+            [
+              10,
+              "OutsideProviderModel"
+            ],
+            [
+              11,
+              "SyntaxError"
+            ],
+            [
+              12,
+              "UndecodableSource"
+            ],
+            [
+              13,
+              "NoSourceDeclaration"
+            ],
+            [
+              14,
+              "UnreachableInContext"
+            ],
+            [
+              15,
+              "VariableOrigin"
+            ],
+            [
+              16,
+              "DynamicAccess"
+            ],
+            [
+              17,
+              "OverrideDispatch"
+            ],
+            [
+              18,
+              "RuntimeUnreachable"
+            ],
+            [
+              19,
+              "CallTransfer"
+            ],
+            [
+              20,
+              "AbstractBody"
+            ],
+            [
+              21,
+              "SummaryDepthLimit"
+            ],
+            [
+              22,
+              "ConditionWorkLimit"
+            ],
+            [
+              23,
+              "ConditionNodeLimit"
+            ],
+            [
+              24,
+              "ConditionAtomLimit"
+            ],
+            [
+              25,
+              "SummaryPairWorkLimit"
+            ],
+            [
+              26,
+              "ExpressionDepthLimit"
+            ],
+            [
+              27,
+              "ExpressionWorkLimit"
+            ],
+            [
+              28,
+              "CompletionDepthLimit"
+            ],
+            [
+              29,
+              "CompletionWorkLimit"
+            ],
+            [
+              30,
+              "SummaryProofLimit"
+            ],
+            [
+              31,
+              "DefaultUnavailable"
+            ],
+            [
+              32,
+              "DefaultStabilityUnknown"
+            ],
+            [
+              33,
+              "HandlerNameCleanup"
+            ],
+            [
+              34,
+              "InvocationArgumentLimit"
+            ],
+            [
+              35,
+              "ActionTriggerUnavailable"
+            ],
+            [
+              36,
+              "ResourceIdentityUnavailable"
+            ],
+            [
+              37,
+              "FrameExitCleanup"
+            ],
+            [
+              38,
+              "ConditionTransferUnsupported"
+            ],
+            [
+              39,
+              "TheoryAssignmentLimit"
+            ],
+            [
+              40,
+              "ConflictingProof"
+            ],
+            [
+              41,
+              "NoApplicableDomain"
+            ],
+            [
+              42,
+              "IncompleteDomain"
+            ],
+            [
+              43,
+              "ComparableConflict"
+            ],
+            [
+              44,
+              "IncompatibleContexts"
+            ],
+            [
+              45,
+              "MissingContext"
+            ],
+            [
+              46,
+              "ResourceRefused"
+            ],
+            [
+              47,
+              "ResponseBudget"
+            ],
+            [
+              48,
+              "Approximation"
+            ],
+            [
+              49,
+              "EntryValueUnknown"
+            ],
+            [
+              50,
+              "NonDefiniteAlternative"
+            ],
+            [
+              51,
+              "IncompleteCoverage"
+            ],
+            [
+              52,
+              "AttachmentAmbiguous"
+            ],
+            [
+              53,
+              "AttachmentUnmatched"
+            ]
+          ]
+        },
+        {
+          "name": "bindings",
+          "type": "digest",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        }
+      ],
+      "facts": false
+    },
+    {
+      "name": "call_bindings",
+      "fields": [
+        {
+          "name": "attempt",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "call_binding_attempts"
+        },
+        {
+          "name": "ordinal",
+          "type": "int64",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "slot",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "target": "signature_slots"
+        },
+        {
+          "name": "source",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "target": "binding_sources"
+        },
+        {
+          "name": "kind",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "Positional"
+            ],
+            [
+              1,
+              "Keyword"
+            ],
+            [
+              2,
+              "Default"
+            ],
+            [
+              3,
+              "Varargs"
+            ],
+            [
+              4,
+              "Kwargs"
+            ],
+            [
+              5,
+              "Receiver"
+            ],
+            [
+              6,
+              "Implicit"
+            ]
+          ]
+        },
+        {
+          "name": "projection",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "target": "binding_projections"
+        }
+      ],
+      "facts": false
     },
     {
       "name": "call_channels",
@@ -1767,6 +2834,235 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       }
     },
     {
+      "name": "call_event_assessments",
+      "fields": [
+        {
+          "name": "event",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "normalized_call_events"
+        },
+        {
+          "name": "policy",
+          "type": "digest",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "members",
+          "type": "digest",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "complete",
+          "type": "bool",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "unique",
+          "type": "bool",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "exact",
+          "type": "bool",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "known_receivers",
+          "type": "bool",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "group",
+          "type": "int16",
+          "list": false,
+          "nullable": true,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "Call"
+            ],
+            [
+              1,
+              "Construct"
+            ],
+            [
+              2,
+              "Decorator"
+            ],
+            [
+              3,
+              "Property"
+            ],
+            [
+              4,
+              "Definition"
+            ]
+          ]
+        },
+        {
+          "name": "unresolved",
+          "type": "bool",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "dispatch",
+          "type": "bool",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "disagreement",
+          "type": "bool",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "reason",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "CompleteUnique"
+            ],
+            [
+              1,
+              "NoDirectResolution"
+            ],
+            [
+              2,
+              "OpenResolution"
+            ],
+            [
+              3,
+              "MissingCorrespondence"
+            ],
+            [
+              4,
+              "Dispatched"
+            ],
+            [
+              5,
+              "ConflictingDestinations"
+            ],
+            [
+              6,
+              "MultiplePhaseGroups"
+            ],
+            [
+              7,
+              "QualifiedUncertainty"
+            ],
+            [
+              8,
+              "UnknownReceiver"
+            ],
+            [
+              9,
+              "UnreportedTarget"
+            ]
+          ]
+        }
+      ],
+      "facts": false
+    },
+    {
+      "name": "call_event_phase_targets",
+      "fields": [
+        {
+          "name": "assessment",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "call_event_assessments"
+        },
+        {
+          "name": "phase",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "Call"
+            ],
+            [
+              1,
+              "New"
+            ],
+            [
+              2,
+              "Init"
+            ],
+            [
+              3,
+              "Decorator"
+            ],
+            [
+              4,
+              "PropertyGet"
+            ],
+            [
+              5,
+              "PropertySet"
+            ],
+            [
+              6,
+              "Definition"
+            ]
+          ]
+        },
+        {
+          "name": "entity",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "entity_refs"
+        }
+      ],
+      "facts": false
+    },
+    {
       "name": "call_origin_steps",
       "fields": [
         {
@@ -1916,6 +3212,134 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         }
       ],
       "facts": true
+    },
+    {
+      "name": "call_policy_admissions",
+      "fields": [
+        {
+          "name": "assessment",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "call_policy_assessments"
+        },
+        {
+          "name": "alternative",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "normalized_call_alternatives"
+        }
+      ],
+      "facts": false
+    },
+    {
+      "name": "call_policy_assessments",
+      "fields": [
+        {
+          "name": "event",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "normalized_call_events"
+        },
+        {
+          "name": "policy",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "Invocation"
+            ],
+            [
+              1,
+              "Dataflow"
+            ],
+            [
+              2,
+              "Summary"
+            ],
+            [
+              3,
+              "Usage"
+            ],
+            [
+              4,
+              "Association"
+            ]
+          ]
+        },
+        {
+          "name": "event_assessment",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "target": "call_event_assessments"
+        },
+        {
+          "name": "admitted",
+          "type": "int64",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "members",
+          "type": "digest",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "reason",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "Admitted"
+            ],
+            [
+              1,
+              "NoAlternative"
+            ],
+            [
+              2,
+              "OutsidePolicy"
+            ],
+            [
+              3,
+              "IncompleteEvent"
+            ],
+            [
+              4,
+              "NonUniqueEvent"
+            ],
+            [
+              5,
+              "UncertainEvent"
+            ]
+          ]
+        }
+      ],
+      "facts": false
     },
     {
       "name": "call_receivers",
@@ -2966,6 +4390,101 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       "family": "Calls"
     },
     {
+      "name": "callable_entities",
+      "fields": [
+        {
+          "name": "kind",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "source_declaration",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "occurrences"
+        },
+        {
+          "name": "source_kind",
+          "type": "int16",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "Function"
+            ],
+            [
+              1,
+              "Lambda"
+            ]
+          ]
+        },
+        {
+          "name": "synthetic_symbol",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "provider_symbols"
+        },
+        {
+          "name": "external_symbol",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "provider_symbols"
+        }
+      ],
+      "facts": false,
+      "sum": {
+        "tag": "kind",
+        "arms": [
+          {
+            "code": 0,
+            "fields": [
+              {
+                "name": "source_declaration",
+                "required": true
+              },
+              {
+                "name": "source_kind",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 1,
+            "fields": [
+              {
+                "name": "synthetic_symbol",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 2,
+            "fields": [
+              {
+                "name": "external_symbol",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "name": "callable_parameter_lists",
       "fields": [
         {
@@ -3279,6 +4798,79 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       ],
       "facts": true,
       "family": "Signatures"
+    },
+    {
+      "name": "class_entities",
+      "fields": [
+        {
+          "name": "kind",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "source_declaration",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "occurrences"
+        },
+        {
+          "name": "synthetic_symbol",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "provider_symbols"
+        },
+        {
+          "name": "external_symbol",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "provider_symbols"
+        }
+      ],
+      "facts": false,
+      "sum": {
+        "tag": "kind",
+        "arms": [
+          {
+            "code": 0,
+            "fields": [
+              {
+                "name": "source_declaration",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 1,
+            "fields": [
+              {
+                "name": "synthetic_symbol",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 2,
+            "fields": [
+              {
+                "name": "external_symbol",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
     },
     {
       "name": "class_field_syntax_observations",
@@ -6930,6 +8522,808 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       "family": "Exports"
     },
     {
+      "name": "effective_callable_assessments",
+      "fields": [
+        {
+          "name": "callable",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "callable_entities"
+        },
+        {
+          "name": "context",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "analysis_contexts"
+        },
+        {
+          "name": "decorators",
+          "type": "digest",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "policy",
+          "type": "digest",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "identity",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "Known"
+            ],
+            [
+              1,
+              "Unknown"
+            ],
+            [
+              2,
+              "Conflicting"
+            ]
+          ]
+        },
+        {
+          "name": "identity_reason",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "EvidenceAgreement"
+            ],
+            [
+              1,
+              "MissingSignature"
+            ],
+            [
+              2,
+              "IncompleteSignature"
+            ],
+            [
+              3,
+              "MissingTraits"
+            ],
+            [
+              4,
+              "IncompleteSyntax"
+            ],
+            [
+              5,
+              "UnsupportedDecorator"
+            ],
+            [
+              6,
+              "ShadowedOrUnresolved"
+            ],
+            [
+              7,
+              "ConflictingEvidence"
+            ],
+            [
+              8,
+              "NoSourceBody"
+            ],
+            [
+              9,
+              "BodyExcluded"
+            ],
+            [
+              10,
+              "MissingBodyEvidence"
+            ],
+            [
+              11,
+              "QualifiedUncertainty"
+            ],
+            [
+              12,
+              "UnsupportedNativeOrigin"
+            ]
+          ]
+        },
+        {
+          "name": "signatures",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "Known"
+            ],
+            [
+              1,
+              "Unknown"
+            ],
+            [
+              2,
+              "Conflicting"
+            ]
+          ]
+        },
+        {
+          "name": "signature_reason",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "EvidenceAgreement"
+            ],
+            [
+              1,
+              "MissingSignature"
+            ],
+            [
+              2,
+              "IncompleteSignature"
+            ],
+            [
+              3,
+              "MissingTraits"
+            ],
+            [
+              4,
+              "IncompleteSyntax"
+            ],
+            [
+              5,
+              "UnsupportedDecorator"
+            ],
+            [
+              6,
+              "ShadowedOrUnresolved"
+            ],
+            [
+              7,
+              "ConflictingEvidence"
+            ],
+            [
+              8,
+              "NoSourceBody"
+            ],
+            [
+              9,
+              "BodyExcluded"
+            ],
+            [
+              10,
+              "MissingBodyEvidence"
+            ],
+            [
+              11,
+              "QualifiedUncertainty"
+            ],
+            [
+              12,
+              "UnsupportedNativeOrigin"
+            ]
+          ]
+        },
+        {
+          "name": "descriptor",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "Known"
+            ],
+            [
+              1,
+              "Unknown"
+            ],
+            [
+              2,
+              "Conflicting"
+            ]
+          ]
+        },
+        {
+          "name": "descriptor_kind",
+          "type": "int16",
+          "list": false,
+          "nullable": true,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "Function"
+            ],
+            [
+              1,
+              "InstanceMethod"
+            ],
+            [
+              2,
+              "StaticMethod"
+            ],
+            [
+              3,
+              "ClassMethod"
+            ],
+            [
+              4,
+              "Property"
+            ]
+          ]
+        },
+        {
+          "name": "descriptor_reason",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "EvidenceAgreement"
+            ],
+            [
+              1,
+              "MissingSignature"
+            ],
+            [
+              2,
+              "IncompleteSignature"
+            ],
+            [
+              3,
+              "MissingTraits"
+            ],
+            [
+              4,
+              "IncompleteSyntax"
+            ],
+            [
+              5,
+              "UnsupportedDecorator"
+            ],
+            [
+              6,
+              "ShadowedOrUnresolved"
+            ],
+            [
+              7,
+              "ConflictingEvidence"
+            ],
+            [
+              8,
+              "NoSourceBody"
+            ],
+            [
+              9,
+              "BodyExcluded"
+            ],
+            [
+              10,
+              "MissingBodyEvidence"
+            ],
+            [
+              11,
+              "QualifiedUncertainty"
+            ],
+            [
+              12,
+              "UnsupportedNativeOrigin"
+            ]
+          ]
+        },
+        {
+          "name": "body",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "Known"
+            ],
+            [
+              1,
+              "Unknown"
+            ],
+            [
+              2,
+              "Conflicting"
+            ]
+          ]
+        },
+        {
+          "name": "body_admitted",
+          "type": "bool",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "body_reason",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "EvidenceAgreement"
+            ],
+            [
+              1,
+              "MissingSignature"
+            ],
+            [
+              2,
+              "IncompleteSignature"
+            ],
+            [
+              3,
+              "MissingTraits"
+            ],
+            [
+              4,
+              "IncompleteSyntax"
+            ],
+            [
+              5,
+              "UnsupportedDecorator"
+            ],
+            [
+              6,
+              "ShadowedOrUnresolved"
+            ],
+            [
+              7,
+              "ConflictingEvidence"
+            ],
+            [
+              8,
+              "NoSourceBody"
+            ],
+            [
+              9,
+              "BodyExcluded"
+            ],
+            [
+              10,
+              "MissingBodyEvidence"
+            ],
+            [
+              11,
+              "QualifiedUncertainty"
+            ],
+            [
+              12,
+              "UnsupportedNativeOrigin"
+            ]
+          ]
+        },
+        {
+          "name": "asynchronous",
+          "type": "bool",
+          "list": false,
+          "nullable": true,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "generator",
+          "type": "bool",
+          "list": false,
+          "nullable": true,
+          "key": false,
+          "provenance": false
+        }
+      ],
+      "facts": false
+    },
+    {
+      "name": "effective_callable_evidence",
+      "fields": [
+        {
+          "name": "assessment",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "effective_callable_assessments"
+        },
+        {
+          "name": "premise",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "effective_callable_premises"
+        }
+      ],
+      "facts": false
+    },
+    {
+      "name": "effective_callable_premises",
+      "fields": [
+        {
+          "name": "kind",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "traits_observation",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "function_trait_observations"
+        },
+        {
+          "name": "body_observation",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "function_body_observations"
+        },
+        {
+          "name": "signature_signature",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "signature_observations"
+        },
+        {
+          "name": "lexical_assessment",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "reference_entity_assessments"
+        },
+        {
+          "name": "syntax_declaration",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "declaration_observations"
+        },
+        {
+          "name": "coverage_coverage",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "provider_coverage"
+        },
+        {
+          "name": "resolution_resolution",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "symbol_entity_resolutions"
+        }
+      ],
+      "facts": false,
+      "sum": {
+        "tag": "kind",
+        "arms": [
+          {
+            "code": 0,
+            "fields": [
+              {
+                "name": "traits_observation",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 1,
+            "fields": [
+              {
+                "name": "body_observation",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 2,
+            "fields": [
+              {
+                "name": "signature_signature",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 3,
+            "fields": [
+              {
+                "name": "lexical_assessment",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 4,
+            "fields": [
+              {
+                "name": "syntax_declaration",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 5,
+            "fields": [
+              {
+                "name": "coverage_coverage",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 6,
+            "fields": [
+              {
+                "name": "resolution_resolution",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "effective_decorator_members",
+      "fields": [
+        {
+          "name": "assessment",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "effective_callable_assessments"
+        },
+        {
+          "name": "observation",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "declaration_decorators"
+        },
+        {
+          "name": "source_ordinal",
+          "type": "int64",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "application_ordinal",
+          "type": "int64",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        }
+      ],
+      "facts": false
+    },
+    {
+      "name": "entity_refs",
+      "fields": [
+        {
+          "name": "kind",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "module_module",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "modules"
+        },
+        {
+          "name": "callable_callable",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "callable_entities"
+        },
+        {
+          "name": "class_class",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "class_entities"
+        },
+        {
+          "name": "parameter_parameter",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "parameter_entities"
+        },
+        {
+          "name": "field_field",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "field_entities"
+        },
+        {
+          "name": "occurrence_occurrence",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "occurrences"
+        },
+        {
+          "name": "type_term",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "type_terms"
+        },
+        {
+          "name": "place_place",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "places"
+        }
+      ],
+      "facts": false,
+      "sum": {
+        "tag": "kind",
+        "arms": [
+          {
+            "code": 0,
+            "fields": [
+              {
+                "name": "module_module",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 1,
+            "fields": [
+              {
+                "name": "callable_callable",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 2,
+            "fields": [
+              {
+                "name": "class_class",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 3,
+            "fields": [
+              {
+                "name": "parameter_parameter",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 4,
+            "fields": [
+              {
+                "name": "field_field",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 5,
+            "fields": [
+              {
+                "name": "occurrence_occurrence",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 6,
+            "fields": [
+              {
+                "name": "type_term",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 7,
+            "fields": [
+              {
+                "name": "place_place",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "name": "environment_fingerprints",
       "fields": [
         {
@@ -7232,6 +9626,86 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       }
     },
     {
+      "name": "field_declaration_links",
+      "fields": [
+        {
+          "name": "field",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "field_entities"
+        },
+        {
+          "name": "declaration",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "class_field_syntax_observations"
+        },
+        {
+          "name": "binding",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "binding_events"
+        }
+      ],
+      "facts": false
+    },
+    {
+      "name": "field_entities",
+      "fields": [
+        {
+          "name": "class",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "class_entities"
+        },
+        {
+          "name": "name",
+          "type": "binary",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        }
+      ],
+      "facts": false
+    },
+    {
+      "name": "field_entity_links",
+      "fields": [
+        {
+          "name": "field",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "field_entities"
+        },
+        {
+          "name": "observation",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "record_field_observations"
+        }
+      ],
+      "facts": false
+    },
+    {
       "name": "flow_attribute_load_observations",
       "fields": [
         {
@@ -7412,6 +9886,83 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       ],
       "facts": true,
       "family": "Flow"
+    },
+    {
+      "name": "flow_call_event_links",
+      "fields": [
+        {
+          "name": "observation",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "flow_value_path_observations"
+        },
+        {
+          "name": "step",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "flow_call_steps"
+        },
+        {
+          "name": "event",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": false,
+          "provenance": false,
+          "target": "normalized_call_events"
+        },
+        {
+          "name": "status",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "Resolved"
+            ],
+            [
+              1,
+              "Ambiguous"
+            ],
+            [
+              2,
+              "Unresolved"
+            ]
+          ]
+        },
+        {
+          "name": "reason",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "ExactEvent"
+            ],
+            [
+              1,
+              "NoReportedEvent"
+            ],
+            [
+              2,
+              "AmbiguousEvent"
+            ]
+          ]
+        }
+      ],
+      "facts": false
     },
     {
       "name": "flow_call_paths",
@@ -9492,12 +12043,30 @@ expression: "String::from_utf8(output.stdout).unwrap()"
           "provenance": false
         },
         {
-          "name": "def_statement",
-          "type": "bool",
+          "name": "origin",
+          "type": "int16",
           "list": false,
           "nullable": false,
           "key": false,
-          "provenance": false
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "DefStatement"
+            ],
+            [
+              1,
+              "Synthesized"
+            ],
+            [
+              2,
+              "CallableField"
+            ],
+            [
+              3,
+              "Unavailable"
+            ]
+          ]
         },
         {
           "name": "defining_class",
@@ -9901,6 +12470,134 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       ],
       "facts": true,
       "family": "Exports"
+    },
+    {
+      "name": "import_module_assessments",
+      "fields": [
+        {
+          "name": "observation",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "import_alias_observations"
+        },
+        {
+          "name": "status",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "Resolved"
+            ],
+            [
+              1,
+              "Ambiguous"
+            ],
+            [
+              2,
+              "Unresolved"
+            ]
+          ]
+        },
+        {
+          "name": "reason",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "ExplicitIdentity"
+            ],
+            [
+              1,
+              "MissingCorrespondence"
+            ],
+            [
+              2,
+              "MissingResolution"
+            ],
+            [
+              3,
+              "ConflictingCandidates"
+            ],
+            [
+              4,
+              "OutsideCapturedScope"
+            ],
+            [
+              5,
+              "UnsupportedNativeOrigin"
+            ],
+            [
+              6,
+              "MissingOperand"
+            ],
+            [
+              7,
+              "NoTypeObservation"
+            ],
+            [
+              8,
+              "IncompleteInput"
+            ],
+            [
+              9,
+              "NotRequested"
+            ],
+            [
+              10,
+              "Unavailable"
+            ],
+            [
+              11,
+              "UntracedName"
+            ]
+          ]
+        }
+      ],
+      "facts": false
+    },
+    {
+      "name": "import_module_candidates",
+      "fields": [
+        {
+          "name": "assessment",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "import_module_assessments"
+        },
+        {
+          "name": "observation",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "dependency_module_observations"
+        },
+        {
+          "name": "module",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "target": "provider_modules"
+        }
+      ],
+      "facts": false
     },
     {
       "name": "input_acquisitions",
@@ -10967,6 +13664,158 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       }
     },
     {
+      "name": "mention_entity_assessments",
+      "fields": [
+        {
+          "name": "observation",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "document_mention_observations"
+        },
+        {
+          "name": "status",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "Resolved"
+            ],
+            [
+              1,
+              "Ambiguous"
+            ],
+            [
+              2,
+              "Unresolved"
+            ]
+          ]
+        },
+        {
+          "name": "reason",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "ExplicitIdentity"
+            ],
+            [
+              1,
+              "MissingCorrespondence"
+            ],
+            [
+              2,
+              "MissingResolution"
+            ],
+            [
+              3,
+              "ConflictingCandidates"
+            ],
+            [
+              4,
+              "OutsideCapturedScope"
+            ],
+            [
+              5,
+              "UnsupportedNativeOrigin"
+            ],
+            [
+              6,
+              "MissingOperand"
+            ],
+            [
+              7,
+              "NoTypeObservation"
+            ],
+            [
+              8,
+              "IncompleteInput"
+            ],
+            [
+              9,
+              "NotRequested"
+            ],
+            [
+              10,
+              "Unavailable"
+            ],
+            [
+              11,
+              "UntracedName"
+            ]
+          ]
+        }
+      ],
+      "facts": false
+    },
+    {
+      "name": "mention_entity_candidates",
+      "fields": [
+        {
+          "name": "assessment",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "mention_entity_assessments"
+        },
+        {
+          "name": "exposure",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "public_exposures"
+        }
+      ],
+      "facts": false
+    },
+    {
+      "name": "mention_symbol_candidates",
+      "fields": [
+        {
+          "name": "assessment",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "mention_entity_assessments"
+        },
+        {
+          "name": "observation",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "symbol_observations"
+        },
+        {
+          "name": "resolution",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "symbol_entity_resolutions"
+        }
+      ],
+      "facts": false
+    },
+    {
       "name": "modules",
       "fields": [
         {
@@ -10988,6 +13837,702 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         }
       ],
       "facts": true
+    },
+    {
+      "name": "normalization_computations",
+      "fields": [
+        {
+          "name": "capability",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "Entities"
+            ],
+            [
+              1,
+              "Symbols"
+            ],
+            [
+              2,
+              "References"
+            ],
+            [
+              3,
+              "Imports"
+            ],
+            [
+              4,
+              "Ancestry"
+            ],
+            [
+              5,
+              "Types"
+            ],
+            [
+              6,
+              "Mentions"
+            ],
+            [
+              7,
+              "Callables"
+            ],
+            [
+              8,
+              "Calls"
+            ],
+            [
+              9,
+              "Bindings"
+            ],
+            [
+              10,
+              "FlowLinks"
+            ],
+            [
+              11,
+              "InvocationProjection"
+            ],
+            [
+              12,
+              "DefinitionProjection"
+            ],
+            [
+              13,
+              "ReferenceProjection"
+            ],
+            [
+              14,
+              "ExposureProjection"
+            ],
+            [
+              15,
+              "PublicExposure"
+            ],
+            [
+              16,
+              "FlowEvents"
+            ]
+          ]
+        },
+        {
+          "name": "policy",
+          "type": "digest",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "producer",
+          "type": "text",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "declaration",
+          "type": "digest",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "profile",
+          "type": "text",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "availability",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "Complete"
+            ],
+            [
+              1,
+              "Partial"
+            ],
+            [
+              2,
+              "Unavailable"
+            ],
+            [
+              3,
+              "NotRequested"
+            ],
+            [
+              4,
+              "NoScope"
+            ]
+          ]
+        }
+      ],
+      "facts": false
+    },
+    {
+      "name": "normalization_coverage",
+      "fields": [
+        {
+          "name": "computation",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "normalization_computations"
+        },
+        {
+          "name": "scope",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "coverage_scopes"
+        },
+        {
+          "name": "context",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "analysis_contexts"
+        },
+        {
+          "name": "availability",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "Complete"
+            ],
+            [
+              1,
+              "Partial"
+            ],
+            [
+              2,
+              "Unavailable"
+            ],
+            [
+              3,
+              "NotRequested"
+            ],
+            [
+              4,
+              "NoScope"
+            ]
+          ]
+        }
+      ],
+      "facts": false
+    },
+    {
+      "name": "normalization_coverage_premises",
+      "fields": [
+        {
+          "name": "outcome",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "normalization_coverage"
+        },
+        {
+          "name": "premise",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "normalization_evidence_sets"
+        }
+      ],
+      "facts": false
+    },
+    {
+      "name": "normalization_evidence_members",
+      "fields": [
+        {
+          "name": "premise",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "normalization_evidence_sets"
+        },
+        {
+          "name": "coverage",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "provider_coverage"
+        }
+      ],
+      "facts": false
+    },
+    {
+      "name": "normalization_evidence_sets",
+      "fields": [
+        {
+          "name": "input",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "input_revisions"
+        },
+        {
+          "name": "context",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "analysis_contexts"
+        },
+        {
+          "name": "family",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "codes": [
+            [
+              1,
+              "Exports"
+            ],
+            [
+              2,
+              "Signatures"
+            ],
+            [
+              3,
+              "Calls"
+            ],
+            [
+              7,
+              "Syntax"
+            ],
+            [
+              8,
+              "Lexical"
+            ],
+            [
+              9,
+              "Types"
+            ],
+            [
+              10,
+              "Docs"
+            ],
+            [
+              13,
+              "Flow"
+            ],
+            [
+              14,
+              "Artifacts"
+            ],
+            [
+              15,
+              "Deployment"
+            ]
+          ]
+        }
+      ],
+      "facts": false
+    },
+    {
+      "name": "normalization_output_receipts",
+      "fields": [
+        {
+          "name": "computation",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "normalization_computations"
+        },
+        {
+          "name": "relation",
+          "type": "text",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "rows",
+          "type": "int64",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "content",
+          "type": "digest",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        }
+      ],
+      "facts": false
+    },
+    {
+      "name": "normalized_call_alternative_evidence",
+      "fields": [
+        {
+          "name": "alternative",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "normalized_call_alternatives"
+        },
+        {
+          "name": "support",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "call_target_supports"
+        }
+      ],
+      "facts": false
+    },
+    {
+      "name": "normalized_call_alternatives",
+      "fields": [
+        {
+          "name": "event",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "normalized_call_events"
+        },
+        {
+          "name": "target",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "call_target_observations"
+        },
+        {
+          "name": "resolution",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "call_resolutions"
+        },
+        {
+          "name": "correspondence",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": false,
+          "provenance": false,
+          "target": "symbol_entity_resolutions"
+        },
+        {
+          "name": "entity",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": false,
+          "provenance": false,
+          "target": "entity_refs"
+        },
+        {
+          "name": "status",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "Resolved"
+            ],
+            [
+              1,
+              "Ambiguous"
+            ],
+            [
+              2,
+              "Unresolved"
+            ]
+          ]
+        },
+        {
+          "name": "reason",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "ExplicitIdentity"
+            ],
+            [
+              1,
+              "MissingCorrespondence"
+            ],
+            [
+              2,
+              "MissingResolution"
+            ],
+            [
+              3,
+              "ConflictingCandidates"
+            ],
+            [
+              4,
+              "OutsideCapturedScope"
+            ],
+            [
+              5,
+              "UnsupportedNativeOrigin"
+            ],
+            [
+              6,
+              "MissingOperand"
+            ],
+            [
+              7,
+              "NoTypeObservation"
+            ],
+            [
+              8,
+              "IncompleteInput"
+            ],
+            [
+              9,
+              "NotRequested"
+            ],
+            [
+              10,
+              "Unavailable"
+            ],
+            [
+              11,
+              "UntracedName"
+            ]
+          ]
+        }
+      ],
+      "facts": false
+    },
+    {
+      "name": "normalized_call_event_resolutions",
+      "fields": [
+        {
+          "name": "event",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "normalized_call_events"
+        },
+        {
+          "name": "resolution",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "call_resolutions"
+        }
+      ],
+      "facts": false
+    },
+    {
+      "name": "normalized_call_event_sources",
+      "fields": [
+        {
+          "name": "event",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "normalized_call_events"
+        },
+        {
+          "name": "observation",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "provider_call_sites"
+        }
+      ],
+      "facts": false
+    },
+    {
+      "name": "normalized_call_events",
+      "fields": [
+        {
+          "name": "site",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "occurrences"
+        },
+        {
+          "name": "origin",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "call_origins"
+        },
+        {
+          "name": "context",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "analysis_contexts"
+        },
+        {
+          "name": "owner",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "target": "occurrence_ownership"
+        }
+      ],
+      "facts": false
+    },
+    {
+      "name": "normalized_call_resolution_evidence",
+      "fields": [
+        {
+          "name": "resolution",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "normalized_call_event_resolutions"
+        },
+        {
+          "name": "support",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "call_resolution_supports"
+        }
+      ],
+      "facts": false
+    },
+    {
+      "name": "normalized_call_source_evidence",
+      "fields": [
+        {
+          "name": "source",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "normalized_call_event_sources"
+        },
+        {
+          "name": "support",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "provider_call_site_supports"
+        }
+      ],
+      "facts": false
+    },
+    {
+      "name": "occurrence_ownership",
+      "fields": [
+        {
+          "name": "occurrence",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "occurrences"
+        },
+        {
+          "name": "owner",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "target": "occurrences"
+        },
+        {
+          "name": "entity",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "target": "entity_refs"
+        }
+      ],
+      "facts": false
     },
     {
       "name": "occurrences",
@@ -12065,6 +15610,120 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       "family": "Signatures"
     },
     {
+      "name": "parameter_entities",
+      "fields": [
+        {
+          "name": "kind",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "source_declaration",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "occurrences"
+        },
+        {
+          "name": "nativeslot_callable",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "callable_entities"
+        },
+        {
+          "name": "nativeslot_signature",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "signature_observations"
+        },
+        {
+          "name": "nativeslot_parameter",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "signature_parameters"
+        }
+      ],
+      "facts": false,
+      "sum": {
+        "tag": "kind",
+        "arms": [
+          {
+            "code": 0,
+            "fields": [
+              {
+                "name": "source_declaration",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 1,
+            "fields": [
+              {
+                "name": "nativeslot_callable",
+                "required": true
+              },
+              {
+                "name": "nativeslot_signature",
+                "required": true
+              },
+              {
+                "name": "nativeslot_parameter",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "parameter_entity_links",
+      "fields": [
+        {
+          "name": "parameter",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "signature_parameters"
+        },
+        {
+          "name": "entity",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "parameter_entities"
+        },
+        {
+          "name": "declaration",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "parameter_declarations"
+        }
+      ],
+      "facts": false
+    },
+    {
       "name": "parameter_shapes",
       "fields": [
         {
@@ -12630,6 +16289,110 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       }
     },
     {
+      "name": "place_entity_links",
+      "fields": [
+        {
+          "name": "place",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "places"
+        },
+        {
+          "name": "entity",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": false,
+          "provenance": false,
+          "target": "entity_refs"
+        },
+        {
+          "name": "status",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "Resolved"
+            ],
+            [
+              1,
+              "Ambiguous"
+            ],
+            [
+              2,
+              "Unresolved"
+            ]
+          ]
+        },
+        {
+          "name": "reason",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "ExplicitIdentity"
+            ],
+            [
+              1,
+              "MissingCorrespondence"
+            ],
+            [
+              2,
+              "MissingResolution"
+            ],
+            [
+              3,
+              "ConflictingCandidates"
+            ],
+            [
+              4,
+              "OutsideCapturedScope"
+            ],
+            [
+              5,
+              "UnsupportedNativeOrigin"
+            ],
+            [
+              6,
+              "MissingOperand"
+            ],
+            [
+              7,
+              "NoTypeObservation"
+            ],
+            [
+              8,
+              "IncompleteInput"
+            ],
+            [
+              9,
+              "NotRequested"
+            ],
+            [
+              10,
+              "Unavailable"
+            ],
+            [
+              11,
+              "UntracedName"
+            ]
+          ]
+        }
+      ],
+      "facts": false
+    },
+    {
       "name": "place_roots",
       "fields": [
         {
@@ -13055,6 +16818,507 @@ expression: "String::from_utf8(output.stdout).unwrap()"
           }
         ]
       }
+    },
+    {
+      "name": "projection_gap_subjects",
+      "fields": [
+        {
+          "name": "kind",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "event_event",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "normalized_call_events"
+        },
+        {
+          "name": "alternative_alternative",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "normalized_call_alternatives"
+        },
+        {
+          "name": "import_assessment",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "import_module_assessments"
+        },
+        {
+          "name": "reference_assessment",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "reference_entity_assessments"
+        },
+        {
+          "name": "exposure_exposure",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "public_exposures"
+        },
+        {
+          "name": "coverage_coverage",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "provider_coverage"
+        },
+        {
+          "name": "eventassessment_assessment",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "call_event_assessments"
+        },
+        {
+          "name": "missingcoverage_scope",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "coverage_scopes"
+        },
+        {
+          "name": "missingcoverage_family",
+          "type": "int16",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "codes": [
+            [
+              1,
+              "Exports"
+            ],
+            [
+              2,
+              "Signatures"
+            ],
+            [
+              3,
+              "Calls"
+            ],
+            [
+              7,
+              "Syntax"
+            ],
+            [
+              8,
+              "Lexical"
+            ],
+            [
+              9,
+              "Types"
+            ],
+            [
+              10,
+              "Docs"
+            ],
+            [
+              13,
+              "Flow"
+            ],
+            [
+              14,
+              "Artifacts"
+            ],
+            [
+              15,
+              "Deployment"
+            ]
+          ]
+        }
+      ],
+      "facts": false,
+      "sum": {
+        "tag": "kind",
+        "arms": [
+          {
+            "code": 0,
+            "fields": [
+              {
+                "name": "event_event",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 1,
+            "fields": [
+              {
+                "name": "alternative_alternative",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 2,
+            "fields": [
+              {
+                "name": "import_assessment",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 3,
+            "fields": [
+              {
+                "name": "reference_assessment",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 4,
+            "fields": [
+              {
+                "name": "exposure_exposure",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 5,
+            "fields": [
+              {
+                "name": "coverage_coverage",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 7,
+            "fields": [
+              {
+                "name": "eventassessment_assessment",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 6,
+            "fields": [
+              {
+                "name": "missingcoverage_scope",
+                "required": true
+              },
+              {
+                "name": "missingcoverage_family",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "projection_gaps",
+      "fields": [
+        {
+          "name": "assessment",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "projection_source_assessments"
+        },
+        {
+          "name": "subject",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "projection_gap_subjects"
+        },
+        {
+          "name": "reason",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "Unresolved"
+            ],
+            [
+              1,
+              "Ambiguous"
+            ],
+            [
+              2,
+              "OutsidePolicy"
+            ],
+            [
+              3,
+              "OutsideUniverse"
+            ],
+            [
+              4,
+              "ExternalModule"
+            ],
+            [
+              5,
+              "IncompleteCoverage"
+            ],
+            [
+              6,
+              "MissingCoverage"
+            ],
+            [
+              7,
+              "NoAlternative"
+            ],
+            [
+              8,
+              "Builtin"
+            ],
+            [
+              9,
+              "EventUncertainty"
+            ]
+          ]
+        }
+      ],
+      "facts": false
+    },
+    {
+      "name": "projection_snapshot_chunks",
+      "fields": [
+        {
+          "name": "snapshot",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "projection_snapshots"
+        },
+        {
+          "name": "ordinal",
+          "type": "int64",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "payload",
+          "type": "binary",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        }
+      ],
+      "facts": false
+    },
+    {
+      "name": "projection_snapshots",
+      "fields": [
+        {
+          "name": "assessment",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "projection_source_assessments"
+        },
+        {
+          "name": "format_version",
+          "type": "int32",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "petgraph_version",
+          "type": "text",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "codec",
+          "type": "text",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "bytes",
+          "type": "int64",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "chunks",
+          "type": "int64",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        }
+      ],
+      "facts": false
+    },
+    {
+      "name": "projection_source_assessments",
+      "fields": [
+        {
+          "name": "input",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "input_revisions"
+        },
+        {
+          "name": "context",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "analysis_contexts"
+        },
+        {
+          "name": "projection",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "CallableInvocation"
+            ],
+            [
+              1,
+              "DefinitionContainment"
+            ],
+            [
+              2,
+              "ImportReference"
+            ],
+            [
+              3,
+              "PublicExposure"
+            ]
+          ]
+        },
+        {
+          "name": "version",
+          "type": "int32",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "vertices",
+          "type": "int64",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "arcs",
+          "type": "int64",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "gaps",
+          "type": "int64",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "availability",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "CompleteUnderStatedModel"
+            ],
+            [
+              1,
+              "Partial"
+            ]
+          ]
+        }
+      ],
+      "facts": false
+    },
+    {
+      "name": "projection_source_coverage",
+      "fields": [
+        {
+          "name": "assessment",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "projection_source_assessments"
+        },
+        {
+          "name": "coverage",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "provider_coverage"
+        }
+      ],
+      "facts": false
     },
     {
       "name": "provider_call_site_supports",
@@ -14220,6 +18484,153 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       "facts": true
     },
     {
+      "name": "public_exposure_candidates",
+      "fields": [
+        {
+          "name": "exposure",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "public_exposures"
+        },
+        {
+          "name": "resolution",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "symbol_entity_resolutions"
+        },
+        {
+          "name": "support",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "public_name_supports"
+        }
+      ],
+      "facts": false
+    },
+    {
+      "name": "public_exposures",
+      "fields": [
+        {
+          "name": "access",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "modules"
+        },
+        {
+          "name": "context",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "analysis_contexts"
+        },
+        {
+          "name": "observation",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "public_name_observations"
+        },
+        {
+          "name": "origin",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "target": "export_origins"
+        },
+        {
+          "name": "status",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "Resolved"
+            ],
+            [
+              1,
+              "Ambiguous"
+            ],
+            [
+              2,
+              "Unresolved"
+            ]
+          ]
+        },
+        {
+          "name": "reason",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "DeclarationAgreement"
+            ],
+            [
+              1,
+              "ProviderSynthetic"
+            ],
+            [
+              2,
+              "ProviderExternal"
+            ],
+            [
+              3,
+              "AcquiredModule"
+            ],
+            [
+              4,
+              "MissingDeclaration"
+            ],
+            [
+              5,
+              "ConflictingDeclarations"
+            ],
+            [
+              6,
+              "UnsupportedKind"
+            ],
+            [
+              7,
+              "UntracedExposure"
+            ],
+            [
+              8,
+              "MissingCorrespondence"
+            ],
+            [
+              9,
+              "QualifiedUncertainty"
+            ]
+          ]
+        }
+      ],
+      "facts": false
+    },
+    {
       "name": "public_name_observations",
       "fields": [
         {
@@ -14756,6 +19167,220 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       ],
       "facts": true,
       "family": "Types"
+    },
+    {
+      "name": "reference_entity_assessments",
+      "fields": [
+        {
+          "name": "reference",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "reference_observations"
+        },
+        {
+          "name": "status",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "Resolved"
+            ],
+            [
+              1,
+              "Ambiguous"
+            ],
+            [
+              2,
+              "Unresolved"
+            ]
+          ]
+        },
+        {
+          "name": "reason",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "ExplicitIdentity"
+            ],
+            [
+              1,
+              "MissingCorrespondence"
+            ],
+            [
+              2,
+              "MissingResolution"
+            ],
+            [
+              3,
+              "ConflictingCandidates"
+            ],
+            [
+              4,
+              "OutsideCapturedScope"
+            ],
+            [
+              5,
+              "UnsupportedNativeOrigin"
+            ],
+            [
+              6,
+              "MissingOperand"
+            ],
+            [
+              7,
+              "NoTypeObservation"
+            ],
+            [
+              8,
+              "IncompleteInput"
+            ],
+            [
+              9,
+              "NotRequested"
+            ],
+            [
+              10,
+              "Unavailable"
+            ],
+            [
+              11,
+              "UntracedName"
+            ]
+          ]
+        }
+      ],
+      "facts": false
+    },
+    {
+      "name": "reference_entity_candidates",
+      "fields": [
+        {
+          "name": "assessment",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "reference_entity_assessments"
+        },
+        {
+          "name": "resolution",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "lexical_resolutions"
+        },
+        {
+          "name": "target",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "reference_entity_targets"
+        }
+      ],
+      "facts": false
+    },
+    {
+      "name": "reference_entity_targets",
+      "fields": [
+        {
+          "name": "kind",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "binding_event",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "binding_events"
+        },
+        {
+          "name": "binding_entity",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "entity_refs"
+        },
+        {
+          "name": "builtin_target",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "lexical_targets"
+        },
+        {
+          "name": "unresolved_target",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "lexical_targets"
+        }
+      ],
+      "facts": false,
+      "sum": {
+        "tag": "kind",
+        "arms": [
+          {
+            "code": 0,
+            "fields": [
+              {
+                "name": "binding_event",
+                "required": true
+              },
+              {
+                "name": "binding_entity",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 1,
+            "fields": [
+              {
+                "name": "builtin_target",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 2,
+            "fields": [
+              {
+                "name": "unresolved_target",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
     },
     {
       "name": "reference_observations",
@@ -15547,6 +20172,84 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       "facts": true
     },
     {
+      "name": "signature_slot_entities",
+      "fields": [
+        {
+          "name": "slot",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "signature_slots"
+        },
+        {
+          "name": "link",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "parameter_entity_links"
+        }
+      ],
+      "facts": false
+    },
+    {
+      "name": "signature_slots",
+      "fields": [
+        {
+          "name": "parameter",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "signature_parameters"
+        },
+        {
+          "name": "variant",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "target": "signature_variants"
+        },
+        {
+          "name": "ordinal",
+          "type": "int64",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "default",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "Required"
+            ],
+            [
+              1,
+              "DefinitionTime"
+            ],
+            [
+              2,
+              "Collector"
+            ]
+          ]
+        }
+      ],
+      "facts": false
+    },
+    {
       "name": "signature_supports",
       "fields": [
         {
@@ -15694,6 +20397,87 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       ],
       "facts": true,
       "family": "Signatures"
+    },
+    {
+      "name": "signature_variants",
+      "fields": [
+        {
+          "name": "signature",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "signature_observations"
+        },
+        {
+          "name": "context",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "target": "analysis_contexts"
+        },
+        {
+          "name": "resolution",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "target": "symbol_entity_resolutions"
+        },
+        {
+          "name": "callable",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": false,
+          "provenance": false,
+          "target": "callable_entities"
+        },
+        {
+          "name": "assessment",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": false,
+          "provenance": false,
+          "target": "effective_callable_assessments"
+        },
+        {
+          "name": "adjustment",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "None"
+            ],
+            [
+              1,
+              "BindInstanceReceiver"
+            ],
+            [
+              2,
+              "BindClassReceiver"
+            ],
+            [
+              3,
+              "PropertyAccess"
+            ],
+            [
+              4,
+              "Unknown"
+            ]
+          ]
+        }
+      ],
+      "facts": false
     },
     {
       "name": "source_artifacts",
@@ -16298,6 +21082,271 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       ],
       "facts": true,
       "family": "Signatures"
+    },
+    {
+      "name": "symbol_entity_candidates",
+      "fields": [
+        {
+          "name": "resolution",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "symbol_entity_resolutions"
+        },
+        {
+          "name": "entity",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "entity_refs"
+        }
+      ],
+      "facts": false
+    },
+    {
+      "name": "symbol_entity_evidence",
+      "fields": [
+        {
+          "name": "candidate",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "symbol_entity_candidates"
+        },
+        {
+          "name": "premise",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "symbol_entity_premises"
+        }
+      ],
+      "facts": false
+    },
+    {
+      "name": "symbol_entity_premises",
+      "fields": [
+        {
+          "name": "kind",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "declaration_declaration",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "symbol_declarations"
+        },
+        {
+          "name": "declaration_support",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "symbol_declaration_supports"
+        },
+        {
+          "name": "functiontraits_observation",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "function_trait_observations"
+        },
+        {
+          "name": "classtraits_observation",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "class_trait_observations"
+        },
+        {
+          "name": "module_module",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "provider_modules"
+        }
+      ],
+      "facts": false,
+      "sum": {
+        "tag": "kind",
+        "arms": [
+          {
+            "code": 0,
+            "fields": [
+              {
+                "name": "declaration_declaration",
+                "required": true
+              },
+              {
+                "name": "declaration_support",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 1,
+            "fields": [
+              {
+                "name": "functiontraits_observation",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 2,
+            "fields": [
+              {
+                "name": "classtraits_observation",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 3,
+            "fields": [
+              {
+                "name": "module_module",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "symbol_entity_resolutions",
+      "fields": [
+        {
+          "name": "symbol",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "provider_symbols"
+        },
+        {
+          "name": "context",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "analysis_contexts"
+        },
+        {
+          "name": "policy",
+          "type": "digest",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "status",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "Resolved"
+            ],
+            [
+              1,
+              "Ambiguous"
+            ],
+            [
+              2,
+              "Unresolved"
+            ]
+          ]
+        },
+        {
+          "name": "entity",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": false,
+          "provenance": false,
+          "target": "entity_refs"
+        },
+        {
+          "name": "reason",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "DeclarationAgreement"
+            ],
+            [
+              1,
+              "ProviderSynthetic"
+            ],
+            [
+              2,
+              "ProviderExternal"
+            ],
+            [
+              3,
+              "AcquiredModule"
+            ],
+            [
+              4,
+              "MissingDeclaration"
+            ],
+            [
+              5,
+              "ConflictingDeclarations"
+            ],
+            [
+              6,
+              "UnsupportedKind"
+            ],
+            [
+              7,
+              "UntracedExposure"
+            ],
+            [
+              8,
+              "MissingCorrespondence"
+            ],
+            [
+              9,
+              "QualifiedUncertainty"
+            ]
+          ]
+        }
+      ],
+      "facts": false
     },
     {
       "name": "symbol_observations",
@@ -17710,6 +22759,149 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       "facts": true
     },
     {
+      "name": "test_operand_coverage",
+      "fields": [
+        {
+          "name": "assessment",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "test_operand_type_assessments"
+        },
+        {
+          "name": "coverage",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "provider_coverage"
+        }
+      ],
+      "facts": false
+    },
+    {
+      "name": "test_operand_type_assessments",
+      "fields": [
+        {
+          "name": "leaf",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "flow_test_leaf_observations"
+        },
+        {
+          "name": "status",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "Resolved"
+            ],
+            [
+              1,
+              "Ambiguous"
+            ],
+            [
+              2,
+              "Unresolved"
+            ]
+          ]
+        },
+        {
+          "name": "reason",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "ExplicitIdentity"
+            ],
+            [
+              1,
+              "MissingCorrespondence"
+            ],
+            [
+              2,
+              "MissingResolution"
+            ],
+            [
+              3,
+              "ConflictingCandidates"
+            ],
+            [
+              4,
+              "OutsideCapturedScope"
+            ],
+            [
+              5,
+              "UnsupportedNativeOrigin"
+            ],
+            [
+              6,
+              "MissingOperand"
+            ],
+            [
+              7,
+              "NoTypeObservation"
+            ],
+            [
+              8,
+              "IncompleteInput"
+            ],
+            [
+              9,
+              "NotRequested"
+            ],
+            [
+              10,
+              "Unavailable"
+            ],
+            [
+              11,
+              "UntracedName"
+            ]
+          ]
+        }
+      ],
+      "facts": false
+    },
+    {
+      "name": "test_operand_type_links",
+      "fields": [
+        {
+          "name": "assessment",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "test_operand_type_assessments"
+        },
+        {
+          "name": "observation",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "type_observations"
+        }
+      ],
+      "facts": false
+    },
+    {
       "name": "transfer_alternatives",
       "fields": [
         {
@@ -18097,6 +23289,311 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       ],
       "facts": false,
       "family": "Flow"
+    },
+    {
+      "name": "type_binder_assessments",
+      "fields": [
+        {
+          "name": "variable",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "type_variables"
+        },
+        {
+          "name": "status",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "Resolved"
+            ],
+            [
+              1,
+              "Ambiguous"
+            ],
+            [
+              2,
+              "Unresolved"
+            ]
+          ]
+        },
+        {
+          "name": "reason",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "ExplicitIdentity"
+            ],
+            [
+              1,
+              "MissingCorrespondence"
+            ],
+            [
+              2,
+              "MissingResolution"
+            ],
+            [
+              3,
+              "ConflictingCandidates"
+            ],
+            [
+              4,
+              "OutsideCapturedScope"
+            ],
+            [
+              5,
+              "UnsupportedNativeOrigin"
+            ],
+            [
+              6,
+              "MissingOperand"
+            ],
+            [
+              7,
+              "NoTypeObservation"
+            ],
+            [
+              8,
+              "IncompleteInput"
+            ],
+            [
+              9,
+              "NotRequested"
+            ],
+            [
+              10,
+              "Unavailable"
+            ],
+            [
+              11,
+              "UntracedName"
+            ]
+          ]
+        }
+      ],
+      "facts": false
+    },
+    {
+      "name": "type_binder_candidates",
+      "fields": [
+        {
+          "name": "assessment",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "type_binder_assessments"
+        },
+        {
+          "name": "declaration",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "occurrences"
+        },
+        {
+          "name": "premise",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "type_binder_premises"
+        }
+      ],
+      "facts": false
+    },
+    {
+      "name": "type_binder_premises",
+      "fields": [
+        {
+          "name": "kind",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "declaration_observation",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "declaration_observations"
+        },
+        {
+          "name": "binding_observation",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "binding_observations"
+        }
+      ],
+      "facts": false,
+      "sum": {
+        "tag": "kind",
+        "arms": [
+          {
+            "code": 0,
+            "fields": [
+              {
+                "name": "declaration_observation",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 1,
+            "fields": [
+              {
+                "name": "binding_observation",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "type_entity_links",
+      "fields": [
+        {
+          "name": "term",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "type_terms"
+        },
+        {
+          "name": "resolution",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": false,
+          "provenance": false,
+          "target": "symbol_entity_resolutions"
+        },
+        {
+          "name": "module",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": false,
+          "provenance": false,
+          "target": "provider_modules"
+        },
+        {
+          "name": "entity",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": false,
+          "provenance": false,
+          "target": "entity_refs"
+        },
+        {
+          "name": "status",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "Resolved"
+            ],
+            [
+              1,
+              "Ambiguous"
+            ],
+            [
+              2,
+              "Unresolved"
+            ]
+          ]
+        },
+        {
+          "name": "reason",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "ExplicitIdentity"
+            ],
+            [
+              1,
+              "MissingCorrespondence"
+            ],
+            [
+              2,
+              "MissingResolution"
+            ],
+            [
+              3,
+              "ConflictingCandidates"
+            ],
+            [
+              4,
+              "OutsideCapturedScope"
+            ],
+            [
+              5,
+              "UnsupportedNativeOrigin"
+            ],
+            [
+              6,
+              "MissingOperand"
+            ],
+            [
+              7,
+              "NoTypeObservation"
+            ],
+            [
+              8,
+              "IncompleteInput"
+            ],
+            [
+              9,
+              "NotRequested"
+            ],
+            [
+              10,
+              "Unavailable"
+            ],
+            [
+              11,
+              "UntracedName"
+            ]
+          ]
+        }
+      ],
+      "facts": false
     },
     {
       "name": "type_observations",
@@ -21482,6 +26979,361 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         "call_target_observations",
         "signature_supports",
         "call_target_supports"
+      ]
+    },
+    {
+      "name": "normalized_binding_closure",
+      "inputs": [
+        "assertion_qualifications",
+        "provider_symbols",
+        "provider_callables",
+        "provider_modules",
+        "provider_call_sites",
+        "provider_call_site_supports",
+        "call_target_observations",
+        "call_target_supports",
+        "call_channels",
+        "call_destinations",
+        "call_receivers",
+        "call_resolutions",
+        "call_resolution_supports",
+        "call_resolution_members",
+        "symbol_entity_resolutions",
+        "entity_refs",
+        "occurrence_ownership",
+        "flow_value_path_observations",
+        "flow_call_steps",
+        "normalized_call_events",
+        "normalized_call_event_sources",
+        "normalized_call_source_evidence",
+        "normalized_call_event_resolutions",
+        "normalized_call_resolution_evidence",
+        "normalized_call_alternatives",
+        "normalized_call_alternative_evidence",
+        "call_event_assessments",
+        "call_event_phase_targets",
+        "call_policy_assessments",
+        "call_policy_admissions",
+        "flow_call_event_links",
+        "occurrences",
+        "provider_coverage",
+        "coverage_scopes",
+        "declaration_observations",
+        "declaration_decorators",
+        "syntax_placements",
+        "function_trait_observations",
+        "function_body_observations",
+        "signature_observations",
+        "signature_parameters",
+        "parameter_shapes",
+        "reference_observations",
+        "lexical_targets",
+        "lexical_resolutions",
+        "callable_entities",
+        "parameter_entity_links",
+        "reference_entity_assessments",
+        "reference_entity_candidates",
+        "reference_entity_targets",
+        "effective_callable_assessments",
+        "effective_decorator_members",
+        "effective_callable_premises",
+        "effective_callable_evidence",
+        "signature_variants",
+        "signature_slots",
+        "signature_slot_entities",
+        "call_syntax",
+        "call_arguments",
+        "source_artifacts",
+        "modules",
+        "signature_supports",
+        "symbol_declarations",
+        "symbol_declaration_supports",
+        "class_trait_observations",
+        "parameter_declarations",
+        "record_field_observations",
+        "public_name_observations",
+        "export_origins",
+        "public_name_supports",
+        "provider_runs",
+        "class_field_syntax_observations",
+        "binding_events",
+        "type_terms",
+        "places",
+        "class_entities",
+        "parameter_entities",
+        "field_entities",
+        "symbol_entity_candidates",
+        "symbol_entity_premises",
+        "symbol_entity_evidence",
+        "field_entity_links",
+        "field_declaration_links",
+        "public_exposures",
+        "public_exposure_candidates",
+        "symbol_observations",
+        "import_alias_observations",
+        "dependency_module_observations",
+        "class_ancestry_observations",
+        "symbol_sequence_members",
+        "document_mention_observations",
+        "type_variables",
+        "binding_observations",
+        "place_roots",
+        "flow_test_leaf_observations",
+        "type_observations",
+        "type_binder_premises",
+        "mention_symbol_candidates",
+        "import_module_assessments",
+        "import_module_candidates",
+        "ancestry_entity_assessments",
+        "ancestry_entity_members",
+        "mention_entity_assessments",
+        "mention_entity_candidates",
+        "type_entity_links",
+        "type_binder_assessments",
+        "type_binder_candidates",
+        "place_entity_links",
+        "test_operand_type_assessments",
+        "test_operand_type_links",
+        "test_operand_coverage",
+        "call_binding_attempts",
+        "call_bindings",
+        "binding_sources",
+        "binding_projections",
+        "binding_set_assessments",
+        "binding_variant_assessments",
+        "binding_set_members",
+        "binding_set_coverage"
+      ]
+    },
+    {
+      "name": "normalized_callable_closure",
+      "inputs": [
+        "occurrences",
+        "assertion_qualifications",
+        "provider_coverage",
+        "coverage_scopes",
+        "declaration_observations",
+        "declaration_decorators",
+        "syntax_placements",
+        "function_trait_observations",
+        "function_body_observations",
+        "signature_observations",
+        "signature_parameters",
+        "parameter_shapes",
+        "reference_observations",
+        "lexical_targets",
+        "lexical_resolutions",
+        "callable_entities",
+        "entity_refs",
+        "symbol_entity_resolutions",
+        "occurrence_ownership",
+        "parameter_entity_links",
+        "reference_entity_assessments",
+        "reference_entity_candidates",
+        "reference_entity_targets",
+        "effective_callable_assessments",
+        "effective_decorator_members",
+        "effective_callable_premises",
+        "effective_callable_evidence",
+        "signature_variants",
+        "signature_slots",
+        "signature_slot_entities"
+      ]
+    },
+    {
+      "name": "normalized_entity_closure",
+      "inputs": [
+        "occurrences",
+        "modules",
+        "provider_symbols",
+        "provider_modules",
+        "symbol_declarations",
+        "symbol_declaration_supports",
+        "assertion_qualifications",
+        "function_trait_observations",
+        "class_trait_observations",
+        "signature_observations",
+        "signature_parameters",
+        "parameter_declarations",
+        "record_field_observations",
+        "public_name_observations",
+        "export_origins",
+        "public_name_supports",
+        "provider_runs",
+        "class_field_syntax_observations",
+        "binding_events",
+        "type_terms",
+        "places",
+        "callable_entities",
+        "class_entities",
+        "parameter_entities",
+        "field_entities",
+        "entity_refs",
+        "symbol_entity_resolutions",
+        "symbol_entity_candidates",
+        "symbol_entity_premises",
+        "symbol_entity_evidence",
+        "occurrence_ownership",
+        "parameter_entity_links",
+        "field_entity_links",
+        "field_declaration_links",
+        "public_exposures",
+        "public_exposure_candidates"
+      ]
+    },
+    {
+      "name": "normalized_event_closure",
+      "inputs": [
+        "assertion_qualifications",
+        "provider_symbols",
+        "provider_callables",
+        "provider_modules",
+        "provider_call_sites",
+        "provider_call_site_supports",
+        "call_target_observations",
+        "call_target_supports",
+        "call_channels",
+        "call_destinations",
+        "call_receivers",
+        "call_resolutions",
+        "call_resolution_supports",
+        "call_resolution_members",
+        "symbol_entity_resolutions",
+        "entity_refs",
+        "occurrence_ownership",
+        "flow_value_path_observations",
+        "flow_call_steps",
+        "normalized_call_events",
+        "normalized_call_event_sources",
+        "normalized_call_source_evidence",
+        "normalized_call_event_resolutions",
+        "normalized_call_resolution_evidence",
+        "normalized_call_alternatives",
+        "normalized_call_alternative_evidence",
+        "call_event_assessments",
+        "call_event_phase_targets",
+        "call_policy_assessments",
+        "call_policy_admissions",
+        "flow_call_event_links"
+      ]
+    },
+    {
+      "name": "normalized_projection_closure",
+      "inputs": [
+        "entity_refs",
+        "callable_entities",
+        "class_entities",
+        "parameter_entities",
+        "field_entities",
+        "occurrence_ownership",
+        "provider_symbols",
+        "provider_modules",
+        "symbol_entity_resolutions",
+        "occurrences",
+        "modules",
+        "source_artifacts",
+        "coverage_scopes",
+        "assertion_qualifications",
+        "provider_coverage",
+        "provider_runs",
+        "normalized_call_events",
+        "call_event_assessments",
+        "normalized_call_alternatives",
+        "call_policy_assessments",
+        "call_policy_admissions",
+        "call_target_observations",
+        "import_module_assessments",
+        "import_module_candidates",
+        "import_alias_observations",
+        "reference_entity_assessments",
+        "reference_entity_candidates",
+        "reference_entity_targets",
+        "reference_observations",
+        "public_exposures",
+        "public_exposure_candidates",
+        "projection_source_assessments",
+        "projection_gap_subjects",
+        "projection_gaps",
+        "projection_source_coverage",
+        "projection_snapshots",
+        "projection_snapshot_chunks"
+      ]
+    },
+    {
+      "name": "normalized_relationship_closure",
+      "inputs": [
+        "occurrences",
+        "modules",
+        "provider_symbols",
+        "provider_modules",
+        "symbol_declarations",
+        "symbol_declaration_supports",
+        "assertion_qualifications",
+        "function_trait_observations",
+        "class_trait_observations",
+        "signature_observations",
+        "signature_parameters",
+        "parameter_declarations",
+        "record_field_observations",
+        "public_name_observations",
+        "export_origins",
+        "public_name_supports",
+        "provider_runs",
+        "class_field_syntax_observations",
+        "binding_events",
+        "type_terms",
+        "places",
+        "callable_entities",
+        "class_entities",
+        "parameter_entities",
+        "field_entities",
+        "entity_refs",
+        "symbol_entity_resolutions",
+        "symbol_entity_candidates",
+        "symbol_entity_premises",
+        "symbol_entity_evidence",
+        "occurrence_ownership",
+        "parameter_entity_links",
+        "field_entity_links",
+        "field_declaration_links",
+        "public_exposures",
+        "public_exposure_candidates",
+        "symbol_observations",
+        "reference_observations",
+        "lexical_resolutions",
+        "lexical_targets",
+        "import_alias_observations",
+        "dependency_module_observations",
+        "class_ancestry_observations",
+        "symbol_sequence_members",
+        "document_mention_observations",
+        "type_variables",
+        "declaration_observations",
+        "binding_observations",
+        "place_roots",
+        "flow_test_leaf_observations",
+        "type_observations",
+        "provider_coverage",
+        "coverage_scopes",
+        "source_artifacts",
+        "type_binder_premises",
+        "mention_symbol_candidates",
+        "reference_entity_targets",
+        "reference_entity_assessments",
+        "reference_entity_candidates",
+        "import_module_assessments",
+        "import_module_candidates",
+        "ancestry_entity_assessments",
+        "ancestry_entity_members",
+        "mention_entity_assessments",
+        "mention_entity_candidates",
+        "type_entity_links",
+        "type_binder_assessments",
+        "type_binder_candidates",
+        "place_entity_links",
+        "test_operand_type_assessments",
+        "test_operand_type_links",
+        "test_operand_coverage"
       ]
     },
     {

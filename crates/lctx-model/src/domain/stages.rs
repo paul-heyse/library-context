@@ -79,12 +79,21 @@ pub struct RelationUse {
     validators: &'static [&'static str],
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AvailabilityPolicy { RequireComplete, ObserveAvailability }
+pub enum AvailabilityPolicy {
+    RequireComplete,
+    ObserveAvailability,
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct InputRequirement { pub group: FactFamily, pub policy: AvailabilityPolicy }
+pub struct InputRequirement {
+    pub group: FactFamily,
+    pub policy: AvailabilityPolicy,
+}
 /// Declared once with each input. A store read creates a dependency without retaining batches.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum InputTransport { Handoff, CompletedStore }
+pub enum InputTransport {
+    Handoff,
+    CompletedStore,
+}
 impl RelationUse {
     pub fn of<R: Record>() -> Self {
         Self {
@@ -99,15 +108,28 @@ impl RelationUse {
         self.name
     }
     pub fn stored<R: Record>() -> Self {
-        Self { transport: InputTransport::CompletedStore, ..Self::of::<R>() }
+        Self {
+            transport: InputTransport::CompletedStore,
+            ..Self::of::<R>()
+        }
     }
-    pub fn transport(self) -> InputTransport { self.transport }
+    pub fn completed_store(mut self) -> Self {
+        self.transport = InputTransport::CompletedStore;
+        self
+    }
+    pub fn transport(self) -> InputTransport {
+        self.transport
+    }
     pub fn availability(mut self, group: FactFamily, policy: AvailabilityPolicy) -> Self {
-        self.requirement = Some(InputRequirement { group, policy }); self
+        self.requirement = Some(InputRequirement { group, policy });
+        self
     }
-    pub fn requirement(self) -> Option<InputRequirement> { self.requirement }
+    pub fn requirement(self) -> Option<InputRequirement> {
+        self.requirement
+    }
     pub fn validated_by(mut self, validators: &'static [&'static str]) -> Self {
-        self.validators = validators; self
+        self.validators = validators;
+        self
     }
     /// The use of a declared relation, for schedules built from a relation list.
     pub fn of_relation(relation: &super::Relation) -> Self {
@@ -139,16 +161,36 @@ pub struct Stage {
 impl Stage {
     /// Required checks come from relation owners plus explicitly named shared input checks.
     /// A stage cannot opt out of its stored relation's own invariants.
-    pub fn read_invariants<'m>(&self, model: &'m ValidatedModel) -> Result<Vec<&'m super::Invariant>, ModelError> {
+    pub fn read_invariants<'m>(
+        &self,
+        model: &'m ValidatedModel,
+    ) -> Result<Vec<&'m super::Invariant>, ModelError> {
         let mut names = BTreeSet::new();
-        for input in self.inputs.iter().filter(|i| i.transport == InputTransport::CompletedStore) {
-            let relation = model.relations().iter().find(|r| r.name() == input.name)
+        for input in self
+            .inputs
+            .iter()
+            .filter(|i| i.transport == InputTransport::CompletedStore)
+        {
+            let relation = model
+                .relations()
+                .iter()
+                .find(|r| r.name() == input.name)
                 .ok_or_else(|| ModelError::Invalid("undeclared stored input".into()))?;
             names.extend(relation.invariants().iter().map(|i| i.name));
             names.extend(input.validators.iter().copied());
         }
-        names.into_iter().map(|name| model.invariants().iter().find(|i| i.name == name)
-            .ok_or_else(|| ModelError::Invalid(format!("unknown shared input invariant {name}")))).collect()
+        names
+            .into_iter()
+            .map(|name| {
+                model
+                    .invariants()
+                    .iter()
+                    .find(|i| i.name == name)
+                    .ok_or_else(|| {
+                        ModelError::Invalid(format!("unknown shared input invariant {name}"))
+                    })
+            })
+            .collect()
     }
     pub fn reads<R: Record>(&self) -> bool {
         self.inputs.iter().any(|r| r.type_id == TypeId::of::<R>())
@@ -180,20 +222,28 @@ impl Stage {
         contributes.sort();
         for input in reads {
             digest.part(b"read", input.name.as_bytes());
-            digest.part(b"transport", match input.transport {
-                InputTransport::Handoff => b"handoff",
-                InputTransport::CompletedStore => b"completed-store",
-            });
+            digest.part(
+                b"transport",
+                match input.transport {
+                    InputTransport::Handoff => b"handoff",
+                    InputTransport::CompletedStore => b"completed-store",
+                },
+            );
             if let Some(requirement) = input.requirement {
                 requirement.group.encode(digest);
-                digest.part(b"availability", match requirement.policy {
-                    AvailabilityPolicy::RequireComplete => b"require-complete",
-                    AvailabilityPolicy::ObserveAvailability => b"observe-availability",
-                });
+                digest.part(
+                    b"availability",
+                    match requirement.policy {
+                        AvailabilityPolicy::RequireComplete => b"require-complete",
+                        AvailabilityPolicy::ObserveAvailability => b"observe-availability",
+                    },
+                );
             }
             let mut validators = input.validators.to_vec();
             validators.sort_unstable();
-            for validator in validators { digest.part(b"input-validator", validator.as_bytes()); }
+            for validator in validators {
+                digest.part(b"input-validator", validator.as_bytes());
+            }
         }
         for name in writes {
             digest.part(b"write", name.as_bytes());
@@ -269,13 +319,25 @@ impl Schedule {
                     "stage needs a name and declared outputs".into(),
                 ));
             }
-            if stage.outputs.iter().chain(&stage.contributes).any(|r| r.transport != InputTransport::Handoff) {
-                return Err(ModelError::Invalid("store transport applies only to inputs".into()));
+            if stage
+                .outputs
+                .iter()
+                .chain(&stage.contributes)
+                .any(|r| r.transport != InputTransport::Handoff)
+            {
+                return Err(ModelError::Invalid(
+                    "store transport applies only to inputs".into(),
+                ));
             }
             let mut groups = BTreeMap::new();
             for requirement in stage.inputs.iter().filter_map(|input| input.requirement) {
-                if groups.insert(requirement.group, requirement.policy).is_some_and(|old| old != requirement.policy) {
-                    return Err(ModelError::Invalid("one availability policy is required per semantic input group".into()));
+                if groups
+                    .insert(requirement.group, requirement.policy)
+                    .is_some_and(|old| old != requirement.policy)
+                {
+                    return Err(ModelError::Invalid(
+                        "one availability policy is required per semantic input group".into(),
+                    ));
                 }
             }
             if !names.insert(stage.name) {
@@ -366,7 +428,10 @@ impl Schedule {
             for invariant in stage.read_invariants(model)? {
                 for input in &invariant.inputs {
                     if let Some(writer) = writers.get(&input.type_id()) {
-                        dependencies.get_mut(&i).expect("stage index").insert(*writer);
+                        dependencies
+                            .get_mut(&i)
+                            .expect("stage index")
+                            .insert(*writer);
                     }
                 }
             }
@@ -513,20 +578,50 @@ fn shared<R: Record>(values: &[Shared]) -> Vec<Arc<Batch<R>>> {
 impl<'s> Execution<'s> {
     /// A completed frontier prefix without ending the cumulative attempt. This carries the
     /// original schedule identity, and refuses mixed-boundary stages or unacknowledged outputs.
-    pub fn checkpoint_receipt(&self, contract: &super::admission::FrontierContract) -> Result<ExecutionReceipt, ModelError> {
+    pub fn checkpoint_receipt(
+        &self,
+        contract: &super::admission::FrontierContract,
+    ) -> Result<ExecutionReceipt, ModelError> {
         contract.checkpoint_preflight(self.schedule)?;
         if self.failed || !self.sink_bound {
-            return Err(ModelError::Invalid("checkpoint requires a healthy bound attempt".into()));
+            return Err(ModelError::Invalid(
+                "checkpoint requires a healthy bound attempt".into(),
+            ));
         }
         let mut outcomes = BTreeMap::new();
         for stage in self.schedule.stages() {
-            if stage.outputs.iter().all(|r| !contract.contains(r.name())) { continue; }
-            if stage.outputs.iter().any(|r| !contract.contains(r.name()) || !self.sources.contains_key(r.name())) {
-                return Err(ModelError::Invalid("checkpoint outputs incomplete or outside frontier".into()));
+            if stage.outputs.iter().all(|r| !contract.contains(r.name())) {
+                continue;
             }
-            outcomes.insert(stage.name, *self.completed.get(stage.name).ok_or_else(|| ModelError::Invalid("checkpoint stage incomplete".into()))?);
+            if stage
+                .outputs
+                .iter()
+                .any(|r| !contract.contains(r.name()) || !self.sources.contains_key(r.name()))
+            {
+                return Err(ModelError::Invalid(
+                    "checkpoint outputs incomplete or outside frontier".into(),
+                ));
+            }
+            outcomes.insert(
+                stage.name,
+                *self
+                    .completed
+                    .get(stage.name)
+                    .ok_or_else(|| ModelError::Invalid("checkpoint stage incomplete".into()))?,
+            );
         }
-        Ok(ExecutionReceipt { identity: self.identity, model: self.schedule.model, schedule: self.schedule.digest, outcomes })
+        Ok(ExecutionReceipt {
+            identity: self.identity,
+            model: self.schedule.model,
+            schedule: self.schedule.digest,
+            outcomes,
+            sources: self
+                .sources
+                .values()
+                .filter(|s| contract.contains(s.relation()))
+                .cloned()
+                .collect(),
+        })
     }
     pub fn identity(&self) -> AttemptIdentity {
         self.identity
@@ -583,6 +678,7 @@ impl<'s> Execution<'s> {
             model: self.schedule.model,
             schedule: self.schedule.digest,
             outcomes: self.completed,
+            sources: self.sources.into_values().collect(),
             identity: self.identity,
         })
     }
@@ -591,12 +687,16 @@ impl<'s> Execution<'s> {
 /// Production frontier admission separately requires the complete declared producer contract.
 #[derive(Debug)]
 pub struct ExecutionReceipt {
+    sources: Vec<CompletedRelation>,
     model: ContentHash,
     schedule: ContentHash,
     outcomes: BTreeMap<&'static str, ProviderOutcome>,
     identity: AttemptIdentity,
 }
 impl ExecutionReceipt {
+    pub fn sources(&self) -> &[CompletedRelation] {
+        &self.sources
+    }
     pub fn identity(&self) -> AttemptIdentity {
         self.identity
     }
@@ -618,7 +718,9 @@ pub struct StageIdentity {
     stage: &'static str,
 }
 impl StageIdentity {
-    pub fn stage(self) -> &'static str { self.stage }
+    pub fn stage(self) -> &'static str {
+        self.stage
+    }
     pub fn attempt(self) -> AttemptIdentity {
         self.attempt
     }
@@ -639,9 +741,15 @@ pub struct WritePermit<'a, R> {
     marker: std::marker::PhantomData<&'a R>,
 }
 impl<R: Record> ReadPermit<'_, R> {
-    pub fn requirement(&self) -> Option<InputRequirement> { self.requirement }
-    pub fn transport(&self) -> InputTransport { self.transport }
-    pub fn source(&self) -> Option<&CompletedRelation> { self.source.as_ref() }
+    pub fn requirement(&self) -> Option<InputRequirement> {
+        self.requirement
+    }
+    pub fn transport(&self) -> InputTransport {
+        self.transport
+    }
+    pub fn source(&self) -> Option<&CompletedRelation> {
+        self.source.as_ref()
+    }
     pub fn identity(&self) -> StageIdentity {
         self.identity
     }
@@ -690,9 +798,16 @@ impl StageAccess<'_, '_> {
         self.stage
     }
     pub fn stored_sources(&self) -> Result<Vec<CompletedRelation>, ModelError> {
-        self.stage.inputs.iter().filter(|r| r.transport == InputTransport::CompletedStore).map(|r| {
-            self.execution.sources.get(r.name).cloned().ok_or_else(|| ModelError::Invalid(format!("{} lacks a completed source", r.name)))
-        }).collect()
+        self.stage
+            .inputs
+            .iter()
+            .filter(|r| r.transport == InputTransport::CompletedStore)
+            .map(|r| {
+                self.execution.sources.get(r.name).cloned().ok_or_else(|| {
+                    ModelError::Invalid(format!("{} lacks a completed source", r.name))
+                })
+            })
+            .collect()
     }
     /// Every declared input's handed-off batches.
     pub fn handoffs(&self) -> Result<Handoffs, ModelError> {
@@ -700,7 +815,12 @@ impl StageAccess<'_, '_> {
             return Err(ModelError::Invalid("attempt failed".into()));
         }
         let mut inputs = HashMap::new();
-        for input in self.stage.inputs.iter().filter(|i| i.transport == InputTransport::Handoff) {
+        for input in self
+            .stage
+            .inputs
+            .iter()
+            .filter(|i| i.transport == InputTransport::Handoff)
+        {
             let handoff =
                 self.execution.handoffs.get(&input.type_id).ok_or_else(|| {
                     ModelError::Invalid(format!("{} was not handed off", input.name))
@@ -723,10 +843,18 @@ impl StageAccess<'_, '_> {
                 R::NAME
             )));
         }
-        let input = self.stage.inputs.iter().find(|r| r.type_id == TypeId::of::<R>()).expect("declared input");
+        let input = self
+            .stage
+            .inputs
+            .iter()
+            .find(|r| r.type_id == TypeId::of::<R>())
+            .expect("declared input");
         let source = self.execution.sources.get(R::NAME).cloned();
         if input.transport == InputTransport::CompletedStore && source.is_none() {
-            return Err(ModelError::Invalid(format!("{} has no acknowledged stored producer", R::NAME)));
+            return Err(ModelError::Invalid(format!(
+                "{} has no acknowledged stored producer",
+                R::NAME
+            )));
         }
         Ok(ReadPermit {
             model: self.execution.schedule.model,
@@ -854,7 +982,9 @@ impl StageAccess<'_, '_> {
     /// durable completion effect through `complete`; a synchronous call cannot bypass it.
     pub fn finish(self, outcome: ProviderOutcome) -> Result<(), ModelError> {
         if self.execution.sink_bound {
-            return Err(ModelError::Invalid("bound stage requires acknowledged sink completion".into()));
+            return Err(ModelError::Invalid(
+                "bound stage requires acknowledged sink completion".into(),
+            ));
         }
         self.check_finish(outcome)?;
         self.advance(outcome);
@@ -893,30 +1023,52 @@ impl StageAccess<'_, '_> {
     }
     /// Freeze this stage's outputs before allowing a dependent stage to start. Cancellation,
     /// refusal or an uncertain acknowledgement poisons execution, including an empty output.
-    pub async fn complete(self, sink: &impl StageSink, outcome: ProviderOutcome) -> Result<(), ModelError> {
+    pub async fn complete(
+        self,
+        sink: &impl StageSink,
+        outcome: ProviderOutcome,
+    ) -> Result<(), ModelError> {
         self.check_finish(outcome)?;
         self.execution.failed = true;
         let completion = StageCompletion {
-            identity: self.identity(), model: self.execution.schedule.model,
-            schedule: self.execution.schedule.digest, outcome,
+            identity: self.identity(),
+            model: self.execution.schedule.model,
+            schedule: self.execution.schedule.digest,
+            outcome,
             outputs: self.stage.outputs.iter().map(|r| r.name).collect(),
         };
         let completed = sink.complete(completion).await?;
-        if completed.identity != self.identity() || completed.model != self.execution.schedule.model
+        if completed.identity != self.identity()
+            || completed.model != self.execution.schedule.model
             || completed.schedule != self.execution.schedule.digest
-        { return Err(ModelError::Invalid("foreign stage completion acknowledgement".into())); }
+        {
+            return Err(ModelError::Invalid(
+                "foreign stage completion acknowledgement".into(),
+            ));
+        }
         for (name, receipt) in completed.outputs {
-            self.execution.sources.insert(name, CompletedRelation {
-                identity: completed.identity, model: completed.model, schedule: completed.schedule,
-                relation: name, receipt,
-            });
+            self.execution.sources.insert(
+                name,
+                CompletedRelation {
+                    identity: completed.identity,
+                    model: completed.model,
+                    schedule: completed.schedule,
+                    relation: name,
+                    receipt,
+                },
+            );
         }
         self.execution.failed = false;
         self.advance(outcome);
         Ok(())
     }
     fn advance(mut self, outcome: ProviderOutcome) {
-        for input in self.stage.inputs.iter().filter(|i| i.transport == InputTransport::Handoff) {
+        for input in self
+            .stage
+            .inputs
+            .iter()
+            .filter(|i| i.transport == InputTransport::Handoff)
+        {
             if let Some(handoff) = self.execution.handoffs.get_mut(&input.type_id) {
                 handoff.readers -= 1;
                 if handoff.readers == 0 {
@@ -944,12 +1096,18 @@ pub trait StageSink: Sync {
         permit: WritePermit<'_, R>,
         batch: &Batch<R>,
     ) -> impl Future<Output = Result<(), ModelError>> + Send;
-    fn complete(&self, completion: StageCompletion) -> impl Future<Output = Result<CompletedStage, ModelError>> + Send;
+    fn complete(
+        &self,
+        completion: StageCompletion,
+    ) -> impl Future<Output = Result<CompletedStage, ModelError>> + Send;
 }
 
 /// Content acknowledged by the sink after freezing a relation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct RelationReceipt { pub rows: u64, pub content: ContentHash }
+pub struct RelationReceipt {
+    pub rows: u64,
+    pub content: ContentHash,
+}
 /// Only a completed StageAccess constructs a completion request.
 pub struct StageCompletion {
     identity: StageIdentity,
@@ -959,19 +1117,41 @@ pub struct StageCompletion {
     outputs: BTreeSet<&'static str>,
 }
 impl StageCompletion {
-    pub fn identity(&self) -> StageIdentity { self.identity }
-    pub fn stage(&self) -> &'static str { self.identity.stage }
-    pub fn model(&self) -> ContentHash { self.model }
-    pub fn schedule(&self) -> ContentHash { self.schedule }
-    pub fn outcome(&self) -> ProviderOutcome { self.outcome }
-    pub fn outputs(&self) -> &BTreeSet<&'static str> { &self.outputs }
+    pub fn identity(&self) -> StageIdentity {
+        self.identity
+    }
+    pub fn stage(&self) -> &'static str {
+        self.identity.stage
+    }
+    pub fn model(&self) -> ContentHash {
+        self.model
+    }
+    pub fn schedule(&self) -> ContentHash {
+        self.schedule
+    }
+    pub fn outcome(&self) -> ProviderOutcome {
+        self.outcome
+    }
+    pub fn outputs(&self) -> &BTreeSet<&'static str> {
+        &self.outputs
+    }
     /// Called by the sink only after the completion transaction commits. No partial output set
     /// can become a completed source, and replaying a stage remains an execution error.
-    pub fn acknowledge(self, outputs: BTreeMap<&'static str, RelationReceipt>) -> Result<CompletedStage, ModelError> {
+    pub fn acknowledge(
+        self,
+        outputs: BTreeMap<&'static str, RelationReceipt>,
+    ) -> Result<CompletedStage, ModelError> {
         if outputs.keys().copied().collect::<BTreeSet<_>>() != self.outputs {
-            return Err(ModelError::Invalid("completion receipts differ from stage outputs".into()));
+            return Err(ModelError::Invalid(
+                "completion receipts differ from stage outputs".into(),
+            ));
         }
-        Ok(CompletedStage { identity: self.identity, model: self.model, schedule: self.schedule, outputs })
+        Ok(CompletedStage {
+            identity: self.identity,
+            model: self.model,
+            schedule: self.schedule,
+            outputs,
+        })
     }
 }
 pub struct CompletedStage {
@@ -991,12 +1171,24 @@ pub struct CompletedRelation {
     receipt: RelationReceipt,
 }
 impl CompletedRelation {
-    pub fn identity(&self) -> StageIdentity { self.identity }
-    pub fn producer(&self) -> &'static str { self.identity.stage }
-    pub fn model(&self) -> ContentHash { self.model }
-    pub fn schedule(&self) -> ContentHash { self.schedule }
-    pub fn relation(&self) -> &'static str { self.relation }
-    pub fn receipt(&self) -> RelationReceipt { self.receipt }
+    pub fn identity(&self) -> StageIdentity {
+        self.identity
+    }
+    pub fn producer(&self) -> &'static str {
+        self.identity.stage
+    }
+    pub fn model(&self) -> ContentHash {
+        self.model
+    }
+    pub fn schedule(&self) -> ContentHash {
+        self.schedule
+    }
+    pub fn relation(&self) -> &'static str {
+        self.relation
+    }
+    pub fn receipt(&self) -> RelationReceipt {
+        self.receipt
+    }
 }
 
 /// Streams one stage's declared outputs into a sink through transfer-bounded writers. Every

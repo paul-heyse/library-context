@@ -474,7 +474,9 @@ pub fn records(
                 property_getter: base.is_property_getter,
                 property_setter: base.is_property_setter,
                 stub: base.is_stub,
-                origin: *origins.get(&id.serialize_to_string()).ok_or_else(|| invalid("native function origin absent".into()))?,
+                origin: *origins
+                    .get(&id.serialize_to_string())
+                    .ok_or_else(|| invalid("native function origin absent".into()))?,
                 defining_class,
                 overrides,
             });

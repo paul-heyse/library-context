@@ -15,7 +15,7 @@ async fn lexical_support_and_optional_subjects_survive_sealed_postgres_validatio
     let db = DisposableDatabase::start().await;
     let writer = db.writer.clone();
     let reader = db.reader.clone();
-    let model = Arc::new(model().unwrap());
+    let model = Arc::new(ValidatedModel::validate(facts_relations()).unwrap());
     let store = GenerationStore::install(db.owner.clone(), model.clone())
         .await
         .unwrap();

@@ -33,19 +33,33 @@ fn frontier_descriptors_own_relation_closure_validation_and_selection() {
     assert!(facts.selectable());
     assert!(!closure.contains(TransferKey::NAME));
     assert!(closure.contains(ProviderCoverage::NAME));
-    assert!(facts.invariants(&model).unwrap().iter().all(|i|
-        i.inputs.iter().all(|input| closure.contains(input.name()))));
-    let contract = FrontierContract::for_frontier(&model, Profile::Catalog, facts.frontier()).unwrap();
+    assert!(
+        facts
+            .invariants(&model)
+            .unwrap()
+            .iter()
+            .all(|i| i.inputs.iter().all(|input| closure.contains(input.name())))
+    );
+    let contract =
+        FrontierContract::for_frontier(&model, Profile::Catalog, facts.frontier()).unwrap();
     assert_eq!(contract.frontier(), Frontier::Facts);
     assert!(closure.iter().all(|name| contract.contains(name)));
 
     let tiny = ValidatedModel::validate(vec![Relation::of::<Package>()]).unwrap();
-    assert!(facts.relations(&tiny).is_err(), "an incomplete facts model is refused");
+    assert!(
+        facts.relations(&tiny).is_err(),
+        "an incomplete facts model is refused"
+    );
     let conformance = Frontier::Conformance.descriptor();
     assert!(!conformance.requires_admission());
     assert!(!conformance.selectable());
-    assert_eq!(conformance.relations(&tiny).unwrap(), [Package::NAME].into());
-    assert!(FrontierContract::for_frontier(&tiny, Profile::Catalog, Frontier::Conformance).is_err());
+    assert_eq!(
+        conformance.relations(&tiny).unwrap(),
+        [Package::NAME].into()
+    );
+    assert!(
+        FrontierContract::for_frontier(&tiny, Profile::Catalog, Frontier::Conformance).is_err()
+    );
 }
 
 #[test]
@@ -778,14 +792,48 @@ fn faithful_coverage_is_admitted_with_disclosed_availability() {
         let scoped = admission.scoped();
         assert_eq!(scoped.evidence().len(), rows.len());
         for row in &rows {
-            let evidence = scoped.evidence().iter().find(|e| e.coverage == row.id()).unwrap();
-            assert_eq!((evidence.scope, evidence.context, evidence.provider), (row.scope, row.context, row.provider));
+            let evidence = scoped
+                .evidence()
+                .iter()
+                .find(|e| e.coverage == row.id())
+                .unwrap();
+            assert_eq!(
+                (evidence.scope, evidence.context, evidence.provider),
+                (row.scope, row.context, row.provider)
+            );
             assert!(scoped.scope(evidence.scope).is_some());
         }
-        assert!(scoped.admit(InputRequirement { group: FactFamily::Syntax, policy: AvailabilityPolicy::RequireComplete }).is_err());
-        assert!(scoped.admit(InputRequirement { group: FactFamily::Syntax, policy: AvailabilityPolicy::ObserveAvailability }).is_ok());
-        assert!(scoped.admit(InputRequirement { group: FactFamily::Docs, policy: AvailabilityPolicy::RequireComplete }).is_ok());
-        assert!(scoped.evidence().iter().any(|r| r.family == FactFamily::Syntax && r.availability == Availability::Unavailable));
+        assert!(
+            scoped
+                .admit(InputRequirement {
+                    group: FactFamily::Syntax,
+                    policy: AvailabilityPolicy::RequireComplete
+                })
+                .is_err()
+        );
+        assert!(
+            scoped
+                .admit(InputRequirement {
+                    group: FactFamily::Syntax,
+                    policy: AvailabilityPolicy::ObserveAvailability
+                })
+                .is_ok()
+        );
+        assert!(
+            scoped
+                .admit(InputRequirement {
+                    group: FactFamily::Docs,
+                    policy: AvailabilityPolicy::RequireComplete
+                })
+                .is_ok()
+        );
+        assert!(
+            scoped
+                .evidence()
+                .iter()
+                .any(|r| r.family == FactFamily::Syntax
+                    && r.availability == Availability::Unavailable)
+        );
         assert!(scoped.evidence().iter().any(|r| r.family == FactFamily::Syntax && r.availability == Availability::Complete));
         assert_eq!(
             availability[&FactFamily::Syntax],

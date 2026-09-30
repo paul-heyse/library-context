@@ -229,28 +229,60 @@ async fn inspect(tx: &mut PgConnection, model: &ValidatedModel) -> Result<CheckR
             let expected = if state == "staging" {
                 let mut completed: BTreeSet<String> = sqlx::query_scalar::<_, String>("SELECT relation_name FROM lctx_model_store.stage_receipts WHERE generation_id=$1 ORDER BY relation_name COLLATE \"C\"")
                     .bind(g.0.to_vec()).fetch_all(&mut *tx).await?.into_iter().collect();
-                let checkpoints: Vec<String> = sqlx::query_scalar("SELECT frontier FROM lctx_model_store.checkpoints WHERE generation_id=$1")
-                    .bind(g.0.to_vec()).fetch_all(&mut *tx).await?;
+                let checkpoints: Vec<String> = sqlx::query_scalar(
+                    "SELECT frontier FROM lctx_model_store.checkpoints WHERE generation_id=$1",
+                )
+                .bind(g.0.to_vec())
+                .fetch_all(&mut *tx)
+                .await?;
                 for checkpoint in checkpoints {
                     let frontier = ddl::frontier(&checkpoint).ok_or(Error::Contract)?;
-                    completed.extend(frontier.descriptor().relations(model)?.into_iter().map(str::to_owned));
+                    completed.extend(
+                        frontier
+                            .descriptor()
+                            .relations(model)?
+                            .into_iter()
+                            .map(str::to_owned),
+                    );
                 }
                 let shadow_schema = "lctx_check_completed";
-                sqlx::query("SAVEPOINT completed_shadow").execute(&mut *tx).await?;
-                let lowering = ddl::lower(model, &scopes[frontier].relations, SHADOW_GENERATION, shadow_schema, SHADOW_CONTROL);
-                for sql in lowering.through("staging").into_iter().chain(completed.iter().flat_map(|name| ddl::completed_output(shadow_schema, name))) {
-                    sqlx::query(sqlx::AssertSqlSafe(sql)).execute(&mut *tx).await?;
+                sqlx::query("SAVEPOINT completed_shadow")
+                    .execute(&mut *tx)
+                    .await?;
+                let lowering = ddl::lower(
+                    model,
+                    &scopes[frontier].relations,
+                    SHADOW_GENERATION,
+                    shadow_schema,
+                    SHADOW_CONTROL,
+                );
+                for sql in lowering.through("staging").into_iter().chain(
+                    completed
+                        .iter()
+                        .flat_map(|name| ddl::completed_output(shadow_schema, name)),
+                ) {
+                    sqlx::query(sqlx::AssertSqlSafe(sql))
+                        .execute(&mut *tx)
+                        .await?;
                 }
-                staged = describe(tx, shadow_schema, &[(shadow_schema, "<schema>"), (&SHADOW_GENERATION.hex(), "<generation>"), (SHADOW_CONTROL, "<control>")]).await?;
-                sqlx::query("ROLLBACK TO SAVEPOINT completed_shadow").execute(&mut *tx).await?;
+                staged = describe(
+                    tx,
+                    shadow_schema,
+                    &[
+                        (shadow_schema, "<schema>"),
+                        (&SHADOW_GENERATION.hex(), "<generation>"),
+                        (SHADOW_CONTROL, "<control>"),
+                    ],
+                )
+                .await?;
+                sqlx::query("ROLLBACK TO SAVEPOINT completed_shadow")
+                    .execute(&mut *tx)
+                    .await?;
                 &staged
-            } else { &shadows[&(state.as_str(), *frontier)] };
-            compare_objects(
-                &mut findings,
-                &schema,
-                expected,
-                &live,
-            );
+            } else {
+                &shadows[&(state.as_str(), *frontier)]
+            };
+            compare_objects(&mut findings, &schema, expected, &live);
         }
     }
     let mut findings = findings.0;

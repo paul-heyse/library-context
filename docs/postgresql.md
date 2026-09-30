@@ -80,13 +80,13 @@ last. It is resumable: rerun it after an interruption.
 **Busy refusals.** Install, check and reset try the installation lock and refuse `Busy` (exit 2)
 rather than waiting behind work in flight.
 
-Every generation belongs to the attempt that registers it. P2's `lctx compile --through facts`
+Every generation belongs to the attempt that registers it. `lctx compile --through facts|normalized`
 drives attempts; nothing else advances a generation. Operators see and steer generations with:
 
 ```sh
 target/release/lctx generation list [--state published] [--frontier facts]
 target/release/lctx generation show GENERATION_HEX
-target/release/lctx generation select GENERATION_HEX      # facts generations only; compile never selects
+target/release/lctx generation select GENERATION_HEX      # facts or normalized; compile never selects
 target/release/lctx generation clear-selection
 target/release/lctx generation retire GENERATION_HEX      # unselected, unleased, published
 target/release/lctx generation abort GENERATION_HEX       # failed or interrupted
@@ -96,13 +96,17 @@ target/release/lctx query --generation GENERATION_HEX "SELECT count(*) FROM occu
 `show` reports:
 - state, frontier, profile and selection;
 - digests and relation receipts;
-- a facts generation's per-family availability;
+- per-family availability, with normalized scope outcomes in `normalization_coverage`;
 - a failed generation's from-state, class and safe detail (SQLSTATE, constraint, table);
 - the reader count;
 - whether its attempt is live or interrupted.
 
 `query` is read-only DataFusion SQL over one leased generation. DDL and DML are refused, and so is
-a relation outside the generation's frontier.
+a relation outside the generation's frontier. Normalized generations include their facts, normalized
+relations, coverage and versioned serialized petgraph snapshots. Each compile rebuilds snapshots
+once after fact collection; subsequent analysis hydrates them. Compilation uses the importer
+connection allowance (eight provider scans plus two lifecycle/writer slots); serving remains
+unavailable until phase 5.
 
 Exit status: 0 ok, 1 error, 2 refused, 3 unavailable.
 

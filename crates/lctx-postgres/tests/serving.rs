@@ -1073,8 +1073,8 @@ async fn publication_refuses_conflicts_and_incomplete_stored_content() {
         }
         let mut config = f.config.clone();
         config.role = Role::Importer;
-    config.max_connections = 10;
-    config.provider_connections = 8;
+        config.max_connections = 10;
+        config.provider_connections = 8;
         config.url = config.url.replace("lctx_serving:", "lctx_importer:");
         config.statement_timeout_seconds = 30;
         let importer = config.open_importer().await.unwrap();

@@ -1326,10 +1326,14 @@ impl InvariantCheck for CallSyntaxCheck {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
 #[model(name = "binding_sources")]
 pub enum BindingSource {
-    #[model(code = 0)] Actual { occurrence: Id<Occurrence> },
-    #[model(code = 1)] Default,
-    #[model(code = 2)] EmptyVarargs,
-    #[model(code = 3)] EmptyKwargs,
+    #[model(code = 0)]
+    Actual { occurrence: Id<Occurrence> },
+    #[model(code = 1)]
+    Default,
+    #[model(code = 2)]
+    EmptyVarargs,
+    #[model(code = 3)]
+    EmptyKwargs,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
 #[repr(i16)]
@@ -1345,15 +1349,14 @@ pub enum BindingKind {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
 #[model(name = "binding_projections")]
 pub enum BindingProjection {
-    #[model(code = 0)] Whole,
+    #[model(code = 0)]
+    Whole,
     /// Element position inside the collected *args tuple, including any inserted receiver.
-    #[model(code = 1)] Positional {
-        index: i64,
-    },
+    #[model(code = 1)]
+    Positional { index: i64 },
     /// Dictionary key inside the collected **kwargs mapping.
-    #[model(code = 2)] Keyword {
-        name: Utf8Text,
-    },
+    #[model(code = 2)]
+    Keyword { name: Utf8Text },
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Binding {
@@ -1371,8 +1374,15 @@ pub struct BoundCall {
 }
 impl HeapSize for BoundCall {
     fn heap_bytes(&self) -> usize {
-        self.bindings.capacity().saturating_mul(size_of::<Binding>())
-            .saturating_add(self.bindings.iter().map(|b| b.source.heap_bytes() + b.projection.heap_bytes()).sum::<usize>())
+        self.bindings
+            .capacity()
+            .saturating_mul(size_of::<Binding>())
+            .saturating_add(
+                self.bindings
+                    .iter()
+                    .map(|b| b.source.heap_bytes() + b.projection.heap_bytes())
+                    .sum::<usize>(),
+            )
     }
 }
 impl BoundCall {
@@ -1400,21 +1410,48 @@ pub struct BindingInput<'a> {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
 #[repr(i16)]
-pub enum BindingFailureClass { ProvenIncompatible = 0, Undetermined = 1 }
+pub enum BindingFailureClass {
+    ProvenIncompatible = 0,
+    Undetermined = 1,
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct BindingFailure { pub reason: ObligationKind, pub class: BindingFailureClass }
+pub struct BindingFailure {
+    pub reason: ObligationKind,
+    pub class: BindingFailureClass,
+}
 impl BindingFailure {
-    fn incompatible() -> Self { Self { reason: ObligationKind::AmbiguousBinding, class: BindingFailureClass::ProvenIncompatible } }
+    fn incompatible() -> Self {
+        Self {
+            reason: ObligationKind::AmbiguousBinding,
+            class: BindingFailureClass::ProvenIncompatible,
+        }
+    }
 }
 impl From<ObligationKind> for BindingFailure {
-    fn from(reason: ObligationKind) -> Self { Self { reason, class: BindingFailureClass::Undetermined } }
+    fn from(reason: ObligationKind) -> Self {
+        Self {
+            reason,
+            class: BindingFailureClass::Undetermined,
+        }
+    }
 }
 /// The argument algorithm consumes a validated normalized application, never raw symbol equality.
 /// An unsupported or missing premise is not proof that Python rejects the invocation.
 pub fn bind(input: BindingInput<'_>) -> Result<BoundCall, BindingFailure> {
-    let BindingInput { application, parameters, shapes, arguments } = input;
+    let BindingInput {
+        application,
+        parameters,
+        shapes,
+        arguments,
+    } = input;
     let raw = application.raw();
-    let (target, signature, channel, receiver, call) = (raw.target, raw.signature, raw.channel, raw.receiver, raw.call);
+    let (target, signature, channel, receiver, call) = (
+        raw.target,
+        raw.signature,
+        raw.channel,
+        raw.receiver,
+        raw.call,
+    );
     let actuals = &call
         .actuals(arguments)
         .map_err(|_| ObligationKind::MissingEvidence)?;
@@ -1483,7 +1520,9 @@ pub fn bind(input: BindingInput<'_>) -> Result<BoundCall, BindingFailure> {
         };
         out.push(Binding {
             formal: parameters[first].id(),
-            source: BindingSource::Actual { occurrence: *actual },
+            source: BindingSource::Actual {
+                occurrence: *actual,
+            },
             kind: BindingKind::Receiver,
             projection,
         });
@@ -1523,7 +1562,9 @@ pub fn bind(input: BindingInput<'_>) -> Result<BoundCall, BindingFailure> {
                     .keyword
                     .as_deref()
                     .ok_or(ObligationKind::MissingEvidence)?;
-                if name.is_empty() { return Err(ObligationKind::MissingEvidence.into()); }
+                if name.is_empty() {
+                    return Err(ObligationKind::MissingEvidence.into());
+                }
                 if !names.insert(name) {
                     return Err(BindingFailure::incompatible());
                 }
@@ -1565,7 +1606,8 @@ pub fn bind(input: BindingInput<'_>) -> Result<BoundCall, BindingFailure> {
                     name: actual
                         .keyword
                         .clone()
-                        .ok_or(ObligationKind::AmbiguousBinding)?.into(),
+                        .ok_or(ObligationKind::AmbiguousBinding)?
+                        .into(),
                 },
             )
         } else {
@@ -1580,7 +1622,9 @@ pub fn bind(input: BindingInput<'_>) -> Result<BoundCall, BindingFailure> {
         };
         out.push(Binding {
             formal: parameters[index].id(),
-            source: BindingSource::Actual { occurrence: actual.occurrence },
+            source: BindingSource::Actual {
+                occurrence: actual.occurrence,
+            },
             kind,
             projection,
         });

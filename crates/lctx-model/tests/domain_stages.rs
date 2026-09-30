@@ -59,7 +59,12 @@ fn completed_store_inputs_release_handoffs_and_require_acknowledged_sources() {
     let mut declarations = stages();
     declarations[1].inputs = vec![RelationUse::stored::<Package>()];
     let schedule = Schedule::build(&model, declarations, &[], Profile::Catalog).unwrap();
-    assert_ne!(schedule.digest(), Schedule::build(&model, stages(), &[], Profile::Catalog).unwrap().digest());
+    assert_ne!(
+        schedule.digest(),
+        Schedule::build(&model, stages(), &[], Profile::Catalog)
+            .unwrap()
+            .digest()
+    );
     let budget = ResourceBudget::fixed(1 << 20).unwrap();
     let mut execution = schedule.execute();
     let sink = MemoryGeneration::bind(&model, &budget, &mut execution).unwrap();
@@ -68,7 +73,10 @@ fn completed_store_inputs_release_handoffs_and_require_acknowledged_sources() {
     let mut source = execution.begin("packages").unwrap();
     ready(source.write::<Package, _>(async |permit| sink.copy(permit, &batch).await)).unwrap();
     source.retain(batch).unwrap();
-    assert!(weak.upgrade().is_none(), "store transport must not retain the producer's batch");
+    assert!(
+        weak.upgrade().is_none(),
+        "store transport must not retain the producer's batch"
+    );
     ready(source.complete(&sink, ProviderOutcome::Partial)).unwrap();
     let target = execution.begin("releases").unwrap();
     assert!(target.handoff::<Package>().is_err());

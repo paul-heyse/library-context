@@ -1,4 +1,6 @@
-//! Authoritative Arrow table contracts for the code property graph (DESIGN §B2, §3).
+//! Retained legacy Arrow contracts for dormant Phase 4 analysis and Phase 5 serving.
+//! Active facts and normalized generations use lctx-model::domain (DESIGN §15); this crate
+//! supplies no identity, policy or projection authority to that compilation path.
 //!
 //! Dependencies are `arrow-*` and `blake3` only. Column-level contracts live here and are
 //! snapshot-tested (`tests/`); DESIGN.md does not repeat them.

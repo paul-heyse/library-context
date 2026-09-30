@@ -144,6 +144,12 @@ pub(super) async fn reset(
             if registry(tx).await? {
                 sqlx::query("UPDATE lctx_model_store.selection SET generation_id = NULL WHERE generation_id = $1").bind(g.0.to_vec()).execute(&mut *tx).await?;
                 for table in CONTROL_RECORDS {
+                    // Reset also retires older installations. Newly introduced control tables
+                    // may not exist there; none of their contents are read or migrated.
+                    let present: bool = sqlx::query_scalar("SELECT to_regclass($1) IS NOT NULL")
+                        .bind(format!("lctx_model_store.{table}"))
+                        .fetch_one(&mut *tx).await?;
+                    if !present { continue; }
                     sqlx::query(sqlx::AssertSqlSafe(format!("DELETE FROM lctx_model_store.{table} WHERE generation_id=$1"))).bind(g.0.to_vec()).execute(&mut *tx).await?;
                 }
                 sqlx::query("DELETE FROM lctx_model_store.generations WHERE id=$1").bind(g.0.to_vec()).execute(&mut *tx).await?;

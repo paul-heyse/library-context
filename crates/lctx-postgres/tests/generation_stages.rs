@@ -73,7 +73,10 @@ async fn generation_sink_requires_its_execution_and_cannot_bypass_sealing_receip
         .await
         .unwrap();
     assert_eq!(attempt_budget.reserved(), 0);
-    stage.complete(&attempt, ProviderOutcome::Complete).await.unwrap();
+    stage
+        .complete(&attempt, ProviderOutcome::Complete)
+        .await
+        .unwrap();
     let sealed = attempt.seal(execution.finish().unwrap()).await.unwrap();
     assert_eq!(sealed.generation(), generation);
     let validated = sealed.validate().await.unwrap();
@@ -168,7 +171,10 @@ async fn generation_sink_requires_its_execution_and_cannot_bypass_sealing_receip
             .await;
         if admitted {
             result.unwrap();
-            stage.complete(&attempt, ProviderOutcome::Complete).await.unwrap();
+            stage
+                .complete(&attempt, ProviderOutcome::Complete)
+                .await
+                .unwrap();
         } else {
             assert!(matches!(result, Err(ModelError::Resource { .. })));
             drop(stage);
@@ -211,7 +217,9 @@ async fn generation_sink_requires_its_execution_and_cannot_bypass_sealing_receip
         let completed = stage.complete(&attempt, ProviderOutcome::Complete).await;
         if empty_write {
             completed.unwrap();
-            attempt.seal(execution.finish().unwrap()).await
+            attempt
+                .seal(execution.finish().unwrap())
+                .await
                 .unwrap()
                 .validate()
                 .await

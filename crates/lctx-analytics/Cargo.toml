@@ -8,6 +8,7 @@ publish.workspace = true
 
 [dependencies]
 cpg-schema = { path = "../cpg-schema" }
+lctx-model = { path = "../lctx-model" }
 arrow-array.workspace = true
 petgraph.workspace = true
 fixedbitset.workspace = true

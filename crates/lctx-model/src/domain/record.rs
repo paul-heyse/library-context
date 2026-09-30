@@ -286,6 +286,10 @@ pub trait Record:
     fn family() -> Option<super::attribution::FactFamily> {
         None
     }
+    /// Finite typed endpoint meanings declared by the relation that supplies their evidence.
+    fn projection_roles() -> Vec<super::projection::EndpointRole> {
+        Vec::new()
+    }
     type Key: Key + Clone + Eq + std::hash::Hash;
     const NAME: &'static str;
     const CONTRACT: &'static str;

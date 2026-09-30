@@ -67,7 +67,10 @@ pub struct ObservedSink<S> {
     pub tables: Tables,
 }
 impl<S: StageSink + Send> StageSink for ObservedSink<S> {
-    async fn complete(&self, completion: lctx_model::domain::stages::StageCompletion) -> Result<lctx_model::domain::stages::CompletedStage, ModelError> {
+    async fn complete(
+        &self,
+        completion: lctx_model::domain::stages::StageCompletion,
+    ) -> Result<lctx_model::domain::stages::CompletedStage, ModelError> {
         self.generation.complete(completion).await
     }
     async fn copy<R: Record>(
@@ -264,8 +267,11 @@ pub async fn run_profile_with_budget<I: Inspector>(
         .await?;
     }
     let receipt = execution.finish()?;
-    let preflight = lctx_model::domain::admission::FrontierContract::facts(&model, profile)?.preflight(&schedule)?;
-    Ok(generation.validate_facts(&model, &resources, preflight, &receipt)?.content())
+    let preflight = lctx_model::domain::admission::FrontierContract::facts(&model, profile)?
+        .preflight(&schedule)?;
+    Ok(generation
+        .validate_facts(&model, &resources, preflight, &receipt)?
+        .content())
 }
 
 /// The artifact at `path` among `artifacts`.

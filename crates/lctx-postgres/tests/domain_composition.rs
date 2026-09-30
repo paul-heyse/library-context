@@ -27,7 +27,15 @@ async fn composed_transfers_round_trip_and_mismatched_steps_refuse() {
     let db = DisposableDatabase::start().await;
     let writer = db.writer.clone();
     let reader = db.reader.clone();
-    let model = Arc::new(model().unwrap());
+    let model = Arc::new(
+        ValidatedModel::validate(
+            facts_relations()
+                .into_iter()
+                .chain(analysis_relations())
+                .collect(),
+        )
+        .unwrap(),
+    );
     let store = GenerationStore::install(db.owner.clone(), model.clone())
         .await
         .unwrap();

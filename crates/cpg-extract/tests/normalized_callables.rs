@@ -1,16 +1,28 @@
 //! Independent written callable examples through the pinned native providers.
-#[path = "typed_driver/mod.rs"] mod typed_driver;
-use lctx_model::domain::{*, normalized::{entities::*, callables::*, callable_normalization::*, entity_normalization, relation_normalization}, resources::ResourceBudget, calls::*};
+#[path = "typed_driver/mod.rs"]
+mod typed_driver;
+use lctx_model::domain::{
+    calls::*,
+    normalized::{
+        callable_normalization::*, callables::*, entities::*, entity_normalization,
+        relation_normalization,
+    },
+    resources::ResourceBudget,
+    *,
+};
 use typed_driver::{files, rows};
 inspector!(Facts, Occurrence);
 async fn fixture() -> (CallableData, CallableOutput) {
     let tables = typed_driver::Tables::default();
-    typed_driver::run_behavioral(&files("effective_callables"), Facts(tables.clone())).await.unwrap();
+    typed_driver::run_behavioral(&files("effective_callables"), Facts(tables.clone()))
+        .await
+        .unwrap();
     let budget = ResourceBudget::fixed(256 << 20).unwrap();
     let mut relations = relation_normalization::RelationData::new(&budget);
     macro_rules! facts { ($($field:ident: $ty:ty => $family:ident,)*) => { $(for row in rows::<$ty>(&tables) { relations.facts.$field.insert(row).unwrap(); })* }; }
     lctx_model::normalized_entity_inputs!(facts);
-    relations.entities = entity_normalization::normalize(relations.facts.inputs(), &budget).unwrap();
+    relations.entities =
+        entity_normalization::normalize(relations.facts.inputs(), &budget).unwrap();
     macro_rules! additional { ($($field:ident: $ty:ty => $family:ident,)*) => { $(for row in rows::<$ty>(&tables) { relations.$field.insert(row).unwrap(); })* }; }
     lctx_model::normalized_relation_inputs!(additional);
     let links = relation_normalization::normalize(&relations, &budget).unwrap();
@@ -21,26 +33,50 @@ async fn fixture() -> (CallableData, CallableOutput) {
     lctx_model::normalized_entity_outputs!(entities);
     macro_rules! links { ($($field:ident: $ty:ty,)*) => { $(let batch = <$ty as Record>::encode(&links.$field.iter().cloned().collect::<Vec<_>>()).unwrap(); data.visit(<$ty>::NAME, &batch).unwrap();)* }; }
     lctx_model::normalized_relation_outputs!(links);
-    let output = normalize(&data, &budget).unwrap(); (data, output)
+    let output = normalize(&data, &budget).unwrap();
+    (data, output)
 }
-fn named<'a>(data: &CallableData, output: &'a CallableOutput, name: &str) -> &'a EffectiveCallableAssessment {
+fn named<'a>(
+    data: &CallableData,
+    output: &'a CallableOutput,
+    name: &str,
+) -> &'a EffectiveCallableAssessment {
     let source = files("effective_callables");
     let bytes = &source["surfaces.py"];
-    let declaration = data.declarations.iter().find(|d| { let o = data.occurrences.get(d.name).unwrap(); &bytes[o.start as usize..o.end as usize] == name.as_bytes() }).unwrap_or_else(|| panic!("source declaration {name}"));
+    let declaration = data
+        .declarations
+        .iter()
+        .find(|d| {
+            let o = data.occurrences.get(d.name).unwrap();
+            &bytes[o.start as usize..o.end as usize] == name.as_bytes()
+        })
+        .unwrap_or_else(|| panic!("source declaration {name}"));
     let entity = data.callables.iter().find(|c| matches!(c, CallableEntity::Source { declaration: occurrence, .. } if *occurrence == declaration.declaration)).unwrap();
-    output.assessments.iter().find(|a| a.callable == entity.id()).unwrap()
+    output
+        .assessments
+        .iter()
+        .find(|a| a.callable == entity.id())
+        .unwrap()
 }
 #[tokio::test]
 async fn undecorated_signatures_and_exact_descriptors_have_separate_body_authority() {
     let (data, output) = fixture().await;
-    for (name, kind) in [("plain", DescriptorKind::Function), ("ordinary", DescriptorKind::InstanceMethod),
-        ("static", DescriptorKind::StaticMethod), ("create", DescriptorKind::ClassMethod), ("value", DescriptorKind::Property)] {
+    for (name, kind) in [
+        ("plain", DescriptorKind::Function),
+        ("ordinary", DescriptorKind::InstanceMethod),
+        ("static", DescriptorKind::StaticMethod),
+        ("create", DescriptorKind::ClassMethod),
+        ("value", DescriptorKind::Property),
+    ] {
         let a = named(&data, &output, name);
         assert_eq!(a.identity, Knowledge::Known, "{name}: {a:?}");
         assert_eq!(a.descriptor_kind, Some(kind), "{name}: {a:?}");
         assert!(a.body_admitted, "{name}: {a:?}");
     }
-    assert_eq!(named(&data, &output, "asynchronous").asynchronous, Some(true));
+    assert_eq!(
+        named(&data, &output, "asynchronous").asynchronous,
+        Some(true)
+    );
     assert_eq!(named(&data, &output, "generator").generator, Some(true));
     assert_eq!(named(&data, &output, "plain").generator, Some(false));
 }
@@ -51,31 +87,96 @@ async fn arbitrary_shadowed_and_stacked_decorators_keep_source_contracts_and_ord
         let a = named(&data, &output, name);
         assert_eq!(a.identity, Knowledge::Unknown, "{name}: {a:?}");
         assert!(!a.body_admitted);
-        assert!(output.variants.iter().any(|v| v.callable == Some(a.callable)), "source variants for {name}");
+        assert!(
+            output
+                .variants
+                .iter()
+                .any(|v| v.callable == Some(a.callable)),
+            "source variants for {name}"
+        );
     }
     let stacked = named(&data, &output, "stacked");
-    let mut order: Vec<_> = output.decorators.iter().filter(|d| d.assessment == stacked.id()).map(|d| (d.source_ordinal, d.application_ordinal)).collect(); order.sort();
+    let mut order: Vec<_> = output
+        .decorators
+        .iter()
+        .filter(|d| d.assessment == stacked.id())
+        .map(|d| (d.source_ordinal, d.application_ordinal))
+        .collect();
+    order.sort();
     assert_eq!(order, [(0, 1), (1, 0)]);
 }
 #[tokio::test]
 async fn signature_slots_preserve_raw_order_defaults_collectors_and_entity_links() {
     let (data, output) = fixture().await;
-    assert_eq!(output.variants.len(), data.signatures.len()); assert_eq!(output.slots.len(), data.parameters.len());
+    assert_eq!(output.variants.len(), data.signatures.len());
+    assert_eq!(output.slots.len(), data.parameters.len());
     assert_eq!(output.slot_entities.len(), data.parameter_links.len());
     let a = named(&data, &output, "plain");
-    let variant = output.variants.iter().find(|v| v.callable == Some(a.callable)).unwrap();
-    let mut slots: Vec<_> = output.slots.iter().filter(|s| s.variant == variant.id()).collect(); slots.sort_by_key(|s| s.ordinal);
-    assert_eq!(slots.iter().map(|s| s.default).collect::<Vec<_>>(), [DefaultSlot::Required, DefaultSlot::DefinitionTime, DefaultSlot::Required, DefaultSlot::DefinitionTime, DefaultSlot::Collector]);
-    assert_eq!(slots.iter().map(|s| data.shapes.get(data.parameters.get(s.parameter).unwrap().shape).unwrap().kind).collect::<Vec<_>>(), [ParameterKind::PositionalOnly, ParameterKind::PositionalOrKeyword, ParameterKind::KeywordOnly, ParameterKind::KeywordOnly, ParameterKind::VarKeyword]);
+    let variant = output
+        .variants
+        .iter()
+        .find(|v| v.callable == Some(a.callable))
+        .unwrap();
+    let mut slots: Vec<_> = output
+        .slots
+        .iter()
+        .filter(|s| s.variant == variant.id())
+        .collect();
+    slots.sort_by_key(|s| s.ordinal);
+    assert_eq!(
+        slots.iter().map(|s| s.default).collect::<Vec<_>>(),
+        [
+            DefaultSlot::Required,
+            DefaultSlot::DefinitionTime,
+            DefaultSlot::Required,
+            DefaultSlot::DefinitionTime,
+            DefaultSlot::Collector
+        ]
+    );
+    assert_eq!(
+        slots
+            .iter()
+            .map(|s| data
+                .shapes
+                .get(data.parameters.get(s.parameter).unwrap().shape)
+                .unwrap()
+                .kind)
+            .collect::<Vec<_>>(),
+        [
+            ParameterKind::PositionalOnly,
+            ParameterKind::PositionalOrKeyword,
+            ParameterKind::KeywordOnly,
+            ParameterKind::KeywordOnly,
+            ParameterKind::VarKeyword
+        ]
+    );
     let class = named(&data, &output, "create");
-    let variant = output.variants.iter().find(|v| v.callable == Some(class.callable)).unwrap();
+    let variant = output
+        .variants
+        .iter()
+        .find(|v| v.callable == Some(class.callable))
+        .unwrap();
     assert_eq!(variant.adjustment, SignatureAdjustment::BindClassReceiver);
-    assert_eq!(output.slots.iter().filter(|s| s.variant == variant.id()).count(), 2, "raw cls formal remains; presentation never rewrites it");
+    assert_eq!(
+        output
+            .slots
+            .iter()
+            .filter(|s| s.variant == variant.id())
+            .count(),
+        2,
+        "raw cls formal remains; presentation never rewrites it"
+    );
 }
 #[tokio::test]
 async fn shared_validation_refuses_missing_and_falsely_admitted_callable_results() {
-    let (data, output) = fixture().await; let budget = ResourceBudget::fixed(256 << 20).unwrap();
-    for omit in [None, Some(EffectiveCallableAssessment::NAME), Some(SignatureSlot::NAME), Some("tampered-body")] {
+    let (data, output) = fixture().await;
+    let budget = ResourceBudget::fixed(256 << 20).unwrap();
+    for omit in [
+        None,
+        Some(EffectiveCallableAssessment::NAME),
+        Some(SignatureSlot::NAME),
+        Some("tampered-body"),
+    ] {
         let mut check = (invariants().remove(0).create)(&budget);
         macro_rules! input { ($($field:ident: $ty:ty,)*) => { $(check.visit(<$ty>::NAME, &<$ty as Record>::encode(&data.$field.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap();)* }; }
         lctx_model::normalized_callable_inputs!(input);
@@ -83,11 +184,35 @@ async fn shared_validation_refuses_missing_and_falsely_admitted_callable_results
         lctx_model::normalized_callable_outputs!(out);
         if omit == Some("tampered-body") {
             let target = named(&data, &output, "decorated").id();
-            let rows: Vec<_> = output.assessments.iter().cloned().map(|mut a| { if a.id() == target { a.body_admitted = true; a.body = Knowledge::Known; a.identity = Knowledge::Known; a.descriptor = Knowledge::Known; a.descriptor_kind = Some(DescriptorKind::Function); } a }).collect();
-            check.visit(EffectiveCallableAssessment::NAME, &EffectiveCallableAssessment::encode(&rows).unwrap()).unwrap();
+            let rows: Vec<_> = output
+                .assessments
+                .iter()
+                .cloned()
+                .map(|mut a| {
+                    if a.id() == target {
+                        a.body_admitted = true;
+                        a.body = Knowledge::Known;
+                        a.identity = Knowledge::Known;
+                        a.descriptor = Knowledge::Known;
+                        a.descriptor_kind = Some(DescriptorKind::Function);
+                    }
+                    a
+                })
+                .collect();
+            check
+                .visit(
+                    EffectiveCallableAssessment::NAME,
+                    &EffectiveCallableAssessment::encode(&rows).unwrap(),
+                )
+                .unwrap();
         }
         assert_eq!(check.finish().is_ok(), omit.is_none(), "{omit:?}");
     }
-    let tiny = ResourceBudget::fixed(64).unwrap(); assert!(matches!(normalize(&data, &tiny), Err(ModelError::Resource { .. }))); assert_eq!(tiny.reserved(), 0);
+    let tiny = ResourceBudget::fixed(64).unwrap();
+    assert!(matches!(
+        normalize(&data, &tiny),
+        Err(ModelError::Resource { .. })
+    ));
+    assert_eq!(tiny.reserved(), 0);
     assert!(output.assessments.len() > 10);
 }

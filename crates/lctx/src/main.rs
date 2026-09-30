@@ -1,8 +1,8 @@
 //! `lctx`: pinned Python libraries and their compilation (DESIGN §4.0, ADR-0013). Every analyzed
 //! library is a committed uv project under `libraries/<name>/`.
 //!
-//! The semantic-model cutover exposes the facts frontier. Downstream commands return with
-//! phases 3–5; unsupported frontiers exit 3 before acquisition or database effects.
+//! The semantic-model cutover exposes facts and normalized frontiers. Downstream commands return with
+//! phases 4–5; unsupported frontiers exit 3 before acquisition or database effects.
 //!
 //! ```text
 //! lctx library init <name> --requirement REQ [--python 3.14.7]   write, lock, acquire, propose release
@@ -15,7 +15,7 @@
 //! lctx query --generation ID SQL                                 read-only SQL over one leased generation
 //! lctx runs list|show|mark-interrupted                           operational compile-attempt history
 //! lctx flow FILE                                                 one file's flow facts (oracle input)
-//! lctx compile <name> --through facts --profile catalog|behavioral   publish facts; selection is explicit
+//! lctx compile <name> --through facts|normalized --profile catalog|behavioral   publish; selection is explicit
 //! ```
 //! Common options: `--database FILE` (the protected `postgres.json`; its siblings select the roles),
 //! `--libraries DIR` (default `libraries`), `--envs DIR` (default `build/envs`), `--sources DIR`
@@ -113,7 +113,7 @@ enum Cmd {
     },
     /// The acquired environment's deployment identity, as JSON (scripts/deployment_check.py).
     DeploymentIdentity { name: String },
-    /// Publish a facts generation from pinned inputs; selection is a separate operator action.
+    /// Publish facts or normalized records and graph snapshots; selection is explicit.
     Compile {
         name: String,
         #[arg(long)]
@@ -642,9 +642,9 @@ fn run() -> anyhow::Result<()> {
             task_receipt,
             memory_bytes,
         } => {
-            if through != "facts" {
+            if !matches!(through.as_str(), "facts" | "normalized") {
                 return Err(Unavailable(
-                    "only --through facts is available during the semantic cutover",
+                    "only --through facts or normalized is available during the semantic cutover",
                 )
                 .into());
             }
@@ -652,6 +652,11 @@ fn run() -> anyhow::Result<()> {
             runtime()?.block_on(compile::compile(
                 &name,
                 profile,
+                if through == "facts" {
+                    lctx_model::domain::admission::Frontier::Facts
+                } else {
+                    lctx_model::domain::admission::Frontier::Normalized
+                },
                 &task_receipt,
                 memory_bytes,
                 &libraries,

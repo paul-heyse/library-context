@@ -39,8 +39,8 @@ use datafusion_table_providers_postgres::{
 use lctx_model::domain::{Infrastructure, Record, Relation, ValidatedModel, admission::Frontier};
 use lctx_postgres::{
     generations::{
-        Error as StoreError, FailureClass, GenerationId, Held, LeaseContract, LeaseDriver, AttemptReadContract, GenerationAttempt,
-        LeaseParam,
+        AttemptReadContract, Error as StoreError, FailureClass, GenerationAttempt, GenerationId,
+        Held, LeaseContract, LeaseDriver, LeaseParam,
     },
     roles::{Role, RoleConfig},
 };
@@ -158,18 +158,33 @@ struct Binder {
     refusal: Mutex<Option<StoreError>>,
 }
 #[derive(Debug)]
-enum ReadContract { Published(LeaseContract), Attempt(AttemptReadContract) }
+enum ReadContract {
+    Published(LeaseContract),
+    Attempt(AttemptReadContract),
+}
 impl ReadContract {
-    async fn acquire(&self, driver: &mut impl LeaseDriver) -> std::result::Result<Held, StoreError> {
-        match self { Self::Published(c) => c.acquire(driver).await, Self::Attempt(c) => c.acquire(driver).await }
+    async fn acquire(
+        &self,
+        driver: &mut impl LeaseDriver,
+    ) -> std::result::Result<Held, StoreError> {
+        match self {
+            Self::Published(c) => c.acquire(driver).await,
+            Self::Attempt(c) => c.acquire(driver).await,
+        }
     }
     async fn release(&self, driver: &mut impl LeaseDriver) -> std::result::Result<(), StoreError> {
-        match self { Self::Published(c) => c.release(driver).await, Self::Attempt(c) => c.release(driver).await }
+        match self {
+            Self::Published(c) => c.release(driver).await,
+            Self::Attempt(c) => c.release(driver).await,
+        }
     }
 }
 #[async_trait]
 impl SessionBinder for Binder {
-    async fn release(&self, client: &tokio_postgres::Client) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn release(
+        &self,
+        client: &tokio_postgres::Client,
+    ) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.contract.release(&mut Tokio(client)).await?;
         Ok(())
     }
@@ -323,34 +338,104 @@ pub struct AttemptSession {
     closed: bool,
 }
 impl AttemptSession {
-    pub async fn open(config: &RoleConfig, attempt: &GenerationAttempt,
-        stage: &lctx_model::domain::stages::StageAccess<'_, '_>, model: Arc<ValidatedModel>,
+    pub async fn open(
+        config: &RoleConfig,
+        attempt: &GenerationAttempt,
+        stage: &lctx_model::domain::stages::StageAccess<'_, '_>,
+        model: Arc<ValidatedModel>,
         mut options: ProviderOptions,
     ) -> std::result::Result<Self, ReadError> {
-        config.validate().map_err(|_| ReadError::Config("invalid importer configuration"))?;
-        if config.role != Role::Importer { return Err(ReadError::Config("attempt readers require the importer role")); }
+        config
+            .validate()
+            .map_err(|_| ReadError::Config("invalid importer configuration"))?;
+        if config.role != Role::Importer {
+            return Err(ReadError::Config(
+                "attempt readers require the importer role",
+            ));
+        }
         options.connections = config.provider_connections;
-        let reader = attempt.reserve_reader().map_err(|e| ReadError::Pool(e.to_string()))?;
-        let contract = attempt.read_contract(stage).await.map_err(|e| ReadError::Pool(e.to_string()))?;
-        if contract.model() != model.digest() { return Err(ReadError::Store(StoreError::Contract)); }
+        let reader = attempt
+            .reserve_reader()
+            .map_err(|e| ReadError::Pool(e.to_string()))?;
+        let contract = attempt
+            .read_contract(stage)
+            .await
+            .map_err(|e| ReadError::Pool(e.to_string()))?;
+        if contract.model() != model.digest() {
+            return Err(ReadError::Store(StoreError::Contract));
+        }
         let (driver, ssl, root) = driver_config(config)?;
-        let binder = Arc::new(Binder { contract: ReadContract::Attempt(contract.clone()), held: Mutex::new(None), refusal: Mutex::new(None) });
-        let pool = PostgresConnectionPool::new_bound(driver, &ssl, root, binder.clone(), BoundLimits {
-            connections: options.connections, acquire_timeout: options.acquire_timeout, drain_timeout: options.drain_timeout,
-        }).await.map_err(|error| binder.refusal.lock().ok().and_then(|mut r| r.take())
-            .map_or_else(|| ReadError::Pool(error.to_string()), ReadError::Store))?;
-        Ok(Self { pool: Arc::new(pool), contract, model, options, reader: Some(reader), closed: false })
+        let binder = Arc::new(Binder {
+            contract: ReadContract::Attempt(contract.clone()),
+            held: Mutex::new(None),
+            refusal: Mutex::new(None),
+        });
+        let pool = PostgresConnectionPool::new_bound(
+            driver,
+            &ssl,
+            root,
+            binder.clone(),
+            BoundLimits {
+                connections: options.connections,
+                acquire_timeout: options.acquire_timeout,
+                drain_timeout: options.drain_timeout,
+            },
+        )
+        .await
+        .map_err(|error| {
+            binder
+                .refusal
+                .lock()
+                .ok()
+                .and_then(|mut r| r.take())
+                .map_or_else(|| ReadError::Pool(error.to_string()), ReadError::Store)
+        })?;
+        Ok(Self {
+            pool: Arc::new(pool),
+            contract,
+            model,
+            options,
+            reader: Some(reader),
+            closed: false,
+        })
     }
-    pub fn table<R: Record>(&self, permit: &lctx_model::domain::stages::ReadPermit<'_, R>) -> std::result::Result<crate::model_runtime::StageTable<R>, ReadError> {
-        if permit.identity() != self.contract.consumer() || permit.model() != self.contract.model()
-            || permit.source() != self.contract.sources().get(R::NAME) || permit.source().is_none()
-        { return Err(ReadError::Store(StoreError::Contract)); }
-        let relation = self.model.require::<R>().map_err(|_| ReadError::Store(StoreError::Contract))?;
-        let table = Arc::new(GenerationTable { pool: self.pool.clone(), schema: relation.schema().clone(),
-            options: self.options, source: format!("{}.{}", quote(&self.contract.generation().schema()), quote(R::NAME)) });
-        Ok(crate::model_runtime::StageTable::completed(permit, table, self.contract.availability().cloned()))
+    pub fn availability(&self) -> Option<&Arc<lctx_model::domain::admission::ScopedAvailability>> {
+        self.contract.availability()
     }
-    pub fn health(&self) -> PoolHealth { self.pool.health() }
+    pub fn table<R: Record>(
+        &self,
+        permit: &lctx_model::domain::stages::ReadPermit<'_, R>,
+    ) -> std::result::Result<crate::model_runtime::StageTable<R>, ReadError> {
+        if permit.identity() != self.contract.consumer()
+            || permit.model() != self.contract.model()
+            || permit.source() != self.contract.sources().get(R::NAME)
+            || permit.source().is_none()
+        {
+            return Err(ReadError::Store(StoreError::Contract));
+        }
+        let relation = self
+            .model
+            .require::<R>()
+            .map_err(|_| ReadError::Store(StoreError::Contract))?;
+        let table = Arc::new(GenerationTable {
+            pool: self.pool.clone(),
+            schema: relation.schema().clone(),
+            options: self.options,
+            source: format!(
+                "{}.{}",
+                quote(&self.contract.generation().schema()),
+                quote(R::NAME)
+            ),
+        });
+        Ok(crate::model_runtime::StageTable::completed(
+            permit,
+            table,
+            self.contract.availability().cloned(),
+        ))
+    }
+    pub fn health(&self) -> PoolHealth {
+        self.pool.health()
+    }
     pub async fn close(mut self) -> std::result::Result<(), ReadError> {
         let result = self.pool.close().await.map_err(|_| ReadError::Lost);
         self.closed = true;
@@ -365,7 +450,10 @@ impl Drop for AttemptSession {
             let reader = self.reader.take();
             // Error and cancellation paths retain the single-reader reservation until terminal
             // drain. Retained tables share that terminal state and cannot keep reading.
-            tokio::spawn(async move { let _reader = reader; let _ = pool.close().await; });
+            tokio::spawn(async move {
+                let _reader = reader;
+                let _ = pool.close().await;
+            });
         }
     }
 }
@@ -381,9 +469,11 @@ pub struct InspectionSession {
 }
 impl InspectionSession {
     pub fn new(session: GenerationSession) -> Result<Self, ReadError> {
-        let runtime = crate::model_runtime::AttemptRuntime::new(crate::model_runtime::RuntimeOptions {
-            memory_bytes: session.options.inspection_memory, ..Default::default()
-        })
+        let runtime =
+            crate::model_runtime::AttemptRuntime::new(crate::model_runtime::RuntimeOptions {
+                memory_bytes: session.options.inspection_memory,
+                ..Default::default()
+            })
             .map_err(|_| ReadError::Config("invalid inspection memory limit"))?;
         let context = runtime.context(SessionConfig::new());
         for relation in session.model.relations() {
@@ -400,7 +490,11 @@ impl InspectionSession {
                 .register_table(relation.name(), table)
                 .map_err(|e| ReadError::Pool(e.to_string()))?;
         }
-        Ok(Self { session, context, runtime })
+        Ok(Self {
+            session,
+            context,
+            runtime,
+        })
     }
     /// Plan one read-only query. A statement the read contract refuses is a typed `ReadOnly` error.
     pub async fn query(&self, sql: &str) -> Result<crate::model_runtime::PreparedQuery> {
@@ -416,7 +510,13 @@ impl InspectionSession {
                 )))
             })?;
         let frame = self.context.execute_logical_plan(plan).await?;
-        crate::model_runtime::PreparedQuery::from_frame(&self.context, frame, self.runtime.query_gate(), self.runtime.budget().clone()).await
+        crate::model_runtime::PreparedQuery::from_frame(
+            &self.context,
+            frame,
+            self.runtime.query_gate(),
+            self.runtime.budget().clone(),
+        )
+        .await
     }
     pub fn health(&self) -> PoolHealth {
         self.session.health()
@@ -695,7 +795,9 @@ pub struct GenerationScan {
     options: ProviderOptions,
 }
 impl GenerationScan {
-    pub(crate) fn scan_pool(&self) -> (Arc<PostgresConnectionPool>, usize) { (self.pool.clone(), self.options.connections as usize) }
+    pub(crate) fn scan_pool(&self) -> (Arc<PostgresConnectionPool>, usize) {
+        (self.pool.clone(), self.options.connections as usize)
+    }
     pub fn sql(&self) -> &str {
         &self.sql
     }
@@ -751,7 +853,9 @@ impl ExecutionPlan for GenerationScan {
                 .await
                 .map_err(|e| match pool.health() {
                     PoolHealth::Lost => DataFusionError::External(Box::new(ReadError::Lost)),
-                    PoolHealth::Closing | PoolHealth::Closed => DataFusionError::External(Box::new(ReadError::Closed)),
+                    PoolHealth::Closing | PoolHealth::Closed => {
+                        DataFusionError::External(Box::new(ReadError::Closed))
+                    }
                     PoolHealth::Ready { .. } => DataFusionError::External(Box::new(e)),
                 })?;
             connection

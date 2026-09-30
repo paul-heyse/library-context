@@ -6,9 +6,10 @@
     dead_code,
     reason = "Shared contract fixtures expose helpers to multiple targeted suites"
 )]
+#[path = "binding.rs"]
+pub(super) mod binding_fixture;
 #[path = "stability.rs"]
 mod stability;
-#[path = "binding.rs"] mod binding_fixture;
 use binding_fixture::{InspectionCase, bind_inspection};
 use lctx_model::domain::{
     artifact::*,

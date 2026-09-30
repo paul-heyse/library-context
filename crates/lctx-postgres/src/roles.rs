@@ -53,10 +53,15 @@ impl RoleConfig {
     }
     pub fn validate(&self) -> Result<(), Error> {
         let pools_valid = match self.role {
-            Role::Importer => (1..=32).contains(&self.provider_connections)
-                && self.max_connections == self.provider_connections + 2,
-            Role::Serving => (1..=6).contains(&self.max_connections)
-                && self.provider_connections <= 2 && self.provider_connections < self.max_connections,
+            Role::Importer => {
+                (1..=32).contains(&self.provider_connections)
+                    && self.max_connections == self.provider_connections + 2
+            }
+            Role::Serving => {
+                (1..=6).contains(&self.max_connections)
+                    && self.provider_connections <= 2
+                    && self.provider_connections < self.max_connections
+            }
         };
         if self.format != 1
             || !pools_valid
@@ -123,9 +128,13 @@ impl RoleConfig {
             .fetch_one(pool).await?;
         let importer_remaining = i64::from(self.max_connections.saturating_sub(pool.size()));
         let with_owner = importer_remaining + 2;
-        if server_free < with_owner || (role_limit >= 0 && role_limit - role_used < importer_remaining)
-            || (database_limit >= 0 && database_limit - database_used < with_owner) {
-            return Err(Error::Config("insufficient PostgreSQL capacity for importer budget plus two owner connections"));
+        if server_free < with_owner
+            || (role_limit >= 0 && role_limit - role_used < importer_remaining)
+            || (database_limit >= 0 && database_limit - database_used < with_owner)
+        {
+            return Err(Error::Config(
+                "insufficient PostgreSQL capacity for importer budget plus two owner connections",
+            ));
         }
         Ok(())
     }

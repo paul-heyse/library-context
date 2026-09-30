@@ -26,13 +26,15 @@ pub use availability::{CoverageEvidence, ScopedAvailability};
 pub enum Frontier {
     Conformance,
     Facts,
+    Normalized,
 }
 impl Frontier {
-    pub const ALL: [Self; 2] = [Self::Conformance, Self::Facts];
+    pub const ALL: [Self; 3] = [Self::Conformance, Self::Facts, Self::Normalized];
     pub fn name(self) -> &'static str {
         match self {
             Self::Conformance => "conformance",
             Self::Facts => "facts",
+            Self::Normalized => "normalized",
         }
     }
     /// The model is the sole owner of frontier closure and admission semantics. A frontier is
@@ -55,6 +57,14 @@ impl Frontier {
                 selectable: true,
                 admission: true,
             },
+            Self::Normalized => FrontierDescriptor {
+                frontier: self,
+                declared: Some(normalized_relations),
+                requirements: FACTS_REQUIREMENTS,
+                checkpoints: &[Self::Facts],
+                selectable: true,
+                admission: true,
+            },
         }
     }
 }
@@ -71,11 +81,27 @@ pub struct FrontierDescriptor {
     admission: bool,
 }
 impl FrontierDescriptor {
-    pub fn frontier(self) -> Frontier { self.frontier }
-    pub fn selectable(self) -> bool { self.selectable }
-    pub fn requires_admission(self) -> bool { self.admission }
-    pub fn checkpoints(self) -> &'static [Frontier] { self.checkpoints }
-    pub fn requirements(self) -> &'static [FamilyRequirement] { self.requirements }
+    pub fn frontier(self) -> Frontier {
+        self.frontier
+    }
+    pub fn selectable(self) -> bool {
+        self.selectable
+    }
+    pub fn requires_admission(self) -> bool {
+        self.admission
+    }
+    pub fn checkpoints(self) -> &'static [Frontier] {
+        self.checkpoints
+    }
+    fn relations_from_declaration(self) -> Result<BTreeSet<&'static str>, ModelError> {
+        let declare = self
+            .declared
+            .ok_or_else(|| refuse("conformance cannot be a product checkpoint"))?;
+        Ok(declare().iter().map(Relation::name).collect())
+    }
+    pub fn requirements(self) -> &'static [FamilyRequirement] {
+        self.requirements
+    }
     /// Refuse an incomplete model or a reference above the declared frontier. Conformance alone
     /// takes the caller's entire validated model, including deliberately small fixture models.
     pub fn relations(self, model: &ValidatedModel) -> Result<BTreeSet<&'static str>, ModelError> {
@@ -84,22 +110,40 @@ impl FrontierDescriptor {
             None => model.relations().iter().map(Relation::name).collect(),
         };
         for name in &relations {
-            let relation = model.relations().iter().find(|r| r.name() == *name)
-                .ok_or_else(|| refuse(format!("the model lacks {} relation {name}", self.frontier.name())))?;
+            let relation = model
+                .relations()
+                .iter()
+                .find(|r| r.name() == *name)
+                .ok_or_else(|| {
+                    refuse(format!(
+                        "the model lacks {} relation {name}",
+                        self.frontier.name()
+                    ))
+                })?;
             for field in relation.fields() {
                 if let Some((_, target)) = field.target()
                     && !relations.contains(target)
                 {
-                    return Err(refuse(format!("{name}.{} references {target}, above the {} frontier", field.name(), self.frontier.name())));
+                    return Err(refuse(format!(
+                        "{name}.{} references {target}, above the {} frontier",
+                        field.name(),
+                        self.frontier.name()
+                    )));
                 }
             }
         }
         Ok(relations)
     }
-    pub fn invariants<'a>(self, model: &'a ValidatedModel) -> Result<Vec<&'a Invariant>, ModelError> {
+    pub fn invariants(self, model: &ValidatedModel) -> Result<Vec<&Invariant>, ModelError> {
         let relations = self.relations(model)?;
-        Ok(model.invariants().iter()
-            .filter(|i| i.inputs.iter().all(|input| relations.contains(input.name())))
+        Ok(model
+            .invariants()
+            .iter()
+            .filter(|i| {
+                i.inputs
+                    .iter()
+                    .all(|input| relations.contains(input.name()))
+            })
             .collect())
     }
 }
@@ -249,7 +293,11 @@ impl FrontierContract {
     pub fn facts(model: &ValidatedModel, profile: Profile) -> Result<Self, ModelError> {
         Self::for_frontier(model, profile, Frontier::Facts)
     }
-    pub fn for_frontier(model: &ValidatedModel, profile: Profile, frontier: Frontier) -> Result<Self, ModelError> {
+    pub fn for_frontier(
+        model: &ValidatedModel,
+        profile: Profile,
+        frontier: Frontier,
+    ) -> Result<Self, ModelError> {
         let descriptor = frontier.descriptor();
         if !descriptor.requires_admission() {
             return Err(refuse("conformance has no product admission contract"));
@@ -265,7 +313,6 @@ impl FrontierContract {
             if let Some(family) = relation.family() {
                 families.insert(*name, family);
             }
-
         }
         let requirements = descriptor.requirements();
         let stated: BTreeSet<_> = requirements.iter().map(|r| r.family as i16).collect();
@@ -348,7 +395,11 @@ impl FrontierContract {
     pub fn checkpoint_preflight(&self, schedule: &Schedule) -> Result<Preflight, ModelError> {
         self.preflight_scope(schedule, true)
     }
-    fn preflight_scope(&self, schedule: &Schedule, checkpoint: bool) -> Result<Preflight, ModelError> {
+    fn preflight_scope(
+        &self,
+        schedule: &Schedule,
+        checkpoint: bool,
+    ) -> Result<Preflight, ModelError> {
         if schedule.model() != self.model || schedule.profile() != self.profile {
             return Err(refuse(
                 "the schedule's model or profile differs from the frontier contract",
@@ -358,7 +409,9 @@ impl FrontierContract {
         let mut stages = BTreeMap::new();
         let mut written = BTreeSet::new();
         for stage in schedule.stages() {
-            if checkpoint && stage.outputs.iter().all(|r| !self.contains(r.name())) { continue; }
+            if checkpoint && stage.outputs.iter().all(|r| !self.contains(r.name())) {
+                continue;
+            }
             for relation in stage
                 .inputs
                 .iter()
@@ -435,6 +488,30 @@ impl FrontierContract {
         for relation in [ProviderCoverage::NAME, CoverageScope::NAME] {
             if !written.contains(relation) {
                 return Err(refuse(format!("no scheduled stage writes {relation}")));
+            }
+        }
+        // Every relation above the checkpoint closure needs a scheduled writer, including
+        // vocabulary, total assessments and graph snapshot chunks that may be explicitly empty.
+        for checkpoint in self.frontier.descriptor().checkpoints() {
+            let lower = checkpoint.descriptor().relations_from_declaration()?;
+            for relation in self.relations.difference(&lower) {
+                if !written.contains(relation) {
+                    return Err(refuse(format!(
+                        "no scheduled stage writes normalized relation {relation}"
+                    )));
+                }
+            }
+        }
+        if self.frontier == Frontier::Normalized {
+            for capability in super::normalized::coverage::Capability::ALL {
+                let required = capability.producer(self.profile);
+                if !schedule
+                    .stages()
+                    .iter()
+                    .any(|s| s.name == required.name && s.digest() == required.digest())
+                {
+                    return Err(refuse("normalized capability producer declaration differs"));
+                }
             }
         }
         Ok(Preflight {
@@ -639,7 +716,9 @@ impl FrontierAdmission {
     pub fn availability(&self) -> &BTreeMap<FactFamily, Availability> {
         &self.availability
     }
-    pub fn scoped(&self) -> &std::sync::Arc<ScopedAvailability> { &self.scoped }
+    pub fn scoped(&self) -> &std::sync::Arc<ScopedAvailability> {
+        &self.scoped
+    }
 }
 
 /// Reads a sealed generation's inputs, artifacts, their classes and coverage, charged to the
@@ -653,6 +732,7 @@ pub struct AdmissionCheck {
     classified: ChargedSet<Id<SourceArtifact>>,
     scopes: ChargedMap<Id<CoverageScope>, CoverageScope>,
     rows: ChargedVec<ProviderCoverage>,
+    normalized: super::normalized::coverage::CoverageOutput,
 }
 impl AdmissionCheck {
     pub fn new(preflight: Preflight, budget: &ResourceBudget) -> Self {
@@ -665,11 +745,12 @@ impl AdmissionCheck {
             classified: ChargedSet::default(),
             scopes: ChargedMap::default(),
             rows: ChargedVec::default(),
+            normalized: super::normalized::coverage::CoverageOutput::new(budget),
         }
     }
     /// The stored relations admission reads, in visiting order.
-    pub fn inputs() -> Vec<ValidationInput> {
-        vec![
+    pub fn inputs(&self) -> Vec<ValidationInput> {
+        let mut inputs = vec![
             ValidationInput::of::<InputRevision>(&["id"]),
             ValidationInput::of::<SourceArtifact>(&["id"]),
             ValidationInput::of::<ArtifactOwnership>(&["id"]),
@@ -678,7 +759,11 @@ impl AdmissionCheck {
             ValidationInput::of::<ArtifactUse>(&["id"]),
             ValidationInput::of::<CoverageScope>(&["id"]),
             ValidationInput::of::<ProviderCoverage>(&["id"]),
-        ]
+        ];
+        if self.preflight.contract.frontier == Frontier::Normalized {
+            inputs.extend(super::normalized::coverage::CoverageOutput::validation_inputs());
+        }
+        inputs
     }
     pub fn visit(
         &mut self,
@@ -718,6 +803,9 @@ impl AdmissionCheck {
             for row in ProviderCoverage::decode(batch)? {
                 self.rows.push(c, row)?;
             }
+        } else if self.preflight.contract.frontier == Frontier::Normalized
+            && self.normalized.visit(relation, batch)?
+        {
         } else {
             return Err(ModelError::Invalid(format!(
                 "admission does not read {relation}"
@@ -847,6 +935,30 @@ impl AdmissionCheck {
         for row in stated.values() {
             row.id().encode(&mut coverage);
         }
+        let scoped = std::sync::Arc::new(ScopedAvailability::validated(
+            &self.rows,
+            &self.scopes,
+            &availability,
+            self.charge.budget().expect("bound admission"),
+        )?);
+        if contract.frontier == Frontier::Normalized {
+            let budget = self.charge.budget().expect("bound admission");
+            let mut artifacts = super::normalized::Rows::new(budget);
+            for row in self.artifacts.iter() {
+                artifacts.insert(row.clone())?;
+            }
+            let expected = super::normalized::coverage::assemble(
+                contract.profile,
+                &scoped,
+                &artifacts,
+                receipt.sources(),
+                budget,
+            )?;
+            super::normalized::coverage::validate(&expected, &self.normalized)?;
+            for row in self.normalized.outcomes.iter() {
+                row.id().encode(&mut coverage);
+            }
+        }
         Ok(FrontierAdmission {
             frontier: contract.frontier,
             contract: contract.digest,
@@ -855,7 +967,7 @@ impl AdmissionCheck {
             coverage: coverage.finish(),
             content,
             profile: contract.profile,
-            scoped: std::sync::Arc::new(ScopedAvailability::validated(&self.rows, &self.scopes, &availability, self.charge.budget().expect("bound admission"))?),
+            scoped,
             availability,
         })
     }

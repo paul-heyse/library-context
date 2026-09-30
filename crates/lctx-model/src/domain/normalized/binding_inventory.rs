@@ -117,14 +117,16 @@ macro_rules! normalized_binding_inputs {
 }
 #[macro_export]
 macro_rules! normalized_binding_outputs {
-    ($apply:ident) => { $apply! {
-        attempts: $crate::domain::normalized::bindings::CallBindingAttempt,
-        bindings: $crate::domain::normalized::bindings::CallBinding,
-        sources: $crate::domain::calls::BindingSource,
-        projections: $crate::domain::calls::BindingProjection,
-        sets: $crate::domain::normalized::bindings::BindingSetAssessment,
-        variants: $crate::domain::normalized::bindings::BindingVariantAssessment,
-        members: $crate::domain::normalized::bindings::BindingSetMember,
-        coverage: $crate::domain::normalized::bindings::BindingSetCoverage,
-    } };
+    ($apply:ident) => {
+        $apply! {
+            attempts: $crate::domain::normalized::bindings::CallBindingAttempt,
+            bindings: $crate::domain::normalized::bindings::CallBinding,
+            sources: $crate::domain::calls::BindingSource,
+            projections: $crate::domain::calls::BindingProjection,
+            sets: $crate::domain::normalized::bindings::BindingSetAssessment,
+            variants: $crate::domain::normalized::bindings::BindingVariantAssessment,
+            members: $crate::domain::normalized::bindings::BindingSetMember,
+            coverage: $crate::domain::normalized::bindings::BindingSetCoverage,
+        }
+    };
 }

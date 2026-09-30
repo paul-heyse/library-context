@@ -568,6 +568,13 @@ async fn reset_reinstalls_new_model() {
         .await
         .unwrap();
     published(&before, &db).await;
+    // Simulate the preceding control-schema revision: reset must retire generations even
+    // when that installation predates private stage reads and checkpoints.
+    run(
+        &db.superuser,
+        "DROP TABLE lctx_model_store.stage_read_checks; DROP TABLE lctx_model_store.checkpoints",
+    )
+    .await;
     let (_, after) = GenerationStore::reset(db.owner.clone(), new.clone(), "lctx")
         .await
         .unwrap();
