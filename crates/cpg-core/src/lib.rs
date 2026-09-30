@@ -65,3 +65,5 @@ pub mod surface;
 pub mod catalog_domains;
 
 pub mod retrieval;
+
+pub mod normalize;

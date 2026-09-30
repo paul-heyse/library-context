@@ -113,7 +113,8 @@ pub async fn inspect(
     let mut execution = schedule.execute();
     let generation =
         lctx_model::domain::memory::MemoryGeneration::bind(&model, &budget, &mut execution)?;
-    compile_facts(
+    let preflight = lctx_model::domain::admission::FrontierContract::facts(&model, profile)?.preflight(&schedule)?;
+    let receipt = compile_facts(
         execution,
         providers,
         &generation,
@@ -122,7 +123,7 @@ pub async fn inspect(
         &budget,
     )
     .await?;
-    let digest = generation.validate(&model, &budget)?;
+    let digest = generation.validate_facts(&model, &budget, preflight, &receipt)?.content();
     Ok((model, generation, digest))
 }
 

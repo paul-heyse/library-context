@@ -217,6 +217,16 @@ captured, wherever those lie. An annotation display
 is display-only and establishes no structure; types are type observations. Qualified names,
 signature counts and a module's distribution are derived.
 
+**Normalized entities** (Implemented, focused Tested 2026-09-30, Phase 3 N1).
+The model owns nominal source, synthetic and external identities, total symbol resolutions,
+correspondence evidence, occurrence ownership, parameter/field links and public exposures.
+Source/stub anchors stay distinct; agreement on a source declaration can join providers, while
+external spelling cannot. Missing source attachment is unresolved. Native function origin uses
+Pyrefly's declaration map to distinguish synthesized methods from callable-valued source fields;
+its `is_def_statement` flag alone cannot establish that distinction. The completed-stage driver
+and shared exact-output invariant enforce the same contract. N1 is a tested internal stage;
+normalized publication remains unavailable until N7 and full Phase 3 qualification.
+
 **Types** (Implemented, focused Tested 2026-09-29, plan A8).
 
 A type term is Pyrefly's structure. Codes keep the existing type kinds, and forms the old kinds told

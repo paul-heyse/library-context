@@ -235,6 +235,7 @@ pub fn records(
     natives: &mut Natives,
     resolve: &mut Resolve<'_>,
     complete: &HashMap<u32, bool>,
+    origins: &HashMap<String, FunctionOrigin>,
     linking: Option<Linking<'_>>,
     keep: Option<&BTreeSet<String>>,
 ) -> Result<SymbolRecords, ModelError> {
@@ -473,7 +474,7 @@ pub fn records(
                 property_getter: base.is_property_getter,
                 property_setter: base.is_property_setter,
                 stub: base.is_stub,
-                def_statement: base.is_def_statement,
+                origin: *origins.get(&id.serialize_to_string()).ok_or_else(|| invalid("native function origin absent".into()))?,
                 defining_class,
                 overrides,
             });

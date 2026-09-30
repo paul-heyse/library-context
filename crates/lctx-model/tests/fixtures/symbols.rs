@@ -109,7 +109,7 @@ pub struct Fixture {
 }
 impl Fixture {
     pub fn new() -> Self {
-        let model = model().unwrap();
+        let model = ValidatedModel::validate(facts_relations()).unwrap();
         let other_bytes: &[u8] = b"X = 1\n";
         let input = InputRevision::from_entries(vec![
             ManifestEntry {
@@ -375,7 +375,7 @@ impl Fixture {
             property_getter: false,
             property_setter: false,
             stub: false,
-            def_statement: true,
+            origin: FunctionOrigin::DefStatement,
             defining_class: defining_class.map(id),
             overrides: None,
         };

@@ -105,6 +105,9 @@ pub struct SymbolObservation {
 }
 /// A provider's native traits of a function or method it defines. `defining_class` is the class
 /// whose body defines a method; `overrides` is the base-class method it directly overrides.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
+#[repr(i16)]
+pub enum FunctionOrigin { DefStatement = 0, Synthesized = 1, CallableField = 2, Unavailable = 3 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]
 #[model(name = "function_trait_observations", validate = validate_function_traits)]
 #[assertion(support = FunctionTraitSupport, name = "function_trait_supports", family = FactFamily::Signatures, subjects(symbol))]
@@ -121,8 +124,8 @@ pub struct FunctionTraitObservation {
     /// The provider's stub: a `...` body, or a trivial one (`pass` or a docstring) where an
     /// implementation may be missing (a protocol, `TYPE_CHECKING`, an abstract method, an overload).
     pub stub: bool,
-    /// Defined by a `def` statement, not synthesized (a dataclass `__init__`) or assigned.
-    pub def_statement: bool,
+    /// Native origin preserves synthesized methods separately from callable-valued source fields.
+    pub origin: FunctionOrigin,
     pub defining_class: Option<Id<ProviderSymbol>>,
     pub overrides: Option<Id<ProviderSymbol>>,
 }

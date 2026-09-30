@@ -184,7 +184,7 @@ async fn definitions_nest_carry_their_traits_and_attach_at_their_name_spans() {
     let run = f.traits("example.py:Base.run");
     assert!(
         !run.stub
-            && run.def_statement
+            && run.origin == FunctionOrigin::DefStatement
             && run.defining_class == Some(f.find("example.py:Base"))
             && run.overrides.is_none()
     );

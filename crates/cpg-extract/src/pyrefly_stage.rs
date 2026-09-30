@@ -1200,6 +1200,24 @@ fn definitions(
             )
         })
         .collect();
+    // Pysa intentionally omits name_location for every ClassField, including source callable
+    // attributes. Read the native declaration map to distinguish them from synthesized methods.
+    let native_classes: std::collections::HashMap<_, _> = get_all_classes(&pysa.answers_context)
+        .map(|class| (ClassId::from_class(&class), class)).collect();
+    let origins = definitions.function_definitions.as_map().iter().map(|(id, function)| {
+        use pyrefly::report::pysa::function::FunctionId;
+        use lctx_model::domain::symbols::FunctionOrigin;
+        let origin = match id {
+            FunctionId::Function { .. } => FunctionOrigin::DefStatement,
+            FunctionId::ClassField { class_id, .. } => native_classes.get(class_id).map_or(FunctionOrigin::Unavailable, |class| {
+                if pyrefly::report::pysa::class::get_class_field_declaration(class, &function.base.name, &pysa.answers_context).is_some() {
+                    FunctionOrigin::CallableField
+                } else { FunctionOrigin::Synthesized }
+            }),
+            FunctionId::ModuleTopLevel | FunctionId::ClassTopLevel { .. } | FunctionId::FunctionDecoratedTarget { .. } => FunctionOrigin::Unavailable,
+        };
+        (id.serialize_to_string(), origin)
+    }).collect();
     let mut resolve = |natives: &mut Natives,
                        id: pyrefly::report::pysa::module::ModuleId,
                        name: &pyrefly_python::module_name::ModuleName| {
@@ -1235,6 +1253,7 @@ fn definitions(
         natives,
         &mut resolve,
         &complete,
+        &origins,
         linking,
         kept.as_ref(),
     )

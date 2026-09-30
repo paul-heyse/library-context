@@ -263,8 +263,9 @@ pub async fn run_profile_with_budget<I: Inspector>(
         )
         .await?;
     }
-    execution.finish()?;
-    generation.validate(&model, &resources)
+    let receipt = execution.finish()?;
+    let preflight = lctx_model::domain::admission::FrontierContract::facts(&model, profile)?.preflight(&schedule)?;
+    Ok(generation.validate_facts(&model, &resources, preflight, &receipt)?.content())
 }
 
 /// The artifact at `path` among `artifacts`.

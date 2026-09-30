@@ -18,6 +18,7 @@ mod identity;
 pub mod input;
 pub mod lexical;
 pub mod memory;
+pub mod normalized;
 mod model;
 pub mod obligation;
 pub mod occurrence_owner;
@@ -187,6 +188,7 @@ pub mod declaration_controls {}
 /// facts relations plus the analysis relations derived from them.
 pub fn model() -> Result<ValidatedModel, ModelError> {
     let mut relations = facts_relations();
+    relations.extend(normalized::relations());
     relations.extend(analysis_relations());
     ValidatedModel::validate(relations)
 }
