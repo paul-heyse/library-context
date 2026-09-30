@@ -16,13 +16,16 @@ _Updated 2026-09-30 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
 - **Implemented / focused-Tested:** N1 entities, total symbol correspondence, owner materialization,
   parameter/field links and public exposures, charged store-read stage and shared exact-output
   validation. Native function origin distinguishes callable source fields from synthesized methods.
-  Committed through `82a805f`; this changes the model schema and requires a rebuilt store.
+  This changes the model schema and requires a rebuilt store.
 - **Implemented / focused-Tested:** N2 total lexical/import/ancestry/mention/type/binder/place/
   test-operand relations, charged driver and shared exact-output validation. Native and pure
   controls preserve module coordinates, missing outcomes and exact role/context linkage;
   real PostgreSQL controls passed for both profiles. Catalog relies on validated NotRequested
   flow coverage. Normalized publication remains unavailable until N7.
-- N3–N7/X/Q remain. No formatting, lint, integrated gate, new pilot or phase exit has run;
+- **Implemented / focused-Tested:** N3 total effective callable assessments, exact descriptors,
+  ordered decorators and raw signature variants/slots, with separate body authority. Four native,
+  five pure and two real PostgreSQL profile controls passed; plan §11 owns the receipts.
+- N4–N7/X/Q remain. No formatting, lint, integrated gate, new pilot or phase exit has run;
   these wait until all functional scope is implemented. N1–N5 assembled review follows N5.
 
 ## Semantic model cutover
@@ -103,6 +106,7 @@ Cargo commands below run through `python3 scripts/build_environment.py --`.
 | Release `normalized_entities`, `domain_symbols`, `typed_symbols`, `domain_owner` | passed: 4, 11, 5 and 2 focused tests |
 | Release `normalized_stage` | passed: N1 then N1→N2 real store controls, including validation and release of retained resources |
 | Release `cpg-extract --test normalized_relations`; `cpg-core --test normalized_relations`; `lctx-model --test domain_normalized` | passed: 7 native controls, 2 real store profiles and 3 pure/codec controls |
+| Release `normalized_callables`, `domain_effective_callables`, `cpg-core --test normalized_relations` through N3 | passed: 4 native, 5 pure and 2 real PostgreSQL profile controls |
 | `just fmt`, `just test-all`, schema snapshot acceptance, Phase 3 pilots/measurements, final review/docs/catalog | not_run: functional implementation is ongoing |
 
 Initial focused failures exposed facts-fixture scope, retained capture accounting and catalog's
@@ -111,6 +115,6 @@ part of implementation and Q, not evidence that the full gate currently passes.
 
 ## Next work
 
-Execute N3 effective callables → N4 complete events/policies → N5 stored bindings. Review N1–N5 before N6/N7,
+Execute N4 complete events/policies → N5 stored bindings. Review N1–N5 before N6/N7,
 legacy retirement and whole-scope qualification. P4 owns composition/analysis/catalog; P5 owns
 serving and product qualification. Product PR6/new features remain paused until phase 5.

@@ -1,7 +1,7 @@
-//! Real native facts -> frozen checkpoint -> completed-stage N1 and N2 reads and outputs.
+//! Real native facts -> frozen checkpoint -> completed-stage N1 through N3 reads and outputs.
 use cpg_core::model_runtime::{AttemptRuntime, RuntimeOptions};
 use cpg_extract::{acquisition::AcquiredInput, bundle::{CapturedInputs, run_stage}, capture::CapturedInput};
-use lctx_model::domain::{admission::FrontierContract, normalized::{entity_normalization, relation_normalization}, stages::*, *};
+use lctx_model::domain::{admission::FrontierContract, normalized::{entity_normalization, relation_normalization, callable_normalization}, stages::*, *};
 use lctx_postgres::{generations::GenerationStore, roles::{Role, RoleConfig}, testing::DisposableDatabase};
 use std::sync::Arc;
 async fn run(profile: Profile) {
@@ -21,6 +21,7 @@ async fn run(profile: Profile) {
     let mut declarations: Vec<_> = providers.iter().map(|p| p.declaration(profile)).collect();
     declarations.push(entity_normalization::stage());
     declarations.push(relation_normalization::stage(profile));
+    declarations.push(callable_normalization::stage(profile));
     let schedule = Schedule::build(&model, declarations, &[], profile).unwrap();
     let facts = FrontierContract::facts(&model, profile).unwrap();
     let mut execution = schedule.execute();
@@ -35,6 +36,10 @@ async fn run(profile: Profile) {
         } else if declaration.name == "normalize_relations" {
             cpg_core::stage_runtime::run_declared_stage(&mut execution, declaration, async |access| {
                 cpg_core::normalize::relations(access, &attempt, &config, &runtime, &model).await
+            }, &mut |_| {}).await.unwrap();
+        } else if declaration.name == "normalize_callables" {
+            cpg_core::stage_runtime::run_declared_stage(&mut execution, declaration, async |access| {
+                cpg_core::normalize::callables(access, &attempt, &config, &runtime, &model).await
             }, &mut |_| {}).await.unwrap();
         } else {
             let position = providers.iter().position(|p| p.declaration(profile).name == declaration.name).unwrap();
@@ -52,6 +57,10 @@ async fn run(profile: Profile) {
         .fetch_one(db.owner.pool()).await.unwrap();
     assert_eq!(leaves.0, leaves.1);
     match profile { Profile::Catalog => assert_eq!(leaves, (0, 0, 0)), Profile::Behavioral => assert!(leaves.0 > 0 && leaves.2 > 0) }
+    let signatures: (i64, i64, i64) = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT (SELECT count(*) FROM {}.signature_observations), (SELECT count(*) FROM {}.signature_variants), (SELECT count(*) FROM {}.effective_callable_assessments)", id.schema(), id.schema(), id.schema())))
+        .fetch_one(db.owner.pool()).await.unwrap();
+    assert!(signatures.0 > 0 && signatures.2 > 0); assert_eq!(signatures.0, signatures.1);
     validated.abort().await.unwrap();
     assert_eq!(budget.reserved(), captured_bytes, "only the retained captured input remains charged");
     drop(captured);

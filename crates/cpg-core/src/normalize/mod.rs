@@ -74,3 +74,26 @@ pub async fn relations(
     lctx_model::normalized_relation_outputs!(write_outputs);
     drop(rows); output.finish(ProviderOutcome::Complete).await
 }
+
+pub async fn callables(
+    access: StageAccess<'_, '_>, attempt: &GenerationAttempt, config: &RoleConfig,
+    runtime: &AttemptRuntime, model: &Arc<ValidatedModel>,
+) -> Result<(), ModelError> {
+    use lctx_model::domain::normalized::callable_normalization::{self, CallableData};
+    let reader = AttemptSession::open(config, attempt, &access, model.clone(), ProviderOptions::default()).await.map_err(ModelError::codec)?;
+    let session = runtime.session(&access);
+    let mut data = CallableData::new(runtime.budget());
+    macro_rules! read_inputs { ($($field:ident: $ty:ty,)*) => { $(
+        let permit = access.read::<$ty>()?; session.register(&permit, reader.table(&permit).map_err(ModelError::codec)?)?;
+        load(&session, &mut data.$field).await?;
+    )* }; }
+    lctx_model::normalized_callable_inputs!(read_inputs);
+    drop(session); reader.close().await.map_err(ModelError::codec)?;
+    let rows = callable_normalization::normalize(&data, runtime.budget())?; drop(data);
+    let mut output = StageOutput::new(access, attempt, model, runtime.budget().clone(), Default::default())?;
+    macro_rules! write_outputs { ($($field:ident: $ty:ty,)*) => { $(
+        output.declare::<$ty>()?; for row in rows.$field.iter() { output.push(row.clone()).await?; }
+    )* }; }
+    lctx_model::normalized_callable_outputs!(write_outputs);
+    drop(rows); output.finish(ProviderOutcome::Complete).await
+}

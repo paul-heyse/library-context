@@ -344,6 +344,21 @@ A consumer selects its policy view. It never re-filters targets or the catalog.
 **Effective callables.** The effective callable of each declaration is owned by the single decorator
 and wrapper normalization. It carries the effective signature variants.
 
+**Phase 3 callable realization (Implemented, focused Tested 2026-09-30; N3).**
+`normalized::callable_normalization` owns one operation for materialization and shared exact-output
+validation. It emits total callable/context assessments and raw-signature variants, ordered raw
+slots and parameter-entity premises. Effective identity, signature availability, descriptor metadata
+and body admission have separate Known/Unknown/Conflicting outcomes. Complete source syntax is
+required to establish an empty decorator chain. A single bare builtin descriptor needs the N2
+lexical result and agreeing native traits; arbitrary and stacked decorators retain both orders and
+source signatures with effective uncertainty. Exact descriptor metadata alone cannot establish
+body admission: it also needs a compatible structural signature and exact, non-excluded native
+body evidence. Candidate/approximate evidence cannot grant this authority. Receiver adjustments
+are presentation metadata; raw formals remain intact for N5's sole argument algorithm. Default
+slots identify definition-time slots without asserting runtime values. The charged pure operation
+is invoked through the common completed-stage reader and resource owner; dormant catalog surface
+code remains only for the inventoried later-layer consumers until X/P4 retirement.
+
 **Call bindings.** One pure binder in `lctx-model` produces **call bindings**, keyed by
 call site × target alternative × signature variant × actual → formal place. Each binding has a kind
 (positional, keyword, default, varargs, kwargs, receiver, implicit) and a status (bound, ambiguous,
