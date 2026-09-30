@@ -121,6 +121,12 @@ Acquisition captures the complete analyzer-readable input (site-packages sources
 and `py.typed` files, distribution metadata and records, and selected corpus files). Derived
 artifacts, such as Markdown Python blocks and task receipts, are written only into a reserved
 `_lctx/` namespace of the frozen capture with typed provenance; the source tree is never written.
+Every captured artifact has one ownership class: owned by verified distributions, unowned (a loose
+file, an unowned stub, a tree or corpus file) or derived (`DerivedArtifact`: document, derivation,
+ordinal and fence). Only derived artifacts live under `_lctx/`, each derived from an original
+document of its own input. The model refuses a second class; facts admission refuses an artifact
+with none. An `EnvironmentFingerprint` states an installed input's environment in the terms a
+deployment receipt reports (Implemented, focused Tested 2026-09-29, plan A1).
 Empty artifacts have no chunks; the last chunk alone may be shorter. A streaming model-owned
 validator reconstructs the full byte length and digest before publication (ADR-0088). The model owns cross-relation reconciliation
 of the stored artifacts with the input manifest.

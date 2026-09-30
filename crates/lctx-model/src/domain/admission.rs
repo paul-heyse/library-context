@@ -6,7 +6,7 @@
 //! effect. Admission reconciles the sealed coverage rows with the stage outcomes; it is the only
 //! way to obtain a [`FactsAdmission`].
 use std::collections::{BTreeMap, BTreeSet};
-use super::{*, attribution::*, charged::{ChargedMap, ChargedVec, StateCharge}, input::InputRevision, record::FieldValue,
+use super::{*, attribution::*, charged::{ChargedMap, ChargedSet, ChargedVec, StateCharge}, input::{ArtifactOwnership, DerivedArtifact, InputRevision, UnownedArtifact}, record::FieldValue,
     resources::ResourceBudget, source::{CoverageScope, SourceArtifact}, stages::{ExecutionReceipt, Profile, ProviderOutcome, Schedule}};
 
 /// What a generation can answer.
@@ -244,26 +244,31 @@ impl FactsAdmission {
     pub fn availability(&self) -> &BTreeMap<FactFamily, Availability> { &self.availability }
 }
 
-/// Reads a sealed generation's inputs, artifacts and coverage, charged to the attempt budget.
+/// Reads a sealed generation's inputs, artifacts, their classes and coverage, charged to the
+/// attempt budget.
 pub struct AdmissionCheck {
     preflight: Preflight, charge: StateCharge,
-    inputs: ChargedVec<InputRevision>, artifacts: ChargedVec<SourceArtifact>,
+    inputs: ChargedVec<InputRevision>, artifacts: ChargedVec<SourceArtifact>, classified: ChargedSet<Id<SourceArtifact>>,
     scopes: ChargedMap<Id<CoverageScope>, CoverageScope>, rows: ChargedVec<ProviderCoverage>,
 }
 impl AdmissionCheck {
     pub fn new(preflight: Preflight, budget: &ResourceBudget) -> Self {
         Self { preflight, charge: StateCharge::new(budget, "facts_admission"), inputs: ChargedVec::default(), artifacts: ChargedVec::default(),
-            scopes: ChargedMap::default(), rows: ChargedVec::default() }
+            classified: ChargedSet::default(), scopes: ChargedMap::default(), rows: ChargedVec::default() }
     }
     /// The stored relations admission reads, in visiting order.
     pub fn inputs() -> Vec<ValidationInput> {
         vec![ValidationInput::of::<InputRevision>(&["id"]), ValidationInput::of::<SourceArtifact>(&["id"]),
+            ValidationInput::of::<ArtifactOwnership>(&["id"]), ValidationInput::of::<UnownedArtifact>(&["id"]), ValidationInput::of::<DerivedArtifact>(&["id"]),
             ValidationInput::of::<CoverageScope>(&["id"]), ValidationInput::of::<ProviderCoverage>(&["id"])]
     }
     pub fn visit(&mut self, relation: &str, batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
         let c = &mut self.charge;
         if relation == InputRevision::NAME { for row in InputRevision::decode(batch)? { self.inputs.push(c, row)?; } }
         else if relation == SourceArtifact::NAME { for row in SourceArtifact::decode(batch)? { self.artifacts.push(c, row)?; } }
+        else if relation == ArtifactOwnership::NAME { for row in ArtifactOwnership::decode(batch)? { self.classified.insert(c, row.artifact)?; } }
+        else if relation == UnownedArtifact::NAME { for row in UnownedArtifact::decode(batch)? { self.classified.insert(c, row.artifact)?; } }
+        else if relation == DerivedArtifact::NAME { for row in DerivedArtifact::decode(batch)? { self.classified.insert(c, row.artifact)?; } }
         else if relation == CoverageScope::NAME { for row in CoverageScope::decode(batch)? { self.scopes.insert(c, row.id(), row)?; } }
         else if relation == ProviderCoverage::NAME { for row in ProviderCoverage::decode(batch)? { self.rows.push(c, row)?; } }
         else { return Err(ModelError::Invalid(format!("admission does not read {relation}"))); }
@@ -275,6 +280,10 @@ impl AdmissionCheck {
         let contract = &self.preflight.contract;
         if receipt.model() != contract.model || receipt.schedule() != self.preflight.schedule {
             return Err(refuse("the execution receipt belongs to another model or schedule"));
+        }
+        // The captured closure is complete only when every artifact has its ownership class.
+        if let Some(artifact) = self.artifacts.iter().find(|a| !self.classified.contains(&a.id())) {
+            return Err(refuse(format!("captured artifact {} has no ownership class", artifact.path)));
         }
         let expected = self.preflight.expected_coverage(&self.inputs, &self.artifacts)?;
         let mut stated: BTreeMap<Expected, &ProviderCoverage> = BTreeMap::new();

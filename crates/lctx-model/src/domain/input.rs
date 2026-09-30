@@ -166,7 +166,11 @@ pub struct ArtifactOwnership {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
 #[repr(i16)]
-pub enum SourceRole { Release = 0, Example = 1, Test = 2, DocBlock = 3 }
+/// Why an input uses an artifact. Append-only: a new role takes the next code.
+pub enum SourceRole {
+    Release = 0, Example = 1, Test = 2, DocBlock = 3, Dependency = 4, Document = 5, DistributionMetadata = 6, Configuration = 7,
+    TaskReceipt = 8,
+}
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name = "artifact_uses")]
 /// A source artifact used in its own revision, or a library artifact explicitly used by a
@@ -175,6 +179,136 @@ pub struct ArtifactUse {
     #[model(key)] pub artifact: Id<super::source::SourceArtifact>,
     #[model(key)] pub input: Id<InputRevision>,
     #[model(key)] pub role: SourceRole,
+}
+
+/// The reserved namespace of a frozen capture: only artifacts the compiler derives live under it,
+/// and no original artifact may (ADR-0089).
+pub const DERIVED_ROOT: &str = "_lctx/";
+
+/// A captured artifact no verified distribution's `RECORD` owns: a loose file or an unowned stub in
+/// an environment, or any file of a tree or corpus input.
+#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[model(name = "unowned_artifacts", invariants = class_invariants)]
+pub struct UnownedArtifact {
+    #[model(key)] pub artifact: Id<super::source::SourceArtifact>,
+    #[model(key, provenance)] pub acquisition: Id<InputAcquisition>,
+}
+/// How the compiler derived an artifact. Append-only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
+#[repr(i16)]
+pub enum Derivation { PythonCodeBlock = 0 }
+/// An artifact the compiler wrote into the capture's `_lctx/` namespace, derived from one original
+/// document of the same input: the document's `ordinal`th block, whose bytes span
+/// `fence_start..fence_end` in the document.
+#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[model(name = "derived_artifacts", validate = validate_derived)]
+pub struct DerivedArtifact {
+    #[model(key)] pub artifact: Id<super::source::SourceArtifact>,
+    #[model(key)] pub document: Id<super::source::SourceArtifact>,
+    #[model(key)] pub derivation: Derivation,
+    #[model(key)] pub ordinal: i64,
+    pub fence_start: i64,
+    pub fence_end: i64,
+}
+fn validate_derived(row: &DerivedArtifact) -> Result<(), ModelError> {
+    if row.ordinal < 0 || row.fence_start < 0 || row.fence_end < row.fence_start || row.artifact == row.document {
+        return Err(ModelError::Invalid("a derivation needs a nonnegative ordinal, an ordered fence and a distinct document".into()));
+    }
+    Ok(())
+}
+/// The environment an installed input was acquired from, stated in the terms a deployment receipt
+/// reports (`ReportedEnvironment`), so the two can be compared. The compiler never runs the
+/// interpreter, so the runtime and interpreter digests a receipt may state have no acquired twin.
+#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[model(name = "environment_fingerprints", validate = validate_fingerprint)]
+pub struct EnvironmentFingerprint {
+    #[model(key, provenance)] pub acquisition: Id<InputAcquisition>,
+    #[model(key)] pub release: Id<Release>,
+    #[model(key)] pub lock_digest: ContentHash,
+    #[model(key)] pub environment_digest: ContentHash,
+    #[model(key)] pub python_version: String,
+    #[model(key)] pub platform: String,
+}
+fn validate_fingerprint(row: &EnvironmentFingerprint) -> Result<(), ModelError> {
+    if row.python_version.trim().is_empty() || row.platform.trim().is_empty() {
+        return Err(ModelError::Invalid("an environment fingerprint names its Python version and platform".into()));
+    }
+    Ok(())
+}
+
+/// Every captured artifact has at most one class: owned by distributions, unowned, or derived. Only
+/// derived artifacts live under `_lctx/`, each derived from an original document of its own input,
+/// within that document's bytes. Facts admission requires every artifact to have a class.
+fn class_invariants() -> Vec<Invariant> {
+    vec![Invariant { name: "artifact_classes", inputs: vec![
+        ValidationInput::of::<InputAcquisition>(&["id"]),
+        ValidationInput::of::<super::source::SourceArtifact>(&["id"]),
+        ValidationInput::of::<ArtifactOwnership>(&["artifact"]),
+        ValidationInput::of::<UnownedArtifact>(&["id"]),
+        ValidationInput::of::<DerivedArtifact>(&["id"]),
+    ], create: std::sync::Arc::new(|budget| Box::new(ClassCheck { charge: StateCharge::new(budget, "artifact_classes"), ..Default::default() })) }]
+}
+#[derive(Debug, Clone, Copy)]
+struct Captured { input: Id<InputRevision>, byte_len: i64, reserved: bool, owned: bool, unowned: bool, derived: bool }
+impl super::HeapSize for Captured {}
+#[derive(Default)]
+struct ClassCheck { charge: StateCharge,
+    acquisitions: ChargedMap<Id<InputAcquisition>, Id<InputRevision>>,
+    artifacts: ChargedMap<Id<super::source::SourceArtifact>, Captured>,
+    documents: ChargedSet<Id<super::source::SourceArtifact>>,
+}
+impl ClassCheck {
+    fn class(&mut self, artifact: Id<super::source::SourceArtifact>, set: impl FnOnce(&mut Captured) -> bool) -> Result<Captured, ModelError> {
+        let mut captured = *self.artifacts.get(&artifact).ok_or_else(|| ModelError::Invalid("a classified artifact is not captured".into()))?;
+        if !set(&mut captured) { return Ok(captured); }
+        if [captured.owned, captured.unowned, captured.derived].iter().filter(|c| **c).count() > 1 {
+            return Err(ModelError::Invalid("a captured artifact has more than one of the owned, unowned and derived classes".into()));
+        }
+        self.artifacts.insert(&mut self.charge, artifact, captured)?;
+        Ok(captured)
+    }
+}
+impl InvariantCheck for ClassCheck {
+    fn visit(&mut self, relation: &str, batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
+        use super::source::SourceArtifact;
+        if relation == InputAcquisition::NAME {
+            for row in InputAcquisition::decode(batch)? { self.acquisitions.insert(&mut self.charge, row.id(), row.input)?; }
+        } else if relation == SourceArtifact::NAME {
+            for row in SourceArtifact::decode(batch)? {
+                let captured = Captured { input: row.input, byte_len: row.byte_len, reserved: row.path.starts_with(DERIVED_ROOT),
+                    owned: false, unowned: false, derived: false };
+                self.artifacts.insert(&mut self.charge, row.id(), captured)?;
+            }
+        } else if relation == ArtifactOwnership::NAME {
+            // An artifact several distributions own is still one owned artifact.
+            for row in ArtifactOwnership::decode(batch)? { self.class(row.artifact, |c| !std::mem::replace(&mut c.owned, true))?; }
+        } else if relation == UnownedArtifact::NAME {
+            for row in UnownedArtifact::decode(batch)? {
+                let input = *self.acquisitions.get(&row.acquisition).ok_or_else(|| ModelError::Invalid("an unowned artifact's acquisition is absent".into()))?;
+                let captured = self.class(row.artifact, |c| { c.unowned = true; true })?;
+                if captured.input != input { return Err(ModelError::Invalid("an unowned artifact belongs to another acquisition's input".into())); }
+            }
+        } else if relation == DerivedArtifact::NAME {
+            for row in DerivedArtifact::decode(batch)? {
+                let captured = self.class(row.artifact, |c| { c.derived = true; true })?;
+                let document = *self.artifacts.get(&row.document).ok_or_else(|| ModelError::Invalid("a derived artifact's document is not captured".into()))?;
+                if document.input != captured.input || document.reserved || row.fence_end > document.byte_len {
+                    return Err(ModelError::Invalid("a derivation needs an original document of the same input, within its bytes".into()));
+                }
+                self.documents.insert(&mut self.charge, row.document)?;
+            }
+        } else { return Err(ModelError::Invalid("undeclared artifact class input".into())); }
+        Ok(())
+    }
+    fn finish(self: Box<Self>) -> Result<(), ModelError> {
+        if self.artifacts.values().any(|c| c.reserved != c.derived) {
+            return Err(ModelError::Invalid("only derived artifacts, and all of them, live under the reserved _lctx/ namespace".into()));
+        }
+        if self.documents.iter().any(|d| self.artifacts.get(d).is_some_and(|c| c.derived)) {
+            return Err(ModelError::Invalid("a derivation's document is itself derived".into()));
+        }
+        Ok(())
+    }
 }
 
 fn ownership_invariants() -> Vec<Invariant> {
@@ -227,6 +361,7 @@ fn acquisition_invariants() -> Vec<Invariant> {
         ValidationInput::of::<CorpusLibrary>(&["id"]),
         ValidationInput::of::<InputDistribution>(&["id"]),
         ValidationInput::of::<DistributionVerification>(&["id"]),
+        ValidationInput::of::<EnvironmentFingerprint>(&["id"]),
         ValidationInput::of::<super::source::SourceArtifact>(&["id"]),
         ValidationInput::of::<ArtifactUse>(&["id"]),
     ], create: std::sync::Arc::new(|budget| Box::new(AcquisitionBoundaries { charge: StateCharge::new(budget, "input_acquisition_boundaries"), ..Default::default() })) }]
@@ -274,6 +409,14 @@ impl InvariantCheck for AcquisitionBoundaries {
                     .ok_or_else(|| ModelError::Invalid("distribution verification acquisition absent".into()))?;
                 if !self.distributions.contains_key(&(*input, row.release)) {
                     return Err(ModelError::Invalid("verification release absent from acquired input".into()));
+                }
+            }
+        } else if relation == EnvironmentFingerprint::NAME {
+            for row in EnvironmentFingerprint::decode(batch)? {
+                let input = self.acquisitions.get(&row.acquisition)
+                    .ok_or_else(|| ModelError::Invalid("environment fingerprint acquisition absent".into()))?;
+                if !self.distributions.contains_key(&(*input, row.release)) {
+                    return Err(ModelError::Invalid("environment fingerprint names a release its input does not distribute".into()));
                 }
             }
         } else if relation == SourceArtifact::NAME {

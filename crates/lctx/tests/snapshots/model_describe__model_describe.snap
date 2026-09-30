@@ -3,7 +3,7 @@ source: crates/lctx/tests/model_describe.rs
 expression: "String::from_utf8(output.stdout).unwrap()"
 ---
 {
-  "digest": "edc160cc3ce5014dd2ca30237a1546de7776257cf0db4941dba045eff29ce6bd",
+  "digest": "f4b2d020d5b737a0f05b650551f47312f3bf8ee7513be27141270d1a65f21468",
   "relations": [
     {
       "name": "access_paths",
@@ -198,6 +198,26 @@ expression: "String::from_utf8(output.stdout).unwrap()"
             [
               3,
               "DocBlock"
+            ],
+            [
+              4,
+              "Dependency"
+            ],
+            [
+              5,
+              "Document"
+            ],
+            [
+              6,
+              "DistributionMetadata"
+            ],
+            [
+              7,
+              "Configuration"
+            ],
+            [
+              8,
+              "TaskReceipt"
             ]
           ]
         }
@@ -2989,6 +3009,68 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       "family": "Deployment"
     },
     {
+      "name": "derived_artifacts",
+      "fields": [
+        {
+          "name": "artifact",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "source_artifacts"
+        },
+        {
+          "name": "document",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "source_artifacts"
+        },
+        {
+          "name": "derivation",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "PythonCodeBlock"
+            ]
+          ]
+        },
+        {
+          "name": "ordinal",
+          "type": "int64",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "fence_start",
+          "type": "int64",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        },
+        {
+          "name": "fence_end",
+          "type": "int64",
+          "list": false,
+          "nullable": false,
+          "key": false,
+          "provenance": false
+        }
+      ],
+      "facts": true
+    },
+    {
       "name": "distribution_verifications",
       "fields": [
         {
@@ -4385,6 +4467,62 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       ],
       "facts": true,
       "family": "Docs"
+    },
+    {
+      "name": "environment_fingerprints",
+      "fields": [
+        {
+          "name": "acquisition",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "input_acquisitions"
+        },
+        {
+          "name": "release",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "releases"
+        },
+        {
+          "name": "lock_digest",
+          "type": "digest",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "environment_digest",
+          "type": "digest",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "python_version",
+          "type": "text",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "platform",
+          "type": "text",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        }
+      ],
+      "facts": true
     },
     {
       "name": "evaluation_atoms",
@@ -12491,6 +12629,30 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         }
       ],
       "facts": true
+    },
+    {
+      "name": "unowned_artifacts",
+      "fields": [
+        {
+          "name": "artifact",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "source_artifacts"
+        },
+        {
+          "name": "acquisition",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "input_acquisitions"
+        }
+      ],
+      "facts": true
     }
   ],
   "invariants": [
@@ -12499,6 +12661,16 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       "inputs": [
         "source_artifacts",
         "artifact_chunks"
+      ]
+    },
+    {
+      "name": "artifact_classes",
+      "inputs": [
+        "input_acquisitions",
+        "source_artifacts",
+        "artifact_ownership",
+        "unowned_artifacts",
+        "derived_artifacts"
       ]
     },
     {
@@ -13088,6 +13260,7 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         "corpus_libraries",
         "input_distributions",
         "distribution_verifications",
+        "environment_fingerprints",
         "source_artifacts",
         "artifact_uses"
       ]

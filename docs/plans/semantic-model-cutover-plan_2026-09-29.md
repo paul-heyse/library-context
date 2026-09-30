@@ -900,6 +900,26 @@ The real `prepare`/`switch` is blocked: it needs the PostgreSQL superuser, and t
 - four mismatched provider sets are refused before any stage runs.
 
 Capture and syntax stay on E1's `run_capture`/`run_syntax` until A2 and A4 make them providers |
+| A1: `cargo test --release -p lctx-model` (all suites); `-p lctx-postgres --test domain_input --test installation --test lifecycle --test generation_stages --test generations`; `INSTA_UPDATE=no -p lctx --test model_describe --test store_cli`; `-p cpg-extract --test typed_conformance --test bundle`; `-p cpg-core --test facts_driver --test generation_read` | passed 2026-09-29 (domain_input 6 model and 1 PG; domain_admission 8). The `model_describe` snapshot changed; this is a schema migration.
+
+New acquisition contracts:
+- `SourceRole` codes Dependency 4, Document 5, DistributionMetadata 6, Configuration 7 and TaskReceipt 8 (appended);
+- `UnownedArtifact{artifact, acquisition}`;
+- `DerivedArtifact{artifact, document, derivation, ordinal, fence_start, fence_end}` with the `Derivation` codebook (PythonCodeBlock 0);
+- `EnvironmentFingerprint{acquisition, release, lock, environment, python, platform}`, in the terms of `ReportedEnvironment`;
+- `DERIVED_ROOT = "_lctx/"`.
+
+The `artifact_classes` invariant allows at most one class per artifact. Only derived artifacts live under `_lctx/`, and each is derived from an original document of its own input, within that document's bytes. An unowned artifact belongs to its acquisition's input. The acquisition-boundary invariant checks that a fingerprint names a release its input distributes. Facts admission refuses an artifact with no class: an "exactly one" split between the model (at most one) and the facts frontier (at least one), so conformance fixtures stay unclassified.
+
+**Controls:** each refusal names its reason:
+- two classes (owned and unowned, derived and unowned);
+- an unowned artifact of another input's acquisition;
+- an unclassified or unowned artifact under `_lctx/`, and a derived one outside it;
+- a derivation's document that is missing, from another input, itself derived, or shorter than the fence;
+- a fingerprint for an undistributed release;
+- an unclassified artifact at admission, with a classified twin admitted.
+
+The PG twin publishes, reads back and refuses the same way |
 | `just fmt`, `just test-all`, facts pilots | not_run: functional scope incomplete |
 
 Independent bounded reviewers accepted artifact/capture/acquisition corrections and the

@@ -142,9 +142,17 @@ impl World {
         (scopes, rows)
     }
     fn admit(&self, preflight: &Preflight, receipt: &ExecutionReceipt, scopes: &[CoverageScope], rows: &[ProviderCoverage]) -> Result<FactsAdmission, ModelError> {
+        self.admit_classified(preflight, receipt, scopes, rows, &self.artifacts)
+    }
+    /// Admission with `unowned` stated as unowned artifacts; any other artifact has no class.
+    fn admit_classified(&self, preflight: &Preflight, receipt: &ExecutionReceipt, scopes: &[CoverageScope], rows: &[ProviderCoverage],
+        unowned: &[SourceArtifact]) -> Result<FactsAdmission, ModelError> {
         let mut check = AdmissionCheck::new(preflight.clone(), &budget());
+        let acquisition = InputAcquisition { input: self.input.id(), origin: InputOrigin::Tree { label: "admission".into() }.id() };
+        let unowned = unowned.iter().map(|artifact| UnownedArtifact { artifact: artifact.id(), acquisition: acquisition.id() }).collect();
         check.visit(InputRevision::NAME, Batch::new(&self.model, vec![self.input.clone()], &budget())?.arrow())?;
         check.visit(SourceArtifact::NAME, Batch::new(&self.model, self.artifacts.clone(), &budget())?.arrow())?;
+        check.visit(UnownedArtifact::NAME, Batch::new(&self.model, unowned, &budget())?.arrow())?;
         check.visit(CoverageScope::NAME, Batch::new(&self.model, scopes.to_vec(), &budget())?.arrow())?;
         check.visit(ProviderCoverage::NAME, Batch::new(&self.model, rows.to_vec(), &budget())?.arrow())?;
         check.finish(receipt, ContentHash::of(b"content"))
@@ -197,6 +205,19 @@ fn faithful_coverage_is_admitted_with_disclosed_availability() {
         let mut reversed = rows.clone(); reversed.reverse();
         assert_eq!(w.admit(&preflight, &receipt, &scopes, &reversed).unwrap(), admission);
     }
+}
+
+/// Plan A1: the captured closure is complete only when every artifact has an ownership class.
+#[test]
+fn an_artifact_without_an_ownership_class_is_refused() {
+    let w = World::new(INPUT);
+    let stages = w.stages(vec![Profile::Behavioral]);
+    let schedule = w.schedule(Profile::Catalog, &stages);
+    let preflight = FrontierContract::facts(&w.model, Profile::Catalog).unwrap().preflight(&schedule).unwrap();
+    let receipt = w.run(&schedule, &stages, &partial());
+    let (scopes, rows) = w.coverage(Profile::Catalog);
+    frontier_refusal(w.admit_classified(&preflight, &receipt, &scopes, &rows, &w.artifacts[1..]), "has no ownership class");
+    assert!(w.admit_classified(&preflight, &receipt, &scopes, &rows, &w.artifacts).is_ok(), "the twin with every artifact classified is admitted");
 }
 
 #[test]
