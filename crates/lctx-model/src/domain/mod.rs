@@ -11,6 +11,7 @@ pub mod types;
 pub mod deployment;
 pub mod calls;
 pub mod declarations;
+pub mod syntax;
 pub mod transfer;
 pub mod derivation;
 pub mod artifact;
@@ -219,6 +220,15 @@ pub fn facts_relations() -> Vec<Relation> {
         Relation::of::<CallTarget>(), Relation::of::<CallTargetSupport>(),
         Relation::of::<CallResolution>(), Relation::of::<CallResolutionMember>(), Relation::of::<CallResolutionSupport>(),
         Relation::of::<CallSyntax>(), Relation::of::<CallSyntaxSupport>(), Relation::of::<CallArgument>(),
+        Relation::of::<syntax::SyntaxPlacement>(), Relation::of::<syntax::SyntaxPlacementSupport>(), Relation::of::<syntax::SyntaxDetail>(),
+        Relation::of::<syntax::SyntaxDetailObservation>(), Relation::of::<syntax::SyntaxDetailSupport>(),
+        Relation::of::<syntax::DeclarationObservation>(), Relation::of::<syntax::DeclarationSupport>(),
+        Relation::of::<syntax::DeclarationDecorator>(), Relation::of::<syntax::DeclarationDecoratorSupport>(),
+        Relation::of::<syntax::ImportAliasObservation>(), Relation::of::<syntax::ImportAliasSupport>(),
+        Relation::of::<syntax::DunderAllObservation>(), Relation::of::<syntax::DunderAllSupport>(),
+        Relation::of::<syntax::ParameterSyntaxObservation>(), Relation::of::<syntax::ParameterSyntaxSupport>(),
+        Relation::of::<syntax::ClassFieldSyntaxObservation>(), Relation::of::<syntax::ClassFieldSyntaxSupport>(),
+        Relation::of::<syntax::SubjectBoundary>(), Relation::of::<syntax::AttachmentOutcome>(), Relation::of::<syntax::AttachmentCandidate>(),
         Relation::of::<declarations::SymbolDeclaration>(), Relation::of::<declarations::SymbolDeclarationSupport>(),
         Relation::of::<declarations::ParameterDeclaration>(), Relation::of::<declarations::ParameterDeclarationSupport>(),
         Relation::of::<AssertionQualification>(), Relation::of::<ProviderSurface>(), Relation::of::<Evidence>(),

@@ -2,7 +2,7 @@
 //! distinct from producer schedule through coverage to admission.
 use std::{collections::BTreeMap, future::Future, task::{Context, Poll, Waker}};
 use lctx_model::domain::{*, admission::*, attribution::*, calls::*, declarations::*, deployment::*, documents::*, flow::*, input::*,
-    lexical::*, resources::ResourceBudget, source::*, stages::*, transfer::TransferKey, types::*};
+    lexical::*, resources::ResourceBudget, source::*, stages::*, syntax::*, transfer::TransferKey, types::*};
 
 fn ready<T>(future: impl Future<Output = T>) -> T {
     match std::pin::pin!(future).as_mut().poll(&mut Context::from_waker(Waker::noop())) {
@@ -18,7 +18,9 @@ fn write_acquire(access: &mut StageAccess<'_, '_>) -> Result<(), ModelError> {
 }
 fn write_pyrefly(access: &mut StageAccess<'_, '_>) -> Result<(), ModelError> {
     macro_rules! all { ($($ty:ty),+) => { $( ready(access.write::<$ty, _>(async |_| Ok(())))?; )+ }; }
-    all!(Occurrence, SyntaxObservation, SyntaxSupport, CallSyntax, CallSyntaxSupport, LexicalScopeObservation, LexicalScopeSupport,
+    all!(Occurrence, SyntaxObservation, SyntaxSupport, SyntaxPlacement, SyntaxPlacementSupport, SyntaxDetailObservation, SyntaxDetailSupport, DeclarationObservation, DeclarationSupport,
+        DeclarationDecorator, DeclarationDecoratorSupport, ImportAliasObservation, ImportAliasSupport, DunderAllObservation, DunderAllSupport,
+        ParameterSyntaxObservation, ParameterSyntaxSupport, ClassFieldSyntaxObservation, ClassFieldSyntaxSupport, CallSyntax, CallSyntaxSupport, LexicalScopeObservation, LexicalScopeSupport,
         BindingObservation, BindingSupport, ReferenceObservation, ReferenceSupport, LexicalResolution, LexicalResolutionSupport,
         Signature, SignatureSupport, SymbolDeclaration, SymbolDeclarationSupport, ParameterDeclaration, ParameterDeclarationSupport,
         CallTarget, CallTargetSupport, CallResolution, CallResolutionSupport, TypeObservation, TypeSupport, TypePresentation,
@@ -27,7 +29,9 @@ fn write_pyrefly(access: &mut StageAccess<'_, '_>) -> Result<(), ModelError> {
 }
 fn pyrefly_outputs() -> Vec<RelationUse> {
     macro_rules! all { ($($ty:ty),+) => { vec![$(RelationUse::of::<$ty>()),+] }; }
-    all!(Occurrence, SyntaxObservation, SyntaxSupport, CallSyntax, CallSyntaxSupport, LexicalScopeObservation, LexicalScopeSupport,
+    all!(Occurrence, SyntaxObservation, SyntaxSupport, SyntaxPlacement, SyntaxPlacementSupport, SyntaxDetailObservation, SyntaxDetailSupport, DeclarationObservation, DeclarationSupport,
+        DeclarationDecorator, DeclarationDecoratorSupport, ImportAliasObservation, ImportAliasSupport, DunderAllObservation, DunderAllSupport,
+        ParameterSyntaxObservation, ParameterSyntaxSupport, ClassFieldSyntaxObservation, ClassFieldSyntaxSupport, CallSyntax, CallSyntaxSupport, LexicalScopeObservation, LexicalScopeSupport,
         BindingObservation, BindingSupport, ReferenceObservation, ReferenceSupport, LexicalResolution, LexicalResolutionSupport,
         Signature, SignatureSupport, SymbolDeclaration, SymbolDeclarationSupport, ParameterDeclaration, ParameterDeclarationSupport,
         CallTarget, CallTargetSupport, CallResolution, CallResolutionSupport, TypeObservation, TypeSupport, TypePresentation,

@@ -947,6 +947,30 @@ Their answers are re-homed in `acquisition`:
 - a quoted `RECORD` path is captured and verified.
 
 The capture controls add derivation only in the frozen namespace, refusal of an original `_lctx/` path, and single writes. A change during capture aborts (the capture unit test). `lctx acquire` still only syncs and fetches; `lctx deployment-identity` and the old binary keep `library::acquired` until A16 and C1x |
+| A3: `cargo test --release -p lctx-model` (all suites); `-p lctx-postgres --test domain_syntax --test lifecycle --test generation_stages --test generation_catalog --test installation --test domain_input --test domain_coverage --test generations`; `INSTA_UPDATE=no -p lctx --test model_describe --test store_cli`; `cargo check --workspace --all-targets` | passed 2026-09-29 (domain_syntax 5, domain_coverage 4, PG domain_syntax 1). The `model_describe` snapshot changed; this is a schema migration.
+
+New in `lctx-model/src/domain/syntax.rs`:
+- `SyntaxPlacement`: parent, field and ordinal. It is a qualified record rather than an `Occurrence` attribute, so occurrence identity is unchanged;
+- the `SyntaxDetail` sum (Operator, Literal) and `SyntaxDetailObservation`;
+- `DeclarationObservation` (kind, name, parent, `@overload`, docstring) and `DeclarationDecorator`;
+- `ImportAliasObservation` (level, resolved module) and `DunderAllObservation` (a literal `LiteralSet`);
+- `ParameterSyntaxObservation` (a literal default as its `Literal`) and `ClassFieldSyntaxObservation`;
+- each with its generated support: Syntax, Exports or Signatures;
+- `SubjectBoundary`, `AttachmentOutcome` (`AttachmentKind`) and `AttachmentCandidate`;
+- ObligationKind `AttachmentAmbiguous` 52 and `AttachmentUnmatched` 53, appended (the plan's "49/50" predates P0's 49–51);
+- the `syntax_geometry` and `subject_boundaries` invariants.
+
+The facts frontier now requires the pyrefly stage to write these family relations. The test schedules (`domain_admission`, the `testing` Facts fixture) were updated accordingly.
+
+**Controls** (fixture `semantic_syntax/example.py`):
+- every text is the bytes at its occurrence, and a literal default states its parsed value;
+- nine nesting and kind refusals;
+- three placement refusals;
+- a foreign optional subject is refused, while its twin (the same occurrence stored but unused) validates;
+- row contracts;
+- attachment outcomes keep exactly their candidates (seven cases);
+- a candidate or boundary subject outside its scope, a boundary under complete coverage or in an uncovered family, a mismatched reason and a missing scope are each refused;
+- the PG twin publishes, reads back and refuses |
 | `just fmt`, `just test-all`, facts pilots | not_run: functional scope incomplete |
 
 Independent bounded reviewers accepted artifact/capture/acquisition corrections and the

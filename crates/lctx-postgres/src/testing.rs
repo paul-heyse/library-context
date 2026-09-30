@@ -164,7 +164,7 @@ impl Harness {
 pub mod fixtures {
     use std::sync::Arc;
     use lctx_model::domain::{*, admission::*, attribution::*, calls::*, declarations::*, deployment::*, documents::*, input::*, lexical::*,
-        resources::ResourceBudget, source::*, stages::*, types::*};
+        resources::ResourceBudget, source::*, stages::*, syntax::*, types::*};
     use crate::generations::{GenerationAttempt, GenerationId, GenerationStore};
     use super::DisposableDatabase;
     use sqlx::PgPool;
@@ -241,7 +241,9 @@ pub mod fixtures {
             use FactFamily::*;
             Schedule::build(&self.model, vec![
                 stage("acquire", uses!(InputRevision, SourceArtifact), vec![Artifacts], Some(&self.capture)),
-                stage("pyrefly", uses!(Occurrence, SyntaxObservation, SyntaxSupport, CallSyntax, CallSyntaxSupport, LexicalScopeObservation, LexicalScopeSupport,
+                stage("pyrefly", uses!(Occurrence, SyntaxObservation, SyntaxSupport, SyntaxPlacement, SyntaxPlacementSupport, SyntaxDetailObservation, SyntaxDetailSupport, DeclarationObservation, DeclarationSupport,
+                    DeclarationDecorator, DeclarationDecoratorSupport, ImportAliasObservation, ImportAliasSupport, DunderAllObservation, DunderAllSupport,
+                    ParameterSyntaxObservation, ParameterSyntaxSupport, ClassFieldSyntaxObservation, ClassFieldSyntaxSupport, CallSyntax, CallSyntaxSupport, LexicalScopeObservation, LexicalScopeSupport,
                     BindingObservation, BindingSupport, ReferenceObservation, ReferenceSupport, LexicalResolution, LexicalResolutionSupport, Signature, SignatureSupport,
                     SymbolDeclaration, SymbolDeclarationSupport, ParameterDeclaration, ParameterDeclarationSupport, CallTarget, CallTargetSupport, CallResolution,
                     CallResolutionSupport, TypeObservation, TypeSupport, TypePresentation, TypePresentationSupport, TypeVariableRestriction, TypeRestrictionSupport),
@@ -271,7 +273,9 @@ pub mod fixtures {
                 let mut access = execution.begin(stage.name).unwrap();
                 match stage.name {
                     "acquire" => rows!(access, attempt, model; InputRevision => vec![self.input.clone()], SourceArtifact => vec![]),
-                    "pyrefly" => empty!(access, attempt, model; Occurrence, SyntaxObservation, SyntaxSupport, CallSyntax, CallSyntaxSupport, LexicalScopeObservation,
+                    "pyrefly" => empty!(access, attempt, model; Occurrence, SyntaxObservation, SyntaxSupport, SyntaxPlacement, SyntaxPlacementSupport, SyntaxDetailObservation, SyntaxDetailSupport, DeclarationObservation, DeclarationSupport,
+                        DeclarationDecorator, DeclarationDecoratorSupport, ImportAliasObservation, ImportAliasSupport, DunderAllObservation, DunderAllSupport,
+                        ParameterSyntaxObservation, ParameterSyntaxSupport, ClassFieldSyntaxObservation, ClassFieldSyntaxSupport, CallSyntax, CallSyntaxSupport, LexicalScopeObservation,
                         LexicalScopeSupport, BindingObservation, BindingSupport, ReferenceObservation, ReferenceSupport, LexicalResolution, LexicalResolutionSupport,
                         Signature, SignatureSupport, SymbolDeclaration, SymbolDeclarationSupport, ParameterDeclaration, ParameterDeclarationSupport, CallTarget,
                         CallTargetSupport, CallResolution, CallResolutionSupport, TypeObservation, TypeSupport, TypePresentation, TypePresentationSupport,

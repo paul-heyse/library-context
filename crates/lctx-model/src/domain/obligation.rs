@@ -93,6 +93,10 @@ pub enum ObligationKind {
         NonDefiniteAlternative = 50,
         /// A refutation needs complete coverage of the relation's scope; the coverage is partial.
         IncompleteCoverage = 51,
+        /// A provider event matched several occurrences at its span; none was chosen.
+        AttachmentAmbiguous = 52,
+        /// A provider event matched no occurrence exactly: none, or only a containing one.
+        AttachmentUnmatched = 53,
 }
 
 /// The class of an obligation, which orders it before its code.
@@ -140,7 +144,9 @@ impl ObligationKind {
             | K::CallTransfer
             | K::ConflictingProof
             | K::ConditionTransferUnsupported
-            | K::NonDefiniteAlternative => C::Resolution,
+            | K::NonDefiniteAlternative
+            | K::AttachmentAmbiguous
+            | K::AttachmentUnmatched => C::Resolution,
             K::NativeUnavailable
             | K::UnsupportedControlFlow
             | K::OutsideProviderModel

@@ -166,6 +166,19 @@ against a scalar oracle for names, attributes and subscripts. Only an exact matc
 other outcome records a subject boundary with its candidates and Partial coverage. Ambiguity stays
 unresolved.
 
+**Typed syntax** (Implemented, focused Tested 2026-09-29, plan A3). Provider-qualified records carry:
+- an occurrence's placement in the parse (`SyntaxPlacement`: parent, field and ordinal);
+- the detail its bytes do not state (`SyntaxDetail`: an operator kind or a parsed literal);
+- the syntax of declarations and decorators, import aliases, `__all__`, parameters (a literal default
+  as its value) and class fields.
+
+Texts are the source bytes at their occurrences. One geometry invariant keeps every part inside its
+declaration, statement or class, with the kinds the parse gives. A `SubjectBoundary` sits under its
+provider's partial, unavailable or failed coverage of its scope and family, with its subject inside
+that scope. An `AttachmentOutcome` is disclosed by its matching reason (`AttachmentAmbiguous`,
+`AttachmentUnmatched`, `BudgetReached`) and keeps exactly its candidates: one innermost container,
+two or more when ambiguous, none when unmatched.
+
 **Provider modules.** Symbols and type variables name a provider module: the acquired module over
 captured bytes, a provider-bundled stub, or an unresolved spelling in one analysis context. The
 same spelling in different origins is never one module.

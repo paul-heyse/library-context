@@ -3,7 +3,7 @@ source: crates/lctx/tests/model_describe.rs
 expression: "String::from_utf8(output.stdout).unwrap()"
 ---
 {
-  "digest": "f4b2d020d5b737a0f05b650551f47312f3bf8ee7513be27141270d1a65f21468",
+  "digest": "ceec0dc426cf0769ada2b09b7ef8ce41d6efc8a067beb30e0d9f55043e32426c",
   "relations": [
     {
       "name": "access_paths",
@@ -303,6 +303,544 @@ expression: "String::from_utf8(output.stdout).unwrap()"
             [
               4,
               "Unknown"
+            ]
+          ]
+        }
+      ],
+      "facts": true
+    },
+    {
+      "name": "attachment_candidates",
+      "fields": [
+        {
+          "name": "outcome",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "attachment_outcomes"
+        },
+        {
+          "name": "candidate",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "occurrences"
+        }
+      ],
+      "facts": true
+    },
+    {
+      "name": "attachment_outcomes",
+      "fields": [
+        {
+          "name": "boundary",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "subject_boundaries"
+        },
+        {
+          "name": "source",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "source_artifacts"
+        },
+        {
+          "name": "start",
+          "type": "int64",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "end",
+          "type": "int64",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "syntax_kind",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "ModModule"
+            ],
+            [
+              1,
+              "ModExpression"
+            ],
+            [
+              2,
+              "StmtFunctionDef"
+            ],
+            [
+              3,
+              "StmtClassDef"
+            ],
+            [
+              4,
+              "StmtReturn"
+            ],
+            [
+              5,
+              "StmtDelete"
+            ],
+            [
+              6,
+              "StmtTypeAlias"
+            ],
+            [
+              7,
+              "StmtAssign"
+            ],
+            [
+              8,
+              "StmtAugAssign"
+            ],
+            [
+              9,
+              "StmtAnnAssign"
+            ],
+            [
+              10,
+              "StmtFor"
+            ],
+            [
+              11,
+              "StmtWhile"
+            ],
+            [
+              12,
+              "StmtIf"
+            ],
+            [
+              13,
+              "StmtWith"
+            ],
+            [
+              14,
+              "StmtMatch"
+            ],
+            [
+              15,
+              "StmtRaise"
+            ],
+            [
+              16,
+              "StmtTry"
+            ],
+            [
+              17,
+              "StmtAssert"
+            ],
+            [
+              18,
+              "StmtImport"
+            ],
+            [
+              19,
+              "StmtImportFrom"
+            ],
+            [
+              20,
+              "StmtGlobal"
+            ],
+            [
+              21,
+              "StmtNonlocal"
+            ],
+            [
+              22,
+              "StmtExpr"
+            ],
+            [
+              23,
+              "StmtPass"
+            ],
+            [
+              24,
+              "StmtBreak"
+            ],
+            [
+              25,
+              "StmtContinue"
+            ],
+            [
+              26,
+              "StmtIpyEscapeCommand"
+            ],
+            [
+              27,
+              "ExprBoolOp"
+            ],
+            [
+              28,
+              "ExprNamed"
+            ],
+            [
+              29,
+              "ExprBinOp"
+            ],
+            [
+              30,
+              "ExprUnaryOp"
+            ],
+            [
+              31,
+              "ExprLambda"
+            ],
+            [
+              32,
+              "ExprIf"
+            ],
+            [
+              33,
+              "ExprDict"
+            ],
+            [
+              34,
+              "ExprSet"
+            ],
+            [
+              35,
+              "ExprListComp"
+            ],
+            [
+              36,
+              "ExprSetComp"
+            ],
+            [
+              37,
+              "ExprDictComp"
+            ],
+            [
+              38,
+              "ExprGenerator"
+            ],
+            [
+              39,
+              "ExprAwait"
+            ],
+            [
+              40,
+              "ExprYield"
+            ],
+            [
+              41,
+              "ExprYieldFrom"
+            ],
+            [
+              42,
+              "ExprCompare"
+            ],
+            [
+              43,
+              "ExprCall"
+            ],
+            [
+              44,
+              "ExprFString"
+            ],
+            [
+              45,
+              "ExprTString"
+            ],
+            [
+              46,
+              "ExprStringLiteral"
+            ],
+            [
+              47,
+              "ExprBytesLiteral"
+            ],
+            [
+              48,
+              "ExprNumberLiteral"
+            ],
+            [
+              49,
+              "ExprBooleanLiteral"
+            ],
+            [
+              50,
+              "ExprNoneLiteral"
+            ],
+            [
+              51,
+              "ExprEllipsisLiteral"
+            ],
+            [
+              52,
+              "ExprAttribute"
+            ],
+            [
+              53,
+              "ExprSubscript"
+            ],
+            [
+              54,
+              "ExprStarred"
+            ],
+            [
+              55,
+              "ExprName"
+            ],
+            [
+              56,
+              "ExprList"
+            ],
+            [
+              57,
+              "ExprTuple"
+            ],
+            [
+              58,
+              "ExprSlice"
+            ],
+            [
+              59,
+              "ExprIpyEscapeCommand"
+            ],
+            [
+              60,
+              "ExceptHandlerExceptHandler"
+            ],
+            [
+              61,
+              "InterpolatedElement"
+            ],
+            [
+              62,
+              "InterpolatedStringLiteralElement"
+            ],
+            [
+              63,
+              "PatternMatchValue"
+            ],
+            [
+              64,
+              "PatternMatchSingleton"
+            ],
+            [
+              65,
+              "PatternMatchSequence"
+            ],
+            [
+              66,
+              "PatternMatchMapping"
+            ],
+            [
+              67,
+              "PatternMatchClass"
+            ],
+            [
+              68,
+              "PatternMatchStar"
+            ],
+            [
+              69,
+              "PatternMatchAs"
+            ],
+            [
+              70,
+              "PatternMatchOr"
+            ],
+            [
+              71,
+              "TypeParamTypeVar"
+            ],
+            [
+              72,
+              "TypeParamTypeVarTuple"
+            ],
+            [
+              73,
+              "TypeParamParamSpec"
+            ],
+            [
+              74,
+              "InterpolatedStringFormatSpec"
+            ],
+            [
+              75,
+              "PatternArguments"
+            ],
+            [
+              76,
+              "PatternKeyword"
+            ],
+            [
+              77,
+              "Comprehension"
+            ],
+            [
+              78,
+              "Arguments"
+            ],
+            [
+              79,
+              "Parameters"
+            ],
+            [
+              80,
+              "Parameter"
+            ],
+            [
+              81,
+              "ParameterWithDefault"
+            ],
+            [
+              82,
+              "Keyword"
+            ],
+            [
+              83,
+              "Alias"
+            ],
+            [
+              84,
+              "WithItem"
+            ],
+            [
+              85,
+              "MatchCase"
+            ],
+            [
+              86,
+              "Decorator"
+            ],
+            [
+              87,
+              "ElifElseClause"
+            ],
+            [
+              88,
+              "TypeParams"
+            ],
+            [
+              89,
+              "FString"
+            ],
+            [
+              90,
+              "TString"
+            ],
+            [
+              91,
+              "StringLiteral"
+            ],
+            [
+              92,
+              "BytesLiteral"
+            ],
+            [
+              93,
+              "Identifier"
+            ]
+          ]
+        },
+        {
+          "name": "role",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "Syntax"
+            ],
+            [
+              1,
+              "Declaration"
+            ],
+            [
+              2,
+              "Parameter"
+            ],
+            [
+              3,
+              "Binding"
+            ],
+            [
+              4,
+              "Read"
+            ],
+            [
+              5,
+              "Call"
+            ],
+            [
+              6,
+              "Argument"
+            ],
+            [
+              7,
+              "Predicate"
+            ],
+            [
+              8,
+              "WithItem"
+            ],
+            [
+              9,
+              "Decorator"
+            ],
+            [
+              10,
+              "Return"
+            ],
+            [
+              11,
+              "Yield"
+            ],
+            [
+              12,
+              "Raise"
+            ]
+          ]
+        },
+        {
+          "name": "outcome",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "Innermost"
+            ],
+            [
+              1,
+              "Ambiguous"
+            ],
+            [
+              2,
+              "Unmatched"
+            ],
+            [
+              3,
+              "BudgetExceeded"
             ]
           ]
         }
@@ -1081,6 +1619,14 @@ expression: "String::from_utf8(output.stdout).unwrap()"
             [
               51,
               "IncompleteCoverage"
+            ],
+            [
+              52,
+              "AttachmentAmbiguous"
+            ],
+            [
+              53,
+              "AttachmentUnmatched"
             ]
           ]
         }
@@ -1345,6 +1891,14 @@ expression: "String::from_utf8(output.stdout).unwrap()"
             [
               51,
               "IncompleteCoverage"
+            ],
+            [
+              52,
+              "AttachmentAmbiguous"
+            ],
+            [
+              53,
+              "AttachmentUnmatched"
             ]
           ]
         }
@@ -2086,6 +2640,207 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       "family": "Calls"
     },
     {
+      "name": "class_field_syntax_observations",
+      "fields": [
+        {
+          "name": "qualification",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "assertion_qualifications"
+        },
+        {
+          "name": "class",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "occurrences"
+        },
+        {
+          "name": "target",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "occurrences"
+        },
+        {
+          "name": "annotation",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "occurrences"
+        },
+        {
+          "name": "value",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "occurrences"
+        }
+      ],
+      "facts": true,
+      "family": "Syntax"
+    },
+    {
+      "name": "class_field_syntax_supports",
+      "fields": [
+        {
+          "name": "assertion",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "class_field_syntax_observations"
+        },
+        {
+          "name": "run",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "provider_runs"
+        },
+        {
+          "name": "surface",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "provider_surfaces"
+        },
+        {
+          "name": "evidence",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "evidence"
+        },
+        {
+          "name": "origin",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "InputContext"
+            ],
+            [
+              1,
+              "SourceObservation"
+            ],
+            [
+              2,
+              "AnalyzerAssertion"
+            ],
+            [
+              3,
+              "DerivedAnalysis"
+            ],
+            [
+              4,
+              "SyntheticModel"
+            ]
+          ]
+        },
+        {
+          "name": "mode",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "NativeTraversal"
+            ],
+            [
+              1,
+              "ReportDecode"
+            ],
+            [
+              2,
+              "RelationalDerivation"
+            ],
+            [
+              3,
+              "GraphAnalysis"
+            ],
+            [
+              4,
+              "Recognizer"
+            ],
+            [
+              5,
+              "StatisticalAnalysis"
+            ],
+            [
+              6,
+              "TemplateSynthesis"
+            ],
+            [
+              7,
+              "FixtureExecution"
+            ],
+            [
+              8,
+              "ManualReview"
+            ]
+          ]
+        },
+        {
+          "name": "fidelity",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "Raw"
+            ],
+            [
+              1,
+              "NativeStructural"
+            ],
+            [
+              2,
+              "NormalizedStructural"
+            ],
+            [
+              3,
+              "ReportProjection"
+            ],
+            [
+              4,
+              "DisplayOnly"
+            ]
+          ]
+        }
+      ],
+      "facts": true,
+      "family": "Syntax"
+    },
+    {
       "name": "code_block_observations",
       "fields": [
         {
@@ -2702,6 +3457,428 @@ expression: "String::from_utf8(output.stdout).unwrap()"
           }
         ]
       }
+    },
+    {
+      "name": "declaration_decorator_supports",
+      "fields": [
+        {
+          "name": "assertion",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "declaration_decorators"
+        },
+        {
+          "name": "run",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "provider_runs"
+        },
+        {
+          "name": "surface",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "provider_surfaces"
+        },
+        {
+          "name": "evidence",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "evidence"
+        },
+        {
+          "name": "origin",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "InputContext"
+            ],
+            [
+              1,
+              "SourceObservation"
+            ],
+            [
+              2,
+              "AnalyzerAssertion"
+            ],
+            [
+              3,
+              "DerivedAnalysis"
+            ],
+            [
+              4,
+              "SyntheticModel"
+            ]
+          ]
+        },
+        {
+          "name": "mode",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "NativeTraversal"
+            ],
+            [
+              1,
+              "ReportDecode"
+            ],
+            [
+              2,
+              "RelationalDerivation"
+            ],
+            [
+              3,
+              "GraphAnalysis"
+            ],
+            [
+              4,
+              "Recognizer"
+            ],
+            [
+              5,
+              "StatisticalAnalysis"
+            ],
+            [
+              6,
+              "TemplateSynthesis"
+            ],
+            [
+              7,
+              "FixtureExecution"
+            ],
+            [
+              8,
+              "ManualReview"
+            ]
+          ]
+        },
+        {
+          "name": "fidelity",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "Raw"
+            ],
+            [
+              1,
+              "NativeStructural"
+            ],
+            [
+              2,
+              "NormalizedStructural"
+            ],
+            [
+              3,
+              "ReportProjection"
+            ],
+            [
+              4,
+              "DisplayOnly"
+            ]
+          ]
+        }
+      ],
+      "facts": true,
+      "family": "Syntax"
+    },
+    {
+      "name": "declaration_decorators",
+      "fields": [
+        {
+          "name": "qualification",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "assertion_qualifications"
+        },
+        {
+          "name": "declaration",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "occurrences"
+        },
+        {
+          "name": "decorator",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "occurrences"
+        },
+        {
+          "name": "ordinal",
+          "type": "int64",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        }
+      ],
+      "facts": true,
+      "family": "Syntax"
+    },
+    {
+      "name": "declaration_observations",
+      "fields": [
+        {
+          "name": "qualification",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "assertion_qualifications"
+        },
+        {
+          "name": "declaration",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "occurrences"
+        },
+        {
+          "name": "name",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "occurrences"
+        },
+        {
+          "name": "kind",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "Function"
+            ],
+            [
+              1,
+              "AsyncFunction"
+            ],
+            [
+              2,
+              "Class"
+            ]
+          ]
+        },
+        {
+          "name": "parent",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "occurrences"
+        },
+        {
+          "name": "overload",
+          "type": "bool",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "docstring",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "occurrences"
+        }
+      ],
+      "facts": true,
+      "family": "Syntax"
+    },
+    {
+      "name": "declaration_supports",
+      "fields": [
+        {
+          "name": "assertion",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "declaration_observations"
+        },
+        {
+          "name": "run",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "provider_runs"
+        },
+        {
+          "name": "surface",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "provider_surfaces"
+        },
+        {
+          "name": "evidence",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "evidence"
+        },
+        {
+          "name": "origin",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "InputContext"
+            ],
+            [
+              1,
+              "SourceObservation"
+            ],
+            [
+              2,
+              "AnalyzerAssertion"
+            ],
+            [
+              3,
+              "DerivedAnalysis"
+            ],
+            [
+              4,
+              "SyntheticModel"
+            ]
+          ]
+        },
+        {
+          "name": "mode",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "NativeTraversal"
+            ],
+            [
+              1,
+              "ReportDecode"
+            ],
+            [
+              2,
+              "RelationalDerivation"
+            ],
+            [
+              3,
+              "GraphAnalysis"
+            ],
+            [
+              4,
+              "Recognizer"
+            ],
+            [
+              5,
+              "StatisticalAnalysis"
+            ],
+            [
+              6,
+              "TemplateSynthesis"
+            ],
+            [
+              7,
+              "FixtureExecution"
+            ],
+            [
+              8,
+              "ManualReview"
+            ]
+          ]
+        },
+        {
+          "name": "fidelity",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "Raw"
+            ],
+            [
+              1,
+              "NativeStructural"
+            ],
+            [
+              2,
+              "NormalizedStructural"
+            ],
+            [
+              3,
+              "ReportProjection"
+            ],
+            [
+              4,
+              "DisplayOnly"
+            ]
+          ]
+        }
+      ],
+      "facts": true,
+      "family": "Syntax"
     },
     {
       "name": "deployment_observations",
@@ -4469,6 +5646,197 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       "family": "Docs"
     },
     {
+      "name": "dunder_all_observations",
+      "fields": [
+        {
+          "name": "qualification",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "assertion_qualifications"
+        },
+        {
+          "name": "statement",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "occurrences"
+        },
+        {
+          "name": "literal",
+          "type": "bool",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "names",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "literal_sets"
+        }
+      ],
+      "facts": true,
+      "family": "Exports"
+    },
+    {
+      "name": "dunder_all_supports",
+      "fields": [
+        {
+          "name": "assertion",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "dunder_all_observations"
+        },
+        {
+          "name": "run",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "provider_runs"
+        },
+        {
+          "name": "surface",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "provider_surfaces"
+        },
+        {
+          "name": "evidence",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "evidence"
+        },
+        {
+          "name": "origin",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "InputContext"
+            ],
+            [
+              1,
+              "SourceObservation"
+            ],
+            [
+              2,
+              "AnalyzerAssertion"
+            ],
+            [
+              3,
+              "DerivedAnalysis"
+            ],
+            [
+              4,
+              "SyntheticModel"
+            ]
+          ]
+        },
+        {
+          "name": "mode",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "NativeTraversal"
+            ],
+            [
+              1,
+              "ReportDecode"
+            ],
+            [
+              2,
+              "RelationalDerivation"
+            ],
+            [
+              3,
+              "GraphAnalysis"
+            ],
+            [
+              4,
+              "Recognizer"
+            ],
+            [
+              5,
+              "StatisticalAnalysis"
+            ],
+            [
+              6,
+              "TemplateSynthesis"
+            ],
+            [
+              7,
+              "FixtureExecution"
+            ],
+            [
+              8,
+              "ManualReview"
+            ]
+          ]
+        },
+        {
+          "name": "fidelity",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "Raw"
+            ],
+            [
+              1,
+              "NativeStructural"
+            ],
+            [
+              2,
+              "NormalizedStructural"
+            ],
+            [
+              3,
+              "ReportProjection"
+            ],
+            [
+              4,
+              "DisplayOnly"
+            ]
+          ]
+        }
+      ],
+      "facts": true,
+      "family": "Exports"
+    },
+    {
       "name": "environment_fingerprints",
       "fields": [
         {
@@ -5839,6 +7207,205 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       "facts": false
     },
     {
+      "name": "import_alias_observations",
+      "fields": [
+        {
+          "name": "qualification",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "assertion_qualifications"
+        },
+        {
+          "name": "statement",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "occurrences"
+        },
+        {
+          "name": "alias",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "occurrences"
+        },
+        {
+          "name": "level",
+          "type": "int64",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "resolved_module",
+          "type": "text",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false
+        }
+      ],
+      "facts": true,
+      "family": "Exports"
+    },
+    {
+      "name": "import_alias_supports",
+      "fields": [
+        {
+          "name": "assertion",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "import_alias_observations"
+        },
+        {
+          "name": "run",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "provider_runs"
+        },
+        {
+          "name": "surface",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "provider_surfaces"
+        },
+        {
+          "name": "evidence",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "evidence"
+        },
+        {
+          "name": "origin",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "InputContext"
+            ],
+            [
+              1,
+              "SourceObservation"
+            ],
+            [
+              2,
+              "AnalyzerAssertion"
+            ],
+            [
+              3,
+              "DerivedAnalysis"
+            ],
+            [
+              4,
+              "SyntheticModel"
+            ]
+          ]
+        },
+        {
+          "name": "mode",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "NativeTraversal"
+            ],
+            [
+              1,
+              "ReportDecode"
+            ],
+            [
+              2,
+              "RelationalDerivation"
+            ],
+            [
+              3,
+              "GraphAnalysis"
+            ],
+            [
+              4,
+              "Recognizer"
+            ],
+            [
+              5,
+              "StatisticalAnalysis"
+            ],
+            [
+              6,
+              "TemplateSynthesis"
+            ],
+            [
+              7,
+              "FixtureExecution"
+            ],
+            [
+              8,
+              "ManualReview"
+            ]
+          ]
+        },
+        {
+          "name": "fidelity",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "Raw"
+            ],
+            [
+              1,
+              "NativeStructural"
+            ],
+            [
+              2,
+              "NormalizedStructural"
+            ],
+            [
+              3,
+              "ReportProjection"
+            ],
+            [
+              4,
+              "DisplayOnly"
+            ]
+          ]
+        }
+      ],
+      "facts": true,
+      "family": "Exports"
+    },
+    {
       "name": "input_acquisitions",
       "fields": [
         {
@@ -6706,6 +8273,14 @@ expression: "String::from_utf8(output.stdout).unwrap()"
             [
               51,
               "IncompleteCoverage"
+            ],
+            [
+              52,
+              "AttachmentAmbiguous"
+            ],
+            [
+              53,
+              "AttachmentUnmatched"
             ]
           ]
         }
@@ -7652,6 +9227,254 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         }
       ],
       "facts": true
+    },
+    {
+      "name": "parameter_syntax_observations",
+      "fields": [
+        {
+          "name": "qualification",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "assertion_qualifications"
+        },
+        {
+          "name": "function",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "occurrences"
+        },
+        {
+          "name": "parameter",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "occurrences"
+        },
+        {
+          "name": "ordinal",
+          "type": "int64",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "kind",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "PositionalOnly"
+            ],
+            [
+              1,
+              "PositionalOrKeyword"
+            ],
+            [
+              2,
+              "VarPositional"
+            ],
+            [
+              3,
+              "KeywordOnly"
+            ],
+            [
+              4,
+              "VarKeyword"
+            ]
+          ]
+        },
+        {
+          "name": "default",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "occurrences"
+        },
+        {
+          "name": "default_literal",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "literal_values"
+        },
+        {
+          "name": "annotation",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "occurrences"
+        }
+      ],
+      "facts": true,
+      "family": "Signatures"
+    },
+    {
+      "name": "parameter_syntax_supports",
+      "fields": [
+        {
+          "name": "assertion",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "parameter_syntax_observations"
+        },
+        {
+          "name": "run",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "provider_runs"
+        },
+        {
+          "name": "surface",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "provider_surfaces"
+        },
+        {
+          "name": "evidence",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "evidence"
+        },
+        {
+          "name": "origin",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "InputContext"
+            ],
+            [
+              1,
+              "SourceObservation"
+            ],
+            [
+              2,
+              "AnalyzerAssertion"
+            ],
+            [
+              3,
+              "DerivedAnalysis"
+            ],
+            [
+              4,
+              "SyntheticModel"
+            ]
+          ]
+        },
+        {
+          "name": "mode",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "NativeTraversal"
+            ],
+            [
+              1,
+              "ReportDecode"
+            ],
+            [
+              2,
+              "RelationalDerivation"
+            ],
+            [
+              3,
+              "GraphAnalysis"
+            ],
+            [
+              4,
+              "Recognizer"
+            ],
+            [
+              5,
+              "StatisticalAnalysis"
+            ],
+            [
+              6,
+              "TemplateSynthesis"
+            ],
+            [
+              7,
+              "FixtureExecution"
+            ],
+            [
+              8,
+              "ManualReview"
+            ]
+          ]
+        },
+        {
+          "name": "fidelity",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "Raw"
+            ],
+            [
+              1,
+              "NativeStructural"
+            ],
+            [
+              2,
+              "NormalizedStructural"
+            ],
+            [
+              3,
+              "ReportProjection"
+            ],
+            [
+              4,
+              "DisplayOnly"
+            ]
+          ]
+        }
+      ],
+      "facts": true,
+      "family": "Signatures"
     },
     {
       "name": "passage_observations",
@@ -8679,6 +10502,14 @@ expression: "String::from_utf8(output.stdout).unwrap()"
             [
               51,
               "IncompleteCoverage"
+            ],
+            [
+              52,
+              "AttachmentAmbiguous"
+            ],
+            [
+              53,
+              "AttachmentUnmatched"
             ]
           ]
         },
@@ -10113,6 +11944,332 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       "facts": false
     },
     {
+      "name": "subject_boundaries",
+      "fields": [
+        {
+          "name": "scope",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "coverage_scopes"
+        },
+        {
+          "name": "provider",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "providers"
+        },
+        {
+          "name": "context",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "analysis_contexts"
+        },
+        {
+          "name": "family",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "codes": [
+            [
+              1,
+              "Exports"
+            ],
+            [
+              2,
+              "Signatures"
+            ],
+            [
+              3,
+              "Calls"
+            ],
+            [
+              7,
+              "Syntax"
+            ],
+            [
+              8,
+              "Lexical"
+            ],
+            [
+              9,
+              "Types"
+            ],
+            [
+              10,
+              "Docs"
+            ],
+            [
+              13,
+              "Flow"
+            ],
+            [
+              14,
+              "Artifacts"
+            ],
+            [
+              15,
+              "Deployment"
+            ]
+          ]
+        },
+        {
+          "name": "subject",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "occurrences"
+        },
+        {
+          "name": "reason",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "NativeUnavailable"
+            ],
+            [
+              1,
+              "UnresolvedTarget"
+            ],
+            [
+              2,
+              "UnsupportedUnpacking"
+            ],
+            [
+              3,
+              "AmbiguousBinding"
+            ],
+            [
+              4,
+              "UnsupportedControlFlow"
+            ],
+            [
+              5,
+              "ScopeBoundary"
+            ],
+            [
+              6,
+              "BudgetReached"
+            ],
+            [
+              7,
+              "MissingEvidence"
+            ],
+            [
+              8,
+              "NotRequested"
+            ],
+            [
+              9,
+              "ProviderDisagreement"
+            ],
+            [
+              10,
+              "OutsideProviderModel"
+            ],
+            [
+              11,
+              "SyntaxError"
+            ],
+            [
+              12,
+              "UndecodableSource"
+            ],
+            [
+              13,
+              "NoSourceDeclaration"
+            ],
+            [
+              14,
+              "UnreachableInContext"
+            ],
+            [
+              15,
+              "VariableOrigin"
+            ],
+            [
+              16,
+              "DynamicAccess"
+            ],
+            [
+              17,
+              "OverrideDispatch"
+            ],
+            [
+              18,
+              "RuntimeUnreachable"
+            ],
+            [
+              19,
+              "CallTransfer"
+            ],
+            [
+              20,
+              "AbstractBody"
+            ],
+            [
+              21,
+              "SummaryDepthLimit"
+            ],
+            [
+              22,
+              "ConditionWorkLimit"
+            ],
+            [
+              23,
+              "ConditionNodeLimit"
+            ],
+            [
+              24,
+              "ConditionAtomLimit"
+            ],
+            [
+              25,
+              "SummaryPairWorkLimit"
+            ],
+            [
+              26,
+              "ExpressionDepthLimit"
+            ],
+            [
+              27,
+              "ExpressionWorkLimit"
+            ],
+            [
+              28,
+              "CompletionDepthLimit"
+            ],
+            [
+              29,
+              "CompletionWorkLimit"
+            ],
+            [
+              30,
+              "SummaryProofLimit"
+            ],
+            [
+              31,
+              "DefaultUnavailable"
+            ],
+            [
+              32,
+              "DefaultStabilityUnknown"
+            ],
+            [
+              33,
+              "HandlerNameCleanup"
+            ],
+            [
+              34,
+              "InvocationArgumentLimit"
+            ],
+            [
+              35,
+              "ActionTriggerUnavailable"
+            ],
+            [
+              36,
+              "ResourceIdentityUnavailable"
+            ],
+            [
+              37,
+              "FrameExitCleanup"
+            ],
+            [
+              38,
+              "ConditionTransferUnsupported"
+            ],
+            [
+              39,
+              "TheoryAssignmentLimit"
+            ],
+            [
+              40,
+              "ConflictingProof"
+            ],
+            [
+              41,
+              "NoApplicableDomain"
+            ],
+            [
+              42,
+              "IncompleteDomain"
+            ],
+            [
+              43,
+              "ComparableConflict"
+            ],
+            [
+              44,
+              "IncompatibleContexts"
+            ],
+            [
+              45,
+              "MissingContext"
+            ],
+            [
+              46,
+              "ResourceRefused"
+            ],
+            [
+              47,
+              "ResponseBudget"
+            ],
+            [
+              48,
+              "Approximation"
+            ],
+            [
+              49,
+              "EntryValueUnknown"
+            ],
+            [
+              50,
+              "NonDefiniteAlternative"
+            ],
+            [
+              51,
+              "IncompleteCoverage"
+            ],
+            [
+              52,
+              "AttachmentAmbiguous"
+            ],
+            [
+              53,
+              "AttachmentUnmatched"
+            ]
+          ]
+        },
+        {
+          "name": "detail",
+          "type": "text",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false
+        }
+      ],
+      "facts": true
+    },
+    {
       "name": "symbol_declaration_supports",
       "fields": [
         {
@@ -10296,6 +12453,369 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       "family": "Signatures"
     },
     {
+      "name": "syntax_detail_observations",
+      "fields": [
+        {
+          "name": "qualification",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "assertion_qualifications"
+        },
+        {
+          "name": "occurrence",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "occurrences"
+        },
+        {
+          "name": "ordinal",
+          "type": "int64",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "detail",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "syntax_details"
+        }
+      ],
+      "facts": true,
+      "family": "Syntax"
+    },
+    {
+      "name": "syntax_detail_supports",
+      "fields": [
+        {
+          "name": "assertion",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "syntax_detail_observations"
+        },
+        {
+          "name": "run",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "provider_runs"
+        },
+        {
+          "name": "surface",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "provider_surfaces"
+        },
+        {
+          "name": "evidence",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "evidence"
+        },
+        {
+          "name": "origin",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "InputContext"
+            ],
+            [
+              1,
+              "SourceObservation"
+            ],
+            [
+              2,
+              "AnalyzerAssertion"
+            ],
+            [
+              3,
+              "DerivedAnalysis"
+            ],
+            [
+              4,
+              "SyntheticModel"
+            ]
+          ]
+        },
+        {
+          "name": "mode",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "NativeTraversal"
+            ],
+            [
+              1,
+              "ReportDecode"
+            ],
+            [
+              2,
+              "RelationalDerivation"
+            ],
+            [
+              3,
+              "GraphAnalysis"
+            ],
+            [
+              4,
+              "Recognizer"
+            ],
+            [
+              5,
+              "StatisticalAnalysis"
+            ],
+            [
+              6,
+              "TemplateSynthesis"
+            ],
+            [
+              7,
+              "FixtureExecution"
+            ],
+            [
+              8,
+              "ManualReview"
+            ]
+          ]
+        },
+        {
+          "name": "fidelity",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "Raw"
+            ],
+            [
+              1,
+              "NativeStructural"
+            ],
+            [
+              2,
+              "NormalizedStructural"
+            ],
+            [
+              3,
+              "ReportProjection"
+            ],
+            [
+              4,
+              "DisplayOnly"
+            ]
+          ]
+        }
+      ],
+      "facts": true,
+      "family": "Syntax"
+    },
+    {
+      "name": "syntax_details",
+      "fields": [
+        {
+          "name": "kind",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        },
+        {
+          "name": "operator_operator",
+          "type": "int16",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "Add"
+            ],
+            [
+              1,
+              "Sub"
+            ],
+            [
+              2,
+              "Mult"
+            ],
+            [
+              3,
+              "MatMult"
+            ],
+            [
+              4,
+              "Div"
+            ],
+            [
+              5,
+              "Mod"
+            ],
+            [
+              6,
+              "Pow"
+            ],
+            [
+              7,
+              "LShift"
+            ],
+            [
+              8,
+              "RShift"
+            ],
+            [
+              9,
+              "BitOr"
+            ],
+            [
+              10,
+              "BitXor"
+            ],
+            [
+              11,
+              "BitAnd"
+            ],
+            [
+              12,
+              "FloorDiv"
+            ],
+            [
+              13,
+              "And"
+            ],
+            [
+              14,
+              "Or"
+            ],
+            [
+              15,
+              "Not"
+            ],
+            [
+              16,
+              "Invert"
+            ],
+            [
+              17,
+              "UAdd"
+            ],
+            [
+              18,
+              "USub"
+            ],
+            [
+              19,
+              "Eq"
+            ],
+            [
+              20,
+              "NotEq"
+            ],
+            [
+              21,
+              "Lt"
+            ],
+            [
+              22,
+              "LtE"
+            ],
+            [
+              23,
+              "Gt"
+            ],
+            [
+              24,
+              "GtE"
+            ],
+            [
+              25,
+              "Is"
+            ],
+            [
+              26,
+              "IsNot"
+            ],
+            [
+              27,
+              "In"
+            ],
+            [
+              28,
+              "NotIn"
+            ]
+          ]
+        },
+        {
+          "name": "literal_literal",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "literal_values"
+        }
+      ],
+      "facts": true,
+      "sum": {
+        "tag": "kind",
+        "arms": [
+          {
+            "code": 0,
+            "fields": [
+              {
+                "name": "operator_operator",
+                "required": true
+              }
+            ]
+          },
+          {
+            "code": 1,
+            "fields": [
+              {
+                "name": "literal_literal",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "name": "syntax_observations",
       "fields": [
         {
@@ -10319,6 +12839,311 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         {
           "name": "spelling",
           "type": "text",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false
+        }
+      ],
+      "facts": true,
+      "family": "Syntax"
+    },
+    {
+      "name": "syntax_placement_supports",
+      "fields": [
+        {
+          "name": "assertion",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "syntax_placements"
+        },
+        {
+          "name": "run",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "provider_runs"
+        },
+        {
+          "name": "surface",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "provider_surfaces"
+        },
+        {
+          "name": "evidence",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "target": "evidence"
+        },
+        {
+          "name": "origin",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "InputContext"
+            ],
+            [
+              1,
+              "SourceObservation"
+            ],
+            [
+              2,
+              "AnalyzerAssertion"
+            ],
+            [
+              3,
+              "DerivedAnalysis"
+            ],
+            [
+              4,
+              "SyntheticModel"
+            ]
+          ]
+        },
+        {
+          "name": "mode",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "NativeTraversal"
+            ],
+            [
+              1,
+              "ReportDecode"
+            ],
+            [
+              2,
+              "RelationalDerivation"
+            ],
+            [
+              3,
+              "GraphAnalysis"
+            ],
+            [
+              4,
+              "Recognizer"
+            ],
+            [
+              5,
+              "StatisticalAnalysis"
+            ],
+            [
+              6,
+              "TemplateSynthesis"
+            ],
+            [
+              7,
+              "FixtureExecution"
+            ],
+            [
+              8,
+              "ManualReview"
+            ]
+          ]
+        },
+        {
+          "name": "fidelity",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": true,
+          "codes": [
+            [
+              0,
+              "Raw"
+            ],
+            [
+              1,
+              "NativeStructural"
+            ],
+            [
+              2,
+              "NormalizedStructural"
+            ],
+            [
+              3,
+              "ReportProjection"
+            ],
+            [
+              4,
+              "DisplayOnly"
+            ]
+          ]
+        }
+      ],
+      "facts": true,
+      "family": "Syntax"
+    },
+    {
+      "name": "syntax_placements",
+      "fields": [
+        {
+          "name": "qualification",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "assertion_qualifications"
+        },
+        {
+          "name": "occurrence",
+          "type": "id",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "target": "occurrences"
+        },
+        {
+          "name": "parent",
+          "type": "id",
+          "list": false,
+          "nullable": true,
+          "key": true,
+          "provenance": false,
+          "target": "occurrences"
+        },
+        {
+          "name": "field",
+          "type": "int16",
+          "list": false,
+          "nullable": false,
+          "key": true,
+          "provenance": false,
+          "codes": [
+            [
+              0,
+              "Body"
+            ],
+            [
+              1,
+              "Orelse"
+            ],
+            [
+              2,
+              "Test"
+            ],
+            [
+              3,
+              "Handler"
+            ],
+            [
+              4,
+              "Finalbody"
+            ],
+            [
+              5,
+              "Target"
+            ],
+            [
+              6,
+              "Value"
+            ],
+            [
+              7,
+              "Exc"
+            ],
+            [
+              8,
+              "Cause"
+            ],
+            [
+              9,
+              "Msg"
+            ],
+            [
+              10,
+              "Subject"
+            ],
+            [
+              11,
+              "Case"
+            ],
+            [
+              12,
+              "Guard"
+            ],
+            [
+              13,
+              "Iter"
+            ],
+            [
+              14,
+              "Item"
+            ],
+            [
+              15,
+              "Annotation"
+            ],
+            [
+              16,
+              "Left"
+            ],
+            [
+              17,
+              "Right"
+            ],
+            [
+              18,
+              "Operand"
+            ],
+            [
+              19,
+              "Slice"
+            ],
+            [
+              20,
+              "Callee"
+            ],
+            [
+              21,
+              "Argument"
+            ],
+            [
+              22,
+              "Decorator"
+            ],
+            [
+              23,
+              "Element"
+            ],
+            [
+              24,
+              "Child"
+            ],
+            [
+              25,
+              "Default"
+            ]
+          ]
+        },
+        {
+          "name": "ordinal",
+          "type": "int64",
           "list": false,
           "nullable": false,
           "key": true,
@@ -12255,6 +15080,14 @@ expression: "String::from_utf8(output.stdout).unwrap()"
             [
               51,
               "IncompleteCoverage"
+            ],
+            [
+              52,
+              "AttachmentAmbiguous"
+            ],
+            [
+              53,
+              "AttachmentUnmatched"
             ]
           ]
         },
@@ -12830,6 +15663,30 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       ]
     },
     {
+      "name": "class_field_syntax_supports",
+      "inputs": [
+        "source_artifacts",
+        "occurrences",
+        "modules",
+        "corpus_libraries",
+        "place_roots",
+        "places",
+        "predicates",
+        "evaluation_atoms",
+        "condition_nodes",
+        "conditions",
+        "input_distributions",
+        "coverage_scopes",
+        "assertion_qualifications",
+        "provider_runs",
+        "run_families",
+        "provider_surfaces",
+        "evidence",
+        "class_field_syntax_observations",
+        "class_field_syntax_supports"
+      ]
+    },
+    {
       "name": "code_block_supports",
       "inputs": [
         "source_artifacts",
@@ -12910,6 +15767,30 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       ]
     },
     {
+      "name": "declaration_decorator_supports",
+      "inputs": [
+        "source_artifacts",
+        "occurrences",
+        "modules",
+        "corpus_libraries",
+        "place_roots",
+        "places",
+        "predicates",
+        "evaluation_atoms",
+        "condition_nodes",
+        "conditions",
+        "input_distributions",
+        "coverage_scopes",
+        "assertion_qualifications",
+        "provider_runs",
+        "run_families",
+        "provider_surfaces",
+        "evidence",
+        "declaration_decorators",
+        "declaration_decorator_supports"
+      ]
+    },
+    {
       "name": "declaration_links",
       "inputs": [
         "occurrences",
@@ -12922,6 +15803,30 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         "parameter_declarations",
         "symbol_declaration_supports",
         "parameter_declaration_supports"
+      ]
+    },
+    {
+      "name": "declaration_supports",
+      "inputs": [
+        "source_artifacts",
+        "occurrences",
+        "modules",
+        "corpus_libraries",
+        "place_roots",
+        "places",
+        "predicates",
+        "evaluation_atoms",
+        "condition_nodes",
+        "conditions",
+        "input_distributions",
+        "coverage_scopes",
+        "assertion_qualifications",
+        "provider_runs",
+        "run_families",
+        "provider_surfaces",
+        "evidence",
+        "declaration_observations",
+        "declaration_supports"
       ]
     },
     {
@@ -13095,6 +16000,30 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       ]
     },
     {
+      "name": "dunder_all_supports",
+      "inputs": [
+        "source_artifacts",
+        "occurrences",
+        "modules",
+        "corpus_libraries",
+        "place_roots",
+        "places",
+        "predicates",
+        "evaluation_atoms",
+        "condition_nodes",
+        "conditions",
+        "input_distributions",
+        "coverage_scopes",
+        "assertion_qualifications",
+        "provider_runs",
+        "run_families",
+        "provider_surfaces",
+        "evidence",
+        "dunder_all_observations",
+        "dunder_all_supports"
+      ]
+    },
+    {
       "name": "evidence_source_bounds",
       "inputs": [
         "source_artifacts",
@@ -13253,6 +16182,30 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       ]
     },
     {
+      "name": "import_alias_supports",
+      "inputs": [
+        "source_artifacts",
+        "occurrences",
+        "modules",
+        "corpus_libraries",
+        "place_roots",
+        "places",
+        "predicates",
+        "evaluation_atoms",
+        "condition_nodes",
+        "conditions",
+        "input_distributions",
+        "coverage_scopes",
+        "assertion_qualifications",
+        "provider_runs",
+        "run_families",
+        "provider_surfaces",
+        "evidence",
+        "import_alias_observations",
+        "import_alias_supports"
+      ]
+    },
+    {
       "name": "input_acquisition_boundaries",
       "inputs": [
         "input_origins",
@@ -13397,6 +16350,30 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       ]
     },
     {
+      "name": "parameter_syntax_supports",
+      "inputs": [
+        "source_artifacts",
+        "occurrences",
+        "modules",
+        "corpus_libraries",
+        "place_roots",
+        "places",
+        "predicates",
+        "evaluation_atoms",
+        "condition_nodes",
+        "conditions",
+        "input_distributions",
+        "coverage_scopes",
+        "assertion_qualifications",
+        "provider_runs",
+        "run_families",
+        "provider_surfaces",
+        "evidence",
+        "parameter_syntax_observations",
+        "parameter_syntax_supports"
+      ]
+    },
+    {
       "name": "passage_supports",
       "inputs": [
         "source_artifacts",
@@ -13522,6 +16499,19 @@ expression: "String::from_utf8(output.stdout).unwrap()"
       ]
     },
     {
+      "name": "subject_boundaries",
+      "inputs": [
+        "source_artifacts",
+        "modules",
+        "occurrences",
+        "coverage_scopes",
+        "provider_coverage",
+        "subject_boundaries",
+        "attachment_outcomes",
+        "attachment_candidates"
+      ]
+    },
+    {
       "name": "symbol_declaration_supports",
       "inputs": [
         "source_artifacts",
@@ -13543,6 +16533,67 @@ expression: "String::from_utf8(output.stdout).unwrap()"
         "evidence",
         "symbol_declarations",
         "symbol_declaration_supports"
+      ]
+    },
+    {
+      "name": "syntax_detail_supports",
+      "inputs": [
+        "source_artifacts",
+        "occurrences",
+        "modules",
+        "corpus_libraries",
+        "place_roots",
+        "places",
+        "predicates",
+        "evaluation_atoms",
+        "condition_nodes",
+        "conditions",
+        "input_distributions",
+        "coverage_scopes",
+        "assertion_qualifications",
+        "provider_runs",
+        "run_families",
+        "provider_surfaces",
+        "evidence",
+        "syntax_detail_observations",
+        "syntax_detail_supports"
+      ]
+    },
+    {
+      "name": "syntax_geometry",
+      "inputs": [
+        "occurrences",
+        "syntax_placements",
+        "declaration_observations",
+        "declaration_decorators",
+        "import_alias_observations",
+        "dunder_all_observations",
+        "parameter_syntax_observations",
+        "class_field_syntax_observations"
+      ]
+    },
+    {
+      "name": "syntax_placement_supports",
+      "inputs": [
+        "source_artifacts",
+        "occurrences",
+        "modules",
+        "corpus_libraries",
+        "place_roots",
+        "places",
+        "predicates",
+        "evaluation_atoms",
+        "condition_nodes",
+        "conditions",
+        "input_distributions",
+        "coverage_scopes",
+        "assertion_qualifications",
+        "provider_runs",
+        "run_families",
+        "provider_surfaces",
+        "evidence",
+        "syntax_placements",
+        "syntax_placement_supports"
       ]
     },
     {
