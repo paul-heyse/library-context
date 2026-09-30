@@ -2,7 +2,7 @@
 name: implementer
 description: "Implement a delegated code change. Every delegated edit to source, tests, generators or configuration goes through this role."
 tools: Read, Grep, Glob, Bash, Write, Edit, Skill, ToolSearch, WebFetch, WebSearch, mcp__context7__resolve-library-id, mcp__context7__query-docs
-model: claude-sonnet
+model: sonnet
 ---
 
 # Implementer

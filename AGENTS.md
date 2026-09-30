@@ -98,11 +98,11 @@ real consumer.
 | The real library, end to end | `lctx compile fastmcp --through facts --profile catalog|behavioral`; reports a facts generation without selecting it. Analysis and serving remain unavailable. |
 | The store and its generations | `lctx store install\|check\|reset`, `lctx generation list\|show\|select\|retire\|abort`, `lctx query --generation <id> "SQL"` (read-only); runbook: `docs/postgresql.md` |
 | Add or upgrade a library | `lctx library init <name> --requirement '<req>'`; upgrade with `uv lock --project libraries/<name> --upgrade-package <dist>` (`libraries/README.md`) |
-| Format (mutating) | `just fmt`, once at the end of the scope (above) |
+| Format (mutating) | Automatic after every turn (below). Run `just fmt` yourself only immediately before `just test-all`, which checks formatting |
 | Dependency policy | `just deps`: one version each of Arrow/DataFusion/object_store/ruff/pyrefly/blake3, cargo-deny, and the Pyrefly fork check (tag + patch, classified env reads) |
 | Decisions | `just adr new <slug> --title "…"`, `just adr supersede ADR-NNNN <slug>`, `just adr index`, `just adr lint`, `just adr revisit` |
 | Documentation changes | `just docs-test` for publisher/resolver changes; `just docs-check` for publication. First run: `just bootstrap-docs`; preview: `just docs-serve`. No product gate solely for docs. |
-| End of every turn or work session, last, after all tests and other checks have run | `just library-catalog`: regenerates the library catalog and the usage index the `library-catalog` MCP server reads, so design and review work only sees current data. It edits the tree, so run it after formatting and never as a gate; stage S2 runs `tools/lu-resolve`, one to two minutes. Inspect first with `uv run python scripts/library_utilization.py` (dry run, exit 1 on drift); `docs/library-utilization.md` |
+| After every turn (automatic) | A Stop hook (`scripts/after_turn.sh`, wired in `.claude/settings.json` and `.codex/hooks.json`) runs `just fmt`, then `just library-catalog` in the background, once the main agent stops. Don't run, check or troubleshoot either, and don't treat a catalog failure as yours to fix: the catalog is a temporary aid |
 | Tools present? | `just doctor` |
 
 The Rust toolchain is pinned to `nightly-2026-09-29` in `rust-toolchain.toml` (ADR-0079).
@@ -124,6 +124,21 @@ explicit override for an external target. Keep paths and rustflags stable during
 it. Lower libraries and Python bindings stay outside its dependency closure. Isolated benchmark
 trials own both artifact directories and never clean the shared build directory.
 
+## PostgreSQL superuser access for agents
+
+The operator has granted agents full superuser access to the local PostgreSQL 18 cluster
+(port 5432), to use however they see fit. Everything in it is regenerable from pinned inputs, and
+no other data lives there. This covers all databases (`lctx`, `pse` and the `pse_test_*` leftovers)
+and any administration: create, alter, drop, inspect, repair.
+- Connect as `lctx_superuser`; `~/.pgpass` supplies the password:
+  `psql -h 127.0.0.1 -U lctx_superuser -d lctx` (use `-d postgres` for cluster-level work).
+- The same credential as a URL is in `~/.config/library-context/postgres-superuser.json`
+  (`{"url": ...}`, mode 0600), for authorized local administration.
+- This is the agents' own access. The four service roles (`lctx_migrator`, `lctx_app`,
+  `lctx_importer`, `lctx_serving`) stay non-superuser, and `lctx store check` still enforces that.
+  Product code and runtime configuration never use the superuser.
+- Never print the password or commit either file.
+
 ## Writing code against the pinned libraries
 
 Select library skills in `.config/library-skills.toml`, then run `just skills-sync` (or
@@ -132,8 +147,7 @@ copy per skill from `~/.local/share/library-skills/skills/` to both Codex and Cl
 Improvements there reach every selecting repo; process skills remain local. Set
 `LIBRARY_SKILLS_ROOT` if the shared store is elsewhere. New worktrees need `just skills-sync`.
 
-The library capability skills under `.claude/skills/` are pinned, offline indexes. Use them
-**before** writing against an API, rather than relying on memory:
+The library capability skills under `.claude/skills/` are pinned, offline indexes. They are helpful reference for identifying and understanding library functionality in depth:
 - `datafusion` (DataFusion, Arrow, object_store)
 - `rust-graphs` (petgraph plus rustworkx-core, leiden-rs, graphops and others: which library, how
   to reach it from a petgraph graph, and each one's silent failures)
@@ -162,7 +176,7 @@ The library capability skills under `.claude/skills/` are pinned, offline indexe
   families are never a compiler input (DESIGN §1.4).
 
 For a library no skill covers (e.g. vLLM, the Qwen embedding models, LanceDB, pyarrow),
-**Context7 is the first stop**, then the `library-research` skill. The Context7 MCP server needs
+**Context7 is the first stop**. The Context7 MCP server needs
 a reconnect after its API key changes. Check a skill's pinned version
 against `docs/pins.md` before transferring a claim. An empty search result is not evidence that a
 capability is absent.
@@ -173,10 +187,11 @@ capability is absent.
   scope with a compile check and the focused tests or probes that exercise it. Integrated tests
   (`just test`, `just check`, `just test-all`, facts pilots) wait until all functional scope in
   the plan is implemented; repeat them only for a failure or a subsequent material change.
-- **No formatting or linting until all functional scope is implemented.** Don't run `just fmt`,
-  `cargo fmt`, `ruff format`, `cargo clippy`, `ruff check` or `pyrefly check` mid-plan: they add
-  nothing during execution and rewrite code other than yours, which you then have to reassess.
-  Run `just fmt` once at the end, then the integrated gates (which include the lint checks).
+- **No formatting or linting while you work.** Don't run `just fmt`, `cargo fmt`, `ruff format`,
+  `cargo clippy`, `ruff check` or `pyrefly check` mid-plan: they add nothing during execution and
+  rewrite code other than yours, which you then have to reassess. The Stop hook formats the tree
+  after each turn. At the end of the scope, run `just fmt` immediately before the integrated gates,
+  since `just test-all` checks formatting.
 - Reuse cached release-profile Rust code for tests. Test data may be fresh, existing, or empty
   according to the test's purpose.
 - **Schema contracts** are insta snapshots. `just check` runs with `INSTA_UPDATE=no`. To accept

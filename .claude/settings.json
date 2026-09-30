@@ -6,6 +6,11 @@
   "permissions": {
     "allow": [
       "Bash(just *)",
+      "Bash(psql *)",
+      "Bash(pg_dump *)",
+      "Bash(pg_restore *)",
+      "Bash(createdb *)",
+      "Bash(dropdb *)",
       "Bash(cargo check*)",
       "Bash(cargo build*)",
       "Bash(cargo clippy*)",
@@ -37,6 +42,19 @@
       "Bash(git reset --hard*)",
       "Bash(cargo publish*)",
       "Bash(pip install*)"
+    ]
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/scripts/after_turn.sh",
+            "timeout": 120
+          }
+        ]
+      }
     ]
   }
 }

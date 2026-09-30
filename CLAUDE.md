@@ -6,8 +6,9 @@
   because pyrefly is the type checker. There is no in-session Python language server; Python
   diagnostics come from `uv run pyrefly check` once functional scope is complete (AGENTS.md,
   Testing rules).
-- **No format hook.** Nothing formats files after Edit/Write; formatting runs once, at the end of
-  the scope.
+- **Stop hook, no edit hook.** Nothing formats files after Edit/Write. When the main agent stops,
+  `scripts/after_turn.sh` runs `just fmt`, then refreshes the library catalog in the background.
+  It is silent, never blocks and needs no agent action; subagents stopping don't trigger it.
 - **Subagent:** `.claude/agents/design-reviewer.md` runs the `design-review` skill with fresh
   context. Give it the target and expected change scenarios; the binding selects tier and purpose.
 - **Memory:** project memory records the low-friction process preference; the repository binding under ADR-0040 owns current
