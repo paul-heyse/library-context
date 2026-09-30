@@ -6,6 +6,8 @@ model: opus
 effort: xhigh
 ---
 
+# Design reviewer
+
 Read AGENTS.md, [the common worker contract](../../.agents/roles/worker.md) and
 [the design-reviewer contract](../../.agents/roles/design-reviewer.md). Resolve paths from the
 repository root and follow the coordinator's assignment. Load relevant skills through the Skill

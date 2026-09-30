@@ -5,6 +5,8 @@ tools: Read, Grep, Glob, Bash, Skill, ToolSearch, WebFetch, WebSearch, mcp__cont
 model: haiku
 ---
 
+# Code mapper
+
 Read AGENTS.md, [.agents/roles/worker.md](../../.agents/roles/worker.md) and
 [the code-mapper contract](../../.agents/roles/code-mapper.md). Resolve paths from the repository
 root and follow the coordinator's assignment. Load relevant skills through the Skill tool.
