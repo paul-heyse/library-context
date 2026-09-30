@@ -220,6 +220,8 @@ P1.10); (5) acquisition never writes into the captured tree and a change during 
 
 #### Phase 0 remainder
 
+**Status (2026-09-30):** every row is done and the exit review X0 is Accept scoped; §4.2 holds the receipts.
+
 | ID | Deliverable | Controls (pre-written; each positive has a negative twin) | Focused command |
 |---|---|---|---|
 | R1 | Reserved batches and bounded writer: derived `HeapSize::heap_bytes` and `Record::encoded_bytes_hint`; `Batch::new/read(.., &ResourceBudget)` reserve before encoding and hold the reservation; `domain/batching.rs` `BatchWriter<R>` with `TransferLimits` (4096 rows, 8 MiB, 64 MiB row) and a reserved id→digest map; `trait StageSink` and `StageOutput<S>` in `stages.rs`; `GenerationAttempt: StageSink`; `GenerationStore::copy`/`pin` take the budget; duplicated read constants removed | 10 000 rows → 4096/4096/1808; three 3 MiB rows → 2/1; 20 MiB row alone, 70 MiB refused; equal cross-flush duplicate once, conflicting one refused; drop returns reservation to 0; short budget refuses before encoding; empty declared output written | `lctx-model` `domain_resources`, `domain`, doc; `lctx-postgres` `generation_stages`, `generations` |
@@ -247,6 +249,8 @@ C01/C02 → P1; input-validation F02 closed or narrowed to P1.9; review Accept o
 handoff.
 
 #### Phase 1
+
+**Status (2026-09-30):** P1.1–P1.12 are done; P1.13 is blocked on PostgreSQL superuser access (§4.2).
 
 Every commit leaves `cargo check --workspace --all-targets` passing with dormant code compiling.
 
@@ -294,18 +298,18 @@ name and declaration inputs; the Ruff-vs-Pysa call and `__all__` comparisons sta
 
 | ID | Deliverable | Controls | Focused command |
 |---|---|---|---|
-| A0 | Provider framework: `ProviderStage`, `StageContext` (emit, contribute, handoffs, attacher, captured inputs, budget); big-stack provider thread, bounded channel to an async pump holding `StageAccess`; `Provider` build digest over lockfile, provider sources and Pyrefly patch (F11); `Attacher`; `cpg-core/src/facts.rs` `compile_facts<S: StageSink>`; fixture-corpus skeleton; the provider channel carries `Batch<R>` with its reservation, and `StageOutput` takes batches (resource review F05) | Undeclared emit/contribute/read refused; panic aborts; reservations 0; order preserved; contributed vocabulary merged into a batched output is deduplicated or refused (P0 exit F04); peak reservation stays bounded by the channel window, not total output (input-validation F02) | `cpg-extract` `bundle`; `cpg-core` `facts_driver` |
-| A1 | Acquisition model: source roles, `UnownedArtifact`, `DerivedArtifact`, `EnvironmentFingerprint`; exactly-one ownership class | Double class, orphan derivation and `_lctx/` originals refused | `domain_input` (model and PG) |
-| A2 | T6 acquisition: pure inventory, full closure capture, `_lctx/` namespace, `acquire` stage; delete tree writes, `release_rows`, old `capture()` and corpus id hashing | Tree byte-identical before/after; namespace collision and stale blocks refused; location independence; environment dependence; RECORD tamper; change during capture aborts | `cpg-extract` `acquisition`, `capture` |
-| A3 | Syntax model: placement/field, `SyntaxDetail`, declaration (+decorators), import alias, `__all__`, parameter syntax, class field syntax, `SubjectBoundary`, attachment outcome/candidates, appended obligation codes (52 onward; 49–51 are `EntryValueUnknown`, `NonDefiniteAlternative`, `IncompleteCoverage`) | Text derivable from bytes; foreign optional subject and scopeless boundary refused | `domain_syntax`, `domain_coverage`; PG `domain_syntax` |
-| A4 | `pyrefly` phase 1: complete typed syntax (replaces string paths), declarations, imports, parameters, class fields, call syntax, parse/undecodable coverage, `__all__` boundary; delete `walk.rs`/`syntax.rs` rows | syntax_shapes, unicode_bom offsets, dunder_all; distinct with-items | `typed_syntax_shapes` |
-| A5 | Lexical records from the recognizer; delete `lexical.rs` rows | static_branches, lexical_shapes | `typed_lexical` |
-| A6 | Symbol model: symbol, dependency module, function/class traits, ancestry (base/MRO), annotations, public names, parameter docs, symbol sequences | Cyclic MRO; untraced ≠ traced; display-only annotation not structural | `domain_symbols` (model and PG) |
-| A7 | Calls amendment: provider call site, receiver class and traits, `Overrides`, native unresolved reason | Overrides never direct in `site_facts` | `domain_calls` (model and PG) |
-| A8 | Type completion: remaining term arms, roles, parameter lists, test operand, function bodies, record fields | Truncated nesting display-only; record flags round-trip | `domain_types` (model and PG); review A6–A8 |
-| A9 | Symbols producer incl. declaration links and dependency context (referenced ∪ exported; `Catalog`/runtime-exception reads deleted) | Pysa CLI `harness`; `keys`; public_shapes | `typed_symbols`, `harness` |
-| A10 | Calls producer via `normalize_site`; call boundaries; `variants` as known answers | pysa_variants, `map`, `C()`, missing range boundary | `typed_calls` |
-| A11 | Types producer incl. T8; delete `pysa_map`/`types`/`context`/`public` rows | type_shapes, type_guard operands | `typed_types` |
+| A0 | **Done** (`de89800`). Provider framework: `ProviderStage`, `StageContext` (emit, contribute, handoffs, attacher, captured inputs, budget); big-stack provider thread, bounded channel to an async pump holding `StageAccess`; `Provider` build digest over lockfile, provider sources and Pyrefly patch (F11); `Attacher`; `cpg-core/src/facts.rs` `compile_facts<S: StageSink>`; fixture-corpus skeleton; the provider channel carries `Batch<R>` with its reservation, and `StageOutput` takes batches (resource review F05) | Undeclared emit/contribute/read refused; panic aborts; reservations 0; order preserved; contributed vocabulary merged into a batched output is deduplicated or refused (P0 exit F04); peak reservation stays bounded by the channel window, not total output (input-validation F02) | `cpg-extract` `bundle`; `cpg-core` `facts_driver` |
+| A1 | **Done** (`0213048`). Acquisition model: source roles, `UnownedArtifact`, `DerivedArtifact`, `EnvironmentFingerprint`; exactly-one ownership class | Double class, orphan derivation and `_lctx/` originals refused | `domain_input` (model and PG) |
+| A2 | **Done** (`a7c71a1`). T6 acquisition: pure inventory, full closure capture, `_lctx/` namespace, `acquire` stage; delete tree writes, `release_rows`, old `capture()` and corpus id hashing | Tree byte-identical before/after; namespace collision and stale blocks refused; location independence; environment dependence; RECORD tamper; change during capture aborts | `cpg-extract` `acquisition`, `capture` |
+| A3 | **Done** (`c87c672`). Syntax model: placement/field, `SyntaxDetail`, declaration (+decorators), import alias, `__all__`, parameter syntax, class field syntax, `SubjectBoundary`, attachment outcome/candidates, appended obligation codes (52 onward; 49–51 are `EntryValueUnknown`, `NonDefiniteAlternative`, `IncompleteCoverage`) | Text derivable from bytes; foreign optional subject and scopeless boundary refused | `domain_syntax`, `domain_coverage`; PG `domain_syntax` |
+| A4 | **Done** (`9dc55dc`). `pyrefly` phase 1: complete typed syntax (replaces string paths), declarations, imports, parameters, class fields, call syntax, parse/undecodable coverage, `__all__` boundary; delete `walk.rs`/`syntax.rs` rows | syntax_shapes, unicode_bom offsets, dunder_all; distinct with-items | `typed_syntax_shapes` |
+| A5 | **Done** (`d4e980d`). Lexical records from the recognizer; delete `lexical.rs` rows | static_branches, lexical_shapes | `typed_lexical` |
+| A6 | **Done** (`b46ede2`, corrected `827135d`). Symbol model: symbol, dependency module, function/class traits, ancestry (base/MRO), annotations, public names, parameter docs, symbol sequences | Cyclic MRO; untraced ≠ traced; display-only annotation not structural | `domain_symbols` (model and PG) |
+| A7 | **Done** (`804a5c1`, corrected `827135d`). Calls amendment: provider call site, receiver class and traits, `Overrides`, native unresolved reason | Overrides never direct in `site_facts` | `domain_calls` (model and PG) |
+| A8 | **Done** (`38ba3ea`, corrected `827135d`). Type completion: remaining term arms, roles, parameter lists, test operand, function bodies, record fields | Truncated nesting display-only; record flags round-trip | `domain_types` (model and PG); review A6–A8 |
+| A9 | **Done** (`002d254`, `7f4a0b5`). Symbols producer incl. declaration links, public names, parameter docs and dependency context (referenced ∪ exported; `Catalog`/runtime-exception reads deleted); deleted the legacy definition, `public_names`, `parameter_docs` and `context_*` rows | Pysa CLI `harness` (session hook); `keys`; `dunder_all` public sets | `typed_symbols`, `harness` |
+| A10 | Calls producer via `normalize_site`; call boundaries; `variants` as known answers; delete the legacy `pysa_calls` rows | pysa_variants, `map`, `C()`, missing range boundary | `typed_calls` |
+| A11 | Types producer incl. T8; delete the legacy `types` rows (the `context`/`public` rows went at A9, the `pysa_map` call rows at A10) | type_shapes, type_guard operands | `typed_types` |
 | A12 | Flow model and kernel: test, leaf, call path/step, attribute load, value path records; `CondGraph<L>`; bounded `Diagram::from_graph` | Independent truth tables; malformed graph; limits → boundary | `domain_flow`, `domain_conditions`; PG `domain_flow` |
 | A13 | `cpg-flow` off `cpg-schema`: provider-local leaves and condition graphs; no BDD, id hasher or predicate keys; structural known answers replace insta snapshots | Distinct occurrences and with-items; opaque synthetic predicates | `cpg-flow` `flow_shapes`, `call_paths`; `cargo tree -p cpg-flow -i cpg-schema` empty |
 | A14 | `ty_flow` stage: exact attachment, Places, atoms, canonical BDDs; `lctx flow` retargeted; `cpg-extract/src/flow.rs` deleted | flow_shapes, call paths, type_guard, runtime resolution; index permutation identity (F05); C11 one predicate → one atom per generation; no DNF/literal writes; a `nonlocal` rebinding in a nested function emits `ReachingDefinition::Nested` (C4/C5 review F01); Python flow oracle | `typed_flow`; `test_flow_soundness.py` |
@@ -417,6 +421,30 @@ or validated options. Display names remain presentation and cannot replace sourc
 | `coverage` | `run_id`, `scope_kind`, `scope_node_id`, `fact_family`, `status`, `reason`, `detail` | attribution: ProviderCoverage plus structured scope/subject boundaries |
 | `boundaries` | `module_node_id`, `subject_node_id`, `fact_family`, `reason`, `start_byte`, `end_byte`, `detail` | attribution: ProviderCoverage plus structured scope/subject boundaries |
 
+**Migration status (2026-09-30).**
+- **Migrated:** the typed producer states the family and its legacy emission is deleted.
+- **Owner live:** the typed relations exist and are produced, but the husk still emits the legacy rows until C1x.
+- **Open:** the typed producer is the named package.
+
+The husk still emits `facts`, `runs`, `contexts`, `producers`, `source_files`, `coverage`, `boundaries`, the type, document, flow and condition families, and `pysa_calls`.
+
+| Families | Typed owner | Status |
+|---|---|---|
+| `facts`, `runs`, `contexts`, `producers` | typed `*Support` per assertion; `ProviderRun`/`RunFamily`, `AnalysisContext`, `Provider` | owner live (A0 onward); husk rows until C1x |
+| `releases`, `distributions`, `captured_artifacts` | `Package`/`Release`/`InputRevision`/`InputOrigin`/`InputAcquisition`, `InputDistribution`/`DistributionVerification`, `SourceArtifact`+`ArtifactChunk`, `EnvironmentFingerprint` | migrated (A1–A2) |
+| `source_files` | `SourceArtifact`, `Module`, `ArtifactOwnership`/`UnownedArtifact`/`DerivedArtifact`, `ArtifactUse`; text, UTF-8, package and stub derived from bytes and path | owner live (A2, A4); husk rows until C1x |
+| `declarations`, `export_syntax`, `parameter_syntax`, `record_field_syntax`, `syntax_nodes`, `call_syntax`, `arguments` | `DeclarationObservation`(+`DeclarationDecorator`), `ImportAliasObservation`, `DunderAllObservation`, `ParameterSyntaxObservation`, `ClassFieldSyntaxObservation`, `Occurrence`+`SyntaxPlacement`+`SyntaxDetail`, `CallSyntax`/`CallArgument` | migrated (A3–A4) |
+| `scopes`, `bindings`, `references`, `reference_resolutions` | `LexicalScope`/`BindingEvent`/`LexicalTarget` and their four qualified observations | migrated (A5) |
+| `context_modules`, `context_definitions`, `context_parameters`, `context_class_mro` | `ProviderModule` + `DependencyModuleObservation`; `ProviderSymbol` + `SymbolObservation`/traits under the Input qualification; `Signature`/`SignatureParameter`/`ParameterShape`; `ClassAncestryObservation` with `Linearization`. Derived: qualified name and top-levelness (parent chain), signature count (variants), distribution and version (ownership), site-packages versus search path (artifact role) | migrated (A6, A9) |
+| `public_names`, `parameter_docs`, `pysa_functions`, `parameter_semantics`, `class_ancestry`, `pysa_classes` | `PublicNameObservation` + `ExportOrigin`; `ParameterDocObservation`; `ProviderSymbol` + `SymbolObservation` + `FunctionTraitObservation`/`ClassTraitObservation`; `Signature` + display-only `ParameterAnnotationObservation`; `ClassAncestryObservation`; `SymbolDeclaration`/`ParameterDeclaration` for name spans | migrated (A6, A9). Pysa's annotation class sets, exhaustiveness and scalar properties are retired to the type observations (A11); the P4 derivation owner is review F07 |
+| `pysa_calls` | `ProviderCallSite`, `CallOrigin`, `CallTarget` (receiver class and evidence), `CallDestination` (`Overrides`, native `Unresolved`), `CallChannel::HigherOrder`, `CallResolution` | model ready (A7 + `827135d`); **open: A10**; husk rows until then |
+| `type_terms`, `type_term_args`, `type_observations`, `function_implementations`, `record_fields` | `TypeTerm`/`TypeSequence`/`CallableParameterList`, `TypeVariable` + restrictions, `TypeObservation`/`TypePresentation`, `FunctionBodyObservation`, `RecordFieldObservation` | model ready (A8 + `827135d`); **open: A11**; husk rows until then |
+| `flow_uses` … `flow_attribute_loads` (10) and `conditions`, `condition_nodes`, `condition_literals` | P0 flow records and canonical BDD conditions; A12 adds tests, leaves, call paths, attribute loads and value paths. `encoding`, the literals and `display_truncated` are retired | **open: A12–A14**; husk rows until then |
+| `documents` … `doc_component_attributes` (7) | P0 document records plus `materialized` | **open: A15**; husk rows until then |
+| `coverage`, `boundaries` | `ProviderCoverage` + `CoverageScope`, `SubjectBoundary` | owner live (A3 onward); the exact matrix is **open: B1**; husk rows until C1x |
+| Nested deployment and task evidence | `DeploymentObservation`, `TaskReport`(+`Observation`), `ReportedEnvironment` and report records | **open: A16** |
+| Nested catalog conclusions (checks, requirements, scenarios, bindings, associations) | P4, kept in the dormant `cpg-schema::evidence`; P2 records carry their raw inputs | P4 (§6) |
+
 Specific transformations and deletion conditions:
 
 - `facts.table_name` is replaced by concrete typed support targets. `origin`, `extraction_mode`,
@@ -462,9 +490,37 @@ runtime reader. Malformed interpretation retains the original artifact with expl
 
 ### 4.2 Execution status
 
-**In progress: P0-A–P0-D foundations, native P0-E subset and bounded generation lifecycle corrections.**
-No phase exit is qualified. The old pipeline remains active and the new generation path is not
-connected to the production compiler or CLI. No compatibility adapter connects them.
+**Progress (2026-09-30).** This overview owns what is finished and what is open. The dated receipts
+below own the evidence for each finished package. No phase is qualified: Q runs after all P0–P2
+functional scope.
+
+| Phase | Finished (focused-Tested; receipts below) | Open |
+|---|---|---|
+| P0 | R1, R2, K1, D0, C1–C6, C5r, R3, D1, E1; exit review X0 **Accept scoped** (excludes the P4 composition engine) | — (routed findings: §8) |
+| P1 | P1.1–P1.12; the store-lifecycle and provider-session reviews re-inspected **Accept scoped** | **P1.13** real transition: **blocked** on PostgreSQL superuser access (rehearsed; operator commands in its evidence README). Afterwards: record receipts, delete the transition tool |
+| P2 | A0 `de89800`, A1 `0213048`, A2 `a7c71a1`, A3 `c87c672`, A4 `9dc55dc`, A5 `d4e980d`, A6 `b46ede2`, A7 `804a5c1`, A8 `38ba3ea`, [A6–A8 review](../design_review/reviews/design_review_semantic-symbols-calls-types_2026-09-29.md) corrections `827135d`, A9 `002d254` + `7f4a0b5` | A10–A16, B1–B3, Dc, C1x–C3x (below) |
+| Q | — | fmt, `test-all`, facts pilots in both profiles, docs-check, assembled P0–P2 review (core 3.1, ADR-0091), handoff |
+
+**Open P2 packages, each with the obligations routed to it:**
+- **A10, the call producer.**
+  - Pysa call graphs through `normalize_site`/`classify_receiver` into `ProviderCallSite`, `CallTarget` and `CallResolution`, per call event.
+  - Origin steps run from the outermost context to the operation, and format-string sites use steps 22/23 (review F01).
+  - `Overrides` targets carry their receiver class (F02).
+  - Higher-order and potential unresolved remainders stay on their own channel and modality. Identifier and attribute-access callees are potential or conditional.
+  - Pysa's `MTL`/`CTL`/`FDT` callers use the appended `SymbolKind`s; the caller predicate is F05's trigger.
+  - Ruff-vs-Pysa boundaries.
+  - Delete the legacy `pysa_calls` rows (`pysa_map`) and the remaining legacy `keys`/`variants`/`identity` call tests.
+- **A11, the type producer.** Exhaustive `Type` mapping incl. T8 test operands, function bodies and record fields (inherited fields as referents). Review F06 (unqualified names in `Callable`/`Overload`/`SpecialForm`) and F07 (disclose display-only annotations; name the P4 class-set owner) trigger here. Delete the legacy `types` rows.
+- **A12–A14, flow.** The flow model and kernel; `cpg-flow` off `cpg-schema`; the `ty_flow` stage. A14 also owns C11's one predicate → one atom per generation and the retargeted `lctx flow`.
+- **A15, `documents`.** The legacy docs vocabulary is still built from the husk's in-memory public names; it goes with this stage.
+- **A16, `deployment`.**
+- **B1, the assembler and exact coverage matrix.** P0 exit F05 applies. `expected_coverage` should follow uses and roots, not every Python source. Dependency context and public names sit under Input-scoped qualifications, and the matrix must admit that grain.
+- **B2, attachment and determinism.** Then a bounded review; C12 attachment half.
+- **B3, the fixture-corpus runner.** Register `semantic_symbols`, `dunder_all`, `pysa_keys` and the other typed fixtures.
+- **Dc, `lctx compile --through facts`.** Store-lifecycle F09 applies.
+- **C1x, remove the extraction husk.** It still runs `extract`: calls, types, flow and docs keep legacy structures until A10/A11/A14/A15.
+- **C2x, selective pruning.**
+- **C3x, documents and `build/` inventory.** Includes the five stale review links that fail `just docs-check`.
 
 **Implemented / Tested (2026-09-29, bounded):**
 
