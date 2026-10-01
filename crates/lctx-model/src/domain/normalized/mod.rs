@@ -2,11 +2,10 @@
 mod binding_inventory;
 pub mod binding_normalization;
 pub mod bindings;
+pub mod callable_aspects;
 mod callable_inventory;
 pub mod callable_normalization;
 pub mod callables;
-pub mod callable_aspects;
-pub mod symbolic_fields;
 pub mod coverage;
 pub mod dispatch;
 pub mod entities;
@@ -22,13 +21,25 @@ mod relation_inventory;
 pub mod relation_normalization;
 mod rows;
 pub mod signature_applicability;
+pub mod symbolic_fields;
 use super::*;
 pub use rows::Rows;
 
 /// Normalized owners reconstruct the captured facts universe. Later vocabulary cannot enlarge it.
-pub(crate) fn facts_inputs(inputs:Vec<ValidationInput>)->Vec<ValidationInput> {
-    let mut inputs=inputs.into_iter().map(|input|if stages::is_vocabulary(input.name()) {input.at_epoch(stages::PublicationBoundary::Facts)}else {input}).collect::<Vec<_>>();
-    inputs.sort_by_key(|input|(input.name(),input.prefix()));inputs.dedup_by_key(|input|(input.name(),input.prefix()));inputs
+pub(crate) fn facts_inputs(inputs: Vec<ValidationInput>) -> Vec<ValidationInput> {
+    let mut inputs = inputs
+        .into_iter()
+        .map(|input| {
+            if stages::is_vocabulary(input.name()) {
+                input.at_epoch(stages::PublicationBoundary::Facts)
+            } else {
+                input
+            }
+        })
+        .collect::<Vec<_>>();
+    inputs.sort_by_key(|input| (input.name(), input.prefix()));
+    inputs.dedup_by_key(|input| (input.name(), input.prefix()));
+    inputs
 }
 
 /// Revision of semantic normalization, included in every assessment key and stage declaration.
@@ -48,9 +59,19 @@ pub fn relations() -> Vec<Relation> {
     relations
 }
 
-
-
 /// Every facts-derived normalization declaration pins vocabulary after its entire input assembly.
-pub fn facts_stage_inputs(inputs:Vec<stages::RelationUse>)->Vec<stages::RelationUse>{
- let mut inputs=inputs.into_iter().map(|input|if stages::is_vocabulary(input.name()){input.at_epoch(stages::PublicationBoundary::Facts)}else{input}).collect::<Vec<_>>();inputs.sort_by_key(|input|input.name());inputs.dedup_by_key(|input|input.name());inputs
+pub fn facts_stage_inputs(inputs: Vec<stages::RelationUse>) -> Vec<stages::RelationUse> {
+    let mut inputs = inputs
+        .into_iter()
+        .map(|input| {
+            if stages::is_vocabulary(input.name()) {
+                input.at_epoch(stages::PublicationBoundary::Facts)
+            } else {
+                input
+            }
+        })
+        .collect::<Vec<_>>();
+    inputs.sort_by_key(|input| input.name());
+    inputs.dedup_by_key(|input| input.name());
+    inputs
 }

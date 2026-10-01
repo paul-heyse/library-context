@@ -1,39 +1,305 @@
 //! Actual captured native/normalized/Local inputs drive the finite summary kernel.
-#[path="fixtures/transfer_composition.rs"]mod fixture;
-use lctx_model::domain::{*,analysis,execution::{self,summary_production::*},normalized::Rows,stages::{Profile,PublicationBoundary},projection::{self,normalization::{ProjectionData,ProjectionKey},snapshot::MaterializedGraph}};
+#[path = "fixtures/transfer_composition.rs"]
+mod fixture;
+use lctx_model::domain::{
+    analysis,
+    execution::{self, summary_production::*},
+    normalized::Rows,
+    projection::{
+        self,
+        normalization::{ProjectionData, ProjectionKey},
+        snapshot::MaterializedGraph,
+    },
+    stages::{Profile, PublicationBoundary},
+    *,
+};
 #[tokio::test]
-async fn native_finite_claims_keep_raw_identity_conditional_paths_and_open_siblings(){
- let f=fixture::native_from("phase4_summaries").await;let budget=&f.budget;let input=f.rows::<input::InputRevision>()[0].id();let context=f.data.event_events.iter().next().unwrap().context;
- let mut local=local_semantics::LocalData::new(budget);let mut summary=SummaryData::new(budget);let mut projection=ProjectionData::new(budget);let mut inventory=analysis::native::NativeInventory::new(budget);
- for(name,batch)in f.tables.lock().unwrap().iter(){local.visit(name,batch).unwrap();projection.visit(name,batch).unwrap();if analysis::native::NativeInventory::inputs().iter().any(|i|i.name()==*name){inventory.visit(name,batch).unwrap();}}
- macro_rules! load{($ty:ty,$rows:expr)=>{{let batch=<$ty as Record>::encode(&$rows).unwrap();local.visit(<$ty>::NAME,&batch).unwrap();projection.visit(<$ty>::NAME,&batch).unwrap();let i=ValidationInput::of::<$ty>(&["id"]);if stages::is_vocabulary(i.name()){summary.visit_input(&i.clone().at_epoch(PublicationBoundary::Facts),&batch).unwrap();summary.visit_input(&i.at_epoch(PublicationBoundary::Model),&batch).unwrap();}else{summary.visit_input(&i,&batch).unwrap();}}};}
- macro_rules! facts{($($field:ident:$ty:ty,)*)=>{$(load!($ty,f.data.$field.iter().cloned().collect::<Vec<_>>());)*};}lctx_model::normalized_binding_inputs!(facts);
- macro_rules! output{($($field:ident:$ty:ty,)*)=>{$(load!($ty,f.output.$field.iter().cloned().collect::<Vec<_>>());)*};}lctx_model::normalized_binding_outputs!(output);
- for(name,batch)in f.tables.lock().unwrap().iter(){for i in SummaryData::inputs().iter().filter(|i|i.name()==*name){summary.visit_input(i,batch).unwrap();}}
- let inventory=inventory.collect().unwrap();load!(analysis::native::NativeQualification,inventory.qualifications.iter().cloned().collect::<Vec<_>>());load!(analysis::native::NativeAssertionPremise,inventory.premises.iter().cloned().collect::<Vec<_>>());
- let(_,definition)=local_semantics::definition();let(invocation,_)=analysis::local::AnalysisInvocation::new(input,context,definition.id(),None,[]);load!(analysis::local::AnalysisInvocation,vec![invocation.clone()]);load!(analysis::AnalysisDefinition,vec![definition.clone()]);
- let output=local_semantics::produce(&local,&invocation,&definition,budget).unwrap();load!(analysis::local::AnalysisOutcome,vec![analysis::local::AnalysisOutcome{invocation:invocation.id(),status:analysis::AnalysisStatus::Partial,reason:Some(obligation::ObligationKind::IncompleteDomain)}]);macro_rules! local_rows{($($field:ident:$ty:ty,)*)=>{$(let batch=<$ty as Record>::encode(&output.$field.iter().cloned().collect::<Vec<_>>()).unwrap();let i=ValidationInput::of::<$ty>(&["id"]);summary.visit_input(&if stages::is_vocabulary(i.name()){i.at_epoch(PublicationBoundary::Model)}else{i},&batch).unwrap();)*};}lctx_model::local_semantic_outputs!(local_rows);
- let key=ProjectionKey{input,context,name:projection::ProjectionName::CallableInvocation};let graph=MaterializedGraph::build(&projection::normalization::describe(&projection,key,budget).unwrap(),budget).unwrap();
- let catalog=models::Catalog::committed().unwrap();let mut baseline=None;
- for(depth,members)in[(0,1<<16),(2,1<<16),(2,1)]{
-  let(p,d)=execution::configuration::summaries(catalog.declaration().id(),execution::configuration::SummaryLimits{depth,members,..Default::default()}).unwrap();summary.parameters.insert(p).unwrap();let(invocation,_)=analysis::summary::AnalysisInvocation::new(input,context,d.id(),None,[]);let output=produce(&summary,&invocation,&d,Profile::Behavioral,&graph,budget).unwrap();let conclusions=execution::summary_consequences::derive(&summary,&output,&invocation,&d,Profile::Behavioral,budget).unwrap();
-  eprintln!("claims depth={depth} members={members} finite={} closure={} verdicts={:?}",conclusions.claims.iter().filter(|c|matches!(c,execution::summary_consequences::SummaryClaim::FiniteAlternative{..})).count(),conclusions.claims.iter().filter(|c|matches!(c,execution::summary_consequences::SummaryClaim::CallClosure{..})).count(),conclusions.conclusions.iter().map(|r|(r.verdict,r.reason)).collect::<Vec<_>>());
-  assert!(conclusions.conclusions.iter().any(|c|c.verdict==obligation::Verdict::Established));assert!(conclusions.conclusions.iter().any(|c|c.verdict==obligation::Verdict::Conditional),"actual native guard remains conditional");
-  let identity=summary.entry.symbol_declarations.iter().filter(|r|summary.entry.symbols.get(r.symbol).is_some_and(|s|s.name=="identity")).map(|r|r.declaration).collect::<std::collections::BTreeSet<_>>();let direct=conclusions.conclusions.iter().filter(|r|matches!(conclusions.subjects.get(r.subject),Some(analysis::summary::ObligationSubject::SummaryClaim{transfer})if matches!(conclusions.claims.get(*transfer),Some(execution::summary_consequences::SummaryClaim::FiniteAlternative{transfer,..})if conclusions.keys.get(*transfer).is_some_and(|k|summary.vocabulary.places.get(&k.output).and_then(|p|summary.vocabulary.roots.get(&p.root)).is_some_and(|r|matches!(r,value::PlaceRoot::Return{callable}if identity.contains(callable))))))).map(|r|(r.subject,r.verdict,r.reason)).collect::<Vec<_>>();assert!(!direct.is_empty(),"raw identity Return must survive depth0");if let Some(ref baseline)=baseline{assert_eq!(&direct,baseline,"later limits cannot revoke same exact raw alternative");}else{baseline=Some(direct);}
-  if depth>0{assert!(conclusions.conclusions.iter().any(|r|matches!(conclusions.subjects.get(r.subject),Some(analysis::summary::ObligationSubject::SummaryClaim{transfer})if matches!(conclusions.claims.get(*transfer),Some(execution::summary_consequences::SummaryClaim::CallClosure{..})))&&r.verdict==obligation::Verdict::Unknown),"open set sibling remains unknown");}
-  if depth==2&&members>1{
-   let closed=conclusions.conclusions.iter().find(|r|r.proof.is_some()&&matches!(conclusions.subjects.get(r.subject),Some(analysis::summary::ObligationSubject::SummaryClaim{transfer})if matches!(conclusions.claims.get(*transfer),Some(execution::summary_consequences::SummaryClaim::CallClosure{..})))).expect("actual complete identity call must close");
-   assert!(matches!(closed.verdict,obligation::Verdict::Established|obligation::Verdict::Conditional));
-   let proof=closed.proof.unwrap();let qid=closed.qualification.unwrap();let q=output.vocabulary.qualifications.get(&qid).or_else(||summary.vocabulary.qualifications.get(&qid)).unwrap();
-   let observed=summary.entry.coverage.iter().filter(|r|r.context==q.context&&r.scope==q.scope&&r.family==attribution::FactFamily::Flow&&r.run.and_then(|id|summary.entry.runs.get(id)).is_some_and(|r|r.input==input)).map(analysis::summary::coverage::CoverageObservation::native).collect::<Result<Vec<_>,_>>().unwrap();
-   assert!(!observed.is_empty());let expectation=analysis::summary::coverage::CoverageExpectation{invocation:invocation.id(),capability:analysis::AnalysisCapability::Summaries,scope:q.scope,context:q.context,requested:true,no_scope:false,sources:observed.iter().map(|r|r.source().id()).collect()};
-   let(coverage,_)=analysis::summary::coverage::assess(&expectation,&observed,output.outcome.status,output.outcome.reason,budget).unwrap();
-   let expected=conclusions.derivations.iter().find(|d|conclusions.derivation_premises.iter().any(|p|p.derivation==d.id()&&matches!(conclusions.sources.get(p.source),Some(analysis::summary::SupportSource::ClaimProof{witness})if *witness==proof))).unwrap();
-   assert!(conclusions.pending.iter().filter(|p|p.matches(&coverage)).filter_map(|p|p.admit(&coverage).ok()).any(|(_,d)|d.derivation==expected.id()&&d.coverage==coverage.id()),"closed claim discharges only through actual assessed coverage");
-   assert!(analysis::summary::coverage::assess(&expectation,&[],output.outcome.status,output.outcome.reason,budget).is_err());
-  }
-  assert!(output.call_members.iter().any(|m|m.reason.is_some()));assert!(conclusions.standings.iter().any(|s|s.standing==execution::summary_consequences::MemberStanding::Open)||depth==0);
-  assert!(execution::summary_consequences::derive(&summary,&output,&invocation,&d,Profile::Behavioral,&resources::ResourceBudget::fixed(1).unwrap()).is_err());
-  let unrequested=produce(&summary,&invocation,&d,Profile::Catalog,&graph,budget).unwrap();let catalog=execution::summary_consequences::derive(&summary,&unrequested,&invocation,&d,Profile::Catalog,budget).unwrap();assert_eq!(catalog.conclusions.len(),1);assert_eq!(catalog.conclusions.iter().next().unwrap().verdict,obligation::Verdict::NotAnalyzed);assert!(catalog.proofs.is_empty()&&catalog.pending.is_empty());
- }
+async fn native_finite_claims_keep_raw_identity_conditional_paths_and_open_siblings() {
+    let f = fixture::native_from("phase4_summaries").await;
+    let budget = &f.budget;
+    let input = f.rows::<input::InputRevision>()[0].id();
+    let context = f.data.event_events.iter().next().unwrap().context;
+    let mut local = local_semantics::LocalData::new(budget);
+    let mut summary = SummaryData::new(budget);
+    let mut projection = ProjectionData::new(budget);
+    let mut inventory = analysis::native::NativeInventory::new(budget);
+    for (name, batch) in f.tables.lock().unwrap().iter() {
+        local.visit(name, batch).unwrap();
+        projection.visit(name, batch).unwrap();
+        if analysis::native::NativeInventory::inputs()
+            .iter()
+            .any(|i| i.name() == *name)
+        {
+            inventory.visit(name, batch).unwrap();
+        }
+    }
+    macro_rules! load {
+        ($ty:ty,$rows:expr) => {{
+            let batch = <$ty as Record>::encode(&$rows).unwrap();
+            local.visit(<$ty>::NAME, &batch).unwrap();
+            projection.visit(<$ty>::NAME, &batch).unwrap();
+            let i = ValidationInput::of::<$ty>(&["id"]);
+            if stages::is_vocabulary(i.name()) {
+                summary
+                    .visit_input(&i.clone().at_epoch(PublicationBoundary::Facts), &batch)
+                    .unwrap();
+                summary
+                    .visit_input(&i.at_epoch(PublicationBoundary::Model), &batch)
+                    .unwrap();
+            } else {
+                summary.visit_input(&i, &batch).unwrap();
+            }
+        }};
+    }
+    macro_rules! facts{($($field:ident:$ty:ty,)*)=>{$(load!($ty,f.data.$field.iter().cloned().collect::<Vec<_>>());)*};}
+    lctx_model::normalized_binding_inputs!(facts);
+    macro_rules! output{($($field:ident:$ty:ty,)*)=>{$(load!($ty,f.output.$field.iter().cloned().collect::<Vec<_>>());)*};}
+    lctx_model::normalized_binding_outputs!(output);
+    for (name, batch) in f.tables.lock().unwrap().iter() {
+        for i in SummaryData::inputs().iter().filter(|i| i.name() == *name) {
+            summary.visit_input(i, batch).unwrap();
+        }
+    }
+    let inventory = inventory.collect().unwrap();
+    load!(
+        analysis::native::NativeQualification,
+        inventory.qualifications.iter().cloned().collect::<Vec<_>>()
+    );
+    load!(
+        analysis::native::NativeAssertionPremise,
+        inventory.premises.iter().cloned().collect::<Vec<_>>()
+    );
+    let (_, definition) = local_semantics::definition();
+    let (invocation, _) =
+        analysis::local::AnalysisInvocation::new(input, context, definition.id(), None, []);
+    load!(
+        analysis::local::AnalysisInvocation,
+        vec![invocation.clone()]
+    );
+    load!(analysis::AnalysisDefinition, vec![definition.clone()]);
+    let output = local_semantics::produce(&local, &invocation, &definition, budget).unwrap();
+    load!(
+        analysis::local::AnalysisOutcome,
+        vec![analysis::local::AnalysisOutcome {
+            invocation: invocation.id(),
+            status: analysis::AnalysisStatus::Partial,
+            reason: Some(obligation::ObligationKind::IncompleteDomain)
+        }]
+    );
+    macro_rules! local_rows{($($field:ident:$ty:ty,)*)=>{$(let batch=<$ty as Record>::encode(&output.$field.iter().cloned().collect::<Vec<_>>()).unwrap();let i=ValidationInput::of::<$ty>(&["id"]);summary.visit_input(&if stages::is_vocabulary(i.name()){i.at_epoch(PublicationBoundary::Model)}else{i},&batch).unwrap();)*};}
+    lctx_model::local_semantic_outputs!(local_rows);
+    let key = ProjectionKey {
+        input,
+        context,
+        name: projection::ProjectionName::CallableInvocation,
+    };
+    let graph = MaterializedGraph::build(
+        &projection::normalization::describe(&projection, key, budget).unwrap(),
+        budget,
+    )
+    .unwrap();
+    let catalog = models::Catalog::committed().unwrap();
+    let mut baseline = None;
+    for (depth, members) in [(0, 1 << 16), (2, 1 << 16), (2, 1)] {
+        let (p, d) = execution::configuration::summaries(
+            catalog.declaration().id(),
+            execution::configuration::SummaryLimits {
+                depth,
+                members,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        summary.parameters.insert(p).unwrap();
+        let (invocation, _) =
+            analysis::summary::AnalysisInvocation::new(input, context, d.id(), None, []);
+        let output = produce(
+            &summary,
+            &invocation,
+            &d,
+            Profile::Behavioral,
+            &graph,
+            budget,
+        )
+        .unwrap();
+        let conclusions = execution::summary_consequences::derive(
+            &summary,
+            &output,
+            &invocation,
+            &d,
+            Profile::Behavioral,
+            budget,
+        )
+        .unwrap();
+        eprintln!(
+            "claims depth={depth} members={members} finite={} closure={} verdicts={:?}",
+            conclusions
+                .claims
+                .iter()
+                .filter(|c| matches!(
+                    c,
+                    execution::summary_consequences::SummaryClaim::FiniteAlternative { .. }
+                ))
+                .count(),
+            conclusions
+                .claims
+                .iter()
+                .filter(|c| matches!(
+                    c,
+                    execution::summary_consequences::SummaryClaim::CallClosure { .. }
+                ))
+                .count(),
+            conclusions
+                .conclusions
+                .iter()
+                .map(|r| (r.verdict, r.reason))
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            conclusions
+                .conclusions
+                .iter()
+                .any(|c| c.verdict == obligation::Verdict::Established)
+        );
+        assert!(
+            conclusions
+                .conclusions
+                .iter()
+                .any(|c| c.verdict == obligation::Verdict::Conditional),
+            "actual native guard remains conditional"
+        );
+        let identity = summary
+            .entry
+            .symbol_declarations
+            .iter()
+            .filter(|r| {
+                summary
+                    .entry
+                    .symbols
+                    .get(r.symbol)
+                    .is_some_and(|s| s.name == "identity")
+            })
+            .map(|r| r.declaration)
+            .collect::<std::collections::BTreeSet<_>>();
+        let direct=conclusions.conclusions.iter().filter(|r|matches!(conclusions.subjects.get(r.subject),Some(analysis::summary::ObligationSubject::SummaryClaim{transfer})if matches!(conclusions.claims.get(*transfer),Some(execution::summary_consequences::SummaryClaim::FiniteAlternative{transfer,..})if conclusions.keys.get(*transfer).is_some_and(|k|summary.vocabulary.places.get(&k.output).and_then(|p|summary.vocabulary.roots.get(&p.root)).is_some_and(|r|matches!(r,value::PlaceRoot::Return{callable}if identity.contains(callable))))))).map(|r|(r.subject,r.verdict,r.reason)).collect::<Vec<_>>();
+        assert!(
+            !direct.is_empty(),
+            "raw identity Return must survive depth0"
+        );
+        if let Some(ref baseline) = baseline {
+            assert_eq!(
+                &direct, baseline,
+                "later limits cannot revoke same exact raw alternative"
+            );
+        } else {
+            baseline = Some(direct);
+        }
+        if depth > 0 {
+            assert!(conclusions.conclusions.iter().any(|r|matches!(conclusions.subjects.get(r.subject),Some(analysis::summary::ObligationSubject::SummaryClaim{transfer})if matches!(conclusions.claims.get(*transfer),Some(execution::summary_consequences::SummaryClaim::CallClosure{..})))&&r.verdict==obligation::Verdict::Unknown),"open set sibling remains unknown");
+        }
+        if depth == 2 && members > 1 {
+            let closed=conclusions.conclusions.iter().find(|r|r.proof.is_some()&&matches!(conclusions.subjects.get(r.subject),Some(analysis::summary::ObligationSubject::SummaryClaim{transfer})if matches!(conclusions.claims.get(*transfer),Some(execution::summary_consequences::SummaryClaim::CallClosure{..})))).expect("actual complete identity call must close");
+            assert!(matches!(
+                closed.verdict,
+                obligation::Verdict::Established | obligation::Verdict::Conditional
+            ));
+            let proof = closed.proof.unwrap();
+            let qid = closed.qualification.unwrap();
+            let q = output
+                .vocabulary
+                .qualifications
+                .get(&qid)
+                .or_else(|| summary.vocabulary.qualifications.get(&qid))
+                .unwrap();
+            let observed = summary
+                .entry
+                .coverage
+                .iter()
+                .filter(|r| {
+                    r.context == q.context
+                        && r.scope == q.scope
+                        && r.family == attribution::FactFamily::Flow
+                        && r.run
+                            .and_then(|id| summary.entry.runs.get(id))
+                            .is_some_and(|r| r.input == input)
+                })
+                .map(analysis::summary::coverage::CoverageObservation::native)
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap();
+            assert!(!observed.is_empty());
+            let expectation = analysis::summary::coverage::CoverageExpectation {
+                invocation: invocation.id(),
+                capability: analysis::AnalysisCapability::Summaries,
+                scope: q.scope,
+                context: q.context,
+                requested: true,
+                no_scope: false,
+                sources: observed.iter().map(|r| r.source().id()).collect(),
+            };
+            let (coverage, _) = analysis::summary::coverage::assess(
+                &expectation,
+                &observed,
+                output.outcome.status,
+                output.outcome.reason,
+                budget,
+            )
+            .unwrap();
+            let expected=conclusions.derivations.iter().find(|d|conclusions.derivation_premises.iter().any(|p|p.derivation==d.id()&&matches!(conclusions.sources.get(p.source),Some(analysis::summary::SupportSource::ClaimProof{witness})if *witness==proof))).unwrap();
+            assert!(
+                conclusions
+                    .pending
+                    .iter()
+                    .filter(|p| p.matches(&coverage))
+                    .filter_map(|p| p.admit(&coverage).ok())
+                    .any(|(_, d)| d.derivation == expected.id() && d.coverage == coverage.id()),
+                "closed claim discharges only through actual assessed coverage"
+            );
+            assert!(
+                analysis::summary::coverage::assess(
+                    &expectation,
+                    &[],
+                    output.outcome.status,
+                    output.outcome.reason,
+                    budget
+                )
+                .is_err()
+            );
+        }
+        assert!(output.call_members.iter().any(|m| m.reason.is_some()));
+        assert!(
+            conclusions
+                .standings
+                .iter()
+                .any(|s| s.standing == execution::summary_consequences::MemberStanding::Open)
+                || depth == 0
+        );
+        assert!(
+            execution::summary_consequences::derive(
+                &summary,
+                &output,
+                &invocation,
+                &d,
+                Profile::Behavioral,
+                &resources::ResourceBudget::fixed(1).unwrap()
+            )
+            .is_err()
+        );
+        let unrequested =
+            produce(&summary, &invocation, &d, Profile::Catalog, &graph, budget).unwrap();
+        let catalog = execution::summary_consequences::derive(
+            &summary,
+            &unrequested,
+            &invocation,
+            &d,
+            Profile::Catalog,
+            budget,
+        )
+        .unwrap();
+        assert_eq!(catalog.conclusions.len(), 1);
+        assert_eq!(
+            catalog.conclusions.iter().next().unwrap().verdict,
+            obligation::Verdict::NotAnalyzed
+        );
+        assert!(catalog.proofs.is_empty() && catalog.pending.is_empty());
+    }
 }

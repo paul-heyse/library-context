@@ -48,7 +48,16 @@ async fn native_higher_order_dispatch_and_definition_evidence_keep_their_policy_
     let mut dispatch = 0;
     let mut potential = 0;
     for alternative in output.alternatives.iter() {
-        let target = data.targets.get(output.alternative_sources.get(alternative.source).unwrap().target()).unwrap();
+        let target = data
+            .targets
+            .get(
+                output
+                    .alternative_sources
+                    .get(alternative.source)
+                    .unwrap()
+                    .target(),
+            )
+            .unwrap();
         let admitted = policies(&output, alternative.id());
         assert!(admitted.contains(&CallPolicy::Association));
         if matches!(
@@ -86,18 +95,20 @@ async fn native_higher_order_dispatch_and_definition_evidence_keep_their_policy_
         }
     }
     assert!(higher > 0 && dispatch > 0 && potential > 0);
-    assert!(
-        output
-            .alternatives
-            .iter()
-            .any(|a| data.targets.get(output.alternative_sources.get(a.source).unwrap().target()).unwrap().phase == CallPhase::New)
-    );
-    assert!(
-        output
-            .alternatives
-            .iter()
-            .any(|a| data.targets.get(output.alternative_sources.get(a.source).unwrap().target()).unwrap().phase == CallPhase::Init)
-    );
+    assert!(output.alternatives.iter().any(|a| {
+        data.targets
+            .get(output.alternative_sources.get(a.source).unwrap().target())
+            .unwrap()
+            .phase
+            == CallPhase::New
+    }));
+    assert!(output.alternatives.iter().any(|a| {
+        data.targets
+            .get(output.alternative_sources.get(a.source).unwrap().target())
+            .unwrap()
+            .phase
+            == CallPhase::Init
+    }));
     assert_eq!(output.source_evidence.len(), data.site_supports.len());
     for source in output.sources.iter() {
         let raw = data.call_sites.get(source.observation).unwrap();

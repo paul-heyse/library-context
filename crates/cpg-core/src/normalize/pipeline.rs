@@ -44,7 +44,9 @@ impl Normalization {
             Self::Relations => relation_normalization::stage(profile),
             Self::Callables => callable_normalization::stage(profile),
             Self::Receivers => receiver::stage(profile),
-            Self::CallableAspects => lctx_model::domain::normalized::callable_aspects::stage(profile),
+            Self::CallableAspects => {
+                lctx_model::domain::normalized::callable_aspects::stage(profile)
+            }
             Self::Events => event_normalization::stage(profile),
             Self::Bindings => binding_normalization::stage(profile),
             Self::Projections => projection::normalization::stage(profile),
@@ -64,7 +66,9 @@ impl Normalization {
             Self::Relations => super::relations(access, attempt, config, runtime, model).await,
             Self::Callables => super::callables(access, attempt, config, runtime, model).await,
             Self::Receivers => super::receivers(access, attempt, config, runtime, model).await,
-            Self::CallableAspects => crate::catalog_core::aspects(access, attempt, config, runtime, model).await,
+            Self::CallableAspects => {
+                crate::catalog_core::aspects(access, attempt, config, runtime, model).await
+            }
             Self::Events => super::events(access, attempt, config, runtime, model).await,
             Self::Bindings => super::bindings(access, attempt, config, runtime, model).await,
             Self::Projections => super::projections(access, attempt, config, runtime, model).await,

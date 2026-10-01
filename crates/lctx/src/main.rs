@@ -439,9 +439,13 @@ fn flow_file(file: &Path, python: &str, platform: &str) -> anyhow::Result<()> {
         &[name],
         &budget,
     )?;
-    let captured = Arc::new(cpg_extract::bundle::CapturedInputs::new(vec![
-        cpg_extract::acquisition::AcquiredInput::tree(captured, "flow-probe"),
-    ], cpg_extract::native_context::NativeContextConfig::committed(Profile::Behavioral,&budget)?));
+    let captured = Arc::new(cpg_extract::bundle::CapturedInputs::new(
+        vec![cpg_extract::acquisition::AcquiredInput::tree(
+            captured,
+            "flow-probe",
+        )],
+        cpg_extract::native_context::NativeContextConfig::committed(Profile::Behavioral, &budget)?,
+    ));
     let (model, generation, digest) = tokio::runtime::Runtime::new()?.block_on(
         cpg_core::facts::inspect(captured, budget.clone(), Profile::Behavioral),
     )?;
@@ -618,7 +622,14 @@ fn run() -> anyhow::Result<()> {
                 &envs.join(&name),
             )?;
             let budget = lctx_model::domain::resources::ResourceBudget::fixed(1 << 30)?;
-            let captured = cpg_extract::acquisition::capture(&inventory, &budget, cpg_extract::native_context::NativeContextConfig::committed(lctx_model::domain::stages::Profile::Catalog,&budget)?)?;
+            let captured = cpg_extract::acquisition::capture(
+                &inventory,
+                &budget,
+                cpg_extract::native_context::NativeContextConfig::committed(
+                    lctx_model::domain::stages::Profile::Catalog,
+                    &budget,
+                )?,
+            )?;
             let mut identity =
                 serde_json::to_value(cpg_extract::deployment::identity(&captured.inputs()[0])?)?;
             // These two hashes are observations by the explicit task operator. The facts
@@ -651,9 +662,15 @@ fn run() -> anyhow::Result<()> {
             profile,
             task_receipt,
             memory_bytes,
-            techniques, embedder, embedding_endpoint, embedding_spec,
+            techniques,
+            embedder,
+            embedding_endpoint,
+            embedding_spec,
         } => {
-            if !matches!(through.as_str(), "facts" | "normalized" | "analysis" | "catalog") {
+            if !matches!(
+                through.as_str(),
+                "facts" | "normalized" | "analysis" | "catalog"
+            ) {
                 return Err(Unavailable(
                     "--through serving is unavailable; use facts, normalized, analysis or catalog",
                 )
@@ -663,11 +680,18 @@ fn run() -> anyhow::Result<()> {
             runtime()?.block_on(compile::compile(
                 &name,
                 profile,
-                lctx_model::domain::admission::Frontier::ALL.into_iter()
-                    .find(|frontier|frontier.name()==through).expect("validated compile frontier"),
+                lctx_model::domain::admission::Frontier::ALL
+                    .into_iter()
+                    .find(|frontier| frontier.name() == through)
+                    .expect("validated compile frontier"),
                 &task_receipt,
                 memory_bytes,
-                &compile_options::Options {techniques, embedder, embedding_endpoint, embedding_spec},
+                &compile_options::Options {
+                    techniques,
+                    embedder,
+                    embedding_endpoint,
+                    embedding_spec,
+                },
                 &libraries,
                 &envs,
                 &sources,

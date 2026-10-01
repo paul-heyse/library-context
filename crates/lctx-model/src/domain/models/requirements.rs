@@ -1,12 +1,19 @@
 //! Dependency capture requests derived from authored models, before either native provider runs.
 use super::*;
-use crate::domain::{HeapSize, charged::{ChargedSet, StateCharge}, execution::ExactRuntimeException,
-    resources::ResourceBudget};
+use crate::domain::{
+    HeapSize,
+    charged::{ChargedSet, StateCharge},
+    execution::ExactRuntimeException,
+    resources::ResourceBudget,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum RequirementPin {
     Python(String),
-    Distribution { name: String, version: String },
+    Distribution {
+        name: String,
+        version: String,
+    },
     Release,
     /// A class mentioned by a rule must resolve within the frozen context. Its captured
     /// distribution and version remain evidence, never an inferred pin from its spelling.
@@ -52,7 +59,11 @@ pub struct ModelContextRequirements {
     _charge: StateCharge,
 }
 impl ModelContextRequirements {
-    pub fn derive(catalog: &Catalog, python: &str, budget: &ResourceBudget) -> Result<Self, ModelError> {
+    pub fn derive(
+        catalog: &Catalog,
+        python: &str,
+        budget: &ResourceBudget,
+    ) -> Result<Self, ModelError> {
         let mut entries = ChargedSet::default();
         let mut charge = StateCharge::new(budget, "model-context-requirements");
         let mut add = |entry| entries.insert(&mut charge, entry).map(|_| ());
@@ -63,9 +74,15 @@ impl ModelContextRequirements {
                 rule.visit_context_references(&mut |reference| match reference {
                     ContextReference::Class(class) => add_class(class, owner, python, &mut add),
                     ContextReference::Global { module, name } => add(RequiredDefinition {
-                        owner, pin: if module == "builtins" { RequirementPin::Python(python.into()) }
-                            else { RequirementPin::CapturedEnvironment },
-                        module: module.into(), qualified_name: name.into(), require_mro: false,
+                        owner,
+                        pin: if module == "builtins" {
+                            RequirementPin::Python(python.into())
+                        } else {
+                            RequirementPin::CapturedEnvironment
+                        },
+                        module: module.into(),
+                        qualified_name: name.into(),
+                        require_mro: false,
                     }),
                 })?;
             }
@@ -87,40 +104,94 @@ impl ModelContextRequirements {
             let (module, name) = exception.class();
             add(RequiredDefinition {
                 owner: RequiredBy::RuntimeException(*exception),
-                pin: RequirementPin::Python(python.into()), module: module.into(),
-                qualified_name: name.into(), require_mro: true,
+                pin: RequirementPin::Python(python.into()),
+                module: module.into(),
+                qualified_name: name.into(),
+                require_mro: true,
             })?;
         }
-        Ok(Self { catalog: catalog.declaration.id(), catalog_digest: catalog.digest(),
-            entries, _charge: charge })
+        Ok(Self {
+            catalog: catalog.declaration.id(),
+            catalog_digest: catalog.digest(),
+            entries,
+            _charge: charge,
+        })
     }
-    pub fn entries(&self) -> impl Iterator<Item=&RequiredDefinition> { self.entries.iter() }
-    pub fn catalog(&self) -> Id<ModelCatalog> { self.catalog }
-    pub fn catalog_digest(&self) -> ContentHash { self.catalog_digest }
+    pub fn entries(&self) -> impl Iterator<Item = &RequiredDefinition> {
+        self.entries.iter()
+    }
+    pub fn catalog(&self) -> Id<ModelCatalog> {
+        self.catalog
+    }
+    pub fn catalog_digest(&self) -> ContentHash {
+        self.catalog_digest
+    }
 }
 fn target_requirement(target: &Target, owner: RequiredBy, require_mro: bool) -> RequiredDefinition {
     let (pin, module, name) = match target {
-        Target::Stdlib { python, module, callable } => (RequirementPin::Python(python.clone()), module, callable),
-        Target::Dependency { distribution, version, module, callable } => (
-            RequirementPin::Distribution { name: distribution.clone(), version: version.clone() }, module, callable),
+        Target::Stdlib {
+            python,
+            module,
+            callable,
+        } => (RequirementPin::Python(python.clone()), module, callable),
+        Target::Dependency {
+            distribution,
+            version,
+            module,
+            callable,
+        } => (
+            RequirementPin::Distribution {
+                name: distribution.clone(),
+                version: version.clone(),
+            },
+            module,
+            callable,
+        ),
         Target::Release { module, callable } => (RequirementPin::Release, module, callable),
     };
-    RequiredDefinition { owner, pin, module: module.clone(), qualified_name: name.clone(), require_mro }
+    RequiredDefinition {
+        owner,
+        pin,
+        module: module.clone(),
+        qualified_name: name.clone(),
+        require_mro,
+    }
 }
-fn add_target(target: &Target, owner: RequiredBy, mro: bool,
-    add: &mut impl FnMut(RequiredDefinition)->Result<(),ModelError>) -> Result<(),ModelError> {
+fn add_target(
+    target: &Target,
+    owner: RequiredBy,
+    mro: bool,
+    add: &mut impl FnMut(RequiredDefinition) -> Result<(), ModelError>,
+) -> Result<(), ModelError> {
     let entry = target_requirement(target, owner, mro);
     if let Some((class, _)) = entry.qualified_name.rsplit_once('.') {
-        add(RequiredDefinition { qualified_name: class.into(), require_mro: true, ..entry.clone() })?;
+        add(RequiredDefinition {
+            qualified_name: class.into(),
+            require_mro: true,
+            ..entry.clone()
+        })?;
     }
     add(entry)
 }
-fn add_class(class: &str, owner: RequiredBy, python: &str,
-    add: &mut impl FnMut(RequiredDefinition)->Result<(),ModelError>) -> Result<(),ModelError> {
-    let (module, name) = class.rsplit_once('.').ok_or_else(|| ModelError::Invalid("model class has no module".into()))?;
+fn add_class(
+    class: &str,
+    owner: RequiredBy,
+    python: &str,
+    add: &mut impl FnMut(RequiredDefinition) -> Result<(), ModelError>,
+) -> Result<(), ModelError> {
+    let (module, name) = class
+        .rsplit_once('.')
+        .ok_or_else(|| ModelError::Invalid("model class has no module".into()))?;
     add(RequiredDefinition {
-        owner, pin: if module == "builtins" { RequirementPin::Python(python.into()) } else { RequirementPin::CapturedEnvironment },
-        module: module.into(), qualified_name: name.into(), require_mro: true,
+        owner,
+        pin: if module == "builtins" {
+            RequirementPin::Python(python.into())
+        } else {
+            RequirementPin::CapturedEnvironment
+        },
+        module: module.into(),
+        qualified_name: name.into(),
+        require_mro: true,
     })
 }
 
@@ -187,14 +258,29 @@ modality = "potential"
         let catalog = Catalog::parse("requirements.toml", source).unwrap();
         let budget = ResourceBudget::fixed(1024 * 1024).unwrap();
         let required = ModelContextRequirements::derive(&catalog, "3.14.7", &budget).unwrap();
-        let actual = required.entries().filter(|entry| entry.module == "missingpkg")
+        let actual = required
+            .entries()
+            .filter(|entry| entry.module == "missingpkg")
             .map(|entry| {
                 assert_eq!(entry.pin, RequirementPin::CapturedEnvironment);
                 (entry.qualified_name.as_str(), entry.require_mro)
-            }).collect::<BTreeSet<_>>();
-        let expected = [("source",false),("target",false),("Raised",true),("schema",false),
-            ("subject",false),("Schema",true),("callback",false),("resource_in",false),
-            ("resource_out",false),("OldError",true),("NewError",true)].into_iter().collect();
+            })
+            .collect::<BTreeSet<_>>();
+        let expected = [
+            ("source", false),
+            ("target", false),
+            ("Raised", true),
+            ("schema", false),
+            ("subject", false),
+            ("Schema", true),
+            ("callback", false),
+            ("resource_in", false),
+            ("resource_out", false),
+            ("OldError", true),
+            ("NewError", true),
+        ]
+        .into_iter()
+        .collect();
         assert_eq!(actual, expected);
         // No observed definitions or resolver input participates in this expected domain.
         assert_eq!(required.catalog(), catalog.declaration().id());
@@ -206,10 +292,19 @@ modality = "potential"
         let budget = ResourceBudget::fixed(1024 * 1024).unwrap();
         let required = ModelContextRequirements::derive(&catalog, "3.14.7", &budget).unwrap();
         let entries = required.entries().collect::<Vec<_>>();
-        for (module, name, mro) in [("builtins","TypeError",true), ("builtins","OSError",true),
-            ("contextlib","nullcontext.__enter__",false), ("contextlib","suppress.__exit__",false),
-            ("builtins","object.__new__",false), ("logging","Logger",true)] {
-            assert!(entries.iter().any(|e| e.module == module && e.qualified_name == name && e.require_mro == mro));
+        for (module, name, mro) in [
+            ("builtins", "TypeError", true),
+            ("builtins", "OSError", true),
+            ("contextlib", "nullcontext.__enter__", false),
+            ("contextlib", "suppress.__exit__", false),
+            ("builtins", "object.__new__", false),
+            ("logging", "Logger", true),
+        ] {
+            assert!(
+                entries.iter().any(|e| e.module == module
+                    && e.qualified_name == name
+                    && e.require_mro == mro)
+            );
         }
         assert!(entries.iter().any(|e| e.module == "pydantic.type_adapter" &&
             matches!(&e.pin, RequirementPin::Distribution { name, version } if name == "pydantic" && version == "2.13.5")));
@@ -217,7 +312,14 @@ modality = "potential"
         drop(entries);
         drop(required);
         assert_eq!(budget.reserved(), 0);
-        assert!(ModelContextRequirements::derive(&catalog, "3.14.7", &ResourceBudget::fixed(1).unwrap()).is_err());
+        assert!(
+            ModelContextRequirements::derive(
+                &catalog,
+                "3.14.7",
+                &ResourceBudget::fixed(1).unwrap()
+            )
+            .is_err()
+        );
     }
     #[test]
     fn changing_catalog_version_changes_the_expected_domain_without_dropping_targets() {

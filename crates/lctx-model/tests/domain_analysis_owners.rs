@@ -345,7 +345,12 @@ fn bdd_qualification_refuses_budget_and_keeps_shared_weakest_policy() {
 #[test]
 fn native_preparation_closure_excludes_later_results_and_final_coverage() {
     let model = model().unwrap();
-    assert!(!model.relations().iter().any(|r| r.name().starts_with("dispatch_analysis_")));
+    assert!(
+        !model
+            .relations()
+            .iter()
+            .any(|r| r.name().starts_with("dispatch_analysis_"))
+    );
     let declarations_by_name = model
         .relations()
         .iter()

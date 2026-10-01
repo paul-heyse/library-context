@@ -909,5 +909,3 @@ pub fn stage(profile: stages::Profile) -> stages::Stage {
         configuration: ContentHash::of(b"events/v1"),
     }
 }
-
-

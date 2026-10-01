@@ -175,8 +175,8 @@ impl InvariantCheck for InvocationCheck {
                 ));
             }
         }
-        for (id,_) in self.snapshots.iter() {if !self.rows.contains_key(id) {return Err(invalid("orphan invocation source receipt"));}}
-        for (id,_) in self.projections.iter() {if !self.rows.contains_key(id) {return Err(invalid("orphan invocation projection"));}}
+        for id in self.snapshots.keys() {if !self.rows.contains_key(id) {return Err(invalid("orphan invocation source receipt"));}}
+        for id in self.projections.keys() {if !self.rows.contains_key(id) {return Err(invalid("orphan invocation projection"));}}
         // Global declared derivation validation owns cross-relation cycle checking.
         Ok(())
     }

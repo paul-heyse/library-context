@@ -293,7 +293,19 @@ impl GenerationStore {
                     .iter()
                     .find(|r| r.name() == input.name())
                     .expect("validated invariant member");
-                let view=super::validation_views::physical(tx,g,input,relation,relation.name(),super::validation_views::Scope {upper:None,candidate:None},budget).await?;
+                let view = super::validation_views::physical(
+                    tx,
+                    g,
+                    input,
+                    relation,
+                    relation.name(),
+                    super::validation_views::Scope {
+                        upper: None,
+                        candidate: None,
+                    },
+                    budget,
+                )
+                .await?;
                 super::visit_named(tx, g, relation, &view, input.order(), budget, |batch| {
                     check.visit_input(input, &batch)?;
                     Ok(())

@@ -21,7 +21,6 @@ fn scalar(scalar: Scalar) -> &'static str {
         Scalar::Id => "id",
         Scalar::Digest => "digest",
         Scalar::Binary => "binary",
-        Scalar::FiniteF64 => "finite_f64",
     }
 }
 

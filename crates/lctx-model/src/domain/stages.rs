@@ -1454,16 +1454,33 @@ impl StageAccess<'_, '_> {
     }
     /// Narrow an acknowledged vocabulary grant to an earlier immutable prefix.
     /// The returned receipt still comes from this execution; callers cannot supply one.
-    pub fn read_at_epoch<R: Record>(&self, epoch: PublicationBoundary) -> Result<ReadPermit<'_, R>, ModelError> {
+    pub fn read_at_epoch<R: Record>(
+        &self,
+        epoch: PublicationBoundary,
+    ) -> Result<ReadPermit<'_, R>, ModelError> {
         let mut permit = self.read::<R>()?;
-        let bound = permit.source.as_ref().and_then(CompletedRelation::prefix_ordinal)
-            .ok_or_else(|| ModelError::Invalid("earlier vocabulary read requires a closed-prefix grant".into()))?;
+        let bound = permit
+            .source
+            .as_ref()
+            .and_then(CompletedRelation::prefix_ordinal)
+            .ok_or_else(|| {
+                ModelError::Invalid("earlier vocabulary read requires a closed-prefix grant".into())
+            })?;
         let requested = self.execution.schedule.prefix_for(epoch)?;
         if !is_vocabulary(R::NAME) || requested.ordinal() > bound.ordinal() {
-            return Err(ModelError::Invalid("vocabulary read cannot widen its declared grant".into()));
+            return Err(ModelError::Invalid(
+                "vocabulary read cannot widen its declared grant".into(),
+            ));
         }
-        permit.source = Some(self.execution.prefixes.get(&(requested, R::NAME))
-            .ok_or_else(|| ModelError::Invalid("requested vocabulary prefix is not acknowledged".into()))?.clone());
+        permit.source = Some(
+            self.execution
+                .prefixes
+                .get(&(requested, R::NAME))
+                .ok_or_else(|| {
+                    ModelError::Invalid("requested vocabulary prefix is not acknowledged".into())
+                })?
+                .clone(),
+        );
         Ok(permit)
     }
     /// The sink obtains a nominal capability. Only a successful effect marks this output written;
@@ -1866,7 +1883,9 @@ pub struct StageCompletion {
     outputs: BTreeSet<&'static str>,
 }
 impl StageCompletion {
-    pub fn profile(&self) -> Profile { self.profile }
+    pub fn profile(&self) -> Profile {
+        self.profile
+    }
     /// Vocabulary bound inherited from declared completed inputs, never global close state.
     pub fn prefix_ordinal(&self) -> Option<PrefixOrdinal> {
         self.prefix

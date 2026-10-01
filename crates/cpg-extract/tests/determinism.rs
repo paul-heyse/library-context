@@ -34,7 +34,14 @@ fn captured(reverse: bool, profile: Profile) -> std::sync::Arc<CapturedInputs> {
     if reverse {
         inputs.reverse();
     }
-    std::sync::Arc::new(CapturedInputs::new(inputs, cpg_extract::native_context::NativeContextConfig::committed(profile, &typed_driver::budget()).unwrap()))
+    std::sync::Arc::new(CapturedInputs::new(
+        inputs,
+        cpg_extract::native_context::NativeContextConfig::committed(
+            profile,
+            &typed_driver::budget(),
+        )
+        .unwrap(),
+    ))
 }
 #[tokio::test]
 async fn shuffle_relocation_repeat_and_transfer_sizes_preserve_content() {
@@ -42,7 +49,7 @@ async fn shuffle_relocation_repeat_and_transfer_sizes_preserve_content() {
         let mut expected = None;
         for (rows, reverse) in [(4096, false), (1, true), (97, false), (4096, true)] {
             let digest = typed_driver::run_profile_with_limits(
-                captured(reverse,profile),
+                captured(reverse, profile),
                 Pyrefly::new(SyntaxLimits::default()),
                 All(Tables::default()),
                 profile,

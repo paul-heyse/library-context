@@ -91,10 +91,10 @@ impl InvariantCheck for DischargeCheck {
         let bytes=self.nodes.values().try_fold(0usize,|n,row|n.checked_add(size_of::<conditions::ConditionNode>()+row.heap_bytes()+128).ok_or_else(||invalid("discharge allocation overflow")))?;
         let _reservation=self.charge.budget().ok_or_else(||invalid("discharge budget absent"))?.reserve("analysis_discharge",bytes)?;
         let nodes=self.nodes.values().cloned().collect::<Vec<_>>();
-        for (_,evidence) in self.evidence.iter() {
+        for evidence in self.evidence.values() {
             let source=self.sources.get(&evidence.obligation).ok_or_else(||invalid("obligation source absent"))?;
             let mut question=*self.obligations.get(&source.reference()).ok_or_else(||invalid("discharged obligation absent"))?;
-            question.subject=*self.subjects.get(&question.subject).ok_or_else(||invalid("discharged subject absent"))?;
+            question.subject = *self.subjects.get(&question.subject).ok_or_else(||invalid("discharged subject absent"))?;
             let derivation=self.derivations.get(&evidence.derivation).ok_or_else(||invalid("discharging derivation absent"))?;
             let proposition=self.propositions.get(&derivation.proposition).ok_or_else(||invalid("discharging proposition absent"))?;
             let qualification=self.qualifications.get(&proposition.qualification).ok_or_else(||invalid("discharging qualification absent"))?;

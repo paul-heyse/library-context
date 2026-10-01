@@ -599,24 +599,34 @@ fn fields(node: AnyNodeRef<'_>) -> Vec<(SyntaxField, TextRange)> {
         AnyNodeRef::Comprehension(c) => {
             add(F::Target, Some(c.target.range()));
             add(F::Iter, Some(c.iter.range()));
-            for test in &c.ifs { add(F::Test, Some(test.range())); }
+            for test in &c.ifs {
+                add(F::Test, Some(test.range()));
+            }
         }
         AnyNodeRef::ExprGenerator(e) => {
             add(F::Element, Some(e.elt.range()));
-            for clause in &e.generators { add(F::Item, Some(clause.range())); }
+            for clause in &e.generators {
+                add(F::Item, Some(clause.range()));
+            }
         }
         AnyNodeRef::ExprListComp(e) => {
             add(F::Element, Some(e.elt.range()));
-            for clause in &e.generators { add(F::Item, Some(clause.range())); }
+            for clause in &e.generators {
+                add(F::Item, Some(clause.range()));
+            }
         }
         AnyNodeRef::ExprSetComp(e) => {
             add(F::Element, Some(e.elt.range()));
-            for clause in &e.generators { add(F::Item, Some(clause.range())); }
+            for clause in &e.generators {
+                add(F::Item, Some(clause.range()));
+            }
         }
         AnyNodeRef::ExprDictComp(e) => {
             add(F::Left, e.key.as_ref().map(|key| key.range()));
             add(F::Value, Some(e.value.range()));
-            for clause in &e.generators { add(F::Item, Some(clause.range())); }
+            for clause in &e.generators {
+                add(F::Item, Some(clause.range()));
+            }
         }
         AnyNodeRef::ExprLambda(e) => {
             if let Some(ps) = &e.parameters {
@@ -709,7 +719,12 @@ fn details(node: AnyNodeRef<'_>) -> Vec<(SyntaxDetail, Option<Literal>)> {
     let op = |kind: OperatorKind| (SyntaxDetail::Operator { operator: kind }, None);
     match node {
         AnyNodeRef::ExprBinOp(e) => vec![op(operator(e.op))],
-        AnyNodeRef::StmtWith(s) => vec![(SyntaxDetail::WithMode { is_async: s.is_async }, None)],
+        AnyNodeRef::StmtWith(s) => vec![(
+            SyntaxDetail::WithMode {
+                is_async: s.is_async,
+            },
+            None,
+        )],
         AnyNodeRef::StmtAugAssign(s) => vec![op(operator(s.op))],
         AnyNodeRef::ExprBoolOp(e) => vec![op(match e.op {
             BoolOp::And => OperatorKind::And,

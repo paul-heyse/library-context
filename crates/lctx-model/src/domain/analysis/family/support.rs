@@ -48,6 +48,7 @@ impl crate::domain::analysis::support::sealed::DerivedEvidence for AnalysisDeriv
 impl crate::domain::analysis::support::DerivedEvidence for AnalysisDerivation {fn source_facts(&self)->SourceFacts {self.facts()}}
 pub(super) fn input_digest(sources:&std::collections::BTreeSet<Id<SupportSource>>)->ContentHash {crate::domain::analysis::support::membership_digest("analysis-derivation-premises",sources)}
 impl AnalysisDerivation {
+    #[allow(clippy::too_many_arguments,reason="Derivation emission binds the invocation, definition, subject, channel, phase, operation and premises")]
     pub fn emit(invocation:&AnalysisInvocation,definition:&AnalysisDefinition,subject:Id<ObligationSubject>,channel:AnalysisChannel,phase:CallPhase,operation:QualificationOperation,premises:&[EvidencePremise<'_>],budget:&resources::ResourceBudget)->Result<(Self,AnalysisProposition,Vec<AnalysisDerivationPremise>,QualifiedResult),ModelError> {
         if invocation.definition!=definition.id() {return Err(invalid("derivation changes analysis definition"));}
         let mut charge=charged::StateCharge::new(budget,"analysis_derivation_emit");let mut sources=charged::ChargedSet::default();
@@ -109,8 +110,8 @@ impl InvariantCheck for SupportCheck {
             let premises=evidence.iter().zip(&diagrams).map(|((source,q,_),condition)|QualifiedPremise {source,qualification:q,condition}).collect::<Vec<_>>();
             if qualify(row.operation,&premises,budget)?.qualification!=*q || row.status!=inferred_status(definition.interpretation,evidence.iter().map(|(_,_,f)|f.status)) || row.heuristic!=(definition.interpretation==Interpretation::Heuristic || evidence.iter().any(|(_,_,f)|f.heuristic)) {return Err(invalid("derivation strengthens qualification or evidence lineage"));}
         }
-        for (id,_) in self.members.iter() {if !self.derivations.contains_key(id) {return Err(invalid("orphan derivation membership"));}}
-        for (_,source) in self.sources.iter() {self.source_facts(source)?;}
+        for id in self.members.keys() {if !self.derivations.contains_key(id) {return Err(invalid("orphan derivation membership"));}}
+        for source in self.sources.values() {self.source_facts(source)?;}
         Ok(())
     }
 }

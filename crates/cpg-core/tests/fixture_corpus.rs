@@ -109,7 +109,10 @@ fn capture(case: &str, profile: Profile, resources: &ResourceBudget) -> Arc<Capt
     let frozen =
         CapturedInput::capture_derived(&root, &paths, &budget(), &documents, derive_blocks)
             .unwrap();
-    Arc::new(CapturedInputs::new(vec![AcquiredInput::tree(frozen, case)], cpg_extract::native_context::NativeContextConfig::committed(profile, resources).unwrap()))
+    Arc::new(CapturedInputs::new(
+        vec![AcquiredInput::tree(frozen, case)],
+        cpg_extract::native_context::NativeContextConfig::committed(profile, resources).unwrap(),
+    ))
 }
 #[tokio::test]
 async fn every_fixture_is_registered_and_both_profiles_use_the_real_facts_frontier() {
@@ -125,7 +128,7 @@ async fn every_fixture_is_registered_and_both_profiles_use_the_real_facts_fronti
         for profile in Profile::ALL {
             let resources = budget();
             let result = cpg_core::facts::memory(
-                capture(case,profile,&resources),
+                capture(case, profile, &resources),
                 resources.clone(),
                 profile,
                 ContentHash::of(b"fixture-corpus"),
@@ -161,13 +164,18 @@ async fn representative_fixtures_have_equal_memory_and_postgresql_content() {
         for profile in Profile::ALL {
             let resources = budget();
             let configuration = ContentHash::of(b"fixture-corpus");
-            let memory = cpg_core::facts::memory(capture(case,profile,&resources), resources.clone(), profile, configuration)
-                .await
-                .unwrap();
+            let memory = cpg_core::facts::memory(
+                capture(case, profile, &resources),
+                resources.clone(),
+                profile,
+                configuration,
+            )
+            .await
+            .unwrap();
             let published = cpg_core::facts::publish(
                 &store,
                 db.writer.clone(),
-                capture(case,profile,&resources),
+                capture(case, profile, &resources),
                 resources.clone(),
                 profile,
                 configuration,

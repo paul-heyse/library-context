@@ -3,9 +3,9 @@ pub mod graph;
 pub(super) mod kernel;
 mod substitution;
 pub use graph::{CondGraph, CondNode, GraphCondition};
+pub mod entry;
 pub mod rebase;
 pub mod stability;
-pub mod entry;
 use super::charged::{ChargedMap, ChargedSet, StateCharge};
 use super::{Id, ModelError, Record};
 use super::{

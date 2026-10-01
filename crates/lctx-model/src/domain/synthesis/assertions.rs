@@ -1,95 +1,860 @@
 //! One programmatic assertion emitter. Display text is never evidence.
-use crate::domain::{*,analysis::{self,synthesis as owner,policy::{AssertionKind,BriefSection,EvidenceStatus,SupportRole},support::{DerivedEvidence,SourceFacts}},assertion::AssertionQualification,catalog::CatalogMemberInvocation,normalized::Rows,resources::ResourceBudget};
-use super::documentary::{self,DocumentaryConclusion};
-use crate::{Domain,DomainSum};
-pub const TEMPLATE_VERSION:i64=1;
-#[derive(Debug,Clone,PartialEq,Eq,Hash,DomainSum)]
-#[model(name="synthesis_assertion_templates")]
-pub enum AssertionTemplate {#[model(code=0)]AuthoredOutcome{conclusion:Id<DocumentaryConclusion>},#[model(code=1)]StructuralObservation{conclusion:Id<structural::Conclusion>},#[model(code=2)]AnalyticObservation{conclusion:Id<analytics::Conclusion>},#[model(code=3)]Summary{facet:Id<super::summary::SummaryFacet>},#[model(code=4)]AuthoredCode{conclusion:Id<super::patterns::AuthoredCodeConclusion>}}
-#[derive(Debug,Clone,PartialEq,Eq,Hash,DomainSum)]
-#[model(name="programmatic_assertion_sources")]
-pub enum AssertionSource {#[model(code=0)]Documentary{conclusion:Id<DocumentaryConclusion>},#[model(code=1)]Structural{conclusion:Id<structural::Conclusion>},#[model(code=2)]Analytic{conclusion:Id<analytics::Conclusion>},#[model(code=3)]Summary{facet:Id<super::summary::SummaryFacet>},#[model(code=4)]AuthoredCode{conclusion:Id<super::patterns::AuthoredCodeConclusion>}}
-#[derive(Debug,Clone,PartialEq,Eq,Domain)]
-#[model(name="programmatic_assertions",invariants=invariants,semantic_source=include_bytes!("assertions.rs"))]
-pub struct ProgrammaticAssertion{
- #[model(key)]pub invocation:Id<owner::Invocation>,#[model(key)]pub member:Id<CatalogMemberInvocation>,#[model(key)]pub template:Id<AssertionTemplate>,#[model(key)]pub version:i64,
- kind:AssertionKind,section:BriefSection,status:EvidenceStatus,qualification:Id<AssertionQualification>,text:Utf8Text,
+use super::documentary::{self, DocumentaryConclusion};
+use crate::domain::{
+    analysis::{
+        self,
+        policy::{AssertionKind, BriefSection, EvidenceStatus, SupportRole},
+        support::{DerivedEvidence, SourceFacts},
+        synthesis as owner,
+    },
+    assertion::AssertionQualification,
+    catalog::CatalogMemberInvocation,
+    normalized::Rows,
+    resources::ResourceBudget,
+    *,
+};
+use crate::{Domain, DomainSum};
+pub const TEMPLATE_VERSION: i64 = 1;
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[model(name = "synthesis_assertion_templates")]
+pub enum AssertionTemplate {
+    #[model(code = 0)]
+    AuthoredOutcome {
+        conclusion: Id<DocumentaryConclusion>,
+    },
+    #[model(code = 1)]
+    StructuralObservation {
+        conclusion: Id<structural::Conclusion>,
+    },
+    #[model(code = 2)]
+    AnalyticObservation {
+        conclusion: Id<analytics::Conclusion>,
+    },
+    #[model(code = 3)]
+    Summary {
+        facet: Id<super::summary::SummaryFacet>,
+    },
+    #[model(code = 4)]
+    AuthoredCode {
+        conclusion: Id<super::patterns::AuthoredCodeConclusion>,
+    },
 }
-impl ProgrammaticAssertion{pub fn kind(&self)->AssertionKind{self.kind}pub fn section(&self)->BriefSection{self.section}pub fn status(&self)->EvidenceStatus{self.status}pub fn qualification(&self)->Id<AssertionQualification>{self.qualification}pub fn text(&self)->&str{self.text.as_str()}}
-#[derive(Debug,Clone,PartialEq,Eq,Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[model(name = "programmatic_assertion_sources")]
+pub enum AssertionSource {
+    #[model(code = 0)]
+    Documentary {
+        conclusion: Id<DocumentaryConclusion>,
+    },
+    #[model(code = 1)]
+    Structural {
+        conclusion: Id<structural::Conclusion>,
+    },
+    #[model(code = 2)]
+    Analytic {
+        conclusion: Id<analytics::Conclusion>,
+    },
+    #[model(code = 3)]
+    Summary {
+        facet: Id<super::summary::SummaryFacet>,
+    },
+    #[model(code = 4)]
+    AuthoredCode {
+        conclusion: Id<super::patterns::AuthoredCodeConclusion>,
+    },
+}
+#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[model(name="programmatic_assertions",invariants=invariants,semantic_source=include_bytes!("assertions.rs"))]
+pub struct ProgrammaticAssertion {
+    #[model(key)]
+    pub invocation: Id<owner::Invocation>,
+    #[model(key)]
+    pub member: Id<CatalogMemberInvocation>,
+    #[model(key)]
+    pub template: Id<AssertionTemplate>,
+    #[model(key)]
+    pub version: i64,
+    kind: AssertionKind,
+    section: BriefSection,
+    status: EvidenceStatus,
+    qualification: Id<AssertionQualification>,
+    text: Utf8Text,
+}
+impl ProgrammaticAssertion {
+    pub fn kind(&self) -> AssertionKind {
+        self.kind
+    }
+    pub fn section(&self) -> BriefSection {
+        self.section
+    }
+    pub fn status(&self) -> EvidenceStatus {
+        self.status
+    }
+    pub fn qualification(&self) -> Id<AssertionQualification> {
+        self.qualification
+    }
+    pub fn text(&self) -> &str {
+        self.text.as_str()
+    }
+}
+#[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name="programmatic_assertion_supports",rule="programmatic_assertion_support",conclusion=assertion)]
-pub struct ProgrammaticAssertionSupport{#[model(key)]pub assertion:Id<ProgrammaticAssertion>,#[model(key)]pub role:SupportRole,#[model(key,premise)]pub source:Id<AssertionSource>}
+pub struct ProgrammaticAssertionSupport {
+    #[model(key)]
+    pub assertion: Id<ProgrammaticAssertion>,
+    #[model(key)]
+    pub role: SupportRole,
+    #[model(key, premise)]
+    pub source: Id<AssertionSource>,
+}
 macro_rules! output_rows{($apply:ident)=>{$apply!{assertions:ProgrammaticAssertion,templates:AssertionTemplate,sources:AssertionSource,supports:ProgrammaticAssertionSupport,}};}
-macro_rules! output{($($field:ident:$ty:ty,)*)=>{pub struct Output{$(pub $field:Rows<$ty>,)*}impl Output{pub fn new(b:&ResourceBudget)->Self{Self{$($field:Rows::new(b),)*}}pub fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<bool,ModelError>{$(if n==<$ty>::NAME{self.$field.decode(b)?;return Ok(true);})*Ok(false)}pub fn validation_inputs()->Vec<ValidationInput>{vec![$(ValidationInput::of::<$ty>(&["id"]),)*]}pub fn matches(&self,expected:&Self)->Result<(),ModelError>{$(if !self.$field.same(&expected.$field){return Err(invalid(concat!("programmatic assertion closure differs: ",stringify!($field))));})*Ok(())}}};}output_rows!(output);
-fn invalid(s:impl Into<String>)->ModelError{ModelError::Invalid(s.into())}
-fn need<R:Record>(rows:&Rows<R>,id:Id<R>)->Result<&R,ModelError>{rows.get(id).ok_or_else(||invalid(format!("programmatic assertion input absent: {}",R::NAME)))}
+macro_rules! output{($($field:ident:$ty:ty,)*)=>{pub struct Output{$(pub $field:Rows<$ty>,)*}impl Output{pub fn new(b:&ResourceBudget)->Self{Self{$($field:Rows::new(b),)*}}pub fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<bool,ModelError>{$(if n==<$ty>::NAME{self.$field.decode(b)?;return Ok(true);})*Ok(false)}pub fn validation_inputs()->Vec<ValidationInput>{vec![$(ValidationInput::of::<$ty>(&["id"]),)*]}pub fn matches(&self,expected:&Self)->Result<(),ModelError>{$(if !self.$field.same(&expected.$field){return Err(invalid(concat!("programmatic assertion closure differs: ",stringify!($field))));})*Ok(())}}};}
+output_rows!(output);
+fn invalid(s: impl Into<String>) -> ModelError {
+    ModelError::Invalid(s.into())
+}
+fn need<R: Record>(rows: &Rows<R>, id: Id<R>) -> Result<&R, ModelError> {
+    rows.get(id)
+        .ok_or_else(|| invalid(format!("programmatic assertion input absent: {}", R::NAME)))
+}
 /// All constructors use the same status/policy operation. Requested status is not an input.
-fn emit(invocation:Id<owner::Invocation>,member:Id<CatalogMemberInvocation>,template:&AssertionTemplate,kind:AssertionKind,source:&AssertionSource,facts:SourceFacts,text:String,b:&ResourceBudget)->Result<(ProgrammaticAssertion,ProgrammaticAssertionSupport),ModelError>{
- let _admission=b.reserve("programmatic-assertion-emitter",text.len()+size_of::<ProgrammaticAssertion>())?;let status=analysis::policy::derive_status(&[(SupportRole::Support,facts.status)]);let section=analysis::policy::assertion_policy(kind,status)?;let row=ProgrammaticAssertion{invocation,member,template:template.id(),version:TEMPLATE_VERSION,kind,section,status,qualification:facts.qualification,text:text.into()};let support=ProgrammaticAssertionSupport{assertion:row.id(),role:SupportRole::Support,source:source.id()};Ok((row,support))
+fn emit(
+    invocation: Id<owner::Invocation>,
+    member: Id<CatalogMemberInvocation>,
+    template: &AssertionTemplate,
+    kind: AssertionKind,
+    source: &AssertionSource,
+    facts: SourceFacts,
+    text: String,
+    b: &ResourceBudget,
+) -> Result<(ProgrammaticAssertion, ProgrammaticAssertionSupport), ModelError> {
+    let _admission = b.reserve(
+        "programmatic-assertion-emitter",
+        text.len() + size_of::<ProgrammaticAssertion>(),
+    )?;
+    let status = analysis::policy::derive_status(&[(SupportRole::Support, facts.status)]);
+    let section = analysis::policy::assertion_policy(kind, status)?;
+    let row = ProgrammaticAssertion {
+        invocation,
+        member,
+        template: template.id(),
+        version: TEMPLATE_VERSION,
+        kind,
+        section,
+        status,
+        qualification: facts.qualification,
+        text: text.into(),
+    };
+    let support = ProgrammaticAssertionSupport {
+        assertion: row.id(),
+        role: SupportRole::Support,
+        source: source.id(),
+    };
+    Ok((row, support))
 }
 /// A documentary Outcome is an excerpt from exact earlier authored bytes, retaining candidate linkage.
-pub fn authored_outcome(d:&documentary::Data,rows:&documentary::Output,invocation:&owner::Invocation,conclusion:&DocumentaryConclusion,b:&ResourceBudget)->Result<(AssertionTemplate,AssertionSource,ProgrammaticAssertion,ProgrammaticAssertionSupport),ModelError>{
- if invocation.definition!=super::build::definition().1.id(){return Err(invalid("synthesis invocation has a noncanonical definition"));}
- let source=need(&rows.sources,conclusion.source)?;let frame=need(&d.member_frames,source.member())?;let member=need(&d.members,frame.member)?;let core=need(&d.core_invocations,frame.invocation)?;let q=need(&rows.qualifications,conclusion.qualification())?;
- if (invocation.input,invocation.context)!=(core.input,core.context)||member.input!=invocation.input||q.context!=invocation.context||q.scope!=(source::CoverageScope::Input{input:invocation.input}).id(){return Err(invalid("authored assertion crosses exact release/context association"));}
- if conclusion.status()!=EvidenceStatus::Documented{return Err(invalid("authored outcome lacks documentary evidence floor"));}
- let slice=need(&rows.slices,conclusion.excerpt)?;let excerpt=documentary::read_slice(d,rows,slice,b)?;if ContentHash::of(excerpt.value.as_bytes())!=conclusion.excerpt_digest{return Err(invalid("authored assertion excerpt digest differs"));}
- let module=need(&d.modules,member.access)?;let allowance=module.qualified_name.len()+member.path.iter().map(String::len).sum::<usize>()+member.path.len()+excerpt.value.len()+128;let _render=b.reserve("authored-assertion-render",allowance)?;let mut text=String::with_capacity(allowance);text.push_str("Authored prose for public candidate `");text.push_str(&module.qualified_name);for segment in &member.path{text.push('.');text.push_str(segment);}text.push_str("`: ");let mut words=excerpt.value.split_whitespace();if let Some(first)=words.next(){text.push_str(first);for word in words{text.push(' ');text.push_str(word);}}
- let template=AssertionTemplate::AuthoredOutcome{conclusion:conclusion.id()};let source=AssertionSource::Documentary{conclusion:conclusion.id()};let(assertion,support)=emit(invocation.id(),frame.id(),&template,AssertionKind::Outcome,&source,conclusion.source_facts(),text,b)?;Ok((template,source,assertion,support))
+pub fn authored_outcome(
+    d: &documentary::Data,
+    rows: &documentary::Output,
+    invocation: &owner::Invocation,
+    conclusion: &DocumentaryConclusion,
+    b: &ResourceBudget,
+) -> Result<
+    (
+        AssertionTemplate,
+        AssertionSource,
+        ProgrammaticAssertion,
+        ProgrammaticAssertionSupport,
+    ),
+    ModelError,
+> {
+    if invocation.definition != super::build::definition().1.id() {
+        return Err(invalid(
+            "synthesis invocation has a noncanonical definition",
+        ));
+    }
+    let source = need(&rows.sources, conclusion.source)?;
+    let frame = need(&d.member_frames, source.member())?;
+    let member = need(&d.members, frame.member)?;
+    let core = need(&d.core_invocations, frame.invocation)?;
+    let q = need(&rows.qualifications, conclusion.qualification())?;
+    if (invocation.input, invocation.context) != (core.input, core.context)
+        || member.input != invocation.input
+        || q.context != invocation.context
+        || q.scope
+            != (source::CoverageScope::Input {
+                input: invocation.input,
+            })
+            .id()
+    {
+        return Err(invalid(
+            "authored assertion crosses exact release/context association",
+        ));
+    }
+    if conclusion.status() != EvidenceStatus::Documented {
+        return Err(invalid("authored outcome lacks documentary evidence floor"));
+    }
+    let slice = need(&rows.slices, conclusion.excerpt)?;
+    let excerpt = documentary::read_slice(d, rows, slice, b)?;
+    if ContentHash::of(excerpt.value.as_bytes()) != conclusion.excerpt_digest {
+        return Err(invalid("authored assertion excerpt digest differs"));
+    }
+    let module = need(&d.modules, member.access)?;
+    let allowance = module.qualified_name.len()
+        + member.path.iter().map(String::len).sum::<usize>()
+        + member.path.len()
+        + excerpt.value.len()
+        + 128;
+    let _render = b.reserve("authored-assertion-render", allowance)?;
+    let mut text = String::with_capacity(allowance);
+    text.push_str("Authored prose for public candidate `");
+    text.push_str(&module.qualified_name);
+    for segment in &member.path {
+        text.push('.');
+        text.push_str(segment);
+    }
+    text.push_str("`: ");
+    let mut words = excerpt.value.split_whitespace();
+    if let Some(first) = words.next() {
+        text.push_str(first);
+        for word in words {
+            text.push(' ');
+            text.push_str(word);
+        }
+    }
+    let template = AssertionTemplate::AuthoredOutcome {
+        conclusion: conclusion.id(),
+    };
+    let source = AssertionSource::Documentary {
+        conclusion: conclusion.id(),
+    };
+    let (assertion, support) = emit(
+        invocation.id(),
+        frame.id(),
+        &template,
+        AssertionKind::Outcome,
+        &source,
+        conclusion.source_facts(),
+        text,
+        b,
+    )?;
+    Ok((template, source, assertion, support))
 }
-pub fn build_documentary(d:&documentary::Data,rows:&documentary::Output,invocations:&Rows<owner::Invocation>,b:&ResourceBudget)->Result<Output,ModelError>{let mut out=Output::new(b);for invocation in invocations.iter(){for conclusion in rows.conclusions.iter(){let source=need(&rows.sources,conclusion.source)?;let frame=need(&d.member_frames,source.member())?;let core=need(&d.core_invocations,frame.invocation)?;if (core.input,core.context)!=(invocation.input,invocation.context)||conclusion.status()!=EvidenceStatus::Documented{continue;}let(template,source,assertion,support)=authored_outcome(d,rows,invocation,conclusion,b)?;out.templates.insert(template)?;out.sources.insert(source)?;out.assertions.insert(assertion)?;out.supports.insert(support)?;}}Ok(out)}
+pub fn build_documentary(
+    d: &documentary::Data,
+    rows: &documentary::Output,
+    invocations: &Rows<owner::Invocation>,
+    b: &ResourceBudget,
+) -> Result<Output, ModelError> {
+    let mut out = Output::new(b);
+    for invocation in invocations.iter() {
+        for conclusion in rows.conclusions.iter() {
+            let source = need(&rows.sources, conclusion.source)?;
+            let frame = need(&d.member_frames, source.member())?;
+            let core = need(&d.core_invocations, frame.invocation)?;
+            if (core.input, core.context) != (invocation.input, invocation.context)
+                || conclusion.status() != EvidenceStatus::Documented
+            {
+                continue;
+            }
+            let (template, source, assertion, support) =
+                authored_outcome(d, rows, invocation, conclusion, b)?;
+            out.templates.insert(template)?;
+            out.sources.insert(source)?;
+            out.assertions.insert(assertion)?;
+            out.supports.insert(support)?;
+        }
+    }
+    Ok(out)
+}
 /// Exact public slots are associated by earlier A0 identity, preserving aliases independently.
-pub fn build(d:&documentary::Data,docs:&documentary::Output,o:&super::observations::Data,public:&Rows<structural::PublicCandidate>,frames:&Rows<super::frames::Frame>,invocations:&Rows<owner::Invocation>,b:&ResourceBudget)->Result<Output,ModelError>{
- let mut out=build_documentary(d,docs,invocations,b)?;
- for frame in frames.iter(){let inv=need(invocations,frame.invocation)?;
-  for candidate in public.iter().filter(|p|p.frame==frame.structural){for member in d.member_frames.iter().filter(|m|m.member==candidate.member&&d.core_invocations.get(m.invocation).is_some_and(|i|(i.input,i.context)==(inv.input,inv.context))){
-   for conclusion in o.structural_conclusions.iter().filter(|r|r.frame==frame.structural&&r.subject==candidate.entity){
-    let q=need(&o.qualifications,conclusion.qualification())?;if q.context!=inv.context||q.scope!=(source::CoverageScope::Input{input:inv.input}).id(){return Err(invalid("structural assertion changes its static frame"));}let source=need(&o.structural_sources,conclusion.source)?;let(kind,text)=structural_text(source);let template=AssertionTemplate::StructuralObservation{conclusion:conclusion.id()};let source=AssertionSource::Structural{conclusion:conclusion.id()};let(assertion,support)=emit(inv.id(),member.id(),&template,kind,&source,conclusion.source_facts(),text.into(),b)?;out.templates.insert(template)?;out.sources.insert(source)?;out.assertions.insert(assertion)?;out.supports.insert(support)?;
-   }
-   for conclusion in o.analytic_conclusions.iter().filter(|r|r.frame==frame.analytic&&r.subject==candidate.entity){
-    let q=need(&o.qualifications,conclusion.qualification())?;if q.context!=inv.context||q.scope!=(source::CoverageScope::Input{input:inv.input}).id(){return Err(invalid("analytic assertion changes its static frame"));}let source=need(&o.analytic_sources,conclusion.source)?;let(kind,text)=analytic_text(source);let template=AssertionTemplate::AnalyticObservation{conclusion:conclusion.id()};let source=AssertionSource::Analytic{conclusion:conclusion.id()};let(assertion,support)=emit(inv.id(),member.id(),&template,kind,&source,conclusion.source_facts(),text.into(),b)?;out.templates.insert(template)?;out.sources.insert(source)?;out.assertions.insert(assertion)?;out.supports.insert(support)?;
-   }
-  }}
- }Ok(out)
+pub fn build(
+    d: &documentary::Data,
+    docs: &documentary::Output,
+    o: &super::observations::Data,
+    public: &Rows<structural::PublicCandidate>,
+    frames: &Rows<super::frames::Frame>,
+    invocations: &Rows<owner::Invocation>,
+    b: &ResourceBudget,
+) -> Result<Output, ModelError> {
+    let mut out = build_documentary(d, docs, invocations, b)?;
+    for frame in frames.iter() {
+        let inv = need(invocations, frame.invocation)?;
+        for candidate in public.iter().filter(|p| p.frame == frame.structural) {
+            for member in d.member_frames.iter().filter(|m| {
+                m.member == candidate.member
+                    && d.core_invocations
+                        .get(m.invocation)
+                        .is_some_and(|i| (i.input, i.context) == (inv.input, inv.context))
+            }) {
+                for conclusion in o
+                    .structural_conclusions
+                    .iter()
+                    .filter(|r| r.frame == frame.structural && r.subject == candidate.entity)
+                {
+                    let q = need(&o.qualifications, conclusion.qualification())?;
+                    if q.context != inv.context
+                        || q.scope != (source::CoverageScope::Input { input: inv.input }).id()
+                    {
+                        return Err(invalid("structural assertion changes its static frame"));
+                    }
+                    let source = need(&o.structural_sources, conclusion.source)?;
+                    let (kind, text) = structural_text(source);
+                    let template = AssertionTemplate::StructuralObservation {
+                        conclusion: conclusion.id(),
+                    };
+                    let source = AssertionSource::Structural {
+                        conclusion: conclusion.id(),
+                    };
+                    let (assertion, support) = emit(
+                        inv.id(),
+                        member.id(),
+                        &template,
+                        kind,
+                        &source,
+                        conclusion.source_facts(),
+                        text.into(),
+                        b,
+                    )?;
+                    out.templates.insert(template)?;
+                    out.sources.insert(source)?;
+                    out.assertions.insert(assertion)?;
+                    out.supports.insert(support)?;
+                }
+                for conclusion in o
+                    .analytic_conclusions
+                    .iter()
+                    .filter(|r| r.frame == frame.analytic && r.subject == candidate.entity)
+                {
+                    let q = need(&o.qualifications, conclusion.qualification())?;
+                    if q.context != inv.context
+                        || q.scope != (source::CoverageScope::Input { input: inv.input }).id()
+                    {
+                        return Err(invalid("analytic assertion changes its static frame"));
+                    }
+                    let source = need(&o.analytic_sources, conclusion.source)?;
+                    let (kind, text) = analytic_text(source);
+                    let template = AssertionTemplate::AnalyticObservation {
+                        conclusion: conclusion.id(),
+                    };
+                    let source = AssertionSource::Analytic {
+                        conclusion: conclusion.id(),
+                    };
+                    let (assertion, support) = emit(
+                        inv.id(),
+                        member.id(),
+                        &template,
+                        kind,
+                        &source,
+                        conclusion.source_facts(),
+                        text.into(),
+                        b,
+                    )?;
+                    out.templates.insert(template)?;
+                    out.sources.insert(source)?;
+                    out.assertions.insert(assertion)?;
+                    out.supports.insert(support)?;
+                }
+            }
+        }
+    }
+    Ok(out)
 }
-pub fn extend_summary(d:&super::summary::Data,facets:&Rows<super::summary::SummaryFacet>,frames:&Rows<super::frames::Frame>,invocations:&Rows<owner::Invocation>,out:&mut Output,b:&ResourceBudget)->Result<(),ModelError>{
- for facet in facets.iter(){let(Some(member),Some(source))=(facet.member,facet.source)else{continue};let frame=need(frames,facet.frame)?;let inv=need(invocations,frame.invocation)?;let earlier=need(&d.conclusions,facet.conclusion)?;let actual=super::summary::evidence(d,earlier)?.ok_or_else(||invalid("Summary assertion lacks proof"))?;if actual.id()!=source{return Err(invalid("Summary assertion changes source"));}let owner::SupportSource::Summary{derivation}=actual else{return Err(invalid("Summary assertion changes owner"))};let derived=need(&d.derivations,derivation)?;let facts=derived.source_facts();let template=AssertionTemplate::Summary{facet:facet.id()};let source=AssertionSource::Summary{facet:facet.id()};let text=super::summary::text(d,facet,b)?;let(assertion,support)=emit(inv.id(),member,&template,if facet.verdict==obligation::Verdict::RefutedUnderModel{AssertionKind::BehavioralRefutation}else{AssertionKind::ApplicableCase},&source,facts,text,b)?;out.templates.insert(template)?;out.sources.insert(source)?;out.assertions.insert(assertion)?;out.supports.insert(support)?;
- }Ok(())
+pub fn extend_summary(
+    d: &super::summary::Data,
+    facets: &Rows<super::summary::SummaryFacet>,
+    frames: &Rows<super::frames::Frame>,
+    invocations: &Rows<owner::Invocation>,
+    out: &mut Output,
+    b: &ResourceBudget,
+) -> Result<(), ModelError> {
+    for facet in facets.iter() {
+        let (Some(member), Some(source)) = (facet.member, facet.source) else {
+            continue;
+        };
+        let frame = need(frames, facet.frame)?;
+        let inv = need(invocations, frame.invocation)?;
+        let earlier = need(&d.conclusions, facet.conclusion)?;
+        let actual = super::summary::evidence(d, earlier)?
+            .ok_or_else(|| invalid("Summary assertion lacks proof"))?;
+        if actual.id() != source {
+            return Err(invalid("Summary assertion changes source"));
+        }
+        let owner::SupportSource::Summary { derivation } = actual else {
+            return Err(invalid("Summary assertion changes owner"));
+        };
+        let derived = need(&d.derivations, derivation)?;
+        let facts = derived.source_facts();
+        let template = AssertionTemplate::Summary { facet: facet.id() };
+        let source = AssertionSource::Summary { facet: facet.id() };
+        let text = super::summary::text(d, facet, b)?;
+        let (assertion, support) = emit(
+            inv.id(),
+            member,
+            &template,
+            if facet.verdict == obligation::Verdict::RefutedUnderModel {
+                AssertionKind::BehavioralRefutation
+            } else {
+                AssertionKind::ApplicableCase
+            },
+            &source,
+            facts,
+            text,
+            b,
+        )?;
+        out.templates.insert(template)?;
+        out.sources.insert(source)?;
+        out.assertions.insert(assertion)?;
+        out.supports.insert(support)?;
+    }
+    Ok(())
 }
-pub fn build_all(d:&documentary::Data,docs:&documentary::Output,o:&super::observations::Data,summary:&super::summary::Data,patterns:&super::patterns::Data,public:&Rows<structural::PublicCandidate>,frames:&Rows<super::frames::Frame>,invocations:&Rows<owner::Invocation>,b:&ResourceBudget)->Result<Output,ModelError>{let mut out=build(d,docs,o,public,frames,invocations,b)?;let(facets,_)=super::summary::build(summary,d,frames,invocations,b)?;extend_summary(summary,&facets,frames,invocations,&mut out,b)?;let code=super::patterns::build(patterns,d,frames,invocations,b)?;extend_patterns(patterns,d,&code,frames,invocations,&mut out,b)?;Ok(out)}
-pub fn extend_patterns(d:&super::patterns::Data,docs:&documentary::Data,code:&super::patterns::Output,frames:&Rows<super::frames::Frame>,invocations:&Rows<owner::Invocation>,out:&mut Output,b:&ResourceBudget)->Result<(),ModelError>{for conclusion in code.conclusions.iter(){let source=need(&code.sources,conclusion.source)?;let frame=need(frames,source.frame)?;let inv=need(invocations,frame.invocation)?;let bytes=super::patterns::code(d,docs,code,conclusion,inv.context,b)?;let _render=b.reserve("authored-code-assertion",bytes.value.len()+256)?;let template=AssertionTemplate::AuthoredCode{conclusion:conclusion.id()};let support=AssertionSource::AuthoredCode{conclusion:conclusion.id()};let text=format!("Authored official code documents this producer-to-consumer handoff, including its required setup. Execution was not established.\n```python\n{}```",bytes.value);let(assertion,member)=emit(inv.id(),source.member,&template,AssertionKind::UsagePattern,&support,conclusion.source_facts(),text,b)?;out.templates.insert(template)?;out.sources.insert(support)?;out.assertions.insert(assertion)?;out.supports.insert(member)?;}Ok(())}
-fn structural_text(source:&structural::ConclusionSource)->(AssertionKind,&'static str){use structural::ConclusionSource::*;match source{
- Public{..}=>(AssertionKind::PublicAccess,"This public candidate preserves its exact access path and source resolution evidence."),
- Path{..}=>(AssertionKind::Coordinates,"The captured source graph contains a delegation path; each step retains its own condition and call phase."),
- Unresolved{..}=>(AssertionKind::AnalysisBoundary,"A source call remains unresolved; its candidate evidence and resolution boundary are retained."),
- Stop{..}|ControlStop{..}=>(AssertionKind::AnalysisBoundary,"This bounded source traversal stopped with its explicit depth or enumeration boundary."),
- Usage{..}=>(AssertionKind::StaticUsageObservation,"Observed calls in captured sources retain their official usage sites, counts and uncertainty."),
- Handoff{..}=>(AssertionKind::Handoff,"Captured source contains a qualified producer-to-consumer handoff with original call and binding evidence."),
- Forward{..}=>(AssertionKind::Control,"A source parameter is forwarded along a qualified argument-flow path; each step retains its condition and phase."),
- Literal{..}=>(AssertionKind::TransformedControl,"The implementation supplies a source literal or expression argument with its original provenance."),
- Raise{..}=>(AssertionKind::Restriction,"The captured implementation contains a conditional raise observation with branch and entry-read evidence."),
- Unfollowed{..}=>(AssertionKind::UnfollowedControl,"The analysis does not follow this source argument beyond the recorded boundary."),
-}}
-fn analytic_text(source:&analytics::ConclusionSource)->(AssertionKind,&'static str){use analytics::ConclusionSource::*;match source{
- Rank{..}|Community{..}|Neighbour{..}=>(AssertionKind::Related,"Selected statistical analysis supplies a navigation association for this public candidate."),
- Concept{..}=>(AssertionKind::SharedSignature,"These members share attributes in the declared finite extracted context."),
- Implication{..}=>(AssertionKind::Implication,"The declared finite extracted attribute context satisfies this implication."),
- Document{..}=>(AssertionKind::DocLink,"A selected statistical neighbour links this public candidate to an original documentation passage."),
- Label{..}=>(AssertionKind::DocLink,"The selected community label retains its original passage and exact embedding-use evidence."),
-}}
-pub fn relations()->Vec<Relation>{macro_rules! relations{($($field:ident:$ty:ty,)*)=>{vec![$(Relation::of::<$ty>()),*]};}output_rows!(relations)}
-pub fn invariants()->Vec<Invariant>{let mut inputs=documentary::Data::validation_inputs();inputs.extend(documentary::Output::validation_inputs());inputs.extend(Output::validation_inputs());inputs.extend(super::observations::Data::inputs());inputs.extend(super::summary::Data::inputs());inputs.extend(super::patterns::Data::inputs(stages::Profile::Behavioral));inputs.extend([ValidationInput::of::<super::frames::Frame>(&["id"]),ValidationInput::of::<structural::PublicCandidate>(&["id"])]);inputs.push(ValidationInput::of::<owner::Invocation>(&["id"]));inputs.sort_by_key(|i|i.name());inputs.dedup_by_key(|i|i.name());vec![Invariant{name:"programmatic_assertion_replay",inputs,create:std::sync::Arc::new(|b|Box::new(Check{data:documentary::Data::new(b),observations:super::observations::Data::new(b),summary:super::summary::Data::new(b),patterns:super::patterns::Data::new(b),frames:Rows::new(b),public:Rows::new(b),conclusions:documentary::Output::new(b),invocations:Rows::new(b),output:Output::new(b),budget:b.clone()}))}]}
-struct Check{data:documentary::Data,observations:super::observations::Data,summary:super::summary::Data,patterns:super::patterns::Data,frames:Rows<super::frames::Frame>,public:Rows<structural::PublicCandidate>,conclusions:documentary::Output,invocations:Rows<owner::Invocation>,output:Output,budget:ResourceBudget}
-impl InvariantCheck for Check{fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<(),ModelError>{if n==owner::Invocation::NAME{self.invocations.decode(b)?;return Ok(());}if n==super::frames::Frame::NAME{self.frames.decode(b)?;return Ok(());}if n==structural::PublicCandidate::NAME{self.public.decode(b)?;return Ok(());}let observations=self.observations.visit(n,b)?;let summary=self.summary.visit(n,b)?;let patterns=self.patterns.visit(n,b)?;let a=self.data.visit(n,b)?;let c=self.conclusions.visit(n,b)?;let o=self.output.visit(n,b)?;if !a&&!c&&!o&&!observations&&!summary&&!patterns{return Err(invalid("undeclared assertion replay input"));}Ok(())}fn finish(self:Box<Self>)->Result<(),ModelError>{self.conclusions.matches(&documentary::build(&self.data,&self.budget)?)?;self.output.matches(&build_all(&self.data,&self.conclusions,&self.observations,&self.summary,&self.patterns,&self.public,&self.frames,&self.invocations,&self.budget)?)} }
+pub fn build_all(
+    d: &documentary::Data,
+    docs: &documentary::Output,
+    o: &super::observations::Data,
+    summary: &super::summary::Data,
+    patterns: &super::patterns::Data,
+    public: &Rows<structural::PublicCandidate>,
+    frames: &Rows<super::frames::Frame>,
+    invocations: &Rows<owner::Invocation>,
+    b: &ResourceBudget,
+) -> Result<Output, ModelError> {
+    let mut out = build(d, docs, o, public, frames, invocations, b)?;
+    let (facets, _) = super::summary::build(summary, d, frames, invocations, b)?;
+    extend_summary(summary, &facets, frames, invocations, &mut out, b)?;
+    let code = super::patterns::build(patterns, d, frames, invocations, b)?;
+    extend_patterns(patterns, d, &code, frames, invocations, &mut out, b)?;
+    Ok(out)
+}
+pub fn extend_patterns(
+    d: &super::patterns::Data,
+    docs: &documentary::Data,
+    code: &super::patterns::Output,
+    frames: &Rows<super::frames::Frame>,
+    invocations: &Rows<owner::Invocation>,
+    out: &mut Output,
+    b: &ResourceBudget,
+) -> Result<(), ModelError> {
+    for conclusion in code.conclusions.iter() {
+        let source = need(&code.sources, conclusion.source)?;
+        let frame = need(frames, source.frame)?;
+        let inv = need(invocations, frame.invocation)?;
+        let bytes = super::patterns::code(d, docs, code, conclusion, inv.context, b)?;
+        let _render = b.reserve("authored-code-assertion", bytes.value.len() + 256)?;
+        let template = AssertionTemplate::AuthoredCode {
+            conclusion: conclusion.id(),
+        };
+        let support = AssertionSource::AuthoredCode {
+            conclusion: conclusion.id(),
+        };
+        let text = format!(
+            "Authored official code documents this producer-to-consumer handoff, including its required setup. Execution was not established.\n```python\n{}```",
+            bytes.value
+        );
+        let (assertion, member) = emit(
+            inv.id(),
+            source.member,
+            &template,
+            AssertionKind::UsagePattern,
+            &support,
+            conclusion.source_facts(),
+            text,
+            b,
+        )?;
+        out.templates.insert(template)?;
+        out.sources.insert(support)?;
+        out.assertions.insert(assertion)?;
+        out.supports.insert(member)?;
+    }
+    Ok(())
+}
+fn structural_text(source: &structural::ConclusionSource) -> (AssertionKind, &'static str) {
+    use structural::ConclusionSource::*;
+    match source {
+        Public { .. } => (
+            AssertionKind::PublicAccess,
+            "This public candidate preserves its exact access path and source resolution evidence.",
+        ),
+        Path { .. } => (
+            AssertionKind::Coordinates,
+            "The captured source graph contains a delegation path; each step retains its own condition and call phase.",
+        ),
+        Unresolved { .. } => (
+            AssertionKind::AnalysisBoundary,
+            "A source call remains unresolved; its candidate evidence and resolution boundary are retained.",
+        ),
+        Stop { .. } | ControlStop { .. } => (
+            AssertionKind::AnalysisBoundary,
+            "This bounded source traversal stopped with its explicit depth or enumeration boundary.",
+        ),
+        Usage { .. } => (
+            AssertionKind::StaticUsageObservation,
+            "Observed calls in captured sources retain their official usage sites, counts and uncertainty.",
+        ),
+        Handoff { .. } => (
+            AssertionKind::Handoff,
+            "Captured source contains a qualified producer-to-consumer handoff with original call and binding evidence.",
+        ),
+        Forward { .. } => (
+            AssertionKind::Control,
+            "A source parameter is forwarded along a qualified argument-flow path; each step retains its condition and phase.",
+        ),
+        Literal { .. } => (
+            AssertionKind::TransformedControl,
+            "The implementation supplies a source literal or expression argument with its original provenance.",
+        ),
+        Raise { .. } => (
+            AssertionKind::Restriction,
+            "The captured implementation contains a conditional raise observation with branch and entry-read evidence.",
+        ),
+        Unfollowed { .. } => (
+            AssertionKind::UnfollowedControl,
+            "The analysis does not follow this source argument beyond the recorded boundary.",
+        ),
+    }
+}
+fn analytic_text(source: &analytics::ConclusionSource) -> (AssertionKind, &'static str) {
+    use analytics::ConclusionSource::*;
+    match source {
+        Rank { .. } | Community { .. } | Neighbour { .. } => (
+            AssertionKind::Related,
+            "Selected statistical analysis supplies a navigation association for this public candidate.",
+        ),
+        Concept { .. } => (
+            AssertionKind::SharedSignature,
+            "These members share attributes in the declared finite extracted context.",
+        ),
+        Implication { .. } => (
+            AssertionKind::Implication,
+            "The declared finite extracted attribute context satisfies this implication.",
+        ),
+        Document { .. } => (
+            AssertionKind::DocLink,
+            "A selected statistical neighbour links this public candidate to an original documentation passage.",
+        ),
+        Label { .. } => (
+            AssertionKind::DocLink,
+            "The selected community label retains its original passage and exact embedding-use evidence.",
+        ),
+    }
+}
+pub fn relations() -> Vec<Relation> {
+    macro_rules! relations{($($field:ident:$ty:ty,)*)=>{vec![$(Relation::of::<$ty>()),*]};}
+    output_rows!(relations)
+}
+pub fn invariants() -> Vec<Invariant> {
+    let mut inputs = documentary::Data::validation_inputs();
+    inputs.extend(documentary::Output::validation_inputs());
+    inputs.extend(Output::validation_inputs());
+    inputs.extend(super::observations::Data::inputs());
+    inputs.extend(super::summary::Data::inputs());
+    inputs.extend(super::patterns::Data::inputs(stages::Profile::Behavioral));
+    inputs.extend([
+        ValidationInput::of::<super::frames::Frame>(&["id"]),
+        ValidationInput::of::<structural::PublicCandidate>(&["id"]),
+    ]);
+    inputs.push(ValidationInput::of::<owner::Invocation>(&["id"]));
+    inputs.sort_by_key(|i| i.name());
+    inputs.dedup_by_key(|i| i.name());
+    vec![Invariant {
+        name: "programmatic_assertion_replay",
+        inputs,
+        create: std::sync::Arc::new(|b| {
+            Box::new(Check {
+                data: documentary::Data::new(b),
+                observations: super::observations::Data::new(b),
+                summary: super::summary::Data::new(b),
+                patterns: super::patterns::Data::new(b),
+                frames: Rows::new(b),
+                public: Rows::new(b),
+                conclusions: documentary::Output::new(b),
+                invocations: Rows::new(b),
+                output: Output::new(b),
+                budget: b.clone(),
+            })
+        }),
+    }]
+}
+struct Check {
+    data: documentary::Data,
+    observations: super::observations::Data,
+    summary: super::summary::Data,
+    patterns: super::patterns::Data,
+    frames: Rows<super::frames::Frame>,
+    public: Rows<structural::PublicCandidate>,
+    conclusions: documentary::Output,
+    invocations: Rows<owner::Invocation>,
+    output: Output,
+    budget: ResourceBudget,
+}
+impl InvariantCheck for Check {
+    fn visit(&mut self, n: &str, b: &arrow_array::RecordBatch) -> Result<(), ModelError> {
+        if n == owner::Invocation::NAME {
+            self.invocations.decode(b)?;
+            return Ok(());
+        }
+        if n == super::frames::Frame::NAME {
+            self.frames.decode(b)?;
+            return Ok(());
+        }
+        if n == structural::PublicCandidate::NAME {
+            self.public.decode(b)?;
+            return Ok(());
+        }
+        let observations = self.observations.visit(n, b)?;
+        let summary = self.summary.visit(n, b)?;
+        let patterns = self.patterns.visit(n, b)?;
+        let a = self.data.visit(n, b)?;
+        let c = self.conclusions.visit(n, b)?;
+        let o = self.output.visit(n, b)?;
+        if !a && !c && !o && !observations && !summary && !patterns {
+            return Err(invalid("undeclared assertion replay input"));
+        }
+        Ok(())
+    }
+    fn finish(self: Box<Self>) -> Result<(), ModelError> {
+        self.conclusions
+            .matches(&documentary::build(&self.data, &self.budget)?)?;
+        self.output.matches(&build_all(
+            &self.data,
+            &self.conclusions,
+            &self.observations,
+            &self.summary,
+            &self.patterns,
+            &self.public,
+            &self.frames,
+            &self.invocations,
+            &self.budget,
+        )?)
+    }
+}
 
-#[cfg(test)]mod tests{
- use super::*;
- fn id<T>(n:u8)->Id<T>{serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_,serde::de::value::Error>::new([n;16].into_iter())).unwrap()}
- fn invocation(d:&documentary::Data)->owner::Invocation{let core=d.core_invocations.iter().next().unwrap();owner::Invocation::new(core.input,core.context,super::super::build::definition().1.id(),None,[]).0}
- fn replay(d:&documentary::Data,docs:&documentary::Output,invocations:&Rows<owner::Invocation>,out:&Output,b:&ResourceBudget)->Result<(),ModelError>{let mut check=(invariants().remove(0).create)(b);macro_rules! data{($($f:ident:$ty:ty,)*)=>{$(check.visit(<$ty>::NAME,&<$ty as Record>::encode(&d.$f.iter().cloned().collect::<Vec<_>>())?)?;)*};}crate::synthesis_documentary_inputs!(data);for relation in documentary::Output::validation_inputs(){let batch=match relation.name(){n if n==documentary::DocumentaryConclusion::NAME=>documentary::DocumentaryConclusion::encode(&docs.conclusions.iter().cloned().collect::<Vec<_>>())?,n if n==documentary::DocumentaryBoundary::NAME=>documentary::DocumentaryBoundary::encode(&docs.boundaries.iter().cloned().collect::<Vec<_>>())?,n if n==documentary::DocumentarySource::NAME=><documentary::DocumentarySource as Record>::encode(&docs.sources.iter().cloned().collect::<Vec<_>>())?,n if n==documentary::ProseSource::NAME=><documentary::ProseSource as Record>::encode(&docs.prose_sources.iter().cloned().collect::<Vec<_>>())?,n if n==documentary::ProseSlice::NAME=>documentary::ProseSlice::encode(&docs.slices.iter().cloned().collect::<Vec<_>>())?,_=>AssertionQualification::encode(&docs.qualifications.iter().cloned().collect::<Vec<_>>())?};check.visit(relation.name(),&batch)?;}check.visit(owner::Invocation::NAME,&owner::Invocation::encode(&invocations.iter().cloned().collect::<Vec<_>>())?)?;macro_rules! output{($($f:ident:$ty:ty,)*)=>{$(check.visit(<$ty>::NAME,&<$ty as Record>::encode(&out.$f.iter().cloned().collect::<Vec<_>>())?)?;)*};}output_rows!(output);check.finish()}
- #[test]fn canonical_extractive_assertion_keeps_candidate_qualification_and_original_warning(){let raw="\"\"\"Run — carefully\n    across contexts. Then stop.\n\nWarning:\n    Authentication is required.\"\"\"";let(b,d,_)=documentary::tests::fixture(raw,&raw[3..raw.len()-3]);let docs=documentary::build(&d,&b).unwrap();let inv=invocation(&d);let mut invocations=Rows::new(&b);invocations.insert(inv).unwrap();let out=build_documentary(&d,&docs,&invocations,&b).unwrap();assert_eq!(out.assertions.len(),1);let row=out.assertions.iter().next().unwrap();assert_eq!(row.text(),"Authored prose for public candidate `pkg.api.run`: Run — carefully across contexts.");assert_eq!((row.kind(),row.section(),row.status()),(AssertionKind::Outcome,BriefSection::Outcome,EvidenceStatus::Documented));let proof=docs.conclusions.iter().next().unwrap();assert_eq!(row.qualification(),proof.qualification());let full=documentary::read_slice(&d,&docs,docs.slices.get(proof.prose).unwrap(),&b).unwrap();assert!(full.value.contains("Authentication is required"));replay(&d,&docs,&invocations,&out,&b).unwrap();}
- #[test]fn cross_input_authored_prose_is_rendered_through_release_association(){let(b,d,_,_)=documentary::tests::passage_fixture(true,"`pkg.api.run` starts a session.\n",(1,12));let docs=documentary::build(&d,&b).unwrap();let mut invocations=Rows::new(&b);let inv=invocation(&d);invocations.insert(inv.clone()).unwrap();let out=build_documentary(&d,&docs,&invocations,&b).unwrap();assert!(out.assertions.iter().any(|r|r.text().ends_with("`pkg.api.run` starts a session.")));for r in out.assertions.iter(){let q=docs.qualifications.get(r.qualification()).unwrap();assert_eq!(q.scope,(source::CoverageScope::Input{input:inv.input}).id());}replay(&d,&docs,&invocations,&out,&b).unwrap();}
- #[test]fn canonical_definition_wrong_frame_and_unsupported_literal_refuse(){let(b,d,_)=documentary::tests::fixture("\"Run.\"","Run.");let docs=documentary::build(&d,&b).unwrap();let proof=docs.conclusions.iter().next().unwrap();let mut inv=invocation(&d);inv.definition=id(80);assert!(authored_outcome(&d,&docs,&inv,proof,&b).is_err());let mut inv=invocation(&d);inv.context=id(81);assert!(authored_outcome(&d,&docs,&inv,proof,&b).is_err());let mut inv=invocation(&d);inv.input=id(82);assert!(authored_outcome(&d,&docs,&inv,proof,&b).is_err());let(b,d,_)=documentary::tests::fixture("f\"Interpolated {x}.\"","Interpolated {x}.");let docs=documentary::build(&d,&b).unwrap();let mut invocations=Rows::new(&b);invocations.insert(invocation(&d)).unwrap();assert!(build_documentary(&d,&docs,&invocations,&b).unwrap().assertions.is_empty());assert!(docs.boundaries.iter().any(|r|r.reason==documentary::DocumentaryBoundaryReason::UnsupportedLiteralMapping));}
- #[test]fn shared_assertion_replay_refuses_forged_text_status_support_and_erasure(){let(b,d,_)=documentary::tests::fixture("\"Run.\"","Run.");let docs=documentary::build(&d,&b).unwrap();let mut invocations=Rows::new(&b);invocations.insert(invocation(&d)).unwrap();for case in 0..4{let mut out=build_documentary(&d,&docs,&invocations,&b).unwrap();match case{0|1=>{let mut row=out.assertions.iter().next().unwrap().clone();if case==0{row.text="Invented behavior".into();}else{row.status=EvidenceStatus::FixtureChecked;}out.assertions=Rows::new(&b);out.assertions.insert(row).unwrap();},2=>{let mut row=out.supports.iter().next().unwrap().clone();row.source=id(84);out.supports=Rows::new(&b);out.supports.insert(row).unwrap();},_=>{out=Output::new(&b);}}assert!(replay(&d,&docs,&invocations,&out,&b).is_err());}}
- #[test]fn static_usage_policy_preserves_stronger_usage_floor(){use EvidenceStatus as S;assert_eq!(analysis::policy::assertion_policy(AssertionKind::StaticUsageObservation,S::StructurallyObserved).unwrap(),BriefSection::UsagePattern);for status in [S::Documented,S::FixtureChecked,S::StatisticallyDerived,S::Unresolved]{assert!(analysis::policy::assertion_policy(AssertionKind::StaticUsageObservation,status).is_err());}assert!(analysis::policy::assertion_policy(AssertionKind::UsagePattern,S::StructurallyObserved).is_err());assert!(analysis::policy::assertion_policy(AssertionKind::UsagePattern,S::Documented).is_ok());assert!(analysis::policy::assertion_policy(AssertionKind::UsagePattern,S::FixtureChecked).is_ok());assert!(analysis::policy::assertion_policy(AssertionKind::Outcome,S::StatisticallyDerived).is_err());}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn id<T>(n: u8) -> Id<T> {
+        serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
+            _,
+            serde::de::value::Error,
+        >::new([n; 16].into_iter()))
+        .unwrap()
+    }
+    fn invocation(d: &documentary::Data) -> owner::Invocation {
+        let core = d.core_invocations.iter().next().unwrap();
+        owner::Invocation::new(
+            core.input,
+            core.context,
+            super::super::build::definition().1.id(),
+            None,
+            [],
+        )
+        .0
+    }
+    fn replay(
+        d: &documentary::Data,
+        docs: &documentary::Output,
+        invocations: &Rows<owner::Invocation>,
+        out: &Output,
+        b: &ResourceBudget,
+    ) -> Result<(), ModelError> {
+        let mut check = (invariants().remove(0).create)(b);
+        macro_rules! data{($($f:ident:$ty:ty,)*)=>{$(check.visit(<$ty>::NAME,&<$ty as Record>::encode(&d.$f.iter().cloned().collect::<Vec<_>>())?)?;)*};}
+        crate::synthesis_documentary_inputs!(data);
+        for relation in documentary::Output::validation_inputs() {
+            let batch = match relation.name() {
+                n if n == documentary::DocumentaryConclusion::NAME => {
+                    documentary::DocumentaryConclusion::encode(
+                        &docs.conclusions.iter().cloned().collect::<Vec<_>>(),
+                    )?
+                }
+                n if n == documentary::DocumentaryBoundary::NAME => {
+                    documentary::DocumentaryBoundary::encode(
+                        &docs.boundaries.iter().cloned().collect::<Vec<_>>(),
+                    )?
+                }
+                n if n == documentary::DocumentarySource::NAME => {
+                    <documentary::DocumentarySource as Record>::encode(
+                        &docs.sources.iter().cloned().collect::<Vec<_>>(),
+                    )?
+                }
+                n if n == documentary::ProseSource::NAME => {
+                    <documentary::ProseSource as Record>::encode(
+                        &docs.prose_sources.iter().cloned().collect::<Vec<_>>(),
+                    )?
+                }
+                n if n == documentary::ProseSlice::NAME => documentary::ProseSlice::encode(
+                    &docs.slices.iter().cloned().collect::<Vec<_>>(),
+                )?,
+                _ => AssertionQualification::encode(
+                    &docs.qualifications.iter().cloned().collect::<Vec<_>>(),
+                )?,
+            };
+            check.visit(relation.name(), &batch)?;
+        }
+        check.visit(
+            owner::Invocation::NAME,
+            &owner::Invocation::encode(&invocations.iter().cloned().collect::<Vec<_>>())?,
+        )?;
+        macro_rules! output{($($f:ident:$ty:ty,)*)=>{$(check.visit(<$ty>::NAME,&<$ty as Record>::encode(&out.$f.iter().cloned().collect::<Vec<_>>())?)?;)*};}
+        output_rows!(output);
+        check.finish()
+    }
+    #[test]
+    fn canonical_extractive_assertion_keeps_candidate_qualification_and_original_warning() {
+        let raw = "\"\"\"Run — carefully\n    across contexts. Then stop.\n\nWarning:\n    Authentication is required.\"\"\"";
+        let (b, d, _) = documentary::tests::fixture(raw, &raw[3..raw.len() - 3]);
+        let docs = documentary::build(&d, &b).unwrap();
+        let inv = invocation(&d);
+        let mut invocations = Rows::new(&b);
+        invocations.insert(inv).unwrap();
+        let out = build_documentary(&d, &docs, &invocations, &b).unwrap();
+        assert_eq!(out.assertions.len(), 1);
+        let row = out.assertions.iter().next().unwrap();
+        assert_eq!(
+            row.text(),
+            "Authored prose for public candidate `pkg.api.run`: Run — carefully across contexts."
+        );
+        assert_eq!(
+            (row.kind(), row.section(), row.status()),
+            (
+                AssertionKind::Outcome,
+                BriefSection::Outcome,
+                EvidenceStatus::Documented
+            )
+        );
+        let proof = docs.conclusions.iter().next().unwrap();
+        assert_eq!(row.qualification(), proof.qualification());
+        let full =
+            documentary::read_slice(&d, &docs, docs.slices.get(proof.prose).unwrap(), &b).unwrap();
+        assert!(full.value.contains("Authentication is required"));
+        replay(&d, &docs, &invocations, &out, &b).unwrap();
+    }
+    #[test]
+    fn cross_input_authored_prose_is_rendered_through_release_association() {
+        let (b, d, _, _) =
+            documentary::tests::passage_fixture(true, "`pkg.api.run` starts a session.\n", (1, 12));
+        let docs = documentary::build(&d, &b).unwrap();
+        let mut invocations = Rows::new(&b);
+        let inv = invocation(&d);
+        invocations.insert(inv.clone()).unwrap();
+        let out = build_documentary(&d, &docs, &invocations, &b).unwrap();
+        assert!(
+            out.assertions
+                .iter()
+                .any(|r| r.text().ends_with("`pkg.api.run` starts a session."))
+        );
+        for r in out.assertions.iter() {
+            let q = docs.qualifications.get(r.qualification()).unwrap();
+            assert_eq!(
+                q.scope,
+                (source::CoverageScope::Input { input: inv.input }).id()
+            );
+        }
+        replay(&d, &docs, &invocations, &out, &b).unwrap();
+    }
+    #[test]
+    fn canonical_definition_wrong_frame_and_unsupported_literal_refuse() {
+        let (b, d, _) = documentary::tests::fixture("\"Run.\"", "Run.");
+        let docs = documentary::build(&d, &b).unwrap();
+        let proof = docs.conclusions.iter().next().unwrap();
+        let mut inv = invocation(&d);
+        inv.definition = id(80);
+        assert!(authored_outcome(&d, &docs, &inv, proof, &b).is_err());
+        let mut inv = invocation(&d);
+        inv.context = id(81);
+        assert!(authored_outcome(&d, &docs, &inv, proof, &b).is_err());
+        let mut inv = invocation(&d);
+        inv.input = id(82);
+        assert!(authored_outcome(&d, &docs, &inv, proof, &b).is_err());
+        let (b, d, _) = documentary::tests::fixture("f\"Interpolated {x}.\"", "Interpolated {x}.");
+        let docs = documentary::build(&d, &b).unwrap();
+        let mut invocations = Rows::new(&b);
+        invocations.insert(invocation(&d)).unwrap();
+        assert!(
+            build_documentary(&d, &docs, &invocations, &b)
+                .unwrap()
+                .assertions
+                .is_empty()
+        );
+        assert!(
+            docs.boundaries
+                .iter()
+                .any(|r| r.reason
+                    == documentary::DocumentaryBoundaryReason::UnsupportedLiteralMapping)
+        );
+    }
+    #[test]
+    fn shared_assertion_replay_refuses_forged_text_status_support_and_erasure() {
+        let (b, d, _) = documentary::tests::fixture("\"Run.\"", "Run.");
+        let docs = documentary::build(&d, &b).unwrap();
+        let mut invocations = Rows::new(&b);
+        invocations.insert(invocation(&d)).unwrap();
+        for case in 0..4 {
+            let mut out = build_documentary(&d, &docs, &invocations, &b).unwrap();
+            match case {
+                0 | 1 => {
+                    let mut row = out.assertions.iter().next().unwrap().clone();
+                    if case == 0 {
+                        row.text = "Invented behavior".into();
+                    } else {
+                        row.status = EvidenceStatus::FixtureChecked;
+                    }
+                    out.assertions = Rows::new(&b);
+                    out.assertions.insert(row).unwrap();
+                }
+                2 => {
+                    let mut row = out.supports.iter().next().unwrap().clone();
+                    row.source = id(84);
+                    out.supports = Rows::new(&b);
+                    out.supports.insert(row).unwrap();
+                }
+                _ => {
+                    out = Output::new(&b);
+                }
+            }
+            assert!(replay(&d, &docs, &invocations, &out, &b).is_err());
+        }
+    }
+    #[test]
+    fn static_usage_policy_preserves_stronger_usage_floor() {
+        use EvidenceStatus as S;
+        assert_eq!(
+            analysis::policy::assertion_policy(
+                AssertionKind::StaticUsageObservation,
+                S::StructurallyObserved
+            )
+            .unwrap(),
+            BriefSection::UsagePattern
+        );
+        for status in [
+            S::Documented,
+            S::FixtureChecked,
+            S::StatisticallyDerived,
+            S::Unresolved,
+        ] {
+            assert!(
+                analysis::policy::assertion_policy(AssertionKind::StaticUsageObservation, status)
+                    .is_err()
+            );
+        }
+        assert!(
+            analysis::policy::assertion_policy(
+                AssertionKind::UsagePattern,
+                S::StructurallyObserved
+            )
+            .is_err()
+        );
+        assert!(
+            analysis::policy::assertion_policy(AssertionKind::UsagePattern, S::Documented).is_ok()
+        );
+        assert!(
+            analysis::policy::assertion_policy(AssertionKind::UsagePattern, S::FixtureChecked)
+                .is_ok()
+        );
+        assert!(
+            analysis::policy::assertion_policy(AssertionKind::Outcome, S::StatisticallyDerived)
+                .is_err()
+        );
+    }
 }

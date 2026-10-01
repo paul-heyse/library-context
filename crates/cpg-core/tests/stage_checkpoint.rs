@@ -25,10 +25,17 @@ async fn facts_checkpoint_validates_immutable_content_without_publishing() {
         .unwrap();
     let root = tempfile::tempdir().unwrap();
     std::fs::write(root.path().join("api.py"), "def f(x):\n    return x\n").unwrap();
-    let captured = Arc::new(CapturedInputs::new(vec![AcquiredInput::tree(
-        CapturedInput::capture(root.path(), &["api.py".into()], &budget).unwrap(),
-        "checkpoint",
-    )], cpg_extract::native_context::NativeContextConfig::committed(lctx_model::domain::stages::Profile::Catalog, &budget).unwrap()));
+    let captured = Arc::new(CapturedInputs::new(
+        vec![AcquiredInput::tree(
+            CapturedInput::capture(root.path(), &["api.py".into()], &budget).unwrap(),
+            "checkpoint",
+        )],
+        cpg_extract::native_context::NativeContextConfig::committed(
+            lctx_model::domain::stages::Profile::Catalog,
+            &budget,
+        )
+        .unwrap(),
+    ));
     let mut providers = cpg_core::facts::providers(ContentHash::of(b"checkpoint fixture"));
     let profile = Profile::Catalog;
     let schedule = Schedule::build(

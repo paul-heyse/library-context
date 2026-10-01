@@ -34,7 +34,7 @@ pub async fn compile_facts_measured<S: StageSink + 'static>(
     bundle::refuse_ambient(std::env::vars_os())?;
     let profile = execution.schedule().profile();
     captured.config().check_profile(profile)?;
-    captured.config().check_budget(&budget)?;
+    captured.config().check_budget(budget)?;
     let mut offered: Vec<_> = providers
         .into_iter()
         .map(|provider| (provider.declaration(profile), provider))

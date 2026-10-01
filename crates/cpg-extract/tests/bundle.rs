@@ -132,7 +132,14 @@ fn package(n: usize, width: usize) -> Package {
     }
 }
 fn nothing(budget: &ResourceBudget) -> Arc<CapturedInputs> {
-    Arc::new(CapturedInputs::new(vec![], cpg_extract::native_context::NativeContextConfig::committed(lctx_model::domain::stages::Profile::Catalog, budget).unwrap()))
+    Arc::new(CapturedInputs::new(
+        vec![],
+        cpg_extract::native_context::NativeContextConfig::committed(
+            lctx_model::domain::stages::Profile::Catalog,
+            budget,
+        )
+        .unwrap(),
+    ))
 }
 
 #[tokio::test]

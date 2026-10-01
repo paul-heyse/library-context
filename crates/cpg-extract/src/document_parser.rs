@@ -702,7 +702,8 @@ impl<S: StageSink + 'static> ProviderStage<S> for Documents {
                 Acquisition::Corpus { library, .. } => captured.inputs().get(*library),
                 _ => None,
             };
-            let analysis = crate::pyrefly_stage::analysis_context(input, library, captured.config())?;
+            let analysis =
+                crate::pyrefly_stage::analysis_context(input, library, captured.config())?;
             let (run, families) = ProviderRun::new(
                 provider.id(),
                 analysis.id(),

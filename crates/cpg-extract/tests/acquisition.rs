@@ -121,9 +121,17 @@ fn refused(f: &Fixture, needle: &str) {
     let error = inventory(f)
         .map_err(|e| e.to_string())
         .and_then(|i| {
-            acquisition::capture(&i, &resources, cpg_extract::native_context::NativeContextConfig::committed(lctx_model::domain::stages::Profile::Catalog,&resources).unwrap())
-                .map(drop)
-                .map_err(|e| e.to_string())
+            acquisition::capture(
+                &i,
+                &resources,
+                cpg_extract::native_context::NativeContextConfig::committed(
+                    lctx_model::domain::stages::Profile::Catalog,
+                    &resources,
+                )
+                .unwrap(),
+            )
+            .map(drop)
+            .map_err(|e| e.to_string())
         })
         .unwrap_err();
     assert!(error.contains(needle), "expected `{needle}`, got `{error}`");
@@ -237,8 +245,18 @@ impl ProviderStage<MemoryGeneration> for Inspect {
 async fn acquire(f: &Fixture) -> Result<Rows, String> {
     let budget = budget();
     let inventory = inventory(f).map_err(|e| e.to_string())?;
-    let captured =
-        Arc::new(acquisition::capture(&inventory, &budget, cpg_extract::native_context::NativeContextConfig::committed(lctx_model::domain::stages::Profile::Catalog,&budget).unwrap()).map_err(|e| e.to_string())?);
+    let captured = Arc::new(
+        acquisition::capture(
+            &inventory,
+            &budget,
+            cpg_extract::native_context::NativeContextConfig::committed(
+                lctx_model::domain::stages::Profile::Catalog,
+                &budget,
+            )
+            .unwrap(),
+        )
+        .map_err(|e| e.to_string())?,
+    );
     let model = Arc::new(model().unwrap());
     let stage = Acquire::of(&inventory).declaration(Profile::Catalog);
     let schedule =

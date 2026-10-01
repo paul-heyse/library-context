@@ -1,30 +1,104 @@
 //! Publication repeats the finite worklist from immutable predecessors and stored topology.
-use crate::domain::{*,analysis::{self,summary as owner},normalized::Rows,resources::ResourceBudget,stages::*};
 use super::summary_production::*;
-fn invalid(s:impl Into<String>)->ModelError{ModelError::Invalid(s.into())}
-pub fn inputs()->Vec<ValidationInput>{
- let mut rows=SummaryData::inputs();rows.extend([ValidationInput::of::<owner::AnalysisInvocation>(&["id"]),ValidationInput::of::<owner::AnalysisOutcome>(&["id"]),ValidationInput::of::<owner::AnalysisCoverage>(&["id"])]);
- macro_rules! append{($($f:ident:$t:ty,)*)=>{$(rows.push(ValidationInput::of::<$t>(&["id"]));)*};}crate::summary_outputs!(append);crate::summary_vocabulary!(append);
- rows.sort_by_key(|i|(i.name(),i.prefix()));rows.dedup_by_key(|i|(i.name(),i.prefix()));rows
+use crate::domain::{
+    analysis::{self, summary as owner},
+    normalized::Rows,
+    resources::ResourceBudget,
+    stages::*,
+    *,
+};
+fn invalid(s: impl Into<String>) -> ModelError {
+    ModelError::Invalid(s.into())
+}
+pub fn inputs() -> Vec<ValidationInput> {
+    let mut rows = SummaryData::inputs();
+    rows.extend([
+        ValidationInput::of::<owner::AnalysisInvocation>(&["id"]),
+        ValidationInput::of::<owner::AnalysisOutcome>(&["id"]),
+        ValidationInput::of::<owner::AnalysisCoverage>(&["id"]),
+    ]);
+    macro_rules! append{($($f:ident:$t:ty,)*)=>{$(rows.push(ValidationInput::of::<$t>(&["id"]));)*};}
+    crate::summary_outputs!(append);
+    crate::summary_vocabulary!(append);
+    rows.sort_by_key(|i| (i.name(), i.prefix()));
+    rows.dedup_by_key(|i| (i.name(), i.prefix()));
+    rows
 }
 /// Catalog declares the native frame, completed parents and stored topology, without requesting Flow.
-pub fn production_inputs(profile:Profile)->Vec<ValidationInput>{
- if profile==Profile::Behavioral{return SummaryData::inputs();}
- macro_rules! rows{($($t:ty),*)=>{vec![$(ValidationInput::of::<$t>(&["id"])),*]};}
- rows!(attribution::ProviderRun,analysis::MethodParameters,analysis::AnalysisDefinition,analysis::local::AnalysisInvocation,analysis::model::AnalysisInvocation,analysis::enriched_execution::AnalysisInvocation,analysis::source_call::AnalysisInvocation,analysis::local::AnalysisOutcome,analysis::model::AnalysisOutcome,analysis::enriched_execution::AnalysisOutcome,analysis::source_call::AnalysisOutcome,projection::ProjectionSourceAssessment,projection::ProjectionSnapshot,projection::ProjectionSnapshotChunk)
+pub fn production_inputs(profile: Profile) -> Vec<ValidationInput> {
+    if profile == Profile::Behavioral {
+        return SummaryData::inputs();
+    }
+    macro_rules! rows{($($t:ty),*)=>{vec![$(ValidationInput::of::<$t>(&["id"])),*]};}
+    rows!(
+        attribution::ProviderRun,
+        analysis::MethodParameters,
+        analysis::AnalysisDefinition,
+        analysis::local::AnalysisInvocation,
+        analysis::model::AnalysisInvocation,
+        analysis::enriched_execution::AnalysisInvocation,
+        analysis::source_call::AnalysisInvocation,
+        analysis::local::AnalysisOutcome,
+        analysis::model::AnalysisOutcome,
+        analysis::enriched_execution::AnalysisOutcome,
+        analysis::source_call::AnalysisOutcome,
+        projection::ProjectionSourceAssessment,
+        projection::ProjectionSnapshot,
+        projection::ProjectionSnapshotChunk
+    )
 }
 /// A closed-store replay may omit unrequested native inputs; Catalog run checks never consume them.
-pub fn inputs_for_profile(profile:Profile)->Vec<ValidationInput>{
- if profile==Profile::Behavioral{return inputs();}
- let mut rows=production_inputs(profile);rows.extend([ValidationInput::of::<owner::AnalysisInvocation>(&["id"]),ValidationInput::of::<owner::AnalysisOutcome>(&["id"]),ValidationInput::of::<owner::AnalysisCoverage>(&["id"])]);
- macro_rules! append{($($f:ident:$t:ty,)*)=>{$(rows.push(ValidationInput::of::<$t>(&["id"]));)*};}crate::summary_outputs!(append);crate::summary_vocabulary!(append);
- rows.sort_by_key(|i|(i.name(),i.prefix()));rows.dedup_by_key(|i|(i.name(),i.prefix()));rows
+pub fn inputs_for_profile(profile: Profile) -> Vec<ValidationInput> {
+    if profile == Profile::Behavioral {
+        return inputs();
+    }
+    let mut rows = production_inputs(profile);
+    rows.extend([
+        ValidationInput::of::<owner::AnalysisInvocation>(&["id"]),
+        ValidationInput::of::<owner::AnalysisOutcome>(&["id"]),
+        ValidationInput::of::<owner::AnalysisCoverage>(&["id"]),
+    ]);
+    macro_rules! append{($($f:ident:$t:ty,)*)=>{$(rows.push(ValidationInput::of::<$t>(&["id"]));)*};}
+    crate::summary_outputs!(append);
+    crate::summary_vocabulary!(append);
+    rows.sort_by_key(|i| (i.name(), i.prefix()));
+    rows.dedup_by_key(|i| (i.name(), i.prefix()));
+    rows
 }
-pub fn invariants()->Vec<Invariant>{vec![Invariant{name:"finite_summary_inventory_replay",inputs:inputs(),create:std::sync::Arc::new(|b|Box::new(Check::new(b)))}]}
-pub fn parents(data:&SummaryData,input:Id<input::InputRevision>,context:Id<attribution::AnalysisContext>,budget:&ResourceBudget)->Result<Rows<owner::InvocationSource>,ModelError>{
- let mut rows=Rows::new(budget);
- macro_rules! parent{($field:ident,$variant:ident)=>{let mut matching=data.$field.iter().filter(|p|(p.input,p.context)==(input,context)&&p.subject.is_none());let p=matching.next().ok_or_else(||invalid(concat!("Summary predecessor absent: ",stringify!($field))))?;if matching.next().is_some(){return Err(invalid("Summary predecessor frame ambiguous"));}rows.insert(owner::InvocationSource::$variant{invocation:p.id()})?;};}
- parent!(local_invocations,Local);parent!(model_invocations,Model);parent!(enriched_invocations,EnrichedExecution);parent!(source_invocations,SourceCallAnalysis);Ok(rows)
+pub fn invariants() -> Vec<Invariant> {
+    vec![Invariant {
+        name: "finite_summary_inventory_replay",
+        inputs: inputs(),
+        create: std::sync::Arc::new(|b| Box::new(Check::new(b))),
+    }]
+}
+pub fn parents(
+    data: &SummaryData,
+    input: Id<input::InputRevision>,
+    context: Id<attribution::AnalysisContext>,
+    budget: &ResourceBudget,
+) -> Result<Rows<owner::InvocationSource>, ModelError> {
+    let mut rows = Rows::new(budget);
+    macro_rules! parent {
+        ($field:ident,$variant:ident) => {
+            let mut matching = data
+                .$field
+                .iter()
+                .filter(|p| (p.input, p.context) == (input, context) && p.subject.is_none());
+            let p = matching.next().ok_or_else(|| {
+                invalid(concat!("Summary predecessor absent: ", stringify!($field)))
+            })?;
+            if matching.next().is_some() {
+                return Err(invalid("Summary predecessor frame ambiguous"));
+            }
+            rows.insert(owner::InvocationSource::$variant { invocation: p.id() })?;
+        };
+    }
+    parent!(local_invocations, Local);
+    parent!(model_invocations, Model);
+    parent!(enriched_invocations, EnrichedExecution);
+    parent!(source_invocations, SourceCallAnalysis);
+    Ok(rows)
 }
 macro_rules! check{($($field:ident:$ty:ty,)*)=>{
  struct Check{data:SummaryData,invocations:Rows<owner::AnalysisInvocation>,outcomes:Rows<owner::AnalysisOutcome>,coverage:Rows<owner::AnalysisCoverage>,vocabulary:Vocabulary,$($field:Rows<$ty>,)*budget:ResourceBudget}
@@ -52,33 +126,194 @@ macro_rules! check{($($field:ident:$ty:ty,)*)=>{
    if !self.outcomes.same(&outcomes){return Err(invalid("Summary outcome differs from complete inventory"));}Ok(())
   }
  }
-};}crate::summary_outputs!(check);
-pub fn profile_checks()->Vec<PublicationInvariant>{vec![PublicationInvariant{name:"summary_profile",inputs:vec![ValidationInput::of::<SummaryRun>(&["id"]),ValidationInput::of::<owner::AnalysisInvocation>(&["id"])],create:std::sync::Arc::new(|b|Box::new(ProfileCheck{runs:Rows::new(b),invocations:Rows::new(b)}))}]}
-struct ProfileCheck{runs:Rows<SummaryRun>,invocations:Rows<owner::AnalysisInvocation>}
-impl PublicationCheck for ProfileCheck{
- fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<(),ModelError>{if n==SummaryRun::NAME{self.runs.decode(b)?;}if n==owner::AnalysisInvocation::NAME{self.invocations.decode(b)?;}Ok(())}
- fn finish(self:Box<Self>,_:&[CompletedRelation],profile:Profile)->Result<(),ModelError>{if self.runs.len()!=self.invocations.len()||self.runs.iter().any(|r|self.invocations.get(r.invocation).is_none()||r.requested!=(profile==Profile::Behavioral)){return Err(invalid("Summary changes actual collection profile"));}Ok(())}
+};}
+crate::summary_outputs!(check);
+pub fn profile_checks() -> Vec<PublicationInvariant> {
+    vec![PublicationInvariant {
+        name: "summary_profile",
+        inputs: vec![
+            ValidationInput::of::<SummaryRun>(&["id"]),
+            ValidationInput::of::<owner::AnalysisInvocation>(&["id"]),
+        ],
+        create: std::sync::Arc::new(|b| {
+            Box::new(ProfileCheck {
+                runs: Rows::new(b),
+                invocations: Rows::new(b),
+            })
+        }),
+    }]
 }
-pub fn output_relations()->Vec<Relation>{let mut rows=Vec::new();macro_rules! output{($($f:ident:$t:ty,)*)=>{$(rows.push(Relation::of::<$t>());)*};}crate::summary_outputs!(output);rows.sort_by_key(Relation::name);rows.dedup_by_key(|r|r.name());rows}
-
-fn contains_vocabulary(actual:&Vocabulary,expected:&Vocabulary)->Result<(),ModelError>{macro_rules! check{($($f:ident:$t:ty,)*)=>{$(for row in expected.$f.values(){if actual.$f.get(&row.id())!=Some(row){return Err(invalid(concat!("Summary vocabulary missing: ",stringify!($f))));}})*};}crate::summary_vocabulary!(check);Ok(())}
-
-pub fn stage(profile:Profile,definition:&analysis::AnalysisDefinition,model:&ValidatedModel)->Result<Stage,ModelError>{
- if definition.method!=analysis::AnalysisMethod::Summaries{return Err(invalid("Summary stage requires its nominal method"));}
- let mut outputs=output_relations();outputs.extend(owner::coverage::relations());outputs.extend(owner::support::relations());
- macro_rules! output{($($t:ty),*)=>{$(outputs.push(Relation::of::<$t>());)*};}
- output!(owner::AnalysisInvocation,owner::AnalysisInput,owner::SourceReceipt,owner::ProjectionInput,owner::InvocationSource,owner::AnalysisOutcome,owner::ObligationSource);
- macro_rules! vocabulary{($($f:ident:$t:ty,)*)=>{$(outputs.push(Relation::of::<$t>());)*};}crate::summary_vocabulary!(vocabulary);
- outputs.sort_by_key(Relation::name);outputs.dedup_by_key(|r|r.name());let own=outputs.iter().filter(|r|!is_vocabulary(r.name())).map(Relation::name).collect::<std::collections::BTreeSet<_>>();
- let mut requested=production_inputs(profile);requested.extend(analysis::expected::inputs(analysis::AnalysisMethod::Summaries));requested.push(ValidationInput::of::<analysis::ProjectionDefinition>(&["id"]));
- let relation=|name|model.relations().iter().find(|r|r.name()==name).ok_or_else(||invalid(format!("Summary relation missing: {name}")));
- let mut inputs=std::collections::BTreeMap::new();let mut pending=Vec::new();
- for input in requested{if own.contains(input.name()){continue;}if inputs.contains_key(input.name()){continue;}inputs.insert(input.name(),RelationUse::of_relation(relation(input.name())?).completed_store());pending.push(input.name());}
- let facts=facts_relations().iter().map(Relation::name).collect::<std::collections::BTreeSet<_>>();
- while let Some(name)=pending.pop(){let row=relation(name)?;for required in row.fields().iter().filter_map(|f|f.target().map(|(_,n)|n)).chain(row.invariants().iter().flat_map(|i|i.inputs.iter().map(ValidationInput::name))){if own.contains(required){return Err(invalid(format!("Summary predecessor {name} reads unfinished {required}")));}if !facts.contains(required)&&!inputs.contains_key(required){inputs.insert(required,RelationUse::of_relation(relation(required)?).completed_store());pending.push(required);}}}
- let mut configuration=KeySink::new("summary-stage");definition.id().encode(&mut configuration);
- let inputs=inputs.into_values().map(|r|if is_vocabulary(r.name()){r.at_epoch(PublicationBoundary::Model)}else{r}).collect();
- Ok(Stage{name:"analyze_summaries",inputs,outputs:outputs.iter().map(RelationUse::of_relation).collect(),contributes:vec![],coverage:vec![],provider:None,profiles:vec![profile],effect:Effect::Pure,code:ContentHash::of(include_bytes!("summary_replay.rs")),configuration:configuration.finish()})
+struct ProfileCheck {
+    runs: Rows<SummaryRun>,
+    invocations: Rows<owner::AnalysisInvocation>,
+}
+impl PublicationCheck for ProfileCheck {
+    fn visit(&mut self, n: &str, b: &arrow_array::RecordBatch) -> Result<(), ModelError> {
+        if n == SummaryRun::NAME {
+            self.runs.decode(b)?;
+        }
+        if n == owner::AnalysisInvocation::NAME {
+            self.invocations.decode(b)?;
+        }
+        Ok(())
+    }
+    fn finish(
+        self: Box<Self>,
+        _: &[CompletedRelation],
+        profile: Profile,
+    ) -> Result<(), ModelError> {
+        if self.runs.len() != self.invocations.len()
+            || self.runs.iter().any(|r| {
+                self.invocations.get(r.invocation).is_none()
+                    || r.requested != (profile == Profile::Behavioral)
+            })
+        {
+            return Err(invalid("Summary changes actual collection profile"));
+        }
+        Ok(())
+    }
+}
+pub fn output_relations() -> Vec<Relation> {
+    let mut rows = Vec::new();
+    macro_rules! output{($($f:ident:$t:ty,)*)=>{$(rows.push(Relation::of::<$t>());)*};}
+    crate::summary_outputs!(output);
+    rows.sort_by_key(Relation::name);
+    rows.dedup_by_key(|r| r.name());
+    rows
 }
 
-pub fn relations()->Vec<Relation>{vec![Relation::of::<SummaryRun>(),Relation::of::<SummaryComponent>(),Relation::of::<ComponentMember>(),Relation::of::<SummaryOrigin>(),Relation::of::<ProofOrigin>(),Relation::of::<SummaryResidual>(),Relation::of::<CallMember>(),Relation::of::<OriginBoundary>(),Relation::of::<PairOutcome>(),Relation::of::<super::summary_control::SummaryControlWitness>()]}
+fn contains_vocabulary(actual: &Vocabulary, expected: &Vocabulary) -> Result<(), ModelError> {
+    macro_rules! check{($($f:ident:$t:ty,)*)=>{$(for row in expected.$f.values(){if actual.$f.get(&row.id())!=Some(row){return Err(invalid(concat!("Summary vocabulary missing: ",stringify!($f))));}})*};}
+    crate::summary_vocabulary!(check);
+    Ok(())
+}
+
+pub fn stage(
+    profile: Profile,
+    definition: &analysis::AnalysisDefinition,
+    model: &ValidatedModel,
+) -> Result<Stage, ModelError> {
+    if definition.method != analysis::AnalysisMethod::Summaries {
+        return Err(invalid("Summary stage requires its nominal method"));
+    }
+    let mut outputs = output_relations();
+    outputs.extend(owner::coverage::relations());
+    outputs.extend(owner::support::relations());
+    macro_rules! output{($($t:ty),*)=>{$(outputs.push(Relation::of::<$t>());)*};}
+    output!(
+        owner::AnalysisInvocation,
+        owner::AnalysisInput,
+        owner::SourceReceipt,
+        owner::ProjectionInput,
+        owner::InvocationSource,
+        owner::AnalysisOutcome,
+        owner::ObligationSource
+    );
+    macro_rules! vocabulary{($($f:ident:$t:ty,)*)=>{$(outputs.push(Relation::of::<$t>());)*};}
+    crate::summary_vocabulary!(vocabulary);
+    outputs.sort_by_key(Relation::name);
+    outputs.dedup_by_key(|r| r.name());
+    let own = outputs
+        .iter()
+        .filter(|r| !is_vocabulary(r.name()))
+        .map(Relation::name)
+        .collect::<std::collections::BTreeSet<_>>();
+    let mut requested = production_inputs(profile);
+    requested.extend(analysis::expected::inputs(
+        analysis::AnalysisMethod::Summaries,
+    ));
+    requested.push(ValidationInput::of::<analysis::ProjectionDefinition>(&[
+        "id",
+    ]));
+    let relation = |name| {
+        model
+            .relations()
+            .iter()
+            .find(|r| r.name() == name)
+            .ok_or_else(|| invalid(format!("Summary relation missing: {name}")))
+    };
+    let mut inputs = std::collections::BTreeMap::new();
+    let mut pending = Vec::new();
+    for input in requested {
+        if own.contains(input.name()) {
+            continue;
+        }
+        if inputs.contains_key(input.name()) {
+            continue;
+        }
+        inputs.insert(
+            input.name(),
+            RelationUse::of_relation(relation(input.name())?).completed_store(),
+        );
+        pending.push(input.name());
+    }
+    let facts = facts_relations()
+        .iter()
+        .map(Relation::name)
+        .collect::<std::collections::BTreeSet<_>>();
+    while let Some(name) = pending.pop() {
+        let row = relation(name)?;
+        for required in row
+            .fields()
+            .iter()
+            .filter_map(|f| f.target().map(|(_, n)| n))
+            .chain(
+                row.invariants()
+                    .iter()
+                    .flat_map(|i| i.inputs.iter().map(ValidationInput::name)),
+            )
+        {
+            if own.contains(required) {
+                return Err(invalid(format!(
+                    "Summary predecessor {name} reads unfinished {required}"
+                )));
+            }
+            if !facts.contains(required) && !inputs.contains_key(required) {
+                inputs.insert(
+                    required,
+                    RelationUse::of_relation(relation(required)?).completed_store(),
+                );
+                pending.push(required);
+            }
+        }
+    }
+    let mut configuration = KeySink::new("summary-stage");
+    definition.id().encode(&mut configuration);
+    let inputs = inputs
+        .into_values()
+        .map(|r| {
+            if is_vocabulary(r.name()) {
+                r.at_epoch(PublicationBoundary::Model)
+            } else {
+                r
+            }
+        })
+        .collect();
+    Ok(Stage {
+        name: "analyze_summaries",
+        inputs,
+        outputs: outputs.iter().map(RelationUse::of_relation).collect(),
+        contributes: vec![],
+        coverage: vec![],
+        provider: None,
+        profiles: vec![profile],
+        effect: Effect::Pure,
+        code: ContentHash::of(include_bytes!("summary_replay.rs")),
+        configuration: configuration.finish(),
+    })
+}
+
+pub fn relations() -> Vec<Relation> {
+    vec![
+        Relation::of::<SummaryRun>(),
+        Relation::of::<SummaryComponent>(),
+        Relation::of::<ComponentMember>(),
+        Relation::of::<SummaryOrigin>(),
+        Relation::of::<ProofOrigin>(),
+        Relation::of::<SummaryResidual>(),
+        Relation::of::<CallMember>(),
+        Relation::of::<OriginBoundary>(),
+        Relation::of::<PairOutcome>(),
+        Relation::of::<super::summary_control::SummaryControlWitness>(),
+    ]
+}

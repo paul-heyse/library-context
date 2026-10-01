@@ -1,12 +1,12 @@
 //! Authored behavior models: typed parsing, exact applicability and dependency requirements.
 //! No observed fact or legacy identifier is created by this module.
-use std::collections::BTreeSet;
-use serde::Deserialize;
+use super::calls::CallPhase;
 use super::{ContentHash, Id, KeySink, ModelError, Record};
 use crate::{Domain, DomainSum};
-use super::calls::CallPhase;
-pub mod requirements;
+use serde::Deserialize;
+use std::collections::BTreeSet;
 pub mod records;
+pub mod requirements;
 
 pub const FORMAT: u32 = 7;
 
@@ -85,8 +85,12 @@ pub struct CompiledContextProtocol {
     model: ContextProtocolModel,
 }
 impl CompiledContextProtocol {
-    pub fn declaration(&self) -> &AuthoredContextProtocol { &self.declaration }
-    pub fn model(&self) -> &ContextProtocolModel { &self.model }
+    pub fn declaration(&self) -> &AuthoredContextProtocol {
+        &self.declaration
+    }
+    pub fn model(&self) -> &ContextProtocolModel {
+        &self.model
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -99,7 +103,6 @@ pub enum Phase {
     PropertyGet,
     PropertySet,
 }
-
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -118,7 +121,6 @@ pub enum ChannelCoverage {
     Partial,
     Unspecified,
 }
-
 
 impl Channels {
     fn validate_rule(&self, rule: &Rule) -> Result<(), String> {
@@ -176,7 +178,6 @@ impl Target {
         }
     }
 
-
     fn validate(&self) -> Result<(), String> {
         let (module, callable) = match self {
             Self::Stdlib {
@@ -232,9 +233,10 @@ pub enum InputPath {
 }
 
 impl InputPath {
-
-    pub fn visit_context_references<'a, E>(&'a self,
-        visit: &mut impl FnMut(ContextReference<'a>) -> Result<(), E>) -> Result<(), E> {
+    pub fn visit_context_references<'a, E>(
+        &'a self,
+        visit: &mut impl FnMut(ContextReference<'a>) -> Result<(), E>,
+    ) -> Result<(), E> {
         match self {
             Self::Global { module, name } => visit(ContextReference::Global { module, name }),
             Self::Parameter { .. } | Self::ReceiverField { .. } => Ok(()),
@@ -257,7 +259,6 @@ impl InputPath {
         }
     }
 
-
     fn validate(&self) -> Result<(), String> {
         match self {
             Self::Parameter { name } if identifier(name) => Ok(()),
@@ -279,9 +280,10 @@ pub enum OutputPath {
 }
 
 impl OutputPath {
-
-    pub fn visit_context_references<'a, E>(&'a self,
-        visit: &mut impl FnMut(ContextReference<'a>) -> Result<(), E>) -> Result<(), E> {
+    pub fn visit_context_references<'a, E>(
+        &'a self,
+        visit: &mut impl FnMut(ContextReference<'a>) -> Result<(), E>,
+    ) -> Result<(), E> {
         match self {
             Self::Global { module, name } => visit(ContextReference::Global { module, name }),
             Self::Raise { class } => visit(ContextReference::Class(class)),
@@ -306,7 +308,6 @@ impl OutputPath {
             Self::Raise { class } => format!("Raise[{class}]"),
         }
     }
-
 
     fn validate(&self) -> Result<(), String> {
         match self {
@@ -363,18 +364,28 @@ pub enum ContextReference<'a> {
 }
 impl Rule {
     /// Traverse every typed reference-bearing path without interpreting rendered labels.
-    pub fn visit_context_references<'a, E>(&'a self,
-        visit: &mut impl FnMut(ContextReference<'a>) -> Result<(), E>) -> Result<(), E> {
+    pub fn visit_context_references<'a, E>(
+        &'a self,
+        visit: &mut impl FnMut(ContextReference<'a>) -> Result<(), E>,
+    ) -> Result<(), E> {
         match self {
             Self::Transfer { from, to, .. } => {
                 from.visit_context_references(visit)?;
                 to.visit_context_references(visit)
             }
-            Self::Effect { effect, subject, .. } => {
-                if let Some(subject) = subject { subject.visit_context_references(visit)?; }
+            Self::Effect {
+                effect, subject, ..
+            } => {
+                if let Some(subject) = subject {
+                    subject.visit_context_references(visit)?;
+                }
                 match effect.schema() {
-                    Some(ValidationSchema::StaticClass { class }) => visit(ContextReference::Class(class)),
-                    Some(ValidationSchema::RuntimeValue { source }) => source.visit_context_references(visit),
+                    Some(ValidationSchema::StaticClass { class }) => {
+                        visit(ContextReference::Class(class))
+                    }
+                    Some(ValidationSchema::RuntimeValue { source }) => {
+                        source.visit_context_references(visit)
+                    }
                     Some(ValidationSchema::Unresolved {}) | None => Ok(()),
                 }
             }
@@ -383,9 +394,13 @@ impl Rule {
                 ResourcePath::Input { path } => path.visit_context_references(visit),
                 ResourcePath::Output { path } => path.visit_context_references(visit),
             },
-            Self::Exception { class, to_class, .. } => {
+            Self::Exception {
+                class, to_class, ..
+            } => {
                 visit(ContextReference::Class(class))?;
-                if let Some(class) = to_class { visit(ContextReference::Class(class))?; }
+                if let Some(class) = to_class {
+                    visit(ContextReference::Class(class))?;
+                }
                 Ok(())
             }
         }
@@ -445,7 +460,6 @@ pub enum ResourcePath {
 }
 
 impl ResourcePath {
-
     pub fn formal(&self) -> Option<&str> {
         match self {
             Self::Input { path } => path.formal(),
@@ -469,8 +483,6 @@ impl ResourcePath {
             Self::Output { path } => path.render(),
         }
     }
-
-
 }
 
 #[derive(Clone, Copy, Debug, Deserialize)]
@@ -497,7 +509,6 @@ pub enum Effect {
 }
 
 impl Effect {
-
     fn validate(&self) -> Result<(), String> {
         match self {
             Self::IoRead
@@ -539,7 +550,6 @@ impl ValidationSchema {
         }
     }
 
-
     pub fn source(&self) -> Option<&InputPath> {
         match self {
             Self::RuntimeValue { source } => Some(source),
@@ -573,15 +583,12 @@ pub enum RuleModality {
     Potential,
 }
 
-
-
 #[derive(Clone, Copy, Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ResourceAction {
     Acquire,
     Release,
 }
-
 
 #[derive(Clone, Copy, Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -592,7 +599,6 @@ pub enum Exit {
     Invocation,
 }
 
-
 #[derive(Clone, Copy, Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ExceptionAction {
@@ -601,8 +607,6 @@ pub enum ExceptionAction {
     Convert,
     Suppress,
 }
-
-
 
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name = "model_catalogs", validate = validate_catalog, invariants = records::invariants)]
@@ -619,9 +623,13 @@ pub struct ModelCatalog {
 fn validate_catalog(row: &ModelCatalog) -> Result<(), ModelError> {
     // The cross-relation invariant parses with an explicit attempt reservation. Row-local
     // validation checks bytes and format without constructing an uncharged catalog tree.
-    if row.source_name.is_empty() || row.format != i64::from(FORMAT)
-        || ContentHash::of(row.source.as_bytes()) != row.content {
-        return Err(ModelError::Invalid("model catalog content or format mismatch".into()));
+    if row.source_name.is_empty()
+        || row.format != i64::from(FORMAT)
+        || ContentHash::of(row.source.as_bytes()) != row.content
+    {
+        return Err(ModelError::Invalid(
+            "model catalog content or format mismatch".into(),
+        ));
     }
     Ok(())
 }
@@ -629,23 +637,47 @@ fn validate_catalog(row: &ModelCatalog) -> Result<(), ModelError> {
 #[model(name = "authored_model_targets")]
 pub enum AuthoredTarget {
     #[model(code = 0)]
-    Stdlib { python: String, module: String, callable: String },
+    Stdlib {
+        python: String,
+        module: String,
+        callable: String,
+    },
     #[model(code = 1)]
-    Dependency { distribution: String, version: String, module: String, callable: String },
+    Dependency {
+        distribution: String,
+        version: String,
+        module: String,
+        callable: String,
+    },
     #[model(code = 2)]
     Release { module: String, callable: String },
 }
 impl Target {
     pub fn declaration(&self) -> AuthoredTarget {
         match self {
-            Self::Stdlib { python, module, callable } => AuthoredTarget::Stdlib {
-                python: python.clone(), module: module.clone(), callable: callable.clone(),
+            Self::Stdlib {
+                python,
+                module,
+                callable,
+            } => AuthoredTarget::Stdlib {
+                python: python.clone(),
+                module: module.clone(),
+                callable: callable.clone(),
             },
-            Self::Dependency { distribution, version, module, callable } => AuthoredTarget::Dependency {
-                distribution: distribution.clone(), version: version.clone(), module: module.clone(), callable: callable.clone(),
+            Self::Dependency {
+                distribution,
+                version,
+                module,
+                callable,
+            } => AuthoredTarget::Dependency {
+                distribution: distribution.clone(),
+                version: version.clone(),
+                module: module.clone(),
+                callable: callable.clone(),
             },
             Self::Release { module, callable } => AuthoredTarget::Release {
-                module: module.clone(), callable: callable.clone(),
+                module: module.clone(),
+                callable: callable.clone(),
             },
         }
     }
@@ -653,9 +685,12 @@ impl Target {
 impl Phase {
     pub fn phase(self) -> CallPhase {
         match self {
-            Self::Call => CallPhase::Call, Self::New => CallPhase::New,
-            Self::Init => CallPhase::Init, Self::Decorator => CallPhase::Decorator,
-            Self::PropertyGet => CallPhase::PropertyGet, Self::PropertySet => CallPhase::PropertySet,
+            Self::Call => CallPhase::Call,
+            Self::New => CallPhase::New,
+            Self::Init => CallPhase::Init,
+            Self::Decorator => CallPhase::Decorator,
+            Self::PropertyGet => CallPhase::PropertyGet,
+            Self::PropertySet => CallPhase::PropertySet,
         }
     }
 }
@@ -690,8 +725,12 @@ pub struct CompiledModel {
     model: Model,
 }
 impl CompiledModel {
-    pub fn declaration(&self) -> &AuthoredModel { &self.declaration }
-    pub fn model(&self) -> &Model { &self.model }
+    pub fn declaration(&self) -> &AuthoredModel {
+        &self.declaration
+    }
+    pub fn model(&self) -> &Model {
+        &self.model
+    }
 }
 /// Validated authored meaning and its source identity cannot be mutated independently.
 ///
@@ -719,11 +758,19 @@ pub struct Catalog {
     context_protocols: Vec<CompiledContextProtocol>,
 }
 impl Catalog {
-    pub fn declaration(&self) -> &ModelCatalog { &self.declaration }
-    pub fn models(&self) -> &[CompiledModel] { &self.models }
-    pub fn context_protocols(&self) -> &[CompiledContextProtocol] { &self.context_protocols }
+    pub fn declaration(&self) -> &ModelCatalog {
+        &self.declaration
+    }
+    pub fn models(&self) -> &[CompiledModel] {
+        &self.models
+    }
+    pub fn context_protocols(&self) -> &[CompiledContextProtocol] {
+        &self.context_protocols
+    }
     pub fn parse(source_name: &str, source: &str) -> Result<Self, String> {
-        if source_name.is_empty() { return Err("model catalog needs a source name".into()); }
+        if source_name.is_empty() {
+            return Err("model catalog needs a source name".into());
+        }
         let parsed: CatalogFile =
             toml::from_str(source).map_err(|e| format!("{source_name}: {e}"))?;
         if parsed.version != FORMAT {
@@ -733,8 +780,10 @@ impl Catalog {
             ));
         }
         let catalog = ModelCatalog {
-            source_name: source_name.into(), format: i64::from(FORMAT),
-            content: ContentHash::of(source.as_bytes()), source: source.into(),
+            source_name: source_name.into(),
+            format: i64::from(FORMAT),
+            content: ContentHash::of(source.as_bytes()),
+            source: source.into(),
         };
         let mut seen = BTreeSet::new();
         let mut models = Vec::new();
@@ -779,8 +828,10 @@ impl Catalog {
                 ));
             }
             let declaration = AuthoredModel {
-                catalog: catalog.id(), target: model.target.declaration().id(),
-                revision: i64::from(model.revision), phase: model.phase.phase(),
+                catalog: catalog.id(),
+                target: model.target.declaration().id(),
+                revision: i64::from(model.revision),
+                phase: model.phase.phase(),
             };
             models.push(CompiledModel { declaration, model });
         }
@@ -808,7 +859,8 @@ impl Catalog {
                 return Err("context protocol formal must be an identifier".into());
             }
             let declaration = AuthoredContextProtocol {
-                catalog: catalog.id(), target: model.target.declaration().id(),
+                catalog: catalog.id(),
+                target: model.target.declaration().id(),
                 revision: i64::from(model.revision),
                 allocation: model.allocation.declaration().id(),
                 initialization: model.initialization.declaration().id(),
@@ -844,7 +896,6 @@ impl Catalog {
         sink.part(b"bytes", self.declaration.source.as_bytes());
         sink.finish()
     }
-
 }
 
 fn identifier(value: &str) -> bool {
@@ -858,7 +909,6 @@ fn identifier(value: &str) -> bool {
 fn dotted_name(value: &str) -> bool {
     !value.is_empty() && value.split('.').all(identifier)
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -1112,7 +1162,10 @@ modality = "definite"
         let before = Catalog::parse("external.toml", original).unwrap();
         let after = Catalog::parse("external.toml", &revised).unwrap();
         assert_ne!(before.digest(), after.digest());
-        assert_ne!(before.models[0].declaration.id(), after.models[0].declaration.id());
+        assert_ne!(
+            before.models[0].declaration.id(),
+            after.models[0].declaration.id()
+        );
     }
 
     #[test]
@@ -1146,7 +1199,10 @@ modality = "definite"
         assert_eq!(catalog.models[1].model.phase, Phase::Init);
         assert!(catalog.models[0].model.normal_body.is_some());
         assert!(catalog.models[1].model.normal_body.is_none());
-        assert_ne!(catalog.models[0].declaration.id(), catalog.models[1].declaration.id());
+        assert_ne!(
+            catalog.models[0].declaration.id(),
+            catalog.models[1].declaration.id()
+        );
         assert!(
             Catalog::parse(
                 "duplicate.toml",

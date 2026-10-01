@@ -1467,30 +1467,61 @@ pub fn bind(input: BindingInput<'_>) -> Result<BoundCall, BindingFailure> {
     ) {
         return Err(ObligationKind::OutsideProviderModel.into());
     }
-    if let Receiver::Unknown { reason } = receiver {
-        if raw.class_of.is_none() { return Err((*reason).into()); }
+    if let Receiver::Unknown { reason } = receiver
+        && raw.class_of.is_none()
+    {
+        return Err((*reason).into());
     }
-    let receiver_source = raw.class_of.map(|actual| BindingSource::ClassOf { actual }).or_else(|| {
-        if let Receiver::Bound { actual } = receiver { Some(BindingSource::Actual { occurrence: *actual }) } else { None }
-    });
-    let assignments = assign_arguments(signature, parameters, shapes, call, arguments, receiver_source.is_some())?;
-    let bindings = assignments.into_iter().map(|assignment| Ok(Binding {
-        formal: assignment.formal,
-        source: match assignment.source {
-            ArgumentSource::Receiver => receiver_source.clone().ok_or(ObligationKind::MissingEvidence)?,
-            ArgumentSource::Value(value) => value,
-        },
-        kind: assignment.kind,
-        projection: assignment.projection,
-    })).collect::<Result<Vec<_>, BindingFailure>>()?;
-    Ok(BoundCall {site: target.site, target: target.id(), signature: signature.id(), bindings})
+    let receiver_source = raw
+        .class_of
+        .map(|actual| BindingSource::ClassOf { actual })
+        .or(if let Receiver::Bound { actual } = receiver {
+            Some(BindingSource::Actual {
+                occurrence: *actual,
+            })
+        } else {
+            None
+        });
+    let assignments = assign_arguments(
+        signature,
+        parameters,
+        shapes,
+        call,
+        arguments,
+        receiver_source.is_some(),
+    )?;
+    let bindings = assignments
+        .into_iter()
+        .map(|assignment| {
+            Ok(Binding {
+                formal: assignment.formal,
+                source: match assignment.source {
+                    ArgumentSource::Receiver => receiver_source
+                        .clone()
+                        .ok_or(ObligationKind::MissingEvidence)?,
+                    ArgumentSource::Value(value) => value,
+                },
+                kind: assignment.kind,
+                projection: assignment.projection,
+            })
+        })
+        .collect::<Result<Vec<_>, BindingFailure>>()?;
+    Ok(BoundCall {
+        site: target.site,
+        target: target.id(),
+        signature: signature.id(),
+        bindings,
+    })
 }
 
 /// A structural assignment contains no runtime receiver identity or callable authority.
 /// The checked caller supplies the meaning of `Receiver`; it cannot become an actual expression
 /// merely because the argument algorithm assigned the first formal slot.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum ArgumentSource { Receiver, Value(BindingSource) }
+pub(crate) enum ArgumentSource {
+    Receiver,
+    Value(BindingSource),
+}
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ArgumentAssignment {
     pub formal: Id<SignatureParameter>,

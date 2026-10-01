@@ -409,13 +409,19 @@ impl AttemptSession {
         if permit.identity() != self.contract.consumer()
             || permit.model() != self.contract.model()
             || !self.contract.sources().get(R::NAME).is_some_and(|granted| {
-                permit.source().is_some_and(|source| source == granted ||
-                    lctx_model::domain::stages::is_vocabulary(R::NAME)
-                    && source.model() == granted.model()
-                    && source.schedule() == granted.schedule()
-                    && source.identity().attempt() == granted.identity().attempt()
-                    && source.prefix_ordinal().zip(granted.prefix_ordinal())
-                        .is_some_and(|(requested, bound)| requested.ordinal() <= bound.ordinal()))
+                permit.source().is_some_and(|source| {
+                    source == granted
+                        || lctx_model::domain::stages::is_vocabulary(R::NAME)
+                            && source.model() == granted.model()
+                            && source.schedule() == granted.schedule()
+                            && source.identity().attempt() == granted.identity().attempt()
+                            && source
+                                .prefix_ordinal()
+                                .zip(granted.prefix_ordinal())
+                                .is_some_and(|(requested, bound)| {
+                                    requested.ordinal() <= bound.ordinal()
+                                })
+                })
             })
             || permit.source().is_none()
         {
@@ -505,7 +511,9 @@ impl InspectionSession {
         })
     }
     /// Retained typed inspection results share the query memory budget.
-    pub fn budget(&self) -> &lctx_model::domain::resources::ResourceBudget { self.runtime.budget() }
+    pub fn budget(&self) -> &lctx_model::domain::resources::ResourceBudget {
+        self.runtime.budget()
+    }
     /// Plan one read-only query. A statement the read contract refuses is a typed `ReadOnly` error.
     pub async fn query(&self, sql: &str) -> Result<crate::model_runtime::PreparedQuery> {
         let plan = self.context.state().create_logical_plan(sql).await?;

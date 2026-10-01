@@ -1,13 +1,178 @@
 //! The earlier native frame universe requires a C2 invocation even when it produced no domains.
-use super::{*,build::{Data,Output,invalid,need}};
-use crate::domain::{normalized::Rows,resources::ResourceBudget};
-use analysis::{selection as owner,catalog_evidence as c1};
-pub fn parents(d:&Data,b:&ResourceBudget)->Result<Rows<c1::Invocation>,ModelError> {
- catalog::evidence::frames::verify(&d.source.facts.runs,&d.source.facts.core_invocations,&d.facts.evidence_invocations,&d.facts.evidence_sources,&d.facts.evidence_inputs,&d.source.runtime.lower(),b)?;
- let earlier=catalog::evidence::frames::parents(&d.source.facts.runs,&d.source.facts.core_invocations,b)?;let mut out=Rows::new(b);for parent in earlier.iter() {let mut matches=d.facts.evidence_invocations.iter().filter(|i|i.input==parent.input && i.context==parent.context && i.definition==catalog::evidence::build::definition().1.id() && i.subject.is_none());let i=matches.next().ok_or_else(||invalid("C2 fixed completed C1 parent absent"))?;if matches.next().is_some(){return Err(invalid("duplicate C2 C1 parent"));}out.insert(i.clone())?;}Ok(out)
+use super::{
+    build::{Data, Output, invalid, need},
+    *,
+};
+use crate::domain::{normalized::Rows, resources::ResourceBudget};
+use analysis::{catalog_evidence as c1, selection as owner};
+pub fn parents(d: &Data, b: &ResourceBudget) -> Result<Rows<c1::Invocation>, ModelError> {
+    catalog::evidence::frames::verify(
+        &d.source.facts.runs,
+        &d.source.facts.core_invocations,
+        &d.facts.evidence_invocations,
+        &d.facts.evidence_sources,
+        &d.facts.evidence_inputs,
+        &d.source.runtime.lower(),
+        b,
+    )?;
+    let earlier = catalog::evidence::frames::parents(
+        &d.source.facts.runs,
+        &d.source.facts.core_invocations,
+        b,
+    )?;
+    let mut out = Rows::new(b);
+    for parent in earlier.iter() {
+        let mut matches = d.facts.evidence_invocations.iter().filter(|i| {
+            i.input == parent.input
+                && i.context == parent.context
+                && i.definition == catalog::evidence::build::definition().1.id()
+                && i.subject.is_none()
+        });
+        let i = matches
+            .next()
+            .ok_or_else(|| invalid("C2 fixed completed C1 parent absent"))?;
+        if matches.next().is_some() {
+            return Err(invalid("duplicate C2 C1 parent"));
+        }
+        out.insert(i.clone())?;
+    }
+    Ok(out)
 }
-pub fn links(out:&Output,invocations:&Rows<owner::Invocation>,members:&Rows<catalog::CatalogMember>,b:&ResourceBudget)->Result<Rows<SelectionInvocation>,ModelError> {let mut rows=Rows::new(b);for domain in out.domains.iter() {let member=need(members,domain.member)?;let mut matches=invocations.iter().filter(|r|r.input==member.input && r.context==domain.analysis && r.definition==build::definition().1.id() && r.subject.is_none());let i=matches.next().ok_or_else(||invalid("selection domain has no fixed invocation"))?;if matches.next().is_some(){return Err(invalid("selection domain has duplicate invocation"));}rows.insert(SelectionInvocation {domain:domain.id(),invocation:i.id()})?;}Ok(rows)}
-pub fn verify(d:&Data,out:&Output,invocations:&Rows<owner::Invocation>,sources:&Rows<owner::InvocationSource>,inputs:&Rows<owner::AnalysisInput>,actual:&Rows<SelectionInvocation>,b:&ResourceBudget)->Result<(),ModelError> {let parents=parents(d,b)?;let mut expected_sources=Rows::new(b);let mut expected_inputs=Rows::new(b);let mut count=0;for parent in parents.iter() {let mut matches=invocations.iter().filter(|r|r.input==parent.input && r.context==parent.context && r.definition==build::definition().1.id() && r.subject.is_none());let invocation=matches.next().ok_or_else(||invalid("selection invocation domain incomplete"))?;if matches.next().is_some(){return Err(invalid("selection frame has duplicate invocations"));}count+=1;let source=expected_sources.insert(owner::InvocationSource::CatalogEvidence {invocation:parent.id()})?;expected_inputs.insert(owner::AnalysisInput {invocation:invocation.id(),parent:source})?;}if count!=invocations.len() || !expected_sources.same(sources) || !expected_inputs.same(inputs) || !actual.same(&links(out,invocations,&d.source.catalog.members,b)?) {return Err(invalid("selection exact parent/invocation/domain membership differs"));}Ok(())}
-pub fn invariants()->Vec<Invariant> {let mut inputs=Data::inputs();inputs.extend(Output::inputs());inputs.extend([ValidationInput::of::<owner::Invocation>(&["id"]),ValidationInput::of::<owner::InvocationSource>(&["id"]),ValidationInput::of::<owner::AnalysisInput>(&["id"]),ValidationInput::of::<SelectionInvocation>(&["id"])]);vec![Invariant {name:"catalog_selection_invocation_domain",inputs,create:std::sync::Arc::new(|b|Box::new(Check {data:Data::new(b),out:Output::new(b),invocations:Rows::new(b),sources:Rows::new(b),inputs:Rows::new(b),links:Rows::new(b),budget:b.clone()}))}]}
-struct Check {data:Data,out:Output,invocations:Rows<owner::Invocation>,sources:Rows<owner::InvocationSource>,inputs:Rows<owner::AnalysisInput>,links:Rows<SelectionInvocation>,budget:ResourceBudget}
-impl InvariantCheck for Check {fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<(),ModelError> {if self.data.visit(n,b)? || self.out.visit(n,b)? {return Ok(());}if n==owner::Invocation::NAME {self.invocations.decode(b)?;}else if n==owner::InvocationSource::NAME {self.sources.decode(b)?;}else if n==owner::AnalysisInput::NAME {self.inputs.decode(b)?;}else if n==SelectionInvocation::NAME {self.links.decode(b)?;}else {return Err(invalid("undeclared selection frame input"));}Ok(())}fn finish(self:Box<Self>)->Result<(),ModelError> {verify(&self.data,&self.out,&self.invocations,&self.sources,&self.inputs,&self.links,&self.budget)} }
+pub fn links(
+    out: &Output,
+    invocations: &Rows<owner::Invocation>,
+    members: &Rows<catalog::CatalogMember>,
+    b: &ResourceBudget,
+) -> Result<Rows<SelectionInvocation>, ModelError> {
+    let mut rows = Rows::new(b);
+    for domain in out.domains.iter() {
+        let member = need(members, domain.member)?;
+        let mut matches = invocations.iter().filter(|r| {
+            r.input == member.input
+                && r.context == domain.analysis
+                && r.definition == build::definition().1.id()
+                && r.subject.is_none()
+        });
+        let i = matches
+            .next()
+            .ok_or_else(|| invalid("selection domain has no fixed invocation"))?;
+        if matches.next().is_some() {
+            return Err(invalid("selection domain has duplicate invocation"));
+        }
+        rows.insert(SelectionInvocation {
+            domain: domain.id(),
+            invocation: i.id(),
+        })?;
+    }
+    Ok(rows)
+}
+pub fn verify(
+    d: &Data,
+    out: &Output,
+    invocations: &Rows<owner::Invocation>,
+    sources: &Rows<owner::InvocationSource>,
+    inputs: &Rows<owner::AnalysisInput>,
+    actual: &Rows<SelectionInvocation>,
+    b: &ResourceBudget,
+) -> Result<(), ModelError> {
+    let parents = parents(d, b)?;
+    let mut expected_sources = Rows::new(b);
+    let mut expected_inputs = Rows::new(b);
+    let mut count = 0;
+    for parent in parents.iter() {
+        let mut matches = invocations.iter().filter(|r| {
+            r.input == parent.input
+                && r.context == parent.context
+                && r.definition == build::definition().1.id()
+                && r.subject.is_none()
+        });
+        let invocation = matches
+            .next()
+            .ok_or_else(|| invalid("selection invocation domain incomplete"))?;
+        if matches.next().is_some() {
+            return Err(invalid("selection frame has duplicate invocations"));
+        }
+        count += 1;
+        let source = expected_sources.insert(owner::InvocationSource::CatalogEvidence {
+            invocation: parent.id(),
+        })?;
+        expected_inputs.insert(owner::AnalysisInput {
+            invocation: invocation.id(),
+            parent: source,
+        })?;
+    }
+    if count != invocations.len()
+        || !expected_sources.same(sources)
+        || !expected_inputs.same(inputs)
+        || !actual.same(&links(out, invocations, &d.source.catalog.members, b)?)
+    {
+        return Err(invalid(
+            "selection exact parent/invocation/domain membership differs",
+        ));
+    }
+    Ok(())
+}
+pub fn invariants() -> Vec<Invariant> {
+    let mut inputs = Data::inputs();
+    inputs.extend(Output::inputs());
+    inputs.extend([
+        ValidationInput::of::<owner::Invocation>(&["id"]),
+        ValidationInput::of::<owner::InvocationSource>(&["id"]),
+        ValidationInput::of::<owner::AnalysisInput>(&["id"]),
+        ValidationInput::of::<SelectionInvocation>(&["id"]),
+    ]);
+    vec![Invariant {
+        name: "catalog_selection_invocation_domain",
+        inputs,
+        create: std::sync::Arc::new(|b| {
+            Box::new(Check {
+                data: Data::new(b),
+                out: Output::new(b),
+                invocations: Rows::new(b),
+                sources: Rows::new(b),
+                inputs: Rows::new(b),
+                links: Rows::new(b),
+                budget: b.clone(),
+            })
+        }),
+    }]
+}
+struct Check {
+    data: Data,
+    out: Output,
+    invocations: Rows<owner::Invocation>,
+    sources: Rows<owner::InvocationSource>,
+    inputs: Rows<owner::AnalysisInput>,
+    links: Rows<SelectionInvocation>,
+    budget: ResourceBudget,
+}
+impl InvariantCheck for Check {
+    fn visit(&mut self, n: &str, b: &arrow_array::RecordBatch) -> Result<(), ModelError> {
+        if self.data.visit(n, b)? || self.out.visit(n, b)? {
+            return Ok(());
+        }
+        if n == owner::Invocation::NAME {
+            self.invocations.decode(b)?;
+        } else if n == owner::InvocationSource::NAME {
+            self.sources.decode(b)?;
+        } else if n == owner::AnalysisInput::NAME {
+            self.inputs.decode(b)?;
+        } else if n == SelectionInvocation::NAME {
+            self.links.decode(b)?;
+        } else {
+            return Err(invalid("undeclared selection frame input"));
+        }
+        Ok(())
+    }
+    fn finish(self: Box<Self>) -> Result<(), ModelError> {
+        verify(
+            &self.data,
+            &self.out,
+            &self.invocations,
+            &self.sources,
+            &self.inputs,
+            &self.links,
+            &self.budget,
+        )
+    }
+}

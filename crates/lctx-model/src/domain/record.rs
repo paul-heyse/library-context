@@ -304,7 +304,9 @@ pub trait Record:
     fn invariants() -> Vec<super::Invariant> {
         Vec::new()
     }
-    fn publication_checks()->Vec<super::model::PublicationInvariant> {Vec::new()}
+    fn publication_checks() -> Vec<super::model::PublicationInvariant> {
+        Vec::new()
+    }
     /// Hash every semantic field, including non-key payload, independently of Arrow framing.
     fn content_digest(&self) -> ContentHash;
     /// Admission size of one typed row: its inline size plus owned heap bytes.

@@ -96,7 +96,13 @@ impl Universe {
                 Capability::Bindings,
             ]
         } else {
-            vec![Capability::PublicExposure, Capability::Symbols, Capability::Ancestry, Capability::Types, Capability::Callables]
+            vec![
+                Capability::PublicExposure,
+                Capability::Symbols,
+                Capability::Ancestry,
+                Capability::Types,
+                Capability::Callables,
+            ]
         };
         let computations = capabilities
             .into_iter()

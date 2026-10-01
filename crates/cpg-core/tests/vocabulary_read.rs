@@ -150,10 +150,14 @@ async fn native_facts_then_condition_groups_enforce_the_shared_canonical_catalog
         .unwrap();
     let root = tempfile::tempdir().unwrap();
     std::fs::write(root.path().join("api.py"), "def f(x):\n    return x\n").unwrap();
-    let captured = Arc::new(CapturedInputs::new(vec![AcquiredInput::tree(
-        CapturedInput::capture(root.path(), &["api.py".into()], &budget).unwrap(),
-        "condition epoch",
-    )], cpg_extract::native_context::NativeContextConfig::committed(Profile::Catalog, &budget).unwrap()));
+    let captured = Arc::new(CapturedInputs::new(
+        vec![AcquiredInput::tree(
+            CapturedInput::capture(root.path(), &["api.py".into()], &budget).unwrap(),
+            "condition epoch",
+        )],
+        cpg_extract::native_context::NativeContextConfig::committed(Profile::Catalog, &budget)
+            .unwrap(),
+    ));
     let mut providers = cpg_core::facts::providers(ContentHash::of(b"condition epoch fixture"));
     let mut declarations: Vec<_> = providers
         .iter()

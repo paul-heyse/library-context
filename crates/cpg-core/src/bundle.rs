@@ -877,7 +877,8 @@ pub async fn build_with_retrieval(
     let (mut spec_hash, mut dimensions) = match specs.first() {
         Some((labels, _)) => {
             let spec: crate::embedding_service::Spec =
-                crate::embedding_service::Spec::parse(&labels[1]).map_err(|e| bad(format!("the spec: {e}")))?;
+                crate::embedding_service::Spec::parse(&labels[1])
+                    .map_err(|e| bad(format!("the spec: {e}")))?;
             if documents.first().is_some_and(|(d, _)| d[0] != labels[0]) {
                 return Err(bad("the documents' spec is not the snapshot's"));
             }

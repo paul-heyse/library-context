@@ -522,5 +522,3 @@ pub fn stage(profile: Profile) -> Stage {
         configuration: ContentHash::of(b"normalization-coverage/v1"),
     }
 }
-
-

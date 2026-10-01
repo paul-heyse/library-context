@@ -1216,9 +1216,14 @@ impl<A: Assertion, S: Support<Assertion = A>> InvariantCheck for SupportCheck<A,
             for r in Place::decode(batch)? {
                 self.places.insert(&mut self.charge, r.id(), r)?;
             }
-        } else if A::subject_inputs().iter().any(|input|input.name()==relation)
-            && let Some(rows)=transfer::subject_rows(relation,batch)? {
-            for (id,descriptor) in rows {self.transfers.insert(&mut self.charge,id,descriptor)?;}
+        } else if A::subject_inputs()
+            .iter()
+            .any(|input| input.name() == relation)
+            && let Some(rows) = transfer::subject_rows(relation, batch)?
+        {
+            for (id, descriptor) in rows {
+                self.transfers.insert(&mut self.charge, id, descriptor)?;
+            }
         } else if relation == super::flow::FlowValueObservation::NAME && relation != A::NAME {
             for r in super::flow::FlowValueObservation::decode(batch)? {
                 self.flow_values.insert(&mut self.charge, r.id(), r)?;

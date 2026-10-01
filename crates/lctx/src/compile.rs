@@ -48,9 +48,18 @@ pub async fn compile(
     let library = libraries.join(name);
     let upper = options.prepare(frontier.name(), &library)?;
     let native = cpg_extract::native_context::NativeContextConfig::committed(profile, &budget)?;
-    let prepared = upper.as_ref().map(|upper| cpg_core::compilation::PreparedCompilation::new(
-        frontier, upper.settings.clone(), native.catalog(), upper.embedder.as_deref(), &budget
-    )).transpose()?;
+    let prepared = upper
+        .as_ref()
+        .map(|upper| {
+            cpg_core::compilation::PreparedCompilation::new(
+                frontier,
+                upper.settings.clone(),
+                native.catalog(),
+                upper.embedder.as_deref(),
+                &budget,
+            )
+        })
+        .transpose()?;
     let environment = envs.join(name);
     crate::acquire(&library, &environment, false)?;
     let source = crate::fetch_source(&library, &sources.join(name))?;
@@ -61,10 +70,7 @@ pub async fn compile(
     )?;
     let configuration = inventory.library.configuration;
     let captured = Arc::new(cpg_extract::acquisition::capture_receipts(
-        &inventory,
-        &budget,
-        receipts,
-        native,
+        &inventory, &budget, receipts, native,
     )?);
     let model = crate::database::model()?;
     let providers = cpg_core::facts::providers::<GenerationAttempt>(configuration);
@@ -84,18 +90,35 @@ pub async fn compile(
     let database = crate::database::Database::discover(database)?;
     let store = GenerationStore::open(database.owner().await?, model).await?;
     let importer = database.importer()?;
-    let cache = if upper.as_ref().is_some_and(|u|u.embedder.is_some()) {
+    let cache = if upper.as_ref().is_some_and(|u| u.embedder.is_some()) {
         Some(database.application().await?)
-    } else { None };
+    } else {
+        None
+    };
     let writer = match database.writer().await {
         Ok(writer) => writer,
-        Err(error) => { if let Some(cache) = &cache {cache.close().await;} return Err(error); }
+        Err(error) => {
+            if let Some(cache) = &cache {
+                cache.close().await;
+            }
+            return Err(error);
+        }
     };
     let published = match frontier {
         Frontier::Analysis | Frontier::Catalog => {
-            cpg_core::compilation::publish(&store, &importer, writer.clone(), captured,
-                &runtime, profile, configuration, prepared.as_ref().expect("upper configuration"),
-                upper.as_ref().and_then(|u|u.embedder.as_deref()), cache.clone()).await
+            cpg_core::compilation::publish(
+                &store,
+                &importer,
+                writer.clone(),
+                captured,
+                &runtime,
+                profile,
+                configuration,
+                prepared.as_ref().expect("upper configuration"),
+                upper.as_ref().and_then(|u| u.embedder.as_deref()),
+                cache.clone(),
+            )
+            .await
         }
         Frontier::Normalized => {
             cpg_core::normalize::publish(
@@ -123,17 +146,27 @@ pub async fn compile(
         Frontier::Conformance => unreachable!("not a CLI frontier"),
     };
     writer.close().await;
-    if let Some(cache) = &cache {cache.close().await;}
+    if let Some(cache) = &cache {
+        cache.close().await;
+    }
     let published = published?;
     let report = if prepared.is_some() {
-        let serving=database.serving()?;
-        let model=crate::database::model()?;
-        let session=cpg_core::generation_read::GenerationSession::open(
-            &serving,model.clone(),published.generation,
-            cpg_core::generation_read::ProviderOptions {connections:serving.provider_connections,..Default::default()}
-        ).await?;
-        Some(cpg_core::analysis_report::read(session,&model).await?)
-    } else {None};
+        let serving = database.serving()?;
+        let model = crate::database::model()?;
+        let session = cpg_core::generation_read::GenerationSession::open(
+            &serving,
+            model.clone(),
+            published.generation,
+            cpg_core::generation_read::ProviderOptions {
+                connections: serving.provider_connections,
+                ..Default::default()
+            },
+        )
+        .await?;
+        Some(cpg_core::analysis_report::read(session, &model).await?)
+    } else {
+        None
+    };
     println!(
         "{}",
         serde_json::to_string_pretty(

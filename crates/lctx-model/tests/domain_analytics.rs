@@ -1,10 +1,146 @@
-use lctx_model::domain::{*,analytics::{self,communities},normalized::entities::EntityRef,resources::ResourceBudget};
-fn id(n:u8)->Id<EntityRef>{serde_json::from_value(serde_json::json!(vec![n;16])).unwrap()}
+use lctx_model::domain::{
+    analytics::{self, communities},
+    normalized::entities::EntityRef,
+    resources::ResourceBudget,
+    *,
+};
+fn id(n: u8) -> Id<EntityRef> {
+    serde_json::from_value(serde_json::json!(vec![n; 16])).unwrap()
+}
 #[test]
-fn canonical_definitions_pin_each_method_and_every_optional_flag(){let s=analysis::settings::AnalyticsConfiguration{module_prefixes:vec!["api".into()],public_roots:vec!["api".into()],configured_seeds:vec!["api.entry".into()],depth:4,vertices:64,arcs:128,witnesses:2,brief_budget:4,communities:false,pagerank:false,fca:false,rca:false,knn:false,type_layer:false,mention_layer:false,knn_layer:false};let rows=analytics::build::METHODS.map(|m|analytics::build::definition(&s,m).unwrap().1.id());let unique=rows.into_iter().collect::<std::collections::BTreeSet<_>>();assert_eq!(unique.len(),5);assert!(analytics::build::METHODS.iter().all(|m|!analytics::build::selected(&s,*m)));let mut selected=s.clone();selected.communities=true;selected.type_layer=true;for method in analytics::build::METHODS{assert_ne!(analytics::build::definition(&selected,method).unwrap().1.id(),analytics::build::definition(&s,method).unwrap().1.id());}}
+fn canonical_definitions_pin_each_method_and_every_optional_flag() {
+    let s = analysis::settings::AnalyticsConfiguration {
+        module_prefixes: vec!["api".into()],
+        public_roots: vec!["api".into()],
+        configured_seeds: vec!["api.entry".into()],
+        depth: 4,
+        vertices: 64,
+        arcs: 128,
+        witnesses: 2,
+        brief_budget: 4,
+        communities: false,
+        pagerank: false,
+        fca: false,
+        rca: false,
+        knn: false,
+        type_layer: false,
+        mention_layer: false,
+        knn_layer: false,
+    };
+    let rows =
+        analytics::build::METHODS.map(|m| analytics::build::definition(&s, m).unwrap().1.id());
+    let unique = rows.into_iter().collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(unique.len(), 5);
+    assert!(
+        analytics::build::METHODS
+            .iter()
+            .all(|m| !analytics::build::selected(&s, *m))
+    );
+    let mut selected = s.clone();
+    selected.communities = true;
+    selected.type_layer = true;
+    for method in analytics::build::METHODS {
+        assert_ne!(
+            analytics::build::definition(&selected, method)
+                .unwrap()
+                .1
+                .id(),
+            analytics::build::definition(&s, method).unwrap().1.id()
+        );
+    }
+}
 #[test]
-fn layers_retain_checked_parallel_counts_hub_scaling_and_reservation(){let budget=ResourceBudget::fixed(1<<22).unwrap();let vertices=[id(1),id(2),id(3),id(4)];let rows=[(id(1),id(2),3),(id(2),id(1),2),(id(2),id(3),1)];let a=communities::normalize(&vertices,&rows,&budget).unwrap();assert!(budget.reserved()>0);assert_eq!(a.pairs().len(),2);assert!((a.pairs().iter().map(|p|p.weight.get()).sum::<f64>()-1.0).abs()<1e-14);let b=communities::normalize(&vertices,&rows.into_iter().rev().collect::<Vec<_>>(),&budget).unwrap();assert_eq!(a.pairs(),b.pairs());assert!(communities::normalize(&vertices,&[(id(1),id(1),1)],&budget).is_err());assert!(communities::normalize(&vertices,&[(id(1),id(5),1)],&budget).is_err());assert!(communities::normalize(&vertices,&[(id(1),id(2),u64::MAX),(id(2),id(1),1)],&budget).is_err());drop(a);drop(b);assert_eq!(budget.reserved(),0);}
+fn layers_retain_checked_parallel_counts_hub_scaling_and_reservation() {
+    let budget = ResourceBudget::fixed(1 << 22).unwrap();
+    let vertices = [id(1), id(2), id(3), id(4)];
+    let rows = [(id(1), id(2), 3), (id(2), id(1), 2), (id(2), id(3), 1)];
+    let a = communities::normalize(&vertices, &rows, &budget).unwrap();
+    assert!(budget.reserved() > 0);
+    assert_eq!(a.pairs().len(), 2);
+    assert!((a.pairs().iter().map(|p| p.weight.get()).sum::<f64>() - 1.0).abs() < 1e-14);
+    let b = communities::normalize(
+        &vertices,
+        &rows.into_iter().rev().collect::<Vec<_>>(),
+        &budget,
+    )
+    .unwrap();
+    assert_eq!(a.pairs(), b.pairs());
+    assert!(communities::normalize(&vertices, &[(id(1), id(1), 1)], &budget).is_err());
+    assert!(communities::normalize(&vertices, &[(id(1), id(5), 1)], &budget).is_err());
+    assert!(
+        communities::normalize(
+            &vertices,
+            &[(id(1), id(2), u64::MAX), (id(2), id(1), 1)],
+            &budget
+        )
+        .is_err()
+    );
+    drop(a);
+    drop(b);
+    assert_eq!(budget.reserved(), 0);
+}
 #[test]
-fn seeded_leiden_profiles_compare_nominal_membership_under_permutation(){let budget=ResourceBudget::fixed(8<<20).unwrap();let vertices=(1..=6).map(id).collect::<Vec<_>>();let edges=[(1,2),(2,3),(1,3),(4,5),(5,6),(4,6)];let pairs=edges.map(|(a,b)|communities::Pair{left:id(a),right:id(b),weight:FiniteF64::new(1.0/6.0).unwrap()});let result=communities::partition(&vertices,&pairs,100_000_000,&budget).unwrap();assert_eq!(result.runs().len(),40);assert_eq!(result.profiles().len(),4);assert!(result.chosen());let reversed=communities::partition(&vertices.iter().rev().copied().collect::<Vec<_>>(),&pairs.iter().rev().copied().collect::<Vec<_>>(),100_000_000,&budget).unwrap();assert_eq!(result.runs(),reversed.runs());assert_eq!(result.profiles(),reversed.profiles());let r=result.runs().iter().find(|r|r.resolution.get()==1.0&&r.seed==0).unwrap();assert_eq!(r.labels[0],r.labels[1]);assert_eq!(r.labels[1],r.labels[2]);assert_eq!(r.labels[3],r.labels[4]);assert_eq!(r.labels[4],r.labels[5]);assert_ne!(r.labels[0],r.labels[3]);assert!(communities::partition(&vertices,&pairs,1,&budget).is_err());assert!(communities::partition(&vertices,&pairs,100_000_000,&ResourceBudget::fixed(1).unwrap()).is_err());drop(result);drop(reversed);assert_eq!(budget.reserved(),0);}
+fn seeded_leiden_profiles_compare_nominal_membership_under_permutation() {
+    let budget = ResourceBudget::fixed(8 << 20).unwrap();
+    let vertices = (1..=6).map(id).collect::<Vec<_>>();
+    let edges = [(1, 2), (2, 3), (1, 3), (4, 5), (5, 6), (4, 6)];
+    let pairs = edges.map(|(a, b)| communities::Pair {
+        left: id(a),
+        right: id(b),
+        weight: FiniteF64::new(1.0 / 6.0).unwrap(),
+    });
+    let result = communities::partition(&vertices, &pairs, 100_000_000, &budget).unwrap();
+    assert_eq!(result.runs().len(), 40);
+    assert_eq!(result.profiles().len(), 4);
+    assert!(result.chosen());
+    let reversed = communities::partition(
+        &vertices.iter().rev().copied().collect::<Vec<_>>(),
+        &pairs.iter().rev().copied().collect::<Vec<_>>(),
+        100_000_000,
+        &budget,
+    )
+    .unwrap();
+    assert_eq!(result.runs(), reversed.runs());
+    assert_eq!(result.profiles(), reversed.profiles());
+    let r = result
+        .runs()
+        .iter()
+        .find(|r| r.resolution.get() == 1.0 && r.seed == 0)
+        .unwrap();
+    assert_eq!(r.labels[0], r.labels[1]);
+    assert_eq!(r.labels[1], r.labels[2]);
+    assert_eq!(r.labels[3], r.labels[4]);
+    assert_eq!(r.labels[4], r.labels[5]);
+    assert_ne!(r.labels[0], r.labels[3]);
+    assert!(communities::partition(&vertices, &pairs, 1, &budget).is_err());
+    assert!(
+        communities::partition(
+            &vertices,
+            &pairs,
+            100_000_000,
+            &ResourceBudget::fixed(1).unwrap()
+        )
+        .is_err()
+    );
+    drop(result);
+    drop(reversed);
+    assert_eq!(budget.reserved(), 0);
+}
 #[test]
-fn empty_and_degenerate_community_domains_do_not_invent_completed_members(){let budget=ResourceBudget::fixed(8<<20).unwrap();let empty=communities::partition(&[],&[],100,&budget).unwrap();assert!(empty.runs().is_empty());assert!(!empty.chosen());let pair=communities::Pair{left:id(1),right:id(2),weight:FiniteF64::new(1.0).unwrap()};let p=communities::partition(&[id(1),id(2)],&[pair],100_000_000,&budget).unwrap();assert!(!p.chosen());assert!(p.profiles().iter().all(|p|p.degenerate));drop(p);drop(empty);assert_eq!(budget.reserved(),0);}
+fn empty_and_degenerate_community_domains_do_not_invent_completed_members() {
+    let budget = ResourceBudget::fixed(8 << 20).unwrap();
+    let empty = communities::partition(&[], &[], 100, &budget).unwrap();
+    assert!(empty.runs().is_empty());
+    assert!(!empty.chosen());
+    let pair = communities::Pair {
+        left: id(1),
+        right: id(2),
+        weight: FiniteF64::new(1.0).unwrap(),
+    };
+    let p = communities::partition(&[id(1), id(2)], &[pair], 100_000_000, &budget).unwrap();
+    assert!(!p.chosen());
+    assert!(p.profiles().iter().all(|p| p.degenerate));
+    drop(p);
+    drop(empty);
+    assert_eq!(budget.reserved(), 0);
+}

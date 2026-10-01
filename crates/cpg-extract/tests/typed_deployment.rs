@@ -122,7 +122,14 @@ fn captured(mutation: &str) -> Arc<CapturedInputs> {
             library: 0,
         },
     );
-    Arc::new(CapturedInputs::new(vec![library, input], cpg_extract::native_context::NativeContextConfig::committed(lctx_model::domain::stages::Profile::Catalog, &lctx_model::domain::resources::ResourceBudget::fixed(1<<30).unwrap()).unwrap()))
+    Arc::new(CapturedInputs::new(
+        vec![library, input],
+        cpg_extract::native_context::NativeContextConfig::committed(
+            lctx_model::domain::stages::Profile::Catalog,
+            &lctx_model::domain::resources::ResourceBudget::fixed(1 << 30).unwrap(),
+        )
+        .unwrap(),
+    ))
 }
 #[tokio::test]
 async fn valid_report_keeps_every_field_and_duplicate_ordered_values_without_execution() {

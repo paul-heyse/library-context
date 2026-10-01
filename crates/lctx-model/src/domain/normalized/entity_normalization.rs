@@ -721,5 +721,3 @@ pub fn stage() -> stages::Stage {
         configuration: ContentHash::of(b"entities/v1"),
     }
 }
-
-

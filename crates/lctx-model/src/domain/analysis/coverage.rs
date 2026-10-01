@@ -1,9 +1,11 @@
 use crate::domain::normalized::coverage::EvidenceAvailability;
-use crate::domain::{*,source::CoverageScope,attribution::AnalysisContext};
-pub(crate) mod sealed {pub trait CoverageEvidence {}}
+use crate::domain::{attribution::AnalysisContext, source::CoverageScope, *};
+pub(crate) mod sealed {
+    pub trait CoverageEvidence {}
+}
 /// Only concrete immutable owner coverage rows implement this adapter.
-pub trait CoverageEvidence:Record+sealed::CoverageEvidence {
-    fn coverage_frame(&self)->(Id<CoverageScope>,Id<AnalysisContext>,EvidenceAvailability);
+pub trait CoverageEvidence: Record + sealed::CoverageEvidence {
+    fn coverage_frame(&self) -> (Id<CoverageScope>, Id<AnalysisContext>, EvidenceAvailability);
 }
 pub fn combine_availability(
     values: impl IntoIterator<Item = EvidenceAvailability>,

@@ -58,7 +58,7 @@ fn expand_assertion(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
     let mut fidelity: Option<syn::Path> = None;
     let mut referents: Vec<syn::Ident> = Vec::new();
     let mut derived = false;
-    let mut source:Option<syn::Path>=None;
+    let mut source: Option<syn::Path> = None;
     for attr in &input.attrs {
         if attr.path().is_ident("assertion") {
             attr.parse_nested_meta(|meta| {
@@ -71,7 +71,7 @@ fn expand_assertion(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
                 } else if meta.path.is_ident("fidelity") {
                     fidelity = Some(meta.value()?.parse()?);
                 } else if meta.path.is_ident("source") {
-                    source=Some(meta.value()?.parse()?);
+                    source = Some(meta.value()?.parse()?);
                 } else if meta.path.is_ident("derived") {
                     derived = true;
                 } else if meta.path.is_ident("referents") {
@@ -132,8 +132,18 @@ fn expand_assertion(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
     let name = &input.ident;
     let vis = &input.vis;
     let fidelity = fidelity.map(|fidelity| quote! { const FIDELITY: Option<::lctx_model::domain::attribution::Fidelity> = Some(#fidelity); });
-    let source=if derived {source.ok_or_else(||syn::Error::new_spanned(name,"derived assertion requires its nominal source type"))?} else {syn::parse_quote!(::lctx_model::domain::assertion::NoDerivedSource)};
-    let support_model = if derived { quote! { #[model(name = #table, rule = "derived_assertion_support", conclusion = assertion, invariants = ::lctx_model::domain::assertion::support_invariants::<#name, #support>)] } } else { quote! { #[model(name = #table, family = #family, invariants = ::lctx_model::domain::assertion::support_invariants::<#name, #support>)] } };
+    let source = if derived {
+        source.ok_or_else(|| {
+            syn::Error::new_spanned(name, "derived assertion requires its nominal source type")
+        })?
+    } else {
+        syn::parse_quote!(::lctx_model::domain::assertion::NoDerivedSource)
+    };
+    let support_model = if derived {
+        quote! { #[model(name = #table, rule = "derived_assertion_support", conclusion = assertion, invariants = ::lctx_model::domain::assertion::support_invariants::<#name, #support>)] }
+    } else {
+        quote! { #[model(name = #table, family = #family, invariants = ::lctx_model::domain::assertion::support_invariants::<#name, #support>)] }
+    };
     let support_fields = if derived {
         quote! {
             #[model(key, premise)] pub source: ::lctx_model::domain::Id<#source>,
@@ -218,7 +228,7 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
     let mut conclusion: Option<syn::Ident> = None;
     let mut validator: Option<syn::Path> = None;
     let mut invariants: Option<syn::Path> = None;
-    let mut publication_checks:Option<syn::Path>=None;
+    let mut publication_checks: Option<syn::Path> = None;
     let mut projection_roles: Option<syn::Path> = None;
     let mut semantic_source: Option<syn::Expr> = None;
     let mut required_support: Option<syn::Ident> = None;
@@ -398,7 +408,9 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
     let invariants = invariants
         .map(|v| quote! { #v() })
         .unwrap_or_else(|| quote! { Vec::new() });
-    let publication_checks=publication_checks.map(|v|quote! {#v()}).unwrap_or_else(||quote! {Vec::new()});
+    let publication_checks = publication_checks
+        .map(|v| quote! {#v()})
+        .unwrap_or_else(|| quote! {Vec::new()});
     let required_support = required_support.map(|support| quote! {
         vec![(::std::any::TypeId::of::<#support>(), <#support as ::lctx_model::domain::Record>::NAME)]
     }).unwrap_or_else(|| quote! { Vec::new() });
@@ -759,7 +771,12 @@ fn expand_sum(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
         );
     }
     let derivation = if let Some(rule) = rule {
-        if premise_metadata.is_empty() { return Err(syn::Error::new_spanned(&input,"proof sum requires nominal premises")); }
+        if premise_metadata.is_empty() {
+            return Err(syn::Error::new_spanned(
+                &input,
+                "proof sum requires nominal premises",
+            ));
+        }
         quote! {
             fn derivation() -> Option<::lctx_model::domain::derivation::Derivation> {
                 Some(::lctx_model::domain::derivation::Derivation { rule: #rule, conclusion: None, premises: vec![#(#premise_metadata,)*] })
@@ -769,7 +786,9 @@ fn expand_sum(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
                 Some(::lctx_model::domain::derivation::Proof { source,conclusion: source,premises: match self { #(#proof_arms,)* } })
             }
         }
-    } else { quote!() };
+    } else {
+        quote!()
+    };
     let borrow_lifetime = if physical_names.is_empty() {
         quote! {}
     } else {

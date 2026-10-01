@@ -152,7 +152,9 @@ impl VllmEmbedder {
 }
 
 impl Embedder for VllmEmbedder {
-    fn endpoint(&self) -> &str {&self.base}
+    fn endpoint(&self) -> &str {
+        &self.base
+    }
     fn spec(&self) -> &Spec {
         &self.spec
     }

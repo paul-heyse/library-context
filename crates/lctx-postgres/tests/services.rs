@@ -1,9 +1,11 @@
 //! The service baseline and the verified service owner against a disposable real PostgreSQL 18
 //! (cutover plan P1.5, T11/T12). Each control states its answer before running it.
-use cpg_schema::{
-    id::{Digest, Id},
+use cpg_schema::id::{Digest, Id};
+use lctx_model::domain::{
+    ContentHash,
+    embedding::{Spec, value::encode_vector},
+    model,
 };
-use lctx_model::domain::{model,ContentHash,embedding::{Spec,value::encode_vector}};
 use lctx_postgres::{
     CacheValue, Config, Error, OwnerPool,
     generations::GenerationStore,

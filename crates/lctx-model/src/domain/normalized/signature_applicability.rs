@@ -120,10 +120,13 @@ pub fn establish(
 ) -> Result<ApplicableSignature<'_>, attribution::ObligationKind> {
     use attribution::ObligationKind::MissingEvidence;
     let a = application;
-    let symbol=match a.destination {
-        CallDestination::Resolved{symbol} if a.dispatch_proof.is_none()=>*symbol,
-        CallDestination::Overrides{..}=>a.dispatch_proof.ok_or(attribution::ObligationKind::CallTransfer)?.symbol(),
-        _=>return Err(attribution::ObligationKind::CallTransfer),
+    let symbol = match a.destination {
+        CallDestination::Resolved { symbol } if a.dispatch_proof.is_none() => *symbol,
+        CallDestination::Overrides { .. } => a
+            .dispatch_proof
+            .ok_or(attribution::ObligationKind::CallTransfer)?
+            .symbol(),
+        _ => return Err(attribution::ObligationKind::CallTransfer),
     };
     let EntityRef::Callable { callable } = a.entity else {
         return Err(MissingEvidence);
@@ -182,12 +185,39 @@ pub fn establish(
     {
         return Err(MissingEvidence);
     }
-    if a.dispatch_proof.is_some_and(|proof|!proof.matches(a.target,a.target_resolution,a.entity.id(),context)){return Err(MissingEvidence);}
-    if a.receiver_proof.is_some_and(|proof| !proof.matches(a.target,a.call,a.variant,input,context) && !(a.dispatch_proof.is_some() && proof.matches_operation(a.target,a.call,input,context))) { return Err(MissingEvidence); }
-    let reason = if a.dispatch_proof.is_some() {AuthorityReason::DispatchOpen}else{authority(&a)};
+    if a.dispatch_proof
+        .is_some_and(|proof| !proof.matches(a.target, a.target_resolution, a.entity.id(), context))
+    {
+        return Err(MissingEvidence);
+    }
+    if a.receiver_proof.is_some_and(|proof| {
+        !proof.matches(a.target, a.call, a.variant, input, context)
+            && !(a.dispatch_proof.is_some()
+                && proof.matches_operation(a.target, a.call, input, context))
+    }) {
+        return Err(MissingEvidence);
+    }
+    let reason = if a.dispatch_proof.is_some() {
+        AuthorityReason::DispatchOpen
+    } else {
+        authority(&a)
+    };
     Ok(ApplicableSignature {
         raw: RawBinding {
-            class_of: if a.variant.adjustment == SignatureAdjustment::BindClassReceiver && a.effective.is_some_and(|e|e.identity==Knowledge::Known && e.descriptor==Knowledge::Known && e.descriptor_kind==Some(DescriptorKind::ClassMethod)) && a.target.class_method==Some(true) && a.target.static_method!=Some(true) && a.target.passing==Some(ReceiverPassing::Object) { a.receiver_proof.map(|p|p.actual()) } else {None},
+            class_of: if a.variant.adjustment == SignatureAdjustment::BindClassReceiver
+                && a.effective.is_some_and(|e| {
+                    e.identity == Knowledge::Known
+                        && e.descriptor == Knowledge::Known
+                        && e.descriptor_kind == Some(DescriptorKind::ClassMethod)
+                })
+                && a.target.class_method == Some(true)
+                && a.target.static_method != Some(true)
+                && a.target.passing == Some(ReceiverPassing::Object)
+            {
+                a.receiver_proof.map(|p| p.actual())
+            } else {
+                None
+            },
             target: a.target,
             channel: a.channel,
             receiver: a.receiver,
@@ -251,7 +281,10 @@ fn authority(a: &Application<'_>) -> AuthorityReason {
     if a.variant.adjustment != expected {
         return AuthorityReason::ReceiverDisagreement;
     }
-    if kind == DescriptorKind::ClassMethod && a.target.passing == Some(ReceiverPassing::Object) && a.receiver_proof.is_none() {
+    if kind == DescriptorKind::ClassMethod
+        && a.target.passing == Some(ReceiverPassing::Object)
+        && a.receiver_proof.is_none()
+    {
         return AuthorityReason::ObjectToClassUnsupported;
     }
     let flags = match kind {
@@ -276,7 +309,9 @@ fn authority(a: &Application<'_>) -> AuthorityReason {
         (DescriptorKind::InstanceMethod, Receiver::Bound { .. }, Some(ReceiverPassing::Object)) => {
             true
         }
-        (DescriptorKind::ClassMethod, Receiver::Unknown { .. }, Some(ReceiverPassing::Object)) => a.receiver_proof.is_some() && a.target.class_method == Some(true),
+        (DescriptorKind::ClassMethod, Receiver::Unknown { .. }, Some(ReceiverPassing::Object)) => {
+            a.receiver_proof.is_some() && a.target.class_method == Some(true)
+        }
         (DescriptorKind::ClassMethod, Receiver::Bound { .. }, Some(ReceiverPassing::Class)) => true,
         (DescriptorKind::ClassMethod, Receiver::Bound { .. }, None) => {
             a.target.class_method == Some(true)

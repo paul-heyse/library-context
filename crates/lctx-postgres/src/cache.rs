@@ -2,7 +2,10 @@ use std::collections::BTreeMap;
 
 use super::{Error, Store};
 use lctx_model::domain::embedding::{Spec, check_vector};
-use lctx_model::domain::{ContentHash, embedding::value::{VALUE_CODEC, decode_vector, encode_vector, value_digest}};
+use lctx_model::domain::{
+    ContentHash,
+    embedding::value::{VALUE_CODEC, decode_vector, encode_vector, value_digest},
+};
 
 #[derive(Clone, Debug)]
 pub struct CacheValue {

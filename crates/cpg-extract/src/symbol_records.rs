@@ -176,7 +176,10 @@ pub struct SymbolRecords {
     pub sequences: Vec<(SymbolSequence, Vec<SymbolSequenceMember>)>,
     pub shapes: Vec<ParameterShape>,
     pub signatures: Vec<(Signature, Vec<SignatureParameter>)>,
-    pub enumerations: Vec<(SignatureEnumerationObservation, Vec<SignatureEnumerationMember>)>,
+    pub enumerations: Vec<(
+        SignatureEnumerationObservation,
+        Vec<SignatureEnumerationMember>,
+    )>,
     enumeration_charge: lctx_model::domain::charged::StateCharge,
     pub annotations: Vec<ParameterAnnotationObservation>,
     pub declarations: Vec<SymbolDeclaration>,
@@ -223,27 +226,58 @@ pub fn top_level(definitions: &PysaModuleDefinitions, name: &str) -> Vec<String>
 }
 
 /// Native definition keys by their exact lexical class/function path.
-fn qualified_names(definitions:&PysaModuleDefinitions) -> BTreeMap<String,String> {
-    let mut nodes=BTreeMap::new();
-    for (id,class) in &definitions.class_definitions { nodes.insert(id.to_int().to_string(),(class.name.clone(),parent_key(&class.parent))); }
-    for (id,function) in definitions.function_definitions.as_map() { nodes.insert(id.serialize_to_string(),(function.base.name.to_string(),parent_key(&function.base.parent))); }
-    let mut result=BTreeMap::new();
+fn qualified_names(definitions: &PysaModuleDefinitions) -> BTreeMap<String, String> {
+    let mut nodes = BTreeMap::new();
+    for (id, class) in &definitions.class_definitions {
+        nodes.insert(
+            id.to_int().to_string(),
+            (class.name.clone(), parent_key(&class.parent)),
+        );
+    }
+    for (id, function) in definitions.function_definitions.as_map() {
+        nodes.insert(
+            id.serialize_to_string(),
+            (
+                function.base.name.to_string(),
+                parent_key(&function.base.parent),
+            ),
+        );
+    }
+    let mut result = BTreeMap::new();
     for key in nodes.keys() {
-        let mut parts=vec![];let mut at=Some(key.clone());let mut seen=BTreeSet::new();
-        while let Some(current)=at {
-            if !seen.insert(current.clone()) { parts.clear();break; }
-            let Some((name,parent))=nodes.get(&current) else { parts.clear();break; };
-            parts.push(name.clone());at=parent.clone();
+        let mut parts = vec![];
+        let mut at = Some(key.clone());
+        let mut seen = BTreeSet::new();
+        while let Some(current) = at {
+            if !seen.insert(current.clone()) {
+                parts.clear();
+                break;
+            }
+            let Some((name, parent)) = nodes.get(&current) else {
+                parts.clear();
+                break;
+            };
+            parts.push(name.clone());
+            at = parent.clone();
         }
-        if !parts.is_empty() { parts.reverse();result.insert(key.clone(),parts.join(".")); }
+        if !parts.is_empty() {
+            parts.reverse();
+            result.insert(key.clone(), parts.join("."));
+        }
     }
     result
 }
-pub fn qualified(definitions:&PysaModuleDefinitions,name:&str) -> Vec<String> {
-    qualified_names(definitions).into_iter().filter_map(|(key,n)| (n==name).then_some(key)).collect()
+pub fn qualified(definitions: &PysaModuleDefinitions, name: &str) -> Vec<String> {
+    qualified_names(definitions)
+        .into_iter()
+        .filter_map(|(key, n)| (n == name).then_some(key))
+        .collect()
 }
-pub fn class_keys(definitions:&PysaModuleDefinitions) -> impl Iterator<Item=String> + '_ {
-    definitions.class_definitions.keys().map(|id|id.to_int().to_string())
+pub fn class_keys(definitions: &PysaModuleDefinitions) -> impl Iterator<Item = String> + '_ {
+    definitions
+        .class_definitions
+        .keys()
+        .map(|id| id.to_int().to_string())
 }
 
 /// The records of `definitions`, the module `module`. `complete` states, per class id, whether its
@@ -268,7 +302,10 @@ pub fn records(
 ) -> Result<SymbolRecords, ModelError> {
     let q = qualification.id();
     let mut out = SymbolRecords {
-        enumeration_charge: lctx_model::domain::charged::StateCharge::new(budget, "native-signature-enumerations"),
+        enumeration_charge: lctx_model::domain::charged::StateCharge::new(
+            budget,
+            "native-signature-enumerations",
+        ),
         ..Default::default()
     };
     // Which definitions are stated: all, or the kept ones and every definition enclosing them.
@@ -328,10 +365,15 @@ pub fn records(
             );
         }
     }
-    let qualified=qualified_names(definitions);
-    for (key,name) in qualified {
-        let symbol=classes.iter().find_map(|(id,s)| (id.to_string()==key).then_some(*s)).or_else(||functions.get(&key).copied());
-        if let Some(symbol)=symbol { natives.definition(module,name,symbol)?; }
+    let qualified = qualified_names(definitions);
+    for (key, name) in qualified {
+        let symbol = classes
+            .iter()
+            .find_map(|(id, s)| (id.to_string() == key).then_some(*s))
+            .or_else(|| functions.get(&key).copied());
+        if let Some(symbol) = symbol {
+            natives.definition(module, name, symbol)?;
+        }
     }
     let parent = |scope: &ScopeParent| -> Result<Option<Id<ProviderSymbol>>, ModelError> {
         Ok(match scope {
@@ -450,7 +492,7 @@ pub fn records(
             }
             PysaClassMro::Cyclic => (vec![], Linearization::Cyclic),
         };
-        natives.linearization(symbol,linearization)?;
+        natives.linearization(symbol, linearization)?;
         for (relation, ancestors, linearization) in [
             (AncestryRelation::Bases, bases, None),
             (AncestryRelation::Mro, mro, Some(linearization)),
@@ -528,7 +570,8 @@ pub fn records(
             return Err(invalid("native signature enumeration work limit".into()));
         }
         // Reserve new header/member storage before allocation; keep it through emission.
-        out.enumeration_charge.grow(512 + count * (2 * size_of::<SignatureEnumerationMember>() + 32))?;
+        out.enumeration_charge
+            .grow(512 + count * (2 * size_of::<SignatureEnumerationMember>() + 32))?;
         for (variant, signature) in function.undecorated_signatures.iter().enumerate() {
             let (form, formals) = formals(&signature.parameters);
             let shapes: Vec<ParameterShape> = formals.iter().map(|f| f.shape.clone()).collect();
@@ -605,7 +648,12 @@ pub fn records(
             out.signatures.push((row, members));
         }
         out.enumerations.push(SignatureEnumerationObservation::new(
-            qualification, symbol, out.signatures[enumeration_start..].iter().map(|(signature, _)| signature), true,
+            qualification,
+            symbol,
+            out.signatures[enumeration_start..]
+                .iter()
+                .map(|(signature, _)| signature),
+            true,
         )?);
     }
     Ok(out)

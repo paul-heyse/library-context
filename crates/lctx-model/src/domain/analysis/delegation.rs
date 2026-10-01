@@ -55,20 +55,46 @@ pub struct Step {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StepEvidence {
-    Call { event: Id<NormalizedCallEvent>, site: Id<Occurrence>, phase: CallPhase,
-        qualification: Id<assertion::AssertionQualification>, modality: Modality, derived_dispatch: bool },
-    Declaration { owner: Id<OccurrenceOwnership>, declaration: Id<Occurrence>, callable: Id<CallableEntity> },
+    Call {
+        event: Id<NormalizedCallEvent>,
+        site: Id<Occurrence>,
+        phase: CallPhase,
+        qualification: Id<assertion::AssertionQualification>,
+        modality: Modality,
+        derived_dispatch: bool,
+    },
+    Declaration {
+        owner: Id<OccurrenceOwnership>,
+        declaration: Id<Occurrence>,
+        callable: Id<CallableEntity>,
+    },
 }
 impl Step {
     fn definite_call(self) -> bool {
         matches!(self.arc, ArcId::Invocation(_))
-            && matches!(self.evidence,StepEvidence::Call {modality:Modality::Definite,derived_dispatch:false,..})
+            && matches!(
+                self.evidence,
+                StepEvidence::Call {
+                    modality: Modality::Definite,
+                    derived_dispatch: false,
+                    ..
+                }
+            )
     }
     pub fn derived_dispatch(self) -> bool {
-        matches!(self.evidence, StepEvidence::Call {derived_dispatch:true,..})
+        matches!(
+            self.evidence,
+            StepEvidence::Call {
+                derived_dispatch: true,
+                ..
+            }
+        )
     }
     fn site(self) -> Id<Occurrence> {
-        match self.evidence {StepEvidence::Call {site,..}=>site,StepEvidence::Declaration {declaration,..}=>declaration}
+        match self.evidence {
+            StepEvidence::Call { site, .. } => site,
+            StepEvidence::Declaration { declaration, .. } => declaration,
+        }
     }
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -134,13 +160,26 @@ impl Inputs<'_> {
         arc: Arc,
         context: Id<attribution::AnalysisContext>,
     ) -> Result<Step, ModelError> {
-        if let ArcId::SourceDefinition(id)=arc.id {
-            let owner=need(&self.data.owners,id)?;
-            let EntityRef::Callable {callable}=need(&self.data.refs,arc.target)? else {return Err(invalid("definition target is not a callable"));};
-            if owner.entity!=arc.source || !matches!(need(&self.data.callables,*callable)?,CallableEntity::Source {declaration,..} if *declaration==owner.occurrence) {
+        if let ArcId::SourceDefinition(id) = arc.id {
+            let owner = need(&self.data.owners, id)?;
+            let EntityRef::Callable { callable } = need(&self.data.refs, arc.target)? else {
+                return Err(invalid("definition target is not a callable"));
+            };
+            if owner.entity != arc.source
+                || !matches!(need(&self.data.callables,*callable)?,CallableEntity::Source {declaration,..} if *declaration==owner.occurrence)
+            {
                 return Err(invalid("definition graph and canonical declaration differ"));
             }
-            return Ok(Step {arc:arc.id,source:arc.source,target:arc.target,evidence:StepEvidence::Declaration {owner:id,declaration:owner.occurrence,callable:*callable}});
+            return Ok(Step {
+                arc: arc.id,
+                source: arc.source,
+                target: arc.target,
+                evidence: StepEvidence::Declaration {
+                    owner: id,
+                    declaration: owner.occurrence,
+                    callable: *callable,
+                },
+            });
         }
         let alternative = match arc.id {
             ArcId::Invocation(id) | ArcId::Definition(id) => need(&self.data.alternatives, id)?,
@@ -156,8 +195,9 @@ impl Inputs<'_> {
             || alternative.entity != Some(arc.target)
             || raw.site != event.site
             || raw.origin != event.origin
-            || (matches!(arc.id, ArcId::Definition(_)) && !matches!(raw.phase,CallPhase::Definition|CallPhase::Decorator))
-            || (matches!(arc.id, ArcId::Invocation(_)) && raw.phase==CallPhase::Definition)
+            || (matches!(arc.id, ArcId::Definition(_))
+                && !matches!(raw.phase, CallPhase::Definition | CallPhase::Decorator))
+            || (matches!(arc.id, ArcId::Invocation(_)) && raw.phase == CallPhase::Definition)
         {
             return Err(invalid("delegation graph and canonical event differ"));
         }
@@ -165,12 +205,14 @@ impl Inputs<'_> {
             arc: arc.id,
             source: arc.source,
             target: arc.target,
-            evidence: StepEvidence::Call { event: event.id(),
-            site: event.site,
-            phase: raw.phase,
-            qualification: raw.qualification,
-            modality: qualification.modality,
-            derived_dispatch: matches!(source, CallAlternativeSource::DerivedDispatch { .. }) },
+            evidence: StepEvidence::Call {
+                event: event.id(),
+                site: event.site,
+                phase: raw.phase,
+                qualification: raw.qualification,
+                modality: qualification.modality,
+                derived_dispatch: matches!(source, CallAlternativeSource::DerivedDispatch { .. }),
+            },
         })
     }
     fn boundary(
@@ -201,11 +243,11 @@ impl Inputs<'_> {
                 need(&self.data.modules, *module)?.source
             }
         };
-        let artifact_input=need(&self.data.artifacts,artifact)?.input;
-        let role = self
-            .uses
-            .iter()
-            .filter(|u| (u.input == self.invocation.key().input || u.input==artifact_input) && u.artifact == artifact);
+        let artifact_input = need(&self.data.artifacts, artifact)?.input;
+        let role = self.uses.iter().filter(|u| {
+            (u.input == self.invocation.key().input || u.input == artifact_input)
+                && u.artifact == artifact
+        });
         let mut release = false;
         let mut observed = false;
         for usage in role {
@@ -215,7 +257,9 @@ impl Inputs<'_> {
             }
             release |= usage.role == SourceRole::Release;
         }
-        if artifact_input!=self.invocation.key().input {return Ok(Some(Boundary::External));}
+        if artifact_input != self.invocation.key().input {
+            return Ok(Some(Boundary::External));
+        }
         if !observed {
             return Err(invalid("delegation source role is absent"));
         }
@@ -330,10 +374,12 @@ impl Inputs<'_> {
                         }
                     }
                     if let Some(node) = definition_nodes.get(&id) {
-                        for edge in definitions
-                            .edges(*node)
-                            .filter(|e| matches!(e.weight(), ArcId::Definition(_) | ArcId::SourceDefinition(_)))
-                        {
+                        for edge in definitions.edges(*node).filter(|e| {
+                            matches!(
+                                e.weight(),
+                                ArcId::Definition(_) | ArcId::SourceDefinition(_)
+                            )
+                        }) {
                             rows.push(self.step(
                                 Arc {
                                     id: *edge.weight(),

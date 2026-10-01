@@ -23,7 +23,9 @@ pub(crate) struct Contract {
     behavioral: bool,
 }
 impl Contract {
-    fn needs_native(self)->bool {self.scopes.iter().any(|s|!s.native.is_empty())}
+    fn needs_native(self) -> bool {
+        self.scopes.iter().any(|s| !s.native.is_empty())
+    }
 }
 pub(crate) fn contract(
     method: AnalysisMethod,
@@ -70,28 +72,136 @@ pub(crate) fn contract(
             }],
             true,
         ),
-(AnalysisMethod::Models,AnalysisCapability::Models) | (AnalysisMethod::SourceCalls,AnalysisCapability::Execution) | (AnalysisMethod::EnrichedExecution,AnalysisCapability::Execution) => (&[ScopeContract {grain:Artifact(PythonSource),native:&[FactFamily::Syntax,FactFamily::Signatures,FactFamily::Lexical,FactFamily::Flow],normalized:&[Capability::Symbols,Capability::Callables,Capability::Calls,Capability::Bindings,Capability::FlowEvents]}],true),
+        (AnalysisMethod::Models, AnalysisCapability::Models)
+        | (AnalysisMethod::SourceCalls, AnalysisCapability::Execution)
+        | (AnalysisMethod::EnrichedExecution, AnalysisCapability::Execution) => (
+            &[ScopeContract {
+                grain: Artifact(PythonSource),
+                native: &[
+                    FactFamily::Syntax,
+                    FactFamily::Signatures,
+                    FactFamily::Lexical,
+                    FactFamily::Flow,
+                ],
+                normalized: &[
+                    Capability::Symbols,
+                    Capability::Callables,
+                    Capability::Calls,
+                    Capability::Bindings,
+                    Capability::FlowEvents,
+                ],
+            }],
+            true,
+        ),
         (AnalysisMethod::Summaries, AnalysisCapability::Summaries) => (
-            &[ScopeContract {grain:Artifact(PythonSource),native:&[FactFamily::Syntax,FactFamily::Signatures,FactFamily::Lexical,FactFamily::Flow],normalized:&[Capability::Symbols,Capability::Callables,Capability::Calls,Capability::Bindings,Capability::FlowLinks,Capability::FlowEvents]},ScopeContract {grain:Input,native:&[],normalized:&[Capability::InvocationProjection]}],true,
+            &[
+                ScopeContract {
+                    grain: Artifact(PythonSource),
+                    native: &[
+                        FactFamily::Syntax,
+                        FactFamily::Signatures,
+                        FactFamily::Lexical,
+                        FactFamily::Flow,
+                    ],
+                    normalized: &[
+                        Capability::Symbols,
+                        Capability::Callables,
+                        Capability::Calls,
+                        Capability::Bindings,
+                        Capability::FlowLinks,
+                        Capability::FlowEvents,
+                    ],
+                },
+                ScopeContract {
+                    grain: Input,
+                    native: &[],
+                    normalized: &[Capability::InvocationProjection],
+                },
+            ],
+            true,
         ),
         (AnalysisMethod::Delegation, AnalysisCapability::Delegation) => (
-            &[ScopeContract {grain:Artifact(PythonSource),native:&[],normalized:&[Capability::Symbols,Capability::PublicExposure,Capability::Callables]},ScopeContract {grain:Input,native:&[],normalized:&[Capability::InvocationProjection,Capability::DefinitionProjection]}],false,
+            &[
+                ScopeContract {
+                    grain: Artifact(PythonSource),
+                    native: &[],
+                    normalized: &[
+                        Capability::Symbols,
+                        Capability::PublicExposure,
+                        Capability::Callables,
+                    ],
+                },
+                ScopeContract {
+                    grain: Input,
+                    native: &[],
+                    normalized: &[
+                        Capability::InvocationProjection,
+                        Capability::DefinitionProjection,
+                    ],
+                },
+            ],
+            false,
         ),
         (AnalysisMethod::Controls, AnalysisCapability::Controls) => (
-            &[ScopeContract {grain:Artifact(PythonSource),native:&[FactFamily::Syntax,FactFamily::Flow],normalized:&[Capability::Calls,Capability::Bindings,Capability::Callables,Capability::FlowEvents]}],true,
+            &[ScopeContract {
+                grain: Artifact(PythonSource),
+                native: &[FactFamily::Syntax, FactFamily::Flow],
+                normalized: &[
+                    Capability::Calls,
+                    Capability::Bindings,
+                    Capability::Callables,
+                    Capability::FlowEvents,
+                ],
+            }],
+            true,
         ),
         (AnalysisMethod::Handoffs, AnalysisCapability::Handoffs) => (
-            &[ScopeContract {grain:Artifact(PythonSource),native:&[FactFamily::Syntax],normalized:&[Capability::Calls,Capability::Bindings,Capability::Callables,Capability::PublicExposure]}],false,
+            &[ScopeContract {
+                grain: Artifact(PythonSource),
+                native: &[FactFamily::Syntax],
+                normalized: &[
+                    Capability::Calls,
+                    Capability::Bindings,
+                    Capability::Callables,
+                    Capability::PublicExposure,
+                ],
+            }],
+            false,
         ),
         (AnalysisMethod::DirectUsage, AnalysisCapability::DirectUsage) => (
-            &[ScopeContract {grain:Artifact(PythonSource),native:&[],normalized:&[Capability::Calls,Capability::Callables,Capability::PublicExposure]}],false,
+            &[ScopeContract {
+                grain: Artifact(PythonSource),
+                native: &[],
+                normalized: &[
+                    Capability::Calls,
+                    Capability::Callables,
+                    Capability::PublicExposure,
+                ],
+            }],
+            false,
         ),
         (AnalysisMethod::PageRank, AnalysisCapability::PageRank)
         | (AnalysisMethod::Communities, AnalysisCapability::Communities)
         | (AnalysisMethod::Concepts, AnalysisCapability::Concepts)
         | (AnalysisMethod::RelationalConcepts, AnalysisCapability::RelationalConcepts)
         | (AnalysisMethod::Neighbours, AnalysisCapability::Neighbours) => (
-            &[ScopeContract{grain:Artifact(PythonSource),native:&[],normalized:&[Capability::Symbols,Capability::Callables,Capability::PublicExposure]},ScopeContract{grain:Input,native:&[],normalized:&[Capability::InvocationProjection]}],false,
+            &[
+                ScopeContract {
+                    grain: Artifact(PythonSource),
+                    native: &[],
+                    normalized: &[
+                        Capability::Symbols,
+                        Capability::Callables,
+                        Capability::PublicExposure,
+                    ],
+                },
+                ScopeContract {
+                    grain: Input,
+                    native: &[],
+                    normalized: &[Capability::InvocationProjection],
+                },
+            ],
+            false,
         ),
         (AnalysisMethod::Catalog, AnalysisCapability::Catalog) => (
             &[ScopeContract {
@@ -192,7 +302,9 @@ pub(crate) fn method_contract(method: AnalysisMethod) -> Result<Contract, ModelE
     let capability = match method {
         AnalysisMethod::LocalTransfers => AnalysisCapability::Transfers,
         AnalysisMethod::Execution => AnalysisCapability::Execution,
-AnalysisMethod::SourceCalls | AnalysisMethod::EnrichedExecution=>AnalysisCapability::Execution,
+        AnalysisMethod::SourceCalls | AnalysisMethod::EnrichedExecution => {
+            AnalysisCapability::Execution
+        }
         AnalysisMethod::Completion => AnalysisCapability::Completion,
         AnalysisMethod::Models => AnalysisCapability::Models,
         AnalysisMethod::Summaries => AnalysisCapability::Summaries,
@@ -219,9 +331,9 @@ AnalysisMethod::SourceCalls | AnalysisMethod::EnrichedExecution=>AnalysisCapabil
     };
     contract(method, capability)
 }
-pub(crate) fn inputs(method:AnalysisMethod)->Vec<ValidationInput> {
-    let contract=method_contract(method).expect("bound method has a finite expected contract");
-    let mut inputs=vec![
+pub(crate) fn inputs(method: AnalysisMethod) -> Vec<ValidationInput> {
+    let contract = method_contract(method).expect("bound method has a finite expected contract");
+    let mut inputs = vec![
         ValidationInput::of::<InputRevision>(&["id"]),
         ValidationInput::of::<SourceArtifact>(&["id"]),
         ValidationInput::of::<ArtifactUse>(&["id"]),
@@ -229,9 +341,19 @@ pub(crate) fn inputs(method:AnalysisMethod)->Vec<ValidationInput> {
         ValidationInput::of::<NormalizationComputation>(&["id"]),
         ValidationInput::of::<NormalizationCoverage>(&["id"]),
     ];
-    if contract.needs_native() {inputs.push(ValidationInput::of::<ProviderCoverage>(&["id"]));}
-    if method==AnalysisMethod::AnalyticEmbedding {inputs.push(ValidationInput::of::<embedding::text::TextDefinition>(&["id"]));}
-    if crate::domain::analytics::build::METHODS.contains(&method) {inputs.push(ValidationInput::of::<crate::domain::analysis::settings::AnalyticsConfiguration>(&["id"]));}
+    if contract.needs_native() {
+        inputs.push(ValidationInput::of::<ProviderCoverage>(&["id"]));
+    }
+    if method == AnalysisMethod::AnalyticEmbedding {
+        inputs.push(ValidationInput::of::<embedding::text::TextDefinition>(&[
+            "id",
+        ]));
+    }
+    if crate::domain::analytics::build::METHODS.contains(&method) {
+        inputs.push(ValidationInput::of::<
+            crate::domain::analysis::settings::AnalyticsConfiguration,
+        >(&["id"]));
+    }
     inputs
 }
 pub(crate) struct FrontierIndex {
@@ -244,8 +366,11 @@ pub(crate) struct FrontierIndex {
     computations: charged::ChargedMap<Id<NormalizationComputation>, NormalizationComputation>,
     normalized: charged::ChargedMap<Id<NormalizationCoverage>, NormalizationCoverage>,
     native: charged::ChargedMap<Id<ProviderCoverage>, ProviderCoverage>,
-    analytics: charged::ChargedMap<Id<crate::domain::analysis::settings::AnalyticsConfiguration>,crate::domain::analysis::settings::AnalyticsConfiguration>,
-    text: charged::ChargedMap<Id<embedding::text::TextDefinition>,embedding::text::TextDefinition>,
+    analytics: charged::ChargedMap<
+        Id<crate::domain::analysis::settings::AnalyticsConfiguration>,
+        crate::domain::analysis::settings::AnalyticsConfiguration,
+    >,
+    text: charged::ChargedMap<Id<embedding::text::TextDefinition>, embedding::text::TextDefinition>,
 }
 impl FrontierIndex {
     pub(crate) fn set_profile(&mut self, profile: Profile) {
@@ -262,8 +387,8 @@ impl FrontierIndex {
             computations: Default::default(),
             normalized: Default::default(),
             native: Default::default(),
-            analytics:Default::default(),
-            text:Default::default(),
+            analytics: Default::default(),
+            text: Default::default(),
         }
     }
     pub(crate) fn visit(
@@ -294,8 +419,11 @@ impl FrontierIndex {
         insert!(NormalizationComputation, computations);
         insert!(NormalizationCoverage, normalized);
         insert!(ProviderCoverage, native);
-        insert!(embedding::text::TextDefinition,text);
-        insert!(crate::domain::analysis::settings::AnalyticsConfiguration,analytics);
+        insert!(embedding::text::TextDefinition, text);
+        insert!(
+            crate::domain::analysis::settings::AnalyticsConfiguration,
+            analytics
+        );
         Ok(false)
     }
     pub(crate) fn domain(
@@ -365,23 +493,61 @@ impl FrontierIndex {
         let roots = admission::analysis_roots(&artifacts, &uses)?;
         let mut selected = charged::ChargedMap::default();
         let mut charge = charged::StateCharge::new(budget, "analysis_expected_scopes");
-        for (ordinal,scope_contract) in contract.scopes.iter().enumerate() {
-            let mut add=|scope:CoverageScope|->Result<(),ModelError> {
-                if self.scopes.get(&scope.id())!=Some(&scope) {return Err(invalid("expected captured scope absent"));}
-                if selected.insert(&mut charge,scope.id(),(scope,ordinal))?.is_some() {return Err(invalid("overlapping expected scope contracts"));}Ok(())
+        for (ordinal, scope_contract) in contract.scopes.iter().enumerate() {
+            let mut add = |scope: CoverageScope| -> Result<(), ModelError> {
+                if self.scopes.get(&scope.id()) != Some(&scope) {
+                    return Err(invalid("expected captured scope absent"));
+                }
+                if selected
+                    .insert(&mut charge, scope.id(), (scope, ordinal))?
+                    .is_some()
+                {
+                    return Err(invalid("overlapping expected scope contracts"));
+                }
+                Ok(())
             };
             match scope_contract.grain {
-                admission::Grain::Input=>add(CoverageScope::Input {input})?,
-                admission::Grain::Artifact(class)=>for artifact in self.artifacts.values().filter(|r|r.input==input && roots.contains(&r.id()) && admission::ArtifactClass::of(&r.path)==Some(class)) {add(CoverageScope::Artifact {artifact:artifact.id()})?;},
+                admission::Grain::Input => add(CoverageScope::Input { input })?,
+                admission::Grain::Artifact(class) => {
+                    for artifact in self.artifacts.values().filter(|r| {
+                        r.input == input
+                            && roots.contains(&r.id())
+                            && admission::ArtifactClass::of(&r.path) == Some(class)
+                    }) {
+                        add(CoverageScope::Artifact {
+                            artifact: artifact.id(),
+                        })?;
+                    }
+                }
             }
         }
-        let requested=if contract.method==AnalysisMethod::AnalyticEmbedding {
-            if self.text.len()!=1 {return Err(invalid("analytic embedding requires one completed text definition"));}
-            self.text.values().next().expect("one text definition").requested
-        }else if crate::domain::analytics::build::METHODS.contains(&contract.method) {
-            if self.analytics.len()!=1 {return Err(invalid("optional analytics requires one immutable configuration"));}
-            crate::domain::analytics::build::selected(self.analytics.values().next().expect("one analytics configuration"),contract.method)
-        }else {!contract.behavioral || self.profile==Profile::Behavioral};
+        let requested = if contract.method == AnalysisMethod::AnalyticEmbedding {
+            if self.text.len() != 1 {
+                return Err(invalid(
+                    "analytic embedding requires one completed text definition",
+                ));
+            }
+            self.text
+                .values()
+                .next()
+                .expect("one text definition")
+                .requested
+        } else if crate::domain::analytics::build::METHODS.contains(&contract.method) {
+            if self.analytics.len() != 1 {
+                return Err(invalid(
+                    "optional analytics requires one immutable configuration",
+                ));
+            }
+            crate::domain::analytics::build::selected(
+                self.analytics
+                    .values()
+                    .next()
+                    .expect("one analytics configuration"),
+                contract.method,
+            )
+        } else {
+            !contract.behavioral || self.profile == Profile::Behavioral
+        };
         if selected.is_empty() {
             let scope = CoverageScope::Input { input };
             if self.scopes.get(&scope.id()) != Some(&scope) {
@@ -407,8 +573,8 @@ impl FrontierIndex {
                 .ok_or_else(|| invalid("expected scope output allocation overflow"))?,
         )?;
         let mut out = Vec::with_capacity(selected.len());
-        for (scope,(_,ordinal)) in selected.iter() {
-            let scope_contract=&contract.scopes[*ordinal];
+        for (scope, (_, ordinal)) in selected.iter() {
+            let scope_contract = &contract.scopes[*ordinal];
             let mut native = Vec::new();
             let mut normalized = Vec::new();
             for family in scope_contract.native {
@@ -539,26 +705,171 @@ impl<'a> CoverageAdmission<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::{attribution::{Provider,ProviderRun,CoverageStatus},input::{ManifestEntry,SourceRole},normalized::coverage::EvidenceAvailability,embedding::text::TextDefinition};
-    struct Fixture {index:FrontierIndex,input:Id<InputRevision>,context:Id<AnalysisContext>,python:Id<CoverageScope>,document:Id<CoverageScope>,root:Id<CoverageScope>,budget:resources::ResourceBudget}
-    fn visit<R:Record>(index:&mut FrontierIndex,rows:&[R]) {assert!(index.visit(R::NAME,&R::encode(rows).unwrap()).unwrap());}
-    fn fixture()->Fixture {fixture_profile(Profile::Catalog)}
-    fn fixture_profile(profile:Profile)->Fixture {
-        let budget=resources::ResourceBudget::fixed(1<<24).unwrap();let mut index=FrontierIndex::new(profile,&budget);
-        let input=InputRevision::from_entries([("api.py",b"x=1\n".as_slice()),("guide.md",b"# Guide\n".as_slice()),("pyproject.toml",b"[project]\n".as_slice())].into_iter().map(|(path,bytes)|ManifestEntry {path:path.into(),content:ContentHash::of(bytes),byte_len:bytes.len() as i64}).collect()).unwrap();
-        let context=AnalysisContext {python_version:"3.14.7".into(),python_platform:"linux".into(),search_path:vec![],site_package_path:vec![],config_digest:ContentHash::of(b"finite-grain-control"),environment_digest:input.manifest,lock_digest:None};
-        let provider=Provider {tool:"contract-fixture".into(),revision:"1".into(),build_digest:ContentHash::of(b"contract")};
-        let (run,_)=ProviderRun::new(provider.id(),context.id(),input.id(),context.config_digest,[FactFamily::Syntax,FactFamily::Signatures,FactFamily::Docs,FactFamily::Deployment]).unwrap();
-        let artifacts=[("api.py",b"x=1\n".as_slice(),SourceRole::Release),("guide.md",b"# Guide\n".as_slice(),SourceRole::Document),("pyproject.toml",b"[project]\n".as_slice(),SourceRole::Configuration)].map(|(path,bytes,role)|(SourceArtifact::from_bytes(input.id(),path.into(),bytes).unwrap(),role));
-        visit(&mut index,std::slice::from_ref(&input));
-        for (artifact,role) in &artifacts {visit(&mut index,std::slice::from_ref(artifact));visit(&mut index,&[ArtifactUse {input:input.id(),artifact:artifact.id(),role:*role}]);visit(&mut index,&[CoverageScope::Artifact {artifact:artifact.id()}]);}
-        let python=CoverageScope::Artifact {artifact:artifacts[0].0.id()}.id();let document=CoverageScope::Artifact {artifact:artifacts[1].0.id()}.id();let root=CoverageScope::Input {input:input.id()};visit(&mut index,std::slice::from_ref(&root));
-        for (scope,family) in [(python,FactFamily::Syntax),(python,FactFamily::Signatures),(document,FactFamily::Docs),(root.id(),FactFamily::Deployment)] {visit(&mut index,&[ProviderCoverage {scope,provider:Some(provider.id()),context:context.id(),family,run:Some(run.id()),status:CoverageStatus::CompleteUnderStatedModel,reason:None,diagnostic:None}]);}
-        for (scope,capability) in [(python,Capability::Symbols),(python,Capability::References),(python,Capability::Callables),(python,Capability::Calls),(python,Capability::Bindings),(document,Capability::Mentions)] {
-            let computation=NormalizationComputation {capability,policy:ContentHash::of(b"normalization-contract"),producer:"contract".into(),declaration:ContentHash::of(b"normalization-contract"),profile:profile.name().into(),availability:EvidenceAvailability::Complete};
-            visit(&mut index,std::slice::from_ref(&computation));visit(&mut index,&[NormalizationCoverage {computation:computation.id(),scope,context:context.id(),availability:EvidenceAvailability::Complete}]);
+    use crate::domain::{
+        attribution::{CoverageStatus, Provider, ProviderRun},
+        embedding::text::TextDefinition,
+        input::{ManifestEntry, SourceRole},
+        normalized::coverage::EvidenceAvailability,
+    };
+    struct Fixture {
+        index: FrontierIndex,
+        input: Id<InputRevision>,
+        context: Id<AnalysisContext>,
+        python: Id<CoverageScope>,
+        document: Id<CoverageScope>,
+        root: Id<CoverageScope>,
+        budget: resources::ResourceBudget,
+    }
+    fn visit<R: Record>(index: &mut FrontierIndex, rows: &[R]) {
+        assert!(index.visit(R::NAME, &R::encode(rows).unwrap()).unwrap());
+    }
+    fn fixture() -> Fixture {
+        fixture_profile(Profile::Catalog)
+    }
+    fn fixture_profile(profile: Profile) -> Fixture {
+        let budget = resources::ResourceBudget::fixed(1 << 24).unwrap();
+        let mut index = FrontierIndex::new(profile, &budget);
+        let input = InputRevision::from_entries(
+            [
+                ("api.py", b"x=1\n".as_slice()),
+                ("guide.md", b"# Guide\n".as_slice()),
+                ("pyproject.toml", b"[project]\n".as_slice()),
+            ]
+            .into_iter()
+            .map(|(path, bytes)| ManifestEntry {
+                path: path.into(),
+                content: ContentHash::of(bytes),
+                byte_len: bytes.len() as i64,
+            })
+            .collect(),
+        )
+        .unwrap();
+        let context = AnalysisContext {
+            python_version: "3.14.7".into(),
+            python_platform: "linux".into(),
+            search_path: vec![],
+            site_package_path: vec![],
+            config_digest: ContentHash::of(b"finite-grain-control"),
+            environment_digest: input.manifest,
+            lock_digest: None,
+        };
+        let provider = Provider {
+            tool: "contract-fixture".into(),
+            revision: "1".into(),
+            build_digest: ContentHash::of(b"contract"),
+        };
+        let (run, _) = ProviderRun::new(
+            provider.id(),
+            context.id(),
+            input.id(),
+            context.config_digest,
+            [
+                FactFamily::Syntax,
+                FactFamily::Signatures,
+                FactFamily::Docs,
+                FactFamily::Deployment,
+            ],
+        )
+        .unwrap();
+        let artifacts = [
+            ("api.py", b"x=1\n".as_slice(), SourceRole::Release),
+            ("guide.md", b"# Guide\n".as_slice(), SourceRole::Document),
+            (
+                "pyproject.toml",
+                b"[project]\n".as_slice(),
+                SourceRole::Configuration,
+            ),
+        ]
+        .map(|(path, bytes, role)| {
+            (
+                SourceArtifact::from_bytes(input.id(), path.into(), bytes).unwrap(),
+                role,
+            )
+        });
+        visit(&mut index, std::slice::from_ref(&input));
+        for (artifact, role) in &artifacts {
+            visit(&mut index, std::slice::from_ref(artifact));
+            visit(
+                &mut index,
+                &[ArtifactUse {
+                    input: input.id(),
+                    artifact: artifact.id(),
+                    role: *role,
+                }],
+            );
+            visit(
+                &mut index,
+                &[CoverageScope::Artifact {
+                    artifact: artifact.id(),
+                }],
+            );
         }
-        Fixture {index,input:input.id(),context:context.id(),python,document,root:root.id(),budget}
+        let python = CoverageScope::Artifact {
+            artifact: artifacts[0].0.id(),
+        }
+        .id();
+        let document = CoverageScope::Artifact {
+            artifact: artifacts[1].0.id(),
+        }
+        .id();
+        let root = CoverageScope::Input { input: input.id() };
+        visit(&mut index, std::slice::from_ref(&root));
+        for (scope, family) in [
+            (python, FactFamily::Syntax),
+            (python, FactFamily::Signatures),
+            (document, FactFamily::Docs),
+            (root.id(), FactFamily::Deployment),
+        ] {
+            visit(
+                &mut index,
+                &[ProviderCoverage {
+                    scope,
+                    provider: Some(provider.id()),
+                    context: context.id(),
+                    family,
+                    run: Some(run.id()),
+                    status: CoverageStatus::CompleteUnderStatedModel,
+                    reason: None,
+                    diagnostic: None,
+                }],
+            );
+        }
+        for (scope, capability) in [
+            (python, Capability::Symbols),
+            (python, Capability::References),
+            (python, Capability::Callables),
+            (python, Capability::Calls),
+            (python, Capability::Bindings),
+            (document, Capability::Mentions),
+        ] {
+            let computation = NormalizationComputation {
+                capability,
+                policy: ContentHash::of(b"normalization-contract"),
+                producer: "contract".into(),
+                declaration: ContentHash::of(b"normalization-contract"),
+                profile: profile.name().into(),
+                availability: EvidenceAvailability::Complete,
+            };
+            visit(&mut index, std::slice::from_ref(&computation));
+            visit(
+                &mut index,
+                &[NormalizationCoverage {
+                    computation: computation.id(),
+                    scope,
+                    context: context.id(),
+                    availability: EvidenceAvailability::Complete,
+                }],
+            );
+        }
+        Fixture {
+            index,
+            input: input.id(),
+            context: context.id(),
+            python,
+            document,
+            root: root.id(),
+            budget,
+        }
     }
     #[test]
     fn base_execution_requires_exact_native_families_and_retains_catalog_not_requested() {
@@ -622,33 +933,124 @@ mod tests {
     }
     #[test]
     fn catalog_evidence_uses_document_and_input_grains_without_fabricated_python_receipts() {
-        let mut f=fixture();let contract=method_contract(AnalysisMethod::CatalogEvidence).unwrap();let domain=f.index.domain(f.input,f.context,contract).unwrap();assert_eq!(domain.scopes.len(),3);
-        let doc=domain.scopes.iter().find(|r|r.scope==f.document).unwrap();assert_eq!(doc.native.len(),1);assert_eq!(doc.native[0].family,FactFamily::Docs);assert_eq!(doc.normalized.len(),1);
-        let root=domain.scopes.iter().find(|r|r.scope==f.root).unwrap();assert_eq!(root.native[0].family,FactFamily::Deployment);assert!(root.normalized.is_empty());
-        let python=domain.scopes.iter().find(|r|r.scope==f.python).unwrap();assert_eq!(python.native[0].family,FactFamily::Syntax);assert_eq!(python.normalized.len(),5);drop(domain);
-        let deployment=f.index.native.values().find(|r|r.family==FactFamily::Deployment).unwrap().id();f.index.native.remove(&mut f.index.charge,&deployment);assert!(f.index.domain(f.input,f.context,contract).is_err());drop(f.index);assert_eq!(f.budget.reserved(),0);
+        let mut f = fixture();
+        let contract = method_contract(AnalysisMethod::CatalogEvidence).unwrap();
+        let domain = f.index.domain(f.input, f.context, contract).unwrap();
+        assert_eq!(domain.scopes.len(), 3);
+        let doc = domain
+            .scopes
+            .iter()
+            .find(|r| r.scope == f.document)
+            .unwrap();
+        assert_eq!(doc.native.len(), 1);
+        assert_eq!(doc.native[0].family, FactFamily::Docs);
+        assert_eq!(doc.normalized.len(), 1);
+        let root = domain.scopes.iter().find(|r| r.scope == f.root).unwrap();
+        assert_eq!(root.native[0].family, FactFamily::Deployment);
+        assert!(root.normalized.is_empty());
+        let python = domain.scopes.iter().find(|r| r.scope == f.python).unwrap();
+        assert_eq!(python.native[0].family, FactFamily::Syntax);
+        assert_eq!(python.normalized.len(), 5);
+        drop(domain);
+        let deployment = f
+            .index
+            .native
+            .values()
+            .find(|r| r.family == FactFamily::Deployment)
+            .unwrap()
+            .id();
+        f.index.native.remove(&mut f.index.charge, &deployment);
+        assert!(f.index.domain(f.input, f.context, contract).is_err());
+        drop(f.index);
+        assert_eq!(f.budget.reserved(), 0);
     }
     #[test]
     fn catalog_selection_requires_both_catalog_lower_contracts_without_optional_analytics() {
-        let mut f=fixture();let contract=method_contract(AnalysisMethod::CatalogSelection).unwrap();
-        assert!(f.index.domain(f.input,f.context,contract).is_err(),"C1 lower receipts alone cannot close C0 exposure/type domains");
-        for capability in [Capability::PublicExposure,Capability::Ancestry,Capability::Types] {
-            let computation=NormalizationComputation {capability,policy:ContentHash::of(b"normalization-contract"),producer:"contract".into(),declaration:ContentHash::of(b"normalization-contract"),profile:Profile::Catalog.name().into(),availability:EvidenceAvailability::Complete};
-            visit(&mut f.index,std::slice::from_ref(&computation));let coverage=NormalizationCoverage {computation:computation.id(),scope:f.python,context:f.context,availability:EvidenceAvailability::Complete};visit(&mut f.index,&[coverage]);
+        let mut f = fixture();
+        let contract = method_contract(AnalysisMethod::CatalogSelection).unwrap();
+        assert!(
+            f.index.domain(f.input, f.context, contract).is_err(),
+            "C1 lower receipts alone cannot close C0 exposure/type domains"
+        );
+        for capability in [
+            Capability::PublicExposure,
+            Capability::Ancestry,
+            Capability::Types,
+        ] {
+            let computation = NormalizationComputation {
+                capability,
+                policy: ContentHash::of(b"normalization-contract"),
+                producer: "contract".into(),
+                declaration: ContentHash::of(b"normalization-contract"),
+                profile: Profile::Catalog.name().into(),
+                availability: EvidenceAvailability::Complete,
+            };
+            visit(&mut f.index, std::slice::from_ref(&computation));
+            let coverage = NormalizationCoverage {
+                computation: computation.id(),
+                scope: f.python,
+                context: f.context,
+                availability: EvidenceAvailability::Complete,
+            };
+            visit(&mut f.index, &[coverage]);
         }
-        let domain=f.index.domain(f.input,f.context,contract).unwrap();assert_eq!(domain.scopes.len(),3);assert!(domain.scopes.iter().all(|r|r.requested));let python=domain.scopes.iter().find(|r|r.scope==f.python).unwrap();assert_eq!(python.normalized.len(),8);assert_eq!(python.native.len(),1);
-        let inputs=crate::domain::analysis::selection::Invocation::invariants().remove(0).inputs;
-        assert!(inputs.iter().any(|i|i.name()==crate::domain::analysis::catalog_evidence::Invocation::NAME));
-        assert!(!inputs.iter().any(|i|[crate::domain::analysis::structural::Invocation::NAME,crate::domain::analysis::analytic::Invocation::NAME].contains(&i.name())));
-        drop(domain);drop(f.index);assert_eq!(f.budget.reserved(),0);
+        let domain = f.index.domain(f.input, f.context, contract).unwrap();
+        assert_eq!(domain.scopes.len(), 3);
+        assert!(domain.scopes.iter().all(|r| r.requested));
+        let python = domain.scopes.iter().find(|r| r.scope == f.python).unwrap();
+        assert_eq!(python.normalized.len(), 8);
+        assert_eq!(python.native.len(), 1);
+        let inputs = crate::domain::analysis::selection::Invocation::invariants()
+            .remove(0)
+            .inputs;
+        assert!(
+            inputs
+                .iter()
+                .any(|i| i.name() == crate::domain::analysis::catalog_evidence::Invocation::NAME)
+        );
+        assert!(!inputs.iter().any(|i| {
+            [
+                crate::domain::analysis::structural::Invocation::NAME,
+                crate::domain::analysis::analytic::Invocation::NAME,
+            ]
+            .contains(&i.name())
+        }));
+        drop(domain);
+        drop(f.index);
+        assert_eq!(f.budget.reserved(), 0);
     }
     #[test]
     fn analytic_selection_is_explicit_and_dependencies_follow_each_artifact_class() {
-        for requested in [false,true] {
-            let mut f=fixture();let contract=method_contract(AnalysisMethod::AnalyticEmbedding).unwrap();assert!(f.index.domain(f.input,f.context,contract).is_err(),"missing immutable selection cannot choose a request");
-            visit(&mut f.index,&[TextDefinition {requested,..TextDefinition::builtin()}]);let domain=f.index.domain(f.input,f.context,contract).unwrap();assert_eq!(domain.scopes.len(),2);assert!(domain.scopes.iter().all(|r|r.requested==requested));
-            let doc=domain.scopes.iter().find(|r|r.scope==f.document).unwrap();assert_eq!(doc.native[0].family,FactFamily::Docs);assert!(doc.normalized.is_empty());
-            let python=domain.scopes.iter().find(|r|r.scope==f.python).unwrap();assert_eq!(python.native.len(),2);assert_eq!(python.normalized.len(),2);drop(domain);drop(f.index);assert_eq!(f.budget.reserved(),0);
+        for requested in [false, true] {
+            let mut f = fixture();
+            let contract = method_contract(AnalysisMethod::AnalyticEmbedding).unwrap();
+            assert!(
+                f.index.domain(f.input, f.context, contract).is_err(),
+                "missing immutable selection cannot choose a request"
+            );
+            visit(
+                &mut f.index,
+                &[TextDefinition {
+                    requested,
+                    ..TextDefinition::builtin()
+                }],
+            );
+            let domain = f.index.domain(f.input, f.context, contract).unwrap();
+            assert_eq!(domain.scopes.len(), 2);
+            assert!(domain.scopes.iter().all(|r| r.requested == requested));
+            let doc = domain
+                .scopes
+                .iter()
+                .find(|r| r.scope == f.document)
+                .unwrap();
+            assert_eq!(doc.native[0].family, FactFamily::Docs);
+            assert!(doc.normalized.is_empty());
+            let python = domain.scopes.iter().find(|r| r.scope == f.python).unwrap();
+            assert_eq!(python.native.len(), 2);
+            assert_eq!(python.normalized.len(), 2);
+            drop(domain);
+            drop(f.index);
+            assert_eq!(f.budget.reserved(), 0);
         }
     }
 }

@@ -1901,7 +1901,7 @@ fn applicability_uses_supported_entities_without_relabeling_provider_symbols() {
             channel: &f.channel,
             receiver: &f.receiver,
             receiver_proof: None,
-        dispatch_proof: None,
+            dispatch_proof: None,
             signature: &signature,
             signature_qualification: &q,
             call: &call,
@@ -1937,8 +1937,13 @@ fn applicability_uses_supported_entities_without_relabeling_provider_symbols() {
 
 #[test]
 fn class_of_binding_source_has_distinct_identity_and_roundtrips_without_instance_lowering() {
-    let actual=occurrence(40).id();let derived=BindingSource::ClassOf{actual};let instance=BindingSource::Actual{occurrence:actual};
-    assert_ne!(derived.id(),instance.id());
-    let encoded=<BindingSource as Record>::encode(&[derived.clone(),instance.clone()]).unwrap();
-    assert_eq!(BindingSource::decode(&encoded).unwrap(),vec![derived,instance]);
+    let actual = occurrence(40).id();
+    let derived = BindingSource::ClassOf { actual };
+    let instance = BindingSource::Actual { occurrence: actual };
+    assert_ne!(derived.id(), instance.id());
+    let encoded = <BindingSource as Record>::encode(&[derived.clone(), instance.clone()]).unwrap();
+    assert_eq!(
+        BindingSource::decode(&encoded).unwrap(),
+        vec![derived, instance]
+    );
 }

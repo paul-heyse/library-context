@@ -550,8 +550,12 @@ pub struct ValidatedBoundCall {
     bindings: ContentHash,
 }
 impl ValidatedBoundCall {
-    pub fn event(&self) -> Id<NormalizedCallEvent> { self.event }
-    pub fn context(&self) -> Id<AnalysisContext> { self.context }
+    pub fn event(&self) -> Id<NormalizedCallEvent> {
+        self.event
+    }
+    pub fn context(&self) -> Id<AnalysisContext> {
+        self.context
+    }
     pub fn attempt(&self) -> Id<CallBindingAttempt> {
         self.attempt
     }
@@ -568,36 +572,86 @@ impl HeapSize for ValidatedBoundCall {
 /// runtime callable identity, its body, definition-time defaults or Summary policy.
 /// Model applicability must independently supply an exact authored runtime contract.
 pub struct BindingShapeAdmission {
-    attempt: Id<CallBindingAttempt>, set: Id<BindingSetAssessment>, set_members: ContentHash,
-    alternative: Id<NormalizedCallAlternative>, event: Id<NormalizedCallEvent>,
-    context: Id<AnalysisContext>, input: Id<input::InputRevision>,
-    complete: Id<EventAssessment>, event_members: ContentHash,
-    owner: Id<OccurrenceOwnership>, owner_entity: Id<EntityRef>, owner_declaration: Id<Occurrence>,
-    callee: Id<EntityRef>, target: Id<CallTarget>, phase: CallPhase, bindings: ContentHash,
-    enumeration:Option<Id<SignatureEnumerationObservation>>,signature_members:Option<ContentHash>,
+    attempt: Id<CallBindingAttempt>,
+    set: Id<BindingSetAssessment>,
+    set_members: ContentHash,
+    alternative: Id<NormalizedCallAlternative>,
+    event: Id<NormalizedCallEvent>,
+    context: Id<AnalysisContext>,
+    input: Id<input::InputRevision>,
+    complete: Id<EventAssessment>,
+    event_members: ContentHash,
+    owner: Id<OccurrenceOwnership>,
+    owner_entity: Id<EntityRef>,
+    owner_declaration: Id<Occurrence>,
+    callee: Id<EntityRef>,
+    target: Id<CallTarget>,
+    phase: CallPhase,
+    bindings: ContentHash,
+    enumeration: Option<Id<SignatureEnumerationObservation>>,
+    signature_members: Option<ContentHash>,
 }
 impl BindingShapeAdmission {
-    pub fn attempt(&self)->Id<CallBindingAttempt>{self.attempt}
-    pub fn set(&self)->Id<BindingSetAssessment>{self.set}
-    pub fn set_members(&self)->ContentHash{self.set_members}
-    pub fn alternative(&self)->Id<NormalizedCallAlternative>{self.alternative}
-    pub fn event(&self)->Id<NormalizedCallEvent>{self.event}
-    pub fn context(&self)->Id<AnalysisContext>{self.context}
-    pub fn input(&self)->Id<input::InputRevision>{self.input}
-    pub fn complete(&self)->Id<EventAssessment>{self.complete}
-    pub fn event_members(&self)->ContentHash{self.event_members}
-    pub fn owner(&self)->Id<OccurrenceOwnership>{self.owner}
-    pub fn owner_entity(&self)->Id<EntityRef>{self.owner_entity}
-    pub fn owner_declaration(&self)->Id<Occurrence>{self.owner_declaration}
-    pub fn callee(&self)->Id<EntityRef>{self.callee}
-    pub fn target(&self)->Id<CallTarget>{self.target}
-    pub fn phase(&self)->CallPhase{self.phase}
-    pub fn bindings(&self)->ContentHash{self.bindings}
-    pub fn enumeration(&self)->Option<Id<SignatureEnumerationObservation>>{self.enumeration}
-    pub fn signature_members(&self)->Option<ContentHash>{self.signature_members}
-    pub fn admits(&self,bound:&ValidatedBoundCall)->bool{
-        self.attempt==bound.attempt && self.event==bound.event && self.context==bound.context
-            && self.target==bound.bound.target() && self.bindings==bound.bindings
+    pub fn attempt(&self) -> Id<CallBindingAttempt> {
+        self.attempt
+    }
+    pub fn set(&self) -> Id<BindingSetAssessment> {
+        self.set
+    }
+    pub fn set_members(&self) -> ContentHash {
+        self.set_members
+    }
+    pub fn alternative(&self) -> Id<NormalizedCallAlternative> {
+        self.alternative
+    }
+    pub fn event(&self) -> Id<NormalizedCallEvent> {
+        self.event
+    }
+    pub fn context(&self) -> Id<AnalysisContext> {
+        self.context
+    }
+    pub fn input(&self) -> Id<input::InputRevision> {
+        self.input
+    }
+    pub fn complete(&self) -> Id<EventAssessment> {
+        self.complete
+    }
+    pub fn event_members(&self) -> ContentHash {
+        self.event_members
+    }
+    pub fn owner(&self) -> Id<OccurrenceOwnership> {
+        self.owner
+    }
+    pub fn owner_entity(&self) -> Id<EntityRef> {
+        self.owner_entity
+    }
+    pub fn owner_declaration(&self) -> Id<Occurrence> {
+        self.owner_declaration
+    }
+    pub fn callee(&self) -> Id<EntityRef> {
+        self.callee
+    }
+    pub fn target(&self) -> Id<CallTarget> {
+        self.target
+    }
+    pub fn phase(&self) -> CallPhase {
+        self.phase
+    }
+    pub fn bindings(&self) -> ContentHash {
+        self.bindings
+    }
+    pub fn enumeration(&self) -> Option<Id<SignatureEnumerationObservation>> {
+        self.enumeration
+    }
+    pub fn signature_members(&self) -> Option<ContentHash> {
+        self.signature_members
+    }
+    pub fn admits(&self, bound: &ValidatedBoundCall) -> bool {
+        self.attempt == bound.attempt
+            && self.event == bound.event
+            && self.context == bound.context
+            && self.target == bound.bound.target()
+            && self.bindings == bound.bindings
     }
 }
 impl HeapSize for BindingShapeAdmission {}
@@ -625,32 +679,70 @@ pub struct EffectiveInvocationAdmission {
     bindings: ContentHash,
 }
 impl EffectiveInvocationAdmission {
-    pub fn attempt(&self) -> Id<CallBindingAttempt> { self.attempt }
-    pub fn set(&self) -> Id<BindingSetAssessment> { self.set }
-    pub fn set_members(&self) -> ContentHash { self.set_members }
-    pub fn alternative(&self) -> Id<NormalizedCallAlternative> { self.alternative }
-    pub fn event(&self) -> Id<NormalizedCallEvent> { self.event }
-    pub fn context(&self) -> Id<AnalysisContext> { self.context }
-    pub fn input(&self) -> Id<input::InputRevision> { self.input }
-    pub fn complete(&self) -> Id<EventAssessment> { self.complete }
-    pub fn event_members(&self) -> ContentHash { self.event_members }
-    pub fn owner(&self) -> Id<OccurrenceOwnership> { self.owner }
-    pub fn owner_entity(&self) -> Id<EntityRef> { self.owner_entity }
-    pub fn owner_declaration(&self) -> Id<Occurrence> { self.owner_declaration }
-    pub fn callee(&self) -> Id<EntityRef> { self.callee }
-    pub fn effective(&self) -> Id<EffectiveCallableAssessment> { self.effective }
-    pub fn target(&self) -> Id<CallTarget> { self.target }
-    pub fn phase(&self) -> CallPhase { self.phase }
-    pub fn bindings(&self) -> ContentHash { self.bindings }
+    pub fn attempt(&self) -> Id<CallBindingAttempt> {
+        self.attempt
+    }
+    pub fn set(&self) -> Id<BindingSetAssessment> {
+        self.set
+    }
+    pub fn set_members(&self) -> ContentHash {
+        self.set_members
+    }
+    pub fn alternative(&self) -> Id<NormalizedCallAlternative> {
+        self.alternative
+    }
+    pub fn event(&self) -> Id<NormalizedCallEvent> {
+        self.event
+    }
+    pub fn context(&self) -> Id<AnalysisContext> {
+        self.context
+    }
+    pub fn input(&self) -> Id<input::InputRevision> {
+        self.input
+    }
+    pub fn complete(&self) -> Id<EventAssessment> {
+        self.complete
+    }
+    pub fn event_members(&self) -> ContentHash {
+        self.event_members
+    }
+    pub fn owner(&self) -> Id<OccurrenceOwnership> {
+        self.owner
+    }
+    pub fn owner_entity(&self) -> Id<EntityRef> {
+        self.owner_entity
+    }
+    pub fn owner_declaration(&self) -> Id<Occurrence> {
+        self.owner_declaration
+    }
+    pub fn callee(&self) -> Id<EntityRef> {
+        self.callee
+    }
+    pub fn effective(&self) -> Id<EffectiveCallableAssessment> {
+        self.effective
+    }
+    pub fn target(&self) -> Id<CallTarget> {
+        self.target
+    }
+    pub fn phase(&self) -> CallPhase {
+        self.phase
+    }
+    pub fn bindings(&self) -> ContentHash {
+        self.bindings
+    }
     /// Both receipts must pin the same replayed binding payload, not merely the attempt key.
     pub fn admits(&self, bound: &ValidatedBoundCall) -> bool {
-        self.attempt == bound.attempt && self.event == bound.event
-            && self.context == bound.context && self.target == bound.bound.target()
+        self.attempt == bound.attempt
+            && self.event == bound.event
+            && self.context == bound.context
+            && self.target == bound.bound.target()
             && self.bindings == bound.bindings
     }
 }
 impl HeapSize for EffectiveInvocationAdmission {
-    fn heap_bytes(&self) -> usize { 0 }
+    fn heap_bytes(&self) -> usize {
+        0
+    }
 }
 /// P3's complete admission receipt. P4 must explicitly migrate its owner and transfer contracts
 /// before using this token; the retained provider-ID composer is not activated here.
@@ -662,8 +754,8 @@ pub struct CompositionAdmission {
     event_members: ContentHash,
     summary: Id<CallPolicyAssessment>,
     owner: Id<OccurrenceOwnership>,
-    owner_entity:Id<EntityRef>,
-    owner_declaration:Id<Occurrence>,
+    owner_entity: Id<EntityRef>,
+    owner_declaration: Id<Occurrence>,
     callee: Id<EntityRef>,
     effective: Id<EffectiveCallableAssessment>,
     target: Id<CallTarget>,
@@ -691,8 +783,12 @@ impl CompositionAdmission {
     pub fn owner(&self) -> Id<OccurrenceOwnership> {
         self.owner
     }
-    pub fn owner_entity(&self)->Id<EntityRef> {self.owner_entity}
-    pub fn owner_declaration(&self)->Id<Occurrence> {self.owner_declaration}
+    pub fn owner_entity(&self) -> Id<EntityRef> {
+        self.owner_entity
+    }
+    pub fn owner_declaration(&self) -> Id<Occurrence> {
+        self.owner_declaration
+    }
     pub fn callee(&self) -> Id<EntityRef> {
         self.callee
     }
@@ -722,8 +818,13 @@ impl VerifiedBindings {
     pub fn bound(&self, attempt: Id<CallBindingAttempt>) -> Option<&ValidatedBoundCall> {
         self.bound.get(&attempt)
     }
-    pub fn shape(&self, attempt:Id<CallBindingAttempt>)->Option<&BindingShapeAdmission>{self.shape.get(&attempt)}
-    pub fn effective_invocation(&self, attempt: Id<CallBindingAttempt>) -> Option<&EffectiveInvocationAdmission> {
+    pub fn shape(&self, attempt: Id<CallBindingAttempt>) -> Option<&BindingShapeAdmission> {
+        self.shape.get(&attempt)
+    }
+    pub fn effective_invocation(
+        &self,
+        attempt: Id<CallBindingAttempt>,
+    ) -> Option<&EffectiveInvocationAdmission> {
         self.effective.get(&attempt)
     }
     pub fn composition(&self, attempt: Id<CallBindingAttempt>) -> Option<&CompositionAdmission> {
@@ -736,7 +837,7 @@ pub fn verify(
     budget: &ResourceBudget,
 ) -> Result<VerifiedBindings, ModelError> {
     stored.matches(&normalize(data, budget)?)?;
-    verify_enumerations(data,budget)?;
+    verify_enumerations(data, budget)?;
     let events = verify_upstream(data, budget)?;
     let receivers = receiver_proofs(data, budget)?;
     let index = Index::new(data, budget)?;
@@ -789,35 +890,84 @@ pub fn verify(
                 bindings: row.bindings,
             },
         )?;
-        if let Some(complete)=events.get(row.event) {
-            for member in stored.members.iter().filter(|m|m.attempt==row.id()) {
-                let selected=need(&stored.variants,member.variant)?;
-                let set=need(&stored.sets,selected.set)?;
-                let enumeration=checked_enumeration(data,stored,row,&application)?;
-                if !set.coverage_complete && enumeration.is_none(){continue;}
-                let mut compatible=0;let mut admitted=true;
-                for v in stored.variants.iter().filter(|v|v.set==set.id()) {
-                    let mut first=None;
-                    for m in stored.members.iter().filter(|m|m.variant==v.id()) {
-                        let a=need(&stored.attempts,m.attempt)?;
-                        if a.outcome==BindingOutcome::Undetermined {admitted=false;}
-                        if let Some(previous)=first {
-                            let previous:&CallBindingAttempt=previous;
-                            if (a.outcome,a.bindings,a.syntax)!=(previous.outcome,previous.bindings,previous.syntax){admitted=false;}
-                        } else {first=Some(a);}
-                    }
-                    match first.map(|a|a.outcome){Some(BindingOutcome::Bound)=>{compatible+=1;if enumeration.is_some(){if let Some(other)=first{if !equivalent_shapes(data,stored,row,other)?{admitted=false;}}}},Some(BindingOutcome::ProvenIncompatible)=>{},_=>admitted=false}
+        if let Some(complete) = events.get(row.event) {
+            for member in stored.members.iter().filter(|m| m.attempt == row.id()) {
+                let selected = need(&stored.variants, member.variant)?;
+                let set = need(&stored.sets, selected.set)?;
+                let enumeration = checked_enumeration(data, stored, row, &application)?;
+                if !set.coverage_complete && enumeration.is_none() {
+                    continue;
                 }
-                if !admitted || compatible==0 || compatible!=1&&enumeration.is_none() {continue;}
-                let event=need(&data.event_events,row.event)?;let owner=need(&data.owners,event.owner)?;
-                let target=original_target(data,alternative)?;
-                if owner.occurrence!=event.site {return Err(invalid("shape owner differs from event site"));}
-                result.shape.insert(&mut result._charge,row.id(),BindingShapeAdmission{
-                    attempt:row.id(),set:set.id(),set_members:set.members,alternative:alternative.id(),event:row.event,
-                    context:event.context,input:application.input(),complete:complete.assessment(),event_members:complete.members(),
-                    owner:owner.id(),owner_entity:owner.entity,owner_declaration:owner.owner,
-                    callee:alternative.entity.ok_or_else(||invalid("shape target has no entity"))?,target:target.id(),phase:target.phase,bindings:row.bindings,enumeration:enumeration.map(Record::id),signature_members:enumeration.map(|e|e.members),
-                })?;
+                let mut compatible = 0;
+                let mut admitted = true;
+                for v in stored.variants.iter().filter(|v| v.set == set.id()) {
+                    let mut first = None;
+                    for m in stored.members.iter().filter(|m| m.variant == v.id()) {
+                        let a = need(&stored.attempts, m.attempt)?;
+                        if a.outcome == BindingOutcome::Undetermined {
+                            admitted = false;
+                        }
+                        if let Some(previous) = first {
+                            let previous: &CallBindingAttempt = previous;
+                            if (a.outcome, a.bindings, a.syntax)
+                                != (previous.outcome, previous.bindings, previous.syntax)
+                            {
+                                admitted = false;
+                            }
+                        } else {
+                            first = Some(a);
+                        }
+                    }
+                    match first.map(|a| a.outcome) {
+                        Some(BindingOutcome::Bound) => {
+                            compatible += 1;
+                            if enumeration.is_some() {
+                                if let Some(other) = first {
+                                    if !equivalent_shapes(data, stored, row, other)? {
+                                        admitted = false;
+                                    }
+                                }
+                            }
+                        }
+                        Some(BindingOutcome::ProvenIncompatible) => {}
+                        _ => admitted = false,
+                    }
+                }
+                if !admitted || compatible == 0 || compatible != 1 && enumeration.is_none() {
+                    continue;
+                }
+                let event = need(&data.event_events, row.event)?;
+                let owner = need(&data.owners, event.owner)?;
+                let target = original_target(data, alternative)?;
+                if owner.occurrence != event.site {
+                    return Err(invalid("shape owner differs from event site"));
+                }
+                result.shape.insert(
+                    &mut result._charge,
+                    row.id(),
+                    BindingShapeAdmission {
+                        attempt: row.id(),
+                        set: set.id(),
+                        set_members: set.members,
+                        alternative: alternative.id(),
+                        event: row.event,
+                        context: event.context,
+                        input: application.input(),
+                        complete: complete.assessment(),
+                        event_members: complete.members(),
+                        owner: owner.id(),
+                        owner_entity: owner.entity,
+                        owner_declaration: owner.owner,
+                        callee: alternative
+                            .entity
+                            .ok_or_else(|| invalid("shape target has no entity"))?,
+                        target: target.id(),
+                        phase: target.phase,
+                        bindings: row.bindings,
+                        enumeration: enumeration.map(Record::id),
+                        signature_members: enumeration.map(|e| e.members),
+                    },
+                )?;
             }
         }
         if row.authority != BindingAuthority::EffectiveInvocation {
@@ -840,16 +990,31 @@ pub fn verify(
             return Err(invalid("composition owner differs from event site"));
         }
         let target = original_target(data, alternative)?;
-        result.effective.insert(&mut result._charge, row.id(), EffectiveInvocationAdmission {
-            attempt: row.id(), set: set.id(), set_members: set.members,
-            alternative: alternative.id(), event: row.event, context: event.context,
-            input: application.input(), complete: complete.assessment(),
-            event_members: complete.members(), owner: owner.id(), owner_entity: owner.entity,
-            owner_declaration: owner.owner,
-            callee: alternative.entity.ok_or_else(|| invalid("effective target has no entity"))?,
-            effective: effective.id(), target: target.id(), phase: target.phase,
-            bindings: row.bindings,
-        })?;
+        result.effective.insert(
+            &mut result._charge,
+            row.id(),
+            EffectiveInvocationAdmission {
+                attempt: row.id(),
+                set: set.id(),
+                set_members: set.members,
+                alternative: alternative.id(),
+                event: row.event,
+                context: event.context,
+                input: application.input(),
+                complete: complete.assessment(),
+                event_members: complete.members(),
+                owner: owner.id(),
+                owner_entity: owner.entity,
+                owner_declaration: owner.owner,
+                callee: alternative
+                    .entity
+                    .ok_or_else(|| invalid("effective target has no entity"))?,
+                effective: effective.id(),
+                target: target.id(),
+                phase: target.phase,
+                bindings: row.bindings,
+            },
+        )?;
         if effective.body != Knowledge::Known || !effective.body_admitted {
             continue;
         }
@@ -877,8 +1042,8 @@ pub fn verify(
                 event_members: complete.members(),
                 summary: summary.id(),
                 owner: owner.id(),
-                owner_entity:owner.entity,
-                owner_declaration:owner.owner,
+                owner_entity: owner.entity,
+                owner_declaration: owner.owner,
                 callee: alternative
                     .entity
                     .ok_or_else(|| invalid("admitted target has no entity"))?,
@@ -890,33 +1055,189 @@ pub fn verify(
     }
     Ok(result)
 }
-pub(crate) fn verify_enumerations(data:&BindingData,budget:&ResourceBudget)->Result<(),ModelError>{
- let relation=Relation::of::<SignatureEnumerationObservation>();let mut check=(relation.invariants()[0].create)(budget);
- macro_rules! feed{($field:ident,$ty:ty)=>{{let bytes=data.$field.iter().try_fold(0usize,|n,row|n.checked_add(size_of::<$ty>()).and_then(|n|n.checked_add(row.heap_bytes()))).ok_or_else(||invalid("enumeration replay lowering overflow"))?;let _scratch=budget.reserve("enumeration-replay-lowering",bytes.saturating_mul(8).saturating_add(65536))?;let rows=data.$field.iter().cloned().collect::<Vec<_>>();check.visit(<$ty>::NAME,&<$ty>::encode(&rows)?)?;}};}
- feed!(qualifications,crate::domain::assertion::AssertionQualification);feed!(symbols,ProviderSymbol);feed!(signatures,Signature);feed!(signature_enumerations,SignatureEnumerationObservation);
- let mut charge=StateCharge::new(budget,"enumeration-member-order");charge.grow(data.signature_enumeration_members.len().saturating_mul(size_of::<SignatureEnumerationMember>()+128))?;
- let mut members=data.signature_enumeration_members.iter().cloned().collect::<Vec<_>>();members.sort_by_key(|m|(m.enumeration,m.ordinal));check.visit(SignatureEnumerationMember::NAME,&SignatureEnumerationMember::encode(&members)?)?;check.finish()
+pub(crate) fn verify_enumerations(
+    data: &BindingData,
+    budget: &ResourceBudget,
+) -> Result<(), ModelError> {
+    let relation = Relation::of::<SignatureEnumerationObservation>();
+    let mut check = (relation.invariants()[0].create)(budget);
+    macro_rules! feed {
+        ($field:ident,$ty:ty) => {{
+            let bytes = data
+                .$field
+                .iter()
+                .try_fold(0usize, |n, row| {
+                    n.checked_add(size_of::<$ty>())
+                        .and_then(|n| n.checked_add(row.heap_bytes()))
+                })
+                .ok_or_else(|| invalid("enumeration replay lowering overflow"))?;
+            let _scratch = budget.reserve(
+                "enumeration-replay-lowering",
+                bytes.saturating_mul(8).saturating_add(65536),
+            )?;
+            let rows = data.$field.iter().cloned().collect::<Vec<_>>();
+            check.visit(<$ty>::NAME, &<$ty>::encode(&rows)?)?;
+        }};
+    }
+    feed!(
+        qualifications,
+        crate::domain::assertion::AssertionQualification
+    );
+    feed!(symbols, ProviderSymbol);
+    feed!(signatures, Signature);
+    feed!(signature_enumerations, SignatureEnumerationObservation);
+    let mut charge = StateCharge::new(budget, "enumeration-member-order");
+    charge.grow(
+        data.signature_enumeration_members
+            .len()
+            .saturating_mul(size_of::<SignatureEnumerationMember>() + 128),
+    )?;
+    let mut members = data
+        .signature_enumeration_members
+        .iter()
+        .cloned()
+        .collect::<Vec<_>>();
+    members.sort_by_key(|m| (m.enumeration, m.ordinal));
+    check.visit(
+        SignatureEnumerationMember::NAME,
+        &SignatureEnumerationMember::encode(&members)?,
+    )?;
+    check.finish()
 }
-fn checked_enumeration<'a>(data:&'a BindingData,stored:&BindingOutput,row:&CallBindingAttempt,application:&ApplicableSignature<'_>)->Result<Option<&'a SignatureEnumerationObservation>,ModelError>{
- let signature=need(&data.signatures,row.signature.ok_or_else(||invalid("bound shape signature absent"))?)?;
- let mut headers=data.signature_enumerations.iter().filter(|e|e.symbol==signature.symbol&&e.qualification==signature.qualification&&e.complete);let Some(header)=headers.next() else{return Ok(None)};if headers.next().is_some(){return Ok(None)}
- let q=need(&data.qualifications,header.qualification)?;if q.context!=application.context()||q.modality!=Modality::Definite||q.approximation!=crate::domain::assertion::Approximation::Exact||q.condition!=crate::domain::conditions::Diagram::always().id(){return Ok(None)}
- let symbol=need(&data.symbols,header.symbol)?;
- if !data.signature_enumeration_supports.iter().any(|s|s.assertion==header.id()&&data.runs.get(s.run).is_some_and(|r|r.context==q.context&&r.input==application.input()&&r.provider==symbol.provider)&&data.surfaces.get(s.surface).is_some_and(|p|p.family==FactFamily::Signatures)&&s.fidelity!=Fidelity::DisplayOnly){return Ok(None)}
- let mut count=0;
- for member in data.signature_enumeration_members.iter().filter(|m|m.enumeration==header.id()){
-  let member_signature=need(&data.signatures,member.signature)?;if member_signature.form!=SignatureForm::List{return Ok(None)}
-  let variant=need(&data.callable_variants,data.callable_variants.iter().find(|v|v.signature==member.signature).ok_or_else(||invalid("enumerated signature variant absent"))?.id())?;
-  let attempts=stored.attempts.iter().filter(|a|a.event==row.event&&a.alternative==row.alternative&&a.variant==Some(variant.id()));let mut found=false;
-  for attempt in attempts{found=true;if attempt.outcome==BindingOutcome::Undetermined{return Ok(None)}}if !found{return Ok(None)}count+=1;
- }
- if count==0{return Ok(None)}Ok(Some(header))
+fn checked_enumeration<'a>(
+    data: &'a BindingData,
+    stored: &BindingOutput,
+    row: &CallBindingAttempt,
+    application: &ApplicableSignature<'_>,
+) -> Result<Option<&'a SignatureEnumerationObservation>, ModelError> {
+    let signature = need(
+        &data.signatures,
+        row.signature
+            .ok_or_else(|| invalid("bound shape signature absent"))?,
+    )?;
+    let mut headers = data.signature_enumerations.iter().filter(|e| {
+        e.symbol == signature.symbol && e.qualification == signature.qualification && e.complete
+    });
+    let Some(header) = headers.next() else {
+        return Ok(None);
+    };
+    if headers.next().is_some() {
+        return Ok(None);
+    }
+    let q = need(&data.qualifications, header.qualification)?;
+    if q.context != application.context()
+        || q.modality != Modality::Definite
+        || q.approximation != crate::domain::assertion::Approximation::Exact
+        || q.condition != crate::domain::conditions::Diagram::always().id()
+    {
+        return Ok(None);
+    }
+    let symbol = need(&data.symbols, header.symbol)?;
+    if !data.signature_enumeration_supports.iter().any(|s| {
+        s.assertion == header.id()
+            && data.runs.get(s.run).is_some_and(|r| {
+                r.context == q.context
+                    && r.input == application.input()
+                    && r.provider == symbol.provider
+            })
+            && data
+                .surfaces
+                .get(s.surface)
+                .is_some_and(|p| p.family == FactFamily::Signatures)
+            && s.fidelity != Fidelity::DisplayOnly
+    }) {
+        return Ok(None);
+    }
+    let mut count = 0;
+    for member in data
+        .signature_enumeration_members
+        .iter()
+        .filter(|m| m.enumeration == header.id())
+    {
+        let member_signature = need(&data.signatures, member.signature)?;
+        if member_signature.form != SignatureForm::List {
+            return Ok(None);
+        }
+        let variant = need(
+            &data.callable_variants,
+            data.callable_variants
+                .iter()
+                .find(|v| v.signature == member.signature)
+                .ok_or_else(|| invalid("enumerated signature variant absent"))?
+                .id(),
+        )?;
+        let attempts = stored.attempts.iter().filter(|a| {
+            a.event == row.event
+                && a.alternative == row.alternative
+                && a.variant == Some(variant.id())
+        });
+        let mut found = false;
+        for attempt in attempts {
+            found = true;
+            if attempt.outcome == BindingOutcome::Undetermined {
+                return Ok(None);
+            }
+        }
+        if !found {
+            return Ok(None);
+        }
+        count += 1;
+    }
+    if count == 0 {
+        return Ok(None);
+    }
+    Ok(Some(header))
 }
-fn equivalent_shapes(data:&BindingData,stored:&BindingOutput,left:&CallBindingAttempt,right:&CallBindingAttempt)->Result<bool,ModelError>{
- let ls=need(&data.signatures,left.signature.ok_or_else(||invalid("shape left signature absent"))?)?;let rs=need(&data.signatures,right.signature.ok_or_else(||invalid("shape right signature absent"))?)?;
- if ls.form!=rs.form||ls.parameters!=rs.parameters||left.syntax!=right.syntax||left.arguments!=right.arguments||left.receiver!=right.receiver||left.adjustment!=right.adjustment{return Ok(false)}
- let mut count=0;for l in stored.bindings.iter().filter(|b|b.attempt==left.id()){let Some(r)=stored.bindings.iter().find(|b|b.attempt==right.id()&&b.ordinal==l.ordinal) else{return Ok(false)};let lp=need(&data.callable_slots,l.slot)?;let rp=need(&data.callable_slots,r.slot)?;if (lp.ordinal,l.source,l.kind,l.projection)!=(rp.ordinal,r.source,r.kind,r.projection){return Ok(false)}count+=1;}
- Ok(count==stored.bindings.iter().filter(|b|b.attempt==right.id()).count())
+fn equivalent_shapes(
+    data: &BindingData,
+    stored: &BindingOutput,
+    left: &CallBindingAttempt,
+    right: &CallBindingAttempt,
+) -> Result<bool, ModelError> {
+    let ls = need(
+        &data.signatures,
+        left.signature
+            .ok_or_else(|| invalid("shape left signature absent"))?,
+    )?;
+    let rs = need(
+        &data.signatures,
+        right
+            .signature
+            .ok_or_else(|| invalid("shape right signature absent"))?,
+    )?;
+    if ls.form != rs.form
+        || ls.parameters != rs.parameters
+        || left.syntax != right.syntax
+        || left.arguments != right.arguments
+        || left.receiver != right.receiver
+        || left.adjustment != right.adjustment
+    {
+        return Ok(false);
+    }
+    let mut count = 0;
+    for l in stored.bindings.iter().filter(|b| b.attempt == left.id()) {
+        let Some(r) = stored
+            .bindings
+            .iter()
+            .find(|b| b.attempt == right.id() && b.ordinal == l.ordinal)
+        else {
+            return Ok(false);
+        };
+        let lp = need(&data.callable_slots, l.slot)?;
+        let rp = need(&data.callable_slots, r.slot)?;
+        if (lp.ordinal, l.source, l.kind, l.projection)
+            != (rp.ordinal, r.source, r.kind, r.projection)
+        {
+            return Ok(false);
+        }
+        count += 1;
+    }
+    Ok(count
+        == stored
+            .bindings
+            .iter()
+            .filter(|b| b.attempt == right.id())
+            .count())
 }
 pub fn invariants() -> Vec<Invariant> {
     let mut inputs = BindingData::validation_inputs();
@@ -1032,5 +1353,3 @@ fn verify_upstream(
     crate::normalized_event_outputs!(event_outputs);
     super::event_normalization::verify(&event_data, &event_output, budget)
 }
-
-

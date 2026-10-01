@@ -13,7 +13,8 @@ use lctx_model::domain::{
 use typed_driver::{files, rows};
 inspector!(Facts, CallTarget);
 async fn fixture() -> (ProjectionData, ResourceBudget) {
-    let (data, _, budget) = fixture_with_uses().await; (data, budget)
+    let (data, _, budget) = fixture_with_uses().await;
+    (data, budget)
 }
 async fn fixture_with_uses() -> (ProjectionData, Rows<input::ArtifactUse>, ResourceBudget) {
     let tables = typed_driver::Tables::default();
@@ -42,15 +43,20 @@ async fn fixture_with_uses() -> (ProjectionData, Rows<input::ArtifactUse>, Resou
     macro_rules! project { ($($field:ident: $ty:ty,)*) => { $(projection.visit(<$ty>::NAME, &<$ty as Record>::encode(&data.$field.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap();)* }; }
     lctx_model::normalized_binding_inputs!(project);
     let mut uses = Rows::new(&budget);
-    for row in rows::<input::ArtifactUse>(&tables) { uses.insert(row).unwrap(); }
+    for row in rows::<input::ArtifactUse>(&tables) {
+        uses.insert(row).unwrap();
+    }
     (projection, uses, budget)
 }
 fn rebuild_events(data: &mut BindingData, budget: &ResourceBudget) {
-    let mut receivers=lctx_model::domain::normalized::receiver::ReceiverData::new(budget);
+    let mut receivers = lctx_model::domain::normalized::receiver::ReceiverData::new(budget);
     macro_rules! receiver_inputs {($($field:ident: $ty:ty,)*)=>{$(receivers.visit(<$ty>::NAME,&<$ty as Record>::encode(&data.$field.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap();)*};}
     lctx_model::normalized_binding_inputs!(receiver_inputs);
-    let receivers=lctx_model::domain::normalized::receiver::normalize(&receivers,budget).unwrap();
-    data.receiver_assessments=Rows::new(budget);data.receiver_evidence=Rows::new(budget);data.receiver_premises=Rows::new(budget);
+    let receivers =
+        lctx_model::domain::normalized::receiver::normalize(&receivers, budget).unwrap();
+    data.receiver_assessments = Rows::new(budget);
+    data.receiver_evidence = Rows::new(budget);
+    data.receiver_premises = Rows::new(budget);
     macro_rules! receiver_outputs {($($field:ident: $ty:ty,)*)=>{$(data.visit(<$ty>::NAME,&<$ty as Record>::encode(&receivers.$field.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap();)*};}
     lctx_model::normalized_receiver_outputs!(receiver_outputs);
 
@@ -289,27 +295,95 @@ async fn known_invocation_edges_retain_whole_event_open_remainder() {
 #[tokio::test]
 async fn captured_overrider_adds_a_stored_scc_edge_and_keeps_dispatch_open() {
     use lctx_model::domain::normalized::events::CallAlternativeSource;
-    let (data,budget)=fixture().await;
-    let member=data.dispatch_members.iter().find(|m|data.symbols.get(m.defining_class).unwrap().name=="DispatchLeft").unwrap();
+    let (data, budget) = fixture().await;
+    let member = data
+        .dispatch_members
+        .iter()
+        .find(|m| data.symbols.get(m.defining_class).unwrap().name == "DispatchLeft")
+        .unwrap();
     let alternative=data.alternatives.iter().find(|a|matches!(data.alternative_sources.get(a.source),Some(CallAlternativeSource::DerivedDispatch{member:observed,..}) if *observed==member.id())).unwrap();
-    let event=data.events.get(alternative.event).unwrap();let owner=data.owners.get(event.owner).unwrap().entity;
-    assert_ne!(owner,member.entity);
-    let output=normalize(&data,&budget).unwrap();validate(&data,&output,&budget).unwrap();
-    let assessment=output.assessments.iter().find(|a|a.projection==ProjectionName::CallableInvocation).unwrap();
-    assert_eq!(assessment.version,2);assert_eq!(assessment.availability,ProjectionAvailability::Partial);
-    let header=output.snapshots.iter().find(|s|s.assessment==assessment.id()).unwrap();let graph=hydrate(header,assessment,&output.chunks,&budget).unwrap();
-    assert!(graph.arcs().any(|a|a.id==ArcId::Invocation(alternative.id()) && a.source==owner && a.target==member.entity));
-    let schedule=lctx_analytics::native_schedule::invocation_sccs(&graph,&budget).unwrap();let component=schedule.components().iter().find(|ids|ids.contains(&owner)).unwrap();
-    assert!(component.contains(&member.entity),"override member must join the relay SCC: {component:?}");
-    assert!(output.gaps.iter().any(|g|g.subject==ProjectionGapSubject::Alternative{alternative:alternative.id()}.id() && g.reason==ProjectionGapReason::OverrideDispatch));
+    let event = data.events.get(alternative.event).unwrap();
+    let owner = data.owners.get(event.owner).unwrap().entity;
+    assert_ne!(owner, member.entity);
+    let output = normalize(&data, &budget).unwrap();
+    validate(&data, &output, &budget).unwrap();
+    let assessment = output
+        .assessments
+        .iter()
+        .find(|a| a.projection == ProjectionName::CallableInvocation)
+        .unwrap();
+    assert_eq!(assessment.version, 3);
+    assert_eq!(assessment.availability, ProjectionAvailability::Partial);
+    let header = output
+        .snapshots
+        .iter()
+        .find(|s| s.assessment == assessment.id())
+        .unwrap();
+    let graph = hydrate(header, assessment, &output.chunks, &budget).unwrap();
+    assert!(
+        graph
+            .arcs()
+            .any(|a| a.id == ArcId::Invocation(alternative.id())
+                && a.source == owner
+                && a.target == member.entity)
+    );
+    let schedule = lctx_analytics::native_schedule::invocation_sccs(&graph, &budget).unwrap();
+    let component = schedule
+        .components()
+        .iter()
+        .find(|ids| ids.contains(&owner))
+        .unwrap();
+    assert!(
+        component.contains(&member.entity),
+        "override member must join the relay SCC: {component:?}"
+    );
+    assert!(output.gaps.iter().any(|g| {
+        g.subject
+            == ProjectionGapSubject::Alternative {
+                alternative: alternative.id(),
+            }
+            .id()
+            && g.reason == ProjectionGapReason::OverrideDispatch
+    }));
     // Native named evidence alone has no reverse edge from the relay to DispatchLeft.
-    let mut native=ProjectionData::new(&budget);
+    let mut native = ProjectionData::new(&budget);
     macro_rules! copy {($($field:ident: $ty:ty,)*)=>{$(native.$field.decode(&<$ty as Record>::encode(&data.$field.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap();)*};}
     lctx_model::projection_inputs!(copy);
-    native.alternatives=Rows::new(&budget);for row in data.alternatives.iter().filter(|a|!matches!(data.alternative_sources.get(a.source),Some(CallAlternativeSource::DerivedDispatch{..}))){native.alternatives.insert(row.clone()).unwrap();}
-    native.admissions=Rows::new(&budget);for row in data.admissions.iter().filter(|a|native.alternatives.get(a.alternative).is_some()){native.admissions.insert(row.clone()).unwrap();}
-    let native_output=normalize(&native,&budget).unwrap();let source=native_output.assessments.iter().find(|a|a.projection==ProjectionName::CallableInvocation).unwrap();let header=native_output.snapshots.iter().find(|s|s.assessment==source.id()).unwrap();let graph=hydrate(header,source,&native_output.chunks,&budget).unwrap();
-    let schedule=lctx_analytics::native_schedule::invocation_sccs(&graph,&budget).unwrap();let component=schedule.components().iter().find(|ids|ids.contains(&owner)).unwrap();
+    native.alternatives = Rows::new(&budget);
+    for row in data.alternatives.iter().filter(|a| {
+        !matches!(
+            data.alternative_sources.get(a.source),
+            Some(CallAlternativeSource::DerivedDispatch { .. })
+        )
+    }) {
+        native.alternatives.insert(row.clone()).unwrap();
+    }
+    native.admissions = Rows::new(&budget);
+    for row in data
+        .admissions
+        .iter()
+        .filter(|a| native.alternatives.get(a.alternative).is_some())
+    {
+        native.admissions.insert(row.clone()).unwrap();
+    }
+    let native_output = normalize(&native, &budget).unwrap();
+    let source = native_output
+        .assessments
+        .iter()
+        .find(|a| a.projection == ProjectionName::CallableInvocation)
+        .unwrap();
+    let header = native_output
+        .snapshots
+        .iter()
+        .find(|s| s.assessment == source.id())
+        .unwrap();
+    let graph = hydrate(header, source, &native_output.chunks, &budget).unwrap();
+    let schedule = lctx_analytics::native_schedule::invocation_sccs(&graph, &budget).unwrap();
+    let component = schedule
+        .components()
+        .iter()
+        .find(|ids| ids.contains(&owner))
+        .unwrap();
     assert!(!component.contains(&member.entity));
 }
 
@@ -424,20 +498,53 @@ async fn native_delegation_preserves_parallel_paths_boundaries_dispatch_and_limi
     );
     // Retained Pass A expectations now run on the actual stored native projection.
     for reached in capped.reached() {
-        assert_eq!(reached.kind, result.reached().iter().find(|r| r.target == reached.target).unwrap().kind);
+        assert_eq!(
+            reached.kind,
+            result
+                .reached()
+                .iter()
+                .find(|r| r.target == reached.target)
+                .unwrap()
+                .kind
+        );
     }
     assert!(result.reached().iter().all(|r| r.target != entity("a")));
     {
-        let recursion = inputs.traverse(entity("recursive"), &selected, bounds, &budget).unwrap();
+        let recursion = inputs
+            .traverse(entity("recursive"), &selected, bounds, &budget)
+            .unwrap();
         assert!(recursion.reached().is_empty());
-        let shortest = inputs.traverse(entity("shortest_entry"), &selected, bounds, &budget).unwrap();
-        let target = shortest.reached().iter().find(|r| r.target == entity("shortest_target")).unwrap();
-        assert_eq!((target.kind, target.depth, target.witnesses_omitted), (Kind::Direct, 1, false));
+        let shortest = inputs
+            .traverse(entity("shortest_entry"), &selected, bounds, &budget)
+            .unwrap();
+        let target = shortest
+            .reached()
+            .iter()
+            .find(|r| r.target == entity("shortest_target"))
+            .unwrap();
+        assert_eq!(
+            (target.kind, target.depth, target.witnesses_omitted),
+            (Kind::Direct, 1, false)
+        );
         assert_eq!(target.paths.len(), 1);
         assert_eq!(target.paths[0].len(), 1);
-        let frontier = inputs.traverse(entity("frontier_entry"), &selected, Bounds {depth: 1, ..bounds}, &budget).unwrap();
+        let frontier = inputs
+            .traverse(
+                entity("frontier_entry"),
+                &selected,
+                Bounds { depth: 1, ..bounds },
+                &budget,
+            )
+            .unwrap();
         assert_eq!(frontier.stop(), Some(Stop::Depth));
-        let closed = inputs.traverse(entity("closed_entry"), &selected, Bounds {depth: 1, ..bounds}, &budget).unwrap();
+        let closed = inputs
+            .traverse(
+                entity("closed_entry"),
+                &selected,
+                Bounds { depth: 1, ..bounds },
+                &budget,
+            )
+            .unwrap();
         assert_eq!(closed.stop(), None);
     }
     for (limited, stop) in [

@@ -65,10 +65,15 @@ pub struct CapturedInputs {
     config: crate::native_context::NativeContextConfig,
 }
 impl CapturedInputs {
-    pub fn new(inputs: Vec<AcquiredInput>, config: crate::native_context::NativeContextConfig) -> Self {
+    pub fn new(
+        inputs: Vec<AcquiredInput>,
+        config: crate::native_context::NativeContextConfig,
+    ) -> Self {
         Self { inputs, config }
     }
-    pub fn config(&self) -> &crate::native_context::NativeContextConfig { &self.config }
+    pub fn config(&self) -> &crate::native_context::NativeContextConfig {
+        &self.config
+    }
     pub fn inputs(&self) -> &[AcquiredInput] {
         &self.inputs
     }

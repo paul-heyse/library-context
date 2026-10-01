@@ -4,21 +4,17 @@
 pub mod analysis_graphs;
 pub mod analysis_prepare;
 pub mod analysis_report;
-pub mod analytic_text;
 pub mod analytic_embedding;
+pub mod analytic_text;
 pub mod analyze;
 pub mod arrow_types;
 pub mod behavior;
 // src/bundle.rs remains uncompiled Phase 5 recovery source (P4 plan §11).
+pub mod analytic;
 pub mod catalog;
 pub mod catalog_core;
 pub mod catalog_evidence;
 pub mod catalog_selection;
-pub mod retrieval_preparation;
-pub mod synthesis_preparation;
-pub mod synthesis;
-pub mod structural;
-pub mod analytic;
 pub mod embed;
 pub mod embedding_realization;
 pub mod embedding_service;
@@ -31,11 +27,15 @@ pub mod generation_read;
 pub mod model_runtime;
 pub mod postgres;
 pub mod producer;
+pub mod retrieval_preparation;
 pub mod session;
 pub mod sql;
 pub mod stage_runtime;
+pub mod structural;
 pub mod summaries;
 pub mod synth;
+pub mod synthesis;
+pub mod synthesis_preparation;
 pub mod udf;
 pub mod usage;
 pub mod validate;
@@ -82,10 +82,8 @@ pub mod catalog_domains;
 
 pub mod retrieval;
 
-pub mod normalize;
 pub mod compilation;
-
-
+pub mod normalize;
 
 pub mod local_semantics;
 

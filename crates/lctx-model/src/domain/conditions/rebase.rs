@@ -219,13 +219,23 @@ pub struct RebasedGuards {
     admission: RebaseAdmission,
 }
 /// The actual emitter lowers this description into its own nominal influence relation.
-#[derive(Debug,Clone)]
-pub struct GuardInfluence {pub qualification:Id<crate::domain::assertion::AssertionQualification>,pub input:Id<Place>,pub atom:Id<EvaluationAtom>,pub evaluation:Id<Occurrence>}
-#[derive(Debug,Default)]
-pub struct RebaseAdmission {rows:StateCharge,condition:Option<Box<dyn crate::domain::resources::Reservation>>}
+#[derive(Debug, Clone)]
+pub struct GuardInfluence {
+    pub qualification: Id<crate::domain::assertion::AssertionQualification>,
+    pub input: Id<Place>,
+    pub atom: Id<EvaluationAtom>,
+    pub evaluation: Id<Occurrence>,
+}
+#[derive(Debug, Default)]
+pub struct RebaseAdmission {
+    _rows: StateCharge,
+    condition: Option<Box<dyn crate::domain::resources::Reservation>>,
+}
 impl RebasedGuards {
     /// Move the allowance into the output owner before moving the public records.
-    pub fn take_admission(&mut self)->RebaseAdmission {std::mem::take(&mut self.admission)}
+    pub fn take_admission(&mut self) -> RebaseAdmission {
+        std::mem::take(&mut self.admission)
+    }
 }
 /// How a callee's formal or receiver root is bound at one call.
 #[derive(Debug, Clone)]
@@ -259,6 +269,10 @@ pub fn rebase_local_guards(
 /// bound actual only when it is substitutable, tests the whole root, the root is bound to an actual
 /// and a stability witness exists; otherwise the transfer is refused, never made unconditional.
 /// `witnesses` is `None` when flow facts were not requested.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "The restatement binds the callee condition, call site, context, catalogs, root bindings, stability witnesses, caller and budget"
+)]
 pub fn substitute_call_guards(
     source: &Diagram,
     site: &Occurrence,
@@ -272,8 +286,15 @@ pub fn substitute_call_guards(
     if site.validate().is_err() || !is_call(site) {
         return Err(ObligationKind::MissingEvidence);
     }
-    let mut rows=StateCharge::new(budget,"guard_restatement");
-    rows.grow(source.support().len().saturating_mul(8192).saturating_add(source.allocation_allowance())).map_err(|_|ObligationKind::ResourceRefused)?;
+    let mut rows = StateCharge::new(budget, "guard_restatement");
+    rows.grow(
+        source
+            .support()
+            .len()
+            .saturating_mul(8192)
+            .saturating_add(source.allocation_allowance()),
+    )
+    .map_err(|_| ObligationKind::ResourceRefused)?;
     let mut out = RebasedGuards {
         condition: Diagram::always(),
         atoms: vec![],
@@ -283,7 +304,10 @@ pub fn substitute_call_guards(
         substitutions: vec![],
         qualifications: vec![],
         influences: vec![],
-        admission:RebaseAdmission{rows,condition:None},
+        admission: RebaseAdmission {
+            _rows: rows,
+            condition: None,
+        },
     };
     let mut replacements = Vec::new();
     let mut work = 0;
@@ -318,9 +342,16 @@ pub fn substitute_call_guards(
             let witness = witnesses
                 .get(id)
                 .ok_or(ObligationKind::ConditionTransferUnsupported)?;
-            if witness.root()!=place.root || witness.witness().atom!=*id || !binding.agrees(witness,site.id(),context){return Err(ObligationKind::MissingEvidence);}
-            let caller=caller.ok_or(ObligationKind::MissingEvidence)?;
-            if caller.context!=context || caller.validate().is_err(){return Err(ObligationKind::MissingEvidence);}
+            if witness.root() != place.root
+                || witness.witness().atom != *id
+                || !binding.agrees(witness, site.id(), context)
+            {
+                return Err(ObligationKind::MissingEvidence);
+            }
+            let caller = caller.ok_or(ObligationKind::MissingEvidence)?;
+            if caller.context != context || caller.validate().is_err() {
+                return Err(ObligationKind::MissingEvidence);
+            }
             let root = binding.root();
             let operand = Place {
                 root: root.id(),
@@ -343,8 +374,15 @@ pub fn substitute_call_guards(
                 actual_place: operand.id(),
                 qualification: caller.id(),
             });
-            out.influences.push(GuardInfluence{qualification:caller.id(),input:operand.id(),atom:bound.id(),evaluation:site.id()});
-            if !out.qualifications.contains(caller){out.qualifications.push(caller.clone());}
+            out.influences.push(GuardInfluence {
+                qualification: caller.id(),
+                input: operand.id(),
+                atom: bound.id(),
+                evaluation: site.id(),
+            });
+            if !out.qualifications.contains(caller) {
+                out.qualifications.push(caller.clone());
+            }
             replacements.push((*id, Diagram::from_atom(bound.id())));
             out.roots.push(root);
             out.places.push(operand);
@@ -397,8 +435,17 @@ pub fn substitute_call_guards(
         .iter()
         .map(|(id, diagram)| (*id, diagram))
         .collect();
-    let admitted=source.admitted_substitution(&replacements,budget).map_err(|error|match error {super::DiagramAdmissionError::Boundary(boundary)=>super::super::obligation::from_kernel(boundary),super::DiagramAdmissionError::Resource(_)=>ObligationKind::ResourceRefused})?;
-    let (condition,reservation)=admitted.into_parts();out.condition=condition;out.admission.condition=Some(reservation);
+    let admitted = source
+        .admitted_substitution(&replacements, budget)
+        .map_err(|error| match error {
+            super::DiagramAdmissionError::Boundary(boundary) => {
+                super::super::obligation::from_kernel(boundary)
+            }
+            super::DiagramAdmissionError::Resource(_) => ObligationKind::ResourceRefused,
+        })?;
+    let (condition, reservation) = admitted.into_parts();
+    out.condition = condition;
+    out.admission.condition = Some(reservation);
     Ok(out)
 }
 fn lookup<R: Record>(rows: &BTreeMap<Id<R>, R>, id: Id<R>) -> Result<&R, ObligationKind> {

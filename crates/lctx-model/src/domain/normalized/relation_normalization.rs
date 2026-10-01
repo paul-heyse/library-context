@@ -939,5 +939,3 @@ pub fn stage(profile: stages::Profile) -> stages::Stage {
         configuration: ContentHash::of(b"relations/v1"),
     }
 }
-
-

@@ -605,18 +605,40 @@ impl Diagram {
         super::substitution::compose(self, replacements)
     }
     /// Admit all bounded memoized subdiagrams and apply scratch before substitution starts.
-    pub fn admitted_substitution(&self,replacements:&[(AtomId,&Self)],budget:&ResourceBudget)->Result<AdmittedDiagram,DiagramAdmissionError> {
-        let retained=super::substitution::MAX_RETAINED_NODES;
-        let bytes=MAX_PAIR_WORK.checked_mul(PAIR_ALLOCATION_ALLOWANCE)
-            .and_then(|n|n.checked_add(retained.checked_mul(size_of::<BddNode>().saturating_mul(4))?))
-            .and_then(|n|n.checked_add(MAX_NODES.checked_mul(NODE_ALLOCATION_ALLOWANCE)?))
-            .and_then(|n|n.checked_add(self.allocation_allowance()))
-            .and_then(|n|replacements.iter().try_fold(n,|n,(_,d)|n.checked_add(d.allocation_allowance())))
-            .ok_or(DiagramAdmissionError::Boundary(KernelBoundary::WorkPreflight))?;
-        let mut reservation=budget.reserve("condition_substitution",bytes).map_err(DiagramAdmissionError::Resource)?;
-        let diagram=self.substitute_atoms(replacements).map_err(DiagramAdmissionError::Boundary)?;
-        reservation.try_resize(diagram.allocation_allowance()).map_err(DiagramAdmissionError::Resource)?;
-        Ok(AdmittedDiagram{diagram,reservation})
+    pub fn admitted_substitution(
+        &self,
+        replacements: &[(AtomId, &Self)],
+        budget: &ResourceBudget,
+    ) -> Result<AdmittedDiagram, DiagramAdmissionError> {
+        let retained = super::substitution::MAX_RETAINED_NODES;
+        let bytes = MAX_PAIR_WORK
+            .checked_mul(PAIR_ALLOCATION_ALLOWANCE)
+            .and_then(|n| {
+                n.checked_add(retained.checked_mul(size_of::<BddNode>().saturating_mul(4))?)
+            })
+            .and_then(|n| n.checked_add(MAX_NODES.checked_mul(NODE_ALLOCATION_ALLOWANCE)?))
+            .and_then(|n| n.checked_add(self.allocation_allowance()))
+            .and_then(|n| {
+                replacements
+                    .iter()
+                    .try_fold(n, |n, (_, d)| n.checked_add(d.allocation_allowance()))
+            })
+            .ok_or(DiagramAdmissionError::Boundary(
+                KernelBoundary::WorkPreflight,
+            ))?;
+        let mut reservation = budget
+            .reserve("condition_substitution", bytes)
+            .map_err(DiagramAdmissionError::Resource)?;
+        let diagram = self
+            .substitute_atoms(replacements)
+            .map_err(DiagramAdmissionError::Boundary)?;
+        reservation
+            .try_resize(diagram.allocation_allowance())
+            .map_err(DiagramAdmissionError::Resource)?;
+        Ok(AdmittedDiagram {
+            diagram,
+            reservation,
+        })
     }
 
     /// Existentially eliminate explicitly selected `atoms`: the

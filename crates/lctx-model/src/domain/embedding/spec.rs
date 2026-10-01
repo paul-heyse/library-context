@@ -38,9 +38,28 @@ pub struct Spec {
 }
 
 impl crate::domain::HeapSize for Spec {
-    fn heap_bytes(&self)->usize {
-        [&self.reduction,&self.model,&self.revision,&self.tokenizer_revision,&self.server,&self.served_dtype,&self.pooling,&self.query_template,&self.query_task,&self.document_template,&self.output_dtype,&self.normalization].iter().map(|s|s.capacity()).sum::<usize>()
-            +self.admission.as_ref().map_or(0,|a|a.matryoshka_dimensions.capacity()*size_of::<u32>())
+    fn heap_bytes(&self) -> usize {
+        [
+            &self.reduction,
+            &self.model,
+            &self.revision,
+            &self.tokenizer_revision,
+            &self.server,
+            &self.served_dtype,
+            &self.pooling,
+            &self.query_template,
+            &self.query_task,
+            &self.document_template,
+            &self.output_dtype,
+            &self.normalization,
+        ]
+        .iter()
+        .map(|s| s.capacity())
+        .sum::<usize>()
+            + self
+                .admission
+                .as_ref()
+                .map_or(0, |a| a.matryoshka_dimensions.capacity() * size_of::<u32>())
     }
 }
 
@@ -123,7 +142,10 @@ pub fn check_vector(v: &[f32], dimensions: u32) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    const LIVE: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../specs/embedding/qwen3-embedding-8b.json"));
+    const LIVE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../specs/embedding/qwen3-embedding-8b.json"
+    ));
     #[test]
     fn canonical_spec_is_order_independent_and_rejects_incompatible_admission() {
         let spec = Spec::parse(LIVE).unwrap();

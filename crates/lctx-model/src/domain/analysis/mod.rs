@@ -27,9 +27,23 @@ analysis_family!(enriched_execution,"enriched_execution",[SourceCallAnalysis:4=>
 analysis_family!(model,"model",[EnrichedExecution:4=>enriched_execution,SourceCallAnalysis:5=>source_call,Local:6=>local],[crate::domain::transfer::local::TransferKey;ModelTransfer:10=>crate::domain::transfer::model::TransferKey],[crate::domain::normalized::coverage::NormalizationCoverage],[ModelApplication:8=>crate::domain::execution::model_production::ModelApplication,ModelTransferWitness:9=>crate::domain::execution::model_transfer::ModelTransferWitness,ContextTransferWitness:10=>crate::domain::execution::model_context_transfer::ContextTransferWitness],support[Local:6=>local],obligations[]);
 analysis_family!(summary,"summary",[Model:4=>model,EnrichedExecution:5=>enriched_execution,SourceCallAnalysis:6=>source_call,Local:7=>local],[crate::domain::transfer::local::TransferKey;ModelTransfer:10=>crate::domain::transfer::model::TransferKey;SummaryTransfer:11=>crate::domain::transfer::summary::TransferKey;SummaryClaim:12=>crate::domain::execution::summary_consequences::SummaryClaim],[crate::domain::normalized::coverage::NormalizationCoverage],[TransferWitness:8=>crate::domain::transfer::summary::SummaryWitness,PathWitness:9=>crate::domain::execution::summary_path::SummaryPathWitness,ControlWitness:10=>crate::domain::execution::summary_control::SummaryControlWitness,ClaimProof:11=>crate::domain::execution::summary_consequences::ClaimProof],support[Model:4=>model,Local:7=>local],obligations[Local:7=>local]);
 analysis_family!(structural,"structural",[Local:4=>local,CatalogCore:5=>catalog_core],[crate::domain::transfer::local::TransferKey],[crate::domain::normalized::coverage::NormalizationCoverage],[]);
-analysis_family!(analytic_embedding,"analytic_embedding",[],[],[crate::domain::normalized::coverage::NormalizationCoverage],[]);
+analysis_family!(
+    analytic_embedding,
+    "analytic_embedding",
+    [],
+    [],
+    [crate::domain::normalized::coverage::NormalizationCoverage],
+    []
+);
 analysis_family!(analytic,"analytic",[Structural:4=>structural,AnalyticEmbedding:5=>analytic_embedding],[],[crate::domain::normalized::coverage::NormalizationCoverage],[]);
-analysis_family!(catalog_core,"catalog_core",[],[],[crate::domain::normalized::coverage::NormalizationCoverage],[]);
+analysis_family!(
+    catalog_core,
+    "catalog_core",
+    [],
+    [],
+    [crate::domain::normalized::coverage::NormalizationCoverage],
+    []
+);
 analysis_family!(catalog_evidence,"catalog_evidence",[CatalogCore:4=>catalog_core,Local:5=>local,SourceCallAnalysis:6=>source_call],[],[crate::domain::normalized::coverage::NormalizationCoverage],[]);
 // Selection is declaration-owned. Unactivated predecessor codes 5/6 and transfer code 2 remain reserved; optional
 // structural/analytic results feed synthesis, not catalog requirement closure.
@@ -42,7 +56,9 @@ pub fn early_relations() -> Vec<Relation> {
     let mut rows = vec![
         Relation::of::<AnalysisDefinition>(),
         Relation::of::<MethodParameters>(),
-        Relation::of::<ProjectionDefinition>(),Relation::of::<settings::AnalyticsConfiguration>(),Relation::of::<crate::domain::retrieval::RetrievalDefinition>(),
+        Relation::of::<ProjectionDefinition>(),
+        Relation::of::<settings::AnalyticsConfiguration>(),
+        Relation::of::<crate::domain::retrieval::RetrievalDefinition>(),
     ];
     rows.extend(crate::domain::models::records::relations());
     rows.extend(native::relations());
@@ -57,8 +73,13 @@ pub fn pre_catalog_relations() -> Vec<Relation> {
     rows.extend(source_call::publication_relations());
     rows.extend(enriched_execution::publication_relations());
     rows.extend(model::publication_relations());
-    rows.push(Relation::of::<model::ObligationSubject>());rows.extend(model::support::relations());
-    rows.extend(summary::relations().into_iter().filter(|r|r.name()!=summary::AnalysisDiagnostic::NAME));
+    rows.push(Relation::of::<model::ObligationSubject>());
+    rows.extend(model::support::relations());
+    rows.extend(
+        summary::relations()
+            .into_iter()
+            .filter(|r| r.name() != summary::AnalysisDiagnostic::NAME),
+    );
     rows.extend(structural::publication_relations());
     rows.extend(analytic_embedding::publication_relations());
     rows.extend(analytic::publication_relations());
@@ -68,13 +89,16 @@ pub fn pre_catalog_relations() -> Vec<Relation> {
     rows
 }
 pub fn relations() -> Vec<Relation> {
-    let mut rows = pre_catalog_relations();rows.extend(catalog_publication_relations());rows
+    let mut rows = pre_catalog_relations();
+    rows.extend(catalog_publication_relations());
+    rows
 }
 /// Additional nominal owners in the cumulative Catalog frontier.
 pub fn catalog_publication_relations() -> Vec<Relation> {
     let mut rows = selection::publication_relations();
     rows.extend(synthesis::publication_relations());
-    rows.push(Relation::of::<synthesis::ObligationSubject>());rows.extend(synthesis::support::relations());
+    rows.push(Relation::of::<synthesis::ObligationSubject>());
+    rows.extend(synthesis::support::relations());
     rows.extend(retrieval::publication_relations());
     rows.extend(findings::relations());
     rows.extend(frontier::catalog_relations());

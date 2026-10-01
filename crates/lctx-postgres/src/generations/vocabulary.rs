@@ -296,13 +296,23 @@ impl GenerationStore {
                     if !available.contains(target) {
                         // An inactive nullable sum arm is not a reference to future evidence.
                         // Refuse every actual reference before consulting an unavailable target.
-                        let references:bool=sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+                        let references: bool = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
                             "SELECT EXISTS(SELECT 1 FROM {} WHERE {} IS NOT NULL)",
-                            qualified(g,&source),quoted(field.name())
-                        ))).fetch_one(&mut *tx).await?;
-                        if references {return Err(Error::Model(lctx_model::domain::ModelError::Invalid(format!(
-                            "publication {}.{} references unavailable {}",relation.name(),field.name(),target
-                        ))));}
+                            qualified(g, &source),
+                            quoted(field.name())
+                        )))
+                        .fetch_one(&mut *tx)
+                        .await?;
+                        if references {
+                            return Err(Error::Model(lctx_model::domain::ModelError::Invalid(
+                                format!(
+                                    "publication {}.{} references unavailable {}",
+                                    relation.name(),
+                                    field.name(),
+                                    target
+                                ),
+                            )));
+                        }
                         continue;
                     }
                     let target_relation = self
@@ -339,19 +349,23 @@ impl GenerationStore {
                     .iter()
                     .find(|r| r.name() == input.name())
                     .ok_or(Error::Contract)?;
-                let view=super::validation_views::physical(tx,g,input,relation,&physical(relation.name(),group.prefix()),super::validation_views::Scope {upper:Some(group.prefix()),candidate:Some(group.prefix())},budget).await?;
-                visit_named(
+                let view = super::validation_views::physical(
                     tx,
                     g,
+                    input,
                     relation,
-                    &view,
-                    input.order(),
-                    budget,
-                    |batch| {
-                        check.visit_input(input, &batch)?;
-                        Ok(())
+                    &physical(relation.name(), group.prefix()),
+                    super::validation_views::Scope {
+                        upper: Some(group.prefix()),
+                        candidate: Some(group.prefix()),
                     },
+                    budget,
                 )
+                .await?;
+                visit_named(tx, g, relation, &view, input.order(), budget, |batch| {
+                    check.visit_input(input, &batch)?;
+                    Ok(())
+                })
                 .await?;
             }
             check.finish()?;

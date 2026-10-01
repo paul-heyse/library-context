@@ -1,60 +1,774 @@
 //! Hand-expected metadata and defaults, independent of the native extractor.
-use lctx_model::domain::{*,normalized::{callable_aspects::*,callables::*,entities::*},calls::*,syntax::*,symbols::*,assertion::*,attribution::*,source::*,resources::ResourceBudget};
-fn nominal<T>(v:u8)->Id<T> {serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_,serde::de::value::Error>::new([v;16].into_iter())).unwrap()}
-fn setup()->(ResourceBudget,AspectData,AssertionQualification) {let b=ResourceBudget::fixed(16<<20).unwrap();let mut d=AspectData::new(&b);let q=AssertionQualification {context:nominal(1),scope:nominal(2),condition:conditions::Diagram::always().id(),modality:Modality::Definite,approximation:Approximation::Exact};d.qualifications.insert(q.clone()).unwrap();(b,d,q)}
-fn occurrence(d:&mut AspectData,n:i64,kind:SyntaxKind)->Id<Occurrence> {d.occurrences.insert(Occurrence {source:nominal(3),start:n,end:n+1,syntax_kind:kind,structural_path:vec![n as i32],role:OccurrenceRole::Syntax}).unwrap()}
-fn assessment(d:&mut AspectData,q:&AssertionQualification)->Id<EffectiveCallableAssessment> {d.assessments.insert(EffectiveCallableAssessment {callable:nominal(4),context:q.context,decorators:ContentHash::of(b"d"),policy:ContentHash::of(b"p"),identity:Knowledge::Unknown,identity_reason:CallableReason::UnsupportedDecorator,signatures:Knowledge::Known,signature_reason:CallableReason::EvidenceAgreement,descriptor:Knowledge::Unknown,descriptor_kind:None,descriptor_reason:CallableReason::UnsupportedDecorator,body:Knowledge::Unknown,body_admitted:false,body_reason:CallableReason::UnsupportedDecorator,asynchronous:None,generator:None}).unwrap()}
-fn symbol(d:&mut AspectData,q:&AssertionQualification,module:&str,name:&str,kind:SymbolKind)->Id<ProviderSymbol> {let module=d.provider_modules.insert(ProviderModule::Bundled {provider:nominal(5),bundle:ModuleBundle::Typeshed,name:module.into()}).unwrap();let s=ProviderSymbol {provider:nominal(5),context:q.context,module,native_key:name.into(),name:name.into(),kind};let id=d.symbols.insert(s).unwrap();let entity=d.refs.insert(if kind==SymbolKind::Class {EntityRef::Class {class:nominal(6)}}else{EntityRef::Callable {callable:nominal(6)}}).unwrap();d.resolutions.insert(SymbolEntityResolution {symbol:id,context:q.context,policy:ContentHash::of(b"p"),status:ResolutionStatus::Resolved,entity:Some(entity),reason:EntityReason::ProviderExternal}).unwrap();id}
-fn target(d:&mut AspectData,q:&AssertionQualification,site:Id<Occurrence>,symbol:Id<ProviderSymbol>,class:Option<Id<ProviderSymbol>>)->Id<CallTarget> {let destination=d.destinations.insert(CallDestination::Resolved {symbol}).unwrap();let receiver=d.receivers.insert(Receiver::None).unwrap();d.targets.insert(CallTarget {qualification:q.id(),site,origin:nominal(7),destination,channel:nominal(8),phase:CallPhase::Call,receiver,implicit:false,receiver_class:class,passing:None,class_method:None,static_method:None}).unwrap()}
-fn decorator(d:&mut AspectData,q:&AssertionQualification,assessment:Id<EffectiveCallableAssessment>,site:Id<Occurrence>,ordinal:i64) {let observation=d.decorators.insert(DeclarationDecorator {qualification:q.id(),declaration:nominal(9),ordinal,decorator:site}).unwrap();d.members.insert(EffectiveDecoratorMember {assessment,observation,source_ordinal:ordinal,application_ordinal:ordinal}).unwrap();}
+use lctx_model::domain::{
+    assertion::*,
+    attribution::*,
+    calls::*,
+    normalized::{callable_aspects::*, callables::*, entities::*},
+    resources::ResourceBudget,
+    source::*,
+    symbols::*,
+    syntax::*,
+    *,
+};
+fn nominal<T>(v: u8) -> Id<T> {
+    serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
+        _,
+        serde::de::value::Error,
+    >::new([v; 16].into_iter()))
+    .unwrap()
+}
+fn setup() -> (ResourceBudget, AspectData, AssertionQualification) {
+    let b = ResourceBudget::fixed(16 << 20).unwrap();
+    let mut d = AspectData::new(&b);
+    let q = AssertionQualification {
+        context: nominal(1),
+        scope: nominal(2),
+        condition: conditions::Diagram::always().id(),
+        modality: Modality::Definite,
+        approximation: Approximation::Exact,
+    };
+    d.qualifications.insert(q.clone()).unwrap();
+    (b, d, q)
+}
+fn occurrence(d: &mut AspectData, n: i64, kind: SyntaxKind) -> Id<Occurrence> {
+    d.occurrences
+        .insert(Occurrence {
+            source: nominal(3),
+            start: n,
+            end: n + 1,
+            syntax_kind: kind,
+            structural_path: vec![n as i32],
+            role: OccurrenceRole::Syntax,
+        })
+        .unwrap()
+}
+fn assessment(d: &mut AspectData, q: &AssertionQualification) -> Id<EffectiveCallableAssessment> {
+    d.assessments
+        .insert(EffectiveCallableAssessment {
+            callable: nominal(4),
+            context: q.context,
+            decorators: ContentHash::of(b"d"),
+            policy: ContentHash::of(b"p"),
+            identity: Knowledge::Unknown,
+            identity_reason: CallableReason::UnsupportedDecorator,
+            signatures: Knowledge::Known,
+            signature_reason: CallableReason::EvidenceAgreement,
+            descriptor: Knowledge::Unknown,
+            descriptor_kind: None,
+            descriptor_reason: CallableReason::UnsupportedDecorator,
+            body: Knowledge::Unknown,
+            body_admitted: false,
+            body_reason: CallableReason::UnsupportedDecorator,
+            asynchronous: None,
+            generator: None,
+        })
+        .unwrap()
+}
+fn symbol(
+    d: &mut AspectData,
+    q: &AssertionQualification,
+    module: &str,
+    name: &str,
+    kind: SymbolKind,
+) -> Id<ProviderSymbol> {
+    let module = d
+        .provider_modules
+        .insert(ProviderModule::Bundled {
+            provider: nominal(5),
+            bundle: ModuleBundle::Typeshed,
+            name: module.into(),
+        })
+        .unwrap();
+    let s = ProviderSymbol {
+        provider: nominal(5),
+        context: q.context,
+        module,
+        native_key: name.into(),
+        name: name.into(),
+        kind,
+    };
+    let id = d.symbols.insert(s).unwrap();
+    let entity = d
+        .refs
+        .insert(if kind == SymbolKind::Class {
+            EntityRef::Class { class: nominal(6) }
+        } else {
+            EntityRef::Callable {
+                callable: nominal(6),
+            }
+        })
+        .unwrap();
+    d.resolutions
+        .insert(SymbolEntityResolution {
+            symbol: id,
+            context: q.context,
+            policy: ContentHash::of(b"p"),
+            status: ResolutionStatus::Resolved,
+            entity: Some(entity),
+            reason: EntityReason::ProviderExternal,
+        })
+        .unwrap();
+    id
+}
+fn target(
+    d: &mut AspectData,
+    q: &AssertionQualification,
+    site: Id<Occurrence>,
+    symbol: Id<ProviderSymbol>,
+    class: Option<Id<ProviderSymbol>>,
+) -> Id<CallTarget> {
+    let destination = d
+        .destinations
+        .insert(CallDestination::Resolved { symbol })
+        .unwrap();
+    let receiver = d.receivers.insert(Receiver::None).unwrap();
+    d.targets
+        .insert(CallTarget {
+            qualification: q.id(),
+            site,
+            origin: nominal(7),
+            destination,
+            channel: nominal(8),
+            phase: CallPhase::Call,
+            receiver,
+            implicit: false,
+            receiver_class: class,
+            passing: None,
+            class_method: None,
+            static_method: None,
+        })
+        .unwrap()
+}
+fn decorator(
+    d: &mut AspectData,
+    q: &AssertionQualification,
+    assessment: Id<EffectiveCallableAssessment>,
+    site: Id<Occurrence>,
+    ordinal: i64,
+) {
+    let observation = d
+        .decorators
+        .insert(DeclarationDecorator {
+            qualification: q.id(),
+            declaration: nominal(9),
+            ordinal,
+            decorator: site,
+        })
+        .unwrap();
+    d.members
+        .insert(EffectiveDecoratorMember {
+            assessment,
+            observation,
+            source_ordinal: ordinal,
+            application_ordinal: ordinal,
+        })
+        .unwrap();
+}
 #[test]
 fn exact_targets_are_metadata_only_and_spelling_does_not_admit_accessors() {
- let (b,mut d,q)=setup();let a=assessment(&mut d,&q);
- let site=occurrence(&mut d,10,SyntaxKind::ExprCall);decorator(&mut d,&q,a,site,0);let context=symbol(&mut d,&q,"contextlib","contextmanager",SymbolKind::Function);target(&mut d,&q,site,context,None);
- let site=occurrence(&mut d,20,SyntaxKind::ExprAttribute);decorator(&mut d,&q,a,site,1);let fake=symbol(&mut d,&q,"builtins","deleter",SymbolKind::Method);target(&mut d,&q,site,fake,None);
- let site=occurrence(&mut d,30,SyntaxKind::ExprAttribute);decorator(&mut d,&q,a,site,2);let class=symbol(&mut d,&q,"builtins","property",SymbolKind::Class);target(&mut d,&q,site,fake,Some(class));
- let out=normalize(&d,&b).unwrap();assert_eq!(out.aspects.len(),3);assert_eq!(out.aspects.iter().filter(|r|r.kind==AspectKind::ContextManager).count(),1);assert_eq!(out.aspects.iter().filter(|r|r.kind==AspectKind::PropertyDeleter).count(),1);assert_eq!(out.aspects.iter().filter(|r|r.kind==AspectKind::Unknown).count(),1);assert!(out.aspects.iter().all(|r|r.admission==AspectAdmission::MetadataOnly));assert!(!d.assessments.get(a).unwrap().body_admitted);
- let tiny=ResourceBudget::fixed(1).unwrap();assert!(matches!(normalize(&d,&tiny),Err(ModelError::Resource {..})));assert_eq!(tiny.reserved(),0);
+    let (b, mut d, q) = setup();
+    let a = assessment(&mut d, &q);
+    let site = occurrence(&mut d, 10, SyntaxKind::ExprCall);
+    decorator(&mut d, &q, a, site, 0);
+    let context = symbol(
+        &mut d,
+        &q,
+        "contextlib",
+        "contextmanager",
+        SymbolKind::Function,
+    );
+    target(&mut d, &q, site, context, None);
+    let site = occurrence(&mut d, 20, SyntaxKind::ExprAttribute);
+    decorator(&mut d, &q, a, site, 1);
+    let fake = symbol(&mut d, &q, "builtins", "deleter", SymbolKind::Method);
+    target(&mut d, &q, site, fake, None);
+    let site = occurrence(&mut d, 30, SyntaxKind::ExprAttribute);
+    decorator(&mut d, &q, a, site, 2);
+    let class = symbol(&mut d, &q, "builtins", "property", SymbolKind::Class);
+    target(&mut d, &q, site, fake, Some(class));
+    let out = normalize(&d, &b).unwrap();
+    assert_eq!(out.aspects.len(), 3);
+    assert_eq!(
+        out.aspects
+            .iter()
+            .filter(|r| r.kind == AspectKind::ContextManager)
+            .count(),
+        1
+    );
+    assert_eq!(
+        out.aspects
+            .iter()
+            .filter(|r| r.kind == AspectKind::PropertyDeleter)
+            .count(),
+        1
+    );
+    assert_eq!(
+        out.aspects
+            .iter()
+            .filter(|r| r.kind == AspectKind::Unknown)
+            .count(),
+        1
+    );
+    assert!(
+        out.aspects
+            .iter()
+            .all(|r| r.admission == AspectAdmission::MetadataOnly)
+    );
+    assert!(!d.assessments.get(a).unwrap().body_admitted);
+    let tiny = ResourceBudget::fixed(1).unwrap();
+    assert!(matches!(
+        normalize(&d, &tiny),
+        Err(ModelError::Resource { .. })
+    ));
+    assert_eq!(tiny.reserved(), 0);
 }
 #[test]
 fn source_trait_membership_is_preserved_without_signature_or_body_promotion() {
- let (b,mut d,q)=setup();let a=assessment(&mut d,&q);let observation=d.traits.insert(FunctionTraitObservation {qualification:q.id(),symbol:nominal(10),overload:false,staticmethod:false,classmethod:false,property_getter:false,property_setter:true,stub:false,origin:FunctionOrigin::DefStatement,defining_class:Some(nominal(11)),overrides:None}).unwrap();let premise=d.premises.insert(EffectiveCallablePremise::Traits {observation}).unwrap();d.evidence.insert(EffectiveCallableEvidence {assessment:a,premise}).unwrap();let out=normalize(&d,&b).unwrap();assert_eq!(out.aspects.len(),1);assert!(out.aspects.iter().any(|r|r.kind==AspectKind::PropertySetter));assert_eq!(d.assessments.get(a).unwrap().identity,Knowledge::Unknown);
+    let (b, mut d, q) = setup();
+    let a = assessment(&mut d, &q);
+    let observation = d
+        .traits
+        .insert(FunctionTraitObservation {
+            qualification: q.id(),
+            symbol: nominal(10),
+            overload: false,
+            staticmethod: false,
+            classmethod: false,
+            property_getter: false,
+            property_setter: true,
+            stub: false,
+            origin: FunctionOrigin::DefStatement,
+            defining_class: Some(nominal(11)),
+            overrides: None,
+        })
+        .unwrap();
+    let premise = d
+        .premises
+        .insert(EffectiveCallablePremise::Traits { observation })
+        .unwrap();
+    d.evidence
+        .insert(EffectiveCallableEvidence {
+            assessment: a,
+            premise,
+        })
+        .unwrap();
+    let out = normalize(&d, &b).unwrap();
+    assert_eq!(out.aspects.len(), 1);
+    assert!(
+        out.aspects
+            .iter()
+            .any(|r| r.kind == AspectKind::PropertySetter)
+    );
+    assert_eq!(d.assessments.get(a).unwrap().identity, Knowledge::Unknown);
 }
-fn field(d:&mut AspectData,q:&AssertionQualification,n:i64,value:Option<Id<Occurrence>>)->Id<FieldDeclarationLink> {let target=occurrence(d,n,SyntaxKind::Identifier);let declaration=d.field_syntax.insert(ClassFieldSyntaxObservation {qualification:q.id(),class:nominal(20),target,annotation:Some(nominal(21)),value}).unwrap();d.fields.insert(FieldDeclarationLink {field:nominal(n as u8),declaration,binding:nominal(n as u8)}).unwrap()}
+fn field(
+    d: &mut AspectData,
+    q: &AssertionQualification,
+    n: i64,
+    value: Option<Id<Occurrence>>,
+) -> Id<FieldDeclarationLink> {
+    let target = occurrence(d, n, SyntaxKind::Identifier);
+    let declaration = d
+        .field_syntax
+        .insert(ClassFieldSyntaxObservation {
+            qualification: q.id(),
+            class: nominal(20),
+            target,
+            annotation: Some(nominal(21)),
+            value,
+        })
+        .unwrap();
+    d.fields
+        .insert(FieldDeclarationLink {
+            field: nominal(n as u8),
+            declaration,
+            binding: nominal(n as u8),
+        })
+        .unwrap()
+}
 #[test]
 fn literal_none_factory_expression_and_absence_have_distinct_stored_authority() {
- let (b,mut d,q)=setup();let none=occurrence(&mut d,30,SyntaxKind::ExprNoneLiteral);let detail=d.detail_values.insert(SyntaxDetail::Literal {literal:value::Literal::None {}.id()}).unwrap();d.details.insert(SyntaxDetailObservation {qualification:q.id(),occurrence:none,ordinal:0,detail}).unwrap();let literal_field=field(&mut d,&q,31,Some(none));let absent=field(&mut d,&q,32,None);
- let callsite=occurrence(&mut d,40,SyntaxKind::ExprCall);let callee=occurrence(&mut d,41,SyntaxKind::ExprName);let factory=occurrence(&mut d,42,SyntaxKind::ExprName);let f=field(&mut d,&q,43,Some(callsite));let explicit=field(&mut d,&q,44,Some(factory));let field_symbol=symbol(&mut d,&q,"dataclasses","field",SymbolKind::Function);target(&mut d,&q,callsite,field_symbol,None);let call=d.calls.insert(CallSyntax {qualification:q.id(),site:callsite,callee,arguments:ContentHash::of(b"a"),in_annotation:false}).unwrap();d.arguments.insert(CallArgument {call,ordinal:0,kind:ArgumentKind::Keyword,keyword:Some("default_factory".into()),value:factory}).unwrap();
- let out=normalize(&d,&b).unwrap();let default=|id|out.defaults.get(out.fields.iter().find(|r|r.declaration==id).unwrap().default).unwrap();assert!(matches!(default(literal_field),FieldDefault::Literal {literal,..} if *literal==value::Literal::None {}.id()));assert!(matches!(default(absent),FieldDefault::Absent {}));assert!(matches!(default(f),FieldDefault::Factory {expression,..} if *expression==factory));assert!(matches!(default(explicit),FieldDefault::Expression {..}));
- // Missing literal evidence is an expression, never a fabricated None.
- d.details=lctx_model::domain::normalized::Rows::new(&b);let missing=normalize(&d,&b).unwrap();assert!(matches!(missing.defaults.get(missing.fields.iter().find(|r|r.declaration==literal_field).unwrap().default),Some(FieldDefault::Expression {..})));
- // A keyword at an unqualified/non-dataclasses target cannot classify a factory.
- d.targets=lctx_model::domain::normalized::Rows::new(&b);let unrelated=symbol(&mut d,&q,"other","field",SymbolKind::Function);target(&mut d,&q,callsite,unrelated,None);let unrelated=normalize(&d,&b).unwrap();assert!(unrelated.defaults.iter().all(|r|!matches!(r,FieldDefault::Factory {..})));
+    let (b, mut d, q) = setup();
+    let none = occurrence(&mut d, 30, SyntaxKind::ExprNoneLiteral);
+    let detail = d
+        .detail_values
+        .insert(SyntaxDetail::Literal {
+            literal: value::Literal::None {}.id(),
+        })
+        .unwrap();
+    d.details
+        .insert(SyntaxDetailObservation {
+            qualification: q.id(),
+            occurrence: none,
+            ordinal: 0,
+            detail,
+        })
+        .unwrap();
+    let literal_field = field(&mut d, &q, 31, Some(none));
+    let absent = field(&mut d, &q, 32, None);
+    let callsite = occurrence(&mut d, 40, SyntaxKind::ExprCall);
+    let callee = occurrence(&mut d, 41, SyntaxKind::ExprName);
+    let factory = occurrence(&mut d, 42, SyntaxKind::ExprName);
+    let f = field(&mut d, &q, 43, Some(callsite));
+    let explicit = field(&mut d, &q, 44, Some(factory));
+    let field_symbol = symbol(&mut d, &q, "dataclasses", "field", SymbolKind::Function);
+    target(&mut d, &q, callsite, field_symbol, None);
+    let call = d
+        .calls
+        .insert(CallSyntax {
+            qualification: q.id(),
+            site: callsite,
+            callee,
+            arguments: ContentHash::of(b"a"),
+            in_annotation: false,
+        })
+        .unwrap();
+    d.arguments
+        .insert(CallArgument {
+            call,
+            ordinal: 0,
+            kind: ArgumentKind::Keyword,
+            keyword: Some("default_factory".into()),
+            value: factory,
+        })
+        .unwrap();
+    let out = normalize(&d, &b).unwrap();
+    let default = |id| {
+        out.defaults
+            .get(
+                out.fields
+                    .iter()
+                    .find(|r| r.declaration == id)
+                    .unwrap()
+                    .default,
+            )
+            .unwrap()
+    };
+    assert!(
+        matches!(default(literal_field),FieldDefault::Literal {literal,..} if *literal==value::Literal::None {}.id())
+    );
+    assert!(matches!(default(absent), FieldDefault::Absent {}));
+    assert!(matches!(default(f),FieldDefault::Factory {expression,..} if *expression==factory));
+    assert!(matches!(default(explicit), FieldDefault::Expression { .. }));
+    // Missing literal evidence is an expression, never a fabricated None.
+    d.details = lctx_model::domain::normalized::Rows::new(&b);
+    let missing = normalize(&d, &b).unwrap();
+    assert!(matches!(
+        missing.defaults.get(
+            missing
+                .fields
+                .iter()
+                .find(|r| r.declaration == literal_field)
+                .unwrap()
+                .default
+        ),
+        Some(FieldDefault::Expression { .. })
+    ));
+    // A keyword at an unqualified/non-dataclasses target cannot classify a factory.
+    d.targets = lctx_model::domain::normalized::Rows::new(&b);
+    let unrelated = symbol(&mut d, &q, "other", "field", SymbolKind::Function);
+    target(&mut d, &q, callsite, unrelated, None);
+    let unrelated = normalize(&d, &b).unwrap();
+    assert!(
+        unrelated
+            .defaults
+            .iter()
+            .all(|r| !matches!(r, FieldDefault::Factory { .. }))
+    );
 }
 #[test]
 fn shared_invariant_refuses_omitted_metadata_and_default_assessment() {
- let (b,mut d,q)=setup();let a=assessment(&mut d,&q);let site=occurrence(&mut d,10,SyntaxKind::ExprName);decorator(&mut d,&q,a,site,0);field(&mut d,&q,12,None);let mut out=normalize(&d,&b).unwrap();out.fields=lctx_model::domain::normalized::Rows::new(&b);let mut check=(invariants().remove(0).create)(&b);
- macro_rules! data {($($f:ident:$ty:ty,)*)=>{$(check.visit(<$ty>::NAME,&<$ty as Record>::encode(&d.$f.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap();)*};}lctx_model::callable_aspect_inputs!(data);
- macro_rules! output {($($f:ident:$ty:ty,)*)=>{$(check.visit(<$ty>::NAME,&<$ty as Record>::encode(&out.$f.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap();)*};}lctx_model::callable_aspect_outputs!(output);assert!(check.finish().is_err());
+    let (b, mut d, q) = setup();
+    let a = assessment(&mut d, &q);
+    let site = occurrence(&mut d, 10, SyntaxKind::ExprName);
+    decorator(&mut d, &q, a, site, 0);
+    field(&mut d, &q, 12, None);
+    let mut out = normalize(&d, &b).unwrap();
+    out.fields = lctx_model::domain::normalized::Rows::new(&b);
+    let mut check = (invariants().remove(0).create)(&b);
+    macro_rules! data {($($f:ident:$ty:ty,)*)=>{$(check.visit(<$ty>::NAME,&<$ty as Record>::encode(&d.$f.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap();)*};}
+    lctx_model::callable_aspect_inputs!(data);
+    macro_rules! output {($($f:ident:$ty:ty,)*)=>{$(check.visit(<$ty>::NAME,&<$ty as Record>::encode(&out.$f.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap();)*};}
+    lctx_model::callable_aspect_outputs!(output);
+    assert!(check.finish().is_err());
 }
 #[test]
 fn pinned_registration_requires_artifact_ownership_and_direct_receiver_construction() {
- use lctx_model::domain::{input::*,lexical::*,normalized::links::*};
- let (b,mut d,q)=setup();let a=assessment(&mut d,&q);let source=SourceArtifact::from_bytes(nominal::<InputRevision>(1),"server.py".into(),b"pass\n").unwrap();let artifact=d.artifacts.insert(source).unwrap();let module=d.modules.insert(Module {source:artifact,qualified_name:"fastmcp.server.server".into()}).unwrap();let module=d.provider_modules.insert(ProviderModule::Acquired {module}).unwrap();
- let mut make=|name:&str,kind| {let id=d.symbols.insert(ProviderSymbol {provider:nominal(5),context:q.context,module,native_key:name.into(),name:name.into(),kind}).unwrap();let entity=d.refs.insert(if kind==SymbolKind::Class {EntityRef::Class {class:nominal(6)}}else{EntityRef::Callable {callable:nominal(6)}}).unwrap();d.resolutions.insert(SymbolEntityResolution {symbol:id,context:q.context,policy:ContentHash::of(b"p"),status:ResolutionStatus::Resolved,entity:Some(entity),reason:EntityReason::DeclarationAgreement}).unwrap();id};let class=make("FastMCP",SymbolKind::Class);let method=make("tool",SymbolKind::Method);
- let constructor=occurrence(&mut d,20,SyntaxKind::ExprCall);target(&mut d,&q,constructor,class,None);let actual=occurrence(&mut d,30,SyntaxKind::ExprName);let site=occurrence(&mut d,31,SyntaxKind::ExprCall);decorator(&mut d,&q,a,site,0);let destination=d.destinations.insert(CallDestination::Resolved {symbol:method}).unwrap();let receiver=d.receivers.insert(Receiver::Bound {actual}).unwrap();d.targets.insert(CallTarget {qualification:q.id(),site,origin:nominal(7),destination,channel:nominal(8),phase:CallPhase::Call,receiver,implicit:false,receiver_class:Some(class),passing:None,class_method:None,static_method:None}).unwrap();
- let event=d.binding_events.insert(BindingEvent {site:constructor,name:"mcp".into()}).unwrap();d.bindings.insert(BindingObservation {qualification:q.id(),event,scope:nominal(9),kind:BindingEventKind::Assignment,ordinal:0,value:Some(constructor),static_branch:None,static_polarity:None}).unwrap();let reference=d.references.insert(ReferenceObservation {qualification:q.id(),read:actual,scope:nominal(9),parent:site,field:SyntaxField::Value,name:"mcp".into()}).unwrap();let raw=d.lexical_resolutions.insert(LexicalResolution {qualification:q.id(),read:actual,target:LexicalTarget::Binding {event}.id(),captured:false}).unwrap();let assessment=d.reference_assessments.insert(ReferenceEntityAssessment {reference,status:ResolutionStatus::Resolved,reason:LinkReason::ExplicitIdentity}).unwrap();let entity=d.refs.insert(EntityRef::Callable {callable:nominal(6)}).unwrap();let target=d.reference_targets.insert(ReferenceEntityTarget::Binding {event,entity}).unwrap();d.reference_candidates.insert(ReferenceEntityCandidate {assessment,resolution:raw,target}).unwrap();
- let package=d.packages.insert(Package {name:"fastmcp".into()}).unwrap();let release=d.releases.insert(Release {package,version:"4.0.5".into()}).unwrap();let verification=d.verifications.insert(DistributionVerification {acquisition:nominal(10),release,record_digest:ContentHash::of(b"record"),artifact_sha256:vec![]}).unwrap();
- let unowned=normalize(&d,&b).unwrap();assert!(unowned.aspects.iter().all(|r|r.kind!=AspectKind::FastMcpTool));d.ownership.insert(ArtifactOwnership {artifact,distribution:verification}).unwrap();let owned=normalize(&d,&b).unwrap();assert!(owned.aspects.iter().any(|r|r.kind==AspectKind::FastMcpTool && r.admission==AspectAdmission::MetadataOnly));
- d.bindings=lctx_model::domain::normalized::Rows::new(&b);let unconstructed=normalize(&d,&b).unwrap();assert!(unconstructed.aspects.iter().all(|r|r.kind!=AspectKind::FastMcpTool));
+    use lctx_model::domain::{input::*, lexical::*, normalized::links::*};
+    let (b, mut d, q) = setup();
+    let a = assessment(&mut d, &q);
+    let source =
+        SourceArtifact::from_bytes(nominal::<InputRevision>(1), "server.py".into(), b"pass\n")
+            .unwrap();
+    let artifact = d.artifacts.insert(source).unwrap();
+    let module = d
+        .modules
+        .insert(Module {
+            source: artifact,
+            qualified_name: "fastmcp.server.server".into(),
+        })
+        .unwrap();
+    let module = d
+        .provider_modules
+        .insert(ProviderModule::Acquired { module })
+        .unwrap();
+    let mut make = |name: &str, kind| {
+        let id = d
+            .symbols
+            .insert(ProviderSymbol {
+                provider: nominal(5),
+                context: q.context,
+                module,
+                native_key: name.into(),
+                name: name.into(),
+                kind,
+            })
+            .unwrap();
+        let entity = d
+            .refs
+            .insert(if kind == SymbolKind::Class {
+                EntityRef::Class { class: nominal(6) }
+            } else {
+                EntityRef::Callable {
+                    callable: nominal(6),
+                }
+            })
+            .unwrap();
+        d.resolutions
+            .insert(SymbolEntityResolution {
+                symbol: id,
+                context: q.context,
+                policy: ContentHash::of(b"p"),
+                status: ResolutionStatus::Resolved,
+                entity: Some(entity),
+                reason: EntityReason::DeclarationAgreement,
+            })
+            .unwrap();
+        id
+    };
+    let class = make("FastMCP", SymbolKind::Class);
+    let method = make("tool", SymbolKind::Method);
+    let constructor = occurrence(&mut d, 20, SyntaxKind::ExprCall);
+    target(&mut d, &q, constructor, class, None);
+    let actual = occurrence(&mut d, 30, SyntaxKind::ExprName);
+    let site = occurrence(&mut d, 31, SyntaxKind::ExprCall);
+    decorator(&mut d, &q, a, site, 0);
+    let destination = d
+        .destinations
+        .insert(CallDestination::Resolved { symbol: method })
+        .unwrap();
+    let receiver = d.receivers.insert(Receiver::Bound { actual }).unwrap();
+    d.targets
+        .insert(CallTarget {
+            qualification: q.id(),
+            site,
+            origin: nominal(7),
+            destination,
+            channel: nominal(8),
+            phase: CallPhase::Call,
+            receiver,
+            implicit: false,
+            receiver_class: Some(class),
+            passing: None,
+            class_method: None,
+            static_method: None,
+        })
+        .unwrap();
+    let event = d
+        .binding_events
+        .insert(BindingEvent {
+            site: constructor,
+            name: "mcp".into(),
+        })
+        .unwrap();
+    d.bindings
+        .insert(BindingObservation {
+            qualification: q.id(),
+            event,
+            scope: nominal(9),
+            kind: BindingEventKind::Assignment,
+            ordinal: 0,
+            value: Some(constructor),
+            static_branch: None,
+            static_polarity: None,
+        })
+        .unwrap();
+    let reference = d
+        .references
+        .insert(ReferenceObservation {
+            qualification: q.id(),
+            read: actual,
+            scope: nominal(9),
+            parent: site,
+            field: SyntaxField::Value,
+            name: "mcp".into(),
+        })
+        .unwrap();
+    let raw = d
+        .lexical_resolutions
+        .insert(LexicalResolution {
+            qualification: q.id(),
+            read: actual,
+            target: LexicalTarget::Binding { event }.id(),
+            captured: false,
+        })
+        .unwrap();
+    let assessment = d
+        .reference_assessments
+        .insert(ReferenceEntityAssessment {
+            reference,
+            status: ResolutionStatus::Resolved,
+            reason: LinkReason::ExplicitIdentity,
+        })
+        .unwrap();
+    let entity = d
+        .refs
+        .insert(EntityRef::Callable {
+            callable: nominal(6),
+        })
+        .unwrap();
+    let target = d
+        .reference_targets
+        .insert(ReferenceEntityTarget::Binding { event, entity })
+        .unwrap();
+    d.reference_candidates
+        .insert(ReferenceEntityCandidate {
+            assessment,
+            resolution: raw,
+            target,
+        })
+        .unwrap();
+    let package = d
+        .packages
+        .insert(Package {
+            name: "fastmcp".into(),
+        })
+        .unwrap();
+    let release = d
+        .releases
+        .insert(Release {
+            package,
+            version: "4.0.5".into(),
+        })
+        .unwrap();
+    let verification = d
+        .verifications
+        .insert(DistributionVerification {
+            acquisition: nominal(10),
+            release,
+            record_digest: ContentHash::of(b"record"),
+            artifact_sha256: vec![],
+        })
+        .unwrap();
+    let unowned = normalize(&d, &b).unwrap();
+    assert!(
+        unowned
+            .aspects
+            .iter()
+            .all(|r| r.kind != AspectKind::FastMcpTool)
+    );
+    d.ownership
+        .insert(ArtifactOwnership {
+            artifact,
+            distribution: verification,
+        })
+        .unwrap();
+    let owned = normalize(&d, &b).unwrap();
+    assert!(
+        owned
+            .aspects
+            .iter()
+            .any(|r| r.kind == AspectKind::FastMcpTool
+                && r.admission == AspectAdmission::MetadataOnly)
+    );
+    d.bindings = lctx_model::domain::normalized::Rows::new(&b);
+    let unconstructed = normalize(&d, &b).unwrap();
+    assert!(
+        unconstructed
+            .aspects
+            .iter()
+            .all(|r| r.kind != AspectKind::FastMcpTool)
+    );
 }
 #[test]
 fn accessor_metadata_keeps_candidate_reference_and_rejects_foreign_declaration_context() {
- use lctx_model::domain::{lexical::*,normalized::links::*};
- let (b,mut d,q)=setup();let current_assessment=assessment(&mut d,&q);let previous=occurrence(&mut d,10,SyntaxKind::StmtFunctionDef);let current=occurrence(&mut d,30,SyntaxKind::StmtFunctionDef);let parent=occurrence(&mut d,1,SyntaxKind::StmtClassDef);let expression=occurrence(&mut d,20,SyntaxKind::ExprAttribute);let identifier=occurrence(&mut d,21,SyntaxKind::Identifier);let value=occurrence(&mut d,22,SyntaxKind::ExprName);
- let previous_declaration=DeclarationObservation {qualification:q.id(),declaration:previous,name:nominal(11),kind:DeclarationKind::Function,parent:Some(parent),overload:false,docstring:None};d.declarations.insert(previous_declaration.clone()).unwrap();d.declarations.insert(DeclarationObservation {declaration:current,name:nominal(12),..previous_declaration.clone()}).unwrap();let observation=d.decorators.insert(DeclarationDecorator {qualification:q.id(),declaration:current,ordinal:0,decorator:expression}).unwrap();d.members.insert(EffectiveDecoratorMember {assessment:current_assessment,observation,source_ordinal:0,application_ordinal:0}).unwrap();d.placements.insert(SyntaxPlacement {qualification:q.id(),occurrence:identifier,parent:Some(expression),field:SyntaxField::Child,ordinal:0}).unwrap();d.spellings.insert(SyntaxObservation {qualification:q.id(),occurrence:identifier,spelling:"deleter".into()}).unwrap();
- let callable=d.callable_entities.insert(CallableEntity::Source {declaration:previous,kind:CallableKind::Function}).unwrap();let mut prior=d.assessments.get(current_assessment).unwrap().clone();prior.callable=callable;let prior=d.assessments.insert(prior).unwrap();let traits=d.traits.insert(FunctionTraitObservation {qualification:q.id(),symbol:nominal(10),overload:false,staticmethod:false,classmethod:false,property_getter:true,property_setter:false,stub:false,origin:FunctionOrigin::DefStatement,defining_class:Some(nominal(11)),overrides:None}).unwrap();let premise=d.premises.insert(EffectiveCallablePremise::Traits {observation:traits}).unwrap();d.evidence.insert(EffectiveCallableEvidence {assessment:prior,premise}).unwrap();
- let reference=d.references.insert(ReferenceObservation {qualification:q.id(),read:value,scope:nominal(13),parent:expression,field:SyntaxField::Value,name:"value".into()}).unwrap();let assessment=d.reference_assessments.insert(ReferenceEntityAssessment {reference,status:ResolutionStatus::Ambiguous,reason:LinkReason::ConflictingCandidates}).unwrap();let candidate_q=AssertionQualification {modality:Modality::Candidate,..q.clone()};d.qualifications.insert(candidate_q.clone()).unwrap();let raw=d.lexical_resolutions.insert(LexicalResolution {qualification:candidate_q.id(),read:value,target:nominal(14),captured:false}).unwrap();let entity=d.refs.insert(EntityRef::Callable {callable}).unwrap();let target=d.reference_targets.insert(ReferenceEntityTarget::Binding {event:nominal(15),entity}).unwrap();d.reference_candidates.insert(ReferenceEntityCandidate {assessment,resolution:raw,target}).unwrap();
- let out=normalize(&d,&b).unwrap();assert!(out.aspects.iter().any(|r|r.assessment==current_assessment && r.kind==AspectKind::PropertyDeleter && r.admission==AspectAdmission::MetadataOnly));assert!(!d.assessments.get(current_assessment).unwrap().body_admitted);
- let foreign=AssertionQualification {context:nominal(99),..q.clone()};d.qualifications.insert(foreign.clone()).unwrap();d.declarations=normalized::Rows::new(&b);d.declarations.insert(DeclarationObservation {declaration:current,name:nominal(12),..previous_declaration.clone()}).unwrap();d.declarations.insert(DeclarationObservation {qualification:foreign.id(),..previous_declaration}).unwrap();let out=normalize(&d,&b).unwrap();assert!(out.aspects.iter().all(|r|r.kind!=AspectKind::PropertyDeleter));
+    use lctx_model::domain::{lexical::*, normalized::links::*};
+    let (b, mut d, q) = setup();
+    let current_assessment = assessment(&mut d, &q);
+    let previous = occurrence(&mut d, 10, SyntaxKind::StmtFunctionDef);
+    let current = occurrence(&mut d, 30, SyntaxKind::StmtFunctionDef);
+    let parent = occurrence(&mut d, 1, SyntaxKind::StmtClassDef);
+    let expression = occurrence(&mut d, 20, SyntaxKind::ExprAttribute);
+    let identifier = occurrence(&mut d, 21, SyntaxKind::Identifier);
+    let value = occurrence(&mut d, 22, SyntaxKind::ExprName);
+    let previous_declaration = DeclarationObservation {
+        qualification: q.id(),
+        declaration: previous,
+        name: nominal(11),
+        kind: DeclarationKind::Function,
+        parent: Some(parent),
+        overload: false,
+        docstring: None,
+    };
+    d.declarations.insert(previous_declaration.clone()).unwrap();
+    d.declarations
+        .insert(DeclarationObservation {
+            declaration: current,
+            name: nominal(12),
+            ..previous_declaration.clone()
+        })
+        .unwrap();
+    let observation = d
+        .decorators
+        .insert(DeclarationDecorator {
+            qualification: q.id(),
+            declaration: current,
+            ordinal: 0,
+            decorator: expression,
+        })
+        .unwrap();
+    d.members
+        .insert(EffectiveDecoratorMember {
+            assessment: current_assessment,
+            observation,
+            source_ordinal: 0,
+            application_ordinal: 0,
+        })
+        .unwrap();
+    d.placements
+        .insert(SyntaxPlacement {
+            qualification: q.id(),
+            occurrence: identifier,
+            parent: Some(expression),
+            field: SyntaxField::Child,
+            ordinal: 0,
+        })
+        .unwrap();
+    d.spellings
+        .insert(SyntaxObservation {
+            qualification: q.id(),
+            occurrence: identifier,
+            spelling: "deleter".into(),
+        })
+        .unwrap();
+    let callable = d
+        .callable_entities
+        .insert(CallableEntity::Source {
+            declaration: previous,
+            kind: CallableKind::Function,
+        })
+        .unwrap();
+    let mut prior = d.assessments.get(current_assessment).unwrap().clone();
+    prior.callable = callable;
+    let prior = d.assessments.insert(prior).unwrap();
+    let traits = d
+        .traits
+        .insert(FunctionTraitObservation {
+            qualification: q.id(),
+            symbol: nominal(10),
+            overload: false,
+            staticmethod: false,
+            classmethod: false,
+            property_getter: true,
+            property_setter: false,
+            stub: false,
+            origin: FunctionOrigin::DefStatement,
+            defining_class: Some(nominal(11)),
+            overrides: None,
+        })
+        .unwrap();
+    let premise = d
+        .premises
+        .insert(EffectiveCallablePremise::Traits {
+            observation: traits,
+        })
+        .unwrap();
+    d.evidence
+        .insert(EffectiveCallableEvidence {
+            assessment: prior,
+            premise,
+        })
+        .unwrap();
+    let reference = d
+        .references
+        .insert(ReferenceObservation {
+            qualification: q.id(),
+            read: value,
+            scope: nominal(13),
+            parent: expression,
+            field: SyntaxField::Value,
+            name: "value".into(),
+        })
+        .unwrap();
+    let assessment = d
+        .reference_assessments
+        .insert(ReferenceEntityAssessment {
+            reference,
+            status: ResolutionStatus::Ambiguous,
+            reason: LinkReason::ConflictingCandidates,
+        })
+        .unwrap();
+    let candidate_q = AssertionQualification {
+        modality: Modality::Candidate,
+        ..q.clone()
+    };
+    d.qualifications.insert(candidate_q.clone()).unwrap();
+    let raw = d
+        .lexical_resolutions
+        .insert(LexicalResolution {
+            qualification: candidate_q.id(),
+            read: value,
+            target: nominal(14),
+            captured: false,
+        })
+        .unwrap();
+    let entity = d.refs.insert(EntityRef::Callable { callable }).unwrap();
+    let target = d
+        .reference_targets
+        .insert(ReferenceEntityTarget::Binding {
+            event: nominal(15),
+            entity,
+        })
+        .unwrap();
+    d.reference_candidates
+        .insert(ReferenceEntityCandidate {
+            assessment,
+            resolution: raw,
+            target,
+        })
+        .unwrap();
+    let out = normalize(&d, &b).unwrap();
+    assert!(
+        out.aspects
+            .iter()
+            .any(|r| r.assessment == current_assessment
+                && r.kind == AspectKind::PropertyDeleter
+                && r.admission == AspectAdmission::MetadataOnly)
+    );
+    assert!(!d.assessments.get(current_assessment).unwrap().body_admitted);
+    let foreign = AssertionQualification {
+        context: nominal(99),
+        ..q.clone()
+    };
+    d.qualifications.insert(foreign.clone()).unwrap();
+    d.declarations = normalized::Rows::new(&b);
+    d.declarations
+        .insert(DeclarationObservation {
+            declaration: current,
+            name: nominal(12),
+            ..previous_declaration.clone()
+        })
+        .unwrap();
+    d.declarations
+        .insert(DeclarationObservation {
+            qualification: foreign.id(),
+            ..previous_declaration
+        })
+        .unwrap();
+    let out = normalize(&d, &b).unwrap();
+    assert!(
+        out.aspects
+            .iter()
+            .all(|r| r.kind != AspectKind::PropertyDeleter)
+    );
 }

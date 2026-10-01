@@ -16,10 +16,13 @@ fn captured(profile: Profile, resources: &ResourceBudget) -> Arc<CapturedInputs>
         b"def f(x):\n    return g(h(x))\n",
     )
     .unwrap();
-    Arc::new(CapturedInputs::new(vec![AcquiredInput::tree(
-        CapturedInput::capture(root.path(), &["api.py".into()], &budget()).unwrap(),
-        "facts-generation",
-    )], cpg_extract::native_context::NativeContextConfig::committed(profile, resources).unwrap()))
+    Arc::new(CapturedInputs::new(
+        vec![AcquiredInput::tree(
+            CapturedInput::capture(root.path(), &["api.py".into()], &budget()).unwrap(),
+            "facts-generation",
+        )],
+        cpg_extract::native_context::NativeContextConfig::committed(profile, resources).unwrap(),
+    ))
 }
 #[tokio::test]
 async fn real_facts_publication_equals_memory_and_never_selects() {
@@ -32,9 +35,14 @@ async fn real_facts_publication_equals_memory_and_never_selects() {
     for profile in Profile::ALL {
         let configuration = ContentHash::of(b"fixture");
         let resources = budget();
-        let memory = cpg_core::facts::memory(captured(profile, &resources), resources.clone(), profile, configuration)
-            .await
-            .unwrap();
+        let memory = cpg_core::facts::memory(
+            captured(profile, &resources),
+            resources.clone(),
+            profile,
+            configuration,
+        )
+        .await
+        .unwrap();
         let published = cpg_core::facts::publish(
             &store,
             db.writer.clone(),

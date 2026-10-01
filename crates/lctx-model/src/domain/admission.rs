@@ -31,7 +31,13 @@ pub enum Frontier {
     Catalog,
 }
 impl Frontier {
-    pub const ALL: [Self; 5] = [Self::Conformance, Self::Facts, Self::Normalized, Self::Analysis, Self::Catalog];
+    pub const ALL: [Self; 5] = [
+        Self::Conformance,
+        Self::Facts,
+        Self::Normalized,
+        Self::Analysis,
+        Self::Catalog,
+    ];
     pub fn name(self) -> &'static str {
         match self {
             Self::Conformance => "conformance",
@@ -529,7 +535,10 @@ impl FrontierContract {
                 }
             }
         }
-        if matches!(self.frontier, Frontier::Normalized | Frontier::Analysis | Frontier::Catalog) {
+        if matches!(
+            self.frontier,
+            Frontier::Normalized | Frontier::Analysis | Frontier::Catalog
+        ) {
             for capability in super::normalized::coverage::Capability::ALL {
                 let required = capability.producer(self.profile);
                 if !schedule
@@ -787,7 +796,10 @@ impl AdmissionCheck {
             ValidationInput::of::<CoverageScope>(&["id"]),
             ValidationInput::of::<ProviderCoverage>(&["id"]),
         ];
-        if matches!(self.preflight.contract.frontier, Frontier::Normalized | Frontier::Analysis | Frontier::Catalog) {
+        if matches!(
+            self.preflight.contract.frontier,
+            Frontier::Normalized | Frontier::Analysis | Frontier::Catalog
+        ) {
             inputs.extend(super::normalized::coverage::CoverageOutput::validation_inputs());
         }
         inputs
@@ -830,8 +842,10 @@ impl AdmissionCheck {
             for row in ProviderCoverage::decode(batch)? {
                 self.rows.push(c, row)?;
             }
-        } else if matches!(self.preflight.contract.frontier, Frontier::Normalized | Frontier::Analysis | Frontier::Catalog)
-            && self.normalized.visit(relation, batch)?
+        } else if matches!(
+            self.preflight.contract.frontier,
+            Frontier::Normalized | Frontier::Analysis | Frontier::Catalog
+        ) && self.normalized.visit(relation, batch)?
         {
         } else {
             return Err(ModelError::Invalid(format!(
@@ -968,7 +982,10 @@ impl AdmissionCheck {
             &availability,
             self.charge.budget().expect("bound admission"),
         )?);
-        if matches!(contract.frontier, Frontier::Normalized | Frontier::Analysis | Frontier::Catalog) {
+        if matches!(
+            contract.frontier,
+            Frontier::Normalized | Frontier::Analysis | Frontier::Catalog
+        ) {
             let budget = self.charge.budget().expect("bound admission");
             let mut artifacts = super::normalized::Rows::new(budget);
             for row in self.artifacts.iter() {

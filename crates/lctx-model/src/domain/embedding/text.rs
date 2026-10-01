@@ -12,9 +12,7 @@ use crate::domain::{
     },
     resources::{Reservation, ResourceBudget},
     source::{Occurrence, SourceArtifact},
-    syntax::{
-        DeclarationKind, DeclarationObservation, ParameterSyntaxObservation, SyntaxDetail,
-    },
+    syntax::{DeclarationKind, DeclarationObservation, ParameterSyntaxObservation, SyntaxDetail},
     *,
 };
 use crate::{Domain, DomainCode, DomainSum};
@@ -433,7 +431,9 @@ impl TextData {
                 has_star = true;
             }
             // The captured parameter span already includes its * or ** marker.
-            if parameter.kind == VarPositional { has_star = true; }
+            if parameter.kind == VarPositional {
+                has_star = true;
+            }
             text.push_str(&value.value);
             if parameter.kind == PositionalOnly
                 && parameters

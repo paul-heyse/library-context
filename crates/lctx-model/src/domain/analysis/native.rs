@@ -1,51 +1,11 @@
 //! Immutable native premise inventory over actual attributed assertions/supports.
 use super::invalid;
-use crate::domain::{assertion::{Assertion, AssertionQualification, Support}, attribution::*, flow::*, *};
+use crate::domain::{
+    assertion::{Assertion, AssertionQualification, Support},
+    attribution::*,
+    *,
+};
 use crate::{Domain, DomainSum};
-use crate::domain::calls::{Signature,SignatureSupport};
-use crate::domain::calls::{CallTarget,CallTargetSupport};
-use crate::domain::calls::{ProviderCallSite,ProviderCallSiteSupport};
-use crate::domain::calls::{CallSyntax,CallSyntaxSupport};
-use crate::domain::calls::{CallResolution,CallResolutionSupport};
-use crate::domain::declarations::{SymbolDeclaration,SymbolDeclarationSupport};
-use crate::domain::declarations::{ParameterDeclaration,ParameterDeclarationSupport};
-use crate::domain::deployment::{TaskReportObservation,TaskReportSupport};
-use crate::domain::deployment::{DeploymentObservation,DeploymentSupport};
-use crate::domain::documents::{DocumentObservation,DocumentSupport};
-use crate::domain::documents::{PassageObservation,PassageSupport};
-use crate::domain::documents::{CodeBlockObservation,CodeBlockSupport};
-use crate::domain::documents::{DocumentLinkObservation,DocumentLinkSupport};
-use crate::domain::documents::{DocumentMentionObservation,DocumentMentionSupport};
-use crate::domain::documents::{DocumentComponentObservation,DocumentComponentSupport};
-use crate::domain::documents::{DocumentAttributeObservation,DocumentAttributeSupport};
-use crate::domain::flow::{FlowAttributeLoadObservation,FlowAttributeLoadSupport};
-use crate::domain::flow::{FlowValuePathObservation,FlowValuePathSupport};
-use crate::domain::lexical::{LexicalScopeObservation,LexicalScopeSupport};
-use crate::domain::lexical::{BindingObservation,BindingSupport};
-use crate::domain::lexical::{ReferenceObservation,ReferenceSupport};
-use crate::domain::lexical::{LexicalResolution,LexicalResolutionSupport};
-use crate::domain::source::{SyntaxObservation,SyntaxSupport};
-use crate::domain::symbols::{SymbolObservation,SymbolSupport};
-use crate::domain::symbols::{FunctionTraitObservation,FunctionTraitSupport};
-use crate::domain::symbols::{ClassTraitObservation,ClassTraitSupport};
-use crate::domain::symbols::{ClassAncestryObservation,ClassAncestrySupport};
-use crate::domain::symbols::{ParameterAnnotationObservation,ParameterAnnotationSupport};
-use crate::domain::symbols::{PublicNameObservation,PublicNameSupport};
-use crate::domain::symbols::{ParameterDocObservation,ParameterDocSupport};
-use crate::domain::symbols::{DependencyModuleObservation,DependencyModuleSupport};
-use crate::domain::syntax::{SyntaxPlacement,SyntaxPlacementSupport};
-use crate::domain::syntax::{SyntaxDetailObservation,SyntaxDetailSupport};
-use crate::domain::syntax::{DeclarationObservation,DeclarationSupport};
-use crate::domain::syntax::{DeclarationDecorator,DeclarationDecoratorSupport};
-use crate::domain::syntax::{ImportAliasObservation,ImportAliasSupport};
-use crate::domain::syntax::{DunderAllObservation,DunderAllSupport};
-use crate::domain::syntax::{ParameterSyntaxObservation,ParameterSyntaxSupport};
-use crate::domain::syntax::{ClassFieldSyntaxObservation,ClassFieldSyntaxSupport};
-use crate::domain::types::{TypeObservation,TypeSupport};
-use crate::domain::types::{TypePresentation,TypePresentationSupport};
-use crate::domain::types::{TypeVariableRestriction,TypeRestrictionSupport};
-use crate::domain::types::{FunctionBodyObservation,FunctionBodySupport};
-use crate::domain::types::{RecordFieldObservation,RecordFieldSupport};
 
 // This finite inventory generates its pair enum and both producer/validator adapters together.
 // Codes are append-only; the native assertion and support declarations remain their owners.
@@ -193,14 +153,18 @@ crate::native_analysis_pairs!(native_pairs);
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name = "native_qualifications", rule = "native_qualification", invariants = inventory_invariants)]
 pub struct NativeQualification {
-    #[model(key, premise)] pub premise: Id<NativeAssertionPremise>,
+    #[model(key, premise)]
+    pub premise: Id<NativeAssertionPremise>,
     pub qualification: Id<AssertionQualification>,
     pub family: FactFamily,
     pub fidelity: Fidelity,
     pub status: super::policy::EvidenceStatus,
 }
 pub fn relations() -> Vec<Relation> {
-    vec![Relation::of::<NativeAssertionPremise>(), Relation::of::<NativeQualification>()]
+    vec![
+        Relation::of::<NativeAssertionPremise>(),
+        Relation::of::<NativeQualification>(),
+    ]
 }
 
 /// A charged projection of confirmed native facts. Only compact IDs and original fidelity are
@@ -214,23 +178,41 @@ pub struct NativeInventory {
 }
 impl NativeInventory {
     pub fn new(budget: &resources::ResourceBudget) -> Self {
-        Self { budget: budget.clone(), charge: charged::StateCharge::new(budget, "native-inventory"),
-            qualifications: Default::default(), assertions: Default::default(), supports: Default::default() }
+        Self {
+            budget: budget.clone(),
+            charge: charged::StateCharge::new(budget, "native-inventory"),
+            qualifications: Default::default(),
+            assertions: Default::default(),
+            supports: Default::default(),
+        }
     }
     /// Emit exactly one immutable pair/qualification per actual native support. Input order and
     /// repeated identical batches do not affect the domain. An absent assertion/qualification
     /// refuses the complete projection; it never silently removes a required pair.
-    pub fn for_each(&self, mut emit: impl FnMut(&NativeAssertionPremise, NativeQualification) -> Result<(), ModelError>) -> Result<(), ModelError> {
+    pub fn for_each(
+        &self,
+        mut emit: impl FnMut(&NativeAssertionPremise, NativeQualification) -> Result<(), ModelError>,
+    ) -> Result<(), ModelError> {
         for (id, (premise, fidelity)) in self.supports.iter() {
             let (assertion, _) = premise.assertion_and_support();
-            let qualification = *self.assertions.get(&assertion)
+            let qualification = *self
+                .assertions
+                .get(&assertion)
                 .ok_or_else(|| invalid("native support assertion is absent"))?;
             if !self.qualifications.contains(&qualification) {
                 return Err(invalid("native assertion qualification is absent"));
             }
             let family = premise.family();
-            emit(premise, NativeQualification { premise: *id, qualification, family, fidelity: *fidelity,
-                status: super::policy::native_status(family, *fidelity) })?;
+            emit(
+                premise,
+                NativeQualification {
+                    premise: *id,
+                    qualification,
+                    family,
+                    fidelity: *fidelity,
+                    status: super::policy::native_status(family, *fidelity),
+                },
+            )?;
         }
         Ok(())
     }
@@ -250,45 +232,72 @@ pub struct NativeInventoryOutput {
 }
 impl NativeInventoryOutput {
     pub fn new(budget: &resources::ResourceBudget) -> Self {
-        Self { premises: normalized::Rows::new(budget), qualifications: normalized::Rows::new(budget) }
+        Self {
+            premises: normalized::Rows::new(budget),
+            qualifications: normalized::Rows::new(budget),
+        }
     }
-    pub fn visit(&mut self, name: &str, batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
-        if name == NativeAssertionPremise::NAME { self.premises.decode(batch) }
-        else if name == NativeQualification::NAME { self.qualifications.decode(batch) }
-        else { Err(invalid("undeclared native inventory output")) }
+    pub fn visit(
+        &mut self,
+        name: &str,
+        batch: &arrow_array::RecordBatch,
+    ) -> Result<(), ModelError> {
+        if name == NativeAssertionPremise::NAME {
+            self.premises.decode(batch)
+        } else if name == NativeQualification::NAME {
+            self.qualifications.decode(batch)
+        } else {
+            Err(invalid("undeclared native inventory output"))
+        }
     }
 }
 fn inventory_invariants() -> Vec<Invariant> {
     let mut inputs = NativeInventory::inputs();
-    inputs.extend([ValidationInput::of::<NativeAssertionPremise>(&["id"]),
-        ValidationInput::of::<NativeQualification>(&["id"])]);
-    vec![Invariant { name: "native_inventory_projection", inputs,
-        create: std::sync::Arc::new(|budget| Box::new(InventoryCheck {
-            native: NativeInventory::new(budget), observed: NativeInventoryOutput::new(budget),
-        })) }]
+    inputs.extend([
+        ValidationInput::of::<NativeAssertionPremise>(&["id"]),
+        ValidationInput::of::<NativeQualification>(&["id"]),
+    ]);
+    vec![Invariant {
+        name: "native_inventory_projection",
+        inputs,
+        create: std::sync::Arc::new(|budget| {
+            Box::new(InventoryCheck {
+                native: NativeInventory::new(budget),
+                observed: NativeInventoryOutput::new(budget),
+            })
+        }),
+    }]
 }
-struct InventoryCheck { native: NativeInventory, observed: NativeInventoryOutput }
+struct InventoryCheck {
+    native: NativeInventory,
+    observed: NativeInventoryOutput,
+}
 impl InvariantCheck for InventoryCheck {
     fn visit(&mut self, name: &str, batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
         if name == NativeAssertionPremise::NAME || name == NativeQualification::NAME {
             self.observed.visit(name, batch)
-        } else { self.native.visit(name, batch) }
+        } else {
+            self.native.visit(name, batch)
+        }
     }
     fn finish(self: Box<Self>) -> Result<(), ModelError> {
         let mut count = 0;
         self.native.for_each(|premise, qualification| {
             if self.observed.premises.get(premise.id()) != Some(premise)
-                || self.observed.qualifications.get(qualification.id()) != Some(&qualification) {
-                return Err(invalid("native inventory differs from exact assertion/support projection"));
+                || self.observed.qualifications.get(qualification.id()) != Some(&qualification)
+            {
+                return Err(invalid(
+                    "native inventory differs from exact assertion/support projection",
+                ));
             }
             count += 1;
             Ok(())
         })?;
         if count != self.observed.premises.len() || count != self.observed.qualifications.len() {
-            return Err(invalid("native inventory has extraneous or missing members"));
+            return Err(invalid(
+                "native inventory has extraneous or missing members",
+            ));
         }
         Ok(())
     }
 }
-
-

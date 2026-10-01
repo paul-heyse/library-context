@@ -111,10 +111,10 @@ async fn run(
     let mut execution = schedule.execute();
     let budget = budget();
     let generation = MemoryGeneration::bind(model, &budget, &mut execution)?;
-    let captured = Arc::new(CapturedInputs::new(vec![AcquiredInput::tree(
-        capture(case, files),
-        "fixture-corpus",
-    )], cpg_extract::native_context::NativeContextConfig::committed(profile, &budget).unwrap()));
+    let captured = Arc::new(CapturedInputs::new(
+        vec![AcquiredInput::tree(capture(case, files), "fixture-corpus")],
+        cpg_extract::native_context::NativeContextConfig::committed(profile, &budget).unwrap(),
+    ));
     let receipt =
         compile_facts(execution, providers, &generation, model, &captured, &budget).await?;
     Ok((

@@ -46,8 +46,12 @@ macro_rules! normalized_receiver_inputs { ($apply:ident) => { $apply! {
     native_evidence: $crate::domain::assertion::Evidence,
 } }; }
 #[macro_export]
-macro_rules! normalized_receiver_outputs { ($apply:ident) => { $apply! {
-    receiver_assessments: $crate::domain::normalized::receiver::ReceiverAssessment,
-    receiver_evidence: $crate::domain::normalized::receiver::ReceiverEvidence,
-    receiver_premises: $crate::domain::normalized::receiver::ReceiverPremise,
-} }; }
+macro_rules! normalized_receiver_outputs {
+    ($apply:ident) => {
+        $apply! {
+            receiver_assessments: $crate::domain::normalized::receiver::ReceiverAssessment,
+            receiver_evidence: $crate::domain::normalized::receiver::ReceiverEvidence,
+            receiver_premises: $crate::domain::normalized::receiver::ReceiverPremise,
+        }
+    };
+}

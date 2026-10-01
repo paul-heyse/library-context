@@ -1,8 +1,11 @@
 //! One shared evidence floor/ceiling and interpretation policy; documentary prose is not behavioral proof.
 use super::invalid;
-use crate::domain::{ModelError,attribution::{FactFamily,Fidelity}};
 use crate::DomainCode;
-#[derive(Debug,Clone,Copy,PartialEq,Eq,PartialOrd,Ord,Hash,DomainCode)]
+use crate::domain::{
+    ModelError,
+    attribution::{FactFamily, Fidelity},
+};
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, DomainCode)]
 #[repr(i16)]
 pub enum EvidenceStatus {
     StructurallyObserved = 0,
@@ -11,7 +14,7 @@ pub enum EvidenceStatus {
     FixtureChecked = 3,
     Unresolved = 4,
 }
-#[derive(Debug,Clone,Copy,PartialEq,Eq,PartialOrd,Ord,Hash,DomainCode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, DomainCode)]
 #[repr(i16)]
 pub enum FindingKind {
     PublicAlias = 0,
@@ -34,7 +37,7 @@ pub enum FindingKind {
     DirectUsage = 17,
     BehavioralRefutation = 18,
 }
-#[derive(Debug,Clone,Copy,PartialEq,Eq,PartialOrd,Ord,Hash,DomainCode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, DomainCode)]
 #[repr(i16)]
 pub enum MemberRole {
     AccessPath = 0,
@@ -55,7 +58,7 @@ pub enum MemberRole {
     Label = 15,
     HandoffAttribute = 16,
 }
-#[derive(Debug,Clone,Copy,PartialEq,Eq,PartialOrd,Ord,Hash,DomainCode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, DomainCode)]
 #[repr(i16)]
 pub enum AssertionKind {
     Outcome = 0,
@@ -80,7 +83,7 @@ pub enum AssertionKind {
     /// A proof-backed negative answer to an exact behavioral question.
     BehavioralRefutation = 18,
 }
-#[derive(Debug,Clone,Copy,PartialEq,Eq,PartialOrd,Ord,Hash,DomainCode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, DomainCode)]
 #[repr(i16)]
 pub enum BriefSection {
     Outcome = 0,
@@ -92,15 +95,23 @@ pub enum BriefSection {
     Evidence = 6,
     Related = 7,
 }
-#[derive(Debug,Clone,Copy,PartialEq,Eq,PartialOrd,Ord,Hash,DomainCode)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, DomainCode)]
 #[repr(i16)]
 pub enum SupportRole {
     Support = 0,
     Scope = 1,
 }
 pub const ASSERTION_POLICY: &[(AssertionKind, BriefSection, &[EvidenceStatus])] = &[
-    (AssertionKind::BehavioralRefutation, BriefSection::Limits, &[EvidenceStatus::StructurallyObserved]),
-    (AssertionKind::StaticUsageObservation, BriefSection::UsagePattern, &[EvidenceStatus::StructurallyObserved]),
+    (
+        AssertionKind::BehavioralRefutation,
+        BriefSection::Limits,
+        &[EvidenceStatus::StructurallyObserved],
+    ),
+    (
+        AssertionKind::StaticUsageObservation,
+        BriefSection::UsagePattern,
+        &[EvidenceStatus::StructurallyObserved],
+    ),
     (
         AssertionKind::Outcome,
         BriefSection::Outcome,
@@ -201,33 +212,82 @@ pub const ASSERTION_POLICY: &[(AssertionKind, BriefSection, &[EvidenceStatus])] 
     ),
 ];
 
-
 /// Unresolved support cannot be strengthened by siblings. Statistical scope evidence poisons
 /// the aggregate even with documentary or fixture evidence; scope never raises its strength.
-pub fn derive_status(supports:&[(SupportRole,EvidenceStatus)])->EvidenceStatus {
+pub fn derive_status(supports: &[(SupportRole, EvidenceStatus)]) -> EvidenceStatus {
     use EvidenceStatus as S;
-    let supporting=||supports.iter().filter(|(role,_)|*role==SupportRole::Support).map(|(_,status)|*status);
-    if supporting().next().is_none() || supporting().any(|s|s==S::Unresolved) {return S::Unresolved;}
-    if supports.iter().any(|(_,s)|*s==S::StatisticallyDerived) {return S::StatisticallyDerived;}
-    supporting().max_by_key(|status|match status {S::StructurallyObserved=>0,S::Documented=>1,S::FixtureChecked=>2,_=>0}).unwrap()
+    let supporting = || {
+        supports
+            .iter()
+            .filter(|(role, _)| *role == SupportRole::Support)
+            .map(|(_, status)| *status)
+    };
+    if supporting().next().is_none() || supporting().any(|s| s == S::Unresolved) {
+        return S::Unresolved;
+    }
+    if supports.iter().any(|(_, s)| *s == S::StatisticallyDerived) {
+        return S::StatisticallyDerived;
+    }
+    supporting()
+        .max_by_key(|status| match status {
+            S::StructurallyObserved => 0,
+            S::Documented => 1,
+            S::FixtureChecked => 2,
+            _ => 0,
+        })
+        .unwrap()
 }
-pub fn assertion_policy(kind:AssertionKind,status:EvidenceStatus)->Result<BriefSection,ModelError> {
-    let (_,section,allowed)=ASSERTION_POLICY.iter().find(|(k,_,_)|*k==kind).ok_or_else(||invalid("assertion kind has no policy"))?;
-    if !allowed.contains(&status) {return Err(invalid("assertion evidence falls outside its floor or ceiling"));}
+pub fn assertion_policy(
+    kind: AssertionKind,
+    status: EvidenceStatus,
+) -> Result<BriefSection, ModelError> {
+    let (_, section, allowed) = ASSERTION_POLICY
+        .iter()
+        .find(|(k, _, _)| *k == kind)
+        .ok_or_else(|| invalid("assertion kind has no policy"))?;
+    if !allowed.contains(&status) {
+        return Err(invalid(
+            "assertion evidence falls outside its floor or ceiling",
+        ));
+    }
     Ok(*section)
 }
 /// Behavioral proof consumers share the Control evidence contract. Extractive prose and
 /// statistical lineage cannot establish execution or control behavior.
-pub fn behavioral_support(status:EvidenceStatus,heuristic:bool)->Result<(),ModelError> {
-    if heuristic {return Err(invalid("heuristic evidence cannot establish behavioral support"));}
-    assertion_policy(AssertionKind::Control,status).map(|_|())
+pub fn behavioral_support(status: EvidenceStatus, heuristic: bool) -> Result<(), ModelError> {
+    if heuristic {
+        return Err(invalid(
+            "heuristic evidence cannot establish behavioral support",
+        ));
+    }
+    assertion_policy(AssertionKind::Control, status).map(|_| ())
 }
-pub fn finding_policy(kind:FindingKind,status:EvidenceStatus)->Result<(),ModelError> {
-    let navigation=matches!(kind,FindingKind::Community|FindingKind::Centrality|FindingKind::DocLink|FindingKind::CommunityLabel);
-    let allowed=if navigation {EvidenceStatus::StatisticallyDerived} else {EvidenceStatus::StructurallyObserved};
-    if status!=allowed && status!=EvidenceStatus::Unresolved {return Err(invalid("finding kind cannot use this evidence interpretation"));}
+pub fn finding_policy(kind: FindingKind, status: EvidenceStatus) -> Result<(), ModelError> {
+    let navigation = matches!(
+        kind,
+        FindingKind::Community
+            | FindingKind::Centrality
+            | FindingKind::DocLink
+            | FindingKind::CommunityLabel
+    );
+    let allowed = if navigation {
+        EvidenceStatus::StatisticallyDerived
+    } else {
+        EvidenceStatus::StructurallyObserved
+    };
+    if status != allowed && status != EvidenceStatus::Unresolved {
+        return Err(invalid(
+            "finding kind cannot use this evidence interpretation",
+        ));
+    }
     Ok(())
 }
-pub fn native_status(family:FactFamily,fidelity:Fidelity)->EvidenceStatus {
-    if fidelity==Fidelity::DisplayOnly {EvidenceStatus::Unresolved} else if family==FactFamily::Docs {EvidenceStatus::Documented} else {EvidenceStatus::StructurallyObserved}
+pub fn native_status(family: FactFamily, fidelity: Fidelity) -> EvidenceStatus {
+    if fidelity == Fidelity::DisplayOnly {
+        EvidenceStatus::Unresolved
+    } else if family == FactFamily::Docs {
+        EvidenceStatus::Documented
+    } else {
+        EvidenceStatus::StructurallyObserved
+    }
 }

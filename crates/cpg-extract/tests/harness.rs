@@ -46,7 +46,11 @@ fn canon(v: &Value) -> Value {
 }
 
 async fn check(fixture: &str) {
-    let captured = typed_driver::capture(&typed_driver::files(fixture), fixture, lctx_model::domain::stages::Profile::Catalog);
+    let captured = typed_driver::capture(
+        &typed_driver::files(fixture),
+        fixture,
+        lctx_model::domain::stages::Profile::Catalog,
+    );
     let root = captured.inputs()[0].captured().root().to_path_buf();
     let tap: PysaTap = Arc::new(Mutex::new(BTreeMap::new()));
     typed_driver::run_with(

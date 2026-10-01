@@ -161,10 +161,17 @@ pub enum CallAlternativeSource {
     #[model(code = 0)]
     Native { target: Id<CallTarget> },
     #[model(code = 1)]
-    DerivedDispatch { target: Id<CallTarget>, member: Id<super::dispatch::DispatchMember> },
+    DerivedDispatch {
+        target: Id<CallTarget>,
+        member: Id<super::dispatch::DispatchMember>,
+    },
 }
 impl CallAlternativeSource {
-    pub fn target(&self) -> Id<CallTarget> { match self { Self::Native { target } | Self::DerivedDispatch { target, .. } => *target } }
+    pub fn target(&self) -> Id<CallTarget> {
+        match self {
+            Self::Native { target } | Self::DerivedDispatch { target, .. } => *target,
+        }
+    }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name = "normalized_call_alternative_evidence")]

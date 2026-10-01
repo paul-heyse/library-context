@@ -1,7 +1,13 @@
 //! Dormant pre-cutover receipt writer; retirement waits for typed E1/E0 consumption owners.
-use cpg_schema::{findings::BriefDocumentsRow,id::{Digest,Id}};
+use crate::{
+    CoreError,
+    embedding_service::{Embedder, Spec, check_vector, input_hash},
+};
+use cpg_schema::{
+    findings::BriefDocumentsRow,
+    id::{Digest, Id},
+};
 use lctx_model::domain::ContentHash;
-use crate::{CoreError,embedding_service::{Embedder,Spec,check_vector,input_hash}};
 
 /// Exact replay state owned by one compile attempt, never by cloneable Analysis or Embedder.
 pub struct Session {
@@ -162,16 +168,16 @@ impl Session {
         .await?;
         for doc in docs {
             doc.spec_hash = Some(Digest(embedder.spec().hash().0));
-            doc.input_hash = Some(Digest(input_hash(&embedder.spec().document_text(&doc.text)).0));
+            doc.input_hash = Some(Digest(
+                input_hash(&embedder.spec().document_text(&doc.text)).0,
+            ));
         }
         Ok(())
     }
 
     /// Consumes retained bytes; it cannot perform database/network I/O.
     pub fn finish(self) -> Result<Receipt, CoreError> {
-        use cpg_schema::embedding::{
-            EmbeddingUsesRow, UsedEmbeddingsRow, receipt_digest,
-        };
+        use cpg_schema::embedding::{EmbeddingUsesRow, UsedEmbeddingsRow, receipt_digest};
         use lctx_model::domain::embedding::value::value_digest;
         let spec: Option<Spec> = self
             .spec
@@ -222,7 +228,7 @@ impl Session {
 mod tests {
     use super::*;
     use crate::embedding_service::FakeEmbedder;
-    use sha2::{Digest as _,Sha256};
+    use sha2::{Digest as _, Sha256};
 
     #[test]
     fn the_fake_embedder_is_deterministic_unit_and_distinct() {
@@ -299,7 +305,8 @@ mod tests {
         );
         let mut changed = receipt.values.clone();
         changed[0].vector[0] = -changed[0].vector[0];
-        changed[0].value_digest = Digest(lctx_model::domain::embedding::value::value_digest(&changed[0].vector).0);
+        changed[0].value_digest =
+            Digest(lctx_model::domain::embedding::value::value_digest(&changed[0].vector).0);
         assert_ne!(
             receipt.digest.unwrap(),
             cpg_schema::embedding::receipt_digest(Digest(fake.spec().hash().0), &changed)

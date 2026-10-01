@@ -1,7 +1,7 @@
 //! Compile-time embedding service interface; semantic configuration belongs to lctx-model.
-use std::{future::Future,pin::Pin};
-use sha2::{Digest as _,Sha256};
 use crate::CoreError;
+use sha2::{Digest as _, Sha256};
+use std::{future::Future, pin::Pin};
 
 /// A future an embedder returns.
 pub type EmbedFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, CoreError>> + Send + 'a>>;
@@ -10,7 +10,6 @@ pub use lctx_model::domain::embedding::{Spec, check_vector};
 
 /// The cache key of a request text: its SHA-256.
 pub use lctx_model::domain::embedding::value::input_hash;
-
 
 /// An embedding service under one spec.
 pub trait Embedder: Send + Sync {
@@ -83,7 +82,9 @@ impl Default for FakeEmbedder {
 }
 
 impl Embedder for FakeEmbedder {
-    fn endpoint(&self) -> &str {"fixture://deterministic"}
+    fn endpoint(&self) -> &str {
+        "fixture://deterministic"
+    }
     fn spec(&self) -> &Spec {
         &self.spec
     }
@@ -96,4 +97,3 @@ impl Embedder for FakeEmbedder {
         Box::pin(async move { Ok(request_texts.iter().map(|t| self.vector(t)).collect()) })
     }
 }
-

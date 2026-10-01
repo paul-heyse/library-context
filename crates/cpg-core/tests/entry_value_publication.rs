@@ -1,35 +1,233 @@
 //! Native facts and confirmed entity sources publish Local entry/stability through the real store.
-#[path="fixtures/local_model.rs"] mod local_model;
-use cpg_core::{generation_read::{AttemptSession,ProviderOptions},model_runtime::{AttemptRuntime,RuntimeOptions}};
-use cpg_extract::{acquisition::AcquiredInput,bundle::{CapturedInputs,run_stage},capture::CapturedInput};
+#[path = "fixtures/local_model.rs"]
+mod local_model;
+use cpg_core::{
+    generation_read::{AttemptSession, ProviderOptions},
+    model_runtime::{AttemptRuntime, RuntimeOptions},
+};
+use cpg_extract::{
+    acquisition::AcquiredInput,
+    bundle::{CapturedInputs, run_stage},
+    capture::CapturedInput,
+};
 use futures::TryStreamExt;
-use lctx_model::domain::{*,admission::FrontierContract,conditions::{*,entry::*,stability::*},normalized::{entity_normalization,entities::*},stages::*,source::*,value::*};
-use lctx_postgres::{generations::GenerationStore,roles::{Role,RoleConfig},testing::DisposableDatabase};
+use lctx_model::domain::{
+    admission::FrontierContract,
+    conditions::{entry::*, stability::*},
+    normalized::{entities::*, entity_normalization},
+    source::*,
+    stages::*,
+    value::*,
+    *,
+};
+use lctx_postgres::{
+    generations::GenerationStore,
+    roles::{Role, RoleConfig},
+    testing::DisposableDatabase,
+};
 use std::sync::Arc;
-async fn run(forged:bool) {
- let profile=Profile::Behavioral;let runtime=AttemptRuntime::new(RuntimeOptions{memory_bytes:1<<30,partitions:2}).unwrap();let budget=runtime.budget();let db=DisposableDatabase::start().await;db.migrate().await;
- let config=RoleConfig{format:1,role:Role::Importer,url:db.url("lctx_importer"),max_connections:6,provider_connections:4,acquire_timeout_seconds:5,statement_timeout_seconds:60,lock_timeout_seconds:10};let model=Arc::new(local_model::model());let store=GenerationStore::install(db.owner.clone(),model.clone()).await.unwrap();
- let root=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/python/entry_value_witnesses");let bytes=std::fs::read(root.join("cases.py")).unwrap();
- let captured=Arc::new(CapturedInputs::new(vec![AcquiredInput::tree(CapturedInput::capture(&root,&["cases.py".into()],budget).unwrap(),"entry")],cpg_extract::native_context::NativeContextConfig::committed(profile,budget).unwrap()));
- let retained=budget.reserved();let mut providers=cpg_core::facts::providers(ContentHash::of(b"native entry publication"));let mut stages:Vec<_>=providers.iter().map(|p|p.declaration(profile)).collect();stages.extend([entity_normalization::stage(),normalized::relation_normalization::stage(profile),normalized::callable_normalization::stage(profile),normalized::callable_aspects::stage(profile),normalized::receiver::stage(profile),normalized::event_normalization::stage(profile),normalized::binding_normalization::stage(profile),projection::normalization::stage(profile),normalized::coverage::stage(profile)]);stages.push(analysis::preparation::native_stage(profile));
- let mut inputs=entity_normalization::stage().inputs;
- macro_rules! entity {($($field:ident:$ty:ty,)*)=>{$(inputs.push(RelationUse::stored::<$ty>());)*};}lctx_model::normalized_entity_outputs!(entity);
- macro_rules! entry {($($field:ident:$ty:ty,)*)=>{$(inputs.push(RelationUse::stored::<$ty>());)*};}lctx_model::entry_value_inputs!(entry);inputs.sort_by_key(|r|r.name());inputs.dedup_by_key(|r|r.name());
- stages.push(Stage{name:"derive_local_entry",inputs,outputs:vec![RelationUse::of::<EntryAccessSource>(),RelationUse::of::<EntryValueWitness>(),RelationUse::of::<StabilityWitness>()],contributes:vec![],coverage:vec![],provider:None,profiles:vec![profile],effect:Effect::Pure,code:ContentHash::of(include_bytes!("entry_value_publication.rs")),configuration:ContentHash::of(b"Local entry")});
- let schedule=Schedule::build(&model,stages,&[],profile).unwrap();let facts=FrontierContract::facts(&model,profile).unwrap();let mut execution=schedule.execute();let attempt=store.begin_conformance(db.writer.clone(),&mut execution,budget.clone()).await.unwrap();let id=attempt.generation();
- for stage in schedule.stages(){
-  if stage.name=="normalize_entities" {attempt.checkpoint(&execution,&facts).await.unwrap();cpg_core::stage_runtime::run_declared_stage(&mut execution,stage,async |access|cpg_core::normalize::entities(access,&attempt,&config,&runtime,&model).await,&mut |_|{}).await.unwrap();}
-  else if stage.name=="normalize_relations" {cpg_core::stage_runtime::run_declared_stage(&mut execution,stage,async |access|cpg_core::normalize::relations(access,&attempt,&config,&runtime,&model).await,&mut |_|{}).await.unwrap();}
-  else if stage.name=="normalize_callables" {cpg_core::stage_runtime::run_declared_stage(&mut execution,stage,async |access|cpg_core::normalize::callables(access,&attempt,&config,&runtime,&model).await,&mut |_|{}).await.unwrap();}
-  else if stage.name=="normalize_callable_aspects" {cpg_core::stage_runtime::run_declared_stage(&mut execution,stage,async |access|cpg_core::catalog_core::aspects(access,&attempt,&config,&runtime,&model).await,&mut |_|{}).await.unwrap();}
-  else if stage.name=="normalize_receivers" {cpg_core::stage_runtime::run_declared_stage(&mut execution,stage,async |access|cpg_core::normalize::receivers(access,&attempt,&config,&runtime,&model).await,&mut |_|{}).await.unwrap();}
-  else if stage.name=="normalize_events" {cpg_core::stage_runtime::run_declared_stage(&mut execution,stage,async |access|cpg_core::normalize::events(access,&attempt,&config,&runtime,&model).await,&mut |_|{}).await.unwrap();}
-  else if stage.name=="normalize_bindings" {cpg_core::stage_runtime::run_declared_stage(&mut execution,stage,async |access|cpg_core::normalize::bindings(access,&attempt,&config,&runtime,&model).await,&mut |_|{}).await.unwrap();}
-  else if stage.name=="normalize_projections" {cpg_core::stage_runtime::run_declared_stage(&mut execution,stage,async |access|cpg_core::normalize::projections(access,&attempt,&config,&runtime,&model).await,&mut |_|{}).await.unwrap();}
-  else if stage.name=="normalize_coverage" {cpg_core::stage_runtime::run_declared_stage(&mut execution,stage,async |access|cpg_core::normalize::coverage(access,&attempt,&config,&runtime,&model).await,&mut |_|{}).await.unwrap();}
-  else if stage.name=="analysis_native_inventory" {cpg_core::stage_runtime::run_declared_stage(&mut execution,stage,async |access|cpg_core::analysis_prepare::native_inventory(access,&attempt,&config,&runtime,&model).await,&mut |_|{}).await.unwrap();}
-  else if stage.name=="derive_local_entry" {
-   let result=cpg_core::stage_runtime::run_declared_stage(&mut execution,stage,async |access| {
+async fn run(forged: bool) {
+    let profile = Profile::Behavioral;
+    let runtime = AttemptRuntime::new(RuntimeOptions {
+        memory_bytes: 1 << 30,
+        partitions: 2,
+    })
+    .unwrap();
+    let budget = runtime.budget();
+    let db = DisposableDatabase::start().await;
+    db.migrate().await;
+    let config = RoleConfig {
+        format: 1,
+        role: Role::Importer,
+        url: db.url("lctx_importer"),
+        max_connections: 6,
+        provider_connections: 4,
+        acquire_timeout_seconds: 5,
+        statement_timeout_seconds: 60,
+        lock_timeout_seconds: 10,
+    };
+    let model = Arc::new(local_model::model());
+    let store = GenerationStore::install(db.owner.clone(), model.clone())
+        .await
+        .unwrap();
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fixtures/python/entry_value_witnesses");
+    let bytes = std::fs::read(root.join("cases.py")).unwrap();
+    let captured = Arc::new(CapturedInputs::new(
+        vec![AcquiredInput::tree(
+            CapturedInput::capture(&root, &["cases.py".into()], budget).unwrap(),
+            "entry",
+        )],
+        cpg_extract::native_context::NativeContextConfig::committed(profile, budget).unwrap(),
+    ));
+    let retained = budget.reserved();
+    let mut providers = cpg_core::facts::providers(ContentHash::of(b"native entry publication"));
+    let mut stages: Vec<_> = providers.iter().map(|p| p.declaration(profile)).collect();
+    stages.extend([
+        entity_normalization::stage(),
+        normalized::relation_normalization::stage(profile),
+        normalized::callable_normalization::stage(profile),
+        normalized::callable_aspects::stage(profile),
+        normalized::receiver::stage(profile),
+        normalized::event_normalization::stage(profile),
+        normalized::binding_normalization::stage(profile),
+        projection::normalization::stage(profile),
+        normalized::coverage::stage(profile),
+    ]);
+    stages.push(analysis::preparation::native_stage(profile));
+    let mut inputs = entity_normalization::stage().inputs;
+    macro_rules! entity {($($field:ident:$ty:ty,)*)=>{$(inputs.push(RelationUse::stored::<$ty>());)*};}
+    lctx_model::normalized_entity_outputs!(entity);
+    macro_rules! entry {($($field:ident:$ty:ty,)*)=>{$(inputs.push(RelationUse::stored::<$ty>());)*};}
+    lctx_model::entry_value_inputs!(entry);
+    inputs.sort_by_key(|r| r.name());
+    inputs.dedup_by_key(|r| r.name());
+    stages.push(Stage {
+        name: "derive_local_entry",
+        inputs,
+        outputs: vec![
+            RelationUse::of::<EntryAccessSource>(),
+            RelationUse::of::<EntryValueWitness>(),
+            RelationUse::of::<StabilityWitness>(),
+        ],
+        contributes: vec![],
+        coverage: vec![],
+        provider: None,
+        profiles: vec![profile],
+        effect: Effect::Pure,
+        code: ContentHash::of(include_bytes!("entry_value_publication.rs")),
+        configuration: ContentHash::of(b"Local entry"),
+    });
+    let schedule = Schedule::build(&model, stages, &[], profile).unwrap();
+    let facts = FrontierContract::facts(&model, profile).unwrap();
+    let mut execution = schedule.execute();
+    let attempt = store
+        .begin_conformance(db.writer.clone(), &mut execution, budget.clone())
+        .await
+        .unwrap();
+    let id = attempt.generation();
+    for stage in schedule.stages() {
+        if stage.name == "normalize_entities" {
+            attempt.checkpoint(&execution, &facts).await.unwrap();
+            cpg_core::stage_runtime::run_declared_stage(
+                &mut execution,
+                stage,
+                async |access| {
+                    cpg_core::normalize::entities(access, &attempt, &config, &runtime, &model).await
+                },
+                &mut |_| {},
+            )
+            .await
+            .unwrap();
+        } else if stage.name == "normalize_relations" {
+            cpg_core::stage_runtime::run_declared_stage(
+                &mut execution,
+                stage,
+                async |access| {
+                    cpg_core::normalize::relations(access, &attempt, &config, &runtime, &model)
+                        .await
+                },
+                &mut |_| {},
+            )
+            .await
+            .unwrap();
+        } else if stage.name == "normalize_callables" {
+            cpg_core::stage_runtime::run_declared_stage(
+                &mut execution,
+                stage,
+                async |access| {
+                    cpg_core::normalize::callables(access, &attempt, &config, &runtime, &model)
+                        .await
+                },
+                &mut |_| {},
+            )
+            .await
+            .unwrap();
+        } else if stage.name == "normalize_callable_aspects" {
+            cpg_core::stage_runtime::run_declared_stage(
+                &mut execution,
+                stage,
+                async |access| {
+                    cpg_core::catalog_core::aspects(access, &attempt, &config, &runtime, &model)
+                        .await
+                },
+                &mut |_| {},
+            )
+            .await
+            .unwrap();
+        } else if stage.name == "normalize_receivers" {
+            cpg_core::stage_runtime::run_declared_stage(
+                &mut execution,
+                stage,
+                async |access| {
+                    cpg_core::normalize::receivers(access, &attempt, &config, &runtime, &model)
+                        .await
+                },
+                &mut |_| {},
+            )
+            .await
+            .unwrap();
+        } else if stage.name == "normalize_events" {
+            cpg_core::stage_runtime::run_declared_stage(
+                &mut execution,
+                stage,
+                async |access| {
+                    cpg_core::normalize::events(access, &attempt, &config, &runtime, &model).await
+                },
+                &mut |_| {},
+            )
+            .await
+            .unwrap();
+        } else if stage.name == "normalize_bindings" {
+            cpg_core::stage_runtime::run_declared_stage(
+                &mut execution,
+                stage,
+                async |access| {
+                    cpg_core::normalize::bindings(access, &attempt, &config, &runtime, &model).await
+                },
+                &mut |_| {},
+            )
+            .await
+            .unwrap();
+        } else if stage.name == "normalize_projections" {
+            cpg_core::stage_runtime::run_declared_stage(
+                &mut execution,
+                stage,
+                async |access| {
+                    cpg_core::normalize::projections(access, &attempt, &config, &runtime, &model)
+                        .await
+                },
+                &mut |_| {},
+            )
+            .await
+            .unwrap();
+        } else if stage.name == "normalize_coverage" {
+            cpg_core::stage_runtime::run_declared_stage(
+                &mut execution,
+                stage,
+                async |access| {
+                    cpg_core::normalize::coverage(access, &attempt, &config, &runtime, &model).await
+                },
+                &mut |_| {},
+            )
+            .await
+            .unwrap();
+        } else if stage.name == "analysis_native_inventory" {
+            cpg_core::stage_runtime::run_declared_stage(
+                &mut execution,
+                stage,
+                async |access| {
+                    cpg_core::analysis_prepare::native_inventory(
+                        access, &attempt, &config, &runtime, &model,
+                    )
+                    .await
+                },
+                &mut |_| {},
+            )
+            .await
+            .unwrap();
+        } else if stage.name == "derive_local_entry" {
+            let result=cpg_core::stage_runtime::run_declared_stage(&mut execution,stage,async |access| {
     let reader=AttemptSession::open(&config,&attempt,&access,model.clone(),ProviderOptions::default()).await.map_err(ModelError::codec)?;let session=runtime.session(&access);let mut data=EntryData::new(budget);
     macro_rules! load {($($field:ident:$ty:ty,)*)=>{$({let permit=access.read::<$ty>()?;session.register(&permit,reader.table(&permit).map_err(ModelError::codec)?)?;let query=session.query(&format!("SELECT * FROM \"{}\"",<$ty>::NAME)).await.map_err(ModelError::codec)?;let mut stream=query.execute_stream().await.map_err(ModelError::codec)?;while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)?{data.$field.decode(&batch)?;}})*};}lctx_model::entry_value_inputs!(load);
     drop(session);reader.close().await.map_err(ModelError::codec)?;
@@ -41,12 +239,58 @@ async fn run(forged:bool) {
     if forged {row.use_observation=data.use_observations.iter().find(|o|o.id()!=row.use_observation).unwrap().id();}
     let mut output=StageOutput::new(access,&attempt,&model,budget.clone(),Default::default())?;output.declare::<EntryAccessSource>()?;output.declare::<EntryValueWitness>()?;output.declare::<StabilityWitness>()?;output.push(entry.source().clone()).await?;output.push(row).await?;output.push(stability.witness().clone()).await?;drop(entry);drop(data);output.finish(ProviderOutcome::Complete).await
    },&mut |_|{}).await;
-   result.unwrap();
-  } else {let index=providers.iter().position(|p|p.declaration(profile).name==stage.name).unwrap();run_stage(providers.swap_remove(index),execution.begin(stage.name).unwrap(),&attempt,&model,&captured,budget,Default::default()).await.unwrap();}
- }
- let checked=attempt.seal(execution.finish().unwrap()).await.unwrap().validate().await;if forged {let error=match checked{Err(e)=>e.to_string(),Ok(_)=>panic!("forged existing premise was accepted")};assert!(error.contains("stored entry witness differs from replay"),"expected shared Local replay refusal, got {error}");store.abort(id).await.unwrap();drop(captured);assert_eq!(budget.reserved(),0);return;}let validated=checked.unwrap();let counts:(i64,i64)=sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT (SELECT count(*) FROM {}.entry_value_witnesses),(SELECT count(*) FROM {}.stability_witnesses)",id.schema(),id.schema()))).fetch_one(db.owner.pool()).await.unwrap();assert_eq!(counts,(1,1));validated.abort().await.unwrap();assert_eq!(budget.reserved(),retained);drop(captured);assert_eq!(budget.reserved(),0);
+            result.unwrap();
+        } else {
+            let index = providers
+                .iter()
+                .position(|p| p.declaration(profile).name == stage.name)
+                .unwrap();
+            run_stage(
+                providers.swap_remove(index),
+                execution.begin(stage.name).unwrap(),
+                &attempt,
+                &model,
+                &captured,
+                budget,
+                Default::default(),
+            )
+            .await
+            .unwrap();
+        }
+    }
+    let checked = attempt
+        .seal(execution.finish().unwrap())
+        .await
+        .unwrap()
+        .validate()
+        .await;
+    if forged {
+        let error = match checked {
+            Err(e) => e.to_string(),
+            Ok(_) => panic!("forged existing premise was accepted"),
+        };
+        assert!(
+            error.contains("stored entry witness differs from replay"),
+            "expected shared Local replay refusal, got {error}"
+        );
+        store.abort(id).await.unwrap();
+        drop(captured);
+        assert_eq!(budget.reserved(), 0);
+        return;
+    }
+    let validated = checked.unwrap();
+    let counts:(i64,i64)=sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT (SELECT count(*) FROM {}.entry_value_witnesses),(SELECT count(*) FROM {}.stability_witnesses)",id.schema(),id.schema()))).fetch_one(db.owner.pool()).await.unwrap();
+    assert_eq!(counts, (1, 1));
+    validated.abort().await.unwrap();
+    assert_eq!(budget.reserved(), retained);
+    drop(captured);
+    assert_eq!(budget.reserved(), 0);
 }
-#[tokio::test] async fn local_entry_and_stability_publish_from_native_completed_sources(){run(false).await;}
-#[tokio::test] async fn local_publication_refuses_forged_existing_native_entry_premise(){run(true).await;}
-
-
+#[tokio::test]
+async fn local_entry_and_stability_publish_from_native_completed_sources() {
+    run(false).await;
+}
+#[tokio::test]
+async fn local_publication_refuses_forged_existing_native_entry_premise() {
+    run(true).await;
+}

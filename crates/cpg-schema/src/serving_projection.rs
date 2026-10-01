@@ -1,11 +1,11 @@
 //! Pure serving contracts. Physical locations, COPY batches and retrieval indexes are not content.
 use crate::bundle;
-use lctx_model::domain::embedding::check_vector;
 use arrow_array::{
     Array, BooleanArray, FixedSizeBinaryArray, FixedSizeListArray, Float32Array, Int64Array,
     RecordBatch, StringArray,
 };
 use arrow_schema::DataType;
+use lctx_model::domain::embedding::check_vector;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 use std::collections::BTreeMap;

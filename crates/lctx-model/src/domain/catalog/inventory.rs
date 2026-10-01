@@ -50,20 +50,24 @@ macro_rules! catalog_inputs {($m:ident)=>{$m! {
     field_observations: $crate::domain::types::RecordFieldObservation,
 }};}
 #[macro_export]
-macro_rules! catalog_outputs {($m:ident)=>{$m! {
-    members:$crate::domain::catalog::CatalogMember,
-    exposures:$crate::domain::catalog::CatalogExposure,
-    candidates:$crate::domain::catalog::CatalogCandidate,
-    callables:$crate::domain::catalog::CatalogCallable,
-    aspects:$crate::domain::catalog::CatalogCallableAspect,
-    invocations:$crate::domain::catalog::CatalogInvocation,
-    aliases:$crate::domain::catalog::CatalogAlias,
-    paths:$crate::domain::catalog::CatalogPath,
-    boundaries:$crate::domain::catalog::CatalogPathBoundary,
-    classes:$crate::domain::catalog::CatalogClass,
-    constructors:$crate::domain::catalog::CatalogConstructor,
-    subjects:$crate::domain::catalog::CatalogOptionSubject,
-    defaults:$crate::domain::catalog::CatalogDefault,
-    evidence:$crate::domain::catalog::CatalogOptionEvidence,
-    options:$crate::domain::catalog::CatalogOption,
-}};}
+macro_rules! catalog_outputs {
+    ($m:ident) => {
+        $m! {
+            members:$crate::domain::catalog::CatalogMember,
+            exposures:$crate::domain::catalog::CatalogExposure,
+            candidates:$crate::domain::catalog::CatalogCandidate,
+            callables:$crate::domain::catalog::CatalogCallable,
+            aspects:$crate::domain::catalog::CatalogCallableAspect,
+            invocations:$crate::domain::catalog::CatalogInvocation,
+            aliases:$crate::domain::catalog::CatalogAlias,
+            paths:$crate::domain::catalog::CatalogPath,
+            boundaries:$crate::domain::catalog::CatalogPathBoundary,
+            classes:$crate::domain::catalog::CatalogClass,
+            constructors:$crate::domain::catalog::CatalogConstructor,
+            subjects:$crate::domain::catalog::CatalogOptionSubject,
+            defaults:$crate::domain::catalog::CatalogDefault,
+            evidence:$crate::domain::catalog::CatalogOptionEvidence,
+            options:$crate::domain::catalog::CatalogOption,
+        }
+    };
+}

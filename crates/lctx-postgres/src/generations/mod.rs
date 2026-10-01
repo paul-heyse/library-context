@@ -10,9 +10,9 @@ pub(crate) mod locks;
 mod publication_validation;
 mod receipts;
 mod stage_validation;
+mod validation_views;
 mod verify;
 mod vocabulary;
-mod validation_views;
 use arrow_array::RecordBatch;
 use bytes::BytesMut;
 pub use catalog::{

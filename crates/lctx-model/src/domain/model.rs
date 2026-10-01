@@ -325,9 +325,14 @@ impl ValidatedModel {
                     return Err(ModelError::Invalid("invalid or duplicate invariant".into()));
                 }
                 digest.part(b"invariant", invariant.name.as_bytes());
-                let mut input_frames=HashSet::new();
+                let mut input_frames = HashSet::new();
                 for input in &invariant.inputs {
-                    if !input_frames.insert((input.type_id,input.prefix.map(|p|p.code()))) {return Err(ModelError::Invalid(format!("duplicate validation input frame in {}: {}",invariant.name,input.name)));}
+                    if !input_frames.insert((input.type_id, input.prefix.map(|p| p.code()))) {
+                        return Err(ModelError::Invalid(format!(
+                            "duplicate validation input frame in {}: {}",
+                            invariant.name, input.name
+                        )));
+                    }
                     if input.order.is_empty() {
                         return Err(ModelError::Invalid(
                             "invariant input needs an explicit order".into(),

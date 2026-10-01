@@ -163,9 +163,14 @@ impl<'a> Index<'a> {
             _charge: StateCharge::new(budget, "projection-index"),
         };
         for callable in data.callables.iter() {
-            if let CallableEntity::Source {declaration,..}=callable
-                && out.definitions.insert(&mut out._charge,*declaration,callable.id())?.is_some()
-            { return Err(invalid("duplicate source callable declaration")); }
+            if let CallableEntity::Source { declaration, .. } = callable
+                && out
+                    .definitions
+                    .insert(&mut out._charge, *declaration, callable.id())?
+                    .is_some()
+            {
+                return Err(invalid("duplicate source callable declaration"));
+            }
         }
         for row in data.event_assessments.iter() {
             if out
@@ -562,10 +567,13 @@ fn describe_indexed(
                 )?;
                 // The source declaration's normalized lexical owner is the definition edge.
                 // Ordinary containment keeps its own occurrence target and is never reinterpreted.
-                if let Some(callable)=index.definitions.get(&owner.occurrence) {
-                    let target=EntityRef::Callable {callable:*callable}.id();
-                    need(&data.refs,target)?;
-                    out.arc(ArcId::SourceDefinition(owner.id()),owner.entity,target)?;
+                if let Some(callable) = index.definitions.get(&owner.occurrence) {
+                    let target = EntityRef::Callable {
+                        callable: *callable,
+                    }
+                    .id();
+                    need(&data.refs, target)?;
+                    out.arc(ArcId::SourceDefinition(owner.id()), owner.entity, target)?;
                 }
             }
         }
@@ -1148,5 +1156,3 @@ mod tests {
         assert_eq!(budget.reserved(), 0);
     }
 }
-
-

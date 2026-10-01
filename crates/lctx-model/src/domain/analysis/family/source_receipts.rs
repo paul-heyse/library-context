@@ -27,6 +27,7 @@ fn projection_digest(values:&std::collections::BTreeSet<Id<ProjectionDefinition>
 impl AnalysisInvocation {
     /// Bind semantic identity to admitted completed inputs, static projection meanings and exact
     /// nominal parent membership. CapturedSources never supplies new completion authority.
+    #[allow(clippy::type_complexity,clippy::too_many_arguments,reason="Admission binds every semantic input of an invocation and returns the invocation with its owned input rows")]
     pub fn admitted(input:Id<InputRevision>,context:Id<AnalysisContext>,definition:Id<AnalysisDefinition>,subject:Option<Id<EntityRef>>,parents:impl IntoIterator<Item=Id<InvocationSource>>,sources:&CapturedSources,projections:impl IntoIterator<Item=Id<ProjectionDefinition>>,budget:&resources::ResourceBudget)->Result<(Self,Vec<AnalysisInput>,Vec<SourceReceipt>,Vec<ProjectionInput>),ModelError> {
         let mut charge=charged::StateCharge::new(budget,"analysis_invocation_admission");let mut parent_set=charged::ChargedSet::default();let mut projection_set=charged::ChargedSet::default();
         for parent in parents {if !parent_set.insert(&mut charge,parent)? {return Err(invalid("duplicate admitted invocation parent"));}}
@@ -52,7 +53,7 @@ impl PublicationCheck for SourcePublicationCheck {
     fn finish(self:Box<Self>,actual:&[stages::CompletedRelation],_profile:stages::Profile)->Result<(),ModelError> {
         let empty=std::collections::BTreeMap::new();let budget=self.charge.budget().ok_or_else(||invalid("source publication budget absent"))?;
         for (id,invocation) in self.invocations.iter() {let sources=self.sources.get(id).unwrap_or(&empty);if crate::domain::analysis::sources::digest(sources)!=invocation.sources {return Err(invalid("source receipt membership differs from invocation identity"));}crate::domain::analysis::sources::verify(sources,actual,budget)?;}
-        for (id,_) in self.sources.iter() {if !self.invocations.contains_key(id) {return Err(invalid("source receipt has no owned invocation"));}}
+        for id in self.sources.keys() {if !self.invocations.contains_key(id) {return Err(invalid("source receipt has no owned invocation"));}}
         Ok(())
     }
 }

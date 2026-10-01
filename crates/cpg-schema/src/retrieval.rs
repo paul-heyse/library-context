@@ -528,7 +528,9 @@ pub fn validate_projection(
     let spec = tables["embedding_spec"]
         .iter()
         .find(|b| b.num_rows() > 0)
-        .map(|b| lctx_model::domain::embedding::Spec::parse(&string(b, "spec", 0)?).map_err(corrupt))
+        .map(|b| {
+            lctx_model::domain::embedding::Spec::parse(&string(b, "spec", 0)?).map_err(corrupt)
+        })
         .transpose()?;
     if receipt.spec_hash.map(|hash| hash.0) != spec.as_ref().map(|spec| spec.hash().0) {
         return Err(corrupt("retrieval specification identity"));

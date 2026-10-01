@@ -1,9 +1,13 @@
 //! Shared question comparison for immutable, nominal obligation owners.
 use super::{AnalysisChannel, invalid};
 use crate::domain::{
-    *, assertion::AssertionQualification, attribution::{AnalysisContext, CoverageStatus},
-    calls::CallPhase, derivation::RowRef, normalized::coverage::EvidenceAvailability,
+    assertion::AssertionQualification,
+    attribution::{AnalysisContext, CoverageStatus},
+    calls::CallPhase,
+    derivation::RowRef,
+    normalized::coverage::EvidenceAvailability,
     source::CoverageScope,
+    *,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -27,9 +31,17 @@ pub(crate) fn admissible(
     condition: &conditions::Diagram,
     coverage: (Id<CoverageScope>, Id<AnalysisContext>, EvidenceAvailability),
 ) -> Result<obligation::Conclusion, ModelError> {
-    if (question.subject, question.channel, question.phase, question.qualification)
-        != (proof.subject, proof.channel, proof.phase, proof.qualification)
-        || proof.qualification != qualification.id()
+    if (
+        question.subject,
+        question.channel,
+        question.phase,
+        question.qualification,
+    ) != (
+        proof.subject,
+        proof.channel,
+        proof.phase,
+        proof.qualification,
+    ) || proof.qualification != qualification.id()
         || condition.id() != qualification.condition
         || (coverage.0, coverage.1) != (qualification.scope, qualification.context)
     {
@@ -40,15 +52,25 @@ pub(crate) fn admissible(
         EvidenceAvailability::Partial => CoverageStatus::Partial,
         EvidenceAvailability::Unavailable => CoverageStatus::Unavailable,
         EvidenceAvailability::NotRequested => CoverageStatus::NotRequested,
-        EvidenceAvailability::NoScope => return Err(invalid("empty domain cannot discharge an obligation")),
+        EvidenceAvailability::NoScope => {
+            return Err(invalid("empty domain cannot discharge an obligation"));
+        }
     };
     let result = obligation::verdict(obligation::VerdictInput {
-        condition: Some(condition), open: &[], coverage: status,
-        approximation: qualification.approximation, modality: qualification.modality,
+        condition: Some(condition),
+        open: &[],
+        coverage: status,
+        approximation: qualification.approximation,
+        modality: qualification.modality,
     });
     let mut decisions = obligation::Decisions::default();
     decisions.proof(question.subject, proposition, result.verdict);
-    if !obligation::discharge(&std::collections::BTreeSet::from([question.subject]), &decisions).0 {
+    if !obligation::discharge(
+        &std::collections::BTreeSet::from([question.subject]),
+        &decisions,
+    )
+    .0
+    {
         return Err(invalid("proof does not discharge the exact obligation"));
     }
     Ok(result)

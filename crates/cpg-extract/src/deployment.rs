@@ -303,7 +303,8 @@ impl<S: StageSink + 'static> ProviderStage<S> for Deployment {
                 Acquisition::Corpus { library, .. } => captured.inputs().get(*library),
                 _ => None,
             };
-            let analysis = crate::pyrefly_stage::analysis_context(input, library, captured.config())?;
+            let analysis =
+                crate::pyrefly_stage::analysis_context(input, library, captured.config())?;
             let scope = CoverageScope::Input {
                 input: input.captured().revision().id(),
             };

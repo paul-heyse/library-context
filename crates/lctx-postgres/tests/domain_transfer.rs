@@ -4,8 +4,17 @@ mod analysis_fixture;
 #[path = "fixtures/analysis_support.rs"]
 mod stored_analysis;
 use lctx_model::domain::{
-    artifact::*, assertion::*, attribution::*, calls::*, conditions::*, input::*, source::*,
-    transfer::{*,local::*}, normalized::entities::EntityRef, value::*, *,
+    artifact::*,
+    assertion::*,
+    attribution::*,
+    calls::*,
+    conditions::*,
+    input::*,
+    normalized::entities::EntityRef,
+    source::*,
+    transfer::{local::*, *},
+    value::*,
+    *,
 };
 use lctx_postgres::generations::{Error, GenerationStore};
 use lctx_postgres::testing::DisposableDatabase;
@@ -87,8 +96,13 @@ async fn transfer_control_selection_survive_postgres_and_cross_scope_call_site_r
         name: "f".into(),
         kind: SymbolKind::Function,
     };
-    let source_module=Module {source:source.id(),qualified_name:"x".into()};
-    let entity=EntityRef::Module {module:source_module.id()};
+    let source_module = Module {
+        source: source.id(),
+        qualified_name: "x".into(),
+    };
+    let entity = EntityRef::Module {
+        module: source_module.id(),
+    };
     let occurrences: Vec<_> = (0..3)
         .map(|i| Occurrence {
             source: source.id(),
@@ -197,8 +211,13 @@ async fn transfer_control_selection_survive_postgres_and_cross_scope_call_site_r
             }),
             provenance: ProvenanceClass::FlowLocal,
         };
-        let branch =
-            TransferBranch::new(key.clone(), qualification.clone(), diagram.clone(), &budget()).unwrap();
+        let branch = TransferBranch::new(
+            key.clone(),
+            qualification.clone(),
+            diagram.clone(),
+            &budget(),
+        )
+        .unwrap();
         let alternative = branch.alternative();
         let selection = branch
             .selection(&influence, &qualification)
@@ -400,5 +419,23 @@ fn budget() -> lctx_model::domain::resources::ResourceBudget {
 
 /// This conformance control owns only Local transfer/control contracts, not later composition or
 /// entry replay. Keep its nominal declaration closure independent of future publication owners.
-fn transfer_model()->ValidatedModel {
+fn transfer_model() -> ValidatedModel {
+    let mut relations = facts_relations();
+    relations.extend(analysis::early_relations());
+    relations.extend(analysis::local::relations());
+    relations.extend(transfer::local::relations());
+    relations.extend([
+        Relation::of::<ControlInfluence>(),
+        Relation::of::<ControlSupport>(),
+        Relation::of::<Selection>(),
+    ]);
+    relations.extend(normalized::coverage::relations());
+    relations.extend([
+        Relation::of::<normalized::entities::CallableEntity>(),
+        Relation::of::<normalized::entities::ClassEntity>(),
+        Relation::of::<normalized::entities::ParameterEntity>(),
+        Relation::of::<normalized::entities::FieldEntity>(),
+        Relation::of::<EntityRef>(),
+    ]);
+    ValidatedModel::validate(relations).unwrap()
 }

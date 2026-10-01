@@ -2350,8 +2350,8 @@ pub async fn validate_embedding_receipts(
     ctx: &SessionContext,
 ) -> Result<Vec<Violation>, CoreError> {
     use cpg_schema::embedding::{EmbeddingUsesRow, UsedEmbeddingsRow};
-    use lctx_model::domain::embedding::value::value_digest;
     use cpg_schema::findings::EmbeddingSpecsRow;
+    use lctx_model::domain::embedding::value::value_digest;
     let specs: Vec<EmbeddingSpecsRow> =
         sql::fetch(ctx, &stored_embedding_specs(), sql::Params::new()).await?;
     let values: Vec<UsedEmbeddingsRow> =
@@ -2369,10 +2369,9 @@ pub async fn validate_embedding_receipts(
         }
     }
     for row in values {
-        if !admitted
-            .get(&row.spec_hash)
-            .is_some_and(|spec| crate::embedding_service::check_vector(&row.vector, spec.dimensions).is_ok())
-            || row.value_digest.0 != value_digest(&row.vector).0
+        if !admitted.get(&row.spec_hash).is_some_and(|spec| {
+            crate::embedding_service::check_vector(&row.vector, spec.dimensions).is_ok()
+        }) || row.value_digest.0 != value_digest(&row.vector).0
         {
             errors += 1;
         }

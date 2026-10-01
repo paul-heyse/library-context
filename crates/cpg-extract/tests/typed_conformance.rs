@@ -37,7 +37,11 @@ fn fixture() -> BTreeMap<String, Vec<u8>> {
     files
 }
 /// Capture a fresh copy of the files; every capture lives in its own temporary tree.
-fn capture(files: &BTreeMap<String, Vec<u8>>, budget: &ResourceBudget, config_budget: &ResourceBudget) -> Result<Arc<CapturedInputs>, ModelError> {
+fn capture(
+    files: &BTreeMap<String, Vec<u8>>,
+    budget: &ResourceBudget,
+    config_budget: &ResourceBudget,
+) -> Result<Arc<CapturedInputs>, ModelError> {
     let original = tempfile::tempdir().unwrap();
     for (path, bytes) in files {
         let target = original.path().join(path);
@@ -50,10 +54,13 @@ fn capture(files: &BTreeMap<String, Vec<u8>>, budget: &ResourceBudget, config_bu
         budget,
     )
     .unwrap();
-    Ok(Arc::new(CapturedInputs::new(vec![AcquiredInput::tree(
-        captured,
-        "typed-conformance",
-    )], cpg_extract::native_context::NativeContextConfig::committed(lctx_model::domain::stages::Profile::Catalog, config_budget)?)))
+    Ok(Arc::new(CapturedInputs::new(
+        vec![AcquiredInput::tree(captured, "typed-conformance")],
+        cpg_extract::native_context::NativeContextConfig::committed(
+            lctx_model::domain::stages::Profile::Catalog,
+            config_budget,
+        )?,
+    )))
 }
 
 /// What the stages wrote, read back through handoffs.
@@ -541,10 +548,17 @@ async fn typed_subset_envelope() {
     paths.sort();
     let budget = ResourceBudget::fixed(16 << 30).unwrap();
     let started = std::time::Instant::now();
-    let captured = Arc::new(CapturedInputs::new(vec![AcquiredInput::tree(
-        CapturedInput::capture(&root, &paths, &budget).unwrap(),
-        "envelope",
-    )], cpg_extract::native_context::NativeContextConfig::committed(lctx_model::domain::stages::Profile::Catalog, &budget).unwrap()));
+    let captured = Arc::new(CapturedInputs::new(
+        vec![AcquiredInput::tree(
+            CapturedInput::capture(&root, &paths, &budget).unwrap(),
+            "envelope",
+        )],
+        cpg_extract::native_context::NativeContextConfig::committed(
+            lctx_model::domain::stages::Profile::Catalog,
+            &budget,
+        )
+        .unwrap(),
+    ));
     let model = Arc::new(ValidatedModel::validate(facts_relations()).unwrap());
     let schedule = schedule(&model, SyntaxLimits::default());
     let mut execution = schedule.execute();

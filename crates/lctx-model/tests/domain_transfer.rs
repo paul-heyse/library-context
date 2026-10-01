@@ -1,8 +1,8 @@
 #[path = "fixtures/analysis_support.rs"]
 mod analysis_fixture;
 use lctx_model::domain::{
-    assertion::*, attribution::*, calls::*, conditions::*, input::*, source::*, transfer::*,
-    value::*, normalized::entities::EntityRef, transfer::local::*, *,
+    assertion::*, attribution::*, calls::*, conditions::*, input::*,
+    normalized::entities::EntityRef, source::*, transfer::local::*, transfer::*, value::*, *,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -17,8 +17,8 @@ struct Fixture {
     families: Vec<RunFamily>,
     surface: ProviderSurface,
     symbol: ProviderSymbol,
-    module:Module,
-    entity:EntityRef,
+    module: Module,
+    entity: EntityRef,
     occurrences: Vec<Occurrence>,
     roots: Vec<PlaceRoot>,
     path: AccessPath,
@@ -114,8 +114,13 @@ impl Fixture {
             modality: Modality::Definite,
             approximation: Approximation::Exact,
         };
-        let module=Module {source:source.id(),qualified_name:"x".into()};
-        let entity=EntityRef::Module {module:module.id()};
+        let module = Module {
+            source: source.id(),
+            qualified_name: "x".into(),
+        };
+        let entity = EntityRef::Module {
+            module: module.id(),
+        };
         let key = TransferKey {
             owner: entity.id(),
             input: places[0].id(),
@@ -138,7 +143,9 @@ impl Fixture {
             run,
             families,
             surface,
-            symbol,module,entity,
+            symbol,
+            module,
+            entity,
             occurrences,
             roots,
             path,
@@ -154,7 +161,8 @@ impl Fixture {
             self.key.clone(),
             self.qualification.clone(),
             self.diagram.clone(),
-         &budget())
+            &budget(),
+        )
         .unwrap()
     }
 }
@@ -170,7 +178,8 @@ fn widening_conditions_keeps_stable_transfer_and_each_original_alternative() {
             ..f.qualification.clone()
         },
         no_diagram,
-     &budget())
+        &budget(),
+    )
     .unwrap();
     let ids = BTreeSet::from([yes.alternative().id(), no.alternative().id()]);
     let one = merge([yes.clone()], &budget()).unwrap();
@@ -190,7 +199,8 @@ fn widening_conditions_keeps_stable_transfer_and_each_original_alternative() {
             ..f.qualification.clone()
         },
         f.diagram.clone(),
-     &budget())
+        &budget(),
+    )
     .unwrap();
     assert_eq!(
         merge([f.branch(), approximate], &budget()).unwrap().len(),
@@ -198,7 +208,13 @@ fn widening_conditions_keeps_stable_transfer_and_each_original_alternative() {
         "approximation cannot silently strengthen exact flow"
     );
     assert!(
-        TransferBranch::new(f.key.clone(), f.qualification.clone(), Diagram::always(), &budget()).is_err()
+        TransferBranch::new(
+            f.key.clone(),
+            f.qualification.clone(),
+            Diagram::always(),
+            &budget()
+        )
+        .is_err()
     );
     assert_eq!(
         compose_kinds(TransferKind::Identity, TransferKind::Identity),
@@ -239,7 +255,8 @@ fn influence_selects_a_guarded_alternative_without_becoming_a_value_transfer() {
             ..f.qualification.clone()
         },
         Diagram::always(),
-     &budget())
+        &budget(),
+    )
     .unwrap();
     assert!(
         unconditional
@@ -321,7 +338,9 @@ fn records(f: &Fixture) -> BTreeMap<&'static str, arrow_array::RecordBatch> {
         f.provider,
         f.run,
         f.surface,
-        f.symbol,f.module,f.entity,
+        f.symbol,
+        f.module,
+        f.entity,
         f.path,
         f.atom,
         f.qualification,
@@ -404,8 +423,13 @@ fn transfer_support_validates_both_place_sources_and_keeps_ordinary_subject_inpu
                 ..f.key.clone()
             }
         };
-        let branch =
-            TransferBranch::new(key.clone(), f.qualification.clone(), f.diagram.clone(), &budget()).unwrap();
+        let branch = TransferBranch::new(
+            key.clone(),
+            f.qualification.clone(),
+            f.diagram.clone(),
+            &budget(),
+        )
+        .unwrap();
         let alternative = branch.alternative();
         let evidence = Evidence::Occurrence {
             occurrence: f.occurrences[0].id(),
@@ -528,10 +552,14 @@ fn transfer_call_site_must_belong_to_both_scope_and_acquired_inputs() {
             scope: scope.id(),
             ..f.key.clone()
         };
-        let alternative =
-            TransferBranch::new(key.clone(), qualification.clone(), f.diagram.clone(), &budget())
-                .unwrap()
-                .alternative();
+        let alternative = TransferBranch::new(
+            key.clone(),
+            qualification.clone(),
+            f.diagram.clone(),
+            &budget(),
+        )
+        .unwrap()
+        .alternative();
         let evidence = Evidence::Occurrence {
             occurrence: f.occurrences[0].id(),
         };
@@ -766,37 +794,87 @@ fn shared_derived_flow_support_refuses_prose_and_heuristic_lineage() {
 
 #[test]
 fn admitted_branch_and_merge_keep_reservations_until_output_drop() {
-    let f=Fixture::new();
-    let resources=lctx_model::domain::resources::ResourceBudget::fixed(16<<20).unwrap();
-    let branch=TransferBranch::new(f.key.clone(),f.qualification.clone(),f.diagram.clone(),&resources).unwrap();
-    let original=resources.reserved();
-    assert!(original>0);
-    let clone=branch.clone();
-    assert_eq!(resources.reserved(),original,"Arc branch clones share the owned diagram");
-    let result=merge([branch,clone],&resources).unwrap();
-    assert_eq!(result[0].alternatives.len(),1);
-    assert!(resources.reserved()>0,"retained merge output owns its reservations");
+    let f = Fixture::new();
+    let resources = lctx_model::domain::resources::ResourceBudget::fixed(16 << 20).unwrap();
+    let branch = TransferBranch::new(
+        f.key.clone(),
+        f.qualification.clone(),
+        f.diagram.clone(),
+        &resources,
+    )
+    .unwrap();
+    let original = resources.reserved();
+    assert!(original > 0);
+    let clone = branch.clone();
+    assert_eq!(
+        resources.reserved(),
+        original,
+        "Arc branch clones share the owned diagram"
+    );
+    let result = merge([branch, clone], &resources).unwrap();
+    assert_eq!(result[0].alternatives.len(), 1);
+    assert!(
+        resources.reserved() > 0,
+        "retained merge output owns its reservations"
+    );
     drop(result);
-    assert_eq!(resources.reserved(),0);
-    let tiny=lctx_model::domain::resources::ResourceBudget::fixed(1).unwrap();
-    assert!(matches!(TransferBranch::new(f.key.clone(),f.qualification.clone(),f.diagram.clone(),&tiny),Err(ModelError::Resource {..})));
-    assert_eq!(tiny.reserved(),0);
-    assert!(matches!(merge([f.branch()],&tiny),Err(TransferError::Resource(ModelError::Resource {..}))));
-    assert_eq!(tiny.reserved(),0);
+    assert_eq!(resources.reserved(), 0);
+    let tiny = lctx_model::domain::resources::ResourceBudget::fixed(1).unwrap();
+    assert!(matches!(
+        TransferBranch::new(
+            f.key.clone(),
+            f.qualification.clone(),
+            f.diagram.clone(),
+            &tiny
+        ),
+        Err(ModelError::Resource { .. })
+    ));
+    assert_eq!(tiny.reserved(), 0);
+    assert!(matches!(
+        merge([f.branch()], &tiny),
+        Err(TransferError::Resource(ModelError::Resource { .. }))
+    ));
+    assert_eq!(tiny.reserved(), 0);
 }
 
 #[test]
 fn owner_instances_preserve_nominal_identity_and_early_local_closure() {
-    let f=Fixture::new();
-    let model_key=transfer::model::TransferKey::from_descriptor(f.key.descriptor());
-    let summary_key=transfer::summary::TransferKey::from_descriptor(f.key.descriptor());
-    assert_eq!(model_key.descriptor(),f.key.descriptor());
-    assert_eq!(summary_key.descriptor(),f.key.descriptor());
-    assert_ne!(derivation::RowRef::of(f.key.id()),derivation::RowRef::of(model_key.id()));
-    assert_ne!(derivation::RowRef::of(model_key.id()),derivation::RowRef::of(summary_key.id()));
-    for input in TransferSupport::invariants()[0].inputs.iter().chain(TransferKey::invariants()[0].inputs.iter()) {
-        assert!(!input.name().starts_with("model_") && !input.name().starts_with("summary_"),"local closure pulled {}",input.name());
+    let f = Fixture::new();
+    let model_key = transfer::model::TransferKey::from_descriptor(f.key.descriptor());
+    let summary_key = transfer::summary::TransferKey::from_descriptor(f.key.descriptor());
+    assert_eq!(model_key.descriptor(), f.key.descriptor());
+    assert_eq!(summary_key.descriptor(), f.key.descriptor());
+    assert_ne!(
+        derivation::RowRef::of(f.key.id()),
+        derivation::RowRef::of(model_key.id())
+    );
+    assert_ne!(
+        derivation::RowRef::of(model_key.id()),
+        derivation::RowRef::of(summary_key.id())
+    );
+    for input in TransferSupport::invariants()[0]
+        .inputs
+        .iter()
+        .chain(TransferKey::invariants()[0].inputs.iter())
+    {
+        assert!(
+            !input.name().starts_with("model_") && !input.name().starts_with("summary_"),
+            "local closure pulled {}",
+            input.name()
+        );
     }
-    assert!(analysis::summary::SupportSource::fields().iter().any(|field|field.target().is_some_and(|(_,name)|name==transfer::summary::SummaryWitness::NAME)));
-    assert!(!analysis::local::SupportSource::fields().iter().any(|field|field.target().is_some_and(|(_,name)|name==transfer::summary::SummaryWitness::NAME)));
+    assert!(
+        analysis::summary::SupportSource::fields()
+            .iter()
+            .any(|field| field
+                .target()
+                .is_some_and(|(_, name)| name == transfer::summary::SummaryWitness::NAME))
+    );
+    assert!(
+        !analysis::local::SupportSource::fields()
+            .iter()
+            .any(|field| field
+                .target()
+                .is_some_and(|(_, name)| name == transfer::summary::SummaryWitness::NAME))
+    );
 }

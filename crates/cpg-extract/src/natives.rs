@@ -83,14 +83,29 @@ impl Natives {
             paths: BTreeMap::new(),
         })
     }
-    pub fn definition(&mut self,module:Id<ProviderModule>,name:String,symbol:Id<ProviderSymbol>) -> Result<(),ModelError> {
-        let key=(module,name);
-        if !self.definitions.contains_key(&key) { self.charge.grow(key.1.len().saturating_add(96))?; }
-        self.definitions.insert(key,symbol); Ok(())
+    pub fn definition(
+        &mut self,
+        module: Id<ProviderModule>,
+        name: String,
+        symbol: Id<ProviderSymbol>,
+    ) -> Result<(), ModelError> {
+        let key = (module, name);
+        if !self.definitions.contains_key(&key) {
+            self.charge.grow(key.1.len().saturating_add(96))?;
+        }
+        self.definitions.insert(key, symbol);
+        Ok(())
     }
-    pub fn linearization(&mut self,symbol:Id<ProviderSymbol>,value:lctx_model::domain::symbols::Linearization)->Result<(),ModelError> {
-        if !self.mro.contains_key(&symbol) { self.charge.grow(64)?; }
-        self.mro.insert(symbol,value); Ok(())
+    pub fn linearization(
+        &mut self,
+        symbol: Id<ProviderSymbol>,
+        value: lctx_model::domain::symbols::Linearization,
+    ) -> Result<(), ModelError> {
+        if !self.mro.contains_key(&symbol) {
+            self.charge.grow(64)?;
+        }
+        self.mro.insert(symbol, value);
+        Ok(())
     }
     /// The provider module of a module the provider found at `path`.
     pub fn module(

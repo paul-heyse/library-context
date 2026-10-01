@@ -115,7 +115,11 @@ macro_rules! inspector {
 }
 
 /// Capture `files` as a tree input in a fresh temporary directory.
-pub fn capture(files: &BTreeMap<String, Vec<u8>>, label: &str, profile: Profile) -> Arc<CapturedInputs> {
+pub fn capture(
+    files: &BTreeMap<String, Vec<u8>>,
+    label: &str,
+    profile: Profile,
+) -> Arc<CapturedInputs> {
     let original = tempfile::tempdir().unwrap();
     for (path, bytes) in files {
         let target = original.path().join(path);
@@ -135,9 +139,10 @@ pub fn capture(files: &BTreeMap<String, Vec<u8>>, label: &str, profile: Profile)
         cpg_extract::acquisition::derive_blocks,
     )
     .unwrap();
-    Arc::new(CapturedInputs::new(vec![AcquiredInput::tree(
-        captured, label,
-    )], cpg_extract::native_context::NativeContextConfig::committed(profile, &budget()).unwrap()))
+    Arc::new(CapturedInputs::new(
+        vec![AcquiredInput::tree(captured, label)],
+        cpg_extract::native_context::NativeContextConfig::committed(profile, &budget()).unwrap(),
+    ))
 }
 
 /// Run `acquire → pyrefly → assemble` over `files` into memory; validate the generation

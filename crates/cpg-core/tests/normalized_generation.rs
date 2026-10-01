@@ -15,10 +15,14 @@ use std::sync::Arc;
 fn captured(budget: &resources::ResourceBudget, profile: Profile) -> Arc<CapturedInputs> {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../fixtures/python/normalized_projections");
-    Arc::new(CapturedInputs::new(vec![AcquiredInput::tree(
-        CapturedInput::capture(&root, &["graph.py".into(), "helper.py".into()], budget).unwrap(),
-        "normalized-generation",
-    )], cpg_extract::native_context::NativeContextConfig::committed(profile, budget).unwrap()))
+    Arc::new(CapturedInputs::new(
+        vec![AcquiredInput::tree(
+            CapturedInput::capture(&root, &["graph.py".into(), "helper.py".into()], budget)
+                .unwrap(),
+            "normalized-generation",
+        )],
+        cpg_extract::native_context::NativeContextConfig::committed(profile, budget).unwrap(),
+    ))
 }
 fn config(db: &DisposableDatabase) -> RoleConfig {
     RoleConfig {
@@ -205,10 +209,17 @@ async fn empty_captured_scope_publishes_explicit_no_scope_and_empty_snapshots() 
     .unwrap();
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../fixtures/python/normalized_projections");
-    let captured = Arc::new(CapturedInputs::new(vec![AcquiredInput::tree(
-        CapturedInput::capture(&root, &[], runtime.budget()).unwrap(),
-        "empty-normalized",
-    )], cpg_extract::native_context::NativeContextConfig::committed(lctx_model::domain::stages::Profile::Catalog, runtime.budget()).unwrap()));
+    let captured = Arc::new(CapturedInputs::new(
+        vec![AcquiredInput::tree(
+            CapturedInput::capture(&root, &[], runtime.budget()).unwrap(),
+            "empty-normalized",
+        )],
+        cpg_extract::native_context::NativeContextConfig::committed(
+            lctx_model::domain::stages::Profile::Catalog,
+            runtime.budget(),
+        )
+        .unwrap(),
+    ));
     let published = cpg_core::normalize::publish(
         &store,
         &config(&db),

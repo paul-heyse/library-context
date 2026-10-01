@@ -103,9 +103,11 @@ impl ProjectionSpec {
     pub fn roles(self) -> &'static [EndpointRole] {
         match self.name {
             ProjectionName::CallableInvocation => &[EndpointRole::Invocation],
-            ProjectionName::DefinitionContainment => {
-                &[EndpointRole::Definition, EndpointRole::Containment, EndpointRole::SourceDefinition]
-            }
+            ProjectionName::DefinitionContainment => &[
+                EndpointRole::Definition,
+                EndpointRole::Containment,
+                EndpointRole::SourceDefinition,
+            ],
             ProjectionName::ImportReference => &[EndpointRole::Import, EndpointRole::Reference],
             ProjectionName::PublicExposure => &[EndpointRole::PublicExposure],
         }

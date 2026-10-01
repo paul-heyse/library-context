@@ -285,9 +285,9 @@ impl<S: StageSink + 'static> ProviderStage<S> for Pyrefly {
             Signature,
             SignatureSupport,
             SignatureParameter,
-        SignatureEnumerationObservation,
-        SignatureEnumerationMember,
-        SignatureEnumerationSupport,
+            SignatureEnumerationObservation,
+            SignatureEnumerationMember,
+            SignatureEnumerationSupport,
             SymbolDeclaration,
             SymbolDeclarationSupport,
             ParameterDeclaration,
@@ -444,7 +444,10 @@ fn configured(
         _ => None,
     };
     let mut identity = lctx_model::domain::KeySink::new("native-analysis-config");
-    identity.part(b"analyzer", &serde_json::to_vec(&config).map_err(ModelError::codec)?);
+    identity.part(
+        b"analyzer",
+        &serde_json::to_vec(&config).map_err(ModelError::codec)?,
+    );
     identity.part(b"context", &native.digest().0);
     let analysis = AnalysisContext {
         python_version: python,
@@ -478,7 +481,9 @@ fn session<S: StageSink + 'static>(
     let root = captured.root();
     let selected = context.captured();
     let (cfg, analysis) = configured(input, library, selected.config())?;
-    let requirements = selected.config().requirements(&analysis.python_version,context.budget())?;
+    let requirements = selected
+        .config()
+        .requirements(&analysis.python_version, context.budget())?;
     let (major, minor, micro) = crate::library::version_triple(&analysis.python_version)
         .map_err(|e| invalid(e.to_string()))?;
     let (run, families) = ProviderRun::new(
@@ -1072,66 +1077,174 @@ fn session<S: StageSink + 'static>(
             keep.entry(module).or_default().1.push(name);
         }
     }
-    let mut work = lctx_model::domain::charged::StateCharge::new(context.budget(),"native-model-context-selection");
+    let mut work = lctx_model::domain::charged::StateCharge::new(
+        context.budget(),
+        "native-model-context-selection",
+    );
     let mut requested = Vec::new();
     if let Some(requirements) = &requirements {
         for entry in requirements.entries() {
-            work.grow(entry.module.len().saturating_add(entry.qualified_name.len()).saturating_mul(4).saturating_add(384))?;
-            let mut problem = requirement_pin_problem(entry,input,library,&analysis.python_version);
-            let found = handles.first().and_then(|anchor| transaction.import_handle(anchor,pyrefly_python::module_name::ModuleName::from_str(&entry.module),None).finding());
+            work.grow(
+                entry
+                    .module
+                    .len()
+                    .saturating_add(entry.qualified_name.len())
+                    .saturating_mul(4)
+                    .saturating_add(384),
+            )?;
+            let mut problem =
+                requirement_pin_problem(entry, input, library, &analysis.python_version);
+            let found = handles.first().and_then(|anchor| {
+                transaction
+                    .import_handle(
+                        anchor,
+                        pyrefly_python::module_name::ModuleName::from_str(&entry.module),
+                        None,
+                    )
+                    .finding()
+            });
             let module = match found {
                 Some(found) => {
-                    let module = natives.module(&found.module().to_string(),found.path())?;
-                    if problem.is_none() { problem = requirement_location_problem(entry,found.path(),input,library); }
-                    if !root_modules.contains(&module) { keep.entry(module).or_default().1.push(entry.qualified_name.clone()); }
+                    let module = natives.module(&found.module().to_string(), found.path())?;
+                    if problem.is_none() {
+                        problem = requirement_location_problem(entry, found.path(), input, library);
+                    }
+                    if !root_modules.contains(&module) {
+                        keep.entry(module)
+                            .or_default()
+                            .1
+                            .push(entry.qualified_name.clone());
+                    }
                     Some(module)
                 }
-                None => { natives.unresolved(&entry.module)?; problem.get_or_insert_with(||"definition module is unavailable in the frozen analyzer context".into());None }
+                None => {
+                    natives.unresolved(&entry.module)?;
+                    problem.get_or_insert_with(|| {
+                        "definition module is unavailable in the frozen analyzer context".into()
+                    });
+                    None
+                }
             };
-            requested.push((entry,module,problem));
+            requested.push((entry, module, problem));
         }
     }
     if let Some(anchor) = handles.first() {
         let mut visited = std::collections::BTreeSet::new();
         loop {
-            let dependencies: Vec<_> = keep.keys().filter(|m|!visited.contains(*m)).filter_map(|module| {
-                natives.paths.get(module).map(|(name,path)| (*module,pyrefly_build::handle::Handle::new(pyrefly_python::module_name::ModuleName::from_str(name),path.clone(),*anchor.sys_info())))
-            }).collect();
-            if dependencies.is_empty() { break; }
-            transaction.run(&dependencies.iter().map(|(_,h)|h.clone()).collect::<Vec<_>>(),Require::Everything,None);
-            for (module,handle) in dependencies {
+            let dependencies: Vec<_> = keep
+                .keys()
+                .filter(|m| !visited.contains(*m))
+                .filter_map(|module| {
+                    natives.paths.get(module).map(|(name, path)| {
+                        (
+                            *module,
+                            pyrefly_build::handle::Handle::new(
+                                pyrefly_python::module_name::ModuleName::from_str(name),
+                                path.clone(),
+                                *anchor.sys_info(),
+                            ),
+                        )
+                    })
+                })
+                .collect();
+            if dependencies.is_empty() {
+                break;
+            }
+            transaction.run(
+                &dependencies
+                    .iter()
+                    .map(|(_, h)| h.clone())
+                    .collect::<Vec<_>>(),
+                Require::Everything,
+                None,
+            );
+            for (module, handle) in dependencies {
                 visited.insert(module);
-                let (keys,names)=&keep[&module];
-                let records=definitions(&transaction,&handle,&input_qualification,&mut natives,None,Some((keys,names)),None,requirements.is_some(),context.budget())?;
+                let (keys, names) = &keep[&module];
+                let records = definitions(
+                    &transaction,
+                    &handle,
+                    &input_qualification,
+                    &mut natives,
+                    None,
+                    Some((keys, names)),
+                    None,
+                    requirements.is_some(),
+                    context.budget(),
+                )?;
                 // A class's complete native MRO remains structural evidence. Retain every ancestor
                 // module's class declarations too, each module once in this same dependency pass.
                 if requirements.is_some() {
-                    for member in records.sequences.iter().flat_map(|(_,members)|members) {
-                        let symbol=&natives.symbols[&member.symbol];
-                        if !root_modules.contains(&symbol.module) && !visited.contains(&symbol.module) {
-                            let keys=&mut keep.entry(symbol.module).or_default().0;
-                            if keys.insert(symbol.native_key.clone()) { work.grow(symbol.native_key.len().saturating_mul(2).saturating_add(128))?; }
+                    for member in records.sequences.iter().flat_map(|(_, members)| members) {
+                        let symbol = &natives.symbols[&member.symbol];
+                        if !root_modules.contains(&symbol.module)
+                            && !visited.contains(&symbol.module)
+                        {
+                            let keys = &mut keep.entry(symbol.module).or_default().0;
+                            if keys.insert(symbol.native_key.clone()) {
+                                work.grow(
+                                    symbol
+                                        .native_key
+                                        .len()
+                                        .saturating_mul(2)
+                                        .saturating_add(128),
+                                )?;
+                            }
                         }
                     }
                 }
-                let boundaries=write_symbols(context,records,&input_scope,provider,&analysis,&run,&surfaces,&pysa_evidence)?;
-                input_boundaries.0+=boundaries.0;input_boundaries.1+=boundaries.1;
+                let boundaries = write_symbols(
+                    context,
+                    records,
+                    &input_scope,
+                    provider,
+                    &analysis,
+                    &run,
+                    &surfaces,
+                    &pysa_evidence,
+                )?;
+                input_boundaries.0 += boundaries.0;
+                input_boundaries.1 += boundaries.1;
             }
         }
     }
-    for (entry,module,mut problem) in requested {
+    for (entry, module, mut problem) in requested {
         if problem.is_none() {
-            let symbol=module.and_then(|m|natives.definitions.get(&(m,entry.qualified_name.clone())).copied());
+            let symbol = module.and_then(|m| {
+                natives
+                    .definitions
+                    .get(&(m, entry.qualified_name.clone()))
+                    .copied()
+            });
             match symbol {
-                None => problem=Some("required exact class/function/member definition is unavailable".into()),
-                Some(symbol) if entry.require_mro && natives.mro.get(&symbol)!=Some(&Linearization::Complete) => problem=Some("required class ancestry is not a complete native MRO".into()),
+                None => {
+                    problem = Some(
+                        "required exact class/function/member definition is unavailable".into(),
+                    )
+                }
+                Some(symbol)
+                    if entry.require_mro
+                        && natives.mro.get(&symbol) != Some(&Linearization::Complete) =>
+                {
+                    problem = Some("required class ancestry is not a complete native MRO".into())
+                }
                 Some(_) => {}
             }
         }
-        if let Some(problem)=problem {
-            input_boundaries.1+=1;
-            context.contribute(SubjectBoundary {scope:input_scope.id(),provider:provider.id(),context:analysis.id(),family:FactFamily::Signatures,subject:None,reason:ObligationKind::OutsideProviderModel,
-                detail:Some(format!("model-context {:?} {:?} {}.{}: {}",entry.owner,entry.pin,entry.module,entry.qualified_name,problem))})?;
+        if let Some(problem) = problem {
+            input_boundaries.1 += 1;
+            context.contribute(SubjectBoundary {
+                scope: input_scope.id(),
+                provider: provider.id(),
+                context: analysis.id(),
+                family: FactFamily::Signatures,
+                subject: None,
+                reason: ObligationKind::OutsideProviderModel,
+                detail: Some(format!(
+                    "model-context {:?} {:?} {}.{}: {}",
+                    entry.owner, entry.pin, entry.module, entry.qualified_name, problem
+                )),
+            })?;
         }
     }
     let signatures = surfaces[&FactFamily::Signatures].id();
@@ -1175,49 +1288,113 @@ fn session<S: StageSink + 'static>(
 }
 
 /// Pysa's definitions of one module as symbol records: an analyzed module linked to its
-fn requirement_pin_problem(entry:&lctx_model::domain::models::requirements::RequiredDefinition,input:&AcquiredInput,library:Option<&AcquiredInput>,python:&str)->Option<String> {
+fn requirement_pin_problem(
+    entry: &lctx_model::domain::models::requirements::RequiredDefinition,
+    input: &AcquiredInput,
+    library: Option<&AcquiredInput>,
+    python: &str,
+) -> Option<String> {
     use lctx_model::domain::models::requirements::RequirementPin;
     match &entry.pin {
-        RequirementPin::Python(expected) if expected!=python => Some(format!("model requires Python {expected}, captured interpreter is {python}")),
-        RequirementPin::Distribution{name,version} => match library.unwrap_or(input).acquisition() {
-            Acquisition::Installed(inventory) => match inventory.distributions.iter().find(|d|&d.name==name) {
-                Some(distribution) if &distribution.version==version => None,
-                Some(distribution) => Some(format!("model requires {name}=={version}, captured distribution is {}",distribution.version)),
-                None => Some(format!("required distribution {name}=={version} is absent from captured inventory")),
-            },
-            _ => Some(format!("required distribution {name}=={version} has no pinned captured inventory")),
-        },
+        RequirementPin::Python(expected) if expected != python => Some(format!(
+            "model requires Python {expected}, captured interpreter is {python}"
+        )),
+        RequirementPin::Distribution { name, version } => {
+            match library.unwrap_or(input).acquisition() {
+                Acquisition::Installed(inventory) => {
+                    match inventory.distributions.iter().find(|d| &d.name == name) {
+                        Some(distribution) if &distribution.version == version => None,
+                        Some(distribution) => Some(format!(
+                            "model requires {name}=={version}, captured distribution is {}",
+                            distribution.version
+                        )),
+                        None => Some(format!(
+                            "required distribution {name}=={version} is absent from captured inventory"
+                        )),
+                    }
+                }
+                _ => Some(format!(
+                    "required distribution {name}=={version} has no pinned captured inventory"
+                )),
+            }
+        }
         _ => None,
     }
 }
-fn requirement_location_problem(entry:&lctx_model::domain::models::requirements::RequiredDefinition,path:&pyrefly_python::module_path::ModulePath,input:&AcquiredInput,library:Option<&AcquiredInput>)->Option<String> {
+fn requirement_location_problem(
+    entry: &lctx_model::domain::models::requirements::RequiredDefinition,
+    path: &pyrefly_python::module_path::ModulePath,
+    input: &AcquiredInput,
+    library: Option<&AcquiredInput>,
+) -> Option<String> {
     use lctx_model::domain::models::requirements::RequirementPin;
     use pyrefly_python::module_path::ModulePathDetails;
-    match (&entry.pin,path.details()) {
-        (RequirementPin::Python(_),ModulePathDetails::BundledTypeshed(_)) => None,
-        (RequirementPin::Python(_),_) => Some("stdlib requirement resolved outside the pinned provider stdlib".into()),
-        (RequirementPin::Distribution{name,..},ModulePathDetails::FileSystem(file)) => {
-            let environment=library.unwrap_or(input);let Acquisition::Installed(inventory)=environment.acquisition() else {return Some("dependency has no captured installed inventory".into())};
-            let relative=file.as_path().strip_prefix(environment.captured().root()).ok().map(|p|p.to_string_lossy());
-            if relative.is_some_and(|p|inventory.files.iter().any(|f|f.path==p && f.owners.contains(name))) {None} else {Some("resolved module is not owned by the required captured distribution".into())}
-        },
-        (RequirementPin::Release,ModulePathDetails::FileSystem(file)) => {
-            let environment=library.unwrap_or(input);
-            let relative=file.as_path().strip_prefix(environment.captured().root()).ok().map(|p|p.to_string_lossy());
+    match (&entry.pin, path.details()) {
+        (RequirementPin::Python(_), ModulePathDetails::BundledTypeshed(_)) => None,
+        (RequirementPin::Python(_), _) => {
+            Some("stdlib requirement resolved outside the pinned provider stdlib".into())
+        }
+        (RequirementPin::Distribution { name, .. }, ModulePathDetails::FileSystem(file)) => {
+            let environment = library.unwrap_or(input);
+            let Acquisition::Installed(inventory) = environment.acquisition() else {
+                return Some("dependency has no captured installed inventory".into());
+            };
+            let relative = file
+                .as_path()
+                .strip_prefix(environment.captured().root())
+                .ok()
+                .map(|p| p.to_string_lossy());
+            if relative.is_some_and(|p| {
+                inventory
+                    .files
+                    .iter()
+                    .any(|f| f.path == p && f.owners.contains(name))
+            }) {
+                None
+            } else {
+                Some("resolved module is not owned by the required captured distribution".into())
+            }
+        }
+        (RequirementPin::Release, ModulePathDetails::FileSystem(file)) => {
+            let environment = library.unwrap_or(input);
+            let relative = file
+                .as_path()
+                .strip_prefix(environment.captured().root())
+                .ok()
+                .map(|p| p.to_string_lossy());
             match environment.acquisition() {
-                Acquisition::Installed(inventory) if relative.as_ref().is_some_and(|p| inventory.files.iter().any(|f| f.path==p.as_ref() && f.role==lctx_model::domain::input::SourceRole::Release && f.owners.iter().any(|owner|inventory.distributions.iter().any(|d|d.name==*owner && d.first_party)))) => None,
-                Acquisition::Tree{..} if relative.is_some() => None,
+                Acquisition::Installed(inventory)
+                    if relative.as_ref().is_some_and(|p| {
+                        inventory.files.iter().any(|f| {
+                            f.path == p.as_ref()
+                                && f.role == lctx_model::domain::input::SourceRole::Release
+                                && f.owners.iter().any(|owner| {
+                                    inventory
+                                        .distributions
+                                        .iter()
+                                        .any(|d| d.name == *owner && d.first_party)
+                                })
+                        })
+                    }) =>
+                {
+                    None
+                }
+                Acquisition::Tree { .. } if relative.is_some() => None,
                 _ => Some("release model target is not an acquired release definition".into()),
             }
-        },
-        (RequirementPin::CapturedEnvironment,ModulePathDetails::BundledTypeshed(_)) => None,
-        (RequirementPin::CapturedEnvironment,ModulePathDetails::FileSystem(_)) => None,
+        }
+        (RequirementPin::CapturedEnvironment, ModulePathDetails::BundledTypeshed(_)) => None,
+        (RequirementPin::CapturedEnvironment, ModulePathDetails::FileSystem(_)) => None,
         _ => Some("required definition is not present in the captured pinned environment".into()),
     }
 }
 
 /// occurrences, or a dependency module's kept definitions (native keys, and top-level names an
 /// export traces to).
+#[allow(
+    clippy::too_many_arguments,
+    reason = "One definition walk carries the transaction, handle, qualification, natives, linking, keep set, tap and MRO flag"
+)]
 fn definitions(
     transaction: &pyrefly::state::state::Transaction<'_>,
     handle: &pyrefly_build::handle::Handle,
@@ -1333,7 +1510,9 @@ fn definitions(
         for name in names {
             kept.extend(symbol_records::qualified(&definitions, name));
         }
-        if expand_mro { kept.extend(symbol_records::class_keys(&definitions)); }
+        if expand_mro {
+            kept.extend(symbol_records::class_keys(&definitions));
+        }
         kept
     });
     symbol_records::records(
@@ -1444,7 +1623,12 @@ fn write_symbols<S: StageSink + 'static>(
         }
     }
     for (enumeration, members) in records.enumerations {
-        pysa!(SignatureEnumerationSupport, enumeration, invocation.id(), Fidelity::ReportProjection);
+        pysa!(
+            SignatureEnumerationSupport,
+            enumeration,
+            invocation.id(),
+            Fidelity::ReportProjection
+        );
         for member in members {
             context.emit(member)?;
         }

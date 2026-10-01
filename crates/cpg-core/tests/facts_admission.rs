@@ -7,7 +7,12 @@ use std::sync::Arc;
 fn budget() -> ResourceBudget {
     ResourceBudget::fixed(1 << 30).unwrap()
 }
-fn captured(source: &[u8], document: bool, profile: Profile, resources: &ResourceBudget) -> Arc<CapturedInputs> {
+fn captured(
+    source: &[u8],
+    document: bool,
+    profile: Profile,
+    resources: &ResourceBudget,
+) -> Arc<CapturedInputs> {
     let root = tempfile::tempdir().unwrap();
     std::fs::write(root.path().join("api.py"), source).unwrap();
     let mut paths = vec!["api.py".into()];
@@ -15,10 +20,13 @@ fn captured(source: &[u8], document: bool, profile: Profile, resources: &Resourc
         std::fs::write(root.path().join("README.md"), b"# API\n\nRead `api.f`.\n").unwrap();
         paths.push("README.md".into());
     }
-    Arc::new(CapturedInputs::new(vec![AcquiredInput::tree(
-        CapturedInput::capture(root.path(), &paths, &budget()).unwrap(),
-        "facts-admission",
-    )], cpg_extract::native_context::NativeContextConfig::committed(profile, resources).unwrap()))
+    Arc::new(CapturedInputs::new(
+        vec![AcquiredInput::tree(
+            CapturedInput::capture(root.path(), &paths, &budget()).unwrap(),
+            "facts-admission",
+        )],
+        cpg_extract::native_context::NativeContextConfig::committed(profile, resources).unwrap(),
+    ))
 }
 #[tokio::test]
 async fn complete_frontier_is_admitted_with_profile_owned_availability() {

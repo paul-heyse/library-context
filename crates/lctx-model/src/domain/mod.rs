@@ -23,9 +23,9 @@ pub mod flow;
 mod identity;
 pub mod input;
 pub mod lexical;
+pub mod local_fields;
 pub mod local_semantics;
 pub mod local_theory;
-pub mod local_fields;
 pub mod memory;
 mod model;
 pub mod models;
@@ -39,12 +39,12 @@ mod record;
 pub mod resources;
 pub mod retrieval;
 pub mod selection;
-pub mod structural;
-pub mod synthesis;
 pub mod source;
 pub mod stages;
+pub mod structural;
 pub mod symbols;
 pub mod syntax;
+pub mod synthesis;
 pub mod transfer;
 pub mod types;
 pub mod value;
@@ -226,7 +226,6 @@ pub fn catalog_frontier_relations() -> Vec<Relation> {
 /// Relations later layers derive from facts: transfers, control selections, stability witnesses,
 /// guard substitutions and call compositions. A facts generation never writes them.
 fn pre_catalog_analysis_relations() -> Vec<Relation> {
-    use transfer::*;
     let mut relations = vec![
         Relation::of::<transfer::local::ControlInfluence>(),
         Relation::of::<transfer::local::ControlSupport>(),
@@ -247,10 +246,13 @@ fn pre_catalog_analysis_relations() -> Vec<Relation> {
     relations.extend(transfer::summary::relations());
     relations.extend(analysis::pre_catalog_relations());
     relations.extend(catalog::relations());
-    relations.extend(structural::relations());relations.extend(analytics::relations());
+    relations.extend(structural::relations());
+    relations.extend(analytics::relations());
     relations.extend(embedding::relations());
     relations.extend(execution::relations());
-    relations.extend(local_semantics::relations());relations.extend(local_theory::relations());relations.extend(local_fields::relations());
+    relations.extend(local_semantics::relations());
+    relations.extend(local_theory::relations());
+    relations.extend(local_fields::relations());
     relations
 }
 /// All upper relations for the complete declared model and conformance consumers.

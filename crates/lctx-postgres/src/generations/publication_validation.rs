@@ -108,9 +108,29 @@ impl GenerationStore {
                         .ok_or(Error::Contract)?
                         .physical_relation()
                 };
-                let upper=if outputs.contains(input.name()) {candidate_prefix}else {inputs.get(input.name()).and_then(|source|source.prefix_ordinal())};
-                if input.prefix().is_some() && upper.is_none() {return Err(Error::Contract);}
-                let physical=super::validation_views::physical(tx,generation,input,relation,&physical,super::validation_views::Scope {upper,candidate:candidate_prefix},budget).await?;
+                let upper = if outputs.contains(input.name()) {
+                    candidate_prefix
+                } else {
+                    inputs
+                        .get(input.name())
+                        .and_then(|source| source.prefix_ordinal())
+                };
+                if input.prefix().is_some() && upper.is_none() {
+                    return Err(Error::Contract);
+                }
+                let physical = super::validation_views::physical(
+                    tx,
+                    generation,
+                    input,
+                    relation,
+                    &physical,
+                    super::validation_views::Scope {
+                        upper,
+                        candidate: candidate_prefix,
+                    },
+                    budget,
+                )
+                .await?;
                 visit_named(
                     tx,
                     generation,
