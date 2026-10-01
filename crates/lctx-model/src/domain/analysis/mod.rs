@@ -1,6 +1,8 @@
 //! Derived analysis is a computation over typed evidence, never a native provider invocation.
 pub mod coverage;
 pub mod findings;
+pub mod native;
+pub mod policy;
 mod invocation;
 pub mod obligations;
 pub mod support;
