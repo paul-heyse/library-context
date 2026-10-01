@@ -629,8 +629,10 @@ No separate graph schema or materialized path closure becomes semantic authority
 
 **Implemented / focused-Tested adapter, 2026-09-30 (ADR-0106).** Algorithms can borrow generatively
 branded native visit views after hydration; canonical SCC ordering uses this interface without
-reconstructing edges from SQL. Analysis collection preparation and actual downstream algorithm
-consumers remain open. Dispatch expansion precedes the graph build on every fresh collection.
+reconstructing edges from SQL. **Implemented / focused-Tested, 2026-10-01:** collection preparation
+retains hydrated graphs and their reservations; each later borrower needs matching completed-source
+permits and the same budget. F0 lifetime wiring and downstream algorithm consumers remain open.
+Dispatch expansion precedes the graph build on every fresh collection.
 **Accepted target:** numeric conversions have explicit universe/weight/lineage contracts and share
 the attempt budget. Optional analytics retain their existing disabled defaults.
 

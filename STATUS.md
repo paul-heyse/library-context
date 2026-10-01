@@ -23,8 +23,8 @@ _Updated 2026-10-01 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
   open dispatch contracts. Nonempty unimplemented analysis selectors still refuse activation.
 - **passed, 2026-10-01:** wrapped Cargo `test --release -p lctx-model -p cpg-core --test analysis_preparation`
   (two model controls and one real PG test across both profiles), composite after fixture/boundary fixes.
-  Integrated N1 PG controls reached final validation but incorrectly included unproduced analysis
-  tables; their normalization-scoped rerun accompanies G0 preparation. B0 and C0 remain in progress.
+  Integrated N1/G0 PG controls also passed both profiles after correcting the test's frontier scope;
+  graph reuse, permit/budget refusal and lifetime controls passed. B0 and C0 remain in progress.
 - New P4 acceptance is **not_run** pending implementation. Compile checks and focused controls
   precede foundation review; integrated acceptance waits for all functional packages and retirement.
   ADR/docs hygiene belongs to the automatic end-of-turn hook; no result is claimed before it runs.
