@@ -104,6 +104,9 @@ impl InvariantCheck for DischargeCheck {
             let proof_frame=self.frames.get(&RowRef::of(derivation.invocation)).ok_or_else(||invalid("proof invocation absent"))?;
             if frame!=proof_frame || frame.1!=qualification.context || !self.ownership.owns_scope(frame.0,self.ownership.scope(qualification.scope)?)? || derivation.qualification!=qualification.id() || derivation.invocation!=coverage.invocation || derivation.heuristic {return Err(invalid("discharging proof changes invocation frame or uses heuristic evidence"));}
             let proof=Question {invocation:RowRef::of(derivation.invocation),subject:*self.subjects.get(&RowRef::of(proposition.subject)).ok_or_else(||invalid("proof subject absent"))?,channel:proposition.channel,phase:proposition.phase,qualification:proposition.qualification};
+            if proof.channel!=AnalysisChannel::Catalog {
+                crate::domain::analysis::policy::behavioral_support(derivation.status,derivation.heuristic)?;
+            }
             obligation_support::admissible(&question,&proof,RowRef::of(proposition.id()),qualification,&conditions::Diagram::from_records(condition,&nodes)?,(coverage.scope,coverage.context,coverage.availability))?;
         }
         Ok(())

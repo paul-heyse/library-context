@@ -106,3 +106,17 @@ fn candidate_approximate_absent_and_partial_negative_evidence_stays_open() {
         fixture.refresh();assert!(fixture.check(false).is_err(),"case {case}");
     }
 }
+
+#[test]
+fn documentary_evidence_cannot_discharge_behavioral_questions() {
+    for channel in [AnalysisChannel::Value,AnalysisChannel::Effect,AnalysisChannel::Exception,AnalysisChannel::Role,AnalysisChannel::Execution,AnalysisChannel::Completion] {
+        let mut fixture=Fixture::new(false);
+        fixture.obligation.channel=channel;fixture.proposition.channel=channel;
+        fixture.derivation.status=EvidenceStatus::Documented;
+        fixture.refresh();assert!(fixture.check(false).is_err());
+    }
+    let mut fixture=Fixture::new(false);
+    fixture.obligation.channel=AnalysisChannel::Catalog;fixture.proposition.channel=AnalysisChannel::Catalog;
+    fixture.derivation.status=EvidenceStatus::Documented;
+    fixture.refresh();fixture.check(false).unwrap();
+}
