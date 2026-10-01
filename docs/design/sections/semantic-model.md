@@ -20,10 +20,12 @@ its automated gate excludes stopped library comparisons and measurements.
 
 Phase 4 analysis/catalog, immutable vocabulary groups, typed Local/execution/models/Summary,
 structural/optional analytics, catalog/evidence/selection, synthesis and retrieval are
-**Implemented; qualification and ownership retirement in progress**. Bounded antecedent receipts
+**Implemented; mapped ownership retirement complete and Q0 qualification active**, 2026-10-01. Bounded antecedent receipts
 are in the [Phase 4 plan](../../plans/semantic-model-phase4-detailed-plan_2026-09-30.md).
 The [foundation review](../../design_review/reviews/design_review_phase4-foundation_2026-09-30.md)
-is **Accept scoped**; P4B3-F01 corrective native/store qualification and assembled review remain open.
+is **Accept scoped**. The [P4B3-F01 corrective reinspection](../../design_review/reviews/design_review_phase4-symbolic-reinspection_2026-10-01.md)
+and [assembled Design/Target review](../../design_review/reviews/design_review_phase4-assembled_2026-10-01.md)
+are **Accept scoped**, 2026-10-01; full Q0 remains open.
 Phase 5 serving remains **Proposed / unavailable**. No live embedding, real-library upper-frontier
 pilot, comparative product, hydration-cost or total-RSS measurement is claimed.
 
@@ -31,8 +33,8 @@ pilot, comparative product, hydration-cost or total-RSS measurement is claimed.
 compute. `lctx compile --through facts|normalized|analysis|catalog` is implemented for either profile
 and never selects the generation. Upper-frontier runtime acceptance is in progress. Catalog Flow
 is `NotRequested`; behavioral uncertainty remains explicit. `lctx-model` owns all semantic contracts;
-extraction/native flow have no `cpg-schema` dependency. Legacy Phase 4 engine retirement is pending
-its independent replacement controls. Remaining `cpg-schema` wire/serving and dormant
+extraction/native flow have no `cpg-schema` dependency. Legacy Phase 4 engine retirement is complete within the exact mapped scope after independent
+replacement controls; full Q0 is active. Remaining `cpg-schema` wire/serving and dormant
 `cpg-core::bundle` sources are named Phase 5 inputs, not active P4 authorities.
 
 **Execution owner.** The [cutover plan](../../plans/semantic-model-cutover-plan_2026-09-29.md)

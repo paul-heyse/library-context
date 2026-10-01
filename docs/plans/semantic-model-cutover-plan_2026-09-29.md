@@ -14,15 +14,17 @@ DataFusion is compute, not another schema authority. There are no compatibility 
 legacy identity maps, old-store flags, or dual writers.
 
 **Current scope, 2026-10-01:** phases 0–3 are implemented with the distinct qualification boundaries
-recorded below and in the Phase 3 plan. Phase 4 has integrated producer prerequisites and an
-implemented cumulative analysis/catalog driver and retained symbolic source/Local/Summary/C1/S0 contracts; actual upper-frontier acceptance and legacy retirement remain incomplete. All active worker checkpoints are on main.
+recorded below and in the Phase 3 plan. Phase 4 functional scope and mapped legacy retirement are integrated on main, including
+cumulative Analysis/Catalog compilation, symbolic source/Local/Summary/C1/S0 and actual upper-frontier
+focused controls. The assembled Design/Target review is Accept scoped; full Q0 qualification is active.
 The [Phase 4 restart checkpoint](semantic-model-phase4-detailed-plan_2026-09-30.md#133-restart-checkpoint-and-remaining-work)
 owns the exact resume order and receipts. Phase 5 MCP remains unavailable. Lower-frontier generations cannot answer
 higher-layer requests with empty tables. Product work stays paused. The forward plan retains
 product context and unrelated findings.
 
-**Qualification:** compile checks and focused tests during execution; formatting and the integrated
-active-scope gate once all phase 0–2 functional work is implemented. A phase's decision is not evidence
+**Qualification:** compile checks and focused tests during execution; `just test-all` and
+`just hygiene` once all authorized functional scope and retirement are integrated. The automatic
+end-of-turn hook owns formatting and generators. A phase's decision is not evidence
 of implementation. PostgreSQL qualification uses a real disposable server, including concurrency.
 Independent semantic fixtures, oracles, benchmark assets and held-out isolation are preserved.
 
@@ -157,8 +159,12 @@ receiver corrections, finite composition/proof design, library choices, analysis
 retrieval contracts, dependency-ordered packages, legacy retirement and independent acceptance
 controls. ADR-0105/0106/0108 are accepted. R0/R1 have integrated focused controls and an independent
 [Accept scoped foundation review, 2026-10-01](../design_review/reviews/design_review_phase4-foundation_2026-09-30.md).
-N0/N1, G0, downstream producers, symbolic source/Local/Summary/C1/S0 and registered documentary templates are integrated; actual final qualification, corrective reinspection, retirement and Q0 remain open
-in detailed plan §13.3. The latest merged compile passed; it is not a Phase 4 exit. This parent retains cross-phase finding disposition;
+N0/N1, G0, downstream producers, symbolic source/Local/Summary/C1/S0, documentary templates and
+X0 retirement are integrated. Corrective reinspection and the
+[assembled Design/Target review](../design_review/reviews/design_review_phase4-assembled_2026-10-01.md)
+are Accept scoped, 2026-10-01. Actual upper-frontier CLI, Summary and proof-backed negative S0
+controls passed as focused composite receipts. Full Q0 is active in detailed plan §13.3; a complete
+Phase 4 exit is not yet claimed. This parent retains cross-phase finding disposition;
 document completion does not close implementation findings or activate Phase 5 serving.
 
 ### Phase 5 — Serving
