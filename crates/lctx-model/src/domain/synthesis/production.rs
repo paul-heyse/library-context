@@ -1,11 +1,11 @@
 //! Inputs of the single S0 producer. Every frame requires real completed nominal parents.
 use crate::domain::{*,analysis::{self,settings::AnalyticsConfiguration,synthesis as owner},normalized::Rows,resources::ResourceBudget,stages::*};
 use super::{automatic,documentary,frames};
-pub struct Data {pub frames:frames::Data,pub documentary:documentary::Data,pub automatic:automatic::Data,pub observations:super::observations::Data,pub public:Rows<structural::PublicCandidate>}
+pub struct Data {pub frames:frames::Data,pub documentary:documentary::Data,pub automatic:automatic::Data,pub observations:super::observations::Data,pub summary:super::summary::Data,pub public:Rows<structural::PublicCandidate>}
 impl Data {
- pub fn new(b:&ResourceBudget)->Self{Self{frames:frames::Data::new(b),documentary:documentary::Data::new(b),automatic:automatic::Data::new(b),observations:super::observations::Data::new(b),public:Rows::new(b)}}
- pub fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<bool,ModelError>{let f=self.frames.visit(n,b)?;let d=self.documentary.visit(n,b)?;let a=self.automatic.visit(n,b)?;let p=if n==structural::PublicCandidate::NAME{self.public.decode(b)?;true}else{false};let o=self.observations.visit(n,b)?;Ok(f||d||a||p||o)}
- pub fn inputs()->Vec<ValidationInput>{let mut rows=frames::Data::inputs();rows.extend(documentary::Data::validation_inputs());rows.extend(automatic::Data::inputs());rows.extend(super::observations::Data::inputs());rows.push(ValidationInput::of::<structural::PublicCandidate>(&["id"]));rows.sort_by_key(|r|r.name());rows.dedup_by_key(|r|r.name());rows}
+ pub fn new(b:&ResourceBudget)->Self{Self{frames:frames::Data::new(b),documentary:documentary::Data::new(b),automatic:automatic::Data::new(b),observations:super::observations::Data::new(b),summary:super::summary::Data::new(b),public:Rows::new(b)}}
+ pub fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<bool,ModelError>{let f=self.frames.visit(n,b)?;let d=self.documentary.visit(n,b)?;let a=self.automatic.visit(n,b)?;let p=if n==structural::PublicCandidate::NAME{self.public.decode(b)?;true}else{false};let o=self.observations.visit(n,b)?;let summary=self.summary.visit(n,b)?;Ok(f||d||a||p||o||summary)}
+ pub fn inputs()->Vec<ValidationInput>{let mut rows=frames::Data::inputs();rows.extend(documentary::Data::validation_inputs());rows.extend(automatic::Data::inputs());rows.extend(super::observations::Data::inputs());rows.extend(super::summary::Data::inputs());rows.push(ValidationInput::of::<structural::PublicCandidate>(&["id"]));rows.sort_by_key(|r|r.name());rows.dedup_by_key(|r|r.name());rows}
 }
 pub fn stage(profile:Profile,settings:&AnalyticsConfiguration,model:&ValidatedModel)->Result<Stage,ModelError>{
  use std::collections::BTreeSet;settings.validate()?;

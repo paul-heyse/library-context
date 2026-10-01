@@ -28,6 +28,7 @@ pub enum ClaimProof{
  #[model(code=1)]Closure{#[model(premise)]claim:Id<SummaryClaim>,qualification:Id<AssertionQualification>,status:EvidenceStatus,members:ContentHash},
  #[model(code=2)]Refutation{#[model(premise)]invocation:Id<owner::AnalysisInvocation>,#[model(premise)]claim:Id<SummaryClaim>,#[model(premise)]source:Id<SummaryPremise>,qualification:Id<AssertionQualification>,status:EvidenceStatus,heuristic:bool,coverage:ContentHash},
 }
+impl ClaimProof{pub fn claim(&self)->Id<SummaryClaim>{match self{Self::Finite{claim,..}|Self::Closure{claim,..}|Self::Refutation{claim,..}=>*claim}}}
 impl analysis::support::sealed::DerivedEvidence for ClaimProof{}
 impl DerivedEvidence for ClaimProof{fn source_facts(&self)->SourceFacts{match self{Self::Finite{qualification,status,heuristic,..}|Self::Refutation{qualification,status,heuristic,..}=>SourceFacts{qualification:*qualification,status:*status,heuristic:*heuristic},Self::Closure{qualification,status,..}=>SourceFacts{qualification:*qualification,status:*status,heuristic:false}}}}
 #[derive(Debug,Clone,PartialEq,Eq,Domain)]

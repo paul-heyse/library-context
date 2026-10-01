@@ -5,6 +5,7 @@ pub mod delegation;
 pub mod expected;
 mod family;
 pub mod findings;
+pub mod frontier;
 pub mod native;
 mod obligation_support;
 pub mod policy;
@@ -33,7 +34,7 @@ analysis_family!(catalog_evidence,"catalog_evidence",[CatalogCore:4=>catalog_cor
 // Selection is declaration-owned. Unactivated predecessor codes 5/6 and transfer code 2 remain reserved; optional
 // structural/analytic results feed synthesis, not catalog requirement closure.
 analysis_family!(selection,"selection",[CatalogEvidence:4=>catalog_evidence],[],[crate::domain::normalized::coverage::NormalizationCoverage],[]);
-analysis_family!(synthesis,"synthesis",[Selection:4=>selection,CatalogEvidence:5=>catalog_evidence,CatalogCore:6=>catalog_core,Structural:7=>structural,Analytic:8=>analytic,Summary:9=>summary],[crate::domain::transfer::local::TransferKey;ModelTransfer:10=>crate::domain::transfer::model::TransferKey;SummaryTransfer:11=>crate::domain::transfer::summary::TransferKey],[crate::domain::normalized::coverage::NormalizationCoverage],[StructuralObservation:12=>crate::domain::structural::Conclusion,DocumentaryObservation:13=>crate::domain::synthesis::documentary::DocumentaryConclusion,AnalyticObservation:14=>crate::domain::analytics::Conclusion],support[Summary:9=>summary],obligations[]);
+analysis_family!(synthesis,"synthesis",[Selection:4=>selection,CatalogEvidence:5=>catalog_evidence,CatalogCore:6=>catalog_core,Structural:7=>structural,Analytic:8=>analytic,Summary:9=>summary],[crate::domain::transfer::local::TransferKey;ModelTransfer:10=>crate::domain::transfer::model::TransferKey;SummaryTransfer:11=>crate::domain::transfer::summary::TransferKey;SummaryClaim:12=>crate::domain::execution::summary_consequences::SummaryClaim],[crate::domain::normalized::coverage::NormalizationCoverage],[StructuralObservation:12=>crate::domain::structural::Conclusion,DocumentaryObservation:13=>crate::domain::synthesis::documentary::DocumentaryConclusion,AnalyticObservation:14=>crate::domain::analytics::Conclusion],support[Summary:9=>summary],obligations[]);
 // E0 consumes shared embedding preparation; predecessor code6 and transfer code2 remain reserved.
 analysis_family!(retrieval,"retrieval",[Synthesis:4=>synthesis,CatalogEvidence:5=>catalog_evidence],[],[crate::domain::normalized::coverage::NormalizationCoverage],[]);
 /// One-shot configuration and native inventory. No future result family is pulled into preflight.
@@ -63,6 +64,7 @@ pub fn pre_catalog_relations() -> Vec<Relation> {
     rows.extend(analytic::publication_relations());
     rows.extend(catalog_core::publication_relations());
     rows.extend(catalog_evidence::publication_relations());
+    rows.extend(frontier::analysis_relations());
     rows
 }
 pub fn relations() -> Vec<Relation> {
@@ -75,6 +77,7 @@ pub fn catalog_publication_relations() -> Vec<Relation> {
     rows.push(Relation::of::<synthesis::ObligationSubject>());rows.extend(synthesis::support::relations());
     rows.extend(retrieval::publication_relations());
     rows.extend(findings::relations());
+    rows.extend(frontier::catalog_relations());
     rows
 }
 fn invalid(message: &str) -> ModelError {

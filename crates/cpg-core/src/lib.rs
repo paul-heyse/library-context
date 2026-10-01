@@ -25,6 +25,7 @@ pub mod embedding_service;
 pub mod entry_links;
 pub mod evidence;
 pub mod facts;
+pub mod final_coverage;
 pub mod flow_model;
 pub mod generation_read;
 pub mod model_runtime;
