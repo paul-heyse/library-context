@@ -1,6 +1,20 @@
 //! Base evaluation's nominal conclusions and exact ordered proof inventory. The enriched owner
 //! will have its own records and predecessor sum; base evidence never references a source call.
 
+use crate::domain::{
+    analysis::{
+        self, AnalysisDefinition, AnalysisMethod, Interpretation,
+        base_evaluation::AnalysisInvocation, native::NativeAssertionPremise,
+        policy::EvidenceStatus,
+    },
+    assertion::AssertionQualification,
+    conditions::entry::{EntryAccessSource, EntryData, EntryRequest, EntryValueWitness},
+    execution::evaluation::*,
+    normalized::{Rows, entities::EntityRef},
+    resources::{Reservation, ResourceBudget},
+    source::Occurrence,
+    *,
+};
 use crate::{Domain, DomainSum};
 
 #[derive(Debug,Clone,PartialEq,Eq,Hash,DomainSum)]
@@ -83,7 +97,7 @@ pub fn base_invariants()->Vec<Invariant> {
 }
 pub(crate) struct BaseCheck {pub(crate) data:EvaluationData,entry:EntryData,invocations:Rows<AnalysisInvocation>,definitions:Rows<AnalysisDefinition>,pub(crate) evaluations:Rows<ExpressionEvaluation>,sources:Rows<EvaluationSource>,members:Rows<EvaluationMember>,operands:Rows<EvaluationOperand>,entries:Rows<EntryValueWitness>,entry_sources:Rows<EntryAccessSource>,budget:ResourceBudget}
 impl BaseCheck {
-    pub(crate) fn new(budget:&ResourceBudget)->Self {Self{data:EvaluationData::new(budget),entry:EntryData::new(budget),invocations:Rows::new(budget),definitions:Rows::new(budget),evaluations:Rows::new(budget),sources:Rows::new(budget),members:Rows::new(budget),operands:Rows::new(budget),entries:Rows::new(budget),budget:budget.clone()}}
+    pub(crate) fn new(budget:&ResourceBudget)->Self {Self{data:EvaluationData::new(budget),entry:EntryData::new(budget),invocations:Rows::new(budget),definitions:Rows::new(budget),evaluations:Rows::new(budget),sources:Rows::new(budget),members:Rows::new(budget),operands:Rows::new(budget),entries:Rows::new(budget),entry_sources:Rows::new(budget),budget:budget.clone()}}
 }
 impl InvariantCheck for BaseCheck {
     fn visit(&mut self,name:&str,batch:&arrow_array::RecordBatch)->Result<(),ModelError> {
@@ -124,21 +138,3 @@ impl BaseCheck {
         Ok(checked)
     }
 }
-
-//! Base evaluation's nominal conclusions and exact ordered proof inventory. The enriched owner
-//! will have its own records and predecessor sum; base evidence never references a source call.
-use crate::domain::{
-    analysis::{
-        self, AnalysisDefinition, AnalysisMethod, Interpretation,
-        base_evaluation::AnalysisInvocation, native::NativeAssertionPremise,
-        policy::EvidenceStatus,
-    },
-    assertion::AssertionQualification,
-    conditions::entry::{EntryAccessSource, EntryData, EntryRequest, EntryValueWitness},
-    execution::evaluation::*,
-    normalized::{Rows, entities::EntityRef},
-    resources::{Reservation, ResourceBudget},
-    source::Occurrence,
-    *,
-};
-
