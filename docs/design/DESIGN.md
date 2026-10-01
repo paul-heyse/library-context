@@ -6,14 +6,14 @@
 (§13); focused owners hold the rest. Labels distinguish implemented behavior from accepted
 targets: an accepted target is not an implementation claim. Current ADRs say why and what was
 rejected ([index](../adr/README.md)); the
-[forward plan](../plans/behavioral-model-forward-plan_2026-09-24.md) owns execution and the
-disposition of known defects.
+[cutover plan](../plans/semantic-model-cutover-plan_2026-09-29.md) owns current layer execution and cross-phase findings; the
+[forward plan](../plans/behavioral-model-forward-plan_2026-09-24.md) retains the product sequence and its findings.
 
 **Changing a section.** Change a governed section in the same commit as the ADR that decides it
 and keep its `> Decision: ADR-NNNN` line. Section IDs are never renumbered or reused: insert
 `§3.2.1` rather than shifting `§3.3`, and a moved live section leaves a relocation pointer. Keep
 sections current rather than appending history (ADR-0042). There is no line budget: the detail the
-design needs comes before length. Column-level contracts live in `cpg-schema` and are
+design needs comes before length. Column-level contracts derive from `lctx-model::domain` and are
 snapshot-tested; they are not repeated here.
 
 **Labels.** Every claim carries a principles §D label (`Proposed`, `Interface-checked`,
@@ -31,7 +31,7 @@ version (skill brief, probe or pinned source), not that our code uses it yet.
 
 ### §1.1 Objective and the promise
 
-**Accepted target; PR1 catalog Implemented, remaining product scope Proposed (ADR-0071/0072, 2026-09-28).** A pinned Python library
+**Accepted product target; typed catalog Implemented, qualification in progress (2026-10-01).** A pinned Python library
 compiles into an **API and evidence catalog for feature discovery and correct use**. A coding agent
 can identify a built-in feature, select its public invocation/configuration, inspect original examples
 and deployment details, and follow precise evidence and uncertainty. The comprehensive target is
@@ -43,12 +43,12 @@ name their supported domain and coverage; ranked discovery is not exhaustive; un
 and unresolved behavior are local, explicit states. Briefs are optional renderings. No generative
 model runs in compilation or the query path (§B11).
 
-**Implemented and Tested, 2026-09-28:** catalog-only readiness, ordered source/provider API contracts,
-stable public members, declaration evidence and optional behavioral/brief tools through PG serving.
-Broader effective-surface normalization, contextual evidence/deployment search and typed
-per-requirement states remain **Proposed**.
-[§11.3](sections/synthesis-and-serving.md#section-11-3) describes current tools and
-[§14.9](sections/api-and-evidence-product.md#section-14-9) owns their replacement target.
+**Implemented, qualification in progress, 2026-10-01:** model-owned catalog members and ordered
+source/effective contracts, contextual evidence, declaration selection, optional analysis, synthesis
+and retrieval inputs publish through the cumulative generation store. Phase 5 serving remains
+unavailable. [§15](sections/semantic-model.md) owns these contracts;
+[§14.9](sections/api-and-evidence-product.md#section-14-9) owns the proposed tool adapter.
+Fixture qualification does not establish a real-library pilot or comparative product acceptance.
 
 > Decision: ADR-0071, ADR-0078, ADR-0025
 
@@ -56,16 +56,13 @@ per-requirement states remain **Proposed**.
 
 ### §1.2 Increments
 
-**Accepted sequencing; PR0–PR1 implemented, comparative admission open (ADR-0071/0072).** The
+**Accepted sequencing; comparative admission and post-cutover serving open (ADR-0071/0072).** The
 [forward plan §3.0](../plans/behavioral-model-forward-plan_2026-09-24.md#30-consolidated-execution)
 owns PR0–PR6: task/baseline freeze, mandatory catalog/contracts, bounded surface/options,
 scenarios/deployment, typed retrieval, agent usability and comparative confirmation.
 
-**Retained implementation:** earlier increments 1–3 built facts/analytics/whole-surface tools;
-Stage 3 has partial conditions/models/summaries and remains incomplete. PG0–PG17 local exact
-storage/serving deployment is qualified within its recorded scope. Neither is a Context7 comparison.
-Remaining Stage 3–5 work is deferred research unless an exposed claim or named product task needs it.
-No former semantic exit is relabeled passed.
+Earlier product receipts retain their recorded boundaries; they do not qualify the reconstructed
+pipeline. Remaining research is activated only by an exposed claim or a named product task.
 
 **Current increment: the semantic model cutover (accepted 2026-09-29; ADR-0085/0083/0084).** The
 [cutover plan](../plans/semantic-model-cutover-plan_2026-09-29.md) runs these phases in order:
@@ -77,8 +74,8 @@ No former semantic exit is relabeled passed.
 5. serving.
 
 Each phase exits only with no legacy code in its layer. PR6 and new product features pause until phase
-5. The target is [§15](sections/semantic-model.md); until each layer cuts over, the sections below
-describe the implemented legacy pipeline.
+5. [§15](sections/semantic-model.md) owns the reconstructed layers. Phase 4 implementation and
+retirement qualification are in progress; Phase 5 contracts remain explicitly unavailable.
 
 The CPG precedes its analytics (ADR-0086). Canonical facts keep their identity and provenance;
 mandatory catalog construction is independent of optional analysis. Libraries remain pinned
@@ -120,7 +117,7 @@ routes; resource savings and broader workflow effectiveness remain **Proposed**.
   ([§11.3](sections/synthesis-and-serving.md#section-11-3)).
 - Native-extension bodies.
 - **A general ontology, an RDF store or a reasoner.** The capability registry is a closed,
-  executable vocabulary in `cpg-schema` ([§9.9](sections/behavioral-analysis.md#section-9-9)).
+  executable vocabulary in `lctx-model::domain` ([§9.9](sections/behavioral-analysis.md#section-9-9)).
 - **General alias analysis (points-to).** Flow is intraprocedural over bounded places (§3.9);
   summaries are interprocedural (§9.9).
 
@@ -254,41 +251,29 @@ that owner. Acceptance, implementation and verification remain distinct facts.
 
 <a id="section-b2"></a>
 
-### §B2 Arrow schemas are the authoritative data contract
+### §B2 Typed relation declarations are the authoritative data contract
 
-**Implemented and Tested** for the fact, derived, catalog and analysis tables (contract, registry
-and codebook snapshots).
+**Implemented; Phase 4 qualification in progress, 2026-10-01.** `lctx-model` domain structs and
+attributed tagged enums own relations, nominal identities, codebooks, keys/references, provenance,
+coverage, policies and shared validation ([§15.2](sections/semantic-model.md#section-15-2)).
+A validated model supplies the one registry/inventory. Derived Rust metadata and explicit Arrow
+codecs lower those declarations; `lctx-postgres` lowers the same model to physical tables,
+constraints and indexes. No independent row DSL or schema inventory supplies semantic meaning.
 
-- `cpg-schema` holds the Arrow `Schema` definitions, append-only codebooks, logical-id newtypes,
-  key and reference declarations, the graph registry
-  ([§3.8](sections/facts-and-identity.md#section-3-8)), physical storage mappings and
-  Arrow-only batch builders and local validators. Its dependencies are `arrow-*`, `blake3` (ids), `serde`/`serde_json`/`toml` (typed declarations such as the model
-  catalog), `sha2` and `biodivine-lib-bdd` (the condition kernel, whose general allowance ADR-0085
-  accepts); never DataFusion, Delta, object_store, an async runtime or I/O. DataFusion
-  validators live in core crates.
-- **No inferred schemas**: none is inferred from JSON or a first batch, including the serving
-  generation ([§6.4](sections/storage-and-publication.md#section-6-4)) and the embedding exchange
-  ([§11.1](sections/synthesis-and-serving.md#section-11-1)).
-- A schema change is a reviewed snapshot change and a declared migration; codebook codes are
-  never renumbered or reordered.
+- **No inferred schemas:** neither JSON, a first batch nor an embedding response defines a
+  canonical contract. Arrow is the explicit transport/compute representation, not a second owner.
+- **Reviewed evolution:** a schema snapshot change is a declared migration; stored codebook codes
+  are never renumbered or reordered.
+- **Pure contract ownership:** effectful loading, SQLx codecs, COPY and transport stay outside
+  domain policy. Handwritten computations/validators express behavior against the same types.
+- **Accepted Phase 5 target, unavailable:** wire DTOs and serving views derive from declarations
+  or explicit mappings; Rust owns request classification and contextual validation. Schemars
+  derives wire schemas, with independent offline conformance tests. Schema validity does not
+  establish evidence closure. [§14.7/§14.11](sections/api-and-evidence-product.md#section-14-7)
+  own the retained query/library contract.
 
-**Accepted target, implementation Proposed (ADR-0073).** `cpg-schema` also owns finite typed
-catalog requests, contextual witnesses and wire envelopes. Schemars is selected as a pure
-Rust→JSON-Schema derivation dependency; Rust `jsonschema` is selected initially for offline dev
-conformance. These wire representations do not replace or infer canonical Arrow schemas.
-Matching flat components derive from existing declarations; nominal domain wrappers preserve
-the canonical ID encodings. SQLx codecs, effectful loading and transport remain outside schema.
-[§14.7/§14.11](sections/api-and-evidence-product.md#section-14-7) own the contract and library policy.
-
-**Accepted target, implementation Proposed (ADR-0085, 2026-09-29).** Relation declarations in the new
-crate `lctx-model` become the single authority ([§15.2](sections/semantic-model.md#section-15-2)).
-One declaration per relation generates:
-- the Rust and Arrow types;
-- PostgreSQL DDL and constraints;
-- codebook foreign keys, validators and inventories;
-- serving views and wire DTOs.
-
-`cpg-schema` is retired by the cutover.
+Retained `cpg-schema` wire controls are Phase 5 reconstruction inputs; they have no active fact,
+normalized or Phase 4 semantic authority.
 
 > Decision: ADR-0085, ADR-0086, ADR-0073
 
@@ -296,132 +281,119 @@ One declaration per relation generates:
 
 ### §B3 DataFusion constructs and validates relations
 
-**Implemented and Tested.**
+**Implemented; Phase 4 qualification in progress, 2026-10-01.** DataFusion supplies in-process
+relational compute over model-declared inputs. Joins, projections and unions construct suitable
+normalized and analysis relations; native kernels handle owned graph/semantic operations.
+`cpg-core` registers generation-bound providers and runs the declared stage adapters, without
+becoming another semantic authority.
 
-- Derived nodes, edges and analysis inputs are joins, projections and unions over extracted
-  facts, in DataFusion SQL declared beside their contracts.
-- Cross-table invariants are DataFusion queries, one per rule
-  ([§8](sections/validation-and-evaluation.md#section-8)); the same validators run in tests and
-  before publication.
+Cross-relation invariants use shared model validators and suitable DataFusion queries
+([§8](sections/validation-and-evaluation.md#section-8)). Tests and stored publication invoke the
+same validation contract. Complete read grants and invariant/reference closure are required;
+missing required input cannot be interpreted as a valid empty relation.
+
+> Decision: ADR-0085, ADR-0086
 
 <a id="section-b4"></a>
 
 ### §B4 Graph algorithms have named owners
 
-**Implemented** for traversal, SCCs, communities, PageRank and FCA/RCA; dominators, control
-dependence and summary composition beyond the acyclic case are **Proposed** targets
-([§9](sections/analytics.md#section-9)).
+**Implemented; Phase 4 qualification in progress, 2026-10-01.** Model-owned operations consume
+borrowed immutable petgraph snapshots with canonical IDs, lineage, explicit universes and budgets.
+`lctx-analytics` exposes four native entry points for scheduling, ranking, concepts and neighbours;
+community conversion and the other analytic policies belong to the typed Analytic owner too.
+[§9](sections/analytics.md#section-9) owns their method and uncertainty contracts.
 
 | Owner | Algorithms |
 |---|---|
-| petgraph 0.8.3 | Traversal, dominators and SCCs over immutable, explicitly declared projections ([§5](sections/storage-and-publication.md#section-5)) |
-| leiden-rs | Community detection, fed a normalized, sorted edge list |
-| Our own code | Weighted PageRank with convergence diagnostics; formal and relational concept analysis; control dependence; bounded summary composition |
+| petgraph | Traversal and iterative SCC scheduling over declared projections; dominator capability only when a named consumer activates it |
+| leiden-rs adapter | Community detection with explicit direction/weight conversion, pair universe and canonical membership |
+| Model-owned native kernels | Weighted PageRank and diagnostics, bounded FCA/one-step RCA, exact neighbours and finite Summary composition |
 
-- **Each algorithm has a named consumer** in the served model, a tool's output or a brief.
-- **A relationship does not need a graph algorithm** just because it has two endpoints.
-- **What runs by default is decided by the §9.8 keep rule**: Passes A–C, direct usage and
-  selection. Communities, FCA, kNN, PageRank, RCA and extra layers are variants, off by default
-  and reachable with `lctx compile --analytics`.
-- Summary scheduling uses iterative petgraph SCCs, callees first (ADR-0052). The first recursive
-  value channel uses an SCC-local bounded worklist owned by our finite producer (ADR-0053);
-  multi-relation effect/exception/role recursion triggers a fresh engine comparison (W12).
+- Every algorithm needs a named consumer; a relationship does not require a graph algorithm
+  merely because it has two endpoints.
+- Structural traversal/controls/handoffs and direct-usage/selection policies replace the legacy
+  Pass A/B/C producer paths. Communities, PageRank, FCA/RCA, analytic kNN and extra layers remain
+  off by default; RCA requires FCA and extra community layers require communities.
+- Summary uses a canonical callee-first SCC schedule and bounded SCC-local worklist. Exact
+  invocation-distinct guards and finite witnesses survive residual uncertainty; ancestry/cost
+  are not semantic equality. General all-channel recursion remains outside the restored envelope.
+- Parameter identity, replay and deterministic output do not establish measured performance or
+  product benefit. [§9.8](sections/analytics.md#section-9-8) retains the separate ablation boundary.
 
-> Decision: ADR-0044, ADR-0020, ADR-0052, ADR-0053
+> Decision: ADR-0044, ADR-0020, ADR-0052, ADR-0053, ADR-0106
 
 <a id="section-b5"></a>
 
 ### §B5 Python semantics are custom Rust passes
 
-**Implemented and Tested in focused cases** for the flow IR, conditions, verdicts, pinned models
-and finite acyclic summaries; recursive and operation-wide composition is **Proposed**.
+**Implemented; Phase 4 qualification in progress, 2026-10-01.** Typed Local, execution, Model,
+Summary and obligation owners implement the stated bounded runtime abstraction. `cpg-flow`
+supplies ty observations; provider IR is never relabeled as the semantic model. Normalized
+occurrence/binding identity and explicit native premises precede the owned conclusions.
+[§3.9](sections/behavior-model.md#section-3-9) and
+[§9.9](sections/behavioral-analysis.md#section-9-9) own the detailed contracts.
 
-- Python-specific semantics are our own Rust code with stated abstractions: the structural
-  recognizers ([§9.1–§9.3](sections/analytics.md#section-9-1)) and the **flow IR**
-  ([§3.9](sections/behavior-model.md#section-3-9)), our stated **runtime** abstraction:
-  statement-level control flow with exceptional exits and reaching definitions over bounded
-  places, with `TYPE_CHECKING` false and version/platform tests following the analyzed context.
-- **No provider's IR is the model.** ty supplies the use-def index in `cpg-flow`; Pyrefly's
-  inference graph and ty's own decisions are never relabelled as runtime dataflow. Providers
-  observe; our stated rules conclude.
-- **Meaning comes from pinned models, propagation from summaries**
-  ([§9.9](sections/behavioral-analysis.md#section-9-9)). A call alone never propagates a
-  capability. A model's exception classes and class relationships bind to pinned context facts;
-  total normal completion is an explicit model assertion, separate from transfer.
-- **Modeled source reads complete before modeled returns.** A source operand keeps its raw
-  value-flow fact separate from its direct-parameter normal-read witness. Exact ty reaching
-  evidence is preferred; a direct lexical parameter resolution with no same-function deletion
-  or exception-handler frame supplies the bounded fallback for ty's approximate `try` regions
-  (ADR-0055). Missing evidence stays unknown.
-- **Closed argument expressions have their own witness kind.** A direct literal is
-  `literal_normal`; a bounded unary, numeric binary, decisive two-operand Boolean expression
-  or direct-literal-selected conditional expression is `closed_expression_normal` and cites its
-  whole Ruff syntax fact (ADR-0056). Neither status
-  implies dispatch, an enclosing return or an evaluated value for an unproved operand.
-- **Proof identity.** A finite summary is identified by its callable, source contribution,
-  input/output paths, transfer kind, condition, exit and ordered typed proof steps; each step cites checked source
-  or model evidence. Nested call provenance for value transfers is a **Proposed** refinement
-  (ADR-0028). Exact nested total-identity model calls now compose through bounded, ordered
-  per-call argument evidence in focused cases; general nested evaluation remains a target.
-  A boundary is keyed to that contribution and condition, so a proof for one
-  origin does not discharge a sibling on the same raw fact (ADR-0054).
-- Known gaps (effectful finalizers, predecessor completion, recursive members, access
-  normalization) stay explicit unknowns; the forward plan owns them.
+- Runtime-view `TYPE_CHECKING`, version/platform context, bounded places, entry values and
+  occurrence-keyed conditions remain explicit. A type or provider reachability observation is
+  not an execution witness.
+- Local → BaseEvaluation → BaseCompletion → SourceCall → EnrichedExecution → Model → Summary
+  is acyclic. Reached eager inputs, source/body/default admission, normal/exceptional completion
+  and frame/finalizer release have independent proofs. A returned value cannot certify its own
+  input availability or release.
+- Closed expression evaluation cites exact syntax and admitted operand outcomes. It does not
+  imply dispatch, enclosing completion or the value of an unproved operand. Use, Value and Guard
+  entry/stability domains cannot substitute for one another.
+- Pinned authored models bind exact targets, phase and independent channel coverage. A call
+  alone never propagates a capability; normal-body, default-availability, transfer, effect,
+  callback, resource and exception promises are separate.
+- Supported synchronous context protocols retain fresh resource identity, entry/body/exit order
+  and pending-outcome replacement. Opaque construction, unsupported cleanup/handlers and broad
+  lifecycle state retain their specific uncertainty.
+- Finite recursive value composition keeps exact call-site binding/substitution, per-origin
+  closure, witness DAGs and checked depth/cost equations. Depth/work/proof residuals prevent
+  universal discharge without erasing admitted positives. A negative needs exact false support,
+  complete relevant coverage and its checked Refutation proof.
+- Symbolic constructor→field→reader associations remain separate from temporal heap identity.
+  Unknown reader alternatives retain proof=None; a known field location does not establish
+  allocation, alias or mutation stability.
 
-The accepted Stage 3 consolidation target uses shared typed evaluation, completion, argument
-binding and coverage contracts across summary channels (ADR-0057; implementation remains
-partial in §9.9). Providers observe; the pure semantic layer owns these conclusions.
+General heap/alias completeness, arbitrary async/generator lifecycle and recursive all-channel
+closure remain outside the restored finite envelope. Named obligations preserve those gaps;
+no compatibility engine or parallel verdict policy closes them by inference.
 
-**Accepted target, Proposed implementation (2026-09-26).** Channel composition uses typed
-subjects, independent phase/coverage and shared proof admission (§9.9). Current transfer and
-RCA projections preserve semantic alternatives and modality; deferred execution remains Stage 5.
-
-**Implemented and focused Tested (2026-09-27; ADR-0059), partial:** synchronous `nullcontext` and
-`suppress` protocols bind authored runtime transitions to pinned classes and fresh source sites.
-Constructor signatures, provider method observations and manager occurrences remain separate;
-a separate certificate proves the bounded parameter-to-entry-result identity inside the active
-context body. Pure completion owns entry and reverse cleanup order. Shared
-source/native admission checks source-derived ordered return obligations, including condition
-scope; no missing exit observation is fabricated as a call. Full Stage 3 qualification is pending.
-
-> Decision: ADR-0045, ADR-0028, ADR-0054, ADR-0055, ADR-0056, ADR-0057, ADR-0058, ADR-0059, ADR-0063
+> Decision: ADR-0045, ADR-0054, ADR-0055, ADR-0056, ADR-0057, ADR-0058, ADR-0059, ADR-0063, ADR-0085, ADR-0106, ADR-0108
 
 <a id="section-b6"></a>
 
 ### §B6 Facts are first-class assertions with provenance
 
-**Implemented and Tested.**
+**Implemented for facts/normalized relations; Phase 4 Implemented with qualification in progress,
+2026-10-01.** Attributed provider records retain run/input/context, origin, modality, fidelity and
+coverage. Independent observations, including disagreement, are preserved rather than collapsed
+into mutable node properties. Derived relations cite typed source identity and provenance under
+their declared semantic key; generic legacy fact/node/edge catalogs are not a parallel authority.
 
-- Every extracted assertion is a `facts` row with its run, `origin`, `extraction_mode`,
-  `modality`, `fidelity` and model. Independent assertions, including disagreement, are kept and
-  never collapsed into mutable node properties.
-- A derived join row, including the `nodes`/`edges` catalogs, is not a `facts` row: it is traced
-  by the `fact_id`s it cites plus its snapshot's `compiler_digest`, and is rebuildable from them.
-  An edge is first-class through its persistent `edge_id` and evidence ids.
-- **Analysis results carry provenance in-row**: findings, assertions, briefs and behavioral
-  results hold their compiler run, model, method invocation and evidence status, cite the
-  facts, edges and nodes they rest on, and are rebuildable from the snapshot, the analytics
-  config and the `compiler_digest`. Summary proof steps retain source evidence and condition ids
-  in the same snapshot.
+Nominal producing owners retain their actual invocation, definition, qualification, coverage,
+inputs and support. Complete empty coverage differs from unrequested/missing analysis; an omitted
+witness cannot establish absence. Proof/step declarations generate derivation lookup views while
+retaining their typed payloads. Joint premises and alternative derivations stay distinct and the
+combined premise graph is acyclic ([§15.8–§15.9](sections/semantic-model.md#section-15-8)).
 
-**Accepted target, Proposed implementation (2026-09-26).** Coverage certificates distinguish
-complete empty channels from missing analysis and omitted witnesses; non-value channels cite
-their actual subjects and sources instead of invented parameter-return identities (§9.9).
+S0 alone writes shared findings and programmatic assertions from earlier qualified conclusions.
+Summary witnesses cite source/earlier witnesses; final aggregates cite those witnesses after SCC
+closure and never serve as their own premises. Coverage membership is independent of witness
+deduplication. Obligations and one shared qualification/verdict policy preserve the exact scope;
+rendered text and presentation limits cannot strengthen it.
 
-**Accepted target, implementation Proposed (ADR-0085, 2026-09-29).** Provenance stays in-row, and it
-is also indexed: each proof and step relation declares itself a derivation source, and generated
-`derivations`/`derivation_premises` views separate joint premises from alternative derivations.
-Obligations replace boundary-reason encodings. Invocations record their input invocations
-([§15.8–§15.9](sections/semantic-model.md#section-15-8)).
-
-> Decision: ADR-0085, ADR-0086, ADR-0045, ADR-0058
+> Decision: ADR-0085, ADR-0086, ADR-0045, ADR-0058, ADR-0106, ADR-0108
 
 <a id="section-b7"></a>
 
 ### §B7 PostgreSQL generations are the canonical store
 
-**Accepted target (ADR-0086, 2026-09-29); implementation in progress (cutover phase 1).**
-PostgreSQL 18 is the single relational store.
+**Implemented for store/facts/normalized generations; Phase 4 qualification in progress,
+2026-10-01.** PostgreSQL 18 is the single relational store.
 - Each generation owns an ordinary schema generated from the typed model, with keys, references
   and generated constraints.
 - An attempt writes by binary COPY.
@@ -439,8 +411,8 @@ PostgreSQL 18 is the single relational store.
 - generation-bound provider sessions over a driver-neutral lease;
 - the `lctx store|generation|query` commands and the operator transition.
 
-The Delta store was removed at P1.3/P1.4. Until phase 2 publishes facts, no product generation
-exists.
+The Delta store was removed at P1.3/P1.4. Facts and normalized generations are implemented;
+upper-frontier qualification is in progress. Publication never selects a generation.
 
 > Decision: ADR-0086
 
@@ -491,9 +463,9 @@ reranking; graph embeddings.
 primitive places, which decide compatibility and implication over evaluation atoms and return
 `unknown` at node, work, stability or type boundaries ([§3.9](sections/behavior-model.md#section-3-9)).
 A theory solver (z3) stays excluded unless a registered query needs a theory the bounded
-lowering cannot express (forward plan §5). ADR-0045 accepts the persisted, validated analysis
-condition catalog and the BDD predecessor-compatibility screen. ADR-0085 accepts the general allowance,
-with occurrence-keyed atoms and a rendering-only DNF.
+lowering cannot express (forward plan §5). ADR-0045 accepts the bounded BDD compatibility screen. ADR-0085 makes
+model-owned conditions, atoms and Merkle nodes canonical, with occurrence-keyed evaluations and a
+rendering-only DNF; no legacy condition catalog is a second authority.
 
 > Decision: ADR-0106, ADR-0045, ADR-0085
 
@@ -501,10 +473,11 @@ with occurrence-keyed atoms and a rendering-only DNF.
 
 ### §B11 Insight synthesis is programmatic; no LLM in the query path
 
-**Implemented** (templates and extractive selection); the generative-model trigger is **Proposed**.
+**Phase 4 Implemented; qualification in progress, 2026-10-01.** S0 uses typed deterministic
+templates and extractive selection; the generative-model trigger remains **Proposed**.
 
-- Assertions come from typed findings through deterministic templates and extractive text
-  selection ([§10](sections/synthesis-and-serving.md#section-10)). Statistical output may
+- S0 alone emits shared findings/assertions from typed documentary and qualified analysis
+  conclusions through deterministic templates and extractive text selection ([§10](sections/synthesis-and-serving.md#section-10)). Statistical output may
   nominate and order, never state a control, a limit or a behavioral claim.
 - There is no generative model in the pipeline. Adding one (a local model, compile time only,
   under mechanical grounding) needs an ADR triggered by the §12 gap metric.
@@ -516,20 +489,14 @@ with occurrence-keyed atoms and a rendering-only DNF.
 
 ### §B12 Canonical store vs serving projections
 
-**Implemented and Tested.**
+**Implemented / Tested for facts and normalized storage; Phase 4 qualification in progress,
+2026-10-01.** PostgreSQL is the single canonical relational store. Typed declarations generate
+generation tables and validation; immutable vocabulary prefixes and completed receipts bound reads.
+There is no Delta store, bundle import or canonical serving copy. Arrow IPC is a derived cache form.
 
-- The Delta store is authoritative for facts, findings and assertions. The serving generation
-  ([§6.4](sections/storage-and-publication.md#section-6-4)) is a derived, immutable projection,
-  built from a published snapshot plus its selected immutable retrieval realization. Complete
-  inputs replay byte-for-byte; changed rendering/specification can yield another identified
-  realization over the same snapshot. Any future search index derives from that generation.
-- No cross-store transactions: the generation manifest names the snapshot it came from.
-
-**Accepted target, implementation Proposed (ADR-0086, 2026-09-29).** There is one store. The published
-generation is canonical, and serving reads that same generation through generated views, grants and
-indexes ([§15.12](sections/semantic-model.md#section-15-12)). The bundle import and the serving copy
-are removed. Arrow IPC remains only for derived, content-addressed caches. Serving still pins exactly
-one generation per process, and a missing or corrupt required relation is a refusal.
+**Accepted Phase 5 target, unavailable:** serving reads the same pinned canonical generation through
+generated views, grants and indexes ([§15.12](sections/semantic-model.md#section-15-12)). Missing or
+corrupt required relations refuse admission; derived caches cannot replace semantic authority.
 
 > Decision: ADR-0086, ADR-0077
 
@@ -537,31 +504,16 @@ one generation per process, and a missing or corrupt required relation is a refu
 
 ### §B13 FastMCP pins one immutable generation; Rust owns PostgreSQL effects
 
-**Implemented and bounded Tested under the live-embedding waiver, 2026-09-28** (ADR-0077/0078;
-[current evidence](../design_review/evidence/2026-09-28_pr4/README.md)). The native
-semantic executor remains **Partially implemented** under a **Proposed** decision (ADR-0025).
+**Accepted Phase 5 target; unavailable after cutover, 2026-10-01.** The pinned generation is the
+canonical PostgreSQL generation. Wire DTOs derive from declarations; Rust validates requests,
+evaluates bounded semantic queries and hydrates complete evidence. Python is the thin validated
+FastMCP adapter and repeats no selection, condition, verdict or discharge policy.
 
-- `lctx_mcp` serves the §1.1 operations from exactly one pinned, immutable generation per process,
-  with no Delta, DataFusion or compiler code. The PostgreSQL route uses
-  `lctx_storage`/`lctx-postgres` for bounded relational
-  selection and complete evidence hydration; PostgreSQL is an explicit serving dependency
-  ([§11.3](sections/synthesis-and-serving.md#section-11-3)).
-- **Target (ADR-0025):** a pinned in-process Rust/PyO3 extension executes bounded semantic queries
-  (compatibility, implication, effect/role filters, witness traversal) over that generation with
-  typed inputs; row, node, pair-work and depth budgets yield `unknown`/`truncated`, never a
-  negative or `complete` claim; no semantic decision is duplicated in Python. Today it provides
-  path-local value inspection only; admission and decoding defects are plan items W1–W3.
-
-- **Implemented (ADR-0073/0077):** generated input/output schemas and
-  typed Rust decoding/envelopes replace duplicate semantic Python declarations through the
-  [§14.9 Tool adapter](sections/api-and-evidence-product.md#section-14-9). Existing generation,
-  lifetime, budgets and cancellation ownership remain; custom Tool validation is explicit.
-
-- **Accepted target (ADR-0086, cutover phase 5):** the pinned generation is the canonical PostgreSQL
-  generation itself.
-  - Wire DTOs derive from relation declarations.
-  - The native executor reads generation relations, optionally through a derived artifact cache, and
-    shares `lctx-model`'s verdict, discharge and condition functions.
+The retained `cpg-schema` wire contracts, native/Python executor and adapter controls, dormant
+`cpg-core::bundle` controls and PostgreSQL service lifetimes are named Phase 5 reconstruction inputs.
+They do not expose an active post-cutover serving route. Row, node, pair-work, depth and response
+budgets retain explicit refusal/truncation semantics. [§11.3](sections/synthesis-and-serving.md#section-11-3)
+and [§14.9](sections/api-and-evidence-product.md#section-14-9) own that serving boundary.
 
 > Decision: ADR-0078, ADR-0025, ADR-0073, ADR-0086
 
@@ -569,25 +521,26 @@ semantic executor remains **Partially implemented** under a **Proposed** decisio
 
 ### §B14 One embedding spec, exact consumed-vector receipts
 
-**Implemented and Tested, 2026-09-27; PostgreSQL receipts are linked below.**
+**Implemented, qualification in progress, 2026-10-01.**
 
 - One hashed embedding spec ([§11.1](sections/synthesis-and-serving.md#section-11-1)) governs
   every vector. Standard output is 1024 float32 dimensions, MRL prefix then L2 normalization;
   format-2 spec identity includes launch admission and reduction. Rust and Python retain their
   shared conformance oracle.
-- PostgreSQL reuses one immutable winner per `spec_hash + input_hash`. An attempt retains each
-  exact value before operation/E0/brief consumption and publishes snapshot-local Delta receipts
-  for all consumed values, including analytics-only inputs. Value digests enter content identity.
-- Canonical vectors replay from the selected snapshot; addressable retrieval fragments have a
-  complete immutable materialization receipt. Current reconstruction needs no live cache/provider.
-  Online MCP explicitly requires PostgreSQL and pins a ready generation/exact profile for its
-  lifespan. Database discovery cannot authorize an unpublished snapshot. PR4 live embedding
-  qualification is operator-waived; no current hybrid-quality claim follows from fixture controls.
+- `lctx-model::domain::embedding` owns specification, exact value codec, text membership, availability
+  and analytic/retrieval consumption. PostgreSQL retains one immutable winner per specification and
+  input hash. Each attempt publishes the exact consumed value, including analytics-only inputs;
+  value digests enter content identity.
+- Snapshot-local values and consumer receipts replay without a cache/provider effect. Fake-service
+  controls qualify that seam and cache behavior; live embedding and retrieval quality are unqualified.
+  Phase 5 MCP must pin a ready generation and exact profile; database discovery cannot authorize an
+  unpublished generation.
 - [§6.5](sections/storage-and-publication.md#section-6-5) owns database effects and conditional
   capabilities. The [PostgreSQL workstream](../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-workstream) owns
   current qualification; W9/W16 retain live-client and endpoint-identity boundaries.
-- **Accepted target (ADR-0086):** consumed-vector receipts and exact vectors become canonical
-  PostgreSQL relations of the generation, and they stay in its content digest.
+- Consumed-vector receipts and exact values are canonical typed PostgreSQL relations in the
+  generation and enter its content digest. Phase 4 qualification remains in progress; no live
+  provider or retrieval-quality claim follows from service-free replay.
 
 > Decision: ADR-0078, ADR-0086
 
@@ -661,7 +614,7 @@ Owner: [Storage and publication](sections/storage-and-publication.md#section-6).
 
 ## §7 Pinned dependency family
 
-**Tested** (`cpg-schema` `family_smoke` queries Arrow batches through DataFusion SQL;
+**Implemented; Phase 4 qualification in progress, 2026-10-01** (typed model records flow through generation-bound DataFusion providers;
 `just deps` checks single versions, the declared extra families and the Pyrefly fork).
 
 DataFusion, Arrow/Parquet and object_store resolve to exactly one version each in the core
@@ -692,9 +645,9 @@ Owner: [Validation and evaluation](sections/validation-and-evaluation.md#section
 
 Owner: [Analytics](sections/analytics.md#section-9).
 
-- <a id="section-9-1"></a>[§9.1 Pass A — public entry point and delegation](sections/analytics.md#section-9-1)
-- <a id="section-9-2"></a>[§9.2 Pass B — controls and local restrictions](sections/analytics.md#section-9-2)
-- <a id="section-9-3"></a>[§9.3 Pass C — direct handoff](sections/analytics.md#section-9-3)
+- <a id="section-9-1"></a>[§9.1 Public entry point and delegation](sections/analytics.md#section-9-1)
+- <a id="section-9-2"></a>[§9.2 Controls and local restrictions](sections/analytics.md#section-9-2)
+- <a id="section-9-3"></a>[§9.3 Direct handoff](sections/analytics.md#section-9-3)
 - <a id="section-9-4"></a>[§9.4 Community detection](sections/analytics.md#section-9-4)
 - <a id="section-9-5"></a>[§9.5 Centrality](sections/analytics.md#section-9-5)
 - <a id="section-9-6"></a>[§9.6 Formal and relational concept analysis](sections/analytics.md#section-9-6)
