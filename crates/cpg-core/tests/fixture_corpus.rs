@@ -9,6 +9,7 @@ use lctx_model::domain::{ContentHash, resources::ResourceBudget, stages::Profile
 use std::{collections::BTreeSet, path::Path, sync::Arc};
 const CASES: &[&str] = &[
     "dictionary_keys",
+    "direct_usage",
     "string_values",
     "_invalid",
     "action_shapes",
