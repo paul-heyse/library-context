@@ -353,7 +353,7 @@ async fn binary_catalog_with_briefs_replays_shared_embedding_winners() {
     let dir = tempfile::tempdir().unwrap();
     input_source(
         dir.path(),
-        br#"__all__ = ['api', 'consume']
+        br#"__all__ = ['api', 'consume', 'RecordHolder']
 def api(x: int) -> int:
     """Return the supplied value when it is nonzero.
 
@@ -367,6 +367,18 @@ def api(x: int) -> int:
 def consume(x: int) -> int:
     """Consume an API result."""
     return api(x)
+
+from dataclasses import dataclass
+
+@dataclass(init=False)
+class RecordHolder:
+    value: object
+
+    def __init__(self, value):
+        self.value = value
+
+    def read(self, flag, other):
+        return self.value if flag else ([self.value] if other else consume(self.value))
 "#,
     );
     write(
@@ -375,6 +387,8 @@ def consume(x: int) -> int:
     );
     db.write_configs(dir.path()).unwrap();
     let cfg = dir.path().join("postgres.json");
+    for profile in ["catalog","behavioral"] {
+    sqlx::query("DELETE FROM lctx_cache.embedding_values").execute(db.owner.pool()).await.unwrap();
     let mut expected = None;
     let mut expected_values = None;
     let mut expected_cache = None;
@@ -385,7 +399,7 @@ def consume(x: int) -> int:
                 .await
                 .unwrap();
         }
-        let output = command(dir.path(), &cfg, "catalog", "catalog")
+        let output = command(dir.path(), &cfg, "catalog", profile)
             .args(["--embedder", "fake", "--techniques", "+knn"])
             .output()
             .unwrap();
@@ -425,6 +439,12 @@ def consume(x: int) -> int:
                 .await
                 .unwrap();
         assert!(conclusions > 0);
+        if profile=="behavioral" {
+            let facets:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+                "SELECT count(*) FROM {}.synthesis_summary_facets f JOIN {}.summary_claims c ON c.id=f.claim JOIN {}.summary_symbolic_field_alternatives a ON a.id=c.symbolicfieldassociation_alternative WHERE f.verdict=3 AND f.source IS NULL AND f.qualification=a.reader_qualification",generation.id.schema(),generation.id.schema(),generation.id.schema())))
+                .fetch_one(db.owner.pool()).await.unwrap();
+            assert_eq!(facets,3,"source associations retain guarded Unknown facets without finding authority");
+        }
         for name in [
             embedding::analytic::AnalysisEmbeddingUse::NAME,
             retrieval::consumption::RetrievalEmbeddingUse::NAME,
@@ -473,6 +493,7 @@ def consume(x: int) -> int:
                 .iter()
                 .any(|row| row["owner"] == "retrieval" && row["status"] == "Completed")
         );
+    }
     }
     for generation in catalog.list(&ListFilter::default()).await.unwrap() {
         store.retire(generation.id).await.unwrap();
