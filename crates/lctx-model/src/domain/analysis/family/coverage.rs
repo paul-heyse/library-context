@@ -317,3 +317,58 @@ impl InvariantCheck for CoverageCheck {
         Ok(())
     }
 }
+
+/// This result retains its admission reservation while expected scopes and observations are read.
+pub struct AdmittedCoverage {scopes:Vec<AdmittedScope>,_reservation:Box<dyn resources::Reservation>}
+pub struct AdmittedScope {expectation:CoverageExpectation,observations:Vec<CoverageObservation>}
+impl AdmittedScope {pub fn expectation(&self)->&CoverageExpectation {&self.expectation}pub fn observations(&self)->&[CoverageObservation] {&self.observations}}
+impl AdmittedCoverage {pub fn scopes(&self)->&[AdmittedScope] {&self.scopes}}
+fn admitted_scope(invocation:Id<AnalysisInvocation>,capability:AnalysisCapability,scope:&crate::domain::analysis::expected::ExpectedScope)->Result<AdmittedScope,ModelError> {let mut observations=Vec::with_capacity(scope.native.len()+scope.normalized.len());for row in &scope.native {observations.push(CoverageObservation::native(row)?);}for row in &scope.normalized {observations.push(CoverageObservation::normalized(row));}let expectation=CoverageExpectation {invocation,capability,scope:scope.scope,context:scope.context,requested:scope.requested,no_scope:scope.no_scope,sources:observations.iter().map(|r|r.source.id()).collect()};Ok(AdmittedScope {expectation,observations})}
+/// Producer-side operation over captured declared inputs. The publication callback independently
+/// repeats this operation against actual physical input rows and the effect owner's profile.
+pub fn admit(invocation:&AnalysisInvocation,definition:&AnalysisDefinition,capability:AnalysisCapability,admission:&crate::domain::analysis::expected::CoverageAdmission<'_>,budget:&resources::ResourceBudget)->Result<AdmittedCoverage,ModelError> {
+    if invocation.definition!=definition.id() {return Err(invalid("coverage changes the invocation definition"));}
+    let domain=admission.domain(invocation.input,invocation.context,definition.method,capability,invocation.sources)?;
+    let bytes=domain.scopes.iter().try_fold(0usize,|n,r|n.checked_add(size_of::<AdmittedScope>())?.checked_add((r.native.len()+r.normalized.len()).checked_mul(size_of::<CoverageObservation>()+size_of::<Id<CoverageSource>>())?)).ok_or_else(||invalid("admitted coverage allocation overflow"))?;
+    let reservation=budget.reserve("admitted_analysis_coverage",bytes)?;
+    let scopes=domain.scopes.iter().map(|scope|admitted_scope(invocation.id(),capability,scope)).collect::<Result<Vec<_>,_>>()?;Ok(AdmittedCoverage {scopes,_reservation:reservation})
+}
+fn bound_method()->Option<AnalysisMethod> {match AnalysisCoverage::NAME {"local_analysis_coverage"=>Some(AnalysisMethod::LocalTransfers),"catalog_core_analysis_coverage"=>Some(AnalysisMethod::Catalog),_=>None}}
+pub(super) fn publication_checks()->Vec<PublicationInvariant> {
+    let mut inputs=vec![ValidationInput::of::<AnalysisInvocation>(&["id"]),ValidationInput::of::<AnalysisDefinition>(&["id"]),ValidationInput::of::<super::AnalysisOutcome>(&["id"]),ValidationInput::of::<CoverageRequirement>(&["id"]),ValidationInput::of::<CoverageRequiredSource>(&["id"]),ValidationInput::of::<AnalysisCoverage>(&["id"]),ValidationInput::of::<AnalysisCoveragePremise>(&["id"]),ValidationInput::of::<CoverageSource>(&["id"])];
+    if let Some(method)=bound_method() {inputs.extend(crate::domain::analysis::expected::inputs(method==AnalysisMethod::LocalTransfers));}
+    vec![PublicationInvariant {name:owner_table!("coverage_frontier"),inputs,create:std::sync::Arc::new(|budget|Box::new(FrontierCheck {charge:charged::StateCharge::new(budget,"analysis_coverage_frontier"),frontier:crate::domain::analysis::expected::FrontierIndex::new(stages::Profile::Catalog,budget),invocations:Default::default(),definitions:Default::default(),outcomes:Default::default(),requirements:Default::default(),required:Default::default(),coverage:Default::default(),premises:Default::default(),sources:Default::default()}))}]
+}
+struct FrontierCheck {charge:charged::StateCharge,frontier:crate::domain::analysis::expected::FrontierIndex,invocations:charged::ChargedMap<Id<AnalysisInvocation>,AnalysisInvocation>,definitions:charged::ChargedMap<Id<AnalysisDefinition>,AnalysisDefinition>,outcomes:charged::ChargedMap<Id<AnalysisInvocation>,super::AnalysisOutcome>,requirements:charged::ChargedMap<Id<CoverageRequirement>,CoverageRequirement>,required:charged::ChargedMap<Id<CoverageRequirement>,std::collections::BTreeSet<Id<CoverageSource>>>,coverage:charged::ChargedMap<Id<AnalysisCoverage>,AnalysisCoverage>,premises:charged::ChargedMap<Id<AnalysisCoverage>,std::collections::BTreeSet<Id<CoverageSource>>>,sources:charged::ChargedMap<Id<CoverageSource>,CoverageSource>}
+impl PublicationCheck for FrontierCheck {
+    fn visit(&mut self,relation:&str,batch:&arrow_array::RecordBatch)->Result<(),ModelError> {
+        macro_rules! insert {($r:ty,$field:ident,$key:expr)=>{if relation==<$r>::NAME {for row in <$r>::decode(batch)? {if self.$field.insert(&mut self.charge,$key(&row),row)?.is_some() {return Err(ModelError::Conflict(<$r>::NAME));}}return Ok(());}};}
+        insert!(AnalysisInvocation,invocations,|r:&AnalysisInvocation|r.id());insert!(AnalysisDefinition,definitions,|r:&AnalysisDefinition|r.id());insert!(super::AnalysisOutcome,outcomes,|r:&super::AnalysisOutcome|r.invocation);insert!(CoverageRequirement,requirements,|r:&CoverageRequirement|r.id());insert!(AnalysisCoverage,coverage,|r:&AnalysisCoverage|r.id());insert!(CoverageSource,sources,|r:&CoverageSource|r.id());
+        if relation==CoverageRequiredSource::NAME {for row in CoverageRequiredSource::decode(batch)? {if !self.required.update(&mut self.charge,row.requirement,|v|v.insert(row.source))? {return Err(invalid("duplicate frontier requirement member"));}}return Ok(());}
+        if relation==AnalysisCoveragePremise::NAME {for row in AnalysisCoveragePremise::decode(batch)? {if !self.premises.update(&mut self.charge,row.coverage,|v|v.insert(row.source))? {return Err(invalid("duplicate frontier coverage premise"));}}return Ok(());}
+        if bound_method().is_some() && self.frontier.visit(relation,batch)? {return Ok(());}Err(invalid("undeclared analysis frontier input"))
+    }
+    fn finish(mut self:Box<Self>,actual:&[stages::CompletedRelation],profile:stages::Profile)->Result<(),ModelError> {
+        self.frontier.set_profile(profile);let budget=self.charge.budget().ok_or_else(||invalid("frontier budget absent"))?;let mut charge=charged::StateCharge::new(budget,"analysis_expected_recheck");let mut expected_requirements=charged::ChargedSet::default();let mut expected_coverage=charged::ChargedSet::default();let mut expected_sources=charged::ChargedSet::default();let empty=std::collections::BTreeSet::new();
+        for (_,invocation) in self.invocations.iter() {
+            let definition=self.definitions.get(&invocation.definition).ok_or_else(||invalid("admitted analysis definition absent"))?;
+            if bound_method()!=Some(definition.method) {return Err(invalid("publication owner has no bound method/capability contract"));}
+            let contract=crate::domain::analysis::expected::method_contract(definition.method)?;
+            for input in crate::domain::analysis::expected::inputs(!contract.native.is_empty()) {if !actual.iter().any(|r|r.relation()==input.name()) {return Err(invalid("frontier input has no declared completed source"));}}
+            let outcome=self.outcomes.get(&invocation.id()).ok_or_else(||invalid("admitted analysis computation outcome absent"))?;
+            let domain=self.frontier.domain(invocation.input,invocation.context,contract)?;
+            for scope in &domain.scopes {
+                let admitted=admitted_scope(invocation.id(),contract.capability,scope)?;let expectation=&admitted.expectation;let (requirement,members)=expectation.records()?;
+                if self.requirements.get(&requirement.id())!=Some(&requirement) {return Err(invalid("expected capability scope requirement absent or forged"));}expected_requirements.insert(&mut charge,requirement.id())?;
+                let expected_members=members.iter().map(|r|r.source).collect::<std::collections::BTreeSet<_>>();if self.required.get(&requirement.id()).unwrap_or(&empty)!=&expected_members {return Err(invalid("required domain was reduced or expanded"));}
+                for observation in &admitted.observations {if self.sources.get(&observation.source.id())!=Some(&observation.source) {return Err(invalid("expected lower source mapping absent or forged"));}expected_sources.insert(&mut charge,observation.source.id())?;}
+                let (coverage,premises)=assess(expectation,&admitted.observations,outcome.status,outcome.reason,budget)?;
+                if self.coverage.get(&coverage.id())!=Some(&coverage) {return Err(invalid("scoped coverage differs from admitted expected domain"));}expected_coverage.insert(&mut charge,coverage.id())?;
+                let expected_premises=premises.iter().map(|r|r.source).collect::<std::collections::BTreeSet<_>>();if self.premises.get(&coverage.id()).unwrap_or(&empty)!=&expected_premises {return Err(invalid("coverage premise domain was reduced or expanded"));}
+            }
+        }
+        if expected_requirements.len()!=self.requirements.len() || expected_coverage.len()!=self.coverage.len() || expected_sources.len()!=self.sources.len() || self.outcomes.len()!=self.invocations.len() {return Err(invalid("analysis frontier has unexpected rows"));}
+        for (id,_) in self.required.iter() {if !expected_requirements.contains(id) {return Err(invalid("orphan expected-domain member"));}}
+        for (id,_) in self.premises.iter() {if !expected_coverage.contains(id) {return Err(invalid("orphan admitted coverage premise"));}}Ok(())
+    }
+}

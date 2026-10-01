@@ -41,7 +41,7 @@ impl AnalysisInvocation {
         Ok((row,parents,receipts,projections))
     }
 }
-fn source_publication_checks()->Vec<PublicationInvariant> {vec![PublicationInvariant {name:owner_table!("invocation_sources"),inputs:vec![ValidationInput::of::<AnalysisInvocation>(&["id"]),ValidationInput::of::<SourceReceipt>(&["id"])],create:std::sync::Arc::new(|budget|Box::new(SourcePublicationCheck {charge:charged::StateCharge::new(budget,"analysis_source_publication"),invocations:Default::default(),sources:Default::default()}))}]}
+fn source_publication_checks()->Vec<PublicationInvariant> {let mut checks=vec![PublicationInvariant {name:owner_table!("invocation_sources"),inputs:vec![ValidationInput::of::<AnalysisInvocation>(&["id"]),ValidationInput::of::<SourceReceipt>(&["id"])],create:std::sync::Arc::new(|budget|Box::new(SourcePublicationCheck {charge:charged::StateCharge::new(budget,"analysis_source_publication"),invocations:Default::default(),sources:Default::default()}))}];checks.extend(super::coverage::publication_checks());checks}
 struct SourcePublicationCheck {charge:charged::StateCharge,invocations:charged::ChargedMap<Id<AnalysisInvocation>,AnalysisInvocation>,sources:charged::ChargedMap<Id<AnalysisInvocation>,std::collections::BTreeMap<String,SourceSnapshot>>}
 impl PublicationCheck for SourcePublicationCheck {
     fn visit(&mut self,relation:&str,batch:&arrow_array::RecordBatch)->Result<(),ModelError> {

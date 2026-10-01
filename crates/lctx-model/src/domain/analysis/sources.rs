@@ -27,12 +27,14 @@ pub(crate) fn digest(sources:&std::collections::BTreeMap<String,SourceSnapshot>)
 pub struct CapturedSources {
     charge:charged::StateCharge,
     frame:Option<(StageIdentity,ContentHash)>,
+    profile:Option<stages::Profile>,
     sources:charged::ChargedMap<String,SourceSnapshot>,
 }
 impl CapturedSources {
-    pub fn new(budget:&resources::ResourceBudget)->Self {Self {charge:charged::StateCharge::new(budget,"analysis_source_capture"),frame:None,sources:Default::default()}}
+    pub fn new(budget:&resources::ResourceBudget)->Self {Self {charge:charged::StateCharge::new(budget,"analysis_source_capture"),frame:None,profile:None,sources:Default::default()}}
     pub fn capture(access:&StageAccess<'_, '_>,budget:&resources::ResourceBudget)->Result<Self,ModelError> {
         let mut captured=Self::new(budget);
+        captured.profile=Some(access.profile());
         let _buffer=budget.reserve("analysis_source_capture",access.stage().inputs.len().checked_mul(size_of::<CompletedRelation>()).ok_or_else(||invalid("source capture allocation overflow"))?)?;
         let identity=access.identity();
         for source in access.completed_sources()? {
@@ -52,6 +54,9 @@ impl CapturedSources {
     pub fn digest(&self)->ContentHash {digest(&self.sources)}
     pub fn iter(&self)->impl Iterator<Item=&SourceSnapshot> {self.sources.values()}
     pub fn is_empty(&self)->bool {self.sources.is_empty()}
+    pub fn profile(&self)->Option<stages::Profile> {self.profile}
+    pub(crate) fn has_relation(&self,relation:&str)->bool {self.sources.contains_key(relation)}
+    pub(crate) fn accepts<R:Record>(&self,permit:&ReadPermit<'_,R>)->Result<(),ModelError> {let source=permit.source().ok_or_else(||invalid("coverage input has no completed source"))?;if self.frame!=Some((permit.identity(),permit.model())) || self.sources.get(R::NAME)!=Some(&SourceSnapshot::from_source(source)?) {return Err(invalid("coverage read differs from captured source frame"));}Ok(())}
 }
 /// Exact comparison against acknowledged effect-owner sources. Copying this metadata cannot grant
 /// authority, shrink the required domain, choose a different prefix, or change a source's payload.

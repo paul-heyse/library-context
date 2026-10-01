@@ -5,6 +5,7 @@ pub mod support;
 pub mod coverage;
 pub mod findings;
 pub mod sources;
+pub mod expected;
 mod config;
 mod family;
 mod obligation_support;
