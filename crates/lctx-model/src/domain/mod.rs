@@ -209,13 +209,23 @@ pub fn normalized_relations() -> Vec<Relation> {
     relations
 }
 pub fn model() -> Result<ValidatedModel, ModelError> {
+    ValidatedModel::validate(catalog_frontier_relations())
+}
+/// Cumulative analysis ownership. Activation still requires the complete producer envelope.
+pub fn analysis_frontier_relations() -> Vec<Relation> {
+    let mut relations = normalized_relations();
+    relations.extend(pre_catalog_analysis_relations());
+    relations
+}
+/// Cumulative catalog ownership, including all lower analysis relations.
+pub fn catalog_frontier_relations() -> Vec<Relation> {
     let mut relations = normalized_relations();
     relations.extend(analysis_relations());
-    ValidatedModel::validate(relations)
+    relations
 }
 /// Relations later layers derive from facts: transfers, control selections, stability witnesses,
 /// guard substitutions and call compositions. A facts generation never writes them.
-pub fn analysis_relations() -> Vec<Relation> {
+fn pre_catalog_analysis_relations() -> Vec<Relation> {
     use transfer::*;
     let mut relations = vec![
         Relation::of::<transfer::local::ControlInfluence>(),
@@ -235,14 +245,24 @@ pub fn analysis_relations() -> Vec<Relation> {
     relations.extend(transfer::local::relations());
     relations.extend(transfer::model::relations());
     relations.extend(transfer::summary::relations());
-    relations.extend(analysis::relations());
+    relations.extend(analysis::pre_catalog_relations());
     relations.extend(catalog::relations());
-    relations.extend(selection::relations());
-    relations.extend(retrieval::relations());
-    relations.extend(structural::relations());relations.extend(analytics::relations());relations.extend(synthesis::relations());
+    relations.extend(structural::relations());relations.extend(analytics::relations());
     relations.extend(embedding::relations());
     relations.extend(execution::relations());
     relations.extend(local_semantics::relations());relations.extend(local_theory::relations());relations.extend(local_fields::relations());
+    relations
+}
+/// All upper relations for the complete declared model and conformance consumers.
+pub fn analysis_relations() -> Vec<Relation> {
+    let mut relations = pre_catalog_analysis_relations();
+    relations.extend(analysis::selection::relations());
+    relations.extend(analysis::synthesis::relations());
+    relations.extend(analysis::retrieval::relations());
+    relations.extend(analysis::findings::relations());
+    relations.extend(selection::relations());
+    relations.extend(synthesis::relations());
+    relations.extend(retrieval::relations());
     relations
 }
 /// The relations a facts generation publishes: inputs, attribution and coverage, provider

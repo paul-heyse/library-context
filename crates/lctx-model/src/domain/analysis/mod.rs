@@ -47,7 +47,8 @@ pub fn early_relations() -> Vec<Relation> {
     rows.extend(native::relations());
     rows
 }
-pub fn relations() -> Vec<Relation> {
+/// Analysis closure before selection, synthesis and retrieval.
+pub fn pre_catalog_relations() -> Vec<Relation> {
     let mut rows = early_relations();
     rows.extend(dispatch::relations());
     rows.extend(local::relations());
@@ -62,6 +63,10 @@ pub fn relations() -> Vec<Relation> {
     rows.extend(analytic::relations());
     rows.extend(catalog_core::relations());
     rows.extend(catalog_evidence::relations());
+    rows
+}
+pub fn relations() -> Vec<Relation> {
+    let mut rows = pre_catalog_relations();
     rows.extend(selection::relations());
     rows.extend(synthesis::relations());
     rows.extend(retrieval::relations());
