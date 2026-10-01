@@ -581,8 +581,10 @@ pub struct ModelCatalog {
     pub source: String,
 }
 fn validate_catalog(row: &ModelCatalog) -> Result<(), ModelError> {
-    let parsed = Catalog::parse(&row.source_name, &row.source).map_err(ModelError::Invalid)?;
-    if parsed.declaration != *row {
+    // The cross-relation invariant parses with an explicit attempt reservation. Row-local
+    // validation checks bytes and format without constructing an uncharged catalog tree.
+    if row.source_name.is_empty() || row.format != i64::from(FORMAT)
+        || ContentHash::of(row.source.as_bytes()) != row.content {
         return Err(ModelError::Invalid("model catalog content or format mismatch".into()));
     }
     Ok(())
@@ -658,6 +660,7 @@ pub struct Catalog {
 }
 impl Catalog {
     pub fn parse(source_name: &str, source: &str) -> Result<Self, String> {
+        if source_name.is_empty() { return Err("model catalog needs a source name".into()); }
         let parsed: CatalogFile =
             toml::from_str(source).map_err(|e| format!("{source_name}: {e}"))?;
         if parsed.version != FORMAT {

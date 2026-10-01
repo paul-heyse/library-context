@@ -34,6 +34,8 @@ pub struct RequiredDefinition {
     pub pin: RequirementPin,
     pub module: String,
     pub qualified_name: String,
+    /// Retain complete ancestry when this definition is a class. A containing scope request
+    /// does not itself assert that the provider will report a class rather than a function.
     pub require_mro: bool,
 }
 impl HeapSize for RequiredDefinition {
