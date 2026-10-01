@@ -2,6 +2,7 @@
 pub mod build;
 pub mod frames;
 pub mod production;
+pub mod observations;
 
 pub mod documentary;
 pub mod source_code;

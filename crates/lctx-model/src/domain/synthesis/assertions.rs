@@ -5,10 +5,10 @@ use crate::{Domain,DomainSum};
 pub const TEMPLATE_VERSION:i64=1;
 #[derive(Debug,Clone,PartialEq,Eq,Hash,DomainSum)]
 #[model(name="synthesis_assertion_templates")]
-pub enum AssertionTemplate {#[model(code=0)]AuthoredOutcome{conclusion:Id<DocumentaryConclusion>}}
+pub enum AssertionTemplate {#[model(code=0)]AuthoredOutcome{conclusion:Id<DocumentaryConclusion>},#[model(code=1)]StructuralObservation{conclusion:Id<structural::Conclusion>},#[model(code=2)]AnalyticObservation{conclusion:Id<analytics::Conclusion>}}
 #[derive(Debug,Clone,PartialEq,Eq,Hash,DomainSum)]
 #[model(name="programmatic_assertion_sources")]
-pub enum AssertionSource {#[model(code=0)]Documentary{conclusion:Id<DocumentaryConclusion>}}
+pub enum AssertionSource {#[model(code=0)]Documentary{conclusion:Id<DocumentaryConclusion>},#[model(code=1)]Structural{conclusion:Id<structural::Conclusion>},#[model(code=2)]Analytic{conclusion:Id<analytics::Conclusion>}}
 #[derive(Debug,Clone,PartialEq,Eq,Domain)]
 #[model(name="programmatic_assertions",invariants=invariants,semantic_source=include_bytes!("assertions.rs"))]
 pub struct ProgrammaticAssertion{
@@ -38,10 +38,43 @@ pub fn authored_outcome(d:&documentary::Data,rows:&documentary::Output,invocatio
  let template=AssertionTemplate::AuthoredOutcome{conclusion:conclusion.id()};let source=AssertionSource::Documentary{conclusion:conclusion.id()};let(assertion,support)=emit(invocation.id(),frame.id(),&template,AssertionKind::Outcome,&source,conclusion.source_facts(),text,b)?;Ok((template,source,assertion,support))
 }
 pub fn build_documentary(d:&documentary::Data,rows:&documentary::Output,invocations:&Rows<owner::Invocation>,b:&ResourceBudget)->Result<Output,ModelError>{let mut out=Output::new(b);for invocation in invocations.iter(){for conclusion in rows.conclusions.iter(){let source=need(&rows.sources,conclusion.source)?;let frame=need(&d.member_frames,source.member())?;let core=need(&d.core_invocations,frame.invocation)?;if (core.input,core.context)!=(invocation.input,invocation.context)||conclusion.status()!=EvidenceStatus::Documented{continue;}let(template,source,assertion,support)=authored_outcome(d,rows,invocation,conclusion,b)?;out.templates.insert(template)?;out.sources.insert(source)?;out.assertions.insert(assertion)?;out.supports.insert(support)?;}}Ok(out)}
+/// Exact public slots are associated by earlier A0 identity, preserving aliases independently.
+pub fn build(d:&documentary::Data,docs:&documentary::Output,o:&super::observations::Data,public:&Rows<structural::PublicCandidate>,frames:&Rows<super::frames::Frame>,invocations:&Rows<owner::Invocation>,b:&ResourceBudget)->Result<Output,ModelError>{
+ let mut out=build_documentary(d,docs,invocations,b)?;
+ for frame in frames.iter(){let inv=need(invocations,frame.invocation)?;
+  for candidate in public.iter().filter(|p|p.frame==frame.structural){for member in d.member_frames.iter().filter(|m|m.member==candidate.member&&d.core_invocations.get(m.invocation).is_some_and(|i|(i.input,i.context)==(inv.input,inv.context))){
+   for conclusion in o.structural_conclusions.iter().filter(|r|r.frame==frame.structural&&r.subject==candidate.entity){
+    let q=need(&o.qualifications,conclusion.qualification())?;if q.context!=inv.context||q.scope!=(source::CoverageScope::Input{input:inv.input}).id(){return Err(invalid("structural assertion changes its static frame"));}let source=need(&o.structural_sources,conclusion.source)?;let(kind,text)=structural_text(source);let template=AssertionTemplate::StructuralObservation{conclusion:conclusion.id()};let source=AssertionSource::Structural{conclusion:conclusion.id()};let(assertion,support)=emit(inv.id(),member.id(),&template,kind,&source,conclusion.source_facts(),text.into(),b)?;out.templates.insert(template)?;out.sources.insert(source)?;out.assertions.insert(assertion)?;out.supports.insert(support)?;
+   }
+   for conclusion in o.analytic_conclusions.iter().filter(|r|r.frame==frame.analytic&&r.subject==candidate.entity){
+    let q=need(&o.qualifications,conclusion.qualification())?;if q.context!=inv.context||q.scope!=(source::CoverageScope::Input{input:inv.input}).id(){return Err(invalid("analytic assertion changes its static frame"));}let source=need(&o.analytic_sources,conclusion.source)?;let(kind,text)=analytic_text(source);let template=AssertionTemplate::AnalyticObservation{conclusion:conclusion.id()};let source=AssertionSource::Analytic{conclusion:conclusion.id()};let(assertion,support)=emit(inv.id(),member.id(),&template,kind,&source,conclusion.source_facts(),text.into(),b)?;out.templates.insert(template)?;out.sources.insert(source)?;out.assertions.insert(assertion)?;out.supports.insert(support)?;
+   }
+  }}
+ }Ok(out)
+}
+fn structural_text(source:&structural::ConclusionSource)->(AssertionKind,&'static str){use structural::ConclusionSource::*;match source{
+ Public{..}=>(AssertionKind::PublicAccess,"This public candidate preserves its exact access path and source resolution evidence."),
+ Path{..}=>(AssertionKind::Coordinates,"The captured source graph contains a delegation path; each step retains its own condition and call phase."),
+ Unresolved{..}=>(AssertionKind::AnalysisBoundary,"A source call remains unresolved; its candidate evidence and resolution boundary are retained."),
+ Stop{..}|ControlStop{..}=>(AssertionKind::AnalysisBoundary,"This bounded source traversal stopped with its explicit depth or enumeration boundary."),
+ Usage{..}=>(AssertionKind::StaticUsageObservation,"Observed calls in captured sources retain their official usage sites, counts and uncertainty."),
+ Handoff{..}=>(AssertionKind::Handoff,"Captured source contains a qualified producer-to-consumer handoff with original call and binding evidence."),
+ Forward{..}=>(AssertionKind::Control,"A source parameter is forwarded along a qualified argument-flow path; each step retains its condition and phase."),
+ Literal{..}=>(AssertionKind::TransformedControl,"The implementation supplies a source literal or expression argument with its original provenance."),
+ Raise{..}=>(AssertionKind::Restriction,"The captured implementation contains a conditional raise observation with branch and entry-read evidence."),
+ Unfollowed{..}=>(AssertionKind::UnfollowedControl,"The analysis does not follow this source argument beyond the recorded boundary."),
+}}
+fn analytic_text(source:&analytics::ConclusionSource)->(AssertionKind,&'static str){use analytics::ConclusionSource::*;match source{
+ Rank{..}|Community{..}|Neighbour{..}=>(AssertionKind::Related,"Selected statistical analysis supplies a navigation association for this public candidate."),
+ Concept{..}=>(AssertionKind::SharedSignature,"These members share attributes in the declared finite extracted context."),
+ Implication{..}=>(AssertionKind::Implication,"The declared finite extracted attribute context satisfies this implication."),
+ Document{..}=>(AssertionKind::DocLink,"A selected statistical neighbour links this public candidate to an original documentation passage."),
+ Label{..}=>(AssertionKind::DocLink,"The selected community label retains its original passage and exact embedding-use evidence."),
+}}
 pub fn relations()->Vec<Relation>{macro_rules! relations{($($field:ident:$ty:ty,)*)=>{vec![$(Relation::of::<$ty>()),*]};}output_rows!(relations)}
-pub fn invariants()->Vec<Invariant>{let mut inputs=documentary::Data::validation_inputs();inputs.extend(documentary::Output::validation_inputs());inputs.extend(Output::validation_inputs());inputs.push(ValidationInput::of::<owner::Invocation>(&["id"]));inputs.sort_by_key(|i|i.name());inputs.dedup_by_key(|i|i.name());vec![Invariant{name:"programmatic_assertion_replay",inputs,create:std::sync::Arc::new(|b|Box::new(Check{data:documentary::Data::new(b),conclusions:documentary::Output::new(b),invocations:Rows::new(b),output:Output::new(b),budget:b.clone()}))}]}
-struct Check{data:documentary::Data,conclusions:documentary::Output,invocations:Rows<owner::Invocation>,output:Output,budget:ResourceBudget}
-impl InvariantCheck for Check{fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<(),ModelError>{if n==owner::Invocation::NAME{self.invocations.decode(b)?;return Ok(());}let a=self.data.visit(n,b)?;let c=self.conclusions.visit(n,b)?;let o=self.output.visit(n,b)?;if !a&&!c&&!o{return Err(invalid("undeclared assertion replay input"));}Ok(())}fn finish(self:Box<Self>)->Result<(),ModelError>{self.conclusions.matches(&documentary::build(&self.data,&self.budget)?)?;self.output.matches(&build_documentary(&self.data,&self.conclusions,&self.invocations,&self.budget)?)} }
+pub fn invariants()->Vec<Invariant>{let mut inputs=documentary::Data::validation_inputs();inputs.extend(documentary::Output::validation_inputs());inputs.extend(Output::validation_inputs());inputs.extend(super::observations::Data::inputs());inputs.extend([ValidationInput::of::<super::frames::Frame>(&["id"]),ValidationInput::of::<structural::PublicCandidate>(&["id"])]);inputs.push(ValidationInput::of::<owner::Invocation>(&["id"]));inputs.sort_by_key(|i|i.name());inputs.dedup_by_key(|i|i.name());vec![Invariant{name:"programmatic_assertion_replay",inputs,create:std::sync::Arc::new(|b|Box::new(Check{data:documentary::Data::new(b),observations:super::observations::Data::new(b),frames:Rows::new(b),public:Rows::new(b),conclusions:documentary::Output::new(b),invocations:Rows::new(b),output:Output::new(b),budget:b.clone()}))}]}
+struct Check{data:documentary::Data,observations:super::observations::Data,frames:Rows<super::frames::Frame>,public:Rows<structural::PublicCandidate>,conclusions:documentary::Output,invocations:Rows<owner::Invocation>,output:Output,budget:ResourceBudget}
+impl InvariantCheck for Check{fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<(),ModelError>{if n==owner::Invocation::NAME{self.invocations.decode(b)?;return Ok(());}if n==super::frames::Frame::NAME{self.frames.decode(b)?;return Ok(());}if n==structural::PublicCandidate::NAME{self.public.decode(b)?;return Ok(());}let observations=self.observations.visit(n,b)?;let a=self.data.visit(n,b)?;let c=self.conclusions.visit(n,b)?;let o=self.output.visit(n,b)?;if !a&&!c&&!o&&!observations{return Err(invalid("undeclared assertion replay input"));}Ok(())}fn finish(self:Box<Self>)->Result<(),ModelError>{self.conclusions.matches(&documentary::build(&self.data,&self.budget)?)?;self.output.matches(&build(&self.data,&self.conclusions,&self.observations,&self.public,&self.frames,&self.invocations,&self.budget)?)} }
 
 #[cfg(test)]mod tests{
  use super::*;
