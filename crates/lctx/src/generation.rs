@@ -112,7 +112,17 @@ pub async fn generation(command: GenerationCommand, database: &Database) -> anyh
                 .show(generation)
                 .await?
                 .ok_or_else(|| Refused(format!("no generation {}", generation.hex())))?;
-            println!("{}", serde_json::to_string_pretty(&detail(&shown))?);
+            let mut document=detail(&shown);
+            if shown.summary.state==GenerationState::Published {
+                let serving=database.serving()?;
+                let model=model()?;
+                let session=cpg_core::generation_read::GenerationSession::open(&serving,model.clone(),generation,cpg_core::generation_read::ProviderOptions {connections:serving.provider_connections,..Default::default()}).await?;
+                let report=cpg_core::analysis_report::read(session,&model).await?;
+                document["analysis"]=serde_json::to_value(&report)?;
+                println!("{}",serde_json::to_string_pretty(&document)?);
+            } else {
+                println!("{}", serde_json::to_string_pretty(&document)?);
+            }
         }
         owner_command => {
             let store = GenerationStore::open(database.owner().await?, model()?).await?;

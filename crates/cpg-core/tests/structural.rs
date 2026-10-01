@@ -92,6 +92,14 @@ async fn structural_candidates_paths_and_usage_publish_in_both_profiles() {
         let literal:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {s}.structural_literal_arguments"))).fetch_one(db.owner.pool()).await.unwrap();assert!(literal>0,"exact native literal argument retained");
         let unpacked:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {s}.structural_unfollowed_arguments WHERE binding IS NULL AND reason=$1"))).bind(obligation::ObligationKind::UnsupportedUnpacking.code()).fetch_one(db.owner.pool()).await.unwrap();assert!(unpacked>0,"unmapped parameter unpacking remains explicit");
     }
-    validated.abort().await.unwrap();drop(configuration);drop(captured);assert_eq!(budget.reserved(),0);
+    validated.publish().await.unwrap();
+    let serving=RoleConfig {role:Role::Serving,url:db.url("lctx_serving"),max_connections:3,provider_connections:2,..config.clone()};
+    let session=cpg_core::generation_read::GenerationSession::open(&serving,model.clone(),id,Default::default()).await.unwrap();
+    let report=cpg_core::analysis_report::read(session,&model).await.unwrap();
+    assert!(report.outcomes.iter().any(|r|r.owner=="structural"&&r.method=="Delegation"));
+    assert!(report.capabilities.iter().any(|r|r.capability=="Controls"&&r.availability==if profile==Profile::Catalog {"NotRequested"}else{"Partial"}));
+    assert!(!report.outcomes.iter().any(|r|r.owner=="analytic"));
+    assert!(!serde_json::to_string(&report).unwrap().contains("serving_ready"));
+    drop(report);store.retire(id).await.unwrap();drop(configuration);drop(captured);assert_eq!(budget.reserved(),0);
 }
 }

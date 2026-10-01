@@ -496,6 +496,8 @@ impl InspectionSession {
             runtime,
         })
     }
+    /// Retained typed inspection results share the query memory budget.
+    pub fn budget(&self) -> &lctx_model::domain::resources::ResourceBudget { self.runtime.budget() }
     /// Plan one read-only query. A statement the read contract refuses is a typed `ReadOnly` error.
     pub async fn query(&self, sql: &str) -> Result<crate::model_runtime::PreparedQuery> {
         let plan = self.context.state().create_logical_plan(sql).await?;

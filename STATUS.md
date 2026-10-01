@@ -23,7 +23,7 @@ _Updated 2026-10-01 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
   Actual Local publication and Use/Value/Guard entry domains passed 4 PG, 13 native and 22 model
   controls; behavioral stays Partial, catalog NotRequested. B1 canonical/base/body proofs passed 6 native
   and 12 model controls; Local finite theory/fields and actual BaseEvaluation now passed 70 combined
-  model/native/PG controls; source-body publication passed 17 more (plan receipts). Source calls remain pending; settings passed
+  model/native/PG controls; source-body publication passed 17 more; source-call headers passed 7 native/PG controls. Settings passed
   4 pure + 1 PG control across both profiles; production activation remains open.
 - **passed, 2026-10-01:** R0 declared validation-view controls in memory and real PostgreSQL:
   earlier/current vocabulary routing, no widening beyond acknowledged grants, malformed-frame
@@ -42,6 +42,8 @@ _Updated 2026-10-01 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
   C1 source/document/deployment evidence passed 10 pure, 2 integrated PG and 1 native control;
   C1/C2 declaration selection passed 29 pure + 1 native/PG control; exact domains preserve four
   outcomes and unresolved evidence. Runtime field/state links remain pending Local/B1.
+- **passed, 2026-10-01:** nominal report reads passed actual PG profiles; `generation show` CLI compiled.
+  Source invocation/frame, full analytics/synthesis producers and upper-frontier assembly remain open.
 - New P4 acceptance is **not_run** pending implementation. Compile checks and focused controls
   precede scheduled review; integrated acceptance waits for all functional packages and retirement.
 
@@ -99,7 +101,6 @@ The reviewed snapshot adds 72 relations, six invariants and native function-orig
 Reset initially refused absent old-installation control tables; its regression and rerun passed.
 
 ## Prior phases and preservation
-
 - Phases 0–2 are **Implemented / Tested**, including remaining PostgreSQL qualification and
   all native fact producers. Their historical receipt is in parent plan §4.2 and
   [facts qualification](docs/design_review/evidence/2026-09-30_facts-qualification/README.md).
@@ -115,6 +116,6 @@ Reset initially refused absent old-installation control tables; its regression a
 ## Next
 Continue ordinary work directly on `main`. Existing after-turn hooks own formatting/catalog refresh; do not run them manually. Additional pilot-scale qualification runs only if
 reactivated; detailed plan §11 retains its unmeasured scope.
-Continue P4 with B1–B3, exact C1/C2 runtime fields, Pass B/C and analytics; downstream assembly,
+Continue P4 with B1–B3, exact C1/C2 runtime fields and analytics/synthesis; downstream assembly,
 retirement and Q0 remain open. Follow scheduled review boundaries.
 P5 owns serving/product qualification; PR6 remains paused.
