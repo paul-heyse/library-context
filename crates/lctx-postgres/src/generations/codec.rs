@@ -1,8 +1,8 @@
 //! SQLx rows to the exact declared Arrow schema. Type dispatch lives only at this effect boundary.
 use super::Error;
 use arrow_array::{
-    ArrayRef, BooleanArray, FixedSizeBinaryArray, Int16Array, Int32Array, Int64Array, RecordBatch,
-    StringArray, Float64Array,
+    ArrayRef, BooleanArray, FixedSizeBinaryArray, Float64Array, Int16Array, Int32Array, Int64Array,
+    RecordBatch, StringArray,
 };
 use lctx_model::domain::Relation;
 use sqlx::{Row, postgres::PgRow};

@@ -393,8 +393,11 @@ impl StageSink for MemoryGeneration {
         }
         let mut vocabulary = BTreeMap::new();
         for name in candidate.keys().filter(|name| is_vocabulary(name)) {
-            let relation = &self.relations[name]; let mut content = relation.content(); relation.hash_rows(&sorted[name],&mut content)?; let (rows,content) = content.finish();
-            vocabulary.insert(*name,RelationReceipt {rows,content});
+            let relation = &self.relations[name];
+            let mut content = relation.content();
+            relation.hash_rows(&sorted[name], &mut content)?;
+            let (rows, content) = content.finish();
+            vocabulary.insert(*name, RelationReceipt { rows, content });
         }
         // Admit the replacement before changing canonical state; failures expose no group output.
         let new_size = candidate
@@ -413,7 +416,7 @@ impl StageSink for MemoryGeneration {
             .map(|name| (*name, vec![sorted[name].clone()]))
             .collect();
         stored.charge.release(total);
-        group.acknowledge(outputs,vocabulary)
+        group.acknowledge(outputs, vocabulary)
     }
     async fn complete(&self, completion: StageCompletion) -> Result<CompletedStage, ModelError> {
         if self.attempt != Some(completion.identity().attempt()) || completion.model() != self.model

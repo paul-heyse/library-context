@@ -634,36 +634,307 @@ async fn lost_group_commit_acknowledgement_never_mints_read_sources_or_allows_re
 }
 #[tokio::test]
 async fn frozen_delta_content_is_reverified_before_any_group_merge() {
-    let db=DisposableDatabase::start().await; let model=Arc::new(ValidatedModel::validate(vec![Relation::of::<Literal>(),Relation::of::<ResultRow>(),Relation::of::<Package>()]).unwrap()); let store=GenerationStore::install(db.owner.clone(),model.clone()).await.unwrap(); let schedule=schedule(&model); let mut execution=schedule.execute(); let budget=budget(); let attempt=store.begin_conformance(db.writer.clone(),&mut execution,budget.clone()).await.unwrap(); let g=attempt.generation();
-    let initial=Batch::new(&model,vec![Literal::None],&budget).unwrap(); let mut stage=execution.begin("v0").unwrap(); stage.write::<Literal,_>(async |p| attempt.copy(p,&initial).await).await.unwrap(); stage.complete(&attempt,ProviderOutcome::Complete).await.unwrap();
-    let later=Literal::Bool{value:true}; let rows=Batch::new(&model,vec![later.clone()],&budget).unwrap(); let mut stage=execution.begin("v1").unwrap(); stage.write::<Literal,_>(async |p| attempt.copy(p,&rows).await).await.unwrap(); stage.complete(&attempt,ProviderOutcome::Complete).await.unwrap();
-    let tag=model.require::<Literal>().unwrap().sum().unwrap().tag;
+    let db = DisposableDatabase::start().await;
+    let model = Arc::new(
+        ValidatedModel::validate(vec![
+            Relation::of::<Literal>(),
+            Relation::of::<ResultRow>(),
+            Relation::of::<Package>(),
+        ])
+        .unwrap(),
+    );
+    let store = GenerationStore::install(db.owner.clone(), model.clone())
+        .await
+        .unwrap();
+    let schedule = schedule(&model);
+    let mut execution = schedule.execute();
+    let budget = budget();
+    let attempt = store
+        .begin_conformance(db.writer.clone(), &mut execution, budget.clone())
+        .await
+        .unwrap();
+    let g = attempt.generation();
+    let initial = Batch::new(&model, vec![Literal::None], &budget).unwrap();
+    let mut stage = execution.begin("v0").unwrap();
+    stage
+        .write::<Literal, _>(async |p| attempt.copy(p, &initial).await)
+        .await
+        .unwrap();
+    stage
+        .complete(&attempt, ProviderOutcome::Complete)
+        .await
+        .unwrap();
+    let later = Literal::Bool { value: true };
+    let rows = Batch::new(&model, vec![later.clone()], &budget).unwrap();
+    let mut stage = execution.begin("v1").unwrap();
+    stage
+        .write::<Literal, _>(async |p| attempt.copy(p, &rows).await)
+        .await
+        .unwrap();
+    stage
+        .complete(&attempt, ProviderOutcome::Complete)
+        .await
+        .unwrap();
+    let tag = model.require::<Literal>().unwrap().sum().unwrap().tag;
     let delta:String=sqlx::query_scalar("SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname=$1 AND c.relkind='r' AND left(c.relname,8)='__delta_' AND EXISTS(SELECT 1 FROM pg_attribute a WHERE a.attrelid=c.oid AND a.attname=$2)").bind(g.schema()).bind(tag).fetch_one(&db.superuser).await.unwrap();
-    assert!(sqlx::query(sqlx::AssertSqlSafe(format!("INSERT INTO {}.{} DEFAULT VALUES",g.schema(),delta))).execute(&db.writer).await.is_err(),"sealed delta INSERT grant is revoked");
+    assert!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "INSERT INTO {}.{} DEFAULT VALUES",
+            g.schema(),
+            delta
+        )))
+        .execute(&db.writer)
+        .await
+        .is_err(),
+        "sealed delta INSERT grant is revoked"
+    );
     // Owner corruption is a negative control for the frozen receipt, not an allowed producer write.
-    sqlx::query(sqlx::AssertSqlSafe(format!("DELETE FROM {}.{}",g.schema(),delta))).execute(&db.superuser).await.unwrap();
-    let rows=Batch::new(&model,vec![ResultRow{value:later.id()}],&budget).unwrap(); let mut stage=execution.begin("result").unwrap(); stage.write::<ResultRow,_>(async |p| attempt.copy(p,&rows).await).await.unwrap(); assert!(stage.complete(&attempt,ProviderOutcome::Complete).await.is_err());
-    let count:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {}.{}",g.schema(),Literal::NAME))).fetch_one(&db.superuser).await.unwrap(); assert_eq!(count,1);
-    assert!(execution.finish().is_err()); attempt.abort().await.unwrap();
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "DELETE FROM {}.{}",
+        g.schema(),
+        delta
+    )))
+    .execute(&db.superuser)
+    .await
+    .unwrap();
+    let rows = Batch::new(&model, vec![ResultRow { value: later.id() }], &budget).unwrap();
+    let mut stage = execution.begin("result").unwrap();
+    stage
+        .write::<ResultRow, _>(async |p| attempt.copy(p, &rows).await)
+        .await
+        .unwrap();
+    assert!(
+        stage
+            .complete(&attempt, ProviderOutcome::Complete)
+            .await
+            .is_err()
+    );
+    let count: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+        "SELECT count(*) FROM {}.{}",
+        g.schema(),
+        Literal::NAME
+    )))
+    .fetch_one(&db.superuser)
+    .await
+    .unwrap();
+    assert_eq!(count, 1);
+    assert!(execution.finish().is_err());
+    attempt.abort().await.unwrap();
 }
 #[tokio::test]
 async fn inherited_prefix_is_verified_by_the_store_with_original_producer_receipt() {
-    let db=DisposableDatabase::start().await;
-    let model=Arc::new(ValidatedModel::validate(vec![Relation::of::<Literal>(),Relation::of::<ResultRow>(),Relation::of::<Package>()]).unwrap());
-    let schedule=Schedule::build_with_publications(&model,vec![stage("v0",vec![],vec![RelationUse::of::<Literal>()]),stage("result",vec![RelationUse::stored::<Literal>().at_epoch(VocabularyEpoch::Facts)],vec![RelationUse::of::<ResultRow>()]),stage("reader",vec![RelationUse::stored::<Literal>().at_epoch(VocabularyEpoch::Dispatch)],vec![RelationUse::of::<Package>()])],&[],Profile::Catalog,vec![PublicationGroup::new(VocabularyEpoch::Facts,vec!["v0"]),PublicationGroup::new(VocabularyEpoch::Dispatch,vec!["result"])]).unwrap();
-    let store=GenerationStore::install(db.owner.clone(),model.clone()).await.unwrap();let budget=budget();let mut execution=schedule.execute();let attempt=store.begin_conformance(db.writer.clone(),&mut execution,budget.clone()).await.unwrap();let g=attempt.generation();
-    let literal=Literal::None;let rows=Batch::new(&model,vec![literal.clone()],&budget).unwrap();let mut v0=execution.begin("v0").unwrap();v0.write::<Literal,_>(async |p|attempt.copy(p,&rows).await).await.unwrap();v0.complete(&attempt,ProviderOutcome::Complete).await.unwrap();
-    let mut result=execution.begin("result").unwrap();let old=result.read::<Literal>().unwrap().source().unwrap().clone();let rows=Batch::new(&model,vec![ResultRow{value:literal.id()}],&budget).unwrap();result.write::<ResultRow,_>(async |p|attempt.copy(p,&rows).await).await.unwrap();result.complete(&attempt,ProviderOutcome::Complete).await.unwrap();
-    let mut reader=execution.begin("reader").unwrap();let inherited=reader.read::<Literal>().unwrap().source().unwrap().clone();assert_eq!(inherited.producer(),"v0");assert_eq!(inherited.receipt(),old.receipt());assert_eq!(inherited.prefix(),Some(VocabularyEpoch::Dispatch));assert_eq!(old.prefix(),Some(VocabularyEpoch::Facts));let contract=attempt.read_contract(&reader).await.unwrap();assert_eq!(contract.sources()[Literal::NAME],inherited);
-    let count:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {}.{}",g.schema(),inherited.physical_relation()))).fetch_one(&db.writer).await.unwrap();assert_eq!(count,1);
-    let empty=Batch::<Package>::new(&model,vec![],&budget).unwrap();reader.write::<Package,_>(async |p|attempt.copy(p,&empty).await).await.unwrap();reader.complete(&attempt,ProviderOutcome::Complete).await.unwrap();attempt.seal(execution.finish().unwrap()).await.unwrap().validate().await.unwrap().publish().await.unwrap();store.retire(g).await.unwrap();
+    let db = DisposableDatabase::start().await;
+    let model = Arc::new(
+        ValidatedModel::validate(vec![
+            Relation::of::<Literal>(),
+            Relation::of::<ResultRow>(),
+            Relation::of::<Package>(),
+        ])
+        .unwrap(),
+    );
+    let schedule = Schedule::build_with_publications(
+        &model,
+        vec![
+            stage("v0", vec![], vec![RelationUse::of::<Literal>()]),
+            stage(
+                "result",
+                vec![RelationUse::stored::<Literal>().at_epoch(VocabularyEpoch::Facts)],
+                vec![RelationUse::of::<ResultRow>()],
+            ),
+            stage(
+                "reader",
+                vec![RelationUse::stored::<Literal>().at_epoch(VocabularyEpoch::Dispatch)],
+                vec![RelationUse::of::<Package>()],
+            ),
+        ],
+        &[],
+        Profile::Catalog,
+        vec![
+            PublicationGroup::new(VocabularyEpoch::Facts, vec!["v0"]),
+            PublicationGroup::new(VocabularyEpoch::Dispatch, vec!["result"]),
+        ],
+    )
+    .unwrap();
+    let store = GenerationStore::install(db.owner.clone(), model.clone())
+        .await
+        .unwrap();
+    let budget = budget();
+    let mut execution = schedule.execute();
+    let attempt = store
+        .begin_conformance(db.writer.clone(), &mut execution, budget.clone())
+        .await
+        .unwrap();
+    let g = attempt.generation();
+    let literal = Literal::None;
+    let rows = Batch::new(&model, vec![literal.clone()], &budget).unwrap();
+    let mut v0 = execution.begin("v0").unwrap();
+    v0.write::<Literal, _>(async |p| attempt.copy(p, &rows).await)
+        .await
+        .unwrap();
+    v0.complete(&attempt, ProviderOutcome::Complete)
+        .await
+        .unwrap();
+    let mut result = execution.begin("result").unwrap();
+    let old = result.read::<Literal>().unwrap().source().unwrap().clone();
+    let rows = Batch::new(
+        &model,
+        vec![ResultRow {
+            value: literal.id(),
+        }],
+        &budget,
+    )
+    .unwrap();
+    result
+        .write::<ResultRow, _>(async |p| attempt.copy(p, &rows).await)
+        .await
+        .unwrap();
+    result
+        .complete(&attempt, ProviderOutcome::Complete)
+        .await
+        .unwrap();
+    let mut reader = execution.begin("reader").unwrap();
+    let inherited = reader.read::<Literal>().unwrap().source().unwrap().clone();
+    assert_eq!(inherited.producer(), "v0");
+    assert_eq!(inherited.receipt(), old.receipt());
+    assert_eq!(inherited.prefix(), Some(VocabularyEpoch::Dispatch));
+    assert_eq!(old.prefix(), Some(VocabularyEpoch::Facts));
+    let contract = attempt.read_contract(&reader).await.unwrap();
+    assert_eq!(contract.sources()[Literal::NAME], inherited);
+    let count: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+        "SELECT count(*) FROM {}.{}",
+        g.schema(),
+        inherited.physical_relation()
+    )))
+    .fetch_one(&db.writer)
+    .await
+    .unwrap();
+    assert_eq!(count, 1);
+    let empty = Batch::<Package>::new(&model, vec![], &budget).unwrap();
+    reader
+        .write::<Package, _>(async |p| attempt.copy(p, &empty).await)
+        .await
+        .unwrap();
+    reader
+        .complete(&attempt, ProviderOutcome::Complete)
+        .await
+        .unwrap();
+    attempt
+        .seal(execution.finish().unwrap())
+        .await
+        .unwrap()
+        .validate()
+        .await
+        .unwrap()
+        .publish()
+        .await
+        .unwrap();
+    store.retire(g).await.unwrap();
 }
 #[tokio::test]
 async fn a_closed_literal_set_cannot_gain_members_in_a_later_epoch() {
-    use lctx_model::domain::value::{LiteralSet,LiteralSetMember};
-    let db=DisposableDatabase::start().await;let model=Arc::new(ValidatedModel::validate(vec![Relation::of::<Literal>(),Relation::of::<LiteralSet>(),Relation::of::<LiteralSetMember>()]).unwrap());let outputs=vec![RelationUse::of::<Literal>(),RelationUse::of::<LiteralSet>(),RelationUse::of::<LiteralSetMember>()];
-    let schedule=Schedule::build_with_publications(&model,vec![stage("v0",vec![],outputs.clone()),stage("v1",vec![],outputs)],&[],Profile::Catalog,vec![PublicationGroup::new(VocabularyEpoch::Facts,vec!["v0"]),PublicationGroup::new(VocabularyEpoch::Dispatch,vec!["v1"])]).unwrap();let store=GenerationStore::install(db.owner.clone(),model.clone()).await.unwrap();let mut execution=schedule.execute();let budget=budget();let attempt=store.begin_conformance(db.writer.clone(),&mut execution,budget.clone()).await.unwrap();let g=attempt.generation();
-    let original=Literal::None;let(set,members)=LiteralSet::of([original.id()]);let mut first=execution.begin("v0").unwrap();let literals=Batch::new(&model,vec![original],&budget).unwrap();let sets=Batch::new(&model,vec![set.clone()],&budget).unwrap();let membership=Batch::new(&model,members,&budget).unwrap();first.write::<Literal,_>(async |p|attempt.copy(p,&literals).await).await.unwrap();first.write::<LiteralSet,_>(async |p|attempt.copy(p,&sets).await).await.unwrap();first.write::<LiteralSetMember,_>(async |p|attempt.copy(p,&membership).await).await.unwrap();first.complete(&attempt,ProviderOutcome::Complete).await.unwrap();
-    let extra=Literal::Bool{value:true};let mut later=execution.begin("v1").unwrap();let literals=Batch::new(&model,vec![extra.clone()],&budget).unwrap();let sets=Batch::<LiteralSet>::new(&model,vec![],&budget).unwrap();let membership=Batch::new(&model,vec![LiteralSetMember{set:set.id(),value:extra.id()}],&budget).unwrap();later.write::<Literal,_>(async |p|attempt.copy(p,&literals).await).await.unwrap();later.write::<LiteralSet,_>(async |p|attempt.copy(p,&sets).await).await.unwrap();later.write::<LiteralSetMember,_>(async |p|attempt.copy(p,&membership).await).await.unwrap();assert!(later.complete(&attempt,ProviderOutcome::Complete).await.is_err());
-    for name in [Literal::NAME,LiteralSet::NAME,LiteralSetMember::NAME] {let count:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {}.{}",g.schema(),name))).fetch_one(&db.superuser).await.unwrap();assert_eq!(count,1,"failed merge changed {name}");}assert!(execution.finish().is_err());attempt.abort().await.unwrap();
+    use lctx_model::domain::value::{LiteralSet, LiteralSetMember};
+    let db = DisposableDatabase::start().await;
+    let model = Arc::new(
+        ValidatedModel::validate(vec![
+            Relation::of::<Literal>(),
+            Relation::of::<LiteralSet>(),
+            Relation::of::<LiteralSetMember>(),
+        ])
+        .unwrap(),
+    );
+    let outputs = vec![
+        RelationUse::of::<Literal>(),
+        RelationUse::of::<LiteralSet>(),
+        RelationUse::of::<LiteralSetMember>(),
+    ];
+    let schedule = Schedule::build_with_publications(
+        &model,
+        vec![
+            stage("v0", vec![], outputs.clone()),
+            stage("v1", vec![], outputs),
+        ],
+        &[],
+        Profile::Catalog,
+        vec![
+            PublicationGroup::new(VocabularyEpoch::Facts, vec!["v0"]),
+            PublicationGroup::new(VocabularyEpoch::Dispatch, vec!["v1"]),
+        ],
+    )
+    .unwrap();
+    let store = GenerationStore::install(db.owner.clone(), model.clone())
+        .await
+        .unwrap();
+    let mut execution = schedule.execute();
+    let budget = budget();
+    let attempt = store
+        .begin_conformance(db.writer.clone(), &mut execution, budget.clone())
+        .await
+        .unwrap();
+    let g = attempt.generation();
+    let original = Literal::None;
+    let (set, members) = LiteralSet::of([original.id()]);
+    let mut first = execution.begin("v0").unwrap();
+    let literals = Batch::new(&model, vec![original], &budget).unwrap();
+    let sets = Batch::new(&model, vec![set.clone()], &budget).unwrap();
+    let membership = Batch::new(&model, members, &budget).unwrap();
+    first
+        .write::<Literal, _>(async |p| attempt.copy(p, &literals).await)
+        .await
+        .unwrap();
+    first
+        .write::<LiteralSet, _>(async |p| attempt.copy(p, &sets).await)
+        .await
+        .unwrap();
+    first
+        .write::<LiteralSetMember, _>(async |p| attempt.copy(p, &membership).await)
+        .await
+        .unwrap();
+    first
+        .complete(&attempt, ProviderOutcome::Complete)
+        .await
+        .unwrap();
+    let extra = Literal::Bool { value: true };
+    let mut later = execution.begin("v1").unwrap();
+    let literals = Batch::new(&model, vec![extra.clone()], &budget).unwrap();
+    let sets = Batch::<LiteralSet>::new(&model, vec![], &budget).unwrap();
+    let membership = Batch::new(
+        &model,
+        vec![LiteralSetMember {
+            set: set.id(),
+            value: extra.id(),
+        }],
+        &budget,
+    )
+    .unwrap();
+    later
+        .write::<Literal, _>(async |p| attempt.copy(p, &literals).await)
+        .await
+        .unwrap();
+    later
+        .write::<LiteralSet, _>(async |p| attempt.copy(p, &sets).await)
+        .await
+        .unwrap();
+    later
+        .write::<LiteralSetMember, _>(async |p| attempt.copy(p, &membership).await)
+        .await
+        .unwrap();
+    assert!(
+        later
+            .complete(&attempt, ProviderOutcome::Complete)
+            .await
+            .is_err()
+    );
+    for name in [Literal::NAME, LiteralSet::NAME, LiteralSetMember::NAME] {
+        let count: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+            "SELECT count(*) FROM {}.{}",
+            g.schema(),
+            name
+        )))
+        .fetch_one(&db.superuser)
+        .await
+        .unwrap();
+        assert_eq!(count, 1, "failed merge changed {name}");
+    }
+    assert!(execution.finish().is_err());
+    attempt.abort().await.unwrap();
 }

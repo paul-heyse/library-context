@@ -876,35 +876,62 @@ mod tests {
     }
     #[test]
     fn native_borrow_preserves_sccs_parallel_arcs_isolates_and_reservation() {
-        use petgraph::visit::{EdgeRef, IntoEdgeReferences, IntoNodeIdentifiers, IntoNeighbors, Reversed, EdgeFiltered};
+        use petgraph::visit::{
+            EdgeFiltered, EdgeRef, IntoEdgeReferences, IntoNeighbors, IntoNodeIdentifiers, Reversed,
+        };
         let (input, budget, ids) = topology(false);
         let graph = MaterializedGraph::build(&input, &budget).unwrap();
         let encoded = graph.encode(&budget).unwrap();
-        let restored = MaterializedGraph::decode(encoded.bytes(), input.key, 6, 7, &budget).unwrap();
+        let restored =
+            MaterializedGraph::decode(encoded.bytes(), input.key, 6, 7, &budget).unwrap();
         let before = budget.reserved();
         let expected_arcs = graph.arcs().collect::<Vec<_>>();
         for graph in [&graph, &restored] {
             let (mut components, arcs, incoming) = graph.with_native_graph(|view| {
                 assert_eq!(budget.reserved(), before);
-                let components = petgraph::algo::kosaraju_scc(view).into_iter().map(|nodes| {
-                    let mut ids = nodes.into_iter().map(|node| view.entity_id(node)).collect::<Vec<_>>();
-                    ids.sort(); ids
-                }).collect::<Vec<_>>();
-                let arcs = view.edge_references().map(|edge| {
-                    assert_eq!(view.arc_id(edge.id()), *edge.weight());
-                    Arc { id: *edge.weight(), source: view.entity_id(edge.source()), target: view.entity_id(edge.target()) }
-                }).collect::<Vec<_>>();
-                let root = view.node_identifiers().find(|node| view.entity_id(*node) == ids[1]).unwrap();
+                let components = petgraph::algo::kosaraju_scc(view)
+                    .into_iter()
+                    .map(|nodes| {
+                        let mut ids = nodes
+                            .into_iter()
+                            .map(|node| view.entity_id(node))
+                            .collect::<Vec<_>>();
+                        ids.sort();
+                        ids
+                    })
+                    .collect::<Vec<_>>();
+                let arcs = view
+                    .edge_references()
+                    .map(|edge| {
+                        assert_eq!(view.arc_id(edge.id()), *edge.weight());
+                        Arc {
+                            id: *edge.weight(),
+                            source: view.entity_id(edge.source()),
+                            target: view.entity_id(edge.target()),
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                let root = view
+                    .node_identifiers()
+                    .find(|node| view.entity_id(*node) == ids[1])
+                    .unwrap();
                 let reversed = Reversed(view);
-                let incoming = reversed.neighbors(root).map(|node| view.entity_id(node)).collect::<Vec<_>>();
-                let filtered = EdgeFiltered::from_fn(view, |edge| edge.weight().role() == EndpointRole::Invocation);
+                let incoming = reversed
+                    .neighbors(root)
+                    .map(|node| view.entity_id(node))
+                    .collect::<Vec<_>>();
+                let filtered = EdgeFiltered::from_fn(view, |edge| {
+                    edge.weight().role() == EndpointRole::Invocation
+                });
                 assert_eq!((&filtered).edge_references().count(), 0);
                 assert_eq!(petgraph::algo::kosaraju_scc(&filtered).len(), 6);
                 (components, arcs, incoming)
             });
             components.sort();
-            let mut cycle = ids[..4].to_vec(); cycle.sort();
-            let mut expected = vec![cycle, vec![ids[4]], vec![ids[5]]]; expected.sort();
+            let mut cycle = ids[..4].to_vec();
+            cycle.sort();
+            let mut expected = vec![cycle, vec![ids[4]], vec![ids[5]]];
+            expected.sort();
             assert_eq!(components, expected);
             assert_eq!(arcs, expected_arcs);
             assert_eq!(incoming, vec![ids[0], ids[0]]);

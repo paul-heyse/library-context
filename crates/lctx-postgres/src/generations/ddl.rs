@@ -218,7 +218,13 @@ pub(super) fn lower(
         .filter(|r| relations.contains(r.name()))
     {
         let mut table = Table::create();
-        let mut wire_sizes = vec![if lctx_model::domain::stages::is_vocabulary(relation.name()) { "48::bigint".to_owned() } else { "42::bigint".to_owned() }];
+        let mut wire_sizes = vec![
+            if lctx_model::domain::stages::is_vocabulary(relation.name()) {
+                "48::bigint".to_owned()
+            } else {
+                "42::bigint".to_owned()
+            },
+        ];
         table.table((schema.clone(), relation.name()));
         table.col(
             ColumnDef::new("generation_id")

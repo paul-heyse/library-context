@@ -47,7 +47,9 @@ impl GenerationStore {
             return Err(Error::State);
         }
         let grouped: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM lctx_model_store.publication_outputs WHERE generation_id=$1 AND stage_name=$2)").bind(g.0.to_vec()).bind(stage).fetch_one(&mut *tx).await?;
-        if grouped { return Err(Error::Contract); }
+        if grouped {
+            return Err(Error::Contract);
+        }
 
         let planned: Vec<String> = sqlx::query_scalar("SELECT relation_name FROM lctx_model_store.planned_outputs WHERE generation_id=$1 AND stage_name=$2 ORDER BY relation_name COLLATE \"C\"")
             .bind(g.0.to_vec()).bind(stage).fetch_all(&mut *tx).await?;

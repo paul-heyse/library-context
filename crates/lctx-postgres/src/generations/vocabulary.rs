@@ -98,7 +98,13 @@ impl GenerationStore {
         g: GenerationId,
         group: &GroupCompletion,
         budget: &ResourceBudget,
-    ) -> Result<(BTreeMap<&'static str, BTreeMap<&'static str, RelationReceipt>>, BTreeMap<&'static str, RelationReceipt>), Error> {
+    ) -> Result<
+        (
+            BTreeMap<&'static str, BTreeMap<&'static str, RelationReceipt>>,
+            BTreeMap<&'static str, RelationReceipt>,
+        ),
+        Error,
+    > {
         self.lock_installation(tx).await?;
         super::lock(tx, g, false).await?;
         self.registered(tx, g).await?.expect("staging")?;
@@ -360,7 +366,7 @@ impl GenerationStore {
                 budget,
             )
             .await?;
-            vocabulary.insert(relation.name(),frozen);
+            vocabulary.insert(relation.name(), frozen);
             sqlx::query("INSERT INTO lctx_model_store.epoch_receipts VALUES($1,$2,$3,$4,$5)")
                 .bind(g.0.to_vec())
                 .bind(epoch)
@@ -377,7 +383,7 @@ impl GenerationStore {
             .await?;
         }
         sqlx::query("UPDATE lctx_model_store.publication_groups SET closed=true WHERE generation_id=$1 AND epoch=$2").bind(g.0.to_vec()).bind(epoch).execute(&mut *tx).await?;
-        Ok((outputs,vocabulary))
+        Ok((outputs, vocabulary))
     }
 }
 pub(super) fn physical(name: &str, epoch: VocabularyEpoch) -> String {

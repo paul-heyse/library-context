@@ -438,9 +438,15 @@ impl<R: Record> Batch<R> {
         let held = rows_bytes(&rows, rows.capacity())?;
         let canonical_metrics = R::fields().iter().all(|field| {
             field.scalar() != Scalar::FiniteF64
-                || arrow.column_by_name(field.name())
+                || arrow
+                    .column_by_name(field.name())
                     .and_then(|array| array.as_any().downcast_ref::<arrow_array::Float64Array>())
-                    .is_some_and(|values| values.iter().flatten().all(|value| value.to_bits() != (-0.0f64).to_bits()))
+                    .is_some_and(|values| {
+                        values
+                            .iter()
+                            .flatten()
+                            .all(|value| value.to_bits() != (-0.0f64).to_bits())
+                    })
         });
         if canonical_metrics && rows.windows(2).all(|pair| pair[0].id() < pair[1].id()) {
             // A canonical stored batch already has the correct physical representation.

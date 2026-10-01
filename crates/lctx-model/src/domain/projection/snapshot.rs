@@ -82,7 +82,10 @@ impl MaterializedGraph {
     ///     graph.with_native_graph(|view| view.node_identifiers().map(|node| view.entity_id(node)).collect())
     /// }
     /// ```
-    pub fn with_native_graph<'graph, R>(&'graph self, visit: impl for<'id> FnOnce(super::native::NativeGraphView<'graph, 'id>) -> R) -> R {
+    pub fn with_native_graph<'graph, R>(
+        &'graph self,
+        visit: impl for<'id> FnOnce(super::native::NativeGraphView<'graph, 'id>) -> R,
+    ) -> R {
         visit(super::native::NativeGraphView::new(&self.graph))
     }
     pub fn build(input: &ProjectionInput, budget: &ResourceBudget) -> Result<Self, ModelError> {

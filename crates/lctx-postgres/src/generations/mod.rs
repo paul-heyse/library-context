@@ -602,7 +602,12 @@ impl GenerationStore {
                     let size = copy_size(&row, &builders)?;
                     // Final canonical rows add the generation column (20 wire bytes), and
                     // vocabulary rows also add the lifecycle-owned epoch (6 wire bytes).
-                    let metadata_bytes = 20 + if lctx_model::domain::stages::is_vocabulary(R::NAME) { 6 } else { 0 };
+                    let metadata_bytes = 20
+                        + if lctx_model::domain::stages::is_vocabulary(R::NAME) {
+                            6
+                        } else {
+                            0
+                        };
                     if size > MAX_ROW_BYTES - metadata_bytes {
                         return Err(Error::Model(ModelError::Limit {
                             owner: R::NAME,

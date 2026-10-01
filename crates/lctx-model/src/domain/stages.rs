@@ -357,7 +357,9 @@ impl Schedule {
     ) -> Result<Self, ModelError> {
         let assembly = stages
             .iter()
-            .filter(|s| s.profiles.contains(&profile) && s.outputs.iter().any(|r| is_vocabulary(r.name())))
+            .filter(|s| {
+                s.profiles.contains(&profile) && s.outputs.iter().any(|r| is_vocabulary(r.name()))
+            })
             .map(|s| s.name)
             .collect::<Vec<_>>();
         let groups = if assembly.is_empty() {
@@ -520,12 +522,14 @@ impl Schedule {
                 )));
             }
             for r in &stage.outputs {
-                if is_vocabulary(r.name) {
-                    if let Some(epoch) = grouped.get(stage.name) {
-                        if !epoch_writers.insert((r.type_id, *epoch)) {
-                            return Err(ModelError::Invalid(format!("multiple writers for {} in one publication epoch", r.name)));
-                        }
-                    }
+                if is_vocabulary(r.name)
+                    && let Some(epoch) = grouped.get(stage.name)
+                    && !epoch_writers.insert((r.type_id, *epoch))
+                {
+                    return Err(ModelError::Invalid(format!(
+                        "multiple writers for {} in one publication epoch",
+                        r.name
+                    )));
                 }
                 if let Some(old) = writers.get(&r.type_id).copied() {
                     if !is_vocabulary(r.name)
@@ -953,12 +957,33 @@ impl<'s> Execution<'s> {
         if closed.epoch != epoch || closed.stages.len() != group.stages.len() {
             return Err(ModelError::Invalid("foreign group acknowledgement".into()));
         }
-        let expected: BTreeSet<_> = self.sources.keys().copied().filter(|n| is_vocabulary(n)).chain(closed.stages.iter().flat_map(|s| s.outputs.keys().copied().filter(|n| is_vocabulary(n)))).collect();
-        if closed.vocabulary.keys().copied().collect::<BTreeSet<_>>() != expected { return Err(ModelError::Invalid("closed vocabulary prefix receipt set differs".into())); }
-        for (name,receipt) in &closed.vocabulary {
+        let expected: BTreeSet<_> = self
+            .sources
+            .keys()
+            .copied()
+            .filter(|n| is_vocabulary(n))
+            .chain(
+                closed
+                    .stages
+                    .iter()
+                    .flat_map(|s| s.outputs.keys().copied().filter(|n| is_vocabulary(n))),
+            )
+            .collect();
+        if closed.vocabulary.keys().copied().collect::<BTreeSet<_>>() != expected {
+            return Err(ModelError::Invalid(
+                "closed vocabulary prefix receipt set differs".into(),
+            ));
+        }
+        for (name, receipt) in &closed.vocabulary {
             let current = closed.stages.iter().find_map(|s| s.outputs.get(name));
-            let expected = current.or_else(|| self.sources.get(name).map(|s| &s.receipt)).ok_or_else(|| ModelError::Invalid("unknown vocabulary receipt".into()))?;
-            if receipt != expected { return Err(ModelError::Invalid("closed vocabulary content differs from current or inherited source".into())); }
+            let expected = current
+                .or_else(|| self.sources.get(name).map(|s| &s.receipt))
+                .ok_or_else(|| ModelError::Invalid("unknown vocabulary receipt".into()))?;
+            if receipt != expected {
+                return Err(ModelError::Invalid(
+                    "closed vocabulary content differs from current or inherited source".into(),
+                ));
+            }
         }
         for completed in closed.stages {
             if completed.model != self.schedule.model
@@ -987,11 +1012,14 @@ impl<'s> Execution<'s> {
             self.completed
                 .insert(completed.identity.stage, completed.outcome);
         }
-        for (name,receipt) in closed.vocabulary {
-            let source = self.sources.get_mut(name).expect("verified vocabulary source");
+        for (name, receipt) in closed.vocabulary {
+            let source = self
+                .sources
+                .get_mut(name)
+                .expect("verified vocabulary source");
             source.prefix = Some(epoch);
             source.receipt = receipt;
-            self.prefixes.insert((epoch,name),source.clone());
+            self.prefixes.insert((epoch, name), source.clone());
         }
         self.failed = false;
         Ok(())
@@ -1504,8 +1532,17 @@ pub trait StageSink: Sync {
                 .iter()
                 .map(|s| (s.completion.stage(), s.deltas.clone()))
                 .collect();
-            let vocabulary = group.stages.iter().flat_map(|s| s.deltas.iter().filter(|(name,_)| is_vocabulary(name)).map(|(name,r)| (*name,*r))).collect();
-            group.acknowledge(outputs,vocabulary)
+            let vocabulary = group
+                .stages
+                .iter()
+                .flat_map(|s| {
+                    s.deltas
+                        .iter()
+                        .filter(|(name, _)| is_vocabulary(name))
+                        .map(|(name, r)| (*name, *r))
+                })
+                .collect();
+            group.acknowledge(outputs, vocabulary)
         }
     }
 }

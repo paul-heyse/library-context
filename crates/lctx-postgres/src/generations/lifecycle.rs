@@ -555,7 +555,7 @@ impl StageSink for GenerationAttempt {
         })
         .await
         .map_err(ModelError::from)?;
-        let closed = group.acknowledge(receipts.0,receipts.1)?;
+        let closed = group.acknowledge(receipts.0, receipts.1)?;
         self.poisoned
             .store(false, std::sync::atomic::Ordering::Release);
         Ok(closed)

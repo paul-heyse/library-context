@@ -1,7 +1,11 @@
 //! Read-only petgraph traits over the stored graph. Tokens belong to one callback invocation.
 use super::{ArcId, snapshot::ProgramGraph};
 use crate::domain::{Id, Record, normalized::entities::EntityRef};
-use petgraph::{Directed, Direction, graph::{self, EdgeIndex, NodeIndex}, visit::*};
+use petgraph::{
+    Directed, Direction,
+    graph::{self, EdgeIndex, NodeIndex},
+    visit::*,
+};
 use std::{fmt, marker::PhantomData};
 
 // Both argument and result make the brand invariant, independently of the graph borrow.
@@ -16,7 +20,10 @@ macro_rules! token {
         }
         impl $name<'_> {
             fn new(index: $index<u32>) -> Self {
-                Self { index, brand: PhantomData }
+                Self {
+                    index,
+                    brand: PhantomData,
+                }
             }
         }
         impl fmt::Debug for $name<'_> {
@@ -39,7 +46,10 @@ pub struct NativeGraphView<'graph, 'id> {
 }
 impl<'graph, 'id> NativeGraphView<'graph, 'id> {
     pub(super) fn new(graph: &'graph ProgramGraph) -> Self {
-        Self { graph, brand: PhantomData }
+        Self {
+            graph,
+            brand: PhantomData,
+        }
     }
     pub fn entity(self, node: GraphNode<'id>) -> &'graph EntityRef {
         &self.graph[node.index]
@@ -60,20 +70,30 @@ impl Data for NativeGraphView<'_, '_> {
     type NodeWeight = EntityRef;
     type EdgeWeight = ArcId;
 }
-impl GraphProp for NativeGraphView<'_, '_> { type EdgeType = Directed; }
+impl GraphProp for NativeGraphView<'_, '_> {
+    type EdgeType = Directed;
+}
 impl NodeCount for NativeGraphView<'_, '_> {
-    fn node_count(&self) -> usize { self.graph.node_count() }
+    fn node_count(&self) -> usize {
+        self.graph.node_count()
+    }
 }
 impl EdgeCount for NativeGraphView<'_, '_> {
-    fn edge_count(&self) -> usize { self.graph.edge_count() }
+    fn edge_count(&self) -> usize {
+        self.graph.edge_count()
+    }
 }
 
-pub type NativeNodes<'id> = std::iter::Map<graph::NodeIndices<u32>, fn(NodeIndex<u32>) -> GraphNode<'id>>;
-pub type NativeNeighbors<'graph, 'id> = std::iter::Map<graph::Neighbors<'graph, ArcId, u32>, fn(NodeIndex<u32>) -> GraphNode<'id>>;
+pub type NativeNodes<'id> =
+    std::iter::Map<graph::NodeIndices<u32>, fn(NodeIndex<u32>) -> GraphNode<'id>>;
+pub type NativeNeighbors<'graph, 'id> =
+    std::iter::Map<graph::Neighbors<'graph, ArcId, u32>, fn(NodeIndex<u32>) -> GraphNode<'id>>;
 
 impl<'id> IntoNodeIdentifiers for NativeGraphView<'_, 'id> {
     type NodeIdentifiers = NativeNodes<'id>;
-    fn node_identifiers(self) -> Self::NodeIdentifiers { self.graph.node_indices().map(GraphNode::new) }
+    fn node_identifiers(self) -> Self::NodeIdentifiers {
+        self.graph.node_indices().map(GraphNode::new)
+    }
 }
 impl<'graph, 'id> IntoNeighbors for NativeGraphView<'graph, 'id> {
     type Neighbors = NativeNeighbors<'graph, 'id>;
@@ -83,8 +103,14 @@ impl<'graph, 'id> IntoNeighbors for NativeGraphView<'graph, 'id> {
 }
 impl<'graph, 'id> IntoNeighborsDirected for NativeGraphView<'graph, 'id> {
     type NeighborsDirected = NativeNeighbors<'graph, 'id>;
-    fn neighbors_directed(self, node: GraphNode<'id>, direction: Direction) -> Self::NeighborsDirected {
-        self.graph.neighbors_directed(node.index, direction).map(GraphNode::new)
+    fn neighbors_directed(
+        self,
+        node: GraphNode<'id>,
+        direction: Direction,
+    ) -> Self::NeighborsDirected {
+        self.graph
+            .neighbors_directed(node.index, direction)
+            .map(GraphNode::new)
     }
 }
 
@@ -95,33 +121,56 @@ pub struct NativeEdgeRef<'graph, 'id> {
 }
 impl<'graph> NativeEdgeRef<'graph, '_> {
     fn new(edge: graph::EdgeReference<'graph, ArcId, u32>) -> Self {
-        Self { edge, brand: PhantomData }
+        Self {
+            edge,
+            brand: PhantomData,
+        }
     }
 }
 impl<'id> EdgeRef for NativeEdgeRef<'_, 'id> {
     type NodeId = GraphNode<'id>;
     type EdgeId = GraphEdge<'id>;
     type Weight = ArcId;
-    fn source(&self) -> Self::NodeId { GraphNode::new(self.edge.source()) }
-    fn target(&self) -> Self::NodeId { GraphNode::new(self.edge.target()) }
-    fn weight(&self) -> &ArcId { self.edge.weight() }
-    fn id(&self) -> Self::EdgeId { GraphEdge::new(self.edge.id()) }
+    fn source(&self) -> Self::NodeId {
+        GraphNode::new(self.edge.source())
+    }
+    fn target(&self) -> Self::NodeId {
+        GraphNode::new(self.edge.target())
+    }
+    fn weight(&self) -> &ArcId {
+        self.edge.weight()
+    }
+    fn id(&self) -> Self::EdgeId {
+        GraphEdge::new(self.edge.id())
+    }
 }
-pub type NativeEdgeReferences<'graph, 'id> = std::iter::Map<graph::EdgeReferences<'graph, ArcId, u32>, fn(graph::EdgeReference<'graph, ArcId, u32>) -> NativeEdgeRef<'graph, 'id>>;
-pub type NativeEdges<'graph, 'id> = std::iter::Map<graph::Edges<'graph, ArcId, Directed, u32>, fn(graph::EdgeReference<'graph, ArcId, u32>) -> NativeEdgeRef<'graph, 'id>>;
+pub type NativeEdgeReferences<'graph, 'id> = std::iter::Map<
+    graph::EdgeReferences<'graph, ArcId, u32>,
+    fn(graph::EdgeReference<'graph, ArcId, u32>) -> NativeEdgeRef<'graph, 'id>,
+>;
+pub type NativeEdges<'graph, 'id> = std::iter::Map<
+    graph::Edges<'graph, ArcId, Directed, u32>,
+    fn(graph::EdgeReference<'graph, ArcId, u32>) -> NativeEdgeRef<'graph, 'id>,
+>;
 impl<'graph, 'id> IntoEdgeReferences for NativeGraphView<'graph, 'id> {
     type EdgeRef = NativeEdgeRef<'graph, 'id>;
     type EdgeReferences = NativeEdgeReferences<'graph, 'id>;
-    fn edge_references(self) -> Self::EdgeReferences { self.graph.edge_references().map(NativeEdgeRef::new) }
+    fn edge_references(self) -> Self::EdgeReferences {
+        self.graph.edge_references().map(NativeEdgeRef::new)
+    }
 }
 impl<'graph, 'id> IntoEdges for NativeGraphView<'graph, 'id> {
     type Edges = NativeEdges<'graph, 'id>;
-    fn edges(self, node: GraphNode<'id>) -> Self::Edges { self.graph.edges(node.index).map(NativeEdgeRef::new) }
+    fn edges(self, node: GraphNode<'id>) -> Self::Edges {
+        self.graph.edges(node.index).map(NativeEdgeRef::new)
+    }
 }
 impl<'graph, 'id> IntoEdgesDirected for NativeGraphView<'graph, 'id> {
     type EdgesDirected = NativeEdges<'graph, 'id>;
     fn edges_directed(self, node: GraphNode<'id>, direction: Direction) -> Self::EdgesDirected {
-        self.graph.edges_directed(node.index, direction).map(NativeEdgeRef::new)
+        self.graph
+            .edges_directed(node.index, direction)
+            .map(NativeEdgeRef::new)
     }
 }
 
@@ -130,14 +179,25 @@ pub struct NativeVisitMap<'id> {
     brand: Brand<'id>,
 }
 impl<'id> VisitMap<GraphNode<'id>> for NativeVisitMap<'id> {
-    fn visit(&mut self, node: GraphNode<'id>) -> bool { self.map.visit(node.index) }
-    fn is_visited(&self, node: &GraphNode<'id>) -> bool { self.map.is_visited(&node.index) }
-    fn unvisit(&mut self, node: GraphNode<'id>) -> bool { self.map.unvisit(node.index) }
+    fn visit(&mut self, node: GraphNode<'id>) -> bool {
+        self.map.visit(node.index)
+    }
+    fn is_visited(&self, node: &GraphNode<'id>) -> bool {
+        self.map.is_visited(&node.index)
+    }
+    fn unvisit(&mut self, node: GraphNode<'id>) -> bool {
+        self.map.unvisit(node.index)
+    }
 }
 impl<'id> Visitable for NativeGraphView<'_, 'id> {
     type Map = NativeVisitMap<'id>;
     fn visit_map(&self) -> Self::Map {
-        NativeVisitMap { map: self.graph.visit_map(), brand: PhantomData }
+        NativeVisitMap {
+            map: self.graph.visit_map(),
+            brand: PhantomData,
+        }
     }
-    fn reset_map(&self, map: &mut Self::Map) { self.graph.reset_map(&mut map.map); }
+    fn reset_map(&self, map: &mut Self::Map) {
+        self.graph.reset_map(&mut map.map);
+    }
 }
