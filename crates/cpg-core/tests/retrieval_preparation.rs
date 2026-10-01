@@ -25,6 +25,41 @@ use lctx_postgres::{
     testing::DisposableDatabase,
 };
 use std::sync::Arc;
+
+fn mandatory_reader_inputs(profile: Profile, model: &ValidatedModel) -> Vec<RelationUse> {
+    // The helper reads C1's outputs as well as its predecessors. Their nominal references
+    // and shared invariants must be eligible inputs too, just as in the final E0 stage.
+    // Facts references already belong to the validated checkpoint; every later row below
+    // must instead have a completed producer in this fixture's actual schedule.
+    let mut inputs = retrieval::build::mandatory_inputs(profile, model).unwrap();
+    let facts = facts_relations().iter().map(Relation::name)
+        .collect::<std::collections::BTreeSet<_>>();
+    let relation = |name| model.relations().iter().find(|r| r.name() == name)
+        .unwrap_or_else(|| panic!("mandatory reader relation absent: {name}"));
+    let mut pending = inputs.iter().map(|r| r.name()).collect::<Vec<_>>();
+    while let Some(name) = pending.pop() {
+        let row = relation(name);
+        for required in row.fields().iter().filter_map(|f| f.target().map(|(_, n)| n))
+            .chain(row.invariants().iter().flat_map(|i| i.inputs.iter().map(ValidationInput::name)))
+        {
+            if (!facts.contains(required) || is_vocabulary(required))
+                && !inputs.iter().any(|r| r.name() == required)
+            {
+                inputs.push(RelationUse::of_relation(relation(required)).completed_store());
+                pending.push(required);
+            }
+        }
+    }
+    for input in &mut inputs {
+        if is_vocabulary(input.name()) {
+            *input = (*input).at_epoch(PublicationBoundary::Local);
+        }
+    }
+    inputs.sort_by_key(|r| r.name());
+    inputs.dedup_by_key(|r| r.name());
+    inputs
+}
+
 #[tokio::test]
 async fn mandatory_four_family_preparation_uses_completed_native_catalog_sources() {
     let profile = Profile::Catalog;
@@ -46,19 +81,11 @@ async fn mandatory_four_family_preparation_uses_completed_native_catalog_sources
         statement_timeout_seconds: 60,
         lock_timeout_seconds: 10,
     };
-    let mut relations = normalized_relations();
-    relations.extend(analysis::early_relations());
+    // Shared retrieval sums declare canonical prose and Brief targets, including their
+    // transitive references. Use the authoritative model for this schema closure; the
+    // scoped schedule below still produces only mandatory units, never synthesis or briefs.
+    let mut relations = catalog_frontier_relations();
     relations.extend(catalog_runtime::relations());
-    relations.extend(analysis::catalog_core::relations());
-    relations.extend(catalog::relations());
-    relations.extend(analysis::catalog_evidence::relations());
-    relations.extend(retrieval::rendering_relations());
-    // Mandatory units do not produce briefs, but their shared anchor sum still declares
-    // the canonical prose reference targets. These relations remain empty here.
-    relations.extend([
-        Relation::of::<synthesis::documentary::ProseSource>(),
-        Relation::of::<synthesis::documentary::ProseSlice>(),
-    ]);
     relations.sort_by_key(Relation::name);
     relations.dedup_by_key(|r| r.name());
     let model = Arc::new(ValidatedModel::validate(relations).unwrap());
@@ -109,7 +136,7 @@ async fn mandatory_four_family_preparation_uses_completed_native_catalog_sources
         catalog::evidence::build::stage(profile, &model).unwrap(),
         Stage {
             name: "retrieval_mandatory_control",
-            inputs: retrieval::build::mandatory_inputs(profile, &model).unwrap(),
+            inputs: mandatory_reader_inputs(profile, &model),
             outputs: retrieval::rendering_relations()
                 .iter()
                 .map(RelationUse::of_relation)
@@ -124,7 +151,22 @@ async fn mandatory_four_family_preparation_uses_completed_native_catalog_sources
         },
     ]);
     declarations.extend(catalog_runtime::stages(profile, &model));
+    let mandatory = declarations.iter().find(|s| s.name == "retrieval_mandatory_control").unwrap();
+    assert!(mandatory.reads::<analysis::source_call::AnalysisCoverage>());
+    for input in &mandatory.inputs {
+        assert!(declarations.iter().filter(|s| s.name != mandatory.name)
+            .any(|s| s.outputs.iter().any(|r| r.name() == input.name())),
+            "mandatory input has no actual scheduled producer: {}", input.name());
+    }
     let schedule = catalog_schedule::schedule(&model, declarations, profile);
+    for invariant in schedule.stages().iter().find(|s| s.name == "retrieval_mandatory_control")
+        .unwrap().read_invariants(&model).unwrap()
+    {
+        for boundary in invariant.inputs.iter().filter_map(ValidationInput::prefix) {
+            schedule.prefix_for(boundary).unwrap_or_else(|e|
+                panic!("mandatory invariant {} has no immutable publication: {e}", invariant.name));
+        }
+    }
     assert!(
         !schedule
             .stages()
@@ -137,6 +179,7 @@ async fn mandatory_four_family_preparation_uses_completed_native_catalog_sources
         .await
         .unwrap();
     let id = attempt.generation();
+    let mut expected_receipts = Vec::new();
     for declaration in schedule.stages() {
         let installation:bool=sqlx::query_scalar("SELECT model_digest=$1 AND physical_digest=$2 FROM lctx_model_store.installation WHERE singleton").bind(model.digest().0.to_vec()).bind(store.physical_digest().0.to_vec()).fetch_one(db.owner.pool()).await.unwrap();
         assert!(
@@ -295,6 +338,19 @@ async fn mandatory_four_family_preparation_uses_completed_native_catalog_sources
                         &access, &attempt, &config, &runtime, &model,
                     )
                     .await?;
+                    // Shared canonical hashing independently describes every expected output;
+                    // the completion receipts below are computed from actual PostgreSQL rows.
+                    macro_rules! receipts {
+                        ($($field:ident:$ty:ty,)*) => { $(
+                            let batch = Batch::new(&model, rows.$field.iter().cloned().collect(), budget)?;
+                            let relation = Relation::of::<$ty>();
+                            let mut content = relation.content();
+                            relation.hash_rows(batch.arrow(), &mut content)?;
+                            let (count, content) = content.finish();
+                            expected_receipts.push((<$ty>::NAME, RelationReceipt { rows: count, content }));
+                        )* };
+                    }
+                    lctx_model::retrieval_outputs!(receipts);
                     let mut output = StageOutput::new(
                         access,
                         &attempt,
@@ -329,13 +385,17 @@ async fn mandatory_four_family_preparation_uses_completed_native_catalog_sources
             .unwrap();
         }
     }
-    let validated = attempt
-        .seal(execution.finish().unwrap())
-        .await
-        .unwrap()
-        .validate()
-        .await
-        .unwrap();
+    let receipt = execution.finish().unwrap();
+    assert_eq!(expected_receipts.len(), 9);
+    assert_eq!(receipt.sources().iter()
+        .filter(|source| source.producer() == "retrieval_mandatory_control").count(), 9);
+    for (relation, expected) in expected_receipts {
+        let actual = receipt.sources().iter().find(|source|
+            source.producer() == "retrieval_mandatory_control" && source.relation() == relation)
+            .unwrap_or_else(|| panic!("mandatory output receipt missing: {relation}"));
+        assert_eq!(actual.receipt(), expected, "stored mandatory output differs: {relation}");
+    }
+    let sealed = attempt.seal(receipt).await.unwrap();
     let s = id.schema();
     for family in 0i16..4 {
         let units: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
@@ -371,7 +431,16 @@ async fn mandatory_four_family_preparation_uses_completed_native_catalog_sources
     assert!(roots >= units);
     let unrun:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {s}.retrieval_corpus_texts WHERE convert_from(text,'UTF8') LIKE '%execution=NotRun%'"))).fetch_one(db.owner.pool()).await.unwrap();
     assert!(unrun > 0);
-    validated.abort().await.unwrap();
+    // Mandatory preparation has no selected upper owners. It must not qualify the complete
+    // model or obtain a publication capability by leaving those producers unexecuted.
+    let refusal = match sealed.validate().await {
+        Ok(_) => panic!("partial assembly unexpectedly validated"),
+        Err(error) => error,
+    };
+    assert!(matches!(refusal,
+        lctx_postgres::generations::Error::Model(ModelError::Invalid(ref message))
+        if message == "analytic embedding needs one immutable text definition"), "{refusal:?}");
+    store.abort(id).await.unwrap();
     drop(configuration);
     drop(captured);
     assert_eq!(budget.reserved(), 0);

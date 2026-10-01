@@ -1,7 +1,7 @@
 //! The store, generation and query commands driven through the binary against a disposable real
 //! PostgreSQL 18 with protected (0600) configurations (cutover plan P1.11). Exit status: 0 ok,
 //! 1 error, 2 refused, 3 unavailable.
-use lctx_model::domain::{Batch, input::Package, model, stages::Profile};
+use lctx_model::domain::{Record, input::Package, model, stages::Profile, transfer::local::TransferKey};
 use lctx_postgres::generations::GenerationStore;
 use lctx_postgres::testing::{
     DisposableDatabase, Harness,
@@ -71,23 +71,15 @@ async fn store_generation_and_query_commands() {
         .unwrap();
     let facts = Facts::new();
     let published = facts.published(&store, db.writer.clone()).await;
-    let mut conformance = Harness::begin(&store, db.writer.clone(), Profile::Catalog, budget())
-        .await
-        .unwrap();
-    conformance
-        .copy(
-            &Batch::new(
-                &facts.model,
-                vec![Package {
-                    name: "example".into(),
-                }],
-                &budget(),
-            )
-            .unwrap(),
-            &budget(),
-        )
-        .await
-        .unwrap();
+    let mut conformance = Harness::begin_empty_conformance(
+        &store,
+        db.writer.clone(),
+        Profile::Catalog,
+        budget(),
+        vec![Package { name: "example".into() }],
+    )
+    .await
+    .unwrap();
     conformance.seal().await.unwrap();
     conformance.validate(&budget()).await.unwrap();
     conformance.publish().await.unwrap();
@@ -200,7 +192,7 @@ async fn store_generation_and_query_commands() {
                 "query",
                 "--generation",
                 &published.hex(),
-                "SELECT count(*) FROM transfer_keys",
+                &format!("SELECT count(*) FROM {}", TransferKey::NAME),
             ],
             cfg,
             None,
@@ -283,7 +275,7 @@ fn model_describe_needs_no_database() {
     assert!(
         relations
             .iter()
-            .any(|r| r["name"] == "transfer_keys" && r["facts"] == false)
+            .any(|r| r["name"] == TransferKey::NAME && r["facts"] == false)
     );
     let text = expect(lctx(&["model", "describe"], None, None), 0, "text");
     assert!(

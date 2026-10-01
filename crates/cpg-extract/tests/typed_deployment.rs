@@ -21,6 +21,12 @@ fn sha(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 fn captured(mutation: &str) -> Arc<CapturedInputs> {
+    captured_with_budget(mutation, &typed_driver::budget())
+}
+fn captured_with_budget(
+    mutation: &str,
+    budget: &lctx_model::domain::resources::ResourceBudget,
+) -> Arc<CapturedInputs> {
     let site = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(site.path().join("fastmcp")).unwrap();
     let module = b"def add(a, b): return a + b\n";
@@ -42,7 +48,7 @@ fn captured(mutation: &str) -> Arc<CapturedInputs> {
         "fastmcp-4.0.5.dist-info/METADATA".into(),
         "fastmcp-4.0.5.dist-info/entry_points.txt".into(),
     ];
-    let frozen = CapturedInput::capture(site.path(), &paths, &typed_driver::budget()).unwrap();
+    let frozen = CapturedInput::capture(site.path(), &paths, budget).unwrap();
     let inventory = LibraryInventory {
         name: "fastmcp".into(),
         requirement: "fastmcp==4.0.5".into(),
@@ -105,7 +111,7 @@ fn captured(mutation: &str) -> Arc<CapturedInputs> {
     let frozen = CapturedInput::capture(
         corpus.path(),
         &[path.into(), "launch.json".into()],
-        &typed_driver::budget(),
+        budget,
     )
     .unwrap()
     .with_receipts(&[supplied.path().into()])
@@ -126,7 +132,7 @@ fn captured(mutation: &str) -> Arc<CapturedInputs> {
         vec![library, input],
         cpg_extract::native_context::NativeContextConfig::committed(
             lctx_model::domain::stages::Profile::Catalog,
-            &lctx_model::domain::resources::ResourceBudget::fixed(1 << 30).unwrap(),
+            budget,
         )
         .unwrap(),
     ))
@@ -234,7 +240,7 @@ async fn receipt_target_reservation_refuses_before_read_and_preserves_resource_c
     let tables = typed_driver::Tables::default();
     let result =
         typed_driver::run_profile_with_budget(
-            captured(""),
+            captured_with_budget("", &resources),
             cpg_extract::pyrefly_stage::Pyrefly::new(
                 cpg_extract::typed_syntax::SyntaxLimits::default(),
             ),

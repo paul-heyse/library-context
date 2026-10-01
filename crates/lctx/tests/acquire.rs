@@ -160,7 +160,7 @@ fn unsupported_frontier_never_acquires() {
         std::env::var("PATH").unwrap_or_default()
     );
     for (extra, code) in [
-        (&["--through", "analysis"][..], 3),
+        (&["--through", "serving"][..], 3),
         (
             &["--through", "facts", "--store", "/nonexistent-store"][..],
             2,

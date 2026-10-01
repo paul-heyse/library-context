@@ -106,6 +106,24 @@ and completed source grants with honest incomplete conformance coverage; the ori
 derivation/provenance, scope mutations and failed-state assertions remain. This is a model-contract
 fixture, not qualification of a behavioral provider.
 
+
+The targeted core/extraction/CLI [upper fixtures1](raw/phase4-q0-upper-fixtures1.log) **failed**
+after20 of22 controls passed: the CLI frontier SQL still used a generic transfer name and the
+fresh binary's model digest differed from the accepted snapshot. The second inspected `.snap.new`
+changed only that digest (all784 relations/196 invariants unchanged); `cargo insta accept` accepted
+it. After replacing the SQL name with the declared local `TransferKey::NAME`,
+[upper fixtures2](raw/phase4-q0-upper-fixtures2.log) **passed** all3 CLI/store/snapshot controls,
+but its enclosing four-control command **failed** mandatory retrieval's read contract before
+provider admission: the fixture had not closed the shared invariants of C1's newly read outputs.
+The targeted core/CLI/extraction controls are a scoped composite pass; mandatory retrieval remains
+pending. Its partial-pipeline fixture now compares allnine mandatory outputs against real PG
+completion receipts and must refuse final unassembled-model validation; whole upper generation
+acceptance remains with the actual cumulative CLI controls.
+
+The subsequent `just clippy` [clippy8](raw/phase4-q0-clippy8.log) **failed** on the retrieval
+fixture's `err().expect()` call. An explicit result match preserves the exact final-validation
+refusal without requiring a Debug implementation on the successful capability. Its rerun is pending.
+
 The direct fresh-CLI [live check](raw/phase4-q0-live-store1.log) **failed** on the earlier model's
 installation. Read-only inventory found zero readers and one unselected published facts generation.
 The [reset dry run](raw/phase4-q0-store-reset-plan.log) refused pending confirmation as expected;
@@ -128,3 +146,26 @@ total-RSS and Phase 5 serving are **not_run**, outside this authorized Phase 4 q
 Receipt timing boundary: the new C1 source-link deletion, runtime-Known forgery and sibling-parameter
 retarget controls were committed after functional2's catalog-selection binary had compiled.
 Functional2's pass does not qualify those probes; functional5 supplies their actual PG pass.
+
+The named `just store-check` [store-check1](raw/phase4-q0-store-check1.log) **failed**
+after building the fresh release CLI: the empty installation still carried the previous model
+digest. A new [read-only inventory](raw/phase4-q0-store-reset-inventory2.log) confirmed zero
+generations, no selection and zero other database sessions. The authorized
+`target/release/lctx store reset --confirm lctx` [reset2](raw/phase4-q0-store-reset2.log)
+**passed**, reinstalling model `1d93a1a8808ddf31711497051f5774efc5d2f6aed282d4988a2765560d84b3b6`
+without dropping any generation. The named `just store-check`
+[store-check2](raw/phase4-q0-store-check2.log) **passed**: zero generations, zero findings.
+This qualifies the current empty installation; disposable-generation controls separately cover lifecycle behavior.
+
+The repaired `cargo nextest run --release -p cpg-core --test retrieval_preparation
+--no-fail-fast` [retrieval3](raw/phase4-q0-retrieval3.log) **passed** (36.442s). The fixture
+recursively declares C1 output references and shared invariant inputs over existing completed
+producers, with explicit producer/prefix assertions. Allnine mandatory outputs match their actual
+PostgreSQL completion receipts; all original four-family/source/root/text SQL controls remain.
+The sealed partial pipeline refuses final whole-model validation with the exact missing immutable
+text-definition error, then aborts. The production final retrieval stage already closes its inputs;
+this repair changes no producer, boundary or production declaration.
+
+The full current-tree `just clippy` [clippy9](raw/phase4-q0-clippy9.log) **passed** after
+the explicit result-match correction. The complete `NEXTEST_TEST_THREADS=8 just test-all`
+rerun is in progress; passing focused repairs and installation checks do not establish its result.

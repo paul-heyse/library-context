@@ -9,3 +9,9 @@ slow-timeout = { period = "60s", terminate-after = 5 }
 [[profile.default.overrides]]
 filter = 'test(binary_catalog_with_briefs_replays_shared_embedding_winners)'
 slow-timeout = { period = "60s", terminate-after = 15 }
+
+# This cumulative frontier control runs four real native/PostgreSQL CLI compilations.
+# Full Q0 run on 2026-10-01 exceeded the generic 300s test limit under concurrency.
+[[profile.default.overrides]]
+filter = 'test(binary_publishes_upper_frontiers_with_seedless_catalog_and_explicit_outcomes)'
+slow-timeout = { period = "60s", terminate-after = 15 }

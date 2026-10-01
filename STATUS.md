@@ -40,12 +40,12 @@ Cargo commands use `python3 scripts/build_environment.py --`.
 | `cargo test --release -p cpg-flow --test flow_shapes -- --nocapture`, false-origin2 | **passed**, 33 native controls, including all-state false inventory, live read and computed-false refusal |
 | `cargo check -p cpg-core -p lctx-analytics -p lctx --tests`, X0 check2 | **passed**, complete post-retirement rerun after restoring the independent ranking oracle's dev dependency |
 | `NEXTEST_TEST_THREADS=8 just test-all` | First run **failed**, older fixtures then missing binaries after operator-confirmed concurrent cargo clean. Retry on3ebad979 **failed** before tests: all16 compiler jobs received SIGTERM, cause unconfirmed. Further retry **failed** after successful build: 964 passed, 28 failed, one timed out, 12 skipped; current fixture/schema repairs require rerun |
-| `just hygiene` | Initial run **failed** at ADR lint. Individual fixture/gold/rule/Ruff/type and repaired ADR/docs/dependency/full Clippy checks **passed**; store-check not_run |
+| `just hygiene` | Initial run **failed** at ADR lint. Individual fixture/gold/rule/Ruff/type and repaired ADR/docs/dependency/full Clippy checks **passed**; current full Clippy rerun and named live store-check **passed** |
 | Live embedding, upper real-library pilots, comparisons and measurements | **not_run**, excluded scope |
 
 ## Remaining execution
 
-Finish focused verification of the current fixture/schema repairs, then rerun the full functional gate and named live store check. The earlier installation was reset after confirming zero readers and one unselected obsolete facts generation;
+Focused model, PG, core/extraction/CLI and mandatory-retrieval repairs now have scoped passing reruns. The complete functional gate is running; full qualification remains pending. The named live store check passed after reinstalling the current model in the empty store, with zero readers and no selected generation. The earlier obsolete unselected facts generation was removed in the first reset;
 then publish coherent Q0 receipts and reconcile final owner documentation, Phase 4 disposition
 and this checkpoint. Production/provider digest changes require a coherent full-gate rerun.
 

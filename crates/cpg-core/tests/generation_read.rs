@@ -565,7 +565,7 @@ async fn pin_survives_selection_change_and_frontier_is_enforced() {
     let inspection = InspectionSession::new(session).unwrap();
     // A relation above the frontier plans (P1.11 registers it) and refuses, typed, when scanned.
     let refused = inspection
-        .query("SELECT count(*) FROM transfer_keys")
+        .query(&format!("SELECT count(*) FROM {}", TransferKey::NAME))
         .await
         .unwrap_err();
     assert!(

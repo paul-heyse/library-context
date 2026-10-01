@@ -19,7 +19,7 @@ the single relational store, and DataFusion as in-process compute (DESIGN §15).
 5. serving.
 
 Legacy code is removed at the ownership boundary; no compatibility adapters, legacy IDs or dual stores.
-Phases 0–3 are implemented within their recorded qualification boundaries. Phase 4 typed analysis/catalog and cumulative compilation are implemented; qualification and legacy retirement are in progress. Phase 5 serving remains unavailable. Product work (PR6, new features) pauses until phase 5. STATUS and the current Phase 4 plan own acceptance, not an implementation label alone.
+Phases 0–3 are implemented within their recorded qualification boundaries. Phase 4 typed analysis/catalog and cumulative compilation are implemented; mapped legacy retirement is complete and full Q0 qualification is active. Phase 5 serving remains unavailable. Product work (PR6, new features) pauses until phase 5. STATUS and the current Phase 4 plan own acceptance, not an implementation label alone.
 
 The pieces:
 - **Extraction:** Pyrefly (a pinned, minimally patched fork) and Ruff 0.0.11 crates, both linked
