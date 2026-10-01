@@ -56,3 +56,12 @@ def body_stops():
 
 def field_read(value):
     return value.field
+
+
+async def async_body():
+    pass
+
+
+def generator_body():
+    return 1
+    yield 2

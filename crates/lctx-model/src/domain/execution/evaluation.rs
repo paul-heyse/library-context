@@ -21,6 +21,7 @@ macro_rules! execution_evaluation_inputs {($apply:ident)=>{$apply! {
     scopes:$crate::domain::source::CoverageScope,
     qualifications:$crate::domain::assertion::AssertionQualification,
     placements:$crate::domain::syntax::SyntaxPlacement,
+    declarations:$crate::domain::syntax::DeclarationObservation,
     details:$crate::domain::syntax::SyntaxDetailObservation,
     detail_values:$crate::domain::syntax::SyntaxDetail,
     literals:$crate::domain::value::Literal,
@@ -83,11 +84,13 @@ struct PreparedSyntax {
     details:charged::ChargedMap<Id<Occurrence>,Vec<Id<SyntaxDetailObservation>>>,
     native:charged::ChargedMap<derivation::RowRef,Vec<Id<NativeQualification>>>,
     ownership:charged::ChargedMap<Id<Occurrence>,Vec<Id<EntityRef>>>,
+    declarations:charged::ChargedMap<Id<Occurrence>,Vec<Id<syntax::DeclarationObservation>>>,
+    lazy_owners:charged::ChargedSet<Id<EntityRef>>,
     _charge:charged::StateCharge,
 }
 impl PreparedSyntax {
     fn new(data:&EvaluationData,context:Id<AnalysisContext>,budget:&ResourceBudget)->Result<Self,ModelError> {
-        let mut index=Self {placements:Default::default(),children:Default::default(),details:Default::default(),native:Default::default(),ownership:Default::default(),_charge:charged::StateCharge::new(budget,"execution-syntax-index")};
+        let mut index=Self {placements:Default::default(),children:Default::default(),details:Default::default(),native:Default::default(),ownership:Default::default(),declarations:Default::default(),lazy_owners:Default::default(),_charge:charged::StateCharge::new(budget,"execution-syntax-index")};
         for row in data.placements.iter() {
             if data.qualifications.get(row.qualification).is_none_or(|q|q.context!=context) {continue;}
             if index.placements.insert(&mut index._charge,row.occurrence,row.id())?.is_some_and(|old|old!=row.id()) {return Err(ModelError::Invalid("execution syntax has ambiguous placement".into()));}
@@ -96,6 +99,8 @@ impl PreparedSyntax {
         for row in data.details.iter() {if data.qualifications.get(row.qualification).is_some_and(|q|q.context==context) {index.details.update(&mut index._charge,row.occurrence,|rows|rows.push(row.id()))?;}}
         for row in data.native.iter() {let premise=data.premises.get(row.premise).ok_or_else(||ModelError::Invalid("execution native pair missing".into()))?;index.native.update(&mut index._charge,premise.assertion_and_support().0,|rows|rows.push(row.id()))?;}
         for row in data.owners.iter() {index.ownership.update(&mut index._charge,row.occurrence,|rows|rows.push(row.entity))?;}
+        for row in data.declarations.iter(){if data.qualifications.get(row.qualification).is_some_and(|q|q.context==context){index.declarations.update(&mut index._charge,row.declaration,|rows|rows.push(row.id()))?;}}
+        for row in data.occurrences.iter().filter(|row|matches!(row.syntax_kind,SyntaxKind::ExprYield|SyntaxKind::ExprYieldFrom)){for owner in index.ownership.get(&row.id()).into_iter().flatten(){index.lazy_owners.insert(&mut index._charge,*owner)?;}}
         Ok(index)
     }
 }
@@ -125,6 +130,10 @@ impl Evaluator<'_> {
         let entity=need(&self.data.refs,self.request.owner).map_err(boundary)?;
         let EntityRef::Callable{callable}=entity else{return Err(boundary(ObligationKind::ScopeBoundary));};
         if !matches!(need(&self.data.callables,*callable).map_err(boundary)?,CallableEntity::Source{declaration,kind:CallableKind::Function} if *declaration==id){return Err(boundary(ObligationKind::MissingEvidence));}
+        let declarations=self.index.declarations.get(&id).ok_or_else(||boundary(ObligationKind::MissingEvidence))?;self.tick(declarations.len()).map_err(boundary)?;
+        if declarations.len()!=1{return Err(boundary(ObligationKind::MissingEvidence));}let declaration=need(&self.data.declarations,declarations[0]).map_err(boundary)?;
+        if declaration.kind!=syntax::DeclarationKind::Function||self.index.lazy_owners.contains(&self.request.owner){return Err(boundary(ObligationKind::ScopeBoundary));}
+        self.support(declaration,declaration.qualification,id)?;
         let placement_id=*self.index.placements.get(&id).ok_or_else(||boundary(ObligationKind::MissingEvidence))?;
         let placement=need(&self.data.placements,placement_id).map_err(boundary)?;
         self.support(placement,placement.qualification,id)

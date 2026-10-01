@@ -23,7 +23,7 @@ _Updated 2026-10-01 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
   Actual Local publication and Use/Value/Guard entry domains passed 4 PG, 13 native and 22 model
   controls; behavioral stays Partial, catalog NotRequested. B1 canonical/base/body proofs passed 6 native
   and 12 model controls; Local finite theory/fields and actual BaseEvaluation now passed 70 combined
-  model/native/PG controls; BaseCompletion passed 16 more (plan receipts). Source calls remain pending; settings passed
+  model/native/PG controls; source-body publication passed 17 more (plan receipts). Source calls remain pending; settings passed
   4 pure + 1 PG control across both profiles; production activation remains open.
 - **passed, 2026-10-01:** R0 declared validation-view controls in memory and real PostgreSQL:
   earlier/current vocabulary routing, no widening beyond acknowledged grants, malformed-frame
