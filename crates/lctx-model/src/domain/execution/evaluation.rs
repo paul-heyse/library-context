@@ -64,7 +64,7 @@ impl Value {
 /// Only the shared evaluator constructs this token. Records/replay must preserve the request
 /// and exact ordered evidence; consumers cannot declare arbitrary operands normal.
 #[derive(Debug,Clone,Copy,PartialEq,Eq)]
-pub(crate) enum CallOrigin{Source(Id<super::source_call_records::SourceInvocation>),Modeled(Id<super::modeled_call::ModeledCallEvaluation>),Fresh(Id<super::enriched_records::SourceExecutionInvocation>)}
+pub(crate) enum CallOrigin{Source(Id<super::source_call_records::SourceInvocation>),Modeled(Id<super::modeled_call::ModeledCallEvaluation>),Fresh(Id<super::enriched_records::SourceExecutionInvocation>),ContextBinding(Id<super::context_binding::ContextEntryBinding>)}
 pub struct CheckedEvaluation {
     request:ExpressionRequest, value:Value, release:ReleaseSafety,
     call_source:Option<CallOrigin>, exception:Option<(Id<Occurrence>,super::ExactRuntimeException)>,
@@ -191,7 +191,7 @@ impl Evaluator<'_> {
         self.tick(children.len()).map_err(boundary)?;
         Ok(children)
     }
-    fn detail(&mut self,occurrence:Id<Occurrence>)->Result<Option<SyntaxDetail>,EvaluationError> {
+    pub(crate) fn detail(&mut self,occurrence:Id<Occurrence>)->Result<Option<SyntaxDetail>,EvaluationError> {
         let mut found=None;
         self.tick(self.index.details.get(&occurrence).map_or(0,Vec::len)).map_err(boundary)?;
         for row_id in self.index.details.get(&occurrence).into_iter().flatten() {
@@ -349,3 +349,9 @@ pub(crate) fn modeled_call_evaluation(data:&EvaluationData,request:ExpressionReq
  })
 }
 pub(crate) fn mark_modeled(proof:&mut CheckedEvaluation,source:Id<super::modeled_call::ModeledCallEvaluation>){proof.call_source=Some(CallOrigin::Modeled(source));}
+
+/// The source-owned construction/reaching operator supplies the value; this helper only
+/// projects it to the exact body name read and marks its nominal non-Base authority.
+pub(crate) fn context_binding_evaluation(data:&EvaluationData,request:ExpressionRequest,returned:Option<&CheckedEvaluation>,source:Id<super::context_binding::ContextEntryBinding>,status:analysis::policy::EvidenceStatus,budget:&ResourceBudget)->Result<Result<CheckedEvaluation,ObligationKind>,ModelError>{
+ with_completion_syntax(data,request,budget,|syntax|{syntax.observe(request.expression)?;if data.occurrences.get(request.expression).is_none_or(|row|row.syntax_kind!=SyntaxKind::ExprName){return Err(boundary(ObligationKind::MissingEvidence));}let qualification=syntax.qualification(request.expression).map_err(boundary)?;if returned.is_some_and(|proof|(proof.request.input,proof.request.context,proof.request.owner)!=(request.input,request.context,request.owner)||proof.exception().is_some()){return Err(boundary(ObligationKind::IncompatibleContexts));}let status=analysis::support::inferred_status(analysis::Interpretation::Structural,[syntax.status(),status]);let(native,mut charge)=syntax.take_admission();let entries=returned.map_or_else(Vec::new,|proof|proof._entry_charges.clone());charge.grow(entries.len()*size_of::<std::sync::Arc<charged::StateCharge>>()*2)?;Ok(CheckedEvaluation{request,value:returned.map_or(Value::None,|proof|proof.value),release:returned.map_or(ReleaseSafety::Closed,CheckedEvaluation::release),call_source:Some(CallOrigin::ContextBinding(source)),exception:None,native,operands:Vec::new(),entries:Vec::new(),_entry_charges:entries,qualification,status,_charge:charge})})
+}

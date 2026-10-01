@@ -709,6 +709,7 @@ fn details(node: AnyNodeRef<'_>) -> Vec<(SyntaxDetail, Option<Literal>)> {
     let op = |kind: OperatorKind| (SyntaxDetail::Operator { operator: kind }, None);
     match node {
         AnyNodeRef::ExprBinOp(e) => vec![op(operator(e.op))],
+        AnyNodeRef::StmtWith(s) => vec![(SyntaxDetail::WithMode { is_async: s.is_async }, None)],
         AnyNodeRef::StmtAugAssign(s) => vec![op(operator(s.op))],
         AnyNodeRef::ExprBoolOp(e) => vec![op(match e.op {
             BoolOp::And => OperatorKind::And,

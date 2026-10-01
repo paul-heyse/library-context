@@ -93,6 +93,8 @@ pub enum SyntaxDetail {
     Operator { operator: OperatorKind },
     #[model(code = 1)]
     Literal { literal: Id<Literal> },
+    #[model(code = 2)]
+    WithMode { is_async: bool },
 }
 /// A provider states an occurrence's `ordinal`th detail (a comparison chain has several).
 #[derive(Debug, Clone, PartialEq, Eq, Domain, Assertion)]

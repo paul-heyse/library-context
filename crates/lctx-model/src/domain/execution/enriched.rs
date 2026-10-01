@@ -5,9 +5,12 @@ use super::{source_call_records::{SourceCallData,SourceCallHeader,SourceInvocati
 
 pub const ENRICHED_WORK_LIMIT:usize=1<<16;
 #[derive(Debug,Clone,Copy,PartialEq,Eq)]
-pub enum EvaluationPremise {Base(Id<super::records::ExpressionEvaluation>),Source(Id<SourceInvocation>),Modeled(Id<super::modeled_call::ModeledCallEvaluation>),Fresh(Id<super::enriched_records::SourceExecutionInvocation>)}
-pub struct EnrichedFrame<'a>{data:&'a SourceCallData,input:Id<input::InputRevision>,context:Id<attribution::AnalysisContext>,evaluations:Vec<(CheckedEvaluation,EvaluationPremise)>,headers:Vec<(&'a CheckedSourceBinding,&'a SourceCallHeader)>,definitions:Vec<super::definition::CheckedDefinition>,budget:&'a ResourceBudget,_charge:charged::StateCharge}
+pub enum EvaluationPremise {Base(Id<super::records::ExpressionEvaluation>),Source(Id<SourceInvocation>),Modeled(Id<super::modeled_call::ModeledCallEvaluation>),Fresh(Id<super::enriched_records::SourceExecutionInvocation>),ContextBinding(Id<super::context_binding::ContextEntryBinding>)}
+pub struct EnrichedFrame<'a>{data:&'a SourceCallData,input:Id<input::InputRevision>,context:Id<attribution::AnalysisContext>,evaluations:Vec<(CheckedEvaluation,EvaluationPremise)>,headers:Vec<(&'a CheckedSourceBinding,&'a SourceCallHeader)>,definitions:Vec<super::definition::CheckedDefinition>,contexts:Vec<super::context_execution::CheckedContextExecution>,budget:&'a ResourceBudget,_charge:charged::StateCharge}
 impl EnrichedFrame<'_>{
+ pub(crate) fn push_binding(&mut self,proof:super::context_binding::CheckedContextBinding)->Result<(),ModelError>{let id=proof.record().id();self._charge.grow(size_of::<(CheckedEvaluation,EvaluationPremise)>()*2)?;self.evaluations.push((proof.into_evaluation(),EvaluationPremise::ContextBinding(id)));Ok(())}
+ pub(crate) fn contexts(&self)->&[super::context_execution::CheckedContextExecution]{&self.contexts}
+ pub(crate) fn push_context(&mut self,proof:super::context_execution::CheckedContextExecution)->Result<(),ModelError>{self._charge.grow(size_of::<super::context_execution::CheckedContextExecution>()*2)?;self.contexts.push(proof);Ok(())}
  pub(crate) fn definitions(&self)->&[super::definition::CheckedDefinition]{&self.definitions}
  pub(crate) fn push_definition(&mut self,proof:super::definition::CheckedDefinition)->Result<(),ModelError>{self._charge.grow(size_of::<super::definition::CheckedDefinition>()*2)?;self.definitions.push(proof);Ok(())}
  pub(crate) fn headers(&self)->&[(&CheckedSourceBinding,&SourceCallHeader)]{&self.headers}
@@ -22,7 +25,7 @@ impl EnrichedFrame<'_>{
   if(request.input,request.context)!=(self.input,self.context){return Ok(Err(ObligationKind::IncompatibleContexts));}
   let _scratch=self.budget.reserve("enriched_completion_operands",self.evaluations.len().checked_mul(size_of::<&CheckedEvaluation>()*2).ok_or_else(||ModelError::Invalid("enriched operand allowance overflow".into()))?)?;
   let proofs=self.evaluations.iter().filter(|(proof,_)|proof.request().owner==request.owner).map(|(proof,_)|proof).collect::<Vec<_>>();
-  super::completion::complete_with_definitions(&self.data.evaluation,request,&proofs,&self.headers,&self.definitions,self.budget)
+  super::completion::complete_with_contexts(&self.data.evaluation,request,&proofs,&self.headers,&self.definitions,&self.contexts,self.budget)
  }
  pub(crate) fn evaluation_premises(&self,proof:&CheckedCompletion)->Result<Vec<EvaluationPremise>,ModelError>{
   let mut results=Vec::new();
@@ -36,7 +39,7 @@ impl EnrichedFrame<'_>{
 pub fn with_frame<T>(data:&SourceCallData,invocation:&analysis::source_call::AnalysisInvocation,definition:&analysis::AnalysisDefinition,budget:&ResourceBudget,visit:impl FnOnce(&mut EnrichedFrame<'_>)->Result<T,ModelError>)->Result<(T,super::source_call_records::SourceCallRecords),ModelError>{
  let mut visit=Some(visit);let mut result=None;
  let records=super::source_call_records::prepare_all_with(data,invocation,definition,stages::Profile::Behavioral,budget,&mut|headers,calls|{
-  let mut frame=EnrichedFrame{data,input:invocation.input,context:invocation.context,evaluations:Vec::new(),headers:Vec::new(),definitions:Vec::new(),budget,_charge:charged::StateCharge::new(budget,"enriched_private_evidence")};
+  let mut frame=EnrichedFrame{data,input:invocation.input,context:invocation.context,evaluations:Vec::new(),headers:Vec::new(),definitions:Vec::new(),contexts:Vec::new(),budget,_charge:charged::StateCharge::new(budget,"enriched_private_evidence")};
   let earlier=data.completed.earlier();
   for row in earlier.evaluations.iter(){let parent=earlier.invocations.get(row.invocation).ok_or_else(||ModelError::Invalid("enriched base invocation absent".into()))?;if(parent.input,parent.context)!=(invocation.input,invocation.context){continue;}frame._charge.grow(size_of::<(CheckedEvaluation,EvaluationPremise)>()*2)?;frame.evaluations.push((earlier.replay(row)?,EvaluationPremise::Base(row.id())));}
   for(header,row)in headers{frame._charge.grow(size_of::<(&CheckedSourceBinding,&SourceCallHeader)>()*2)?;frame.headers.push((header,row));}

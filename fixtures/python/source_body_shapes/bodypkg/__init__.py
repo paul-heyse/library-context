@@ -470,3 +470,81 @@ def rebound_definition_header(value):
     def inner():
         return 1
     return value
+
+
+from contextlib import nullcontext, suppress
+
+
+def with_preserve():
+    with nullcontext(7):
+        pass
+
+
+def with_preserve_return():
+    with nullcontext():
+        return 31
+
+
+def with_suppress():
+    with suppress(TypeError):
+        raise None
+
+
+def with_nonmatch():
+    with suppress(ValueError):
+        raise None
+
+
+def with_multiple():
+    with nullcontext(7), suppress(TypeError):
+        raise None
+
+
+def with_nested():
+    with nullcontext():
+        with suppress(TypeError):
+            raise None
+
+
+def with_unknown_body():
+    with nullcontext():
+        unresolved_body()
+
+
+async def with_async():
+    async with nullcontext():
+        pass
+
+
+def with_target():
+    with nullcontext(37) as value:
+        return value
+
+
+def with_finalizer_return():
+    with suppress(TypeError):
+        try:
+            raise None
+        finally:
+            return 41
+
+
+def with_none_target():
+    with nullcontext() as value:
+        return value
+
+
+def with_rebound_target():
+    value = 5
+    with nullcontext(7) as value:
+        return value
+
+
+def with_missing_target_constructor():
+    with unknown_context() as value:
+        return value
+
+
+def with_held_target(value):
+    with nullcontext(value) as resource:
+        return resource
