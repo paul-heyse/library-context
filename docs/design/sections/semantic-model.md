@@ -32,6 +32,9 @@ Commands and measured envelope are in the plan. Phase 3 runtime foundations (R1�
 phase 1 (P1.3/P1.4). The legacy `cpg-schema` contracts and the analysis, catalog and serving code
 described by §3–§14 remain dormant until phases 3–5 rebuild them.
 `lctx compile --through facts|normalized` publishes either profile and never selects it.
+The cumulative `analysis|catalog` driver is **Implemented / compile-checked, 2026-10-01**, with
+actual upper-frontier qualification pending; the [restart checkpoint](../../plans/semantic-model-phase4-detailed-plan_2026-09-30.md#133-restart-checkpoint-and-remaining-work)
+owns unfinished work. Serving remains unavailable.
 `lctx-model` owns all facts contracts; extraction and native flow have no `cpg-schema` dependency.
 
 **Execution owner.** The [semantic model cutover plan](../../plans/semantic-model-cutover-plan_2026-09-29.md)
@@ -43,8 +46,8 @@ is an **Accepted target, 2026-09-30**. It specifies analysis/catalog reconstruct
 corrections and the immutable vocabulary mechanism below; it does not establish P4 implementation.
 C0, C1 original source/document/deployment evidence and C2 declaration selection are
 **Implemented / focused-Tested, 2026-10-01**. Exact contextual domains retain typed defaults,
-signature variants, four outcome groups and predicate-specific closure. Runtime field/state
-associations still require the Local/B1 producers.
+signature variants, four outcome groups and predicate-specific closure. Runtime field location/constructor evidence has focused real-store controls; retained symbolic store-to-reader
+association remains open under P4B3-F01.
 R0/R1 are **Implemented / focused-Tested**, with an independent
 [Accept scoped foundation review, 2026-10-01](../../design_review/reviews/design_review_phase4-foundation_2026-09-30.md).
 The E1 shared specification, exact value codec, early stored configuration, original analytic text
@@ -484,6 +487,16 @@ including finalizer replacement order and profile-bound NotRequested results (**
 2026-10-01**, 4 actual PG + 9 native + 3 outcome controls). Exact attribute evaluation retains the
 explicit heap-state prerequisite. The detailed plan owns these receipts; assembled acceptance remains open.
 
+**Symbolic source associations (Proposed correction; partial prerequisite implemented,
+2026-10-01).** The existing normalized callable-metadata stage owns source class/store/reader
+associations for both profiles. The partial `normalized::symbolic_fields` implementation currently
+refuses supported-record admission pending exact decorator/default/signature and membership checks.
+Local will add exact Entry/Flow premises; Summary will retain separate uncertain reader alternatives,
+Unknown with no finite-proof authority; C1 will consume the same normalized source association.
+Constructor and reader owners and reader conditions stay explicit even when their Artifact scopes
+coincide. This does not establish temporal heap identity. The [restart checkpoint](../../plans/semantic-model-phase4-detailed-plan_2026-09-30.md#133-restart-checkpoint-and-remaining-work)
+owns integration, native/store controls and corrective reinspection of P4B3-F01.
+
 **Open calls and alternatives**
 - **A value crossing an unresolved or unsummarized call** is not a transfer kind. It is an obligation
   (§15.8), so nothing is inferred through an unknown callee.
@@ -798,8 +811,9 @@ actual stored-read dependencies, including execution sub-stages and catalog core
 selection → synthesis → retrieval. New vocabulary closes occur only where those consumers need
 new predecessor vocabulary; ordinary results can complete against the existing prefix. No global
 proof reference sum may pull future owners into an earlier stage's invariant dependencies. Final
-frontier coverage will have a separate one-shot writer checking the independently declared expected
-owners/outcomes. Catalog construction remains independent of optional analysis success.
+frontier coverage has a separate one-shot writer checking the independently declared expected
+owners/outcomes (**Implemented / focused-Tested, 2026-10-01**); actual cumulative publication
+qualification remains open. Catalog construction remains independent of optional analysis success.
 
 > Decision: ADR-0105, ADR-0108
 
@@ -847,8 +861,9 @@ The same scoped operation is available over the private facts checkpoint before 
 A layer is complete only when it contains no legacy code.
 
 **Clean reconstruction.** No adapters, legacy-ID side relations, compatibility flags or dual
-stores are retained. Phases 0–2 restore model/store/facts; analysis, catalog and MCP stay unavailable
-until phases 3–5. Availability is recorded per generation; missing capabilities never become empty
+stores are retained. Phases 0–2 restore model/store/facts; phases 3–5 reconstruct normalized,
+analysis/catalog and serving layers in order. The current Phase 4 driver is an unqualified execution
+checkpoint; Phase 5 MCP remains unavailable. Availability is recorded per generation; missing capabilities never become empty
 answers. Independent semantic expectations and protected evidence survive implementation deletion.
 Deleting an engine does not retire its capability obligation; that needs a separate consumer decision.
 

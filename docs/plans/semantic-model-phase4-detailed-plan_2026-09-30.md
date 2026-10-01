@@ -17,6 +17,11 @@ owns its composite automated qualification and explicitly unmeasured pilot-scale
 Source/interface observations here are **Interface-checked** on the date above; all new contracts,
 algorithms and benefits are **Proposed** unless an individual receipt says otherwise.
 
+**Restart checkpoint, 2026-10-01:** all active agent work is integrated on main through `18c3809`.
+Phase 4 is **incomplete**. [§13.3](#133-restart-checkpoint-and-remaining-work) is the current resume
+order and overrides earlier package descriptions of work that has since landed. The operator
+requested stopping implementation for a restart; remaining work is explicit below.
+
 ## 1. Outcome, scope and decisions
 
 Phase 4 publishes a self-contained generation containing facts, normalized relations, typed
@@ -1127,8 +1132,83 @@ rule and cross-consumer vector-winner invariant were also clarified during assem
 | Scheduled B0–B3/prerequisite review | Revise, 2026-10-01, frozen `bc6428a`: [independent behavioral review](../design_review/reviews/design_review_phase4-behavior_2026-10-01.md). P4B3-F01 requires retained symbolic store/formal/field/reader association, with exact source nonleakage and qualified Unknown reader alternatives; a heap-state boundary alone does not restore it. Correction and native/actual PG controls are in progress. Actual Summary qualification remains a separate open observation. |
 | F0 cumulative static closure and native frame controls | passed, 2026-10-01: wrapped `cargo test --release -p lctx-model --test analysis_schedule --test upper_frontier_closures`, `/tmp/phase4-final-schedules2.log` (2), and `cargo test --release -p cpg-extract --test final_coverage`, `/tmp/phase4-final-native-root1.log` (1), integrating worker `c6c1b06`. Both profile/frontier schedules assign each declared relation one actual writer; the Analysis model validates without Catalog successor relations. Actual captured native frames reject erased owner/input membership and insufficient budget, retaining/releasing read charges. Stored final-assessment reporting compiles in `/tmp/phase4-final-report-check2.log`; actual upper writer/reader qualification remains pending. |
 
-The next implementation boundary is the P4B3-F01 symbolic association correction and actual Summary
-publication, with final S0/E0 and F0 assembly progressing in parallel. The scheduled behavioral review
-is complete at its frozen baseline and requires corrective reinspection. Acceptance of the design is
-distinct from implementation, semantic qualification, pilot measurements and serving/product acceptance.
+### 13.3 Restart checkpoint and remaining work
+
+**Implemented checkpoint, 2026-10-01; Phase 4 incomplete.** The operator requested agents conclude
+and merge current work before a restart. All active work is integrated into main, including partial
+source prerequisites. No agent build remains running. Preserve unrelated dirty formatter/tooling work
+and existing worktrees/caches. The [durable receipt bundle](../design_review/evidence/2026-10-01_phase4-restart/README.md)
+keeps the decisive logs and interruption boundaries independently of `/tmp`.
+
+| Landed checkpoint | Actual status |
+|---|---|
+| B3 finite consequences, `de78f51`; input/coverage fixes `34dbf1d`, `f2155d6` | Implemented with focused native controls; corrected actual Behavioral Summary publication remains unqualified. |
+| S0 authored code/setup patterns, `fe73b26` (worker `c716e71`) | Implemented; root core compile passed and worker 47 pure synthesis controls passed. Exact original code evidence and setup patterns do not qualify final S0/E0 publication. |
+| F0 one-shot assessments/reporting, `edaf44e`, `9dc3623`, `9635752` | Implemented / focused-Tested: 3 pure, 2 static schedule and 1 actual native control passed. Static Facts declarations are not provider receipts. |
+| F0 cumulative driver and CLI, `37cb4d9` (workers `7f3523d`, `dc7d253`, `a5b5a18`) | Implemented; `lctx compile --through analysis|catalog` is wired through one attempt, one native capture and collection-owned graph preparation, without selection. Both-frontier/both-profile and nonzero-brief/fake-cache tests exist; actual runtime not_run. |
+| Partial F01 source owner, `18c3809` (worker `3d7bf50`) | Implemented prerequisite only: normalized source class/store/reader/association/link records and replay inputs under the existing callable-metadata writer. `record_gate` deliberately returns MissingEvidence; no supported-record association/reader link is admitted. Worker model compile and one native shape diagnostic passed; Local/Summary/C1 integration and actual PG qualification not_run. |
+| S0 explicit negative kind, `18c3809` (worker `99f3a33`) | Implemented: append-only FindingKind/AssertionKind BehavioralRefutation=18, proof-backed RefutedUnderModel evidence in Limits with StructurallyObserved status and original qualification. New functional controls not_run. |
+| MDX draft, `18c3809` | Partial and unregistered: `domain/synthesis/documentary_templates.rs` is preserved source work, excluded from active modules/stages/replay. It is neither compiled nor qualified. |
+| Final merged compile | passed: `python3 scripts/build_environment.py -- cargo check -p lctx --tests`, 59.72s, `phase4-restart-final-check1.log` in the receipt bundle. This does not compile the unregistered MDX draft or establish runtime acceptance. |
+
+**Remaining work, in dependency order:**
+
+1. **P4B3-F01 — normalized source metadata → Local → Summary → C1/S0.** Complete and qualify the
+   single source-association owner in `normalized::symbolic_fields`, called by
+   `normalize_callable_aspects` in both profiles. Finish exact standard-decorator target/options,
+   complete field/default/source membership and support receipts, and native generated-initializer
+   signature admission before enabling supported-record associations. Preserve observable plain
+   stores, while refusing custom allocation/metaclasses, replaced records, descriptor/setter/operator
+   cases and static constructors. C1 consumes this same normalized association; it must not depend
+   on Summary or infer another source model. Local adds exact Entry/Flow store premises.
+   Summary then adds a separate uncertain `SymbolicFieldAlternative` and append-only
+   `SummaryClaim::SymbolicFieldAssociation` code 2 (not yet implemented): Unknown, proof=None,
+   ScopeBoundary or the actual refusal. Do not place this uncertainty in strong finite alternatives.
+   Keep constructor and reader owners plus reader conditions/evaluation atoms explicit; their Artifact
+   scopes can coincide. Never fabricate different Artifact scopes or rebase reader flags onto a
+   constructor. S0 projects these rows as facets without finding authority. Qualify RecordHolder's
+   three distinct depth-two reader alternatives, plain Holder's absent cross-method hop,
+   ConditionalHolder's refusal, and C1 left/read_left nonleakage. Run native and actual PG controls,
+   then obtain corrective reinspection of [P4B3-F01](../design_review/reviews/design_review_phase4-behavior_2026-10-01.md#P4B3-F01).
+2. **S0 retained templates and wording.** Complete the unregistered MDX draft: exact component,
+   attribute and declared-option inputs; Component source/boundary and authored constructor;
+   producer, shared replay, assertion/rendering and source-digest wiring; fix the draft budget API.
+   Warning/ParamField use exact C1 member association, original inner/lead spans, nearest field and
+   exact source/effective signature options. Test unknown/ambiguous/nested/inline/fenced and forged
+   span negatives. Labels remain documentary applicability, not behavioral parameter identity.
+   Restore precise control-warning wording from A0's exact parameter/value/literal/raise rows;
+   final agent checkpoint contains no new wording implementation. Run the new negative-kind controls.
+3. **B3 actual Summary publication.** Rerun
+   `python3 scripts/build_environment.py -- cargo test --release -p cpg-core --test summary_publication -- --nocapture`.
+   The corrected test uses depth two and retains intact/permuted results plus all nine mutation
+   controls; production defaults are unchanged. Run 8 failed both PG cases; run 10 passed Catalog
+   but Behavioral depth-eight replay was interrupted. Run 11 failed compilation with a missing
+   `.rcgu.o` path; run 12 was stopped during rebuilding for this restart. Thus corrected Behavioral
+   publication, aggregate/member replay and the full corruption envelope remain unqualified.
+   Retain scheduled GuardSubstitution roundtrip, unsubstituted-bound-guard and forged-substitution
+   refusal obligations from §11; a narrower native receipt does not close them.
+4. **F0/S0/E0 assembled qualification.** Execute the actual CLI controls in
+   `crates/lctx/tests/compile_facts.rs`: Analysis/Catalog × Catalog/Behavioral, seedless budget zero,
+   nonzero briefs, selected kNN/fake embedding cold/warm/clear-cache replay. Use focused release
+   tests first, then complete all §12 publication/reader, nominal method, profile, refusal and
+   resource-lifetime controls. Final S0/E0 real-store acceptance and full cumulative relation/schema
+   validation remain open. The final source additions change the normalized model, so repeat its
+   targeted schedule/metadata/publication controls; prior static receipts do not cover that addition.
+   The registered CLI paths are an unqualified implementation checkpoint, not a phase-exit claim.
+5. **X0 ownership retirement.** Complete §11's semantic expectation mapping before removing the
+   inventoried dormant P4 sources and their obsolete dependencies, build code and snapshots.
+   The durable 49-path inventory is a candidate list, not a completed deletion. Re-inventory and
+   preserve concurrent edits before acting. Keep named P5 recovery consumers, including dormant
+   `cpg-core::bundle`, remaining `cpg-schema` serving contracts and PostgreSQL services; do not retire
+   F01's behavioral obligations with their old producer. No X0 deletion ran at this checkpoint.
+6. **Review, Q0 and handoff.** After every functional obligation and X0 are complete, obtain the
+   scheduled assembled review and run `just test-all`; repair actual failures and report exact
+   composite receipts. The end-of-turn hook owns hygiene; do not run or inspect it manually.
+   Current full gate is not_run. Previously excluded full-library comparisons, live embedding and
+   performance measurements remain outside this execution scope. Phase 5 serving and PR6 stay open.
+
+The operator reported disk cleanup during the vanished-build-file failures; the failures and stopped
+rebuilds are preserved without inferring a semantic regression. All worker checkpoints have landed;
+resume from main rather than merging copied worker prerequisites. Acceptance of the design remains
+distinct from implementation, semantic qualification, measurement and serving/product acceptance.
 
