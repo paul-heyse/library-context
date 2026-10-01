@@ -114,7 +114,7 @@ enum Cmd {
     },
     /// The acquired environment's deployment identity, as JSON (scripts/deployment_check.py).
     DeploymentIdentity { name: String },
-    /// Publish facts or normalized records and graph snapshots; selection is explicit.
+    /// Publish a cumulative facts, normalized, analysis or catalog generation; selection is explicit.
     Compile {
         name: String,
         #[arg(long)]
@@ -126,6 +126,15 @@ enum Cmd {
         task_receipt: Vec<PathBuf>,
         #[arg(long,default_value_t=lctx_model::domain::resources::DEFAULT_MEMORY_BYTES)]
         memory_bytes: usize,
+        /// Optional analytics: default or comma-separated +technique/-technique.
+        #[arg(long, allow_hyphen_values = true)]
+        techniques: Option<String>,
+        #[arg(long, value_enum)]
+        embedder: Option<compile_options::EmbeddingChoice>,
+        #[arg(long)]
+        embedding_endpoint: Option<String>,
+        #[arg(long)]
+        embedding_spec: Option<PathBuf>,
     },
     /// Inspect one generated Python file's flow facts as JSON (runtime oracle input).
     Flow {
@@ -642,10 +651,11 @@ fn run() -> anyhow::Result<()> {
             profile,
             task_receipt,
             memory_bytes,
+            techniques, embedder, embedding_endpoint, embedding_spec,
         } => {
-            if !matches!(through.as_str(), "facts" | "normalized") {
+            if !matches!(through.as_str(), "facts" | "normalized" | "analysis" | "catalog") {
                 return Err(Unavailable(
-                    "only --through facts or normalized is available during the semantic cutover",
+                    "--through serving is unavailable; use facts, normalized, analysis or catalog",
                 )
                 .into());
             }
@@ -653,13 +663,11 @@ fn run() -> anyhow::Result<()> {
             runtime()?.block_on(compile::compile(
                 &name,
                 profile,
-                if through == "facts" {
-                    lctx_model::domain::admission::Frontier::Facts
-                } else {
-                    lctx_model::domain::admission::Frontier::Normalized
-                },
+                lctx_model::domain::admission::Frontier::ALL.into_iter()
+                    .find(|frontier|frontier.name()==through).expect("validated compile frontier"),
                 &task_receipt,
                 memory_bytes,
+                &compile_options::Options {techniques, embedder, embedding_endpoint, embedding_spec},
                 &libraries,
                 &envs,
                 &sources,

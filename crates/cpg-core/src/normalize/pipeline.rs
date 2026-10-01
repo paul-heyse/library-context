@@ -15,7 +15,7 @@ use lctx_model::domain::{
 };
 use lctx_postgres::generations::GenerationStore;
 #[derive(Clone, Copy)]
-enum Normalization {
+pub(crate) enum Normalization {
     Entities,
     Relations,
     Callables,
@@ -27,7 +27,7 @@ enum Normalization {
     Coverage,
 }
 impl Normalization {
-    const ALL: [Self; 9] = [
+    pub(crate) const ALL: [Self; 9] = [
         Self::Entities,
         Self::Relations,
         Self::Callables,
@@ -38,7 +38,7 @@ impl Normalization {
         Self::Projections,
         Self::Coverage,
     ];
-    fn declaration(self, profile: Profile) -> Stage {
+    pub(crate) fn declaration(self, profile: Profile) -> Stage {
         match self {
             Self::Entities => entity_normalization::stage(),
             Self::Relations => relation_normalization::stage(profile),
@@ -51,7 +51,7 @@ impl Normalization {
             Self::Coverage => lctx_model::domain::normalized::coverage::stage(profile),
         }
     }
-    async fn run(
+    pub(crate) async fn run(
         self,
         access: StageAccess<'_, '_>,
         attempt: &GenerationAttempt,

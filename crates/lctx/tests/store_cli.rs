@@ -236,9 +236,9 @@ async fn store_generation_and_query_commands() {
         "retire",
     );
     expect(
-        lctx(&["compile", "fastmcp", "--through", "analysis"], cfg, None),
+        lctx(&["compile", "fastmcp", "--through", "serving"], cfg, None),
         3,
-        "analysis is unavailable",
+        "serving is unavailable",
     );
     // Reset: a dry run by default, then confirmed by the database name.
     let dry = expect(lctx(&["store", "reset"], cfg, None), 2, "dry-run reset");

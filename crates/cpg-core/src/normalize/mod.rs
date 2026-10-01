@@ -345,7 +345,7 @@ pub async fn projections(
     output.finish(ProviderOutcome::Complete).await
 }
 
-mod pipeline;
+pub(crate) mod pipeline;
 pub use pipeline::{publish, schedule};
 
 async fn compute<D: Send + 'static, O: Send + 'static>(

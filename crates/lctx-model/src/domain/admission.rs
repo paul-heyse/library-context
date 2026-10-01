@@ -27,14 +27,18 @@ pub enum Frontier {
     Conformance,
     Facts,
     Normalized,
+    Analysis,
+    Catalog,
 }
 impl Frontier {
-    pub const ALL: [Self; 3] = [Self::Conformance, Self::Facts, Self::Normalized];
+    pub const ALL: [Self; 5] = [Self::Conformance, Self::Facts, Self::Normalized, Self::Analysis, Self::Catalog];
     pub fn name(self) -> &'static str {
         match self {
             Self::Conformance => "conformance",
             Self::Facts => "facts",
             Self::Normalized => "normalized",
+            Self::Analysis => "analysis",
+            Self::Catalog => "catalog",
         }
     }
     /// The model is the sole owner of frontier closure and admission semantics. A frontier is
@@ -62,6 +66,22 @@ impl Frontier {
                 declared: Some(normalized_relations),
                 requirements: FACTS_REQUIREMENTS,
                 checkpoints: &[Self::Facts],
+                selectable: true,
+                admission: true,
+            },
+            Self::Analysis => FrontierDescriptor {
+                frontier: self,
+                declared: Some(analysis_frontier_relations),
+                requirements: FACTS_REQUIREMENTS,
+                checkpoints: &[Self::Facts, Self::Normalized],
+                selectable: true,
+                admission: true,
+            },
+            Self::Catalog => FrontierDescriptor {
+                frontier: self,
+                declared: Some(catalog_frontier_relations),
+                requirements: FACTS_REQUIREMENTS,
+                checkpoints: &[Self::Facts, Self::Normalized, Self::Analysis],
                 selectable: true,
                 admission: true,
             },
@@ -509,7 +529,7 @@ impl FrontierContract {
                 }
             }
         }
-        if self.frontier == Frontier::Normalized {
+        if matches!(self.frontier, Frontier::Normalized | Frontier::Analysis | Frontier::Catalog) {
             for capability in super::normalized::coverage::Capability::ALL {
                 let required = capability.producer(self.profile);
                 if !schedule
@@ -767,7 +787,7 @@ impl AdmissionCheck {
             ValidationInput::of::<CoverageScope>(&["id"]),
             ValidationInput::of::<ProviderCoverage>(&["id"]),
         ];
-        if self.preflight.contract.frontier == Frontier::Normalized {
+        if matches!(self.preflight.contract.frontier, Frontier::Normalized | Frontier::Analysis | Frontier::Catalog) {
             inputs.extend(super::normalized::coverage::CoverageOutput::validation_inputs());
         }
         inputs
@@ -810,7 +830,7 @@ impl AdmissionCheck {
             for row in ProviderCoverage::decode(batch)? {
                 self.rows.push(c, row)?;
             }
-        } else if self.preflight.contract.frontier == Frontier::Normalized
+        } else if matches!(self.preflight.contract.frontier, Frontier::Normalized | Frontier::Analysis | Frontier::Catalog)
             && self.normalized.visit(relation, batch)?
         {
         } else {
@@ -948,7 +968,7 @@ impl AdmissionCheck {
             &availability,
             self.charge.budget().expect("bound admission"),
         )?);
-        if contract.frontier == Frontier::Normalized {
+        if matches!(contract.frontier, Frontier::Normalized | Frontier::Analysis | Frontier::Catalog) {
             let budget = self.charge.budget().expect("bound admission");
             let mut artifacts = super::normalized::Rows::new(budget);
             for row in self.artifacts.iter() {
