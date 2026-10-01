@@ -24,7 +24,7 @@ macro_rules! inputs {
             pub fn visit(&mut self, relation: &str, batch: &arrow_array::RecordBatch) -> Result<bool, ModelError> {
                 $(if relation == <$ty>::NAME { self.$field.decode(batch)?; return Ok(true); })* Ok(false)
             }
-            pub fn validation_inputs() -> Vec<ValidationInput> { vec![$(ValidationInput::of::<$ty>(&["id"]),)*] }
+            pub fn validation_inputs() -> Vec<ValidationInput> { vec![$(ValidationInput::of::<$ty>(&["id"]),)*].into_iter().map(|input|if stages::is_vocabulary(input.name()) {input.at_epoch(stages::PublicationBoundary::Facts)}else {input}).collect() }
             pub fn stage_inputs() -> Vec<stages::RelationUse> { vec![$(stages::RelationUse::stored::<$ty>()),*] }
         }
     }
@@ -46,21 +46,39 @@ macro_rules! outputs {
     }
 }
 crate::normalized_binding_outputs!(outputs);
-fn receiver_proofs(data:&BindingData,budget:&ResourceBudget)->Result<super::receiver::VerifiedReceivers,ModelError> {
-    let mut inputs=super::receiver::ReceiverData::new(budget);let mut outputs=super::receiver::ReceiverOutput::new(budget);
+fn receiver_proofs(
+    data: &BindingData,
+    budget: &ResourceBudget,
+) -> Result<super::receiver::VerifiedReceivers, ModelError> {
+    let mut inputs = super::receiver::ReceiverData::new(budget);
+    let mut outputs = super::receiver::ReceiverOutput::new(budget);
     macro_rules! input {($($field:ident: $ty:ty,)*)=>{$(for row in <BindingData as Source<$ty>>::rows(data).iter(){inputs.$field.insert(row.clone())?;})*};}
     macro_rules! output {($($field:ident: $ty:ty,)*)=>{$(for row in <BindingData as Source<$ty>>::rows(data).iter(){outputs.$field.insert(row.clone())?;})*};}
-    crate::normalized_receiver_inputs!(input);crate::normalized_receiver_outputs!(output);
-    super::receiver::verify(&inputs,&outputs,budget)
+    crate::normalized_receiver_inputs!(input);
+    crate::normalized_receiver_outputs!(output);
+    super::receiver::verify(&inputs, &outputs, budget)
 }
-fn event_proofs(data:&BindingData,budget:&ResourceBudget)->Result<super::event_normalization::VerifiedEvents,ModelError> {
-    let mut inputs=super::event_normalization::EventData::new(budget);let mut outputs=super::event_normalization::EventOutput::new(budget);
+fn event_proofs(
+    data: &BindingData,
+    budget: &ResourceBudget,
+) -> Result<super::event_normalization::VerifiedEvents, ModelError> {
+    let mut inputs = super::event_normalization::EventData::new(budget);
+    let mut outputs = super::event_normalization::EventOutput::new(budget);
     macro_rules! input {($($field:ident: $ty:ty,)*)=>{$(for row in <BindingData as Source<$ty>>::rows(data).iter(){inputs.$field.insert(row.clone())?;})*};}
     macro_rules! output {($($field:ident: $ty:ty,)*)=>{$(for row in <BindingData as Source<$ty>>::rows(data).iter(){outputs.$field.insert(row.clone())?;})*};}
-    crate::normalized_event_inputs!(input);crate::normalized_event_outputs!(output);
-    super::event_normalization::verify(&inputs,&outputs,budget)
+    crate::normalized_event_inputs!(input);
+    crate::normalized_event_outputs!(output);
+    super::event_normalization::verify(&inputs, &outputs, budget)
 }
-fn original_target<'a>(data:&'a BindingData,alternative:&NormalizedCallAlternative)->Result<&'a CallTarget,ModelError> {need(&data.targets,need(&data.event_alternative_sources,alternative.source)?.target())}
+fn original_target<'a>(
+    data: &'a BindingData,
+    alternative: &NormalizedCallAlternative,
+) -> Result<&'a CallTarget, ModelError> {
+    need(
+        &data.targets,
+        need(&data.event_alternative_sources, alternative.source)?.target(),
+    )
+}
 fn invalid(message: impl Into<String>) -> ModelError {
     ModelError::Invalid(message.into())
 }
@@ -159,7 +177,7 @@ fn application<'a>(
     events: &'a super::event_normalization::VerifiedEvents,
 ) -> Result<ApplicableSignature<'a>, ObligationKind> {
     let missing = ObligationKind::MissingEvidence;
-    let target = original_target(data,alternative).map_err(|_|missing)?;
+    let target = original_target(data, alternative).map_err(|_| missing)?;
     let signature = data.signatures.get(variant.signature).ok_or(missing)?;
     let callable = data
         .callables
@@ -247,7 +265,7 @@ fn attempt(
     budget: &ResourceBudget,
 ) -> Result<Id<CallBindingAttempt>, ModelError> {
     let mut work = StateCharge::new(budget, "binding-work");
-    let target = original_target(data,alternative)?;
+    let target = original_target(data, alternative)?;
     let mut row = CallBindingAttempt {
         alternative: alternative.id(),
         variant: variant.map(Record::id),
@@ -257,8 +275,8 @@ fn attempt(
         signature: variant.map(|v| v.signature),
         arguments: syntax.map(|s| s.arguments),
         receiver: target.receiver,
-        receiver_assessment: receivers.get(target.id()).map(|p|p.assessment()),
-        dispatch_member: events.dispatch(alternative.id()).map(|p|p.member()),
+        receiver_assessment: receivers.get(target.id()).map(|p| p.assessment()),
+        dispatch_member: events.dispatch(alternative.id()).map(|p| p.member()),
         effective: variant.and_then(|v| v.assessment),
         adjustment: variant.map_or(SignatureAdjustment::Unknown, |v| v.adjustment),
         authority: BindingAuthority::SourceInspection,
@@ -339,15 +357,15 @@ fn attempt(
     Ok(id)
 }
 pub fn normalize(data: &BindingData, budget: &ResourceBudget) -> Result<BindingOutput, ModelError> {
-    let receivers = receiver_proofs(data,budget)?;
-    let events = event_proofs(data,budget)?;
+    let receivers = receiver_proofs(data, budget)?;
+    let events = event_proofs(data, budget)?;
     let index = Index::new(data, budget)?;
     let mut output = BindingOutput::new(budget);
     let mut charge = StateCharge::new(budget, "binding-set-index");
     let mut sets: ChargedMap<SetKey, Vec<Id<CallBindingAttempt>>> = Default::default();
     for alternative in data.event_alternatives.iter() {
         let event = need(&data.event_events, alternative.event)?;
-        let target = original_target(data,alternative)?;
+        let target = original_target(data, alternative)?;
         let variants = match alternative.entity.and_then(|id| data.refs.get(id)) {
             Some(EntityRef::Callable { callable }) => {
                 index.variants.get(&(*callable, event.context))
@@ -612,7 +630,7 @@ pub fn verify(
 ) -> Result<VerifiedBindings, ModelError> {
     stored.matches(&normalize(data, budget)?)?;
     let events = verify_upstream(data, budget)?;
-    let receivers = receiver_proofs(data,budget)?;
+    let receivers = receiver_proofs(data, budget)?;
     let index = Index::new(data, budget)?;
     let mut result = VerifiedBindings {
         bound: Default::default(),
@@ -692,7 +710,7 @@ pub fn verify(
         {
             continue;
         }
-        let target = original_target(data,alternative)?;
+        let target = original_target(data, alternative)?;
         result.composition.insert(
             &mut result._charge,
             row.id(),
