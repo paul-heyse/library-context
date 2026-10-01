@@ -32,7 +32,7 @@ _Updated 2026-10-01 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
 - **passed, 2026-10-01:** E1 original analytic text (five pure controls) and both native PostgreSQL
   profiles, including complete seal/model validation. E1 consumption then passed five pure and
   three actual PG controls across four availability cases; external effects used a contract fixture,
-  so live-service behavior is not_run. A0 usage and A1 neighbour kernel controls passed; nominal
+  so live-service behavior is not_run. A0 usage and A1 neighbour/rank kernels passed; nominal
   publication, E0 and cross-consumer integration remain open.
 - **passed, 2026-10-01:** integrated C0 catalog (20 pure controls; native catalog plus both
   normalized PG profiles). C1/E1 per-grain coverage contracts passed two pure controls;

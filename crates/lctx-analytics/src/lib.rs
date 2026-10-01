@@ -10,6 +10,7 @@ pub mod config;
 pub mod graph;
 pub mod native_schedule;
 pub mod native_neighbours;
+pub mod native_ranking;
 pub mod neighbours;
 pub mod pass_a;
 pub mod pass_b;
