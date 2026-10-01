@@ -68,3 +68,5 @@ pub mod summary_replay;
 pub mod summary_control;
 pub mod summary_alias;
 pub mod summary_consequences;
+
+pub mod read_fields;

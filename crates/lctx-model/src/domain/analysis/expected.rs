@@ -43,8 +43,21 @@ pub(crate) fn contract(
             }],
             true,
         ),
-        (AnalysisMethod::Execution, AnalysisCapability::Execution)
-        | (AnalysisMethod::Completion, AnalysisCapability::Completion) => (
+        (AnalysisMethod::Execution, AnalysisCapability::Execution) => (
+            &[ScopeContract {
+                grain: Artifact(PythonSource),
+                native: &[
+                    FactFamily::Syntax,
+                    FactFamily::Signatures,
+                    FactFamily::Lexical,
+                    FactFamily::Flow,
+                    FactFamily::Calls,
+                ],
+                normalized: &[Capability::Symbols, Capability::Callables],
+            }],
+            true,
+        ),
+        (AnalysisMethod::Completion, AnalysisCapability::Completion) => (
             &[ScopeContract {
                 grain: Artifact(PythonSource),
                 native: &[

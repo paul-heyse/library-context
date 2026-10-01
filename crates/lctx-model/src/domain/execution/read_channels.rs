@@ -37,18 +37,18 @@ pub struct FormalReadAssessment {
  pub owner:Id<EntityRef>,pub scope:Option<Id<lexical::LexicalScope>>,pub coverage:Option<Id<ProviderCoverage>>,
  pub status:ReadAssessment,pub reason:Option<obligation::ObligationKind>,pub reads:ContentHash,
 }
-pub struct ReadRecords {pub dynamic:Rows<super::read_dynamic::DynamicAccessObservation>,pub dynamic_premises:Rows<super::read_dynamic::DynamicAccessPremise>,pub reads:Rows<ReadObservation>,pub dependencies:Rows<ReadDependency>,pub attributes:Rows<AttributeRead>,pub formals:Rows<FormalReadAssessment>}
-impl ReadRecords {pub fn new(budget:&resources::ResourceBudget)->Self{Self{dynamic:Rows::new(budget),dynamic_premises:Rows::new(budget),reads:Rows::new(budget),dependencies:Rows::new(budget),attributes:Rows::new(budget),formals:Rows::new(budget)}}}
-pub fn relations()->Vec<Relation>{{let mut rows=super::read_dynamic::relations();rows.extend([Relation::of::<ReadObservation>(),Relation::of::<ReadDependency>(),Relation::of::<AttributeRead>(),Relation::of::<FormalReadAssessment>()]);rows}}
+pub struct ReadRecords {pub fields:super::read_fields::FieldRecords,pub dynamic:Rows<super::read_dynamic::DynamicAccessObservation>,pub dynamic_premises:Rows<super::read_dynamic::DynamicAccessPremise>,pub reads:Rows<ReadObservation>,pub dependencies:Rows<ReadDependency>,pub attributes:Rows<AttributeRead>,pub formals:Rows<FormalReadAssessment>}
+impl ReadRecords {pub fn new(budget:&resources::ResourceBudget)->Self{Self{fields:super::read_fields::FieldRecords::new(budget),dynamic:Rows::new(budget),dynamic_premises:Rows::new(budget),reads:Rows::new(budget),dependencies:Rows::new(budget),attributes:Rows::new(budget),formals:Rows::new(budget)}}}
+pub fn relations()->Vec<Relation>{{let mut rows=super::read_dynamic::relations();rows.extend(super::read_fields::relations());rows.extend([Relation::of::<ReadObservation>(),Relation::of::<ReadDependency>(),Relation::of::<AttributeRead>(),Relation::of::<FormalReadAssessment>()]);rows}}
 impl ReadRecords {
- pub fn visit(&mut self,name:&str,batch:&arrow_array::RecordBatch)->Result<(),ModelError>{macro_rules! rows{($($field:ident:$ty:ty,)*)=>{$(if name==<$ty>::NAME{self.$field.decode(batch)?;})*};}rows!{dynamic:super::read_dynamic::DynamicAccessObservation,dynamic_premises:super::read_dynamic::DynamicAccessPremise,reads:ReadObservation,dependencies:ReadDependency,attributes:AttributeRead,formals:FormalReadAssessment,}Ok(())}
- pub fn append(&mut self,other:&Self)->Result<(),ModelError>{macro_rules! rows{($($field:ident,)*)=>{$(for row in other.$field.iter(){self.$field.insert(row.clone())?;})*};}rows!{dynamic,dynamic_premises,reads,dependencies,attributes,formals,}Ok(())}
- pub fn same(&self,other:&Self)->bool{self.dynamic.same(&other.dynamic)&&self.dynamic_premises.same(&other.dynamic_premises)&&self.reads.same(&other.reads)&&self.dependencies.same(&other.dependencies)&&self.attributes.same(&other.attributes)&&self.formals.same(&other.formals)}
+ pub fn visit(&mut self,name:&str,batch:&arrow_array::RecordBatch)->Result<(),ModelError>{self.fields.visit(name,batch)?;macro_rules! rows{($($field:ident:$ty:ty,)*)=>{$(if name==<$ty>::NAME{self.$field.decode(batch)?;})*};}rows!{dynamic:super::read_dynamic::DynamicAccessObservation,dynamic_premises:super::read_dynamic::DynamicAccessPremise,reads:ReadObservation,dependencies:ReadDependency,attributes:AttributeRead,formals:FormalReadAssessment,}Ok(())}
+ pub fn append(&mut self,other:&Self)->Result<(),ModelError>{self.fields.append(&other.fields)?;macro_rules! rows{($($field:ident,)*)=>{$(for row in other.$field.iter(){self.$field.insert(row.clone())?;})*};}rows!{dynamic,dynamic_premises,reads,dependencies,attributes,formals,}Ok(())}
+ pub fn same(&self,other:&Self)->bool{self.fields.same(&other.fields)&&self.dynamic.same(&other.dynamic)&&self.dynamic_premises.same(&other.dynamic_premises)&&self.reads.same(&other.reads)&&self.dependencies.same(&other.dependencies)&&self.attributes.same(&other.attributes)&&self.formals.same(&other.formals)}
 }
-pub fn validation_inputs()->Vec<ValidationInput>{{let mut inputs=super::read_dynamic::validation_inputs();inputs.extend([ValidationInput::of::<ReadObservation>(&["id"]),ValidationInput::of::<ReadDependency>(&["id"]),ValidationInput::of::<AttributeRead>(&["id"]),ValidationInput::of::<FormalReadAssessment>(&["id"])]);inputs}}
+pub fn validation_inputs()->Vec<ValidationInput>{{let mut inputs=super::read_dynamic::validation_inputs();inputs.extend(super::read_fields::validation_inputs());inputs.extend([ValidationInput::of::<ReadObservation>(&["id"]),ValidationInput::of::<ReadDependency>(&["id"]),ValidationInput::of::<AttributeRead>(&["id"]),ValidationInput::of::<FormalReadAssessment>(&["id"])]);inputs}}
 pub const WORK_LIMIT:usize=1<<24;
 pub(super) struct Work {
- remaining:usize,native:charged::ChargedMap<(derivation::RowRef,derivation::RowRef),Id<analysis::native::NativeQualification>>,
+ pub(super) dynamic_targets:charged::ChargedMap<Id<Occurrence>,Vec<Id<calls::CallTarget>>>,remaining:usize,native:charged::ChargedMap<(derivation::RowRef,derivation::RowRef),Id<analysis::native::NativeQualification>>,
  native_ids:charged::ChargedMap<Id<NativeAssertionPremise>,Id<analysis::native::NativeQualification>>,
  owners:charged::ChargedMap<Id<Occurrence>,Option<Id<EntityRef>>>,
  formal_reads:charged::ChargedMap<Id<Occurrence>,Vec<Id<FlowUse>>>,
@@ -61,7 +61,7 @@ impl Work {
  pub(super) fn owner(&self,site:Id<Occurrence>)->Option<Id<EntityRef>>{self.owners.get(&site).copied().flatten()}
  pub(super) fn qualification<'a>(&self,data:&'a EvaluationData,premise:Id<NativeAssertionPremise>)->Option<&'a analysis::native::NativeQualification>{data.native.get(*self.native_ids.get(&premise)?)}
  fn new(data:&EvaluationData,entry:&EntryData,invocation:&publication::AnalysisInvocation,budget:&resources::ResourceBudget)->Result<Self,ModelError>{
-  let mut index=Self{remaining:WORK_LIMIT,native:Default::default(),native_ids:Default::default(),owners:Default::default(),formal_reads:Default::default(),nested:Default::default(),calls:Default::default(),charge:charged::StateCharge::new(budget,"read-channel-index")};
+  let mut index=Self{dynamic_targets:Default::default(),remaining:WORK_LIMIT,native:Default::default(),native_ids:Default::default(),owners:Default::default(),formal_reads:Default::default(),nested:Default::default(),calls:Default::default(),charge:charged::StateCharge::new(budget,"read-channel-index")};
   for row in data.native.iter(){index.tick()?;let premise=data.premises.get(row.premise).ok_or_else(||ModelError::Invalid("read native pair missing".into()))?;if index.native.insert(&mut index.charge,premise.assertion_and_support(),row.id())?.is_some(){return Err(ModelError::Invalid("duplicate read native pair".into()));}index.native_ids.insert(&mut index.charge,row.premise,row.id())?;}
   for row in entry.owners.iter(){index.tick()?;let value=if index.owners.contains_key(&row.occurrence){None}else{Some(row.entity)};index.owners.insert(&mut index.charge,row.occurrence,value)?;}
   let mut observed=charged::ChargedSet::default();for row in entry.use_observations.iter(){index.tick()?;if entry.qualifications.get(row.qualification).is_some_and(|q|q.context==invocation.context){observed.insert(&mut index.charge,row.use_)?;}}
@@ -70,13 +70,17 @@ impl Work {
   for row in entry.reaching.iter(){index.tick()?;if entry.qualifications.get(row.qualification).is_none_or(|q|q.context!=invocation.context){continue;}if let Some(ReachingDefinition::Bound{definition})=entry.targets.get(row.target){if let Some(definition)=entry.definitions.get(*definition){let parameter=parameters.get(&definition.occurrence).copied().unwrap_or(definition.occurrence);index.formal_reads.update(&mut index.charge,parameter,|rows|rows.push(row.use_))?;}}
    if matches!(entry.targets.get(row.target),Some(ReachingDefinition::Nested)){if let Some(owner)=entry.uses.get(row.use_).and_then(|u|index.owner(u.occurrence)){index.nested.update(&mut index.charge,owner,|rows|rows.push(row.id()))?;}}
   }
+  for target in data.call_targets.iter(){index.tick()?;if entry.qualifications.get(target.qualification).is_some_and(|q|q.context==invocation.context){index.dynamic_targets.update(&mut index.charge,target.site,|rows|rows.push(target.id()))?;}}
   for occurrence in entry.occurrences.iter(){index.tick()?;if occurrence.syntax_kind==SyntaxKind::ExprCall{if let Some(owner)=index.owner(occurrence.id()){index.calls.update(&mut index.charge,owner,|rows|rows.push(occurrence.id()))?;}}}
   Ok(index)
  }
 }
-fn input_scope(entry:&EntryData,scope:Id<CoverageScope>,input:Id<input::InputRevision>,artifact:Id<SourceArtifact>)->bool{
+pub(super) fn input_scope(entry:&EntryData,scope:Id<CoverageScope>,input:Id<input::InputRevision>,artifact:Id<SourceArtifact>)->bool{
  match entry.scopes.get(scope){Some(CoverageScope::Input{input:owner})=>*owner==input,Some(CoverageScope::Artifact{artifact:owner})=>*owner==artifact,Some(CoverageScope::Module{module})=>entry.modules.get(*module).is_some_and(|m|m.source==artifact),_=>false}
 }
+/// Calls may retain unresolved alternatives (Partial); that is not a runtime closure claim.
+/// Missing/unavailable inventory cannot screen imported/qualified name-driven accesses.
+pub(super) fn calls_available(entry:&EntryData,invocation:&publication::AnalysisInvocation,artifact:Id<SourceArtifact>)->bool{entry.coverage.iter().any(|c|c.family==FactFamily::Calls&&c.context==invocation.context&&input_scope(entry,c.scope,invocation.input,artifact)&&matches!(c.status,CoverageStatus::CompleteUnderStatedModel|CoverageStatus::Partial)&&c.run.is_some_and(|run|entry.runs.get(run).is_some_and(|r|r.input==invocation.input&&r.context==invocation.context)))}
 pub(super) fn selected(entry:&EntryData,invocation:&publication::AnalysisInvocation,occurrence:Id<Occurrence>,roots:&std::collections::BTreeSet<Id<SourceArtifact>>)->bool{entry.occurrences.get(occurrence).is_some_and(|row|roots.contains(&row.source)&&entry.artifacts.get(row.source).is_some_and(|a|a.input==invocation.input))}
 pub(super) fn native<S:Support>(data:&EvaluationData,entry:&EntryData,supports:&Rows<S>,assertion:Id<S::Assertion>,q:Id<AssertionQualification>,site:Id<Occurrence>,invocation:&publication::AnalysisInvocation,work:&mut Work)->Result<Option<(Id<NativeAssertionPremise>,Id<ProviderRun>,EvidenceStatus)>,ModelError>{
  let mut selected=None;work.scan(supports.len())?;
@@ -109,21 +113,22 @@ pub fn produce(data:&EvaluationData,entry:&EntryData,invocation:&publication::An
   for value in entry.values.iter().filter(|v|v.use_==use_.id()&&entry.qualifications.get(v.qualification).is_some_and(|q|q.context==invocation.context)){work.tick()?;let supported=native(data,entry,&entry.value_supports,value.id(),value.qualification,use_.occurrence,invocation,&mut work)?;out.dependencies.insert(ReadDependency{read:id,observation:value.id(),premise:supported.map(|p|p.0),qualification:value.qualification,status:supported.map_or(EvidenceStatus::Unresolved,|p|p.2)})?;}
  }
  for row in data.attribute_loads.iter(){work.tick()?;if entry.qualifications.get(row.qualification).is_none_or(|q|q.context!=invocation.context)||!selected(entry,invocation,row.occurrence,roots){continue;}let Some(owner)=work.owner(row.occurrence)else{continue;};let supported=native(data,entry,&data.attribute_load_supports,row.id(),row.qualification,row.occurrence,invocation,&mut work)?;out.attributes.insert(AttributeRead{invocation:invocation.id(),observation:row.id(),owner,premise:supported.map(|p|p.0),qualification:row.qualification,status:supported.map_or(EvidenceStatus::Unresolved,|p|p.2)})?;}
+ super::read_dynamic::produce(data,entry,invocation,roots,&mut out,budget,&mut work)?;
  // The admitted source parameter universe is independent of both emitted reads and assessments.
  for formal in entry.formals.iter(){work.tick()?;let ParameterEntity::Source{declaration}=formal else{continue};if !selected(entry,invocation,*declaration,roots){continue;}let Some(owner)=formal_owner(entry,*declaration)else{continue;};let EntityRef::Callable{callable}=entry.refs.get(owner).ok_or_else(||ModelError::Invalid("formal owner missing".into()))? else{continue};let CallableEntity::Source{declaration:function,..}=entry.callables.get(*callable).ok_or_else(||ModelError::Invalid("formal callable missing".into()))? else{continue};
   let mut scopes=entry.lexical_scopes.iter().filter(|s|s.owner==*function);let scope=scopes.next().filter(|_|scopes.next().is_none()).map(Record::id);
   let artifact=entry.occurrences.get(*declaration).unwrap().source;let mut coverages=entry.coverage.iter().filter(|c|c.family==FactFamily::Flow&&c.context==invocation.context&&input_scope(entry,c.scope,invocation.input,artifact));let coverage=coverages.next().filter(|_|coverages.next().is_none());
-  let mut digest=KeySink::new("formal-native-read-universe");let mut seen=false;let mut unresolved=false;
+  let mut digest=KeySink::new("formal-native-read-universe");let mut seen=false;let mut unresolved=out.dynamic.iter().any(|d|matches!(d.kind,super::read_dynamic::DynamicKind::Exec|super::read_dynamic::DynamicKind::Eval));
   let reads=work.formal_reads.get(declaration);work.scan(reads.map_or(0,Vec::len))?;
   if let Some(reads)=work.formal_reads.get(declaration){let mut ids=charged::ChargedSet::default();let mut charge=charged::StateCharge::new(budget,"formal-read-membership");for use_ in reads{ids.insert(&mut charge,*use_)?;}for use_ in ids.iter(){use_.encode(&mut digest);seen=true;}}
   // Nested/lazy bindings and arbitrary calls may inspect bindings beyond explicit native uses.
   if let Some(rows)=work.nested.get(&owner){for row in rows{row.encode(&mut digest);unresolved=true;}}
   if let Some(rows)=work.calls.get(&owner){for row in rows{row.encode(&mut digest);unresolved=true;}}
   let coverage_complete=coverage.is_some_and(|c|c.status==CoverageStatus::CompleteUnderStatedModel&&c.run.is_some_and(|run|entry.runs.get(run).is_some_and(|r|r.input==invocation.input&&r.context==invocation.context)));
-  if let Some(c)=coverage{c.id().encode(&mut digest);}if let Some(s)=scope{s.encode(&mut digest);}
-  let (status,reason)=if seen{(ReadAssessment::ObservedRead,None)}else if unresolved{(ReadAssessment::Unknown,Some(obligation::ObligationKind::DynamicAccess))}else if !coverage_complete||scope.is_none(){(ReadAssessment::Unknown,Some(obligation::ObligationKind::IncompleteCoverage))}else{(ReadAssessment::CompleteNoReadUnderModel,None)};
+  for c in entry.coverage.iter().filter(|c|c.family==FactFamily::Calls&&c.context==invocation.context&&input_scope(entry,c.scope,invocation.input,artifact)){c.id().encode(&mut digest);}if let Some(c)=coverage{c.id().encode(&mut digest);}if let Some(s)=scope{s.encode(&mut digest);}
+  let (status,reason)=if seen{(ReadAssessment::ObservedRead,None)}else if unresolved{(ReadAssessment::Unknown,Some(obligation::ObligationKind::DynamicAccess))}else if !coverage_complete||!calls_available(entry,invocation,artifact)||scope.is_none(){(ReadAssessment::Unknown,Some(obligation::ObligationKind::IncompleteCoverage))}else{(ReadAssessment::CompleteNoReadUnderModel,None)};
   out.formals.insert(FormalReadAssessment{invocation:invocation.id(),formal:formal.id(),owner,scope,coverage:coverage.map(Record::id),status,reason,reads:digest.finish()})?;
- }super::read_dynamic::produce(data,entry,invocation,roots,&mut out,budget,&mut work)?;Ok(out)
+ }super::read_fields::produce(data,entry,invocation,roots,&mut out,budget,&mut work)?;Ok(out)
 }
 
 // Parameter syntax is evaluated in its enclosing header owner. Its binding's callable owner
