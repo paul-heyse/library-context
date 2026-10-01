@@ -418,9 +418,11 @@ pub struct SupportAttribution {
     pub fidelity: Fidelity,
 }
 pub trait Support: Record {
+    const DERIVED: bool = false;
     type Assertion: Assertion;
     fn assertion(&self) -> Id<Self::Assertion>;
-    fn attribution(&self) -> SupportAttribution;
+    fn attribution(&self) -> Option<SupportAttribution>;
+    fn source(&self) -> Option<Id<super::analysis::support::SupportSource>> { None }
 }
 
 fn qualification_invariants() -> Vec<Invariant> {
@@ -566,6 +568,13 @@ pub fn support_invariants<A: Assertion, S: Support<Assertion = A>>() -> Vec<Inva
         ValidationInput::of::<ProviderSurface>(&["id"]),
         ValidationInput::of::<Evidence>(&["id"]),
     ];
+    if S::DERIVED {
+        inputs.extend([
+            ValidationInput::of::<super::analysis::AnalysisInvocation>(&["id"]),
+            ValidationInput::of::<super::analysis::support::AnalysisDerivation>(&["id"]),
+            ValidationInput::of::<super::analysis::support::SupportSource>(&["id"]),
+        ]);
+    }
     for input in A::subject_inputs() {
         if !inputs
             .iter()
@@ -616,6 +625,9 @@ struct SupportCheck<A: Assertion, S: Support<Assertion = A>> {
     evidence: ChargedMap<Id<Evidence>, Evidence>,
     assertions: ChargedMap<Id<A>, A>,
     supported: ChargedSet<Id<A>>,
+    analysis_invocations: ChargedMap<Id<super::analysis::AnalysisInvocation>,super::analysis::AnalysisInvocation>,
+    analysis_derivations: ChargedMap<Id<super::analysis::support::AnalysisDerivation>,super::analysis::support::AnalysisDerivation>,
+    support_sources: ChargedMap<Id<super::analysis::support::SupportSource>,super::analysis::support::SupportSource>,
     marker: PhantomData<S>,
 }
 impl<A: Assertion, S: Support<Assertion = A>> SupportCheck<A, S> {
@@ -650,6 +662,9 @@ impl<A: Assertion, S: Support<Assertion = A>> SupportCheck<A, S> {
             evidence: Default::default(),
             assertions: Default::default(),
             supported: Default::default(),
+            analysis_invocations: Default::default(),
+            analysis_derivations: Default::default(),
+            support_sources: Default::default(),
             marker: PhantomData,
         }
     }
@@ -874,7 +889,32 @@ impl<A: Assertion, S: Support<Assertion = A>> SupportCheck<A, S> {
             .get(&assertion.qualification())
             .ok_or_else(|| invalid("assertion qualification missing"))?;
         let scope = self.ownership.scope(q.scope)?;
-        let provenance = support.attribution();
+        if let Some(source) = support.source() {
+            let source = self.support_sources.get(&source).ok_or_else(||invalid("derived support source absent"))?;
+            let super::analysis::support::SupportSource::AnalysisDerivation { derivation } = source else {
+                return Err(invalid("analysis assertion requires an analysis derivation"));
+            };
+            let derivation = self.analysis_derivations.get(derivation).ok_or_else(||invalid("support derivation absent"))?;
+            let invocation = self.analysis_invocations.get(&derivation.invocation).ok_or_else(||invalid("support analysis invocation absent"))?;
+            if derivation.qualification != assertion.qualification() || invocation.context != q.context || !self.ownership.owns_scope(invocation.input,scope)? {
+                return Err(invalid("derived support changes qualification, scope or context"));
+            }
+            for source in self.conditions.get(&q.condition).ok_or_else(||invalid("assertion condition missing"))? {
+                if !self.ownership.acquired(invocation.input,*source)? || !self.ownership.within(*source,scope)? { return Err(invalid("derived condition crosses scope/input")); }
+            }
+            for subject in assertion.subjects() {
+                if let Subject::Scope(id) = subject { if id != q.scope { return Err(invalid("derived assertion scope differs")); } }
+                for source in self.subject_sources(subject)? {
+                    if !self.ownership.acquired(invocation.input,source)? || !self.ownership.within(source,scope)? { return Err(invalid("derived assertion crosses scope/input")); }
+                }
+            }
+            for subject in assertion.referents() {
+                for source in self.subject_sources(subject)? { if !self.ownership.acquired(invocation.input,source)? { return Err(invalid("derived referent crosses invocation input")); } }
+            }
+            self.supported.insert(&mut self.charge,support.assertion())?;
+            return Ok(());
+        }
+        let provenance = support.attribution().ok_or_else(|| invalid("support has no attributed source"))?;
         let run = self
             .runs
             .get(&provenance.run)
@@ -1184,6 +1224,12 @@ impl<A: Assertion, S: Support<Assertion = A>> InvariantCheck for SupportCheck<A,
                 self.export_origins
                     .insert(&mut self.charge, r.id(), module)?;
             }
+        } else if relation == super::analysis::AnalysisInvocation::NAME && S::DERIVED {
+            for r in super::analysis::AnalysisInvocation::decode(batch)? { self.analysis_invocations.insert(&mut self.charge,r.id(),r)?; }
+        } else if relation == super::analysis::support::AnalysisDerivation::NAME && S::DERIVED {
+            for r in super::analysis::support::AnalysisDerivation::decode(batch)? { self.analysis_derivations.insert(&mut self.charge,r.id(),r)?; }
+        } else if relation == super::analysis::support::SupportSource::NAME && S::DERIVED {
+            for r in super::analysis::support::SupportSource::decode(batch)? { self.support_sources.insert(&mut self.charge,r.id(),r)?; }
         } else if relation == A::NAME {
             for r in A::decode(batch)? {
                 self.assertions.insert(&mut self.charge, r.id(), r)?;

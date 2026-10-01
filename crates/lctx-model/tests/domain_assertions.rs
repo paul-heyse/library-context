@@ -434,7 +434,7 @@ fn super_predicate() -> Id<lctx_model::domain::value::Predicate> {
 
 #[test]
 fn assertion_model_requires_its_concrete_support_companion() {
-    let complete = model().unwrap();
+    let complete = ValidatedModel::validate(facts_relations()).unwrap();
     let without_support = complete
         .relations()
         .iter()

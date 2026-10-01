@@ -1,5 +1,6 @@
 //! Typed domain authority. Physical layouts are lowerings of these definitions (ADR-0085).
 pub mod admission;
+pub mod analysis;
 pub mod artifact;
 pub mod assertion;
 pub mod attachment;
@@ -203,7 +204,7 @@ pub fn model() -> Result<ValidatedModel, ModelError> {
 /// guard substitutions and call compositions. A facts generation never writes them.
 pub fn analysis_relations() -> Vec<Relation> {
     use transfer::*;
-    vec![
+    let mut relations = vec![
         Relation::of::<TransferKey>(),
         Relation::of::<TransferAlternative>(),
         Relation::of::<TransferSupport>(),
@@ -213,7 +214,9 @@ pub fn analysis_relations() -> Vec<Relation> {
         Relation::of::<conditions::stability::StabilityWitness>(),
         Relation::of::<conditions::stability::GuardSubstitution>(),
         Relation::of::<composition::CallCompositionStep>(),
-    ]
+    ];
+    relations.extend(analysis::relations());
+    relations
 }
 /// The relations a facts generation publishes: inputs, attribution and coverage, provider
 /// observations and the vocabulary they use (cutover phases 0–2).

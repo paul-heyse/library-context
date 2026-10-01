@@ -57,6 +57,7 @@ fn expand_assertion(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
     let mut subjects: Vec<syn::Ident> = Vec::new();
     let mut fidelity: Option<syn::Path> = None;
     let mut referents: Vec<syn::Ident> = Vec::new();
+    let mut derived = false;
     for attr in &input.attrs {
         if attr.path().is_ident("assertion") {
             attr.parse_nested_meta(|meta| {
@@ -68,6 +69,8 @@ fn expand_assertion(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
                     family = Some(meta.value()?.parse()?);
                 } else if meta.path.is_ident("fidelity") {
                     fidelity = Some(meta.value()?.parse()?);
+                } else if meta.path.is_ident("derived") {
+                    derived = true;
                 } else if meta.path.is_ident("referents") {
                     meta.parse_nested_meta(|field| {
                         referents.push(
@@ -126,6 +129,34 @@ fn expand_assertion(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
     let name = &input.ident;
     let vis = &input.vis;
     let fidelity = fidelity.map(|fidelity| quote! { const FIDELITY: Option<::lctx_model::domain::attribution::Fidelity> = Some(#fidelity); });
+    let support_model = if derived { quote! { #[model(name = #table, rule = "derived_assertion_support", conclusion = assertion, invariants = ::lctx_model::domain::assertion::support_invariants::<#name, #support>)] } } else { quote! { #[model(name = #table, family = #family, invariants = ::lctx_model::domain::assertion::support_invariants::<#name, #support>)] } };
+    let support_fields = if derived {
+        quote! {
+            #[model(key, premise)] pub source: ::lctx_model::domain::Id<::lctx_model::domain::analysis::support::SupportSource>,
+        }
+    } else {
+        quote! {
+            #[model(key, provenance)] pub run: ::lctx_model::domain::Id<::lctx_model::domain::attribution::ProviderRun>,
+            #[model(key, provenance)] pub surface: ::lctx_model::domain::Id<::lctx_model::domain::assertion::ProviderSurface>,
+            #[model(key, provenance)] pub evidence: ::lctx_model::domain::Id<::lctx_model::domain::assertion::Evidence>,
+            #[model(key, provenance)] pub origin: ::lctx_model::domain::attribution::Origin,
+            #[model(key, provenance)] pub mode: ::lctx_model::domain::attribution::ExtractionMode,
+            #[model(key, provenance)] pub fidelity: ::lctx_model::domain::attribution::Fidelity,
+        }
+    };
+    let support_attribution = if derived {
+        quote! {
+            const DERIVED: bool = true;
+            fn attribution(&self) -> Option<::lctx_model::domain::assertion::SupportAttribution> { None }
+            fn source(&self) -> Option<::lctx_model::domain::Id<::lctx_model::domain::analysis::support::SupportSource>> { Some(self.source) }
+        }
+    } else {
+        quote! {
+            fn attribution(&self) -> Option<::lctx_model::domain::assertion::SupportAttribution> {
+                Some(::lctx_model::domain::assertion::SupportAttribution { run: self.run, surface: self.surface, evidence: self.evidence, fidelity: self.fidelity })
+            }
+        }
+    };
     Ok(quote! {
         impl ::lctx_model::domain::assertion::Assertion for #name {
             const FAMILY: ::lctx_model::domain::attribution::FactFamily = #family;
@@ -148,22 +179,15 @@ fn expand_assertion(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
             }
         }
         #[derive(Debug, Clone, PartialEq, Eq, ::lctx_model::Domain)]
-        #[model(name = #table, family = #family, invariants = ::lctx_model::domain::assertion::support_invariants::<#name, #support>)]
+        #support_model
         #vis struct #support {
             #[model(key)] pub assertion: ::lctx_model::domain::Id<#name>,
-            #[model(key, provenance)] pub run: ::lctx_model::domain::Id<::lctx_model::domain::attribution::ProviderRun>,
-            #[model(key, provenance)] pub surface: ::lctx_model::domain::Id<::lctx_model::domain::assertion::ProviderSurface>,
-            #[model(key, provenance)] pub evidence: ::lctx_model::domain::Id<::lctx_model::domain::assertion::Evidence>,
-            #[model(key, provenance)] pub origin: ::lctx_model::domain::attribution::Origin,
-            #[model(key, provenance)] pub mode: ::lctx_model::domain::attribution::ExtractionMode,
-            #[model(key, provenance)] pub fidelity: ::lctx_model::domain::attribution::Fidelity,
+            #support_fields
         }
         impl ::lctx_model::domain::assertion::Support for #support {
             type Assertion = #name;
             fn assertion(&self) -> ::lctx_model::domain::Id<#name> { self.assertion }
-            fn attribution(&self) -> ::lctx_model::domain::assertion::SupportAttribution {
-                ::lctx_model::domain::assertion::SupportAttribution { run: self.run, surface: self.surface, evidence: self.evidence, fidelity: self.fidelity }
-            }
+            #support_attribution
         }
     })
 }
@@ -202,6 +226,7 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
                     meta.parse_nested_meta(|_| Ok(()))?;
                 } else if meta.path.is_ident("family") {
                     family = Some(meta.value()?.parse()?);
+                } else if meta.path.is_ident("derived") {
                 } else {
                     let _: syn::Expr = meta.value()?.parse()?;
                 }
@@ -560,11 +585,15 @@ fn expand_sum(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
     let mut validator: Option<syn::Path> = None;
     let mut invariants: Option<syn::Path> = None;
     let mut semantic_source: Option<syn::Expr> = None;
+    let mut rule: Option<LitStr> = None;
     for attr in &input.attrs {
         if attr.path().is_ident("model") {
             attr.parse_nested_meta(|meta| {
                 if meta.path.is_ident("name") {
                     table = Some(meta.value()?.parse::<LitStr>()?);
+                    Ok(())
+                } else if meta.path.is_ident("rule") {
+                    rule = Some(meta.value()?.parse()?);
                     Ok(())
                 } else if meta.path.is_ident("semantic_source") {
                     semantic_source = Some(meta.value()?.parse()?);
@@ -601,6 +630,8 @@ fn expand_sum(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
     let mut codes = Vec::new();
     let mut arm_fields = Vec::new();
     let mut seen = std::collections::HashSet::new();
+    let mut premise_metadata = Vec::new();
+    let mut proof_arms = Vec::new();
     for variant in &data.variants {
         let mut code = None;
         for attr in &variant.attrs {
@@ -626,6 +657,7 @@ fn expand_sum(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
             return Err(syn::Error::new_spanned(variant, "duplicate arm code"));
         }
         let mut members = Vec::new();
+        let mut arm_premises = Vec::new();
         match &variant.fields {
             Fields::Named(fields) => {
                 for field in &fields.named {
@@ -640,6 +672,12 @@ fn expand_sum(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
                         if attr.path().is_ident("model") {
                             attr.parse_nested_meta(|meta| {
                             if meta.path.is_ident("provenance") { provenance = true; Ok(()) }
+                            else if meta.path.is_ident("premise") {
+                                if rule.is_none() { return Err(meta.error("sum premises require a declared rule")); }
+                                arm_premises.push(member.clone());
+                                premise_metadata.push(quote! { ::lctx_model::domain::derivation::ReferenceColumn::of::<Option<#storage_ty>>(stringify!(#column)) });
+                                Ok(())
+                            }
                             else { Err(meta.error("sum payloads are key fields; only provenance may be annotated")) }
                         })?;
                         }
@@ -656,6 +694,8 @@ fn expand_sum(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
                 ));
             }
         }
+        let variant_name = &variant.ident;
+        proof_arms.push(quote! { Self::#variant_name { #(#arm_premises,)* .. } => [#(::lctx_model::domain::derivation::DerivationReference::row_ref(#arm_premises),)*].into_iter().flatten().collect() });
         variants.push(&variant.ident);
         codes.push(code);
         arm_fields.push(members);
@@ -712,6 +752,18 @@ fn expand_sum(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
             quote! { ::lctx_model::domain::Arm { code: #code, fields: vec![#(#requirements,)*] } },
         );
     }
+    let derivation = if let Some(rule) = rule {
+        if premise_metadata.is_empty() { return Err(syn::Error::new_spanned(&input,"proof sum requires nominal premises")); }
+        quote! {
+            fn derivation() -> Option<::lctx_model::domain::derivation::Derivation> {
+                Some(::lctx_model::domain::derivation::Derivation { rule: #rule, conclusion: None, premises: vec![#(#premise_metadata,)*] })
+            }
+            fn proof(&self) -> Option<::lctx_model::domain::derivation::Proof> {
+                let source = ::lctx_model::domain::derivation::RowRef::of(Self::id(self));
+                Some(::lctx_model::domain::derivation::Proof { source,conclusion: source,premises: match self { #(#proof_arms,)* } })
+            }
+        }
+    } else { quote!() };
     let borrow_lifetime = if physical_names.is_empty() {
         quote! {}
     } else {
@@ -735,6 +787,7 @@ fn expand_sum(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
             fn heap_bytes(&self) -> usize { match self { #(#heap_arms,)* } }
         }
         impl ::lctx_model::domain::Record for #name {
+            #derivation
             type Key = Self;
             const NAME: &'static str = #table;
             const CONTRACT: &'static str = #declaration;

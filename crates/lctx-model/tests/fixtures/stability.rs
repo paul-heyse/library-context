@@ -65,6 +65,16 @@ impl Fixture {
         // synthesize N1-N5 outputs; their totality is tested by normalized pipeline fixtures.
         let mut relations = facts_relations();
         relations.extend(analysis_relations());
+        // Declare the nominal lower identities R1 can refer to without activating a
+        // normalized producer. This fixture still makes no normalization completion claim.
+        relations.extend(normalized::coverage::relations());
+        relations.extend([
+            Relation::of::<normalized::entities::CallableEntity>(),
+            Relation::of::<normalized::entities::ClassEntity>(),
+            Relation::of::<normalized::entities::ParameterEntity>(),
+            Relation::of::<normalized::entities::FieldEntity>(),
+            Relation::of::<normalized::entities::EntityRef>(),
+        ]);
         let model = ValidatedModel::validate(relations).unwrap();
         let input = InputRevision::from_entries(vec![
             ManifestEntry {

@@ -6,12 +6,18 @@
     dead_code,
     reason = "Shared contract fixtures expose helpers to multiple targeted suites"
 )]
+#[path = "analysis_support.rs"]
+mod analysis_fixture;
 #[path = "binding.rs"]
 pub(super) mod binding_fixture;
 #[path = "stability.rs"]
 mod stability;
 use binding_fixture::{InspectionCase, bind_inspection};
 use lctx_model::domain::{
+    analysis::*,
+    analysis::support::*,
+    analysis::coverage::*,
+    analysis::obligations::*,
     artifact::*,
     assertion::*,
     attribution::*,
@@ -352,12 +358,6 @@ impl Fixture {
             ExtractionMode::NativeTraversal,
             Fidelity::NativeStructural,
         );
-        let derived = (
-            run.id(),
-            Origin::DerivedAnalysis,
-            ExtractionMode::GraphAnalysis,
-            Fidelity::NormalizedStructural,
-        );
         let mut f = Self {
             base,
             run: run.clone(),
@@ -455,20 +455,13 @@ impl Fixture {
             PlaceRoot::Return { callable: def.id() },
             entry,
         ]);
-        f.store_branch(&caller, f.base.site.id(), derived);
-        f.store_branch(&callee, def.id(), derived);
-        f.store_composed(derived);
+        f.store_branch(&caller, f.base.site.id());
+        f.store_branch(&callee, def.id());
+        f.store_composed();
         f.extend(vec![influence.clone()]);
         f.extend(vec![selection]);
-        f.extend(vec![ControlSupport {
-            assertion: influence.id(),
-            run: derived.0,
-            surface: flows.id(),
-            evidence: evidence(&f.base.site).id(),
-            origin: derived.1,
-            mode: derived.2,
-            fidelity: derived.3,
-        }]);
+        let foundation=f.store_support_foundation(&qualification,&Diagram::always(),f.base.site.id(),influence.input,evidence(&f.base.site).id());
+        f.extend(vec![ControlSupport { assertion:influence.id(),source:foundation }]);
         f
     }
     /// Append rows to a relation, keeping one row per identity.
@@ -498,29 +491,28 @@ impl Fixture {
         &mut self,
         branch: &TransferBranch,
         at: Id<Occurrence>,
-        (run, origin, mode, fidelity): (Id<ProviderRun>, Origin, ExtractionMode, Fidelity),
     ) {
         let (condition, nodes) = branch.condition().records();
         let alternative = branch.alternative();
         let evidence = Evidence::Occurrence { occurrence: at };
-        let surface = self.flows();
         self.extend(vec![condition]);
         self.extend(nodes);
         self.extend(vec![branch.qualification().clone()]);
         self.extend(vec![branch.key().clone()]);
         self.extend(vec![alternative.clone()]);
         self.extend(vec![evidence.clone()]);
-        self.extend(vec![TransferSupport {
-            assertion: alternative.id(),
-            run,
-            surface,
-            evidence: evidence.id(),
-            origin,
-            mode,
-            fidelity,
-        }]);
+        let source=self.store_support_foundation(branch.qualification(),branch.condition(),at,branch.key().input,evidence.id());
+        self.extend(vec![TransferSupport { assertion:alternative.id(),source }]);
     }
-    fn store_composed(&mut self, derived: (Id<ProviderRun>, Origin, ExtractionMode, Fidelity)) {
+    fn store_support_foundation(&mut self,q:&AssertionQualification,condition:&Diagram,at:Id<Occurrence>,place:Id<Place>,evidence:Id<Evidence>)->Id<lctx_model::domain::analysis::support::SupportSource> {
+        let rows=analysis_fixture::SupportFixture::new(self.run.input,self.run.id(),self.flows(),evidence,q,condition,at,place);
+        let source=rows.derived.id();
+        self.extend(vec![rows.parameters]);self.extend(vec![rows.definition]);self.extend(vec![rows.invocation]);
+        self.extend(vec![rows.use_]);self.extend(vec![rows.observation]);self.extend(vec![rows.support]);
+        self.extend(vec![rows.premise]);self.extend(vec![rows.native,rows.derived]);self.extend(vec![rows.subject]);self.extend(vec![rows.proposition]);self.extend(vec![rows.derivation]);self.extend(rows.members);
+        source
+    }
+    fn store_composed(&mut self) {
         let records = &self.composed.records;
         let (literals, segments, paths, roots, places) = (
             records.literals.clone(),
@@ -544,7 +536,7 @@ impl Fixture {
         self.extend(predicates);
         self.extend(substitutions);
         let branch = self.composed.branch.clone();
-        self.store_branch(&branch, self.base.site.id(), derived);
+        self.store_branch(&branch, self.base.site.id());
         self.extend(vec![step]);
     }
     /// Replace the composition step with a refused variant.
@@ -580,12 +572,6 @@ impl Fixture {
                 self.store_branch(
                     &branch,
                     self.base.site.id(),
-                    (
-                        self.run.id(),
-                        Origin::DerivedAnalysis,
-                        ExtractionMode::GraphAnalysis,
-                        Fidelity::NormalizedStructural,
-                    ),
                 );
                 CallCompositionStep {
                     composed: alternative,
@@ -615,12 +601,6 @@ impl Fixture {
                 self.store_branch(
                     &branch,
                     self.base.site.id(),
-                    (
-                        self.run.id(),
-                        Origin::DerivedAnalysis,
-                        ExtractionMode::GraphAnalysis,
-                        Fidelity::NormalizedStructural,
-                    ),
                 );
                 CallCompositionStep {
                     composed: branch.alternative().id(),
@@ -696,7 +676,11 @@ impl Fixture {
             ControlInfluence,
             ControlSupport,
             Selection,
-            CallCompositionStep
+            CallCompositionStep,
+            FlowValueObservation,FlowValueSupport,
+            MethodParameters,AnalysisDefinition,AnalysisInvocation,AnalysisInput,AnalysisOutcome,AnalysisDiagnostic,
+            AnalysisCoverage,CoverageSource,AnalysisCoveragePremise,ObligationSubject,AnalysisObligation,
+            NativeAssertionPremise,SupportSource,AnalysisProposition,AnalysisDerivation,AnalysisDerivationPremise
         );
         generation.validate(model, &budget())
     }

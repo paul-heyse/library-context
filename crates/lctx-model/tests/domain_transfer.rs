@@ -1,3 +1,5 @@
+#[path = "fixtures/analysis_support.rs"]
+mod analysis_fixture;
 use lctx_model::domain::{
     assertion::*, attribution::*, calls::*, conditions::*, input::*, source::*, transfer::*,
     value::*, *,
@@ -281,6 +283,13 @@ fn check(
     }
     check.finish()
 }
+
+fn store_foundation(f:&Fixture,data:&mut BTreeMap<&'static str,arrow_array::RecordBatch>,rows:&analysis_fixture::SupportFixture) {
+    macro_rules! one { ($($row:expr),*) => { $(insert(f,data,vec![$row.clone()]);)* }; }
+    one!(rows.parameters,rows.definition,rows.invocation,rows.use_,rows.observation,rows.support,rows.premise,rows.subject,rows.proposition,rows.derivation);
+    insert(f,data,vec![rows.native.clone(),rows.derived.clone()]);
+    insert(f,data,rows.members.clone());
+}
 fn records(f: &Fixture) -> BTreeMap<&'static str, arrow_array::RecordBatch> {
     let mut data = BTreeMap::new();
     macro_rules! one { ($($row:expr),+ $(,)?) => { $(insert(f,&mut data,vec![$row.clone()]);)+ }; }
@@ -310,15 +319,9 @@ fn records(f: &Fixture) -> BTreeMap<&'static str, arrow_array::RecordBatch> {
     let evidence = Evidence::Occurrence {
         occurrence: f.occurrences[0].id(),
     };
-    let support = TransferSupport {
-        assertion: alternative.id(),
-        run: f.run.id(),
-        surface: f.surface.id(),
-        evidence: evidence.id(),
-        origin: Origin::DerivedAnalysis,
-        mode: ExtractionMode::GraphAnalysis,
-        fidelity: Fidelity::NormalizedStructural,
-    };
+    let foundation=analysis_fixture::SupportFixture::new(f.input.id(),f.run.id(),f.surface.id(),evidence.id(),&f.qualification,&f.diagram,f.occurrences[0].id(),f.places[0].id());
+    store_foundation(f,&mut data,&foundation);
+    let support=TransferSupport {assertion:alternative.id(),source:foundation.derived.id()};
     one!(alternative, evidence, support);
     data
 }
@@ -375,15 +378,9 @@ fn transfer_support_validates_both_place_sources_and_keeps_ordinary_subject_inpu
         let evidence = Evidence::Occurrence {
             occurrence: f.occurrences[0].id(),
         };
-        let support = TransferSupport {
-            assertion: alternative.id(),
-            run: f.run.id(),
-            surface: f.surface.id(),
-            evidence: evidence.id(),
-            origin: Origin::DerivedAnalysis,
-            mode: ExtractionMode::GraphAnalysis,
-            fidelity: Fidelity::NormalizedStructural,
-        };
+        let foundation = analysis_fixture::SupportFixture::new(f.input.id(),f.run.id(),f.surface.id(),evidence.id(),&f.qualification,&f.diagram,f.occurrences[0].id(),f.places[0].id());
+        store_foundation(&f,&mut data,&foundation);
+        let support = TransferSupport { assertion:alternative.id(),source:foundation.derived.id() };
         insert(&f, &mut data, vec![f.source.clone(), foreign.clone()]);
         let mut occurrences = f.occurrences.clone();
         occurrences.push(occurrence);
@@ -494,15 +491,9 @@ fn transfer_call_site_must_belong_to_both_scope_and_acquired_inputs() {
         let evidence = Evidence::Occurrence {
             occurrence: f.occurrences[0].id(),
         };
-        let support = TransferSupport {
-            assertion: alternative.id(),
-            run: f.run.id(),
-            surface: f.surface.id(),
-            evidence: evidence.id(),
-            origin: Origin::DerivedAnalysis,
-            mode: ExtractionMode::GraphAnalysis,
-            fidelity: Fidelity::NormalizedStructural,
-        };
+        let foundation = analysis_fixture::SupportFixture::new(f.input.id(),f.run.id(),f.surface.id(),evidence.id(),&qualification,&f.diagram,f.occurrences[0].id(),f.places[0].id());
+        store_foundation(&f,&mut data,&foundation);
+        let support = TransferSupport { assertion:alternative.id(),source:foundation.derived.id() };
         insert(&f, &mut data, vec![f.source.clone(), foreign.clone()]);
         let mut occurrences = f.occurrences.clone();
         occurrences.push(foreign_site.clone());
