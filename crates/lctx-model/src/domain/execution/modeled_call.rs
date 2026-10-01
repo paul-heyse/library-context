@@ -189,14 +189,11 @@ impl CheckedModeledEvaluation {
             if checked.release() != ReleaseSafety::Closed {
                 // Builtin lookup separately proves that the exact returned object remains externally held;
                 // a parameter-read witness cannot substitute for this disposal premise.
-                if !matches!(
-                    super::builtin_read::CheckedBuiltinRead::derive(
+                if !super::builtin_read::CheckedBuiltinRead::derive(
                         data,
                         checked.request(),
                         budget
-                    )?,
-                    Ok(_)
-                ) && !earlier.earlier().caller_holds_argument(row)?
+                    )?.is_ok() && !earlier.earlier().caller_holds_argument(row)?
                 {
                     return Ok(Err(ObligationKind::FrameExitCleanup));
                 }

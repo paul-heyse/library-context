@@ -157,15 +157,21 @@ pub fn catalog_relations() -> Vec<Relation> {
     ]
 }
 macro_rules! lower_analysis {
-    (Selection,$($args:expr),*) => {
+    (Selection,$($args:expr),*) => {{
+        // These Catalog-only typed slots are inspected but cannot lower into Analysis.
+        let _ = ($($args),*);
         Err(invalid("Catalog-only member cannot enter Analysis"))
-    };
-    (Synthesis,$($args:expr),*) => {
+    }};
+    (Synthesis,$($args:expr),*) => {{
+        // These Catalog-only typed slots are inspected but cannot lower into Analysis.
+        let _ = ($($args),*);
         Err(invalid("Catalog-only member cannot enter Analysis"))
-    };
-    (Retrieval,$($args:expr),*) => {
+    }};
+    (Retrieval,$($args:expr),*) => {{
+        // These Catalog-only typed slots are inspected but cannot lower into Analysis.
+        let _ = ($($args),*);
         Err(invalid("Catalog-only member cannot enter Analysis"))
-    };
+    }};
     ($variant:ident,$assessment:expr,$method:expr,$invocation:expr,$outcome:expr,$coverage:expr,$payload:expr) => {
         Ok(AnalysisMember::$variant {
             assessment: $assessment,
@@ -214,15 +220,13 @@ pub fn derive(
     } else {
         None
     };
-    if let Some(earlier) = &earlier {
-        if !equal(&earlier.analysis, &data.analysis)
-            || !equal(&earlier.analysis_members, &data.analysis_members)
-        {
-            return Err(invalid(
-                "Catalog final assessment changes immutable Analysis checkpoint",
-            ));
+    if let Some(earlier) = &earlier
+        && (!equal(&earlier.analysis, &data.analysis)
+            || !equal(&earlier.analysis_members, &data.analysis_members)) {
+        return Err(invalid(
+            "Catalog final assessment changes immutable Analysis checkpoint",
+        ));
         }
-    }
     for &(input, context) in frames.iter() {
         let mut members = charged::ChargedMap::<ContentHash, Draft>::default();
         let mut frame_charge = charged::StateCharge::new(b, "final-frontier-frame-members");
@@ -353,19 +357,19 @@ impl PublicationCheck for Check {
         match (self.target, n) {
             (Target::Analysis, AnalysisAssessment::NAME) => {
                 self.actual.analysis.decode(b)?;
-                return Ok(());
+                Ok(())
             }
             (Target::Analysis, AnalysisMember::NAME) => {
                 self.actual.analysis_members.decode(b)?;
-                return Ok(());
+                Ok(())
             }
             (Target::Catalog, CatalogAssessment::NAME) => {
                 self.actual.catalog.decode(b)?;
-                return Ok(());
+                Ok(())
             }
             (Target::Catalog, CatalogMember::NAME) => {
                 self.actual.catalog_members.decode(b)?;
-                return Ok(());
+                Ok(())
             }
             _ => self.data.visit(n, b),
         }
@@ -546,10 +550,10 @@ mod tests {
             configuration: ContentHash::of(b"pure"),
             requested_families: ContentHash::of(b"pure Deployment"),
         };
-        load(&mut data, &[input.clone()]);
-        load(&mut data, &[run.clone()]);
+        load(&mut data, std::slice::from_ref(&input));
+        load(&mut data, std::slice::from_ref(&run));
         let root = CoverageScope::Input { input: input.id() };
-        load(&mut data, &[root.clone()]);
+        load(&mut data, std::slice::from_ref(&root));
         load(
             &mut data,
             &[ProviderCoverage {
@@ -572,7 +576,7 @@ mod tests {
                 profile: profile.name().into(),
                 availability: EvidenceAvailability::Complete,
             };
-            load(&mut data, &[computation.clone()]);
+            load(&mut data, std::slice::from_ref(&computation));
             load(
                 &mut data,
                 &[NormalizationCoverage {
@@ -603,7 +607,7 @@ mod tests {
         };
         load(&mut data, &[settings]);
         load(&mut data, &[embedding::text::TextDefinition::builtin()]);
-        macro_rules! populate{($($field:ident:$variant:ident:$owner:ident=>[$($method:ident),*],)*)=>{$($({let method=Method::$method;let definition=analysis::AnalysisDefinition{method,interpretation:match method{Method::PageRank|Method::Communities|Method::Neighbours|Method::AnalyticEmbedding=>analysis::Interpretation::Heuristic,Method::Concepts|Method::RelationalConcepts=>analysis::Interpretation::ExactUnderContext,_=>analysis::Interpretation::Structural},parameters:nominal(4),semantic_version:digest("pure method",[method])};load(&mut data,&[definition.clone()]);let(invocation,_)=analysis::$owner::AnalysisInvocation::new(input.id(),context,definition.id(),None,[]);let contract=analysis::expected::method_contract(method).unwrap();let domain=data.frontier.domain(input.id(),context,contract).unwrap();let requested=domain.scopes.iter().any(|s|s.requested);let outcome=analysis::$owner::AnalysisOutcome{invocation:invocation.id(),status:if requested{analysis::AnalysisStatus::Completed}else{analysis::AnalysisStatus::NotRequested},reason:(!requested).then_some(ObligationKind::NotRequested)};data.$field.invocations.insert(invocation.clone()).unwrap();data.$field.outcomes.insert(outcome.clone()).unwrap();for scope in &domain.scopes{let mut observed=vec![];for row in &scope.native{observed.push(analysis::$owner::coverage::CoverageObservation::native(row).unwrap());}for row in &scope.normalized{observed.push(analysis::$owner::coverage::CoverageObservation::normalized(row).unwrap());}let expectation=analysis::$owner::coverage::CoverageExpectation{invocation:invocation.id(),capability:contract.capability,scope:scope.scope,context:scope.context,requested:scope.requested,no_scope:scope.no_scope,sources:observed.iter().map(|r|r.source().id()).collect()};let(row,_)=analysis::$owner::coverage::assess(&expectation,&observed,outcome.status,outcome.reason,b).unwrap();data.$field.coverage.insert(row).unwrap();}})*)*};}
+        macro_rules! populate{($($field:ident:$variant:ident:$owner:ident=>[$($method:ident),*],)*)=>{$($({let method=Method::$method;let definition=analysis::AnalysisDefinition{method,interpretation:match method{Method::PageRank|Method::Communities|Method::Neighbours|Method::AnalyticEmbedding=>analysis::Interpretation::Heuristic,Method::Concepts|Method::RelationalConcepts=>analysis::Interpretation::ExactUnderContext,_=>analysis::Interpretation::Structural},parameters:nominal(4),semantic_version:digest("pure method",[method])};load(&mut data,std::slice::from_ref(&definition));let(invocation,_)=analysis::$owner::AnalysisInvocation::new(input.id(),context,definition.id(),None,[]);let contract=analysis::expected::method_contract(method).unwrap();let domain=data.frontier.domain(input.id(),context,contract).unwrap();let requested=domain.scopes.iter().any(|s|s.requested);let outcome=analysis::$owner::AnalysisOutcome{invocation:invocation.id(),status:if requested{analysis::AnalysisStatus::Completed}else{analysis::AnalysisStatus::NotRequested},reason:(!requested).then_some(ObligationKind::NotRequested)};data.$field.invocations.insert(invocation.clone()).unwrap();data.$field.outcomes.insert(outcome.clone()).unwrap();for scope in &domain.scopes{let mut observed=vec![];for row in &scope.native{observed.push(analysis::$owner::coverage::CoverageObservation::native(row).unwrap());}for row in &scope.normalized{observed.push(analysis::$owner::coverage::CoverageObservation::normalized(row).unwrap());}let expectation=analysis::$owner::coverage::CoverageExpectation{invocation:invocation.id(),capability:contract.capability,scope:scope.scope,context:scope.context,requested:scope.requested,no_scope:scope.no_scope,sources:observed.iter().map(|r|r.source().id()).collect()};let(row,_)=analysis::$owner::coverage::assess(&expectation,&observed,outcome.status,outcome.reason,b).unwrap();data.$field.coverage.insert(row).unwrap();}})*)*};}
         owners!(populate);
         data
     }

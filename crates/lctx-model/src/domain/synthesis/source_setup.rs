@@ -9,7 +9,7 @@ use crate::domain::{
     resources::{Reservation, ResourceBudget},
     source::{Occurrence, SourceArtifact, SyntaxKind},
     structural::handoffs,
-    syntax::{ImportAliasObservation, SyntaxPlacement},
+    syntax::SyntaxPlacement,
     *,
 };
 #[macro_export]
@@ -104,12 +104,12 @@ fn native(
         .map(Record::id)
         .min()
 }
-fn placed<'a>(
-    d: &'a documentary::Data,
+fn placed(
+    d: &documentary::Data,
     id: Id<Occurrence>,
     context: Id<AnalysisContext>,
     source: Id<SourceArtifact>,
-) -> Result<Result<(&'a SyntaxPlacement, Id<NativeAssertionPremise>), Boundary>, ModelError> {
+) -> Result<Result<(&SyntaxPlacement, Id<NativeAssertionPremise>), Boundary>, ModelError> {
     let mut rows = d.placements.iter().filter(|p| {
         p.occurrence == id
             && d.qualifications
@@ -131,23 +131,14 @@ fn placed<'a>(
     };
     Ok(Ok((row, premise)))
 }
+type StatementSite = (Id<Occurrence>, Id<NativeAssertionPremise>, Id<Occurrence>, SyntaxField);
+
 fn statement(
     d: &documentary::Data,
     mut id: Id<Occurrence>,
     context: Id<AnalysisContext>,
     source: Id<SourceArtifact>,
-) -> Result<
-    Result<
-        (
-            Id<Occurrence>,
-            Id<NativeAssertionPremise>,
-            Id<Occurrence>,
-            SyntaxField,
-        ),
-        Boundary,
-    >,
-    ModelError,
-> {
+) -> Result<Result<StatementSite, Boundary>, ModelError> {
     for _ in 0..=d.placements.len() {
         let row = need(&d.occurrences, id)?;
         if row.source != source {

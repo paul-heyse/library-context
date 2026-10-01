@@ -13,7 +13,6 @@ use crate::domain::{
     assertion::*,
     attribution::*,
     conditions::entry::EntryData,
-    flow::*,
     lexical::*,
     normalized::{Rows, entities::*},
     source::*,
@@ -189,6 +188,8 @@ fn class_of_scope(
 }
 /// Exact complete native MRO plus canonical sequence membership. Missing native class shape
 /// cannot justify excluding a known dynamic class from another class's read screen.
+type ChargedHierarchy = (Id<calls::ProviderSymbol>, charged::ChargedSet<Id<calls::ProviderSymbol>>, charged::StateCharge);
+
 fn hierarchy(
     data: &EvaluationData,
     entry: &EntryData,
@@ -196,14 +197,7 @@ fn hierarchy(
     inv: &publication::AnalysisInvocation,
     budget: &resources::ResourceBudget,
     work: &mut Work,
-) -> Result<
-    Option<(
-        Id<calls::ProviderSymbol>,
-        charged::ChargedSet<Id<calls::ProviderSymbol>>,
-        charged::StateCharge,
-    )>,
-    ModelError,
-> {
+) -> Result<Option<ChargedHierarchy>, ModelError> {
     work.scan(entry.symbol_declarations.len() + data.ancestry.len() + data.sequence_members.len())?;
     let Some(ClassEntity::Source { declaration }) = data.classes.get(class) else {
         return Ok(None);
@@ -218,13 +212,11 @@ fn hierarchy(
         return Ok(None);
     };
     if native(
-        data,
-        entry,
+        super::read_channels::NativeContext { data, entry, invocation: inv },
         &entry.symbol_declaration_supports,
         symbol.id(),
         symbol.qualification,
         *declaration,
-        inv,
         work,
     )?
     .is_none()
@@ -242,13 +234,11 @@ fn hierarchy(
     if rows.next().is_some()
         || mro.linearization != Some(Linearization::Complete)
         || native(
-            data,
-            entry,
+            super::read_channels::NativeContext { data, entry, invocation: inv },
             &data.ancestry_supports,
             mro.id(),
             mro.qualification,
             *declaration,
-            inv,
             work,
         )?
         .is_none()
@@ -341,33 +331,27 @@ fn receiver_sources(
     };
     for premise in [
         native(
-            data,
-            entry,
+            super::read_channels::NativeContext { data, entry, invocation: inv },
             &entry.symbol_declaration_supports,
             owner.id(),
             owner.qualification,
             function,
-            inv,
             work,
         )?,
         native(
-            data,
-            entry,
+            super::read_channels::NativeContext { data, entry, invocation: inv },
             &data.function_trait_supports,
             traits.id(),
             traits.qualification,
             function,
-            inv,
             work,
         )?,
         native(
-            data,
-            entry,
+            super::read_channels::NativeContext { data, entry, invocation: inv },
             &entry.symbol_declaration_supports,
             class.id(),
             class.qualification,
             *declaration,
-            inv,
             work,
         )?,
     ] {
@@ -479,25 +463,21 @@ pub(super) fn produce(
         call.id().encode(&mut digest);
         detail.id().encode(&mut digest);
         if native(
-            data,
-            entry,
+            super::read_channels::NativeContext { data, entry, invocation: inv },
             &data.call_syntax_supports,
             call.id(),
             call.qualification,
             call.site,
-            inv,
             work,
         )?
         .is_none()
             || if let Some(builtin) = builtin {
                 native(
-                    data,
-                    entry,
+                    super::read_channels::NativeContext { data, entry, invocation: inv },
                     &data.lexical_resolution_supports,
                     builtin.id(),
                     builtin.qualification,
                     call.callee,
-                    inv,
                     work,
                 )?
                 .is_none()
@@ -529,13 +509,11 @@ pub(super) fn produce(
             continue;
         };
         let premise = native(
-            data,
-            entry,
+            super::read_channels::NativeContext { data, entry, invocation: inv },
             &data.class_field_supports,
             row.id(),
             row.qualification,
             row.target,
-            inv,
             work,
         )?
         .map(|p| p.0);
@@ -600,13 +578,11 @@ pub(super) fn produce(
             complete = false
         }
         let premise = native(
-            data,
-            entry,
+            super::read_channels::NativeContext { data, entry, invocation: inv },
             &entry.definition_supports,
             row.id(),
             row.qualification,
             def.occurrence,
-            inv,
             work,
         )?
         .map(|p| p.0);

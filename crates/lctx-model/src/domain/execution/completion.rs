@@ -204,8 +204,8 @@ impl Kernel<'_, '_, '_> {
                     return Err(boundary(ObligationKind::AmbiguousBinding));
                 }
                 self.charge.grow(
-                    proof.entered().len() * size_of::<Id<Occurrence>>() * 2
-                        + proof.releases().len() * size_of::<(Id<Occurrence>, ReleaseSafety)>() * 2
+                    std::mem::size_of_val(proof.entered()) * 2
+                        + std::mem::size_of_val(proof.releases()) * 2
                         + size_of::<Id<super::context_execution::ContextExecution>>() * 2,
                 )?;
                 self.contexts.push(proof.record().id());
@@ -357,7 +357,7 @@ impl Kernel<'_, '_, '_> {
                 if let Some(exception) = pending.exception() {
                     // A bare handler matches the pending exception without a hierarchy claim.
                     // Typed matching and named-handler disposal need their own earlier certificates.
-                    for handler in children.iter().filter(|row| row.field == F::Handler) {
+                    if let Some(handler) = children.iter().find(|row| row.field == F::Handler) {
                         self.syntax.observe(handler.occurrence)?;
                         if self
                             .data
@@ -378,7 +378,6 @@ impl Kernel<'_, '_, '_> {
                         let result = self.suite(&handler_children, F::Body, depth + 1);
                         self.active = active;
                         pending = result?;
-                        break;
                     }
                 } else if pending.is_normal() {
                     pending = self.suite(&children, F::Orelse, depth)?;

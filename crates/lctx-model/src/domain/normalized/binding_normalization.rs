@@ -921,13 +921,11 @@ pub fn verify(
                     match first.map(|a| a.outcome) {
                         Some(BindingOutcome::Bound) => {
                             compatible += 1;
-                            if enumeration.is_some() {
-                                if let Some(other) = first {
-                                    if !equivalent_shapes(data, stored, row, other)? {
-                                        admitted = false;
-                                    }
+                            if enumeration.is_some()
+                                && let Some(other) = first
+                                    && !equivalent_shapes(data, stored, row, other)? {
+                                admitted = false;
                                 }
-                            }
                         }
                         Some(BindingOutcome::ProvenIncompatible) => {}
                         _ => admitted = false,

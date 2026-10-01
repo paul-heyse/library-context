@@ -3,7 +3,7 @@ use super::{
     build::{Data, invalid, need},
     *,
 };
-use crate::domain::{normalized::entities::*, resources::ResourceBudget, *};
+use crate::domain::{normalized::entities::*, resources::ResourceBudget};
 use std::collections::{BTreeMap, BTreeSet};
 fn declaration(
     d: &Data,
@@ -165,11 +165,10 @@ fn types(
         for r in d.native.symbol_resolutions.iter().filter(|r| {
             r.symbol == symbol && r.context == ctx && r.status == ResolutionStatus::Resolved
         }) {
-            if let Some(entity) = r.entity {
-                if matches!(d.native.refs.get(entity), Some(EntityRef::Class { .. })) {
-                    classes.insert(entity);
+            if let Some(entity) = r.entity
+                && matches!(d.native.refs.get(entity), Some(EntityRef::Class { .. })) {
+                classes.insert(entity);
                 }
-            }
         }
     }
     for sequence in lists {
@@ -632,7 +631,7 @@ fn facts(
 }
 pub fn concepts(
     d: &Data,
-    f: &AnalyticFrame,
+    _f: &AnalyticFrame,
     sf: &structural::StructuralFrame,
     public: &BTreeSet<Id<EntityRef>>,
     result: &mut TechniqueResult,

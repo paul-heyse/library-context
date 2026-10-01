@@ -378,14 +378,11 @@ impl CheckedContextBinding {
                 if checked.exception().is_some()
                     || checked.release() != ReleaseSafety::Closed
                         && !base.caller_holds_argument(row)?
-                        && !matches!(
-                            super::builtin_read::CheckedBuiltinRead::derive(
+                        && !super::builtin_read::CheckedBuiltinRead::derive(
                                 facts,
                                 checked.request(),
                                 budget
-                            )?,
-                            Ok(_)
-                        )
+                            )?.is_ok()
                 {
                     return Err(boundary(K::FrameExitCleanup));
                 }

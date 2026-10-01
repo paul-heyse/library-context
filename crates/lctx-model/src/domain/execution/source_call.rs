@@ -4,7 +4,7 @@
 use super::evaluation::EvaluationData;
 use crate::domain::{
     analysis::{
-        native::{NativeAssertionPremise, NativeQualification},
+        native::NativeAssertionPremise,
         policy::EvidenceStatus,
     },
     assertion::{Approximation, AssertionQualification},
@@ -189,11 +189,11 @@ fn unique<'a, T>(
     }
     Ok(first)
 }
-fn supported<'a, S: assertion::Support>(
-    rows: &'a Rows<S>,
+fn supported<S: assertion::Support>(
+    rows: &Rows<S>,
     assertion: Id<S::Assertion>,
     run: Id<attribution::ProviderRun>,
-) -> Result<&'a S, obligation::ObligationKind> {
+) -> Result<&S, obligation::ObligationKind> {
     unique(
         rows.iter().filter(|s| {
             s.assertion() == assertion && s.attribution().is_some_and(|a| a.run == run)
@@ -202,6 +202,7 @@ fn supported<'a, S: assertion::Support>(
 }
 impl CheckedSourceBinding {
     /// Replayed normalized admission is necessary but does not establish fresh runtime availability.
+    #[allow(clippy::too_many_arguments, reason = "Public checked source-call proof keeps independent evidence owners, request, completion authority and budget explicit.")]
     pub fn derive(
         data: &EvaluationData,
         flow: &EntryData,

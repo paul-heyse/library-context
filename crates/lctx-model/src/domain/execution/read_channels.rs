@@ -271,16 +271,15 @@ impl Work {
         let mut parameters = charged::ChargedMap::default();
         for row in entry.placements.iter() {
             index.tick()?;
-            if row.field == lexical::SyntaxField::Child && row.ordinal == 0 {
-                if let Some(parameter) = row.parent.filter(|p| {
+            if row.field == lexical::SyntaxField::Child && row.ordinal == 0
+                && let Some(parameter) = row.parent.filter(|p| {
                     entry
                         .occurrences
                         .get(*p)
                         .is_some_and(|o| o.syntax_kind == SyntaxKind::Parameter)
                 }) {
-                    parameters.insert(&mut index.charge, row.occurrence, parameter)?;
+                parameters.insert(&mut index.charge, row.occurrence, parameter)?;
                 }
-            }
         }
         for row in entry.reaching.iter() {
             index.tick()?;
@@ -291,31 +290,28 @@ impl Work {
             {
                 continue;
             }
-            if let Some(ReachingDefinition::Bound { definition }) = entry.targets.get(row.target) {
-                if let Some(definition) = entry.definitions.get(*definition) {
-                    let parameter = parameters
-                        .get(&definition.occurrence)
-                        .copied()
-                        .unwrap_or(definition.occurrence);
-                    index
-                        .formal_reads
-                        .update(&mut index.charge, parameter, |rows| rows.push(row.use_))?;
+            if let Some(ReachingDefinition::Bound { definition }) = entry.targets.get(row.target)
+                && let Some(definition) = entry.definitions.get(*definition) {
+                let parameter = parameters
+                    .get(&definition.occurrence)
+                    .copied()
+                    .unwrap_or(definition.occurrence);
+                index
+                    .formal_reads
+                    .update(&mut index.charge, parameter, |rows| rows.push(row.use_))?;
                 }
-            }
             if matches!(
                 entry.targets.get(row.target),
                 Some(ReachingDefinition::Nested)
-            ) {
-                if let Some(owner) = entry
+            )
+                && let Some(owner) = entry
                     .uses
                     .get(row.use_)
-                    .and_then(|u| index.owner(u.occurrence))
-                {
-                    index
-                        .nested
-                        .update(&mut index.charge, owner, |rows| rows.push(row.id()))?;
+                    .and_then(|u| index.owner(u.occurrence)) {
+                index
+                    .nested
+                    .update(&mut index.charge, owner, |rows| rows.push(row.id()))?;
                 }
-            }
         }
         for target in data.call_targets.iter() {
             index.tick()?;
@@ -333,13 +329,12 @@ impl Work {
         }
         for occurrence in entry.occurrences.iter() {
             index.tick()?;
-            if occurrence.syntax_kind == SyntaxKind::ExprCall {
-                if let Some(owner) = index.owner(occurrence.id()) {
-                    index
-                        .calls
-                        .update(&mut index.charge, owner, |rows| rows.push(occurrence.id()))?;
+            if occurrence.syntax_kind == SyntaxKind::ExprCall
+                && let Some(owner) = index.owner(occurrence.id()) {
+                index
+                    .calls
+                    .update(&mut index.charge, owner, |rows| rows.push(occurrence.id()))?;
                 }
-            }
         }
         Ok(index)
     }
@@ -397,16 +392,23 @@ pub(super) fn selected(
                 .is_some_and(|a| a.input == invocation.input)
     })
 }
+pub(super) type NativeSupport = (Id<NativeAssertionPremise>, Id<ProviderRun>, EvidenceStatus);
+
+pub(super) struct NativeContext<'a> {
+    pub(super) data: &'a EvaluationData,
+    pub(super) entry: &'a EntryData,
+    pub(super) invocation: &'a publication::AnalysisInvocation,
+}
+
 pub(super) fn native<S: Support>(
-    data: &EvaluationData,
-    entry: &EntryData,
+    native_context: NativeContext<'_>,
     supports: &Rows<S>,
     assertion: Id<S::Assertion>,
     q: Id<AssertionQualification>,
     site: Id<Occurrence>,
-    invocation: &publication::AnalysisInvocation,
     work: &mut Work,
-) -> Result<Option<(Id<NativeAssertionPremise>, Id<ProviderRun>, EvidenceStatus)>, ModelError> {
+) -> Result<Option<NativeSupport>, ModelError> {
+    let NativeContext { data, entry, invocation } = native_context;
     let mut selected = None;
     work.scan(supports.len())?;
     for support in supports.iter().filter(|s| s.assertion() == assertion) {
@@ -486,13 +488,11 @@ pub fn produce(
             continue;
         };
         let supported = native(
-            data,
-            entry,
+            super::read_channels::NativeContext { data, entry, invocation },
             &entry.use_supports,
             observation.id(),
             observation.qualification,
             use_.occurrence,
-            invocation,
             &mut work,
         )?;
         let region = supported.and_then(|(_, run, _)| {
@@ -552,8 +552,7 @@ pub fn produce(
                     global_ambiguous = true;
                 }
                 let supported_binding = native(
-                    data,
-                    entry,
+                    super::read_channels::NativeContext { data, entry, invocation },
                     &data.binding_supports,
                     binding.id(),
                     binding.qualification,
@@ -561,18 +560,15 @@ pub fn produce(
                         .get(binding.event)
                         .ok_or_else(|| ModelError::Invalid("global binding event missing".into()))?
                         .site,
-                    invocation,
                     &mut work,
                 )?;
                 if let (Some(premise), Some(binding)) = (
                     native(
-                        data,
-                        entry,
+                        super::read_channels::NativeContext { data, entry, invocation },
                         &data.lexical_resolution_supports,
                         resolution.id(),
                         resolution.qualification,
                         use_.occurrence,
-                        invocation,
                         &mut work,
                     )?,
                     supported_binding,
@@ -604,9 +600,7 @@ pub fn produce(
             status: supported.map_or(EvidenceStatus::Unresolved, |p| p.2),
             execution_region: region.filter(|_| region_premise.is_some()).map(|r| r.0),
             region_premise,
-            reason: if supported.is_none() {
-                Some(obligation::ObligationKind::MissingEvidence)
-            } else if region_premise.is_none() && !observation.annotation {
+            reason: if supported.is_none() || (region_premise.is_none() && !observation.annotation) {
                 Some(obligation::ObligationKind::MissingEvidence)
             } else {
                 None
@@ -622,13 +616,11 @@ pub fn produce(
         }) {
             work.tick()?;
             let supported = native(
-                data,
-                entry,
+                super::read_channels::NativeContext { data, entry, invocation },
                 &entry.value_supports,
                 value.id(),
                 value.qualification,
                 use_.occurrence,
-                invocation,
                 &mut work,
             )?;
             out.dependencies.insert(ReadDependency {
@@ -654,13 +646,11 @@ pub fn produce(
             continue;
         };
         let supported = native(
-            data,
-            entry,
+            super::read_channels::NativeContext { data, entry, invocation },
             &data.attribute_load_supports,
             row.id(),
             row.qualification,
             row.occurrence,
-            invocation,
             &mut work,
         )?;
         out.attributes.insert(AttributeRead {

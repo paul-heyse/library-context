@@ -265,16 +265,21 @@ fn api(
         subjects: vec![Subject::Member { member: m.id() }],
     })
 }
+struct RenderedIdentity {
+    family: Family,
+    origin: Origin,
+    title: String,
+}
+
 fn add(
     d: &Data,
     out: &mut Output,
     root: &c1::EvidenceRoot,
-    family: Family,
-    origin: Origin,
-    title: String,
+    rendered_identity: RenderedIdentity,
     render: Render,
     b: &ResourceBudget,
 ) -> Result<(), ModelError> {
+    let RenderedIdentity { family, origin, title } = rendered_identity;
     for a in &render.anchors {
         let (artifact, _, _) = super::source::coordinates(d, a)?;
         if !matches!(origin, Origin::Brief { .. })
@@ -372,9 +377,7 @@ pub fn build(d: &Data, b: &ResourceBudget) -> Result<Output, ModelError> {
                     d,
                     &mut out,
                     root,
-                    Family::ApiOptions,
-                    Origin::Api { member: *member },
-                    title.clone(),
+                    RenderedIdentity { family: Family::ApiOptions, origin: Origin::Api { member: *member }, title: title.clone() },
                     api(d, m, root.context)?,
                     b,
                 )?;
@@ -390,11 +393,9 @@ pub fn build(d: &Data, b: &ResourceBudget) -> Result<Output, ModelError> {
                     d,
                     &mut out,
                     root,
-                    Family::Source,
-                    Origin::Original {
+                    RenderedIdentity { family: Family::Source, origin: Origin::Original {
                         source: source.id(),
-                    },
-                    need(&d.source.core.artifacts, module.source)?.path.clone(),
+                    }, title: need(&d.source.core.artifacts, module.source)?.path.clone() },
                     Render {
                         text: text.value.clone(),
                         anchors: vec![anchor],
@@ -456,11 +457,9 @@ pub fn build(d: &Data, b: &ResourceBudget) -> Result<Output, ModelError> {
                     d,
                     &mut out,
                     root,
-                    Family::Scenario,
-                    Origin::Scenario {
+                    RenderedIdentity { family: Family::Scenario, origin: Origin::Scenario {
                         scenario: *scenario,
-                    },
-                    "Usage scenario".into(),
+                    }, title: "Usage scenario".into() },
                     Render {
                         text,
                         anchors,
@@ -507,14 +506,12 @@ pub fn build(d: &Data, b: &ResourceBudget) -> Result<Output, ModelError> {
                         d,
                         &mut out,
                         root,
-                        Family::DocumentationDeployment,
-                        Origin::Passage {
+                        RenderedIdentity { family: Family::DocumentationDeployment, origin: Origin::Passage {
                             observation: passage.id(),
-                        },
-                        passage
+                        }, title: passage
                             .heading
                             .clone()
-                            .unwrap_or_else(|| artifact.path.clone()),
+                            .unwrap_or_else(|| artifact.path.clone()) },
                         Render {
                             text: text.value.clone(),
                             anchors: vec![anchor],
@@ -532,14 +529,12 @@ pub fn build(d: &Data, b: &ResourceBudget) -> Result<Output, ModelError> {
                         d,
                         &mut out,
                         root,
-                        Family::DocumentationDeployment,
-                        Origin::Document {
+                        RenderedIdentity { family: Family::DocumentationDeployment, origin: Origin::Document {
                             observation: *observation,
-                        },
-                        document
+                        }, title: document
                             .title
                             .clone()
-                            .unwrap_or_else(|| artifact.path.clone()),
+                            .unwrap_or_else(|| artifact.path.clone()) },
                         Render {
                             text: text.value.clone(),
                             anchors: vec![anchor],
@@ -567,11 +562,9 @@ pub fn build(d: &Data, b: &ResourceBudget) -> Result<Output, ModelError> {
                     d,
                     &mut out,
                     root,
-                    Family::DocumentationDeployment,
-                    Origin::Deployment {
+                    RenderedIdentity { family: Family::DocumentationDeployment, origin: Origin::Deployment {
                         deployment: *deployment,
-                    },
-                    observation.field.clone(),
+                    }, title: observation.field.clone() },
                     Render {
                         text: format!(
                             "Declared {} {:?} interpretation={:?}\n{}",
@@ -717,9 +710,7 @@ fn briefs(d: &Data, out: &mut Output, b: &ResourceBudget) -> Result<(), ModelErr
             d,
             out,
             root,
-            Family::ApiOptions,
-            Origin::Brief { brief: brief.id() },
-            brief.title.as_str().into(),
+            RenderedIdentity { family: Family::ApiOptions, origin: Origin::Brief { brief: brief.id() }, title: brief.title.as_str().into() },
             Render {
                 text,
                 anchors,
@@ -920,7 +911,7 @@ pub fn stage(
     }
     for input in &mut inputs {
         if is_vocabulary(input.name()) {
-            *input = input.clone().at_epoch(PublicationBoundary::Synthesis);
+            *input = (*input).at_epoch(PublicationBoundary::Synthesis);
         }
     }
     inputs.sort_by_key(|r| r.name());

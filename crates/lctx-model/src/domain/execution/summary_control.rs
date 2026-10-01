@@ -34,16 +34,21 @@ impl DerivedEvidence for SummaryControlWitness {
         }
     }
 }
+pub(super) struct SummaryControlInputs<'a> {
+    pub(super) invocation: &'a owner::AnalysisInvocation,
+    pub(super) definition: &'a analysis::AnalysisDefinition,
+    pub(super) witness: &'a SummaryWitness,
+}
+
 pub(super) fn publish(
-    invocation: &owner::AnalysisInvocation,
-    definition: &analysis::AnalysisDefinition,
-    witness: &SummaryWitness,
+    summary_control_inputs: SummaryControlInputs<'_>,
     influence: &ControlInfluence,
     q: &AssertionQualification,
     condition: &Diagram,
     out: &mut SummaryRecords,
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
+    let SummaryControlInputs { invocation, definition, witness } = summary_control_inputs;
     if influence.qualification != q.id() || condition.id() != q.condition {
         return Err(ModelError::Invalid(
             "rebased influence qualification differs".into(),

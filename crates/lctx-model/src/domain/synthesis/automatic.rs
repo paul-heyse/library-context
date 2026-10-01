@@ -95,6 +95,7 @@ fn result<'a>(
 }
 /// The earlier owner validates each supplied row. This operation preserves all candidate
 /// decisions, and never turns a rank/community navigation choice into semantic evidence.
+#[allow(clippy::too_many_arguments, reason = "Public seed completion keeps separately admitted documentary, structural and analytic inputs explicit.")]
 pub fn complete(
     d: &documentary::Data,
     docs: &documentary::Output,
@@ -182,24 +183,22 @@ pub fn complete(
         if communities.next().is_some() {
             return Err(invalid("automatic seed has ambiguous selected community"));
         }
-        if configured.contains(&member.id()) {
-            if let Some(c) =
-                community.filter(|c| !configured_communities.contains(&(*c, member.id())))
-            {
-                configured_communities.insert(&mut charge, (c, member.id()))?;
-                let count = held.get(&c).copied().unwrap_or(0);
-                held.insert(
-                    &mut charge,
-                    c,
-                    count
-                        + out
-                            .selected
-                            .iter()
-                            .filter(|r| r.member == member.id())
-                            .count(),
-                )?;
+        if configured.contains(&member.id())
+            && let Some(c) =
+                community.filter(|c| !configured_communities.contains(&(*c, member.id()))) {
+            configured_communities.insert(&mut charge, (c, member.id()))?;
+            let count = held.get(&c).copied().unwrap_or(0);
+            held.insert(
+                &mut charge,
+                c,
+                count
+                    + out
+                        .selected
+                        .iter()
+                        .filter(|r| r.member == member.id())
+                        .count(),
+            )?;
             }
-        }
         let reason = if configured.contains(&member.id()) {
             DecisionReason::Configured
         } else if !candidate.in_subsystem {
@@ -301,13 +300,7 @@ mod tests {
     }
     // Pure selection assumes earlier C0/A0/A1 rows independently admitted; native store qualification
     // belongs to the final producer controls. Aliases share authored prose and an entity, not a slot.
-    fn fixture_with(
-        count: usize,
-        budget: i64,
-        pagerank: bool,
-        communities: bool,
-        configured: bool,
-    ) -> (
+    type Fixture = (
         ResourceBudget,
         documentary::Data,
         documentary::Output,
@@ -317,7 +310,15 @@ mod tests {
         Data,
         AnalyticsConfiguration,
         owner::Invocation,
-    ) {
+    );
+
+    fn fixture_with(
+        count: usize,
+        budget: i64,
+        pagerank: bool,
+        communities: bool,
+        configured: bool,
+    ) -> Fixture {
         let (b, mut d, original) = documentary::tests::fixture("\"Run.\"", "Run.");
         let mut settings = seeds::tests::settings(
             if configured {
@@ -369,7 +370,7 @@ mod tests {
                     .members
                     .insert(catalog::CatalogMember {
                         path: vec![format!("run{n}")],
-                        name: format!("run{n}").into(),
+                        name: format!("run{n}"),
                         ..member.clone()
                     })
                     .unwrap();
@@ -422,17 +423,7 @@ mod tests {
     fn fixture(
         count: usize,
         budget: i64,
-    ) -> (
-        ResourceBudget,
-        documentary::Data,
-        documentary::Output,
-        Rows<structural::PublicCandidate>,
-        Rows<structural::StructuralFrame>,
-        Rows<analysis::structural::Invocation>,
-        Data,
-        AnalyticsConfiguration,
-        owner::Invocation,
-    ) {
+    ) -> Fixture {
         fixture_with(count, budget, false, false, false)
     }
     fn analytic(
@@ -480,17 +471,22 @@ mod tests {
         a.results.insert(r.clone()).unwrap();
         r
     }
+struct SelectionInputs<'a> {
+    d: &'a documentary::Data,
+    docs: &'a documentary::Output,
+    p: &'a Rows<structural::PublicCandidate>,
+    f: &'a Rows<structural::StructuralFrame>,
+    parents: &'a Rows<analysis::structural::Invocation>,
+    a: &'a Data,
+}
+
     fn select(
-        d: &documentary::Data,
-        docs: &documentary::Output,
-        p: &Rows<structural::PublicCandidate>,
-        f: &Rows<structural::StructuralFrame>,
-        parents: &Rows<analysis::structural::Invocation>,
-        a: &Data,
-        s: &AnalyticsConfiguration,
-        i: &owner::Invocation,
-        b: &ResourceBudget,
-    ) -> seeds::Output {
+    selection_inputs: SelectionInputs<'_>,
+    s: &AnalyticsConfiguration,
+    i: &owner::Invocation,
+    b: &ResourceBudget,
+) -> seeds::Output {
+    let SelectionInputs { d, docs, p, f, parents, a } = selection_inputs;
         let mut out = seeds::configured(d, p, f, parents, s, i, b).unwrap();
         complete(d, docs, p, f, parents, a, s, i, &mut out, b).unwrap();
         out
@@ -498,7 +494,7 @@ mod tests {
     #[test]
     fn eligible_extras_follow_official_usage_and_zero_budget_is_explicit() {
         let (b, d, docs, p, f, parents, a, s, i) = fixture(4, 2);
-        let out = select(&d, &docs, &p, &f, &parents, &a, &s, &i, &b);
+        let out = select(SelectionInputs { d: &d, docs: &docs, p: &p, f: &f, parents: &parents, a: &a }, &s, &i, &b);
         assert_eq!(out.selected.len(), 2);
         let selected = out.selected.iter().find(|r| r.ordinal == 0).unwrap();
         let source = out.sources.get(selected.source).unwrap();
@@ -517,7 +513,7 @@ mod tests {
             2
         );
         let (b, d, docs, p, f, parents, a, s, i) = fixture(2, 0);
-        let out = select(&d, &docs, &p, &f, &parents, &a, &s, &i, &b);
+        let out = select(SelectionInputs { d: &d, docs: &docs, p: &p, f: &f, parents: &parents, a: &a }, &s, &i, &b);
         assert!(out.selected.is_empty());
         assert!(
             out.automatic
@@ -529,7 +525,7 @@ mod tests {
     fn eligibility_requires_summary_and_official_usage_and_keeps_outside_candidates() {
         let (b, d, mut docs, mut p, f, parents, mut a, s, i) = fixture(3, 3);
         docs.conclusions = Rows::new(&b);
-        let out = select(&d, &docs, &p, &f, &parents, &a, &s, &i, &b);
+        let out = select(SelectionInputs { d: &d, docs: &docs, p: &p, f: &f, parents: &parents, a: &a }, &s, &i, &b);
         assert!(out.selected.is_empty());
         assert!(
             out.automatic
@@ -538,7 +534,7 @@ mod tests {
         );
         let docs = documentary::build(&d, &b).unwrap();
         a.usage = Rows::new(&b);
-        let out = select(&d, &docs, &p, &f, &parents, &a, &s, &i, &b);
+        let out = select(SelectionInputs { d: &d, docs: &docs, p: &p, f: &f, parents: &parents, a: &a }, &s, &i, &b);
         assert!(out.selected.is_empty());
         assert!(
             out.automatic
@@ -552,7 +548,7 @@ mod tests {
             ..old
         })
         .unwrap();
-        let out = select(&d, &docs, &p, &f, &parents, &a, &s, &i, &b);
+        let out = select(SelectionInputs { d: &d, docs: &docs, p: &p, f: &f, parents: &parents, a: &a }, &s, &i, &b);
         assert_eq!(
             out.automatic.iter().next().unwrap().reason,
             DecisionReason::OutsideSubsystem
@@ -580,7 +576,7 @@ mod tests {
                 })
                 .unwrap();
         }
-        let out = select(&d, &docs, &p, &f, &parents, &a, &s, &i, &b);
+        let out = select(SelectionInputs { d: &d, docs: &docs, p: &p, f: &f, parents: &parents, a: &a }, &s, &i, &b);
         let chosen = out
             .automatic
             .iter()
@@ -598,7 +594,7 @@ mod tests {
                 ..old
             })
             .unwrap();
-        let out = select(&d, &docs, &p, &f, &parents, &a, &s, &i, &b);
+        let out = select(SelectionInputs { d: &d, docs: &docs, p: &p, f: &f, parents: &parents, a: &a }, &s, &i, &b);
         let chosen = out
             .automatic
             .iter()
@@ -636,7 +632,7 @@ mod tests {
                 })
                 .unwrap();
         }
-        let out = select(&d, &docs, &p, &f, &parents, &a, &s, &i, &b);
+        let out = select(SelectionInputs { d: &d, docs: &docs, p: &p, f: &f, parents: &parents, a: &a }, &s, &i, &b);
         assert_eq!(out.selected.len(), 2);
         let first = out.selected.iter().find(|r| r.ordinal == 0).unwrap();
         assert!(matches!(
@@ -658,7 +654,7 @@ mod tests {
         assert_eq!(expected.score.get(), 5.0);
         let mut erased = out;
         erased.automatic = Rows::new(&b);
-        let replay = select(&d, &docs, &p, &f, &parents, &a, &s, &i, &b);
+        let replay = select(SelectionInputs { d: &d, docs: &docs, p: &p, f: &f, parents: &parents, a: &a }, &s, &i, &b);
         assert!(erased.matches(&replay).is_err());
     }
     #[test]

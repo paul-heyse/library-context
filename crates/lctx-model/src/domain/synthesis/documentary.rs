@@ -2,11 +2,11 @@
 use crate::domain::{
     analysis::{
         self,
-        native::{NativeAssertionPremise, NativeQualification},
+        native::NativeAssertionPremise,
         policy::EvidenceStatus,
         support::{DerivedEvidence, SourceFacts},
     },
-    artifact::{ARTIFACT_CHUNK_BYTES, ArtifactChunk, ArtifactChunkKey},
+    artifact::{ARTIFACT_CHUNK_BYTES, ArtifactChunkKey},
     assertion::{Approximation, AssertionQualification},
     attribution::{Fidelity, Modality},
     catalog::*,
@@ -232,11 +232,11 @@ fn source_declaration(d: &Data, id: Id<EntityRef>) -> Result<Option<Id<Occurrenc
         _ => None,
     })
 }
-fn native<'a>(
-    d: &'a Data,
+fn native(
+    d: &Data,
     predicate: impl Fn(&NativeAssertionPremise) -> bool,
     q: Id<AssertionQualification>,
-) -> Result<Option<&'a NativeAssertionPremise>, ModelError> {
+) -> Result<Option<&NativeAssertionPremise>, ModelError> {
     let mut found = None;
     for p in d.native.iter().filter(|p| predicate(p)) {
         let Some(n) = d.native_qualifications.get(Id::of(
@@ -607,7 +607,7 @@ pub fn build(d: &Data, b: &ResourceBudget) -> Result<Output, ModelError> {
                             source: proof,
                             prose: prose_id,
                             excerpt,
-                            excerpt_digest: ContentHash::of(prose[start..end].as_bytes()),
+                            excerpt_digest: ContentHash::of(&prose.as_bytes()[start..end]),
                             qualification: qualification.id(),
                             status: EvidenceStatus::Documented,
                         })?;
@@ -691,8 +691,361 @@ impl InvariantCheck for Check {
     }
 }
 
+
+
+/// Resolve an original anchor mechanically; a derived slice never changes the earlier source.
+pub fn original(
+    d: &Data,
+    source: &ProseSource,
+) -> Result<(Id<SourceArtifact>, i64, i64), ModelError> {
+    match source {
+        ProseSource::Occurrence { occurrence } | ProseSource::Literal { occurrence, .. } => {
+            let row = need(&d.occurrences, *occurrence)?;
+            Ok((row.source, row.start, row.end))
+        }
+        ProseSource::Span { span } => match need(&d.canonical_evidence, span.id())? {
+            assertion::Evidence::SourceSpan { source, start, end } => Ok((*source, *start, *end)),
+            _ => Err(invalid("documentary anchor is not an earlier source span")),
+        },
+    }
+}
+pub fn read_slice(
+    d: &Data,
+    rows: &Output,
+    slice: &ProseSlice,
+    b: &ResourceBudget,
+) -> Result<Bytes, ModelError> {
+    let source = need(&rows.prose_sources, slice.source)?;
+    if let ProseSource::Literal {
+        occurrence,
+        literal,
+    } = source
+    {
+        let original = need(&d.occurrences, *occurrence)?;
+        let _original = read(d, original, b)?;
+        let Literal::String { value } = need(&d.literals, *literal)? else {
+            return Err(invalid(
+                "interpreted documentary anchor is not a native string",
+            ));
+        };
+        let start = usize::try_from(slice.start).map_err(ModelError::codec)?;
+        let end = usize::try_from(slice.end).map_err(ModelError::codec)?;
+        let text = value
+            .get(start..end)
+            .ok_or_else(|| invalid("interpreted documentary slice exceeds native literal"))?;
+        let reservation = b.reserve(
+            "native-literal-prose-slice",
+            text.len() + size_of::<Bytes>(),
+        )?;
+        return Ok(Bytes {
+            value: text.to_owned(),
+            _reservation: reservation,
+        });
+    }
+    let (artifact, start, end) = original(d, source)?;
+    if slice.start < 0 || slice.end < slice.start || slice.end > end - start {
+        return Err(invalid("documentary slice exceeds original anchor"));
+    }
+    read_range(
+        d,
+        artifact,
+        start
+            .checked_add(slice.start)
+            .ok_or_else(|| invalid("documentary slice start overflow"))?,
+        start
+            .checked_add(slice.end)
+            .ok_or_else(|| invalid("documentary slice end overflow"))?,
+        b,
+    )
+}
+/// Paragraph boundaries are source-byte operations, not declarations or symbol resolution.
+pub fn mention_sentence(
+    text: &str,
+    mention: (usize, usize),
+    b: &ResourceBudget,
+) -> Result<Option<(usize, usize)>, ModelError> {
+    if mention.0 > mention.1
+        || mention.1 > text.len()
+        || !text.is_char_boundary(mention.0)
+        || !text.is_char_boundary(mention.1)
+    {
+        return Err(invalid("document mention exceeds original passage"));
+    }
+    let mut offset = 0;
+    let mut fenced = false;
+    let mut open: Option<(usize, usize)> = None;
+    let finish = |range: Option<(usize, usize)>| -> Result<Option<(usize, usize)>, ModelError> {
+        let Some((start, end)) = range else {
+            return Ok(None);
+        };
+        if mention.0 < start || mention.1 > end {
+            return Ok(None);
+        }
+        let Some((a, z)) = first_sentence(&text[start..end], b)? else {
+            return Ok(None);
+        };
+        let (a, z) = (start + a, start + z);
+        Ok((mention.0 >= a && mention.1 <= z).then_some((a, z)))
+    };
+    for line in text.split_inclusive('\n') {
+        let at = offset;
+        offset += line.len();
+        let body = line.trim();
+        let fence = body.starts_with("```") || body.starts_with("~~~");
+        let skip = fence
+            || fenced
+            || body.is_empty()
+            || body.starts_with(['#', '<', '>', '|'])
+            || body.starts_with(":::")
+            || body.starts_with("import ")
+            || body.starts_with("export ")
+            || body.starts_with("---");
+        let trim = line.len() - line.trim_start().len();
+        let trimmed = &line[trim..];
+        let digits = trimmed.bytes().take_while(u8::is_ascii_digit).count();
+        let marker = if trimmed.starts_with("- ")
+            || trimmed.starts_with("* ")
+            || trimmed.starts_with("+ ")
+        {
+            Some(trim + 2)
+        } else if digits > 0 && trimmed[digits..].starts_with(". ") {
+            Some(trim + digits + 2)
+        } else {
+            None
+        };
+        if (skip || marker.is_some())
+            && let Some(result) = finish(open.take())? {
+            return Ok(Some(result));
+            }
+        if fence {
+            fenced = !fenced;
+            continue;
+        }
+        if skip {
+            continue;
+        }
+        let end = at + line.trim_end().len();
+        if let Some(marker) = marker {
+            open = Some((at + marker, end));
+        } else if let Some((_, end0)) = &mut open {
+            *end0 = end;
+        } else {
+            open = Some((at + trim, end));
+        }
+    }
+    finish(open)
+}
+/// Static association: source qualifications remain on their exact earlier native premises.
+fn association_qualification(i: &analysis::catalog_core::Invocation) -> AssertionQualification {
+    AssertionQualification {
+        context: i.context,
+        scope: CoverageScope::Input { input: i.input }.id(),
+        condition: conditions::Diagram::always().id(),
+        modality: Modality::Candidate,
+        approximation: Approximation::Over,
+    }
+}
+fn passage_outcomes(d: &Data, out: &mut Output, b: &ResourceBudget) -> Result<(), ModelError> {
+    for frame in d.member_frames.iter() {
+        let member = need(&d.members, frame.member)?;
+        let invocation = need(&d.core_invocations, frame.invocation)?;
+        for association in d
+            .document_associations
+            .iter()
+            .filter(|r| r.member == member.id())
+        {
+            let candidate = need(&d.mention_candidates, association.candidate)?;
+            let exposure = need(&d.public_exposures, candidate.exposure)?;
+            if exposure.context != invocation.context {
+                out.boundaries.insert(DocumentaryBoundary {
+                    member: frame.id(),
+                    candidate: None,
+                    association: Some(association.id()),
+                    reason: DocumentaryBoundaryReason::ForeignContext,
+                })?;
+                continue;
+            }
+            if !d
+                .exposures
+                .iter()
+                .any(|l| l.member == member.id() && l.exposure == exposure.id())
+            {
+                return Err(invalid(
+                    "documentary association does not name the exact C0 exposure",
+                ));
+            }
+            let assessment = need(&d.mention_assessments, candidate.assessment)?;
+            let mention = need(&d.mentions, assessment.observation)?;
+            let q = need(&d.qualifications, mention.qualification)?;
+            if q.context != invocation.context {
+                out.boundaries.insert(DocumentaryBoundary {
+                    member: frame.id(),
+                    candidate: None,
+                    association: Some(association.id()),
+                    reason: DocumentaryBoundaryReason::ForeignContext,
+                })?;
+                continue;
+            }
+            let mut passages = 0;
+            for passage in d.passages.iter().filter(|p| p.passage == mention.passage) {
+                let pq = need(&d.qualifications, passage.qualification)?;
+                if pq.context != invocation.context {
+                    out.boundaries.insert(DocumentaryBoundary {
+                        member: frame.id(),
+                        candidate: None,
+                        association: Some(association.id()),
+                        reason: DocumentaryBoundaryReason::ForeignContext,
+                    })?;
+                    continue;
+                }
+                passages += 1;
+                if pq.scope != q.scope || pq.condition != q.condition {
+                    return Err(invalid(
+                        "documentary passage and mention change source frame",
+                    ));
+                }
+                let prose_source = ProseSource::Span {
+                    span: need(&d.nodes, passage.passage.id())?.span(),
+                };
+                let (artifact, start, end) = original(d, &prose_source)?;
+                let captured = need(&d.artifacts, artifact)?;
+                let name = captured
+                    .path
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or(&captured.path)
+                    .split('.')
+                    .next()
+                    .unwrap_or("")
+                    .to_ascii_lowercase();
+                if name.contains("changelog") || name == "whats-new" || name == "changes" {
+                    out.boundaries.insert(DocumentaryBoundary {
+                        member: frame.id(),
+                        candidate: None,
+                        association: Some(association.id()),
+                        reason: DocumentaryBoundaryReason::ExcludedChangelog,
+                    })?;
+                    continue;
+                }
+                let mention_source = ProseSource::Span {
+                    span: need(&d.nodes, mention.mention.id())?.span(),
+                };
+                let (ma, ms, me) = original(d, &mention_source)?;
+                if ma != artifact || ms < start || me > end {
+                    return Err(invalid(
+                        "documentary mention lies outside exact original passage",
+                    ));
+                }
+                let Some(native_passage) = native(
+                    d,
+                    |p| matches!(p,NativeAssertionPremise::PassageObservation{assertion,..}if *assertion==passage.id()),
+                    passage.qualification,
+                )?
+                else {
+                    out.boundaries.insert(DocumentaryBoundary {
+                        member: frame.id(),
+                        candidate: None,
+                        association: Some(association.id()),
+                        reason: DocumentaryBoundaryReason::NativeEvidenceUnavailable,
+                    })?;
+                    continue;
+                };
+                let Some(native_mention) = native(
+                    d,
+                    |p| matches!(p,NativeAssertionPremise::DocumentMentionObservation{assertion,..}if *assertion==mention.id()),
+                    mention.qualification,
+                )?
+                else {
+                    out.boundaries.insert(DocumentaryBoundary {
+                        member: frame.id(),
+                        candidate: None,
+                        association: Some(association.id()),
+                        reason: DocumentaryBoundaryReason::NativeEvidenceUnavailable,
+                    })?;
+                    continue;
+                };
+                let bytes = read_range(d, artifact, start, end, b)?;
+                let Some((first, last)) = mention_sentence(
+                    &bytes.value,
+                    ((ms - start) as usize, (me - start) as usize),
+                    b,
+                )?
+                else {
+                    out.boundaries.insert(DocumentaryBoundary {
+                        member: frame.id(),
+                        candidate: None,
+                        association: Some(association.id()),
+                        reason: DocumentaryBoundaryReason::NoLeadMention,
+                    })?;
+                    continue;
+                };
+                let base = out.prose_sources.insert(prose_source)?;
+                let prose = out.slices.insert(ProseSlice {
+                    source: base,
+                    start: 0,
+                    end: end - start,
+                })?;
+                let excerpt = out.slices.insert(ProseSlice {
+                    source: base,
+                    start: first as i64,
+                    end: last as i64,
+                })?;
+                let source = out.sources.insert(DocumentarySource::Passage {
+                    member: frame.id(),
+                    association: association.id(),
+                    passage: native_passage.id(),
+                    mention: native_mention.id(),
+                    source_input: captured.input,
+                    source_qualification: q.id(),
+                })?;
+                let qualification = association_qualification(invocation);
+                out.qualifications.insert(qualification.clone())?;
+                out.conclusions.insert(DocumentaryConclusion {
+                    source,
+                    prose,
+                    excerpt,
+                    excerpt_digest: ContentHash::of(&bytes.value.as_bytes()[first..last]),
+                    qualification: qualification.id(),
+                    status: analysis::policy::derive_status(&[
+                        (
+                            analysis::policy::SupportRole::Support,
+                            need(
+                                &d.native_qualifications,
+                                Id::of(&analysis::native::NativeQualificationKey {
+                                    premise: native_passage.id(),
+                                }),
+                            )?
+                            .status,
+                        ),
+                        (
+                            analysis::policy::SupportRole::Support,
+                            need(
+                                &d.native_qualifications,
+                                Id::of(&analysis::native::NativeQualificationKey {
+                                    premise: native_mention.id(),
+                                }),
+                            )?
+                            .status,
+                        ),
+                    ]),
+                })?;
+            }
+            if passages == 0 {
+                out.boundaries.insert(DocumentaryBoundary {
+                    member: frame.id(),
+                    candidate: None,
+                    association: Some(association.id()),
+                    reason: DocumentaryBoundaryReason::NativeEvidenceUnavailable,
+                })?;
+            }
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
+    use crate::domain::{analysis::native::NativeQualification, artifact::ArtifactChunk};
     use super::*;
     fn id<T>(n: u8) -> Id<T> {
         serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
@@ -1383,355 +1736,4 @@ pub(crate) mod tests {
         assert_eq!(tiny.reserved(), 0);
         assert_eq!(build(&d, &b).unwrap().conclusions.len(), 1);
     }
-}
-
-/// Resolve an original anchor mechanically; a derived slice never changes the earlier source.
-pub fn original(
-    d: &Data,
-    source: &ProseSource,
-) -> Result<(Id<SourceArtifact>, i64, i64), ModelError> {
-    match source {
-        ProseSource::Occurrence { occurrence } | ProseSource::Literal { occurrence, .. } => {
-            let row = need(&d.occurrences, *occurrence)?;
-            Ok((row.source, row.start, row.end))
-        }
-        ProseSource::Span { span } => match need(&d.canonical_evidence, span.id())? {
-            assertion::Evidence::SourceSpan { source, start, end } => Ok((*source, *start, *end)),
-            _ => Err(invalid("documentary anchor is not an earlier source span")),
-        },
-    }
-}
-pub fn read_slice(
-    d: &Data,
-    rows: &Output,
-    slice: &ProseSlice,
-    b: &ResourceBudget,
-) -> Result<Bytes, ModelError> {
-    let source = need(&rows.prose_sources, slice.source)?;
-    if let ProseSource::Literal {
-        occurrence,
-        literal,
-    } = source
-    {
-        let original = need(&d.occurrences, *occurrence)?;
-        let _original = read(d, original, b)?;
-        let Literal::String { value } = need(&d.literals, *literal)? else {
-            return Err(invalid(
-                "interpreted documentary anchor is not a native string",
-            ));
-        };
-        let start = usize::try_from(slice.start).map_err(ModelError::codec)?;
-        let end = usize::try_from(slice.end).map_err(ModelError::codec)?;
-        let text = value
-            .get(start..end)
-            .ok_or_else(|| invalid("interpreted documentary slice exceeds native literal"))?;
-        let reservation = b.reserve(
-            "native-literal-prose-slice",
-            text.len() + size_of::<Bytes>(),
-        )?;
-        return Ok(Bytes {
-            value: text.to_owned(),
-            _reservation: reservation,
-        });
-    }
-    let (artifact, start, end) = original(d, source)?;
-    if slice.start < 0 || slice.end < slice.start || slice.end > end - start {
-        return Err(invalid("documentary slice exceeds original anchor"));
-    }
-    read_range(
-        d,
-        artifact,
-        start
-            .checked_add(slice.start)
-            .ok_or_else(|| invalid("documentary slice start overflow"))?,
-        start
-            .checked_add(slice.end)
-            .ok_or_else(|| invalid("documentary slice end overflow"))?,
-        b,
-    )
-}
-/// Paragraph boundaries are source-byte operations, not declarations or symbol resolution.
-pub fn mention_sentence(
-    text: &str,
-    mention: (usize, usize),
-    b: &ResourceBudget,
-) -> Result<Option<(usize, usize)>, ModelError> {
-    if mention.0 > mention.1
-        || mention.1 > text.len()
-        || !text.is_char_boundary(mention.0)
-        || !text.is_char_boundary(mention.1)
-    {
-        return Err(invalid("document mention exceeds original passage"));
-    }
-    let mut offset = 0;
-    let mut fenced = false;
-    let mut open: Option<(usize, usize)> = None;
-    let finish = |range: Option<(usize, usize)>| -> Result<Option<(usize, usize)>, ModelError> {
-        let Some((start, end)) = range else {
-            return Ok(None);
-        };
-        if mention.0 < start || mention.1 > end {
-            return Ok(None);
-        }
-        let Some((a, z)) = first_sentence(&text[start..end], b)? else {
-            return Ok(None);
-        };
-        let (a, z) = (start + a, start + z);
-        Ok((mention.0 >= a && mention.1 <= z).then_some((a, z)))
-    };
-    for line in text.split_inclusive('\n') {
-        let at = offset;
-        offset += line.len();
-        let body = line.trim();
-        let fence = body.starts_with("```") || body.starts_with("~~~");
-        let skip = fence
-            || fenced
-            || body.is_empty()
-            || body.starts_with(['#', '<', '>', '|'])
-            || body.starts_with(":::")
-            || body.starts_with("import ")
-            || body.starts_with("export ")
-            || body.starts_with("---");
-        let trim = line.len() - line.trim_start().len();
-        let trimmed = &line[trim..];
-        let digits = trimmed.bytes().take_while(u8::is_ascii_digit).count();
-        let marker = if trimmed.starts_with("- ")
-            || trimmed.starts_with("* ")
-            || trimmed.starts_with("+ ")
-        {
-            Some(trim + 2)
-        } else if digits > 0 && trimmed[digits..].starts_with(". ") {
-            Some(trim + digits + 2)
-        } else {
-            None
-        };
-        if skip || marker.is_some() {
-            if let Some(result) = finish(open.take())? {
-                return Ok(Some(result));
-            }
-        }
-        if fence {
-            fenced = !fenced;
-            continue;
-        }
-        if skip {
-            continue;
-        }
-        let end = at + line.trim_end().len();
-        if let Some(marker) = marker {
-            open = Some((at + marker, end));
-        } else if let Some((_, end0)) = &mut open {
-            *end0 = end;
-        } else {
-            open = Some((at + trim, end));
-        }
-    }
-    finish(open)
-}
-/// Static association: source qualifications remain on their exact earlier native premises.
-fn association_qualification(i: &analysis::catalog_core::Invocation) -> AssertionQualification {
-    AssertionQualification {
-        context: i.context,
-        scope: CoverageScope::Input { input: i.input }.id(),
-        condition: conditions::Diagram::always().id(),
-        modality: Modality::Candidate,
-        approximation: Approximation::Over,
-    }
-}
-fn passage_outcomes(d: &Data, out: &mut Output, b: &ResourceBudget) -> Result<(), ModelError> {
-    for frame in d.member_frames.iter() {
-        let member = need(&d.members, frame.member)?;
-        let invocation = need(&d.core_invocations, frame.invocation)?;
-        for association in d
-            .document_associations
-            .iter()
-            .filter(|r| r.member == member.id())
-        {
-            let candidate = need(&d.mention_candidates, association.candidate)?;
-            let exposure = need(&d.public_exposures, candidate.exposure)?;
-            if exposure.context != invocation.context {
-                out.boundaries.insert(DocumentaryBoundary {
-                    member: frame.id(),
-                    candidate: None,
-                    association: Some(association.id()),
-                    reason: DocumentaryBoundaryReason::ForeignContext,
-                })?;
-                continue;
-            }
-            if !d
-                .exposures
-                .iter()
-                .any(|l| l.member == member.id() && l.exposure == exposure.id())
-            {
-                return Err(invalid(
-                    "documentary association does not name the exact C0 exposure",
-                ));
-            }
-            let assessment = need(&d.mention_assessments, candidate.assessment)?;
-            let mention = need(&d.mentions, assessment.observation)?;
-            let q = need(&d.qualifications, mention.qualification)?;
-            if q.context != invocation.context {
-                out.boundaries.insert(DocumentaryBoundary {
-                    member: frame.id(),
-                    candidate: None,
-                    association: Some(association.id()),
-                    reason: DocumentaryBoundaryReason::ForeignContext,
-                })?;
-                continue;
-            }
-            let mut passages = 0;
-            for passage in d.passages.iter().filter(|p| p.passage == mention.passage) {
-                let pq = need(&d.qualifications, passage.qualification)?;
-                if pq.context != invocation.context {
-                    out.boundaries.insert(DocumentaryBoundary {
-                        member: frame.id(),
-                        candidate: None,
-                        association: Some(association.id()),
-                        reason: DocumentaryBoundaryReason::ForeignContext,
-                    })?;
-                    continue;
-                }
-                passages += 1;
-                if pq.scope != q.scope || pq.condition != q.condition {
-                    return Err(invalid(
-                        "documentary passage and mention change source frame",
-                    ));
-                }
-                let prose_source = ProseSource::Span {
-                    span: need(&d.nodes, passage.passage.id())?.span(),
-                };
-                let (artifact, start, end) = original(d, &prose_source)?;
-                let captured = need(&d.artifacts, artifact)?;
-                let name = captured
-                    .path
-                    .rsplit('/')
-                    .next()
-                    .unwrap_or(&captured.path)
-                    .split('.')
-                    .next()
-                    .unwrap_or("")
-                    .to_ascii_lowercase();
-                if name.contains("changelog") || name == "whats-new" || name == "changes" {
-                    out.boundaries.insert(DocumentaryBoundary {
-                        member: frame.id(),
-                        candidate: None,
-                        association: Some(association.id()),
-                        reason: DocumentaryBoundaryReason::ExcludedChangelog,
-                    })?;
-                    continue;
-                }
-                let mention_source = ProseSource::Span {
-                    span: need(&d.nodes, mention.mention.id())?.span(),
-                };
-                let (ma, ms, me) = original(d, &mention_source)?;
-                if ma != artifact || ms < start || me > end {
-                    return Err(invalid(
-                        "documentary mention lies outside exact original passage",
-                    ));
-                }
-                let Some(native_passage) = native(
-                    d,
-                    |p| matches!(p,NativeAssertionPremise::PassageObservation{assertion,..}if *assertion==passage.id()),
-                    passage.qualification,
-                )?
-                else {
-                    out.boundaries.insert(DocumentaryBoundary {
-                        member: frame.id(),
-                        candidate: None,
-                        association: Some(association.id()),
-                        reason: DocumentaryBoundaryReason::NativeEvidenceUnavailable,
-                    })?;
-                    continue;
-                };
-                let Some(native_mention) = native(
-                    d,
-                    |p| matches!(p,NativeAssertionPremise::DocumentMentionObservation{assertion,..}if *assertion==mention.id()),
-                    mention.qualification,
-                )?
-                else {
-                    out.boundaries.insert(DocumentaryBoundary {
-                        member: frame.id(),
-                        candidate: None,
-                        association: Some(association.id()),
-                        reason: DocumentaryBoundaryReason::NativeEvidenceUnavailable,
-                    })?;
-                    continue;
-                };
-                let bytes = read_range(d, artifact, start, end, b)?;
-                let Some((first, last)) = mention_sentence(
-                    &bytes.value,
-                    ((ms - start) as usize, (me - start) as usize),
-                    b,
-                )?
-                else {
-                    out.boundaries.insert(DocumentaryBoundary {
-                        member: frame.id(),
-                        candidate: None,
-                        association: Some(association.id()),
-                        reason: DocumentaryBoundaryReason::NoLeadMention,
-                    })?;
-                    continue;
-                };
-                let base = out.prose_sources.insert(prose_source)?;
-                let prose = out.slices.insert(ProseSlice {
-                    source: base,
-                    start: 0,
-                    end: end - start,
-                })?;
-                let excerpt = out.slices.insert(ProseSlice {
-                    source: base,
-                    start: first as i64,
-                    end: last as i64,
-                })?;
-                let source = out.sources.insert(DocumentarySource::Passage {
-                    member: frame.id(),
-                    association: association.id(),
-                    passage: native_passage.id(),
-                    mention: native_mention.id(),
-                    source_input: captured.input,
-                    source_qualification: q.id(),
-                })?;
-                let qualification = association_qualification(invocation);
-                out.qualifications.insert(qualification.clone())?;
-                out.conclusions.insert(DocumentaryConclusion {
-                    source,
-                    prose,
-                    excerpt,
-                    excerpt_digest: ContentHash::of(bytes.value[first..last].as_bytes()),
-                    qualification: qualification.id(),
-                    status: analysis::policy::derive_status(&[
-                        (
-                            analysis::policy::SupportRole::Support,
-                            need(
-                                &d.native_qualifications,
-                                Id::of(&analysis::native::NativeQualificationKey {
-                                    premise: native_passage.id(),
-                                }),
-                            )?
-                            .status,
-                        ),
-                        (
-                            analysis::policy::SupportRole::Support,
-                            need(
-                                &d.native_qualifications,
-                                Id::of(&analysis::native::NativeQualificationKey {
-                                    premise: native_mention.id(),
-                                }),
-                            )?
-                            .status,
-                        ),
-                    ]),
-                })?;
-            }
-            if passages == 0 {
-                out.boundaries.insert(DocumentaryBoundary {
-                    member: frame.id(),
-                    candidate: None,
-                    association: Some(association.id()),
-                    reason: DocumentaryBoundaryReason::NativeEvidenceUnavailable,
-                })?;
-            }
-        }
-    }
-    Ok(())
 }

@@ -411,10 +411,8 @@ impl Prepared {
                 .ok_or_else(|| invalid("centroid member overflow"))?;
         }
         let target_count = targets.iter().try_fold(0usize, |n, key| {
-            Ok::<_, Error>(
-                n.checked_add(self.item(*key)?.available_windows)
-                    .ok_or_else(|| invalid("centroid target overflow"))?,
-            )
+            n.checked_add(self.item(*key)?.available_windows)
+                .ok_or_else(|| invalid("centroid target overflow"))
         })?;
         let width = dimension.unwrap_or(0);
         let work = (count as u64)

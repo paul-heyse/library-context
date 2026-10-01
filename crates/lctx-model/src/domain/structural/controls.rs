@@ -17,7 +17,7 @@ use crate::domain::{
     value::*,
     *,
 };
-use crate::{Domain, DomainSum};
+use crate::Domain;
 #[macro_export]
 macro_rules! structural_control_inputs {
     ($apply:ident) => {
@@ -245,16 +245,21 @@ fn target<'a>(
         need(&base.events.alternative_sources, alternative.source)?.target(),
     )
 }
+struct FlowInputs<'a> {
+    d: &'a Data,
+    h: &'a handoffs::Data,
+    base: &'a build::Data,
+}
+
 fn flow(
-    d: &Data,
-    h: &handoffs::Data,
-    base: &build::Data,
+    flow_inputs: FlowInputs<'_>,
     frame: &StructuralFrame,
     binding: &CallBinding,
     proof: &LocalContribution,
     alias: Option<Id<handoffs::ValueSource>>,
     out: &mut Output,
 ) -> Result<bool, ModelError> {
+    let FlowInputs { d, h, base } = flow_inputs;
     let attempt = need(&h.attempts, binding.attempt)?;
     let alt = need(&base.events.alternatives, attempt.alternative)?;
     let Some(callee) = alt.entity else {
@@ -355,28 +360,23 @@ pub fn produce(
             {
                 continue;
             }
-            flow(d, h, base, frame, binding, proof, None, out)?;
+            flow(FlowInputs { d, h, base }, frame, binding, proof, None, out)?;
         }
-        if bound && argument.syntax_kind == SyntaxKind::ExprName {
-            if let Some((_, alias)) =
+        if bound && argument.syntax_kind == SyntaxKind::ExprName
+            && let Some((_, alias)) =
                 handoffs::named_definition(h, argument, invocation.context, budget)?
-            {
-                if let handoffs::ValueSource::Named { definition, .. } = &alias {
-                    for proof in d.contributions.iter() {
-                        let value = need(&h.entry.values, proof.value)?;
-                        if value.kind == FlowSinkKind::Definition
-                            && value.transfer == transfer::TransferKind::Identity
-                            && proof.definition == Some(*definition)
-                        {
-                            if alias_covers(h, &alias, proof.qualification, budget)? {
-                                out.handoff_values.insert(alias.clone())?;
-                                flow(d, h, base, frame, binding, proof, Some(alias.id()), out)?;
-                            }
-                        }
+                && let handoffs::ValueSource::Named { definition, .. } = &alias {
+            for proof in d.contributions.iter() {
+                let value = need(&h.entry.values, proof.value)?;
+                if value.kind == FlowSinkKind::Definition
+                    && value.transfer == transfer::TransferKind::Identity
+                    && proof.definition == Some(*definition)
+                    && alias_covers(h, &alias, proof.qualification, budget)? {
+                    out.handoff_values.insert(alias.clone())?;
+                    flow(FlowInputs { d, h, base }, frame, binding, proof, Some(alias.id()), out)?;
                     }
-                }
             }
-        }
+            }
         if bound {
             for row in d.observations.iter().filter(|r| {
                 h.entry

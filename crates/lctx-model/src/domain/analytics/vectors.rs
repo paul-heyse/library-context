@@ -4,7 +4,7 @@ use super::{
     *,
 };
 use crate::domain::{
-    analysis::structural as parent, normalized::entities::EntityRef, resources::ResourceBudget, *,
+    analysis::structural as parent, normalized::entities::EntityRef, resources::ResourceBudget,
 };
 use std::collections::{BTreeMap, BTreeSet};
 fn err(e: neighbours::Error) -> ModelError {
@@ -34,6 +34,7 @@ fn assessment<'a>(
     }
     Ok(a)
 }
+#[allow(clippy::too_many_arguments, reason = "Public operation keeps the analytic frame, structural owner, selected domain, independent result layers and budget explicit.")]
 pub fn produce(
     d: &Data,
     f: &AnalyticFrame,
@@ -62,9 +63,7 @@ pub fn produce(
     });
     let prepared = calculate(
         d,
-        f,
-        parent,
-        public,
+        VectorSelection { f, parent, public },
         &mut calculation,
         ordinary,
         layer.as_ref(),
@@ -82,17 +81,22 @@ pub fn produce(
     }
     Ok(prepared)
 }
+struct VectorSelection<'a> {
+    f: &'a AnalyticFrame,
+    parent: &'a parent::Invocation,
+    public: &'a BTreeSet<Id<EntityRef>>,
+}
+
 fn calculate(
     d: &Data,
-    f: &AnalyticFrame,
-    parent: &parent::Invocation,
-    public: &BTreeSet<Id<EntityRef>>,
+    vector_selection: VectorSelection<'_>,
     r: &mut TechniqueResult,
     ordinary: bool,
     layer: Option<&LayerResult>,
     out: &mut Output,
     b: &ResourceBudget,
 ) -> Result<Option<neighbours::Prepared>, ModelError> {
+    let VectorSelection { f, parent, public } = vector_selection;
     if !r.selected {
         return Ok(None);
     }

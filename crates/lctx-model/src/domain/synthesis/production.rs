@@ -142,7 +142,7 @@ pub fn stage(
     }
     for row in &mut inputs {
         if is_vocabulary(row.name()) {
-            *row = row.clone().at_epoch(PublicationBoundary::Analytic);
+            *row = (*row).at_epoch(PublicationBoundary::Analytic);
         }
     }
     inputs.sort_by_key(|r| r.name());

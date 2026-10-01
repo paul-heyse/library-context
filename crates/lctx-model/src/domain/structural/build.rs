@@ -437,7 +437,7 @@ impl Data {
         ]);
         for input in &mut inputs {
             if stages::is_vocabulary(input.name()) {
-                *input = input.clone().at_epoch(stages::PublicationBoundary::Local);
+                *input = (*input).at_epoch(stages::PublicationBoundary::Local);
             }
         }
         inputs.sort_by_key(|i| (i.name(), i.prefix()));
@@ -490,8 +490,8 @@ pub fn definition(
     Ok((parameters, row))
 }
 // One graph per frame is hydrated in stored replay. The runtime borrows its collection's graph.
-pub(super) fn hydrate<'a>(
-    graphs: &'a projection::normalization::ProjectionOutput,
+pub(super) fn hydrate(
+    graphs: &projection::normalization::ProjectionOutput,
     assessment: Id<projection::ProjectionSourceAssessment>,
     budget: &ResourceBudget,
 ) -> Result<MaterializedGraph, ModelError> {
@@ -630,7 +630,7 @@ pub fn stage(
         inputs: {
             for input in &mut inputs {
                 if is_vocabulary(input.name()) {
-                    *input = input.clone().at_epoch(PublicationBoundary::Local);
+                    *input = (*input).at_epoch(PublicationBoundary::Local);
                 }
             }
             inputs.sort_by_key(|i| i.name());

@@ -731,11 +731,9 @@ fn evaluate(
                 if let Some(EntityRef::Class {
                     class: parent_class,
                 }) = candidate_entity(d, p.parent)?.and_then(|id| d.source.core.refs.get(id))
-                {
-                    if *parent_class == class {
-                        return Ok(Some(public_path(d, owner)? == *path));
+                    && *parent_class == class {
+                    return Ok(Some(public_path(d, owner)? == *path));
                     }
-                }
             }
             let mut values = Vec::new();
             for owner in d.source.catalog.classes.iter().filter(|r| r.class == class) {

@@ -489,6 +489,8 @@ fn conclusion(
         modality: q.modality,
     })
 }
+type RefutationCoverage = (Vec<Id<ProviderCoverage>>, Box<dyn resources::Reservation>);
+
 fn complete_refutation(
     data: &SummaryData,
     invocation: &owner::AnalysisInvocation,
@@ -496,7 +498,7 @@ fn complete_refutation(
     condition: &Diagram,
     facts: SourceFacts,
     b: &ResourceBudget,
-) -> Result<(Vec<Id<ProviderCoverage>>, Box<dyn resources::Reservation>), ModelError> {
+) -> Result<RefutationCoverage, ModelError> {
     if !condition.is_false()
         || condition.id() != q.condition
         || facts.qualification != q.id()
@@ -882,19 +884,16 @@ pub fn derive(
                             pair.reason.unwrap_or(ObligationKind::MissingEvidence),
                         );
                     }
-                    if pair.disposition == PairDisposition::Proven {
-                        if let Some(witness) = pair.witness {
-                            let source = SummaryPremise::Witness { witness };
-                            if let (Some(fact), Some(proof)) =
-                                (finite.get(&source.id()), proven.get(&source.id()))
-                            {
-                                if fact.branch.qualification() == q {
-                                    decisions.proof(member.attempt, *proof, Verdict::Established);
-                                    statuses.push(fact.facts.status);
-                                }
+                    if pair.disposition == PairDisposition::Proven
+                        && let Some(witness) = pair.witness {
+                        let source = SummaryPremise::Witness { witness };
+                        if let (Some(fact), Some(proof)) =
+                            (finite.get(&source.id()), proven.get(&source.id()))
+                            && fact.branch.qualification() == q {
+                            decisions.proof(member.attempt, *proof, Verdict::Established);
+                            statuses.push(fact.facts.status);
                             }
                         }
-                    }
                 }
                 for residual in out
                     .residuals
@@ -1168,7 +1167,7 @@ impl InvariantCheck for RefutationCheck {
                 || *coverage
                     != super::records::ordered_digest(
                         "summary-refutation-coverage",
-                        expected.into_iter(),
+                        expected,
                     )
             {
                 return Err(invalid(

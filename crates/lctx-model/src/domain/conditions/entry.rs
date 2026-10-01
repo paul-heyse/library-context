@@ -328,7 +328,8 @@ impl EntryValueWitness {
             {
                 return Err(ObligationKind::EntryValueUnknown);
             }
-            for occurrence in [request.access] {
+            {
+                let occurrence = request.access;
                 let owner_row = data
                     .owners
                     .iter()

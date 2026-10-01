@@ -4,7 +4,7 @@ use super::{
     body_records::*,
     completion::*,
     completion_records::*,
-    records::{BaseCheck, ExpressionEvaluation},
+    records::BaseCheck,
 };
 use crate::Domain;
 use crate::domain::{

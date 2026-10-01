@@ -1088,7 +1088,7 @@ pub fn stage(profile: Profile, model: &ValidatedModel) -> Result<Stage, ModelErr
     }
     for input in &mut inputs {
         if is_vocabulary(input.name()) {
-            *input = input.clone().at_epoch(PublicationBoundary::Local);
+            *input = (*input).at_epoch(PublicationBoundary::Local);
         }
     }
     inputs.sort_by_key(|r| r.name());

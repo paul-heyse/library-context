@@ -2,19 +2,17 @@
 //! aggregates are separate; mutable iteration state never becomes semantic authority.
 use super::{
     source_call_records::SourceCallHeader,
-    summary_path::{self, PathData, SummaryPathContribution, SummaryPathWitness},
+    summary_path::{self, PathData, SummaryPathContribution},
     summary_proof::{self, SummaryProofCost},
     summary_worklist::{self, ProofCost},
 };
 use crate::domain::{
     analysis::{
         self,
-        policy::EvidenceStatus,
         summary as owner,
         support::{DerivedEvidence, SourceFacts},
     },
     assertion::*,
-    attribution::*,
     calls::*,
     charged::{ChargedMap, StateCharge},
     composition::*,
@@ -28,7 +26,6 @@ use crate::domain::{
     },
     projection::{normalization::ProjectionKey, snapshot::MaterializedGraph},
     resources::{Reservation, ResourceBudget},
-    source::*,
     transfer::{summary::*, *},
     value::*,
     *,
@@ -227,7 +224,7 @@ impl SummaryRecords {
             data, self, invocation, definition, profile, budget,
         )?;
         macro_rules! append{($($dst:ident:$src:ident),* $(,)?)=>{$(for row in rows.$src.iter(){self.$dst.insert(row.clone())?;})*};}
-        append!(claims:claims,claim_members:members,claim_standings:standings,claim_proofs:proofs,claim_proof_members:proof_members,refutation_coverage:refutation_coverage,conclusions:conclusions,keys:keys,premises:premises,subjects:subjects,sources:sources,derivations:derivations,propositions:propositions,derivation_premises:derivation_premises,obligations:obligations);
+        append!(claims,claim_members:members,claim_standings:standings,claim_proofs:proofs,claim_proof_members:proof_members,refutation_coverage,conclusions,keys,premises,subjects,sources,derivations,propositions,derivation_premises,obligations:obligations);
         self.pending = Some(rows.into_pending_parts());
         Ok(())
     }
@@ -371,6 +368,8 @@ impl Vocabulary {
         Ok(())
     }
 }
+type GuardInventory = (BTreeMap<Id<EvaluationAtom>, CheckedStability>, Box<dyn Reservation>);
+
 impl SummaryData {
     fn evidence(
         &self,
@@ -524,13 +523,7 @@ impl SummaryData {
     fn guards(
         &self,
         budget: &ResourceBudget,
-    ) -> Result<
-        (
-            BTreeMap<Id<EvaluationAtom>, CheckedStability>,
-            Box<dyn Reservation>,
-        ),
-        ModelError,
-    > {
+    ) -> Result<GuardInventory, ModelError> {
         let charge = budget.reserve(
             "summary-private-stability",
             self.local_guards
@@ -564,11 +557,10 @@ impl SummaryData {
             if checked.witness() != witness {
                 return Err(invalid("Local guard stability changes"));
             }
-            if let Some(old) = results.insert(witness.atom, checked) {
-                if old.witness() != witness {
-                    return Err(invalid("multiple stability witnesses for one atom"));
+            if let Some(old) = results.insert(witness.atom, checked)
+                && old.witness() != witness {
+                return Err(invalid("multiple stability witnesses for one atom"));
                 }
-            }
         }
         Ok((results, charge))
     }
@@ -576,8 +568,9 @@ impl SummaryData {
 #[derive(Clone, Copy)]
 struct CallInfo {
     attempt: Id<CallBindingAttempt>,
-    event: Id<normalized::events::NormalizedCallEvent>,
-    header: Option<Id<SourceCallHeader>>,
+    // Retain the existing private inventory footprint used by resource reservations.
+    _event: Id<normalized::events::NormalizedCallEvent>,
+    _header: Option<Id<SourceCallHeader>>,
     owner: Id<EntityRef>,
     callee: Id<EntityRef>,
     target: Id<CallTarget>,
@@ -626,8 +619,8 @@ fn call_infos(
             }
             Ok(CallInfo {
                 attempt: attempt.id(),
-                event: event.id(),
-                header: header.map(Record::id),
+                _event: event.id(),
+                _header: header.map(Record::id),
                 owner: frame.owner_entity(),
                 callee: frame.callee(),
                 target: frame.target(),
@@ -649,16 +642,21 @@ fn call_infos(
     }
     Ok((calls, charge))
 }
+struct CompositionInputs<'a> {
+    data: &'a SummaryData,
+    verified: &'a VerifiedBindings,
+    vocabulary: &'a Vocabulary,
+    guards: &'a BTreeMap<Id<EvaluationAtom>, CheckedStability>,
+}
+
 fn compose(
-    data: &SummaryData,
-    verified: &VerifiedBindings,
-    vocabulary: &Vocabulary,
-    guards: &BTreeMap<Id<EvaluationAtom>, CheckedStability>,
+    composition_inputs: CompositionInputs<'_>,
     call: &CallInfo,
     caller: &WorkBranch,
     callee: &WorkBranch,
     budget: &ResourceBudget,
 ) -> Result<CompositionResults, ModelError> {
+    let CompositionInputs { data, verified, vocabulary, guards } = composition_inputs;
     let attempt = need(&data.binding_output.attempts, call.attempt)?;
     let target = need(&data.bindings.targets, call.target)?;
     let bound = verified
@@ -978,37 +976,40 @@ fn candidates(
         .iter()
         .filter(|c| component.binary_search(&c.owner).is_ok())
     {
-        if call.owner == branch.descriptor().owner && caller_eligible(branch) {
-            if let Some(rows) = progress.by_owner.get(&call.callee) {
-                for other in rows {
-                    if progress.current(*other) {
-                        consume(WorkItem::Call(call.attempt, new, *other))?;
-                    }
+        if call.owner == branch.descriptor().owner && caller_eligible(branch)
+            && let Some(rows) = progress.by_owner.get(&call.callee) {
+            for other in rows {
+                if progress.current(*other) {
+                    consume(WorkItem::Call(call.attempt, new, *other))?;
                 }
             }
-        }
-        if call.callee == branch.descriptor().owner {
-            if let Some(rows) = progress.by_owner.get(&call.owner) {
-                for other in rows {
-                    if progress.current(*other) && caller_eligible(&progress.branches[other]) {
-                        consume(WorkItem::Call(call.attempt, *other, new))?;
-                    }
+            }
+        if call.callee == branch.descriptor().owner
+            && let Some(rows) = progress.by_owner.get(&call.owner) {
+            for other in rows {
+                if progress.current(*other) && caller_eligible(&progress.branches[other]) {
+                    consume(WorkItem::Call(call.attempt, *other, new))?;
                 }
             }
-        }
+            }
     }
     path_candidates(data, vocabulary, branch, consume)
 }
-fn residual(
-    data: &SummaryData,
-    invocation: &owner::AnalysisInvocation,
+struct ResidualContext<'a> {
+    data: &'a SummaryData,
+    invocation: &'a owner::AnalysisInvocation,
     component: ContentHash,
+    progress: &'a Progress,
+    seeds: &'a [WorkBranch],
+}
+
+fn residual(
+    residual_context: ResidualContext<'_>,
     item: WorkItem,
     reason: obligation::ObligationKind,
-    progress: &Progress,
-    seeds: &[WorkBranch],
     out: &mut SummaryRecords,
 ) -> Result<(), ModelError> {
+    let ResidualContext { data, invocation, component, progress, seeds } = residual_context;
     let (origin, event, phase, input, output) = match item {
         WorkItem::Call(attempt, caller, callee) => {
             let caller = &progress.branches[&caller];
@@ -1107,33 +1108,34 @@ fn residual(
     out.subjects.insert(subject)?;
     Ok(())
 }
-fn enqueue(
-    data: &SummaryData,
-    vocabulary: &Vocabulary,
-    calls: &[CallInfo],
-    component: &[Id<EntityRef>],
+struct EnqueueContext<'a> {
+    data: &'a SummaryData,
+    vocabulary: &'a Vocabulary,
+    calls: &'a [CallInfo],
+    component: &'a [Id<EntityRef>],
     component_id: ContentHash,
-    invocation: &owner::AnalysisInvocation,
-    progress: &Progress,
-    seeds: &[WorkBranch],
+    invocation: &'a owner::AnalysisInvocation,
+    progress: &'a Progress,
+    seeds: &'a [WorkBranch],
+}
+
+fn enqueue(
+    enqueue_context: EnqueueContext<'_>,
     new: ProofId,
     queue: &mut summary_worklist::WorkQueue<WorkItem>,
     processed: &charged::ChargedSet<WorkItem>,
     out: &mut SummaryRecords,
 ) -> Result<(), ModelError> {
+    let EnqueueContext { data, vocabulary, calls, component, component_id, invocation, progress, seeds } = enqueue_context;
     candidates(data, vocabulary, calls, component, progress, new, |item| {
         if processed.contains(&item) {
             return Ok(());
         }
         if let Err(reason) = queue.insert(item)? {
             residual(
-                data,
-                invocation,
-                component_id,
+                ResidualContext { data, invocation, component: component_id, progress, seeds },
                 item,
                 reason,
-                progress,
-                seeds,
                 out,
             )?;
         }
@@ -1479,14 +1481,7 @@ pub fn produce(
             .collect::<Vec<_>>();
         for id in initial {
             enqueue(
-                data,
-                &vocabulary,
-                &calls,
-                component,
-                component_id,
-                invocation,
-                &progress,
-                &seeds,
+                EnqueueContext { data, vocabulary: &vocabulary, calls: &calls, component, component_id, invocation, progress: &progress, seeds: &seeds },
                 id,
                 &mut queue,
                 &processed,
@@ -1505,13 +1500,9 @@ pub fn produce(
                     closed = false;
                     for item in queue.pending() {
                         residual(
-                            data,
-                            invocation,
-                            component_id,
+                            ResidualContext { data, invocation, component: component_id, progress: &progress, seeds: &seeds },
                             *item,
                             reason,
-                            &progress,
-                            &seeds,
                             &mut out,
                         )?;
                     }
@@ -1544,10 +1535,7 @@ pub fn produce(
                         reason,
                     };
                     for result in compose(
-                        data,
-                        &verified,
-                        &vocabulary,
-                        &guards,
+                        CompositionInputs { data, verified: &verified, vocabulary: &vocabulary, guards: &guards },
                         call,
                         &caller,
                         &callee,
@@ -1575,13 +1563,9 @@ pub fn produce(
                                     Some(reason),
                                 ))?;
                                 residual(
-                                    data,
-                                    invocation,
-                                    component_id,
+                                    ResidualContext { data, invocation, component: component_id, progress: &progress, seeds: &seeds },
                                     item,
                                     reason,
-                                    &progress,
-                                    &seeds,
                                     &mut out,
                                 )?;
                             }
@@ -1595,13 +1579,9 @@ pub fn produce(
                                             Some(reason),
                                         ))?;
                                         residual(
-                                            data,
-                                            invocation,
-                                            component_id,
+                                            ResidualContext { data, invocation, component: component_id, progress: &progress, seeds: &seeds },
                                             item,
                                             reason,
-                                            &progress,
-                                            &seeds,
                                             &mut out,
                                         )?;
                                         continue;
@@ -1641,13 +1621,9 @@ pub fn produce(
                                         Some(reason),
                                     ))?;
                                     residual(
-                                        data,
-                                        invocation,
-                                        component_id,
+                                        ResidualContext { data, invocation, component: component_id, progress: &progress, seeds: &seeds },
                                         item,
                                         reason,
-                                        &progress,
-                                        &seeds,
                                         &mut out,
                                     )?;
                                     continue;
@@ -1698,9 +1674,7 @@ pub fn produce(
                                         })?;
                                     let condition = vocabulary.diagram(q.condition, budget)?;
                                     super::summary_control::publish(
-                                        invocation,
-                                        definition,
-                                        &emission.witness,
+                                        super::summary_control::SummaryControlInputs { invocation, definition, witness: &emission.witness },
                                         influence,
                                         q,
                                         &condition,
@@ -1711,14 +1685,7 @@ pub fn produce(
                                 retain_proof(&mut out, invocation, &branch)?;
                                 if admission == summary_worklist::Admission::Advanced {
                                     enqueue(
-                                        data,
-                                        &vocabulary,
-                                        &calls,
-                                        component,
-                                        component_id,
-                                        invocation,
-                                        &progress,
-                                        &seeds,
+                                        EnqueueContext { data, vocabulary: &vocabulary, calls: &calls, component, component_id, invocation, progress: &progress, seeds: &seeds },
                                         branch.id(),
                                         &mut queue,
                                         &processed,
@@ -1765,13 +1732,9 @@ pub fn produce(
                     };
                     match result {
                         Err(reason) => residual(
-                            data,
-                            invocation,
-                            component_id,
+                            ResidualContext { data, invocation, component: component_id, progress: &progress, seeds: &seeds },
                             item,
                             reason,
-                            &progress,
-                            &seeds,
                             &mut out,
                         )?,
                         Ok(emission) => {
@@ -1779,13 +1742,9 @@ pub fn produce(
                                 Ok(c) => c,
                                 Err(reason) => {
                                     residual(
-                                        data,
-                                        invocation,
-                                        component_id,
+                                        ResidualContext { data, invocation, component: component_id, progress: &progress, seeds: &seeds },
                                         item,
                                         reason,
-                                        &progress,
-                                        &seeds,
                                         &mut out,
                                     )?;
                                     continue;
@@ -1809,13 +1768,9 @@ pub fn produce(
                             )?;
                             if let summary_worklist::Admission::Refused(reason) = admission {
                                 residual(
-                                    data,
-                                    invocation,
-                                    component_id,
+                                    ResidualContext { data, invocation, component: component_id, progress: &progress, seeds: &seeds },
                                     item,
                                     reason,
-                                    &progress,
-                                    &seeds,
                                     &mut out,
                                 )?;
                                 continue;
@@ -1845,14 +1800,7 @@ pub fn produce(
                             retain_proof(&mut out, invocation, &branch)?;
                             if admission == summary_worklist::Admission::Advanced {
                                 enqueue(
-                                    data,
-                                    &vocabulary,
-                                    &calls,
-                                    component,
-                                    component_id,
-                                    invocation,
-                                    &progress,
-                                    &seeds,
+                                    EnqueueContext { data, vocabulary: &vocabulary, calls: &calls, component, component_id, invocation, progress: &progress, seeds: &seeds },
                                     branch.id(),
                                     &mut queue,
                                     &processed,

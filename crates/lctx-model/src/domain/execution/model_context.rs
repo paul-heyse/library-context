@@ -5,7 +5,7 @@ use super::model_application::{
 use crate::domain::{
     attribution::{AnalysisContext, ObligationKind},
     calls::ProviderSymbol,
-    models::{Catalog, CompiledContextProtocol, ContextEntry, ContextExit},
+    models::{Catalog, CompiledContextProtocol, ContextExit},
     normalized::Rows,
     resources::ResourceBudget,
     symbols::{AncestryRelation, ClassAncestryObservation, Linearization},

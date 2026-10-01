@@ -490,11 +490,11 @@ pub fn produce(
         let c = need(&base.events.alternatives, row.consumer)?;
         let p = need(&base.events.alternatives, row.producer)?;
         let formal = need(&d.bindings, row.binding)?.slot;
-        let cq = need(
+        let _cq = need(
             &base.projection.qualifications,
             target(base, c)?.qualification,
         )?;
-        let pq = need(
+        let _pq = need(
             &base.projection.qualifications,
             target(base, p)?.qualification,
         )?;

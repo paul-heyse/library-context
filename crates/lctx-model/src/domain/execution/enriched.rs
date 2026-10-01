@@ -54,9 +54,6 @@ impl EnrichedFrame<'_> {
         self.contexts.push(proof);
         Ok(())
     }
-    pub(crate) fn definitions(&self) -> &[super::definition::CheckedDefinition] {
-        &self.definitions
-    }
     pub(crate) fn push_definition(
         &mut self,
         proof: super::definition::CheckedDefinition,

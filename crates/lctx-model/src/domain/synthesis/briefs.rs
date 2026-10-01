@@ -5,7 +5,6 @@ use crate::domain::{
         policy::{AssertionKind, BriefSection, EvidenceStatus},
         synthesis as owner,
     },
-    catalog::CatalogMemberInvocation,
     normalized::Rows,
     resources::ResourceBudget,
     *,
@@ -157,6 +156,7 @@ pub fn build(
         b,
     )
 }
+#[allow(clippy::too_many_arguments, reason = "Public brief construction keeps independent documentary, assertion, pattern, summary and seed owners explicit.")]
 pub fn build_with_summary(
     d: &documentary::Data,
     docs: &documentary::Output,

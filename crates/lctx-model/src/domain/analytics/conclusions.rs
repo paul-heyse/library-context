@@ -1,6 +1,6 @@
 //! Replay-sealed analytic navigation observations. Exact FCA means the declared finite context.
 use super::{
-    build::{invalid, need},
+    build::need,
     *,
 };
 use crate::domain::{

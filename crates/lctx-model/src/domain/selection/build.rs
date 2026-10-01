@@ -5,7 +5,7 @@ use crate::domain::{
         self,
         evidence::{self as c1, build::EvidenceData},
     },
-    normalized::{Rows, callables::Knowledge, coverage::EvidenceAvailability},
+    normalized::{Rows, callables::Knowledge},
     resources::ResourceBudget,
     stages::*,
 };
@@ -671,7 +671,7 @@ pub fn stage(profile: Profile, model: &ValidatedModel) -> Result<Stage, ModelErr
     }
     for input in &mut inputs {
         if is_vocabulary(input.name()) {
-            *input = input.clone().at_epoch(PublicationBoundary::Local);
+            *input = (*input).at_epoch(PublicationBoundary::Local);
         }
     }
     inputs.sort_by_key(|r| r.name());

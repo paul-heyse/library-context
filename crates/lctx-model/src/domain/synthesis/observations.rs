@@ -7,7 +7,6 @@ use crate::domain::{
         support::{DerivedEvidence, QualificationOperation},
         synthesis as owner,
     },
-    assertion::AssertionQualification,
     conditions::Diagram,
     normalized::Rows,
     resources::ResourceBudget,
@@ -37,17 +36,22 @@ fn need<R: Record>(r: &Rows<R>, id: Id<R>) -> Result<&R, ModelError> {
     r.get(id)
         .ok_or_else(|| invalid("S0 observation premise absent"))
 }
+struct FindingSubject {
+    source: owner::SupportSource,
+    entity: Id<normalized::entities::EntityRef>,
+    kind: FindingKind,
+}
+
 fn emit<R: DerivedEvidence>(
     d: &Data,
     out: &mut Output,
     invocation: &owner::Invocation,
     row: &R,
-    source: owner::SupportSource,
-    entity: Id<normalized::entities::EntityRef>,
-    kind: FindingKind,
+    finding_subject: FindingSubject,
     coverage: &owner::AnalysisCoverage,
     b: &ResourceBudget,
 ) -> Result<(), ModelError> {
+    let FindingSubject { source, entity, kind } = finding_subject;
     let q = need(&d.qualifications, row.source_facts().qualification)?;
     if q.context != invocation.context
         || q.scope
@@ -155,9 +159,7 @@ pub fn build(
                 &mut out,
                 inv,
                 row,
-                owner::SupportSource::StructuralObservation { witness: row.id() },
-                row.subject,
-                row.kind,
+                FindingSubject { source: owner::SupportSource::StructuralObservation { witness: row.id() }, entity: row.subject, kind: row.kind },
                 coverage,
                 b,
             )?;
@@ -173,9 +175,7 @@ pub fn build(
                 &mut out,
                 inv,
                 row,
-                owner::SupportSource::AnalyticObservation { witness: row.id() },
-                row.subject,
-                row.kind,
+                FindingSubject { source: owner::SupportSource::AnalyticObservation { witness: row.id() }, entity: row.subject, kind: row.kind },
                 coverage,
                 b,
             )?;

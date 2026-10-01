@@ -4,7 +4,7 @@ use crate::Domain;
 use crate::domain::{
     analysis::{self, synthesis as owner},
     catalog::CatalogMemberInvocation,
-    execution::summary_consequences::{ClaimConclusion, ClaimProof, SummaryClaim},
+    execution::summary_consequences::{ClaimConclusion, SummaryClaim},
     normalized::{Rows, entities::EntityRef},
     resources::ResourceBudget,
     *,
@@ -303,6 +303,7 @@ impl InvariantCheck for Check {
 }
 
 /// Generic consequences retain the original per-value/call phase and scope.
+#[allow(clippy::too_many_arguments, reason = "Public synthesis boundary keeps separately admitted observation, facet, invocation and proof inputs explicit.")]
 pub fn extend_observations(
     d: &Data,
     o: &super::observations::Data,

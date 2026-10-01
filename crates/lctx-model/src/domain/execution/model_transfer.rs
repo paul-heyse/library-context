@@ -51,20 +51,30 @@ pub struct CheckedModelTransfer {
     pub(super) place: Place,
     pub(super) branch: TransferBranch<transfer::model::TransferKey>,
 }
+pub(super) struct TransferRuleInputs<'a> {
+    pub(super) application: &'a ModelApplication,
+    pub(super) rule: &'a AppliedRule,
+    pub(super) operation: &'a ModeledOperation,
+    pub(super) paths: &'a Rows<ModelValuePath>,
+}
+
+pub(super) struct TransferEntryInputs<'a> {
+    pub(super) entry_data: &'a EntryData,
+    pub(super) entries: &'a Rows<EntryValueWitness>,
+    pub(super) sources: &'a Rows<EntryAccessSource>,
+}
+
 impl CheckedModelTransfer {
     pub(super) fn derive(
-        application: &ModelApplication,
-        rule: &AppliedRule,
-        operation: &ModeledOperation,
-        paths: &Rows<ModelValuePath>,
-        call: &ModeledCallEvaluation,
-        arguments: &Rows<ModeledCallArgument>,
-        earlier: &CompletedEvaluations,
-        entry_data: &EntryData,
-        entries: &Rows<EntryValueWitness>,
-        sources: &Rows<EntryAccessSource>,
-        budget: &ResourceBudget,
-    ) -> Result<Result<Self, ObligationKind>, ModelError> {
+    transfer_rule_inputs: TransferRuleInputs<'_>,
+    call: &ModeledCallEvaluation,
+    arguments: &Rows<ModeledCallArgument>,
+    earlier: &CompletedEvaluations,
+    transfer_entry_inputs: TransferEntryInputs<'_>,
+    budget: &ResourceBudget,
+) -> Result<Result<Self, ObligationKind>, ModelError> {
+    let TransferRuleInputs { application, rule, operation, paths } = transfer_rule_inputs;
+    let TransferEntryInputs { entry_data, entries, sources } = transfer_entry_inputs;
         let result = (|| -> Result<_, ObligationKind> {
             if !rule.applicable
                 || rule.application != application.id()

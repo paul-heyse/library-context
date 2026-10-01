@@ -97,6 +97,13 @@ struct Inspect<'a> {
     budget: &'a resources::ResourceBudget,
     premises: Rows<NativeAssertionPremise>,
 }
+struct DynamicSite {
+    site: Id<Occurrence>,
+    kind: DynamicKind,
+    owner: Id<EntityRef>,
+    receiver: Option<Id<Occurrence>>,
+}
+
 impl Inspect<'_> {
     fn observe<S: Support>(
         &mut self,
@@ -106,13 +113,11 @@ impl Inspect<'_> {
         site: Id<Occurrence>,
     ) -> Result<bool, ModelError> {
         let selected = native(
-            self.data,
-            self.entry,
+            super::read_channels::NativeContext { data: self.data, entry: self.entry, invocation: self.invocation },
             supports,
             assertion,
             q,
             site,
-            self.invocation,
             self.work,
         )?;
         if let Some((id, _, _)) = selected {
@@ -645,16 +650,14 @@ impl Inspect<'_> {
         self.trace(value, scope, depth + 1)
     }
     fn emit(
-        &mut self,
-        records: &mut super::read_channels::ReadRecords,
-        site: Id<Occurrence>,
-        kind: DynamicKind,
-        owner: Id<EntityRef>,
-        receiver: Option<Id<Occurrence>>,
-        q: Id<AssertionQualification>,
-        scope: Option<Id<LexicalScope>>,
-        admitted: bool,
-    ) -> Result<(), ModelError> {
+    &mut self,
+    records: &mut super::read_channels::ReadRecords,
+    dynamic_site: DynamicSite,
+    q: Id<AssertionQualification>,
+    scope: Option<Id<LexicalScope>>,
+    admitted: bool,
+) -> Result<(), ModelError> {
+    let DynamicSite { site, kind, owner, receiver } = dynamic_site;
         let class = if admitted {
             if let (Some(receiver), Some(scope)) = (receiver, scope) {
                 self.trace(receiver, scope, 0)?
@@ -712,6 +715,8 @@ impl Inspect<'_> {
         Ok(())
     }
 }
+type NativeCallTarget = (&'static str, Id<CallTarget>, bool);
+
 /// Native resolved builtin/module target inspection catches qualified and imported aliases.
 /// Mixed target inventories retain a broad unknown access; no runtime uniqueness is granted.
 pub(super) fn native_name(
@@ -720,7 +725,7 @@ pub(super) fn native_name(
     inv: &publication::AnalysisInvocation,
     site: Id<Occurrence>,
     work: &mut Work,
-) -> Result<Option<(&'static str, Id<CallTarget>, bool)>, ModelError> {
+) -> Result<Option<NativeCallTarget>, ModelError> {
     let count = work.dynamic_targets.get(&site).map_or(0, Vec::len);
     let mut selected = None;
     let mut mixed = false;
@@ -771,13 +776,11 @@ pub(super) fn native_name(
             continue;
         };
         if native(
-            data,
-            entry,
+            super::read_channels::NativeContext { data, entry, invocation: inv },
             &data.call_target_supports,
             target.id(),
             target.qualification,
             site,
-            inv,
             work,
         )?
         .is_none()
@@ -881,20 +884,18 @@ pub(super) fn produce(
             let t = data.call_targets.get(id).unwrap();
             inspect.observe(&data.call_target_supports, t.id(), t.qualification, t.site)?;
         }
-        if kind == DynamicKind::ImportModule {
-            if let Some(spelling) = data
+        if kind == DynamicKind::ImportModule
+            && let Some(spelling) = data
                 .spellings
                 .iter()
-                .find(|s| s.occurrence == call.callee && inspect.always(s.qualification))
-            {
-                inspect.observe(
-                    &data.spelling_supports,
-                    spelling.id(),
-                    spelling.qualification,
-                    call.callee,
-                )?;
+                .find(|s| s.occurrence == call.callee && inspect.always(s.qualification)) {
+            inspect.observe(
+                &data.spelling_supports,
+                spelling.id(),
+                spelling.qualification,
+                call.callee,
+            )?;
             }
-        }
         // Literal getter/hasattr names are exact source-name reads, not unconstrained dynamic access.
         let literal_name = data
             .call_arguments
@@ -955,10 +956,7 @@ pub(super) fn produce(
         );
         inspect.emit(
             records,
-            call.site,
-            kind,
-            owner,
-            receiver,
+            DynamicSite { site: call.site, kind, owner, receiver },
             call.qualification,
             scope,
             native && builtin && receiver_kind,
@@ -1016,10 +1014,7 @@ pub(super) fn produce(
         });
         inspect.emit(
             records,
-            attribute.occurrence,
-            DynamicKind::Dictionary,
-            owner,
-            receiver,
+            DynamicSite { site: attribute.occurrence, kind: DynamicKind::Dictionary, owner, receiver },
             attribute.qualification,
             scope,
             native,

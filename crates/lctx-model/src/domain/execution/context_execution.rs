@@ -358,14 +358,11 @@ impl CheckedContextExecution {
                         }
                         if checked.release() != ReleaseSafety::Closed
                             && !base.caller_holds_argument(row)?
-                            && !matches!(
-                                super::builtin_read::CheckedBuiltinRead::derive(
+                            && !super::builtin_read::CheckedBuiltinRead::derive(
                                     facts,
                                     checked.request(),
                                     budget
-                                )?,
-                                Ok(_)
-                            )
+                                )?.is_ok()
                         {
                             return Err(boundary(K::FrameExitCleanup));
                         }
@@ -463,70 +460,69 @@ impl CheckedContextExecution {
                         budget,
                     )?
                     .map_err(boundary)?;
-                    if let Some(exception) = outcome.exception() {
-                        if !protocol.preserves() {
-                            let (module, name) = exception.class();
-                            let mut classes=application.bindings.symbols.iter().filter(|s|s.context==request.context&&s.name==name&&s.kind==calls::SymbolKind::Class&&matches!(application.bindings.provider_modules.get(s.module),Some(calls::ProviderModule::Bundled{name,bundle:calls::ModuleBundle::Typeshed,..})if name==module));
-                            let symbol =
-                                classes.next().ok_or_else(|| boundary(K::MissingEvidence))?;
-                            if classes.next().is_some() {
-                                return Err(boundary(K::AmbiguousBinding));
-                            }
-                            let raised = CheckedExactClass::derive(
+                    if let Some(exception) = outcome.exception()
+                        && !protocol.preserves() {
+                        let (module, name) = exception.class();
+                        let mut classes=application.bindings.symbols.iter().filter(|s|s.context==request.context&&s.name==name&&s.kind==calls::SymbolKind::Class&&matches!(application.bindings.provider_modules.get(s.module),Some(calls::ProviderModule::Bundled{name,bundle:calls::ModuleBundle::Typeshed,..})if name==module));
+                        let symbol =
+                            classes.next().ok_or_else(|| boundary(K::MissingEvidence))?;
+                        if classes.next().is_some() {
+                            return Err(boundary(K::AmbiguousBinding));
+                        }
+                        let raised = CheckedExactClass::derive(
+                            application,
+                            symbol.id(),
+                            request.context,
+                            budget,
+                        )?
+                        .map_err(boundary)?;
+                        for premise in raised.premises().iter() {
+                            sources.insert(ContextSource::Native {
+                                premise: premise.id(),
+                            })?;
+                        }
+                        status = analysis::support::inferred_status(
+                            analysis::Interpretation::Structural,
+                            [status, raised.status()],
+                        );
+                        let occurrences = construction
+                            .handler_occurrences(application, budget)?
+                            .map_err(boundary)?;
+                        charge.grow(occurrences.occurrences().len() * 2048)?;
+                        let mut handlers = Vec::new();
+                        for actual in occurrences.occurrences() {
+                            let handler = CheckedContextHandler::derive(
+                                &construction,
                                 application,
-                                symbol.id(),
-                                request.context,
+                                facts,
+                                request.input,
+                                *actual,
                                 budget,
                             )?
                             .map_err(boundary)?;
-                            for premise in raised.premises().iter() {
+                            for premise in handler.class().premises().iter() {
                                 sources.insert(ContextSource::Native {
                                     premise: premise.id(),
                                 })?;
                             }
+                            for premise in handler.lookup().native_premises() {
+                                sources.insert(ContextSource::Native { premise: *premise })?;
+                            }
                             status = analysis::support::inferred_status(
                                 analysis::Interpretation::Structural,
-                                [status, raised.status()],
+                                [status, handler.class().status(), handler.lookup().status()],
                             );
-                            let occurrences = construction
-                                .handler_occurrences(application, budget)?
-                                .map_err(boundary)?;
-                            charge.grow(occurrences.occurrences().len() * 2048)?;
-                            let mut handlers = Vec::new();
-                            for actual in occurrences.occurrences() {
-                                let handler = CheckedContextHandler::derive(
-                                    &construction,
-                                    application,
-                                    facts,
-                                    request.input,
-                                    *actual,
-                                    budget,
-                                )?
-                                .map_err(boundary)?;
-                                for premise in handler.class().premises().iter() {
-                                    sources.insert(ContextSource::Native {
-                                        premise: premise.id(),
-                                    })?;
-                                }
-                                for premise in handler.lookup().native_premises() {
-                                    sources.insert(ContextSource::Native { premise: *premise })?;
-                                }
-                                status = analysis::support::inferred_status(
-                                    analysis::Interpretation::Structural,
-                                    [status, handler.class().status(), handler.lookup().status()],
-                                );
-                                handlers.push(handler);
-                            }
-                            let refs = handlers.iter().collect::<Vec<_>>();
-                            if construction
-                                .suppresses(application, &raised, &refs, budget)?
-                                .map_err(boundary)?
-                            {
-                                outcome = PendingOutcome::Normal;
-                                *suppressed = true;
-                            }
+                            handlers.push(handler);
                         }
-                    }
+                        let refs = handlers.iter().collect::<Vec<_>>();
+                        if construction
+                            .suppresses(application, &raised, &refs, budget)?
+                            .map_err(boundary)?
+                        {
+                            outcome = PendingOutcome::Normal;
+                            *suppressed = true;
+                        }
+                        }
                     *exit_output = outcome;
                 }
                 let qualification = syntax.qualification(request.statement).map_err(boundary)?;

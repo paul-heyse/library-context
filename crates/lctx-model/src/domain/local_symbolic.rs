@@ -4,7 +4,7 @@ use crate::domain::transfer::TransferKind;
 use crate::domain::{
     analysis::local as owner, assertion::*, attribution::*, conditions::{entry::*, Diagram},
     flow::*, local_fields::FieldData, normalized::{entities::*, symbolic_fields::*},
-    obligation::ObligationKind, resources::ResourceBudget, source::*, value::*, *,
+    obligation::ObligationKind, resources::ResourceBudget, source::*, *,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]

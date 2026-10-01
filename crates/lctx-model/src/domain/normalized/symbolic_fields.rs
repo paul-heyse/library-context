@@ -12,7 +12,6 @@ use crate::domain::{
     normalized::{
         Rows,
         callable_aspects::{AspectData, AspectOutput, FieldDefault},
-        entities::*,
     },
     obligation::ObligationKind,
     resources::ResourceBudget,
@@ -202,12 +201,12 @@ fn symbol_for(
     }
     Some(first.symbol)
 }
-fn method<'a>(
-    d: &'a AspectData,
+fn method(
+    d: &AspectData,
     function: Id<Occurrence>,
     class: Id<ProviderSymbol>,
     context: Id<AnalysisContext>,
-) -> Option<&'a FunctionTraitObservation> {
+) -> Option<&FunctionTraitObservation> {
     if d.decorators.iter().any(|r| same(d, r.declaration, function)) { return None; }
     let symbol = symbol_for(d, function, context)?;
     let mut rows = d.traits.iter().filter(|r| {
@@ -278,12 +277,12 @@ fn formal_read(
     }
     found
 }
-fn child<'a>(
-    d: &'a AspectData,
+fn child(
+    d: &AspectData,
     parent: Id<Occurrence>,
     field: SyntaxField,
     context: Id<AnalysisContext>,
-) -> Option<&'a SyntaxPlacement> {
+) -> Option<&SyntaxPlacement> {
     let mut rows = d.placements.iter().filter(|p| {
         p.parent.is_some_and(|p| same(d, p, parent))
             && p.field == field
@@ -553,7 +552,7 @@ fn standard_target(d: &AspectData, site: Id<Occurrence>, name: &str, context: Id
             && matches!(d.provider_modules.get(s.module), Some(ProviderModule::Bundled { provider, bundle: ModuleBundle::Typeshed, name }) if *provider == s.provider && name == "dataclasses")
     })
 }
-fn arguments<'a>(d: &'a AspectData, site: Id<Occurrence>, context: Id<AnalysisContext>) -> Option<Vec<&'a CallArgument>> {
+fn arguments(d: &AspectData, site: Id<Occurrence>, context: Id<AnalysisContext>) -> Option<Vec<&CallArgument>> {
     let mut calls = d.calls.iter().filter(|c| same(d, c.site, site));
     let call = calls.next()?;
     if calls.next().is_some() || !exact(d, call.qualification, context)
@@ -592,7 +591,7 @@ fn decorator_options(d: &AspectData, decorator: &DeclarationDecorator, context: 
     }
     Some((init, kw_only))
 }
-fn signature_parameters<'a>(d: &'a AspectData, symbol: Id<ProviderSymbol>, context: Id<AnalysisContext>) -> Option<Vec<&'a SignatureParameter>> {
+fn signature_parameters(d: &AspectData, symbol: Id<ProviderSymbol>, context: Id<AnalysisContext>) -> Option<Vec<&SignatureParameter>> {
     let mut signatures = d.symbolic_signatures.iter().filter(|s| s.symbol == symbol);
     let signature = signatures.next()?;
     if signatures.next().is_some() || signature.form != SignatureForm::List
@@ -613,7 +612,7 @@ fn signature_parameters<'a>(d: &'a AspectData, symbol: Id<ProviderSymbol>, conte
     if rebuilt != *signature || members.iter().zip(&parameters).any(|(a,b)| a != *b) { return None; }
     Some(parameters)
 }
-fn initializer<'a>(d: &'a AspectData, class: Id<ProviderSymbol>, context: Id<AnalysisContext>) -> Option<&'a FunctionTraitObservation> {
+fn initializer(d: &AspectData, class: Id<ProviderSymbol>, context: Id<AnalysisContext>) -> Option<&FunctionTraitObservation> {
     let mut rows = d.traits.iter().filter(|t| t.defining_class == Some(class)
         && d.symbols.get(t.symbol).is_some_and(|s| s.name == "__init__"));
     let first = rows.next()?;

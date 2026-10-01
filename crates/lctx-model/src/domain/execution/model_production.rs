@@ -436,9 +436,7 @@ pub fn apply_all(
     }
     for context in replay.contexts.iter() {
         super::model_protocol::emit(
-            catalog,
-            &data.early,
-            context,
+            super::model_protocol::ProtocolInputs { catalog, data: &data.early, execution: context },
             &replay.context_items,
             &replay.outcomes,
             invocation,
@@ -461,8 +459,8 @@ pub fn apply_all(
             }
             first
         };
-        if let Some(resource) = resource {
-            if let Ok(proof) = super::model_context_transfer::CheckedContextTransfer::derive(
+        if let Some(resource) = resource
+            && let Ok(proof) = super::model_context_transfer::CheckedContextTransfer::derive(
                 &resource,
                 binding,
                 &data.execution.source.completed,
@@ -471,15 +469,14 @@ pub fn apply_all(
                 &data.entry_sources,
                 budget,
             )? {
-                super::model_context_transfer::emit(
-                    proof,
-                    invocation,
-                    definition,
-                    &mut records,
-                    budget,
-                )?;
+            super::model_context_transfer::emit(
+                proof,
+                invocation,
+                definition,
+                &mut records,
+                budget,
+            )?;
             }
-        }
     }
     for row in replay.modeled_arguments.iter() {
         if data.modeled_arguments.get(row.id()) != Some(row) {
@@ -651,31 +648,24 @@ pub fn apply_all(
                                 .operations
                                 .get(rule.operation)
                                 .ok_or_else(|| invalid("Model operation absent"))?;
-                            if matches!(operation, ModeledOperation::Transfer { .. }) {
-                                if let Ok(proof) =
+                            if matches!(operation, ModeledOperation::Transfer { .. })
+                                && let Ok(proof) =
                                     super::model_transfer::CheckedModelTransfer::derive(
-                                        &row,
-                                        rule,
-                                        operation,
-                                        &applied.paths,
+                                        super::model_transfer::TransferRuleInputs { application: &row, rule, operation, paths: &applied.paths },
                                         call,
                                         &replay.modeled_arguments,
                                         &data.execution.source.completed,
-                                        &data.execution.source.flow,
-                                        &data.entries,
-                                        &data.entry_sources,
+                                        super::model_transfer::TransferEntryInputs { entry_data: &data.execution.source.flow, entries: &data.entries, sources: &data.entry_sources },
                                         budget,
-                                    )?
-                                {
-                                    super::model_transfer::emit(
-                                        proof,
-                                        invocation,
-                                        definition,
-                                        &mut records,
-                                        budget,
-                                    )?;
+                                    )? {
+                                super::model_transfer::emit(
+                                    proof,
+                                    invocation,
+                                    definition,
+                                    &mut records,
+                                    budget,
+                                )?;
                                 }
-                            }
                         }
                     }
                     records.action_assessments.insert(assessment)?;

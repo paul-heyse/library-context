@@ -111,14 +111,11 @@ impl CheckedSourceInvocation {
             }
             if checked.release() != ReleaseSafety::Closed
                 && !base.caller_holds_argument(row)?
-                && !matches!(
-                    super::builtin_read::CheckedBuiltinRead::derive(
+                && !super::builtin_read::CheckedBuiltinRead::derive(
                         data,
                         checked.request(),
                         budget
-                    )?,
-                    Ok(_)
-                )
+                    )?.is_ok()
             {
                 return Ok(Err(ObligationKind::FrameExitCleanup));
             }

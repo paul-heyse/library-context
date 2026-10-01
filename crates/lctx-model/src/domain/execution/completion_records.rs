@@ -8,7 +8,7 @@ use super::{
 };
 use crate::domain::{
     analysis::{
-        self, AnalysisDefinition, AnalysisMethod, Interpretation,
+        self, AnalysisDefinition,
         base_completion::AnalysisInvocation, native::NativeAssertionPremise,
         policy::EvidenceStatus,
     },

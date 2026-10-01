@@ -620,7 +620,7 @@ impl Evaluator<'_> {
                     .map_err(EvaluationError::Model)?
                     .map_err(boundary)?;
                     self.charge.grow(
-                        proof.native_premises().len() * size_of::<Id<NativeAssertionPremise>>() * 2,
+                        std::mem::size_of_val(proof.native_premises()) * 2,
                     )?;
                     for id in proof.native_premises() {
                         if !self.native.contains(id) {

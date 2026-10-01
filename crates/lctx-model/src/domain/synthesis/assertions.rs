@@ -140,16 +140,21 @@ fn need<R: Record>(rows: &Rows<R>, id: Id<R>) -> Result<&R, ModelError> {
         .ok_or_else(|| invalid(format!("programmatic assertion input absent: {}", R::NAME)))
 }
 /// All constructors use the same status/policy operation. Requested status is not an input.
+struct AssertionContent<'a> {
+    kind: AssertionKind,
+    source: &'a AssertionSource,
+    facts: SourceFacts,
+    text: String,
+}
+
 fn emit(
     invocation: Id<owner::Invocation>,
     member: Id<CatalogMemberInvocation>,
     template: &AssertionTemplate,
-    kind: AssertionKind,
-    source: &AssertionSource,
-    facts: SourceFacts,
-    text: String,
+    assertion_content: AssertionContent<'_>,
     b: &ResourceBudget,
 ) -> Result<(ProgrammaticAssertion, ProgrammaticAssertionSupport), ModelError> {
+    let AssertionContent { kind, source, facts, text } = assertion_content;
     let _admission = b.reserve(
         "programmatic-assertion-emitter",
         text.len() + size_of::<ProgrammaticAssertion>(),
@@ -259,10 +264,7 @@ pub fn authored_outcome(
         invocation.id(),
         frame.id(),
         &template,
-        kind,
-        &source,
-        conclusion.source_facts(),
-        text,
+        AssertionContent { kind, source: &source, facts: conclusion.source_facts(), text },
         b,
     )?;
     Ok((template, source, assertion, support))
@@ -295,6 +297,7 @@ pub fn build_documentary(
     Ok(out)
 }
 /// Exact public slots are associated by earlier A0 identity, preserving aliases independently.
+#[allow(clippy::too_many_arguments, reason = "Public assertion construction keeps separate documentary, observation, seed and invocation owners explicit.")]
 pub fn build(
     d: &documentary::Data,
     docs: &documentary::Output,
@@ -338,10 +341,7 @@ pub fn build(
                         inv.id(),
                         member.id(),
                         &template,
-                        kind,
-                        &source,
-                        conclusion.source_facts(),
-                        text,
+                        AssertionContent { kind, source: &source, facts: conclusion.source_facts(), text },
                         b,
                     )?;
                     out.templates.insert(template)?;
@@ -372,10 +372,7 @@ pub fn build(
                         inv.id(),
                         member.id(),
                         &template,
-                        kind,
-                        &source,
-                        conclusion.source_facts(),
-                        text.into(),
+                        AssertionContent { kind, source: &source, facts: conclusion.source_facts(), text: text.into() },
                         b,
                     )?;
                     out.templates.insert(template)?;
@@ -420,14 +417,11 @@ pub fn extend_summary(
             inv.id(),
             member,
             &template,
-            if facet.verdict == obligation::Verdict::RefutedUnderModel {
+            AssertionContent { kind: if facet.verdict == obligation::Verdict::RefutedUnderModel {
                 AssertionKind::BehavioralRefutation
             } else {
                 AssertionKind::ApplicableCase
-            },
-            &source,
-            facts,
-            text,
+            }, source: &source, facts, text },
             b,
         )?;
         out.templates.insert(template)?;
@@ -437,6 +431,7 @@ pub fn extend_summary(
     }
     Ok(())
 }
+#[allow(clippy::too_many_arguments, reason = "Public assertion construction keeps separate documentary, observation, summary and seed owners explicit.")]
 pub fn build_all(
     d: &documentary::Data,
     docs: &documentary::Output,
@@ -485,10 +480,7 @@ pub fn extend_patterns(
             inv.id(),
             source.member,
             &template,
-            AssertionKind::UsagePattern,
-            &support,
-            conclusion.source_facts(),
-            text,
+            AssertionContent { kind: AssertionKind::UsagePattern, source: &support, facts: conclusion.source_facts(), text },
             b,
         )?;
         out.templates.insert(template)?;
@@ -967,13 +959,13 @@ mod tests {
         let template=AssertionTemplate::Summary{facet:id(61)};
         let source=AssertionSource::Summary{facet:id(61)};
         let facts=SourceFacts{qualification:id(62),status:EvidenceStatus::StructurallyObserved,heuristic:false};
-        let (negative,support)=emit(id(63),id(64),&template,AssertionKind::BehavioralRefutation,&source,facts,"RefutedUnderModel: exact admitted question is false.".into(),&b).unwrap();
+        let (negative,support)=emit(id(63), id(64), &template, AssertionContent { kind: AssertionKind::BehavioralRefutation, source: &source, facts, text: "RefutedUnderModel: exact admitted question is false.".into() }, &b).unwrap();
         assert_eq!(negative.kind(),AssertionKind::BehavioralRefutation);
         assert_eq!(negative.section(),BriefSection::Limits);
         assert_eq!(negative.status(),EvidenceStatus::StructurallyObserved);
         assert_eq!(negative.qualification(),id(62));
         assert_eq!(support.source,source.id());
-        assert!(emit(id(63),id(64),&template,AssertionKind::BehavioralRefutation,&source,SourceFacts{qualification:id(62),status:EvidenceStatus::Documented,heuristic:false},"RefutedUnderModel".into(),&b).is_err());
+        assert!(emit(id(63), id(64), &template, AssertionContent { kind: AssertionKind::BehavioralRefutation, source: &source, facts: SourceFacts{qualification:id(62),status:EvidenceStatus::Documented,heuristic:false}, text: "RefutedUnderModel".into() }, &b).is_err());
     }
     #[test]
     fn control_text_uses_exact_source_parameters_literals_and_conditioned_raises() {

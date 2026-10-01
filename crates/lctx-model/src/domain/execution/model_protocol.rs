@@ -84,16 +84,21 @@ pub struct ContextPostcondition {
     pub output: Option<Id<super::enriched_records::ExecutionOutcome>>,
     pub suppressed: bool,
 }
+pub(super) struct ProtocolInputs<'a> {
+    pub(super) catalog: &'a models::Catalog,
+    pub(super) data: &'a ModelApplicationData,
+    pub(super) execution: &'a ContextExecution,
+}
+
 pub(super) fn emit(
-    catalog: &models::Catalog,
-    data: &ModelApplicationData,
-    execution: &ContextExecution,
+    protocol_inputs: ProtocolInputs<'_>,
     items: &Rows<ContextItem>,
     outcomes: &Rows<super::enriched_records::ExecutionOutcome>,
     invocation: &publication::AnalysisInvocation,
     records: &mut super::model_production::ModelRecords,
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
+    let ProtocolInputs { catalog, data, execution } = protocol_inputs;
     for item in items.iter().filter(|i| i.execution == execution.id()) {
         let protocol = CheckedContextProtocol::derive(
             catalog,

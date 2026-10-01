@@ -15,7 +15,6 @@ use crate::domain::{
     normalized::{Rows, entities::*},
     obligation::ObligationKind,
     resources::{Reservation, ResourceBudget},
-    source::*,
     transfer::{summary::*, *},
     value::*,
     *,
@@ -130,6 +129,7 @@ fn invalid(s: &str) -> ModelError {
 }
 /// Every selected native support remains an explicit proof member. The structural native path
 /// carries a dependency; continuation conservatively retains Derived, never invents identity.
+#[allow(clippy::too_many_arguments, reason = "Public summary-path proof keeps independent source, native, vocabulary and path witness authorities explicit.")]
 pub fn derive(
     data: &EntryData,
     paths: &PathData,
