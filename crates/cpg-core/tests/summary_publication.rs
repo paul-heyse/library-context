@@ -548,7 +548,11 @@ async fn run(profile: Profile) {
             "SELECT constructor_qualification,reader_qualification,depth,reason FROM {}.summary_symbolic_field_alternatives",id.schema())))
             .fetch_all(db.owner.pool()).await.unwrap();
         assert_eq!(alternatives.len(),4,"three readers retain the call argument and its separate returned-value qualification");
-        assert!(alternatives.iter().all(|(c,r,d,reason)|c!=r&&*d==2&&*reason==obligation::ObligationKind::ScopeBoundary as i16));
+        assert!(alternatives.iter().all(|(_,_,d,reason)|*d==2&&*reason==obligation::ObligationKind::ScopeBoundary as i16));
+        let original_qualifications:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+            "SELECT count(*) FROM {0}.summary_symbolic_field_alternatives a JOIN {0}.flow_value_observations v ON v.id=a.value WHERE a.reader_qualification=v.qualification",id.schema())))
+            .fetch_one(db.owner.pool()).await.unwrap();
+        assert_eq!(original_qualifications,4,"each reader retains its exact native value qualification, including a legitimately unconditional argument");
         let matrix:Vec<(i16,i16,bool,i64)>=sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "SELECT kind,transfer,through_call,count(*) FROM {}.summary_symbolic_field_alternatives GROUP BY 1,2,3 ORDER BY 1,2,3",id.schema())))
             .fetch_all(db.owner.pool()).await.unwrap();

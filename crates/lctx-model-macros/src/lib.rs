@@ -233,6 +233,7 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
     let mut semantic_source: Option<syn::Expr> = None;
     let mut required_support: Option<syn::Ident> = None;
     let mut family: Option<syn::Path> = None;
+    let mut assertion_derived = false;
     for attr in &input.attrs {
         if attr.path().is_ident("assertion") {
             attr.parse_nested_meta(|meta| {
@@ -243,6 +244,7 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
                 } else if meta.path.is_ident("family") {
                     family = Some(meta.value()?.parse()?);
                 } else if meta.path.is_ident("derived") {
+                    assertion_derived = true;
                 } else {
                     let _: syn::Expr = meta.value()?.parse()?;
                 }
@@ -387,7 +389,9 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
     } else {
         quote!()
     };
-    let family_fn = family.map(|family| {
+    // Provider admission governs only native facts; derived assertions retain their
+    // semantic family through Assertion::FAMILY and nominal analysis supports.
+    let family_fn = family.filter(|_| !assertion_derived).map(|family| {
         quote! {
             fn family() -> Option<::lctx_model::domain::attribution::FactFamily> { Some(#family) }
         }
