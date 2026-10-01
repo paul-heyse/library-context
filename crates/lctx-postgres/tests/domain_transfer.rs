@@ -401,5 +401,4 @@ fn budget() -> lctx_model::domain::resources::ResourceBudget {
 /// This conformance control owns only Local transfer/control contracts, not later composition or
 /// entry replay. Keep its nominal declaration closure independent of future publication owners.
 fn transfer_model()->ValidatedModel {
- let mut relations=facts_relations();relations.extend(analysis::early_relations());relations.extend(analysis::dispatch::relations());relations.extend(analysis::local::relations());relations.extend(transfer::local::relations());relations.extend([Relation::of::<ControlInfluence>(),Relation::of::<ControlSupport>(),Relation::of::<Selection>()]);relations.extend(normalized::coverage::relations());relations.extend([Relation::of::<normalized::entities::CallableEntity>(),Relation::of::<normalized::entities::ClassEntity>(),Relation::of::<normalized::entities::ParameterEntity>(),Relation::of::<normalized::entities::FieldEntity>(),Relation::of::<EntityRef>()]);ValidatedModel::validate(relations).unwrap()
 }

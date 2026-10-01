@@ -23,6 +23,7 @@ pub enum AnalysisMethod {
     Catalog = 15,
     Synthesis = 16,
     Retrieval = 17,
+    // Reserved: dispatch semantics are owned by normalized relations.
     Dispatch = 18,
     AnalyticEmbedding = 19,
     CatalogEvidence = 20,
@@ -162,7 +163,7 @@ pub enum AnalysisChannel {
     Catalog = 6,
 }
 /// Early immutable reference to the existing projection owner's finite meaning. This contains no
-/// late assessment or snapshot target, so Dispatch can use it before the normalized checkpoint.
+/// late assessment or snapshot target, so preparation can precede the normalized checkpoint.
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name="analysis_projection_definitions",validate=validate_projection_definition)]
 pub struct ProjectionDefinition {

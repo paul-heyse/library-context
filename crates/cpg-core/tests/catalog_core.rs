@@ -12,7 +12,6 @@ async fn mandatory_catalog_uses_completed_normalized_contracts_and_exact_receipt
     let config=RoleConfig {format:1,role:Role::Importer,url:db.url("lctx_importer"),max_connections:6,provider_connections:4,acquire_timeout_seconds:5,statement_timeout_seconds:60,lock_timeout_seconds:10};
     let mut relations=normalized_relations();
     relations.extend(analysis::early_relations());
-    relations.extend(analysis::dispatch::relations());
     relations.extend(analysis::catalog_core::relations());
     relations.extend(catalog::core_relations());
     relations.sort_by_key(Relation::name);relations.dedup_by_key(|r|r.name());

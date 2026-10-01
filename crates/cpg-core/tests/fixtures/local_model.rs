@@ -3,7 +3,6 @@ use lctx_model::domain::*;
 pub fn model()->ValidatedModel {
     let mut relations=normalized_relations();
     relations.extend(analysis::early_relations());
-    relations.extend(analysis::dispatch::relations());
     relations.extend(analysis::local::relations());
     relations.extend(transfer::local::relations());
     relations.extend(local_semantics::relations());relations.extend(local_theory::relations());relations.extend(local_fields::relations());

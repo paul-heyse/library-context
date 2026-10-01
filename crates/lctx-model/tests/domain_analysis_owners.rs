@@ -61,7 +61,7 @@ fn owners_are_distinct_and_early_manifest_excludes_future_results() {
     assert!(
         !inputs
             .iter()
-            .any(|i| i.name() == analysis::dispatch::Invocation::NAME)
+            .any(|i| i.name() == "dispatch_analysis_invocations")
     );
     assert!(
         !inputs
@@ -343,8 +343,9 @@ fn bdd_qualification_refuses_budget_and_keeps_shared_weakest_policy() {
     assert_eq!(tiny.reserved(), 0);
 }
 #[test]
-fn dispatch_executable_closure_excludes_later_results_and_final_coverage() {
+fn native_preparation_closure_excludes_later_results_and_final_coverage() {
     let model = model().unwrap();
+    assert!(!model.relations().iter().any(|r| r.name().starts_with("dispatch_analysis_")));
     let declarations_by_name = model
         .relations()
         .iter()
@@ -352,7 +353,6 @@ fn dispatch_executable_closure_excludes_later_results_and_final_coverage() {
         .collect::<BTreeMap<_, _>>();
     let mut pending = analysis::early_relations()
         .into_iter()
-        .chain(analysis::dispatch::relations())
         .map(|r| r.name())
         .collect::<Vec<_>>();
     let mut closure = std::collections::BTreeSet::new();
@@ -383,9 +383,8 @@ fn dispatch_executable_closure_excludes_later_results_and_final_coverage() {
         context: nominal(3),
         availability: EvidenceAvailability::Complete,
     };
-    assert!(analysis::dispatch::coverage::CoverageObservation::normalized(&row).is_err());
     assert!(local::coverage::CoverageObservation::normalized(&row).is_ok());
-    let source = analysis::dispatch::CoverageSource::Native {
+    let source = local::CoverageSource::Native {
         coverage: nominal(1),
     };
     assert_eq!(

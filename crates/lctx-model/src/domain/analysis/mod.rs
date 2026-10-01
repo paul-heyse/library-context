@@ -16,7 +16,7 @@ pub mod usage;
 use crate::domain::*;
 pub use config::*;
 use family::analysis_family;
-analysis_family!(dispatch,"dispatch",[],[],[],[]);
+// Dispatch remains normalized-owned; AnalysisMethod code18 stays reserved.
 // Local consumes normalized dispatch evidence; unused analysis predecessor code4 stays reserved.
 analysis_family!(local,"local",[],[crate::domain::transfer::local::TransferKey],[crate::domain::normalized::coverage::NormalizationCoverage],[LocalWitness:8=>crate::domain::local_semantics::LocalContribution,LocalGuard:9=>crate::domain::local_semantics::LocalGuardContribution,TheoryWitness:10=>crate::domain::local_theory::TheoryWitness]);
 analysis_family!(base_evaluation,"base_evaluation",[Local:4=>local],[crate::domain::transfer::local::TransferKey],[crate::domain::normalized::coverage::NormalizationCoverage],[BaseExpression:8=>crate::domain::execution::records::ExpressionEvaluation]);
@@ -50,7 +50,6 @@ pub fn early_relations() -> Vec<Relation> {
 /// Analysis closure before selection, synthesis and retrieval.
 pub fn pre_catalog_relations() -> Vec<Relation> {
     let mut rows = early_relations();
-    rows.extend(dispatch::relations());
     rows.extend(local::relations());
     rows.extend(base_evaluation::relations());
     rows.extend(base_completion::relations());

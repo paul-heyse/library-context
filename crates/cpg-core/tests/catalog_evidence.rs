@@ -12,7 +12,6 @@ async fn contextual_catalog_preserves_original_roots_and_exact_completed_receipt
     let config=RoleConfig {format:1,role:Role::Importer,url:db.url("lctx_importer"),max_connections:6,provider_connections:4,acquire_timeout_seconds:5,statement_timeout_seconds:60,lock_timeout_seconds:10};
     let mut relations=normalized_relations();
     relations.extend(analysis::early_relations());
-    relations.extend(analysis::dispatch::relations());
     relations.extend(analysis::catalog_core::relations());
     relations.extend(catalog::relations());
     relations.extend(analysis::catalog_evidence::relations());
