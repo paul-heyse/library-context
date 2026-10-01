@@ -1458,9 +1458,6 @@ pub fn bind(input: BindingInput<'_>) -> Result<BoundCall, BindingFailure> {
         raw.receiver,
         raw.call,
     );
-    let actuals = &call
-        .actuals(arguments)
-        .map_err(|_| ObligationKind::MissingEvidence)?;
     if !matches!(channel, CallChannel::Direct) {
         return Err(ObligationKind::CallTransfer.into());
     }
@@ -1473,6 +1470,48 @@ pub fn bind(input: BindingInput<'_>) -> Result<BoundCall, BindingFailure> {
     if let Receiver::Unknown { reason } = receiver {
         if raw.class_of.is_none() { return Err((*reason).into()); }
     }
+    let receiver_source = raw.class_of.map(|actual| BindingSource::ClassOf { actual }).or_else(|| {
+        if let Receiver::Bound { actual } = receiver { Some(BindingSource::Actual { occurrence: *actual }) } else { None }
+    });
+    let assignments = assign_arguments(signature, parameters, shapes, call, arguments, receiver_source.is_some())?;
+    let bindings = assignments.into_iter().map(|assignment| Ok(Binding {
+        formal: assignment.formal,
+        source: match assignment.source {
+            ArgumentSource::Receiver => receiver_source.clone().ok_or(ObligationKind::MissingEvidence)?,
+            ArgumentSource::Value(value) => value,
+        },
+        kind: assignment.kind,
+        projection: assignment.projection,
+    })).collect::<Result<Vec<_>, BindingFailure>>()?;
+    Ok(BoundCall {site: target.site, target: target.id(), signature: signature.id(), bindings})
+}
+
+/// A structural assignment contains no runtime receiver identity or callable authority.
+/// The checked caller supplies the meaning of `Receiver`; it cannot become an actual expression
+/// merely because the argument algorithm assigned the first formal slot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ArgumentSource { Receiver, Value(BindingSource) }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ArgumentAssignment {
+    pub formal: Id<SignatureParameter>,
+    pub source: ArgumentSource,
+    pub kind: BindingKind,
+    pub projection: BindingProjection,
+}
+/// The sole argument-assignment algorithm. Exact signature/argument membership is replayed here;
+/// applicability, native receiver evidence and runtime identity belong to the checked caller.
+/// Callers retain the work/output allowance, just as normalized binding does.
+pub(crate) fn assign_arguments(
+    signature: &Signature,
+    parameters: &[SignatureParameter],
+    shapes: &BTreeMap<Id<ParameterShape>, ParameterShape>,
+    call: &CallSyntax,
+    arguments: &[CallArgument],
+    receiver: bool,
+) -> Result<Vec<ArgumentAssignment>, BindingFailure> {
+    let actuals = &call
+        .actuals(arguments)
+        .map_err(|_| ObligationKind::MissingEvidence)?;
     let formals = resolve_parameters(signature, parameters, shapes)
         .map_err(|_| ObligationKind::MissingEvidence)?;
     validate_shapes(signature.form, &formals).map_err(|_| ObligationKind::AmbiguousBinding)?;
@@ -1504,10 +1543,7 @@ pub fn bind(input: BindingInput<'_>) -> Result<BoundCall, BindingFailure> {
         .map(|(i, _)| i)
         .collect();
     let mut vararg_index = 0i64;
-    let receiver_source = raw.class_of.map(|actual| BindingSource::ClassOf { actual }).or_else(|| {
-        if let Receiver::Bound { actual } = receiver { Some(BindingSource::Actual { occurrence: *actual }) } else { None }
-    });
-    if let Some(receiver_source) = receiver_source {
+    if receiver {
         let first = positional
             .first()
             .copied()
@@ -1527,9 +1563,9 @@ pub fn bind(input: BindingInput<'_>) -> Result<BoundCall, BindingFailure> {
         } else {
             BindingProjection::Whole
         };
-        out.push(Binding {
+        out.push(ArgumentAssignment {
             formal: parameters[first].id(),
-            source: receiver_source,
+            source: ArgumentSource::Receiver,
             kind: BindingKind::Receiver,
             projection,
         });
@@ -1627,11 +1663,11 @@ pub fn bind(input: BindingInput<'_>) -> Result<BoundCall, BindingFailure> {
                 BindingProjection::Whole,
             )
         };
-        out.push(Binding {
+        out.push(ArgumentAssignment {
             formal: parameters[index].id(),
-            source: BindingSource::Actual {
+            source: ArgumentSource::Value(BindingSource::Actual {
                 occurrence: actual.occurrence,
-            },
+            }),
             kind,
             projection,
         });
@@ -1651,19 +1687,14 @@ pub fn bind(input: BindingInput<'_>) -> Result<BoundCall, BindingFailure> {
             ParameterKind::VarKeyword => BindingKind::Kwargs,
             _ => BindingKind::Default,
         };
-        out.push(Binding {
+        out.push(ArgumentAssignment {
             formal: parameters[index].id(),
-            source,
+            source: ArgumentSource::Value(source),
             kind,
             projection: BindingProjection::Whole,
         });
     }
-    Ok(BoundCall {
-        site: target.site,
-        target: target.id(),
-        signature: signature.id(),
-        bindings: out,
-    })
+    Ok(out)
 }
 
 /// Incomplete receiver evidence is a first-class Unknown, never an implicit plain function.
