@@ -1,6 +1,7 @@
 //! Programmatic synthesis consumes typed qualified conclusions.
 pub mod build;
 pub mod frames;
+pub mod production;
 
 pub mod documentary;
 pub mod source_code;
