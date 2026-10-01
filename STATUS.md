@@ -8,8 +8,7 @@ _Updated 2026-10-01 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
 - **passed:** `python3 /home/paul/.cache/coordination-acceptance-20260930.py`: native settings across four targets; instruction budgets, Codex config/read and execution-skill discovery in three live repositories.
 
 ## Phase 4 execution (2026-10-01)
-- The [detailed design and execution plan](docs/plans/semantic-model-phase4-detailed-plan_2026-09-30.md)
-  documents contracts, library choices, ordered packages, migration and independent controls.
+- The [detailed plan](docs/plans/semantic-model-phase4-detailed-plan_2026-09-30.md) owns packages and receipts.
   ADR-0105/0106 are **Accepted target**. Full D0–Q0 execution is authorized, including conditional
   operator review of explicitly unreviewed grounded briefs.
 - The [independent assembled review](docs/design_review/reviews/design_review_phase4-plan_2026-09-30.md)
@@ -25,7 +24,7 @@ _Updated 2026-10-01 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
   graph reuse, permit/budget refusal and lifetime controls passed. E1 spec/codec/cache/realization
   foundation controls passed, including real PG configuration; no live embedding claim.
   B0 entry/transfer prerequisites passed model, native and real PG controls; Local production
-  remain in progress (plan §13.2 receipts).
+  remains in progress (plan §13.2 receipts).
 - **passed, 2026-10-01:** R0 declared validation-view controls in memory and real PostgreSQL:
   earlier/current vocabulary routing, no widening beyond acknowledged grants, malformed-frame
   refusal and reservation release. B0 exposed and motivated the fix; its Summary publication
@@ -33,7 +32,8 @@ _Updated 2026-10-01 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
 - **passed, 2026-10-01:** E1 original analytic text (five pure controls) and both native PostgreSQL
   profiles, including complete seal/model validation. E1 consumption then passed five pure and
   three actual PG controls across four availability cases; external effects used a contract fixture,
-  so live-service behavior is not_run. E0 and cross-consumer integration remain open.
+  so live-service behavior is not_run. A1 nearest-neighbour kernel controls passed; nominal
+  publication, E0 and cross-consumer integration remain open.
 - **passed, 2026-10-01:** integrated C0 catalog (20 pure controls; native catalog plus both
   normalized PG profiles). C1/E1 per-grain coverage contracts passed two pure controls;
   C1 execution remains in progress; E1 selection is bound. Plan §13.2 owns receipts and boundaries.
