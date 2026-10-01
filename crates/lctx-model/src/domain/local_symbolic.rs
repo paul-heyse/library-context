@@ -31,6 +31,37 @@ pub(crate) fn same(data: &EntryData, a: Id<Occurrence>, b: Id<Occurrence>) -> bo
         (a.source,a.start,a.end,a.syntax_kind)==(b.source,b.start,b.end,b.syntax_kind))
 }
 
+/// Positional syntax names a ParameterWithDefault wrapper; formal identity names its Parameter
+/// child. Follow that supported source edge before asking Entry to prove the formal binding.
+fn receiver_declaration(
+    data: &FieldData<'_>, invocation: &owner::AnalysisInvocation, syntax: Id<Occurrence>,
+) -> Result<Id<Occurrence>, ObligationKind> {
+    let e=data.entry;
+    let node=e.occurrences.get(syntax).ok_or(ObligationKind::MissingEvidence)?;
+    let theory=crate::domain::local_theory::TheoryData{entry:e,inventory:data.theory};
+    let mut selected=None;
+    for declaration in e.declarations.iter() {
+        let Some(formal)=e.occurrences.get(declaration.declaration) else{continue};
+        if formal.syntax_kind!=SyntaxKind::Parameter || formal.role!=OccurrenceRole::Parameter
+            || e.qualifications.get(declaration.qualification).is_none_or(|q|q.context!=invocation.context){continue}
+        let linked=if node.syntax_kind==SyntaxKind::Parameter {
+            same(e,syntax,declaration.declaration)
+        }else if node.syntax_kind==SyntaxKind::ParameterWithDefault {
+            e.placements.iter().any(|p|p.parent.is_some_and(|parent|same(e,parent,syntax))
+                && p.field==crate::domain::lexical::SyntaxField::Child && p.ordinal==0
+                && same(e,p.occurrence,declaration.declaration)
+                && e.qualifications.get(p.qualification).is_some_and(|q|
+                    e.placement_supports.iter().any(|s|s.assertion==p.id()
+                        && s.origin==Origin::SourceObservation && s.mode==ExtractionMode::NativeTraversal
+                        && crate::domain::local_theory::support(&theory,s,q,invocation,FactFamily::Syntax).is_ok())))
+        }else{false};
+        if !linked{continue}
+        if selected.is_some_and(|other|other!=declaration.declaration){return Err(ObligationKind::EntryValueUnknown)}
+        selected=Some(declaration.declaration);
+    }
+    selected.ok_or(ObligationKind::MissingEvidence)
+}
+
 /// Re-derive both entry operations from the native flow source; a stored receipt is no authority.
 pub fn derive(
     data: &FieldData<'_>, invocation: &owner::AnalysisInvocation, store: &SourceFieldStore,
@@ -76,7 +107,8 @@ pub fn derive(
         let mut uses=e.uses.iter().filter(|u|same(e,u.occurrence,base.occurrence));
         let receiver_use=uses.next().ok_or(ObligationKind::EntryValueUnknown)?;
         if uses.next().is_some(){return Err(ObligationKind::EntryValueUnknown)}
-        Ok((value,q,owner.entity,run.id(),use_.occurrence,formal.declaration,receiver_use.occurrence,receiver.parameter))
+        let receiver_formal=receiver_declaration(data,invocation,receiver.parameter)?;
+        Ok((value,q,owner.entity,run.id(),use_.occurrence,formal.declaration,receiver_use.occurrence,receiver_formal))
     })();
     let (value,q,constructor,run,access,formal,receiver_access,receiver_formal)=match setup{Ok(v)=>v,Err(r)=>return Ok(Err(r))};
     let request=|access,declaration|EntryRequest{owner:constructor,formal:ParameterEntity::Source{declaration}.id(),access,context:invocation.context,run};
