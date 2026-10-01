@@ -641,6 +641,7 @@ pub fn build(data: &EvidenceData, b: &ResourceBudget) -> Result<EvidenceOutput, 
         }
     }
     super::fields::derive(data, &mut out)?;
+    super::symbolic::derive(data, &mut out)?;
     super::runtime::derive(data, &mut out)?;
     deployments(data, &mut out)?;
     checks(data, &mut out)?;
@@ -1113,6 +1114,7 @@ pub fn definition() -> (analysis::MethodParameters, analysis::AnalysisDefinition
     for bytes in [
         include_bytes!("build.rs").as_slice(),
         include_bytes!("fields.rs").as_slice(),
+        include_bytes!("symbolic.rs").as_slice(),
         include_bytes!("runtime.rs").as_slice(),
         include_bytes!("frames.rs").as_slice(),
         include_bytes!("intent.rs").as_slice(),

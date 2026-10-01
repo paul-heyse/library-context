@@ -170,7 +170,7 @@ fn any_heuristic_scope_lineage_refuses_behavior_even_with_stronger_or_unavailabl
     let source = SupportSource::NativeAssertion {
         premise: native.premise,
     };
-    let statistical = analysis::analytic::Derivation {
+    let statistical = analysis::synthesis::Derivation {
         invocation: nominal(6),
         proposition: nominal(7),
         qualification: q.id(),
@@ -179,7 +179,7 @@ fn any_heuristic_scope_lineage_refuses_behavior_even_with_stronger_or_unavailabl
         status: EvidenceStatus::StatisticallyDerived,
         heuristic: true,
     };
-    let analytic = SupportSource::Analytic {
+    let analytic = SupportSource::AnalysisDerivation {
         derivation: statistical.id(),
     };
     for availability in [

@@ -163,7 +163,7 @@ pub async fn run(
         "probe must read every declared replay input"
     );
     let behavioral = access.profile() == Profile::Behavioral;
-    for mutation in 0..=8 {
+    for mutation in 0..=11 {
         if !behavioral && mutation > 1 {
             continue;
         }
@@ -219,6 +219,27 @@ pub async fn run(
             if mutation == 8 && i.name() == analysis::summary::DischargeEvidence::NAME {
                 changed |= batch.num_rows() > 0;
                 batch = analysis::summary::DischargeEvidence::encode(&[])?;
+            }
+            if mutation == 9 && i.name() == execution::summary_symbolic::SymbolicFieldAlternative::NAME {
+                changed |= batch.num_rows() > 0;
+                batch = execution::summary_symbolic::SymbolicFieldAlternative::encode(&[])?;
+            }
+            if mutation == 10 && i.name() == execution::summary_symbolic::SymbolicFieldAlternative::NAME {
+                let mut rows = execution::summary_symbolic::SymbolicFieldAlternative::decode(&batch)?;
+                if let Some(row) = rows.first_mut() {
+                    row.reader_qualification = row.constructor_qualification;
+                    changed = true;
+                }
+                batch = execution::summary_symbolic::SymbolicFieldAlternative::encode(&rows)?;
+            }
+            if mutation == 11 && i.name() == conditions::stability::GuardSubstitution::NAME {
+                let mut rows=conditions::stability::GuardSubstitution::decode(&batch)?;
+                if let Some(row)=rows.first_mut() {
+                    assert_ne!(row.atom,row.source_atom);
+                    row.atom = row.source_atom;
+                    changed = true;
+                }
+                batch=conditions::stability::GuardSubstitution::encode(&rows)?;
             }
             check.visit_input(i, &batch)?;
         }

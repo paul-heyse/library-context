@@ -544,6 +544,15 @@ async fn run(profile: Profile) {
     if profile == Profile::Behavioral {
         assert!(proofs > 0);
         assert!(statuses.iter().all(|s| *s == 1));
+        let alternatives:Vec<(Vec<u8>,Vec<u8>,i64,i16)>=sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "SELECT constructor_qualification,reader_qualification,depth,reason FROM {}.summary_symbolic_field_alternatives",id.schema())))
+            .fetch_all(db.owner.pool()).await.unwrap();
+        assert_eq!(alternatives.len(),3,"one supported source field retains all three reader paths");
+        assert!(alternatives.iter().all(|(c,r,d,reason)|c!=r&&*d==2&&*reason==obligation::ObligationKind::ScopeBoundary as i16));
+        let conclusions:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+            "SELECT count(*) FROM {}.summary_behavioral_conclusions c JOIN {}.summary_symbolic_field_alternatives a ON a.reader_qualification=c.qualification WHERE c.verdict=3 AND c.proof IS NULL AND c.reason=a.reason",id.schema(),id.schema())))
+            .fetch_one(db.owner.pool()).await.unwrap();
+        assert_eq!(conclusions,3);
     } else {
         assert_eq!(proofs, 0);
         assert!(statuses.iter().all(|s| *s == 3));

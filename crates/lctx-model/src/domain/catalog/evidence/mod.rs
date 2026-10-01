@@ -5,6 +5,8 @@ pub mod frames;
 mod intent;
 mod inventory;
 pub mod runtime;
+mod symbolic;
+pub use symbolic::SourceFieldLink;
 use crate::domain::{
     assertion::{AssertionQualification, EvidenceSourceSpanId},
     catalog::*,

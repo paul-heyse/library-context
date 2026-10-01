@@ -52,6 +52,7 @@ pub fn summaries(
     ContentHash::of(include_bytes!("summary_worklist.rs")).encode(&mut key);
     ContentHash::of(include_bytes!("summary_schedule.rs")).encode(&mut key);
     ContentHash::of(include_bytes!("summary_consequences.rs")).encode(&mut key);
+    ContentHash::of(include_bytes!("summary_symbolic.rs")).encode(&mut key);
     enriched_execution(catalog)
         .1
         .semantic_version

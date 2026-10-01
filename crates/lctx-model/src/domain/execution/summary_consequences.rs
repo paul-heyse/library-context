@@ -51,6 +51,11 @@ pub enum SummaryClaim {
         phase: CallPhase,
         members: ContentHash,
     },
+    #[model(code = 2)]
+    SymbolicFieldAssociation {
+        alternative: Id<super::summary_symbolic::SymbolicFieldAlternative>,
+        qualification: Id<AssertionQualification>,
+    },
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name="summary_claim_members",rule="summary_claim_member",conclusion=claim)]
@@ -1008,6 +1013,15 @@ pub fn derive(
                 responsible: analysis::AnalysisMethod::Summaries,
             })?;
         }
+    }
+    for alternative in out.symbolic_alternatives.iter() {
+        let claim=SummaryClaim::SymbolicFieldAssociation{alternative:alternative.id(),qualification:alternative.reader_qualification};
+        let subject=owner::ObligationSubject::SummaryClaim{transfer:claim.id()};
+        let result=obligation::verdict(obligation::VerdictInput{condition:None,open:&[alternative.reason],coverage:CoverageStatus::Partial,approximation:Approximation::Exact,modality:Modality::Definite});
+        rows.conclusions.insert(ClaimConclusion{invocation:invocation.id(),subject:subject.id(),qualification:Some(alternative.reader_qualification),proof:None,coverage:CoverageStatus::Partial,verdict:result.verdict,reason:result.reason})?;
+        rows.obligations.insert(owner::AnalysisObligation{invocation:invocation.id(),subject:subject.id(),channel:analysis::AnalysisChannel::Value,phase:CallPhase::Init,qualification:alternative.reader_qualification,reason:alternative.reason,responsible:analysis::AnalysisMethod::Summaries})?;
+        rows.claims.insert(claim)?;
+        rows.subjects.insert(subject)?;
     }
     Ok(rows)
 }

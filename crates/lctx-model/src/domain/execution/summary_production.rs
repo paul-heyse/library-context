@@ -179,6 +179,7 @@ pub struct PairOutcome {
 }
 #[macro_export]
 macro_rules! summary_owned_inputs{($apply:ident)=>{$apply!{
+ symbolic_classes:$crate::domain::normalized::symbolic_fields::SourceFieldClass,symbolic_stores:$crate::domain::normalized::symbolic_fields::SourceFieldStore,symbolic_associations:$crate::domain::normalized::symbolic_fields::SourceFieldAssociation,symbolic_readers:$crate::domain::normalized::symbolic_fields::SourceFieldReader,symbolic_links:$crate::domain::normalized::symbolic_fields::SourceFieldReaderLink,symbolic_local_stores:$crate::domain::local_symbolic::SymbolicFieldStore,
  local_invocations:$crate::domain::analysis::local::AnalysisInvocation,model_invocations:$crate::domain::analysis::model::AnalysisInvocation,enriched_invocations:$crate::domain::analysis::enriched_execution::AnalysisInvocation,source_invocations:$crate::domain::analysis::source_call::AnalysisInvocation,
  local_outcomes:$crate::domain::analysis::local::AnalysisOutcome,model_outcomes:$crate::domain::analysis::model::AnalysisOutcome,enriched_outcomes:$crate::domain::analysis::enriched_execution::AnalysisOutcome,source_outcomes:$crate::domain::analysis::source_call::AnalysisOutcome,model_derivations:$crate::domain::analysis::model::AnalysisDerivation,
  local_contributions:$crate::domain::local_semantics::LocalContribution,local_guards:$crate::domain::local_semantics::LocalGuardContribution,local_keys:$crate::domain::transfer::local::TransferKey,local_alternatives:$crate::domain::transfer::local::TransferAlternative,local_supports:$crate::domain::transfer::local::TransferSupport,
@@ -201,6 +202,7 @@ impl SummaryData{pub fn new(b:&ResourceBudget)->Self{Self{graphs:projection::nor
 crate::summary_owned_inputs!(data);
 #[macro_export]
 macro_rules! summary_outputs{($apply:ident)=>{$apply!{
+ symbolic_alternatives:$crate::domain::execution::summary_symbolic::SymbolicFieldAlternative,
  origin_boundaries:$crate::domain::execution::summary_production::OriginBoundary,pair_outcomes:$crate::domain::execution::summary_production::PairOutcome,
  runs:$crate::domain::execution::summary_production::SummaryRun,components:$crate::domain::execution::summary_production::SummaryComponent,component_members:$crate::domain::execution::summary_production::ComponentMember,origins:$crate::domain::execution::summary_production::SummaryOrigin,proof_origins:$crate::domain::execution::summary_production::ProofOrigin,residuals:$crate::domain::execution::summary_production::SummaryResidual,call_members:$crate::domain::execution::summary_production::CallMember,
  control_witnesses:$crate::domain::execution::summary_control::SummaryControlWitness,
@@ -1904,6 +1906,7 @@ pub fn produce(
         out.outcome.status = analysis::AnalysisStatus::Partial;
         out.outcome.reason = Some(obligation::ObligationKind::IncompleteCoverage);
     }
+    super::summary_symbolic::produce(data,invocation,&mut out,budget)?;
     out.consequences(data, invocation, definition, profile, budget)?;
     Ok(out)
 }

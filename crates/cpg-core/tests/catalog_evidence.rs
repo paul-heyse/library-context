@@ -413,6 +413,11 @@ async fn run(profile: Profile) {
     for (name, start, end) in access_spans {
         assert_eq!(&api[start as usize..end as usize], format!("self.{name}"));
     }
+    let source_links:Vec<(String,String,i16,i16)>=sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT convert_from(f.name,'UTF8'),r.name,l.source_association,l.runtime_value FROM {s}.catalog_source_field_links l JOIN {s}.source_field_reader_links k ON k.id=l.reader JOIN {s}.source_field_readers r ON r.id=k.reader JOIN {s}.source_field_associations a ON a.id=l.association JOIN {s}.record_field_observations f ON f.id=a.field")))
+        .fetch_all(db.owner.pool()).await.unwrap();
+    assert_eq!(source_links.len(),6,"generated Config preserves six exact field readers; PlainConfig supplies none");
+    assert!(source_links.iter().all(|(field,reader,source,runtime)|field==reader&&*source==normalized::callables::Knowledge::Known as i16&&*runtime==normalized::callables::Knowledge::Unknown as i16));
     let roots: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "SELECT count(*) FROM {s}.catalog_evidence_roots"
     )))

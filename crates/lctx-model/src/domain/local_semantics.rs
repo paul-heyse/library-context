@@ -34,6 +34,7 @@ pub fn definition() -> (analysis::MethodParameters, analysis::AnalysisDefinition
         include_bytes!("local_semantics.rs").as_slice(),
         include_bytes!("local_theory.rs").as_slice(),
         include_bytes!("local_fields.rs").as_slice(),
+        include_bytes!("local_symbolic.rs").as_slice(),
         include_bytes!("conditions/entry.rs").as_slice(),
         include_bytes!("conditions/stability.rs").as_slice(),
     ] {
@@ -757,6 +758,7 @@ pub fn produce(
     emit_theory(data, invocation, definition, &mut records, budget)?;
     produce_entry_reads(data, invocation, &mut records, budget)?;
     produce_fields(data, invocation, &mut records, budget)?;
+    produce_symbolic_stores(data, invocation, &mut records, budget)?;
     produce_guards(data, invocation, definition, &mut records, budget)?;
     for influence in records.influences.iter() {
         for alternative in records.alternatives.iter() {
@@ -1414,6 +1416,35 @@ fn produce_guards(
             }
         };
         rows.guard_assessments.insert(assessment)?;
+    }
+    Ok(())
+}
+
+fn produce_symbolic_stores(
+    data: &LocalData,
+    invocation: &publication::AnalysisInvocation,
+    records: &mut LocalRecords,
+    budget: &resources::ResourceBudget,
+) -> Result<(), ModelError> {
+    let input=crate::domain::local_fields::FieldData{entry:&data.entry,theory:&data.theory,inventory:&data.fields};
+    for store in data.fields.symbolic_stores.iter() {
+        for support in data.entry.value_supports.iter() {
+            let Some(value)=data.entry.values.get(support.assertion) else{continue};
+            if !crate::domain::local_symbolic::same(&data.entry,value.sink,store.value){continue}
+            if let Ok(emission)=crate::domain::local_symbolic::derive(&input,invocation,store,support,budget)? {
+                for entry in [&emission.value,&emission.receiver] {
+                    records.entries.insert(entry.witness().clone())?;
+                    records.entry_sources.insert(entry.source().clone())?;
+                    records.roots.insert(entry.root().clone())?;
+                    records.places.insert(entry.place().clone())?;
+                    records.qualifications.insert(entry.qualification().clone())?;
+                    let (condition,nodes)=entry.condition().records();
+                    records.conditions.insert(condition)?;
+                    for node in nodes{records.nodes.insert(node)?;}
+                }
+                records.fields.symbolic_stores.insert(emission.row)?;
+            }
+        }
     }
     Ok(())
 }

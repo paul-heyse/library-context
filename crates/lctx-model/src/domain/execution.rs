@@ -91,5 +91,6 @@ pub mod context_binding;
 pub mod model_context_transfer;
 
 pub mod summary_consequences;
+pub mod summary_symbolic;
 
 pub mod read_fields;

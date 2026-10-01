@@ -47,3 +47,26 @@ def rebound_alias(value):
     held = identity(value)
     held = None
     return held
+
+
+# Source association is independent of any claim about a later receiver's heap state.
+from dataclasses import dataclass
+
+
+@dataclass(init=False)
+class RecordHolder:
+    value: object
+
+    def __init__(self, value):
+        self.value = value
+
+    def read(self, flag, other):
+        return self.value if flag else ([self.value] if other else unresolved(self.value, other))
+
+
+class PlainHolder:
+    def __init__(self, value):
+        self.value = value
+
+    def read(self):
+        return self.value

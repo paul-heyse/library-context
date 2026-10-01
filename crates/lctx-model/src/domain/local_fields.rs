@@ -42,6 +42,8 @@ macro_rules! local_field_inputs {
          class_entities:$crate::domain::normalized::entities::ClassEntity,
          resolutions:$crate::domain::normalized::entities::SymbolEntityResolution,
          field_declarations:$crate::domain::normalized::entities::FieldDeclarationLink,
+         symbolic_stores:$crate::domain::normalized::symbolic_fields::SourceFieldStore,
+         symbolic_parameter_syntax:$crate::domain::syntax::ParameterSyntaxObservation,
         }
     };
 }
@@ -466,6 +468,7 @@ macro_rules! local_field_outputs {
          assessments:$crate::domain::local_fields::FieldLocationAssessment,
          locations:$crate::domain::local_fields::FieldLocation,
          candidates:$crate::domain::local_fields::FieldLocationCandidate,
+         symbolic_stores:$crate::domain::local_symbolic::SymbolicFieldStore,
         }
     };
 }
@@ -476,6 +479,7 @@ pub fn relations() -> Vec<Relation> {
         Relation::of::<FieldLocationAssessment>(),
         Relation::of::<FieldLocation>(),
         Relation::of::<FieldLocationCandidate>(),
+        Relation::of::<crate::domain::local_symbolic::SymbolicFieldStore>(),
     ]
 }
 fn field_invariants() -> Vec<Invariant> {
@@ -582,7 +586,25 @@ impl InvariantCheck for FieldCheck {
                 }
             }
         }
-        if !self.records.locations.same(&expected.locations)
+        for invocation in self.invocations.iter() {
+            for store in self.inventory.symbolic_stores.iter() {
+                for support in self.entry.value_supports.iter() {
+                    let Some(value)=self.entry.values.get(support.assertion) else{continue};
+                    if !crate::domain::local_symbolic::same(&self.entry,value.sink,store.value){continue}
+                    if let Ok(emission)=crate::domain::local_symbolic::derive(&data,invocation,store,support,&self.budget)? {
+                        for entry in [&emission.value,&emission.receiver] {
+                            if self.entries.get(entry.witness().id())!=Some(entry.witness())
+                                || self.sources.get(entry.source().id())!=Some(entry.source()) {
+                                return Err(invalid("symbolic store entry premises differ from replay"));
+                            }
+                        }
+                        expected.symbolic_stores.insert(emission.row)?;
+                    }
+                }
+            }
+        }
+        if !self.records.symbolic_stores.same(&expected.symbolic_stores)
+            || !self.records.locations.same(&expected.locations)
             || !self.records.candidates.same(&expected.candidates)
         {
             return Err(invalid(

@@ -38,6 +38,10 @@ macro_rules! catalog_evidence_inputs {
          binding_sets:$crate::domain::normalized::bindings::BindingSetAssessment,
          core_invocations:$crate::domain::analysis::catalog_core::Invocation,
          core_links:$crate::domain::catalog::CatalogMemberInvocation,
+         symbolic_classes:$crate::domain::normalized::symbolic_fields::SourceFieldClass,
+         symbolic_associations:$crate::domain::normalized::symbolic_fields::SourceFieldAssociation,
+         symbolic_readers:$crate::domain::normalized::symbolic_fields::SourceFieldReader,
+         symbolic_links:$crate::domain::normalized::symbolic_fields::SourceFieldReaderLink,
         }
     };
 }
@@ -57,6 +61,7 @@ macro_rules! catalog_evidence_outputs {
                 document_associations:$crate::domain::catalog::evidence::DocumentAssociation,
                 accesses:$crate::domain::catalog::evidence::FieldAccessAssessment,
                 field_locations:$crate::domain::catalog::evidence::FieldLocationLink,
+                source_field_links:$crate::domain::catalog::evidence::SourceFieldLink,
         constructor_candidates:$crate::domain::catalog::evidence::ConstructorCandidateLink,
         deployments:$crate::domain::catalog::evidence::CatalogDeployment,
                 release_deployments:$crate::domain::catalog::evidence::ReleaseDeployment,

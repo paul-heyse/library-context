@@ -315,5 +315,6 @@ pub fn relations() -> Vec<Relation> {
         Relation::of::<OriginBoundary>(),
         Relation::of::<PairOutcome>(),
         Relation::of::<super::summary_control::SummaryControlWitness>(),
+        Relation::of::<super::summary_symbolic::SymbolicFieldAlternative>(),
     ]
 }
