@@ -1,5 +1,10 @@
 # PR4 selection and retrieval — assembled implementation review
 
+Retired source citations below are historical paths within this review's recorded baseline
+and dated inspection scope, including any working-tree limitations. They do not point to
+replacement owners. Recover committed source through [Git history](../../README.md#historical-recovery);
+the findings and their original evidence strength remain unchanged.
+
 ## 1. Scope, outcome and coverage
 
 | Field | Value |
@@ -33,7 +38,7 @@ serving and operator-cutover acceptance. The embedding waiver does not establish
 | Python retrieval and `lctx_storage` | Lexical/vector orchestration and native prepared-selection calls. The native response validates channel ordering and fusion before serving it. | A channel availability change affects ranking and cursor identity, not predicate truth. |
 
 Canonical domain reconstruction is enforced by
-[`cpg-core/src/catalog.rs`](../../../crates/cpg-core/src/catalog.rs), lines 1410–1443.
+`crates/cpg-core/src/catalog.rs`, lines 1410–1443.
 Projected domain validation is owned by
 [`selection/catalog.rs`](../../../crates/cpg-schema/src/selection/catalog.rs), lines 413–465.
 The latter consumes already published canonical assertions; it is not a second source analyzer.
@@ -132,7 +137,7 @@ That could hide disagreement, assert unsupported absence or make a known public-
 depend on the quantifier.
 
 **Correction inspected:**
-[`catalog_domains.rs`](../../../crates/cpg-core/src/catalog_domains.rs), lines 26–57, separately
+`crates/cpg-core/src/catalog_domains.rs`, lines 26–57, separately
 requires Exports and Signatures coverage for signature closure and derives public-exposure closure
 from its own domain. [`selection/catalog.rs`](../../../crates/cpg-schema/src/selection/catalog.rs),
 lines 230–239, emits declared type observations as separate claims.
@@ -181,7 +186,7 @@ declared field, interpretation and support semantics, rather than a text-shaped 
 **Correction inspected:**
 [`selection/catalog.rs`](../../../crates/cpg-schema/src/selection/catalog.rs), lines 395–410,
 follows member associations through their exact span/scenario/deployment references. Core uses
-this shared function at [`catalog_domains.rs`](../../../crates/cpg-core/src/catalog_domains.rs),
+this shared function at `crates/cpg-core/src/catalog_domains.rs`,
 lines 8 and 53; projection validation checks the association at adapter lines 420 and 454.
 Alignment reads that span's artifact at lines 300–305. Release/deployment and relationship branches
 retain scoped original and typed support evidence at lines 288–328.
@@ -560,7 +565,7 @@ context identity. Publication correctly refused the inconsistent derivation; no 
 weakened to admit it.
 
 **Correction inspected — Implemented:**
-[`catalog_domains.rs`](../../../crates/cpg-core/src/catalog_domains.rs) sorts each domain's contexts
+`crates/cpg-core/src/catalog_domains.rs` sorts each domain's contexts
 by the complete typed `SelectionContext` before serialization and hashing. Signature identity still
 contains member, binding and signature: sorting does not merge overloads or binding alternatives.
 Release rows use release identity; set-valued fact evidence is sorted/deduplicated by fact identity;

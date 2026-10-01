@@ -1,5 +1,10 @@
 # PostgreSQL integration: assembled source review
 
+Retired source citations below are historical paths within this review's recorded baseline
+and dated inspection scope, including any working-tree limitations. They do not point to
+replacement owners. Recover committed source through [Git history](../../README.md#historical-recovery);
+the findings and their original evidence strength remain unchanged.
+
 ## 1. Scope, outcome and coverage
 
 | Field | Value |
@@ -32,9 +37,9 @@ this bounded decision.
 | Owner | Responsibility and consumer contract | Change boundary |
 |---|---|---|
 | [`cpg-schema::embedding`](../../../crates/cpg-schema/src/embedding.rs) | Receipt tables, vector codec/digest recipes and append-only consumer bits | A representation/consumer-meaning change is explicit schema work; PostgreSQL does not define semantic IDs |
-| [`embed::Session`](../../../crates/cpg-core/src/embed.rs) | One attempt's retained vectors and consumer uses; return the retained committed winner | Shared cache effects are optional only through the explicit uncached fixture route; production embedding requires configured service |
+| `embed::Session` (`crates/cpg-core/src/embed.rs`) | One attempt's retained vectors and consumer uses; return the retained committed winner | Shared cache effects are optional only through the explicit uncached fixture route; production embedding requires configured service |
 | [`postgres`](../../../crates/cpg-core/src/postgres/mod.rs) and its cache module | SQLx configuration/pool/schema checks, immutable reusable values and typed failure | Effects remain below compilation orchestration; provider I/O does not hold a database lease |
-| `attempt` (`f6562d3^:crates/cpg-core/src/attempt.rs`, recover through Git), [`validate`](../../../crates/cpg-core/src/validate.rs) | Write receipt rows, validate canonical facts, incorporate receipt identity, then publish | The Delta `snapshots` append remains the publication event |
+| `attempt` (`f6562d3^:crates/cpg-core/src/attempt.rs`, recover through Git), `validate` (`crates/cpg-core/src/validate.rs`) | Write receipt rows, validate canonical facts, incorporate receipt identity, then publish | The Delta `snapshots` append remains the publication event |
 | [`bundle`](../../../crates/cpg-core/src/bundle.rs) and pinned native/Python serving | Read exact values from the selected snapshot and serve a pinned generation | Bundle reconstruction has no PostgreSQL/provider dependency |
 | [`postgres::operations`](../../../crates/lctx-postgres/src/operations.rs), `lctx::db` (`8bbc17a^:crates/lctx/src/db.rs`, recover through Git) | Append observations; reconstruct discovery from canonical storage and verified manifests | Database discovery neither publishes a snapshot nor establishes a semantic verdict |
 | `postgres::legacy` (removed by ADR-0078) | Explicit read-only import of a selected historical Delta cache version | Retained legacy schema is migration input, not a second runtime cache mode |

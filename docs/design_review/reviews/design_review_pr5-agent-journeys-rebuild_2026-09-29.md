@@ -1,5 +1,10 @@
 # PR5 agent journeys and coarse rebuilds — assembled implementation review
 
+Retired source citations below are historical paths within this review's recorded baseline
+and dated inspection scope, including any working-tree limitations. They do not point to
+replacement owners. Recover committed source through [Git history](../../README.md#historical-recovery);
+the findings and their original evidence strength remain unchanged.
+
 ## 1. Scope, outcome and coverage
 
 | Field | Value |
@@ -135,7 +140,7 @@ matching phrase. The implementation now selects ordinary matching-term scoring o
 `SelectionContext`, `SelectionDomain` and `WitnessEvidence` semantics used in canonical
 `DomainDetail`. A serialized context change could change `catalog_selection_domains` and its
 domain ID without changing the association key. Semantic cache equality prevented bad publication,
-but did not make that key complete. [`build.rs`](../../../crates/cpg-core/build.rs) now excludes
+but did not make that key complete. `crates/cpg-core/build.rs` now excludes
 only the named response-only wire modules; canonical shared wire types remain in semantic identity.
 Association identity combines that digest and its evidence/domain transformation sources.
 **Correction source-inspected, 2026-09-29; finer hash separation remains deliberately conservative.**

@@ -1,5 +1,10 @@
 # Design review: libraries for the catalog and evidence product
 
+Retired source citations below are historical paths within this review's recorded baseline
+and dated inspection scope, including any working-tree limitations. They do not point to
+replacement owners. Recover committed source through [Git history](../../README.md#historical-recovery);
+the findings and their original evidence strength remain unchanged.
+
 ## 1. Scope, outcome and coverage
 
 **Target review, 2026-09-28 — Revise the contract and catalog-computation boundaries; retain the
@@ -222,7 +227,7 @@ unions. Existing supported facet behavior has an explicit migration adapter, not
 ### F02 — Catalog derivation lacks an isolated input boundary for planned growth
 
 **Interface-checked; priority: alongside PR2/PR3.**
-[`catalog::contracts`](../../../crates/cpg-core/src/catalog.rs):496–530 loads numerous complete
+`catalog::contracts` (`crates/cpg-core/src/catalog.rs`):496–530 loads numerous complete
 relations and immediately derives output; additional type relations load at 1055–1057. The function
 scans parameters for each signature (893–895), docs for each parameter (940–944) and all type
 arguments on every closure round (1091–1103). `populate` also combines fact reads, facet/text

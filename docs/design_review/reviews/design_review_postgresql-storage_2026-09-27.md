@@ -1,5 +1,10 @@
 # PostgreSQL storage and capability assessment
 
+Retired source citations below are historical paths within this review's recorded baseline
+and dated inspection scope, including any working-tree limitations. They do not point to
+replacement owners. Recover committed source through [Git history](../../README.md#historical-recovery);
+the findings and their original evidence strength remain unchanged.
+
 The follow-up [PostgreSQL stack assessment](design_review_postgresql-stack_2026-09-27.md)
 examines the external Cornucopia/Rust-Postgres proposal and refines the library recommendation.
 This report retains the storage-scope analysis and adoption findings F01–F04. Current
@@ -46,7 +51,7 @@ resolve the remaining semantic summaries, models or unknown-answer obligations.
 | `cpg-schema` | Arrow contracts, semantic IDs, append-only codebooks, rules, projection specifications | [Table contracts](../../../crates/cpg-schema/src/table.rs), [embedding contract](../../../crates/cpg-schema/src/embedding.rs); changes when domain meaning changes |
 | `cpg-core::attempt` / DataFusion | Construct relations, run shared semantic validation, publish only a valid attempt | attempt.rs (`f6562d3^:crates/cpg-core/src/attempt.rs`, recover through Git), lines 1342–1409; changes for new compiler stages or publication protocol |
 | `cpg-core::delta` / `snapshot` | Physical Delta writes, strict schema checks, exact-version and commit-owned reads | delta.rs (`f6562d3^:crates/cpg-core/src/delta.rs`, recover through Git), snapshot.rs (`f6562d3^:crates/cpg-core/src/snapshot.rs`, recover through Git), lines 93–159; owns storage mechanics |
-| `cpg-core::embed` | Token admission, batching, vector validation, shared cache admission and committed readback | [embed.rs](../../../crates/cpg-core/src/embed.rs), lines 240–432; both entry points now use one `fill_cache` |
+| `cpg-core::embed` | Token admission, batching, vector validation, shared cache admission and committed readback | `crates/cpg-core/src/embed.rs`, lines 240–432; both entry points now use one `fill_cache` |
 | `lctx-analytics` | Graph/program analysis over declared Arrow input and output | [analytics owner](../../design/sections/analytics.md); no PostgreSQL dependency belongs in these kernels |
 | `cpg-core::bundle` | Derive normalized IPC files and manifest from one published snapshot | [bundle.rs](../../../crates/cpg-core/src/bundle.rs), lines 1015–1048; rebuildability, not another writable fact source |
 | `lctx_mcp` | Validate/load one generation, retrieve and render typed answers | [generation.py](../../../python/lctx_mcp/src/lctx_mcp/generation.py), lines 932–989; [server.py](../../../python/lctx_mcp/src/lctx_mcp/server.py), lines 522–528 |

@@ -1,5 +1,10 @@
 # PostgreSQL expanded architecture — design review
 
+Retired source citations below are historical paths within this review's recorded baseline
+and dated inspection scope, including any working-tree limitations. They do not point to
+replacement owners. Recover committed source through [Git history](../../README.md#historical-recovery);
+the findings and their original evidence strength remain unchanged.
+
 **2026-09-27 · Design / target · Decision: Revise the existing target for expanded PostgreSQL use.**
 
 **Recommendation — Proposed:** make PostgreSQL the transactional and online serving store,
@@ -280,7 +285,7 @@ planning does not establish implementation or closure.
 ### F01 — The selected embedding width lacks an explicit end-to-end request/launch contract
 
 **Interface-checked · FP-02/04/05; DP-08/09/24; A1/A2; G4/G6.**
-[`Spec`](../../../crates/cpg-core/src/embed.rs) hashes dimensions, but
+`Spec` (`crates/cpg-core/src/embed.rs`) hashes dimensions, but
 [`lctx-embed`](../../../crates/lctx-embed/src/lib.rs), the
 [Python embedder](../../../python/lctx_mcp/src/lctx_mcp/embedder.py) and launcher implement the
 old no-dimensions route. Merely changing the JSON cannot establish 1024 service output and can make

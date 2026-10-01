@@ -1,5 +1,10 @@
 # C4/C5 witnessed guard substitution and whole-call composition — bounded review
 
+Retired source citations below are historical paths within this review's recorded baseline
+and dated inspection scope, including any working-tree limitations. They do not point to
+replacement owners. Recover committed source through [Git history](../../README.md#historical-recovery);
+the findings and their original evidence strength remain unchanged.
+
 ## 1. Scope, outcome and coverage
 
 **Change / conformance; Revise, 2026-09-29.** Fresh-context `design-reviewer` source review,
@@ -13,7 +18,7 @@ Source findings under test: [core review C05, C06, C07](design_review_cutover-co
 
 | Field | Value |
 |---|---|
-| Subject | Commits `9705345` (C4) and `b58fc93` (C5) on `main`, clean tree: [`composition.rs`](../../../crates/lctx-model/src/domain/composition.rs), [`conditions/stability.rs`](../../../crates/lctx-model/src/domain/conditions/stability.rs), [`conditions/rebase.rs`](../../../crates/lctx-model/src/domain/conditions/rebase.rs), `Predicate::BoundGuard` in [`value.rs`](../../../crates/lctx-model/src/domain/value.rs); tests [`domain_composition`](../../../crates/lctx-model/tests/domain_composition.rs), [`domain_stability`](../../../crates/lctx-model/tests/domain_stability.rs), fixtures [`composition.rs`](../../../crates/lctx-model/tests/fixtures/composition.rs), [`stability.rs`](../../../crates/lctx-model/tests/fixtures/stability.rs), PG18 [`domain_composition`](../../../crates/lctx-postgres/tests/domain_composition.rs), [`domain_stability`](../../../crates/lctx-postgres/tests/domain_stability.rs) |
+| Subject | Commits `9705345` (C4) and `b58fc93` (C5) on `main`, clean tree: [`composition.rs`](../../../crates/lctx-model/src/domain/composition.rs), [`conditions/stability.rs`](../../../crates/lctx-model/src/domain/conditions/stability.rs), [`conditions/rebase.rs`](../../../crates/lctx-model/src/domain/conditions/rebase.rs), `Predicate::BoundGuard` in [`value.rs`](../../../crates/lctx-model/src/domain/value.rs); tests `domain_composition` (`crates/lctx-model/tests/domain_composition.rs`), [`domain_stability`](../../../crates/lctx-model/tests/domain_stability.rs), fixtures `crates/lctx-model/tests/fixtures/composition.rs`, [`stability.rs`](../../../crates/lctx-model/tests/fixtures/stability.rs), PG18 `domain_composition` (`crates/lctx-postgres/tests/domain_composition.rs`), `domain_stability` (`crates/lctx-postgres/tests/domain_stability.rs`) |
 | Adjacent code read | `calls.rs` (binder, `SiteTargets`, policies), `place_composition.rs`, `transfer.rs`, `declarations.rs`, `flow.rs`, `obligation.rs` (verdict), `derivation.rs`, `charged.rs`, `occurrence_owner.rs`; legacy `cpg-flow/src/lib.rs` reaching emission; `ty_python_core` 0.0.14 `builder.rs` |
 | Tier · purpose | Change · conformance (binding: bounded slice). Does not certify the enclosing §15 architecture |
 | Supported scope | Pure kernels `compose_call`/`compose_site`/`substitute_call_guards`; stored invariants `witnessed_guard_substitution`, `call_composition_frames`, amended `invoked_guard_origins`; PG18 round trip. **Excluded:** P3 stored bindings, ownership and policy views; the P4 summary engine; the verdict function (C09) |

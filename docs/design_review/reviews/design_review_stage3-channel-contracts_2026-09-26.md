@@ -1,5 +1,10 @@
 # Design review: Stage 3 channel contracts
 
+Retired source citations below are historical paths within this review's recorded baseline
+and dated inspection scope, including any working-tree limitations. They do not point to
+replacement owners. Recover committed source through [Git history](../../README.md#historical-recovery);
+the findings and their original evidence strength remain unchanged.
+
 ## 1. Scope, outcome and coverage
 
 **2026-09-26 · design/target · document and contract review · reviewer: independent design-reviewer agent.**
@@ -1070,7 +1075,7 @@ expression, return value or assignment value. This is the initial invocation bou
 [§9.9](../../design/sections/behavioral-analysis.md); action timing, callee outcomes and
 resource/callback identity remain separate obligations under ADR-0057/0058/0059.
 
-[`evaluation.rs`](../../../crates/lctx-analytics/src/evaluation.rs) owns the common prepared
+`crates/lctx-analytics/src/evaluation.rs` owns the common prepared
 call and source-ordered callee/argument evaluation. Normal-expression evaluation additionally
 requires the pinned `normal_return` promise and retains `PrecedingCallNormal`; invocation
 ends in `ModelInvocation` without that promise. Completion's existing entry walker proves
@@ -1171,12 +1176,12 @@ single identity-model call returned from the current function. A separate lexica
 certificate discharges that occurrence's approximation obligation; it does not reinterpret
 normal argument evaluation as value identity or modify raw provider flags.
 
-[`lexical_identity.rs`](../../../crates/lctx-analytics/src/lexical_identity.rs) extracts the
+`crates/lctx-analytics/src/lexical_identity.rs` extracts the
 existing immutable parameter-read checker for reuse by direct-return and modeled-return
 producers. Unique same-scope binding, exact source name/range, undecorated synchronous owner,
 and deletion/nonlocal/generator hazards remain enforced. The existing modeled seed adapter
 owns the raw origin's one-call/argument association. Analytics' new
-[`modeled_identity.rs`](../../../crates/lctx-analytics/src/modeled_identity.rs) independently
+`crates/lctx-analytics/src/modeled_identity.rs` independently
 proves that exact selected argument is a bare current-parameter read and the call is the whole
 return expression, then commits the existing `modeled_return_proof` rather than classifying
 models again. Schema's corresponding contract binds the function, parameter, origin, source

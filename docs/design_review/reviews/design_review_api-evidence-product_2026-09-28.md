@@ -1,5 +1,10 @@
 # API and evidence product target review
 
+Retired source citations below are historical paths within this review's recorded baseline
+and dated inspection scope, including any working-tree limitations. They do not point to
+replacement owners. Recover committed source through [Git history](../../README.md#historical-recovery);
+the findings and their original evidence strength remain unchanged.
+
 ## 1. Scope, outcome and coverage
 
 **Date:** 2026-09-28. **Tier / purpose:** design / target. Core standard 3.0,
@@ -129,14 +134,14 @@ attempt (`f6562d3^:crates/cpg-core/src/attempt.rs`, recover through Git),
 [generation](../../../python/lctx_mcp/src/lctx_mcp/generation.py),
 [projection](../../../crates/cpg-schema/src/serving_projection.rs),
 [hydration](../../../crates/lctx-postgres/src/hydration.rs),
-[synthesis](../../../crates/cpg-core/src/synth.rs),
-[flow admission](../../../crates/cpg-core/src/flow_model.rs),
+synthesis (`crates/cpg-core/src/synth.rs`),
+flow admission (`crates/cpg-core/src/flow_model.rs`),
 types (`9efce30:crates/cpg-extract/src/types.rs`, recover through Git),
-[usage](../../../crates/cpg-core/src/usage.rs),
+usage (`crates/cpg-core/src/usage.rs`),
 [evidence closure](../../../crates/cpg-schema/src/bundle.rs),
 [acquisition](../../../crates/cpg-extract/src/library.rs),
 [repository](../../../crates/lctx-postgres/src/repository.rs),
-[behavior](../../../crates/cpg-core/src/behavior.rs),
+behavior (`crates/cpg-core/src/behavior.rs`),
 [ranking](../../../crates/lctx-postgres/src/retrieval.rs).
 
 **Applicability:** FP-01–FP-06 are satisfied by the proposed ownership/contract/composition routes;
