@@ -23,7 +23,7 @@ macro_rules! inputs {
                 $(if relation == <$ty>::NAME { self.$field.decode(batch)?; return Ok(true); })*
                 Ok(false)
             }
-            pub fn validation_inputs() -> Vec<ValidationInput> { vec![$(ValidationInput::of::<$ty>(&["id"]),)*] }
+            pub fn validation_inputs() -> Vec<ValidationInput> { super::facts_inputs(vec![$(ValidationInput::of::<$ty>(&["id"]),)*]) }
             pub fn stage_inputs() -> Vec<stages::RelationUse> { vec![$(stages::RelationUse::stored::<$ty>()
                 .availability(attribution::FactFamily::$family, stages::AvailabilityPolicy::ObserveAvailability),)*] }
         }

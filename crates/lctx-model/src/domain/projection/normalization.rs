@@ -18,7 +18,7 @@ macro_rules! inputs {
             pub fn visit(&mut self, name: &str, batch: &arrow_array::RecordBatch) -> Result<bool, ModelError> {
                 $(if name == <$ty>::NAME { self.$field.decode(batch)?; return Ok(true); })* Ok(false)
             }
-            pub fn validation_inputs() -> Vec<ValidationInput> { vec![$(ValidationInput::of::<$ty>(&["id"]),)*] }
+            pub fn validation_inputs() -> Vec<ValidationInput> { crate::domain::normalized::facts_inputs(vec![$(ValidationInput::of::<$ty>(&["id"]),)*]) }
             pub fn stage_inputs() -> Vec<stages::RelationUse> { vec![$(stages::RelationUse::stored::<$ty>()),*] }
         }
     }
@@ -493,12 +493,20 @@ fn describe_indexed(
                 )?;
             }
             for row in alternatives {
-                let target = need(&data.targets, need(&data.alternative_sources,row.source)?.target())?;
+                let target = need(
+                    &data.targets,
+                    need(&data.alternative_sources, row.source)?.target(),
+                )?;
                 let subject = ProjectionGapSubject::Alternative {
                     alternative: row.id(),
                 };
-                if key.name == ProjectionName::CallableInvocation && data.dispatch_assessments.iter().any(|a|a.event==event.id() && a.target==target.id() && a.open) {
-                    out.gap(subject.clone(),ProjectionGapReason::OverrideDispatch)?;
+                if key.name == ProjectionName::CallableInvocation
+                    && data
+                        .dispatch_assessments
+                        .iter()
+                        .any(|a| a.event == event.id() && a.target == target.id() && a.open)
+                {
+                    out.gap(subject.clone(), ProjectionGapReason::OverrideDispatch)?;
                 }
                 let selected = if key.name == ProjectionName::CallableInvocation {
                     index.invocations.contains(&row.id())

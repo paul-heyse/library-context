@@ -26,6 +26,10 @@ _Updated 2026-10-01 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
   graph reuse, permit/budget refusal and lifetime controls passed. E1 spec/codec/cache/realization
   foundation controls passed, including real PG configuration; no live embedding claim. B0/C0 and
   E1 analytic consumption remain in progress (plan §13.2 receipts).
+- **passed, 2026-10-01:** R0 declared validation-view controls in memory and real PostgreSQL:
+  earlier/current vocabulary routing, no widening beyond acknowledged grants, malformed-frame
+  refusal and reservation release. B0 exposed and motivated the fix; its Summary publication
+  still needs B3's producer capability contract. Plan §13.2 owns the composite receipt.
 - New P4 acceptance is **not_run** pending implementation. Compile checks and focused controls
   precede foundation review; integrated acceptance waits for all functional packages and retirement.
   ADR/docs hygiene belongs to the automatic end-of-turn hook; no result is claimed before it runs.

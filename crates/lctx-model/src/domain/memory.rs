@@ -20,6 +20,7 @@ struct Stored {
     frozen: std::collections::BTreeSet<&'static str>,
     deltas: BTreeMap<(&'static str, &'static str), Vec<RecordBatch>>,
     sealed: std::collections::BTreeSet<(&'static str, &'static str)>,
+    prefixes: BTreeMap<(super::stages::PublicationBoundary,&'static str),RecordBatch>,
 }
 /// Stage-bound when created by `bind`; a conformance generation accepts direct `put` instead.
 pub struct MemoryGeneration {
@@ -49,6 +50,7 @@ impl MemoryGeneration {
                 frozen: Default::default(),
                 deltas: Default::default(),
                 sealed: Default::default(),
+                prefixes:Default::default(),
             }),
         }
     }
@@ -232,9 +234,10 @@ impl MemoryGeneration {
                     .iter()
                     .find(|r| r.name() == input.name())
                     .expect("validated invariant member");
-                let batch = order(relation, &sorted[relation.name()], input.order())?;
+                let source=if let Some(prefix)=input.prefix() {stored.prefixes.get(&(prefix,input.name())).ok_or_else(||ModelError::Invalid("validation vocabulary prefix is not closed".into()))?}else {&sorted[relation.name()]};
+                let batch = order(relation, source, input.order())?;
                 for chunk in chunks(&batch) {
-                    check.visit(input.name(), &chunk)?;
+                    check.visit_input(input, &chunk)?;
                 }
             }
             check.finish()?;
@@ -372,9 +375,10 @@ impl StageSink for MemoryGeneration {
             let mut check = (invariant.create)(&self.budget);
             for input in &invariant.inputs {
                 let relation = &self.relations[input.name()];
-                let batch = order(relation, &sorted[input.name()], input.order())?;
+                let source=if let Some(prefix)=input.prefix().filter(|prefix|*prefix!=group.epoch()) {stored.prefixes.get(&(prefix,input.name())).ok_or_else(||ModelError::Invalid("validation vocabulary prefix is not closed".into()))?}else {&sorted[input.name()]};
+                let batch = order(relation, source, input.order())?;
                 for chunk in chunks(&batch) {
-                    check.visit(input.name(), &chunk)?;
+                    check.visit_input(input, &chunk)?;
                 }
             }
             check.finish()?;
@@ -405,6 +409,9 @@ impl StageSink for MemoryGeneration {
             .map(|name| sorted[name].get_array_memory_size())
             .sum::<usize>();
         stored.charge.grow(new_size)?;
+        let prefix_bytes=sorted.iter().filter(|(name,_)|is_vocabulary(name) && candidate.contains_key(*name)).map(|(_,batch)|batch.get_array_memory_size()+size_of::<RecordBatch>()+64).sum::<usize>();
+        stored.charge.grow(prefix_bytes)?;
+        for (name,batch) in sorted.iter().filter(|(name,_)|is_vocabulary(name) && candidate.contains_key(*name)) {stored.prefixes.insert((group.epoch(),*name),batch.clone());}
         for stage in group.stages() {
             for name in stage.completion().outputs() {
                 stored.deltas.remove(&(stage.completion().stage(), *name));

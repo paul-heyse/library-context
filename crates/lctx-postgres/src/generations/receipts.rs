@@ -71,7 +71,8 @@ impl GenerationStore {
         if let Some(completion) = completion {
             self.check_completed_output_references(tx, g, completion)
                 .await?;
-            self.check_publication_outputs(tx, g, outputs, completion.sources(), None, budget).await?;
+            self.check_publication_outputs(tx, g, outputs, completion.sources(), None, budget)
+                .await?;
         }
         // The unscheduled, testing-only Harness has no declared source or StageCompletion
         // authority. It exercises schema/algebra conformance through the full ordinary model
@@ -292,8 +293,9 @@ impl GenerationStore {
                     .iter()
                     .find(|r| r.name() == input.name())
                     .expect("validated invariant member");
-                visit_physical(tx, g, relation, input.order(), budget, |batch| {
-                    check.visit(input.name(), &batch)?;
+                let view=super::validation_views::physical(tx,g,input,relation,relation.name(),super::validation_views::Scope {upper:None,candidate:None},budget).await?;
+                super::visit_named(tx, g, relation, &view, input.order(), budget, |batch| {
+                    check.visit_input(input, &batch)?;
                     Ok(())
                 })
                 .await?;

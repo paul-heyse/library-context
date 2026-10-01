@@ -7,11 +7,12 @@ mod install;
 mod lease;
 mod lifecycle;
 pub(crate) mod locks;
-mod receipts;
 mod publication_validation;
+mod receipts;
 mod stage_validation;
 mod verify;
 mod vocabulary;
+mod validation_views;
 use arrow_array::RecordBatch;
 use bytes::BytesMut;
 pub use catalog::{

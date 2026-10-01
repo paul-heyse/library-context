@@ -953,6 +953,18 @@ other nonempty owner invocations refuse until their packages supply a real selec
 unscheduled Harness exercises ordinary model invariants but cannot qualify source-sensitive publication.
 Those controls use scheduled `begin_conformance` attempts and actual completed inputs.
 
+**R0 validation-view correction, Implemented / focused-Tested, 2026-10-01.** B0 substitution
+controls exposed an earlier validator replaying its facts-derived normalization against later
+vocabulary. Validation inputs now declare their immutable boundary explicitly, and the store
+resolves that boundary in the registered schedule, verifies its closed receipt and refuses reads
+beyond the particular relation's acknowledged source. Stage-input, publication, group-close and
+final invariant runners preserve `(relation, prefix)` when dispatching inputs. Normalization and
+its binding preparation remain Facts-bound; global nominal/condition integrity still checks the
+full candidate or final union. Memory validation retains charged immutable snapshots. Independent
+bounded static advice supported this correction to ADR-0105's existing contract; it is not a new
+compatibility authority. Memory controls qualify group/final invariant routing; actual publication
+and input-grant checks are qualified through PostgreSQL.
+
 N0's immutable authored catalog, retained parser reservations, native dependency requirements and
 early configuration/native-inventory producers are integrated. N1 receiver proofs and captured open
 dispatch members are integrated; normalized alternatives use Native/DerivedDispatch sources and
@@ -1010,6 +1022,7 @@ rule and cross-consumer vector-winner invariant were also clarified during assem
 | R0/R1 independent foundation review | Accept scoped, 2026-10-01: review above at frozen `0a60954`, source/type inspection plus attributed focused receipts. No material in-scope finding. Downstream selectors/producers, complete P4 assembly and retirement remain open. |
 | Integrated N1 and G0 preparation controls | composite passed, 2026-10-01: wrapped Cargo `test --release -p cpg-core --test normalized_relations` (two real PG18 profiles), `check -p cpg-core --all-targets`, and `test --release -p cpg-core --doc PreparedGraphs` (one compile-fail). Initial final validation incorrectly included unproduced native-analysis inventory; the control now uses the normalized manifest and retains all its boundary invariants. A new negative fixture needed an explicit Option type before the final passing rerun. Both profiles hydrate four stored projections, reuse the same graph objects and canonical SCC outputs across two declared consumers, refuse missing graph permits and foreign budgets, and release all retained reservations. The compile-fail control prevents borrowing beyond consumer access. F0 lifecycle wiring and downstream algorithm qualification remain open. |
 | E1 shared embedding foundation | composite passed, 2026-10-01: wrapped Cargo `check -p cpg-core -p lctx-postgres -p lctx-embed -p lctx-semantics --all-targets`, followed by focused checks after effect changes; `test --release -p lctx-model --test embedding_contract` (2), `--lib domain::embedding` (1), `test --release -p cpg-core --lib embed` (6), `--test embedding_configuration` (1 real PG18), `test --release -p lctx-postgres --features testing --test services cache_roundtrip_and_spec_conflict` (1 real PG18), and `test --release -p lctx-embed --test client` (7 contract controls plus one environment-guarded live test). The live branch was not_run; fixture/stub results are not live-service qualification. Initial typed-batch fixture used an array instead of Vec; the new PG consumer probe first omitted a declared output and then its StageOutput declaration; corrected before passing reruns. Preserves immutable cache winners, spec/token/shape/digest checks, signed zero, budget release, endpoint/spec selection and pure-stage refusal. E1 analytic production and E0 consumption remain open. |
+| R0 declared validation views | composite passed, 2026-10-01: wrapped Cargo `test -p lctx-model -p cpg-core --release --test validation_views` (one memory and two real PG18 controls), then `test -p lctx-model --release --test validation_views` (two, adding malformed-frame refusal). Earlier/current views of the same relation remain distinct through stage admission, publication and final replay; a Facts grant cannot widen to later vocabulary whether that later group is open or closed. Duplicate identical frames and non-vocabulary prefix bindings refuse model admission. Reservations return to zero. Initial model test incorrectly required Tokio; corrected to the existing ready-future test pattern without adding a runtime dependency. Logs: `/tmp/phase4-validation-views-tests3.log` and `/tmp/phase4-validation-views-metadata.log`. Actual B0 Summary publication remains pending its B3 capability contract. |
 | Integrated functional gate, actual-library pilots and performance experiments | not_run; full functional scope and X0 retirement are not complete; previously excluded measurements remain outside scope |
 | ADR index/lint, docs publication and other automatic hygiene | not_run by this agent; current repository instructions assign them to the end-of-turn hook; no future result is presumed |
 

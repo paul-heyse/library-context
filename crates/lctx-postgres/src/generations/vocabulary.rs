@@ -330,15 +330,16 @@ impl GenerationStore {
                     .iter()
                     .find(|r| r.name() == input.name())
                     .ok_or(Error::Contract)?;
+                let view=super::validation_views::physical(tx,g,input,relation,&physical(relation.name(),group.prefix()),super::validation_views::Scope {upper:Some(group.prefix()),candidate:Some(group.prefix())},budget).await?;
                 visit_named(
                     tx,
                     g,
                     relation,
-                    &physical(relation.name(), group.prefix()),
+                    &view,
                     input.order(),
                     budget,
                     |batch| {
-                        check.visit(input.name(), &batch)?;
+                        check.visit_input(input, &batch)?;
                         Ok(())
                     },
                 )
@@ -350,7 +351,15 @@ impl GenerationStore {
         for stage in group.stages() {
             let completion = stage.completion();
             super::check_schedule(tx, g, completion.schedule()).await?;
-            self.check_publication_outputs(tx, g, completion.outputs(), completion.sources(), Some(group.prefix()), budget).await?;
+            self.check_publication_outputs(
+                tx,
+                g,
+                completion.outputs(),
+                completion.sources(),
+                Some(group.prefix()),
+                budget,
+            )
+            .await?;
             let mut receipts = BTreeMap::new();
             for name in completion.outputs() {
                 let relation = self

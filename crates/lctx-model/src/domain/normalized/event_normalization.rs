@@ -10,7 +10,9 @@ use crate::domain::{
     source::Occurrence,
     *,
 };
-trait Source<R:Record> {fn rows(&self)->&Rows<R>;}
+trait Source<R: Record> {
+    fn rows(&self) -> &Rows<R>;
+}
 macro_rules! inputs {
     ($($field:ident: $ty:ty,)*) => {
         pub struct EventData { $(pub $field: Rows<$ty>,)* }
@@ -20,7 +22,7 @@ macro_rules! inputs {
             pub fn visit(&mut self, relation: &str, batch: &arrow_array::RecordBatch) -> Result<bool, ModelError> {
                 $(if relation == <$ty>::NAME { self.$field.decode(batch)?; return Ok(true); })* Ok(false)
             }
-            pub fn validation_inputs() -> Vec<ValidationInput> { vec![$(ValidationInput::of::<$ty>(&["id"]),)*] }
+            pub fn validation_inputs() -> Vec<ValidationInput> { super::facts_inputs(vec![$(ValidationInput::of::<$ty>(&["id"]),)*]) }
             pub fn stage_inputs() -> Vec<stages::RelationUse> { vec![$(stages::RelationUse::stored::<$ty>()),*] }
         }
     }
@@ -42,12 +44,17 @@ macro_rules! outputs {
     }
 }
 crate::normalized_event_outputs!(outputs);
-fn receiver_proofs(data:&EventData,budget:&ResourceBudget)->Result<super::receiver::VerifiedReceivers,ModelError> {
-    let mut inputs=super::receiver::ReceiverData::new(budget);let mut outputs=super::receiver::ReceiverOutput::new(budget);
+fn receiver_proofs(
+    data: &EventData,
+    budget: &ResourceBudget,
+) -> Result<super::receiver::VerifiedReceivers, ModelError> {
+    let mut inputs = super::receiver::ReceiverData::new(budget);
+    let mut outputs = super::receiver::ReceiverOutput::new(budget);
     macro_rules! input {($($field:ident: $ty:ty,)*)=>{$(for row in <EventData as Source<$ty>>::rows(data).iter(){inputs.$field.insert(row.clone())?;})*};}
     macro_rules! output {($($field:ident: $ty:ty,)*)=>{$(for row in <EventData as Source<$ty>>::rows(data).iter(){outputs.$field.insert(row.clone())?;})*};}
-    crate::normalized_receiver_inputs!(input);crate::normalized_receiver_outputs!(output);
-    super::receiver::verify(&inputs,&outputs,budget)
+    crate::normalized_receiver_inputs!(input);
+    crate::normalized_receiver_outputs!(output);
+    super::receiver::verify(&inputs, &outputs, budget)
 }
 fn invalid(message: impl Into<String>) -> ModelError {
     ModelError::Invalid(message.into())
@@ -178,11 +185,16 @@ impl HeapSize for CompleteEvent {
 }
 pub(super) struct VerifiedEvents {
     complete: ChargedMap<Id<NormalizedCallEvent>, CompleteEvent>,
-    dispatch: ChargedMap<Id<NormalizedCallAlternative>,super::dispatch::ApplicableDispatch>,
+    dispatch: ChargedMap<Id<NormalizedCallAlternative>, super::dispatch::ApplicableDispatch>,
     _charge: StateCharge,
 }
 impl VerifiedEvents {
-    pub(super) fn dispatch(&self,alternative:Id<NormalizedCallAlternative>)->Option<&super::dispatch::ApplicableDispatch> {self.dispatch.get(&alternative)}
+    pub(super) fn dispatch(
+        &self,
+        alternative: Id<NormalizedCallAlternative>,
+    ) -> Option<&super::dispatch::ApplicableDispatch> {
+        self.dispatch.get(&alternative)
+    }
     pub fn get(&self, event: Id<NormalizedCallEvent>) -> Option<&CompleteEvent> {
         self.complete.get(&event)
     }
@@ -283,6 +295,10 @@ fn correspondence(
         ))
     }
 }
+#[allow(
+    clippy::too_many_arguments,
+    reason = "One call alternative threads the event, target, resolution, output and the alternative rows"
+)]
 fn alternative(
     data: &EventData,
     index: &Index<'_>,
@@ -305,7 +321,11 @@ fn alternative(
     }
     let row = NormalizedCallAlternative {
         event,
-        source: output.alternative_sources.insert(CallAlternativeSource::Native{target:target.id()})?,
+        source: output
+            .alternative_sources
+            .insert(CallAlternativeSource::Native {
+                target: target.id(),
+            })?,
         resolution,
         correspondence,
         entity,
@@ -326,11 +346,32 @@ fn alternative(
                 support: support.id(),
             })?;
     }
-    let dispatch=super::dispatch::assess(data,event,target,output,budget)?;
-    for member in dispatch.members.iter().filter(|m|!m.named) {
-        let derived=NormalizedCallAlternative{event,source:output.alternative_sources.insert(CallAlternativeSource::DerivedDispatch{target:target.id(),member:member.id()})?,resolution,correspondence:Some(member.correspondence),entity:Some(member.entity),status:ResolutionStatus::Resolved,reason:LinkReason::ExplicitIdentity};
-        output.alternatives.insert(derived.clone())?;alternatives.insert(derived.clone())?;
-        for support in supports {output.alternative_evidence.insert(CallAlternativeEvidence{alternative:derived.id(),support:support.id()})?;}
+    let dispatch = super::dispatch::assess(data, event, target, output, budget)?;
+    for member in dispatch.members.iter().filter(|m| !m.named) {
+        let derived = NormalizedCallAlternative {
+            event,
+            source: output
+                .alternative_sources
+                .insert(CallAlternativeSource::DerivedDispatch {
+                    target: target.id(),
+                    member: member.id(),
+                })?,
+            resolution,
+            correspondence: Some(member.correspondence),
+            entity: Some(member.entity),
+            status: ResolutionStatus::Resolved,
+            reason: LinkReason::ExplicitIdentity,
+        };
+        output.alternatives.insert(derived.clone())?;
+        alternatives.insert(derived.clone())?;
+        for support in supports {
+            output
+                .alternative_evidence
+                .insert(CallAlternativeEvidence {
+                    alternative: derived.id(),
+                    support: support.id(),
+                })?;
+        }
     }
     Ok(row)
 }
@@ -338,7 +379,7 @@ fn evaluate(
     data: &EventData,
     budget: &ResourceBudget,
 ) -> Result<(EventOutput, VerifiedEvents), ModelError> {
-    let receiver_proofs = receiver_proofs(data,budget)?;
+    let receiver_proofs = receiver_proofs(data, budget)?;
     let index = Index::new(data, budget)?;
     let mut output = EventOutput::new(budget);
     let mut tokens = VerifiedEvents {
@@ -478,11 +519,14 @@ fn evaluate(
                 if direct {
                     certain &= exact(qualification(data, target.qualification)?);
                     let derived_receiver = receiver_proofs.get(target.id());
-                    if let Some(proof) = derived_receiver { proof.assessment().encode(&mut digest); }
-                    receivers &= derived_receiver.is_some() || !matches!(
-                        need(&data.receivers, target.receiver)?,
-                        Receiver::Unknown { .. }
-                    );
+                    if let Some(proof) = derived_receiver {
+                        proof.assessment().encode(&mut digest);
+                    }
+                    receivers &= derived_receiver.is_some()
+                        || !matches!(
+                            need(&data.receivers, target.receiver)?,
+                            Receiver::Unknown { .. }
+                        );
                     match need(&data.destinations, target.destination)? {
                         CallDestination::Resolved { .. } => {
                             if let Some(entity) = alternative.entity {
@@ -512,26 +556,60 @@ fn evaluate(
                 orphan = true;
                 complete = false;
             }
-            let native=alternative(data, &index, &mut output, event, target, None,&mut alternatives,budget)?;alternatives.insert(native)?;
+            let native = alternative(
+                data,
+                &index,
+                &mut output,
+                event,
+                target,
+                None,
+                &mut alternatives,
+                budget,
+            )?;
+            alternatives.insert(native)?;
         }
         for alternative in alternatives.iter() {
-            let source=need(&output.alternative_sources,alternative.source)?;
-            let member=match source {
-                CallAlternativeSource::DerivedDispatch{member,..}=>output.dispatch_members.get(*member),
-                CallAlternativeSource::Native{target}=>output.dispatch_members.iter().find(|m|m.named && output.dispatch_assessments.get(m.assessment).is_some_and(|a|a.event==event && a.target==*target)),
+            let source = need(&output.alternative_sources, alternative.source)?;
+            let member = match source {
+                CallAlternativeSource::DerivedDispatch { member, .. } => {
+                    output.dispatch_members.get(*member)
+                }
+                CallAlternativeSource::Native { target } => {
+                    output.dispatch_members.iter().find(|m| {
+                        m.named
+                            && output
+                                .dispatch_assessments
+                                .get(m.assessment)
+                                .is_some_and(|a| a.event == event && a.target == *target)
+                    })
+                }
             };
-            if let Some(member)=member {let assessment=need(&output.dispatch_assessments,member.assessment)?;tokens.dispatch.insert(&mut tokens._charge,alternative.id(),super::dispatch::ApplicableDispatch::from_member(member,assessment,ctx))?;}
+            if let Some(member) = member {
+                let assessment = need(&output.dispatch_assessments, member.assessment)?;
+                tokens.dispatch.insert(
+                    &mut tokens._charge,
+                    alternative.id(),
+                    super::dispatch::ApplicableDispatch::from_member(member, assessment, ctx),
+                )?;
+            }
             alternative.id().encode(&mut digest);
             for support in index
                 .supports
-                .get(&need(&output.alternative_sources,alternative.source)?.target())
+                .get(&need(&output.alternative_sources, alternative.source)?.target())
                 .into_iter()
                 .flatten()
             {
                 support.id().encode(&mut digest);
             }
         }
-        for assessment in output.dispatch_assessments.iter().filter(|a|a.event==event) {assessment.id().encode(&mut digest);assessment.members.encode(&mut digest);}
+        for assessment in output
+            .dispatch_assessments
+            .iter()
+            .filter(|a| a.event == event)
+        {
+            assessment.id().encode(&mut digest);
+            assessment.members.encode(&mut digest);
+        }
         complete &= direct_count > 0 && declared_runs.iter().all(|run| resolved_runs.contains(run));
         let disagreement = phases.values().any(|values| values.len() != 1);
         let unique = !phases.is_empty()
@@ -603,7 +681,14 @@ fn evaluate(
         for policy in super::events::CallPolicy::ALL {
             let mut admitted: ChargedSet<Id<NormalizedCallAlternative>> = Default::default();
             for alternative in alternatives.iter() {
-                if admits(policy, data, &index, alternative, tokens.get(event),&output)? {
+                if admits(
+                    policy,
+                    data,
+                    &index,
+                    alternative,
+                    tokens.get(event),
+                    &output,
+                )? {
                     admitted.insert(&mut held, alternative.id())?;
                 }
             }
@@ -652,7 +737,10 @@ fn admits(
     output: &EventOutput,
 ) -> Result<bool, ModelError> {
     use super::events::CallPolicy as Policy;
-    let target = need(&data.targets, need(&output.alternative_sources,alternative.source)?.target())?;
+    let target = need(
+        &data.targets,
+        need(&output.alternative_sources, alternative.source)?.target(),
+    )?;
     let q = qualification(data, target.qualification)?;
     let destination = need(&data.destinations, target.destination)?;
     let direct = matches!(need(&data.channels, target.channel)?, CallChannel::Direct);

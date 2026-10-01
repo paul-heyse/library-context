@@ -265,7 +265,7 @@ impl GenerationStore {
             {
                 return Err(Error::Contract);
             }
-            if !invariant.inputs.iter().all(|i| checkpoint_covers(i.name())) {
+            if !invariant.inputs.iter().all(|i| i.prefix().is_none() && checkpoint_covers(i.name())) {
                 let mut check = (invariant.create)(budget);
                 for input in &invariant.inputs {
                     let relation = self
@@ -274,9 +274,11 @@ impl GenerationStore {
                         .iter()
                         .find(|r| r.name() == input.name())
                         .ok_or(Error::Contract)?;
-                    let physical = input_physical(input.name());
+                    let inherited=ordered.get(input.name()).and_then(|source|source.prefix_ordinal()).or_else(||validated.contains(input.name()).then_some(facts).flatten());
+                    if input.prefix().is_some() && inherited.is_none() {return Err(Error::Contract);}
+                    let physical = super::validation_views::physical(tx,g,input,relation,&input_physical(input.name()),super::validation_views::Scope {upper:inherited,candidate:None},budget).await?;
                     visit_named(tx, g, relation, &physical, input.order(), budget, |batch| {
-                        check.visit(input.name(), &batch)?;
+                        check.visit_input(input, &batch)?;
                         Ok(())
                     })
                     .await?;

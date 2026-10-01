@@ -6,6 +6,7 @@ mod callable_inventory;
 pub mod callable_normalization;
 pub mod callables;
 pub mod coverage;
+pub mod dispatch;
 pub mod entities;
 pub mod entity_normalization;
 mod event_inventory;
@@ -13,15 +14,20 @@ pub mod event_normalization;
 pub mod events;
 mod inventory;
 pub mod links;
+pub mod receiver;
+mod receiver_inventory;
 mod relation_inventory;
 pub mod relation_normalization;
-mod receiver_inventory;
-pub mod receiver;
-pub mod dispatch;
 mod rows;
 pub mod signature_applicability;
 use super::*;
 pub use rows::Rows;
+
+/// Normalized owners reconstruct the captured facts universe. Later vocabulary cannot enlarge it.
+pub(crate) fn facts_inputs(inputs:Vec<ValidationInput>)->Vec<ValidationInput> {
+    let mut inputs=inputs.into_iter().map(|input|if stages::is_vocabulary(input.name()) {input.at_epoch(stages::PublicationBoundary::Facts)}else {input}).collect::<Vec<_>>();
+    inputs.sort_by_key(|input|(input.name(),input.prefix()));inputs.dedup_by_key(|input|(input.name(),input.prefix()));inputs
+}
 
 /// Revision of semantic normalization, included in every assessment key and stage declaration.
 pub fn policy_revision() -> ContentHash {

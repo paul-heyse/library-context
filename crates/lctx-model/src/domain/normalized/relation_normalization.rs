@@ -34,7 +34,7 @@ macro_rules! inputs {
             }
             pub fn validation_inputs() -> Vec<ValidationInput> {
                 let mut inputs = EntityData::validation_inputs(); inputs.extend(EntityOutput::validation_inputs());
-                inputs.extend([$(ValidationInput::of::<$ty>(&["id"]),)*]); inputs
+                inputs.extend([$(ValidationInput::of::<$ty>(&["id"]),)*]); super::facts_inputs(inputs)
             }
             pub fn stage_inputs() -> Vec<stages::RelationUse> {
                 let mut inputs = EntityData::stage_inputs();

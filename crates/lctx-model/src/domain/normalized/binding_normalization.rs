@@ -25,7 +25,7 @@ macro_rules! inputs {
                 $(if relation == <$ty>::NAME { self.$field.decode(batch)?; return Ok(true); })* Ok(false)
             }
             pub fn validation_inputs() -> Vec<ValidationInput> { vec![$(ValidationInput::of::<$ty>(&["id"]),)*].into_iter().map(|input|if stages::is_vocabulary(input.name()) {input.at_epoch(stages::PublicationBoundary::Facts)}else {input}).collect() }
-            pub fn stage_inputs() -> Vec<stages::RelationUse> { vec![$(stages::RelationUse::stored::<$ty>()),*] }
+            pub fn stage_inputs() -> Vec<stages::RelationUse> { vec![$(stages::RelationUse::stored::<$ty>()),*].into_iter().map(|input|if stages::is_vocabulary(input.name()) {input.at_epoch(stages::PublicationBoundary::Facts)}else {input}).collect() }
         }
     }
 }
@@ -253,6 +253,10 @@ fn bind_application(
         arguments,
     }))
 }
+#[allow(
+    clippy::too_many_arguments,
+    reason = "One binding attempt threads the alternative, variant, syntax, output and verified receiver/event sources"
+)]
 fn attempt(
     data: &BindingData,
     index: &Index<'_>,

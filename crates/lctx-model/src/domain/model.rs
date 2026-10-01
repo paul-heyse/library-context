@@ -325,7 +325,9 @@ impl ValidatedModel {
                     return Err(ModelError::Invalid("invalid or duplicate invariant".into()));
                 }
                 digest.part(b"invariant", invariant.name.as_bytes());
+                let mut input_frames=HashSet::new();
                 for input in &invariant.inputs {
+                    if !input_frames.insert((input.type_id,input.prefix.map(|p|p.code()))) {return Err(ModelError::Invalid(format!("duplicate validation input frame in {}: {}",invariant.name,input.name)));}
                     if input.order.is_empty() {
                         return Err(ModelError::Invalid(
                             "invariant input needs an explicit order".into(),
@@ -617,15 +619,17 @@ type InvariantFactory = std::sync::Arc<
     dyn Fn(&super::resources::ResourceBudget) -> Box<dyn InvariantCheck> + Send + Sync,
 >;
 
+type PublicationFactory = std::sync::Arc<
+    dyn Fn(&super::resources::ResourceBudget) -> Box<dyn PublicationCheck> + Send + Sync,
+>;
+
 /// Checks ordinary output consistency against the effect owner's actual sealed input grants.
 /// Receipt snapshots are metadata; only these acknowledged R0 sources supply read authority.
 #[derive(Clone)]
 pub struct PublicationInvariant {
     pub name: &'static str,
     pub inputs: Vec<ValidationInput>,
-    pub create: std::sync::Arc<
-        dyn Fn(&super::resources::ResourceBudget) -> Box<dyn PublicationCheck> + Send + Sync,
-    >,
+    pub create: PublicationFactory,
 }
 impl std::fmt::Debug for PublicationInvariant {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
