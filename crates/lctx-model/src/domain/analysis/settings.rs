@@ -61,7 +61,6 @@ fn dotted(name:&str)->bool {name.split('.').all(|part|{let mut chars=part.chars(
 fn validate_configuration(row:&AnalyticsConfiguration)->Result<(),ModelError>{
     if row.module_prefixes.is_empty()||row.public_roots.is_empty(){return Err(invalid("analytics requires module prefixes and public roots"));}
     if [row.depth,row.vertices,row.witnesses].iter().any(|v|*v<=0||*v>u32::MAX as i64)||row.arcs<0||row.arcs>u32::MAX as i64||row.brief_budget<0{return Err(invalid("invalid analytics bounds"));}
-    if row.configured_seeds.is_empty(){return Err(invalid("no configured seeds"));}
     if row.configured_seeds.len()>row.brief_budget as usize{return Err(invalid("configured seeds exceed the brief budget"));}
     let mut seen=std::collections::BTreeSet::new();
     for name in &row.configured_seeds {if !seen.insert(name){return Err(invalid("duplicate configured seed"));}if !row.public_roots.iter().any(|root|name==root||name.starts_with(&format!("{root}."))){return Err(invalid("seed is outside public roots"));}}
