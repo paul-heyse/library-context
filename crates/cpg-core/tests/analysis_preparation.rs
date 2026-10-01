@@ -23,7 +23,13 @@ async fn both_profiles_store_selected_catalog_and_exact_native_inventory() {
         let parameters=MethodParameters {depth:None,proof_steps:None,work:None,members:None,seed:None,iterations:None,threshold:None,resolution:None,damping:None,
             model_catalog:Some(captured.config().catalog().declaration().id())};
         let definition=AnalysisDefinition {method:AnalysisMethod::Models,semantic_version:ContentHash::of(b"selected model control"),parameters:parameters.id(),interpretation:Interpretation::Structural};
-        let configuration=Configuration::new(captured.config().catalog(),[(parameters,definition)],budget).unwrap();
+        let analytics = settings::AnalyticsConfiguration {
+            module_prefixes:vec!["relations".into()],public_roots:vec!["relations".into()],
+            configured_seeds:vec!["relations.value".into()],depth:2,vertices:128,arcs:512,
+            witnesses:3,brief_budget:4,communities:false,pagerank:false,fca:true,rca:false,
+            knn:false,type_layer:false,mention_layer:false,knn_layer:false,
+        };
+        let configuration=Configuration::new(captured.config().catalog(),[(parameters,definition)],budget).unwrap().with_analytics(analytics.clone()).unwrap();
         let mut providers=cpg_core::facts::providers(ContentHash::of(b"analysis preparation"));
         let mut declarations=providers.iter().map(|p|p.declaration(profile)).collect::<Vec<_>>();
         declarations.extend([configuration.declaration(),preparation::native_stage(profile)]);
@@ -41,6 +47,8 @@ async fn both_profiles_store_selected_catalog_and_exact_native_inventory() {
         let counts:(i64,i64,i64)=sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT (SELECT count(*) FROM {}.native_analysis_premises),(SELECT count(*) FROM {}.native_qualifications),(SELECT count(*) FROM {}.model_catalogs)",generation.schema(),generation.schema(),generation.schema())))
             .fetch_one(db.owner.pool()).await.unwrap();
         assert!(counts.0>0);assert_eq!(counts.0,counts.1);assert_eq!(counts.2,1);
+        let selected:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {}.analytics_configurations WHERE fca AND NOT rca AND NOT communities AND depth=2 AND brief_budget=4",generation.schema()))).fetch_one(db.owner.pool()).await.unwrap();
+        assert_eq!(selected,1);
         let readonly:bool=sqlx::query_scalar("SELECT has_table_privilege('lctx_importer',$1,'INSERT')")
             .bind(format!("{}.native_analysis_premises",generation.schema())).fetch_one(db.owner.pool()).await.unwrap();assert!(!readonly);
         let validated=attempt.seal(execution.finish().unwrap()).await.unwrap().validate().await.unwrap();

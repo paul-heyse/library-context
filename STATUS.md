@@ -5,7 +5,6 @@ _Updated 2026-10-01 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
 ## Agent workflows (2026-09-30)
 
 - **Implemented (ADR-0109):** [shared roles](.agents/roles/README.md) and skills use selective delegation, task-specific context, explicit escalation and the agreed stronger review defaults.
-- **passed:** `python3 /home/paul/.cache/coordination-acceptance-20260930.py`: native settings across four targets; instruction budgets, Codex config/read and execution-skill discovery in three live repositories.
 
 ## Phase 4 execution (2026-10-01)
 - The [detailed plan](docs/plans/semantic-model-phase4-detailed-plan_2026-09-30.md) owns packages and receipts.
@@ -24,7 +23,8 @@ _Updated 2026-10-01 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
   foundation controls passed, including real PG configuration; no live embedding claim.
   Actual Local publication and Use/Value/Guard entry domains passed 4 PG, 13 native and 22 model
   controls; behavioral stays Partial, catalog NotRequested. B1 canonical/base/body proofs passed 6 native
-  and 12 model controls; source-call evidence and producers remain pending.
+  and 12 model controls; source-call producers remain pending. Selected analytics settings passed
+  4 pure + 1 PG control across both profiles; production activation remains open.
 - **passed, 2026-10-01:** R0 declared validation-view controls in memory and real PostgreSQL:
   earlier/current vocabulary routing, no widening beyond acknowledged grants, malformed-frame
   refusal and reservation release. B0 exposed and motivated the fix; its Summary publication
@@ -113,7 +113,6 @@ Reset initially refused absent old-installation control tables; its regression a
 - Agent/settings and hook changes from `57a75d8` remain preserved and separately qualified.
 
 ## Next
-
 Continue ordinary work directly on `main`. Existing after-turn hooks own formatting/catalog refresh; do not run them manually. Additional pilot-scale qualification runs only if
 reactivated; detailed plan §11 retains its unmeasured scope.
 Continue P4 with actual Local/B1 execution, exact C1/C2 runtime field links and analytics.

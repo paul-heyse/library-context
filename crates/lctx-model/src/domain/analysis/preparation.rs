@@ -8,6 +8,7 @@ pub struct Configuration {
     parameters: Rows<MethodParameters>,
     definitions: Rows<AnalysisDefinition>,
     projections: Rows<ProjectionDefinition>,
+    analytics: Rows<super::settings::AnalyticsConfiguration>,
 }
 impl Configuration {
     pub fn check_budget(&self,budget:&resources::ResourceBudget)->Result<(),ModelError> {
@@ -16,9 +17,15 @@ impl Configuration {
     pub fn catalogs(&self)->&CatalogRecords {&self.catalogs}
     pub fn parameters(&self)->&Rows<MethodParameters> {&self.parameters}
     pub fn definitions(&self)->&Rows<AnalysisDefinition> {&self.definitions}
+    pub fn analytics(&self)->&Rows<super::settings::AnalyticsConfiguration> {&self.analytics}
+    pub fn with_analytics(mut self,settings:super::settings::AnalyticsConfiguration)->Result<Self,ModelError> {
+        settings.validate()?;
+        if !self.analytics.is_empty() {return Err(ModelError::Invalid("analytics configuration already selected".into()));}
+        self.analytics.insert(settings)?;Ok(self)
+    }
     pub fn projections(&self)->&Rows<ProjectionDefinition> {&self.projections}
     pub fn new(catalog: &Catalog, definitions: impl IntoIterator<Item=(MethodParameters,AnalysisDefinition)>, budget: &resources::ResourceBudget) -> Result<Self,ModelError> {
-        let mut rows=Self {budget:budget.clone(),catalogs:CatalogRecords::new(budget),parameters:Rows::new(budget),definitions:Rows::new(budget),projections:Rows::new(budget)};
+        let mut rows=Self {budget:budget.clone(),catalogs:CatalogRecords::new(budget),parameters:Rows::new(budget),definitions:Rows::new(budget),projections:Rows::new(budget),analytics:Rows::new(budget)};
         rows.catalogs.insert_borrowed(catalog)?;
         for (parameters,definition) in definitions {
             parameters.validate()?; definition.validate()?;
@@ -35,6 +42,7 @@ impl Configuration {
         for row in self.catalogs.catalogs.iter() {row.id().encode(&mut key);}
         for row in self.definitions.iter() {row.id().encode(&mut key);}
         for row in self.projections.iter() {row.id().encode(&mut key);}
+        for row in self.analytics.iter() {row.id().encode(&mut key);}
         Stage {name:"analysis_configuration",inputs:vec![],outputs:configuration_relations().iter().map(RelationUse::of_relation).collect(),
             contributes:vec![],coverage:vec![],provider:None,profiles:Profile::ALL.to_vec(),effect:Effect::Pure,
             code:ContentHash::of(include_bytes!("preparation.rs")),configuration:key.finish()}
@@ -42,7 +50,7 @@ impl Configuration {
 }
 pub fn configuration_relations()->Vec<Relation> {
     let mut rows=models::records::relations();
-    rows.extend([Relation::of::<MethodParameters>(),Relation::of::<AnalysisDefinition>(),Relation::of::<ProjectionDefinition>()]);rows
+    rows.extend([Relation::of::<MethodParameters>(),Relation::of::<AnalysisDefinition>(),Relation::of::<ProjectionDefinition>(),Relation::of::<super::settings::AnalyticsConfiguration>()]);rows
 }
 /// Native attribution validation and its nominal reference closure are facts-owned. Bind every
 /// vocabulary read to the facts prefix even when later consumers add further vocabulary.

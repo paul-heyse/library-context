@@ -22,6 +22,7 @@ pub async fn configuration(access: StageAccess<'_, '_>, attempt: &GenerationAtte
     write!(MethodParameters,configuration.parameters());
     write!(AnalysisDefinition,configuration.definitions());
     write!(ProjectionDefinition,configuration.projections());
+    write!(settings::AnalyticsConfiguration,configuration.analytics());
     output.finish(ProviderOutcome::Complete).await
 }
 

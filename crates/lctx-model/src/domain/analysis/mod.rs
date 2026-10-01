@@ -9,6 +9,7 @@ pub mod native;
 mod obligation_support;
 pub mod policy;
 pub mod preparation;
+pub mod settings;
 pub mod sources;
 pub mod support;
 pub mod usage;
@@ -38,7 +39,7 @@ pub fn early_relations() -> Vec<Relation> {
     let mut rows = vec![
         Relation::of::<AnalysisDefinition>(),
         Relation::of::<MethodParameters>(),
-        Relation::of::<ProjectionDefinition>(),
+        Relation::of::<ProjectionDefinition>(),Relation::of::<settings::AnalyticsConfiguration>(),
     ];
     rows.extend(crate::domain::models::records::relations());
     rows.extend(native::relations());
