@@ -461,7 +461,7 @@ A narrower Use proof cannot establish guard stability, and a Value/Guard proof c
 a bare-name evaluation. Binding identity never establishes mutable object-state stability.
 The direct Local producer publishes attributed transfer/control assessments and explicit unsupported
 boundaries; catalog compilation publishes NotRequested without requesting Flow. Its broader
-behavioral domain remains Partial pending the remaining B1–B3 operators.
+behavioral domain retains explicit Partial refusals; later execution and Summary owners do not retroactively strengthen Local coverage.
 The canonical Local definition includes finite scalar type theory, conservative nominal class
 reasoning and exact field-location witnesses. An open runtime class domain cannot prove a negative;
 a field location does not establish allocation, alias or mutation stability. **Focused-Tested,
@@ -526,14 +526,13 @@ owns integration, native/store controls and corrective reinspection of P4B3-F01.
   the site. Where signature variants restate one guard differently, the composed condition names
   the restatement. The input must be the caller's, extended only through identity. The output must
   be the site, one of its actuals or its receiver, or a field or global.
-- **Accepted P4 target (ADR-0106), not implemented.** Keep exact invocation-distinct guards within the existing
+- **Implemented; qualification in progress, 2026-10-01 (ADR-0106).** Keep exact invocation-distinct guards within the existing
   depth-8/proof-step-64 evidence envelope. Semantic equality excludes proof ancestry and cost;
   stable finite residual keys expose uncovered recursion without erasing guards and claiming
   Exact. Separate evidence-occurrence DAGs from aggregate summary publication. An open residual
   prevents universal discharge; an exact finite witness retains its own qualified meaning.
   [Plan §6.4–§6.5](../../plans/semantic-model-phase4-detailed-plan_2026-09-30.md#6-behavioral-evidence-and-finite-composition)
-  owns the accepted target engine and outstanding independent implementation controls. This replaces the formerly open
-  design question, not its outstanding implementation obligation.
+  owns the implemented finite engine and its independent native/store controls. Production defaults remain depth eight and proof steps sixty-four; bounded fixtures do not qualify every recursive program.
 
 > Decision: ADR-0085, ADR-0106
 
@@ -610,7 +609,7 @@ generated. It supports explanation lookup ("why", "why unresolved") and reverse 
 **Findings.** Analysis findings come from one emitter. Invocations record their input invocations.
 
 **Implemented / focused-Tested, 2026-10-01 (ADR-0106).** Derived support cites nominal AnalysisInvocation and typed premises,
-separately from native provider support, under one qualification operation. **Accepted target:** finite composition
+separately from native provider support, under one qualification operation. **Implemented:** finite composition
 witnesses cite earlier witnesses and source evidence; completed summary aggregates cite witnesses
 after SCC closure and never serve as their own proof premises. Coverage membership is retained
 independently of witness deduplication.
@@ -627,8 +626,7 @@ directly; no unused Dispatch analysis parent or fabricated completion is require
 coverage predecessors, admissible derived-proof sources and inherited obligation sources have
 independent declared routes. Production relation membership contains only actual writers; specialized
 execution/analytic proofs do not require empty generic obligation/derivation families. Shared
-foundation declarations remain usable by their scoped conformance controls. This foundation
-does not activate S0 or the remaining analysis producers.
+foundation declarations remain usable by their scoped conformance controls. Declared analysis producers and S0 now consume these owners; their assembled qualification remains in progress.
 
 **Witnesses** are selected at serve time from derivations, under response budgets. A smaller budget
 never removes an established conclusion.
@@ -670,7 +668,7 @@ No separate graph schema or materialized path closure becomes semantic authority
 branded native visit views after hydration; canonical SCC ordering uses this interface without
 reconstructing edges from SQL. **Implemented / focused-Tested, 2026-10-01:** collection preparation
 retains hydrated graphs and their reservations; each later borrower needs matching completed-source
-permits and the same budget. F0 lifetime wiring and downstream algorithm consumers remain open.
+permits and the same budget. The cumulative compilation driver wires those lifetimes to the current Structural and Analytic consumers; actual upper-frontier qualification remains in progress.
 Dispatch expansion precedes the graph build on every fresh collection.
 **Implemented / focused-Tested, 2026-10-01:** projection version 3 gives source callable
 definitions their own role and arc identity from normalized declaration ownership. Ordinary
@@ -685,8 +683,8 @@ PostgreSQL in both profiles. C0 owns public access candidates; selected settings
 membership define the structural scope. Prepared graphs are borrowed by production; publication
 replay recomputes exact path, boundary, usage and invocation inventories from completed inputs.
 Path steps retain their own conditions and phases: structural reachability does not establish
-execution or normal completion. Final brief seed selection remains S0 work; Pass B/C remain open.
-**Accepted target:** numeric conversions have explicit universe/weight/lineage contracts and share
+execution or normal completion. S0 selects final brief seeds independently of the mandatory catalog. Optional topology/concept analyses publish explicit selected or NotRequested outcomes.
+**Implemented; qualification in progress:** numeric conversions have explicit universe/weight/lineage contracts and share
 the attempt budget. Optional analytics retain their existing disabled defaults.
 
 > Decision: ADR-0085, ADR-0103, ADR-0106
