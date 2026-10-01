@@ -254,10 +254,9 @@ impl GenerationStore {
         }
         if persist {
             let old: Vec<(i16,String,i64,Vec<u8>)> = sqlx::query_as("SELECT epoch,relation_name,row_count,content_digest FROM lctx_model_store.epoch_receipts WHERE generation_id=$1").bind(g.0.to_vec()).fetch_all(&mut *tx).await?;
+            let order = super::vocabulary::publication_order(tx, g).await?;
             for (epoch, name, count, bytes) in old {
-                let epoch = *lctx_model::domain::stages::VocabularyEpoch::ALL
-                    .get(usize::try_from(epoch).map_err(|_| Error::Contract)?)
-                    .ok_or(Error::Contract)?;
+                let epoch = order.decode(u16::try_from(epoch).map_err(|_| Error::Contract)?)?;
                 let relation = self
                     .model
                     .relations()

@@ -53,19 +53,19 @@ fn vocabulary_groups_bind_epoch_reads_and_keep_unfinished_results_private() {
         stage("v0", vec![], vec![RelationUse::of::<Literal>()]),
         stage(
             "v1",
-            vec![RelationUse::stored::<Literal>().at_epoch(VocabularyEpoch::Facts)],
+            vec![RelationUse::stored::<Literal>().at_epoch(PublicationBoundary::Facts)],
             vec![RelationUse::of::<Literal>()],
         ),
         stage("result", vec![], vec![RelationUse::of::<ResultRow>()]),
         stage(
             "reader",
-            vec![RelationUse::stored::<Literal>().at_epoch(VocabularyEpoch::Facts)],
+            vec![RelationUse::stored::<Literal>().at_epoch(PublicationBoundary::Facts)],
             vec![RelationUse::of::<Package>()],
         ),
     ];
     let groups = vec![
-        PublicationGroup::new(VocabularyEpoch::Facts, vec!["v0"]),
-        PublicationGroup::new(VocabularyEpoch::Dispatch, vec!["v1", "result"]),
+        PublicationGroup::new(PublicationBoundary::Facts, vec!["v0"]),
+        PublicationGroup::new(PublicationBoundary::Dispatch, vec!["v1", "result"]),
     ];
     let schedule =
         Schedule::build_with_publications(&model, stages, &[], Profile::Catalog, groups).unwrap();
@@ -104,7 +104,7 @@ fn vocabulary_groups_bind_epoch_reads_and_keep_unfinished_results_private() {
         reader.read::<Literal>().unwrap().source(),
         Some(&initial_source)
     );
-    assert_eq!(initial_source.prefix(), Some(VocabularyEpoch::Facts));
+    assert_eq!(initial_source.prefix(), Some(PublicationBoundary::Facts));
     assert_eq!(initial_source.receipt().rows, 1);
     let empty = Batch::<Package>::new(&model, vec![], &budget).unwrap();
     ready(reader.write::<Package, _>(async |p| sink.copy(p, &empty).await)).unwrap();
@@ -127,8 +127,8 @@ fn epoch_schedule_refuses_unbounded_reads_ordinary_multiwriters_and_self_group_d
         ValidatedModel::validate(vec![Relation::of::<Literal>(), Relation::of::<Package>()])
             .unwrap();
     let groups = vec![
-        PublicationGroup::new(VocabularyEpoch::Facts, vec!["v0"]),
-        PublicationGroup::new(VocabularyEpoch::Dispatch, vec!["v1"]),
+        PublicationGroup::new(PublicationBoundary::Facts, vec!["v0"]),
+        PublicationGroup::new(PublicationBoundary::Dispatch, vec!["v1"]),
     ];
     let unbounded = vec![
         stage("v0", vec![], vec![RelationUse::of::<Literal>()]),
@@ -153,7 +153,7 @@ fn epoch_schedule_refuses_unbounded_reads_ordinary_multiwriters_and_self_group_d
             &[],
             Profile::Catalog,
             vec![PublicationGroup::new(
-                VocabularyEpoch::Facts,
+                PublicationBoundary::Facts,
                 vec!["a", "b"]
             )]
         )
@@ -163,7 +163,7 @@ fn epoch_schedule_refuses_unbounded_reads_ordinary_multiwriters_and_self_group_d
         stage("v0", vec![], vec![RelationUse::of::<Literal>()]),
         stage(
             "r",
-            vec![RelationUse::stored::<Literal>().at_epoch(VocabularyEpoch::Facts)],
+            vec![RelationUse::stored::<Literal>().at_epoch(PublicationBoundary::Facts)],
             vec![RelationUse::of::<Package>()],
         ),
     ];
@@ -174,7 +174,7 @@ fn epoch_schedule_refuses_unbounded_reads_ordinary_multiwriters_and_self_group_d
             &[],
             Profile::Catalog,
             vec![PublicationGroup::new(
-                VocabularyEpoch::Facts,
+                PublicationBoundary::Facts,
                 vec!["v0", "r"]
             )]
         )
@@ -205,8 +205,8 @@ fn epoch_schedule_filters_inactive_writers_and_refuses_two_writers_in_a_later_ep
         .map(|n| stage(n, vec![], vec![RelationUse::of::<Literal>()]))
         .collect();
     let groups = vec![
-        PublicationGroup::new(VocabularyEpoch::Facts, vec!["v0"]),
-        PublicationGroup::new(VocabularyEpoch::Dispatch, vec!["v1", "v2"]),
+        PublicationGroup::new(PublicationBoundary::Facts, vec!["v0"]),
+        PublicationGroup::new(PublicationBoundary::Dispatch, vec!["v1", "v2"]),
     ];
     assert!(
         Schedule::build_with_publications(&model, stages, &[], Profile::Catalog, groups).is_err()
@@ -224,12 +224,12 @@ fn later_groups_issue_inherited_prefix_sources_without_changing_the_producer() {
         stage("v0", vec![], vec![RelationUse::of::<Literal>()]),
         stage(
             "result",
-            vec![RelationUse::stored::<Literal>().at_epoch(VocabularyEpoch::Facts)],
+            vec![RelationUse::stored::<Literal>().at_epoch(PublicationBoundary::Facts)],
             vec![RelationUse::of::<ResultRow>()],
         ),
         stage(
             "reader",
-            vec![RelationUse::stored::<Literal>().at_epoch(VocabularyEpoch::Dispatch)],
+            vec![RelationUse::stored::<Literal>().at_epoch(PublicationBoundary::Dispatch)],
             vec![RelationUse::of::<Package>()],
         ),
     ];
@@ -239,8 +239,8 @@ fn later_groups_issue_inherited_prefix_sources_without_changing_the_producer() {
         &[],
         Profile::Catalog,
         vec![
-            PublicationGroup::new(VocabularyEpoch::Facts, vec!["v0"]),
-            PublicationGroup::new(VocabularyEpoch::Dispatch, vec!["result"]),
+            PublicationGroup::new(PublicationBoundary::Facts, vec!["v0"]),
+            PublicationGroup::new(PublicationBoundary::Dispatch, vec!["result"]),
         ],
     )
     .unwrap();
@@ -266,12 +266,67 @@ fn later_groups_issue_inherited_prefix_sources_without_changing_the_producer() {
     ready(result.complete(&sink, ProviderOutcome::Complete)).unwrap();
     let mut reader = execution.begin("reader").unwrap();
     let inherited = reader.read::<Literal>().unwrap().source().unwrap().clone();
-    assert_eq!(inherited.prefix(), Some(VocabularyEpoch::Dispatch));
+    assert_eq!(inherited.prefix(), Some(PublicationBoundary::Dispatch));
     assert_eq!(inherited.producer(), "v0");
     assert_eq!(inherited.receipt(), old.receipt());
-    assert_eq!(old.prefix(), Some(VocabularyEpoch::Facts));
+    assert_eq!(old.prefix(), Some(PublicationBoundary::Facts));
     let empty = Batch::<Package>::new(&model, vec![], &budget).unwrap();
     ready(reader.write::<Package, _>(async |p| sink.copy(p, &empty).await)).unwrap();
     ready(reader.complete(&sink, ProviderOutcome::Complete)).unwrap();
     execution.finish().unwrap();
+}
+
+#[test]
+fn named_boundary_codes_are_not_publication_positions() {
+    let model = ValidatedModel::validate(vec![Relation::of::<Literal>(), Relation::of::<Package>()]).unwrap();
+    let boundaries = [PublicationBoundary::Facts, PublicationBoundary::BaseEvaluation,
+        PublicationBoundary::BaseCompletion, PublicationBoundary::SourceCall,
+        PublicationBoundary::EnrichedExecution, PublicationBoundary::ExecutionModel,
+        PublicationBoundary::Summary];
+    let names = ["facts", "evaluation", "completion", "source_call", "enriched", "execution", "summary"];
+    let mut stages: Vec<_> = names.iter().enumerate().map(|(i, name)| stage(name,
+        if i == 0 { vec![] } else { vec![RelationUse::stored::<Literal>().at_epoch(boundaries[i-1])] },
+        vec![RelationUse::of::<Literal>()])).collect();
+    stages.push(stage("old_reader", vec![RelationUse::stored::<Literal>().at_epoch(PublicationBoundary::BaseEvaluation)], vec![RelationUse::of::<Package>()]));
+    let groups = boundaries.iter().zip(names).map(|(b,n)| PublicationGroup::new(*b,vec![n])).collect();
+    let schedule = Schedule::build_with_publications(&model,stages,&[],Profile::Catalog,groups).unwrap();
+    assert_eq!(PublicationBoundary::ExecutionModel.code(),3);
+    assert_eq!(schedule.prefix_for(PublicationBoundary::ExecutionModel).unwrap().ordinal(),5);
+    assert_eq!(schedule.prefix_for(PublicationBoundary::Summary).unwrap().ordinal(),6);
+    assert!(schedule.prefix_for(PublicationBoundary::CatalogCore).is_err());
+    let mut execution = schedule.execute(); let budget = budget();
+    let sink = MemoryGeneration::bind(&model,&budget,&mut execution).unwrap();
+    let mut old = None;
+    for (i,name) in names.into_iter().enumerate() {
+        let rows = Batch::new(&model, vec![Literal::Integer {decimal:i.to_string()}], &budget).unwrap();
+        let mut access = execution.begin(name).unwrap();
+        if i == 2 { old = access.read::<Literal>().unwrap().source().cloned(); }
+        ready(access.write::<Literal,_>(async |p| sink.copy(p,&rows).await)).unwrap();
+        ready(access.complete(&sink,ProviderOutcome::Complete)).unwrap();
+    }
+    let mut reader = execution.begin("old_reader").unwrap();
+    let source = reader.read::<Literal>().unwrap().source().cloned().unwrap();
+    assert_eq!(Some(&source),old.as_ref());
+    assert_eq!(source.receipt().rows,2);
+    assert_eq!(source.physical_relation(),schedule.prefix_for(PublicationBoundary::BaseEvaluation).unwrap().view(Literal::NAME));
+    let empty = Batch::<Package>::new(&model,vec![],&budget).unwrap();
+    ready(reader.write::<Package,_>(async |p|sink.copy(p,&empty).await)).unwrap();
+    ready(reader.complete(&sink,ProviderOutcome::Complete)).unwrap();
+    execution.finish().unwrap();
+}
+#[test]
+fn registered_order_refuses_duplicates_gaps_unknown_and_foreign_prefixes() {
+    let digest = ContentHash::of(b"order");
+    let entries = [(0,PublicationBoundary::Facts),(1,PublicationBoundary::BaseCompletion),(2,PublicationBoundary::Summary)];
+    let order = PublicationOrder::registered(digest,&entries).unwrap();
+    assert!(PublicationOrder::registered(digest,&[(0,PublicationBoundary::Facts),(1,PublicationBoundary::Facts)]).is_err());
+    assert!(PublicationOrder::registered(digest,&[(0,PublicationBoundary::Facts),(2,PublicationBoundary::Summary)]).is_err());
+    assert!(PublicationOrder::registered(digest,&[(0,PublicationBoundary::Summary)]).is_err());
+    assert!(order.decode(3).is_err());
+    let foreign = PublicationOrder::registered(ContentHash::of(b"foreign"),&entries).unwrap().decode(1).unwrap();
+    assert!(order.validate(foreign).is_err());
+    assert!(order.decode(1).unwrap().earlier(foreign).is_err());
+    let model = ValidatedModel::validate(vec![Relation::of::<Literal>()]).unwrap();
+    let stages = vec![stage("a",vec![],vec![RelationUse::of::<Literal>()]),stage("b",vec![],vec![RelationUse::of::<Literal>()])];
+    assert!(Schedule::build_with_publications(&model,stages,&[],Profile::Catalog,vec![PublicationGroup::new(PublicationBoundary::Facts,vec!["a"]),PublicationGroup::new(PublicationBoundary::Facts,vec!["b"])]).is_err());
 }

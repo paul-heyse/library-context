@@ -119,7 +119,7 @@ impl GenerationStore {
         profile: &str,
         preflight: Option<Preflight>,
         planned: &BTreeSet<(&str, &str)>,
-        groups: &[lctx_model::domain::stages::PublicationGroup],
+        groups: &[lctx_model::domain::stages::ScheduledPublication],
         stages: &[lctx_model::domain::stages::Stage],
     ) -> Result<Lifecycle, Error> {
         let g = GenerationId::new()?;

@@ -164,6 +164,7 @@ pub(super) fn control(control: &str) -> String {
     };
     include_str!("control.sql")
         .replace("{control}", &quoted(control))
+        .replace("{boundaries}", &lctx_model::domain::stages::PublicationBoundary::ALL.into_iter().map(|b| b.code().to_string()).collect::<Vec<_>>().join(","))
         .replace(
             "{lifecycle}",
             &list(&mut STATES.into_iter().chain([FAILED])),
@@ -244,7 +245,7 @@ pub(super) fn lower(
                     .not_null()
                     .default(0),
             );
-            table.check(Expr::cust("introduced_epoch BETWEEN 0 AND 5"));
+            table.check(Expr::cust("introduced_epoch >= 0"));
         }
         table.check(Expr::cust("octet_length(id) = 16"));
         table.primary_key(Index::create().col("generation_id").col("id"));
@@ -403,13 +404,6 @@ pub(super) fn lower(
     }
     let s = quoted(&schema);
     let mut views = derivation_views(model, relations, &schema);
-    for relation in model.relations().iter().filter(|r| {
-        relations.contains(r.name()) && lctx_model::domain::stages::is_vocabulary(r.name())
-    }) {
-        for epoch in lctx_model::domain::stages::VocabularyEpoch::ALL {
-            views.push(prefix_view(&schema, relation, epoch));
-        }
-    }
     use lctx_model::domain::normalized::events::CallPolicy;
     if CallPolicy::view_relations()
         .iter()
@@ -464,12 +458,16 @@ fn physical_digest(model: &ValidatedModel, relations: &BTreeSet<&str>) -> Conten
         .flat_map(|r| delta_create(&g.schema(), r, "publication-template", true))
         .collect::<Vec<_>>()
         .join(";\n");
+    let prefix = lctx_model::domain::stages::PublicationOrder::registered(ContentHash::of(b"publication template"), &[(0, lctx_model::domain::stages::PublicationBoundary::Facts)]).expect("fixed template").decode(0).expect("fixed prefix");
+    let publication_template = model.relations().iter().filter(|r| relations.contains(r.name()) && lctx_model::domain::stages::is_vocabulary(r.name()))
+        .flat_map(|r| [prefix_view(&g.schema(), r, prefix), introduction_reference(&g.schema(), r, CONTROL)]).collect::<Vec<_>>().join(";\n");
     ContentHash::of(
         format!(
-            "{}\n{}\n{}",
+            "{}\n{}\n{}\n{}",
             control(CONTROL),
             lowering.through("published").join(";\n"),
-            delta_template
+            delta_template,
+            publication_template
         )
         .as_bytes(),
     )
@@ -535,7 +533,7 @@ pub(super) fn delta_name(stage: &str, relation: &str) -> String {
 pub(super) fn prefix_view(
     schema: &str,
     relation: &Relation,
-    epoch: lctx_model::domain::stages::VocabularyEpoch,
+    epoch: lctx_model::domain::stages::PrefixOrdinal,
 ) -> String {
     let columns = relation
         .schema()
@@ -550,7 +548,7 @@ pub(super) fn prefix_view(
         quoted(&epoch.view(relation.name())),
         quoted(schema),
         quoted(relation.name()),
-        epoch.code()
+        epoch.ordinal()
     )
 }
 pub(super) fn delta_create(
@@ -580,4 +578,9 @@ pub(super) fn delta_create(
         statements.push(format!("GRANT INSERT ON {table} TO lctx_importer"));
     }
     statements
+}
+
+/// Storage-only introduction positions must name a prefix registered for this generation.
+pub(super) fn introduction_reference(schema: &str, relation: &Relation, control: &str) -> String {
+    format!("ALTER TABLE {}.{} ADD CONSTRAINT {} FOREIGN KEY(generation_id,introduced_epoch) REFERENCES {}.publication_groups(generation_id,epoch)", quoted(schema), quoted(relation.name()), quoted(&format!("{}_introduced_prefix", relation.name())), quoted(control))
 }

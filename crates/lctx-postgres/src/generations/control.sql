@@ -57,9 +57,13 @@ CREATE TABLE {control}.stage_receipts (
 );
 CREATE TABLE {control}.publication_groups (
     generation_id bytea NOT NULL REFERENCES {control}.generations(id),
-    epoch smallint NOT NULL CHECK(epoch BETWEEN 0 AND 5),
+    -- Schedule-local contiguous prefix position; boundary codes never express close order.
+    epoch smallint NOT NULL CHECK(epoch >= 0),
+    boundary smallint NOT NULL CHECK(boundary IN ({boundaries})),
+    schedule_digest bytea NOT NULL CHECK(octet_length(schedule_digest)=32),
     closed boolean NOT NULL DEFAULT false,
-    PRIMARY KEY(generation_id,epoch)
+    PRIMARY KEY(generation_id,epoch),
+    UNIQUE(generation_id,boundary)
 );
 CREATE TABLE {control}.publication_outputs (
     generation_id bytea NOT NULL,

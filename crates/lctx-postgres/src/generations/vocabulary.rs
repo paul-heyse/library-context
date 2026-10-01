@@ -4,8 +4,8 @@ use lctx_model::domain::{
     Record, Relation,
     resources::ResourceBudget,
     stages::{
-        GroupCompletion, PublicationGroup, RelationReceipt, Stage, StageCompletion,
-        VocabularyEpoch, is_vocabulary,
+        GroupCompletion, ScheduledPublication, RelationReceipt, Stage, StageCompletion,
+        PublicationBoundary, PublicationOrder, PrefixOrdinal, is_vocabulary,
     },
 };
 use sqlx::PgConnection;
@@ -16,11 +16,17 @@ impl GenerationStore {
         &self,
         tx: &mut PgConnection,
         g: GenerationId,
-        groups: &[PublicationGroup],
+        groups: &[ScheduledPublication],
         stages: &[Stage],
     ) -> Result<(), Error> {
         for group in groups {
-            sqlx::query("INSERT INTO lctx_model_store.publication_groups(generation_id,epoch) VALUES($1,$2)").bind(g.0.to_vec()).bind(i16::from(group.epoch.code())).execute(&mut *tx).await?;
+            super::check_schedule(tx, g, group.prefix().schedule()).await?;
+            sqlx::query("INSERT INTO lctx_model_store.publication_groups(generation_id,epoch,boundary,schedule_digest) VALUES($1,$2,$3,$4)").bind(g.0.to_vec()).bind(i16::try_from(group.prefix().ordinal()).map_err(|_| Error::Contract)?).bind(i16::from(group.epoch.code())).bind(group.prefix().schedule().0.to_vec()).execute(&mut *tx).await?;
+            let frontier = self.registered(tx, g).await?.frontier;
+            let scope = self.scope(frontier)?;
+            for relation in self.model.relations().iter().filter(|r| scope.relations.contains(r.name()) && is_vocabulary(r.name())) {
+                execute(tx, vec![ddl::prefix_view(&g.schema(), relation, group.prefix())]).await?;
+            }
             for stage in stages.iter().filter(|s| group.stages.contains(&s.name)) {
                 for output in &stage.outputs {
                     let relation = self
@@ -41,8 +47,15 @@ impl GenerationStore {
                         ddl::delta_create(&g.schema(), relation, stage.name, true),
                     )
                     .await?;
-                    sqlx::query("INSERT INTO lctx_model_store.publication_outputs(generation_id,epoch,stage_name,relation_name) VALUES($1,$2,$3,$4)").bind(g.0.to_vec()).bind(i16::from(group.epoch.code())).bind(stage.name).bind(relation.name()).execute(&mut *tx).await?;
+                    sqlx::query("INSERT INTO lctx_model_store.publication_outputs(generation_id,epoch,stage_name,relation_name) VALUES($1,$2,$3,$4)").bind(g.0.to_vec()).bind(i16::try_from(group.prefix().ordinal()).map_err(|_| Error::Contract)?).bind(stage.name).bind(relation.name()).execute(&mut *tx).await?;
                 }
+            }
+        }
+        if !groups.is_empty() {
+            let frontier = self.registered(tx, g).await?.frontier;
+            let scope = self.scope(frontier)?;
+            for relation in self.model.relations().iter().filter(|r| scope.relations.contains(r.name()) && is_vocabulary(r.name())) {
+                execute(tx, vec![ddl::introduction_reference(&g.schema(), relation, ddl::CONTROL)]).await?;
             }
         }
         Ok(())
@@ -108,7 +121,9 @@ impl GenerationStore {
         self.lock_installation(tx).await?;
         super::lock(tx, g, false).await?;
         self.registered(tx, g).await?.expect("staging")?;
-        let epoch = i16::from(group.epoch().code());
+        let order = publication_order(tx, g).await?;
+        order.validate(group.prefix())?;
+        let epoch = i16::try_from(group.prefix().ordinal()).map_err(|_| Error::Contract)?;
         let status: Option<bool> = sqlx::query_scalar("SELECT closed FROM lctx_model_store.publication_groups WHERE generation_id=$1 AND epoch=$2").bind(g.0.to_vec()).bind(epoch).fetch_optional(&mut *tx).await?;
         if status != Some(false) {
             return Err(Error::State);
@@ -258,14 +273,14 @@ impl GenerationStore {
                     if !available.contains(target) {
                         return Err(Error::Contract);
                     }
-                    let source = physical(relation.name(), group.epoch());
+                    let source = physical(relation.name(), group.prefix());
                     let target_relation = self
                         .model
                         .relations()
                         .iter()
                         .find(|r| r.name() == target)
                         .ok_or(Error::Contract)?;
-                    let target_source = physical(target, group.epoch());
+                    let target_source = physical(target, group.prefix());
                     let subtype = field.subtype().map_or(String::new(), |code| {
                         format!(
                             " AND b.{}={code}",
@@ -297,7 +312,7 @@ impl GenerationStore {
                     tx,
                     g,
                     relation,
-                    &physical(relation.name(), group.epoch()),
+                    &physical(relation.name(), group.prefix()),
                     input.order(),
                     budget,
                     |batch| {
@@ -322,7 +337,7 @@ impl GenerationStore {
                     .find(|r| r.name() == *name)
                     .ok_or(Error::Contract)?;
                 let frozen =
-                    receipt(tx, g, relation, &physical(name, group.epoch()), budget).await?;
+                    receipt(tx, g, relation, &physical(name, group.prefix()), budget).await?;
                 sqlx::query(
                     "INSERT INTO lctx_model_store.stage_receipts VALUES($1,$2,$3,$4,$5,$6)",
                 )
@@ -362,7 +377,7 @@ impl GenerationStore {
                 tx,
                 g,
                 relation,
-                &physical(relation.name(), group.epoch()),
+                &physical(relation.name(), group.prefix()),
                 budget,
             )
             .await?;
@@ -377,7 +392,7 @@ impl GenerationStore {
                 .await?;
             sqlx::query(sqlx::AssertSqlSafe(format!(
                 "GRANT SELECT ON {} TO lctx_importer",
-                qualified(g, &group.epoch().view(relation.name()))
+                qualified(g, &group.prefix().view(relation.name()))
             )))
             .execute(&mut *tx)
             .await?;
@@ -386,7 +401,7 @@ impl GenerationStore {
         Ok((outputs, vocabulary))
     }
 }
-pub(super) fn physical(name: &str, epoch: VocabularyEpoch) -> String {
+pub(super) fn physical(name: &str, epoch: PrefixOrdinal) -> String {
     if is_vocabulary(name) {
         epoch.view(name)
     } else {
@@ -408,4 +423,16 @@ pub(super) async fn receipt(
     .await?;
     let (rows, content) = content.finish();
     Ok(RelationReceipt { rows, content })
+}
+
+/// Decode only the generation's registered finite mapping, never a boundary code as order.
+pub(super) async fn publication_order(tx: &mut PgConnection, g: GenerationId) -> Result<PublicationOrder, Error> {
+    let schedule: Vec<u8> = sqlx::query_scalar("SELECT schedule_digest FROM lctx_model_store.generations WHERE id=$1").bind(g.0.to_vec()).fetch_one(&mut *tx).await?;
+    let schedule = lctx_model::domain::ContentHash(schedule.try_into().map_err(|_| Error::Contract)?);
+    let rows: Vec<(i16,i16,Vec<u8>)> = sqlx::query_as("SELECT epoch,boundary,schedule_digest FROM lctx_model_store.publication_groups WHERE generation_id=$1 ORDER BY epoch").bind(g.0.to_vec()).fetch_all(&mut *tx).await?;
+    let entries = rows.into_iter().map(|(ordinal,boundary,stored)| {
+        if stored != schedule.0 { return Err(Error::Contract); }
+        Ok((u16::try_from(ordinal).map_err(|_| Error::Contract)?, PublicationBoundary::from_code(u8::try_from(boundary).map_err(|_| Error::Contract)?).ok_or(Error::Contract)?))
+    }).collect::<Result<Vec<_>, Error>>()?;
+    Ok(PublicationOrder::registered(schedule, &entries)?)
 }

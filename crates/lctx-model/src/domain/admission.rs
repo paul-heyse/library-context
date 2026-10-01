@@ -412,7 +412,7 @@ impl FrontierContract {
             if checkpoint
                 && schedule
                     .epoch_for(stage.name)
-                    .is_some_and(|e| e != super::stages::VocabularyEpoch::Facts)
+                    .is_some_and(|e| e != super::stages::PublicationBoundary::Facts)
             {
                 continue;
             }

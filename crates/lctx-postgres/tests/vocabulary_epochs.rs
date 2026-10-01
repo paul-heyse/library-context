@@ -35,21 +35,21 @@ fn schedule(model: &ValidatedModel) -> Schedule {
             stage("v0", vec![], vec![RelationUse::of::<Literal>()]),
             stage(
                 "v1",
-                vec![RelationUse::stored::<Literal>().at_epoch(VocabularyEpoch::Facts)],
+                vec![RelationUse::stored::<Literal>().at_epoch(PublicationBoundary::Facts)],
                 vec![RelationUse::of::<Literal>()],
             ),
             stage("result", vec![], vec![RelationUse::of::<ResultRow>()]),
             stage(
                 "reader",
-                vec![RelationUse::stored::<Literal>().at_epoch(VocabularyEpoch::Facts)],
+                vec![RelationUse::stored::<Literal>().at_epoch(PublicationBoundary::Facts)],
                 vec![RelationUse::of::<Package>()],
             ),
         ],
         &[],
         Profile::Catalog,
         vec![
-            PublicationGroup::new(VocabularyEpoch::Facts, vec!["v0"]),
-            PublicationGroup::new(VocabularyEpoch::Dispatch, vec!["v1", "result"]),
+            PublicationGroup::new(PublicationBoundary::Facts, vec!["v0"]),
+            PublicationGroup::new(PublicationBoundary::Dispatch, vec!["v1", "result"]),
         ],
     )
     .unwrap()
@@ -105,7 +105,7 @@ async fn closed_epochs_isolate_private_deltas_deduplicate_and_publish_results_at
     let view = format!(
         "{}.{}",
         g.schema(),
-        VocabularyEpoch::Facts.view(Literal::NAME)
+        schedule.prefix_for(PublicationBoundary::Facts).unwrap().view(Literal::NAME)
     );
     let count: i64 =
         sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {view}")))
@@ -135,7 +135,7 @@ async fn closed_epochs_isolate_private_deltas_deduplicate_and_publish_results_at
         format!(
             "SELECT id FROM {}.{}",
             g.schema(),
-            VocabularyEpoch::Dispatch.view(Literal::NAME)
+            schedule.prefix_for(PublicationBoundary::Dispatch).unwrap().view(Literal::NAME)
         ),
     ] {
         assert!(
@@ -160,7 +160,7 @@ async fn closed_epochs_isolate_private_deltas_deduplicate_and_publish_results_at
     let count: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "SELECT count(*) FROM {}.{}",
         g.schema(),
-        VocabularyEpoch::Dispatch.view(Literal::NAME)
+        schedule.prefix_for(PublicationBoundary::Dispatch).unwrap().view(Literal::NAME)
     )))
     .fetch_one(&db.writer)
     .await
@@ -382,7 +382,16 @@ async fn physically_present_future_rows_do_not_satisfy_candidate_prefix_referenc
     let store = GenerationStore::install(db.owner.clone(), model.clone())
         .await
         .unwrap();
-    let schedule = schedule(&model);
+    let schedule = Schedule::build_with_publications(&model, vec![
+        stage("v0", vec![], vec![RelationUse::of::<Literal>()]),
+        stage("v1", vec![RelationUse::stored::<Literal>().at_epoch(PublicationBoundary::Facts)], vec![RelationUse::of::<Literal>()]),
+        stage("result", vec![], vec![RelationUse::of::<ResultRow>()]),
+        stage("future", vec![], vec![RelationUse::of::<Package>()]),
+    ], &[], Profile::Catalog, vec![
+        PublicationGroup::new(PublicationBoundary::Facts, vec!["v0"]),
+        PublicationGroup::new(PublicationBoundary::Dispatch, vec!["v1", "result"]),
+        PublicationGroup::new(PublicationBoundary::BaseCompletion, vec!["future"]),
+    ]).unwrap();
     let mut execution = schedule.execute();
     let budget = budget();
     let attempt = store
@@ -421,7 +430,7 @@ async fn physically_present_future_rows_do_not_satisfy_candidate_prefix_referenc
         .join(",");
     let delta: String=sqlx::query_scalar("SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname=$1 AND c.relkind='r' AND left(c.relname,8)='__delta_' AND EXISTS(SELECT 1 FROM pg_attribute a WHERE a.attrelid=c.oid AND a.attname=$2)").bind(g.schema()).bind(relation.sum().unwrap().tag).fetch_one(&db.superuser).await.unwrap();
     sqlx::query(sqlx::AssertSqlSafe(format!(
-        "INSERT INTO {}.{} ({columns},introduced_epoch) SELECT {columns},5 FROM {}.{}",
+        "INSERT INTO {}.{} ({columns},introduced_epoch) SELECT {columns},2 FROM {}.{}",
         g.schema(),
         Literal::NAME,
         g.schema(),
@@ -445,7 +454,7 @@ async fn physically_present_future_rows_do_not_satisfy_candidate_prefix_referenc
     let count: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "SELECT count(*) FROM {}.{}",
         g.schema(),
-        VocabularyEpoch::Facts.view(Literal::NAME)
+        schedule.prefix_for(PublicationBoundary::Facts).unwrap().view(Literal::NAME)
     )))
     .fetch_one(&db.writer)
     .await
@@ -481,7 +490,7 @@ async fn a_later_result_cannot_be_verified_using_an_earlier_vocabulary_target() 
         declarations,
         &[],
         Profile::Catalog,
-        baseline.publication_groups().to_vec(),
+        baseline.publication_groups().iter().map(|g|PublicationGroup::new(g.epoch,g.stages.clone())).collect(),
     )
     .unwrap();
     let mut execution = schedule.execute();
@@ -529,7 +538,7 @@ async fn a_later_result_cannot_be_verified_using_an_earlier_vocabulary_target() 
             .source()
             .unwrap()
             .prefix(),
-        Some(VocabularyEpoch::Dispatch)
+        Some(PublicationBoundary::Dispatch)
     );
     assert!(
         attempt.read_contract(&reader).await.is_err(),
@@ -738,20 +747,20 @@ async fn inherited_prefix_is_verified_by_the_store_with_original_producer_receip
             stage("v0", vec![], vec![RelationUse::of::<Literal>()]),
             stage(
                 "result",
-                vec![RelationUse::stored::<Literal>().at_epoch(VocabularyEpoch::Facts)],
+                vec![RelationUse::stored::<Literal>().at_epoch(PublicationBoundary::Facts)],
                 vec![RelationUse::of::<ResultRow>()],
             ),
             stage(
                 "reader",
-                vec![RelationUse::stored::<Literal>().at_epoch(VocabularyEpoch::Dispatch)],
+                vec![RelationUse::stored::<Literal>().at_epoch(PublicationBoundary::Dispatch)],
                 vec![RelationUse::of::<Package>()],
             ),
         ],
         &[],
         Profile::Catalog,
         vec![
-            PublicationGroup::new(VocabularyEpoch::Facts, vec!["v0"]),
-            PublicationGroup::new(VocabularyEpoch::Dispatch, vec!["result"]),
+            PublicationGroup::new(PublicationBoundary::Facts, vec!["v0"]),
+            PublicationGroup::new(PublicationBoundary::Dispatch, vec!["result"]),
         ],
     )
     .unwrap();
@@ -796,8 +805,8 @@ async fn inherited_prefix_is_verified_by_the_store_with_original_producer_receip
     let inherited = reader.read::<Literal>().unwrap().source().unwrap().clone();
     assert_eq!(inherited.producer(), "v0");
     assert_eq!(inherited.receipt(), old.receipt());
-    assert_eq!(inherited.prefix(), Some(VocabularyEpoch::Dispatch));
-    assert_eq!(old.prefix(), Some(VocabularyEpoch::Facts));
+    assert_eq!(inherited.prefix(), Some(PublicationBoundary::Dispatch));
+    assert_eq!(old.prefix(), Some(PublicationBoundary::Facts));
     let contract = attempt.read_contract(&reader).await.unwrap();
     assert_eq!(contract.sources()[Literal::NAME], inherited);
     let count: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
@@ -856,8 +865,8 @@ async fn a_closed_literal_set_cannot_gain_members_in_a_later_epoch() {
         &[],
         Profile::Catalog,
         vec![
-            PublicationGroup::new(VocabularyEpoch::Facts, vec!["v0"]),
-            PublicationGroup::new(VocabularyEpoch::Dispatch, vec!["v1"]),
+            PublicationGroup::new(PublicationBoundary::Facts, vec!["v0"]),
+            PublicationGroup::new(PublicationBoundary::Dispatch, vec!["v1"]),
         ],
     )
     .unwrap();
@@ -937,4 +946,64 @@ async fn a_closed_literal_set_cannot_gain_members_in_a_later_epoch() {
     }
     assert!(execution.finish().is_err());
     attempt.abort().await.unwrap();
+}
+
+#[tokio::test]
+async fn inserted_closes_use_registered_order_and_preserve_old_prefix_receipts() {
+    let db = DisposableDatabase::start().await;
+    db.migrate().await;
+    let model = Arc::new(ValidatedModel::validate(vec![Relation::of::<Literal>(),Relation::of::<Package>()]).unwrap());
+    let store = GenerationStore::install(db.owner.clone(),model.clone()).await.unwrap();
+    let boundaries = [PublicationBoundary::Facts,PublicationBoundary::BaseEvaluation,PublicationBoundary::BaseCompletion,
+        PublicationBoundary::SourceCall,PublicationBoundary::EnrichedExecution,PublicationBoundary::ExecutionModel,PublicationBoundary::Summary];
+    let names = ["facts","evaluation","completion","source_call","enriched","execution","summary"];
+    let mut stages:Vec<_> = names.iter().enumerate().map(|(i,n)| stage(n,if i==0 {vec![]}else{vec![RelationUse::stored::<Literal>().at_epoch(boundaries[i-1])]},vec![RelationUse::of::<Literal>()])).collect();
+    stages.push(stage("old_reader",vec![RelationUse::stored::<Literal>().at_epoch(PublicationBoundary::BaseEvaluation)],vec![RelationUse::of::<Package>()]));
+    let groups = boundaries.iter().zip(names).map(|(b,n)|PublicationGroup::new(*b,vec![n])).collect();
+    let schedule = Schedule::build_with_publications(&model,stages,&[],Profile::Catalog,groups).unwrap();
+    let budget=budget();let mut execution=schedule.execute();
+    let attempt=store.begin_conformance(db.writer.clone(),&mut execution,budget.clone()).await.unwrap();let g=attempt.generation();
+    let registered:Vec<(i16,i16)> = sqlx::query_as("SELECT epoch,boundary FROM lctx_model_store.publication_groups WHERE generation_id=decode($1,'hex') ORDER BY epoch").bind(g.hex()).fetch_all(&db.superuser).await.unwrap();
+    assert_eq!(registered,boundaries.iter().enumerate().map(|(i,b)|(i as i16,i16::from(b.code()))).collect::<Vec<_>>());
+    let mut old=None;
+    for(i,name)in names.into_iter().enumerate(){
+        let rows=Batch::new(&model,vec![Literal::Integer{decimal:i.to_string()}],&budget).unwrap();
+        let mut access=execution.begin(name).unwrap();
+        if i==2{old=access.read::<Literal>().unwrap().source().cloned();}
+        access.write::<Literal,_>(async|p|attempt.copy(p,&rows).await).await.unwrap();
+        access.complete(&attempt,ProviderOutcome::Complete).await.unwrap();
+    }
+    let old=old.unwrap();assert_eq!(old.receipt().rows,2);assert_eq!(old.prefix_ordinal().unwrap().ordinal(),1);
+    let count:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {}.{}",g.schema(),old.physical_relation()))).fetch_one(&db.writer).await.unwrap();assert_eq!(count,2);
+    let prefix=schedule.prefix_for(PublicationBoundary::Summary).unwrap();assert_eq!(prefix.ordinal(),6);assert_eq!(prefix.boundary().code(),4);
+    let count:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {}.{}",g.schema(),prefix.view(Literal::NAME)))).fetch_one(&db.writer).await.unwrap();assert_eq!(count,7);
+    // A producer cannot choose introduction metadata; even privileged tampering cannot insert an unregistered prefix.
+    assert!(sqlx::query(sqlx::AssertSqlSafe(format!("UPDATE {}.{} SET introduced_epoch=100",g.schema(),Literal::NAME))).execute(&db.superuser).await.is_err());
+    let mut reader=execution.begin("old_reader").unwrap();assert_eq!(reader.read::<Literal>().unwrap().source(),Some(&old));
+    let contract=attempt.read_contract(&reader).await.unwrap();assert_eq!(contract.sources()[Literal::NAME].receipt().rows,2);
+    let empty=Batch::<Package>::new(&model,vec![],&budget).unwrap();reader.write::<Package,_>(async|p|attempt.copy(p,&empty).await).await.unwrap();reader.complete(&attempt,ProviderOutcome::Complete).await.unwrap();
+    attempt.seal(execution.finish().unwrap()).await.unwrap().validate().await.unwrap().publish().await.unwrap();
+    let report=GenerationStore::check(&db.owner,&model).await.unwrap();assert!(report.findings.is_empty(),"{:?}",report.findings);
+}
+
+#[tokio::test]
+async fn registered_mapping_refuses_duplicate_unknown_gap_and_foreign_schedule_metadata() {
+    for foreign in [false,true] {
+        let db=DisposableDatabase::start().await;
+        let model=Arc::new(ValidatedModel::validate(vec![Relation::of::<Literal>(),Relation::of::<ResultRow>(),Relation::of::<Package>()]).unwrap());
+        let store=GenerationStore::install(db.owner.clone(),model.clone()).await.unwrap();
+        let schedule=schedule(&model);let mut execution=schedule.execute();let budget=budget();
+        let attempt=store.begin_conformance(db.writer.clone(),&mut execution,budget.clone()).await.unwrap();let g=attempt.generation();
+        for boundary in [i16::from(PublicationBoundary::Facts.code()),32767] {
+            assert!(sqlx::query("INSERT INTO lctx_model_store.publication_groups(generation_id,epoch,boundary,schedule_digest) VALUES(decode($1,'hex'),2,$2,$3)").bind(g.hex()).bind(boundary).bind(schedule.digest().0.to_vec()).execute(&db.superuser).await.is_err());
+        }
+        let rows=Batch::new(&model,vec![Literal::None],&budget).unwrap();let mut v0=execution.begin("v0").unwrap();v0.write::<Literal,_>(async|p|attempt.copy(p,&rows).await).await.unwrap();v0.complete(&attempt,ProviderOutcome::Complete).await.unwrap();
+        let reader=execution.begin("reader").unwrap();attempt.read_contract(&reader).await.unwrap();
+        if foreign {
+            sqlx::query("UPDATE lctx_model_store.publication_groups SET schedule_digest=$2 WHERE generation_id=decode($1,'hex') AND epoch=0").bind(g.hex()).bind(ContentHash::of(b"foreign schedule").0.to_vec()).execute(&db.superuser).await.unwrap();
+        } else {
+            sqlx::query("INSERT INTO lctx_model_store.publication_groups(generation_id,epoch,boundary,schedule_digest) VALUES(decode($1,'hex'),3,$2,$3)").bind(g.hex()).bind(i16::from(PublicationBoundary::Summary.code())).bind(schedule.digest().0.to_vec()).execute(&db.superuser).await.unwrap();
+        }
+        assert!(attempt.read_contract(&reader).await.is_err());drop(reader);attempt.abort().await.unwrap();
+    }
 }

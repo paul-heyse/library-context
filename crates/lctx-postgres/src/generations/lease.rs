@@ -244,10 +244,10 @@ impl LeaseContract {
                     return Err(Error::Contract);
                 }
                 if let Some(prefix) = source
-                    .prefix()
+                    .prefix_ordinal()
                     .filter(|_| lctx_model::domain::stages::is_vocabulary(source.relation()))
                 {
-                    let closed = driver.text("SELECT (g.closed AND r.row_count=$4 AND r.content_digest=$5)::text FROM lctx_model_store.publication_groups g JOIN lctx_model_store.epoch_receipts r USING(generation_id,epoch) WHERE r.generation_id=$1 AND r.epoch=$2::bigint AND r.relation_name=$3", &[LeaseParam::Bytes(&g.0), LeaseParam::Int(i64::from(prefix.code())), LeaseParam::Text(source.relation()), LeaseParam::Int(i64::try_from(receipt.rows).map_err(|_| Error::Contract)?), LeaseParam::Bytes(&receipt.content.0)]).await?;
+                    let closed = driver.text("SELECT (g.closed AND r.row_count=$4 AND r.content_digest=$5 AND g.boundary=$6::bigint AND g.schedule_digest=$7)::text FROM lctx_model_store.publication_groups g JOIN lctx_model_store.epoch_receipts r USING(generation_id,epoch) WHERE r.generation_id=$1 AND r.epoch=$2::bigint AND r.relation_name=$3", &[LeaseParam::Bytes(&g.0), LeaseParam::Int(i64::from(prefix.ordinal())), LeaseParam::Text(source.relation()), LeaseParam::Int(i64::try_from(receipt.rows).map_err(|_| Error::Contract)?), LeaseParam::Bytes(&receipt.content.0), LeaseParam::Int(i64::from(prefix.boundary().code())), LeaseParam::Bytes(&prefix.schedule().0)]).await?;
                     if closed.as_deref() != Some("true") {
                         return Err(Error::Contract);
                     }

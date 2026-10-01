@@ -38,15 +38,15 @@ async fn source_bound_provider_reads_the_old_literal_prefix_after_later_publicat
             stage("v1", vec![], vec![RelationUse::of::<Literal>()]),
             stage(
                 "reader",
-                vec![RelationUse::stored::<Literal>().at_epoch(VocabularyEpoch::Facts)],
+                vec![RelationUse::stored::<Literal>().at_epoch(PublicationBoundary::Facts)],
                 vec![RelationUse::of::<Package>()],
             ),
         ],
         &[],
         Profile::Catalog,
         vec![
-            PublicationGroup::new(VocabularyEpoch::Facts, vec!["v0"]),
-            PublicationGroup::new(VocabularyEpoch::Dispatch, vec!["v1"]),
+            PublicationGroup::new(PublicationBoundary::Facts, vec!["v0"]),
+            PublicationGroup::new(PublicationBoundary::Dispatch, vec!["v1"]),
         ],
     )
     .unwrap();
@@ -75,7 +75,7 @@ async fn source_bound_provider_reads_the_old_literal_prefix_after_later_publicat
     let permit = reader.read::<Literal>().unwrap();
     assert_eq!(
         permit.source().unwrap().prefix(),
-        Some(VocabularyEpoch::Facts)
+        Some(PublicationBoundary::Facts)
     );
     let read = AttemptSession::open(
         &importer,
@@ -187,9 +187,9 @@ async fn native_facts_then_condition_groups_enforce_the_shared_canonical_catalog
         &[],
         Profile::Catalog,
         vec![
-            PublicationGroup::new(VocabularyEpoch::Facts, facts),
-            PublicationGroup::new(VocabularyEpoch::Dispatch, vec!["canonical"]),
-            PublicationGroup::new(VocabularyEpoch::BaseSemantic, vec!["orphan"]),
+            PublicationGroup::new(PublicationBoundary::Facts, facts),
+            PublicationGroup::new(PublicationBoundary::Dispatch, vec!["canonical"]),
+            PublicationGroup::new(PublicationBoundary::BaseSemantic, vec!["orphan"]),
         ],
     )
     .unwrap();

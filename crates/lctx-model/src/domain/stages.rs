@@ -77,7 +77,7 @@ pub struct RelationUse {
     transport: InputTransport,
     requirement: Option<InputRequirement>,
     validators: &'static [&'static str],
-    prefix: Option<VocabularyEpoch>,
+    prefix: Option<PublicationBoundary>,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AvailabilityPolicy {
@@ -106,11 +106,11 @@ impl RelationUse {
             prefix: None,
         }
     }
-    pub fn at_epoch(mut self, epoch: VocabularyEpoch) -> Self {
+    pub fn at_epoch(mut self, epoch: PublicationBoundary) -> Self {
         self.prefix = Some(epoch);
         self
     }
-    pub fn prefix(self) -> Option<VocabularyEpoch> {
+    pub fn prefix(self) -> Option<PublicationBoundary> {
         self.prefix
     }
     pub fn name(self) -> &'static str {
@@ -274,30 +274,110 @@ impl Stage {
         }
     }
 }
-/// Finite publication order owned by VocabularyAssembly, never a producer-supplied row field.
+/// Finite named publication identity. Codes are append-only, never execution order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum VocabularyEpoch {
-    Facts,
-    Dispatch,
-    BaseSemantic,
-    ExecutionModel,
-    Summary,
-    CatalogSynthesis,
+#[repr(u8)]
+pub enum PublicationBoundary {
+    Facts = 0,
+    Dispatch = 1,
+    BaseSemantic = 2,
+    ExecutionModel = 3,
+    Summary = 4,
+    CatalogSynthesis = 5,
+    Local = 6,
+    BaseEvaluation = 7,
+    BaseCompletion = 8,
+    SourceCall = 9,
+    EnrichedExecution = 10,
+    Model = 11,
+    Structural = 12,
+    Analytic = 13,
+    CatalogCore = 14,
+    CatalogEvidence = 15,
+    Selection = 16,
+    Synthesis = 17,
+    Retrieval = 18,
+    AnalyticEmbedding = 19,
 }
-impl VocabularyEpoch {
-    pub const ALL: [Self; 6] = [
-        Self::Facts,
-        Self::Dispatch,
-        Self::BaseSemantic,
-        Self::ExecutionModel,
-        Self::Summary,
-        Self::CatalogSynthesis,
+impl PublicationBoundary {
+    pub const ALL: [Self; 20] = [
+        Self::Facts, Self::Dispatch, Self::BaseSemantic, Self::ExecutionModel,
+        Self::Summary, Self::CatalogSynthesis, Self::Local, Self::BaseEvaluation,
+        Self::BaseCompletion, Self::SourceCall, Self::EnrichedExecution, Self::Model,
+        Self::Structural, Self::Analytic, Self::CatalogCore, Self::CatalogEvidence,
+        Self::Selection, Self::Synthesis, Self::Retrieval, Self::AnalyticEmbedding,
     ];
-    pub fn code(self) -> u8 {
-        self as u8
+    pub fn code(self) -> u8 { self as u8 }
+    pub fn from_code(code: u8) -> Option<Self> {
+        Self::ALL.into_iter().find(|boundary| boundary.code() == code)
     }
+}
+/// Contiguous position in one registered schedule. Only the model's mapping constructs it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PrefixOrdinal {
+    ordinal: u16,
+    boundary: PublicationBoundary,
+    schedule: ContentHash,
+}
+impl Ord for PrefixOrdinal {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        (self.schedule.0, self.ordinal, self.boundary).cmp(&(other.schedule.0, other.ordinal, other.boundary))
+    }
+}
+impl PartialOrd for PrefixOrdinal {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> { Some(self.cmp(other)) }
+}
+impl PrefixOrdinal {
+    pub fn ordinal(self) -> u16 { self.ordinal }
+    pub fn boundary(self) -> PublicationBoundary { self.boundary }
+    pub fn schedule(self) -> ContentHash { self.schedule }
     pub fn view(self, relation: &str) -> String {
-        format!("__v{}_{}", self.code(), relation)
+        format!("__v{}_{}", self.ordinal, relation)
+    }
+    pub fn earlier(self, other: Self) -> Result<Self, ModelError> {
+        if self.schedule != other.schedule {
+            return Err(ModelError::Invalid("foreign publication prefix".into()));
+        }
+        Ok(if self.ordinal <= other.ordinal { self } else { other })
+    }
+}
+/// Checked persisted boundary-to-order mapping, bound to the registered schedule digest.
+/// Restoring metadata does not grant stored reads: completed source and attempt permits do.
+#[derive(Debug, Clone)]
+pub struct PublicationOrder {
+    schedule: ContentHash,
+    boundaries: Vec<PublicationBoundary>,
+}
+impl PublicationOrder {
+    pub fn registered(
+        schedule: ContentHash,
+        entries: &[(u16, PublicationBoundary)],
+    ) -> Result<Self, ModelError> {
+        let mut seen = BTreeSet::new();
+        for (index, (ordinal, boundary)) in entries.iter().enumerate() {
+            if usize::from(*ordinal) != index || !seen.insert(*boundary)
+                || (index == 0 && *boundary != PublicationBoundary::Facts)
+            {
+                return Err(ModelError::Invalid("publication mapping must be contiguous with unique boundaries and facts first".into()));
+            }
+        }
+        Ok(Self { schedule, boundaries: entries.iter().map(|(_, b)| *b).collect() })
+    }
+    pub fn decode(&self, ordinal: u16) -> Result<PrefixOrdinal, ModelError> {
+        let boundary = *self.boundaries.get(usize::from(ordinal))
+            .ok_or_else(|| ModelError::Invalid("unregistered publication ordinal".into()))?;
+        Ok(PrefixOrdinal { ordinal, boundary, schedule: self.schedule })
+    }
+    pub fn resolve(&self, boundary: PublicationBoundary) -> Result<PrefixOrdinal, ModelError> {
+        let ordinal = self.boundaries.iter().position(|b| *b == boundary)
+            .ok_or_else(|| ModelError::Invalid("undeclared publication boundary".into()))?;
+        self.decode(u16::try_from(ordinal).expect("finite boundary set"))
+    }
+    pub fn validate(&self, prefix: PrefixOrdinal) -> Result<(), ModelError> {
+        if self.decode(prefix.ordinal)? != prefix {
+            return Err(ModelError::Invalid("foreign publication prefix".into()));
+        }
+        Ok(())
     }
 }
 /// The only relations permitted to grow. Ordinary outputs remain single-writer.
@@ -328,17 +408,28 @@ pub fn is_vocabulary(name: &str) -> bool {
 }
 #[derive(Debug, Clone)]
 pub struct PublicationGroup {
-    pub epoch: VocabularyEpoch,
+    pub epoch: PublicationBoundary,
     pub stages: Vec<&'static str>,
 }
 impl PublicationGroup {
-    pub fn new(epoch: VocabularyEpoch, stages: Vec<&'static str>) -> Self {
+    pub fn new(epoch: PublicationBoundary, stages: Vec<&'static str>) -> Self {
         Self { epoch, stages }
     }
 }
+#[derive(Debug, Clone)]
+pub struct ScheduledPublication {
+    /// Named identity, distinct from this group's schedule-assigned prefix position.
+    pub epoch: PublicationBoundary,
+    pub stages: Vec<&'static str>,
+    prefix: PrefixOrdinal,
+}
+impl ScheduledPublication {
+    pub fn prefix(&self) -> PrefixOrdinal { self.prefix }
+}
 #[derive(Debug)]
 pub struct Schedule {
-    groups: Vec<PublicationGroup>,
+    groups: Vec<ScheduledPublication>,
+    publication_order: PublicationOrder,
     stages: Vec<Stage>,
     model: ContentHash,
     digest: ContentHash,
@@ -365,7 +456,7 @@ impl Schedule {
         let groups = if assembly.is_empty() {
             vec![]
         } else {
-            vec![PublicationGroup::new(VocabularyEpoch::Facts, assembly)]
+            vec![PublicationGroup::new(PublicationBoundary::Facts, assembly)]
         };
         Self::build_with_publications(model, stages, required, profile, groups)
     }
@@ -379,15 +470,17 @@ impl Schedule {
         for group in &mut groups {
             group.stages.sort_unstable();
         }
+        let entries: Vec<_> = groups.iter().enumerate().map(|(i, g)| (i as u16, g.epoch)).collect();
+        let raw_order = PublicationOrder::registered(ContentHash::of(b"unbound publication order"), &entries)?;
         let mut grouped = BTreeMap::new();
         for (index, group) in groups.iter().enumerate() {
-            if group.epoch.code() as usize != index || group.stages.is_empty() {
+            if group.stages.is_empty() {
                 return Err(ModelError::Invalid(
                     "publication epochs must be a contiguous finite prefix".into(),
                 ));
             }
             for name in &group.stages {
-                if grouped.insert(*name, group.epoch).is_some()
+                if grouped.insert(*name, index as u16).is_some()
                     || !stages
                         .iter()
                         .any(|s| s.name == *name && s.profiles.contains(&profile))
@@ -589,6 +682,7 @@ impl Schedule {
                     ));
                 }
                 let writer = if let Some(epoch) = r.prefix {
+                    raw_order.resolve(epoch)?;
                     if r.transport != InputTransport::CompletedStore {
                         return Err(ModelError::Invalid(
                             "epoch reads require completed-store transport".into(),
@@ -603,7 +697,7 @@ impl Schedule {
                         .iter()
                         .enumerate()
                         .filter(|(_, s)| {
-                            grouped.get(s.name).is_some_and(|e| *e <= epoch)
+                            grouped.get(s.name).is_some_and(|e| *e <= raw_order.resolve(epoch).expect("resolved input boundary").ordinal())
                                 && s.outputs.iter().any(|o| o.type_id == r.type_id)
                         })
                         .max_by_key(|(_, s)| grouped[s.name])
@@ -698,36 +792,49 @@ impl Schedule {
         for stage in &ordered {
             stage.encode(&mut digest);
         }
-        for group in &groups {
-            digest.part(b"vocabulary-epoch", &[group.epoch.code()]);
+        for (ordinal, group) in groups.iter().enumerate() {
+            digest.part(b"publication-ordinal", &(ordinal as u16).to_le_bytes());
+            digest.part(b"publication-boundary", &[group.epoch.code()]);
             let mut names = group.stages.clone();
             names.sort();
             for name in names {
                 digest.part(b"publication-member", name.as_bytes());
             }
         }
+        let digest = digest.finish();
+        let publication_order = PublicationOrder::registered(digest, &entries)?;
+        let groups = groups.into_iter().map(|g| ScheduledPublication {
+            epoch: g.epoch,
+            prefix: publication_order.resolve(g.epoch).expect("checked mapping"),
+            stages: g.stages,
+        }).collect();
         Ok(Self {
             groups,
+            publication_order,
             stages: ordered,
             model: model.digest(),
-            digest: digest.finish(),
+            digest,
             profile,
             dependencies: named,
             readers,
             contributed,
         })
     }
-    pub fn publication_groups(&self) -> &[PublicationGroup] {
+    pub fn publication_groups(&self) -> &[ScheduledPublication] {
         &self.groups
     }
-    pub fn epoch_for(&self, stage: &str) -> Option<VocabularyEpoch> {
+    pub fn epoch_for(&self, stage: &str) -> Option<PublicationBoundary> {
         self.groups
             .iter()
             .find(|g| g.stages.contains(&stage))
             .map(|g| g.epoch)
     }
-    fn input_epoch(&self, input: &RelationUse) -> Option<VocabularyEpoch> {
-        input.prefix.or_else(|| {
+    pub fn publication_order(&self) -> &PublicationOrder { &self.publication_order }
+    pub fn prefix_for(&self, boundary: PublicationBoundary) -> Result<PrefixOrdinal, ModelError> {
+        self.publication_order.resolve(boundary)
+    }
+    fn input_epoch(&self, input: &RelationUse) -> Option<PrefixOrdinal> {
+        let boundary = input.prefix.or_else(|| {
             if is_vocabulary(input.name) {
                 self.groups
                     .iter()
@@ -741,7 +848,8 @@ impl Schedule {
             } else {
                 None
             }
-        })
+        });
+        boundary.map(|b| self.prefix_for(b).expect("validated input boundary"))
     }
     pub fn stages(&self) -> &[Stage] {
         &self.stages
@@ -786,7 +894,7 @@ pub struct Execution<'s> {
     schedule: &'s Schedule,
     completed: BTreeMap<&'static str, ProviderOutcome>,
     computed: BTreeMap<&'static str, ComputedStage>,
-    prefixes: BTreeMap<(VocabularyEpoch, &'static str), CompletedRelation>,
+    prefixes: BTreeMap<(PrefixOrdinal, &'static str), CompletedRelation>,
     sources: BTreeMap<&'static str, CompletedRelation>,
     failed: bool,
     identity: AttemptIdentity,
@@ -844,7 +952,7 @@ impl<'s> Execution<'s> {
             if self
                 .schedule
                 .epoch_for(stage.name)
-                .is_some_and(|e| e != VocabularyEpoch::Facts)
+                .is_some_and(|e| e != PublicationBoundary::Facts)
             {
                 continue;
             }
@@ -928,7 +1036,7 @@ impl<'s> Execution<'s> {
     }
     pub async fn close_group(
         &mut self,
-        epoch: VocabularyEpoch,
+        epoch: PublicationBoundary,
         sink: &impl StageSink,
     ) -> Result<(), ModelError> {
         let group = self
@@ -953,8 +1061,9 @@ impl<'s> Execution<'s> {
             .iter()
             .map(|name| self.computed.remove(name).expect("checked computation"))
             .collect();
-        let closed = sink.close_group(GroupCompletion { epoch, stages }).await?;
-        if closed.epoch != epoch || closed.stages.len() != group.stages.len() {
+        let prefix = group.prefix();
+        let closed = sink.close_group(GroupCompletion { prefix, stages }).await?;
+        if closed.prefix != prefix || closed.stages.len() != group.stages.len() {
             return Err(ModelError::Invalid("foreign group acknowledgement".into()));
         }
         let expected: BTreeSet<_> = self
@@ -1002,7 +1111,7 @@ impl<'s> Execution<'s> {
                     schedule: completed.schedule,
                     relation: name,
                     receipt,
-                    prefix: Some(epoch),
+                    prefix: Some(prefix),
                 };
                 if let Some(epoch) = source.prefix {
                     self.prefixes.insert((epoch, name), source.clone());
@@ -1017,9 +1126,9 @@ impl<'s> Execution<'s> {
                 .sources
                 .get_mut(name)
                 .expect("verified vocabulary source");
-            source.prefix = Some(epoch);
+            source.prefix = Some(prefix);
             source.receipt = receipt;
-            self.prefixes.insert((epoch, name), source.clone());
+            self.prefixes.insert((prefix, name), source.clone());
         }
         self.failed = false;
         Ok(())
@@ -1561,13 +1670,12 @@ impl ComputedStage {
     }
 }
 pub struct GroupCompletion {
-    epoch: VocabularyEpoch,
+    prefix: PrefixOrdinal,
     stages: Vec<ComputedStage>,
 }
 impl GroupCompletion {
-    pub fn epoch(&self) -> VocabularyEpoch {
-        self.epoch
-    }
+    pub fn epoch(&self) -> PublicationBoundary { self.prefix.boundary() }
+    pub fn prefix(&self) -> PrefixOrdinal { self.prefix }
     pub fn stages(&self) -> &[ComputedStage] {
         &self.stages
     }
@@ -1593,14 +1701,14 @@ impl GroupCompletion {
             );
         }
         Ok(ClosedGroup {
-            epoch: self.epoch,
+            prefix: self.prefix,
             stages,
             vocabulary,
         })
     }
 }
 pub struct ClosedGroup {
-    epoch: VocabularyEpoch,
+    prefix: PrefixOrdinal,
     stages: Vec<CompletedStage>,
     vocabulary: BTreeMap<&'static str, RelationReceipt>,
 }
@@ -1684,7 +1792,7 @@ pub struct CompletedStage {
 /// completion; consumers receive it with their declared read permit.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompletedRelation {
-    prefix: Option<VocabularyEpoch>,
+    prefix: Option<PrefixOrdinal>,
     identity: StageIdentity,
     model: ContentHash,
     schedule: ContentHash,
@@ -1692,9 +1800,8 @@ pub struct CompletedRelation {
     receipt: RelationReceipt,
 }
 impl CompletedRelation {
-    pub fn prefix(&self) -> Option<VocabularyEpoch> {
-        self.prefix
-    }
+    pub fn prefix(&self) -> Option<PublicationBoundary> { self.prefix.map(PrefixOrdinal::boundary) }
+    pub fn prefix_ordinal(&self) -> Option<PrefixOrdinal> { self.prefix }
     pub fn physical_relation(&self) -> String {
         if is_vocabulary(self.relation) {
             self.prefix

@@ -41,14 +41,16 @@ impl GenerationStore {
             digest.part(b"checkpoint-content", &c.content().0);
             digest.part(b"checkpoint-coverage", &c.coverage().0);
         }
+        let order = super::vocabulary::publication_order(tx, g).await?;
+        let facts = order.resolve(lctx_model::domain::stages::PublicationBoundary::Facts).ok();
+        for source in sources {
+            if let Some(prefix) = source.prefix_ordinal() { order.validate(prefix)?; }
+        }
         let ordered: BTreeMap<_, _> = sources.iter().map(|s| (s.relation(), s)).collect();
         let input_physical = |name: &str| {
             ordered.get(name).map_or_else(
                 || {
-                    super::vocabulary::physical(
-                        name,
-                        lctx_model::domain::stages::VocabularyEpoch::Facts,
-                    )
+                    facts.map_or_else(|| name.to_owned(), |prefix| super::vocabulary::physical(name, prefix))
                 },
                 |s| s.physical_relation(),
             )
@@ -57,7 +59,7 @@ impl GenerationStore {
             validated.contains(name)
                 && ordered.get(name).is_none_or(|s| {
                     s.prefix()
-                        .is_none_or(|e| e == lctx_model::domain::stages::VocabularyEpoch::Facts)
+                        .is_none_or(|e| e == lctx_model::domain::stages::PublicationBoundary::Facts)
                 })
         };
         for (name, source) in &ordered {
@@ -87,8 +89,8 @@ impl GenerationStore {
                 return Err(Error::Contract);
             }
             digest.part(name.as_bytes(), &receipt.content.0);
-            if let Some(prefix) = source.prefix() {
-                digest.part(b"prefix", &[prefix.code()]);
+            if let Some(prefix) = source.prefix_ordinal() {
+                digest.part(b"prefix", &prefix.ordinal().to_le_bytes());
             }
             digest.part(b"rows", &receipt.rows.to_le_bytes());
         }
@@ -100,7 +102,7 @@ impl GenerationStore {
                 && (!validated.contains(r.name())
                     || ordered.get(r.name()).is_some_and(|s| {
                         s.prefix().is_some_and(|e| {
-                            e != lctx_model::domain::stages::VocabularyEpoch::Facts
+                            e != lctx_model::domain::stages::PublicationBoundary::Facts
                         })
                     }))
         }) {
@@ -127,15 +129,10 @@ impl GenerationStore {
                         qualified(g, &ordered[relation.name()].physical_relation()),
                         field.name(),
                         qualified(g, &{
-                            let target_epoch = ordered
-                                .get(target)
-                                .and_then(|s| s.prefix())
-                                .unwrap_or(lctx_model::domain::stages::VocabularyEpoch::Facts);
-                            let source_epoch = ordered[relation.name()]
-                                .prefix()
-                                .unwrap_or(lctx_model::domain::stages::VocabularyEpoch::Facts);
                             if lctx_model::domain::stages::is_vocabulary(target) {
-                                super::vocabulary::physical(target, target_epoch.min(source_epoch))
+                                let target_prefix = ordered.get(target).and_then(|s| s.prefix_ordinal()).or(facts).ok_or(Error::Contract)?;
+                                let source_prefix = ordered[relation.name()].prefix_ordinal().or(facts).ok_or(Error::Contract)?;
+                                super::vocabulary::physical(target, target_prefix.earlier(source_prefix)?)
                             } else {
                                 input_physical(target)
                             }

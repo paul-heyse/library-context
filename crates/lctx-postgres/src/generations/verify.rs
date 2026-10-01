@@ -267,6 +267,24 @@ async fn inspect(tx: &mut PgConnection, model: &ValidatedModel) -> Result<CheckR
                         .execute(&mut *tx)
                         .await?;
                 }
+                let order = super::vocabulary::publication_order(tx, *g).await?;
+                let mapping: Vec<i16> = sqlx::query_scalar("SELECT epoch FROM lctx_model_store.publication_groups WHERE generation_id=$1 ORDER BY epoch").bind(g.0.to_vec()).fetch_all(&mut *tx).await?;
+                if !mapping.is_empty() {
+                    for relation in model.relations().iter().filter(|r| scopes[frontier].relations.contains(r.name()) && lctx_model::domain::stages::is_vocabulary(r.name())) {
+                        sqlx::query(sqlx::AssertSqlSafe(ddl::introduction_reference(shadow_schema, relation, SHADOW_CONTROL))).execute(&mut *tx).await?;
+                    }
+                }
+                for ordinal in mapping {
+                    let prefix = order.decode(u16::try_from(ordinal).map_err(|_| Error::Contract)?)?;
+                    for relation in model.relations().iter().filter(|r| scopes[frontier].relations.contains(r.name()) && lctx_model::domain::stages::is_vocabulary(r.name())) {
+                        sqlx::query(sqlx::AssertSqlSafe(ddl::prefix_view(shadow_schema, relation, prefix))).execute(&mut *tx).await?;
+                    }
+                }
+                if state == "published" {
+                    for sql in lowering.phase("published") {
+                        sqlx::query(sqlx::AssertSqlSafe(sql)).execute(&mut *tx).await?;
+                    }
+                }
                 for (stage, name, sealed, closed, _) in &publications {
                     let relation = model
                         .relations()
@@ -298,9 +316,7 @@ async fn inspect(tx: &mut PgConnection, model: &ValidatedModel) -> Result<CheckR
                 if state == "staging" {
                     let prefixes: Vec<(i16,String)> = sqlx::query_as("SELECT epoch,relation_name FROM lctx_model_store.epoch_receipts WHERE generation_id=$1").bind(g.0.to_vec()).fetch_all(&mut *tx).await?;
                     for (epoch, name) in prefixes {
-                        let epoch = *lctx_model::domain::stages::VocabularyEpoch::ALL
-                            .get(usize::try_from(epoch).map_err(|_| Error::Contract)?)
-                            .ok_or(Error::Contract)?;
+                        let epoch = order.decode(u16::try_from(epoch).map_err(|_| Error::Contract)?)?;
                         sqlx::query(sqlx::AssertSqlSafe(format!(
                             "GRANT SELECT ON {}.{} TO lctx_importer",
                             super::quoted(shadow_schema),
