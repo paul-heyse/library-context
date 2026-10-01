@@ -247,7 +247,8 @@ pub struct ModuleFlow {
     /// other family's do.
     pub syntax_errors: usize,
     pub error: Option<String>,
-    /// Counted branches discarded because their translated condition is `false`.
+    /// Checked-false branches excluded from positive flow. A direct identity name may retain
+    /// its actual native value candidate for a qualified negative question.
     pub skips: SkipCounts,
 }
 
@@ -944,7 +945,13 @@ impl<'db> Walk<'_, 'db> {
             self.flow
                 .skips
                 .value(false_cause.unwrap_or(SkipCause::Stable));
-            return;
+            // Preserve an explicit source candidate with its checked-false condition. Its
+            // actual native use and reaching evidence still govern Entry/Local admission;
+            // neither a missing use nor a missing formal origin is reconstructed here.
+            // Computed values and call crossings retain the existing refusal boundary.
+            if !identity || !call_path.is_empty() || !matches!(e, Expr::Name(_)) {
+                return;
+            }
         }
         match e {
             Expr::Name(_) | Expr::Attribute(_) | Expr::Subscript(_)

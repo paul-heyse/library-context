@@ -661,12 +661,27 @@ fn rebinding_an_isinstance_class_and_distinct_literal_objects_keep_paths_open() 
 }
 
 #[test]
-fn discarded_flow_branches_are_counted_by_cause() {
+fn checked_false_flow_branches_are_counted_by_cause() {
     let skips = &flow().skips;
     assert!(skips.reaching_runtime_view > 0, "{skips:?}");
     assert!(skips.reaching_ty_false > 0, "{skips:?}");
     assert_eq!(skips.reaching_stable_contradiction, 0, "{skips:?}");
     assert!(skips.values_runtime_view > 0, "{skips:?}");
+}
+
+#[test]
+fn runtime_false_identity_keeps_native_source_and_live_parameter_origin() {
+    let x = use_ix("x", "return x if TYPE_CHECKING else y", "def value_runtime_branch");
+    let y = use_ix("y", "return x if TYPE_CHECKING else y", "def value_runtime_branch");
+    let source = flow().values.iter().find(|v| v.use_ix == x && v.sink == Sink::Return)
+        .expect("actual checked-false source candidate is retained");
+    assert!(source.identity && !source.through_call && source.call_path.is_empty());
+    assert!(source.condition.is_never());
+    let origin = reaching(x);
+    assert_eq!(origin, vec![("x".into(), Some(BindingKind::Parameter), "true".into(), false)]);
+    let live = flow().values.iter().find(|v| v.use_ix == y && v.sink == Sink::Return)
+        .expect("live branch retains its independent source");
+    assert!(live.identity && live.condition.is_always());
 }
 
 #[test]

@@ -1,9 +1,9 @@
 """Native input for the exact finite negative Summary question; never executed."""
-__all__ = ["recursive_false_control"]
+from typing import TYPE_CHECKING
+
+__all__ = ["false_source_control"]
 
 
-def recursive_false_control(value, stop):
-    """Return the input value when the stop condition is true."""
-    if stop:
-        return value
-    return recursive_false_control(value, False)
+def false_source_control(value):
+    """Return the input only under the runtime-false TYPE_CHECKING condition."""
+    return value if TYPE_CHECKING else None

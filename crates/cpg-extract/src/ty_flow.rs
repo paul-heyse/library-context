@@ -30,7 +30,12 @@ pub fn provider() -> Provider {
     Provider {
         tool: "ty".into(),
         revision: cpg_flow::PROVIDER.into(),
-        build_digest: crate::bundle::build_digest(&[include_str!("ty_flow.rs")]),
+        build_digest: crate::bundle::build_digest(&[
+            include_str!("ty_flow.rs"),
+            // This adapter's facts also depend on the provider's native mapping.
+            include_str!("../../cpg-flow/src/lib.rs"),
+            include_str!("../../cpg-flow/src/predicate.rs"),
+        ]),
     }
 }
 macro_rules! output_types {

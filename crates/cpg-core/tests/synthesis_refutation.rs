@@ -1,4 +1,4 @@
-//! A native contradictory composition crosses Summary, S0 and the real PG18 generation store.
+//! An explicit native checked-false source crosses Summary, S0 and the real PG18 generation store.
 //! Refusal twins change only typed views of the published Summary input; they never alter storage.
 use cpg_core::{
     compilation::{PreparedCompilation, publish},
@@ -29,7 +29,7 @@ async fn rows<R: Record>(reader: &GenerationSession, budget: &resources::Resourc
 }
 
 #[tokio::test]
-async fn native_false_composition_persists_exact_negative_s0_authority() {
+async fn native_false_source_persists_exact_negative_s0_authority() {
     let profile = Profile::Behavioral;
     let runtime = AttemptRuntime::new(RuntimeOptions { memory_bytes: 2 << 30, partitions: 2 }).unwrap();
     let budget = runtime.budget();
@@ -46,14 +46,14 @@ async fn native_false_composition_persists_exact_negative_s0_authority() {
     ));
     let settings = analysis::settings::AnalyticsConfiguration {
         module_prefixes: vec!["cases".into()], public_roots: vec!["cases".into()],
-        configured_seeds: vec!["cases.recursive_false_control".into()], depth: 2,
+        configured_seeds: vec!["cases.false_source_control".into()], depth: 2,
         vertices: 512, arcs: 2048, witnesses: 128, brief_budget: 1,
         communities: false, pagerank: false, fca: false, knn: false, rca: false,
         type_layer: false, mention_layer: false, knn_layer: false,
     };
     let prepared = PreparedCompilation::new(Frontier::Catalog, settings, captured.config().catalog(), None, budget).unwrap();
     let published = publish(&store, &importer, db.writer.clone(), captured.clone(), &runtime, profile,
-        ContentHash::of(b"native finite false composition"), &prepared, None, None).await.unwrap();
+        ContentHash::of(b"native checked-false source"), &prepared, None, None).await.unwrap();
     let reader = GenerationSession::open(&serving, model.clone(), published.generation, ProviderOptions::default()).await.unwrap();
     let mut data = summary::Data::new(budget);
     macro_rules! load_summary {($($f:ident:$t:ty,)*)=>{$(for b in batches::<$t>(&reader).await { data.$f.decode(&b).unwrap(); })*};}
@@ -74,7 +74,7 @@ async fn native_false_composition_persists_exact_negative_s0_authority() {
     let assertion_sources = rows::<assertions::AssertionSource>(&reader, budget).await;
     let brief_links = rows::<synthesis::briefs::BriefAssertion>(&reader, budget).await;
     let negatives = data.conclusions.iter().filter(|c| c.verdict == obligation::Verdict::RefutedUnderModel).cloned().collect::<Vec<_>>();
-    assert!(!negatives.is_empty(), "native composition must retain a proof-backed false alternative; complete Flow coverage may not be inferred from an absent result");
+    assert!(!negatives.is_empty(), "native checked-false source must retain a proof-backed false alternative; complete Flow coverage may not be inferred from an absent result. Conclusions: {:?}; proofs: {:?}", data.conclusions.iter().collect::<Vec<_>>(), data.proofs.iter().collect::<Vec<_>>());
     for conclusion in &negatives {
         assert_eq!(conclusion.coverage, attribution::CoverageStatus::CompleteUnderStatedModel);
         let proof = data.proofs.get(conclusion.proof.expect("negative requires exact proof")).unwrap();
