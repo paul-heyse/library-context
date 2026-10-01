@@ -9,6 +9,10 @@ use std::sync::Arc;
 pub struct ProbeReceipt{#[model(key)]pub profile:i64}
 pub fn stage(model:&ValidatedModel,profile:Profile)->Stage{
  let mut inputs=std::collections::BTreeMap::new();for i in summary_replay::inputs_for_profile(profile){let relation=model.relations().iter().find(|r|r.name()==i.name()).unwrap();let r=RelationUse::of_relation(relation).completed_store();inputs.insert(i.name(),if is_vocabulary(i.name()){r.at_epoch(PublicationBoundary::Summary)}else{r});}
+ // A completed read grants the full non-facts reference and validation closure.
+ let facts=facts_relations().iter().map(Relation::name).collect::<std::collections::BTreeSet<_>>();
+ let mut pending=inputs.keys().copied().collect::<Vec<_>>();
+ while let Some(name)=pending.pop(){let relation=model.relations().iter().find(|r|r.name()==name).unwrap();for required in relation.fields().iter().filter_map(|f|f.target().map(|(_,n)|n)).chain(relation.invariants().iter().flat_map(|i|i.inputs.iter().map(ValidationInput::name))){if !facts.contains(required)&&!inputs.contains_key(required){let relation=model.relations().iter().find(|r|r.name()==required).unwrap();inputs.insert(required,RelationUse::of_relation(relation).completed_store());pending.push(required);}}}
  Stage{name:"summary_replay_probe",inputs:inputs.into_values().collect(),outputs:vec![RelationUse::of::<ProbeReceipt>()],contributes:vec![],coverage:vec![],provider:None,profiles:vec![profile],effect:Effect::Pure,code:ContentHash::of(include_bytes!("summary_replay_probe.rs")),configuration:ContentHash::of(b"actual-summary-controls")}
 }
 async fn capture<R:Record>(access:&StageAccess<'_,'_>,reader:&AttemptSession,runtime:&AttemptRuntime,input:&ValidationInput,batches:&mut Vec<(ValidationInput,arrow_array::RecordBatch)>,charge:&mut charged::StateCharge)->Result<(),ModelError>{
@@ -34,7 +38,7 @@ pub async fn run(access:StageAccess<'_,'_>,attempt:&GenerationAttempt,roles:&Rol
    if mutation==8&&i.name()==analysis::summary::DischargeEvidence::NAME{changed|=batch.num_rows()>0;batch=analysis::summary::DischargeEvidence::encode(&[])?;}
    check.visit_input(i,&batch)?;
   }
-  if mutation>1{assert!(changed,"Summary mutation {mutation} needs an actual positive target");}let result=check.finish();assert_eq!(result.is_ok(),mutation<2,"Summary whole-generation replay mutation {mutation}: {result:?}");
+  if mutation>1{assert!(changed,"Summary mutation {mutation} needs an actual positive target");}let result=check.finish();assert_eq!(result.is_ok(),mutation<2,"Summary whole-generation replay mutation {mutation}: {result:?}");eprintln!("Summary replay control {mutation} passed");
  }
  drop(batches);let profile=if behavioral{1}else{0};let mut output=StageOutput::new(access,attempt,model,runtime.budget().clone(),Default::default())?;output.declare::<ProbeReceipt>()?;output.push(ProbeReceipt{profile}).await?;output.finish(ProviderOutcome::Complete).await
 }
