@@ -872,9 +872,12 @@ its open obligations to packages and closure evidence; it does not close them by
 Full D0–Q0 execution was authorized on 2026-09-30, including ADR-0106's conditional operator-review policy.
 D0 adopts ADR-0105/0106 and preserves the independently reviewed target and §11 migration inventory.
 The implementation baseline is clean main `24e86d5`; production sources and dependency manifests
-are unchanged from the inspected design baseline. R0 is in progress. An isolated finite-metric
-subtask prepares R1's scalar lowering; this does not establish R1 or foundation acceptance.
-All later packages remain not started. Existing descriptions marked Proposed specify accepted
+were unchanged from the inspected design baseline at execution start. R0 is in progress: private
+delta publication and immutable prefix reads have focused pure and real-store controls, with
+additional lifecycle controls pending. R1 is in progress in an isolated worktree. Its finite-metric
+lowering was integrated as `a44e3f8`; analysis invocation/support/coverage contracts remain under
+implementation. Preparatory G0 graph-view work is integrated and does not establish G0's N1 dependency
+or foundation acceptance. All other packages remain not started. Existing descriptions marked Proposed specify accepted
 targets whose behavior is not yet implemented or tested; they are not runtime claims.
 The [independent assembled review](../design_review/reviews/design_review_phase4-plan_2026-09-30.md)
 is **Accept scoped, 2026-09-30**, at Proposed design level. A1–A3 and the document-target gates are
@@ -889,7 +892,12 @@ rule and cross-consumer vector-winner invariant were also clarified during assem
 | Task receipt | Outcome, 2026-09-30 |
 |---|---|
 | Independent document/source target review | Accept scoped; review above records evidence, exclusions and required future controls |
-| Production tests, probes, pilots, store mutation and performance experiments | not_run; no command issued for this design-document scope |
+| Finite metric model controls | passed: `python3 scripts/build_environment.py -- cargo test --release -p lctx-model --test finite_metrics` (2 tests); canonical signed zero, finite extremes, Arrow refusal and normalization |
+| Finite metric store controls | passed: `python3 scripts/build_environment.py -- cargo test --release -p lctx-postgres --features testing --test finite_metrics` (1 real PG18 test); roundtrip and raw invalid-value refusal |
+| Finite metric independent implementation review | no material findings against isolated commit `882f86a`, whose patch is integrated as `a44e3f8`; this is a bounded review, not R1 acceptance |
+| Preparatory G0 graph controls | passed in the isolated graph checkout with `python3 scripts/build_environment.py -- cargo --config 'build.build-dir="/home/paul/.cache/library-context-phase4-graph/build"'`: `build --release -p lctx-model`; `test --release -p lctx-model --doc with_native_graph` (one positive and two compile-fail controls); `test --release -p lctx-model --lib native_borrow` (1); `test --release -p lctx-analytics --lib native_schedule` (3). Includes hydrated native topology, parallel arcs, isolates, canonical SCC ordering and reservation ownership. The public-entrypoint control initially lacked its test-owned scope, corrected before the passing rerun. An earlier shared-worktree build loaded divergent macro artifacts; isolated build directories resolved that collision without cleaning the shared cache. |
+| Preparatory G0 independent implementation review | no material findings on the six-file adapter/kernel slice; its identified direct-entrypoint coverage gap is covered by the added public scheduler control. N1 dispatch-induced topology and generation preparation lifetime remain pending. |
+| Integrated functional gate, actual-library pilots and performance experiments | not_run; full functional scope and X0 retirement are not complete; previously excluded measurements remain outside scope |
 | ADR index/lint, docs publication and other automatic hygiene | not_run by this agent; current repository instructions assign them to the end-of-turn hook; no future result is presumed |
 
 The next implementation boundary is R0/R1 foundation acceptance, followed by N0/N1 and the

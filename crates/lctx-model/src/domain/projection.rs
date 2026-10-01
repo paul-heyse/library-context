@@ -9,6 +9,7 @@ use super::{
 };
 use crate::{Domain, DomainCode, DomainSum};
 mod inventory;
+pub mod native;
 pub mod normalization;
 pub mod snapshot;
 

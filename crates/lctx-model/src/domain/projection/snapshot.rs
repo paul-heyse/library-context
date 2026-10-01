@@ -18,7 +18,7 @@ pub const CHUNK_BYTES: usize = 1024 * 1024;
 pub const FORMAT_VERSION: i32 = 1;
 pub const PETGRAPH_VERSION: &str = "0.8.3";
 pub const CODEC: &str = "postcard-1.1.3";
-type ProgramGraph = Graph<EntityRef, ArcId, Directed, u32>;
+pub(super) type ProgramGraph = Graph<EntityRef, ArcId, Directed, u32>;
 #[derive(Serialize, Deserialize)]
 struct Wire<G> {
     format: i32,
@@ -53,6 +53,38 @@ fn allocation(vertices: usize, arcs: usize) -> Result<usize, ModelError> {
         .ok_or_else(|| invalid("projection allocation overflow"))
 }
 impl MaterializedGraph {
+    /// Borrow the stored graph under a fresh invariant brand. Convert algorithm outputs to
+    /// canonical entities/arc IDs inside this callback; local tokens cannot escape or mix.
+    ///
+    /// ```compile_fail
+    /// use lctx_model::domain::projection::snapshot::MaterializedGraph;
+    /// use petgraph::visit::IntoNodeIdentifiers;
+    /// fn cross_graph(first: &MaterializedGraph, second: &MaterializedGraph) {
+    ///     first.with_native_graph(|a| second.with_native_graph(|b| {
+    ///         let node = a.node_identifiers().next().unwrap();
+    ///         b.entity(node);
+    ///     }));
+    /// }
+    /// ```
+    ///
+    /// ```compile_fail
+    /// use lctx_model::domain::projection::snapshot::MaterializedGraph;
+    /// use petgraph::visit::IntoNodeIdentifiers;
+    /// fn escape(graph: &MaterializedGraph) {
+    ///     let _node = graph.with_native_graph(|view| view.node_identifiers().next());
+    /// }
+    /// ```
+    ///
+    /// ```
+    /// use lctx_model::domain::{Id, normalized::entities::EntityRef, projection::snapshot::MaterializedGraph};
+    /// use petgraph::visit::IntoNodeIdentifiers;
+    /// fn canonical(graph: &MaterializedGraph) -> Vec<Id<EntityRef>> {
+    ///     graph.with_native_graph(|view| view.node_identifiers().map(|node| view.entity_id(node)).collect())
+    /// }
+    /// ```
+    pub fn with_native_graph<'graph, R>(&'graph self, visit: impl for<'id> FnOnce(super::native::NativeGraphView<'graph, 'id>) -> R) -> R {
+        visit(super::native::NativeGraphView::new(&self.graph))
+    }
     pub fn build(input: &ProjectionInput, budget: &ResourceBudget) -> Result<Self, ModelError> {
         let reservation = budget.reserve(
             "materialized-graph",

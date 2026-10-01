@@ -9,6 +9,7 @@ pub mod concepts;
 pub mod config;
 pub mod graph;
 pub mod neighbours;
+pub mod native_schedule;
 pub mod pass_a;
 pub mod pass_b;
 pub mod pass_c;
