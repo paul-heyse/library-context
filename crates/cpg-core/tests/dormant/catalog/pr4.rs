@@ -1,6 +1,6 @@
 //! Independent controls over actual extracted and published catalog records.
 use arrow_array::RecordBatch;
-use cpg_core::embed::{EmbedFuture, Embedder, FakeEmbedder, Spec};
+use cpg_core::embedding_service::{EmbedFuture, Embedder, FakeEmbedder, Spec};
 use cpg_schema::{
     Id, Table, catalog::*, selection::catalog::*, serving_projection::projected_rows, wire::*,
 };
@@ -498,6 +498,7 @@ impl SpecEmbedder {
     }
 }
 impl Embedder for SpecEmbedder {
+    fn endpoint(&self) -> &str {"fixture://spec"}
     fn spec(&self) -> &Spec {
         &self.spec
     }
@@ -511,6 +512,7 @@ impl Embedder for SpecEmbedder {
 
 struct TokenUnavailable<'a>(&'a SpecEmbedder);
 impl Embedder for TokenUnavailable<'_> {
+    fn endpoint(&self) -> &str {"fixture://unavailable"}
     fn spec(&self) -> &Spec {
         self.0.spec()
     }

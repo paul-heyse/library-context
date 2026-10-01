@@ -20,7 +20,7 @@ contracts! {
     "SelectionResults" => SelectionResults,
     "Requirement" => Requirement,
     "RequirementResult" => RequirementResult,
-    "EmbeddingSpec" => crate::embedding_spec::Spec,
+    "EmbeddingSpec" => lctx_model::domain::embedding::Spec,
     "ProjectionManifest" => crate::serving_projection::Manifest,
     "RelationReceipt" => crate::serving_projection::RelationReceipt,
     "ArtifactReceipt" => crate::serving_projection::ArtifactReceipt,

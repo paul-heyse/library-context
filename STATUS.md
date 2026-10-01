@@ -9,7 +9,6 @@ _Updated 2026-10-01 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
 - **passed:** independent static integration review and template render/update checks; project-owned files preserved and managed READMEs updated after closing TPL-F01. Product tests **not_run** (process-only scope); hygiene remains hook-owned. Workflow quality/resource gains are unmeasured; no calibration or new cap.
 
 ## Phase 4 execution (2026-10-01)
-
 - The [detailed design and execution plan](docs/plans/semantic-model-phase4-detailed-plan_2026-09-30.md)
   documents contracts, library choices, ordered packages, migration and independent controls.
   ADR-0105/0106 are **Accepted target**. Full D0–Q0 execution is authorized, including conditional
@@ -24,14 +23,15 @@ _Updated 2026-10-01 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
 - **passed, 2026-10-01:** wrapped Cargo `test --release -p lctx-model -p cpg-core --test analysis_preparation`
   (two model controls and one real PG test across both profiles), composite after fixture/boundary fixes.
   Integrated N1/G0 PG controls also passed both profiles after correcting the test's frontier scope;
-  graph reuse, permit/budget refusal and lifetime controls passed. B0 and C0 remain in progress.
+  graph reuse, permit/budget refusal and lifetime controls passed. E1 spec/codec/cache/realization
+  foundation controls passed, including real PG configuration; no live embedding claim. B0/C0 and
+  E1 analytic consumption remain in progress (plan §13.2 receipts).
 - New P4 acceptance is **not_run** pending implementation. Compile checks and focused controls
   precede foundation review; integrated acceptance waits for all functional packages and retirement.
   ADR/docs hygiene belongs to the automatic end-of-turn hook; no result is claimed before it runs.
 - Concurrent hook/tooling/instruction changes remain outside this design's edits and qualification.
 
 ## Main consolidation (2026-09-30)
-
 - `main` is the sole local development branch and tracks `origin/main`. Repository-local
   `pull.ff=only` and `push.default=simple` keep ordinary development and publication on main.
 - Merge `809fe5b` preserved source-tree equality with `57a75d8`; both-parent ancestry checks passed.
@@ -115,6 +115,6 @@ Reset initially refused absent old-installation control tables; its regression a
 Continue ordinary work directly on `main`. Existing after-turn hooks own formatting and catalog
 refresh; do not run or validate them manually. Additional pilot-scale qualification runs only if
 reactivated; detailed plan §11 retains its unmeasured scope.
-Continue P4 with integrated N1/G0 checks, B0 entry/transfer semantics and parallel C0 catalog implementation.
+Continue P4 with B0 entry/transfer integration, C0 catalog and E1 analytic text/consumption.
 Downstream producers, assembly, legacy retirement and Q0 remain open. Follow the dependency graph
 and scheduled review boundaries. P5 owns serving/product qualification; PR6 remains paused.

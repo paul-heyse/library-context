@@ -1,15 +1,12 @@
 use std::collections::BTreeMap;
 
 use super::{Error, Store};
-use cpg_schema::embedding_spec::{Spec, check_vector};
-use cpg_schema::{
-    embedding::{VALUE_CODEC, decode_vector, encode_vector, value_digest},
-    id::Digest,
-};
+use lctx_model::domain::embedding::{Spec, check_vector};
+use lctx_model::domain::{ContentHash, embedding::value::{VALUE_CODEC, decode_vector, encode_vector, value_digest}};
 
 #[derive(Clone, Debug)]
 pub struct CacheValue {
-    pub input_hash: Digest,
+    pub input_hash: ContentHash,
     pub vector: Vec<f32>,
     pub admitted_tokens: u32,
 }
@@ -53,8 +50,8 @@ impl Store {
     pub async fn cached(
         &self,
         spec: &Spec,
-        keys: &[Digest],
-    ) -> Result<BTreeMap<Digest, CacheValue>, Error> {
+        keys: &[ContentHash],
+    ) -> Result<BTreeMap<ContentHash, CacheValue>, Error> {
         let started = std::time::Instant::now();
         let mut values = BTreeMap::new();
         for chunk in keys.chunks(128) {
@@ -77,7 +74,7 @@ impl Store {
                 if row.value_digest.as_slice() != value_digest(&vector).0 {
                     return Err(Error::Integrity("cached value digest"));
                 }
-                let input_hash = Digest(
+                let input_hash = ContentHash(
                     row.input_hash
                         .try_into()
                         .map_err(|_| Error::Integrity("input hash length"))?,
@@ -102,7 +99,7 @@ impl Store {
         &self,
         spec: &Spec,
         values: &[CacheValue],
-    ) -> Result<BTreeMap<Digest, CacheValue>, Error> {
+    ) -> Result<BTreeMap<ContentHash, CacheValue>, Error> {
         for value in values {
             check_vector(&value.vector, spec.dimensions)
                 .map_err(|_| Error::Integrity("candidate vector"))?;

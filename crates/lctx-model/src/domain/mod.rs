@@ -14,6 +14,7 @@ pub mod declarations;
 pub mod deployment;
 pub mod derivation;
 pub mod documents;
+pub mod embedding;
 mod finite;
 pub mod flow;
 mod identity;
@@ -218,6 +219,7 @@ pub fn analysis_relations() -> Vec<Relation> {
         Relation::of::<composition::CallCompositionStep>(),
     ];
     relations.extend(analysis::relations());
+    relations.extend(embedding::relations());
     relations
 }
 /// The relations a facts generation publishes: inputs, attribution and coverage, provider

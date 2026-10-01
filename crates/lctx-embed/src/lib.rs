@@ -1,4 +1,4 @@
-//! The compile-time embedding client (DESIGN §11.1; ADR-0010): `cpg_core::embed::Embedder` over a
+//! The compile-time embedding client (DESIGN §11.1; ADR-0010): `cpg_core::embedding_service::Embedder` over a
 //! separate vLLM 0.30.0 service serving Qwen3-Embedding-8B.
 //!
 //! - The request body is built here with `serde_json`, so its bytes are ours and the Python query
@@ -11,7 +11,7 @@
 //!   `blocked` without the service, never silently fake.
 
 use cpg_core::CoreError;
-use cpg_core::embed::{EmbedFuture, Embedder, Spec, check_vector};
+use cpg_core::embedding_service::{EmbedFuture, Embedder, Spec, check_vector};
 use serde::{Deserialize, Serialize};
 
 /// The committed spec (canonical JSON; its SHA-256 is the spec hash).
@@ -134,15 +134,15 @@ impl VllmEmbedder {
             .send()
             .await
             .map_err(|e| {
-                CoreError::Embed(format!("blocked: no embedding service at {url}: {e}"))
+                CoreError::EmbeddingService(format!("blocked: no embedding service at {url}: {e}"))
             })?;
         let status = response.status();
         let bytes = response
             .bytes()
             .await
-            .map_err(|e| CoreError::Embed(format!("{url}: {e}")))?;
+            .map_err(|e| CoreError::EmbeddingService(format!("{url}: {e}")))?;
         if !status.is_success() {
-            return Err(CoreError::Embed(format!(
+            return Err(CoreError::EmbeddingService(format!(
                 "{url} answered {status}: {}",
                 String::from_utf8_lossy(&bytes)
             )));
@@ -152,6 +152,7 @@ impl VllmEmbedder {
 }
 
 impl Embedder for VllmEmbedder {
+    fn endpoint(&self) -> &str {&self.base}
     fn spec(&self) -> &Spec {
         &self.spec
     }

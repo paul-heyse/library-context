@@ -7,7 +7,7 @@ use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::path::Path;
 
-use cpg_core::embed::Embedder;
+use cpg_core::embedding_service::Embedder;
 use lctx_embed::{QWEN_SPEC, VllmEmbedder, parse_embeddings, qwen_spec, request_body};
 
 fn specs() -> std::path::PathBuf {
@@ -198,7 +198,7 @@ async fn an_unreachable_service_is_blocked_never_fake() {
 /// inputs' request texts. `LCTX_WRITE_KNOWN_ANSWERS=1` rewrites them after a deliberate change.
 #[test]
 fn the_fake_embedder_is_a_committed_known_answer() {
-    use cpg_core::embed::FakeEmbedder;
+    use cpg_core::embedding_service::FakeEmbedder;
     let fake = FakeEmbedder::new();
     let spec = format!("{}\n", fake.spec().canonical_json());
     let inputs: Vec<serde_json::Value> = serde_json::from_str(

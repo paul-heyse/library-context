@@ -182,7 +182,7 @@ async fn transfer_alternatives_keep_conditions_verdicts_and_receiver_boundaries(
              max_edges = 512\nmax_witnesses = 3\n[briefs]\nbudget = 1\n",
         )
         .unwrap(),
-        embedder: Some(Arc::new(cpg_core::embed::FakeEmbedder::new())),
+        embedder: Some(Arc::new(cpg_core::embedding_service::FakeEmbedder::new())),
         techniques: Techniques::default(),
     };
     let first = tempfile::tempdir().unwrap();
@@ -726,7 +726,7 @@ async fn real_flow_input_row_order_keeps_published_contribution_bytes() {
              max_edges = 512\nmax_witnesses = 3\n[briefs]\nbudget = 1\n",
         )
         .unwrap(),
-        embedder: Some(Arc::new(cpg_core::embed::FakeEmbedder::new())),
+        embedder: Some(Arc::new(cpg_core::embedding_service::FakeEmbedder::new())),
         techniques: Techniques::default(),
     };
     compile_analyzed(first.path(), snapshot, &ordered, Some(&analysis))
@@ -1314,7 +1314,7 @@ budget = 1
 "#,
         )
         .unwrap(),
-        embedder: Some(Arc::new(cpg_core::embed::FakeEmbedder::new())),
+        embedder: Some(Arc::new(cpg_core::embedding_service::FakeEmbedder::new())),
         techniques: Techniques::default(),
     };
     compile_analyzed(
@@ -2013,7 +2013,7 @@ budget = 1
 "#,
         )
         .unwrap(),
-        embedder: Some(Arc::new(cpg_core::embed::FakeEmbedder::new())),
+        embedder: Some(Arc::new(cpg_core::embedding_service::FakeEmbedder::new())),
         techniques: Techniques::default(),
     };
     compile_analyzed(
@@ -2165,7 +2165,7 @@ budget = 1
 "#,
         )
         .unwrap(),
-        embedder: Some(Arc::new(cpg_core::embed::FakeEmbedder::new())),
+        embedder: Some(Arc::new(cpg_core::embedding_service::FakeEmbedder::new())),
         techniques: Techniques::default(),
     };
     compile_analyzed(
@@ -2603,7 +2603,7 @@ budget = 1
 "#,
         )
         .unwrap(),
-        embedder: Some(Arc::new(cpg_core::embed::FakeEmbedder::new())),
+        embedder: Some(Arc::new(cpg_core::embedding_service::FakeEmbedder::new())),
         techniques: Techniques::default(),
     };
     compile_analyzed(
@@ -2931,7 +2931,7 @@ budget = 1
 "#,
         )
         .unwrap(),
-        embedder: Some(Arc::new(cpg_core::embed::FakeEmbedder::new())),
+        embedder: Some(Arc::new(cpg_core::embedding_service::FakeEmbedder::new())),
         techniques: Techniques::default(),
     };
     compile_analyzed(
@@ -4912,7 +4912,7 @@ budget = 1
 "#,
         )
         .unwrap(),
-        embedder: Some(std::sync::Arc::new(cpg_core::embed::FakeEmbedder::new())),
+        embedder: Some(std::sync::Arc::new(cpg_core::embedding_service::FakeEmbedder::new())),
         techniques: Techniques::default(),
     };
     compile_analyzed(
@@ -5119,7 +5119,7 @@ budget = 1
 "#,
         )
         .unwrap(),
-        embedder: Some(std::sync::Arc::new(cpg_core::embed::FakeEmbedder::new())),
+        embedder: Some(std::sync::Arc::new(cpg_core::embedding_service::FakeEmbedder::new())),
         techniques: Techniques::default(),
     };
     compile_analyzed(
@@ -6064,7 +6064,7 @@ budget = 1
 "#,
         )
         .unwrap(),
-        embedder: Some(Arc::new(cpg_core::embed::FakeEmbedder::new())),
+        embedder: Some(Arc::new(cpg_core::embedding_service::FakeEmbedder::new())),
         techniques: Techniques::default(),
     };
     compile_analyzed(
@@ -6364,7 +6364,7 @@ budget = 1
 "#,
         )
         .unwrap(),
-        embedder: Some(Arc::new(cpg_core::embed::FakeEmbedder::new())),
+        embedder: Some(Arc::new(cpg_core::embedding_service::FakeEmbedder::new())),
         techniques: Techniques::default(),
     };
     compile_analyzed(
@@ -6807,7 +6807,7 @@ async fn context_protocols_bind_class_and_constructor_roles_independently() {
     let analysis=Analysis {
         embedding_cache: None,config:AnalyticsConfig::parse(
         "version = 1\n[subsystem]\nmodule_prefixes = [\"contextpkg\"]\npublic_roots = [\"contextpkg\"]\n[seeds]\nprimary = [\"contextpkg.preserve\"]\ndistractors = []\n[pass_a]\nmax_depth = 2\nmax_vertices = 128\nmax_edges = 512\nmax_witnesses = 3\n[briefs]\nbudget = 1\n").unwrap(),
-        embedder:Some(Arc::new(cpg_core::embed::FakeEmbedder::new())),techniques:Techniques::default()};
+        embedder:Some(Arc::new(cpg_core::embedding_service::FakeEmbedder::new())),techniques:Techniques::default()};
     compile_analyzed(root.path(), snapshot, &inputs, Some(&analysis))
         .await
         .unwrap();
@@ -7129,7 +7129,7 @@ budget = 1
 "#,
         )
         .unwrap(),
-        embedder: Some(Arc::new(cpg_core::embed::FakeEmbedder::new())),
+        embedder: Some(Arc::new(cpg_core::embedding_service::FakeEmbedder::new())),
         techniques: Techniques::default(),
     };
     compile_analyzed(
@@ -7550,7 +7550,7 @@ budget = 1
 "#,
         )
         .unwrap(),
-        embedder: Some(Arc::new(cpg_core::embed::FakeEmbedder::new())),
+        embedder: Some(Arc::new(cpg_core::embedding_service::FakeEmbedder::new())),
         techniques: Techniques::default(),
     };
     compile_analyzed(
@@ -7713,7 +7713,7 @@ budget = 1
 "#,
         )
         .unwrap(),
-        embedder: Some(Arc::new(cpg_core::embed::FakeEmbedder::new())),
+        embedder: Some(Arc::new(cpg_core::embedding_service::FakeEmbedder::new())),
         techniques: Techniques::default(),
     };
     compile_analyzed(

@@ -96,7 +96,7 @@ impl<'de, T> Deserialize<'de> for Id<T> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ContentHash(pub [u8; 32]);
 impl Serialize for ContentHash {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {

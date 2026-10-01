@@ -1141,13 +1141,13 @@ async fn docs_shapes_analyzed(sub: &str, reverse: bool) -> (SessionContext, temp
 /// A bag-of-words embedder for tests: each lowercase word adds one to a hashed dimension of 64,
 /// then the vector is normalized, so texts sharing words are near (slice 3.1).
 struct WordsEmbedder {
-    spec: cpg_core::embed::Spec,
+    spec: cpg_core::embedding_service::Spec,
 }
 
 impl WordsEmbedder {
     fn new() -> Self {
         WordsEmbedder {
-            spec: cpg_core::embed::Spec {
+            spec: cpg_core::embedding_service::Spec {
                 format: 2,
                 source_dimensions: 64,
                 reduction: "none".to_owned(),
@@ -1192,20 +1192,21 @@ impl WordsEmbedder {
     }
 }
 
-impl cpg_core::embed::Embedder for WordsEmbedder {
-    fn spec(&self) -> &cpg_core::embed::Spec {
+impl cpg_core::embedding_service::Embedder for WordsEmbedder {
+    fn endpoint(&self) -> &str {"fixture://words"}
+    fn spec(&self) -> &cpg_core::embedding_service::Spec {
         &self.spec
     }
     fn count_tokens<'a>(
         &'a self,
         request_text: &'a str,
-    ) -> cpg_core::embed::EmbedFuture<'a, usize> {
+    ) -> cpg_core::embedding_service::EmbedFuture<'a, usize> {
         Box::pin(async move { Ok(request_text.len() / 4) })
     }
     fn embed<'a>(
         &'a self,
         request_texts: &'a [String],
-    ) -> cpg_core::embed::EmbedFuture<'a, Vec<Vec<f32>>> {
+    ) -> cpg_core::embedding_service::EmbedFuture<'a, Vec<Vec<f32>>> {
         Box::pin(async move { Ok(request_texts.iter().map(|t| Self::vector(t)).collect()) })
     }
 }
@@ -1213,7 +1214,7 @@ impl cpg_core::embed::Embedder for WordsEmbedder {
 async fn docs_shapes_embedded(
     sub: &str,
     reverse: bool,
-    embedder: Option<std::sync::Arc<dyn cpg_core::embed::Embedder>>,
+    embedder: Option<std::sync::Arc<dyn cpg_core::embedding_service::Embedder>>,
     budget: u32,
 ) -> (SessionContext, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
@@ -1510,7 +1511,7 @@ async fn mention_and_knn_layers_come_from_the_corpus() {
 /// `docs_shapes` compiled with an analytics variant (slice 3.2).
 async fn docs_shapes_variant(
     sub: &str,
-    embedder: Option<std::sync::Arc<dyn cpg_core::embed::Embedder>>,
+    embedder: Option<std::sync::Arc<dyn cpg_core::embedding_service::Embedder>>,
     techniques: cpg_core::analyze::Techniques,
 ) -> Result<(SessionContext, tempfile::TempDir), cpg_core::CoreError> {
     let dir = tempfile::tempdir().unwrap();

@@ -1,11 +1,9 @@
 //! The service baseline and the verified service owner against a disposable real PostgreSQL 18
 //! (cutover plan P1.5, T11/T12). Each control states its answer before running it.
 use cpg_schema::{
-    embedding::encode_vector,
-    embedding_spec::Spec,
     id::{Digest, Id},
 };
-use lctx_model::domain::model;
+use lctx_model::domain::{model,ContentHash,embedding::{Spec,value::encode_vector}};
 use lctx_postgres::{
     CacheValue, Config, Error, OwnerPool,
     generations::GenerationStore,
@@ -192,7 +190,7 @@ async fn cache_roundtrip_and_spec_conflict() {
         v
     };
     let a = CacheValue {
-        input_hash: Digest([1; 32]),
+        input_hash: ContentHash([1; 32]),
         vector: unit(0),
         admitted_tokens: 3,
     };
@@ -213,7 +211,7 @@ async fn cache_roundtrip_and_spec_conflict() {
     );
     assert!(winner == encode_vector(&a.vector) || winner == encode_vector(&b.vector));
     let found = app
-        .cached(&spec, &[a.input_hash, Digest([9; 32])])
+        .cached(&spec, &[a.input_hash, ContentHash([9; 32])])
         .await
         .unwrap();
     assert_eq!(found.len(), 1);
@@ -226,7 +224,7 @@ async fn cache_roundtrip_and_spec_conflict() {
     );
     // Refusals before any write.
     let nan = CacheValue {
-        input_hash: Digest([2; 32]),
+        input_hash: ContentHash([2; 32]),
         vector: {
             let mut v = unit(0);
             v[1] = f32::NAN;
@@ -239,7 +237,7 @@ async fn cache_roundtrip_and_spec_conflict() {
         Err(Error::Integrity(_))
     ));
     let over = CacheValue {
-        input_hash: Digest([3; 32]),
+        input_hash: ContentHash([3; 32]),
         vector: unit(0),
         admitted_tokens: spec.max_document_tokens + 1,
     };
@@ -248,7 +246,7 @@ async fn cache_roundtrip_and_spec_conflict() {
         Err(Error::Integrity(_))
     ));
     assert_eq!(
-        app.cached(&spec, &[Digest([2; 32]), Digest([3; 32])])
+        app.cached(&spec, &[ContentHash([2; 32]), ContentHash([3; 32])])
             .await
             .unwrap()
             .len(),

@@ -161,7 +161,7 @@ async fn analyzed(sub: &str, reverse: bool) -> (SessionContext, tempfile::TempDi
     let analysis = Analysis {
         embedding_cache: None,
         config: AnalyticsConfig::parse(CONFIG).unwrap(),
-        embedder: Some(std::sync::Arc::new(cpg_core::embed::FakeEmbedder::new())),
+        embedder: Some(std::sync::Arc::new(cpg_core::embedding_service::FakeEmbedder::new())),
         techniques: kernels(),
     };
     let store = dir.path().join("store");

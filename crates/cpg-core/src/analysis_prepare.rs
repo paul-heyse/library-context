@@ -56,3 +56,18 @@ pub async fn native_inventory(access: StageAccess<'_, '_>, attempt: &GenerationA
     for row in rows.qualifications.iter() {output.push(row.clone()).await?;}
     drop(rows);output.finish(ProviderOutcome::Complete).await
 }
+
+/// Publish the one selected embedding configuration before analytic or retrieval work.
+pub async fn embedding_configuration(access:StageAccess<'_, '_>,attempt:&GenerationAttempt,model:&ValidatedModel,
+    runtime:&AttemptRuntime,configuration:Option<&embedding::configuration::Configuration>)->Result<(),ModelError> {
+    use embedding::{EmbeddingSpec,configuration::{ServiceConfiguration,stage}};
+    if let Some(configuration)=configuration {configuration.check_budget(runtime.budget())?;}
+    let declaration=stage(configuration);
+    if access.stage().name!=declaration.name || access.stage().configuration!=declaration.configuration || access.stage().code!=declaration.code {
+        return Err(ModelError::Invalid("embedding configuration differs from preflight".into()));
+    }
+    let mut output=StageOutput::new(access,attempt,model,runtime.budget().clone(),Default::default())?;
+    output.declare::<EmbeddingSpec>()?;output.declare::<ServiceConfiguration>()?;
+    if let Some(configuration)=configuration {output.push(configuration.row().clone()).await?;output.push(configuration.service().clone()).await?;}
+    output.finish(ProviderOutcome::Complete).await
+}

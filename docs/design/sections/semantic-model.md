@@ -43,7 +43,10 @@ is an **Accepted target, 2026-09-30**. It specifies analysis/catalog reconstruct
 corrections and the immutable vocabulary mechanism below; it does not establish P4 implementation.
 R0/R1 are **Implemented / focused-Tested**, with an independent
 [Accept scoped foundation review, 2026-10-01](../../design_review/reviews/design_review_phase4-foundation_2026-09-30.md).
-Downstream producers, assembled acceptance and retirement remain open in plan §13.2.
+The E1 shared specification, exact value codec, early stored configuration and declared realization
+effect are **Implemented / focused-Tested, 2026-10-01**. The retained cache and HTTP client consume
+that model owner. Analytic/retrieval consumption records, downstream producers, assembled acceptance
+and retirement remain open in plan §13.2.
 
 **Where the requirement came from.** The
 [semantic data model target review](../../design_review/reviews/design_review_semantic-data-model_2026-09-29.md)

@@ -1,114 +1,15 @@
-//! Attempt-owned embedding admission and immutable exact-value replay (ADR-0068).
-
-use std::future::Future;
-use std::pin::Pin;
-
-use cpg_schema::findings::BriefDocumentsRow;
-use cpg_schema::id::{Digest, Id};
-use sha2::{Digest as _, Sha256};
-
-use crate::CoreError;
-
-/// A future an embedder returns.
-pub type EmbedFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, CoreError>> + Send + 'a>>;
-
-pub use cpg_schema::embedding_spec::{Spec, check_vector};
-
-/// The cache key of a request text: its SHA-256.
-pub fn input_hash(request_text: &str) -> Digest {
-    Digest(Sha256::digest(request_text.as_bytes()).into())
-}
-
-/// An embedding service under one spec.
-pub trait Embedder: Send + Sync {
-    fn spec(&self) -> &Spec;
-    /// The number of the served model's tokens in a request text.
-    fn count_tokens<'a>(&'a self, request_text: &'a str) -> EmbedFuture<'a, usize>;
-    /// One vector per request text, in order, each checked ([`check_vector`]).
-    fn embed<'a>(&'a self, request_texts: &'a [String]) -> EmbedFuture<'a, Vec<Vec<f32>>>;
-}
-
-/// A deterministic fake embedder with its own spec (DESIGN §11.1): each vector is a unit vector
-/// drawn by splitmix64 from the first 8 bytes (little-endian) of the request text's SHA-256, so
-/// the Python server's fake twin reproduces it bit for bit with its standard library. Tests and
-/// `just check` use it; a fake vector never stands in for a live one in a `passed` claim.
-pub struct FakeEmbedder {
-    spec: Spec,
-}
-
-impl FakeEmbedder {
-    pub fn new() -> Self {
-        Self {
-            spec: Spec {
-                format: 2,
-                source_dimensions: 1024,
-                reduction: "none".to_owned(),
-                admission: None,
-                model: "lctx-fake-embedder".to_owned(),
-                revision: "2".to_owned(),
-                tokenizer_revision: "bytes/4".to_owned(),
-                server: "in-process".to_owned(),
-                served_dtype: "float32".to_owned(),
-                pooling: "none".to_owned(),
-                query_template: "Instruct: {task_description}\nQuery:{query}".to_owned(),
-                query_task: "Given a coding task, retrieve relevant Python library APIs, capability briefs, configuration options, source code, usage examples, and documentation.".to_owned(),
-                document_template: "{text}".to_owned(),
-                dimensions: 1024,
-                output_dtype: "float32".to_owned(),
-                normalization: "l2".to_owned(),
-                max_document_tokens: 2048,
-            },
-        }
-    }
-
-    /// The fake vector of a request text.
-    pub fn vector(&self, request_text: &str) -> Vec<f32> {
-        let seed = Sha256::digest(request_text.as_bytes());
-        let mut state = u64::from_le_bytes(seed[..8].try_into().expect("8 bytes"));
-        let mut raw: Vec<f64> = (0..self.spec.dimensions)
-            .map(|_| {
-                // splitmix64
-                state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
-                let mut z = state;
-                z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-                z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-                z ^= z >> 31;
-                (z >> 11) as f64 / (1u64 << 53) as f64 * 2.0 - 1.0
-            })
-            .collect();
-        let norm = raw.iter().map(|x| x * x).sum::<f64>().sqrt();
-        raw.iter_mut().for_each(|x| *x /= norm);
-        raw.into_iter().map(|x| x as f32).collect()
-    }
-}
-
-impl Default for FakeEmbedder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Embedder for FakeEmbedder {
-    fn spec(&self) -> &Spec {
-        &self.spec
-    }
-
-    fn count_tokens<'a>(&'a self, request_text: &'a str) -> EmbedFuture<'a, usize> {
-        Box::pin(async move { Ok(request_text.len().div_ceil(4)) })
-    }
-
-    fn embed<'a>(&'a self, request_texts: &'a [String]) -> EmbedFuture<'a, Vec<Vec<f32>>> {
-        Box::pin(async move { Ok(request_texts.iter().map(|t| self.vector(t)).collect()) })
-    }
-}
+//! Dormant pre-cutover receipt writer; retirement waits for typed E1/E0 consumption owners.
+use cpg_schema::{findings::BriefDocumentsRow,id::{Digest,Id}};
+use lctx_model::domain::ContentHash;
+use crate::{CoreError,embedding_service::{Embedder,Spec,check_vector,input_hash}};
 
 /// Exact replay state owned by one compile attempt, never by cloneable Analysis or Embedder.
 pub struct Session {
     snapshot_id: Id,
     cache: Option<crate::postgres::Store>,
     spec: Option<String>,
-    values: std::collections::BTreeMap<Digest, crate::postgres::CacheValue>,
-    uses: std::collections::BTreeMap<Digest, i64>,
+    values: std::collections::BTreeMap<ContentHash, crate::postgres::CacheValue>,
+    uses: std::collections::BTreeMap<ContentHash, i64>,
     max_bytes: usize,
 }
 
@@ -260,8 +161,8 @@ impl Session {
         )
         .await?;
         for doc in docs {
-            doc.spec_hash = Some(embedder.spec().hash());
-            doc.input_hash = Some(input_hash(&embedder.spec().document_text(&doc.text)));
+            doc.spec_hash = Some(Digest(embedder.spec().hash().0));
+            doc.input_hash = Some(Digest(input_hash(&embedder.spec().document_text(&doc.text)).0));
         }
         Ok(())
     }
@@ -269,8 +170,9 @@ impl Session {
     /// Consumes retained bytes; it cannot perform database/network I/O.
     pub fn finish(self) -> Result<Receipt, CoreError> {
         use cpg_schema::embedding::{
-            EmbeddingUsesRow, UsedEmbeddingsRow, receipt_digest, value_digest,
+            EmbeddingUsesRow, UsedEmbeddingsRow, receipt_digest,
         };
+        use lctx_model::domain::embedding::value::value_digest;
         let spec: Option<Spec> = self
             .spec
             .map(|s| serde_json::from_str(&s))
@@ -283,15 +185,15 @@ impl Session {
                 "consumed vector receipt is incomplete".to_owned(),
             ));
         }
-        let spec_hash = spec.as_ref().map(Spec::hash);
+        let spec_hash = spec.as_ref().map(|s| Digest(s.hash().0));
         let values = self
             .values
             .into_iter()
             .map(|(input_hash, v)| UsedEmbeddingsRow {
                 snapshot_id: self.snapshot_id,
                 spec_hash: spec_hash.expect("values have spec"),
-                input_hash,
-                value_digest: value_digest(&v.vector),
+                input_hash: Digest(input_hash.0),
+                value_digest: Digest(value_digest(&v.vector).0),
                 vector: v.vector,
             })
             .collect::<Vec<_>>();
@@ -301,7 +203,7 @@ impl Session {
             .map(|(input_hash, usage_mask)| EmbeddingUsesRow {
                 snapshot_id: self.snapshot_id,
                 spec_hash: spec_hash.expect("uses have spec"),
-                input_hash,
+                input_hash: Digest(input_hash.0),
                 usage_mask,
             })
             .collect();
@@ -319,6 +221,8 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::embedding_service::FakeEmbedder;
+    use sha2::{Digest as _,Sha256};
 
     #[test]
     fn the_fake_embedder_is_deterministic_unit_and_distinct() {
@@ -379,7 +283,7 @@ mod tests {
             receipt
                 .uses
                 .iter()
-                .find(|u| u.input_hash == input_hash("shared"))
+                .find(|u| u.input_hash.0 == input_hash("shared").0)
                 .unwrap()
                 .usage_mask,
             7
@@ -388,24 +292,24 @@ mod tests {
             receipt
                 .uses
                 .iter()
-                .find(|u| u.input_hash == input_hash("E0 only"))
+                .find(|u| u.input_hash.0 == input_hash("E0 only").0)
                 .unwrap()
                 .usage_mask,
             2
         );
         let mut changed = receipt.values.clone();
         changed[0].vector[0] = -changed[0].vector[0];
-        changed[0].value_digest = cpg_schema::embedding::value_digest(&changed[0].vector);
+        changed[0].value_digest = Digest(lctx_model::domain::embedding::value::value_digest(&changed[0].vector).0);
         assert_ne!(
             receipt.digest.unwrap(),
-            cpg_schema::embedding::receipt_digest(fake.spec().hash(), &changed)
+            cpg_schema::embedding::receipt_digest(Digest(fake.spec().hash().0), &changed)
         );
         changed.reverse();
         assert_eq!(
-            cpg_schema::embedding::receipt_digest(fake.spec().hash(), &changed),
+            cpg_schema::embedding::receipt_digest(Digest(fake.spec().hash().0), &changed),
             {
                 changed.reverse();
-                cpg_schema::embedding::receipt_digest(fake.spec().hash(), &changed)
+                cpg_schema::embedding::receipt_digest(Digest(fake.spec().hash().0), &changed)
             }
         );
     }
@@ -437,7 +341,7 @@ mod tests {
 
     #[test]
     fn vector_codec_preserves_signed_zero_and_rejects_wrong_width() {
-        use cpg_schema::embedding::{decode_vector, encode_vector, value_digest};
+        use lctx_model::domain::embedding::value::{decode_vector, encode_vector, value_digest};
         assert_eq!(encode_vector(&[1.0, -0.0]), [0, 0, 128, 63, 0, 0, 0, 128]);
         assert_eq!(
             decode_vector(&[0, 0, 0, 128], 1).unwrap()[0].to_bits(),

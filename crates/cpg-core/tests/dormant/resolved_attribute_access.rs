@@ -122,7 +122,7 @@ _dynamic_settings = DynamicSettings()
     let analysis = cpg_core::analyze::Analysis {
         embedding_cache: None,
         config: lctx_analytics::config::AnalyticsConfig::parse(CONFIG).unwrap(),
-        embedder: Some(std::sync::Arc::new(cpg_core::embed::FakeEmbedder::new())),
+        embedder: Some(std::sync::Arc::new(cpg_core::embedding_service::FakeEmbedder::new())),
         techniques: Default::default(),
     };
     cpg_core::attempt::compile_analyzed(&store, snapshot, &out.tables, Some(&analysis))

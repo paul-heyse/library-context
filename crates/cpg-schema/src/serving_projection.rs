@@ -1,5 +1,6 @@
 //! Pure serving contracts. Physical locations, COPY batches and retrieval indexes are not content.
-use crate::{bundle, embedding_spec::check_vector};
+use crate::bundle;
+use lctx_model::domain::embedding::check_vector;
 use arrow_array::{
     Array, BooleanArray, FixedSizeBinaryArray, FixedSizeListArray, Float32Array, Int64Array,
     RecordBatch, StringArray,
@@ -952,7 +953,7 @@ pub fn validate_relations(
                 .downcast_ref::<StringArray>()
                 .unwrap()
                 .value(row);
-            let spec = crate::embedding_spec::Spec::parse(text).map_err(corrupt)?;
+            let spec = lctx_model::domain::embedding::Spec::parse(text).map_err(corrupt)?;
             let hash = b
                 .column_by_name("spec_hash")
                 .unwrap()

@@ -96,7 +96,7 @@ fn work_answer(work: TheoryWork) -> WorkAnswer {
 /// Canonical spec parsing stays with the Rust contract, including field order and rejection.
 #[pyfunction]
 fn canonical_embedding_spec(text: &str) -> PyResult<String> {
-    cpg_schema::embedding_spec::Spec::parse(text)
+    lctx_model::domain::embedding::Spec::parse(text)
         .map(|s| s.canonical_json())
         .map_err(PyValueError::new_err)
 }

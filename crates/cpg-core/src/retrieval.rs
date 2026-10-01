@@ -48,7 +48,7 @@ fn encoded<T: serde::Serialize>(value: &T) -> Result<String, CoreError> {
 
 pub struct Artifacts {
     pub batches: BTreeMap<String, arrow_array::RecordBatch>,
-    pub spec: Option<crate::embed::Spec>,
+    pub spec: Option<crate::embedding_service::Spec>,
 }
 fn binary<'a>(
     values: impl Iterator<Item = Option<&'a [u8]>>,
@@ -68,7 +68,7 @@ fn binary<'a>(
 pub async fn materialize(
     snapshot: Id,
     units: &[Unit],
-    embedder: Option<&dyn crate::embed::Embedder>,
+    embedder: Option<&dyn crate::embedding_service::Embedder>,
     cache: Option<crate::postgres::Store>,
 ) -> Result<Artifacts, CoreError> {
     use arrow_array::{ArrayRef, RecordBatch, StringArray};
@@ -238,7 +238,7 @@ pub async fn materialize(
     let hashes: Vec<_> = admitted
         .iter()
         .map(|i| {
-            crate::embed::input_hash(
+            crate::embedding_service::input_hash(
                 &spec
                     .as_ref()
                     .expect("admitted spec")
@@ -269,7 +269,7 @@ pub async fn materialize(
             .finish_digest(),
         view_revision: VIEW_REVISION,
         render_revision: RENDER_REVISION,
-        spec_hash: spec.as_ref().map(crate::embed::Spec::hash),
+        spec_hash: spec.as_ref().map(|spec| cpg_schema::id::Digest(spec.hash().0)),
     };
     batches.insert(
         "retrieval_receipt".into(),
@@ -290,7 +290,7 @@ pub async fn materialize(
 pub async fn prepare(
     ctx: &SessionContext,
     snapshot: Id,
-    embedder: Option<&dyn crate::embed::Embedder>,
+    embedder: Option<&dyn crate::embedding_service::Embedder>,
     cache: Option<crate::postgres::Store>,
 ) -> Result<Artifacts, CoreError> {
     let units = derive(&load(ctx).await?)?;
@@ -311,7 +311,7 @@ pub async fn prepare(
             return Err(bad("mixed canonical embedding specifications"));
         }
         if let Some(row) = specs.first() {
-            let spec = crate::embed::Spec::parse(&row.spec).map_err(bad)?;
+            let spec = crate::embedding_service::Spec::parse(&row.spec).map_err(bad)?;
             let files = cpg_schema::retrieval::files(spec.dimensions as i32);
             artifacts.batches.insert(
                 "retrieval_vectors".into(),
@@ -331,7 +331,7 @@ pub async fn prepare(
                     .finish_digest(),
                 view_revision: VIEW_REVISION,
                 render_revision: RENDER_REVISION,
-                spec_hash: Some(spec.hash()),
+                spec_hash: Some(cpg_schema::id::Digest(spec.hash().0)),
             };
             artifacts.batches.insert(
                 "retrieval_receipt".into(),
@@ -391,7 +391,7 @@ pub async fn prepare(
         }
         let hashes: Vec<_> = texts
             .iter()
-            .map(|t| crate::embed::input_hash(&spec.document_text(&t.text)))
+            .map(|t| crate::embedding_service::input_hash(&spec.document_text(&t.text)))
             .collect();
         let columns: Vec<ArrayRef> = vec![
             binary(texts.iter().map(|t| Some(t.brief_id.0.as_slice())), 16)?,
@@ -505,7 +505,7 @@ pub fn restore(root: &std::path::Path, snapshot: Id) -> Result<Option<Artifacts>
     {
         return Err(bad("retrieval replay receipt mismatch"));
     }
-    let spec: Option<crate::embed::Spec> =
+    let spec: Option<crate::embedding_service::Spec> =
         serde_json::from_value(receipt["spec"].clone()).map_err(|e| bad(e.to_string()))?;
     if let Some(spec) = &spec {
         spec.validate().map_err(bad)?;

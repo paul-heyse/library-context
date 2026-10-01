@@ -59,6 +59,7 @@ pub enum Effect {
     Acquisition,
     Extraction,
     Store,
+    Embedding,
 }
 impl Effect {
     fn name(self) -> &'static str {
@@ -67,6 +68,7 @@ impl Effect {
             Self::Acquisition => "acquisition",
             Self::Extraction => "extraction",
             Self::Store => "store",
+            Self::Embedding => "embedding",
         }
     }
 }

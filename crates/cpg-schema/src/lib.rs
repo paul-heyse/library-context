@@ -21,7 +21,6 @@ pub mod context_protocol;
 pub mod context_value;
 pub mod derived;
 pub mod embedding;
-pub mod embedding_spec;
 pub mod evidence;
 pub mod findings;
 pub mod flows;

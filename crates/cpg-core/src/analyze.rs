@@ -43,7 +43,7 @@ pub struct Analysis {
     /// Explicit PostgreSQL cache, or uncached unit-fixture execution.
     pub embedding_cache: Option<crate::postgres::Store>,
     pub config: AnalyticsConfig,
-    pub embedder: Option<std::sync::Arc<dyn crate::embed::Embedder>>,
+    pub embedder: Option<std::sync::Arc<dyn crate::embedding_service::Embedder>>,
     /// Which analytics techniques run (the §9.8 ablation's variants; slice 3.2).
     pub techniques: Techniques,
 }

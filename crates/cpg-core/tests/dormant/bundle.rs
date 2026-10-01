@@ -90,7 +90,7 @@ async fn compiled(sub: &str, reverse: bool, finalizer: bool) -> (tempfile::TempD
     let analysis = Analysis {
         embedding_cache: None,
         config: AnalyticsConfig::parse(CONFIG).unwrap(),
-        embedder: Some(std::sync::Arc::new(cpg_core::embed::FakeEmbedder::new())),
+        embedder: Some(std::sync::Arc::new(cpg_core::embedding_service::FakeEmbedder::new())),
         techniques: Default::default(),
     };
     let store = dir.path().join("store");
@@ -146,7 +146,7 @@ budget = 3
     let analysis = cpg_core::analyze::Analysis {
         embedding_cache: None,
         config,
-        embedder: Some(std::sync::Arc::new(cpg_core::embed::FakeEmbedder::new())),
+        embedder: Some(std::sync::Arc::new(cpg_core::embedding_service::FakeEmbedder::new())),
         techniques: Default::default(),
     };
     let store = dir.path().join("store");
@@ -2157,7 +2157,7 @@ async fn writes_the_python_fixture_generation() {
         &store,
         SNAPSHOT,
         &out,
-        Some(&cpg_core::embed::FakeEmbedder::new()),
+        Some(&cpg_core::embedding_service::FakeEmbedder::new()),
         None,
     )
     .await

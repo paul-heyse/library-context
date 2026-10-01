@@ -2349,7 +2349,8 @@ async fn validate_actions(ctx: &SessionContext) -> Result<Vec<Violation>, CoreEr
 pub async fn validate_embedding_receipts(
     ctx: &SessionContext,
 ) -> Result<Vec<Violation>, CoreError> {
-    use cpg_schema::embedding::{EmbeddingUsesRow, UsedEmbeddingsRow, value_digest};
+    use cpg_schema::embedding::{EmbeddingUsesRow, UsedEmbeddingsRow};
+    use lctx_model::domain::embedding::value::value_digest;
     use cpg_schema::findings::EmbeddingSpecsRow;
     let specs: Vec<EmbeddingSpecsRow> =
         sql::fetch(ctx, &stored_embedding_specs(), sql::Params::new()).await?;
@@ -2360,8 +2361,8 @@ pub async fn validate_embedding_receipts(
     let mut errors = 0;
     let mut admitted = std::collections::BTreeMap::new();
     for row in specs {
-        match crate::embed::Spec::parse(&row.spec) {
-            Ok(spec) if spec.hash() == row.spec_hash && spec.canonical_json() == row.spec => {
+        match crate::embedding_service::Spec::parse(&row.spec) {
+            Ok(spec) if spec.hash().0 == row.spec_hash.0 && spec.canonical_json() == row.spec => {
                 admitted.insert(row.spec_hash, spec);
             }
             _ => errors += 1,
@@ -2370,8 +2371,8 @@ pub async fn validate_embedding_receipts(
     for row in values {
         if !admitted
             .get(&row.spec_hash)
-            .is_some_and(|spec| crate::embed::check_vector(&row.vector, spec.dimensions).is_ok())
-            || row.value_digest != value_digest(&row.vector)
+            .is_some_and(|spec| crate::embedding_service::check_vector(&row.vector, spec.dimensions).is_ok())
+            || row.value_digest.0 != value_digest(&row.vector).0
         {
             errors += 1;
         }

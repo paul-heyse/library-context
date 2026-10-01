@@ -20,7 +20,7 @@ use std::sync::Arc;
 pub struct CompileInputs {
     pub public_roots: Vec<String>,
     pub profile: CompileProfile,
-    pub embedder: Option<Arc<dyn crate::embed::Embedder>>,
+    pub embedder: Option<Arc<dyn crate::embedding_service::Embedder>>,
     pub embedding_cache: Option<crate::postgres::Store>,
 }
 impl CompileInputs {
@@ -67,7 +67,7 @@ pub async fn populate(
     ctx: &SessionContext,
     _embeddings: &mut crate::embed::Session,
     snapshot_id: Id,
-    _embedder: Option<&dyn crate::embed::Embedder>,
+    _embedder: Option<&dyn crate::embedding_service::Embedder>,
     contracts: &Contracts,
     out: &mut BehaviorRows,
     stages: &mut Stages,

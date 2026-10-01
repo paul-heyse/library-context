@@ -1,5 +1,5 @@
 //! Pure, versioned embedding identity shared by compiler, cache and Python boundaries.
-use crate::id::Digest;
+use crate::domain::ContentHash;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 
@@ -35,6 +35,13 @@ pub struct Spec {
     pub normalization: String,
     /// The §11.1 cap on a document, in the model's tokens.
     pub max_document_tokens: u32,
+}
+
+impl crate::domain::HeapSize for Spec {
+    fn heap_bytes(&self)->usize {
+        [&self.reduction,&self.model,&self.revision,&self.tokenizer_revision,&self.server,&self.served_dtype,&self.pooling,&self.query_template,&self.query_task,&self.document_template,&self.output_dtype,&self.normalization].iter().map(|s|s.capacity()).sum::<usize>()
+            +self.admission.as_ref().map_or(0,|a|a.matryoshka_dimensions.capacity()*size_of::<u32>())
+    }
 }
 
 impl Spec {
@@ -76,8 +83,8 @@ impl Spec {
     }
 
     /// SHA-256 of the canonical JSON.
-    pub fn hash(&self) -> Digest {
-        Digest(Sha256::digest(self.canonical_json().as_bytes()).into())
+    pub fn hash(&self) -> ContentHash {
+        ContentHash(Sha256::digest(self.canonical_json().as_bytes()).into())
     }
 
     /// The request text of a document (§11.1: documents take no prefix).
@@ -116,7 +123,7 @@ pub fn check_vector(v: &[f32], dimensions: u32) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    const LIVE: &str = include_str!("../../../specs/embedding/qwen3-embedding-8b.json");
+    const LIVE: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../specs/embedding/qwen3-embedding-8b.json"));
     #[test]
     fn canonical_spec_is_order_independent_and_rejects_incompatible_admission() {
         let spec = Spec::parse(LIVE).unwrap();
