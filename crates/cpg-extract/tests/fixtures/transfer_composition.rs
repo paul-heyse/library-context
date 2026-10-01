@@ -8,6 +8,7 @@ pub struct Facts(pub typed_driver::Tables);
 impl typed_driver::Inspector for Facts {fn tables(&self)->typed_driver::Tables {self.0.clone()}}
 pub struct NativeFixture {pub fixture:&'static str,pub tables:typed_driver::Tables,pub data:BindingData,pub output:BindingOutput,pub verified:VerifiedBindings,pub budget:ResourceBudget}
 impl NativeFixture {
+ pub fn source_bytes(&self,source:Id<source::SourceArtifact>)->Vec<u8>{let artifact=self.data.artifacts.get(source).unwrap();files(self.fixture)[&artifact.path].clone()}
  pub fn rows<R:Record>(&self)->Vec<R> {rows::<R>(&self.tables)}
  pub fn attempts_at(&self,text:&str)->Vec<&CallBindingAttempt> {self.output.attempts.iter().filter(|attempt| {let event=self.data.event_events.get(attempt.event).unwrap();let o=self.data.occurrences.get(event.site).unwrap();let source=self.data.artifacts.get(o.source).unwrap();files(self.fixture)[&source.path.to_string()][o.start as usize..o.end as usize]==*text.as_bytes()}).collect()}
  pub fn attempt(&self,text:&str)->Id<CallBindingAttempt> {self.output.attempts.iter().find(|attempt| {

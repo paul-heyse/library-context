@@ -65,8 +65,9 @@ pub fn enrich_all(data:&EnrichedData,invocation:&publication::AnalysisInvocation
  let selected=|source|roots.contains(&source)&&facts.artifacts.get(source).is_some_and(|artifact|artifact.input==invocation.input&&admission::ArtifactClass::of(&artifact.path)==Some(admission::ArtifactClass::PythonSource));
  let _parse=budget.reserve("enriched_selected_catalog",catalog.source.len().checked_mul(32).and_then(|n|n.checked_add(65536)).ok_or_else(||invalid("enriched catalog allowance overflow"))?)?;let catalog=models::Catalog::parse(&catalog.source_name,&catalog.source).map_err(ModelError::Invalid)?;
  let(_,expected)=super::enriched::with_frame(&data.source,source,source_definition,budget,|frame|{
+  let mut work=0usize;let mut step=||->Result<(),ModelError>{work=work.checked_add(1).ok_or_else(||invalid("enriched work overflow"))?;if work>super::enriched::ENRICHED_WORK_LIMIT{return Err(ModelError::Resource{owner:"enriched_finite_work",requested:1,used:work-1,limit:super::enriched::ENRICHED_WORK_LIMIT});}Ok(())};
   let verified=normalized::binding_normalization::verify(&data.application.bindings,&data.source.output,budget)?;
-  for attempt in data.source.output.attempts.iter(){let Some(shape)=verified.shape(attempt.id())else{continue};if (shape.input(),shape.context())!=(invocation.input,invocation.context){continue;}let Some(bound)=verified.bound(attempt.id())else{continue};if !selected(facts.occurrences.get(bound.bound().site()).ok_or_else(||invalid("modeled call site absent"))?.source){continue;}
+  for attempt in data.source.output.attempts.iter(){step()?;let Some(shape)=verified.shape(attempt.id())else{continue};if (shape.input(),shape.context())!=(invocation.input,invocation.context){continue;}let Some(bound)=verified.bound(attempt.id())else{continue};if !selected(facts.occurrences.get(bound.bound().site()).ok_or_else(||invalid("modeled call site absent"))?.source){continue;}
    let application=super::model_application::CheckedModelApplication::derive(&catalog,&data.application,bound,shape,verified.effective_invocation(attempt.id()),budget)?;let Ok(application)=application else{continue};
    if frame.has_call(shape.event()){continue;}let checked=CheckedModeledEvaluation::derive(facts,&application,&data.source.completed,invocation,definition,budget)?;let Ok(checked)=checked else{continue};
    output.modeled_calls.insert(checked.record().clone())?;for row in checked.arguments().iter(){output.modeled_arguments.insert(row.clone())?;}for row in checked.native().iter(){output.modeled_native.insert(row.clone())?;}frame.push_modeled(checked)?;
@@ -74,10 +75,10 @@ pub fn enrich_all(data:&EnrichedData,invocation:&publication::AnalysisInvocation
   // Fresh source bodies form finite immutable proof occurrences. Only successful prior
   // occurrences may become call premises; recursive/self-captured bodies remain refused.
   for _ in 0..frame.headers().len(){let mut progress=false;
-   for index in 0..frame.headers().len(){let(header,header_row)=frame.headers()[index];if frame.has_call(header_row.event){continue;}
+   for index in 0..frame.headers().len(){step()?;let(header,header_row)=frame.headers()[index];if frame.has_call(header_row.event){continue;}
     let mut proofs=Vec::new();let mut charge=charged::StateCharge::new(budget,"enriched_fresh_body_completions");
     for occurrence in facts.occurrences.iter().filter(|row|super::completion_production::is_statement(row.syntax_kind)&&facts.owners.iter().any(|owner|owner.occurrence==row.id()&&owner.entity==header.callee())){
-     if let Ok(proof)=frame.complete(super::completion::CompletionRequest{input:invocation.input,context:invocation.context,owner:header.callee(),statement:occurrence.id()})?{charge.grow(size_of::<super::completion::CheckedCompletion>()*2)?;proofs.push(proof);}
+     step()?;if let Ok(proof)=frame.complete(super::completion::CompletionRequest{input:invocation.input,context:invocation.context,owner:header.callee(),statement:occurrence.id()})?{charge.grow(size_of::<super::completion::CheckedCompletion>()*2)?;proofs.push(proof);}
     }
     let _refs=budget.reserve("enriched_fresh_statement_refs",proofs.len()*size_of::<&super::completion::CheckedCompletion>()*2)?;let refs=proofs.iter().collect::<Vec<_>>();let body=super::body::complete_body(facts,super::body::SourceBodyRequest{input:invocation.input,context:invocation.context,callee:header.callee()},&refs,budget)?;let Ok(body)=body else{continue};let call=super::source_invocation::CheckedSourceInvocation::derive(facts,header,&body,budget)?;let Ok(call)=call else{continue};
     for proof in &proofs{insert_statement(&mut output,emit_statement(frame,proof,invocation,definition,budget)?)?;}
@@ -89,14 +90,14 @@ pub fn enrich_all(data:&EnrichedData,invocation:&publication::AnalysisInvocation
   }
   let mut statements=Vec::new();let mut charge=charged::StateCharge::new(budget,"enriched_retained_completions");
   for row in facts.occurrences.iter().filter(|row|super::completion_production::is_statement(row.syntax_kind)&&selected(row.source)){
-   let mut owners=facts.owners.iter().filter(|owner|owner.occurrence==row.id());let first=owners.next();let owner=if owners.next().is_none(){first.map(|owner|owner.entity)}else{None};
+   step()?;let mut owners=facts.owners.iter().filter(|owner|owner.occurrence==row.id());let first=owners.next();let owner=if owners.next().is_none(){first.map(|owner|owner.entity)}else{None};
    let result=if let Some(owner)=owner{frame.complete(super::completion::CompletionRequest{input:invocation.input,context:invocation.context,owner,statement:row.id()})?}else{Err(obligation::ObligationKind::MissingEvidence)};
    match result{Err(reason)=>{output.boundaries.insert(ExecutionBoundary{invocation:invocation.id(),statement:row.id(),owner,reason})?;},Ok(proof)=>{
     let records=emit_statement(frame,&proof,invocation,definition,budget)?;output.executions.insert(records.execution)?;output.outcomes.insert(records.outcome)?;for row in records.sources{output.sources.insert(row)?;}for row in records.members{output.members.insert(row)?;}for row in records.entered{output.entered.insert(row)?;}charge.grow(size_of::<super::completion::CheckedCompletion>()*2)?;statements.push(proof);
    }}
   }
   let _scratch=budget.reserve("enriched_body_statement_refs",statements.len().checked_mul(size_of::<&super::completion::CheckedCompletion>()*2).ok_or_else(||invalid("enriched body allowance overflow"))?)?;let refs=statements.iter().collect::<Vec<_>>();
-  for callable in facts.callables.iter(){let normalized::entities::CallableEntity::Source{declaration,..}=callable else{continue};let occurrence=facts.occurrences.get(*declaration).ok_or_else(||invalid("enriched body declaration absent"))?;if !selected(occurrence.source){continue;}let owner=normalized::entities::EntityRef::Callable{callable:callable.id()}.id();
+  for callable in facts.callables.iter(){step()?;let normalized::entities::CallableEntity::Source{declaration,..}=callable else{continue};let occurrence=facts.occurrences.get(*declaration).ok_or_else(||invalid("enriched body declaration absent"))?;if !selected(occurrence.source){continue;}let owner=normalized::entities::EntityRef::Callable{callable:callable.id()}.id();
    match super::body::complete_body(facts,super::body::SourceBodyRequest{input:invocation.input,context:invocation.context,callee:owner},&refs,budget)?{
     Err(reason)=>{output.body_boundaries.insert(BodyBoundary{invocation:invocation.id(),owner,declaration:*declaration,reason})?;},Ok(proof)=>{let records=emit_body(&proof,invocation,&output.executions,budget)?;output.bodies.insert(records.body)?;output.outcomes.insert(records.outcome)?;for row in records.sources{output.body_sources.insert(row)?;}for row in records.members{output.body_members.insert(row)?;}for row in records.releases{output.releases.insert(row)?;}}
    }

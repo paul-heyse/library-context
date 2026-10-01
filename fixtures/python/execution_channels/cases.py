@@ -1,3 +1,5 @@
+from typing import cast
+
 def effect():
     return None
 
@@ -84,3 +86,10 @@ def builtin_shadowed(int):
 def builtin_rebound():
     int = 1
     return int
+
+
+def fresh_modeled_source():
+    def fresh():
+        return cast(int, 10)
+
+    return fresh()

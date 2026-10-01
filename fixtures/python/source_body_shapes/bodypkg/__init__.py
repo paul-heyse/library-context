@@ -407,3 +407,11 @@ def call_unreachable_yield(value):
         return 16
     inner()
     return value
+
+
+def call_modeled_parameter(value):
+    return cast(int, value)
+
+
+def call_modeled_keyword_order():
+    return cast(val=10, typ=int)

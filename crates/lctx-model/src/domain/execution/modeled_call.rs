@@ -31,14 +31,19 @@ impl CheckedModeledEvaluation{
   let request=super::evaluation::ExpressionRequest{input:invocation.input,context:invocation.context,owner:application.shape().owner_entity(),expression:application.bound().bound().site()};
   let mut charge=charged::StateCharge::new(budget,"modeled_call_argument_replay");let count=application.bound().bound().bindings().len();charge.grow(count.checked_mul((size_of::<CheckedEvaluation>()+size_of::<ModeledCallArgument>())*2).ok_or_else(||ModelError::Invalid("modeled argument allowance overflow".into()))?)?;
   let mut arguments=Vec::new();let mut returned=None;let mut status=application.status();
-  for binding in application.bound().bound().bindings(){
+  let mut actuals=application.arguments().collect::<Vec<_>>();actuals.sort_by_key(|argument|argument.ordinal);
+  if actuals.iter().enumerate().any(|(ordinal,argument)|argument.ordinal!=ordinal as i64||!matches!(argument.kind,calls::ArgumentKind::Positional|calls::ArgumentKind::Keyword)){return Ok(Err(ObligationKind::CallTransfer));}
+  let mut bound_actuals=0usize;for binding in application.bound().bound().bindings(){match (&binding.source,&binding.projection){(BindingSource::Actual{occurrence},BindingProjection::Whole)=>{if !actuals.iter().any(|argument|argument.value==*occurrence){return Ok(Err(ObligationKind::MissingEvidence));}bound_actuals+=1;},(BindingSource::EmptyVarargs|BindingSource::EmptyKwargs,_)=>{},_=>return Ok(Err(ObligationKind::DefaultUnavailable))}}
+  if bound_actuals!=actuals.len(){return Ok(Err(ObligationKind::MissingEvidence));}
+  for actual_argument in actuals{
+   let mut matching=application.bound().bound().bindings().iter().filter(|binding|matches!(binding.source,BindingSource::Actual{occurrence}if occurrence==actual_argument.value));let Some(binding)=matching.next()else{return Ok(Err(ObligationKind::MissingEvidence));};if matching.next().is_some(){return Ok(Err(ObligationKind::AmbiguousBinding));}
    let occurrence=match (&binding.source,&binding.projection){(BindingSource::Actual{occurrence},BindingProjection::Whole)=>*occurrence,(BindingSource::EmptyVarargs|BindingSource::EmptyKwargs,_)=>continue,_=>return Ok(Err(ObligationKind::DefaultUnavailable))};
    let mut rows=earlier.earlier().evaluations.iter().filter(|row|row.expression==occurrence&&row.owner==request.owner&&earlier.earlier().invocations.get(row.invocation).is_some_and(|parent|(parent.input,parent.context)==(request.input,request.context)));let Some(row)=rows.next()else{return Ok(Err(ObligationKind::MissingEvidence));};if rows.next().is_some(){return Ok(Err(ObligationKind::AmbiguousBinding));}
    let checked=earlier.earlier().replay(row)?;
    if checked.release()!=ReleaseSafety::Closed{
     // Builtin lookup separately proves that the exact returned object remains externally held;
     // a parameter-read witness cannot substitute for this disposal premise.
-    if !matches!(super::builtin_read::CheckedBuiltinRead::derive(data,checked.request(),budget)?,Ok(_)){return Ok(Err(ObligationKind::FrameExitCleanup));}
+    if !matches!(super::builtin_read::CheckedBuiltinRead::derive(data,checked.request(),budget)?,Ok(_))&&!earlier.earlier().caller_holds_argument(row)?{return Ok(Err(ObligationKind::FrameExitCleanup));}
    }
    status=analysis::support::inferred_status(analysis::Interpretation::Structural,[status,checked.status()]);
    if binding.formal==formal&&occurrence==actual{returned=Some(arguments.len());}

@@ -27,8 +27,9 @@ fn one<'a,T:'a>(mut rows:impl Iterator<Item=&'a T>)->Result<&'a T,ObligationKind
 
 /// Borrowed catalog and bound call retain their owners' parser/binding reservations. No duplicate
 /// generic model tree is allocated and no public constructor can assert applicability.
-pub struct CheckedModelApplication<'a>{compiled:&'a CompiledModel,bound:&'a ValidatedBoundCall,shape:&'a BindingShapeAdmission,normal_parameter:Option<(Id<SignatureParameter>,Id<source::Occurrence>)>,premises:Rows<analysis::native::NativeAssertionPremise>,status:analysis::policy::EvidenceStatus,_charge:charged::StateCharge}
+pub struct CheckedModelApplication<'a>{data:&'a ModelApplicationData,syntax:Id<CallSyntax>,compiled:&'a CompiledModel,bound:&'a ValidatedBoundCall,shape:&'a BindingShapeAdmission,normal_parameter:Option<(Id<SignatureParameter>,Id<source::Occurrence>)>,premises:Rows<analysis::native::NativeAssertionPremise>,status:analysis::policy::EvidenceStatus,_charge:charged::StateCharge}
 impl<'a> CheckedModelApplication<'a>{
+ pub fn arguments(&self)->impl Iterator<Item=&CallArgument>{self.data.bindings.arguments.iter().filter(|a|a.call==self.syntax)}
  pub fn compiled(&self)->&CompiledModel{self.compiled}
  pub fn model(&self)->Id<AuthoredModel>{self.compiled.declaration().id()}
  pub fn catalog(&self)->Id<ModelCatalog>{self.compiled.declaration().catalog}
@@ -39,7 +40,7 @@ impl<'a> CheckedModelApplication<'a>{
  pub fn premises(&self)->&Rows<analysis::native::NativeAssertionPremise>{&self.premises}
  pub fn status(&self)->analysis::policy::EvidenceStatus{self.status}
  pub fn channels(&self)->&models::Channels{&self.compiled.model().coverage}
- pub fn derive(catalog:&'a Catalog,data:&ModelApplicationData,bound:&'a ValidatedBoundCall,shape:&'a BindingShapeAdmission,effective:Option<&EffectiveInvocationAdmission>,budget:&ResourceBudget)->Result<Result<Self,ObligationKind>,ModelError>{
+ pub fn derive(catalog:&'a Catalog,data:&'a ModelApplicationData,bound:&'a ValidatedBoundCall,shape:&'a BindingShapeAdmission,effective:Option<&EffectiveInvocationAdmission>,budget:&ResourceBudget)->Result<Result<Self,ObligationKind>,ModelError>{
   let mut charge=charged::StateCharge::new(budget,"checked-model-application");charge.grow(size_of::<Self>())?;
   let result=(||{
    if !shape.admits(bound){return Err(ObligationKind::IncompatibleContexts)}
@@ -64,7 +65,8 @@ impl<'a> CheckedModelApplication<'a>{
     let binding=one(bound.bound().bindings().iter().filter(|b|b.formal==formal))?;
     match (&binding.source,&binding.projection){(BindingSource::Actual{occurrence},BindingProjection::Whole)=>Some((formal,*occurrence)),_=>None}
    }else{None};
-   Ok(Self{compiled,bound,shape,normal_parameter,premises:Rows::new(budget),status:analysis::policy::EvidenceStatus::StructurallyObserved,_charge:charge})
+   let syntax=one(bindings.syntax.iter().filter(|s|s.site==bound.bound().site()&&bindings.qualifications.get(s.qualification).is_some_and(|q|q.context==shape.context())))?;
+   Ok(Self{data,syntax:syntax.id(),compiled,bound,shape,normal_parameter,premises:Rows::new(budget),status:analysis::policy::EvidenceStatus::StructurallyObserved,_charge:charge})
   })();match result{Err(reason)=>Ok(Err(reason)),Ok(mut application)=>match runtime_evidence(data,bound,shape,budget){Ok((premises,status))=>{application.premises=premises;application.status=status;Ok(Ok(application))},Err(RuntimeEvidenceError::Boundary(reason))=>Ok(Err(reason)),Err(RuntimeEvidenceError::Model(error))=>Err(error)}}
  }
 }

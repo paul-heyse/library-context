@@ -3,6 +3,7 @@
 use crate::domain::{*,analysis,resources::ResourceBudget,obligation::ObligationKind};
 use super::{source_call_records::{SourceCallData,SourceCallHeader,SourceInvocation},source_call::CheckedSourceBinding,evaluation::{CheckedEvaluation,ExpressionRequest},completion::{CheckedCompletion,CompletionRequest}};
 
+pub const ENRICHED_WORK_LIMIT:usize=1<<16;
 #[derive(Debug,Clone,Copy,PartialEq,Eq)]
 pub enum EvaluationPremise {Base(Id<super::records::ExpressionEvaluation>),Source(Id<SourceInvocation>),Modeled(Id<super::modeled_call::ModeledCallEvaluation>),Fresh(Id<super::enriched_records::SourceExecutionInvocation>)}
 pub struct EnrichedFrame<'a>{data:&'a SourceCallData,input:Id<input::InputRevision>,context:Id<attribution::AnalysisContext>,evaluations:Vec<(CheckedEvaluation,EvaluationPremise)>,headers:Vec<(&'a CheckedSourceBinding,&'a SourceCallHeader)>,budget:&'a ResourceBudget,_charge:charged::StateCharge}
