@@ -50,6 +50,8 @@ macro_rules! catalog_evidence_outputs {($m:ident)=>{$m! {
  options:$crate::domain::catalog::evidence::ScenarioOption,
  document_associations:$crate::domain::catalog::evidence::DocumentAssociation,
  accesses:$crate::domain::catalog::evidence::FieldAccessAssessment,
+ field_locations:$crate::domain::catalog::evidence::FieldLocationLink,
+ constructor_candidates:$crate::domain::catalog::evidence::ConstructorCandidateLink,
  deployments:$crate::domain::catalog::evidence::CatalogDeployment,
  release_deployments:$crate::domain::catalog::evidence::ReleaseDeployment,
  checks:$crate::domain::catalog::evidence::ScenarioCheck,

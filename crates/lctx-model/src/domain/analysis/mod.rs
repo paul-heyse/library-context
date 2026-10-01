@@ -29,7 +29,7 @@ analysis_family!(structural,"structural",[Local:4=>local,CatalogCore:5=>catalog_
 analysis_family!(analytic_embedding,"analytic_embedding",[],[],[crate::domain::normalized::coverage::NormalizationCoverage],[]);
 analysis_family!(analytic,"analytic",[Structural:4=>structural,AnalyticEmbedding:5=>analytic_embedding],[],[crate::domain::normalized::coverage::NormalizationCoverage],[]);
 analysis_family!(catalog_core,"catalog_core",[],[],[crate::domain::normalized::coverage::NormalizationCoverage],[]);
-analysis_family!(catalog_evidence,"catalog_evidence",[CatalogCore:4=>catalog_core],[],[crate::domain::normalized::coverage::NormalizationCoverage],[]);
+analysis_family!(catalog_evidence,"catalog_evidence",[CatalogCore:4=>catalog_core,Local:5=>local,SourceCallAnalysis:6=>source_call],[],[crate::domain::normalized::coverage::NormalizationCoverage],[]);
 // Selection is declaration-owned. Unactivated predecessor codes 5/6 and transfer code 2 remain reserved; optional
 // structural/analytic results feed synthesis, not catalog requirement closure.
 analysis_family!(selection,"selection",[CatalogEvidence:4=>catalog_evidence],[],[crate::domain::normalized::coverage::NormalizationCoverage],[]);

@@ -1,4 +1,5 @@
 //! Original contextual evidence references canonical captured coordinates and earlier semantic owners.
+pub mod runtime;
 mod inventory;
 pub mod build;
 pub mod frames;
@@ -101,3 +102,5 @@ pub struct EvidenceRoot {#[model(key)]pub input:Id<InputRevision>,#[model(key)]p
 #[model(name="catalog_evidence_invocations",invariants=build::invocation_invariants,semantic_source=include_bytes!("frames.rs"))]
 pub struct EvidenceInvocation {#[model(key)]pub root:Id<EvidenceRoot>,#[model(key)]pub invocation:Id<analysis::catalog_evidence::Invocation>}
 pub fn relations()->Vec<Relation> {macro_rules! declare {($($f:ident:$ty:ty,)*)=>{vec![$(Relation::of::<$ty>()),*]};}let mut rows=crate::catalog_evidence_outputs!(declare);rows.push(Relation::of::<EvidenceInvocation>());rows}
+
+pub use runtime::{ConstructorCandidateLink,FieldLocationLink};

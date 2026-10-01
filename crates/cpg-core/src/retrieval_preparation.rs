@@ -13,8 +13,9 @@ pub async fn mandatory(access:&StageAccess<'_, '_>,attempt:&GenerationAttempt,co
  macro_rules! facts {($($f:ident:$ty:ty,)*)=>{$(let permit=access.read::<$ty>()?;session.register(&permit,reader.table(&permit).map_err(ModelError::codec)?)?;load(&session,&mut data.source.facts.$f).await?;)*};}lctx_model::catalog_evidence_inputs!(facts);
  macro_rules! evidence {($($f:ident:$ty:ty,)*)=>{$(let permit=access.read::<$ty>()?;session.register(&permit,reader.table(&permit).map_err(ModelError::codec)?)?;load(&session,&mut data.evidence.$f).await?;)*};}lctx_model::catalog_evidence_outputs!(evidence);
  macro_rules! extra {($($f:ident:$ty:ty,)*)=>{$(let permit=access.read::<$ty>()?;session.register(&permit,reader.table(&permit).map_err(ModelError::codec)?)?;load(&session,&mut data.facts.$f).await?;)*};}lctx_model::retrieval_inputs!(extra);
+ macro_rules! lower {($($f:ident:$ty:ty,)*)=>{$(let permit=access.read::<$ty>()?;session.register(&permit,reader.table(&permit).map_err(ModelError::codec)?)?;load(&session,&mut data.source.runtime.$f).await?;)*};}lctx_model::catalog_runtime_inputs!(lower);
  drop(session);reader.close().await.map_err(ModelError::codec)?;
- catalog::evidence::frames::verify(&data.source.facts.runs,&data.source.facts.core_invocations,&data.facts.evidence_invocations,&data.facts.evidence_sources,&data.facts.evidence_inputs,runtime.budget())?;
+ catalog::evidence::frames::verify(&data.source.facts.runs,&data.source.facts.core_invocations,&data.facts.evidence_invocations,&data.facts.evidence_sources,&data.facts.evidence_inputs,&data.source.runtime.lower(),runtime.budget())?;
  if !data.facts.evidence_links.same(&catalog::evidence::build::invocation_links(&data.evidence,&data.facts.evidence_invocations,runtime.budget())?) {return Err(build::invalid("retrieval C1 root invocation closure differs"));}
  let budget=runtime.budget().clone();tokio::task::spawn_blocking(move || {let output=build::build(&data,&budget)?;Ok((data,output))}).await.map_err(ModelError::codec)?
 }

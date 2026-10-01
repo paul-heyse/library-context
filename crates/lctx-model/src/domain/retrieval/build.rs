@@ -89,7 +89,7 @@ fn briefs(d:&Data,out:&mut Output,b:&ResourceBudget)->Result<(),ModelError> {
 }
 
 /// Mandatory helper closure, reused within the single final E0 producer stage.
-pub fn mandatory_inputs(profile:Profile)->Vec<RelationUse> {let parent=c1::build::stage(profile);let mut inputs=parent.inputs;inputs.extend(parent.outputs.into_iter().map(|r|r.completed_store()));inputs.extend(Facts::uses());inputs.sort_by_key(|r|r.name());inputs.dedup_by_key(|r|r.name());inputs}
+pub fn mandatory_inputs(profile:Profile,model:&ValidatedModel)->Result<Vec<RelationUse>,ModelError> {let parent=c1::build::stage(profile,model)?;let mut inputs=parent.inputs;inputs.extend(parent.outputs.into_iter().map(|r|r.completed_store()));inputs.extend(Facts::uses());inputs.sort_by_key(|r|r.name());inputs.dedup_by_key(|r|r.name());Ok(inputs)}
 
 impl Data {
  /// One actual S0 and C1 parent for every native frame, independently of observed retrieval rows.

@@ -1,4 +1,4 @@
-use crate::domain::{*,catalog::*,catalog::evidence::{CatalogScenario,OriginalSource,FieldAccessAssessment,ScenarioAssociation,DocumentAssociation,CatalogDeployment,Intent},attribution::AnalysisContext,normalized::{entities::{ClassEntity,EntityRef},callables::SignatureSlot},input::Release};
+use crate::domain::{*,catalog::*,catalog::evidence::{CatalogScenario,OriginalSource,FieldAccessAssessment,ScenarioAssociation,DocumentAssociation,CatalogDeployment,Intent,FieldLocationLink,ConstructorCandidateLink},attribution::AnalysisContext,normalized::{entities::{ClassEntity,EntityRef},callables::SignatureSlot},input::Release};
 use crate::{Domain,DomainCode,DomainSum};
 use serde::{Serialize,Deserialize};
 #[derive(Debug,Clone,Copy,PartialEq,Eq,PartialOrd,Ord,Hash,DomainCode)]
@@ -87,6 +87,8 @@ pub enum Witness {
  #[model(code=13)] TypeObservation {observation:Id<types::TypeObservation>},
  #[model(code=14)] SignatureSlot {slot:Id<SignatureSlot>},
  #[model(code=15)] NativeField {observation:Id<types::RecordFieldObservation>},
+ #[model(code=16)] ReceiverLocation {link:Id<FieldLocationLink>},
+ #[model(code=17)] ConstructorCandidate {link:Id<ConstructorCandidateLink>},
 }
 #[derive(Debug,Clone,PartialEq,Eq,Domain)]
 #[model(name="catalog_selection_domains",invariants=super::build::invariants,semantic_source=include_bytes!("build.rs"))]

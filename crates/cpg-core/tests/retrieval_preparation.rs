@@ -1,4 +1,5 @@
 //! Scoped E0 mandatory helper qualification with actual native owners and disposable PG18.
+#[path="fixtures/catalog_runtime.rs"] mod catalog_runtime;
 use cpg_core::model_runtime::{AttemptRuntime,RuntimeOptions};
 use cpg_extract::{acquisition::AcquiredInput,bundle::{CapturedInputs,run_stage},capture::CapturedInput};
 use lctx_model::domain::{*,admission::FrontierContract,stages::*,catalog::build,normalized::{entity_normalization,relation_normalization,callable_normalization,binding_normalization,event_normalization}};
@@ -11,7 +12,8 @@ async fn mandatory_four_family_preparation_uses_completed_native_catalog_sources
     let db=DisposableDatabase::start().await;db.migrate().await;
     let config=RoleConfig {format:1,role:Role::Importer,url:db.url("lctx_importer"),max_connections:6,provider_connections:4,acquire_timeout_seconds:5,statement_timeout_seconds:60,lock_timeout_seconds:10};
     let mut relations=normalized_relations();
-    relations.extend(analysis::early_relations());
+    relations.extend(analysis::early_relations());relations.extend(catalog_runtime::relations());
+    
     relations.extend(analysis::catalog_core::relations());
     relations.extend(catalog::relations());
     relations.extend(analysis::catalog_evidence::relations());
@@ -20,11 +22,11 @@ async fn mandatory_four_family_preparation_uses_completed_native_catalog_sources
     let model=Arc::new(ValidatedModel::validate(relations).unwrap());let store=GenerationStore::install(db.owner.clone(),model.clone()).await.unwrap();
     let root=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/python/catalog_context");
     let captured=Arc::new(CapturedInputs::new(vec![AcquiredInput::tree(CapturedInput::capture_derived(&root,&["api.py".into(),"guide.mdx".into()],budget,&["guide.mdx".into()],cpg_extract::acquisition::derive_blocks).unwrap(),"C0") ],cpg_extract::native_context::NativeContextConfig::committed(profile,budget).unwrap()));
-    let configuration=analysis::preparation::Configuration::new(captured.config().catalog(),[build::definition(),catalog::evidence::build::definition()],budget).unwrap().with_retrieval(retrieval::Definition::builtin(false)).unwrap();
+    let configuration=analysis::preparation::Configuration::new(captured.config().catalog(),catalog_runtime::definitions().into_iter().chain([build::definition(),catalog::evidence::build::definition()]),budget).unwrap().with_retrieval(retrieval::Definition::builtin(false)).unwrap();
     let mut providers=cpg_core::facts::providers(ContentHash::of(b"C0-native-fixture"));
     let mut declarations:Vec<_>=providers.iter().map(|p|p.declaration(profile)).collect();
-    declarations.extend([entity_normalization::stage(),relation_normalization::stage(profile),callable_normalization::stage(profile),normalized::receiver::stage(profile),event_normalization::stage(profile),binding_normalization::stage(profile),projection::normalization::stage(profile),normalized::coverage::stage(profile),configuration.declaration(),analysis::preparation::native_stage(profile),normalized::callable_aspects::stage(profile),build::stage(profile),catalog::evidence::build::stage(profile),Stage {name:"retrieval_mandatory_control",inputs:retrieval::build::mandatory_inputs(profile),outputs:retrieval::rendering_relations().iter().map(RelationUse::of_relation).collect(),contributes:vec![],coverage:vec![],provider:None,profiles:vec![profile],effect:Effect::Pure,code:ContentHash::of(b"native-mandatory-retrieval-control"),configuration:ContentHash::of(b"disabled-vectors-mandatory-renderer")}]);
-    let schedule=Schedule::build(&model,declarations,&[],profile).unwrap();
+    declarations.extend([entity_normalization::stage(),relation_normalization::stage(profile),callable_normalization::stage(profile),normalized::receiver::stage(profile),event_normalization::stage(profile),binding_normalization::stage(profile),projection::normalization::stage(profile),normalized::coverage::stage(profile),configuration.declaration(),analysis::preparation::native_stage(profile),normalized::callable_aspects::stage(profile),build::stage(profile),catalog::evidence::build::stage(profile,&model).unwrap(),Stage {name:"retrieval_mandatory_control",inputs:retrieval::build::mandatory_inputs(profile,&model).unwrap(),outputs:retrieval::rendering_relations().iter().map(RelationUse::of_relation).collect(),contributes:vec![],coverage:vec![],provider:None,profiles:vec![profile],effect:Effect::Pure,code:ContentHash::of(b"native-mandatory-retrieval-control"),configuration:ContentHash::of(b"disabled-vectors-mandatory-renderer")}]);
+    declarations.extend(catalog_runtime::stages(profile,&model));let schedule=catalog_runtime::schedule(&model,declarations,profile);
     assert!(!schedule.stages().iter().any(|s|s.name=="flow" || s.name.contains("synth") || s.name.contains("embed")));
     let mut execution=schedule.execute();let attempt=store.begin_conformance(db.writer.clone(),&mut execution,budget.clone()).await.unwrap();let id=attempt.generation();
     for declaration in schedule.stages() {
@@ -50,6 +52,8 @@ async fn mandatory_four_family_preparation_uses_completed_native_catalog_sources
             cpg_core::stage_runtime::run_declared_stage(&mut execution,declaration,async |access|cpg_core::catalog_core::aspects(access,&attempt,&config,&runtime,&model).await,&mut |_|{}).await.unwrap();
         } else if declaration.name=="catalog_core" {
             cpg_core::stage_runtime::run_declared_stage(&mut execution,declaration,async |access|cpg_core::catalog_core::produce(access,&attempt,&config,&runtime,&model).await,&mut |_|{}).await.unwrap_or_else(|e|panic!("stage {} failed: {e}",declaration.name));
+        } else if matches!(declaration.name,"analyze_local"|"evaluate_base"|"complete_base"|"prepare_source_calls") {
+            cpg_core::stage_runtime::run_declared_stage(&mut execution,declaration,async |access|catalog_runtime::run(declaration.name,access,&attempt,&config,&runtime,&model).await,&mut |_|{}).await.unwrap_or_else(|e|panic!("parent {} failed: {e}",declaration.name));
         } else if declaration.name=="catalog_evidence" {
             cpg_core::stage_runtime::run_declared_stage(&mut execution,declaration,async |access|cpg_core::catalog_evidence::produce(access,&attempt,&config,&runtime,&model).await,&mut |_|{}).await.unwrap_or_else(|e|panic!("stage {} failed: {e}",declaration.name));
         } else if declaration.name=="retrieval_mandatory_control" {
