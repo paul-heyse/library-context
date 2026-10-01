@@ -23,6 +23,12 @@ pub(super) const FAILED: &str = "failed";
 /// The committed stage-completion privilege transition, shared by execution and shadow checking.
 pub(super) fn completed_output(schema: &str, relation: &str) -> [String; 2] {
     let table = format!("{}.{}", quoted(schema), quoted(relation));
+    if lctx_model::domain::stages::is_vocabulary(relation) {
+        return [
+            format!("REVOKE INSERT ON {table} FROM lctx_importer"),
+            format!("REVOKE SELECT ON {table} FROM lctx_importer"),
+        ];
+    }
     [
         format!("REVOKE INSERT ON {table} FROM lctx_importer"),
         format!("GRANT SELECT ON {table} TO lctx_importer"),
@@ -70,6 +76,9 @@ fn column_signature(model: &ValidatedModel, relations: &BTreeSet<&str>) -> Strin
         let name = relation.name();
         parts.push(format!("{name}.generation_id:bytea:true"));
         parts.push(format!("{name}.id:bytea:true"));
+        if lctx_model::domain::stages::is_vocabulary(name) {
+            parts.push(format!("{name}.introduced_epoch:smallint:true"));
+        }
         for field in relation.fields() {
             let base = match field.scalar() {
                 Scalar::Text => "text",
@@ -96,7 +105,7 @@ fn column_signature(model: &ValidatedModel, relations: &BTreeSet<&str>) -> Strin
 /// The live-column signature of one generation schema, in the same form.
 pub(super) const LIVE_COLUMNS: &str = "SELECT COALESCE(string_agg(c.relname || '.' || a.attname || ':' || format_type(a.atttypid, a.atttypmod) || ':' || a.attnotnull::text, \
     ',' ORDER BY c.relname COLLATE \"C\", a.attnum), '') FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid JOIN pg_namespace n ON n.oid = c.relnamespace \
-    WHERE n.nspname = $1 AND c.relkind = 'r' AND a.attnum > 0 AND NOT a.attisdropped";
+    WHERE n.nspname = $1 AND c.relkind = 'r' AND left(c.relname,8) <> '__delta_' AND a.attnum > 0 AND NOT a.attisdropped";
 
 /// The frontier a registry row names.
 pub(super) fn frontier(name: &str) -> Option<Frontier> {
@@ -209,7 +218,7 @@ pub(super) fn lower(
         .filter(|r| relations.contains(r.name()))
     {
         let mut table = Table::create();
-        let mut wire_sizes = vec!["42::bigint".to_owned()];
+        let mut wire_sizes = vec![if lctx_model::domain::stages::is_vocabulary(relation.name()) { "48::bigint".to_owned() } else { "42::bigint".to_owned() }];
         table.table((schema.clone(), relation.name()));
         table.col(
             ColumnDef::new("generation_id")
@@ -222,6 +231,15 @@ pub(super) fn lower(
             generation.hex()
         )));
         table.col(ColumnDef::new("id").binary().not_null());
+        if lctx_model::domain::stages::is_vocabulary(relation.name()) {
+            table.col(
+                ColumnDef::new("introduced_epoch")
+                    .small_integer()
+                    .not_null()
+                    .default(0),
+            );
+            table.check(Expr::cust("introduced_epoch BETWEEN 0 AND 5"));
+        }
         table.check(Expr::cust("octet_length(id) = 16"));
         table.primary_key(Index::create().col("generation_id").col("id"));
         for field in relation.fields() {
@@ -379,6 +397,13 @@ pub(super) fn lower(
     }
     let s = quoted(&schema);
     let mut views = derivation_views(model, relations, &schema);
+    for relation in model.relations().iter().filter(|r| {
+        relations.contains(r.name()) && lctx_model::domain::stages::is_vocabulary(r.name())
+    }) {
+        for epoch in lctx_model::domain::stages::VocabularyEpoch::ALL {
+            views.push(prefix_view(&schema, relation, epoch));
+        }
+    }
     use lctx_model::domain::normalized::events::CallPolicy;
     if CallPolicy::view_relations()
         .iter()
@@ -395,10 +420,19 @@ pub(super) fn lower(
     }
     Lowering {
         views,
-        grant_staging: vec![
-            format!("GRANT USAGE ON SCHEMA {s} TO lctx_importer"),
-            format!("GRANT INSERT ON ALL TABLES IN SCHEMA {s} TO lctx_importer"),
-        ],
+        grant_staging: vec![format!("GRANT USAGE ON SCHEMA {s} TO lctx_importer")]
+            .into_iter()
+            .chain(
+                model
+                    .relations()
+                    .iter()
+                    .filter(|r| {
+                        relations.contains(r.name())
+                            && !lctx_model::domain::stages::is_vocabulary(r.name())
+                    })
+                    .map(|r| format!("GRANT INSERT ON {s}.{} TO lctx_importer", quoted(r.name()))),
+            )
+            .collect(),
         revoke_writer: vec![
             format!("REVOKE ALL ON ALL TABLES IN SCHEMA {s} FROM lctx_importer"),
             format!("REVOKE USAGE ON SCHEMA {s} FROM lctx_importer"),
@@ -417,11 +451,19 @@ pub(super) fn lower(
 fn physical_digest(model: &ValidatedModel, relations: &BTreeSet<&str>) -> ContentHash {
     let g = GenerationId([0; 16]);
     let lowering = lower(model, relations, g, &g.schema(), CONTROL);
+    let delta_template = model
+        .relations()
+        .iter()
+        .filter(|r| relations.contains(r.name()))
+        .flat_map(|r| delta_create(&g.schema(), r, "publication-template", true))
+        .collect::<Vec<_>>()
+        .join(";\n");
     ContentHash::of(
         format!(
-            "{}\n{}",
+            "{}\n{}\n{}",
             control(CONTROL),
-            lowering.through("published").join(";\n")
+            lowering.through("published").join(";\n"),
+            delta_template
         )
         .as_bytes(),
     )
@@ -476,4 +518,60 @@ fn derivation_views(
         )
     })
     .collect()
+}
+
+pub(super) fn delta_name(stage: &str, relation: &str) -> String {
+    format!(
+        "__delta_{}",
+        &ContentHash::of(format!("{stage}/{relation}").as_bytes()).hex()[..40]
+    )
+}
+pub(super) fn prefix_view(
+    schema: &str,
+    relation: &Relation,
+    epoch: lctx_model::domain::stages::VocabularyEpoch,
+) -> String {
+    let columns = relation
+        .schema()
+        .fields()
+        .iter()
+        .map(|f| quoted(f.name()))
+        .collect::<Vec<_>>()
+        .join(",");
+    format!(
+        "CREATE VIEW {}.{} WITH (security_barrier=true) AS SELECT {columns} FROM {}.{} WHERE introduced_epoch <= {}",
+        quoted(schema),
+        quoted(&epoch.view(relation.name())),
+        quoted(schema),
+        quoted(relation.name()),
+        epoch.code()
+    )
+}
+pub(super) fn delta_create(
+    schema: &str,
+    relation: &Relation,
+    stage: &str,
+    writable: bool,
+) -> Vec<String> {
+    let columns = relation
+        .schema()
+        .fields()
+        .iter()
+        .map(|f| quoted(f.name()))
+        .collect::<Vec<_>>()
+        .join(",");
+    let table = format!(
+        "{}.{}",
+        quoted(schema),
+        quoted(&delta_name(stage, relation.name()))
+    );
+    let mut statements = vec![format!(
+        "CREATE TABLE {table} AS SELECT {columns} FROM {}.{} WITH NO DATA",
+        quoted(schema),
+        quoted(relation.name())
+    )];
+    if writable {
+        statements.push(format!("GRANT INSERT ON {table} TO lctx_importer"));
+    }
+    statements
 }

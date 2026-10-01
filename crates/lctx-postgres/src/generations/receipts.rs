@@ -46,6 +46,9 @@ impl GenerationStore {
         if outcome == ProviderOutcome::Failed {
             return Err(Error::State);
         }
+        let grouped: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM lctx_model_store.publication_outputs WHERE generation_id=$1 AND stage_name=$2)").bind(g.0.to_vec()).bind(stage).fetch_one(&mut *tx).await?;
+        if grouped { return Err(Error::Contract); }
+
         let planned: Vec<String> = sqlx::query_scalar("SELECT relation_name FROM lctx_model_store.planned_outputs WHERE generation_id=$1 AND stage_name=$2 ORDER BY relation_name COLLATE \"C\"")
             .bind(g.0.to_vec()).bind(stage).fetch_all(&mut *tx).await?;
         if planned.iter().map(String::as_str).collect::<BTreeSet<_>>() != *outputs {
@@ -113,6 +116,10 @@ impl GenerationStore {
         let registered = self.registered(tx, g).await?;
         registered.expect("staging")?;
         check_schedule(tx, g, schedule).await?;
+        let unclosed: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM lctx_model_store.publication_groups WHERE generation_id=$1 AND NOT closed)").bind(g.0.to_vec()).fetch_one(&mut *tx).await?;
+        if unclosed {
+            return Err(Error::State);
+        }
         self.revoke_writer(tx, g, registered.frontier).await?;
         let completed = sqlx::query("SELECT stage_name,relation_name,schedule_digest FROM lctx_model_store.stage_receipts WHERE generation_id=$1")
             .bind(g.0.to_vec()).fetch_all(&mut *tx).await?;
@@ -224,8 +231,13 @@ impl GenerationStore {
             })
             .await?;
             let (row_count, digest) = rows.finish();
-            let frozen: Option<(i64, Vec<u8>)> = sqlx::query_as("SELECT row_count,content_digest FROM lctx_model_store.stage_receipts WHERE generation_id=$1 AND relation_name=$2")
-                .bind(g.0.to_vec()).bind(relation.name()).fetch_optional(&mut *tx).await?;
+            let frozen: Option<(i64, Vec<u8>)> = if lctx_model::domain::stages::is_vocabulary(
+                relation.name(),
+            ) {
+                sqlx::query_as("SELECT row_count,content_digest FROM lctx_model_store.epoch_receipts WHERE generation_id=$1 AND relation_name=$2 ORDER BY epoch DESC LIMIT 1").bind(g.0.to_vec()).bind(relation.name()).fetch_optional(&mut *tx).await?
+            } else {
+                sqlx::query_as("SELECT row_count,content_digest FROM lctx_model_store.stage_receipts WHERE generation_id=$1 AND relation_name=$2").bind(g.0.to_vec()).bind(relation.name()).fetch_optional(&mut *tx).await?
+            };
             if frozen.is_some_and(|(count, bytes)| {
                 u64::try_from(count).ok() != Some(row_count) || bytes != digest.0
             }) {
@@ -236,6 +248,27 @@ impl GenerationStore {
                 sqlx::query("INSERT INTO lctx_model_store.receipts(generation_id,relation_name,row_count,content_digest) VALUES($1,$2,$3,$4)")
                 .bind(g.0.to_vec()).bind(relation.name()).bind(i64::try_from(row_count).map_err(|_| Error::Codec("row count overflow".into()))?)
                 .bind(digest.0.to_vec()).execute(&mut *tx).await?;
+            }
+        }
+        if persist {
+            let old: Vec<(i16,String,i64,Vec<u8>)> = sqlx::query_as("SELECT epoch,relation_name,row_count,content_digest FROM lctx_model_store.epoch_receipts WHERE generation_id=$1").bind(g.0.to_vec()).fetch_all(&mut *tx).await?;
+            for (epoch, name, count, bytes) in old {
+                let epoch = *lctx_model::domain::stages::VocabularyEpoch::ALL
+                    .get(usize::try_from(epoch).map_err(|_| Error::Contract)?)
+                    .ok_or(Error::Contract)?;
+                let relation = self
+                    .model
+                    .relations()
+                    .iter()
+                    .find(|r| r.name() == name)
+                    .ok_or(Error::Contract)?;
+                let actual =
+                    super::vocabulary::receipt(tx, g, relation, &epoch.view(&name), budget).await?;
+                if i64::try_from(actual.rows).ok() != Some(count)
+                    || actual.content.0 != bytes.as_slice()
+                {
+                    return Err(Error::Contract);
+                }
             }
         }
         let digest = content.finish();

@@ -11,8 +11,8 @@ use super::{
 };
 use lctx_model::domain::resources::ResourceBudget;
 use lctx_model::domain::stages::{
-    AttemptIdentity, CompletedStage, Execution, ExecutionReceipt, StageCompletion, StageSink,
-    WritePermit,
+    AttemptIdentity, ClosedGroup, CompletedStage, ComputedStage, Execution, ExecutionReceipt,
+    GroupCompletion, StageCompletion, StageSink, WritePermit,
 };
 use lctx_model::domain::{
     Batch, ContentHash, ModelError, Record,
@@ -86,6 +86,8 @@ impl GenerationStore {
                 schedule.profile().name(),
                 preflight,
                 &expected,
+                schedule.publication_groups(),
+                schedule.stages(),
             )
             .await?;
         Ok(GenerationAttempt {
@@ -106,6 +108,10 @@ impl GenerationStore {
     }
     /// Register a generation on a new lifecycle connection that takes the attempt lock before
     /// the registry row is visible, so no one observes the generation without its attempt.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "Registration atomically carries the frontier, schedule identity, planned outputs and publication groups"
+    )]
     async fn register(
         &self,
         frontier: Frontier,
@@ -113,6 +119,8 @@ impl GenerationStore {
         profile: &str,
         preflight: Option<Preflight>,
         planned: &BTreeSet<(&str, &str)>,
+        groups: &[lctx_model::domain::stages::PublicationGroup],
+        stages: &[lctx_model::domain::stages::Stage],
     ) -> Result<Lifecycle, Error> {
         let g = GenerationId::new()?;
         let mut connection = self.owner.acquire().await?;
@@ -125,6 +133,7 @@ impl GenerationStore {
                 .await?;
             self.create(tx, g, frontier, schedule, profile, schedule)
                 .await?;
+            self.prepare_publications(tx, g, groups, stages).await?;
             for (stage, relation) in planned {
                 sqlx::query("INSERT INTO lctx_model_store.planned_outputs VALUES($1,$2,$3)")
                     .bind(g.0.to_vec())
@@ -372,13 +381,28 @@ impl GenerationAttempt {
                 "write permit belongs to another generation attempt".into(),
             ));
         }
+        let grouped = {
+            let mut tx = self
+                .writer
+                .acquire()
+                .await
+                .map_err(super::Error::from)
+                .map_err(ModelError::from)?;
+            sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM lctx_model_store.publication_outputs WHERE generation_id=$1 AND stage_name=$2 AND relation_name=$3)").bind(self.generation.0.to_vec()).bind(permit.stage()).bind(R::NAME).fetch_one(&mut *tx).await.map_err(super::Error::from).map_err(ModelError::from)?
+        };
+        let physical = if grouped {
+            super::ddl::delta_name(permit.stage(), R::NAME)
+        } else {
+            R::NAME.to_owned()
+        };
         self.store
-            .copy_attempt(
+            .copy_into(
                 &self.writer,
                 self.generation,
                 batch,
                 self.schedule,
                 &self.budget,
+                &physical,
             )
             .await
             .map_err(ModelError::from)?;
@@ -472,6 +496,71 @@ impl CompletedCheckpoint {
     }
 }
 impl StageSink for GenerationAttempt {
+    async fn compute(&self, completion: StageCompletion) -> Result<ComputedStage, ModelError> {
+        if Some(completion.identity().attempt()) != self.identity
+            || completion.model() != self.store.model.digest()
+            || completion.schedule() != self.schedule
+            || self
+                .poisoned
+                .swap(true, std::sync::atomic::Ordering::AcqRel)
+        {
+            return Err(ModelError::Invalid(
+                "foreign or poisoned computation".into(),
+            ));
+        }
+        {
+            let written = self
+                .written
+                .lock()
+                .map_err(|_| ModelError::Invalid("output state poisoned".into()))?;
+            if completion
+                .outputs()
+                .iter()
+                .any(|r| !written.contains(&(completion.stage(), *r)))
+            {
+                return Err(ModelError::Invalid("unwritten publication output".into()));
+            }
+        }
+        let mut lifecycle = self.lifecycle.lock().await;
+        let receipts = transaction_on(&mut lifecycle.connection, async |tx| {
+            self.store
+                .compute_stage_step(tx, self.generation, &completion, &self.budget)
+                .await
+        })
+        .await
+        .map_err(ModelError::from)?;
+        let computed = completion.seal(receipts)?;
+        self.poisoned
+            .store(false, std::sync::atomic::Ordering::Release);
+        Ok(computed)
+    }
+    async fn close_group(&self, group: GroupCompletion) -> Result<ClosedGroup, ModelError> {
+        if group.stages().iter().any(|s| {
+            Some(s.completion().identity().attempt()) != self.identity
+                || s.completion().model() != self.store.model.digest()
+                || s.completion().schedule() != self.schedule
+        }) || self
+            .poisoned
+            .swap(true, std::sync::atomic::Ordering::AcqRel)
+        {
+            return Err(ModelError::Invalid(
+                "foreign or poisoned publication".into(),
+            ));
+        }
+        let mut lifecycle = self.lifecycle.lock().await;
+        let receipts = transaction_on(&mut lifecycle.connection, async |tx| {
+            self.store
+                .close_vocabulary_step(tx, self.generation, &group, &self.budget)
+                .await
+        })
+        .await
+        .map_err(ModelError::from)?;
+        let closed = group.acknowledge(receipts.0,receipts.1)?;
+        self.poisoned
+            .store(false, std::sync::atomic::Ordering::Release);
+        Ok(closed)
+    }
+
     async fn complete(&self, completion: StageCompletion) -> Result<CompletedStage, ModelError> {
         if Some(completion.identity().attempt()) != self.identity
             || completion.model() != self.store.model.digest()
@@ -677,6 +766,8 @@ mod harness {
                     profile.name(),
                     None,
                     &BTreeSet::new(),
+                    &[],
+                    &[],
                 )
                 .await?;
             Ok(GenerationAttempt {
@@ -707,7 +798,18 @@ mod harness {
                 return Err(Error::State);
             }
             self.store
-                .copy_attempt(&self.writer, self.generation, batch, self.schedule, budget)
+                .copy_into(
+                    if lctx_model::domain::stages::is_vocabulary(R::NAME) {
+                        &self.store.owner
+                    } else {
+                        &self.writer
+                    },
+                    self.generation,
+                    batch,
+                    self.schedule,
+                    budget,
+                    R::NAME,
+                )
                 .await?;
             self.written
                 .lock()

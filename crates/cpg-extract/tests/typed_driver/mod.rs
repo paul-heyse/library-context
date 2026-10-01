@@ -67,6 +67,12 @@ pub struct ObservedSink<S> {
     pub tables: Tables,
 }
 impl<S: StageSink + Send> StageSink for ObservedSink<S> {
+    async fn compute(&self, completion: StageCompletion) -> Result<ComputedStage, ModelError> {
+        self.generation.compute(completion).await
+    }
+    async fn close_group(&self, group: GroupCompletion) -> Result<ClosedGroup, ModelError> {
+        self.generation.close_group(group).await
+    }
     async fn complete(
         &self,
         completion: lctx_model::domain::stages::StageCompletion,

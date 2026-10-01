@@ -10,6 +10,7 @@ pub(crate) mod locks;
 mod receipts;
 mod stage_validation;
 mod verify;
+mod vocabulary;
 use arrow_array::RecordBatch;
 use bytes::BytesMut;
 pub use catalog::{
@@ -530,13 +531,14 @@ impl GenerationStore {
         LeaseContract::from_scopes(self.model.digest(), self.physical, self.scopes.clone(), g)
     }
     /// An attempt's COPY, charged to its budget.
-    async fn copy_attempt<R: Record>(
+    async fn copy_into<R: Record>(
         &self,
         writer: &PgPool,
         g: GenerationId,
         batch: &Batch<R>,
         schedule: ContentHash,
         budget: &ResourceBudget,
+        physical: &str,
     ) -> Result<(), Error> {
         self.model.require::<R>()?;
         transaction(writer, async |tx| {
@@ -589,7 +591,7 @@ impl GenerationStore {
             let mut copy = tx
                 .copy_in_raw(&format!(
                     "COPY {} ({columns}) FROM STDIN BINARY",
-                    qualified(g, R::NAME)
+                    qualified(g, physical)
                 ))
                 .await?;
             let result: Result<(), Error> = async {
@@ -598,13 +600,15 @@ impl GenerationStore {
                 for index in 0..batch.arrow().num_rows() {
                     let row = batch.arrow().slice(index, 1);
                     let size = copy_size(&row, &builders)?;
-                    // The generated server-side row also carries the generation column (20 bytes).
-                    if size > MAX_ROW_BYTES - 20 {
+                    // Final canonical rows add the generation column (20 wire bytes), and
+                    // vocabulary rows also add the lifecycle-owned epoch (6 wire bytes).
+                    let metadata_bytes = 20 + if lctx_model::domain::stages::is_vocabulary(R::NAME) { 6 } else { 0 };
+                    if size > MAX_ROW_BYTES - metadata_bytes {
                         return Err(Error::Model(ModelError::Limit {
                             owner: R::NAME,
                             limit: "COPY row bytes",
                             observed: size,
-                            bound: MAX_ROW_BYTES - 20,
+                            bound: MAX_ROW_BYTES - metadata_bytes,
                         }));
                     }
                     let _wire = budget.reserve(
@@ -670,7 +674,10 @@ fn copy_size(row: &RecordBatch, builders: &[EncoderBuilder]) -> Result<usize, Er
 }
 
 /// The control records a generation owns; cleanup removes them with its schema.
-const CONTROL_RECORDS: [&str; 11] = [
+const CONTROL_RECORDS: [&str; 14] = [
+    "publication_outputs",
+    "epoch_receipts",
+    "publication_groups",
     "receipts",
     "validation_receipts",
     "stage_receipts",
@@ -803,7 +810,28 @@ async fn visit_physical(
     budget: &ResourceBudget,
     visitor: impl FnMut(RecordBatch) -> Result<(), Error>,
 ) -> Result<(), Error> {
-    let result = visit_physical_inner(connection, g, relation, order, budget, visitor).await;
+    visit_named(
+        connection,
+        g,
+        relation,
+        relation.name(),
+        order,
+        budget,
+        visitor,
+    )
+    .await
+}
+async fn visit_named(
+    connection: &mut PgConnection,
+    g: GenerationId,
+    relation: &Relation,
+    physical: &str,
+    order: &[&str],
+    budget: &ResourceBudget,
+    visitor: impl FnMut(RecordBatch) -> Result<(), Error>,
+) -> Result<(), Error> {
+    let result =
+        visit_physical_inner(connection, g, relation, physical, order, budget, visitor).await;
     // SQLx retains the largest protocol buffers unless explicitly shrunk. The stream is gone
     // before this call, including on a visitor/resource refusal.
     connection.shrink_buffers();
@@ -814,6 +842,7 @@ async fn visit_physical_inner(
     connection: &mut PgConnection,
     g: GenerationId,
     relation: &Relation,
+    physical: &str,
     order: &[&str],
     budget: &ResourceBudget,
     mut visitor: impl FnMut(RecordBatch) -> Result<(), Error>,
@@ -842,8 +871,13 @@ async fn visit_physical_inner(
         .collect::<Vec<_>>()
         .join(",");
     let query = format!(
-        "SELECT {columns} FROM {} ORDER BY {order}",
-        qualified(g, relation.name())
+        "SELECT {}{columns} FROM {} ORDER BY {order}",
+        if physical.starts_with("__delta_") {
+            "DISTINCT "
+        } else {
+            ""
+        },
+        qualified(g, physical)
     );
     let mut stream = sqlx::query(sqlx::AssertSqlSafe(query)).fetch(connection);
     let mut rows = Vec::new();

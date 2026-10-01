@@ -243,6 +243,15 @@ impl LeaseContract {
                 if same.as_deref() != Some("true") || !scope.relations.contains(source.relation()) {
                     return Err(Error::Contract);
                 }
+                if let Some(prefix) = source
+                    .prefix()
+                    .filter(|_| lctx_model::domain::stages::is_vocabulary(source.relation()))
+                {
+                    let closed = driver.text("SELECT (g.closed AND r.row_count=$4 AND r.content_digest=$5)::text FROM lctx_model_store.publication_groups g JOIN lctx_model_store.epoch_receipts r USING(generation_id,epoch) WHERE r.generation_id=$1 AND r.epoch=$2::bigint AND r.relation_name=$3", &[LeaseParam::Bytes(&g.0), LeaseParam::Int(i64::from(prefix.code())), LeaseParam::Text(source.relation()), LeaseParam::Int(i64::try_from(receipt.rows).map_err(|_| Error::Contract)?), LeaseParam::Bytes(&receipt.content.0)]).await?;
+                    if closed.as_deref() != Some("true") {
+                        return Err(Error::Contract);
+                    }
+                }
             }
         }
         // The registry's digests say what was lowered; the live catalog says what is there now.

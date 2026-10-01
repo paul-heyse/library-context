@@ -424,7 +424,7 @@ impl AttemptSession {
             source: format!(
                 "{}.{}",
                 quote(&self.contract.generation().schema()),
-                quote(R::NAME)
+                quote(&permit.source().expect("checked source").physical_relation())
             ),
         });
         Ok(crate::model_runtime::StageTable::completed(

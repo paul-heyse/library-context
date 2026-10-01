@@ -77,6 +77,7 @@ pub struct RelationUse {
     transport: InputTransport,
     requirement: Option<InputRequirement>,
     validators: &'static [&'static str],
+    prefix: Option<VocabularyEpoch>,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AvailabilityPolicy {
@@ -102,7 +103,15 @@ impl RelationUse {
             transport: InputTransport::Handoff,
             requirement: None,
             validators: &[],
+            prefix: None,
         }
+    }
+    pub fn at_epoch(mut self, epoch: VocabularyEpoch) -> Self {
+        self.prefix = Some(epoch);
+        self
+    }
+    pub fn prefix(self) -> Option<VocabularyEpoch> {
+        self.prefix
     }
     pub fn name(self) -> &'static str {
         self.name
@@ -139,6 +148,7 @@ impl RelationUse {
             transport: InputTransport::Handoff,
             requirement: None,
             validators: &[],
+            prefix: None,
         }
     }
 }
@@ -222,6 +232,9 @@ impl Stage {
         contributes.sort();
         for input in reads {
             digest.part(b"read", input.name.as_bytes());
+            if let Some(epoch) = input.prefix {
+                digest.part(b"prefix", &[epoch.code()]);
+            }
             digest.part(
                 b"transport",
                 match input.transport {
@@ -261,8 +274,71 @@ impl Stage {
         }
     }
 }
+/// Finite publication order owned by VocabularyAssembly, never a producer-supplied row field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum VocabularyEpoch {
+    Facts,
+    Dispatch,
+    BaseSemantic,
+    ExecutionModel,
+    Summary,
+    CatalogSynthesis,
+}
+impl VocabularyEpoch {
+    pub const ALL: [Self; 6] = [
+        Self::Facts,
+        Self::Dispatch,
+        Self::BaseSemantic,
+        Self::ExecutionModel,
+        Self::Summary,
+        Self::CatalogSynthesis,
+    ];
+    pub fn code(self) -> u8 {
+        self as u8
+    }
+    pub fn view(self, relation: &str) -> String {
+        format!("__v{}_{}", self.code(), relation)
+    }
+}
+/// The only relations permitted to grow. Ordinary outputs remain single-writer.
+pub fn is_vocabulary(name: &str) -> bool {
+    use super::{
+        assertion::AssertionQualification,
+        conditions::{Condition, ConditionNode, EvaluationAtom},
+        value::{
+            AccessPath, Literal, LiteralSet, LiteralSetMember, PathSegment, Place, PlaceRoot,
+            Predicate,
+        },
+    };
+    [
+        Literal::NAME,
+        LiteralSet::NAME,
+        LiteralSetMember::NAME,
+        PlaceRoot::NAME,
+        PathSegment::NAME,
+        AccessPath::NAME,
+        Place::NAME,
+        Predicate::NAME,
+        EvaluationAtom::NAME,
+        ConditionNode::NAME,
+        Condition::NAME,
+        AssertionQualification::NAME,
+    ]
+    .contains(&name)
+}
+#[derive(Debug, Clone)]
+pub struct PublicationGroup {
+    pub epoch: VocabularyEpoch,
+    pub stages: Vec<&'static str>,
+}
+impl PublicationGroup {
+    pub fn new(epoch: VocabularyEpoch, stages: Vec<&'static str>) -> Self {
+        Self { epoch, stages }
+    }
+}
 #[derive(Debug)]
 pub struct Schedule {
+    groups: Vec<PublicationGroup>,
     stages: Vec<Stage>,
     model: ContentHash,
     digest: ContentHash,
@@ -279,6 +355,47 @@ impl Schedule {
         required: &[RelationUse],
         profile: Profile,
     ) -> Result<Self, ModelError> {
+        let assembly = stages
+            .iter()
+            .filter(|s| s.profiles.contains(&profile) && s.outputs.iter().any(|r| is_vocabulary(r.name())))
+            .map(|s| s.name)
+            .collect::<Vec<_>>();
+        let groups = if assembly.is_empty() {
+            vec![]
+        } else {
+            vec![PublicationGroup::new(VocabularyEpoch::Facts, assembly)]
+        };
+        Self::build_with_publications(model, stages, required, profile, groups)
+    }
+    pub fn build_with_publications(
+        model: &ValidatedModel,
+        stages: Vec<Stage>,
+        required: &[RelationUse],
+        profile: Profile,
+        mut groups: Vec<PublicationGroup>,
+    ) -> Result<Self, ModelError> {
+        for group in &mut groups {
+            group.stages.sort_unstable();
+        }
+        let mut grouped = BTreeMap::new();
+        for (index, group) in groups.iter().enumerate() {
+            if group.epoch.code() as usize != index || group.stages.is_empty() {
+                return Err(ModelError::Invalid(
+                    "publication epochs must be a contiguous finite prefix".into(),
+                ));
+            }
+            for name in &group.stages {
+                if grouped.insert(*name, group.epoch).is_some()
+                    || !stages
+                        .iter()
+                        .any(|s| s.name == *name && s.profiles.contains(&profile))
+                {
+                    return Err(ModelError::Invalid(
+                        "unknown or duplicate publication member".into(),
+                    ));
+                }
+            }
+        }
         let members: HashSet<_> = model
             .relations()
             .iter()
@@ -312,7 +429,8 @@ impl Schedule {
             .filter(|s| s.profiles.contains(&profile))
             .collect();
         names.clear();
-        let mut writers = std::collections::HashMap::new();
+        let mut writers: HashMap<TypeId, usize> = HashMap::new();
+        let mut epoch_writers = BTreeSet::new();
         for (i, stage) in stages.iter().enumerate() {
             if stage.name.is_empty() || stage.outputs.is_empty() {
                 return Err(ModelError::Invalid(
@@ -402,11 +520,29 @@ impl Schedule {
                 )));
             }
             for r in &stage.outputs {
-                if writers.insert(r.type_id, i).is_some() {
-                    return Err(ModelError::Invalid(format!(
-                        "multiple writers for {}",
-                        r.name
-                    )));
+                if is_vocabulary(r.name) {
+                    if let Some(epoch) = grouped.get(stage.name) {
+                        if !epoch_writers.insert((r.type_id, *epoch)) {
+                            return Err(ModelError::Invalid(format!("multiple writers for {} in one publication epoch", r.name)));
+                        }
+                    }
+                }
+                if let Some(old) = writers.get(&r.type_id).copied() {
+                    if !is_vocabulary(r.name)
+                        || !grouped.contains_key(stage.name)
+                        || !grouped.contains_key(stages[old].name)
+                        || grouped[stage.name] == grouped[stages[old].name]
+                    {
+                        return Err(ModelError::Invalid(format!(
+                            "multiple writers for {}",
+                            r.name
+                        )));
+                    }
+                    if grouped[stage.name] < grouped[stages[old].name] {
+                        writers.insert(r.type_id, i);
+                    }
+                } else {
+                    writers.insert(r.type_id, i);
                 }
             }
         }
@@ -436,13 +572,58 @@ impl Schedule {
                 }
             }
             for r in &stage.inputs {
-                let writer = writers
-                    .get(&r.type_id)
-                    .ok_or_else(|| ModelError::Invalid(format!("missing writer for {}", r.name)))?;
+                if r.prefix.is_none()
+                    && is_vocabulary(r.name)
+                    && stages
+                        .iter()
+                        .filter(|s| s.outputs.iter().any(|o| o.type_id == r.type_id))
+                        .count()
+                        > 1
+                {
+                    return Err(ModelError::Invalid(
+                        "a growing vocabulary input needs an explicit closed epoch".into(),
+                    ));
+                }
+                let writer = if let Some(epoch) = r.prefix {
+                    if r.transport != InputTransport::CompletedStore {
+                        return Err(ModelError::Invalid(
+                            "epoch reads require completed-store transport".into(),
+                        ));
+                    }
+                    if !is_vocabulary(r.name) {
+                        return Err(ModelError::Invalid(
+                            "epoch bound applies only to vocabulary".into(),
+                        ));
+                    }
+                    stages
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, s)| {
+                            grouped.get(s.name).is_some_and(|e| *e <= epoch)
+                                && s.outputs.iter().any(|o| o.type_id == r.type_id)
+                        })
+                        .max_by_key(|(_, s)| grouped[s.name])
+                        .map(|(i, _)| i)
+                } else {
+                    writers.get(&r.type_id).copied()
+                }
+                .ok_or_else(|| ModelError::Invalid(format!("missing writer for {}", r.name)))?;
                 dependencies
                     .get_mut(&i)
                     .expect("stage index")
-                    .insert(*writer);
+                    .insert(writer);
+                if let Some(epoch) = r.prefix {
+                    let group = groups.iter().find(|g| g.epoch == epoch).ok_or_else(|| {
+                        ModelError::Invalid("input reads undeclared epoch".into())
+                    })?;
+                    dependencies.get_mut(&i).expect("stage index").extend(
+                        stages
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, s)| group.stages.contains(&s.name))
+                            .map(|(i, _)| i),
+                    );
+                }
                 if r.transport == InputTransport::Handoff {
                     *readers.entry(r.type_id).or_insert(0usize) += 1;
                 }
@@ -453,6 +634,33 @@ impl Schedule {
                 })?;
                 dependencies.get_mut(writer).expect("stage index").insert(i);
                 contributed.insert(r.type_id);
+            }
+        }
+        for (index, group) in groups.iter().enumerate() {
+            let member_ids: BTreeSet<_> = stages
+                .iter()
+                .enumerate()
+                .filter(|(_, s)| group.stages.contains(&s.name))
+                .map(|(i, _)| i)
+                .collect();
+            for (i, deps) in &mut dependencies {
+                if !member_ids.contains(i) && deps.iter().any(|d| member_ids.contains(d)) {
+                    deps.extend(&member_ids);
+                }
+                if member_ids.contains(i) && index > 0 {
+                    deps.extend(
+                        stages
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, s)| groups[index - 1].stages.contains(&s.name))
+                            .map(|(i, _)| i),
+                    );
+                }
+                if member_ids.contains(i) && deps.iter().any(|d| member_ids.contains(d)) {
+                    return Err(ModelError::Invalid(
+                        "a publication member cannot read its unfinished group".into(),
+                    ));
+                }
             }
         }
         let named: BTreeMap<_, _> = dependencies
@@ -486,7 +694,16 @@ impl Schedule {
         for stage in &ordered {
             stage.encode(&mut digest);
         }
+        for group in &groups {
+            digest.part(b"vocabulary-epoch", &[group.epoch.code()]);
+            let mut names = group.stages.clone();
+            names.sort();
+            for name in names {
+                digest.part(b"publication-member", name.as_bytes());
+            }
+        }
         Ok(Self {
+            groups,
             stages: ordered,
             model: model.digest(),
             digest: digest.finish(),
@@ -494,6 +711,32 @@ impl Schedule {
             dependencies: named,
             readers,
             contributed,
+        })
+    }
+    pub fn publication_groups(&self) -> &[PublicationGroup] {
+        &self.groups
+    }
+    pub fn epoch_for(&self, stage: &str) -> Option<VocabularyEpoch> {
+        self.groups
+            .iter()
+            .find(|g| g.stages.contains(&stage))
+            .map(|g| g.epoch)
+    }
+    fn input_epoch(&self, input: &RelationUse) -> Option<VocabularyEpoch> {
+        input.prefix.or_else(|| {
+            if is_vocabulary(input.name) {
+                self.groups
+                    .iter()
+                    .find(|g| {
+                        self.stages.iter().any(|s| {
+                            g.stages.contains(&s.name)
+                                && s.outputs.iter().any(|o| o.name == input.name)
+                        })
+                    })
+                    .map(|g| g.epoch)
+            } else {
+                None
+            }
         })
     }
     pub fn stages(&self) -> &[Stage] {
@@ -520,6 +763,8 @@ impl Schedule {
         Execution {
             schedule: self,
             completed: BTreeMap::new(),
+            computed: BTreeMap::new(),
+            prefixes: BTreeMap::new(),
             sources: BTreeMap::new(),
             failed: false,
             identity: AttemptIdentity(identity),
@@ -536,6 +781,8 @@ impl Schedule {
 pub struct Execution<'s> {
     schedule: &'s Schedule,
     completed: BTreeMap<&'static str, ProviderOutcome>,
+    computed: BTreeMap<&'static str, ComputedStage>,
+    prefixes: BTreeMap<(VocabularyEpoch, &'static str), CompletedRelation>,
     sources: BTreeMap<&'static str, CompletedRelation>,
     failed: bool,
     identity: AttemptIdentity,
@@ -590,6 +837,13 @@ impl<'s> Execution<'s> {
         }
         let mut outcomes = BTreeMap::new();
         for stage in self.schedule.stages() {
+            if self
+                .schedule
+                .epoch_for(stage.name)
+                .is_some_and(|e| e != VocabularyEpoch::Facts)
+            {
+                continue;
+            }
             if stage.outputs.iter().all(|r| !contract.contains(r.name())) {
                 continue;
             }
@@ -641,7 +895,7 @@ impl<'s> Execution<'s> {
         Ok(())
     }
     pub fn begin(&mut self, name: &str) -> Result<StageAccess<'_, 's>, ModelError> {
-        if self.failed || self.completed.contains_key(name) {
+        if self.failed || self.completed.contains_key(name) || self.computed.contains_key(name) {
             return Err(ModelError::Invalid(
                 "stage already completed or attempt failed".into(),
             ));
@@ -667,6 +921,80 @@ impl<'s> Execution<'s> {
             retained: HashSet::new(),
             finished: false,
         })
+    }
+    pub async fn close_group(
+        &mut self,
+        epoch: VocabularyEpoch,
+        sink: &impl StageSink,
+    ) -> Result<(), ModelError> {
+        let group = self
+            .schedule
+            .groups
+            .iter()
+            .find(|g| g.epoch == epoch)
+            .ok_or_else(|| ModelError::Invalid("undeclared publication group".into()))?;
+        if self.failed
+            || group
+                .stages
+                .iter()
+                .any(|name| !self.computed.contains_key(name))
+        {
+            return Err(ModelError::Invalid(
+                "publication members are not sealed".into(),
+            ));
+        }
+        self.failed = true;
+        let stages = group
+            .stages
+            .iter()
+            .map(|name| self.computed.remove(name).expect("checked computation"))
+            .collect();
+        let closed = sink.close_group(GroupCompletion { epoch, stages }).await?;
+        if closed.epoch != epoch || closed.stages.len() != group.stages.len() {
+            return Err(ModelError::Invalid("foreign group acknowledgement".into()));
+        }
+        let expected: BTreeSet<_> = self.sources.keys().copied().filter(|n| is_vocabulary(n)).chain(closed.stages.iter().flat_map(|s| s.outputs.keys().copied().filter(|n| is_vocabulary(n)))).collect();
+        if closed.vocabulary.keys().copied().collect::<BTreeSet<_>>() != expected { return Err(ModelError::Invalid("closed vocabulary prefix receipt set differs".into())); }
+        for (name,receipt) in &closed.vocabulary {
+            let current = closed.stages.iter().find_map(|s| s.outputs.get(name));
+            let expected = current.or_else(|| self.sources.get(name).map(|s| &s.receipt)).ok_or_else(|| ModelError::Invalid("unknown vocabulary receipt".into()))?;
+            if receipt != expected { return Err(ModelError::Invalid("closed vocabulary content differs from current or inherited source".into())); }
+        }
+        for completed in closed.stages {
+            if completed.model != self.schedule.model
+                || completed.schedule != self.schedule.digest
+                || completed.identity.attempt != self.identity
+                || !group.stages.contains(&completed.identity.stage)
+            {
+                return Err(ModelError::Invalid(
+                    "foreign publication acknowledgement".into(),
+                ));
+            }
+            for (name, receipt) in completed.outputs {
+                let source = CompletedRelation {
+                    identity: completed.identity,
+                    model: completed.model,
+                    schedule: completed.schedule,
+                    relation: name,
+                    receipt,
+                    prefix: Some(epoch),
+                };
+                if let Some(epoch) = source.prefix {
+                    self.prefixes.insert((epoch, name), source.clone());
+                }
+                self.sources.insert(name, source);
+            }
+            self.completed
+                .insert(completed.identity.stage, completed.outcome);
+        }
+        for (name,receipt) in closed.vocabulary {
+            let source = self.sources.get_mut(name).expect("verified vocabulary source");
+            source.prefix = Some(epoch);
+            source.receipt = receipt;
+            self.prefixes.insert((epoch,name),source.clone());
+        }
+        self.failed = false;
+        Ok(())
     }
     pub fn finish(self) -> Result<ExecutionReceipt, ModelError> {
         if self.failed || self.completed.len() != self.schedule.stages.len() {
@@ -803,9 +1131,21 @@ impl StageAccess<'_, '_> {
             .iter()
             .filter(|r| r.transport == InputTransport::CompletedStore)
             .map(|r| {
-                self.execution.sources.get(r.name).cloned().ok_or_else(|| {
-                    ModelError::Invalid(format!("{} lacks a completed source", r.name))
-                })
+                self.execution
+                    .schedule
+                    .input_epoch(r)
+                    .and_then(|e| self.execution.prefixes.get(&(e, r.name)))
+                    .or_else(|| {
+                        if self.execution.schedule.input_epoch(r).is_none() {
+                            self.execution.sources.get(r.name)
+                        } else {
+                            None
+                        }
+                    })
+                    .cloned()
+                    .ok_or_else(|| {
+                        ModelError::Invalid(format!("{} lacks a completed source", r.name))
+                    })
             })
             .collect()
     }
@@ -849,7 +1189,19 @@ impl StageAccess<'_, '_> {
             .iter()
             .find(|r| r.type_id == TypeId::of::<R>())
             .expect("declared input");
-        let source = self.execution.sources.get(R::NAME).cloned();
+        let source = self
+            .execution
+            .schedule
+            .input_epoch(input)
+            .and_then(|e| self.execution.prefixes.get(&(e, R::NAME)))
+            .or_else(|| {
+                if self.execution.schedule.input_epoch(input).is_none() {
+                    self.execution.sources.get(R::NAME)
+                } else {
+                    None
+                }
+            })
+            .cloned();
         if input.transport == InputTransport::CompletedStore && source.is_none() {
             return Err(ModelError::Invalid(format!(
                 "{} has no acknowledged stored producer",
@@ -1024,7 +1376,7 @@ impl StageAccess<'_, '_> {
     /// Freeze this stage's outputs before allowing a dependent stage to start. Cancellation,
     /// refusal or an uncertain acknowledgement poisons execution, including an empty output.
     pub async fn complete(
-        self,
+        mut self,
         sink: &impl StageSink,
         outcome: ProviderOutcome,
     ) -> Result<(), ModelError> {
@@ -1037,6 +1389,35 @@ impl StageAccess<'_, '_> {
             outcome,
             outputs: self.stage.outputs.iter().map(|r| r.name).collect(),
         };
+        if let Some(epoch) = self.execution.schedule.epoch_for(self.stage.name) {
+            let computed = sink.compute(completion).await?;
+            if computed.completion.identity != self.identity()
+                || computed.completion.model != self.execution.schedule.model
+                || computed.completion.schedule != self.execution.schedule.digest
+            {
+                return Err(ModelError::Invalid("foreign computed receipt".into()));
+            }
+            let outcome = computed.completion.outcome;
+            self.execution.computed.insert(self.stage.name, computed);
+            self.execution.failed = false;
+            self.release_inputs();
+            let execution = &mut *self.execution;
+            self.finished = true;
+            if execution
+                .schedule
+                .groups
+                .iter()
+                .find(|g| g.epoch == epoch)
+                .expect("declared group")
+                .stages
+                .iter()
+                .all(|s| execution.computed.contains_key(s))
+            {
+                execution.close_group(epoch, sink).await?;
+            }
+            let _ = outcome;
+            return Ok(());
+        }
         let completed = sink.complete(completion).await?;
         if completed.identity != self.identity()
             || completed.model != self.execution.schedule.model
@@ -1055,6 +1436,7 @@ impl StageAccess<'_, '_> {
                     schedule: completed.schedule,
                     relation: name,
                     receipt,
+                    prefix: None,
                 },
             );
         }
@@ -1062,7 +1444,7 @@ impl StageAccess<'_, '_> {
         self.advance(outcome);
         Ok(())
     }
-    fn advance(mut self, outcome: ProviderOutcome) {
+    fn release_inputs(&mut self) {
         for input in self
             .stage
             .inputs
@@ -1076,6 +1458,9 @@ impl StageAccess<'_, '_> {
                 }
             }
         }
+    }
+    fn advance(mut self, outcome: ProviderOutcome) {
+        self.release_inputs();
         self.execution.completed.insert(self.stage.name, outcome);
         self.finished = true;
     }
@@ -1100,6 +1485,87 @@ pub trait StageSink: Sync {
         &self,
         completion: StageCompletion,
     ) -> impl Future<Output = Result<CompletedStage, ModelError>> + Send;
+    fn compute(
+        &self,
+        completion: StageCompletion,
+    ) -> impl Future<Output = Result<ComputedStage, ModelError>> + Send {
+        async move {
+            let completed = self.complete(completion.clone()).await?;
+            completion.seal(completed.outputs)
+        }
+    }
+    fn close_group(
+        &self,
+        group: GroupCompletion,
+    ) -> impl Future<Output = Result<ClosedGroup, ModelError>> + Send {
+        async move {
+            let outputs = group
+                .stages
+                .iter()
+                .map(|s| (s.completion.stage(), s.deltas.clone()))
+                .collect();
+            let vocabulary = group.stages.iter().flat_map(|s| s.deltas.iter().filter(|(name,_)| is_vocabulary(name)).map(|(name,r)| (*name,*r))).collect();
+            group.acknowledge(outputs,vocabulary)
+        }
+    }
+}
+/// Sealed private deltas grant no read permit and cannot be constructed by a producer.
+#[derive(Debug)]
+pub struct ComputedStage {
+    completion: StageCompletion,
+    deltas: BTreeMap<&'static str, RelationReceipt>,
+}
+impl ComputedStage {
+    pub fn completion(&self) -> &StageCompletion {
+        &self.completion
+    }
+    pub fn deltas(&self) -> &BTreeMap<&'static str, RelationReceipt> {
+        &self.deltas
+    }
+}
+pub struct GroupCompletion {
+    epoch: VocabularyEpoch,
+    stages: Vec<ComputedStage>,
+}
+impl GroupCompletion {
+    pub fn epoch(&self) -> VocabularyEpoch {
+        self.epoch
+    }
+    pub fn stages(&self) -> &[ComputedStage] {
+        &self.stages
+    }
+    pub fn acknowledge(
+        self,
+        mut outputs: BTreeMap<&'static str, BTreeMap<&'static str, RelationReceipt>>,
+        vocabulary: BTreeMap<&'static str, RelationReceipt>,
+    ) -> Result<ClosedGroup, ModelError> {
+        if outputs.keys().copied().collect::<BTreeSet<_>>()
+            != self.stages.iter().map(|s| s.completion.stage()).collect()
+        {
+            return Err(ModelError::Invalid(
+                "publication receipt members differ".into(),
+            ));
+        }
+        let mut stages = Vec::new();
+        for stage in self.stages {
+            let name = stage.completion.stage();
+            stages.push(
+                stage
+                    .completion
+                    .acknowledge(outputs.remove(name).expect("checked member"))?,
+            );
+        }
+        Ok(ClosedGroup {
+            epoch: self.epoch,
+            stages,
+            vocabulary,
+        })
+    }
+}
+pub struct ClosedGroup {
+    epoch: VocabularyEpoch,
+    stages: Vec<CompletedStage>,
+    vocabulary: BTreeMap<&'static str, RelationReceipt>,
 }
 
 /// Content acknowledged by the sink after freezing a relation.
@@ -1109,6 +1575,7 @@ pub struct RelationReceipt {
     pub content: ContentHash,
 }
 /// Only a completed StageAccess constructs a completion request.
+#[derive(Debug, Clone)]
 pub struct StageCompletion {
     identity: StageIdentity,
     model: ContentHash,
@@ -1117,6 +1584,20 @@ pub struct StageCompletion {
     outputs: BTreeSet<&'static str>,
 }
 impl StageCompletion {
+    pub fn seal(
+        self,
+        deltas: BTreeMap<&'static str, RelationReceipt>,
+    ) -> Result<ComputedStage, ModelError> {
+        if deltas.keys().copied().collect::<BTreeSet<_>>() != self.outputs {
+            return Err(ModelError::Invalid(
+                "sealed delta receipts differ from outputs".into(),
+            ));
+        }
+        Ok(ComputedStage {
+            completion: self,
+            deltas,
+        })
+    }
     pub fn identity(&self) -> StageIdentity {
         self.identity
     }
@@ -1151,10 +1632,12 @@ impl StageCompletion {
             model: self.model,
             schedule: self.schedule,
             outputs,
+            outcome: self.outcome,
         })
     }
 }
 pub struct CompletedStage {
+    outcome: ProviderOutcome,
     identity: StageIdentity,
     model: ContentHash,
     schedule: ContentHash,
@@ -1164,6 +1647,7 @@ pub struct CompletedStage {
 /// completion; consumers receive it with their declared read permit.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompletedRelation {
+    prefix: Option<VocabularyEpoch>,
     identity: StageIdentity,
     model: ContentHash,
     schedule: ContentHash,
@@ -1171,6 +1655,17 @@ pub struct CompletedRelation {
     receipt: RelationReceipt,
 }
 impl CompletedRelation {
+    pub fn prefix(&self) -> Option<VocabularyEpoch> {
+        self.prefix
+    }
+    pub fn physical_relation(&self) -> String {
+        if is_vocabulary(self.relation) {
+            self.prefix
+                .map_or_else(|| self.relation.to_owned(), |e| e.view(self.relation))
+        } else {
+            self.relation.to_owned()
+        }
+    }
     pub fn identity(&self) -> StageIdentity {
         self.identity
     }

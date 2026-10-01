@@ -409,6 +409,13 @@ impl FrontierContract {
         let mut stages = BTreeMap::new();
         let mut written = BTreeSet::new();
         for stage in schedule.stages() {
+            if checkpoint
+                && schedule
+                    .epoch_for(stage.name)
+                    .is_some_and(|e| e != super::stages::VocabularyEpoch::Facts)
+            {
+                continue;
+            }
             if checkpoint && stage.outputs.iter().all(|r| !self.contains(r.name())) {
                 continue;
             }

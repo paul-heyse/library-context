@@ -55,6 +55,32 @@ CREATE TABLE {control}.stage_receipts (
     content_digest bytea NOT NULL CHECK(octet_length(content_digest)=32),
     PRIMARY KEY(generation_id,stage_name,relation_name)
 );
+CREATE TABLE {control}.publication_groups (
+    generation_id bytea NOT NULL REFERENCES {control}.generations(id),
+    epoch smallint NOT NULL CHECK(epoch BETWEEN 0 AND 5),
+    closed boolean NOT NULL DEFAULT false,
+    PRIMARY KEY(generation_id,epoch)
+);
+CREATE TABLE {control}.publication_outputs (
+    generation_id bytea NOT NULL,
+    epoch smallint NOT NULL,
+    stage_name text NOT NULL,
+    relation_name text NOT NULL,
+    sealed boolean NOT NULL DEFAULT false,
+    row_count bigint CHECK(row_count>=0),
+    content_digest bytea CHECK(octet_length(content_digest)=32),
+    PRIMARY KEY(generation_id,stage_name,relation_name),
+    FOREIGN KEY(generation_id,epoch) REFERENCES {control}.publication_groups(generation_id,epoch)
+);
+CREATE TABLE {control}.epoch_receipts (
+    generation_id bytea NOT NULL,
+    epoch smallint NOT NULL,
+    relation_name text NOT NULL,
+    row_count bigint NOT NULL CHECK(row_count>=0),
+    content_digest bytea NOT NULL CHECK(octet_length(content_digest)=32),
+    PRIMARY KEY(generation_id,epoch,relation_name),
+    FOREIGN KEY(generation_id,epoch) REFERENCES {control}.publication_groups(generation_id,epoch)
+);
 -- The outputs an attempt's schedule declares; publication requires exactly these stage receipts.
 CREATE TABLE {control}.stage_read_checks (
     generation_id bytea NOT NULL REFERENCES {control}.generations(id),
@@ -130,3 +156,5 @@ GRANT SELECT ON {control}.stage_receipts TO lctx_importer;
 GRANT SELECT ON {control}.checkpoints TO lctx_importer;
 GRANT SELECT ON {control}.stage_read_checks TO lctx_importer;
 GRANT SELECT ON ALL TABLES IN SCHEMA {control} TO lctx_serving;
+
+GRANT SELECT ON {control}.publication_groups,{control}.publication_outputs,{control}.epoch_receipts TO lctx_importer;

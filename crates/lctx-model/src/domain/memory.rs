@@ -5,8 +5,8 @@
 use super::charged::{ChargedMap, ChargedSet, StateCharge};
 use super::resources::{ResourceBudget, TRANSFER_ROWS};
 use super::stages::{
-    AttemptIdentity, CompletedStage, Execution, RelationReceipt, StageCompletion, StageSink,
-    WritePermit,
+    AttemptIdentity, ClosedGroup, CompletedStage, ComputedStage, Execution, GroupCompletion,
+    RelationReceipt, StageCompletion, StageSink, WritePermit, is_vocabulary,
 };
 use super::{Batch, ContentHash, KeySink, ModelError, Record, Relation, ValidatedModel};
 use arrow_array::{Array, ArrayRef, FixedSizeBinaryArray, Int16Array, RecordBatch, UInt32Array};
@@ -18,6 +18,8 @@ struct Stored {
     charge: StateCharge,
     relations: BTreeMap<&'static str, Vec<RecordBatch>>,
     frozen: std::collections::BTreeSet<&'static str>,
+    deltas: BTreeMap<(&'static str, &'static str), Vec<RecordBatch>>,
+    sealed: std::collections::BTreeSet<(&'static str, &'static str)>,
 }
 /// Stage-bound when created by `bind`; a conformance generation accepts direct `put` instead.
 pub struct MemoryGeneration {
@@ -26,6 +28,7 @@ pub struct MemoryGeneration {
     stored: Mutex<Stored>,
     relations: BTreeMap<&'static str, Relation>,
     budget: ResourceBudget,
+    grouped: std::collections::BTreeSet<&'static str>,
 }
 impl MemoryGeneration {
     /// A conformance generation for fixtures that are not produced by a schedule.
@@ -39,10 +42,13 @@ impl MemoryGeneration {
                 .map(|r| (r.name(), r.clone()))
                 .collect(),
             budget: budget.clone(),
+            grouped: Default::default(),
             stored: Mutex::new(Stored {
                 charge: StateCharge::new(budget, "memory-generation"),
                 relations: BTreeMap::new(),
                 frozen: Default::default(),
+                deltas: Default::default(),
+                sealed: Default::default(),
             }),
         }
     }
@@ -60,6 +66,12 @@ impl MemoryGeneration {
         execution.bind_sink()?;
         Ok(Self {
             attempt: Some(execution.identity()),
+            grouped: execution
+                .schedule()
+                .publication_groups()
+                .iter()
+                .flat_map(|g| g.stages.iter().copied())
+                .collect(),
             ..Self::conformance(model, budget)
         })
     }
@@ -231,6 +243,178 @@ impl MemoryGeneration {
     }
 }
 impl StageSink for MemoryGeneration {
+    async fn compute(&self, completion: StageCompletion) -> Result<ComputedStage, ModelError> {
+        if self.attempt != Some(completion.identity().attempt())
+            || completion.model() != self.model
+            || !self.grouped.contains(completion.stage())
+        {
+            return Err(ModelError::Invalid("foreign memory computation".into()));
+        }
+        let mut stored = self
+            .stored
+            .lock()
+            .map_err(|_| ModelError::Invalid("memory state poisoned".into()))?;
+        let mut receipts = BTreeMap::new();
+        for name in completion.outputs() {
+            let key = (completion.stage(), *name);
+            if stored.sealed.contains(&key) {
+                return Err(ModelError::Invalid("delta already sealed".into()));
+            }
+            let relation = self
+                .relations
+                .get(name)
+                .ok_or_else(|| ModelError::Invalid("unknown delta".into()))?;
+            let parts = stored
+                .deltas
+                .get(&key)
+                .ok_or_else(|| ModelError::Invalid("delta unwritten".into()))?;
+            let _charge = self.budget.reserve(
+                "memory-delta-receipt",
+                parts
+                    .iter()
+                    .map(|b| b.get_array_memory_size())
+                    .sum::<usize>()
+                    .saturating_mul(5)
+                    .saturating_add(4096),
+            )?;
+            let all = arrow_select::concat::concat_batches(relation.schema(), parts)
+                .map_err(ModelError::codec)?;
+            let all = unique(relation, &all)?;
+            let mut content = relation.content();
+            relation.hash_rows(&all, &mut content)?;
+            let (rows, content) = content.finish();
+            receipts.insert(*name, RelationReceipt { rows, content });
+            stored.sealed.insert(key);
+        }
+        completion.seal(receipts)
+    }
+    async fn close_group(&self, group: GroupCompletion) -> Result<ClosedGroup, ModelError> {
+        let model = ValidatedModel::validate(self.relations.values().cloned().collect())?;
+        let mut stored = self
+            .stored
+            .lock()
+            .map_err(|_| ModelError::Invalid("memory state poisoned".into()))?;
+        let total = stored
+            .relations
+            .values()
+            .chain(stored.deltas.values())
+            .flatten()
+            .map(|b| b.get_array_memory_size())
+            .sum::<usize>();
+        let _temporary = self.budget.reserve(
+            "memory-publication",
+            total
+                .saturating_mul(8)
+                .saturating_add(4096 * self.relations.len()),
+        )?;
+        let mut candidate = stored.relations.clone();
+        for stage in group.stages() {
+            if self.attempt != Some(stage.completion().identity().attempt())
+                || stage.completion().model() != self.model
+            {
+                return Err(ModelError::Invalid("foreign memory publication".into()));
+            }
+            for name in stage.completion().outputs() {
+                let key = (stage.completion().stage(), *name);
+                if !stored.sealed.contains(&key)
+                    || (!is_vocabulary(name) && stored.frozen.contains(name))
+                {
+                    return Err(ModelError::Invalid(
+                        "unsealed or completed group output".into(),
+                    ));
+                }
+                let relation = &self.relations[name];
+                let parts = stored
+                    .deltas
+                    .get(&key)
+                    .ok_or_else(|| ModelError::Invalid("missing delta".into()))?;
+                let delta = unique(
+                    relation,
+                    &arrow_select::concat::concat_batches(relation.schema(), parts)
+                        .map_err(ModelError::codec)?,
+                )?;
+                let mut content = relation.content();
+                relation.hash_rows(&delta, &mut content)?;
+                let (rows, content) = content.finish();
+                if stage.deltas().get(name) != Some(&RelationReceipt { rows, content }) {
+                    return Err(ModelError::Invalid("delta receipt changed".into()));
+                }
+                candidate.entry(name).or_default().extend(parts.clone());
+            }
+        }
+        let mut sorted = BTreeMap::new();
+        for relation in model.relations() {
+            let all = arrow_select::concat::concat_batches(
+                relation.schema(),
+                candidate
+                    .get(relation.name())
+                    .map(Vec::as_slice)
+                    .unwrap_or_default(),
+            )
+            .map_err(ModelError::codec)?;
+            sorted.insert(
+                relation.name(),
+                if is_vocabulary(relation.name()) {
+                    unique(relation, &all)?
+                } else {
+                    order(relation, &all, &["id"])?
+                },
+            );
+        }
+        let mut charge = StateCharge::new(&self.budget, "memory-group-references");
+        let keys = Keys::collect(&model, &sorted, &mut charge)?;
+        keys.references(&model, &sorted)?;
+        for invariant in model
+            .invariants()
+            .iter()
+            .filter(|i| i.inputs.iter().all(|r| candidate.contains_key(r.name())))
+        {
+            let mut check = (invariant.create)(&self.budget);
+            for input in &invariant.inputs {
+                let relation = &self.relations[input.name()];
+                let batch = order(relation, &sorted[input.name()], input.order())?;
+                for chunk in chunks(&batch) {
+                    check.visit(input.name(), &chunk)?;
+                }
+            }
+            check.finish()?;
+        }
+        let mut outputs = BTreeMap::new();
+        for stage in group.stages() {
+            let mut receipts = BTreeMap::new();
+            for name in stage.completion().outputs() {
+                let relation = &self.relations[name];
+                let mut content = relation.content();
+                relation.hash_rows(&sorted[name], &mut content)?;
+                let (rows, content) = content.finish();
+                receipts.insert(*name, RelationReceipt { rows, content });
+            }
+            outputs.insert(stage.completion().stage(), receipts);
+        }
+        let mut vocabulary = BTreeMap::new();
+        for name in candidate.keys().filter(|name| is_vocabulary(name)) {
+            let relation = &self.relations[name]; let mut content = relation.content(); relation.hash_rows(&sorted[name],&mut content)?; let (rows,content) = content.finish();
+            vocabulary.insert(*name,RelationReceipt {rows,content});
+        }
+        // Admit the replacement before changing canonical state; failures expose no group output.
+        let new_size = candidate
+            .keys()
+            .map(|name| sorted[name].get_array_memory_size())
+            .sum::<usize>();
+        stored.charge.grow(new_size)?;
+        for stage in group.stages() {
+            for name in stage.completion().outputs() {
+                stored.deltas.remove(&(stage.completion().stage(), *name));
+                stored.frozen.insert(name);
+            }
+        }
+        stored.relations = candidate
+            .keys()
+            .map(|name| (*name, vec![sorted[name].clone()]))
+            .collect();
+        stored.charge.release(total);
+        group.acknowledge(outputs,vocabulary)
+    }
     async fn complete(&self, completion: StageCompletion) -> Result<CompletedStage, ModelError> {
         if self.attempt != Some(completion.identity().attempt()) || completion.model() != self.model
         {
@@ -285,6 +469,31 @@ impl StageSink for MemoryGeneration {
                 Err(ModelError::Invalid(
                     "write permit belongs to another generation attempt".into(),
                 ))
+            } else if self.grouped.contains(permit.stage()) {
+                let mut stored = self
+                    .stored
+                    .lock()
+                    .map_err(|_| ModelError::Invalid("memory state poisoned".into()));
+                match &mut stored {
+                    Ok(stored) => {
+                        let key = (permit.stage(), R::NAME);
+                        if stored.sealed.contains(&key) {
+                            Err(ModelError::Invalid("sealed delta is immutable".into()))
+                        } else {
+                            stored
+                                .charge
+                                .grow(batch.arrow().get_array_memory_size())
+                                .map(|()| {
+                                    stored
+                                        .deltas
+                                        .entry(key)
+                                        .or_default()
+                                        .push(batch.arrow().clone())
+                                })
+                        }
+                    }
+                    Err(_) => Err(ModelError::Invalid("memory state poisoned".into())),
+                }
             } else {
                 self.store(R::NAME, batch.arrow())
             };
@@ -419,4 +628,39 @@ impl Keys {
         }
         Ok(())
     }
+}
+
+/// Canonical vocabulary deduplication compares complete semantic rows, never just their IDs.
+fn unique(relation: &Relation, batch: &RecordBatch) -> Result<RecordBatch, ModelError> {
+    let sorted = order(relation, batch, &["id"])?;
+    let converter = RowConverter::new(
+        sorted
+            .schema()
+            .fields()
+            .iter()
+            .map(|f| SortField::new(f.data_type().clone()))
+            .collect(),
+    )
+    .map_err(ModelError::codec)?;
+    let rows = converter
+        .convert_columns(sorted.columns())
+        .map_err(ModelError::codec)?;
+    let ids = sorted
+        .column_by_name("id")
+        .expect("domain id")
+        .as_any()
+        .downcast_ref::<FixedSizeBinaryArray>()
+        .expect("domain id width");
+    let mut indices = Vec::new();
+    for index in 0..sorted.num_rows() {
+        if index > 0 && ids.value(index) == ids.value(index - 1) {
+            if rows.row(index) != rows.row(index - 1) {
+                return Err(ModelError::Conflict(relation.name()));
+            }
+        } else {
+            indices.push(u32::try_from(index).map_err(ModelError::codec)?);
+        }
+    }
+    arrow_select::take::take_record_batch(&sorted, &UInt32Array::from(indices))
+        .map_err(ModelError::codec)
 }

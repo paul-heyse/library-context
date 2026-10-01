@@ -1,7 +1,5 @@
 //! Consumer eligibility over immutable completed inputs; semantic checks remain model-owned.
-use super::{
-    Error, GenerationId, GenerationStore, check_schedule, lock, qualified, visit_physical,
-};
+use super::{Error, GenerationId, GenerationStore, check_schedule, lock, qualified, visit_named};
 use lctx_model::domain::{
     ContentHash, KeySink,
     admission::FrontierAdmission,
@@ -44,6 +42,24 @@ impl GenerationStore {
             digest.part(b"checkpoint-coverage", &c.coverage().0);
         }
         let ordered: BTreeMap<_, _> = sources.iter().map(|s| (s.relation(), s)).collect();
+        let input_physical = |name: &str| {
+            ordered.get(name).map_or_else(
+                || {
+                    super::vocabulary::physical(
+                        name,
+                        lctx_model::domain::stages::VocabularyEpoch::Facts,
+                    )
+                },
+                |s| s.physical_relation(),
+            )
+        };
+        let checkpoint_covers = |name: &str| {
+            validated.contains(name)
+                && ordered.get(name).is_none_or(|s| {
+                    s.prefix()
+                        .is_none_or(|e| e == lctx_model::domain::stages::VocabularyEpoch::Facts)
+                })
+        };
         for (name, source) in &ordered {
             let actual: Option<(i64, Vec<u8>, Vec<u8>)> = sqlx::query_as("SELECT row_count,content_digest,schedule_digest FROM lctx_model_store.stage_receipts WHERE generation_id=$1 AND stage_name=$2 AND relation_name=$3")
                 .bind(g.0.to_vec()).bind(source.producer()).bind(name).fetch_optional(&mut *tx).await?;
@@ -58,18 +74,36 @@ impl GenerationStore {
             {
                 return Err(Error::Contract);
             }
+            let relation = self
+                .model
+                .relations()
+                .iter()
+                .find(|r| r.name() == *name)
+                .ok_or(Error::Contract)?;
+            let frozen =
+                super::vocabulary::receipt(tx, g, relation, &source.physical_relation(), budget)
+                    .await?;
+            if frozen != receipt {
+                return Err(Error::Contract);
+            }
             digest.part(name.as_bytes(), &receipt.content.0);
+            if let Some(prefix) = source.prefix() {
+                digest.part(b"prefix", &[prefix.code()]);
+            }
             digest.part(b"rows", &receipt.rows.to_le_bytes());
         }
         let input_digest = digest.finish();
         // Every unvalidated reference target must be explicitly declared and frozen. Checking
         // all declared sources together admits same-stage cycles without trusting an empty join.
-        for relation in self
-            .model
-            .relations()
-            .iter()
-            .filter(|r| declared.contains(r.name()) && !validated.contains(r.name()))
-        {
+        for relation in self.model.relations().iter().filter(|r| {
+            declared.contains(r.name())
+                && (!validated.contains(r.name())
+                    || ordered.get(r.name()).is_some_and(|s| {
+                        s.prefix().is_some_and(|e| {
+                            e != lctx_model::domain::stages::VocabularyEpoch::Facts
+                        })
+                    }))
+        }) {
             for field in relation.fields() {
                 if let Some((_, target)) = field.target() {
                     if !declared.contains(target) && !validated.contains(target) {
@@ -90,9 +124,22 @@ impl GenerationStore {
                     };
                     let sql = format!(
                         "SELECT EXISTS(SELECT 1 FROM {} a WHERE a.\"{}\" IS NOT NULL AND NOT EXISTS(SELECT 1 FROM {} b WHERE b.id=a.\"{}\"{}))",
-                        qualified(g, relation.name()),
+                        qualified(g, &ordered[relation.name()].physical_relation()),
                         field.name(),
-                        qualified(g, target),
+                        qualified(g, &{
+                            let target_epoch = ordered
+                                .get(target)
+                                .and_then(|s| s.prefix())
+                                .unwrap_or(lctx_model::domain::stages::VocabularyEpoch::Facts);
+                            let source_epoch = ordered[relation.name()]
+                                .prefix()
+                                .unwrap_or(lctx_model::domain::stages::VocabularyEpoch::Facts);
+                            if lctx_model::domain::stages::is_vocabulary(target) {
+                                super::vocabulary::physical(target, target_epoch.min(source_epoch))
+                            } else {
+                                input_physical(target)
+                            }
+                        }),
                         field.name(),
                         subtype
                     );
@@ -114,11 +161,7 @@ impl GenerationStore {
             {
                 return Err(Error::Contract);
             }
-            if !invariant
-                .inputs
-                .iter()
-                .all(|i| validated.contains(i.name()))
-            {
+            if !invariant.inputs.iter().all(|i| checkpoint_covers(i.name())) {
                 let mut check = (invariant.create)(budget);
                 for input in &invariant.inputs {
                     let relation = self
@@ -127,7 +170,8 @@ impl GenerationStore {
                         .iter()
                         .find(|r| r.name() == input.name())
                         .ok_or(Error::Contract)?;
-                    visit_physical(tx, g, relation, input.order(), budget, |batch| {
+                    let physical = input_physical(input.name());
+                    visit_named(tx, g, relation, &physical, input.order(), budget, |batch| {
                         check.visit(input.name(), &batch)?;
                         Ok(())
                     })

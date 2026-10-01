@@ -226,7 +226,8 @@ async fn inspect(tx: &mut PgConnection, model: &ValidatedModel) -> Result<CheckR
             // Completed staging outputs have importer read grants and no INSERT grant. Their
             // exact set is durable metadata, rather than a new lifecycle state or guessed ACL.
             let staged;
-            let expected = if state == "staging" {
+            let publications: Vec<(String,String,bool,bool,i16)> = sqlx::query_as("SELECT o.stage_name,o.relation_name,o.sealed,g.closed,o.epoch FROM lctx_model_store.publication_outputs o JOIN lctx_model_store.publication_groups g USING(generation_id,epoch) WHERE o.generation_id=$1 ORDER BY o.relation_name COLLATE \"C\",o.stage_name COLLATE \"C\"") .bind(g.0.to_vec()).fetch_all(&mut *tx).await?;
+            let expected = if state == "staging" || !publications.is_empty() {
                 let mut completed: BTreeSet<String> = sqlx::query_scalar::<_, String>("SELECT relation_name FROM lctx_model_store.stage_receipts WHERE generation_id=$1 ORDER BY relation_name COLLATE \"C\"")
                     .bind(g.0.to_vec()).fetch_all(&mut *tx).await?.into_iter().collect();
                 let checkpoints: Vec<String> = sqlx::query_scalar(
@@ -256,14 +257,58 @@ async fn inspect(tx: &mut PgConnection, model: &ValidatedModel) -> Result<CheckR
                     shadow_schema,
                     SHADOW_CONTROL,
                 );
-                for sql in lowering.through("staging").into_iter().chain(
+                for sql in lowering.through(state).into_iter().chain(
                     completed
                         .iter()
+                        .filter(|_| state == "staging")
                         .flat_map(|name| ddl::completed_output(shadow_schema, name)),
                 ) {
                     sqlx::query(sqlx::AssertSqlSafe(sql))
                         .execute(&mut *tx)
                         .await?;
+                }
+                for (stage, name, sealed, closed, _) in &publications {
+                    let relation = model
+                        .relations()
+                        .iter()
+                        .find(|r| r.name() == name)
+                        .ok_or(Error::Contract)?;
+                    if state == "staging" && !closed {
+                        sqlx::query(sqlx::AssertSqlSafe(format!(
+                            "REVOKE INSERT ON {}.{} FROM lctx_importer",
+                            super::quoted(shadow_schema),
+                            super::quoted(name)
+                        )))
+                        .execute(&mut *tx)
+                        .await?;
+                    }
+                    if !closed {
+                        for sql in ddl::delta_create(
+                            shadow_schema,
+                            relation,
+                            stage,
+                            state == "staging" && !sealed,
+                        ) {
+                            sqlx::query(sqlx::AssertSqlSafe(sql))
+                                .execute(&mut *tx)
+                                .await?;
+                        }
+                    }
+                }
+                if state == "staging" {
+                    let prefixes: Vec<(i16,String)> = sqlx::query_as("SELECT epoch,relation_name FROM lctx_model_store.epoch_receipts WHERE generation_id=$1").bind(g.0.to_vec()).fetch_all(&mut *tx).await?;
+                    for (epoch, name) in prefixes {
+                        let epoch = *lctx_model::domain::stages::VocabularyEpoch::ALL
+                            .get(usize::try_from(epoch).map_err(|_| Error::Contract)?)
+                            .ok_or(Error::Contract)?;
+                        sqlx::query(sqlx::AssertSqlSafe(format!(
+                            "GRANT SELECT ON {}.{} TO lctx_importer",
+                            super::quoted(shadow_schema),
+                            super::quoted(&epoch.view(&name))
+                        )))
+                        .execute(&mut *tx)
+                        .await?;
+                    }
                 }
                 staged = describe(
                     tx,
