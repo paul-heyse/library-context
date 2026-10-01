@@ -33,8 +33,8 @@ async fn structural_candidates_paths_and_usage_publish_in_both_profiles() {
     let mut declarations:Vec<_>=providers.iter().map(|p|p.declaration(profile)).collect();
     declarations.extend([entity_normalization::stage(),relation_normalization::stage(profile),callable_normalization::stage(profile),normalized::receiver::stage(profile),event_normalization::stage(profile),binding_normalization::stage(profile),projection::normalization::stage(profile),normalized::coverage::stage(profile),configuration.declaration(),analysis::preparation::native_stage(profile),normalized::callable_aspects::stage(profile),build::stage(profile),catalog::evidence::build::stage(profile),selection::build::stage(profile)]);
     declarations.extend([local_semantics::stage(profile,&local,&model),structural::build::stage(profile,&settings,&model).unwrap()]);
-    let facts_members=declarations.iter().filter(|s|s.name!="analyze_local"&&s.outputs.iter().any(|r|is_vocabulary(r.name()))).map(|s|s.name).collect();
-    let schedule=Schedule::build_with_publications(&model,declarations,&[],profile,vec![PublicationGroup::new(PublicationBoundary::Facts,facts_members),PublicationGroup::new(PublicationBoundary::Local,vec!["analyze_local"])]).unwrap();
+    let facts_members=declarations.iter().filter(|s|s.name!="analyze_local"&&s.name!="analyze_structural"&&s.outputs.iter().any(|r|is_vocabulary(r.name()))).map(|s|s.name).collect();
+    let schedule=Schedule::build_with_publications(&model,declarations,&[],profile,vec![PublicationGroup::new(PublicationBoundary::Facts,facts_members),PublicationGroup::new(PublicationBoundary::Local,vec!["analyze_local"]),PublicationGroup::new(PublicationBoundary::Structural,vec!["analyze_structural"])]).unwrap();
     assert!(!schedule.stages().iter().any(|s|s.name.contains("synth") || s.name.contains("embed")));
     let mut execution=schedule.execute();let attempt=store.begin_conformance(db.writer.clone(),&mut execution,budget.clone()).await.unwrap();let id=attempt.generation();
     for declaration in schedule.stages() {

@@ -19,3 +19,13 @@ fn candidate_uncertainty_missing_authored_seed_and_exact_scope_survive_replay(){
 }
 #[test]
 fn coupled_frame_removal_foreign_settings_and_parent_shrink_refuse(){let (b,d,mut c)=fixture();let out=produce(&d,&c,&b);c.invocations=Rows::new(&b);c.inputs=Rows::new(&b);c.sources=Rows::new(&b);assert!(frames::verify(&d,&c,&Output::new(&b),&b).is_err());drop(out);let (b,d,mut c)=fixture();let out=produce(&d,&c,&b);c.inputs=Rows::new(&b);assert!(frames::verify(&d,&c,&out,&b).is_err());let mut changed=c.configuration().unwrap().clone();changed.depth+=1;c.settings=Rows::new(&b);c.settings.insert(changed).unwrap();assert!(frames::verify(&d,&c,&out,&b).is_err());}
+#[test]
+fn static_conclusions_retain_exact_source_and_refuse_promotion_or_erasure(){
+ use analysis::{policy::{FindingKind,EvidenceStatus},support::DerivedEvidence};
+ let (b,d,c)=fixture();let mut out=produce(&d,&c,&b);let row=out.conclusions.iter().find(|r|r.kind==FindingKind::PublicAlias).unwrap().clone();
+ assert_eq!(row.source_facts().status,EvidenceStatus::StructurallyObserved);
+ let q=out.conclusion_qualifications.get(row.qualification()).unwrap();assert_eq!(q.modality,Modality::Candidate);assert_eq!(q.approximation,assertion::Approximation::Over);assert_eq!(q.condition,conditions::Diagram::always().id());assert_eq!(q.scope,CoverageScope::Input{input:d.core_invocations.iter().next().unwrap().input}.id());
+ assert!(matches!(out.conclusion_sources.get(row.source),Some(ConclusionSource::Public{candidate}) if out.public.get(*candidate).is_some()));
+ let mut forged=row;forged.kind=FindingKind::ConditionalRaise;out.conclusions=Rows::new(&b);out.conclusions.insert(forged).unwrap();assert!(frames::verify(&d,&c,&out,&b).is_err());
+ let mut out=produce(&d,&c,&b);out.conclusions=Rows::new(&b);out.conclusion_sources=Rows::new(&b);assert!(frames::verify(&d,&c,&out,&b).is_err());
+}

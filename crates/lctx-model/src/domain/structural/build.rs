@@ -63,6 +63,7 @@ pub fn produce(data:&Data,frame:&StructuralFrame,invocation:&publication::Analys
   for unresolved in result.unresolved(){let row=UnresolvedEvent{traversal:traversal.id(),event:unresolved.event,assessment:unresolved.assessment,site:unresolved.site,depth:unresolved.depth as i64};for (ordinal,step) in unresolved.caller_path.iter().enumerate(){let (arc,evidence)=step_records(&mut output,step)?;output.unresolved_steps.insert(UnresolvedStep{event:row.id(),ordinal:ordinal as i64,arc,source:step.source,target:step.target,evidence})?;}output.unresolved.insert(row)?;}
   output.traversals.insert(traversal)?;
  }
+ super::conclusions::produce(&mut output,invocation,frame,data,budget)?;
  Ok(output)
 }
 fn step_records(out:&mut Output,step:&delegation::Step)->Result<(Id<ArcSource>,Id<StepEvidence>),ModelError>{let arc=match step.arc{projection::ArcId::Invocation(alternative)=>ArcSource::Invocation{alternative},projection::ArcId::Definition(alternative)=>ArcSource::Definition{alternative},projection::ArcId::SourceDefinition(ownership)=>ArcSource::SourceDefinition{ownership},_=>return Err(invalid("structural path has an inadmissible arc role"))};let evidence=match step.evidence{delegation::StepEvidence::Call{event,site,phase,qualification,modality,derived_dispatch}=>StepEvidence::Call{event,site,phase,qualification,modality,derived_dispatch},delegation::StepEvidence::Declaration{owner,declaration,callable}=>StepEvidence::Declaration{owner,declaration,callable}};Ok((out.arcs.insert(arc)?,out.evidence.insert(evidence)?))}
@@ -76,7 +77,7 @@ impl Data {
 pub fn definition(settings:&AnalyticsConfiguration,method:analysis::AnalysisMethod)->Result<(analysis::MethodParameters,analysis::AnalysisDefinition),ModelError>{
  settings.validate()?;if !matches!(method,analysis::AnalysisMethod::Delegation|analysis::AnalysisMethod::DirectUsage){return Err(invalid("unimplemented structural method"));}
  let bounded=method==analysis::AnalysisMethod::Delegation;let parameters=analysis::MethodParameters{depth:bounded.then_some(settings.depth),proof_steps:bounded.then_some(settings.witnesses),work:bounded.then_some(settings.arcs),members:bounded.then_some(settings.vertices),seed:None,iterations:None,threshold:None,resolution:None,damping:None,model_catalog:None};
- let mut hash=KeySink::new("structural-conversion-v1");settings.id().encode(&mut hash);method.encode(&mut hash);ContentHash::of(include_bytes!("build.rs")).encode(&mut hash);ContentHash::of(include_bytes!("../analysis/delegation.rs")).encode(&mut hash);ContentHash::of(include_bytes!("../analysis/usage.rs")).encode(&mut hash);
+ let mut hash=KeySink::new("structural-conversion-v1");settings.id().encode(&mut hash);method.encode(&mut hash);ContentHash::of(include_bytes!("build.rs")).encode(&mut hash);ContentHash::of(include_bytes!("conclusions.rs")).encode(&mut hash);ContentHash::of(include_bytes!("../analysis/delegation.rs")).encode(&mut hash);ContentHash::of(include_bytes!("../analysis/usage.rs")).encode(&mut hash);
  let row=analysis::AnalysisDefinition{method,parameters:parameters.id(),semantic_version:hash.finish(),interpretation:analysis::Interpretation::Structural};Ok((parameters,row))
 }
 // One graph per frame is hydrated in stored replay. The runtime borrows its collection's graph.
@@ -91,8 +92,8 @@ pub fn stage(profile:stages::Profile,settings:&AnalyticsConfiguration,model:&Val
  use stages::*;settings.validate()?;
  let mut outputs=super::relations().iter().map(RelationUse::of_relation).collect::<Vec<_>>();
  macro_rules! output {($($ty:ty),*)=>{$(outputs.push(RelationUse::of::<$ty>());)*};}
- output!(publication::Invocation,publication::InvocationSource,publication::AnalysisInput,publication::ProjectionInput,publication::SourceReceipt,publication::AnalysisOutcome,publication::AnalysisCoverage,publication::CoverageSource,publication::AnalysisCoveragePremise,publication::CoverageRequirement,publication::CoverageRequiredSource);
- let own=outputs.iter().map(|r|r.name()).collect::<std::collections::BTreeSet<_>>();
+ output!(assertion::AssertionQualification,conditions::Condition,conditions::ConditionNode,publication::Invocation,publication::InvocationSource,publication::AnalysisInput,publication::ProjectionInput,publication::SourceReceipt,publication::AnalysisOutcome,publication::AnalysisCoverage,publication::CoverageSource,publication::AnalysisCoveragePremise,publication::CoverageRequirement,publication::CoverageRequiredSource);
+ let own=outputs.iter().filter(|r|!is_vocabulary(r.name())).map(|r|r.name()).collect::<std::collections::BTreeSet<_>>();
  let mut requested=Data::validation_inputs();requested.extend(super::frames::Context::validation_inputs());requested.extend(analysis::expected::inputs(analysis::AnalysisMethod::Delegation));requested.extend(analysis::expected::inputs(analysis::AnalysisMethod::DirectUsage));requested.push(ValidationInput::of::<analysis::ProjectionDefinition>(&["id"]));
  let relation=|name|model.relations().iter().find(|r|r.name()==name).ok_or_else(||invalid(format!("structural relation absent: {name}")));
  let mut inputs=Vec::new();for input in requested {if own.contains(input.name()){continue;}let mut use_=RelationUse::of_relation(relation(input.name())?).completed_store();if let Some(epoch)=input.prefix(){use_=use_.at_epoch(epoch);}inputs.push(use_);}

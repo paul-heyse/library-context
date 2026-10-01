@@ -1,11 +1,15 @@
 //! Structural observations retain exact normalized/catalog lineage for synthesis and analytics.
 pub mod build;
 pub mod frames;
+pub mod conclusions;
+pub use conclusions::{Conclusion,ConclusionSource};
 mod records;
 pub use records::*;
 use crate::domain::{*,normalized::Rows,resources::ResourceBudget};
 #[macro_export]
 macro_rules! structural_outputs {($apply:ident)=>{$apply!{
+ conclusions:$crate::domain::structural::Conclusion,
+ conclusion_sources:$crate::domain::structural::ConclusionSource,
  frames:$crate::domain::structural::StructuralFrame,
  public:$crate::domain::structural::PublicCandidate,
  configured:$crate::domain::structural::ConfiguredSeed,
@@ -23,13 +27,13 @@ macro_rules! structural_outputs {($apply:ident)=>{$apply!{
  usage_scores:$crate::domain::structural::UsageScore,
 }};}
 macro_rules! outputs {($($field:ident:$ty:ty,)*)=>{
- pub struct Output {$(pub $field:Rows<$ty>,)*}
+ pub struct Output {pub conclusion_qualifications:Rows<assertion::AssertionQualification>,$(pub $field:Rows<$ty>,)*}
  impl Output {
- pub fn new(b:&ResourceBudget)->Self{Self{$($field:Rows::new(b),)*}}
+ pub fn new(b:&ResourceBudget)->Self{Self{conclusion_qualifications:Rows::new(b),$($field:Rows::new(b),)*}}
  pub fn visit(&mut self,name:&str,batch:&arrow_array::RecordBatch)->Result<bool,ModelError>{$(if name==<$ty>::NAME{self.$field.decode(batch)?;return Ok(true);})*Ok(false)}
  pub fn validation_inputs()->Vec<ValidationInput>{vec![$(ValidationInput::of::<$ty>(&["id"]),)*]}
  pub fn matches(&self,expected:&Self)->Result<(),ModelError>{$(if !self.$field.same(&expected.$field){return Err(ModelError::Invalid(format!("structural inventory differs: {}",<$ty>::NAME)));})*Ok(())}
- pub fn extend(&mut self,other:Self)->Result<(),ModelError>{$(for row in other.$field.iter(){self.$field.insert(row.clone())?;})*Ok(())}
+ pub fn extend(&mut self,other:Self)->Result<(),ModelError>{for row in other.conclusion_qualifications.iter(){self.conclusion_qualifications.insert(row.clone())?;}$(for row in other.$field.iter(){self.$field.insert(row.clone())?;})*Ok(())}
  }
 };}crate::structural_outputs!(outputs);
 pub fn relations()->Vec<Relation>{macro_rules! rows{($($field:ident:$ty:ty,)*)=>{vec![$(Relation::of::<$ty>()),*]};}crate::structural_outputs!(rows)}

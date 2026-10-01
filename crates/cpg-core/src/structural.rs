@@ -40,6 +40,7 @@ pub async fn produce(access:StageAccess<'_, '_>,attempt:&GenerationAttempt,confi
  let mut output=StageOutput::new(access,attempt,model,runtime.budget().clone(),Default::default())?;
  macro_rules! write {($ty:ty,$rows:expr)=>{{output.declare::<$ty>()?;for row in $rows.iter(){output.push(row.clone()).await?;}}};}
  macro_rules! result {($($f:ident:$ty:ty,)*)=>{$(write!($ty,results.$f);)*};}lctx_model::structural_outputs!(result);
+ write!(assertion::AssertionQualification,results.conclusion_qualifications);output.declare::<conditions::Condition>()?;output.declare::<conditions::ConditionNode>()?;let (condition,nodes)=conditions::Diagram::always().records();output.push(condition).await?;for node in nodes{output.push(node).await?;}
  write!(owner::Invocation,context.invocations);write!(owner::InvocationSource,context.sources);write!(owner::AnalysisInput,context.inputs);write!(owner::SourceReceipt,receipts);write!(owner::ProjectionInput,projections);
  macro_rules! declare {($($ty:ty),*)=>{$(output.declare::<$ty>()?;)*};}declare!(owner::AnalysisOutcome,owner::AnalysisCoverage,owner::CoverageSource,owner::AnalysisCoveragePremise,owner::CoverageRequirement,owner::CoverageRequiredSource);
  for invocation in context.invocations.iter(){let definition=context.definitions.get(invocation.definition).unwrap();let capability=if definition.method==analysis::AnalysisMethod::Delegation{analysis::AnalysisCapability::Delegation}else{analysis::AnalysisCapability::DirectUsage};
