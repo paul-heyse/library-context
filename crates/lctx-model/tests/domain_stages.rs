@@ -12,10 +12,13 @@ fn ready<T>(future: impl Future<Output = T>) -> T {
         Poll::Pending => panic!("test effect unexpectedly pending"),
     }
 }
+fn stage_model() -> ValidatedModel {
+    ValidatedModel::validate(vec![Relation::of::<Package>(), Relation::of::<Release>()]).unwrap()
+}
 /// Hand off an explicitly empty `Package` output; its reader stage declares it as input.
 fn execution_handoff_required(stage: &mut StageAccess<'_, '_>) -> bool {
     let empty = Batch::<Package>::new(
-        &model().unwrap(),
+        &stage_model(),
         vec![],
         &lctx_model::domain::resources::ResourceBudget::fixed(1 << 20).unwrap(),
     )
@@ -55,7 +58,7 @@ fn stages() -> Vec<Stage> {
 fn completed_store_inputs_release_handoffs_and_require_acknowledged_sources() {
     use lctx_model::domain::{memory::MemoryGeneration, resources::ResourceBudget};
     use std::sync::Arc;
-    let model = model().unwrap();
+    let model = stage_model();
     let mut declarations = stages();
     declarations[1].inputs = vec![RelationUse::stored::<Package>()];
     let schedule = Schedule::build(&model, declarations, &[], Profile::Catalog).unwrap();
@@ -96,7 +99,7 @@ fn completed_store_inputs_release_handoffs_and_require_acknowledged_sources() {
 }
 #[test]
 fn execution_capabilities_refuse_undeclared_reads_writes_and_incomplete_schedules() {
-    let model = model().unwrap();
+    let model = stage_model();
     let schedule = Schedule::build(
         &model,
         stages(),
@@ -147,7 +150,7 @@ fn execution_capabilities_refuse_undeclared_reads_writes_and_incomplete_schedule
 }
 #[test]
 fn failed_dropped_or_cancelled_effects_cannot_receive_execution_receipts() {
-    let model = model().unwrap();
+    let model = stage_model();
     let schedule = Schedule::build(&model, stages(), &[], Profile::Catalog).unwrap();
     for case in [
         "dropped",
@@ -200,7 +203,7 @@ fn failed_dropped_or_cancelled_effects_cannot_receive_execution_receipts() {
 
 #[test]
 fn producer_identity_effect_configuration_and_profile_are_schedule_contracts() {
-    let model = model().unwrap();
+    let model = stage_model();
     let digest = |stages, profile| {
         Schedule::build(&model, stages, &[], profile)
             .unwrap()
@@ -231,7 +234,7 @@ fn producer_identity_effect_configuration_and_profile_are_schedule_contracts() {
 
 #[test]
 fn write_permits_and_receipts_retain_the_exact_attempt() {
-    let model = model().unwrap();
+    let model = stage_model();
     let schedule = Schedule::build(&model, stages(), &[], Profile::Catalog).unwrap();
     let mut first = schedule.execute();
     let second = schedule.execute();
@@ -257,8 +260,8 @@ fn write_permits_and_receipts_retain_the_exact_attempt() {
 
 mod contributions {
     use lctx_model::domain::{
-        attribution::FactFamily, batching::TransferLimits, input::*, memory::MemoryGeneration,
-        resources::ResourceBudget, source::SourceArtifact, stages::*, *,
+        artifact::ArtifactChunk, attribution::FactFamily, batching::TransferLimits, input::*,
+        memory::MemoryGeneration, resources::ResourceBudget, source::SourceArtifact, stages::*, *,
     };
     use std::{
         future::Future,
@@ -272,6 +275,17 @@ mod contributions {
             Poll::Ready(value) => value,
             Poll::Pending => panic!("in-memory sink unexpectedly pending"),
         }
+    }
+    fn contribution_model() -> ValidatedModel {
+        ValidatedModel::validate(vec![
+            Relation::of::<Package>(),
+            Relation::of::<Release>(),
+            Relation::of::<InputRevision>(),
+            Relation::of::<SourceArtifact>(),
+            Relation::of::<ArtifactChunk>(),
+            Relation::of::<CorpusLibrary>(),
+        ])
+        .unwrap()
     }
     fn stage(
         name: &'static str,
@@ -323,7 +337,7 @@ mod contributions {
 
     #[test]
     fn contributions_are_declared_schedule_contracts() {
-        let model = model().unwrap();
+        let model = contribution_model();
         let schedule = Schedule::build(&model, pipeline(), &[], Profile::Catalog).unwrap();
         let order: Vec<_> = schedule.stages().iter().map(|s| s.name).collect();
         assert!(
@@ -394,7 +408,7 @@ mod contributions {
 
     #[test]
     fn contributed_vocabulary_merges_once_and_handoffs_release_after_the_last_reader() {
-        let model = model().unwrap();
+        let model = contribution_model();
         let schedule = Schedule::build(&model, pipeline(), &[], Profile::Catalog).unwrap();
         let (stage_budget, store_budget) = (
             ResourceBudget::fixed(1 << 30).unwrap(),
@@ -485,7 +499,7 @@ mod contributions {
     /// stages contribute to its output.
     #[test]
     fn contributed_rows_deduplicate_against_a_batched_output_and_conflicts_refuse() {
-        let model = model().unwrap();
+        let model = contribution_model();
         let stages = vec![
             stage(
                 "contributor",
@@ -606,7 +620,7 @@ mod contributions {
 
     #[test]
     fn raw_writers_must_hand_off_and_merge_what_the_schedule_declares() {
-        let model = model().unwrap();
+        let model = contribution_model();
         let schedule = Schedule::build(&model, pipeline(), &[], Profile::Catalog).unwrap();
         let mut execution = schedule.execute();
         for name in ["left", "right"] {
@@ -645,7 +659,7 @@ struct Outside {
 
 #[test]
 fn the_schedule_refuses_double_or_missing_writers_foreign_relations_and_cycles() {
-    let model = model().unwrap();
+    let model = stage_model();
     let of = |name: &'static str,
               inputs: Vec<RelationUse>,
               outputs: Vec<RelationUse>,

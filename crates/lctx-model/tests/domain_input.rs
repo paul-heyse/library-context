@@ -14,8 +14,27 @@ use lctx_model::domain::{
 fn budget() -> ResourceBudget {
     ResourceBudget::fixed(1 << 30).unwrap()
 }
+fn input_model() -> Result<ValidatedModel, ModelError> {
+    ValidatedModel::validate(vec![
+        Relation::of::<Package>(),
+        Relation::of::<Release>(),
+        Relation::of::<InputRevision>(),
+        Relation::of::<InputOrigin>(),
+        Relation::of::<InputAcquisition>(),
+        Relation::of::<CorpusLibrary>(),
+        Relation::of::<ArtifactUse>(),
+        Relation::of::<InputDistribution>(),
+        Relation::of::<DistributionVerification>(),
+        Relation::of::<EnvironmentFingerprint>(),
+        Relation::of::<SourceArtifact>(),
+        Relation::of::<ArtifactChunk>(),
+        Relation::of::<ArtifactOwnership>(),
+        Relation::of::<UnownedArtifact>(),
+        Relation::of::<DerivedArtifact>(),
+    ])
+}
 fn validate(fixture: &Fixture) -> Result<ContentHash, ModelError> {
-    let model = model()?;
+    let model = input_model()?;
     let generation = MemoryGeneration::conformance(&model, &budget());
     macro_rules! put { ($($ty:ty),+) => { $( generation.put(&Batch::new(&model, fixture.rows::<$ty>(), &budget())?)?; )+ }; }
     input_relations!(put);

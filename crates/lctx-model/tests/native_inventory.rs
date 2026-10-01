@@ -4,6 +4,7 @@ use lctx_model::domain::{
     analysis::{native::*, policy::EvidenceStatus},
     assertion::{Approximation, AssertionQualification},
     attribution::{ExtractionMode, FactFamily, Fidelity, Modality, Origin},
+    calls::{SignatureEnumerationObservation, SignatureEnumerationSupport},
     documents::{DocumentObservation, DocumentSupport},
     resources::ResourceBudget,
     source::{SyntaxObservation, SyntaxSupport},
@@ -236,7 +237,13 @@ fn inventory_and_collected_output_retain_and_release_their_reservations() {
 #[test]
 fn inventory_inputs_have_only_native_authority_and_require_native_support_validation() {
     let inputs = NativeInventory::inputs();
-    assert_eq!(inputs.len(), 103); // 51 distinct native pairs plus shared qualification.
+    assert_eq!(inputs.len(), 105); // 52 native pairs plus the shared qualification.
+    assert!(inputs.iter().any(|input| {
+        input.name() == SignatureEnumerationObservation::NAME
+    }));
+    assert!(inputs.iter().any(|input| {
+        input.name() == SignatureEnumerationSupport::NAME
+    }));
     let facts = lctx_model::domain::facts_relations();
     assert!(
         inputs

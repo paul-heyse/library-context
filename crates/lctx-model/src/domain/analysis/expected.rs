@@ -910,7 +910,10 @@ mod tests {
                 let scope = &domain.scopes[0];
                 assert_eq!(scope.scope, f.python);
                 assert_eq!(scope.requested, profile == Profile::Behavioral);
-                assert_eq!(scope.native.len(), 5);
+                assert_eq!(
+                    scope.native.len(),
+                    if method == AnalysisMethod::Execution { 5 } else { 4 }
+                );
                 assert_eq!(scope.normalized.len(), 2);
                 assert!(scope.normalized.iter().all(|r| matches!(
                     f.index.computations.get(&r.computation).unwrap().capability,

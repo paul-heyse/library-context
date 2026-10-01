@@ -1,5 +1,6 @@
 use lctx_model::domain::{
-    input::*, memory::MemoryGeneration, resources::ResourceBudget, source::*, stages::*, *,
+    artifact::ArtifactChunk, input::*, memory::MemoryGeneration, resources::ResourceBudget,
+    source::*, stages::*, *,
 };
 use std::{
     future::Future,
@@ -17,6 +18,21 @@ fn ready<T>(future: impl Future<Output = T>) -> T {
         Poll::Pending => panic!("in-memory sink unexpectedly pending"),
     }
 }
+fn package_release_model() -> ValidatedModel {
+    ValidatedModel::validate(vec![Relation::of::<Package>(), Relation::of::<Release>()]).unwrap()
+}
+fn input_order_model() -> ValidatedModel {
+    ValidatedModel::validate(vec![
+        Relation::of::<InputRevision>(),
+        Relation::of::<SourceArtifact>(),
+        Relation::of::<ArtifactChunk>(),
+        Relation::of::<Occurrence>(),
+    ])
+    .unwrap()
+}
+fn package_model() -> ValidatedModel {
+    ValidatedModel::validate(vec![Relation::of::<Package>()]).unwrap()
+}
 fn generation<R: Record>(model: &ValidatedModel, batches: Vec<Vec<R>>) -> MemoryGeneration {
     let generation = MemoryGeneration::conformance(model, &budget());
     for rows in batches {
@@ -29,7 +45,7 @@ fn generation<R: Record>(model: &ValidatedModel, batches: Vec<Vec<R>>) -> Memory
 
 #[test]
 fn absent_references_and_repeated_keys_refuse_like_store_keys() {
-    let model = model().unwrap();
+    let model = package_release_model();
     let (p, q) = (Package { name: "p".into() }, Package { name: "q".into() });
     let release = Release {
         package: p.id(),
@@ -70,9 +86,18 @@ fn absent_references_and_repeated_keys_refuse_like_store_keys() {
 
 #[test]
 fn model_invariants_run_over_declared_input_order() {
-    let model = model().unwrap();
-    let input = InputRevision::from_entries(vec![]).unwrap();
-    let source = SourceArtifact::from_bytes(input.id(), "m.py".into(), b"x = 1").unwrap();
+    let model = input_order_model();
+    let bytes = b"x = 1";
+    let input = InputRevision::from_entries(vec![ManifestEntry {
+        path: "m.py".into(),
+        content: ContentHash::of(bytes),
+        byte_len: bytes.len() as i64,
+    }])
+    .unwrap();
+    let source = SourceArtifact::from_bytes(input.id(), "m.py".into(), bytes).unwrap();
+    let chunks = ArtifactChunk::split(&source, bytes)
+        .unwrap()
+        .collect::<Vec<_>>();
     let outside = Occurrence {
         source: source.id(),
         start: 0,
@@ -82,7 +107,11 @@ fn model_invariants_run_over_declared_input_order() {
         structural_path: vec![0],
     };
     let g = MemoryGeneration::conformance(&model, &budget());
+    g.put(&Batch::new(&model, vec![input], &budget()).unwrap())
+        .unwrap();
     g.put(&Batch::new(&model, vec![source], &budget()).unwrap())
+        .unwrap();
+    g.put(&Batch::new(&model, chunks, &budget()).unwrap())
         .unwrap();
     g.put(&Batch::new(&model, vec![outside], &budget()).unwrap())
         .unwrap();
@@ -94,7 +123,7 @@ fn model_invariants_run_over_declared_input_order() {
 
 #[test]
 fn a_bound_generation_accepts_only_its_execution_and_charges_what_it_stores() {
-    let model = model().unwrap();
+    let model = package_model();
     let stages = vec![Stage {
         name: "packages",
         inputs: vec![],
