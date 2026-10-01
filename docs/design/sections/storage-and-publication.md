@@ -1,367 +1,84 @@
 # Storage and publication
 
-**Target, 2026-09-29.** [§15](semantic-model.md) (ADR-0085/0083/0084) is the accepted target, and the [cutover plan](../../plans/semantic-model-cutover-plan_2026-09-29.md) delivers it layer by layer. Phase 1 replaces the Delta store and bundle import with PostgreSQL generations (§15.11–§15.12); phases 3–4 replace the projection layer (§15.10). Until that phase exits, this page describes the implemented legacy pipeline.
-
-This owner covers what happens to validated rows: how an attempt becomes an immutable published
-snapshot in the Delta store, how readers see exactly one snapshot, how the schema contract is
-enforced over time, how analytics read the graph through declared projections, and how a serving
-generation is derived from a published snapshot. Inputs are the attempt's raw, derived and
-analysis batches ([§4.3](acquisition-and-extraction.md#section-4-3)) and the table contracts of
-[§3](facts-and-identity.md#section-3); consumers are the analytic passes
-([§9](analytics.md#section-9)), synthesis and the serving interface
-([§10–§11](synthesis-and-serving.md#section-10)), and `lctx query`. Effects are confined here:
-transformations upstream never write Delta, and the server never reads it. Code:
-`crates/cpg-core/src/` (`delta.rs` create/verify/write/merge, `snapshot.rs` pinned readers,
-`attempt.rs` the attempt protocol, `bundle.rs` generations), `crates/cpg-schema/src/`
-(`table.rs` read modes, `projection.rs`, `bundle.rs`), `crates/lctx-analytics/src/graph.rs` (the
-projection adapter). Tests: `crates/cpg-core/tests/` (`delta.rs`, `compile.rs`, `bundle.rs`,
-`analysis.rs`). The map is in the [architecture README](../README.md).
+**Implemented / Tested for facts and normalized storage, 2026-09-30; Phase 4 qualification in
+progress, 2026-10-01.** [§15](semantic-model.md) owns declarations, immutable vocabulary epochs,
+semantic validation and generation admission. PostgreSQL is the single canonical relational store;
+DataFusion computes over generation-bound providers. The [cutover plan](../../plans/semantic-model-cutover-plan_2026-09-29.md)
+owns current qualification. Serving remains unavailable pending Phase 5.
 
 ## §5 Projections
 
-**Implemented** and **Tested** for the invocation projection, its declared spec
-(`cpg_schema::projection`) and the adapter (`lctx_analytics::graph`), 2026-09-23:
-`the_adapter_keeps_parallel_arcs_isolates_and_refuses_disorder`;
-`pass_a_finds_the_known_answers_on_analysis_shapes` checks the property-getter arc, the
-override-open candidate arc and a module-level caller on the real pipeline. The petgraph
-behaviour cited is **Interface-checked** (petgraph skill and pinned source).
+**Implemented / focused-Tested, 2026-09-30.** Model-owned projection declarations specify input,
+context, universe, vertices, arcs, admission policy and exact lineage. `cpg-extract` publishes the
+normalized program projections; `cpg-core::analysis_graphs` hydrates each stored graph once within
+the attempt budget. Algorithms borrow a branded graph view through callback-bounded permits;
+they cannot reuse a token for another projection or outlive its consumer access.
 
-**Declaring a projection.** A projection declares:
-- the snapshot;
-- node and edge kinds;
-- the accepted origins and fidelities;
-- candidate-target and unknown-target policies;
-- the algorithm and parameter set.
+Parallel arcs, isolates, direction and policy boundaries are preserved. A selector limits results,
+never the graph universe. SCC partitions and graph fingerprints are canonical. Missing graph
+permits, foreign budgets, incomplete source receipts and invalid endpoints refuse. Graph kernels
+and their shared semantic contracts are in [§15.10](semantic-model.md#section-15-10) and
+[§9](analytics.md#section-9). No hydration-cost, pilot-scale or total-RSS measurement is claimed.
 
-The vertex universe is selected separately from the edges, so isolated public APIs survive. The
-spec is recorded by digest on the invocation that uses it, and its SQL is part of the
-`compiler_digest` (§3.4.1).
-
-**The invocation projection**
-- It is built by joining call-site ownership with call targets in DataFusion: `encloses_call` ⋈
-  `call_target`, plus the non-potential `site_target` arcs of property getters and setters, whose
-  site's owner is read from `syntax_nodes`.
-- **Definition arcs:** a function → each function it declares (`declares`), with the nested
-  callable as the arc's site, no phase and `arc_kind = definition`. A decorator factory's
-  `decorator`, or a closure it registers, is then reachable, and so is what it calls. A
-  definition arc is never a `direct_delegation`. Every arc carries its `arc_kind` (`call` |
-  `definition`).
-- Call and property arcs read the site's owner through one fragment
-  (`cpg_schema::graph::owner_of`), so they cannot disagree about who calls.
-- It keeps `call_site_id` (which is also the resolution's id: a `ResolutionSet` is keyed by its
-  call site, §3.6), `edge_id`, `invocation_phase`, the arc's modality and
-  `has_unresolved_remainder` on every arc.
-- **Parallel call sites are preserved.**
-- **Excluded:** `potential` targets (so every `higher_order_target`) and `synthetic_model` arcs.
-- **Constructor phases stay tagged.**
-- **Candidate arcs** (Pysa `Overrides` dispatch) are kept with their modality, so a pass can
-  treat them as candidates (§3.6).
-- **Unknown targets.** A call site with no target, or with an unresolved remainder, gets no arc
-  to a placeholder. It is listed in the projection's `unresolved_sites` relation, which Pass A
-  turns into `incomplete_resolution` findings.
-- **Callers** are the enclosing function, or the module or class whose body holds the call, as
-  typed vertices.
-- The projection's rows are persisted where a result cites them: `witnesses` holds each path
-  step's call site, callee and `edge_id` (§3.4.1).
-
-**Three identities**
-
-| Identity | Scope | Persisted? |
-|---|---|---|
-| Canonical `node_id` / `fact_id` | persistent | yes |
-| Projection row | links an arc to its evidence rows | yes |
-| petgraph `NodeIndex` / `EdgeIndex` | temporary coordinates | **never** |
-
-**Container and adapter.** `petgraph::Graph<(), u32, Directed, u32>`, whose edge weight is the
-arc's row index (the arc columns stay in Arrow).
-- **Two queries on the pinned snapshot:** the vertex universe (`ORDER BY node_id`, isolates
-  included) and the arcs with the columns above (`ORDER BY src, dst, call_site_id, edge_id`:
-  total, since `edge_id` is unique).
-- **The dense index is the sorted domain ids:** read the `FixedSizeBinaryArray` directly (no hex
-  strings); domain → dense is a `binary_search`.
-- `Graph::with_capacity(n, m)`, then `try_add_node` in order so `NodeIndex(i) == i`, and
-  `try_add_edge` in canonical arc order so `EdgeIndex(k)` is arc row k.
-- Immutable once built, parallel edges kept, nothing ever removed (removal silently re-points held
-  indices).
-- **Scopes and callers without copies:** `EdgeFiltered`/`NodeFiltered`, and `Reversed` (which keeps
-  the original edge ids). Filtered views keep the base graph's `node_bound`.
-- **Not** `Csr` or `GraphMap` (they drop parallel edges), nor `StableGraph` (unneeded, and it blocks
-  several algorithms); no `rayon` or `serde-1` features.
-- **Order is a precondition, not a repair:** the adapter refuses arcs out of canonical order, and
-  the arcs query's total `ORDER BY` supplies it. Tests: the refusal
-  (`the_adapter_keeps_parallel_arcs_isolates_and_refuses_disorder`), and whole-attempt identity
-  across module order (`pass_a_is_identical_across_module_order_and_location`).
-
-**Determinism rules**
-- `edges_directed` returns the newest edge first. So `Bfs` visits siblings newest-first, while
-  `Dfs` pushes every successor and pops the last, taking the oldest first. Probe (2026-09-23):
-  with arcs r→1, r→2, r→3, Bfs = [0,3,2,1,4] and Dfs = [0,1,4,2,3].
-- So traversals never rely on walker order. They collect a node's edges and **sort by
-  (target canonical id, arc key)** before choosing.
-- SCC members are sorted by canonical id. Which SCC routine the summaries use, and its stack
-  safety, is owned by the analytics side and still open
-  ([plan W13](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
-
-> Decision: ADR-0044, ADR-0086, ADR-0085
-
----
+> Decision: ADR-0086, ADR-0103
 
 ## §6 Persistence and publication
 
-> Decision: ADR-0086
-
-**Retired, cutover P1.3/P1.4 (2026-09-29).** The Delta store described below was removed. The
-store is PostgreSQL generations: [§B7](../DESIGN.md#section-b7) and
-[§15.11](semantic-model.md#section-15-11) own it, and [the runbook](../../postgresql.md) covers its
-operation. The subsections below remain only until plan C3x removes them. They describe no running
-code.
-
-*Former status:* **Implemented** in `cpg-core` and **Tested** where a line names a test or says so
-(`cpg-core/tests/delta.rs`, `compile.rs`, `bundle.rs`; 2026-09-22 onward). Lines about delta-rs
-behaviour that no repository test asserts are **Interface-checked** against the pinned delta-rs and
-kernel sources (deltalake skill, 2026-09-22).
-
+`lctx-postgres` owns generation tables, roles, COPY, publication and leases. `cpg-core` owns the
+DataFusion provider/runtime adapter. Pure model operations perform no I/O and are the same
+validators used by tests and publication. [§15.11](semantic-model.md#section-15-11) specifies the
+closed-epoch protocol; [the runbook](../../postgresql.md) owns operator commands.
 
 ### §6.1 Canonical tables and publication
 
-- **Family tables.** Each fact family is a set of append-only Delta tables. Every
-  snapshot-qualified row carries `snapshot_id` as a plain column; tables are not partitioned
-  (partitioning on the Binary id returned wrong results, and a hex column would migrate every
-  contract).
-- **A compile attempt:**
-  1. writes its rows, each snapshot-qualified table in **exactly one commit** carrying
-     `lctx.snapshot_id` in its `commitInfo`;
-  2. runs local and cross-table validation (§8);
-  3. then, **and only then**, appends one row per table to `snapshots`: (snapshot_id,
-     content_digest, table, Delta version, schema digest, compiler digest, row count), in a
-     single commit (**Tested**: a validation failure publishes nothing, and the published
-     snapshot's reader sees only its rows). A snapshot is published at most once: `publish`
-     refuses a `snapshot_id` that `snapshots` already holds.
-- **That commit is the publication act** (Delta commits are atomic per table; there is no
-  multi-table commit). The row set records ordinary snapshot-local `used_embeddings` and `embedding_uses` tables.
-- **An error on the `snapshots` append itself** is ambiguous (`delta.commit.1`). Re-read
-  `snapshots`, classify the attempt as published or unpublished, and only then retry or build
-  the generation (**Tested**: `a_failed_snapshots_append_is_classified_by_rereading`).
-- **Any write error aborts the attempt.** A retry is a new attempt with a new `snapshot_id`,
-  because a Delta write error does not mean nothing committed (`delta.commit.1`). Rows from
-  unpublished attempts are invisible to readers.
-- **Adapter failure on a module** gives `coverage.status = failed` for that module and family. The
-  snapshot can still publish, with that gap visible.
-- **Canonical writes go through `DeltaTable::write` only** (§4.3).
-  These writes enforce the tables' CHECK constraints and `delta.appendOnly` where the table
-  features are present, and the open-time verify asserts they are. DataFusion `INSERT INTO` does
-  not, so it is never used (**Tested**).
-- **Consumed vectors (Implemented, 2026-09-27)** are ordinary snapshot-qualified tables.
-  One attempt-owned collector retains the exact PostgreSQL winners before returning them to
-  operation views, E0/kNN or brief documents. `used_embeddings` captures values/digests;
-  `embedding_uses` independently captures consumer coverage. They are written once, validated
-  and published like other analysis tables. No cache version or global read exception remains.
-  The shared cache and legacy admission procedure are owned by [§6.5](#section-6-5).
-- **`SaveMode::Ignore` is never used.** It appends to existing tables (`delta.write.3`).
-- **No vacuum or optimize on fact tables.** Vacuum defaults to `dry_run=false` and Lite mode.
-- **Retention keeps every published snapshot readable** (**Tested** by
-  `retention_keeps_old_versions_loadable`, 2026-09-22).
-  - **The problem.** By default every commit's post-commit hook writes a checkpoint every 100
-    versions and runs expired-log cleanup (`delta.enableExpiredLogCleanup` true,
-    `delta.logRetentionDuration` 30 days), which deletes the commits and checkpoints below the
-    newest checkpoint older than the cutoff. After that, `with_version(v).load()` of an older `v`
-    fails ("No files in log segment"), so a snapshot published more than 30 days ago would be
-    unreadable at its recorded version, and the per-commit reads of §6.2 would lose their commits.
-  - **The rule.** Every table, `snapshots` included, is created with
-    `delta.enableExpiredLogCleanup = false` and `delta.logRetentionDuration = interval 36500 days`,
-    set through `with_configuration_property` (never `with_configuration`, which replaces the
-    whole map). Open-time verify compares both strings exactly, because delta-rs silently falls
-    back to its default on a value it cannot parse. Checkpoints stay on, so a load replays at most
-    99 commits.
-  - The test creates a table with `checkpointInterval = 2` and zero retention: an old version is
-    unloadable under the defaults and loadable under ours.
+**Implemented / Tested at the facts frontier, 2026-09-30.** An attempt stages a self-contained
+captured input and declared results. Typed records derive identity, Arrow/PostgreSQL lowerings,
+references, COPY codecs and shared invariants. A completed ordinary stage has immutable outputs
+and acknowledged receipts. Vocabulary contributions remain private until their publication group
+closes atomically with the result relations that reference them.
 
+Group closure drains readers/writers, merges contributions, deduplicates identical payloads,
+validates exact source membership and revokes temporary grants. Existing vocabulary payloads and
+old receipt meanings never change. Failed, cancelled or unconfirmed closure poisons the attempt;
+no partial publication becomes available. Final seal requires every group closed and frontier
+admission satisfied. Compilation never selects the published generation.
+
+> Decision: ADR-0086, ADR-0105, ADR-0108
 
 ### §6.2 Readers
 
-**Implemented** in `cpg_core::snapshot` and **Tested** (`reads_pin_the_version_and_filter_the_snapshot`,
-`a_pinned_read_opens_only_its_commits_files`, `a_rejected_attempt_is_inspected_at_its_own_commits`).
+**Implemented / focused-Tested, 2026-09-30.** Completed-stage capabilities and published readers
+are separate authorities. `AttemptSession` reads only acknowledged predecessors at declared
+vocabulary prefixes. `GenerationSession` pins one admitted immutable generation. Provider pools,
+read leases and query permits live through stream drain; the full physical plan must fit declared
+scan capacity before scanning. Read-only SQL rejects writes and typed parameter binding preserves
+values. Missing relations and required-null payloads refuse rather than producing empty answers.
 
-1. Resolve the snapshot's row set in `snapshots`.
-2. Load each table **at its recorded version** with
-   `DeltaTableBuilder::from_url(..)?.with_version(v).load()`, then assert
-   `table.version() == Some(v)`. A provider built on an already-loaded handle ignores the
-   requested version (`delta.open.2`, `delta.read.4`).
-3. Every table is **snapshot-qualified: read only that commit's files** (`snapshot::commit_provider`:
-     `LogStore::read_commit_entry(v)` + `logstore::get_actions` → the `Add` actions →
-     `TableProviderBuilder::with_adds`). A snapshot's rows of a table are exactly the commit at
-     its recorded version (one commit per table per attempt, §6.1). Before reading,
-     `commit_adds` confirms that the commit's `lctx.snapshot_id` names the snapshot and refuses
-     otherwise (`ForeignCommit`), never reading it as empty; `snapshots` remains the authority for
-     *which* version, and the commit metadata only confirms it. A selected file that is gone fails
-     the scan rather than returning fewer rows. Then **filter `snapshot_id`** as the row
-     predicate. The reason: Delta log statistics skip the Binary `snapshot_id`, so a filter alone
-     skips no file and costs one footer read per file of every snapshot, a cost that grows with
-     the store (a 200-snapshot table answered in 4.7 ms instead of 15.7 ms, Measured 2026-09-23).
-4. Project columns by name through the DataFusion provider. Never use `scan_table().with_columns`,
-   which returned the wrong column for a partition-first schema (`delta.read.3`).
-5. Never scan the Parquet directory directly (`delta.read.2`).
-6. Register one object store per table root per session (`delta.storage.4`).
+A later vocabulary prefix cannot enlarge reconstruction of an earlier normalized owner. Shared
+invariants name the original Facts prefix explicitly; no consumer invents a second source inventory.
 
-**An unpublished attempt** is readable only for inspection (`lctx query --unpublished`, §4.0), at
-the commits carrying its own `lctx.snapshot_id` (`snapshot::attempt_versions`, which walks each
-table's kept JSON commits). Tables the attempt did not write are left out, so a query naming them
-fails instead of reading empty.
-
-**Limit.** The contract rests on one commit per snapshot-qualified table per attempt. A writer
-that splits a table's write across commits (a streaming derive, a retried raw write) must record
-every commit, or this contract must change. There is no relational read across snapshots; a diff
-compares two snapshots read separately.
-
+> Decision: ADR-0086, ADR-0094, ADR-0105
 
 ### §6.3 Schema evolution
 
-**Implemented** and **Tested** for strict verification (`cpg_core::delta::verify`;
-`cpg-core/tests/delta.rs`). The fresh-store rebuild policy's compiler102 execution is recorded
-in [plan §1.1 / W15](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition);
-that dated checkpoint does not establish current assembled Stage 3 acceptance.
+**Implemented, 2026-09-30.** Executable declarations are the schema authority. Contract snapshots
+are checked with updates disabled; accepting a changed snapshot is a schema migration. Codebooks
+are append-only. Recollect changed pinned input into a fresh generation: no old-format reader,
+legacy-ID bridge, compatibility adapter, dual store or incremental semantic repair is retained.
+Named current readers are quiesced before replacing their state.
 
-- **What is implemented: strict verification, no evolution.** When an attempt opens a table,
-  `verify` compares the stored Delta schema with the table's declared `cpg-schema` contract and
-  refuses any difference (`SchemaDrift`), as it refuses a changed `appendOnly`, retention or CHECK
-  set. No code evolves a table's schema in place: there is no `SchemaMode::Merge` write and no
-  additive-column migration
-  ([plan W15](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition), RF/F16).
-- **A schema change is a reviewed migration.** It shows as a changed contract snapshot, is
-  accepted by reading the `.snap.new` and is named as a migration in its commit. In practice it
-  needs a fresh store. The replacement is validated before cutover, then the old store is deleted; the new compile
-  produces its own `embedding_specs` and current snapshot. Historical snapshot reads and keeping
-  the old binary are not supported requirements.
-- **A change to a table's CHECK set is a migration** in the same way, because the open-time verify
-  refuses a table whose constraints differ from the declared set.
-- **Schema digests** are `cpg-schema`'s digest of the declared contract, never of Arrow read back,
-  because read-back changes `Utf8` → `Utf8View` and renames list children to `element`.
-- **Rebuild policy** ([ADR-0048](../../adr/0048-schema-rebuild-policy.md), W15). Build a fresh
-  store from pinned inputs under new producer/compiler identity and publish the current library's
-  new snapshot. Do not copy old analysis tables or snapshots. The global embedding cache may be
-  reused only through its independently verified contract. The old store can be removed after
-  acceptance. A real historical-read consumer reopens this policy; no in-place merge is implied.
-
-> Decision: ADR-0048
-
+> Decision: ADR-0086, ADR-0087
 
 ### §6.4 Serving generations
 
-**Implemented** and **Tested** for the declared files of the current format
-(`a_generation_rebuilds_to_the_same_bytes`, `a_changed_generation_is_refused`,
-`mixed_embedding_specs_are_refused`, `serving_schema_digests_are_the_shared_known_answers`;
-2026-09-23 onward); the files marked below as later-stage are **Proposed**.
+**Accepted Phase 5 target; unavailable, 2026-10-01.** Serving pins the canonical generation through
+model-generated views, grants and indexes. It does not import a bundle into another canonical
+store. Native/Python wire, cursor, hydration, journey and dormant `cpg-core::bundle` controls are
+retained reconstruction expectations. Derived artifact caches must preserve exact identity and
+cannot supply semantic authority. [§15.12](semantic-model.md#section-15-12) and
+[§11.3](synthesis-and-serving.md#section-11-3) own the remaining serving contract.
 
-**FORMAT16 / projection FORMAT6 / wire3 (Implemented and bounded Tested under the live-embedding waiver, 2026-09-28; ADR-0077/0078).**
-The mandatory catalog contains original artifacts, spans, contextual scenarios, deployment observations,
-typed site associations, surface/configuration contracts and scoped selection domains. Immutable retrieval
-units/fragments, subjects, vectors and receipts are generation artifacts derived from those facts.
-The schema-owned renderer also validates supplied units against canonical content and ownership.
-The executable `cpg_schema::bundle::files` inventory is authoritative. Native artifacts are required
-exactly when behavioral analysis is advertised; unselected analysis relations have typed empty schemas.
-Only the current format is accepted; regeneration replaces historical-format recovery.
-
-- **Derivation.** A generation is built **only after** canonical `snapshots` publication. Its
-  complete inputs are the published snapshot at recorded versions (including exact canonical
-  vector receipts) and the selected immutable retrieval realization and complete file receipt.
-  Replaying those inputs produces byte-identical files without a live cache or embedder. Changed
-  rendering/specification or resolved token admission may produce another explicitly identified
-  realization and generation over the same snapshot; snapshot identity alone is not sufficient.
-- **Bundle.** It is a directory `generations/<key>/` of Arrow IPC files, with declared schemas
-  from `cpg-schema` (`cpg_schema::bundle`). Codebook values are served as their text. The files:
-  - `briefs`, with each brief's Outcome and its status;
-  - `assertions`, one row per (brief, ordinal), with kind, section and status;
-  - `supports`, each assertion's findings (by kind) and evidence, by role and ordinal;
-  - `support_findings`, `support_witnesses` and `support_members` (FORMAT 8): the bounded closure
-    of findings cited by served assertions, their invocation/model, ordered witness source spans
-    and member fact identities. The loader refuses a missing closure edge or witness source span;
-    fact-only members report the remaining resolution limit ([ADR-0049](../../adr/0049-served-support-closure.md));
-  - `evidence`, with its resolved text and its file's or document's path;
-  - `brief_members`, and `symbol_map` (exact public access path → brief): every public path of
-    a brief's seed, own and inherited, with `own` (`semantic:brief-member-public`), so any public
-    spelling promotes the brief (`fastmcp.FastMCP.http_app` promotes `TransportMixin.http_app`'s).
-    The server shows a brief by its own paths;
-  - `public_paths`: the whole public surface (node, path, kind, `own`, `preferred`), what a
-    query's or a gold operation's spelling resolves against;
-  - `lexical_text`: each brief's documents, then the **distinct tokens** of its seed's **own**
-    public names (inherited spellings promote but name nothing here), each once however many
-    spellings or splits produce it (the path, its segments and their words at underscores and
-    case changes; `cpg_schema::bundle::name_tokens`), for BM25 (§11.2). The tokenizer is Unicode
-    lower-casing, then ASCII letter-and-digit runs, identical in Rust and Python, with shared
-    known answers in `specs/serving/tokens.json`;
-  - `embedding_spec` and `vectors` (§11.1), whose vector type is `fixed_size_list(float32 not null
-    "item", D)`, `D` the selected spec's dimensions. Canonical and retrieval receipts must agree
-    on any consumed vector space; each document's key is `(spec_hash, input_hash)`;
-  - the behavior and summary files: `operations`, `operation_facets`, `operation_facet_status`,
-    `callable_parameters`, `behaviors`, `singletons`,
-    `ambient_reads`, `place_claims`, `conditions`, `condition_nodes`, `analysis_conditions`,
-    `analysis_condition_nodes`, `summary_flows`, `summary_flow_steps`, `summary_boundaries`,
-    `flow_test_leaves` and `flow_test_value_links`. Their meaning is owned by
-    [§3.9](behavior-model.md#section-3-9), [§9.9](behavioral-analysis.md#section-9-9) and
-    [§11](synthesis-and-serving.md#section-11); `cpg_schema::bundle::files` declares the list,
-    keys and schemas and is authoritative.
-  - `retrieval_units`, `retrieval_subjects`, `retrieval_fragments`, `retrieval_vectors` and
-    `retrieval_receipt` hold schema-rendered addressable evidence and exact-spec vector receipts.
-    They are independently materialized from the canonical catalog and validated against it.
-  - Usage patterns are `usage_pattern` assertions in `assertions` and `evidence`, so no separate
-    served file exists.
-  - **Proposed** additions: `concepts`, `concept_members` and `vocabulary` (the forward plan's
-    Stage 4).
-- **`MANIFEST.json`** has sorted keys. It lists:
-  - the format version (`cpg_core::bundle::FORMAT`), the snapshot, and its content and compiler
-    digests;
-  - the spec hash (none for a lexical-only generation);
-  - per file, its sha256, rows and **serving schema digest**. That digest is a SHA-256 over a
-    language-neutral canonical form: field name, a declared type grammar, nullability and sorted
-    metadata. Python recomputes it with its standard library, and the known answers are shared
-    by the Rust and Python tests (`specs/serving/schema_digests.json`). It is not the store's
-    `canonical_schema` (§6.3), whose Rust type display Python cannot reproduce;
-  - a coverage summary: coverage by scope, family and status; boundaries by reason; invocations
-    by completion; briefs by review state and analysis backing; unresolved and absent slots by
-    section (the §B11 gap metric).
-  - The **portable generation key** is the first 16 hex digits of the SHA-256 of the manifest without its
-    key. It moves with any file, and with the snapshot's provenance. The separate full projection
-    digest binds logical rows, schemas, context and artifacts for PostgreSQL pins/cursors.
-- **Normalization**, so replay of the same complete inputs is byte-identical:
-  - each file is one query, sorted by its declared key;
-  - every column is cast to its declared type and rebuilt through a builder, so no view type,
-    scan metadata or byte under a null slot reaches the file;
-  - one record batch per file, written in the Arrow IPC file format: V5, 64-byte alignment,
-    uncompressed.
-  - One generation never mixes vector spaces: a snapshot with two specs is refused, by
-    `semantic:one-embedding-spec` and by the builder.
-  - `a_generation_rebuilds_to_the_same_bytes` rebuilds from the store, and from a second compile
-    in another location and module order.
-  - `lctx compile` builds the generation after publishing; `lctx bundle` rebuilds it.
-  - A reader session registers its own `snapshots` rows, so the manifest's digests are read
-    from the store.
-- **Activation (Implemented, 2026-09-28).** The portable builder stages and renames a bundle
-  directory. `lctx serving import` separately validates and publishes a complete PostgreSQL
-  projection; `serving select` changes the pointer used by future servers. Each server pins the
-  full ready generation/profile digest at startup. An existing server or cursor never changes
-  when the pointer moves. Portable directory keys are export identities, not online selectors.
-
-- **Proposed derived indexes.** FTS/ANN, if selected by a future consumer, rebuild from the
-  current generation and bind its content/physical realization. Neither is a current route.
-- **Native projection.** The Python loader forwards checked IPC bytes to the Rust executor, which
-  validates `cpg-schema`'s exact serving schemas and decodes named columns. The focused
-  finalizer-bearing generation and schema-drift controls passed; integrated qualification is
-  pending ([plan W1](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
-
-> Decision: ADR-0086, ADR-0077, ADR-0078, ADR-0049
-
-**Accepted target, 2026-09-28 (ADR-0078):** current formats only. After validating a fresh
-replacement, quiesce readers and delete superseded stores, generations, matching runtimes and
-rollback assets. Reconstruction from pinned inputs replaces mixed-version recovery.
-
-**Mandatory catalog Implemented and bounded Tested under the PR4 live-embedding waiver, 2026-09-28.**
-[§14.13](api-and-evidence-product.md#section-14-13) records original evidence and explicit optional
-capabilities. Shared schema validation governs publication, import and current reconstruction.
-Retrieval artifacts use a complete file-content receipt as their immutable identity; an atomic current
-selection identifies the materialization for cold reconstruction. Publication validates snapshot identity
-before selecting it. Old runtimes, records and compatibility adapters have no recovery consumer.
-
-> Decision: ADR-0071, ADR-0078
+> Decision: ADR-0086, ADR-0087
 
 <a id="section-6-5"></a>
 
@@ -372,58 +89,30 @@ before selecting it. Old runtimes, records and compatibility adapters have no re
 owns deployment and qualification. The [forward plan §6](../../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-findings)
 owns review dispositions. [Operating instructions](../../postgresql.md) cover the deployed service.
 
-**Owners and authority.** Use SQLx's PostgreSQL driver, pool, migrations and transaction APIs
-with the existing Tokio runtime and one Rustls configuration. PostgreSQL effects live in
-`lctx-postgres`; `cpg-core` retains Delta orchestration and `lctx` owns operational commands. Schema, analytics and native semantic
-transformations remain independent of database setup. Bounded driver reads construct declared
-Arrow batches. `cpg-core::postgres_read` isolates the separate bounded provider read pool;
-PG15 owns admitted scans/federation, never application writes.
+**Owners and authority.** `lctx-postgres` owns the retained embedding cache and operation
+services, PostgreSQL generation storage, roles and migrations. `cpg-core` coordinates typed
+compilation and bounded DataFusion generation reads; `lctx` owns operator commands. These effects
+use SQLx with the existing Tokio runtime and one Rustls configuration. Semantic definitions and
+validation remain model-owned.
 
-**PR2 hydration contracts Implemented (ADR-0073/0074).** Inventory-derived reads assemble the
-complete shared Rust response before crossing into Python. New field links receive generation and
-field/class membership checks; Schemars also covers existing PG configuration, policy and diagnostic
-owners. Current readers accept the current format only; obsolete state is rebuilt after validation.
+**Cache and replay (Implemented; Phase 4 qualification in progress, 2026-10-01).** The shared
+cache commits one insert-only winning value per full spec/input key. An attempt retains the exact
+winning bytes it consumes in model-owned `embedding` relations, with explicit Analytic and
+Retrieval consumer records. Canonical value codecs and content identity belong to `lctx-model`.
+Reconstruction uses those immutable generation inputs; it does not contact the cache or embedder.
+The fake-embedding controls qualify cache reuse and replay, not live-service usability or quality.
 
-**Catalog-query implementation (ADR-0073/0077; bounded Tested under the PR4 live-embedding waiver).** PR4 extends SQLx checked
-static/file queries and typed rows for stable generation/catalog reads. Runtime `query_as` is typed
-decoding, not compile-time database checking; offline metadata follows the migrated disposable
-schema, with real-PG controls for nullability and type overrides. Inventory-driven dynamic hydration stays derived
-from `cpg-schema`, with bound values, shared Arrow codecs, byte/row budgets and existing leases.
-SQLx codecs remain local to this adapter; nominal IDs require checked conversion and generation
-membership. Schemars wire schemas do not become PostgreSQL DDL or replace relational invariants.
-No Cornucopia/ORM/driver switch is selected; SeaQuery retains the substantive dynamic-query trigger.
-[§14.7/§14.11](api-and-evidence-product.md#section-14-7) and forward-plan PR4 own this product work.
+**Operation services (Implemented, bounded Tested, 2026-09-28).** Attempt history and operational
+records retain their migration, backup/restore and reconciliation contracts. Generation discovery
+now reads the canonical generation store. Operational service rows cannot publish a semantic
+generation or strengthen a verdict. Rebuildable analytical data follows §6.3.
 
-The first consumers are the shared embedding cache, compile-attempt history and reconciled
-snapshot/generation discovery. Attempt history is operational authority; discovery is derived
-from Delta/manifests. No PostgreSQL row publishes a snapshot, changes a semantic verdict or
-modifies a published generation. Durable operational records have SQL migrations and explicit backup/restore tooling; analytical projections remain rebuildable under §6.3.
-
-**Cache and replay.** PostgreSQL holds one insert-only committed value per existing full
-spec/input key. An attempt retains the exact admitted values it consumes, including E0 and
-other analytics-only keys, and writes a snapshot-qualified `used_embeddings` relation before
-shared validation/publication; `embedding_uses` records independent operation/E0/brief coverage. Its versioned canonical value/aggregate receipt hashes are
-owned by `cpg-schema` and included in content identity. The snapshot's declared schema and
-embedding spec are sufficient for replay; bundle/rebuild never contacts PostgreSQL or the
-embedder. Initial adoption removes the former global Delta cache writer/read exceptions after
-all consumers migrate. This is one mutable reuse service plus immutable per-snapshot inputs.
-
-**Projection publication (Implemented, 2026-09-28).** The [current evidence](../../design_review/evidence/2026-09-28_pr4/README.md)
-records code, PG/MCP and reconstruction qualification independently of the live-embedding waiver.
-`cpg-schema::serving_projection` owns FORMAT 6 manifests, all FORMAT 16 relation receipts,
-native/lexical artifact identities and generation-local constraints. `serving_support` is shared
-by publication, file loading and import. Full content digests exclude physical row order/COPY
-batching, locations and retrieval profiles; multiplicity/nulls/float bits remain significant.
-SQL mappings retain 16/32-byte identity widths, typed codebook checks and generation-qualified
-foreign keys. Vector parents partition by generation; PG12 creates partitions while unpublished.
-SQLx/pgpq COPY targets bounded temporary staging, then validated INSERT because RLS tables cannot
-accept COPY FROM. A row-lock barrier freezes loading before validation; ready rows cannot mutate.
-Serving roles see ready generations only. Production COPY import freezes a transport recipe,
-reconciles atomic batch receipts and validates stored rows before promotion. Rust repositories
-serve pinned exact queries. No ANN implementation/admission path remains; future adoption must
-qualify the current content and physical realization. Profile and artifact locations remain
-outside immutable projection identity. Canonical Delta never rolls back
-because a serving import fails.
+**Serving and hydration (Accepted Phase 5 target; unavailable, 2026-10-01).** Bound query values,
+nominal ID conversion, generation membership, required-null refusal, bounded rows/bytes, stream
+leases and typed response assembly remain required. Dormant native/Python response, cursor and
+hydration controls are preserved as reconstruction expectations. Earlier FORMAT manifests and
+serving-projection receipts qualify the retired pipeline only; they are not current schema or
+admission authority. Model-generated views and codecs replace independent mappings (§15.12).
 
 **Deployment boundary.** Reuse PG18 with pinned pgvector 0.8.6 in the locked `lctx_ext` schema.
 Application, importer, serving and migration credentials/grants are separate. Keep connection pools,
@@ -433,8 +122,8 @@ redacted; checked query builds force `SQLX_OFFLINE=true`. Migrations are an expl
 not a query/startup side effect. Disposable tests assert PG18 and use an explicitly pinned
 image; source inspection of libraries does not establish deployment compatibility.
 
-**Capability map.** Selected service/projection foundations are implemented in PG8–PG11;
-activation and conditional later consumers remain distinct. Installed versions are in `docs/pins.md`; conditional candidates remain in the implementation plan.
+**Capability map.** Retained operational services are implemented; generation serving and
+conditional later consumers remain distinct. Installed versions are in `docs/pins.md`; conditional candidates remain in the implementation plan.
 
 | Capability / library mechanism | Initial or later consumer | Contract and adoption boundary |
 |---|---|---|
@@ -454,13 +143,13 @@ activation and conditional later consumers remain distinct. Installed versions a
 | Cornucopia + Rust-Postgres family; ORMs | A different query/domain programming model earns lower total complexity | Revisit driver decision through ADR; alternatives are not layered onto the base speculatively |
 
 Future review events preserve exact subject revision and become explicit attributed compile
-inputs when used. Later SQL serving remains an immutable projection. Both need their own
+inputs when used. Later SQL serving consumes immutable canonical generations. Both need their own
 consumer, replay and failure evidence; neither is silently enabled by installing PostgreSQL.
 
 > Decision: ADR-0078, ADR-0086, ADR-0073
 
 
-**Current-only replacement (Implemented, 2026-09-28; ADR-0078).** Validate both current profiles and
+**Current-only replacement contract (Accepted; ADR-0078).** Validate both current profiles and
 current-format reconstruction, quiesce project readers/writers, replace the operator state, then
 remove superseded stores, generations, runtime copies and backups. Old-format readers and mixed
 exact/ANN routes are removed. The forward plan owns dated deployment completion and any remaining

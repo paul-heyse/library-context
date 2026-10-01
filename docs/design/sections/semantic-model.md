@@ -11,53 +11,41 @@ This page owns the **target** representation of the analyzed codebase:
 transfers, conditions, obligations and derivations), the declaration contract every relation
 satisfies, the named semantic policies, the transfer algebra, and the store and serving contract.
 
-**Status.** **Accepted target** (2026-09-29). Phase 0's contracts are **Implemented /
-focused-Tested**:
-- typed model, stages and memory generation;
-- resource accounting;
-- declarations, call-site facts and the owner rule;
-- stability witnesses and whole-call composition;
-- the facts frontier and admission;
-- the stage-bound capture and syntax subset.
+**Status, 2026-10-01.** Accepted single-model/store target under ADR-0085/0086/0087.
+Facts storage and producers are **Implemented / Tested** within the
+[2026-09-30 facts receipt](../../design_review/evidence/2026-09-30_facts-qualification/README.md).
+Normalized relations and runtime foundations are **Implemented / focused-Tested** with the
+[Phase 3 qualification](../../design_review/evidence/2026-09-30_phase3-qualification/README.md);
+its automated gate excludes stopped library comparisons and measurements.
 
-The assembled P0 exit review accepted them, scoped, on 2026-09-29. It excludes the P4 composition
-engine and the store-side frontier enforcement (P1.7). Exact contracts, commands and exclusions are
-in cutover plan §4.2; finding dispositions are in §8. The generation store and complete facts producers are **Implemented / Tested**,
-2026-09-30, after the complete gate, both full profiles, repeated behavioral content and refusal
-controls. The [assembled P0–P2 exit review](../../design_review/reviews/design_review_p0-p2-exit_2026-09-30.md)
-is **Accept scoped** for facts, with explicit resource allowances and downstream exclusions.
-Commands and measured envelope are in the plan. Phase 3 runtime foundations (R1–R3) are **Implemented / focused-Tested**, 2026-09-30, with [scoped independent acceptance](../../design_review/reviews/design_review_phase3-foundation_2026-09-30.md). Normalized producers and graph persistence are **Implemented / focused-Tested**; the composite automated gate passed, while full-library comparisons and measurements were stopped at user direction; Phase 4 is an **Accepted target**; Phase 5 remains **Proposed**.
+Phase 4 analysis/catalog, immutable vocabulary groups, typed Local/execution/models/Summary,
+structural/optional analytics, catalog/evidence/selection, synthesis and retrieval are
+**Implemented; qualification and ownership retirement in progress**. Bounded antecedent receipts
+are in the [Phase 4 plan](../../plans/semantic-model-phase4-detailed-plan_2026-09-30.md).
+The [foundation review](../../design_review/reviews/design_review_phase4-foundation_2026-09-30.md)
+is **Accept scoped**; P4B3-F01 corrective native/store qualification and assembled review remain open.
+Phase 5 serving remains **Proposed / unavailable**. No live embedding, real-library upper-frontier
+pilot, comparative product, hydration-cost or total-RSS measurement is claimed.
 
-**Current state.** The Delta canonical store and its compile orchestration were removed in cutover
-phase 1 (P1.3/P1.4). The legacy `cpg-schema` contracts and the analysis, catalog and serving code
-described by §3–§14 remain dormant until phases 3–5 rebuild them.
-`lctx compile --through facts|normalized` publishes either profile and never selects it.
-The cumulative `analysis|catalog` driver is **Implemented / compile-checked, 2026-10-01**, with
-actual upper-frontier qualification pending; the [restart checkpoint](../../plans/semantic-model-phase4-detailed-plan_2026-09-30.md#133-restart-checkpoint-and-remaining-work)
-owns unfinished work. Serving remains unavailable.
-`lctx-model` owns all facts contracts; extraction and native flow have no `cpg-schema` dependency.
+**Current state.** PostgreSQL is the sole canonical relational store; DataFusion supplies in-process
+compute. `lctx compile --through facts|normalized|analysis|catalog` is implemented for either profile
+and never selects the generation. Upper-frontier runtime acceptance is in progress. Catalog Flow
+is `NotRequested`; behavioral uncertainty remains explicit. `lctx-model` owns all semantic contracts;
+extraction/native flow have no `cpg-schema` dependency. Legacy Phase 4 engine retirement is pending
+its independent replacement controls. Remaining `cpg-schema` wire/serving and dormant
+`cpg-core::bundle` sources are named Phase 5 inputs, not active P4 authorities.
 
-**Execution owner.** The [semantic model cutover plan](../../plans/semantic-model-cutover-plan_2026-09-29.md)
-owns the execution order, qualification and deletion obligations.
-The [Phase 3 detailed plan](../../plans/semantic-model-phase3-detailed-plan_2026-09-30.md)
-develops normalized relations and their runtime prerequisites. Its cumulative-generation decisions (now carried by ADR-0105) and ADR-0103 graph choices are implemented with focused controls; §11 owns qualification beyond the prior facts-only receipt.
-The [Phase 4 detailed plan](../../plans/semantic-model-phase4-detailed-plan_2026-09-30.md)
-is an **Accepted target, 2026-09-30**. It specifies analysis/catalog reconstruction, required normalized
-corrections and the immutable vocabulary mechanism below; it does not establish P4 implementation.
-C0, C1 original source/document/deployment evidence and C2 declaration selection are
-**Implemented / focused-Tested, 2026-10-01**. Exact contextual domains retain typed defaults,
-signature variants, four outcome groups and predicate-specific closure. Runtime field location/constructor evidence has focused real-store controls; retained symbolic store-to-reader
-association remains open under P4B3-F01.
-R0/R1 are **Implemented / focused-Tested**, with an independent
-[Accept scoped foundation review, 2026-10-01](../../design_review/reviews/design_review_phase4-foundation_2026-09-30.md).
-The E1 shared specification, exact value codec, early stored configuration, original analytic text
-and nominal analytic consumption are **Implemented / focused-Tested, 2026-10-01**. One declared
-realization effect admits token counts and immutable cache winners; the retained cache and HTTP
-client consume that model owner. Exact source-derived invocation/window membership, selected
-specification, availability and bytes replay without the service. Real PostgreSQL controls used
-an external-effect fixture; live-service quality remains unqualified. Retrieval consumption,
-cross-consumer validation, downstream producers, assembled acceptance and retirement remain open
-in plan §13.2.
+**Execution owner.** The [cutover plan](../../plans/semantic-model-cutover-plan_2026-09-29.md)
+owns layer sequencing, cross-phase finding disposition and deletion obligations. The Phase 4 plan
+owns current qualification and remaining work; STATUS is the restart/handoff entrypoint. Canonical
+catalog construction is independent of optional analysis success and brief selection. Exact
+source/effective defaults, signature variants, predicate-specific selection closure and original
+evidence remain typed. Symbolic source associations retain Unknown/no-proof reader outcomes;
+known field location never establishes allocation, alias, mutation or temporal value identity.
+
+One model-owned embedding specification/value/text/admission/consumption contract serves analytics
+and retrieval. PostgreSQL retains immutable cache winners; attempts publish exact consumed values
+and consumer receipts. Replay is service-free. Fake effects qualify only that seam and cache behavior.
 
 **Where the requirement came from.** The
 [semantic data model target review](../../design_review/reviews/design_review_semantic-data-model_2026-09-29.md)
@@ -103,16 +91,15 @@ only native evidence, completed predecessors and their own finite proof occurren
   - the stage table (§15.11).
 
 **Crate owners**
-- **`lctx-model` (new)** owns the pure contracts: relation declarations and registry, identity kinds,
+- **`lctx-model`** owns the pure contracts: relation declarations and registry, identity kinds,
   vocabulary types, named policies, transfer algebra, the condition kernel, the obligation and verdict
   policies, the derivation-source registry, the stage table, and validated model metadata. PostgreSQL lowering belongs to `lctx-postgres`.
 - **`lctx-postgres`** owns all PostgreSQL effects: the generation lifecycle, COPY, constraints, roles,
   and reader leases. `cpg-core` owns DataFusion provider registration so the Python storage wheel
   does not link the compute engine.
 - **`cpg-core`** orchestrates stages and runs DataFusion derivations and semantic validators.
-- **`lctx-analytics`** keeps pure Arrow-in/Arrow-out operators.
-- **`cpg-schema`** is retired by the cutover. Its surviving wire, selection and retrieval contracts move
-  to `lctx-model`.
+- **`lctx-analytics`** keeps pure native concept, ranking, neighbour and SCC kernels; model-owned contracts govern their inputs and results.
+- **`cpg-schema`** retains named Phase 5 wire/serving recovery contracts. It has no active fact, normalized or P4 semantic authority; reconstructed serving contracts must derive from `lctx-model`.
 
 **Phase 3 generation closure (Implemented / focused-Tested, 2026-09-30; automated gate passed; pilot measurements unqualified).** Facts contains L0; Normalized contains
 L0+L1 in one self-contained generation. A model-owned frontier descriptor declares relation

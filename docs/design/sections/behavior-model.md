@@ -2,492 +2,202 @@
 
 # §3.9 Behavior model: places, conditions and verdicts
 
-**Target, 2026-09-29.** [§15](semantic-model.md) (ADR-0085/0083/0084) is the accepted target, and the [cutover plan](../../plans/semantic-model-cutover-plan_2026-09-29.md) delivers it layer by layer. Phases 2 and 4 replace places, atoms and conditions with §15.4, §15.6–§15.8. Until that phase exits, this page describes the implemented legacy pipeline.
+**Implemented; Phase 4 qualification in progress, 2026-10-01.** The typed owners in
+`lctx-model::domain` implement this abstraction. [§15.4](semantic-model.md#section-15-4)
+owns entities and places, [§15.6](semantic-model.md#section-15-6) transfers,
+[§15.7](semantic-model.md#section-15-7) conditions and
+[§15.8](semantic-model.md#section-15-8) obligations and verdicts. The
+[Phase 4 plan](../../plans/semantic-model-phase4-detailed-plan_2026-09-30.md) owns current
+qualification and finding disposition; implementation is not phase-exit acceptance.
 
-This page owns the meaning of behavioral facts: which **places** a behavior is about, the
-**runtime view** and flow provider that produce reaching definitions and regions, the
-**condition** under which a fact holds, and the **verdict** every behavioral answer carries.
-Inputs are ty's semantic index read through `cpg-flow`, Ruff syntax and our lexical resolution
-([§4.2](acquisition-and-extraction.md#section-4-2)) and Pyrefly facts
-([§3.2](facts-and-identity.md#section-3-2)). Outputs are the `flow` family, condition catalogs,
-value links, verdicts, negative premises and boundaries. Consumers are behavior derivation
-(`cpg-core`: `flow_model.rs`, `behavior.rs`, `entry_links.rs`), the summary producers in
-[§9.9](behavioral-analysis.md#section-9-9), the shared publication validator
-(`cpg-core/src/validate.rs`) and the native executor (`python/lctx_semantics`). Dependencies point
-down to `cpg-schema`, which declares the contracts: `condition.rs` (atom language),
-`condition_kernel.rs` (bounded diagrams), `primitive_theory.rs`, `tables.rs`/`flows.rs`/`behavior.rs`
-(Arrow rows and derivations), `rules.rs` and `codebook.rs` (`condition_atom`, `verdict`,
-`boundary_reason`). Tests: `crates/cpg-flow/tests/`, `crates/cpg-schema/tests/conditions.rs`,
-`crates/cpg-extract/tests/flow_runtime_resolution.rs`, `crates/cpg-core/tests/`, and the runtime
-oracle ([§8.1](validation-and-evaluation.md#section-8-1)). See the [architecture map](../README.md).
-
-**Evidence.** Unless a line says otherwise, places, the flow provider, the runtime view, the
-condition language, verdicts, premises, boundary reasons, the read phase, identity and composed
-layers are **Implemented** and **Tested** (Stage 2 exit, 2026-09-24). The condition kernel, the
-typed primitive theory, value links and exact origins are **Implemented and Tested in focused
-cases** (2026-09-24/25); ADR-0085 accepts the kernel's general allowance ([§15.7](semantic-model.md#section-15-7)). Integrated
-Stage 3 acceptance (`just test-all`, a fresh `just pilot`, the Stage 3 questions) is `not_run`
-([plan §1](../../plans/behavioral-model-forward-plan_2026-09-24.md#1-current-state-and-qualification-boundary)).
-The rationale is ADR-0045 and ADR-0051.
+`cpg-flow` supplies attributed ty observations. Normalized attachment, Local, execution and
+Summary derive their conclusions from those observations through model-owned operations and
+shared stored validators. `cpg-core` acquires completed inputs, runs these operations and
+publishes into the PostgreSQL generation store. Arrow and DataFusion are transport and compute;
+there is no separate schema, behavioral database or serving-side reconstruction authority.
+Phase 5 serving remains unavailable ([§11](synthesis-and-serving.md#section-11)).
 
 ## Places
 
-A place is what a definition or use names:
-- a parameter or local name;
-- `self.f` or `self.f.g` (at most two fields below `self`);
-- a module global, settings singletons included (`fastmcp.settings.<field>`);
-- **Proposed** (Stage 5, with the framework models that read them): a ContextVar object and an
-  attribute of a function object (`fn.__fastmcp__`).
+A place has a typed root and structural access path, not a parsed display name. Roots distinguish
+a formal variable, its entry value, a receiver, return/yield/raise ports, a source occurrence,
+a local slot, a class field, a module global and the runtime class of an actual expression.
+`Formal` may be rebound by the body; `Entry` denotes what the caller delivered. This distinction
+is required before a callee value becomes a call-summary port.
 
-A place is known in two layers:
-- **Spelled**: as written in its scope, a root name and at most two attribute segments, no
-  subscript. It is a condition's text and a label only.
-- **Resolved**: the join key for value flows, field reads, premises and summaries. The root
-  resolves through our reference resolutions or the flow IR's reaching definitions to
-  `Parameter[…]`, `Local[…]`, `Field[C.f]` (`C` is the class whose method binds `self`) or
-  `Global[module.name]`, then at most two segments. §9.9's access paths are this key's written
-  form, never a third grammar. A singleton read as `settings.X` in one module and as
-  `fastmcp.settings.X` in another is one place, `Global[fastmcp.settings].X`. The producers emit
-  `Parameter`, `Field` and `Global` keys; `Local[…]` is in the grammar but not yet emitted.
-- A module's own global binding shadows a submodule of the same name when a dotted root resolves
-  (`fastmcp.settings` is the `Settings()` instance, not `fastmcp/settings.py`), as the runtime
-  sees it once the package binds the name after importing the submodule. That import order is
-  **assumed, not checked**.
-
-Anything deeper, or reached through a computed name, is a boundary: `dynamic_access` for the
-getattr family and its kin, `unresolved_target` otherwise. It is never a guess.
+Fields and supported literal subscripts extend paths through typed segments. A path's written
+form is a label. Provider origins, normalized entity correspondence and occurrence ownership
+establish identity; equal spellings do not. Unsupported dynamic access, captured cells and
+unproved heap state retain their own uncertainty. A field location does not prove allocation,
+alias identity or stability against mutation. ContextVar and arbitrary lifecycle state remain
+outside the restored finite behavioral envelope.
 
 ## The flow provider
 
-The flow IR is our stated runtime abstraction ([§B5](../DESIGN.md#section-b5)): reaching
-definitions over places with the conditions under which they reach, statement reachability and
-value sources. A provider supplies raw material; it is never the model. Pyrefly's binding graph
-is a parity oracle only.
+`cpg-flow` links ty's pinned semantic index over the declared second parse. Its boundary contains
+source ranges and model-owned flow observations, never ty, salsa or a second Ruff family's
+internal types. It describes reaching definitions, uses, regions, predicate leaves and value
+sources. Pyrefly/Ruff own occurrence identity; an indexed exact attachment joins ty observations
+to those occurrences. Ambiguous or unmatched attachment records its candidates and Partial
+coverage rather than choosing the nearest source event.
 
-- **What ty supplies.** `ty_python_core` 0.0.14, linked only in `cpg-flow`, builds the use-def
-  map (reaching definitions per use, each with reachability as a decision diagram over
-  predicates) and every statement's reachability. Regions are relative to their scope's entry: a
-  statement inside a function is reached under its region's condition **and** the `def`
-  statement's region in the enclosing scope.
-- **What crosses the boundary:** byte ranges, place text and our condition data. No ruff 0.0.14
-  or ty type leaves `cpg-flow` (ADR-0046). ty, ruff 0.0.14 and salsa `=0.28.2` are a declared
-  extra dependency family ([pins](../../pins.md)); a ty upgrade is a pin change with a parity
-  rerun.
-- **Normalizations:** ty's loop-header definitions become the body bindings they stand for
-  (`loop_carried`); an import alias's target becomes the bound name; an augmented assignment's
-  target is both a use and a definition.
-- **Parity, both ways.** Every flow use joins a `references` row and every reference a flow use;
-  likewise for definitions and `bindings`; `semantic:flow-reaching-within-candidates` keeps ty's
-  reaching definitions within our candidate bindings. The declared residue: names inside
-  annotations and PEP 695 type-alias values (flow uses marked `annotation`, which `references`
-  does not model as reads); bindings ty never defines as such (`global`/`nonlocal` declarations,
-  `del`, implicit names, star imports); class and alias type parameters. Counting the residue,
-  and ty's per-scope saturation, per run is **Proposed**. **Measured** at provider selection
-  (2026-09-24, FastMCP 4.0.5, 275 modules): every one of 39,986 references is a ty use; 213 ms and
-  47 MiB peak.
-- **ty's exception model is part of the stated model.** Exceptions come only from operations ty's
-  model says can raise; a `try` whose statements cannot raise has unreachable handlers. Ambient
-  exceptions (`KeyboardInterrupt`, `MemoryError`) are outside it.
-- **Panics abort the extraction**; `no-catch-unwind-in-extractor` covers `cpg-flow`.
-- ty runs with the run context's Python version and platform and a virtual root containing the
-  supplied release modules. Focused import-resolution controls for Python 3.8/3.14 passed
-  ([plan W14](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
+Provider facts carry input, context, run, origin, fidelity and scope. Loop-carried reaching,
+unbound alternatives, annotations and provider-model omissions remain explicit. Provider
+reachability is a stated abstraction: exceptional paths follow ty's exception model, not
+arbitrary ambient exceptions. A provider panic fails extraction. Version/platform and captured
+modules come from the pinned run context; the operator's environment is not an input.
 
 ## The runtime view
 
-- **`TYPE_CHECKING` is false.** ty decides it true at index time, so before ty parses a module
-  every `TYPE_CHECKING` **name token** (from ruff 0.0.14's lexer; strings and comments keep their
-  text; a name in an f-string replacement field is renamed) becomes the same-length sentinel
-  `TYPE_CHECKIN_`. A module that already uses the sentinel as a name is refused and its flow
-  coverage is `failed`. The sentinel only stops ty deciding by spelling: our evaluator decides a
-  reference false only when every candidate in our lexical resolution binds it to
-  `typing.TYPE_CHECKING` or `typing_extensions.TYPE_CHECKING` (aliases included, so
-  `TYPE_CHECKING as TC` is decided) or binds an attribute's root to the imported `typing` module.
-  A parameter so named, or an unrelated `config.TYPE_CHECKING`, stays an ordinary atom. Place
-  text, literal values and opaque text are cut from the module as written.
-- **`sys.version_info`** comparisons follow Python's full tuple ordering, only through a name
-  resolved to the stdlib `sys`. The context knows the first three numeric fields and the runtime
-  tuple has two more, so a literal of up to three fields compares; a longer literal stays
-  undecided until release level and serial are modeled.
-- **`sys.platform`** (`==`, `!=`, `startswith`) and **`os.name`** follow the context's platform
-  ([§4.0](acquisition-and-extraction.md#section-4-0)), only through names resolved to those stdlib
-  modules.
-- ty decides no other test at index time that differs from runtime: its literal folding covers
-  `True`, `False`, `None`, integers, `...`, lambdas, generators and `not`.
-- C3's static-branch marks ([§4.2.4](acquisition-and-extraction.md#section-4-2-4)) remain the
-  checker view the CPG layers keep (below, composed layers).
+The runtime-view extraction treats resolved `typing.TYPE_CHECKING` as false while preserving
+source geometry. The same-length token substitution prevents ty from deciding by spelling;
+strings and comments retain their original bytes. A parameter or unrelated attribute with the
+same spelling remains an ordinary source evaluation. Sentinel collisions refuse extraction.
+Supported `sys.version_info`, `sys.platform` and `os.name` decisions require the resolved stdlib
+origin and the captured Python/platform context. Unsupported tests remain observations.
+
+Checker-facing static branches and runtime-flow branches are separate views. Neither a type
+observation nor a display string is an execution witness. Raw exception, import and protocol
+observations acquire behavioral meaning only through the later typed owners.
 
 ## Conditions
 
 ### Evaluation atoms and identity
 
-Conditions are data in a closed language; there is no Python twin.
-- **Literals.** A literal is an atom with a polarity (`is not None` is `!is_none`). The atoms
-  (codebook `condition_atom`, append-only) are `is_none(p)`, `equals(p,v)`, `member_of(p,{v…})`,
-  `truthy(p)`, `isinstance(p,C)` with `C` as written, `opaque("text")`, `is_value(p,v)` for
-  `p is v`, and `type_is(p,C)` for a resolved one-argument builtin `type(p) is C`.
-- **Literal values:** `None`, `True` and `False`; decimal integers, negatives included; JSON
-  strings (serde_json, non-ASCII kept as UTF-8). A test on any other literal is opaque.
-- **Operators stay distinct:** a single-value set remains `member_of`; `== None` is
-  `equals(p,None)`, distinct from `is_none`; `is True`, `is False` and `is <literal>` are
-  `is_value`; the literal is always the second operand; `in` takes a tuple, list or set of
-  literals, anything else is opaque.
-- **An atom is an evaluation, not a spelling.** Every source test carries its evaluation site. A
-  literal encodes as `[!]kind(place[,value])#module:source`, where the module key hashes the
-  relative path and source content and `source` is `s<start>-<end>` for a source site or
-  `p<predicate id>` for a provider synthetic predicate. Text is a label; same-spelling tests at
-  different sites, including bindings on one line, stay distinct. The reason: even an identical
-  reaching-definition set does not prove the value stable. A nested call can rebind a
-  `nonlocal`, a global can change, an `isinstance` class expression can be rebound, a call can
-  mutate an attribute or container, and literal objects can differ by site.
-- **Sharing needs a stability proof.** Equality, membership or truthiness atoms at different
-  sites may share an identity only with a proof that no intervening write or effect changes the
-  value; a Pyrefly immutable-scalar type at each use is necessary for the typed theory but not
-  sufficient. No such proof exists yet (**Proposed**), so nothing is shared. Even with one, calls
-  and other opaque tests, attribute places, object state such as a container's truthiness, and
-  synthetic predicates stay per site. The parser reserves a definition-set encoding (`d<…>`) for
-  that rule; the translator emits none.
-- **Loops.** Around a back edge a loop-carried definition's conditions are an earlier
-  iteration's, spelled like this iteration's, so the flow model keeps only the use's side there:
-  a sound over-approximation. A feasible flow is never stated under `false`
-  (`semantic:condition-not-false`).
-- **Which parameters a test reads** comes from the flow IR: the uses inside the test's span
-  (`flow_tests`), followed through reaching definitions. A `tests` fate carries the innermost
-  test's literals.
+An evaluation atom identifies a specific predicate occurrence, its typed predicate/place and
+source/context. Literals and polarity remain structural: equality, identity, membership,
+truthiness, None checks, supported type/class tests and opaque evaluations are different
+questions. Exact literal values are model-owned values; rendered source is not a value parser.
+
+Same-spelling tests at different sites are distinct. A call may change a global, a closure or
+object state; matching reaching sets alone do not establish cross-site equality.
+`conditions::entry` and `conditions::stability` own the admitted identity and stability
+witnesses. Guard identity is required before both truth arms, while a derived control proposition
+retains the leaf's truth condition. Use, Value and Guard execution-domain proofs cannot substitute
+for one another.
 
 ### Lowering from ty's diagrams
 
-One procedure, in `cpg-flow/src/predicate.rs`:
-1. Enumerate paths following only `if_true` and `if_false`; every atom is two-valued at runtime.
-2. Read ty's **ambiguous** terminal (reachability it leaves undecided: a `try` body, a loop over an
-   unknown iterable, a `with` exit) as `true`, because verdicts state **may**-behavior. The row is
-   marked `approximated`.
-3. Map each predicate, evaluating the runtime view first and expanding `and`, `or`, `not` and
-   conditional expressions.
-4. Simplify: drop contradictions; `x | !x` is `true`; self-subsuming resolution to a fixpoint
-   (`a & r & !y | r & y` is `a & r | r & y`); absorb. One input in any order has one encoding;
-   two inputs with one meaning may still render differently.
+The provider lowers its decisions to model-owned evaluation atoms and conditions. Runtime-view
+decisions precede structural Boolean lowering. An undecided provider reachability branch is a
+may-path with explicit approximation. Opaque tests retain their source occurrence; provider
+synthetic predicates do not become exact source evaluations by label.
 
-- **Opaque text** is the test's source by range, comments removed, whitespace collapsed.
-- **Predicates not read as tests:** a call's non-terminal predicate is true (calls are assumed to
-  return; `NoReturn` is a model's question); non-empty-iterable, context-manager-suppression and
-  finally-path predicates become opaque atoms with fixed text; or-pattern alternatives,
-  subject-element patterns and star-import placeholders are opaque with the fixed text
-  `<undecided by the flow provider>`.
-- **Fates are stated on the normal path.** A statement past a raising guard is reached under the
-  guard's negation, which says only that no error was raised; each fate's condition has such
-  factors removed (`given`), and the guard is its own `raises_when` fate. The normal path is
-  function-wide: guards factor out together, then each alone; a guard past the budget factors
-  nothing.
-- **A guard needs a definite escape.** `raise_sites.escapes` is set only for an explicit raise
-  outside any `try` or `with` body of its function; `false` means **unknown, not caught**. A raise
-  inside such a body establishes no escape until an L2 fate proves the frame's action
-  ([§9.9](behavioral-analysis.md#section-9-9)): a shadowed handler name can denote any class, an
-  opaque context manager can suppress, and a `finally` return can replace the exception.
-- **Counted skips.** Each module's flow coverage detail counts candidate reaching rows whose
-  condition was `false` (ty's root false, a runtime-view decision, a stable-atom contradiction)
-  and discarded value-source branches. Diagnostics only; they create no rows. The generated-program
-  `sys.monitoring` oracle checks observed lines and local reaching definitions against the flow
-  model ([§8.1](validation-and-evaluation.md#section-8-1)).
+Local retains the precise observation/support pairs and relevant statement regions. False source
+branches can be absent from the raw provider inventory; that absence is not a negative behavioral
+claim. A false condition produced by admitted later composition is a different, retained finite
+question. A raise inside a `try` or `with` does not establish escape until completion/protocol
+proofs account for the frame.
 
 ### Representation and the condition kernel
 
-**Implemented; Tested in focused cases (2026-09-24/25).** A condition's Boolean function is a
-reduced ordered decision diagram (biodivine-lib-bdd 0.6.3) over encoded atoms, with variables
-ordered by atom identity. It is persisted losslessly: `conditions` rows name a root and
-`condition_nodes` hold the content-addressed nonterminals (atom, low, high), with fixed terminal
-ids and a structural Merkle id; a library-local variable index is never an identity. `approximated`
-is row-local provenance, not part of Boolean identity. The DNF (at most 16 conjunctions of 8
-literals, sorted, deduplicated, joined by ` & ` and ` | `, `true`/`false` as the empty forms) is a
-bounded display; nothing parses it to answer a question. A condition that cannot be stated within
-budget carries a named kernel boundary and is `unknown` (`budget_reached`), never `false`.
+`domain::conditions` owns the bounded reduced ordered BDD kernel. Conditions persist as
+content-addressed roots and ordered Merkle nodes over atom identities. Library variable indices
+remain private. One hydrated validator checks closure, terminals, order, reduction, acyclicity
+and recomputed identities across publication and replay.
 
-The **accepted** parts (ADR-0045):
-- Recomposed analysis conditions have their own catalog, `analysis_conditions` and
-  `analysis_condition_nodes`, separate from provider `conditions`; each reference names its
-  catalog. Publication and native load hydrate every catalog with one validator
-  (`hydrate_catalog`): closure, terminals, acyclicity, strictly increasing atom order, distinct
-  children, unique reduced nodes and recomputed ids. A condition from a later summary pass needs
-  its own validated extension, not an unproved reference into this catalog.
-- The bounded kernel decides the predecessor compatibility screen of
-  [§9.9](behavioral-analysis.md#section-9-9); a missing, approximate or capped operand withholds.
-
-The **general kernel allowance** is accepted by ADR-0085 ([§15.7](semantic-model.md#section-15-7)). The target keys atoms by evaluation occurrence, with no provider-internal indices, and keeps DNF only as a rendering. The kernel owns `and`, `or`,
-`not`, `given`, `implies` (incompatibility of `a ∧ ¬b`) and `compatible` (satisfiability of
-`a ∧ b`). Materialized operations preflight support (≤128 atoms), input-node product
-(≤1,000,000 pair work) and a 50,000-node result cap; `compatible` and `implies` use the pinned
-BDD library's non-allocating, task-bounded decision operation. Catalogs admit ≤100,000 conditions,
-≤100,000 stored nodes and ≤1,000,000 retained nodes across hydrated roots. A
-preflight refusal and a node-limit hit are distinct causes; both are unknown, and there is no
-wall-clock guarantee. `given` nominates a quotient by the Stage 2 rule and accepts it only after
-checking `original == factor ∧ quotient`, else `not_factored`. The target adds restriction and
-existential projection, so that a node limit is the only point where information is cut.
-
-**Current W6 boundary** ([plan W6, W11](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
-The non-allocating decisions, effective-support normalization, retained-node catalog admission,
-and native stored/retained diagnostics are **Tested in focused cases (2026-09-26)**. A pair whose
-materialized conjunction exceeds 50,000 nodes still decides compatibility; a contradiction
-whose input-node product exceeds the materializing preflight also decides. A distinct pair reaches
-the production 1,000,000-task decision cap and stays `unknown`. A valid 84,000-root shared-tail
-catalog, below the stored-node and root caps, is refused at the production retained-node limit
-before hydration. Native admission uses that same validator and its targeted large-reference
-control confirms the limit is reported as a load error. The native control repeats one root to
-avoid a large fixture; the valid-root control is in Rust. Cube restriction now nominates a factor
-with an exact equality gate; W11's focused CPython literal-lowering and synthetic native
-path-local controls passed, while a Delta/MCP served round trip and the operation-wide Q09
-comparison remain open.
+The kernel owns conjunction, disjunction, negation, implication, compatibility, checked factoring,
+bounded substitution and existential elimination. Operations charge the selected support, node
+and work budgets. A limit produces its named obligation and Unknown; it never produces false.
+The bounded DNF is presentation only and is never parsed to answer a question. Factoring accepts
+a quotient only after the exact factor/quotient equality check.
 
 ### Typed primitive theory, value links and exact origins
 
-The theory answers one kind of question: given an exact primitive value at an operation's entry
-formal, can a source condition hold? It is layered so that identity is proved before any value
-reasoning, and every step is cited.
+The theory asks whether a condition can hold for an exact primitive value at an admitted entry
+formal. Identity precedes value reasoning. `EntryValueWitness` requires the normalized owner and
+formal, exact access/place, parameter definition, complete provider/context-qualified reaching
+set and complete relevant Flow coverage. Assignment, unbound, loop-carried, mixed-owner or
+nonlocal reaching prevents that proof.
 
-- **Observation vs proof.** `flow_test_leaves` records each provider predicate's leaves before
-  `flow_tests`' span-only deduplication, so a compound test keeps several leaves and separate
-  `match` arms sharing a subject span keep distinct atoms (key: snapshot, module, predicate key,
-  atom id; [probe](../../design_review/evidence/2026-09-24_test-leaf-proof-joins/README.md)).
-  `flow_test_types` joins a leaf to its exact operand use (a structural operator-to-operand match,
-  never proximity) and to Pyrefly's expression trace at that span; an absent or ambiguous trace
-  proves nothing. It is an observation, not an exact-runtime proof. **Implemented and Tested in
-  focused cases (2026-09-24).**
-- **Value links** (`flow_test_value_links`) are a separate positive proof that a test operand
-  observes the entry formal's value. Origins (codebook `test_value_link_origin`):
-  `direct_parameter_reach_no_effect` needs one stated, non-approximated, non-loop-carried
-  parameter reaching fact, an exact attributed operand and no intervening call, binding,
-  potentially effectful syntax or prior predicate evaluation (the recorded literal docstring is
-  the one exempt statement); `resolved_builtin_type_operand` admits the guard's own resolved
-  one-argument builtin `type(x)` call as a revisioned, cited exception to the call barrier;
-  `stable_after_exact_type_guard` links a later use only when the guard's predicate is that atom
-  alone, the later reaching path condition implies its true assignment and nothing else
-  intervenes. Links store the effect-rule digest and cited facts; publication recomputes the
-  relation from pinned raw views. Identity is never inferred from parameter spelling, an
-  annotation, an enclosing span or a post-call reaching row; a missing link is unknown. A new
-  origin needs its own checked rule and counterexample. **Implemented and Tested in focused
-  cases (2026-09-24);** the entry-value bridge
-  [probe](../../design_review/evidence/2026-09-24_entry-value-bridge/README.md) fixed the first
-  cases.
-- **Exact origins** (`flow_test_exact_origins`) cite a `type_is` guard leaf and its link and assert
-  an exact builtin class only under the atom's true assignment. The translator emits `type_is`
-  only for one-argument `type(x) is str|int|bool` with both names lexically resolved to builtins;
-  a shadowed `type` or class stays opaque. `isinstance`, a narrowed Pyrefly type, an annotation or
-  a protocol is never an exact origin. **Implemented and Tested in focused cases (2026-09-24).**
-- **Builtin namespace assumption.** Lexical resolution cannot prove the runtime builtin namespace
-  is unmodified. A `type_is` atom is evaluated only when the request declares the standard
-  namespace (`standard_builtins`, `BuiltinNamespace::StandardAssumed`); otherwise it stays
-  unknown. The generation does not enforce this assumption.
-- **Evaluation.** A query-supplied exact input (`None`, `bool`, `int`, `str`) assigns source atoms
-  only through checked links (≤32 assignments, bounded work); it is not a synthetic query atom. It
-  evaluates `is_none`, `is_value` of `None`/Booleans, string and non-bool integer `equals`,
-  all-string `member_of`, `truthy` and, under the
-  namespace assumption, `type_is` for `str`/`int`/`bool`. The bounded BDD refutes only when the
-  assigned condition becomes `false`; a satisfiable remainder is "compatible under the model",
-  a may-model non-refutation, not a feasible execution. `==` is never treated as `is`, distinct
-  numeric and Boolean literals are not assumed unequal (`1 == True`), and a parameter default is
-  not an exact entry value when a caller may pass an argument. **Implemented and Tested in
-  focused cases (2026-09-24).**
-- **Current limit** ([plan W11](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)):
-  `True in {1}` remains unknown; literal membership and integer equality alone do not make Q09
-  operation-wide. Exact-input assessment uses bounded BDD restriction; a bounded deletion pass
-  removes irrelevant refutation links when its work budget permits. A recorded CPython 3.14.7
-  matrix checks the production finite-literal evaluator for string membership/equality, non-bool
-  integer equality, truthiness, `is None`, and exact builtin `type(x) is str` (**Tested in a focused
-  control, 2026-09-26**). Bool/int cross-kind predicates remain unknown even where CPython
-  evaluates true. A synthetic native executor independently loads two cited conditions and
-  keeps string membership and integer equality refutations path-local (**Tested**, 2026-09-26).
-  A real Delta/MCP served round trip and the operation-wide Q09 check remain.
-- **Proposed.** Source-to-source exclusions between atoms on one proved-stable value
-  (`is_none` against a proved non-`None` singleton; unequal string `==` under an exact `str`
-  origin and same-value witness); typed exclusion from Pyrefly terms; custom `__eq__`, subclasses
-  and unproved relationships stay unknown. No theory solver: z3 is reconsidered only for a
-  registered question the bounded lowering cannot express ([§B10](../DESIGN.md#section-b10)).
+The finite scalar whitelist and conservative nominal class/MRO reasoning consume structural
+TypeTerms and attributed operand links. Display-only, open or truncated type domains cannot
+establish a negative. Binding identity is not mutable-object stability. Guard substitution cites
+the stored call binding, actual value, source evaluation and stability witness; it also retains
+actual-place control influence. Missing, ambiguous or unsupported origin/substitution is an
+obligation, not a guessed value.
 
 ## Value flows and call transfers
 
-- **Transfer fidelity (Implemented, 2026-09-27; ADR-0058).** Sinks retain each
-  identity/derived/call alternative under its own condition. Both merged flows and unmerged
-  contributions retain provider approximation separately from condition identity; assignment
-  predecessor joins name both source origins. A positive identity witness never discharges an
-  open sibling. Pass B publishes that sibling as an unproved transfer, including after a followed
-  call, rather than calling it computed or silently dropping it.
-  Flow behaviors carry typed transfer and condition-owner scope through FORMAT 9 and Python.
-  Captured values, decorated owners and decorated intermediary calls stay unknown
-  (`outside_provider_model`). **Descriptor exemption (Implemented, focused Tested 2026-09-27;
-  compiler 103):** a *class-defined* function whose *sole* decorator is a bare name is not
-  treated as decorated when both of these agree. Our lexical resolution binds the name to the
-  builtin `classmethod`, `staticmethod` or `property` on every resolution. Every Pysa definition
-  carries the matching resolved descriptor flag. These CPython descriptors run the function's
-  own body. A second decorator, a function outside a class, a shadowing or mixed binding, an
-  attribute decorator (`@x.setter`/`@x.deleter`) or any disagreement keeps the withholding. One
-  decorated set serves behavior admission and unread-premise withholding. A store-free unit test
-  covers each resolution's refusals independently; `transferpkg` covers the source cases
-  ([review](../../design_review/reviews/design_review_descriptor-exemption_2026-09-27.md)).
-  **PR2 correction (Implemented and focused Tested, 2026-09-28; ADR-0074):** the shared
-  surface owner now supplies descriptor admission. Cross-method association requires the catalog
-  kernel’s supported constructor, exact formal/receiver/field and reader link. Its fate remains
-  `unknown` (`scope_boundary`, or the more specific `call_transfer`) because intervening mutation
-  is unproved. Unsupported plain-class and guarded stores retain their direct claims without
-  fabricated reader fates. Receiver narrowing requires an exclusive exact identity chain. Unknown receiver scope
-  blocks field/singleton negatives, and a rebound or conditional global construction is not a
-  uniquely resolved singleton. General alias, decorator and deferred-execution interpretation is
-  still outside the implemented model.
-- **A value inside a call is a transfer, not a flow.** A use inside a call within a value (callee,
-  receiver or argument) reaches the value only if the callee's result carries it, which is a
-  summary's question. The flow IR marks such a use `through_call`; a path is as weak as its
-  weakest step (identity, derived, through a call). A `derives`, `stores`, `returns` or
-  `raises_when` claim reached only through a call is `unknown` (`call_transfer`), keeping the
-  condition it would hold under. Operators, f-strings and containers are computed from their
-  operands directly. **Discharge (ADR-0064; Implemented and focused Tested 2026-09-27, compiler 105, FORMAT 10):**
-  claims are graded after finite summaries. A call-transfer claim becomes established or
-  conditional only when every member origin has a proved summary. The claim keeps
-  `transfer = call` and cites its `behavior_discharges` rows (behavior, origin, typed proof kind,
-  summary). Those proofs discharge the members' certified value approximation. Any open member
-  keeps `unknown` (`call_transfer`). [§9.9](behavioral-analysis.md#transfer-summaries) owns the
-  decision and evidence.
-- **Nested call provenance** (ADR-0028, proposed). Each `flow_values` use inside calls has raw,
-  ordered outer-to-inner `flow_value_calls` steps citing the parent value fact, byte span and
-  callee/argument operand role; `flow_value_call_links` persists the unique Ruff `call_syntax`
-  and `arguments` join, or an explicit missing/ambiguous status, for every step.
-  `value_flow_contributions` keeps one row per raw fact and source origin before `value_flows`
-  merges them, separating the local transfer from the upstream one and the sink callable from the
-  parameter's owner. **Implemented and Tested in focused cases (2026-09-25).** Proposed: L3
-  withholds a positive transfer if a step is unmatched, a callee is relabelled as an argument or
-  the argument value is derived from its use; `through_call` alone never upgrades a verdict.
-- **Bounded source fixed point** (**Tested in focused cases**, ADR-0051; [plan W7](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
-  `Model::reach` recomputes `(origin, transfer, condition)` states over a sorted
-  reverse-dependency worklist until no use changes. It preserves the weaker call-transfer
-  sibling around a cycle irrespective of query order. One million visited rows, value edges
-  and child-source pairs is the deterministic work cap. An unfinished use and its dependent
-  parents get `flow_reach_boundaries` with `budget_reached`; known source conditions widen to
-  unknown, summary boundary candidates retain the budget cause, and field/global negative
-  premises are withheld. This whole-use worklist replaces the planned SCC-local schedule
-  for now; a measured cost or semantic gap reopens that choice. Reversing real extracted
-  `flow_reaching` and `flow_values` rows before two analyzed compiles leaves canonical Arrow IPC
-  bytes identical for published contributions, merged value flows and negative premises
-  (**Tested in a focused fixture, 2026-09-26**). A separate production-cap pure-model control
-  crosses one million work steps and leaves the cyclic head and dependent use open with
-  `budget_reached` and widened source conditions (**Tested**, 2026-09-26). Its published/native
-  behavior and pilot cost are not yet verified.
+A transfer relates input and output places under one qualification. Identity means the same value;
+Derived means a value computed from it. Identity composed with Identity remains Identity; any
+composition involving Derived is Derived. `ControlInfluence` and `Selection` are separate
+relationships and never compose as value transfers.
+
+Local publishes direct assessments and their exact native premises. A value crossing an open
+call remains an obligation until binding, evaluation, completion and an applicable finite callee
+proof admit composition. Summary matches caller and callee by call site, restates only supported
+formal atoms and retains invocation-distinct guards. Unknown dispatch or defaults do not become
+normal return. Source signatures and effective signatures stay separate authorities.
+
+Supported source constructor/field/reader associations retain declaration, store and read
+premises. Their symbolic constructor→field→reader route is not a temporal runtime value proof:
+uncertain reader alternatives remain Unknown with proof=None and their actual reason. Source
+association depth is independent of the finite call-path proof limit.
 
 ## Verdicts
 
-Codebook `verdict`, append-only. Every behavioral answer carries exactly one, never a null:
+`domain::obligation` owns the one priority, discharge and verdict policy:
 
 | Verdict | Meaning |
 |---|---|
-| `established` | Derived under the stated model with no boundary in the region the claim reads |
-| `conditional` | Established under a stated condition |
-| `refuted_under_model` | Only where the claim's premise holds (`negative_premises`, below); a rule rejects any other |
-| `unknown` | A boundary intervenes; its `boundary_reason` is named, `budget_reached` included |
-| `not_analyzed` | Out of scope or not requested, nothing else |
+| Established | The exact qualified question has admitted positive support |
+| Conditional | Its admitted positive support depends on the retained condition |
+| RefutedUnderModel | An exact, definite false question has complete relevant coverage and a checked negative proof |
+| Unknown | Evidence, applicability, alternatives, approximation or a budget leaves the question open |
+| NotAnalyzed | The relevant analysis was not requested |
 
-**Approximation direction.** `established` and `conditional` state **may**-behavior: a derivation
-admits the behavior under the stated model without crossing a boundary; they do not prove a
-concrete execution exists. The model admits ty's ambiguous terminal, assumes calls return and
-computes primitive operators, f-strings and containers directly. An explicit raise under a `try`
-or `with` body has no definite escape until L2 proves the frame's action; an unframed raise keeps
-its escape witness. A negative verdict needs a complete may-analysis and its explicit premise.
-The validation lane checks that observed executions are admitted; a finite pass is evidence, not
-proof ([§8.1](validation-and-evaluation.md#section-8-1)).
-
-- **An opaque condition is still stated:** its record is `conditional` and the opaque text is shown.
-- **A budget cut is `unknown`** with `budget_reached`.
-- Discovery results (FCA, communities, vectors) carry no verdict: they are `statistically_derived`
-  nominations and never write membership.
+A positive finite witness is distinct from a claim over every applicable alternative. It cannot
+close an open sibling. Candidate/Potential alternatives cannot establish, refute or discharge.
+Catalog profile does not request Flow and retains NotRequested/NotAnalyzed outcomes. A behavioral
+profile's Partial coverage is local uncertainty, not a blanket loss of its admitted positives.
+Selection's Supported/Contradicted/Unresolved/Conflicting states are a separate contract.
 
 ## Negative premises
 
-A negative claim ("never read", "never forwarded") is `refuted_under_model` only where its premise
-holds, in one relation `negative_premises`: place key, premise kind, whether it holds, and the
-reason if not.
-
-| Place kind | The premise holds when |
-|---|---|
-| Parameter or local | No reference resolves to the binding, closures included; the module has flow IR; the declaration is runtime-reachable; the body is not abstract, a stub (only `pass`, `...` or a docstring) or raise-only (else `abstract_body`); no release class that inherits the method defines it again (else `override_dispatch`) |
-| Field `f` of `C` | Across the release, no attribute load named `f` on **any** receiver, a place or not, and no `getattr`/`hasattr` with the literal name (`flow_attribute_loads`); every release module has flow IR; no dynamic access reaches `C` |
-| Module global | No read of the resolved place anywhere in the release; every release module has flow IR; no dynamic access reaches the module |
-| Forward chain | The operation's `behavior_status` is `established` |
-
-- The field premise is name-based on purpose: it covers mixins and untyped bases, at the cost that
-  a common field name blocks refutation.
-- **External readers are outside the model.** "Never read" means never read by release code;
-  framework serializers such as pydantic's may read fields the release never names.
-- **"Never read" is about this body:** an override a user writes is outside the model; one the
-  release writes blocks refutation.
-- Rules: `semantic:refuted-needs-complete-region` joins every refutation to its premise;
-  `semantic:refuted-not-overridden` rejects a refutation on a method a release subclass redefines;
-  `semantic:premise-no-attribute-load` rejects a holding field or setting premise whose name some
-  attribute load spells. A constructor parameter's claims attach to the class's `__init__`.
-- **Current verification boundary** ([plan W4, W14](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
-  Focused real-provider tests now cover bare, qualified and aliased builtin `getattr`/`hasattr`,
-  computed names and shadowed builtins. Literal names contribute reads; computed names contribute
-  a dynamic boundary before no-read premises. Pyrefly's resolved function status, including
-  aliased abstract methods and Protocol placeholders, now drives abstract-body withholding.
-  One corrected premise still needs a publication-to-serving trace before W4 closes.
+A negative needs a declared closed domain and exact membership evidence. Empty reads, flow tables,
+exception tables or summaries are insufficient. Summary Refutation proofs retain the false BDD,
+original qualification, exact invocation and complete native coverage members. Partial or erased
+coverage, missing proof and unsupported applicability cannot acquire negative finding authority.
+S0 preserves RefutedUnderModel as `BehavioralRefutation`, in Limits, at the structural evidence
+floor. Documentary warnings cannot establish behavioral absence.
 
 ## Boundary reasons the behavior model adds
 
-- `dynamic_access`: the getattr family (`getattr`, `setattr`, `hasattr`, `delattr` with a
-  non-literal name), `vars()`, `__dict__`, `importlib.import_module` and `__import__` (module
-  objects only), `exec` and `eval` (every place).
-  - It reaches class `C`'s fields when the receiver's reaching definitions, through local copies,
-    include `self` in a method of `C` or a relative (subclass, base, mixin), or a module global
-    bound to an instance of `C`. A value Pyrefly types as `C` or a relative is **Proposed**. An
-    `x.__dict__` load resolves the same way. `Settings.get_setting`'s
-    `settings = self; getattr(settings, name)` is the first kind, so "this setting is never read"
-    is `unknown`.
-  - A module `__getattr__` reaches no bound place. Any other receiver is outside the model, and
-    every negative answer names that assumption.
-- `override_dispatch`: a path through a `candidate` arc (`self.m(...)` a subclass may override) is
-  `unknown`, as the delegation over it is.
-- `call_transfer`: a claim reached only through a call (above).
-- `runtime_unreachable`: an operation whose seed declaration the runtime cannot reach.
-- `outside_provider_model`: a site the runtime reaches but Pyrefly pruned (below).
-- `abstract_body`: a negative premise on an abstract, stub or raise-only body.
+Reasons are append-only typed obligations, owned with their policy. Missing entry identity,
+unsupported substitution/control flow, captured state, defaults, heap state, unresolved targets,
+incomplete coverage and specific depth/proof/work/node limits remain distinguishable. A bounded
+refusal names its subject/channel/phase and retains observed premises. Neither a count nor a
+rendered reason is a replacement semantic relation.
 
 ## Read phase
 
-The read phase of a read comes from its site's scope: a module or class body is `import`;
-`__init__` or `__post_init__` is `construction`, and a `snapshot` when the value is stored to a
-field; anything else is `per_call`. A read reached from module scope through calls is a summary's
-question; "when it runs" versus "when called" for coroutines and generators is Stage 5.
+A global or field read retains its source occurrence and execution phase. Module initialization,
+call entry, normal/exceptional completion and finalization are different contexts. A later setting
+mutation does not rewrite an earlier captured read; a declaration is not evidence of when its
+runtime value was observed.
 
 ## Three vocabularies
 
-- `modality` (definite, candidate, potential) describes a call-graph input fact: a behavior across
-  a candidate or potential arc is at best `unknown`.
-- `verdict` is a behavioral answer's (above).
-- `evidence_status` is a brief assertion's. When a brief renders a behavior, `established` and
-  `conditional` become `structurally_observed`, `unknown` becomes `unresolved`, and refuted and
-  not-analyzed records are not rendered as assertions.
+Provider observations, normalized semantic identities and later qualified analyses are separate
+layers. A provider label is not an entity correspondence; a normalized candidate is not a proved
+runtime target; an analysis conclusion is not a raw fact. Nominal support families retain those
+boundaries in the shared derivation graph.
 
 ## Identity
 
-- The flow provider runs inside the extractor, so its identity (`ty_python_core 0.0.14 (ruff
-  0.0.14, salsa 0.28.2)`) is part of `producers.revision` and so of `producer_id`. A change to
-  `cpg-flow`'s output bumps `EXTRACTOR_OUTPUT_VERSION`, the one counter; `flow_shapes` snapshots
-  show an unbumped change. The context already carries the Python version and platform the
-  runtime view reads.
-- A condition's identity is its structural root id (above); labels and display text are never
-  identities.
-- A registry concept's id is `H("concept", key)`; its labels and definitions are data, digested
-  into the registry digest and so into `compiler_digest`; a membership's id is
-  `H(concept, operation, basis)`.
+`lctx-model` content identities include their declared semantic keys, qualifications and source
+premises. Alternatives with the same transfer aggregation key may merge by the owned OR operation
+while retaining all witnesses. Worklist semantic states also retain their canonical condition;
+proof ancestry, arrival order and cost are not semantic identity. Codebooks remain append-only.
 
 ## Composed layers
 
-- The CPG layers keep Pyrefly's checker view ([§B1](../DESIGN.md#section-b1)), as labelled.
-- A behavior takes the runtime view at its site: a site the runtime view finds unreachable (inside
-  `if TYPE_CHECKING:`) yields no behavior; a site Pyrefly prunes but the runtime reaches (its
-  `else`) has no call facts, so a behavior that needs them is `unknown`
-  (`outside_provider_model`).
-- The exports seed stays the checker view. A declaration is runtime-unreachable when its own
-  statement's region, or an enclosing declaration's, is `false`; its operation and every claim
-  about it are `unknown` (`runtime_unreachable`), whether or not another runtime definition of
-  the name exists, and its parameters' premises do not hold
-  (`semantic:unreachable-not-established`). `unreachable_in_context` keeps its meaning: the
-  checker never binds it.
+Local → BaseEvaluation → BaseCompletion → SourceCall → EnrichedExecution → Model → Summary is
+an acyclic dependency order. Each later owner consumes completed nominal parents and cannot
+supply an earlier proof to itself. `cpg-core::compilation` orchestrates those declarations;
+`lctx-postgres` seals, validates and publishes their immutable generations. Later Structural,
+Analytic, catalog and S0 consumers preserve the earlier qualification and uncertainty. Phase 5
+will read the same generation without introducing a second behavioral authority.
 
-> Decision: ADR-0045, ADR-0085, ADR-0028, ADR-0051, ADR-0064, ADR-0074
-
----
+> Decision: ADR-0045, ADR-0051, ADR-0085, ADR-0106, ADR-0108
