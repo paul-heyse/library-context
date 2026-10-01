@@ -6,6 +6,8 @@
     dead_code,
     reason = "Shared contract fixtures expose helpers to multiple targeted suites"
 )]
+#[path="analysis_support.rs"]
+mod analysis_fixture;
 use arrow_array::RecordBatch;
 use lctx_model::domain::{
     artifact::*,
@@ -593,6 +595,9 @@ impl Fixture {
             StabilityWitness,
             GuardSubstitution
         );
+        let native=analysis_fixture::inventory(self.batches.iter().map(|(name,batch)|(*name,batch)))?;
+        generation.put(&Batch::new(&self.model,native.premises.iter().cloned().collect(),&budget())?)?;
+        generation.put(&Batch::new(&self.model,native.qualifications.iter().cloned().collect(),&budget())?)?;
         generation.validate(&self.model, &budget())
     }
 }

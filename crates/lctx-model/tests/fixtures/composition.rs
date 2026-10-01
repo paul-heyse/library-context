@@ -15,9 +15,8 @@ mod stability;
 use binding_fixture::{InspectionCase, bind_inspection};
 use lctx_model::domain::{
     analysis::*,
-    analysis::support::*,
-    analysis::coverage::*,
-    analysis::obligations::*,
+    analysis::local::{*,support::*,coverage::*},
+    analysis::native::*,
     artifact::*,
     assertion::*,
     attribution::*,
@@ -504,7 +503,7 @@ impl Fixture {
         let source=self.store_support_foundation(branch.qualification(),branch.condition(),at,branch.key().input,evidence.id());
         self.extend(vec![TransferSupport { assertion:alternative.id(),source }]);
     }
-    fn store_support_foundation(&mut self,q:&AssertionQualification,condition:&Diagram,at:Id<Occurrence>,place:Id<Place>,evidence:Id<Evidence>)->Id<lctx_model::domain::analysis::support::SupportSource> {
+    fn store_support_foundation(&mut self,q:&AssertionQualification,condition:&Diagram,at:Id<Occurrence>,place:Id<Place>,evidence:Id<Evidence>)->Id<lctx_model::domain::analysis::local::SupportSource> {
         let rows=analysis_fixture::SupportFixture::new(self.run.input,self.run.id(),self.flows(),evidence,q,condition,at,place);
         let source=rows.derived.id();
         self.extend(vec![rows.parameters]);self.extend(vec![rows.definition]);self.extend(vec![rows.invocation]);
@@ -680,8 +679,11 @@ impl Fixture {
             FlowValueObservation,FlowValueSupport,
             MethodParameters,AnalysisDefinition,AnalysisInvocation,AnalysisInput,AnalysisOutcome,AnalysisDiagnostic,
             AnalysisCoverage,CoverageSource,AnalysisCoveragePremise,ObligationSubject,AnalysisObligation,
-            NativeAssertionPremise,SupportSource,AnalysisProposition,AnalysisDerivation,AnalysisDerivationPremise
+            SupportSource,AnalysisProposition,AnalysisDerivation,AnalysisDerivationPremise
         );
+        let native=analysis_fixture::inventory(self.base.batches.iter().map(|(name,batch)|(*name,batch)))?;
+        generation.put(&Batch::new(model,native.premises.iter().cloned().collect(),&budget())?)?;
+        generation.put(&Batch::new(model,native.qualifications.iter().cloned().collect(),&budget())?)?;
         generation.validate(model, &budget())
     }
 }

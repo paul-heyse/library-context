@@ -286,7 +286,7 @@ fn check(
 
 fn store_foundation(f:&Fixture,data:&mut BTreeMap<&'static str,arrow_array::RecordBatch>,rows:&analysis_fixture::SupportFixture) {
     macro_rules! one { ($($row:expr),*) => { $(insert(f,data,vec![$row.clone()]);)* }; }
-    one!(rows.parameters,rows.definition,rows.invocation,rows.use_,rows.observation,rows.support,rows.premise,rows.subject,rows.proposition,rows.derivation);
+    one!(rows.parameters,rows.definition,rows.invocation,rows.use_,rows.observation,rows.support,rows.premise,rows.native_qualification,rows.subject,rows.proposition,rows.derivation);
     insert(f,data,vec![rows.native.clone(),rows.derived.clone()]);
     insert(f,data,rows.members.clone());
 }
