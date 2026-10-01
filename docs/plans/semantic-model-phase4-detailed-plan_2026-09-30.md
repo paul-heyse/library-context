@@ -948,8 +948,9 @@ and publication refuses vocabulary references outside the inherited or narrower 
 R1's finite metrics, sixteen nominal producing-owner families, exact native premise inventory,
 source-bound expected coverage and cross-owner discharge are integrated. Actual scheduled publication
 replays shared model callbacks against acknowledged inputs and the registry profile before granting
-read access. LocalTransfers, Catalog, CatalogEvidence and AnalyticEmbedding have their scoped
-producer selectors; other nonempty owner invocations refuse until their packages supply one. The testing-only
+read access. Local, BaseEvaluation/Completion, SourceCall, C0/C1/C2, Structural and AnalyticEmbedding have
+focused-tested producer selectors; A1 is integrated with qualification running. Remaining nonempty
+owner invocations refuse until their packages supply their real producer and replay contract. The testing-only
 unscheduled Harness exercises ordinary model invariants but cannot qualify source-sensitive publication.
 Those controls use scheduled `begin_conformance` attempts and actual completed inputs.
 
@@ -977,8 +978,10 @@ nominal Local/Model/Summary transfer ownership, private call-binding admission a
 Summary witnesses are integrated with focused native/store controls. The actual direct Local producer
 and execution-domain-qualified entry sources are integrated and focused-Tested against the assembled
 tree. Local remains Partial/IncompleteDomain in behavioral mode and explicitly
-NotRequested in catalog mode. Type theory, exact field state, crossed-call semantics and scheduled
-B3 Summary publication remain in progress. The removed legacy PostgreSQL stability fixture is
+NotRequested in catalog mode. Finite type theory and exact field-location evidence are focused-Tested;
+heap-state availability stays distinct. Base execution/completion and fresh source invocation/frame
+publication are focused-Tested. Enriched/model/crossed-call semantics and scheduled B3 Summary
+publication remain in progress. The removed legacy PostgreSQL stability fixture is
 replaced only in its Entry/Local scope: actual scheduled Summary GuardSubstitution roundtrip,
 unsubstituted-bound-guard refusal and forged-substitution refusal remain explicit B3 obligations.
 C0 catalog is integrated with focused pure/native
@@ -999,8 +1002,9 @@ C1 source/document/deployment evidence is integrated and focused-Tested, preserv
 coordinates, exact C0/native frames and release ownership. Runtime field promotion remains pending
 actual Local/B1 evidence. C2 declaration selection is integrated and focused-Tested: exact contextual
 domains, finite classify/joint operations, four outcome groups and cold replay preserve missing
-evidence and scope. Runtime-dependent field/state facets remain open. Downstream execution,
-analytics, synthesis/retrieval, CLI assembly,
+evidence and scope. Runtime-dependent field/state facets remain open. A0 structural publication,
+original documentary/code-source admission and configured brief kernels are focused-Tested. A1
+production is integrated; its focused qualification, full synthesis/retrieval, upper CLI assembly,
 ownership retirement and Q0 remain pending. Existing descriptions marked Proposed specify accepted
 targets whose behavior is not yet implemented or tested; they are not runtime claims.
 The [independent assembled review](../design_review/reviews/design_review_phase4-plan_2026-09-30.md)
