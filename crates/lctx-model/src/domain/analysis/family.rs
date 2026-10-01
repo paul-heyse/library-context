@@ -1,7 +1,7 @@
 //! One canonical record/validator template, instantiated for finite publication owners.
 //! The predecessor list is static schema, never a producer-selected publication tag.
 macro_rules! analysis_family {
-    ($owner:ident,$prefix:literal,[$($variant:ident:$code:literal=>$predecessor:ident),* $(,)?] $(,$transfer:ty)?) => {
+    ($owner:ident,$prefix:literal,[$($variant:ident:$code:literal=>$predecessor:ident),* $(,)?],[$($transfer:ty)?],[$($normalized:ty)?]) => {
         pub mod $owner {
             use super::{invalid,AnalysisDefinition,ProjectionDefinition,AnalysisMethod,AnalysisStatus,AnalysisCapability,AnalysisChannel,Interpretation};
             use crate::domain::{*,assertion::AssertionQualification,attribution::{AnalysisContext,ProviderCoverage,CoverageStatus},source::{CoverageScope,Occurrence},input::InputRevision,normalized::{entities::EntityRef,coverage::{EvidenceAvailability,NormalizationCoverage}},calls::CallPhase,obligation::ObligationKind,transfer::TransferKey};
@@ -31,11 +31,15 @@ macro_rules! analysis_family {
             #[model(name=owner_table!("coverage_sources"),rule="analysis_coverage_source")]
             pub enum CoverageSource {
                 #[model(code=0)] Native {#[model(premise)] coverage:Id<ProviderCoverage>},
-                #[model(code=1)] Normalized {#[model(premise)] coverage:Id<NormalizationCoverage>},
+                $(#[model(code=1)] Normalized {#[model(premise)] coverage:Id<$normalized>},)?
                 #[model(code=2)] Analysis {#[model(premise)] coverage:Id<AnalysisCoverage>},
                 $(#[model(code=$code)] $variant {#[model(premise)] coverage:Id<super::$predecessor::AnalysisCoverage>},)*
             }
-            impl CoverageSource {pub fn reference(&self)->derivation::RowRef {match self {Self::Native {coverage}=>derivation::RowRef::of(*coverage),Self::Normalized {coverage}=>derivation::RowRef::of(*coverage),Self::Analysis {coverage}=>derivation::RowRef::of(*coverage),$(Self::$variant {coverage}=>derivation::RowRef::of(*coverage),)*}}}
+            impl CoverageSource {pub fn reference(&self)->derivation::RowRef {match self {Self::Native {coverage}=>derivation::RowRef::of(*coverage),$(Self::Normalized {coverage}=>derivation::RowRef::of::<$normalized>(*coverage),)?Self::Analysis {coverage}=>derivation::RowRef::of(*coverage),$(Self::$variant {coverage}=>derivation::RowRef::of(*coverage),)*}}}
+            fn normalized_coverage_inputs(inputs:&mut Vec<ValidationInput>) {$(inputs.push(ValidationInput::of::<$normalized>(&["id"]));)?}
+            fn normalized_source(row:&NormalizationCoverage)->Result<CoverageSource,ModelError> {$(let _: &$normalized=row;return Ok(CoverageSource::Normalized {coverage:row.id()});)? Err(invalid("publication owner cannot consume final normalization coverage"))}
+            fn normalized_reference(source:&CoverageSource)->Option<Id<NormalizationCoverage>> {match source {$(CoverageSource::Normalized {coverage}=>{let _:Id<$normalized>=*coverage;Some(*coverage)},)?_=>None}}
+            fn normalization_enabled()->bool {let types:&[&str]=&[$(stringify!($normalized),)?];!types.is_empty()}
             #[derive(Debug,Clone,PartialEq,Eq,Hash,DomainSum)]
             #[model(name=owner_table!("obligation_subjects"))]
             pub enum ObligationSubject {

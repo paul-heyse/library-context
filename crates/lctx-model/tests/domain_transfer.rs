@@ -673,3 +673,12 @@ fn transfer_identity_is_the_semantic_key() {
     assert_eq!(other.key().id(), f.branch().key().id());
     assert_ne!(other.alternative().id(), f.branch().alternative().id());
 }
+#[test]
+fn shared_derived_flow_support_refuses_prose_and_heuristic_lineage() {
+    use lctx_model::domain::analysis::{local::Derivation,policy::EvidenceStatus};
+    let fixture=Fixture::new();let base=records(&fixture);check(TransferSupport::invariants().remove(0),&base).unwrap();let derivation=Derivation::decode(&base[Derivation::NAME]).unwrap().remove(0);
+    for (status,heuristic) in [(EvidenceStatus::Documented,false),(EvidenceStatus::StatisticallyDerived,true),(EvidenceStatus::StructurallyObserved,true)] {let mut changed=base.clone();insert(&fixture,&mut changed,vec![Derivation {status,heuristic,..derivation.clone()}]);assert!(check(TransferSupport::invariants().remove(0),&changed).is_err());}
+    // Qualification still carries candidate/partial uncertainty; evidence interpretation does not
+    // turn an alternative into a proved behavior.
+    lctx_model::domain::analysis::policy::behavioral_support(EvidenceStatus::StructurallyObserved,false).unwrap();
+}

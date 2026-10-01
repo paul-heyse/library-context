@@ -44,6 +44,7 @@ impl<'a> EvidencePremise<'a> {
         Ok(Self {premise:QualifiedPremise {source,qualification,condition},facts})
     }
 }
+impl crate::domain::analysis::support::sealed::DerivedEvidence for AnalysisDerivation {}
 impl crate::domain::analysis::support::DerivedEvidence for AnalysisDerivation {fn source_facts(&self)->SourceFacts {self.facts()}}
 pub(super) fn input_digest(sources:&std::collections::BTreeSet<Id<SupportSource>>)->ContentHash {crate::domain::analysis::support::membership_digest("analysis-derivation-premises",sources)}
 impl AnalysisDerivation {
@@ -131,7 +132,7 @@ impl assertion::DerivedSupportIndex<SupportSource> for CompanionIndex {
         let SupportSource::AnalysisDerivation {derivation}=source else {return Err(invalid("generated assertion requires its owner's derivation"));};
         let row=self.derivations.get(derivation).ok_or_else(||invalid("support derivation absent"))?;
         let invocation=self.invocations.get(&row.invocation).ok_or_else(||invalid("support invocation absent"))?;
-        Ok(assertion::DerivedSupportFrame {input:invocation.input,context:invocation.context,qualification:row.qualification})
+        Ok(assertion::DerivedSupportFrame {input:invocation.input,context:invocation.context,qualification:row.qualification,evidence:row.facts()})
     }
 }
 /// Read-only projection from already validated nominal source rows. Each concrete owner supplies

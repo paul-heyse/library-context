@@ -209,6 +209,12 @@ pub fn assertion_policy(kind:AssertionKind,status:EvidenceStatus)->Result<BriefS
     if !allowed.contains(&status) {return Err(invalid("assertion evidence falls outside its floor or ceiling"));}
     Ok(*section)
 }
+/// Behavioral proof consumers share the Control evidence contract. Extractive prose and
+/// statistical lineage cannot establish execution or control behavior.
+pub fn behavioral_support(status:EvidenceStatus,heuristic:bool)->Result<(),ModelError> {
+    if heuristic {return Err(invalid("heuristic evidence cannot establish behavioral support"));}
+    assertion_policy(AssertionKind::Control,status).map(|_|())
+}
 pub fn finding_policy(kind:FindingKind,status:EvidenceStatus)->Result<(),ModelError> {
     let navigation=matches!(kind,FindingKind::Community|FindingKind::Centrality|FindingKind::DocLink|FindingKind::CommunityLabel);
     let allowed=if navigation {EvidenceStatus::StatisticallyDerived} else {EvidenceStatus::StructurallyObserved};

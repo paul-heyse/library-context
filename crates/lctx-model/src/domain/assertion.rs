@@ -427,7 +427,7 @@ pub trait Support: Record {
 }
 
 /// A generated companion has exactly one nominal owner source and its immutable input frame.
-pub struct DerivedSupportFrame {pub input:Id<super::input::InputRevision>,pub context:Id<super::attribution::AnalysisContext>,pub qualification:Id<AssertionQualification>}
+pub struct DerivedSupportFrame {pub input:Id<super::input::InputRevision>,pub context:Id<super::attribution::AnalysisContext>,pub qualification:Id<AssertionQualification>,pub evidence:super::analysis::support::SourceFacts}
 pub trait DerivedSupportSource:Sized+Send+Sync+'static {
     fn inputs()->Vec<ValidationInput>;
     fn index(budget:&super::resources::ResourceBudget)->Box<dyn DerivedSupportIndex<Self>>;
@@ -903,6 +903,7 @@ impl<A: Assertion, S: Support<Assertion = A>> SupportCheck<A, S> {
         let scope = self.ownership.scope(q.scope)?;
         if let Some(source) = support.source() {
             let frame=self.derived.frame(source)?;
+            if A::FAMILY==FactFamily::Flow {super::analysis::policy::behavioral_support(frame.evidence.status,frame.evidence.heuristic)?;}
             if frame.qualification != assertion.qualification() || frame.context != q.context || !self.ownership.owns_scope(frame.input,scope)? {
                 return Err(invalid("derived support changes qualification, scope or context"));
             }

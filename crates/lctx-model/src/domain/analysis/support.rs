@@ -48,4 +48,5 @@ pub struct SourceFacts { pub qualification:Id<AssertionQualification>,pub status
 impl HeapSize for SourceFacts {}
 /// The common status operation is conservative even when heuristic evidence has stronger siblings.
 pub fn inferred_status(interpretation:super::Interpretation,lower:impl IntoIterator<Item=super::policy::EvidenceStatus>)->super::policy::EvidenceStatus {use super::policy::{derive_status,EvidenceStatus,SupportRole};let mut status=EvidenceStatus::StructurallyObserved;let mut any=false;for lower in lower {any=true;status=derive_status(&[(SupportRole::Support,status),(SupportRole::Support,lower)]);}if !any {EvidenceStatus::Unresolved} else if status!=EvidenceStatus::Unresolved && interpretation==super::Interpretation::Heuristic {EvidenceStatus::StatisticallyDerived} else {status}}
-pub trait DerivedEvidence:Record {fn source_facts(&self)->SourceFacts;}
+pub(crate) mod sealed {pub trait DerivedEvidence {}}
+pub trait DerivedEvidence:Record+sealed::DerivedEvidence {fn source_facts(&self)->SourceFacts;}

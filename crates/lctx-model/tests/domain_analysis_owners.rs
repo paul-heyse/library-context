@@ -35,7 +35,7 @@ fn typed_parent_membership_and_global_proof_edges_preserve_owner_frame() {
 fn coverage_rechecks_exact_membership_and_lower_uncertainty() {
     let inv=invocation(&definition(AnalysisMethod::LocalTransfers,Interpretation::Structural));let scope=CoverageScope::Input {input:inv.input};
     let normalized=NormalizationCoverage {computation:nominal(8),scope:scope.id(),context:inv.context,availability:EvidenceAvailability::Partial};
-    let observed=CoverageObservation::normalized(&normalized);
+    let observed=CoverageObservation::normalized(&normalized).unwrap();
     let expected=CoverageExpectation {invocation:inv.id(),capability:AnalysisCapability::Transfers,scope:scope.id(),context:inv.context,requested:true,no_scope:false,sources:vec![observed.source().id()]};
     let (coverage,members)=assess(&expected,std::slice::from_ref(&observed),AnalysisStatus::Completed,None,&budget()).unwrap();
     assert_eq!(coverage.availability,EvidenceAvailability::Partial);
@@ -80,4 +80,15 @@ fn bdd_qualification_refuses_budget_and_keeps_shared_weakest_policy() {
     let premises=[QualifiedPremise {source:&sa,qualification:&q,condition:&a},QualifiedPremise {source:&sb,qualification:&qb,condition:&b}];
     let result=qualify(QualificationOperation::Conjunction,&premises,&budget()).unwrap();assert!(result.condition.is_false());assert_eq!(result.qualification.modality,Modality::Potential);assert_eq!(result.qualification.approximation,Approximation::Mixed);
     let tiny=resources::ResourceBudget::fixed(1).unwrap();assert!(qualify(QualificationOperation::Conjunction,&premises,&tiny).is_err());assert_eq!(tiny.reserved(),0);
+}
+#[test]
+fn dispatch_executable_closure_excludes_later_results_and_final_coverage() {
+    let model=model().unwrap();let declarations_by_name=model.relations().iter().map(|r|(r.name(),r)).collect::<BTreeMap<_,_>>();let mut pending=analysis::early_relations().into_iter().chain(analysis::dispatch::relations()).map(|r|r.name()).collect::<Vec<_>>();let mut closure=std::collections::BTreeSet::new();while let Some(name)=pending.pop() {if !closure.insert(name) {continue;}let relation=declarations_by_name[name];for field in relation.fields() {if let Some((_,target))=field.target() {pending.push(target);}}for invariant in relation.invariants() {pending.extend(invariant.inputs.iter().map(ValidationInput::name));}for check in relation.publication_checks() {pending.extend(check.inputs.iter().map(ValidationInput::name));}}
+    assert!(!closure.contains(NormalizationCoverage::NAME));assert!(!closure.contains(transfer::TransferKey::NAME));assert!(!closure.contains(local::Invocation::NAME));assert!(!closure.contains(analysis::summary::Invocation::NAME));
+    let row=NormalizationCoverage {computation:nominal(1),scope:nominal(2),context:nominal(3),availability:EvidenceAvailability::Complete};assert!(analysis::dispatch::coverage::CoverageObservation::normalized(&row).is_err());assert!(local::coverage::CoverageObservation::normalized(&row).is_ok());
+    let source=analysis::dispatch::CoverageSource::Native {coverage:nominal(1)};assert_eq!(source.reference(),derivation::RowRef::of::<attribution::ProviderCoverage>(nominal(1)));
+}
+#[test]
+fn predecessor_coverage_adapter_preserves_nominal_identity_and_partiality() {
+    let row=local::Coverage {invocation:nominal(1),capability:AnalysisCapability::Transfers,scope:nominal(2),context:nominal(3),premises:ContentHash::of(b"actual membership"),availability:EvidenceAvailability::Partial,reason:Some(ObligationKind::IncompleteCoverage)};let source=analysis::base_evaluation::CoverageSource::Local {coverage:row.id()};let observed=analysis::base_evaluation::coverage::CoverageObservation::predecessor(&source,&row).unwrap();let expectation=analysis::base_evaluation::coverage::CoverageExpectation {invocation:nominal(4),capability:AnalysisCapability::Execution,scope:row.scope,context:row.context,requested:true,no_scope:false,sources:vec![source.id()]};let (derived,_)=analysis::base_evaluation::coverage::assess(&expectation,&[observed],AnalysisStatus::Completed,None,&budget()).unwrap();assert_eq!(derived.availability,EvidenceAvailability::Partial);let forged=analysis::base_evaluation::CoverageSource::Local {coverage:nominal(9)};assert!(analysis::base_evaluation::coverage::CoverageObservation::predecessor(&forged,&row).is_err());
 }
