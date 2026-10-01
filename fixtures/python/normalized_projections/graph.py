@@ -54,3 +54,10 @@ class DispatchDiamond(DispatchLeft, DispatchRight):
 
 def dispatch_relay(obj: DispatchBase, value):
     return obj.invoke(value)
+
+
+def factory():
+    def nested():
+        return 1
+
+    return nested

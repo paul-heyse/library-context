@@ -22,12 +22,13 @@ pub enum EndpointRole {
     Import = 3,
     Reference = 4,
     PublicExposure = 5,
+    SourceDefinition = 6,
 }
 impl EndpointRole {
     pub fn relation(self) -> &'static str {
         match self {
             Self::Invocation | Self::Definition => NormalizedCallAlternative::NAME,
-            Self::Containment => OccurrenceOwnership::NAME,
+            Self::Containment | Self::SourceDefinition => OccurrenceOwnership::NAME,
             Self::Import => ImportModuleCandidate::NAME,
             Self::Reference => ReferenceEntityCandidate::NAME,
             Self::PublicExposure => PublicExposureCandidate::NAME,
@@ -38,7 +39,7 @@ pub fn call_roles() -> Vec<EndpointRole> {
     vec![EndpointRole::Invocation, EndpointRole::Definition]
 }
 pub fn containment_roles() -> Vec<EndpointRole> {
-    vec![EndpointRole::Containment]
+    vec![EndpointRole::Containment, EndpointRole::SourceDefinition]
 }
 pub fn import_roles() -> Vec<EndpointRole> {
     vec![EndpointRole::Import]
@@ -83,7 +84,7 @@ pub struct ProjectionSpec {
     name: ProjectionName,
 }
 impl ProjectionSpec {
-    pub const VERSION: i32 = 2;
+    pub const VERSION: i32 = 3;
     pub fn builtin(name: ProjectionName) -> Self {
         Self { name }
     }
@@ -103,7 +104,7 @@ impl ProjectionSpec {
         match self.name {
             ProjectionName::CallableInvocation => &[EndpointRole::Invocation],
             ProjectionName::DefinitionContainment => {
-                &[EndpointRole::Definition, EndpointRole::Containment]
+                &[EndpointRole::Definition, EndpointRole::Containment, EndpointRole::SourceDefinition]
             }
             ProjectionName::ImportReference => &[EndpointRole::Import, EndpointRole::Reference],
             ProjectionName::PublicExposure => &[EndpointRole::PublicExposure],
@@ -164,6 +165,8 @@ pub enum ArcId {
     Import(Id<ImportModuleCandidate>),
     Reference(Id<ReferenceEntityCandidate>),
     PublicExposure(Id<PublicExposureCandidate>),
+    /// Exact lexical declaration ownership, distinct from runtime invocation.
+    SourceDefinition(Id<OccurrenceOwnership>),
 }
 impl ArcId {
     pub fn role(self) -> EndpointRole {
@@ -174,6 +177,7 @@ impl ArcId {
             Self::Import(_) => EndpointRole::Import,
             Self::Reference(_) => EndpointRole::Reference,
             Self::PublicExposure(_) => EndpointRole::PublicExposure,
+            Self::SourceDefinition(_) => EndpointRole::SourceDefinition,
         }
     }
 }

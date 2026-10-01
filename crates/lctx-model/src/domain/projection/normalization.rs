@@ -141,6 +141,7 @@ impl ProjectionInput {
     }
 }
 struct Index<'a> {
+    definitions: ChargedMap<Id<Occurrence>, Id<CallableEntity>>,
     assessments: ChargedMap<Id<NormalizedCallEvent>, &'a EventAssessment>,
     alternatives: ChargedMap<Id<NormalizedCallEvent>, Vec<&'a NormalizedCallAlternative>>,
     invocations: ChargedSet<Id<NormalizedCallAlternative>>,
@@ -152,6 +153,7 @@ struct Index<'a> {
 impl<'a> Index<'a> {
     fn new(data: &'a ProjectionData, budget: &ResourceBudget) -> Result<Self, ModelError> {
         let mut out = Self {
+            definitions: Default::default(),
             assessments: Default::default(),
             alternatives: Default::default(),
             invocations: Default::default(),
@@ -160,6 +162,11 @@ impl<'a> Index<'a> {
             exposures: Default::default(),
             _charge: StateCharge::new(budget, "projection-index"),
         };
+        for callable in data.callables.iter() {
+            if let CallableEntity::Source {declaration,..}=callable
+                && out.definitions.insert(&mut out._charge,*declaration,callable.id())?.is_some()
+            { return Err(invalid("duplicate source callable declaration")); }
+        }
         for row in data.event_assessments.iter() {
             if out
                 .assessments
@@ -553,6 +560,13 @@ fn describe_indexed(
                     }
                     .id(),
                 )?;
+                // The source declaration's normalized lexical owner is the definition edge.
+                // Ordinary containment keeps its own occurrence target and is never reinterpreted.
+                if let Some(callable)=index.definitions.get(&owner.occurrence) {
+                    let target=EntityRef::Callable {callable:*callable}.id();
+                    need(&data.refs,target)?;
+                    out.arc(ArcId::SourceDefinition(owner.id()),owner.entity,target)?;
+                }
             }
         }
     }

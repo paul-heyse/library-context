@@ -642,6 +642,10 @@ reconstructing edges from SQL. **Implemented / focused-Tested, 2026-10-01:** col
 retains hydrated graphs and their reservations; each later borrower needs matching completed-source
 permits and the same budget. F0 lifetime wiring and downstream algorithm consumers remain open.
 Dispatch expansion precedes the graph build on every fresh collection.
+**Implemented / focused-Tested, 2026-10-01:** projection version 3 gives source callable
+definitions their own role and arc identity from normalized declaration ownership. Ordinary
+containment retains occurrence endpoints; definition edges never become runtime calls. Bounded
+delegation borrows both projections, preserving canonical witness ties, open dispatch and limits.
 **Accepted target:** numeric conversions have explicit universe/weight/lineage contracts and share
 the attempt budget. Optional analytics retain their existing disabled defaults.
 

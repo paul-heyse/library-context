@@ -1,6 +1,7 @@
 //! Immutable analysis publications have finite nominal owners. Native attribution stays separate.
 mod config;
 pub mod coverage;
+pub mod delegation;
 pub mod expected;
 mod family;
 pub mod findings;

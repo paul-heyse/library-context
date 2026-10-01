@@ -16,8 +16,7 @@ _Updated 2026-10-01 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
   [foundation review](docs/design_review/reviews/design_review_phase4-foundation_2026-09-30.md)
   is **Accept scoped** at frozen `0a60954`; plan §13.2 owns dated focused receipts and scope.
 - **Implemented / focused-Tested:** immutable vocabulary prefixes, sixteen nominal analysis owners,
-  source-bound coverage/publication and discharge; N0 authored/native configuration; N1 receiver and
-  open dispatch contracts. Nonempty unimplemented analysis selectors still refuse activation.
+  source-bound coverage/publication and discharge; N0 configuration and N1 receiver/open dispatch. Nonempty unimplemented analysis selectors still refuse activation.
 - **passed, 2026-10-01:** wrapped Cargo `test --release -p lctx-model -p cpg-core --test analysis_preparation`
   (two model controls and one real PG test across both profiles), composite after fixture/boundary fixes.
   Integrated N1/G0 PG controls also passed both profiles after correcting the test's frontier scope;
@@ -25,7 +24,7 @@ _Updated 2026-10-01 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
   foundation controls passed, including real PG configuration; no live embedding claim.
   B0 entry/transfer prerequisites passed model, native and real PG controls; Local production
   remains in progress (plan §13.2 receipts). B1 base evaluation/completion records passed 5 native
-  and 12 model controls; source-call evidence and actual producers remain pending.
+  and 12 model controls; source-call evidence and producers remain pending.
 - **passed, 2026-10-01:** R0 declared validation-view controls in memory and real PostgreSQL:
   earlier/current vocabulary routing, no widening beyond acknowledged grants, malformed-frame
   refusal and reservation release. B0 exposed and motivated the fix; its Summary publication
@@ -34,7 +33,8 @@ _Updated 2026-10-01 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
   profiles, including complete seal/model validation. E1 consumption then passed five pure and
   three actual PG controls across four availability cases; external effects used a contract fixture,
   so live-service behavior is not_run. A0 usage and A1 neighbour/rank/concept kernels passed; nominal
-  publication, E0 and cross-consumer integration remain open.
+  publication, E0 and cross-consumer integration remain open. Delegation and projection-v3
+  source definitions passed 5 native + 9 model controls; A0 production remains pending.
 - **passed, 2026-10-01:** integrated C0 catalog (20 pure controls; native catalog plus both
   normalized PG profiles). C1/E1 per-grain coverage contracts passed two pure controls;
   C1 source/document/deployment evidence passed 10 pure, 2 integrated PG and 1 native control;
@@ -113,8 +113,7 @@ Reset initially refused absent old-installation control tables; its regression a
 
 ## Next
 
-Continue ordinary work directly on `main`. Existing after-turn hooks own formatting and catalog
-refresh; do not run or validate them manually. Additional pilot-scale qualification runs only if
+Continue ordinary work directly on `main`. Existing after-turn hooks own formatting/catalog refresh; do not run them manually. Additional pilot-scale qualification runs only if
 reactivated; detailed plan §11 retains its unmeasured scope.
 Continue P4 with actual Local/B1 execution, exact C1 field links, C2 selection and analytics.
 Downstream producers, assembly, legacy retirement and Q0 remain open. Follow the dependency graph

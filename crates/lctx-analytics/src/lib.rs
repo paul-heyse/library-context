@@ -12,6 +12,7 @@ pub mod native_schedule;
 pub mod native_neighbours;
 pub mod native_ranking;
 pub mod native_concepts;
+pub use lctx_model::domain::analysis::delegation as native_delegation;
 pub mod neighbours;
 pub mod pass_a;
 pub mod pass_b;

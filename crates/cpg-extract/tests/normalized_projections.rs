@@ -13,6 +13,9 @@ use lctx_model::domain::{
 use typed_driver::{files, rows};
 inspector!(Facts, CallTarget);
 async fn fixture() -> (ProjectionData, ResourceBudget) {
+    let (data, _, budget) = fixture_with_uses().await; (data, budget)
+}
+async fn fixture_with_uses() -> (ProjectionData, Rows<input::ArtifactUse>, ResourceBudget) {
     let tables = typed_driver::Tables::default();
     typed_driver::run_behavioral(&files("normalized_projections"), Facts(tables.clone()))
         .await
@@ -38,7 +41,9 @@ async fn fixture() -> (ProjectionData, ResourceBudget) {
     let mut projection = ProjectionData::new(&budget);
     macro_rules! project { ($($field:ident: $ty:ty,)*) => { $(projection.visit(<$ty>::NAME, &<$ty as Record>::encode(&data.$field.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap();)* }; }
     lctx_model::normalized_binding_inputs!(project);
-    (projection, budget)
+    let mut uses = Rows::new(&budget);
+    for row in rows::<input::ArtifactUse>(&tables) { uses.insert(row).unwrap(); }
+    (projection, uses, budget)
 }
 fn rebuild_events(data: &mut BindingData, budget: &ResourceBudget) {
     let mut receivers=lctx_model::domain::normalized::receiver::ReceiverData::new(budget);
@@ -306,4 +311,259 @@ async fn captured_overrider_adds_a_stored_scc_edge_and_keeps_dispatch_open() {
     let native_output=normalize(&native,&budget).unwrap();let source=native_output.assessments.iter().find(|a|a.projection==ProjectionName::CallableInvocation).unwrap();let header=native_output.snapshots.iter().find(|s|s.assessment==source.id()).unwrap();let graph=hydrate(header,source,&native_output.chunks,&budget).unwrap();
     let schedule=lctx_analytics::native_schedule::invocation_sccs(&graph,&budget).unwrap();let component=schedule.components().iter().find(|ids|ids.contains(&owner)).unwrap();
     assert!(!component.contains(&member.entity));
+}
+
+#[tokio::test]
+async fn native_delegation_preserves_parallel_paths_boundaries_dispatch_and_limits() {
+    use lctx_analytics::native_delegation::{Boundary, Bounds, Inputs, Kind, Stop};
+    let (data, uses, budget) = fixture_with_uses().await;
+    let output = normalize(&data, &budget).unwrap();
+    validate(&data, &output, &budget).unwrap();
+    let graph = |name| {
+        let source = output
+            .assessments
+            .iter()
+            .find(|a| a.projection == name)
+            .unwrap();
+        let header = output
+            .snapshots
+            .iter()
+            .find(|s| s.assessment == source.id())
+            .unwrap();
+        hydrate(header, source, &output.chunks, &budget).unwrap()
+    };
+    let invocation = graph(ProjectionName::CallableInvocation);
+    let definition = graph(ProjectionName::DefinitionContainment);
+    let inputs = Inputs {
+        invocation: &invocation,
+        definition: &definition,
+        data: &data,
+        uses: &uses,
+    };
+    let entity = |name: &str| {
+        data.refs
+            .iter()
+            .find_map(|entity| {
+                let EntityRef::Callable { callable } = entity else {
+                    return None;
+                };
+                let CallableEntity::Source { declaration, .. } =
+                    data.callables.get(*callable).unwrap()
+                else {
+                    return None;
+                };
+                let occurrence = data.occurrences.get(*declaration).unwrap();
+                let source = data.artifacts.get(occurrence.source).unwrap();
+                files("normalized_projections")[&source.path]
+                    [occurrence.start as usize..occurrence.end as usize]
+                    .starts_with(format!("def {name}(").as_bytes())
+                    .then_some(entity.id())
+            })
+            .unwrap()
+    };
+    let selected = invocation
+        .entities()
+        .map(Record::id)
+        .filter(|id| *id != entity("outside"))
+        .collect::<Vec<_>>();
+    let bounds = Bounds {
+        depth: 8,
+        vertices: 100,
+        arcs: 100,
+        witnesses: 3,
+    };
+    let baseline = budget.reserved();
+    let result = inputs
+        .traverse(entity("a"), &selected, bounds, &budget)
+        .unwrap();
+    assert!(!result.partial());
+    assert_eq!(result.stop(), None);
+    assert_eq!(result.vertices_examined(), 4);
+    assert_eq!(result.arcs_examined(), 7);
+    let reached = |name: &str| {
+        result
+            .reached()
+            .iter()
+            .find(|r| r.target == entity(name))
+            .unwrap()
+    };
+    assert_eq!(reached("b").kind, Kind::Direct);
+    assert_eq!(reached("b").paths.len(), 2);
+    assert_ne!(reached("b").paths[0][0].arc, reached("b").paths[1][0].arc);
+    assert_eq!(reached("d").kind, Kind::BoundedPath);
+    assert_eq!(reached("d").depth, 2);
+    assert_eq!(reached("d").paths.len(), 2);
+    assert_eq!(reached("outside").kind, Kind::Boundary(Boundary::Subsystem));
+    let reversed = inputs
+        .traverse(
+            entity("a"),
+            &selected.iter().rev().copied().collect::<Vec<_>>(),
+            bounds,
+            &budget,
+        )
+        .unwrap();
+    assert_eq!(result.reached(), reversed.reached());
+    let capped = inputs
+        .traverse(
+            entity("a"),
+            &selected,
+            Bounds {
+                witnesses: 1,
+                ..bounds
+            },
+            &budget,
+        )
+        .unwrap();
+    assert!(
+        capped
+            .reached()
+            .iter()
+            .find(|r| r.target == entity("b"))
+            .unwrap()
+            .witnesses_omitted
+    );
+    for (limited, stop) in [
+        (Bounds { depth: 1, ..bounds }, Stop::Depth),
+        (
+            Bounds {
+                vertices: 1,
+                ..bounds
+            },
+            Stop::Vertices,
+        ),
+        (Bounds { arcs: 0, ..bounds }, Stop::Arcs),
+    ] {
+        let traversal = inputs
+            .traverse(entity("a"), &selected, limited, &budget)
+            .unwrap();
+        assert_eq!(traversal.stop(), Some(stop));
+        assert_eq!(traversal.partial(), stop != Stop::Depth);
+    }
+    let isolated = inputs
+        .traverse(entity("isolated"), &selected, bounds, &budget)
+        .unwrap();
+    assert!(isolated.reached().is_empty());
+    assert_eq!(isolated.vertices_examined(), 1);
+    let unresolved = inputs
+        .traverse(entity("unresolved"), &selected, bounds, &budget)
+        .unwrap();
+    assert!(!unresolved.unresolved().is_empty());
+    let factory = inputs
+        .traverse(entity("factory"), &selected, bounds, &budget)
+        .unwrap();
+    let nested = factory
+        .reached()
+        .iter()
+        .find(|r| r.target == entity("nested"))
+        .unwrap();
+    assert_eq!(nested.kind, Kind::BoundedPath);
+    assert!(
+        nested
+            .paths
+            .iter()
+            .flatten()
+            .all(|s| matches!(s.arc, ArcId::SourceDefinition(_)))
+    );
+    drop(factory);
+    let dispatch = inputs
+        .traverse(entity("dispatch_relay"), &selected, bounds, &budget)
+        .unwrap();
+    assert!(
+        dispatch
+            .reached()
+            .iter()
+            .flat_map(|r| &r.paths)
+            .flatten()
+            .any(|s| s.derived_dispatch())
+    );
+    assert!(
+        dispatch
+            .reached()
+            .iter()
+            .filter(|r| r.depth == 1 && r.paths.iter().flatten().all(|s| s.derived_dispatch()))
+            .all(|r| r.kind != Kind::Direct)
+    );
+    assert!(
+        inputs
+            .traverse(entity("a"), &[entity("a"), entity("a")], bounds, &budget)
+            .is_err()
+    );
+    assert!(
+        inputs
+            .traverse(entity("outside"), &selected, bounds, &budget)
+            .is_err()
+    );
+    assert!(
+        inputs
+            .traverse(
+                entity("a"),
+                &selected,
+                Bounds {
+                    witnesses: 0,
+                    ..bounds
+                },
+                &budget
+            )
+            .is_err()
+    );
+    assert!(
+        inputs
+            .traverse(
+                entity("a"),
+                &selected,
+                bounds,
+                &ResourceBudget::fixed(1).unwrap()
+            )
+            .is_err()
+    );
+    let empty_uses = Rows::new(&budget);
+    assert!(
+        Inputs {
+            uses: &empty_uses,
+            ..inputs
+        }
+        .traverse(entity("a"), &selected, bounds, &budget)
+        .is_err()
+    );
+    let mut dependency_uses = Rows::new(&budget);
+    let helper = data
+        .artifacts
+        .iter()
+        .find(|s| s.path == "helper.py")
+        .unwrap()
+        .id();
+    for row in uses.iter() {
+        let mut row = row.clone();
+        if row.artifact == helper {
+            row.role = input::SourceRole::Dependency;
+        }
+        dependency_uses.insert(row).unwrap();
+    }
+    let all = invocation.entities().map(Record::id).collect::<Vec<_>>();
+    let dependency = Inputs {
+        uses: &dependency_uses,
+        ..inputs
+    }
+    .traverse(entity("a"), &all, bounds, &budget)
+    .unwrap();
+    assert_eq!(
+        dependency
+            .reached()
+            .iter()
+            .find(|r| r.target == entity("outside"))
+            .unwrap()
+            .kind,
+        Kind::Boundary(Boundary::Dependency)
+    );
+    drop(dependency);
+    drop(dependency_uses);
+    drop(empty_uses);
+    drop(reversed);
+    drop(capped);
+    drop(isolated);
+    drop(unresolved);
+    drop(dispatch);
+    assert!(budget.reserved() > baseline);
+    drop(result);
+    assert_eq!(budget.reserved(), baseline);
 }
