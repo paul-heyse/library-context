@@ -1334,6 +1334,9 @@ pub enum BindingSource {
     EmptyVarargs,
     #[model(code = 3)]
     EmptyKwargs,
+    /// The runtime class operation applied to the exact receiver expression.
+    #[model(code = 4)]
+    ClassOf { actual: Id<Occurrence> },
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
 #[repr(i16)]
@@ -1465,7 +1468,7 @@ pub fn bind(input: BindingInput<'_>) -> Result<BoundCall, BindingFailure> {
         return Err(ObligationKind::OutsideProviderModel.into());
     }
     if let Receiver::Unknown { reason } = receiver {
-        return Err((*reason).into());
+        if raw.class_of.is_none() { return Err((*reason).into()); }
     }
     let formals = resolve_parameters(signature, parameters, shapes)
         .map_err(|_| ObligationKind::MissingEvidence)?;
@@ -1498,7 +1501,10 @@ pub fn bind(input: BindingInput<'_>) -> Result<BoundCall, BindingFailure> {
         .map(|(i, _)| i)
         .collect();
     let mut vararg_index = 0i64;
-    if let Receiver::Bound { actual } = receiver {
+    let receiver_source = raw.class_of.map(|actual| BindingSource::ClassOf { actual }).or_else(|| {
+        if let Receiver::Bound { actual } = receiver { Some(BindingSource::Actual { occurrence: *actual }) } else { None }
+    });
+    if let Some(receiver_source) = receiver_source {
         let first = positional
             .first()
             .copied()
@@ -1520,9 +1526,7 @@ pub fn bind(input: BindingInput<'_>) -> Result<BoundCall, BindingFailure> {
         };
         out.push(Binding {
             formal: parameters[first].id(),
-            source: BindingSource::Actual {
-                occurrence: *actual,
-            },
+            source: receiver_source,
             kind: BindingKind::Receiver,
             projection,
         });

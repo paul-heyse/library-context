@@ -10,9 +10,11 @@ use crate::domain::{
     source::Occurrence,
     *,
 };
+trait Source<R:Record> {fn rows(&self)->&Rows<R>;}
 macro_rules! inputs {
     ($($field:ident: $ty:ty,)*) => {
         pub struct EventData { $(pub $field: Rows<$ty>,)* }
+        $(impl Source<$ty> for EventData {fn rows(&self)->&Rows<$ty> {&self.$field}})*
         impl EventData {
             pub fn new(budget: &ResourceBudget) -> Self { Self { $($field: Rows::new(budget),)* } }
             pub fn visit(&mut self, relation: &str, batch: &arrow_array::RecordBatch) -> Result<bool, ModelError> {
@@ -40,6 +42,13 @@ macro_rules! outputs {
     }
 }
 crate::normalized_event_outputs!(outputs);
+fn receiver_proofs(data:&EventData,budget:&ResourceBudget)->Result<super::receiver::VerifiedReceivers,ModelError> {
+    let mut inputs=super::receiver::ReceiverData::new(budget);let mut outputs=super::receiver::ReceiverOutput::new(budget);
+    macro_rules! input {($($field:ident: $ty:ty,)*)=>{$(for row in <EventData as Source<$ty>>::rows(data).iter(){inputs.$field.insert(row.clone())?;})*};}
+    macro_rules! output {($($field:ident: $ty:ty,)*)=>{$(for row in <EventData as Source<$ty>>::rows(data).iter(){outputs.$field.insert(row.clone())?;})*};}
+    crate::normalized_receiver_inputs!(input);crate::normalized_receiver_outputs!(output);
+    super::receiver::verify(&inputs,&outputs,budget)
+}
 fn invalid(message: impl Into<String>) -> ModelError {
     ModelError::Invalid(message.into())
 }
@@ -319,6 +328,7 @@ fn evaluate(
     data: &EventData,
     budget: &ResourceBudget,
 ) -> Result<(EventOutput, VerifiedEvents), ModelError> {
+    let receiver_proofs = receiver_proofs(data,budget)?;
     let index = Index::new(data, budget)?;
     let mut output = EventOutput::new(budget);
     let mut tokens = VerifiedEvents {
@@ -454,7 +464,9 @@ fn evaluate(
                 )?;
                 if direct {
                     certain &= exact(qualification(data, target.qualification)?);
-                    receivers &= !matches!(
+                    let derived_receiver = receiver_proofs.get(target.id());
+                    if let Some(proof) = derived_receiver { proof.assessment().encode(&mut digest); }
+                    receivers &= derived_receiver.is_some() || !matches!(
                         need(&data.receivers, target.receiver)?,
                         Receiver::Unknown { .. }
                     );

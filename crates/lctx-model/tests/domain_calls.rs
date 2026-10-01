@@ -319,6 +319,7 @@ fn binder_requires_whole_variant_and_preserves_all_formals_without_inventing_val
             destination: &f.destination,
             channel: &f.channel,
             receiver: &f.receiver,
+
             signature: &signature,
             parameters,
             shapes: &shapes,
@@ -410,6 +411,7 @@ fn binder_requires_whole_variant_and_preserves_all_formals_without_inventing_val
             destination: &f.destination,
             channel: &f.channel,
             receiver: &f.receiver,
+
             signature: &empty,
             parameters: &empty_members,
             shapes: &empty_shapes,
@@ -501,6 +503,7 @@ fn receiver_classification_refuses_incomplete_evidence_and_missing_actuals() {
             destination: &f.destination,
             channel: &f.channel,
             receiver: &f.receiver,
+
             signature: &signature,
             parameters: &members,
             shapes: &shapes,
@@ -766,6 +769,7 @@ fn binder_checks_shape_lookup_identity_and_retains_aggregate_coordinates() {
             destination: &f.destination,
             channel: &f.channel,
             receiver: &f.receiver,
+
             signature: &signature,
             parameters: &members,
             shapes: &shapes,
@@ -789,6 +793,7 @@ fn binder_checks_shape_lookup_identity_and_retains_aggregate_coordinates() {
             destination: &f.destination,
             channel: &f.channel,
             receiver: &f.receiver,
+
             signature: &signature,
             parameters: &members,
             shapes: &shapes,
@@ -1130,6 +1135,7 @@ fn positional_keyword_receiver_and_refused_variants() {
             destination: &f.destination,
             channel: &f.channel,
             receiver: &f.receiver,
+
             signature: &signature,
             parameters: &members,
             shapes: &shapes,
@@ -1894,6 +1900,7 @@ fn applicability_uses_supported_entities_without_relabeling_provider_symbols() {
             destination: &f.destination,
             channel: &f.channel,
             receiver: &f.receiver,
+            receiver_proof: None,
             signature: &signature,
             signature_qualification: &q,
             call: &call,
@@ -1925,4 +1932,12 @@ fn applicability_uses_supported_entities_without_relabeling_provider_symbols() {
             assert_ne!(f.symbol.id(), signature.symbol);
         }
     }
+}
+
+#[test]
+fn class_of_binding_source_has_distinct_identity_and_roundtrips_without_instance_lowering() {
+    let actual=occurrence(40).id();let derived=BindingSource::ClassOf{actual};let instance=BindingSource::Actual{occurrence:actual};
+    assert_ne!(derived.id(),instance.id());
+    let encoded=<BindingSource as Record>::encode(&[derived.clone(),instance.clone()]).unwrap();
+    assert_eq!(BindingSource::decode(&encoded).unwrap(),vec![derived,instance]);
 }

@@ -48,6 +48,7 @@ pub struct CallBindingAttempt {
     pub signature: Option<Id<Signature>>,
     pub arguments: Option<ContentHash>,
     pub receiver: Id<Receiver>,
+    pub receiver_assessment: Option<Id<super::receiver::ReceiverAssessment>>,
     pub effective: Option<Id<EffectiveCallableAssessment>>,
     pub adjustment: SignatureAdjustment,
     pub authority: BindingAuthority,

@@ -2,6 +2,13 @@
 #[macro_export]
 macro_rules! normalized_binding_inputs {
     ($apply:ident) => { $apply! {
+        syntax_supports: $crate::domain::calls::CallSyntaxSupport,
+        placement_supports: $crate::domain::syntax::SyntaxPlacementSupport,
+        surfaces: $crate::domain::assertion::ProviderSurface,
+        native_evidence: $crate::domain::assertion::Evidence,
+        receiver_assessments: $crate::domain::normalized::receiver::ReceiverAssessment,
+        receiver_evidence: $crate::domain::normalized::receiver::ReceiverEvidence,
+        receiver_premises: $crate::domain::normalized::receiver::ReceiverPremise,
         qualifications: $crate::domain::assertion::AssertionQualification,
         symbols: $crate::domain::calls::ProviderSymbol,
         provider_callables: $crate::domain::calls::ProviderCallable,

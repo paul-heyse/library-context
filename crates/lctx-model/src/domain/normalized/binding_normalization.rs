@@ -46,6 +46,13 @@ macro_rules! outputs {
     }
 }
 crate::normalized_binding_outputs!(outputs);
+fn receiver_proofs(data:&BindingData,budget:&ResourceBudget)->Result<super::receiver::VerifiedReceivers,ModelError> {
+    let mut inputs=super::receiver::ReceiverData::new(budget);let mut outputs=super::receiver::ReceiverOutput::new(budget);
+    macro_rules! input {($($field:ident: $ty:ty,)*)=>{$(for row in <BindingData as Source<$ty>>::rows(data).iter(){inputs.$field.insert(row.clone())?;})*};}
+    macro_rules! output {($($field:ident: $ty:ty,)*)=>{$(for row in <BindingData as Source<$ty>>::rows(data).iter(){outputs.$field.insert(row.clone())?;})*};}
+    crate::normalized_receiver_inputs!(input);crate::normalized_receiver_outputs!(output);
+    super::receiver::verify(&inputs,&outputs,budget)
+}
 fn invalid(message: impl Into<String>) -> ModelError {
     ModelError::Invalid(message.into())
 }
@@ -140,6 +147,7 @@ fn application<'a>(
     alternative: &'a NormalizedCallAlternative,
     variant: &'a SignatureVariant,
     call: &'a CallSyntax,
+    receivers: &'a super::receiver::VerifiedReceivers,
 ) -> Result<ApplicableSignature<'a>, ObligationKind> {
     let missing = ObligationKind::MissingEvidence;
     let target = data.targets.get(alternative.target).ok_or(missing)?;
@@ -157,6 +165,7 @@ fn application<'a>(
         destination: data.destinations.get(target.destination).ok_or(missing)?,
         channel: data.channels.get(target.channel).ok_or(missing)?,
         receiver: data.receivers.get(target.receiver).ok_or(missing)?,
+        receiver_proof: receivers.get(target.id()),
         signature,
         signature_qualification: data
             .qualifications
@@ -223,6 +232,7 @@ fn attempt(
     variant: Option<&SignatureVariant>,
     syntax: Option<&CallSyntax>,
     output: &mut BindingOutput,
+    receivers: &super::receiver::VerifiedReceivers,
     budget: &ResourceBudget,
 ) -> Result<Id<CallBindingAttempt>, ModelError> {
     let mut work = StateCharge::new(budget, "binding-work");
@@ -236,6 +246,7 @@ fn attempt(
         signature: variant.map(|v| v.signature),
         arguments: syntax.map(|s| s.arguments),
         receiver: target.receiver,
+        receiver_assessment: receivers.get(target.id()).map(|p|p.assessment()),
         effective: variant.and_then(|v| v.assessment),
         adjustment: variant.map_or(SignatureAdjustment::Unknown, |v| v.adjustment),
         authority: BindingAuthority::SourceInspection,
@@ -253,7 +264,7 @@ fn attempt(
             if target.origin != CallOrigin::explicit() {
                 row.reason = BindingReason::ImplicitEvent;
             } else {
-                match application(data, alternative, variant, syntax) {
+                match application(data, alternative, variant, syntax, receivers) {
                     Err(reason) => {
                         row.reason = BindingReason::UnprovedApplicability;
                         row.refusal = Some(reason);
@@ -316,6 +327,7 @@ fn attempt(
     Ok(id)
 }
 pub fn normalize(data: &BindingData, budget: &ResourceBudget) -> Result<BindingOutput, ModelError> {
+    let receivers = receiver_proofs(data,budget)?;
     let index = Index::new(data, budget)?;
     let mut output = BindingOutput::new(budget);
     let mut charge = StateCharge::new(budget, "binding-set-index");
@@ -342,6 +354,7 @@ pub fn normalize(data: &BindingData, budget: &ResourceBudget) -> Result<BindingO
                     variants.and_then(|vs| vs.get(v).copied()),
                     syntax.and_then(|ss| ss.get(s).copied()),
                     &mut output,
+                    &receivers,
                     budget,
                 )?;
                 sets.update(&mut charge, key, |ids| ids.push(id))?;
@@ -386,6 +399,7 @@ fn assess_set(
             row.signature.encode(&mut members);
             row.arguments.encode(&mut members);
             row.receiver.encode(&mut members);
+            row.receiver_assessment.encode(&mut members);
             row.effective.encode(&mut members);
             row.adjustment.encode(&mut members);
             row.reason.encode(&mut members);
@@ -583,6 +597,7 @@ pub fn verify(
 ) -> Result<VerifiedBindings, ModelError> {
     stored.matches(&normalize(data, budget)?)?;
     let events = verify_upstream(data, budget)?;
+    let receivers = receiver_proofs(data,budget)?;
     let index = Index::new(data, budget)?;
     let mut result = VerifiedBindings {
         bound: Default::default(),
@@ -615,7 +630,7 @@ pub fn verify(
             row.syntax
                 .ok_or_else(|| invalid("bound attempt has no syntax"))?,
         )?;
-        let application = application(data, alternative, variant, syntax)
+        let application = application(data, alternative, variant, syntax, &receivers)
             .map_err(|_| invalid("stored binding applicability changed"))?;
         let mut work = StateCharge::new(budget, "binding-replay-work");
         let bound = bind_application(data, &index, &application, &mut work)?

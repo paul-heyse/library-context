@@ -41,6 +41,14 @@ async fn fixture() -> (ProjectionData, ResourceBudget) {
     (projection, budget)
 }
 fn rebuild_events(data: &mut BindingData, budget: &ResourceBudget) {
+    let mut receivers=lctx_model::domain::normalized::receiver::ReceiverData::new(budget);
+    macro_rules! receiver_inputs {($($field:ident: $ty:ty,)*)=>{$(receivers.visit(<$ty>::NAME,&<$ty as Record>::encode(&data.$field.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap();)*};}
+    lctx_model::normalized_binding_inputs!(receiver_inputs);
+    let receivers=lctx_model::domain::normalized::receiver::normalize(&receivers,budget).unwrap();
+    data.receiver_assessments=Rows::new(budget);data.receiver_evidence=Rows::new(budget);data.receiver_premises=Rows::new(budget);
+    macro_rules! receiver_outputs {($($field:ident: $ty:ty,)*)=>{$(data.visit(<$ty>::NAME,&<$ty as Record>::encode(&receivers.$field.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap();)*};}
+    lctx_model::normalized_receiver_outputs!(receiver_outputs);
+
     let mut events = event_normalization::EventData::new(budget);
     macro_rules! event_inputs { ($($field:ident: $ty:ty,)*) => { $(events.visit(<$ty>::NAME, &<$ty as Record>::encode(&data.$field.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap();)* }; }
     lctx_model::normalized_binding_inputs!(event_inputs);

@@ -348,6 +348,7 @@ impl Composer<'_> {
                                 prefix,
                             }
                         }
+                        BindingSource::ClassOf { .. } => Mapped::Obligation(ObligationKind::EntryValueUnknown),
                         BindingSource::Default => {
                             Mapped::Obligation(ObligationKind::DefaultUnavailable)
                         }

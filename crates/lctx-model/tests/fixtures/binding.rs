@@ -73,6 +73,7 @@ pub fn bind_inspection(c: InspectionCase<'_>) -> Result<BoundCall, BindingFailur
         destination: c.destination,
         channel: c.channel,
         receiver: c.receiver,
+        receiver_proof: None,
         signature: c.signature,
         signature_qualification: c.signature_qualification,
         call: c.call,

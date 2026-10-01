@@ -30,3 +30,30 @@ def run(items: list[int]) -> None:
     plain(*items)
     decorated(1)
     variant(1)
+
+
+class ReceiverOwner:
+    @classmethod
+    def class_call(cls, x: int) -> int:
+        return x
+
+    def instance_call(self, x: int) -> int:
+        return x
+
+    @staticmethod
+    def static_call(x: int) -> int:
+        return x
+
+
+class OpenReceiverOwner:
+    @classmethod
+    def class_call(cls, x: int) -> int:
+        return x
+
+
+def receiver_twins(obj: ReceiverOwner, open_obj: OpenReceiverOwner) -> None:
+    ReceiverOwner.class_call(1)
+    obj.class_call(1)
+    obj.instance_call(1)
+    obj.static_call(1)
+    open_obj.class_call(1)

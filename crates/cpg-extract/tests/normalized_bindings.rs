@@ -39,6 +39,14 @@ async fn fixture() -> (BindingData, BindingOutput, ResourceBudget) {
     (data, output, budget)
 }
 fn rebuild_events(data: &mut BindingData, budget: &ResourceBudget) {
+    let mut receivers=lctx_model::domain::normalized::receiver::ReceiverData::new(budget);
+    macro_rules! receiver_inputs {($($field:ident: $ty:ty,)*)=>{$(receivers.visit(<$ty>::NAME,&<$ty as Record>::encode(&data.$field.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap();)*};}
+    lctx_model::normalized_binding_inputs!(receiver_inputs);
+    let receivers=lctx_model::domain::normalized::receiver::normalize(&receivers,budget).unwrap();
+    data.receiver_assessments=Rows::new(budget);data.receiver_evidence=Rows::new(budget);data.receiver_premises=Rows::new(budget);
+    macro_rules! receiver_outputs {($($field:ident: $ty:ty,)*)=>{$(data.visit(<$ty>::NAME,&<$ty as Record>::encode(&receivers.$field.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap();)*};}
+    lctx_model::normalized_receiver_outputs!(receiver_outputs);
+
     let mut events = event_normalization::EventData::new(budget);
     macro_rules! event_inputs { ($($field:ident: $ty:ty,)*) => { $(events.visit(<$ty>::NAME, &<$ty as Record>::encode(&data.$field.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap();)* }; }
     lctx_model::normalized_binding_inputs!(event_inputs);
@@ -285,8 +293,11 @@ async fn a_bound_source_plus_unknown_variant_or_missing_coverage_never_becomes_u
         for row in retained {
             data.callable_variants.insert(row).unwrap();
         }
-        let forged = normalize(&data, &budget).unwrap();
-        assert!(verify(&data, &forged, &budget).is_err());
+        let refused = match normalize(&data, &budget) {
+            Err(_) => true,
+            Ok(forged) => verify(&data, &forged, &budget).is_err(),
+        };
+        assert!(refused, "omitting an upstream variant must not mint authority");
     }
     let (mut data, _, budget) = fixture().await;
     let retained = data
@@ -454,4 +465,72 @@ async fn recomputing_higher_layers_cannot_certify_forged_correspondence_owner_or
             "lower proof must reject mutation {mutation}"
         );
     }
+}
+
+#[tokio::test]
+async fn class_of_receiver_twins_preserve_raw_unknown_and_target_uncertainty() {
+    use lctx_model::domain::normalized::receiver::{ReceiverAssessment,ReceiverPremise};
+    let (data,output,budget)=fixture().await;
+    let find=|name:&str| output.attempts.iter().find(|a|text(&data,a)==name).unwrap();
+    let class=find("ReceiverOwner.class_call(1)");let object=find("obj.class_call(1)");
+    let target=data.targets.get(data.event_alternatives.get(object.alternative).unwrap().target).unwrap();
+    assert!(matches!(data.receivers.get(target.receiver),Some(Receiver::Unknown{..})),"raw receiver must stay unknown");
+    assert_eq!(class.outcome,BindingOutcome::Bound);assert_eq!(class.authority,BindingAuthority::EffectiveInvocation);
+    assert_eq!(object.outcome,BindingOutcome::Undetermined,"open dispatch remains unproved");
+    assert_eq!(object.authority,BindingAuthority::SourceInspection);
+    assert_eq!(data.qualifications.get(target.qualification).unwrap().modality,attribution::Modality::Candidate);
+    let assessment=data.receiver_assessments.iter().find(|a|a.target()==target.id()).unwrap();
+    let ReceiverAssessment::ClassOf{actual,placement,syntax,..}=assessment else {panic!("{assessment:?}")};
+    let call=data.syntax.get(*syntax).unwrap();let place=data.placements.get(*placement).unwrap();
+    assert_eq!(place.parent,Some(call.callee));assert_eq!(place.field,lexical::SyntaxField::Value);assert_eq!(place.occurrence,*actual);
+    for premise in ["target","syntax","placement","coverage"] {assert!(data.receiver_evidence.iter().filter(|m|m.assessment==assessment.id()).any(|m|matches!((premise,data.receiver_premises.get(m.premise)),("target",Some(ReceiverPremise::Target{..}))|("syntax",Some(ReceiverPremise::Syntax{..}))|("placement",Some(ReceiverPremise::Placement{..}))|("coverage",Some(ReceiverPremise::Coverage{..})))),"{premise}");}
+    assert!(data.event_assessments.iter().any(|a|a.event==object.event && a.known_receivers && !a.exact));
+    assert!(!data.event_admissions.iter().any(|a|a.alternative==object.alternative && data.event_policy_assessments.get(a.assessment).unwrap().policy==lctx_model::domain::normalized::events::CallPolicy::Summary));
+    let verified=verify(&data,&output,&budget).unwrap();assert!(verified.bound(class.id()).is_some());assert!(verified.composition(object.id()).is_none());
+    assert!(!output.bindings.iter().any(|b|b.attempt==object.id() && b.kind==BindingKind::Receiver));
+
+}
+
+fn receiver_input(data:&BindingData,budget:&ResourceBudget)->lctx_model::domain::normalized::receiver::ReceiverData {
+    let mut inputs=lctx_model::domain::normalized::receiver::ReceiverData::new(budget);
+    macro_rules! collect {($($field:ident: $ty:ty,)*)=>{$(inputs.$field.decode(&<$ty as Record>::encode(&data.$field.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap();)*};}
+    lctx_model::normalized_receiver_inputs!(collect);inputs
+}
+#[tokio::test]
+async fn class_of_replay_refuses_missing_ambiguous_foreign_and_contradictory_premises() {
+    use lctx_model::domain::normalized::receiver::{self,ReceiverAssessment};
+    use lctx_model::domain::syntax::SyntaxPlacement;
+    let(data,output,budget)=fixture().await;
+    let attempt=output.attempts.iter().find(|a|text(&data,a)=="obj.class_call(1)").unwrap();
+    let target=data.targets.get(data.event_alternatives.get(attempt.alternative).unwrap().target).unwrap();
+    let baseline=receiver_input(&data,&budget);let stored=receiver::normalize(&baseline,&budget).unwrap();
+    assert!(receiver::verify(&baseline,&stored,&budget).unwrap().has_class_of(target.id()));
+    let assessment=stored.receiver_assessments.iter().find(|a|a.target()==target.id()).unwrap();
+    let ReceiverAssessment::ClassOf{placement,effective,..}=assessment else{panic!("{assessment:?}")};
+    let original=data.placements.get(*placement).unwrap();
+    for mutation in 0..8 {
+        let mut inputs=receiver_input(&data,&budget);
+        match mutation {
+            0=>{inputs.placements=Rows::new(&budget);for p in data.placements.iter().filter(|p|p.id()!=*placement){inputs.placements.insert(p.clone()).unwrap();}},
+            1=>{inputs.placements.insert(SyntaxPlacement{ordinal:1,..original.clone()}).unwrap();},
+            2=>{
+                let mut q=data.qualifications.get(original.qualification).unwrap().clone();
+                q.context=attribution::AnalysisContext{python_version:"3.14.7".into(),python_platform:"foreign".into(),search_path:vec![],site_package_path:vec![],config_digest:ContentHash::of(b"foreign"),environment_digest:ContentHash::of(b"foreign"),lock_digest:None}.id();
+                inputs.qualifications.insert(q.clone()).unwrap();inputs.placements=Rows::new(&budget);
+                for p in data.placements.iter(){let mut p=p.clone();if p.id()==*placement {p.qualification=q.id();}inputs.placements.insert(p).unwrap();}
+            },
+            3=>{inputs.target_supports=Rows::new(&budget);for p in data.target_supports.iter().filter(|p|p.assertion!=target.id()){inputs.target_supports.insert(p.clone()).unwrap();}},
+            4=>{inputs.callable_assessments=Rows::new(&budget);for p in data.callable_assessments.iter(){let mut p=p.clone();if p.id()==*effective{p.descriptor_kind=Some(lctx_model::domain::normalized::callables::DescriptorKind::InstanceMethod);}inputs.callable_assessments.insert(p).unwrap();}},
+            5=>{inputs.targets=Rows::new(&budget);for t in data.targets.iter(){let mut t=t.clone();if t.id()==target.id(){t.static_method=Some(true);}inputs.targets.insert(t).unwrap();}},
+            6=>{inputs.coverage=Rows::new(&budget);for c in data.coverage.iter(){let mut c=c.clone();if c.family==attribution::FactFamily::Calls{c.status=attribution::CoverageStatus::Partial;c.reason=Some(attribution::ObligationKind::MissingEvidence);}inputs.coverage.insert(c).unwrap();}},
+            _=>{inputs.placement_supports=Rows::new(&budget);for p in data.placement_supports.iter().filter(|p|p.assertion!=*placement){inputs.placement_supports.insert(p.clone()).unwrap();}},
+        }
+        let derived=receiver::normalize(&inputs,&budget).unwrap();
+        assert!(match receiver::verify(&inputs,&derived,&budget) {Ok(checked)=>!checked.has_class_of(target.id()),Err(_)=>true},"mutation {mutation} cannot mint authority");
+        assert!(receiver::verify(&inputs,&stored,&budget).is_err(),"old assessment must not survive mutation {mutation}");
+    }
+    let mut forged=receiver::normalize(&baseline,&budget).unwrap();forged.receiver_assessments=Rows::new(&budget);
+    for row in stored.receiver_assessments.iter(){let mut row=row.clone();if let ReceiverAssessment::ClassOf{actual,..}=&mut row{*actual=target.site;}forged.receiver_assessments.insert(row).unwrap();}
+    assert!(receiver::verify(&baseline,&forged,&budget).is_err());
+    let mut forged=receiver::normalize(&baseline,&budget).unwrap();forged.receiver_evidence=Rows::new(&budget);assert!(receiver::verify(&baseline,&forged,&budget).is_err());
 }

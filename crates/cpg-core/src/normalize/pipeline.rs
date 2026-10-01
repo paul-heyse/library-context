@@ -9,7 +9,7 @@ use lctx_model::domain::{
     admission::{Frontier, FrontierContract},
     normalized::{
         binding_normalization, callable_normalization, entity_normalization, event_normalization,
-        relation_normalization,
+        relation_normalization, receiver,
     },
     projection,
 };
@@ -19,16 +19,18 @@ enum Normalization {
     Entities,
     Relations,
     Callables,
+    Receivers,
     Events,
     Bindings,
     Projections,
     Coverage,
 }
 impl Normalization {
-    const ALL: [Self; 7] = [
+    const ALL: [Self; 8] = [
         Self::Entities,
         Self::Relations,
         Self::Callables,
+        Self::Receivers,
         Self::Events,
         Self::Bindings,
         Self::Projections,
@@ -39,6 +41,7 @@ impl Normalization {
             Self::Entities => entity_normalization::stage(),
             Self::Relations => relation_normalization::stage(profile),
             Self::Callables => callable_normalization::stage(profile),
+            Self::Receivers => receiver::stage(profile),
             Self::Events => event_normalization::stage(profile),
             Self::Bindings => binding_normalization::stage(profile),
             Self::Projections => projection::normalization::stage(profile),
@@ -57,6 +60,7 @@ impl Normalization {
             Self::Entities => super::entities(access, attempt, config, runtime, model).await,
             Self::Relations => super::relations(access, attempt, config, runtime, model).await,
             Self::Callables => super::callables(access, attempt, config, runtime, model).await,
+            Self::Receivers => super::receivers(access, attempt, config, runtime, model).await,
             Self::Events => super::events(access, attempt, config, runtime, model).await,
             Self::Bindings => super::bindings(access, attempt, config, runtime, model).await,
             Self::Projections => super::projections(access, attempt, config, runtime, model).await,
@@ -88,6 +92,8 @@ pub async fn publish(
     configuration: ContentHash,
 ) -> Result<facts::PublishedGeneration, ModelError> {
     bundle::refuse_ambient(std::env::vars_os())?;
+    captured.config().check_profile(profile)?;
+    captured.config().check_budget(runtime.budget())?;
     config.validate().map_err(ModelError::codec)?;
     if config.role != lctx_postgres::roles::Role::Importer {
         return Err(ModelError::Invalid(

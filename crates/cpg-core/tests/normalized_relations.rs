@@ -9,7 +9,7 @@ use lctx_model::domain::{
     admission::FrontierContract,
     normalized::{
         binding_normalization, callable_normalization, entity_normalization, event_normalization,
-        events::*, relation_normalization,
+        events::*, receiver, relation_normalization,
     },
     stages::*,
     *,
@@ -73,6 +73,7 @@ async fn run(profile: Profile) {
     declarations.push(entity_normalization::stage());
     declarations.push(relation_normalization::stage(profile));
     declarations.push(callable_normalization::stage(profile));
+    declarations.push(receiver::stage(profile));
     declarations.push(event_normalization::stage(profile));
     declarations.push(binding_normalization::stage(profile));
     declarations.push(projection::normalization::stage(profile));
@@ -131,6 +132,17 @@ async fn run(profile: Profile) {
                 async |access| {
                     cpg_core::normalize::callables(access, &attempt, &config, &runtime, &model)
                         .await
+                },
+                &mut |_| {},
+            )
+            .await
+            .unwrap();
+        } else if declaration.name == "normalize_receivers" {
+            cpg_core::stage_runtime::run_declared_stage(
+                &mut execution,
+                declaration,
+                async |access| {
+                    cpg_core::normalize::receivers(access, &attempt, &config, &runtime, &model).await
                 },
                 &mut |_| {},
             )
