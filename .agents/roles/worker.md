@@ -19,5 +19,6 @@ For edits, identify changed ownership or behavior and deletions. For checks, giv
 `passed` / `failed` / `blocked` / `not_run`, retaining raw evidence where useful. Keep the response
 compact enough for integration without hiding consequential details.
 
-Follow AGENTS.md's test timing and pinned tool routes. Non-functional checks and their repair belong
-to the end-of-turn hook. An assignment does not authorize running or troubleshooting those checks.
+Follow AGENTS.md's test timing and pinned tool routes. Formatting and generators belong to the
+end-of-turn hook. Non-functional checks (`just hygiene`) run once at scope end, by the integrator
+unless the assignment includes them.

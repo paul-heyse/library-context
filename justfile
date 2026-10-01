@@ -1,8 +1,8 @@
 # The only command surface agents need. `just` lists recipes.
 # Check recipes do not edit source, except `ruff`'s auto-fixes; tests may create their own data.
 # `fmt`, `library-catalog`, `skills-sync`, `build-features` and `adr new|supersede|index` edit the
-# working tree. Agents run functional tests; the end-of-turn hook (`scripts/after_turn.py`) runs
-# formatting, generators and every `hygiene` check.
+# working tree. Agents run functional tests and, at scope end, `hygiene`; the end-of-turn hook
+# (`scripts/after_turn.py`) runs only formatting, generators, readiness and the catalog.
 
 set shell := ["python3", "scripts/build_environment.py", "--", "bash", "-euo", "pipefail", "-c"]
 
@@ -25,8 +25,8 @@ check: test py-test
 test-all: check test-postgres test-doc
 
 # The SQLx offline check returns with serving (cutover phase 5, T12); the dormant serving queries
-# are frozen in `.sqlx`. The end-of-turn hook runs every dependency below after each turn
-# (`scripts/after_turn.py check <id>` re-runs one); agents do not.
+# are frozen in `.sqlx`. Agents run this once at scope end, beside `test-all`, and fix what fails
+# (`just <id>` re-runs one); the end-of-turn hook does not run it.
 # Every non-functional check, one check id per dependency
 hygiene: lint-agents adr-lint fixtures-check gold rules-scan rules-test ruff types docs-check deps clippy store-check
 

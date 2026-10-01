@@ -63,7 +63,7 @@ site directory. Update prose for enduring meaning, boundaries and workflow chang
 navigation/search and link checks serve readers; they do not certify implementation or historical
 claims. Internal changes require no additional evidence packet. Current-work selection links to
 existing disposition owners and never copies their status. Documentation tooling uses focused
-`just docs-test`, with `docs-check` in the end-of-turn checks, independently of integrated product
+`just docs-test`, with `docs-check` in `just hygiene`, independently of integrated product
 qualification.
 
 ## 1. Binding decisions and what they bear on
@@ -168,10 +168,11 @@ An action uses the existing route appropriate to it:
 | Existing check | Use |
 |---|---|
 | Compile checks, focused tests/probes | During implementation: validate the scope just implemented; use release-profile Rust reuse |
-| `just fmt`, `just hygiene` | After every turn, by the end-of-turn hook (ADR-0104): a fixer agent repairs what it can and the operator sees the rest; agents never run them |
+| `just fmt` | After every turn, by the end-of-turn hook (ADR-0110); agents never run it |
+| `just hygiene` | Once at scope end, beside `just test-all`; the agent fixes what fails. The hook never runs or fixes it |
 | `just rules-scan`, `just rules-test` | A justified code-shape invariant; run within `hygiene` |
 | `just adr-lint`, `just lint-agents` | Decision metadata and agent-facing links/commands; run within `hygiene` |
-| `just test-all`, `just pilot` | Integrated functional acceptance at scope end, not every slice or process edit; qualification also cites a clean end-of-turn report for the same tree |
+| `just test-all`, `just pilot` | Integrated functional acceptance at scope end, not every slice or process edit; qualification also cites `just hygiene` passing for the same tree |
 
 Review quality is established by scenario reasoning and calibration, not by a new checker.
 

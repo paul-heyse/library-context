@@ -86,9 +86,9 @@ uv projects (ADR-0046). ADR-0040 owns review cadence. ADR-0079 owns the current-
 workspace feature unification, a CLI-only Hakari crate and shared intermediates with fine-grain
 locking. Final artifacts stay in local `target/`: workspace O2 with incremental compilation,
 imported dependencies O3 with sccache, and the existing release test workflow. No wheel
-project is selected. Agents run functional tests; an end-of-turn hook runs formatting, generators
-and every non-functional check (`just hygiene`), with a cheaper fixer agent for what fails and the
-rest shown to the operator (ADR-0104).
+project is selected. Agents run functional tests and, at scope end, every non-functional check
+(`just hygiene`), fixing what fails. An end-of-turn hook runs only automatic steps: formatting,
+generators, readiness and the library catalog. It fixes nothing else (ADR-0110).
 
 **Implemented workflow, 2026-09-30 (ADR-0109):** a coordinator owns design, integration and
 acceptance, using reusable evidence, design-review, execution, implementation-review and functional
@@ -101,7 +101,7 @@ evidence conflicts and repeated repair failures trigger coordinator reassessment
 single-owner finding disposition remain with their existing owners. Runtime settings are policy defaults, with explicit stronger-worker
 routes; resource savings and broader workflow effectiveness remain **Proposed**.
 
-> Decision: ADR-0071, ADR-0086, ADR-0087, ADR-0046, ADR-0079, ADR-0040, ADR-0104, ADR-0109
+> Decision: ADR-0071, ADR-0086, ADR-0087, ADR-0046, ADR-0079, ADR-0040, ADR-0110, ADR-0109
 
 <a id="section-1-3"></a>
 

@@ -85,5 +85,5 @@ Legacy P4/P5 sources, retained services and protected backups remain preserved p
 consumers. No compatibility reader, old-ID bridge or dual store was introduced.
 
 ADR-0109's shared roles and task-specific delegation remain implemented. Continue ordinary work on
-main, preserving concurrent edits. The automatic end-of-turn hook owns formatting and hygiene;
-do not run or troubleshoot it manually. Reactivate excluded measurements only on user instruction.
+main, preserving concurrent edits. The automatic end-of-turn hook owns formatting and generators
+only; run `just hygiene` at scope end and fix what fails (ADR-0110). Reactivate excluded measurements only on user instruction.

@@ -84,15 +84,15 @@ remain sealed until increment 5. Add ast-grep rules only from design-review find
 | When | Run |
 |---|---|
 | During a design/implementation phase | Compile checks (`cargo check`/`cargo build` on the touched crates) and targeted tests or probes for the scope just implemented. No integrated gate after a slice or commit. |
-| After all functional scope in the plan is implemented | `just test-all`: release-profile nextest, pytest (including the oracles), real PostgreSQL and compile-fail doc tests. Qualification also cites a clean end-of-turn report for the same tree (`.git/after-turn/report.json`) |
+| After all functional scope in the plan is implemented | `just test-all`: release-profile nextest, pytest (including the oracles), real PostgreSQL and compile-fail doc tests. Then `just hygiene`, every non-functional check, once; fix what fails and re-run a single check with `just <id>`. Qualification cites both passing for the same tree |
 | The real library, end to end | `lctx compile fastmcp --through facts --profile catalog|behavioral`; reports a facts generation without selecting it. Analysis and serving remain unavailable. |
 | The store and its generations | `lctx store install\|check\|reset`, `lctx generation list\|show\|select\|retire\|abort`, `lctx query --generation <id> "SQL"` (read-only); runbook: `docs/postgresql.md` |
 | Add or upgrade a library | `lctx library init <name> --requirement '<req>'`; upgrade with `uv lock --project libraries/<name> --upgrade-package <dist>` (`libraries/README.md`) |
-| Dependency policy | `just deps`, an end-of-turn check: one version each of Arrow/DataFusion/object_store/ruff/pyrefly/blake3, cargo-deny, and the Pyrefly fork check (tag + patch, classified env reads) |
-| Decisions | `just adr new <slug> --title "…"`, `just adr supersede ADR-NNNN <slug>`, `just adr revisit`; the end-of-turn hook regenerates the index and runs the ADR lint |
-| Documentation changes | `just docs-test` for publisher/resolver changes; `just docs-check` (publication) runs at the end of each turn. First run: `just bootstrap-docs`; preview: `just docs-serve`. No product gate solely for docs. |
-| After every turn (automatic) | The end-of-turn hook (`scripts/after_turn.py`, ADR-0104, wired in `.claude/settings.json` and `.codex/hooks.json`) runs once the main agent stops: `just skills-sync`, `just adr index`, `just build-features` after dependency changes and `just fmt`; then, in the background, missing PostgreSQL images and tools and every `just hygiene` check (clippy, ruff with auto-fixes, pyrefly, rules, ADR and agent lint, fixtures, gold, `docs-check`, `deps`, `store-check`). A Sonnet or GPT fixer repairs what it can, the operator sees what is left, and `just library-catalog` runs last; that session's next prompt waits for the checks. Never run, check or troubleshoot any of this yourself |
-| Tools present? | `just doctor`; the end-of-turn checks report a missing tool |
+| Dependency policy | `just deps`, a `hygiene` check: one version each of Arrow/DataFusion/object_store/ruff/pyrefly/blake3, cargo-deny, and the Pyrefly fork check (tag + patch, classified env reads) |
+| Decisions | `just adr new <slug> --title "…"`, `just adr supersede ADR-NNNN <slug>`, `just adr revisit`; the end-of-turn hook regenerates the index; `just adr-lint` runs within `just hygiene` |
+| Documentation changes | `just docs-test` for publisher/resolver changes; `just docs-check` (publication) runs within `just hygiene`. First run: `just bootstrap-docs`; preview: `just docs-serve`. No product gate solely for docs. |
+| After every turn (automatic) | The end-of-turn hook (`scripts/after_turn.py`, ADR-0110, wired in `.claude/settings.json` and `.codex/hooks.json`) runs once the main agent stops: `just skills-sync`, `just adr index`, `just build-features` after dependency changes and `just fmt` (with ruff's safe auto-fixes); then, in the background, missing PostgreSQL images and tools, and `just library-catalog` last. The operator, never the model, sees failed steps; the next prompt never waits. The hook runs no other checks and fixes nothing: clippy, pyrefly type errors, lint, rules, ADR and agent lint, fixtures, gold, `docs-check`, `deps` and `store-check` findings are yours, through `just hygiene` at scope end. Don't run the formatters or generators yourself |
+| Tools present? | `just doctor`; the end-of-turn hook reports a missing tool |
 
 The Rust toolchain is pinned to `nightly-2026-09-29` in `rust-toolchain.toml` (ADR-0079).
 Do not pass floating `+nightly` or `+stable`. Python is 3.14.7 via `uv`; run Python tools as
@@ -176,10 +176,12 @@ capability is absent.
   scope with a compile check and the focused tests or probes that exercise it. Integrated tests
   (`just test`, `just check`, `just test-all`, facts pilots) wait until all functional scope in
   the plan is implemented; repeat them only for a failure or a subsequent material change.
-- **No formatting, linting or other non-functional checks.** The end-of-turn hook runs them all after
-  each turn and a fixer agent repairs what it can (ADR-0104). Don't run `just fmt`, `cargo fmt`,
-  `cargo clippy`, `ruff`, `pyrefly check`, `just deps` or any other `just hygiene` check, and don't
-  troubleshoot their failures: they rewrite code other than yours, which you then have to reassess.
+- **No formatting mid-work; non-functional checks once, at scope end** (ADR-0110). The end-of-turn
+  hook runs `just fmt` (with ruff's safe auto-fixes) after each turn; don't run it, `cargo fmt` or
+  `ruff format` yourself. The hook does not run or fix clippy, pyrefly, lint or policy checks:
+  once all functional scope is implemented, run `just hygiene` beside `just test-all` and fix what
+  fails (`just <id>` re-runs one check). Don't run hygiene checks during implementation:
+  auto-fixes and findings mid-work move code you are still reasoning about.
 - Reuse cached release-profile Rust code for tests. Test data may be fresh, existing, or empty
   according to the test's purpose.
 - **Schema contracts** are insta snapshots. `just check` runs with `INSTA_UPDATE=no`. To accept

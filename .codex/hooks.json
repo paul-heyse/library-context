@@ -17,19 +17,6 @@
           {
             "type": "command",
             "command": "uv run --no-project --python 3.14 python \"$(git rev-parse --show-toplevel)\"/scripts/after_turn.py prompt --harness codex",
-            "timeout": 1800,
-            "statusMessage": "Waiting for this session's end-of-turn checks"
-          }
-        ]
-      }
-    ],
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "[ -z \"${AFTER_TURN_ROLE:-}\" ] || uv run --no-project --python 3.14 python \"$(git rev-parse --show-toplevel)\"/scripts/after_turn.py guard",
             "timeout": 30
           }
         ]
