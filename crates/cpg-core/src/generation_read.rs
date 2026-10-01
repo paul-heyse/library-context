@@ -408,7 +408,15 @@ impl AttemptSession {
     ) -> std::result::Result<crate::model_runtime::StageTable<R>, ReadError> {
         if permit.identity() != self.contract.consumer()
             || permit.model() != self.contract.model()
-            || permit.source() != self.contract.sources().get(R::NAME)
+            || !self.contract.sources().get(R::NAME).is_some_and(|granted| {
+                permit.source().is_some_and(|source| source == granted ||
+                    lctx_model::domain::stages::is_vocabulary(R::NAME)
+                    && source.model() == granted.model()
+                    && source.schedule() == granted.schedule()
+                    && source.identity().attempt() == granted.identity().attempt()
+                    && source.prefix_ordinal().zip(granted.prefix_ordinal())
+                        .is_some_and(|(requested, bound)| requested.ordinal() <= bound.ordinal()))
+            })
             || permit.source().is_none()
         {
             return Err(ReadError::Store(StoreError::Contract));

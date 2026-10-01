@@ -22,7 +22,7 @@ async fn validation_cannot_widen_a_facts_grant_to_later_vocabulary_even_after_it
         let schedule=Schedule::build_with_publications(&model,vec![stage("facts",vec![],vec![RelationUse::of::<Literal>()]),stage("later",vec![],vec![RelationUse::of::<Literal>()]),stage("future",vec![RelationUse::stored::<Literal>().at_epoch(PublicationBoundary::Facts)],vec![RelationUse::of::<FutureProbe>()])],&[],Profile::Catalog,vec![PublicationGroup::new(PublicationBoundary::Facts,vec!["facts"]),PublicationGroup::new(PublicationBoundary::Dispatch,vec!["later"])]).unwrap();
         let db=DisposableDatabase::start().await;let store=GenerationStore::install(db.owner.clone(),model.clone()).await.unwrap();let runtime=AttemptRuntime::new(RuntimeOptions {memory_bytes:1<<24,partitions:1}).unwrap();let budget=runtime.budget();let mut execution=schedule.execute();let attempt=store.begin_conformance(db.writer.clone(),&mut execution,budget.clone()).await.unwrap();
         for (name,row) in [("facts",Literal::None),("later",Literal::Bool {value:true})] {if name=="later" && !close_later {continue;}let mut output=StageOutput::new(execution.begin(name).unwrap(),&attempt,&model,budget.clone(),Default::default()).unwrap();output.declare::<Literal>().unwrap();output.push(row).await.unwrap();output.finish(ProviderOutcome::Complete).await.unwrap();}
-        let mut output=StageOutput::new(execution.begin("future").unwrap(),&attempt,&model,budget.clone(),Default::default()).unwrap();output.declare::<FutureProbe>().unwrap();output.push(FutureProbe {marker:true}).await.unwrap();assert!(output.finish(ProviderOutcome::Complete).await.is_err(),"later close cannot widen this relation's Facts grant");
+        let access=execution.begin("future").unwrap();assert!(access.read_at_epoch::<Literal>(PublicationBoundary::Dispatch).is_err());let mut output=StageOutput::new(access,&attempt,&model,budget.clone(),Default::default()).unwrap();output.declare::<FutureProbe>().unwrap();output.push(FutureProbe {marker:true}).await.unwrap();assert!(output.finish(ProviderOutcome::Complete).await.is_err(),"later close cannot widen this relation's Facts grant");
         attempt.abort().await.unwrap();assert_eq!(budget.reserved(),0);
     }
 }
@@ -36,7 +36,17 @@ async fn real_publication_and_final_replay_route_facts_and_current_views_indepen
     for (name,row) in [("facts",Literal::None),("later",Literal::Bool {value:true})] {let mut output=StageOutput::new(execution.begin(name).unwrap(),&attempt,&model,budget.clone(),Default::default()).unwrap();output.declare::<Literal>().unwrap();output.push(row).await.unwrap();output.finish(ProviderOutcome::Complete).await.unwrap();}
     let mut output=StageOutput::new(execution.begin("probe").unwrap(),&attempt,&model,budget.clone(),Default::default()).unwrap();output.declare::<Probe>().unwrap();output.push(Probe {marker:true}).await.unwrap();output.finish(ProviderOutcome::Complete).await.unwrap();
     let directory=tempfile::tempdir().unwrap();db.write_configs(directory.path()).unwrap();let roles=lctx_postgres::roles::RoleConfig::load(&directory.path().join("postgres-importer.json")).unwrap();
-    let access=execution.begin("reader").unwrap();let reader=cpg_core::generation_read::AttemptSession::open(&roles,&attempt,&access,model.clone(),Default::default()).await.unwrap();reader.close().await.unwrap();
+    let access=execution.begin("reader").unwrap();let reader=cpg_core::generation_read::AttemptSession::open(&roles,&attempt,&access,model.clone(),Default::default()).await.unwrap();    for (epoch, expected) in [(PublicationBoundary::Facts, 1), (PublicationBoundary::Dispatch, 2)] {
+        let permit = access.read_at_epoch::<Literal>(epoch).unwrap();
+        let session = runtime.session(&access);
+        session.register(&permit, reader.table(&permit).unwrap()).unwrap();
+        let query = session.query("SELECT * FROM literal_values").await.unwrap();
+        let mut stream = query.execute_stream().await.unwrap();
+        let mut rows = 0;
+        while let Some(batch) = futures::TryStreamExt::try_next(&mut stream).await.unwrap() { rows += batch.num_rows(); }
+        assert_eq!(rows, expected, "runtime narrowing must retain the exact acknowledged prefix");
+    }
+reader.close().await.unwrap();
     let mut output=StageOutput::new(access,&attempt,&model,budget.clone(),Default::default()).unwrap();output.declare::<ReadProbe>().unwrap();output.push(ReadProbe {marker:true}).await.unwrap();output.finish(ProviderOutcome::Complete).await.unwrap();
     let generation=attempt.seal(execution.finish().unwrap()).await.unwrap().validate().await.unwrap();generation.abort().await.unwrap();assert_eq!(budget.reserved(),0);
 }

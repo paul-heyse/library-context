@@ -782,6 +782,10 @@ schedule-bound physical prefix ordinals; their append-only domain codes do not d
 order. Ordinary outputs inherit the maximum prefix of their declared acknowledged inputs, including
 completed handoffs. Completion validates vocabulary references against that bound and any narrower
 explicit input prefix before granting reads. An unrelated later close cannot widen this authority.
+A runtime permit can narrow an acknowledged vocabulary grant to an earlier closed prefix from
+the same attempt and schedule. It cannot widen that grant or supply a receipt of its own; the
+provider reads the selected immutable view. This also lets one consumer use Facts-bound native
+semantics and a later derived vocabulary without conflating their authority.
 The [R0/R1 foundation review](../../design_review/reviews/design_review_phase4-foundation_2026-09-30.md)
 is **Accept scoped, 2026-10-01**. Complete Phase 4 acceptance remains pending.
 
