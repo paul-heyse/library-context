@@ -65,6 +65,7 @@ const CASES: &[&str] = &[
     "structural_usage",
     "summary_caps",
     "syntax_shapes",
+    "synthesis_sources",
     "transfer_alternatives",
     "type_guard",
     "type_shapes",

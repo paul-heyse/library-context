@@ -24,6 +24,7 @@ biodivine-lib-bdd.workspace = true
 petgraph.workspace = true
 postcard.workspace = true
 toml.workspace = true
+unicode-segmentation.workspace = true
 
 [dev-dependencies]
 insta.workspace = true

@@ -238,7 +238,7 @@ pub fn analysis_relations() -> Vec<Relation> {
     relations.extend(catalog::relations());
     relations.extend(selection::relations());
     relations.extend(retrieval::relations());
-    relations.extend(structural::relations());
+    relations.extend(structural::relations());relations.extend(synthesis::relations());
     relations.extend(embedding::relations());
     relations.extend(execution::relations());
     relations.extend(local_semantics::relations());relations.extend(local_theory::relations());relations.extend(local_fields::relations());

@@ -14,6 +14,7 @@ pub mod catalog_core;
 pub mod catalog_evidence;
 pub mod catalog_selection;
 pub mod retrieval_preparation;
+pub mod synthesis_preparation;
 pub mod structural;
 pub mod embed;
 pub mod embedding_realization;

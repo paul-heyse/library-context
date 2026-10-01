@@ -36,8 +36,7 @@ _Updated 2026-10-01 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
   publication remains open. E0 rendering/consumed-value replay passed 12 pure + 2 PG controls; final
   S0/E0 publication remains open. Delegation and projection-v3 source definitions passed 5 native + 9 model controls; A0 structural publication passed both
   PG profiles + 2 pure and 12 regression controls. Sealed source conclusions passed 12 model controls;
-  Pass B/C now pass full replay in both PG profiles plus 3 model controls; exact alias, unpacking,
-  static raises and official handoffs retain source evidence.
+  Pass B/C now pass both PG profiles plus 3 model controls; documentary preparation passed actual PG seal/replay. Final S0/E0 remains open.
 - **passed, 2026-10-01:** integrated C0 catalog (20 pure controls; native catalog plus both
   normalized PG profiles). C1/E1 per-grain coverage contracts passed two pure controls;
   C1 source/document/deployment evidence passed 10 pure, 2 integrated PG and 1 native control;
