@@ -27,12 +27,15 @@ exit = { kind="preserve" }
 "#;
 fn budget()->ResourceBudget { ResourceBudget::fixed(1<<30).unwrap() }
 fn captured(source:&str,profile:Profile,budget:&ResourceBudget)->Arc<CapturedInputs> {
+    captured_with_owner(source,profile,budget,false)
+}
+fn captured_with_owner(source:&str,profile:Profile,budget:&ResourceBudget,foreign_owner:bool)->Arc<CapturedInputs> {
     let fixture=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/python/native_model_context");
-    let paths:Vec<String>=["app.py","depctx.py","depbase.py","ancestors.py"].into_iter().map(Into::into).collect();
+    let paths:Vec<String>=["app.py","depctx.py","depbase.py","ancestors.py","incomplete_mro.py","cyclic_mro.py"].into_iter().map(Into::into).collect();
     let frozen=CapturedInput::capture(&fixture,&paths,budget).unwrap();
     let inventory=LibraryInventory{name:"app".into(),requirement:"app==1.0".into(),lock_digest:ContentHash::of(b"pinned test lock"),installer:Some("native fixture".into()),python_version:"3.14.7".into(),platform:"linux".into(),site_packages:fixture,
-        distributions:[("app",true),("depctx",false)].into_iter().map(|(name,first_party)|InventoryDistribution{name:name.into(),version:"1.0".into(),first_party,artifact_sha256:vec![],record_digest:ContentHash::of(b"fixture record")}).collect(),
-        files:paths.into_iter().map(|path|InventoryFile{role:if path=="app.py" {SourceRole::Release} else {SourceRole::Dependency},owners:vec![if path=="app.py" {"app".into()} else {"depctx".into()}],path,record_sha256:None}).collect(),configuration:ContentHash::of(b"fixture")};
+        distributions:[("app",true),("depctx",false),("otherdep",false)].into_iter().map(|(name,first_party)|InventoryDistribution{name:name.into(),version:"1.0".into(),first_party,artifact_sha256:vec![],record_digest:ContentHash::of(b"fixture record")}).collect(),
+        files:paths.into_iter().map(|path|InventoryFile{role:if path=="app.py" {SourceRole::Release} else {SourceRole::Dependency},owners:vec![if path=="app.py" {"app".into()} else if foreign_owner && path=="depctx.py" {"otherdep".into()} else {"depctx".into()}],path,record_sha256:None}).collect(),configuration:ContentHash::of(b"fixture")};
     let selected=CatalogSelection::parse("model-context.toml",source,budget).unwrap();
     Arc::new(CapturedInputs::new(vec![AcquiredInput::new(frozen,Acquisition::Installed(inventory))],NativeContextConfig::new(profile,selected)))
 }
@@ -80,4 +83,26 @@ async fn driver_refuses_a_foreign_catalog_allocation_pool_before_the_first_write
     assert!(inputs.config().check_budget(&selected_pool.clone()).is_ok());
     let error=typed_driver::run_profile_with_budget(inputs,Pyrefly::new(SyntaxLimits::default()),Observed(tables.clone()),Profile::Catalog,Default::default(),false,attempt_pool.clone()).await.unwrap_err();
     assert!(error.to_string().contains("different attempt resource pool"));assert!(tables.lock().unwrap().is_empty());assert_eq!(attempt_pool.reserved(),0);assert_eq!(selected_pool.reserved(),0);
+}
+
+#[tokio::test]
+async fn correct_version_with_a_foreign_module_owner_keeps_a_requirement_boundary() {
+    let resources=budget();
+    let inputs=captured_with_owner(SOURCE,Profile::Behavioral,&resources,true);
+    let tables=typed_driver::Tables::default();
+    typed_driver::run_profile_with_budget(inputs,Pyrefly::new(SyntaxLimits::default()),Observed(tables.clone()),Profile::Behavioral,Default::default(),false,resources).await.unwrap();
+    assert!(typed_driver::rows::<SubjectBoundary>(&tables).iter().any(|b| b.detail.as_ref().is_some_and(|d| d.contains("not owned by the required captured distribution"))));
+    assert!(typed_driver::rows::<ProviderCoverage>(&tables).iter().any(|c|c.family==FactFamily::Signatures && c.status==CoverageStatus::Partial));
+}
+#[tokio::test]
+async fn required_classes_keep_incomplete_and_cyclic_native_mro_evidence() {
+    for (module, expected) in [("incomplete_mro",Linearization::Prefix),("cyclic_mro",Linearization::Cyclic)] {
+    let source=SOURCE.replace("module=\"depctx\"",&format!("module=\"{module}\"")).replace("Child","Broken");
+    let (tables,_)=extract(&source,Profile::Behavioral).await;
+    let symbols=typed_driver::rows::<ProviderSymbol>(&tables);
+    let broken=symbols.iter().find(|s|s.name=="Broken" && s.kind==SymbolKind::Class).unwrap();
+    assert!(typed_driver::rows::<ClassAncestryObservation>(&tables).iter().any(|r| r.class==broken.id() && r.relation==AncestryRelation::Mro && r.linearization==Some(expected)));
+    assert!(typed_driver::rows::<SubjectBoundary>(&tables).iter().any(|b|b.detail.as_ref().is_some_and(|d|d.contains("not a complete native MRO"))));
+    assert!(typed_driver::rows::<ProviderCoverage>(&tables).iter().any(|c|c.family==FactFamily::Signatures && c.status==CoverageStatus::Partial));
+}
 }
