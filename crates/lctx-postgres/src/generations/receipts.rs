@@ -71,8 +71,12 @@ impl GenerationStore {
         if let Some(completion) = completion {
             self.check_completed_output_references(tx, g, completion)
                 .await?;
+            self.check_publication_outputs(tx, g, outputs, completion.sources(), None, budget).await?;
         }
-        self.check_publication_outputs(tx, g, outputs, completion.map_or(&[], StageCompletion::sources), None, budget).await?;
+        // The unscheduled, testing-only Harness has no declared source or StageCompletion
+        // authority. It exercises schema/algebra conformance through the full ordinary model
+        // validators. Scheduled conformance and product attempts always take the branch above;
+        // their source-sensitive publication checks cannot be bypassed by fixture construction.
         let mut receipts = BTreeMap::new();
         for name in outputs {
             execute(tx, ddl::completed_output(&g.schema(), name).to_vec()).await?;

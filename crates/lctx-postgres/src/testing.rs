@@ -169,6 +169,9 @@ pub async fn step_in_flight(pool: &sqlx::PgPool) -> sqlx::Transaction<'static, s
 /// A harness attempt driven one step at a time (feature `testing`). Every step keeps attempt
 /// semantics: the generation is lock-owned, and a refused step records it `failed` and ends the
 /// harness, after which every later step refuses with `State`.
+/// This unscheduled harness qualifies schema and ordinary model invariants, not stage admission
+/// or source-sensitive publication. Use `GenerationStore::begin_conformance` with a real
+/// `Schedule` to exercise those publication contracts and acknowledged input receipts.
 pub struct Harness {
     store: crate::generations::GenerationStore,
     generation: crate::generations::GenerationId,
