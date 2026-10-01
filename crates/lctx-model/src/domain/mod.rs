@@ -1,6 +1,7 @@
 //! Typed domain authority. Physical layouts are lowerings of these definitions (ADR-0085).
 pub mod admission;
 pub mod analysis;
+pub mod analytics;
 pub mod artifact;
 pub mod assertion;
 pub mod attachment;
@@ -238,7 +239,7 @@ pub fn analysis_relations() -> Vec<Relation> {
     relations.extend(catalog::relations());
     relations.extend(selection::relations());
     relations.extend(retrieval::relations());
-    relations.extend(structural::relations());relations.extend(synthesis::relations());
+    relations.extend(structural::relations());relations.extend(analytics::relations());relations.extend(synthesis::relations());
     relations.extend(embedding::relations());
     relations.extend(execution::relations());
     relations.extend(local_semantics::relations());relations.extend(local_theory::relations());relations.extend(local_fields::relations());

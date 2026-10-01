@@ -49,3 +49,16 @@ fn malformed_shapes_and_payloads_refuse_before_any_similarity() {
     }
     assert!(fixture.prepare(&ResourceBudget::fixed(1).unwrap()).is_err());drop(fixture);assert_eq!(budget.reserved(),0);
 }
+
+#[test]
+fn centroid_retains_all_original_winners_and_exact_passage_choice(){
+ let b=ResourceBudget::fixed(1<<22).unwrap();let f=Fixture::new(&b,false);let p=f.prepare(&b).unwrap();
+ let m=p.centroid(&f.keys[..2],&f.keys[2..],FiniteF64::new(0.5).unwrap(),100).unwrap().unwrap();
+ assert_eq!(m.target,f.keys[3]);assert_eq!(m.members.len(),3);assert!((m.score.get()-2.6f64/7.4f64.sqrt()).abs()<1e-7);
+ let reversed=p.centroid(&f.keys[..2].iter().rev().copied().collect::<Vec<_>>(),&f.keys[2..].iter().rev().copied().collect::<Vec<_>>(),FiniteF64::new(0.5).unwrap(),100).unwrap().unwrap();assert_eq!(m.target,reversed.target);assert_eq!(m.score,reversed.score);assert_eq!(m.members,reversed.members);
+ assert!(matches!(p.centroid(&f.keys[..2],&f.keys[2..],FiniteF64::new(0.5).unwrap(),1),Err(Error::WorkLimit{..})));
+ assert!(p.centroid(&[f.keys[0],f.keys[0]],&f.keys[2..],FiniteF64::new(0.5).unwrap(),100).is_err());
+ assert!(p.centroid(&[ItemKey{subject:id(99),..f.keys[0]}],&f.keys[2..],FiniteF64::new(0.5).unwrap(),100).is_err());
+ assert!(p.centroid(&f.keys[..1],&f.keys[2..],FiniteF64::new(1.1).unwrap(),100).is_err());
+ drop(p);drop(f);assert!(b.reserved()>0);drop(m);drop(reversed);assert_eq!(b.reserved(),0);
+}

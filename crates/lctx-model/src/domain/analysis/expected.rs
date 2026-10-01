@@ -70,6 +70,13 @@ pub(crate) fn contract(
         (AnalysisMethod::DirectUsage, AnalysisCapability::DirectUsage) => (
             &[ScopeContract {grain:Artifact(PythonSource),native:&[],normalized:&[Capability::Calls,Capability::Callables,Capability::PublicExposure]}],false,
         ),
+        (AnalysisMethod::PageRank, AnalysisCapability::PageRank)
+        | (AnalysisMethod::Communities, AnalysisCapability::Communities)
+        | (AnalysisMethod::Concepts, AnalysisCapability::Concepts)
+        | (AnalysisMethod::RelationalConcepts, AnalysisCapability::RelationalConcepts)
+        | (AnalysisMethod::Neighbours, AnalysisCapability::Neighbours) => (
+            &[ScopeContract{grain:Artifact(PythonSource),native:&[],normalized:&[Capability::Symbols,Capability::Callables,Capability::PublicExposure]},ScopeContract{grain:Input,native:&[],normalized:&[Capability::InvocationProjection]}],false,
+        ),
         (AnalysisMethod::Catalog, AnalysisCapability::Catalog) => (
             &[ScopeContract {
                 grain: Artifact(PythonSource),
@@ -177,6 +184,11 @@ AnalysisMethod::SourceCalls=>AnalysisCapability::Execution,
         AnalysisMethod::CatalogEvidence => AnalysisCapability::CatalogEvidence,
         AnalysisMethod::CatalogSelection => AnalysisCapability::CatalogSelection,
         AnalysisMethod::AnalyticEmbedding => AnalysisCapability::AnalyticEmbedding,
+        AnalysisMethod::PageRank => AnalysisCapability::PageRank,
+        AnalysisMethod::Communities => AnalysisCapability::Communities,
+        AnalysisMethod::Concepts => AnalysisCapability::Concepts,
+        AnalysisMethod::RelationalConcepts => AnalysisCapability::RelationalConcepts,
+        AnalysisMethod::Neighbours => AnalysisCapability::Neighbours,
         _ => {
             return Err(invalid(
                 "analysis method has no admitted capability contract",
@@ -197,6 +209,7 @@ pub(crate) fn inputs(method:AnalysisMethod)->Vec<ValidationInput> {
     ];
     if contract.needs_native() {inputs.push(ValidationInput::of::<ProviderCoverage>(&["id"]));}
     if method==AnalysisMethod::AnalyticEmbedding {inputs.push(ValidationInput::of::<embedding::text::TextDefinition>(&["id"]));}
+    if crate::domain::analytics::build::METHODS.contains(&method) {inputs.push(ValidationInput::of::<crate::domain::analysis::settings::AnalyticsConfiguration>(&["id"]));}
     inputs
 }
 pub(crate) struct FrontierIndex {
@@ -209,6 +222,7 @@ pub(crate) struct FrontierIndex {
     computations: charged::ChargedMap<Id<NormalizationComputation>, NormalizationComputation>,
     normalized: charged::ChargedMap<Id<NormalizationCoverage>, NormalizationCoverage>,
     native: charged::ChargedMap<Id<ProviderCoverage>, ProviderCoverage>,
+    analytics: charged::ChargedMap<Id<crate::domain::analysis::settings::AnalyticsConfiguration>,crate::domain::analysis::settings::AnalyticsConfiguration>,
     text: charged::ChargedMap<Id<embedding::text::TextDefinition>,embedding::text::TextDefinition>,
 }
 impl FrontierIndex {
@@ -226,6 +240,7 @@ impl FrontierIndex {
             computations: Default::default(),
             normalized: Default::default(),
             native: Default::default(),
+            analytics:Default::default(),
             text:Default::default(),
         }
     }
@@ -258,6 +273,7 @@ impl FrontierIndex {
         insert!(NormalizationCoverage, normalized);
         insert!(ProviderCoverage, native);
         insert!(embedding::text::TextDefinition,text);
+        insert!(crate::domain::analysis::settings::AnalyticsConfiguration,analytics);
         Ok(false)
     }
     pub(crate) fn domain(
@@ -340,6 +356,9 @@ impl FrontierIndex {
         let requested=if contract.method==AnalysisMethod::AnalyticEmbedding {
             if self.text.len()!=1 {return Err(invalid("analytic embedding requires one completed text definition"));}
             self.text.values().next().expect("one text definition").requested
+        }else if crate::domain::analytics::build::METHODS.contains(&contract.method) {
+            if self.analytics.len()!=1 {return Err(invalid("optional analytics requires one immutable configuration"));}
+            crate::domain::analytics::build::selected(self.analytics.values().next().expect("one analytics configuration"),contract.method)
         }else {!contract.behavioral || self.profile==Profile::Behavioral};
         if selected.is_empty() {
             let scope = CoverageScope::Input { input };
