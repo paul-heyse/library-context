@@ -1,11 +1,11 @@
-//! Native C0 producer through disposable PG18; deliberately no flow, brief, seed or vector stage.
+//! Native C1 producer through disposable PG18; deliberately no flow, brief, seed or vector stage.
 use cpg_core::model_runtime::{AttemptRuntime,RuntimeOptions};
 use cpg_extract::{acquisition::AcquiredInput,bundle::{CapturedInputs,run_stage},capture::CapturedInput};
 use lctx_model::domain::{*,admission::FrontierContract,stages::*,catalog::build,normalized::{entity_normalization,relation_normalization,callable_normalization,binding_normalization,event_normalization}};
 use lctx_postgres::{generations::GenerationStore,roles::{Role,RoleConfig},testing::DisposableDatabase};
 use std::sync::Arc;
 #[tokio::test]
-async fn mandatory_catalog_uses_completed_normalized_contracts_and_exact_receipts() {
+async fn contextual_catalog_preserves_original_roots_and_exact_completed_receipts() {
     let profile=Profile::Catalog;
     let runtime=AttemptRuntime::new(RuntimeOptions {memory_bytes:1<<30,partitions:2}).unwrap();let budget=runtime.budget();
     let db=DisposableDatabase::start().await;db.migrate().await;
@@ -14,15 +14,16 @@ async fn mandatory_catalog_uses_completed_normalized_contracts_and_exact_receipt
     relations.extend(analysis::early_relations());
     relations.extend(analysis::dispatch::relations());
     relations.extend(analysis::catalog_core::relations());
-    relations.extend(catalog::core_relations());
+    relations.extend(catalog::relations());
+    relations.extend(analysis::catalog_evidence::relations());
     relations.sort_by_key(Relation::name);relations.dedup_by_key(|r|r.name());
     let model=Arc::new(ValidatedModel::validate(relations).unwrap());let store=GenerationStore::install(db.owner.clone(),model.clone()).await.unwrap();
-    let root=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/python/catalog_core");
-    let captured=Arc::new(CapturedInputs::new(vec![AcquiredInput::tree(CapturedInput::capture(&root,&["api.py".into()],budget).unwrap(),"C0") ],cpg_extract::native_context::NativeContextConfig::committed(profile,budget).unwrap()));
-    let configuration=analysis::preparation::Configuration::new(captured.config().catalog(),[build::definition()],budget).unwrap();
+    let root=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/python/catalog_context");
+    let captured=Arc::new(CapturedInputs::new(vec![AcquiredInput::tree(CapturedInput::capture_derived(&root,&["api.py".into(),"guide.mdx".into()],budget,&["guide.mdx".into()],cpg_extract::acquisition::derive_blocks).unwrap(),"C0") ],cpg_extract::native_context::NativeContextConfig::committed(profile,budget).unwrap()));
+    let configuration=analysis::preparation::Configuration::new(captured.config().catalog(),[build::definition(),catalog::evidence::build::definition()],budget).unwrap();
     let mut providers=cpg_core::facts::providers(ContentHash::of(b"C0-native-fixture"));
     let mut declarations:Vec<_>=providers.iter().map(|p|p.declaration(profile)).collect();
-    declarations.extend([entity_normalization::stage(),relation_normalization::stage(profile),callable_normalization::stage(profile),normalized::receiver::stage(profile),event_normalization::stage(profile),binding_normalization::stage(profile),projection::normalization::stage(profile),normalized::coverage::stage(profile),configuration.declaration(),analysis::preparation::native_stage(profile),normalized::callable_aspects::stage(profile),build::stage(profile)]);
+    declarations.extend([entity_normalization::stage(),relation_normalization::stage(profile),callable_normalization::stage(profile),normalized::receiver::stage(profile),event_normalization::stage(profile),binding_normalization::stage(profile),projection::normalization::stage(profile),normalized::coverage::stage(profile),configuration.declaration(),analysis::preparation::native_stage(profile),normalized::callable_aspects::stage(profile),build::stage(profile),catalog::evidence::build::stage(profile)]);
     let schedule=Schedule::build(&model,declarations,&[],profile).unwrap();
     assert!(!schedule.stages().iter().any(|s|s.name=="flow" || s.name.contains("synth") || s.name.contains("embed")));
     let mut execution=schedule.execute();let attempt=store.begin_conformance(db.writer.clone(),&mut execution,budget.clone()).await.unwrap();let id=attempt.generation();
@@ -49,24 +50,25 @@ async fn mandatory_catalog_uses_completed_normalized_contracts_and_exact_receipt
             cpg_core::stage_runtime::run_declared_stage(&mut execution,declaration,async |access|cpg_core::catalog_core::aspects(access,&attempt,&config,&runtime,&model).await,&mut |_|{}).await.unwrap();
         } else if declaration.name=="catalog_core" {
             cpg_core::stage_runtime::run_declared_stage(&mut execution,declaration,async |access|cpg_core::catalog_core::produce(access,&attempt,&config,&runtime,&model).await,&mut |_|{}).await.unwrap_or_else(|e|panic!("stage {} failed: {e}",declaration.name));
+        } else if declaration.name=="catalog_evidence" {
+            cpg_core::stage_runtime::run_declared_stage(&mut execution,declaration,async |access|cpg_core::catalog_evidence::produce(access,&attempt,&config,&runtime,&model).await,&mut |_|{}).await.unwrap_or_else(|e|panic!("stage {} failed: {e}",declaration.name));
         } else {
             let position=providers.iter().position(|p|p.declaration(profile).name==declaration.name).unwrap();
             run_stage(providers.swap_remove(position),execution.begin(declaration.name).unwrap(),&attempt,&model,&captured,budget,Default::default()).await.unwrap();
         }
     }
     let validated=attempt.seal(execution.finish().unwrap()).await.unwrap().validate().await.unwrap();
-    let names:Vec<String>=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT name FROM {}.catalog_members ORDER BY name",id.schema()))).fetch_all(db.owner.pool()).await.unwrap();
-    for name in ["choose","alias","wrapped","Base","Child","Config","ChildConfig","Config.read_left","Accessors.value"] {assert!(names.iter().any(|n|n==name),"public slot {name} absent: {names:?}");}
-    let aliases:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(DISTINCT c.member) FROM {s}.catalog_callables c JOIN {s}.catalog_members m ON m.id=c.member WHERE m.name IN ('choose','alias')",s=id.schema()))).fetch_one(db.owner.pool()).await.unwrap();assert_eq!(aliases,2);
-    let alias_basis:Vec<i16>=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT c.basis FROM {s}.catalog_callables c JOIN {s}.catalog_members m ON m.id=c.member WHERE m.name='alias'",s=id.schema()))).fetch_all(db.owner.pool()).await.unwrap();assert!(!alias_basis.is_empty());assert!(alias_basis.iter().all(|v|*v==1));
-    let none:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {s}.catalog_options o JOIN {s}.catalog_members m ON m.id=o.member JOIN {s}.catalog_defaults d ON d.id=o.\"default\" JOIN {s}.literal_values l ON l.id=d.literal_literal WHERE m.name='wrapped' AND d.kind=3 AND l.kind=0",s=id.schema()))).fetch_one(db.owner.pool()).await.unwrap();assert!(none>0);
-    let inherited:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {s}.catalog_constructors k JOIN {s}.catalog_classes c ON c.id=k.class JOIN {s}.catalog_members m ON m.id=c.member WHERE m.name='Child' AND k.origin=1 AND k.ancestry IS NOT NULL",s=id.schema()))).fetch_one(db.owner.pool()).await.unwrap();assert!(inherited>0);
-    let synthetic:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {s}.catalog_constructors k JOIN {s}.catalog_classes c ON c.id=k.class JOIN {s}.catalog_members m ON m.id=c.member WHERE m.name='Config' AND k.origin=2",s=id.schema()))).fetch_one(db.owner.pool()).await.unwrap();assert!(synthetic>0);
-    let copied_signatures:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {s}.catalog_invocations c JOIN {s}.signature_variants v ON v.id=c.variant JOIN {s}.signature_observations r ON r.id=v.signature JOIN {s}.catalog_callables a ON a.id=c.callable JOIN {s}.catalog_members m ON m.id=a.member WHERE m.name='choose'",s=id.schema()))).fetch_one(db.owner.pool()).await.unwrap();assert!(copied_signatures>=2);
-    let mismatches:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {s}.catalog_core_source_receipts r LEFT JOIN lctx_model_store.stage_receipts c ON c.generation_id=decode($1,'hex') AND c.relation_name=r.relation AND c.stage_name=r.producer WHERE c.content_digest IS DISTINCT FROM r.content OR c.row_count IS DISTINCT FROM r.rows",s=id.schema()))).bind(id.hex()).fetch_one(db.owner.pool()).await.unwrap();assert_eq!(mismatches,0);
-    let metadata:Vec<i16>=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT DISTINCT a.kind FROM {s}.catalog_callable_aspects c JOIN {s}.callable_aspects a ON a.id=c.aspect",s=id.schema()))).fetch_all(db.owner.pool()).await.unwrap();
-    for kind in [1,2,3,5,7] {assert!(metadata.contains(&kind),"normalized metadata kind {kind} absent: {metadata:?}");}
-    let factory:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {s}.catalog_options o JOIN {s}.catalog_members m ON m.id=o.member JOIN {s}.catalog_defaults d ON d.id=o.\"default\" JOIN {s}.catalog_option_subjects u ON u.id=o.subject JOIN {s}.field_entities f ON f.id=u.field_field WHERE m.name='Config' AND f.name='cache' AND d.kind=5",s=id.schema()))).fetch_one(db.owner.pool()).await.unwrap();assert!(factory>0);
-    let flow:Vec<i16>=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT c.availability FROM {s}.normalization_coverage c JOIN {s}.normalization_computations n ON n.id=c.computation WHERE n.capability=10",s=id.schema()))).fetch_all(db.owner.pool()).await.unwrap();assert!(!flow.is_empty());assert!(flow.iter().all(|v|*v==3));
+    let s=id.schema();
+    let original_chunks:Vec<Vec<u8>>=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT c.body FROM {s}.artifact_chunks c JOIN {s}.source_artifacts a ON a.id=c.artifact WHERE a.path='guide.mdx' ORDER BY c.ordinal"))).fetch_all(db.owner.pool()).await.unwrap();assert_eq!(original_chunks.concat(),std::fs::read(root.join("guide.mdx")).unwrap());
+    let scenarios:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {s}.catalog_scenarios"))).fetch_one(db.owner.pool()).await.unwrap();assert!(scenarios>=5);
+    let executed:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {s}.catalog_scenarios WHERE execution<>2"))).fetch_one(db.owner.pool()).await.unwrap();assert_eq!(executed,0);
+    let originals:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {s}.catalog_original_sources WHERE kind=2"))).fetch_one(db.owner.pool()).await.unwrap();assert!(originals>=2);
+    let extracted:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {s}.catalog_scenario_spans WHERE role=3"))).fetch_one(db.owner.pool()).await.unwrap();assert_eq!(extracted,1);
+    let associations:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {s}.catalog_scenario_associations"))).fetch_one(db.owner.pool()).await.unwrap();assert!(associations>0);
+    let fields:Vec<(String,i16,i16)>=sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT convert_from(f.name,'UTF8'),a.basis,a.applicability FROM {s}.catalog_field_access_assessments a JOIN {s}.field_entities f ON f.id=a.field"))).fetch_all(db.owner.pool()).await.unwrap();assert!(fields.iter().any(|r|r.0=="left"));assert!(fields.iter().any(|r|r.0=="right"));assert!(fields.iter().all(|r|r.1==4 && r.2==1));
+    let access_spans:Vec<(String,i64,i64)>=sqlx::query_as(sqlx::AssertSqlSafe(format!(r#"SELECT convert_from(f.name,'UTF8'),o.start,o."end" FROM {s}.catalog_field_access_assessments a JOIN {s}.field_entities f ON f.id=a.field JOIN {s}.occurrences o ON o.id=a.occurrence"#))).fetch_all(db.owner.pool()).await.unwrap();let api=std::fs::read_to_string(root.join("api.py")).unwrap();for (name,start,end) in access_spans {assert_eq!(&api[start as usize..end as usize],format!("self.{name}"));}
+    let roots:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {s}.catalog_evidence_roots"))).fetch_one(db.owner.pool()).await.unwrap();assert!(roots>scenarios);
+    let links:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {s}.catalog_evidence_invocations"))).fetch_one(db.owner.pool()).await.unwrap();assert_eq!(links,roots);
+    let mismatches:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {s}.catalog_evidence_source_receipts r LEFT JOIN lctx_model_store.stage_receipts c ON c.generation_id=decode($1,'hex') AND c.relation_name=r.relation AND c.stage_name=r.producer WHERE c.content_digest IS DISTINCT FROM r.content OR c.row_count IS DISTINCT FROM r.rows"))).bind(id.hex()).fetch_one(db.owner.pool()).await.unwrap();assert_eq!(mismatches,0);
     validated.abort().await.unwrap();drop(configuration);drop(captured);assert_eq!(budget.reserved(),0);
 }

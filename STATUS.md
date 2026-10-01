@@ -36,10 +36,10 @@ _Updated 2026-10-01 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
   publication, E0 and cross-consumer integration remain open.
 - **passed, 2026-10-01:** integrated C0 catalog (20 pure controls; native catalog plus both
   normalized PG profiles). C1/E1 per-grain coverage contracts passed two pure controls;
-  C1 execution remains in progress; E1 selection is bound. Plan §13.2 owns receipts and boundaries.
+  C1 source/document/deployment evidence passed 10 pure, 2 integrated PG and 1 native control;
+  runtime field links remain pending Local/B1. Plan §13.2 owns receipts and boundaries.
 - New P4 acceptance is **not_run** pending implementation. Compile checks and focused controls
   precede foundation review; integrated acceptance waits for all functional packages and retirement.
-  ADR/docs hygiene belongs to the automatic end-of-turn hook; no result is claimed before it runs.
 
 ## Phase 3 implementation and qualification
 
@@ -115,6 +115,6 @@ Reset initially refused absent old-installation control tables; its regression a
 Continue ordinary work directly on `main`. Existing after-turn hooks own formatting and catalog
 refresh; do not run or validate them manually. Additional pilot-scale qualification runs only if
 reactivated; detailed plan §11 retains its unmeasured scope.
-Continue P4 with actual Local/B1 execution, C1 contextual evidence and downstream analytics.
+Continue P4 with actual Local/B1 execution, exact C1 field links, C2 selection and analytics.
 Downstream producers, assembly, legacy retirement and Q0 remain open. Follow the dependency graph
 and scheduled review boundaries. P5 owns serving/product qualification; PR6 remains paused.

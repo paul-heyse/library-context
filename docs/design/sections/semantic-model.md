@@ -41,6 +41,8 @@ develops normalized relations and their runtime prerequisites. Its cumulative-ge
 The [Phase 4 detailed plan](../../plans/semantic-model-phase4-detailed-plan_2026-09-30.md)
 is an **Accepted target, 2026-09-30**. It specifies analysis/catalog reconstruction, required normalized
 corrections and the immutable vocabulary mechanism below; it does not establish P4 implementation.
+C0 and C1 original source/document/deployment evidence are **Implemented / focused-Tested**,
+2026-10-01; exact runtime field associations still require the Local/B1 producers.
 R0/R1 are **Implemented / focused-Tested**, with an independent
 [Accept scoped foundation review, 2026-10-01](../../design_review/reviews/design_review_phase4-foundation_2026-09-30.md).
 The E1 shared specification, exact value codec, early stored configuration, original analytic text

@@ -11,6 +11,7 @@ pub mod behavior;
 pub mod bundle;
 pub mod catalog;
 pub mod catalog_core;
+pub mod catalog_evidence;
 pub mod embed;
 pub mod embedding_realization;
 pub mod embedding_service;

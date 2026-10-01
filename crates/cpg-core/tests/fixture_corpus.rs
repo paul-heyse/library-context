@@ -16,6 +16,8 @@ const CASES: &[&str] = &[
     "behavior_shapes",
     "catalog",
     "catalog_evidence",
+    "catalog_core",
+    "catalog_context",
     "context_protocol_shapes",
     "dep_env",
     "derive_cases",

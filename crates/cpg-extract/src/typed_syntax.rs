@@ -596,6 +596,28 @@ fn fields(node: AnyNodeRef<'_>) -> Vec<(SyntaxField, TextRange)> {
         AnyNodeRef::ExprYield(e) => add(F::Value, e.value.as_ref().map(|x| x.range())),
         AnyNodeRef::ExprYieldFrom(e) => add(F::Value, Some(e.value.range())),
         AnyNodeRef::ExprStarred(e) => add(F::Value, Some(e.value.range())),
+        AnyNodeRef::Comprehension(c) => {
+            add(F::Target, Some(c.target.range()));
+            add(F::Iter, Some(c.iter.range()));
+            for test in &c.ifs { add(F::Test, Some(test.range())); }
+        }
+        AnyNodeRef::ExprGenerator(e) => {
+            add(F::Element, Some(e.elt.range()));
+            for clause in &e.generators { add(F::Item, Some(clause.range())); }
+        }
+        AnyNodeRef::ExprListComp(e) => {
+            add(F::Element, Some(e.elt.range()));
+            for clause in &e.generators { add(F::Item, Some(clause.range())); }
+        }
+        AnyNodeRef::ExprSetComp(e) => {
+            add(F::Element, Some(e.elt.range()));
+            for clause in &e.generators { add(F::Item, Some(clause.range())); }
+        }
+        AnyNodeRef::ExprDictComp(e) => {
+            add(F::Left, e.key.as_ref().map(|key| key.range()));
+            add(F::Value, Some(e.value.range()));
+            for clause in &e.generators { add(F::Item, Some(clause.range())); }
+        }
         AnyNodeRef::ExprLambda(e) => {
             if let Some(ps) = &e.parameters {
                 for p in ps.iter_non_variadic_params() {

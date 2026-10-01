@@ -253,7 +253,7 @@ pub fn metadata_inputs()->Vec<stages::RelationUse> {
 }
 fn stage_outputs()->Vec<stages::RelationUse> {
     use analysis::catalog_core::*;
-    let mut outputs=super::relations().iter().map(stages::RelationUse::of_relation).collect::<Vec<_>>();
+    let mut outputs=super::core_relations().iter().map(stages::RelationUse::of_relation).collect::<Vec<_>>();
     macro_rules! add {($($ty:ty),*)=>{$(outputs.push(stages::RelationUse::of::<$ty>());)*};}
     add!(Invocation,InvocationSource,AnalysisInput,ProjectionInput,SourceReceipt,AnalysisOutcome,AnalysisCoverage,CoverageSource,AnalysisCoveragePremise,CoverageRequirement,CoverageRequiredSource);
     outputs

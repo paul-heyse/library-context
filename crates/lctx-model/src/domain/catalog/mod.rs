@@ -1,6 +1,7 @@
 //! Mandatory public catalog. Normalized/raw contracts remain their single semantic owners.
 mod inventory;
 pub mod build;
+pub mod evidence;
 mod paths;
 mod aliases;
 use crate::domain::{*, input::InputRevision, source::{Module,Occurrence}, normalized::{entities::*,callables::*,links::*}, symbols::FunctionTraitObservation, syntax::ParameterSyntaxObservation, types::RecordFieldObservation, value::Literal};
@@ -94,7 +95,7 @@ pub enum CatalogOptionEvidence {
 #[model(name="catalog_options")]
 pub struct CatalogOption {#[model(key)] pub member:Id<CatalogMember>,#[model(key)] pub subject:Id<CatalogOptionSubject>,#[model(key)] pub evidence:Id<CatalogOptionEvidence>,pub default:Id<CatalogDefault>}
 
-pub fn relations()->Vec<Relation> {macro_rules! declare {($($field:ident:$ty:ty,)*)=>{vec![$(Relation::of::<$ty>()),*]};} {let mut rows=crate::catalog_outputs!(declare);rows.push(Relation::of::<CatalogMemberInvocation>());rows}}
+pub fn core_relations()->Vec<Relation> {macro_rules! declare {($($field:ident:$ty:ty,)*)=>{vec![$(Relation::of::<$ty>()),*]};} {let mut rows=crate::catalog_outputs!(declare);rows.push(Relation::of::<CatalogMemberInvocation>());rows}}
 /// Each slot's contextual computation has exact admitted source receipts and coverage.
 #[derive(Debug,Clone,PartialEq,Eq,Domain)]
 #[model(name="catalog_member_invocations",invariants=build::invocation_invariants,semantic_source=include_bytes!("build.rs"))]
@@ -130,3 +131,5 @@ pub enum CatalogContractBasis {PublicCandidate=0,SourceOnlyAlias=1}
 #[derive(Debug,Clone,PartialEq,Eq,Domain)]
 #[model(name="catalog_aliases",semantic_source=include_bytes!("aliases.rs"))]
 pub struct CatalogAlias {#[model(key)] pub parent:Id<CatalogExposure>,#[model(key)] pub binding:Id<lexical::BindingObservation>,#[model(key)] pub ownership:Id<OccurrenceOwnership>,#[model(key)] pub reference:Id<ReferenceEntityCandidate>,#[model(key)] pub entity:Id<EntityRef>,pub basis:CatalogContractBasis}
+
+pub fn relations()->Vec<Relation> {let mut rows=core_relations();rows.extend(evidence::relations());rows}
