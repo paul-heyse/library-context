@@ -26,6 +26,7 @@ pub enum AnalysisMethod {
     Dispatch = 18,
     AnalyticEmbedding = 19,
     CatalogEvidence = 20,
+    CatalogSelection = 21,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
 #[repr(i16)]
@@ -144,6 +145,7 @@ pub enum AnalysisCapability {
     Retrieval = 18,
     AnalyticEmbedding = 19,
     CatalogEvidence = 20,
+    CatalogSelection = 21,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]

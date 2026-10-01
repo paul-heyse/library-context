@@ -37,7 +37,7 @@ _Updated 2026-10-01 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
 - **passed, 2026-10-01:** integrated C0 catalog (20 pure controls; native catalog plus both
   normalized PG profiles). C1/E1 per-grain coverage contracts passed two pure controls;
   C1 source/document/deployment evidence passed 10 pure, 2 integrated PG and 1 native control;
-  runtime field links remain pending Local/B1. Plan §13.2 owns receipts and boundaries.
+  runtime field links remain pending Local/B1. C2 lower-contract controls passed; producer pending.
 - New P4 acceptance is **not_run** pending implementation. Compile checks and focused controls
   precede foundation review; integrated acceptance waits for all functional packages and retirement.
 

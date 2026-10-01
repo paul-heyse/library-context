@@ -26,7 +26,9 @@ analysis_family!(analytic_embedding,"analytic_embedding",[],[],[crate::domain::n
 analysis_family!(analytic,"analytic",[Structural:4=>structural,AnalyticEmbedding:5=>analytic_embedding],[crate::domain::transfer::local::TransferKey],[crate::domain::normalized::coverage::NormalizationCoverage],[]);
 analysis_family!(catalog_core,"catalog_core",[],[],[crate::domain::normalized::coverage::NormalizationCoverage],[]);
 analysis_family!(catalog_evidence,"catalog_evidence",[CatalogCore:4=>catalog_core],[],[crate::domain::normalized::coverage::NormalizationCoverage],[]);
-analysis_family!(selection,"selection",[CatalogEvidence:4=>catalog_evidence,Structural:5=>structural,Analytic:6=>analytic],[crate::domain::transfer::local::TransferKey],[crate::domain::normalized::coverage::NormalizationCoverage],[]);
+// Selection is declaration-owned. Unactivated predecessor codes 5/6 remain reserved; optional
+// structural/analytic results feed synthesis, not catalog requirement closure.
+analysis_family!(selection,"selection",[CatalogEvidence:4=>catalog_evidence],[crate::domain::transfer::local::TransferKey],[crate::domain::normalized::coverage::NormalizationCoverage],[]);
 analysis_family!(synthesis,"synthesis",[Selection:4=>selection,CatalogEvidence:5=>catalog_evidence,CatalogCore:6=>catalog_core,Structural:7=>structural,Analytic:8=>analytic,Summary:9=>summary],[crate::domain::transfer::local::TransferKey;ModelTransfer:10=>crate::domain::transfer::model::TransferKey;SummaryTransfer:11=>crate::domain::transfer::summary::TransferKey],[crate::domain::normalized::coverage::NormalizationCoverage],[]);
 analysis_family!(retrieval,"retrieval",[Synthesis:4=>synthesis,CatalogEvidence:5=>catalog_evidence,AnalyticEmbedding:6=>analytic_embedding],[crate::domain::transfer::local::TransferKey],[crate::domain::normalized::coverage::NormalizationCoverage],[]);
 /// One-shot configuration and native inventory. No future result family is pulled into preflight.

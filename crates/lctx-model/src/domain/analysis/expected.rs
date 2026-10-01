@@ -36,6 +36,10 @@ pub(crate) fn contract(method: AnalysisMethod,capability: AnalysisCapability)->R
             &[ScopeContract {grain:Artifact(PythonSource),native:&[FactFamily::Syntax],normalized:&[Capability::Symbols,Capability::References,Capability::Callables,Capability::Calls,Capability::Bindings]},
               ScopeContract {grain:Artifact(Document),native:&[FactFamily::Docs],normalized:&[Capability::Mentions]},
               ScopeContract {grain:Input,native:&[FactFamily::Deployment],normalized:&[]}],false),
+        (AnalysisMethod::CatalogSelection,AnalysisCapability::CatalogSelection)=>(
+            &[ScopeContract {grain:Artifact(PythonSource),native:&[FactFamily::Syntax],normalized:&[Capability::PublicExposure,Capability::Symbols,Capability::Ancestry,Capability::Types,Capability::References,Capability::Callables,Capability::Calls,Capability::Bindings]},
+              ScopeContract {grain:Artifact(Document),native:&[FactFamily::Docs],normalized:&[Capability::Mentions]},
+              ScopeContract {grain:Input,native:&[FactFamily::Deployment],normalized:&[]}],false),
         (AnalysisMethod::AnalyticEmbedding,AnalysisCapability::AnalyticEmbedding)=>(
             &[ScopeContract {grain:Artifact(PythonSource),native:&[FactFamily::Syntax,FactFamily::Signatures],normalized:&[Capability::Symbols,Capability::Callables]},
               ScopeContract {grain:Artifact(Document),native:&[FactFamily::Docs],normalized:&[]}],false),
@@ -48,6 +52,7 @@ pub(crate) fn method_contract(method:AnalysisMethod)->Result<Contract,ModelError
         AnalysisMethod::LocalTransfers=>AnalysisCapability::Transfers,
         AnalysisMethod::Catalog=>AnalysisCapability::Catalog,
         AnalysisMethod::CatalogEvidence=>AnalysisCapability::CatalogEvidence,
+        AnalysisMethod::CatalogSelection=>AnalysisCapability::CatalogSelection,
         AnalysisMethod::AnalyticEmbedding=>AnalysisCapability::AnalyticEmbedding,
         _=>return Err(invalid("analysis method has no admitted capability contract")),
     };contract(method,capability)
@@ -392,6 +397,20 @@ mod tests {
         let root=domain.scopes.iter().find(|r|r.scope==f.root).unwrap();assert_eq!(root.native[0].family,FactFamily::Deployment);assert!(root.normalized.is_empty());
         let python=domain.scopes.iter().find(|r|r.scope==f.python).unwrap();assert_eq!(python.native[0].family,FactFamily::Syntax);assert_eq!(python.normalized.len(),5);drop(domain);
         let deployment=f.index.native.values().find(|r|r.family==FactFamily::Deployment).unwrap().id();f.index.native.remove(&mut f.index.charge,&deployment);assert!(f.index.domain(f.input,f.context,contract).is_err());drop(f.index);assert_eq!(f.budget.reserved(),0);
+    }
+    #[test]
+    fn catalog_selection_requires_both_catalog_lower_contracts_without_optional_analytics() {
+        let mut f=fixture();let contract=method_contract(AnalysisMethod::CatalogSelection).unwrap();
+        assert!(f.index.domain(f.input,f.context,contract).is_err(),"C1 lower receipts alone cannot close C0 exposure/type domains");
+        for capability in [Capability::PublicExposure,Capability::Ancestry,Capability::Types] {
+            let computation=NormalizationComputation {capability,policy:ContentHash::of(b"normalization-contract"),producer:"contract".into(),declaration:ContentHash::of(b"normalization-contract"),profile:Profile::Catalog.name().into(),availability:EvidenceAvailability::Complete};
+            visit(&mut f.index,std::slice::from_ref(&computation));let coverage=NormalizationCoverage {computation:computation.id(),scope:f.python,context:f.context,availability:EvidenceAvailability::Complete};visit(&mut f.index,&[coverage]);
+        }
+        let domain=f.index.domain(f.input,f.context,contract).unwrap();assert_eq!(domain.scopes.len(),3);assert!(domain.scopes.iter().all(|r|r.requested));let python=domain.scopes.iter().find(|r|r.scope==f.python).unwrap();assert_eq!(python.normalized.len(),8);assert_eq!(python.native.len(),1);
+        let inputs=crate::domain::analysis::selection::Invocation::invariants().remove(0).inputs;
+        assert!(inputs.iter().any(|i|i.name()==crate::domain::analysis::catalog_evidence::Invocation::NAME));
+        assert!(!inputs.iter().any(|i|[crate::domain::analysis::structural::Invocation::NAME,crate::domain::analysis::analytic::Invocation::NAME].contains(&i.name())));
+        drop(domain);drop(f.index);assert_eq!(f.budget.reserved(),0);
     }
     #[test]
     fn analytic_selection_is_explicit_and_dependencies_follow_each_artifact_class() {
