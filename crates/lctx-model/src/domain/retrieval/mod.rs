@@ -27,6 +27,7 @@ pub enum Origin {
  #[model(code=3)] Document {observation:Id<DocumentObservation>},
  #[model(code=4)] Passage {observation:Id<PassageObservation>},
  #[model(code=5)] Deployment {deployment:Id<c1::CatalogDeployment>},
+ #[model(code=6)] Brief {brief:Id<crate::domain::synthesis::briefs::Brief>},
 }
 /// Exact text/family deduplication does not discard any unit's contextual occurrence.
 #[derive(Debug,Clone,PartialEq,Eq,Domain)]
@@ -64,6 +65,7 @@ pub enum AnchorSource {
  #[model(code=0)] Original {source:Id<c1::OriginalSource>},
  #[model(code=1)] Span {span:assertion::EvidenceSourceSpanId},
  #[model(code=2)] Artifact {artifact:Id<crate::domain::source::SourceArtifact>},
+ #[model(code=3)] Prose {slice:Id<crate::domain::synthesis::documentary::ProseSlice>},
 }
 #[derive(Debug,Clone,PartialEq,Eq,Domain)]
 #[model(name="retrieval_original_anchors")]

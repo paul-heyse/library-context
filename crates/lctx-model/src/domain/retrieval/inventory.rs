@@ -23,3 +23,22 @@ macro_rules! retrieval_outputs {($m:ident)=>{$m! {
  roots:$crate::domain::retrieval::UnitRoot,
  fragments:$crate::domain::retrieval::Fragment,
 }};}
+
+#[macro_export]
+macro_rules! retrieval_synthesis_inputs {($m:ident)=>{$m! {
+ member_frames:$crate::domain::catalog::CatalogMemberInvocation,
+ evidence_outcomes:$crate::domain::analysis::catalog_evidence::AnalysisOutcome,
+ analysis_definitions:$crate::domain::analysis::AnalysisDefinition,
+ parameters:$crate::domain::analysis::MethodParameters,
+ synthesis_invocations:$crate::domain::analysis::synthesis::Invocation,
+ synthesis_outcomes:$crate::domain::analysis::synthesis::AnalysisOutcome,
+ synthesis_frames:$crate::domain::synthesis::frames::Frame,
+ seed_plans:$crate::domain::synthesis::seeds::SeedPlan,
+ seeds:$crate::domain::synthesis::seeds::SelectedSeed,
+ briefs:$crate::domain::synthesis::briefs::Brief,
+ brief_documents:$crate::domain::synthesis::briefs::BriefDocument,
+ brief_sources:$crate::domain::synthesis::briefs::BriefSource,
+ documentary:$crate::domain::synthesis::documentary::DocumentaryConclusion,
+ prose_slices:$crate::domain::synthesis::documentary::ProseSlice,
+ prose_sources:$crate::domain::synthesis::documentary::ProseSource,
+}};}

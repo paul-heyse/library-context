@@ -9,7 +9,7 @@ pub mod analytic_embedding;
 pub mod analyze;
 pub mod arrow_types;
 pub mod behavior;
-pub mod bundle;
+// src/bundle.rs remains uncompiled Phase 5 recovery source (P4 plan §11).
 pub mod catalog;
 pub mod catalog_core;
 pub mod catalog_evidence;

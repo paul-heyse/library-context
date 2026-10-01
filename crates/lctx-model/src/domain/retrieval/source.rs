@@ -4,6 +4,7 @@ use crate::domain::{artifact::{ARTIFACT_CHUNK_BYTES,ArtifactChunkKey},assertion:
 pub struct Text {pub value:String,_reservation:Box<dyn Reservation>}
 pub fn coordinates(d:&Data,original:&AnchorSource)->Result<(Id<SourceArtifact>,i64,i64),ModelError> {
  match original {
+ AnchorSource::Prose {slice}=>{let slice=need(&d.synthesis.prose_slices,*slice)?;let (artifact,start,end)=match need(&d.synthesis.prose_sources,slice.source)? {crate::domain::synthesis::documentary::ProseSource::Occurrence {occurrence}=>{let r=need(&d.source.core.occurrences,*occurrence)?;(r.source,r.start,r.end)},crate::domain::synthesis::documentary::ProseSource::Span {span}=>match need(&d.source.facts.canonical_evidence,span.id())? {Evidence::SourceSpan {source,start,end}=>(*source,*start,*end),_=>return Err(invalid("brief prose anchor is not a source span"))}};if slice.start<0||slice.end<slice.start||slice.end>end-start{return Err(invalid("brief prose slice exceeds original source"));}Ok((artifact,start+slice.start,start+slice.end))},
  AnchorSource::Artifact {artifact}=>Ok((*artifact,0,need(&d.source.core.artifacts,*artifact)?.byte_len)),
  AnchorSource::Span {span}=>match need(&d.source.facts.canonical_evidence,span.id())? {Evidence::SourceSpan {source,start,end}=>Ok((*source,*start,*end)),_=>Err(invalid("retrieval anchor is not canonical source span"))},
  AnchorSource::Original {source}=>match need(&d.evidence.original_sources,*source)? {

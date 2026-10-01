@@ -117,7 +117,9 @@ pub(crate) fn contract(
             ],
             false,
         ),
-        (AnalysisMethod::CatalogSelection, AnalysisCapability::CatalogSelection) => (
+        (AnalysisMethod::CatalogSelection, AnalysisCapability::CatalogSelection)
+        | (AnalysisMethod::Synthesis, AnalysisCapability::Synthesis)
+        | (AnalysisMethod::Retrieval, AnalysisCapability::Retrieval) => (
             &[
                 ScopeContract {
                     grain: Artifact(PythonSource),
@@ -184,6 +186,8 @@ AnalysisMethod::SourceCalls | AnalysisMethod::EnrichedExecution=>AnalysisCapabil
         AnalysisMethod::Controls => AnalysisCapability::Controls,
         AnalysisMethod::CatalogEvidence => AnalysisCapability::CatalogEvidence,
         AnalysisMethod::CatalogSelection => AnalysisCapability::CatalogSelection,
+        AnalysisMethod::Synthesis => AnalysisCapability::Synthesis,
+        AnalysisMethod::Retrieval => AnalysisCapability::Retrieval,
         AnalysisMethod::AnalyticEmbedding => AnalysisCapability::AnalyticEmbedding,
         AnalysisMethod::PageRank => AnalysisCapability::PageRank,
         AnalysisMethod::Communities => AnalysisCapability::Communities,

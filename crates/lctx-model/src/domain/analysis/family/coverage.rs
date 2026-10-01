@@ -353,6 +353,8 @@ fn bound_methods()->&'static [AnalysisMethod] {match AnalysisCoverage::NAME {
 "catalog_evidence_analysis_coverage"=>&[AnalysisMethod::CatalogEvidence],
 "analytic_analysis_coverage"=>&crate::domain::analytics::build::METHODS,
 "analytic_embedding_analysis_coverage"=>&[AnalysisMethod::AnalyticEmbedding],
+"synthesis_analysis_coverage"=>&[AnalysisMethod::Synthesis],
+"retrieval_analysis_coverage"=>&[AnalysisMethod::Retrieval],
 "selection_analysis_coverage"=>&[AnalysisMethod::CatalogSelection],
 "structural_analysis_coverage"=>&[AnalysisMethod::Delegation,AnalysisMethod::DirectUsage,AnalysisMethod::Handoffs,AnalysisMethod::Controls],
 _=>&[]}}
