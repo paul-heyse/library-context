@@ -1,5 +1,5 @@
 """Static flow and original official usage controls; never executed by the compiler."""
-__all__ = ["produce", "consume", "spare", "forward", "alias_forward", "computed", "rebound", "guarded", "caught", "unpacked", "swallowed", "tested", "literal"]
+__all__ = ["produce", "consume", "spare", "forward", "alias_forward", "computed", "rebound", "guarded", "caught", "unpacked", "swallowed", "tested", "literal", "chain1", "chain2", "chain3"]
 
 def produce() -> int:
     return 7
@@ -55,3 +55,13 @@ def tested(value: int) -> int:
 
 def literal() -> int:
     return consume(4)
+
+
+def chain1(value: int) -> int:
+    return chain2(value)
+
+def chain2(value: int) -> int:
+    return chain3(value)
+
+def chain3(value: int) -> int:
+    return guarded(value)

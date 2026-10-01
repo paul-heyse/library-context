@@ -8,7 +8,6 @@ macro_rules! structural_control_inputs {($apply:ident)=>{$apply!{
  entry_sources:$crate::domain::conditions::entry::EntryAccessSource,
  contributions:$crate::domain::local_semantics::LocalContribution,
  assessments:$crate::domain::local_semantics::LocalAssessment,
- guards:$crate::domain::local_semantics::LocalGuardContribution,
  details:$crate::domain::syntax::SyntaxDetail,
  observations:$crate::domain::syntax::SyntaxDetailObservation,
  supports:$crate::domain::syntax::SyntaxDetailSupport,
@@ -89,12 +88,12 @@ pub struct UnfollowedPath {
 fn same(a:&Occurrence,b:&Occurrence)->bool{a.source==b.source&&a.structural_path==b.structural_path&&a.syntax_kind==b.syntax_kind&&a.start==b.start&&a.end==b.end}
 fn inside(a:&Occurrence,b:&Occurrence)->bool{a.source==b.source&&a.structural_path.starts_with(&b.structural_path)&&a.start>=b.start&&a.end<=b.end}
 fn origin<'a>(h:&'a handoffs::Data,site:&Occurrence)->Result<Option<&'a normalized::entities::OccurrenceOwnership>,ModelError>{let mut owners=h.entry.owners.iter().filter(|o|h.entry.occurrences.get(o.occurrence).is_some_and(|r|same(r,site)));let first=owners.next();if owners.any(|o|first.is_some_and(|f|f.entity!=o.entity)){return Ok(None)}Ok(first)}
-fn suppression(h:&handoffs::Data,d:&Data,site:&Occurrence,formal:Id<ParameterEntity>,owner:Id<EntityRef>)->Result<(bool,bool),ModelError>{
+fn suppression(h:&handoffs::Data,d:&Data,site:&Occurrence,formal:Id<ParameterEntity>,owner:Id<EntityRef>,context:Id<attribution::AnalysisContext>)->Result<(bool,bool),ModelError>{
  let mut catches=false;let mut tested=false;
  for row in h.entry.occurrences.iter().filter(|o|inside(site,o)&&!same(site,o)){
   if !h.entry.owners.iter().any(|o|o.occurrence==row.id()&&o.entity==owner){continue}
   catches|=matches!(row.syntax_kind,SyntaxKind::StmtTry|SyntaxKind::StmtWith);
-  if matches!(row.syntax_kind,SyntaxKind::StmtIf|SyntaxKind::StmtWhile|SyntaxKind::ExprIf){for witness in d.entries.iter().filter(|w|w.owner==owner&&w.formal==formal&&matches!(d.entry_sources.get(w.access_source),Some(crate::domain::conditions::entry::EntryAccessSource::Use{..}))){let access=need(&h.entry.occurrences,witness.access)?;for leaf in h.entry.leaves.iter(){let test=need(&h.entry.occurrences,leaf.test)?;if inside(access,test)&&inside(test,row){tested=true;}}}}
+  if matches!(row.syntax_kind,SyntaxKind::StmtIf|SyntaxKind::StmtWhile|SyntaxKind::ExprIf){for witness in d.entries.iter().filter(|w|w.owner==owner&&w.formal==formal&&w.context==context&&matches!(d.entry_sources.get(w.access_source),Some(crate::domain::conditions::entry::EntryAccessSource::Use{..}))){let access=need(&h.entry.occurrences,witness.access)?;for leaf in h.entry.leaves.iter(){let test=need(&h.entry.occurrences,leaf.test)?;if inside(access,test)&&inside(test,row)&&h.entry.qualifications.get(leaf.qualification).is_some_and(|q|q.context==context){tested=true;}}}}
  }Ok((catches,tested))
 }
 fn target<'a>(base:&'a build::Data,alternative:&normalized::events::NormalizedCallAlternative)->Result<&'a CallTarget,ModelError>{need(&base.projection.targets,need(&base.events.alternative_sources,alternative.source)?.target())}
@@ -102,7 +101,7 @@ fn flow(d:&Data,h:&handoffs::Data,base:&build::Data,frame:&StructuralFrame,bindi
  let attempt=need(&h.attempts,binding.attempt)?;let alt=need(&base.events.alternatives,attempt.alternative)?;let Some(callee)=alt.entity else{return Ok(false)};let event=need(&base.events.events,alt.event)?;let call=target(base,alt)?;let q=need(&base.projection.qualifications,call.qualification)?;let entry=need(&d.entries,proof.entry)?;let slot=need(&h.slots,binding.slot)?;
  let mut links=h.entry.links.iter().filter(|l|l.parameter==slot.parameter);let Some(link)=links.next()else{return Ok(false)};if links.next().is_some(){return Ok(false)}
  let site=need(&h.entry.occurrences,event.site)?;let Some(caller)=origin(h,site)?else{return Ok(false)};if caller.entity!=entry.owner||q.context!=entry.context{return Ok(false)}
- let(catches,tested)=suppression(h,d,site,entry.formal,entry.owner)?;let modality=if matches!(base.events.alternative_sources.get(alt.source),Some(normalized::events::CallAlternativeSource::DerivedDispatch{..})){q.modality.weakest(Modality::Candidate)}else{q.modality};
+ let(catches,tested)=suppression(h,d,site,entry.formal,entry.owner,q.context)?;let modality=if matches!(base.events.alternative_sources.get(alt.source),Some(normalized::events::CallAlternativeSource::DerivedDispatch{..})){q.modality.weakest(Modality::Candidate)}else{q.modality};
  out.argument_flows.insert(ArgumentFlow{frame:frame.id(),binding:binding.id(),contribution:proof.id(),alias,caller:entry.owner,callee,source:entry.formal,formal:link.entity,phase:call.phase,modality,qualification:q.id(),conditional:q.condition!=Diagram::always().id(),may_catch:catches,value_tested:tested})?;Ok(true)
 }
 /// Only exact Local identity contributions and the canonical effective binder permit following.
@@ -117,18 +116,18 @@ pub fn produce(d:&Data,base:&build::Data,frame:&StructuralFrame,invocation:&owne
   for value in h.entry.values.iter().filter(|v|v.kind==FlowSinkKind::Argument&&h.entry.qualifications.get(v.qualification).is_some_and(|q|q.context==invocation.context)&&h.entry.occurrences.get(v.sink).is_some_and(|o|same(o,argument))){let use_=need(&h.entry.uses,value.use_)?;let place=need(&h.entry.places,use_.place)?;let Some(PlaceRoot::Formal{declaration})=h.entry.roots.get(place.root)else{continue};let formal=ParameterEntity::Source{declaration:*declaration}.id();if value.transfer==transfer::TransferKind::Identity&&out.argument_flows.iter().any(|f|f.binding==binding.id()&&f.source==formal&&d.contributions.get(f.contribution).is_some_and(|c|c.value==value.id())){continue}let assessment=d.assessments.iter().find(|a|a.value==value.id());let reason=if !bound{obligation::ObligationKind::AmbiguousBinding}else{assessment.and_then(|a|a.reason).unwrap_or(obligation::ObligationKind::ConditionTransferUnsupported)};out.unfollowed_arguments.insert(UnfollowedArgument{frame:frame.id(),attempt:attempt.id(),argument:argument.id(),binding:Some(binding.id()),value:value.id(),caller:caller.entity,formal,assessment:assessment.map(Record::id),reason})?;}
  }
  unmapped(d,base,frame,invocation,out)?;
- traverse(d,base,frame,settings,out,budget)
+ traverse(d,base,frame,invocation.context,settings,out,budget)
 }
 struct State{target:Id<EntityRef>,formal:Id<ParameterEntity>,suppressed:bool,path:Vec<Id<ArgumentFlow>>}
 impl HeapSize for State{fn heap_bytes(&self)->usize{self.path.heap_bytes()}}
-fn traverse(d:&Data,base:&build::Data,frame:&StructuralFrame,settings:&AnalyticsConfiguration,out:&mut Output,budget:&resources::ResourceBudget)->Result<(),ModelError>{
+fn traverse(d:&Data,base:&build::Data,frame:&StructuralFrame,context:Id<attribution::AnalysisContext>,settings:&AnalyticsConfiguration,out:&mut Output,budget:&resources::ResourceBudget)->Result<(),ModelError>{
  let mut roots=charged::ChargedSet::default();let mut charge=charged::StateCharge::new(budget,"structural-control-worklist");
  for candidate in out.public.iter().filter(|c|c.in_subsystem){let EntityRef::Callable{callable}=need(&base.handoffs.entry.refs,candidate.entity)?else{continue};let CallableEntity::Source{declaration,..}=need(&base.handoffs.entry.callables,*callable)?else{continue};for link in base.handoffs.entry.links.iter(){let parameter=need(&base.handoffs.entry.parameters,link.parameter)?;let signature=need(&base.handoffs.entry.signatures,parameter.signature)?;if base.handoffs.entry.symbol_declarations.iter().any(|row|row.symbol==signature.symbol&&row.declaration==*declaration){roots.insert(&mut charge,(candidate.entity,link.entity))?;}}}
  for (seed,formal) in roots.iter(){let traversal_id=ControlTraversal{frame:frame.id(),seed:*seed,formal:*formal,stop:None,vertices:0,arcs:0}.id();let mut visited=charged::ChargedSet::default();let mut pending=charged::ChargedVec::default();pending.push(&mut charge,State{target:*seed,formal:*formal,suppressed:false,path:vec![]})?;let mut cursor=0;let mut arcs=0;let mut stop=None;
   while cursor<pending.len(){let state=&pending[cursor];let key=(state.target,state.formal,state.suppressed);if visited.contains(&key){cursor+=1;continue}if visited.len()>=settings.vertices as usize{stop=Some(TraversalStop::Vertices);break}visited.insert(&mut charge,key)?;
    let _path=budget.reserve("control-path-copy",state.path.heap_bytes())?;let path=ControlPath{traversal:traversal_id,target:state.target,formal:state.formal,may_suppress:state.suppressed,length:state.path.len() as i64};out.control_paths.insert(path.clone())?;for (ordinal,flow) in state.path.iter().enumerate(){out.control_steps.insert(ControlStep{path:path.id(),ordinal:ordinal as i64,flow:*flow})?;}
    for row in out.unfollowed_arguments.iter().filter(|r|r.caller==state.target&&r.formal==state.formal){out.unfollowed_paths.insert(UnfollowedPath{path:path.id(),argument:row.id()})?;}
-   if !state.suppressed{raises(d,&base.handoffs,&path,out,budget)?;}
+   if !state.suppressed{raises(d,&base.handoffs,&path,context,out,budget)?;}
    let current=(state.target,state.formal,state.suppressed,state.path.len());let _temporary=budget.reserve("control-pending-paths",state.path.heap_bytes().checked_mul(2).and_then(|n|n.checked_add(size_of::<Id<ArgumentFlow>>())).ok_or_else(||invalid("control path allowance overflow"))?)?;let path=state.path.clone();
    for edge in out.argument_flows.iter().filter(|e|e.caller==current.0&&e.source==current.1){if current.3>=settings.depth as usize{stop=Some(TraversalStop::Depth);continue}if arcs>=settings.arcs{stop=Some(TraversalStop::Arcs);break}arcs+=1;let mut steps=path.clone();steps.push(edge.id());pending.push(&mut charge,State{target:edge.callee,formal:edge.formal,suppressed:current.2||edge.may_catch||edge.value_tested,path:steps})?;}
    cursor+=1;if stop==Some(TraversalStop::Arcs){break}
@@ -138,8 +137,8 @@ fn traverse(d:&Data,base:&build::Data,frame:&StructuralFrame,settings:&Analytics
 }
 /// A source-level branch observation needs an exact entry read in the native test. It does
 /// not require (or establish) predicate stability for substitution into another invocation.
-fn raises(d:&Data,h:&handoffs::Data,path:&ControlPath,out:&mut Output,budget:&resources::ResourceBudget)->Result<(),ModelError>{
- for entry in d.entries.iter().filter(|e|(e.owner,e.formal)==(path.target,path.formal)&&matches!(d.entry_sources.get(e.access_source),Some(crate::domain::conditions::entry::EntryAccessSource::Use{..}))){let read=need(&h.entry.occurrences,entry.access)?;
+fn raises(d:&Data,h:&handoffs::Data,path:&ControlPath,context:Id<attribution::AnalysisContext>,out:&mut Output,budget:&resources::ResourceBudget)->Result<(),ModelError>{
+ for entry in d.entries.iter().filter(|e|(e.owner,e.formal,e.context)==(path.target,path.formal,context)&&matches!(d.entry_sources.get(e.access_source),Some(crate::domain::conditions::entry::EntryAccessSource::Use{..}))){let read=need(&h.entry.occurrences,entry.access)?;
   for leaf in h.entry.leaves.iter(){let test=need(&h.entry.occurrences,leaf.test)?;if !inside(read,test){continue}let lq=need(&h.entry.qualifications,leaf.qualification)?;if lq.context!=entry.context{continue}
    for leaf_support in h.entry.leaf_supports.iter().filter(|s|s.assertion==leaf.id()&&s.attribution().is_some_and(|a|a.run==entry.run)) {let lp=analysis::native::NativeAssertionPremise::Leaf{assertion:leaf.id(),support:leaf_support.id()};if !h.native.iter().any(|n|n.premise==lp.id()&&n.qualification==lq.id()&&n.family==attribution::FactFamily::Flow&&n.fidelity==attribution::Fidelity::NativeStructural){continue}
     for region in h.entry.regions.iter(){let statement=need(&h.entry.occurrences,region.statement)?;if statement.syntax_kind!=SyntaxKind::StmtRaise||!h.entry.owners.iter().any(|o|o.occurrence==statement.id()&&o.entity==entry.owner){continue}
