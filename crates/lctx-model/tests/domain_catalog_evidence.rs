@@ -1476,7 +1476,7 @@ fn normalized_constructor_candidate_keeps_own_public_slot_and_never_claims_state
     let site = occurrence(&mut d, &source, 0, 6, SyntaxKind::ExprCall);
     let event = event(&mut d, &source, &q, site, callee, 140);
     let alternative = d.facts.alternatives.iter().next().unwrap().clone();
-    let caller = d
+    let _caller = d
         .core
         .ownership
         .get(d.facts.events.get(event).unwrap().owner)

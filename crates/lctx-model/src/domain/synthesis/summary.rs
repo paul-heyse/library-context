@@ -471,6 +471,7 @@ pub fn text(d: &Data, facet: &SummaryFacet, b: &ResourceBudget) -> Result<String
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::execution::summary_consequences::ClaimProof;
     fn id<T>(n: u8) -> Id<T> {
         serde_json::from_value(serde_json::json!(vec![n; 16])).unwrap()
     }

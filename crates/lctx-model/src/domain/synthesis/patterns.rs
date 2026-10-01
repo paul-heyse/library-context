@@ -684,6 +684,7 @@ impl InvariantCheck for Check {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use crate::domain::normalized::events::{NormalizedCallAlternative, NormalizedCallEvent};
     use crate::domain::{analysis::native::*, lexical::*, source::*, syntax::SyntaxPlacement};
     fn id<T>(n: u8) -> Id<T> {
         serde_json::from_value(serde_json::json!(vec![n; 16])).unwrap()

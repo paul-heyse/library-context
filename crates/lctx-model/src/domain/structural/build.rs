@@ -437,7 +437,7 @@ impl Data {
         ]);
         for input in &mut inputs {
             if stages::is_vocabulary(input.name()) {
-                *input = (*input).at_epoch(stages::PublicationBoundary::Local);
+                *input = input.clone().at_epoch(stages::PublicationBoundary::Local);
             }
         }
         inputs.sort_by_key(|i| (i.name(), i.prefix()));

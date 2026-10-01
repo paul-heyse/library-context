@@ -75,8 +75,8 @@ fn native_stage_uses_only_facts_with_frozen_vocabulary_and_exact_pair_inventory(
     )*};}
     lctx_model::native_analysis_pairs!(count_pairs);
     assert_eq!(pairs, 52);
-    assert!(stage.reads::<symbols::SignatureEnumerationObservation>());
-    assert!(stage.reads::<symbols::SignatureEnumerationSupport>());
+    assert!(stage.reads::<calls::SignatureEnumerationObservation>());
+    assert!(stage.reads::<calls::SignatureEnumerationSupport>());
     assert_eq!(stage.outputs.len(), 2);
     assert!(
         stage.writes::<native::NativeAssertionPremise>()

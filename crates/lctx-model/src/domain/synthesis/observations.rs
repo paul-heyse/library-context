@@ -288,6 +288,7 @@ impl InvariantCheck for Check {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::assertion::AssertionQualification;
     fn binary<R: Record>(id: Id<R>) -> arrow_array::ArrayRef {
         std::sync::Arc::new(
             arrow_array::FixedSizeBinaryArray::try_from_iter([id.bytes()].into_iter()).unwrap(),

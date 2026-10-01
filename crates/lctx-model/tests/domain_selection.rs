@@ -1,7 +1,5 @@
 //! Retained independent finite requirement controls, with current nominal identities.
 use lctx_model::domain::{
-    attribution::AnalysisContext,
-    catalog::*,
     conditions::{Diagram, EvaluationAtom},
     normalized::Rows,
     resources::ResourceBudget,

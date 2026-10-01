@@ -63,7 +63,7 @@ pub fn produce(
     });
     let prepared = calculate(
         d,
-        VectorSelection { f, parent, public },
+        VectorSelectionInputs { f, parent, public },
         &mut calculation,
         ordinary,
         layer.as_ref(),
@@ -81,7 +81,7 @@ pub fn produce(
     }
     Ok(prepared)
 }
-struct VectorSelection<'a> {
+struct VectorSelectionInputs<'a> {
     f: &'a AnalyticFrame,
     parent: &'a parent::Invocation,
     public: &'a BTreeSet<Id<EntityRef>>,
@@ -89,14 +89,14 @@ struct VectorSelection<'a> {
 
 fn calculate(
     d: &Data,
-    vector_selection: VectorSelection<'_>,
+    vector_selection: VectorSelectionInputs<'_>,
     r: &mut TechniqueResult,
     ordinary: bool,
     layer: Option<&LayerResult>,
     out: &mut Output,
     b: &ResourceBudget,
 ) -> Result<Option<neighbours::Prepared>, ModelError> {
-    let VectorSelection { f, parent, public } = vector_selection;
+    let VectorSelectionInputs { f, parent, public } = vector_selection;
     if !r.selected {
         return Ok(None);
     }

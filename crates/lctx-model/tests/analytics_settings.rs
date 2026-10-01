@@ -39,7 +39,7 @@ fn scope_and_resolved_techniques_are_canonical_identity_bearing_configuration() 
             .unwrap()
             .id()
     );
-    let batch = AnalyticsConfiguration::encode(&vec![row.clone()]).unwrap();
+    let batch = AnalyticsConfiguration::encode(std::slice::from_ref(&row)).unwrap();
     assert_eq!(AnalyticsConfiguration::decode(&batch).unwrap(), vec![row]);
 }
 #[test]

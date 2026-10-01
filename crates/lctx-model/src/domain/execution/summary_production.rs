@@ -224,7 +224,7 @@ impl SummaryRecords {
             data, self, invocation, definition, profile, budget,
         )?;
         macro_rules! append{($($dst:ident:$src:ident),* $(,)?)=>{$(for row in rows.$src.iter(){self.$dst.insert(row.clone())?;})*};}
-        append!(claims,claim_members:members,claim_standings:standings,claim_proofs:proofs,claim_proof_members:proof_members,refutation_coverage,conclusions,keys,premises,subjects,sources,derivations,propositions,derivation_premises,obligations:obligations);
+        append!(claims:claims,claim_members:members,claim_standings:standings,claim_proofs:proofs,claim_proof_members:proof_members,refutation_coverage:refutation_coverage,conclusions:conclusions,keys:keys,premises:premises,subjects:subjects,sources:sources,derivations:derivations,propositions:propositions,derivation_premises:derivation_premises,obligations:obligations);
         self.pending = Some(rows.into_pending_parts());
         Ok(())
     }
