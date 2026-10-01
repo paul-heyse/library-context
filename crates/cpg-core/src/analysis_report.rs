@@ -37,18 +37,28 @@ pub struct DiagnosticReport {
     pub residual: Option<FiniteF64>,
     pub converged: Option<bool>,
 }
+#[derive(Debug, Serialize)]
+pub struct FrontierReport {
+    pub frontier: &'static str,
+    pub assessment: String,
+    pub input: String,
+    pub context: String,
+    pub availability: String,
+    pub reason: Option<String>,
+}
 /// The reservation remains with the presented rows, including after the read lease closes.
 #[derive(Debug, Serialize)]
 pub struct AnalysisReport {
     pub outcomes: Vec<InvocationReport>,
     pub capabilities: Vec<CapabilityReport>,
     pub diagnostics: Vec<DiagnosticReport>,
+    pub frontiers: Vec<FrontierReport>,
     #[serde(skip)]
     charge: StateCharge,
 }
 impl AnalysisReport {
     fn new(budget: &resources::ResourceBudget) -> Self {
-        Self { outcomes: vec![], capabilities: vec![], diagnostics: vec![], charge: StateCharge::new(budget,"analysis-report") }
+        Self { outcomes: vec![], capabilities: vec![], diagnostics: vec![], frontiers: vec![], charge: StateCharge::new(budget,"analysis-report") }
     }
     // Fixed-shape rows contain only bounded model names, enum labels and 128-bit IDs. This
     // allowance covers their strings and geometric Vec capacity before each row is constructed.
@@ -102,5 +112,7 @@ async fn collect(session:&InspectionSession,held:&BTreeSet<&str>)->Result<Analys
             report.diagnostics.push(DiagnosticReport {owner:"analytic",invocation:row.invocation.hex(),elapsed_micros:None,iterations:Some(row.iterations),examined_members:Some(row.examined),residual:row.residual,converged:match row.stop {analytics::Stop::Converged=>Some(true),analytics::Stop::IterationLimit=>Some(false),_=>None}});
         }
     }
+    macro_rules! frontier {($kind:ident,$name:literal)=>{if held.contains(analysis::frontier::$kind::NAME){for row in rows::<analysis::frontier::$kind>(session).await?.iter(){report.admit()?;report.frontiers.push(FrontierReport{frontier:$name,assessment:row.id().hex(),input:row.input.hex(),context:row.context.hex(),availability:format!("{:?}",row.availability),reason:row.reason.map(|r|format!("{r:?}"))});}}};}
+    frontier!(AnalysisAssessment,"analysis");frontier!(CatalogAssessment,"catalog");
     Ok(report)
 }

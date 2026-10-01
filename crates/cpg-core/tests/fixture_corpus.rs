@@ -8,6 +8,11 @@ use cpg_extract::{
 use lctx_model::domain::{ContentHash, resources::ResourceBudget, stages::Profile};
 use std::{collections::BTreeSet, path::Path, sync::Arc};
 const CASES: &[&str] = &[
+    "field_dynamic_all",
+    "field_read_screen",
+    "analytic_optional",
+    "entry_value_witnesses",
+    "transfer_composition",
     "dictionary_keys",
     "direct_usage",
     "execution_channels",
@@ -42,6 +47,8 @@ const CASES: &[&str] = &[
     "normalized_relations",
     "normalized_projections",
     "phase4_context_constructors",
+    "phase4_summaries",
+    "phase4_models",
     "normalized_entities",
     "normalized_bindings",
     "effective_callables",
