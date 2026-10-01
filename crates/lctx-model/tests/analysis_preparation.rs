@@ -21,7 +21,7 @@ fn configuration_has_nominal_catalog_closure_and_refuses_foreign_selection() {
 }
 #[test]
 fn native_stage_uses_only_facts_with_frozen_vocabulary_and_exact_pair_inventory() {
-    let stage=native_stage();let facts=facts_relations().into_iter().map(|r|r.name()).collect::<std::collections::BTreeSet<_>>();
+    let stage=native_stage(Profile::Behavioral);let facts=facts_relations().into_iter().map(|r|r.name()).collect::<std::collections::BTreeSet<_>>();
     for input in &stage.inputs {assert!(facts.contains(input.name()));assert_eq!(input.transport(),InputTransport::CompletedStore);
         if is_vocabulary(input.name()) {assert_eq!(input.prefix(),Some(PublicationBoundary::Facts));}}
     let mut pairs=0;
@@ -32,4 +32,6 @@ fn native_stage_uses_only_facts_with_frozen_vocabulary_and_exact_pair_inventory(
     assert_eq!(pairs,51);
     assert_eq!(stage.outputs.len(),2);
     assert!(stage.writes::<native::NativeAssertionPremise>() && stage.writes::<native::NativeQualification>());
+    let catalog=native_stage(Profile::Catalog);
+    assert!(!catalog.reads::<flow::FlowUseObservation>() && !catalog.reads::<flow::FlowAttributeLoadObservation>());
 }

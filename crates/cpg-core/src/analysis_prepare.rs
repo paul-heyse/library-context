@@ -41,8 +41,10 @@ pub async fn native_inventory(access: StageAccess<'_, '_>, attempt: &GenerationA
     let mut inventory=NativeInventory::new(runtime.budget());
     native_input::<AssertionQualification>(&access,&reader,&session,&mut inventory).await?;
     macro_rules! read_pairs {($($code:literal:$variant:ident=>$assertion:ty,$support:ty;)*)=>{$(
-        native_input::<$assertion>(&access,&reader,&session,&mut inventory).await?;
-        native_input::<$support>(&access,&reader,&session,&mut inventory).await?;
+        if access.stage().reads::<$assertion>() {
+            native_input::<$assertion>(&access,&reader,&session,&mut inventory).await?;
+            native_input::<$support>(&access,&reader,&session,&mut inventory).await?;
+        }
     )*};}
     lctx_model::native_analysis_pairs!(read_pairs);
     drop(session);reader.close().await.map_err(ModelError::codec)?;

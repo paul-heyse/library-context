@@ -22,7 +22,7 @@ async fn both_profiles_store_selected_catalog_and_exact_native_inventory() {
         let configuration=Configuration::new(captured.config().catalog(),[(parameters,definition)],budget).unwrap();
         let mut providers=cpg_core::facts::providers(ContentHash::of(b"analysis preparation"));
         let mut declarations=providers.iter().map(|p|p.declaration(profile)).collect::<Vec<_>>();
-        declarations.extend([configuration.declaration(),preparation::native_stage()]);
+        declarations.extend([configuration.declaration(),preparation::native_stage(profile)]);
         let schedule=Schedule::build(&model,declarations,&[],profile).unwrap();
         let mut execution=schedule.execute();
         let attempt=store.begin_conformance(db.writer.clone(),&mut execution,budget.clone()).await.unwrap();

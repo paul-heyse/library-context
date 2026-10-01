@@ -77,10 +77,12 @@ macro_rules! native_pairs {
             }
             /// Native support validators stay authoritative. The producer must read confirmed
             /// facts with these validators; this projection does not reimplement attribution.
-            pub fn stage_inputs() -> Vec<stages::RelationUse> {
+            pub fn stage_inputs(profile: stages::Profile) -> Vec<stages::RelationUse> {
                 let mut inputs = vec![stages::RelationUse::stored::<AssertionQualification>()];
-                $(inputs.extend([stages::RelationUse::stored::<$assertion>(),
-                    stages::RelationUse::stored::<$support>().validated_by(&[<$support>::NAME])]);)*
+                $(if profile == stages::Profile::Behavioral || <$assertion as Assertion>::FAMILY != FactFamily::Flow {
+                    inputs.extend([stages::RelationUse::stored::<$assertion>(),
+                        stages::RelationUse::stored::<$support>().validated_by(&[<$support>::NAME])]);
+                })*
                 inputs
             }
             pub fn visit(&mut self, name: &str, batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {

@@ -46,11 +46,20 @@ pub fn configuration_relations()->Vec<Relation> {
 }
 /// Native attribution validation and its nominal reference closure are facts-owned. Bind every
 /// vocabulary read to the facts prefix even when later consumers add further vocabulary.
-pub fn native_stage()->Stage {
-    let mut inputs=NativeInventory::stage_inputs().into_iter().map(|input|(input.name(),input)).collect::<std::collections::BTreeMap<_,_>>();
-    for relation in facts_relations() {inputs.entry(relation.name()).or_insert_with(||RelationUse::of_relation(&relation).completed_store());}
+pub fn native_stage(profile:Profile)->Stage {
+    let mut inputs=NativeInventory::stage_inputs(profile).into_iter().map(|input|(input.name(),input)).collect::<std::collections::BTreeMap<_,_>>();
+    let facts=facts_relations().into_iter().map(|relation|(relation.name(),relation)).collect::<std::collections::BTreeMap<_,_>>();
+    let mut pending=inputs.keys().copied().collect::<Vec<_>>();
+    while let Some(name)=pending.pop() {
+        let relation=&facts[name];
+        let references=relation.fields().iter().filter_map(|field|field.target().map(|(_,name)|name));
+        let invariants=relation.invariants().iter().flat_map(|invariant|invariant.inputs.iter().map(ValidationInput::name));
+        for required in references.chain(invariants) {
+            if !inputs.contains_key(required) {inputs.insert(required,RelationUse::of_relation(&facts[required]).completed_store());pending.push(required);}
+        }
+    }
     let inputs=inputs.into_values().map(|input|if is_vocabulary(input.name()) {input.at_epoch(PublicationBoundary::Facts)}else{input}).collect();
     Stage {name:"analysis_native_inventory",inputs,outputs:super::native::relations().iter().map(RelationUse::of_relation).collect(),
-        contributes:vec![],coverage:vec![],provider:None,profiles:Profile::ALL.to_vec(),effect:Effect::Pure,
+        contributes:vec![],coverage:vec![],provider:None,profiles:vec![profile],effect:Effect::Pure,
         code:ContentHash::of(include_bytes!("native.rs")),configuration:ContentHash::of(b"native-inventory-v1")}
 }

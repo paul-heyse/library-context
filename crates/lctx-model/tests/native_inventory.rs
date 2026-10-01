@@ -132,7 +132,7 @@ fn inventory_inputs_have_only_native_authority_and_require_native_support_valida
     assert_eq!(inputs.len(), 103); // 51 distinct native pairs plus shared qualification.
     let facts = lctx_model::domain::facts_relations();
     assert!(inputs.iter().all(|input| facts.iter().any(|relation| relation.name() == input.name())));
-    assert_eq!(NativeInventory::stage_inputs().len(), inputs.len());
+    assert_eq!(NativeInventory::stage_inputs(lctx_model::domain::stages::Profile::Behavioral).len(), inputs.len());
     let premise = NativeAssertionPremise::SyntaxObservation { assertion: nominal(1), support: nominal(2) };
     let proof = premise.proof().unwrap();
     assert_eq!(proof.premises.len(), 2);
