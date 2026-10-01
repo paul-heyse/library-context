@@ -41,6 +41,9 @@ develops normalized relations and their runtime prerequisites. Its cumulative-ge
 The [Phase 4 detailed plan](../../plans/semantic-model-phase4-detailed-plan_2026-09-30.md)
 is an **Accepted target, 2026-09-30**. It specifies analysis/catalog reconstruction, required normalized
 corrections and the immutable vocabulary mechanism below; it does not establish P4 implementation.
+R0/R1 are **Implemented / focused-Tested**, with an independent
+[Accept scoped foundation review, 2026-10-01](../../design_review/reviews/design_review_phase4-foundation_2026-09-30.md).
+Downstream producers, assembled acceptance and retirement remain open in plan §13.2.
 
 **Where the requirement came from.** The
 [semantic data model target review](../../design_review/reviews/design_review_semantic-data-model_2026-09-29.md)
@@ -59,11 +62,11 @@ The review's evidence folder holds the probes.
 ## §15.1 Layers, owners and mechanisms
 
 Every relation belongs to exactly one layer and one semantic production owner. Ordinary relations
-have exactly one producing stage. **Accepted P4 target (ADR-0105), not implemented:** the finite shared vocabulary has one assembly owner and
+have exactly one producing stage. **Implemented / focused-Tested, 2026-10-01 (ADR-0105):** the finite shared vocabulary has one assembly owner and
 one writer per declared immutable epoch. Ordinary relations retain one producing stage;
 §15.11 specifies the publication/read boundary.
 
-**Accepted P4 target (ADR-0108), not implemented:** shared analysis contracts have finite nominal
+**Implemented / focused-Tested, 2026-10-01 (ADR-0108):** shared analysis contracts have finite nominal
 instances at immutable producing owners. Preflight-known definitions remain early one-shot rows;
 late invocation, support, coverage and proof records belong to their actual publication boundary.
 Mechanical declarations share semantic operations. Their reference sums and invariant inputs name
@@ -572,18 +575,21 @@ generated. It supports explanation lookup ("why", "why unresolved") and reverse 
 
 **Findings.** Analysis findings come from one emitter. Invocations record their input invocations.
 
-**Accepted P4 target (ADR-0106), not implemented.** Derived support cites AnalysisInvocation and typed premises,
-separately from native provider support, under one qualification operation. Finite composition
+**Implemented / focused-Tested, 2026-10-01 (ADR-0106).** Derived support cites nominal AnalysisInvocation and typed premises,
+separately from native provider support, under one qualification operation. **Accepted target:** finite composition
 witnesses cite earlier witnesses and source evidence; completed summary aggregates cite witnesses
 after SCC closure and never serve as their own proof premises. Coverage membership is retained
 independently of witness deduplication.
 
-**Accepted ownership refinement (ADR-0108), not implemented.** Invocation/support/coverage and
+**Implemented / focused-Tested, 2026-10-01 (ADR-0108).** Invocation/support/coverage and
 proof families are nominal per producing owner, with one qualification and coverage policy.
 The generated index validates their combined DAG. Later discharge references earlier obligations
 without extending completed membership. S0 alone writes the shared finding family; earlier stages
 publish qualified conclusions for its emitter. A final read-only union does not become another
-writable authority or grant access to unfinished owners.
+writable authority or grant access to unfinished owners. Only LocalTransfers/Transfers and
+Catalog/Catalog currently have expected-domain selectors; other nonempty invocations refuse until
+their producer package binds an actual input universe. This foundation does not activate S0 or
+the remaining analysis producers.
 
 **Witnesses** are selected at serve time from derivations, under response budgets. A smaller budget
 never removes an established conclusion.
@@ -621,9 +627,11 @@ new collection lifecycle, with no graph reuse hash or incremental cache. The wra
 context, projection/format version and petgraph version; graph indices never become domain IDs.
 No separate graph schema or materialized path closure becomes semantic authority.
 
-**Accepted P4 target (ADR-0106), not implemented.** Algorithms borrow read-only native visit views after hydration,
-without reconstructing edges from SQL. Dispatch expansion precedes the one graph build on every
-fresh collection. Numeric conversions have explicit universe/weight/lineage contracts and share
+**Implemented / focused-Tested adapter, 2026-09-30 (ADR-0106).** Algorithms can borrow generatively
+branded native visit views after hydration; canonical SCC ordering uses this interface without
+reconstructing edges from SQL. Analysis collection preparation and actual downstream algorithm
+consumers remain open. Dispatch expansion precedes the graph build on every fresh collection.
+**Accepted target:** numeric conversions have explicit universe/weight/lineage contracts and share
 the attempt budget. Optional analytics retain their existing disabled defaults.
 
 > Decision: ADR-0085, ADR-0103, ADR-0106
@@ -726,14 +734,15 @@ schedule-bound physical prefix ordinals; their append-only domain codes do not d
 order. Ordinary outputs inherit the maximum prefix of their declared acknowledged inputs, including
 completed handoffs. Completion validates vocabulary references against that bound and any narrower
 explicit input prefix before granting reads. An unrelated later close cannot widen this authority.
-The enclosing R0/R1 foundation review and Phase 4 acceptance remain pending.
+The [R0/R1 foundation review](../../design_review/reviews/design_review_phase4-foundation_2026-09-30.md)
+is **Accept scoped, 2026-10-01**. Complete Phase 4 acceptance remains pending.
 
-**Accepted ownership refinement (ADR-0108), not implemented.** The finite owner graph follows
+**Implemented foundation, 2026-10-01 (ADR-0108).** The finite nominal owner graph follows
 actual stored-read dependencies, including execution sub-stages and catalog core → evidence →
 selection → synthesis → retrieval. New vocabulary closes occur only where those consumers need
 new predecessor vocabulary; ordinary results can complete against the existing prefix. No global
 proof reference sum may pull future owners into an earlier stage's invariant dependencies. Final
-frontier coverage has a separate one-shot writer and checks the independently declared expected
+frontier coverage will have a separate one-shot writer checking the independently declared expected
 owners/outcomes. Catalog construction remains independent of optional analysis success.
 
 > Decision: ADR-0105, ADR-0108

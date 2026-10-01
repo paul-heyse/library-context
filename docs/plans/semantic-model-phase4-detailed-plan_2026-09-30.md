@@ -527,6 +527,14 @@ Define CatalogMember by the normalized public access slot and owning release/inp
 of improved resolution or signature knowledge. Member-to-exposure/candidate links retain all
 evidence. Do not key the public slot by whichever declaration currently wins.
 
+P3 public exposures identify module-level roots. C0 owns the pure expansion into nested public
+paths, joining declaration parents, occurrence ownership, entity correspondence and qualified
+ancestry by typed identity. Member names determine path segments and shadowing only after those
+identity joins. Preserve rebinding, nearest-MRO and unresolved candidate evidence; do not invent
+raw public-name observations. The slot key is the access module and full relative public path in
+its input/release. Catalog coverage requires PublicExposure, Symbols, Ancestry, Types and Callables;
+it does not require the broad Entities capability, whose current inventory includes Flow.
+
 CatalogInvocation links the member to source/effective signature variants, descriptor/binding
 context and applicability. Parameter/type/default rendering follows canonical signature/type rows.
 Constructor associations retain own/inherited/synthetic origin. Keep ordered overload variants;
@@ -919,22 +927,32 @@ Full D0–Q0 execution was authorized on 2026-09-30, including ADR-0106's condit
 D0 adopts ADR-0105/0106 and preserves the independently reviewed target and §11 migration inventory.
 The implementation baseline is clean main `24e86d5`; production sources and dependency manifests
 were unchanged from the inspected design baseline at execution start. R0 is implemented with focused
-pure, real-store and source-bound provider controls; enclosing foundation acceptance remains pending.
+pure, real-store and source-bound provider controls. The independent
+[R0/R1 foundation review](../design_review/reviews/design_review_phase4-foundation_2026-09-30.md)
+is **Accept scoped, 2026-10-01**, at frozen `0a60954`, with no material in-scope finding.
+Its O1 retains downstream selector activation prerequisites; O2 distinguishes scoped preparation
+controls from full assembly. Parent §8 owns their current dispositions.
 ADR-0108's additional close boundaries require separating named publication identity from the
 schedule's contiguous physical prefix ordinal; that refinement is integrated as `5262be0`.
 Ordinary outputs now preserve that authority transitively through acknowledged declared inputs,
 and publication refuses vocabulary references outside the inherited or narrower explicit prefix.
-R1 is in progress in an isolated worktree. Its finite-metric
-lowering was integrated as `a44e3f8`; analysis invocation/support/coverage contracts remain under
-implementation. Focused foundation advice exposed a shared ordinary-result writer cycle; ADR-0108
-selects nominal immutable producing-owner instances with shared semantic operations. The isolated
-R1 semantic slice passed focused controls before this ownership correction; it is not accepted as
-the final production model. Preparatory G0 graph-view work is integrated and does not establish G0's N1 dependency
-or foundation acceptance. N0's independent authored catalog/parser, nominal declarations, required
-dependency domain and shared declaration validator are prepared in isolated branch
-`phase4-authored-models`; extraction/context activation and legacy retirement remain pending.
-N0 native activation and N1 receiver corrections are in progress in isolated worktrees.
-The other downstream packages remain not started. Existing descriptions marked Proposed specify accepted
+R1's finite metrics, sixteen nominal producing-owner families, exact native premise inventory,
+source-bound expected coverage and cross-owner discharge are integrated. Actual scheduled publication
+replays shared model callbacks against acknowledged inputs and the registry profile before granting
+read access. Only LocalTransfers/Transfers and Catalog/Catalog currently have producer selectors;
+other nonempty owner invocations refuse until their packages supply a real selector. The testing-only
+unscheduled Harness exercises ordinary model invariants but cannot qualify source-sensitive publication.
+Those controls use scheduled `begin_conformance` attempts and actual completed inputs.
+
+N0's immutable authored catalog, retained parser reservations, native dependency requirements and
+early configuration/native-inventory producers are integrated. N1 receiver proofs and captured open
+dispatch members are integrated; normalized alternatives use Native/DerivedDispatch sources and
+projection snapshots are VERSION2. Open override shape bindings retain SourceInspection authority
+and do not become Summary/composition admission. Preparatory G0 borrowed graph views and canonical
+SCC scheduling are integrated; analysis preparation's once-per-projection hydration lifetime remains
+pending. B0 entry-value/guard and entity-owned transfer work and C0 catalog work are in progress.
+Downstream execution, analytics, catalog evidence/selection, synthesis/retrieval, CLI assembly,
+ownership retirement and Q0 remain pending. Existing descriptions marked Proposed specify accepted
 targets whose behavior is not yet implemented or tested; they are not runtime claims.
 The [independent assembled review](../design_review/reviews/design_review_phase4-plan_2026-09-30.md)
 is **Accept scoped, 2026-09-30**, at Proposed design level. A1–A3 and the document-target gates are
@@ -968,9 +986,16 @@ rule and cross-consumer vector-winner invariant were also clarified during assem
 | R1 behavior store migration | composite passed in isolated PG-derived checkout: `python3 scripts/build_environment.py -- cargo --config 'build.build-dir="/home/paul/.cache/library-context-phase4-pg-derived/build"' test --release -p lctx-postgres --features testing --test domain_transfer --test domain_composition --test domain_stability` (1+1+1 real PG18). Fixtures use actual native inventories and Local derivation/support families. Initial full-schema retirement exhausted default PostgreSQL lock capacity; disposable servers now start with `max_locks_per_transaction=256`, and all three reran successfully. The production cluster remains at 64; F0 must configure adequate capacity during quiesced maintenance before qualifying the full model. |
 | N0 native context and independent review | passed in isolated native-context checkout at `7d82034`: wrapped Cargo with its stable private build directory, `check -p cpg-extract -p cpg-core --all-targets`, CLI check, `test --release -p cpg-extract --test native_model_context --test bundle --test producer_fingerprint` (6+6+1), core facts admission (2), extraction short-budget control (1) and retained typed-call control (1). Independent bounded review found no material issue; early catalog publication and retirement remain integration obligations. |
 | N0 additional native controls | passed: isolated wrapped Cargo `test --release -p cpg-extract --test native_model_context` (8), adding wrong distribution ownership and inconsistent/cyclic MRO controls. An initial test assumed an Any base makes Pyrefly MRO incomplete; replaced with actual conflicting C3 and cycle fixtures before the passing rerun. |
+| R1 acknowledged-source publication | passed, 2026-09-30: wrapped Cargo `test --release -p lctx-postgres --features testing --test analysis_publication` (one test, six real PG18 cases). Both profiles execute Local publication over actual completed sources. Missing source receipts and coupled removal of requirement/member/outcome rows refuse before acknowledgement or grants. Empty requested roots remain NoScope; catalog Flow remains NotRequested. |
+| R1 source/discharge integration | passed, 2026-09-30: wrapped Cargo `test --release -p lctx-model --test analysis_discharge --test analysis_expected --test analysis_sources --test domain_analysis_owners` (4+3+3+9). Behavioral discharge refuses documented or heuristic support; catalog documentation retains its own channel. Dispatch closure excludes future normalization coverage and transfer ownership. |
+| R1 scheduled versus unscheduled store boundary | composite passed, 2026-09-30: wrapped Cargo `test --release -p lctx-postgres --features testing --test analysis_publication --test domain_composition --test domain_stability --test domain_transfer --test publication_checks` (1+1+1+1+1; publication test contains sixteen ordinary/group/profile/forgery cases). Initial unscheduled behavior fixtures lacked acknowledged sources; the testing Harness now explicitly exercises ordinary invariants, while every scheduled completion retains source-sensitive callbacks. No unscheduled receipt qualifies actual publication. |
+| N1 receiver/dispatch checkpoint | passed in isolated receiver checkout at `5b1b51e`, 2026-09-30: wrapped Cargo with its stable private build directory, `check -p lctx-model -p cpg-core -p cpg-extract --all-targets`; `test --release -p lctx-model --lib --test domain_calls --test domain_sites` (19+17+11); `test --release -p cpg-extract --test normalized_bindings --test normalized_events --test normalized_projections --test normalized_recovery` (9+2+4+3); `test --release -p cpg-core --test normalized_relations` (two real PG18 profiles); `test --release -p lctx-model --doc Applicable` (one positive, three compile-fail). The diamond SCC control uses a native serialized/hydrated canonical snapshot; it is not a PostgreSQL diamond-SCC receipt. Integrated as `00df7e7` with optional-attribution refusal in `b3d0ef5`; integrated rerun pending. |
+| Early authored/native preparation | composite passed, 2026-10-01 at `f8266cc`: wrapped Cargo `test --release -p lctx-model -p cpg-core --test analysis_preparation` (two model controls and one core test across both profiles), with all early-boundary schema/invariant checks, native evidence parity, revoked INSERT grants and reservation release. Initial catalog scheduling required an inactive Flow writer; profile-specific input closure corrected it. A subsequent test incorrectly validated unproduced normalized owners in the full schema; the test now installs facts/configuration/native relations and still seals and validates every invariant in that boundary. The model fixture used unsupported format 1; corrected to format 7 before the passing combined rerun. This is preparation qualification, not F0 assembly. |
+| R0/R1 independent foundation review | Accept scoped, 2026-10-01: review above at frozen `0a60954`, source/type inspection plus attributed focused receipts. No material in-scope finding. Downstream selectors/producers, complete P4 assembly and retirement remain open. |
+| Integrated N1 normalization control | failed, 2026-10-01: wrapped Cargo `test --release -p cpg-core --test normalized_relations` completed normalization but final validation included unproduced native-analysis inventory. The test now uses the normalized relation manifest, retaining its complete boundary invariants; rerun with the G0 preparation control is pending. |
 | Integrated functional gate, actual-library pilots and performance experiments | not_run; full functional scope and X0 retirement are not complete; previously excluded measurements remain outside scope |
 | ADR index/lint, docs publication and other automatic hygiene | not_run by this agent; current repository instructions assign them to the end-of-turn hook; no future result is presumed |
 
-The next implementation boundary is R0/R1 foundation acceptance, followed by N0/N1 and the
-dependency-ordered parallel streams in §10.3. Acceptance of the design is distinct from
+The next implementation boundary is the recorded R0/R1 foundation judgment and integrated N1
+checks, followed by B0/G0 and the parallel C0 stream in §10.3. Acceptance of the design is distinct from
 implementation, semantic qualification, pilot measurements and serving/product acceptance.

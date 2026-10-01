@@ -1,6 +1,6 @@
 # Status
 
-_Updated 2026-09-30 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
+_Updated 2026-10-01 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
 ## Agent workflows (2026-09-30)
 
@@ -8,17 +8,23 @@ _Updated 2026-09-30 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
 - **passed:** `python3 /home/paul/.cache/coordination-acceptance-20260930.py`: native settings across four targets; instruction budgets, Codex config/read and execution-skill discovery in three live repositories.
 - **passed:** independent static integration review and template render/update checks; project-owned files preserved and managed READMEs updated after closing TPL-F01. Product tests **not_run** (process-only scope); hygiene remains hook-owned. Workflow quality/resource gains are unmeasured; no calibration or new cap.
 
-## Phase 4 execution (2026-09-30)
+## Phase 4 execution (2026-10-01)
 
 - The [detailed design and execution plan](docs/plans/semantic-model-phase4-detailed-plan_2026-09-30.md)
   documents contracts, library choices, ordered packages, migration and independent controls.
   ADR-0105/0106 are **Accepted target**. Full D0–Q0 execution is authorized, including conditional
-  operator review of explicitly unreviewed grounded briefs. R0 foundation implementation is in progress.
-- The design preserves once-built stored graphs and resolves shared-vocabulary publication,
-  bounded recursive witnesses/residuals, catalog ownership and the Phase 5 serving boundary.
+  operator review of explicitly unreviewed grounded briefs.
 - The [independent assembled review](docs/design_review/reviews/design_review_phase4-plan_2026-09-30.md)
-  is **Accept scoped** at Proposed design level; plan §13.2 owns the receipt. Parent §8 routes
-  graph-token F01: design addressed, G0 implementation controls pending.
+  is **Accept scoped** at Proposed design level. R0/R1 are integrated and the independent
+  [foundation review](docs/design_review/reviews/design_review_phase4-foundation_2026-09-30.md)
+  is **Accept scoped** at frozen `0a60954`; plan §13.2 owns dated focused receipts and scope.
+- **Implemented / focused-Tested:** immutable vocabulary prefixes, sixteen nominal analysis owners,
+  source-bound coverage/publication and discharge; N0 authored/native configuration; N1 receiver and
+  open dispatch contracts. Nonempty unimplemented analysis selectors still refuse activation.
+- **passed, 2026-10-01:** wrapped Cargo `test --release -p lctx-model -p cpg-core --test analysis_preparation`
+  (two model controls and one real PG test across both profiles), composite after fixture/boundary fixes.
+  Integrated N1 PG controls reached final validation but incorrectly included unproduced analysis
+  tables; their normalization-scoped rerun accompanies G0 preparation. B0 and C0 remain in progress.
 - New P4 acceptance is **not_run** pending implementation. Compile checks and focused controls
   precede foundation review; integrated acceptance waits for all functional packages and retirement.
   ADR/docs hygiene belongs to the automatic end-of-turn hook; no result is claimed before it runs.
@@ -28,16 +34,10 @@ _Updated 2026-09-30 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
 
 - `main` is the sole local development branch and tracks `origin/main`. Repository-local
   `pull.ff=only` and `push.default=simple` keep ordinary development and publication on main.
-- Merge `809fe5b` joins local `57a75d8` with remote `716148a`. The remote's five differences
-  from the alternate P0–P2 commit were already incorporated or superseded locally.
-  Tree equality with `57a75d8` and both-parent ancestry checks passed; no source files changed.
-- Published and verified annotated archives: `archive/pyrefly-inproc-2026-09-30` at `5fb2eed`
-  and `archive/stage3-bdd-2026-09-30` at `69bc1b1`. The BDD patch also survives in main at `2da15a6`.
-- The former spike worktrees remain at their original commits in detached state, with their
-  directories and files preserved. The two local spike branch names were retired after remote
-  archive verification. No history was rewritten and no force-push was used.
-- Product checks for this Git-only reconciliation are **not_run**: source-tree equality is the
-  acceptance check; the existing Phase 3 receipts below retain their original scope.
+- Merge `809fe5b` preserved source-tree equality with `57a75d8`; both-parent ancestry checks passed.
+- Published annotated archives retain the Pyrefly and Stage 3 BDD spikes; their detached worktrees
+  and files remain preserved. The BDD patch survives in main at `2da15a6`.
+- Product checks for this Git-only reconciliation were **not_run**; Phase 3 receipts retain their scope.
 
 ## Phase 3 implementation and qualification
 
@@ -115,6 +115,6 @@ Reset initially refused absent old-installation control tables; its regression a
 Continue ordinary work directly on `main`. Existing after-turn hooks own formatting and catalog
 refresh; do not run or validate them manually. Additional pilot-scale qualification runs only if
 reactivated; detailed plan §11 retains its unmeasured scope.
-Continue P4 at R0/R1 (immutable vocabulary publication and derived-result foundation), following D0 adoption.
-Follow its dependency graph
+Continue P4 with integrated N1/G0 checks, B0 entry/transfer semantics and parallel C0 catalog implementation.
+Downstream producers, assembly, legacy retirement and Q0 remain open. Follow the dependency graph
 and scheduled review boundaries. P5 owns serving/product qualification; PR6 remains paused.

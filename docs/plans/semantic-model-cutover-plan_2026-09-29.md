@@ -151,10 +151,13 @@ open until assembled consumers demonstrate the intended semantics. A removed imp
 retire its capability obligation.
 
 The [Phase 4 detailed design and execution plan](semantic-model-phase4-detailed-plan_2026-09-30.md)
-is **Proposed, 2026-09-30**. It owns the immutable vocabulary prerequisite, normalized dispatch/
+is an **Accepted execution target, 2026-09-30**. It owns the immutable vocabulary prerequisite, normalized dispatch/
 receiver corrections, finite composition/proof design, library choices, analysis/catalog/selection/
 retrieval contracts, dependency-ordered packages, legacy retirement and independent acceptance
-controls. ADR-0105/0106 remain proposed. This parent retains cross-phase finding disposition;
+controls. ADR-0105/0106/0108 are accepted. R0/R1 have integrated focused controls and an independent
+[Accept scoped foundation review, 2026-10-01](../design_review/reviews/design_review_phase4-foundation_2026-09-30.md).
+N0/N1 and preparatory G0 code are integrated; dependent producers, assembly, retirement and Q0
+remain open in detailed plan §13.2. This parent retains cross-phase finding disposition;
 document completion does not close implementation findings or activate Phase 5 serving.
 
 ### Phase 5 — Serving
@@ -1378,7 +1381,9 @@ without corresponding evidence.
 
 | Source finding | Current disposition | Owner and closure evidence |
 |---|---|---|
-| [phase4-plan F01](../design_review/reviews/design_review_phase4-plan_2026-09-30.md#F01) | design addressed; implementation pending | Detailed P4 plan §4.3/G0 requires invariant generative graph brands and callback-bounded tokens; independent reinspection accepted the Proposed contract. G0 still owes wrong-view and token-escape compile-fail controls; no runtime closure claimed |
+| [phase4-plan F01](../design_review/reviews/design_review_phase4-plan_2026-09-30.md#F01) | addressed in the G0 adapter; enclosing consumer qualification pending | Invariant generative graph brands and callback-bounded tokens are implemented. Wrong-view and token-escape compile-fail controls passed in the isolated graph checkout; detailed P4 plan §13.2 owns the dated receipt. Analysis preparation and actual downstream borrowed consumers remain G0 obligations. |
+| [phase4-foundation O1](../design_review/reviews/design_review_phase4-foundation_2026-09-30.md#o1) | activation prerequisite retained | Each downstream producing owner must bind its actual expected-domain selector and completed inputs before nonempty publication. Only LocalTransfers/Transfers and Catalog/Catalog selectors are currently bound; unimplemented owners refuse. Detailed P4 packages and §13.2 own implementation. |
+| [phase4-foundation O2](../design_review/reviews/design_review_phase4-foundation_2026-09-30.md#o2) | closed scoped, 2026-10-01 | Early preparation test installs its actual facts/configuration/native schema and retains every ordinary/sealed invariant. Combined model and both-profile PG controls passed after test-scope/format corrections; the detailed plan retains composite provenance. No F0 assembly claim follows. |
 
 | Source finding | Current disposition | Owner and closure evidence |
 |---|---|---|
