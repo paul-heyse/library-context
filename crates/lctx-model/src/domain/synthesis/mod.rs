@@ -10,6 +10,7 @@ pub mod assertions;
 pub mod automatic;
 pub mod briefs;
 pub mod documentary;
+pub mod documentary_templates;
 pub mod seeds;
 pub mod source_code;
 pub mod source_setup;

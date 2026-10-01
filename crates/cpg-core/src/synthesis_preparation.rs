@@ -110,6 +110,7 @@ pub async fn publish_documentary<S: StageSink>(
 ) -> Result<(), ModelError> {
     output.declare::<synthesis::documentary::DocumentaryConclusion>()?;
     output.declare::<synthesis::documentary::DocumentaryBoundary>()?;
+    output.declare::<synthesis::documentary_templates::ComponentBoundary>()?;
     output.declare::<synthesis::documentary::ProseSlice>()?;
     output.declare::<synthesis::documentary::ProseSource>()?;
     output.declare::<synthesis::documentary::DocumentarySource>()?;
@@ -127,6 +128,9 @@ pub async fn publish_documentary<S: StageSink>(
         output.push(row.clone()).await?;
     }
     for row in rows.conclusions.iter() {
+        output.push(row.clone()).await?;
+    }
+    for row in rows.component_boundaries.iter() {
         output.push(row.clone()).await?;
     }
     for row in rows.boundaries.iter() {

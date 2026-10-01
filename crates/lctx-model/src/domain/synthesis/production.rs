@@ -12,6 +12,7 @@ pub struct Data {
     pub documentary: documentary::Data,
     pub automatic: automatic::Data,
     pub observations: super::observations::Data,
+    pub controls: super::assertions::ControlData,
     pub summary: super::summary::Data,
     pub patterns: super::patterns::Data,
     pub public: Rows<structural::PublicCandidate>,
@@ -23,6 +24,7 @@ impl Data {
             documentary: documentary::Data::new(b),
             automatic: automatic::Data::new(b),
             observations: super::observations::Data::new(b),
+            controls: super::assertions::ControlData::new(b),
             summary: super::summary::Data::new(b),
             patterns: super::patterns::Data::new(b),
             public: Rows::new(b),
@@ -39,15 +41,17 @@ impl Data {
             false
         };
         let o = self.observations.visit(n, b)?;
+        let controls = self.controls.visit(n, b)?;
         let summary = self.summary.visit(n, b)?;
         let patterns = self.patterns.visit(n, b)?;
-        Ok(f || d || a || p || o || summary || patterns)
+        Ok(f || d || a || p || o || summary || patterns || controls)
     }
     pub fn inputs(profile: Profile) -> Vec<ValidationInput> {
         let mut rows = frames::Data::inputs();
         rows.extend(documentary::Data::validation_inputs());
         rows.extend(automatic::Data::inputs());
         rows.extend(super::observations::Data::inputs());
+        rows.extend(super::assertions::ControlData::inputs());
         rows.extend(super::summary::Data::inputs());
         rows.extend(super::patterns::Data::inputs(profile));
         rows.push(ValidationInput::of::<structural::PublicCandidate>(&["id"]));

@@ -61,6 +61,7 @@ pub async fn produce(
     lctx_model::synthesis_documentary_inputs!(read);
     lctx_model::synthesis_automatic_inputs!(read);
     lctx_model::synthesis_observation_inputs!(read);
+    lctx_model::synthesis_control_text_inputs!(read);
     lctx_model::synthesis_summary_inputs!(read);
     lctx_model::synthesis_pattern_inputs!(read);
     lctx_model::synthesis_setup_inputs!(read);
@@ -180,6 +181,7 @@ pub async fn produce(
         &data.documentary,
         &docs,
         &data.observations,
+        &data.controls,
         &data.summary,
         &data.patterns,
         &data.public,

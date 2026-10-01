@@ -363,6 +363,7 @@ pub fn invariants() -> Vec<Invariant> {
     inputs.extend(seeds::Output::validation_inputs());
     inputs.extend(Output::validation_inputs());
     inputs.extend(super::observations::Data::inputs());
+    inputs.extend(assertions::ControlData::inputs());
     inputs.extend(super::summary::Data::inputs());
     inputs.extend(super::patterns::Data::inputs(stages::Profile::Behavioral));
     inputs.extend([
@@ -380,6 +381,7 @@ pub fn invariants() -> Vec<Invariant> {
                 budget: b.clone(),
                 data: documentary::Data::new(b),
                 observations: super::observations::Data::new(b),
+                controls: assertions::ControlData::new(b),
                 summary: super::summary::Data::new(b),
                 patterns: super::patterns::Data::new(b),
                 frames: Rows::new(b),
@@ -397,6 +399,7 @@ struct Check {
     budget: ResourceBudget,
     data: documentary::Data,
     observations: super::observations::Data,
+    controls: assertions::ControlData,
     summary: super::summary::Data,
     patterns: super::patterns::Data,
     frames: Rows<super::frames::Frame>,
@@ -422,6 +425,7 @@ impl InvariantCheck for Check {
             return Ok(());
         }
         let observations = self.observations.visit(n, b)?;
+        let controls = self.controls.visit(n, b)?;
         let summary = self.summary.visit(n, b)?;
         let patterns = self.patterns.visit(n, b)?;
         let d = self.data.visit(n, b)?;
@@ -429,7 +433,7 @@ impl InvariantCheck for Check {
         let a = self.assertions.visit(n, b)?;
         let s = self.seeds.visit(n, b)?;
         let o = self.output.visit(n, b)?;
-        if !d && !doc && !a && !s && !o && !observations && !summary && !patterns {
+        if !d && !doc && !a && !s && !o && !observations && !summary && !patterns && !controls {
             return Err(invalid("undeclared brief replay input"));
         }
         Ok(())
@@ -441,6 +445,7 @@ impl InvariantCheck for Check {
             &self.data,
             &self.docs,
             &self.observations,
+            &self.controls,
             &self.summary,
             &self.patterns,
             &self.public,

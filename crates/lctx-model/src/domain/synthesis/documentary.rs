@@ -108,17 +108,32 @@ pub enum DocumentarySource {
         source_input: Id<crate::domain::input::InputRevision>,
         source_qualification: Id<AssertionQualification>,
     },
+    #[model(code = 2)]
+    Component {
+        member: Id<CatalogMemberInvocation>,
+        association: Id<evidence::DocumentAssociation>,
+        component: Id<documents::DocumentComponentObservation>,
+        #[model(premise)] premise: Id<NativeAssertionPremise>,
+        #[model(premise)] scope: Id<NativeAssertionPremise>,
+        #[model(premise)] field: Option<Id<NativeAssertionPremise>>,
+        #[model(premise)] title: Option<Id<NativeAssertionPremise>>,
+        option: Option<Id<CatalogOption>>,
+        source_option: Option<Id<CatalogOption>>,
+        role: super::documentary_templates::ComponentRole,
+        source_input: Id<input::InputRevision>,
+        source_qualification: Id<AssertionQualification>,
+    },
 }
 impl DocumentarySource {
     pub fn member(&self) -> Id<CatalogMemberInvocation> {
         match self {
-            Self::Literal { member, .. } | Self::Passage { member, .. } => *member,
+            Self::Literal { member, .. } | Self::Passage { member, .. } | Self::Component { member, .. } => *member,
         }
     }
     pub fn subject(&self) -> Option<Id<EntityRef>> {
         match self {
             Self::Literal { subject, .. } => Some(*subject),
-            Self::Passage { .. } => None,
+            Self::Passage { .. } | Self::Component { .. } => None,
         }
     }
 }
@@ -134,6 +149,9 @@ pub struct DocumentaryConclusion {
     status: EvidenceStatus,
 }
 impl DocumentaryConclusion {
+    pub(super) fn authored(source: Id<DocumentarySource>, prose: Id<ProseSlice>, excerpt: Id<ProseSlice>, excerpt_digest: ContentHash, qualification: Id<AssertionQualification>, status: EvidenceStatus) -> Self {
+        Self { source, prose, excerpt, excerpt_digest, qualification, status }
+    }
     pub fn status(&self) -> EvidenceStatus {
         self.status
     }
@@ -157,10 +175,12 @@ macro_rules! synthesis_documentary_inputs {($m:ident)=>{$m! {
  public_exposures:$crate::domain::normalized::entities::PublicExposure,entity_candidates:$crate::domain::normalized::entities::SymbolEntityCandidate,refs:$crate::domain::normalized::entities::EntityRef,callables:$crate::domain::normalized::entities::CallableEntity,classes:$crate::domain::normalized::entities::ClassEntity,
  core_invocations:$crate::domain::analysis::catalog_core::Invocation,modules:$crate::domain::source::Module,artifacts:$crate::domain::source::SourceArtifact,occurrences:$crate::domain::source::Occurrence,chunks:$crate::domain::artifact::ArtifactChunk,
  declarations:$crate::domain::syntax::DeclarationObservation,placements:$crate::domain::syntax::SyntaxPlacement,details:$crate::domain::syntax::SyntaxDetailObservation,detail_values:$crate::domain::syntax::SyntaxDetail,literals:$crate::domain::value::Literal,
+ components:$crate::domain::documents::DocumentComponentObservation,component_attributes:$crate::domain::documents::DocumentAttributeObservation,component_values:$crate::domain::documents::DocumentAttributeValue,
+ options:$crate::domain::catalog::CatalogOption,option_subjects:$crate::domain::catalog::CatalogOptionSubject,option_slots:$crate::domain::normalized::callables::SignatureSlot,option_variants:$crate::domain::normalized::callables::SignatureVariant,signature_parameters:$crate::domain::calls::SignatureParameter,parameter_shapes:$crate::domain::calls::ParameterShape,parameter_links:$crate::domain::normalized::entities::ParameterEntityLink,parameter_signatures:$crate::domain::calls::Signature,
  document_associations:$crate::domain::catalog::evidence::DocumentAssociation,mention_candidates:$crate::domain::normalized::links::MentionEntityCandidate,mention_assessments:$crate::domain::normalized::links::MentionEntityAssessment,mentions:$crate::domain::documents::DocumentMentionObservation,passages:$crate::domain::documents::PassageObservation,nodes:$crate::domain::documents::DocumentNode,canonical_evidence:$crate::domain::assertion::Evidence,
  native:$crate::domain::analysis::native::NativeAssertionPremise,native_qualifications:$crate::domain::analysis::native::NativeQualification,qualifications:$crate::domain::assertion::AssertionQualification,
 }};}
-macro_rules! outputs {($m:ident)=>{$m! {conclusions:DocumentaryConclusion,boundaries:DocumentaryBoundary,sources:DocumentarySource,prose_sources:ProseSource,slices:ProseSlice,qualifications:AssertionQualification,}};}
+macro_rules! outputs {($m:ident)=>{$m! {conclusions:DocumentaryConclusion,boundaries:DocumentaryBoundary,component_boundaries:crate::domain::synthesis::documentary_templates::ComponentBoundary,sources:DocumentarySource,prose_sources:ProseSource,slices:ProseSlice,qualifications:AssertionQualification,}};}
 macro_rules! data {($($f:ident:$ty:ty,)*)=>{
  pub struct Data{$(pub $f:Rows<$ty>,)*}
  impl Data {pub fn new(b:&ResourceBudget)->Self{Self{$($f:Rows::new(b),)*}} pub fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<bool,ModelError>{$(if n==<$ty>::NAME{self.$f.decode(b)?;return Ok(true);})*Ok(false)} pub fn validation_inputs()->Vec<ValidationInput>{vec![$(ValidationInput::of::<$ty>(&["id"]),)*]} pub fn stage_inputs()->Vec<stages::RelationUse>{{let mut rows=vec![$(stages::RelationUse::stored::<$ty>()),*];for r in &mut rows{if r.name()==AssertionQualification::NAME{*r=r.at_epoch(stages::PublicationBoundary::Facts);}}rows}}}
@@ -168,7 +188,7 @@ macro_rules! data {($($f:ident:$ty:ty,)*)=>{
 crate::synthesis_documentary_inputs!(data);
 macro_rules! output {($($f:ident:$ty:ty,)*)=>{
  pub struct Output{$(pub $f:Rows<$ty>,)*}
- impl Output {pub fn new(b:&ResourceBudget)->Self{Self{$($f:Rows::new(b),)*}} pub fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<bool,ModelError>{$(if n==<$ty>::NAME{self.$f.decode(b)?;return Ok(true);})*Ok(false)} pub fn validation_inputs()->Vec<ValidationInput>{vec![$(ValidationInput::of::<$ty>(&["id"]),)*]} pub fn matches(&self,other:&Self)->Result<(),ModelError>{if !self.conclusions.same(&other.conclusions)||!self.boundaries.same(&other.boundaries){return Err(invalid("documentary conclusion/boundary closure differs"));}if !self.sources.same(&other.sources)||!self.prose_sources.same(&other.prose_sources)||!self.slices.same(&other.slices){return Err(invalid("documentary slice closure differs"));}for row in other.qualifications.iter(){if self.qualifications.get(row.id())!=Some(row){return Err(invalid("documentary qualification differs"));}}Ok(())}}
+ impl Output {pub fn new(b:&ResourceBudget)->Self{Self{$($f:Rows::new(b),)*}} pub fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<bool,ModelError>{$(if n==<$ty>::NAME{self.$f.decode(b)?;return Ok(true);})*Ok(false)} pub fn validation_inputs()->Vec<ValidationInput>{vec![$(ValidationInput::of::<$ty>(&["id"]),)*]} pub fn matches(&self,other:&Self)->Result<(),ModelError>{if !self.component_boundaries.same(&other.component_boundaries)||!self.conclusions.same(&other.conclusions)||!self.boundaries.same(&other.boundaries){return Err(invalid("documentary conclusion/boundary closure differs"));}if !self.sources.same(&other.sources)||!self.prose_sources.same(&other.prose_sources)||!self.slices.same(&other.slices){return Err(invalid("documentary slice closure differs"));}for row in other.qualifications.iter(){if self.qualifications.get(row.id())!=Some(row){return Err(invalid("documentary qualification differs"));}}Ok(())}}
 };}
 outputs!(output);
 fn invalid(s: impl Into<String>) -> ModelError {
@@ -182,6 +202,7 @@ pub fn relations() -> Vec<Relation> {
     vec![
         Relation::of::<DocumentaryConclusion>(),
         Relation::of::<DocumentaryBoundary>(),
+        Relation::of::<super::documentary_templates::ComponentBoundary>(),
         Relation::of::<ProseSlice>(),
         Relation::of::<ProseSource>(),
         Relation::of::<DocumentarySource>(),
@@ -628,6 +649,7 @@ pub fn build(d: &Data, b: &ResourceBudget) -> Result<Output, ModelError> {
         }
     }
     passage_outcomes(d, &mut out, b)?;
+    super::documentary_templates::build(d, &mut out, b)?;
     Ok(out)
 }
 pub fn invariants() -> Vec<Invariant> {
@@ -679,7 +701,7 @@ pub(crate) mod tests {
         >::new([n; 16].into_iter()))
         .unwrap()
     }
-    fn pair(d: &mut Data, p: NativeAssertionPremise, q: &AssertionQualification) {
+    pub(in crate::domain::synthesis) fn pair(d: &mut Data, p: NativeAssertionPremise, q: &AssertionQualification) {
         let n = NativeQualification {
             premise: p.id(),
             qualification: q.id(),
@@ -872,7 +894,7 @@ pub(crate) mod tests {
         );
         (b, d, frame)
     }
-    fn replay(d: &Data, o: &Output, b: &ResourceBudget) -> Result<(), ModelError> {
+    pub(in crate::domain::synthesis) fn replay(d: &Data, o: &Output, b: &ResourceBudget) -> Result<(), ModelError> {
         let mut c = (invariants().remove(0).create)(b);
         macro_rules! input{($($f:ident:$ty:ty,)*)=>{$(c.visit(<$ty>::NAME,&<$ty as Record>::encode(&d.$f.iter().cloned().collect::<Vec<_>>())?)?;)*};}
         crate::synthesis_documentary_inputs!(input);

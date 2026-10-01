@@ -308,15 +308,15 @@ async fn documentary_preparation_preserves_native_literal_spans_and_candidates()
                     let (data, rows) = cpg_core::synthesis_preparation::documentary(
                         &access, &attempt, &config, &runtime, &model,
                     )
-                    .await?;
+                    .await.map_err(|e| ModelError::Invalid(format!("documentary inputs/build: {e}")))?;
                     let blocks = cpg_core::synthesis_preparation::code_blocks(
                         &access, &attempt, &config, &runtime, &model,
                     )
-                    .await?;
+                    .await.map_err(|e| ModelError::Invalid(format!("documentary code blocks: {e}")))?;
                     let mut setup = cpg_core::synthesis_preparation::source_setup(
                         &access, &attempt, &config, &runtime, &model,
                     )
-                    .await?;
+                    .await.map_err(|e| ModelError::Invalid(format!("documentary setup inputs: {e}")))?;
                     let mut mapped = 0;
                     for block in blocks.iter() {
                         let context = data
@@ -478,11 +478,19 @@ async fn documentary_preparation_preserves_native_literal_spans_and_candidates()
         passages > 0,
         "actual C1 mention associations produce original documentary excerpts"
     );
-    let mismatched:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {s}.synthesis_documentary_sources d JOIN {s}.synthesis_documentary_conclusions c ON c.source=d.id JOIN {s}.assertion_qualifications native ON native.id=coalesce(d.literal_source_qualification,d.passage_source_qualification) JOIN {s}.assertion_qualifications derived ON derived.id=c.qualification WHERE native.scope=derived.scope OR native.context<>derived.context"))).fetch_one(db.owner.pool()).await.unwrap();
+    let mismatched:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {s}.synthesis_documentary_sources d JOIN {s}.synthesis_documentary_conclusions c ON c.source=d.id JOIN {s}.assertion_qualifications native ON native.id=coalesce(d.literal_source_qualification,d.passage_source_qualification,d.component_source_qualification) JOIN {s}.assertion_qualifications derived ON derived.id=c.qualification WHERE native.scope=derived.scope OR native.context<>derived.context"))).fetch_one(db.owner.pool()).await.unwrap();
     assert_eq!(
         mismatched, 0,
         "native artifact evidence and static release association remain distinct"
     );
+    let components: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {s}.synthesis_documentary_sources WHERE kind=2"))).fetch_one(db.owner.pool()).await.unwrap();
+    assert!(components >= 4, "actual native Warning and ParamField conclusions are published");
+    for reason in [1i16, 3, 6] {
+        let count: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {s}.synthesis_documentary_component_boundaries WHERE reason=$1"))).bind(reason).fetch_one(db.owner.pool()).await.unwrap();
+        assert!(count > 0, "unknown/nested/inline template boundary {reason} remains explicit");
+    }
+    let wrong:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {s}.synthesis_documentary_sources d JOIN {s}.document_component_observations c ON c.id=d.component_component JOIN {s}.document_nodes n ON n.id=c.component WHERE d.kind=2 AND c.form<>0"))).fetch_one(db.owner.pool()).await.unwrap();
+    assert_eq!(wrong,0,"inline templates never acquire authored assertion authority");
     validated.abort().await.unwrap();
     drop(configuration);
     drop(captured);
@@ -497,6 +505,23 @@ fn documentary_inputs(profile: Profile, model: &ValidatedModel) -> Vec<RelationU
     uses.push(RelationUse::stored::<documents::CodeBlockObservation>().completed_store());
     macro_rules! setup{($($f:ident:$ty:ty,)*)=>{$(uses.push(RelationUse::stored::<$ty>().completed_store());)*};}
     lctx_model::synthesis_setup_inputs!(setup);
+    // C1 output references and replay inputs are predecessors too. Close them before
+    // declaring this lower-owner helper, including vocabulary targets at its Local prefix.
+    let facts = facts_relations().iter().map(Relation::name).collect::<std::collections::BTreeSet<_>>();
+    let relation = |name| model.relations().iter().find(|r| r.name() == name).unwrap();
+    let mut pending = uses.iter().map(|r| r.name()).collect::<Vec<_>>();
+    while let Some(name) = pending.pop() {
+        let row = relation(name);
+        for required in row.fields().iter().filter_map(|f| f.target().map(|(_, n)| n))
+            .chain(row.invariants().iter().flat_map(|i| i.inputs.iter().map(ValidationInput::name))) {
+            if (!facts.contains(required) || is_vocabulary(required)) && !uses.iter().any(|r| r.name() == required) {
+                let mut input = RelationUse::of_relation(relation(required)).completed_store();
+                if is_vocabulary(required) { input = input.at_epoch(PublicationBoundary::Local); }
+                uses.push(input);
+                pending.push(required);
+            }
+        }
+    }
     uses.sort_by_key(|r| r.name());
     uses.dedup_by_key(|r| r.name());
     uses

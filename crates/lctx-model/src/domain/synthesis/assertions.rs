@@ -14,6 +14,26 @@ use crate::domain::{
     *,
 };
 use crate::{Domain, DomainSum};
+/// Exact retained A0 premises for deterministic control wording. These are not new findings.
+#[macro_export]
+macro_rules! synthesis_control_text_inputs {($m:ident)=>{$m!{
+ control_paths:$crate::domain::structural::controls::ControlPath,
+ control_traversals:$crate::domain::structural::controls::ControlTraversal,
+ control_steps:$crate::domain::structural::controls::ControlStep,
+ argument_flows:$crate::domain::structural::controls::ArgumentFlow,
+ literal_arguments:$crate::domain::structural::controls::LiteralArgument,
+ conditional_raises:$crate::domain::structural::controls::ConditionalRaise,
+ unfollowed_paths:$crate::domain::structural::controls::UnfollowedPath,
+ unfollowed_arguments:$crate::domain::structural::controls::UnfollowedArgument,
+ call_bindings:$crate::domain::normalized::bindings::CallBinding,
+ binding_sources:$crate::domain::calls::BindingSource,
+ entries:$crate::domain::conditions::entry::EntryValueWitness,
+ leaves:$crate::domain::flow::FlowTestLeafObservation,
+ regions:$crate::domain::flow::FlowRegionObservation,
+ parameter_entities:$crate::domain::normalized::entities::ParameterEntity,
+}};}
+macro_rules! control_data{($($f:ident:$t:ty,)*)=>{pub struct ControlData{$(pub $f:Rows<$t>,)*}impl ControlData{pub fn new(b:&ResourceBudget)->Self{Self{$($f:Rows::new(b),)*}}pub fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<bool,ModelError>{$(if n==<$t>::NAME{self.$f.decode(b)?;return Ok(true);})*Ok(false)}pub fn inputs()->Vec<ValidationInput>{vec![$(ValidationInput::of::<$t>(&["id"]),)*]}}};}
+crate::synthesis_control_text_inputs!(control_data);
 pub const TEMPLATE_VERSION: i64 = 1;
 #[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
 #[model(name = "synthesis_assertion_templates")]
@@ -38,6 +58,8 @@ pub enum AssertionTemplate {
     AuthoredCode {
         conclusion: Id<super::patterns::AuthoredCodeConclusion>,
     },
+    #[model(code = 5)]
+    AuthoredComponent { conclusion: Id<DocumentaryConclusion> },
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
 #[model(name = "programmatic_assertion_sources")]
@@ -222,8 +244,13 @@ pub fn authored_outcome(
             text.push_str(word);
         }
     }
-    let template = AssertionTemplate::AuthoredOutcome {
-        conclusion: conclusion.id(),
+    let (kind, text) = if let documentary::DocumentarySource::Component { role, .. } = source {
+        (if *role == super::documentary_templates::ComponentRole::Warning { AssertionKind::DocumentedWarning } else { AssertionKind::Parameter }, super::documentary_templates::text(d, rows, conclusion, b)?)
+    } else { (AssertionKind::Outcome, text) };
+    let template = if matches!(source, documentary::DocumentarySource::Component { .. }) {
+        AssertionTemplate::AuthoredComponent { conclusion: conclusion.id() }
+    } else {
+        AssertionTemplate::AuthoredOutcome { conclusion: conclusion.id() }
     };
     let source = AssertionSource::Documentary {
         conclusion: conclusion.id(),
@@ -232,7 +259,7 @@ pub fn authored_outcome(
         invocation.id(),
         frame.id(),
         &template,
-        AssertionKind::Outcome,
+        kind,
         &source,
         conclusion.source_facts(),
         text,
@@ -272,6 +299,7 @@ pub fn build(
     d: &documentary::Data,
     docs: &documentary::Output,
     o: &super::observations::Data,
+    controls: &ControlData,
     public: &Rows<structural::PublicCandidate>,
     frames: &Rows<super::frames::Frame>,
     invocations: &Rows<owner::Invocation>,
@@ -299,7 +327,7 @@ pub fn build(
                         return Err(invalid("structural assertion changes its static frame"));
                     }
                     let source = need(&o.structural_sources, conclusion.source)?;
-                    let (kind, text) = structural_text(source);
+                    let (kind, text) = structural_text(d, controls, source, conclusion.frame, conclusion.subject, q.context, b)?;
                     let template = AssertionTemplate::StructuralObservation {
                         conclusion: conclusion.id(),
                     };
@@ -313,7 +341,7 @@ pub fn build(
                         kind,
                         &source,
                         conclusion.source_facts(),
-                        text.into(),
+                        text,
                         b,
                     )?;
                     out.templates.insert(template)?;
@@ -413,6 +441,7 @@ pub fn build_all(
     d: &documentary::Data,
     docs: &documentary::Output,
     o: &super::observations::Data,
+    controls: &ControlData,
     summary: &super::summary::Data,
     patterns: &super::patterns::Data,
     public: &Rows<structural::PublicCandidate>,
@@ -420,7 +449,7 @@ pub fn build_all(
     invocations: &Rows<owner::Invocation>,
     b: &ResourceBudget,
 ) -> Result<Output, ModelError> {
-    let mut out = build(d, docs, o, public, frames, invocations, b)?;
+    let mut out = build(d, docs, o, controls, public, frames, invocations, b)?;
     let (facets, _) = super::summary::build(summary, d, frames, invocations, b)?;
     extend_summary(summary, &facets, frames, invocations, &mut out, b)?;
     let code = super::patterns::build(patterns, d, frames, invocations, b)?;
@@ -469,7 +498,76 @@ pub fn extend_patterns(
     }
     Ok(())
 }
-fn structural_text(source: &structural::ConclusionSource) -> (AssertionKind, &'static str) {
+fn parameter_text(d:&documentary::Data,c:&ControlData,formal:Id<normalized::entities::ParameterEntity>,context:Id<attribution::AnalysisContext>,b:&ResourceBudget)->Result<String,ModelError>{
+    let mut name:Option<&str>=None;
+    for link in d.parameter_links.iter().filter(|l|l.entity==formal){
+        let parameter=need(&d.signature_parameters,link.parameter)?;
+        let signature=need(&d.parameter_signatures,parameter.signature)?;
+        if need(&d.qualifications,signature.qualification)?.context!=context {continue;}
+        if let Some(n)=need(&d.parameter_shapes,parameter.shape)?.name.as_ref(){
+            if name.is_some_and(|old|old!=n.as_str()){return Err(invalid("control parameter names disagree in exact context"));}
+            name=Some(n.as_str());
+        }
+    }
+    if let Some(name)=name{return Ok(name.to_owned());}
+    match need(&c.parameter_entities,formal)?{
+        normalized::entities::ParameterEntity::Source{declaration}=>occurrence_text(d,*declaration,b),
+        normalized::entities::ParameterEntity::NativeSlot{parameter,..}=>Ok(need(&d.parameter_shapes,need(&d.signature_parameters,*parameter)?.shape)?.name.as_ref().map_or_else(||format!("parameter {}",formal.hex()),|n|n.as_str().to_owned())),
+    }
+}
+fn occurrence_text(d:&documentary::Data,occurrence:Id<source::Occurrence>,b:&ResourceBudget)->Result<String,ModelError>{
+    let occurrence=need(&d.occurrences,occurrence)?;
+    Ok(documentary::read_range(d,occurrence.source,occurrence.start,occurrence.end,b)?.value)
+}
+fn structural_text(d:&documentary::Data,c:&ControlData,source:&structural::ConclusionSource,frame:Id<structural::StructuralFrame>,subject:Id<normalized::entities::EntityRef>,context:Id<attribution::AnalysisContext>,b:&ResourceBudget)->Result<(AssertionKind,String),ModelError>{
+    use structural::ConclusionSource::*;
+    let _allowance=b.reserve("structural-control-render",1024)?;
+    let (kind,text)=match source{
+        Forward{path}=>{
+            let path=need(&c.control_paths,*path)?;let traversal=need(&c.control_traversals,path.traversal)?;
+            if traversal.frame!=frame||traversal.seed!=subject{return Err(invalid("control wording changes traversal frame/seed"));}
+            let source=parameter_text(d,c,traversal.formal,context,b)?;let target=parameter_text(d,c,path.formal,context,b)?;
+            let mut next=traversal.seed;let mut formal=traversal.formal;let mut conditional=false;let mut suppress=path.may_suppress;
+            for ordinal in 0..path.length{
+                let mut steps=c.control_steps.iter().filter(|s|s.path==path.id()&&s.ordinal==ordinal);let step=steps.next().ok_or_else(||invalid("control wording path step absent"))?;
+                if steps.next().is_some(){return Err(invalid("control wording path step ambiguous"));}
+                let flow=need(&c.argument_flows,step.flow)?;
+                if flow.frame!=frame||flow.caller!=next||flow.source!=formal||need(&d.qualifications,flow.qualification)?.context!=context{return Err(invalid("control wording path changes exact parameter/context"));}
+                next=flow.callee;formal=flow.formal;conditional|=flow.conditional;suppress|=flow.may_catch||flow.value_tested;
+            }
+            if next!=path.target||formal!=path.formal{return Err(invalid("control wording target differs from exact steps"));}
+            (AssertionKind::Control,format!("Source parameter `{source}` is forwarded unchanged to `{target}` of callable {} along {} captured call step(s){}.{} Each step retains its original condition and call phase; this is a source observation.",path.target.hex(),path.length,if conditional{" on a conditional path"}else{""},if suppress{" The path may suppress or test the forwarded value."}else{""}))
+        }
+        Literal{argument}=>{
+            let argument=need(&c.literal_arguments,*argument)?;if argument.frame!=frame||argument.caller!=subject{return Err(invalid("literal wording changes frame/caller"));}
+            let binding=need(&c.call_bindings,argument.binding)?;let slot=need(&d.option_slots,binding.slot)?;let parameter=need(&d.signature_parameters,slot.parameter)?;let signature=need(&d.parameter_signatures,parameter.signature)?;
+            if need(&d.qualifications,signature.qualification)?.context!=context{return Err(invalid("literal wording changes signature context"));}
+            let name=need(&d.parameter_shapes,parameter.shape)?.name.as_ref().map_or("unnamed slot",|n|n.as_str());
+            let calls::BindingSource::Actual{occurrence}=need(&c.binding_sources,binding.source)?else{return Err(invalid("literal wording lacks exact actual argument"))};
+            let expression=occurrence_text(d,*occurrence,b)?;let literal=need(&d.literals,argument.literal)?;
+            let literal=match literal{value::Literal::None=>"None".into(),value::Literal::Bool{value}=>if *value{"True".into()}else{"False".into()},value::Literal::Integer{decimal}=>decimal.clone(),value::Literal::String{value}=>format!("{value:?}"),value::Literal::Bytes{value}=>format!("bytes {value:?}"),value::Literal::Float{bits}=>format!("IEEE bits {bits}")};
+            (AssertionKind::TransformedControl,format!("The captured implementation supplies literal {literal}, from original argument `{expression}`, to declared parameter `{name}` of callable {}. This argument is an implementation value, not identity forwarding from a caller parameter.",argument.callee.hex()))
+        }
+        Raise{observation}=>{
+            let observation=need(&c.conditional_raises,*observation)?;let path=need(&c.control_paths,observation.path)?;let traversal=need(&c.control_traversals,path.traversal)?;
+            let entry=need(&c.entries,observation.entry)?;let leaf=need(&c.leaves,observation.leaf)?;let region=need(&c.regions,observation.region)?;
+            if traversal.frame!=frame||traversal.seed!=subject||entry.context!=context||entry.owner!=path.target||entry.formal!=path.formal||need(&d.qualifications,leaf.qualification)?.context!=context||need(&d.qualifications,region.qualification)?.context!=context{return Err(invalid("raise wording changes exact branch/entry frame"));}
+            let source=parameter_text(d,c,traversal.formal,context,b)?;let parameter=parameter_text(d,c,entry.formal,context,b)?;let test=occurrence_text(d,leaf.test,b)?;let statement=need(&d.occurrences,region.statement)?;
+            if statement.syntax_kind!=source::SyntaxKind::StmtRaise{return Err(invalid("control restriction is not an original raise"));}
+            let raised=occurrence_text(d,region.statement,b)?;
+            (AssertionKind::Restriction,format!("Captured source forwards `{source}` to entry parameter `{parameter}` of callable {} and contains `{raised}` when test `{test}` is {}. The original branch condition and entry-read witness are retained; this does not assert a caller execution or normal completion.",path.target.hex(),if observation.positive{"true"}else{"false"}))
+        }
+        Unfollowed{observation}=>{
+            let observation=need(&c.unfollowed_paths,*observation)?;let path=need(&c.control_paths,observation.path)?;let traversal=need(&c.control_traversals,path.traversal)?;let argument=need(&c.unfollowed_arguments,observation.argument)?;
+            if traversal.frame!=frame||traversal.seed!=subject||argument.frame!=frame{return Err(invalid("unfollowed wording changes source frame"));}
+            let source=parameter_text(d,c,traversal.formal,context,b)?;let target=parameter_text(d,c,argument.formal,context,b)?;let expression=occurrence_text(d,argument.argument,b)?;
+            (AssertionKind::UnfollowedControl,format!("The source path for `{source}` stops at original argument `{expression}` for parameter `{target}` (boundary {:?}). The argument is not followed as parameter identity beyond this boundary.",argument.reason))
+        }
+        _=>{let(kind,text)=basic_structural_text(source);(kind,text.to_owned())}
+    };
+    Ok((kind,text))
+}
+fn basic_structural_text(source: &structural::ConclusionSource) -> (AssertionKind, &'static str) {
     use structural::ConclusionSource::*;
     match source {
         Public { .. } => (
@@ -548,6 +646,7 @@ pub fn invariants() -> Vec<Invariant> {
     inputs.extend(documentary::Output::validation_inputs());
     inputs.extend(Output::validation_inputs());
     inputs.extend(super::observations::Data::inputs());
+    inputs.extend(ControlData::inputs());
     inputs.extend(super::summary::Data::inputs());
     inputs.extend(super::patterns::Data::inputs(stages::Profile::Behavioral));
     inputs.extend([
@@ -564,6 +663,7 @@ pub fn invariants() -> Vec<Invariant> {
             Box::new(Check {
                 data: documentary::Data::new(b),
                 observations: super::observations::Data::new(b),
+                controls: ControlData::new(b),
                 summary: super::summary::Data::new(b),
                 patterns: super::patterns::Data::new(b),
                 frames: Rows::new(b),
@@ -579,6 +679,7 @@ pub fn invariants() -> Vec<Invariant> {
 struct Check {
     data: documentary::Data,
     observations: super::observations::Data,
+    controls: ControlData,
     summary: super::summary::Data,
     patterns: super::patterns::Data,
     frames: Rows<super::frames::Frame>,
@@ -603,12 +704,13 @@ impl InvariantCheck for Check {
             return Ok(());
         }
         let observations = self.observations.visit(n, b)?;
+        let controls = self.controls.visit(n, b)?;
         let summary = self.summary.visit(n, b)?;
         let patterns = self.patterns.visit(n, b)?;
         let a = self.data.visit(n, b)?;
         let c = self.conclusions.visit(n, b)?;
         let o = self.output.visit(n, b)?;
-        if !a && !c && !o && !observations && !summary && !patterns {
+        if !a && !c && !o && !observations && !summary && !patterns && !controls {
             return Err(invalid("undeclared assertion replay input"));
         }
         Ok(())
@@ -620,6 +722,7 @@ impl InvariantCheck for Check {
             &self.data,
             &self.conclusions,
             &self.observations,
+            &self.controls,
             &self.summary,
             &self.patterns,
             &self.public,
@@ -673,6 +776,7 @@ mod tests {
                         &docs.boundaries.iter().cloned().collect::<Vec<_>>(),
                     )?
                 }
+                n if n == super::super::documentary_templates::ComponentBoundary::NAME => super::super::documentary_templates::ComponentBoundary::encode(&docs.component_boundaries.iter().cloned().collect::<Vec<_>>())?,
                 n if n == documentary::DocumentarySource::NAME => {
                     <documentary::DocumentarySource as Record>::encode(
                         &docs.sources.iter().cloned().collect::<Vec<_>>(),
@@ -857,4 +961,68 @@ mod tests {
                 .is_err()
         );
     }
+    #[test]
+    fn proof_backed_negative_assertion_retains_limits_and_structural_floor() {
+        let b=ResourceBudget::fixed(1<<20).unwrap();
+        let template=AssertionTemplate::Summary{facet:id(61)};
+        let source=AssertionSource::Summary{facet:id(61)};
+        let facts=SourceFacts{qualification:id(62),status:EvidenceStatus::StructurallyObserved,heuristic:false};
+        let (negative,support)=emit(id(63),id(64),&template,AssertionKind::BehavioralRefutation,&source,facts,"RefutedUnderModel: exact admitted question is false.".into(),&b).unwrap();
+        assert_eq!(negative.kind(),AssertionKind::BehavioralRefutation);
+        assert_eq!(negative.section(),BriefSection::Limits);
+        assert_eq!(negative.status(),EvidenceStatus::StructurallyObserved);
+        assert_eq!(negative.qualification(),id(62));
+        assert_eq!(support.source,source.id());
+        assert!(emit(id(63),id(64),&template,AssertionKind::BehavioralRefutation,&source,SourceFacts{qualification:id(62),status:EvidenceStatus::Documented,heuristic:false},"RefutedUnderModel".into(),&b).is_err());
+    }
+    #[test]
+    fn control_text_uses_exact_source_parameters_literals_and_conditioned_raises() {
+        use crate::domain::{structural::controls::*,source::*,normalized::entities::ParameterEntity};
+        let original="flag
+True
+not flag
+raise ValueError('flag required')
+";
+        let(b,mut d,_)=documentary::tests::fixture(original,original);
+        let artifact=d.artifacts.iter().next().unwrap().id();
+        let q=d.qualifications.iter().next().unwrap().clone();
+        let mut c=ControlData::new(&b);
+        let mut occurrence=|start:i64,end:i64,kind|d.occurrences.insert(Occurrence{source:artifact,start,end,syntax_kind:kind,role:OccurrenceRole::Syntax,structural_path:vec![start as i32]}).unwrap();
+        let parameter=occurrence(0,4,SyntaxKind::Parameter);
+        let argument=occurrence(5,9,SyntaxKind::ExprBooleanLiteral);
+        let test=occurrence(10,18,SyntaxKind::ExprUnaryOp);
+        let raised=occurrence(19,original.len() as i64-1,SyntaxKind::StmtRaise);
+        let formal=c.parameter_entities.insert(ParameterEntity::Source{declaration:parameter}).unwrap();
+        let traversal=c.control_traversals.insert(ControlTraversal{frame:id(65),seed:id(66),formal,stop:None,vertices:1,arcs:0}).unwrap();
+        let path=c.control_paths.insert(ControlPath{traversal,target:id(66),formal,may_suppress:false,length:0}).unwrap();
+        let(kind,text)=structural_text(&d,&c,&structural::ConclusionSource::Forward{path},id(65),id(66),q.context,&b).unwrap();
+        assert_eq!(kind,AssertionKind::Control);assert!(text.contains("`flag`"));
+        let slot=d.option_slots.insert(normalized::callables::SignatureSlot{parameter:id(68),variant:id(69),ordinal:0,default:normalized::callables::DefaultSlot::Required}).unwrap();
+        let shape=d.parameter_shapes.insert(calls::ParameterShape{name:Some("flag".into()),kind:calls::ParameterKind::KeywordOnly,required:true}).unwrap();
+        let signature=d.parameter_signatures.insert(calls::Signature{qualification:q.id(),scope:q.scope,symbol:id(70),variant:0,form:calls::SignatureForm::List,parameters:ContentHash::of(b"flag")}).unwrap();
+        let p=d.signature_parameters.insert(calls::SignatureParameter{signature,ordinal:0,shape}).unwrap();
+        let old=d.option_slots.get(slot).unwrap().clone();d.option_slots=Rows::new(&b);let slot=d.option_slots.insert(normalized::callables::SignatureSlot{parameter:p,..old}).unwrap();
+        let source=c.binding_sources.insert(calls::BindingSource::Actual{occurrence:argument}).unwrap();
+        let binding=c.call_bindings.insert(normalized::bindings::CallBinding{attempt:id(71),ordinal:0,slot,source,kind:calls::BindingKind::Keyword,projection:calls::BindingProjection::Whole.id()}).unwrap();
+        let literal=d.literals.insert(value::Literal::Bool{value:true}).unwrap();
+        let literal=c.literal_arguments.insert(LiteralArgument{frame:id(65),binding,observation:id(72),support:id(73),caller:id(66),callee:id(74),literal}).unwrap();
+        let(kind,text)=structural_text(&d,&c,&structural::ConclusionSource::Literal{argument:literal},id(65),id(66),q.context,&b).unwrap();
+        assert_eq!(kind,AssertionKind::TransformedControl);assert!(text.contains("literal True"));assert!(text.contains("original argument `True`"));assert!(text.contains("parameter `flag`"));
+        // Missing exact value premises cannot fall back to generic wording.
+        c.literal_arguments=Rows::new(&b);
+        assert!(structural_text(&d,&c,&structural::ConclusionSource::Literal{argument:literal},id(65),id(66),q.context,&b).is_err());
+        let leaf=c.leaves.insert(flow::FlowTestLeafObservation{qualification:q.id(),test,atom:id(75),operand:Some(parameter)}).unwrap();
+        let region=c.regions.insert(flow::FlowRegionObservation{qualification:q.id(),statement:raised,scope:id(76)}).unwrap();
+        // EntryValueWitness has many mandatory typed premises; exercise the rendering branch with
+        // the actual record layout rather than a test-only replacement validator.
+        let entry=conditions::entry::EntryValueWitness{
+            owner:id(66),formal,access:parameter,context:q.context,run:id(77),access_source:id(78),link:id(79),declaration_support:id(80),owner_support:id(81),use_observation:id(82),use_support:id(83),reaching:id(84),reaching_support:id(85),definition:id(86),definition_support:id(87),parameter_placement:None,parameter_placement_support:None,coverage:id(91),
+        };
+        let entry=c.entries.insert(entry).unwrap();
+        let observation=c.conditional_raises.insert(ConditionalRaise{path,entry,leaf,leaf_support:id(88),region,support:id(89),positive:false}).unwrap();
+        let(kind,text)=structural_text(&d,&c,&structural::ConclusionSource::Raise{observation},id(65),id(66),q.context,&b).unwrap();
+        assert_eq!(kind,AssertionKind::Restriction);assert!(text.contains("raise ValueError('flag required')"));assert!(text.contains("test `not flag` is false"));
+        assert!(structural_text(&d,&c,&structural::ConclusionSource::Raise{observation},id(90),id(66),q.context,&b).is_err());
+    }
+
 }
