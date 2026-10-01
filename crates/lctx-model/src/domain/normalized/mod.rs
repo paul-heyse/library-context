@@ -6,6 +6,7 @@ mod callable_inventory;
 pub mod callable_normalization;
 pub mod callables;
 pub mod callable_aspects;
+pub mod symbolic_fields;
 pub mod coverage;
 pub mod dispatch;
 pub mod entities;

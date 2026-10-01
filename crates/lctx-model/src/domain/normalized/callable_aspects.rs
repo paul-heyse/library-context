@@ -32,6 +32,35 @@ pub enum FieldDefault {
 pub struct FieldDefaultAssessment {#[model(key)] pub declaration:Id<FieldDeclarationLink>,pub default:Id<FieldDefault>}
 #[macro_export]
 macro_rules! callable_aspect_inputs {($m:ident)=>{$m! {
+    symbolic_runs:$crate::domain::attribution::ProviderRun,
+    symbolic_coverage:$crate::domain::attribution::ProviderCoverage,
+    symbolic_scopes:$crate::domain::source::CoverageScope,
+    symbolic_class_traits:$crate::domain::symbols::ClassTraitObservation,
+    symbolic_class_supports:$crate::domain::symbols::ClassTraitSupport,
+    symbolic_trait_supports:$crate::domain::symbols::FunctionTraitSupport,
+    symbolic_record_fields:$crate::domain::types::RecordFieldObservation,
+    symbolic_record_supports:$crate::domain::types::RecordFieldSupport,
+    symbolic_ancestry:$crate::domain::symbols::ClassAncestryObservation,
+    symbolic_ancestry_supports:$crate::domain::symbols::ClassAncestrySupport,
+    symbolic_sequences:$crate::domain::symbols::SymbolSequence,
+    symbolic_sequence_members:$crate::domain::symbols::SymbolSequenceMember,
+    symbolic_symbol_declarations:$crate::domain::declarations::SymbolDeclaration,
+    symbolic_symbol_supports:$crate::domain::declarations::SymbolDeclarationSupport,
+    symbolic_parameters:$crate::domain::calls::SignatureParameter,
+    symbolic_parameter_shapes:$crate::domain::calls::ParameterShape,
+    symbolic_signatures:$crate::domain::calls::Signature,
+    symbolic_signature_supports:$crate::domain::calls::SignatureSupport,
+    symbolic_parameter_declarations:$crate::domain::declarations::ParameterDeclaration,
+    symbolic_parameter_supports:$crate::domain::declarations::ParameterDeclarationSupport,
+    symbolic_parameter_syntax:$crate::domain::syntax::ParameterSyntaxObservation,
+    symbolic_parameter_syntax_supports:$crate::domain::syntax::ParameterSyntaxSupport,
+    symbolic_placement_supports:$crate::domain::syntax::SyntaxPlacementSupport,
+    symbolic_declaration_supports:$crate::domain::syntax::DeclarationSupport,
+    symbolic_decorator_supports:$crate::domain::syntax::DeclarationDecoratorSupport,
+    symbolic_field_supports:$crate::domain::syntax::ClassFieldSyntaxSupport,
+    symbolic_resolution_supports:$crate::domain::lexical::LexicalResolutionSupport,
+    symbolic_lexical_targets:$crate::domain::lexical::LexicalTarget,
+    symbolic_literals:$crate::domain::value::Literal,
     callable_entities:$crate::domain::normalized::entities::CallableEntity,
     declarations:$crate::domain::syntax::DeclarationObservation,
     spellings:$crate::domain::source::SyntaxObservation,
@@ -73,6 +102,11 @@ macro_rules! callable_aspect_inputs {($m:ident)=>{$m! {
 }};}
 #[macro_export]
 macro_rules! callable_aspect_outputs {($m:ident)=>{$m! {
+    symbolic_classes:$crate::domain::normalized::symbolic_fields::SourceFieldClass,
+    symbolic_stores:$crate::domain::normalized::symbolic_fields::SourceFieldStore,
+    symbolic_readers:$crate::domain::normalized::symbolic_fields::SourceFieldReader,
+    symbolic_associations:$crate::domain::normalized::symbolic_fields::SourceFieldAssociation,
+    symbolic_links:$crate::domain::normalized::symbolic_fields::SourceFieldReaderLink,
     sources:$crate::domain::normalized::callable_aspects::AspectSource,
     aspects:$crate::domain::normalized::callable_aspects::CallableAspect,
     defaults:$crate::domain::normalized::callable_aspects::FieldDefault,
@@ -264,6 +298,7 @@ pub fn normalize(data:&AspectData,budget:&ResourceBudget)->Result<AspectOutput,M
         }
         let default=out.defaults.insert(default)?;out.fields.insert(FieldDefaultAssessment {declaration:field.id(),default})?;
     }
+    super::symbolic_fields::normalize(data,&mut out,budget)?;
     Ok(out)
 }
 pub fn relations()->Vec<Relation> {macro_rules! declare {($($f:ident:$ty:ty,)*)=>{vec![$(Relation::of::<$ty>()),*]};}crate::callable_aspect_outputs!(declare)}
@@ -289,7 +324,7 @@ pub fn stage(profile: stages::Profile) -> stages::Stage {
         provider: None,
         profiles: vec![profile],
         effect: stages::Effect::Pure,
-        code: ContentHash::of(include_bytes!("callable_aspects.rs")),
+        code: {let mut k=KeySink::new("callable-source-metadata-code");ContentHash::of(include_bytes!("callable_aspects.rs")).encode(&mut k);ContentHash::of(include_bytes!("symbolic_fields.rs")).encode(&mut k);k.finish()},
         configuration: ContentHash::of(b"metadata-only/v1"),
     }
 }

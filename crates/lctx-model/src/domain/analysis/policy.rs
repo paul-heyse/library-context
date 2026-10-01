@@ -32,6 +32,7 @@ pub enum FindingKind {
     DocLink = 15,
     CommunityLabel = 16,
     DirectUsage = 17,
+    BehavioralRefutation = 18,
 }
 #[derive(Debug,Clone,Copy,PartialEq,Eq,PartialOrd,Ord,Hash,DomainCode)]
 #[repr(i16)]
@@ -76,6 +77,8 @@ pub enum AssertionKind {
     DocumentedWarning = 16,
     /// Observed calls in captured sources; never an execution or fixture claim.
     StaticUsageObservation = 17,
+    /// A proof-backed negative answer to an exact behavioral question.
+    BehavioralRefutation = 18,
 }
 #[derive(Debug,Clone,Copy,PartialEq,Eq,PartialOrd,Ord,Hash,DomainCode)]
 #[repr(i16)]
@@ -96,6 +99,7 @@ pub enum SupportRole {
     Scope = 1,
 }
 pub const ASSERTION_POLICY: &[(AssertionKind, BriefSection, &[EvidenceStatus])] = &[
+    (AssertionKind::BehavioralRefutation, BriefSection::Limits, &[EvidenceStatus::StructurallyObserved]),
     (AssertionKind::StaticUsageObservation, BriefSection::UsagePattern, &[EvidenceStatus::StructurallyObserved]),
     (
         AssertionKind::Outcome,
