@@ -621,7 +621,11 @@ publish qualified conclusions for its emitter. A final read-only union does not 
 writable authority or grant access to unfinished owners. Bound selectors are declared once in
 `analysis::expected` and each producing family accepts only its implemented finite methods.
 Unbound nonempty invocations refuse activation. Local consumes normalized dispatch evidence
-directly; no unused Dispatch analysis parent or fabricated completion is required. This foundation
+directly; no unused Dispatch analysis parent or fabricated completion is required. Invocation and
+coverage predecessors, admissible derived-proof sources and inherited obligation sources have
+independent declared routes. Production relation membership contains only actual writers; specialized
+execution/analytic proofs do not require empty generic obligation/derivation families. Shared
+foundation declarations remain usable by their scoped conformance controls. This foundation
 does not activate S0 or the remaining analysis producers.
 
 **Witnesses** are selected at serve time from derivations, under response budgets. A smaller budget
