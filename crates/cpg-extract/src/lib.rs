@@ -14,6 +14,7 @@ pub mod lexical_records;
 pub mod library;
 pub mod logging;
 pub mod natives;
+pub mod native_context;
 pub mod public_records;
 pub mod pyrefly_stage;
 pub mod symbol_records;

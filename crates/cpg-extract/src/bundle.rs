@@ -62,11 +62,13 @@ pub fn refuse_ambient(
 /// The frozen inputs of one attempt, in analysis order: the library, then its corpus.
 pub struct CapturedInputs {
     inputs: Vec<AcquiredInput>,
+    config: crate::native_context::NativeContextConfig,
 }
 impl CapturedInputs {
-    pub fn new(inputs: Vec<AcquiredInput>) -> Self {
-        Self { inputs }
+    pub fn new(inputs: Vec<AcquiredInput>, config: crate::native_context::NativeContextConfig) -> Self {
+        Self { inputs, config }
     }
+    pub fn config(&self) -> &crate::native_context::NativeContextConfig { &self.config }
     pub fn inputs(&self) -> &[AcquiredInput] {
         &self.inputs
     }
@@ -317,6 +319,8 @@ pub async fn run_stage<S: StageSink + 'static>(
     limits: TransferLimits,
 ) -> Result<ProviderOutcome, ModelError> {
     let profile = access.profile();
+    captured.config().check_profile(profile)?;
+    captured.config().check_budget(budget)?;
     let stage = access.stage().clone();
     let name = stage.name;
     let handoffs = access.handoffs()?;

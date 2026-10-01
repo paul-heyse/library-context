@@ -12,13 +12,13 @@ use lctx_postgres::{
     testing::DisposableDatabase,
 };
 use std::sync::Arc;
-fn captured(budget: &resources::ResourceBudget) -> Arc<CapturedInputs> {
+fn captured(budget: &resources::ResourceBudget, profile: Profile) -> Arc<CapturedInputs> {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../fixtures/python/normalized_projections");
     Arc::new(CapturedInputs::new(vec![AcquiredInput::tree(
         CapturedInput::capture(&root, &["graph.py".into(), "helper.py".into()], budget).unwrap(),
         "normalized-generation",
-    )]))
+    )], cpg_extract::native_context::NativeContextConfig::committed(profile, budget).unwrap()))
 }
 fn config(db: &DisposableDatabase) -> RoleConfig {
     RoleConfig {
@@ -53,7 +53,7 @@ async fn normalized_is_self_contained_repeatable_and_never_selects() {
             &store,
             &config,
             db.writer.clone(),
-            captured(runtime.budget()),
+            captured(runtime.budget(), profile),
             &runtime,
             profile,
             ContentHash::of(b"normalized-generation"),
@@ -118,7 +118,7 @@ async fn failed_normalization_removes_private_facts_and_preserves_selected_gener
     let prior = cpg_core::facts::publish(
         &store,
         db.writer.clone(),
-        captured(runtime.budget()),
+        captured(runtime.budget(), Profile::Catalog),
         runtime.budget().clone(),
         Profile::Catalog,
         ContentHash::of(b"prior"),
@@ -132,7 +132,7 @@ async fn failed_normalization_removes_private_facts_and_preserves_selected_gener
         &store,
         &invalid,
         db.writer.clone(),
-        captured(runtime.budget()),
+        captured(runtime.budget(), Profile::Catalog),
         &runtime,
         Profile::Catalog,
         ContentHash::of(b"failure"),
@@ -208,7 +208,7 @@ async fn empty_captured_scope_publishes_explicit_no_scope_and_empty_snapshots() 
     let captured = Arc::new(CapturedInputs::new(vec![AcquiredInput::tree(
         CapturedInput::capture(&root, &[], runtime.budget()).unwrap(),
         "empty-normalized",
-    )]));
+    )], cpg_extract::native_context::NativeContextConfig::committed(lctx_model::domain::stages::Profile::Catalog, runtime.budget()).unwrap()));
     let published = cpg_core::normalize::publish(
         &store,
         &config(&db),

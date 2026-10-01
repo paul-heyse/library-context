@@ -33,6 +33,8 @@ pub async fn compile_facts_measured<S: StageSink + 'static>(
 ) -> Result<ExecutionReceipt, ModelError> {
     bundle::refuse_ambient(std::env::vars_os())?;
     let profile = execution.schedule().profile();
+    captured.config().check_profile(profile)?;
+    captured.config().check_budget(&budget)?;
     let mut offered: Vec<_> = providers
         .into_iter()
         .map(|provider| (provider.declaration(profile), provider))
@@ -188,6 +190,8 @@ pub async fn publish_declared(
     providers: Vec<Box<dyn ProviderStage<lctx_postgres::generations::GenerationAttempt>>>,
 ) -> Result<PublishedGeneration, ModelError> {
     bundle::refuse_ambient(std::env::vars_os())?;
+    captured.config().check_profile(profile)?;
+    captured.config().check_budget(&budget)?;
     let model = Arc::new(lctx_model::domain::model()?);
     if store.model().digest() != model.digest() {
         return Err(ModelError::Invalid(

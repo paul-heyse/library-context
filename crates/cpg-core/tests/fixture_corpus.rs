@@ -33,6 +33,7 @@ const CASES: &[&str] = &[
     "model_handler_shapes",
     "model_shapes",
     "native_signature",
+    "native_model_context",
     "normalized_relations",
     "normalized_projections",
     "normalized_entities",
@@ -70,7 +71,7 @@ fn budget() -> ResourceBudget {
 fn root() -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/python")
 }
-fn capture(case: &str) -> Arc<CapturedInputs> {
+fn capture(case: &str, profile: Profile, resources: &ResourceBudget) -> Arc<CapturedInputs> {
     let root = root().join(case);
     let mut paths = vec![];
     let mut pending = vec![root.clone()];
@@ -93,7 +94,7 @@ fn capture(case: &str) -> Arc<CapturedInputs> {
     let frozen =
         CapturedInput::capture_derived(&root, &paths, &budget(), &documents, derive_blocks)
             .unwrap();
-    Arc::new(CapturedInputs::new(vec![AcquiredInput::tree(frozen, case)]))
+    Arc::new(CapturedInputs::new(vec![AcquiredInput::tree(frozen, case)], cpg_extract::native_context::NativeContextConfig::committed(profile, resources).unwrap()))
 }
 #[tokio::test]
 async fn every_fixture_is_registered_and_both_profiles_use_the_real_facts_frontier() {
@@ -107,9 +108,10 @@ async fn every_fixture_is_registered_and_both_profiles_use_the_real_facts_fronti
     let mut failures = vec![];
     for case in CASES {
         for profile in Profile::ALL {
+            let resources = budget();
             let result = cpg_core::facts::memory(
-                capture(case),
-                budget(),
+                capture(case,profile,&resources),
+                resources.clone(),
                 profile,
                 ContentHash::of(b"fixture-corpus"),
             )
@@ -142,15 +144,16 @@ async fn representative_fixtures_have_equal_memory_and_postgresql_content() {
     .unwrap();
     for case in ["flow_call_paths", "semantic_documents", "type_shapes"] {
         for profile in Profile::ALL {
+            let resources = budget();
             let configuration = ContentHash::of(b"fixture-corpus");
-            let memory = cpg_core::facts::memory(capture(case), budget(), profile, configuration)
+            let memory = cpg_core::facts::memory(capture(case,profile,&resources), resources.clone(), profile, configuration)
                 .await
                 .unwrap();
             let published = cpg_core::facts::publish(
                 &store,
                 db.writer.clone(),
-                capture(case),
-                budget(),
+                capture(case,profile,&resources),
+                resources.clone(),
                 profile,
                 configuration,
             )

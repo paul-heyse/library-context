@@ -539,13 +539,15 @@ impl AcquiredInput {
 pub fn capture(
     inventory: &InputInventory,
     budget: &ResourceBudget,
+    config: crate::native_context::NativeContextConfig,
 ) -> Result<CapturedInputs, AcquireError> {
-    capture_receipts(inventory, budget, &[])
+    capture_receipts(inventory, budget, &[], config)
 }
 pub fn capture_receipts(
     inventory: &InputInventory,
     budget: &ResourceBudget,
     receipts: &[PathBuf],
+    config: crate::native_context::NativeContextConfig,
 ) -> Result<CapturedInputs, AcquireError> {
     if !receipts.is_empty() && inventory.corpus.is_none() {
         return Err(fail("task receipts require a declared corpus input").into());
@@ -602,7 +604,7 @@ pub fn capture_receipts(
             },
         ));
     }
-    Ok(CapturedInputs::new(inputs))
+    Ok(CapturedInputs::new(inputs, config))
 }
 /// A document's Python code blocks, derived as modules of their own.
 pub fn derive_blocks(document: &str, bytes: &[u8]) -> Result<Vec<Derived>, CaptureError> {

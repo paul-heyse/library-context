@@ -9,7 +9,7 @@ use std::sync::Arc;
 fn budget() -> ResourceBudget {
     ResourceBudget::fixed(1 << 30).unwrap()
 }
-fn captured() -> Arc<CapturedInputs> {
+fn captured(profile: Profile, resources: &ResourceBudget) -> Arc<CapturedInputs> {
     let root = tempfile::tempdir().unwrap();
     std::fs::write(
         root.path().join("api.py"),
@@ -19,7 +19,7 @@ fn captured() -> Arc<CapturedInputs> {
     Arc::new(CapturedInputs::new(vec![AcquiredInput::tree(
         CapturedInput::capture(root.path(), &["api.py".into()], &budget()).unwrap(),
         "facts-generation",
-    )]))
+    )], cpg_extract::native_context::NativeContextConfig::committed(profile, resources).unwrap()))
 }
 #[tokio::test]
 async fn real_facts_publication_equals_memory_and_never_selects() {
@@ -31,14 +31,15 @@ async fn real_facts_publication_equals_memory_and_never_selects() {
     let catalog = GenerationCatalog::new(db.reader.clone());
     for profile in Profile::ALL {
         let configuration = ContentHash::of(b"fixture");
-        let memory = cpg_core::facts::memory(captured(), budget(), profile, configuration)
+        let resources = budget();
+        let memory = cpg_core::facts::memory(captured(profile, &resources), resources.clone(), profile, configuration)
             .await
             .unwrap();
         let published = cpg_core::facts::publish(
             &store,
             db.writer.clone(),
-            captured(),
-            budget(),
+            captured(profile, &resources),
+            resources.clone(),
             profile,
             configuration,
         )
@@ -94,7 +95,7 @@ async fn required_failure_aborts_and_incomplete_schedule_has_no_registry_side_ef
     let result = cpg_core::facts::publish_declared(
         &store,
         db.writer.clone(),
-        captured(),
+        captured(Profile::Catalog, &resources),
         resources.clone(),
         Profile::Catalog,
         offered,
@@ -120,8 +121,8 @@ async fn required_failure_aborts_and_incomplete_schedule_has_no_registry_side_ef
         cpg_core::facts::publish_declared(
             &store,
             db.writer.clone(),
-            captured(),
-            budget(),
+            captured(Profile::Catalog, &resources),
+            resources.clone(),
             Profile::Catalog,
             offered
         )

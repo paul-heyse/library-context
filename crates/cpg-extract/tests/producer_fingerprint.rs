@@ -20,7 +20,7 @@ fn production_fingerprint_tracks_the_source_closure_and_survives_relocation() {
         "crates/store/src/schema.sql",
         "crates/store/sql/database.sql",
         "crates/store/migrations/service.sql",
-        "crates/schema/models/external.toml",
+        "crates/model/models/external.toml",
         "crates/schema/Cargo.toml",
         "scripts/deployment_check.py",
         "specs/embedding/spec.json",

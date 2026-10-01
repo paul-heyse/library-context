@@ -28,6 +28,9 @@ pub struct Resolution {
 
 /// Interns one session's provider modules and symbols; every entity is emitted once.
 pub struct Natives {
+    /// Definitions actually retained, distinct from native reference-only symbols.
+    pub definitions: BTreeMap<(Id<ProviderModule>, String), Id<ProviderSymbol>>,
+    pub mro: BTreeMap<Id<ProviderSymbol>, lctx_model::domain::symbols::Linearization>,
     provider: Id<Provider>,
     context: Id<AnalysisContext>,
     charge: StateCharge,
@@ -67,6 +70,8 @@ impl Natives {
             artifacts.extend(captured.iter().map(|a| (root.join(&a.path), a.id())));
         }
         Ok(Self {
+            definitions: BTreeMap::new(),
+            mro: BTreeMap::new(),
             provider,
             context,
             charge,
@@ -77,6 +82,15 @@ impl Natives {
             resolutions: BTreeMap::new(),
             paths: BTreeMap::new(),
         })
+    }
+    pub fn definition(&mut self,module:Id<ProviderModule>,name:String,symbol:Id<ProviderSymbol>) -> Result<(),ModelError> {
+        let key=(module,name);
+        if !self.definitions.contains_key(&key) { self.charge.grow(key.1.len().saturating_add(96))?; }
+        self.definitions.insert(key,symbol); Ok(())
+    }
+    pub fn linearization(&mut self,symbol:Id<ProviderSymbol>,value:lctx_model::domain::symbols::Linearization)->Result<(),ModelError> {
+        if !self.mro.contains_key(&symbol) { self.charge.grow(64)?; }
+        self.mro.insert(symbol,value); Ok(())
     }
     /// The provider module of a module the provider found at `path`.
     pub fn module(

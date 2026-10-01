@@ -56,6 +56,7 @@ pub async fn compile(
     let configuration = inventory.library.configuration;
     let captured = Arc::new(cpg_extract::acquisition::capture_receipts(
         &inventory, &budget, receipts,
+        cpg_extract::native_context::NativeContextConfig::committed(profile,&budget)?,
     )?);
     let model = crate::database::model()?;
     let providers = cpg_core::facts::providers::<GenerationAttempt>(configuration);

@@ -545,7 +545,7 @@ impl<S: StageSink + 'static> ProviderStage<S> for TyFlow {
                 Acquisition::Corpus { library, .. } => captured.inputs().get(*library),
                 _ => None,
             };
-            let analysis = crate::pyrefly_stage::analysis_context(input, library)?;
+            let analysis = crate::pyrefly_stage::analysis_context(input, library, captured.config())?;
             let version = crate::library::version_triple(&analysis.python_version)
                 .map_err(ModelError::codec)?;
             let (run, families) = ProviderRun::new(

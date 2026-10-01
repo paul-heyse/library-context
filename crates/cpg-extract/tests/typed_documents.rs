@@ -131,7 +131,7 @@ async fn native_documents_disclose_malformed_inputs_and_recognize_only_declared_
 #[tokio::test]
 async fn corrupt_materialized_block_is_refused_before_publication() {
     let input = files("semantic_documents");
-    let captured = typed_driver::capture(&input, "typed-driver");
+    let captured = typed_driver::capture(&input, "typed-driver", lctx_model::domain::stages::Profile::Catalog);
     let derived = captured.inputs()[0]
         .captured()
         .artifacts()

@@ -220,6 +220,30 @@ pub fn top_level(definitions: &PysaModuleDefinitions, name: &str) -> Vec<String>
     classes.chain(functions).collect()
 }
 
+/// Native definition keys by their exact lexical class/function path.
+fn qualified_names(definitions:&PysaModuleDefinitions) -> BTreeMap<String,String> {
+    let mut nodes=BTreeMap::new();
+    for (id,class) in &definitions.class_definitions { nodes.insert(id.to_int().to_string(),(class.name.clone(),parent_key(&class.parent))); }
+    for (id,function) in definitions.function_definitions.as_map() { nodes.insert(id.serialize_to_string(),(function.base.name.to_string(),parent_key(&function.base.parent))); }
+    let mut result=BTreeMap::new();
+    for key in nodes.keys() {
+        let mut parts=vec![];let mut at=Some(key.clone());let mut seen=BTreeSet::new();
+        while let Some(current)=at {
+            if !seen.insert(current.clone()) { parts.clear();break; }
+            let Some((name,parent))=nodes.get(&current) else { parts.clear();break; };
+            parts.push(name.clone());at=parent.clone();
+        }
+        if !parts.is_empty() { parts.reverse();result.insert(key.clone(),parts.join(".")); }
+    }
+    result
+}
+pub fn qualified(definitions:&PysaModuleDefinitions,name:&str) -> Vec<String> {
+    qualified_names(definitions).into_iter().filter_map(|(key,n)| (n==name).then_some(key)).collect()
+}
+pub fn class_keys(definitions:&PysaModuleDefinitions) -> impl Iterator<Item=String> + '_ {
+    definitions.class_definitions.keys().map(|id|id.to_int().to_string())
+}
+
 /// The records of `definitions`, the module `module`. `complete` states, per class id, whether its
 /// resolved MRO is the complete C3 linearization. An analyzed module is `linked` to its
 /// occurrences and states every definition; a dependency module states only the definitions
@@ -297,6 +321,11 @@ pub fn records(
                 )?,
             );
         }
+    }
+    let qualified=qualified_names(definitions);
+    for (key,name) in qualified {
+        let symbol=classes.iter().find_map(|(id,s)| (id.to_string()==key).then_some(*s)).or_else(||functions.get(&key).copied());
+        if let Some(symbol)=symbol { natives.definition(module,name,symbol)?; }
     }
     let parent = |scope: &ScopeParent| -> Result<Option<Id<ProviderSymbol>>, ModelError> {
         Ok(match scope {
@@ -415,6 +444,7 @@ pub fn records(
             }
             PysaClassMro::Cyclic => (vec![], Linearization::Cyclic),
         };
+        natives.linearization(symbol,linearization)?;
         for (relation, ancestors, linearization) in [
             (AncestryRelation::Bases, bases, None),
             (AncestryRelation::Mro, mro, Some(linearization)),

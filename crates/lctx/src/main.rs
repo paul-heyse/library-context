@@ -431,7 +431,7 @@ fn flow_file(file: &Path, python: &str, platform: &str) -> anyhow::Result<()> {
     )?;
     let captured = Arc::new(cpg_extract::bundle::CapturedInputs::new(vec![
         cpg_extract::acquisition::AcquiredInput::tree(captured, "flow-probe"),
-    ]));
+    ], cpg_extract::native_context::NativeContextConfig::committed(Profile::Behavioral,&budget)?));
     let (model, generation, digest) = tokio::runtime::Runtime::new()?.block_on(
         cpg_core::facts::inspect(captured, budget.clone(), Profile::Behavioral),
     )?;
@@ -608,7 +608,7 @@ fn run() -> anyhow::Result<()> {
                 &envs.join(&name),
             )?;
             let budget = lctx_model::domain::resources::ResourceBudget::fixed(1 << 30)?;
-            let captured = cpg_extract::acquisition::capture(&inventory, &budget)?;
+            let captured = cpg_extract::acquisition::capture(&inventory, &budget, cpg_extract::native_context::NativeContextConfig::committed(lctx_model::domain::stages::Profile::Catalog,&budget)?)?;
             let mut identity =
                 serde_json::to_value(cpg_extract::deployment::identity(&captured.inputs()[0])?)?;
             // These two hashes are observations by the explicit task operator. The facts

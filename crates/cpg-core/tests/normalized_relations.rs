@@ -66,7 +66,7 @@ async fn run(profile: Profile) {
         )
         .unwrap(),
         "entities",
-    )]));
+    )], cpg_extract::native_context::NativeContextConfig::committed(profile, budget).unwrap()));
     let captured_bytes = budget.reserved();
     let mut providers = cpg_core::facts::providers(ContentHash::of(b"normalized entities fixture"));
     let mut declarations: Vec<_> = providers.iter().map(|p| p.declaration(profile)).collect();

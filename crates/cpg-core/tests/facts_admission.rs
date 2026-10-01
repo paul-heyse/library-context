@@ -7,7 +7,7 @@ use std::sync::Arc;
 fn budget() -> ResourceBudget {
     ResourceBudget::fixed(1 << 30).unwrap()
 }
-fn captured(source: &[u8], document: bool) -> Arc<CapturedInputs> {
+fn captured(source: &[u8], document: bool, profile: Profile, resources: &ResourceBudget) -> Arc<CapturedInputs> {
     let root = tempfile::tempdir().unwrap();
     std::fs::write(root.path().join("api.py"), source).unwrap();
     let mut paths = vec!["api.py".into()];
@@ -18,14 +18,15 @@ fn captured(source: &[u8], document: bool) -> Arc<CapturedInputs> {
     Arc::new(CapturedInputs::new(vec![AcquiredInput::tree(
         CapturedInput::capture(root.path(), &paths, &budget()).unwrap(),
         "facts-admission",
-    )]))
+    )], cpg_extract::native_context::NativeContextConfig::committed(profile, resources).unwrap()))
 }
 #[tokio::test]
 async fn complete_frontier_is_admitted_with_profile_owned_availability() {
     for profile in Profile::ALL {
+        let resources = budget();
         let admission = cpg_core::facts::memory(
-            captured(b"def f(x):\n    return x\n", true),
-            budget(),
+            captured(b"def f(x):\n    return x\n", true, profile, &resources),
+            resources.clone(),
             profile,
             ContentHash::of(b"fixture"),
         )
@@ -49,9 +50,10 @@ async fn complete_frontier_is_admitted_with_profile_owned_availability() {
             }
         );
     }
+    let resources = budget();
     let (_, memory, _) = cpg_core::facts::inspect(
-        captured(b"def f(x): return x\n", false),
-        budget(),
+        captured(b"def f(x): return x\n", false, Profile::Catalog, &resources),
+        resources.clone(),
         Profile::Catalog,
     )
     .await
@@ -77,9 +79,10 @@ async fn complete_frontier_is_admitted_with_profile_owned_availability() {
 }
 #[tokio::test]
 async fn syntax_failure_and_no_document_scope_have_distinct_availability() {
+    let resources = budget();
     let admission = cpg_core::facts::memory(
-        captured(b"def f(:\n", false),
-        budget(),
+        captured(b"def f(:\n", false, Profile::Catalog, &resources),
+        resources.clone(),
         Profile::Catalog,
         ContentHash::of(b"fixture"),
     )

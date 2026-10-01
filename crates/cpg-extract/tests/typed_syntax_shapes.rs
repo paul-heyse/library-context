@@ -94,7 +94,7 @@ inspector!(Inspect, SourceArtifact, Occurrence);
 async fn run(files: BTreeMap<String, Vec<u8>>, limits: SyntaxLimits) -> Facts {
     let tables = typed_driver::Tables::default();
     typed_driver::run_with(
-        typed_driver::capture(&files, "syntax shapes"),
+        typed_driver::capture(&files, "syntax shapes", lctx_model::domain::stages::Profile::Catalog),
         Pyrefly::new(limits),
         Inspect(tables.clone()),
     )

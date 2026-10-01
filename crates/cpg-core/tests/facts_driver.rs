@@ -114,7 +114,7 @@ async fn run(
     let captured = Arc::new(CapturedInputs::new(vec![AcquiredInput::tree(
         capture(case, files),
         "fixture-corpus",
-    )]));
+    )], cpg_extract::native_context::NativeContextConfig::committed(profile, &budget).unwrap()));
     let receipt =
         compile_facts(execution, providers, &generation, model, &captured, &budget).await?;
     Ok((

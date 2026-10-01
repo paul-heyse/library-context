@@ -117,10 +117,11 @@ fn inventory(f: &Fixture) -> Result<InputInventory, cpg_extract::ExtractError> {
     acquisition::inventory(&f.library, &f.env, Some(&f.tree))
 }
 fn refused(f: &Fixture, needle: &str) {
+    let resources = budget();
     let error = inventory(f)
         .map_err(|e| e.to_string())
         .and_then(|i| {
-            acquisition::capture(&i, &budget())
+            acquisition::capture(&i, &resources, cpg_extract::native_context::NativeContextConfig::committed(lctx_model::domain::stages::Profile::Catalog,&resources).unwrap())
                 .map(drop)
                 .map_err(|e| e.to_string())
         })
@@ -234,15 +235,15 @@ impl ProviderStage<MemoryGeneration> for Inspect {
     }
 }
 async fn acquire(f: &Fixture) -> Result<Rows, String> {
+    let budget = budget();
     let inventory = inventory(f).map_err(|e| e.to_string())?;
     let captured =
-        Arc::new(acquisition::capture(&inventory, &budget()).map_err(|e| e.to_string())?);
+        Arc::new(acquisition::capture(&inventory, &budget, cpg_extract::native_context::NativeContextConfig::committed(lctx_model::domain::stages::Profile::Catalog,&budget).unwrap()).map_err(|e| e.to_string())?);
     let model = Arc::new(model().unwrap());
     let stage = Acquire::of(&inventory).declaration(Profile::Catalog);
     let schedule =
         Schedule::build(&model, vec![stage, inspect_stage()], &[], Profile::Catalog).unwrap();
     let mut execution = schedule.execute();
-    let budget = budget();
     let generation = MemoryGeneration::bind(&model, &budget, &mut execution).unwrap();
     let rows = Arc::new(Mutex::new(Rows::default()));
     let providers: Vec<(&str, Box<dyn ProviderStage<MemoryGeneration>>)> = vec![

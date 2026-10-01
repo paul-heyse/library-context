@@ -115,7 +115,7 @@ macro_rules! inspector {
 }
 
 /// Capture `files` as a tree input in a fresh temporary directory.
-pub fn capture(files: &BTreeMap<String, Vec<u8>>, label: &str) -> Arc<CapturedInputs> {
+pub fn capture(files: &BTreeMap<String, Vec<u8>>, label: &str, profile: Profile) -> Arc<CapturedInputs> {
     let original = tempfile::tempdir().unwrap();
     for (path, bytes) in files {
         let target = original.path().join(path);
@@ -137,7 +137,7 @@ pub fn capture(files: &BTreeMap<String, Vec<u8>>, label: &str) -> Arc<CapturedIn
     .unwrap();
     Arc::new(CapturedInputs::new(vec![AcquiredInput::tree(
         captured, label,
-    )]))
+    )], cpg_extract::native_context::NativeContextConfig::committed(profile, &budget()).unwrap()))
 }
 
 /// Run `acquire → pyrefly → assemble` over `files` into memory; validate the generation
@@ -150,7 +150,7 @@ where
     I: Inspector,
 {
     run_with(
-        capture(files, "typed-driver"),
+        capture(files, "typed-driver", Profile::Catalog),
         Pyrefly::new(SyntaxLimits::default()),
         inspect,
     )
@@ -172,7 +172,7 @@ pub async fn run_behavioral<I: Inspector>(
     inspect: I,
 ) -> Result<ContentHash, ModelError> {
     run_profile(
-        capture(files, "typed-driver"),
+        capture(files, "typed-driver", Profile::Behavioral),
         Pyrefly::new(SyntaxLimits::default()),
         inspect,
         Profile::Behavioral,
@@ -203,6 +203,7 @@ pub async fn run_profile_with_limits<I: Inspector>(
     limits: TransferLimits,
     reverse_providers: bool,
 ) -> Result<ContentHash, ModelError> {
+    let resources = captured.config().budget().clone();
     run_profile_with_budget(
         captured,
         pyrefly,
@@ -210,7 +211,7 @@ pub async fn run_profile_with_limits<I: Inspector>(
         profile,
         limits,
         reverse_providers,
-        budget(),
+        resources,
     )
     .await
 }

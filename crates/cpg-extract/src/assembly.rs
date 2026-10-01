@@ -111,7 +111,7 @@ impl<S: StageSink + 'static> ProviderStage<S> for Assemble {
                 }
                 _ => None,
             };
-            let analysis = crate::pyrefly_stage::analysis_context(input, library)?;
+            let analysis = crate::pyrefly_stage::analysis_context(input, library, captured.config())?;
             let scope = CoverageScope::Input {
                 input: input.captured().revision().id(),
             };

@@ -131,8 +131,8 @@ fn package(n: usize, width: usize) -> Package {
         name: format!("p{n:06}-{}", "a".repeat(width)),
     }
 }
-fn nothing() -> Arc<CapturedInputs> {
-    Arc::new(CapturedInputs::new(vec![]))
+fn nothing(budget: &ResourceBudget) -> Arc<CapturedInputs> {
+    Arc::new(CapturedInputs::new(vec![], cpg_extract::native_context::NativeContextConfig::committed(lctx_model::domain::stages::Profile::Catalog, budget).unwrap()))
 }
 
 #[tokio::test]
@@ -167,7 +167,7 @@ async fn batches_keep_their_order_and_the_window_bounds_what_is_reserved() {
         execution.begin("packages").unwrap(),
         &sink,
         &model,
-        &nothing(),
+        &nothing(&budget),
         &budget,
         limits,
     )
@@ -285,7 +285,7 @@ async fn undeclared_operations_refuse_and_fail_the_attempt_even_when_ignored() {
             execution.begin("packages").unwrap(),
             &sink,
             &model,
-            &nothing(),
+            &nothing(&budget),
             &budget,
             TransferLimits::default(),
         )
@@ -328,7 +328,7 @@ async fn a_panicking_provider_fails_the_attempt_and_releases_its_batches() {
         execution.begin("packages").unwrap(),
         &sink,
         &model,
-        &nothing(),
+        &nothing(&budget),
         &budget,
         limits,
     )
@@ -443,7 +443,7 @@ async fn handoffs_contributions_and_attachment_follow_the_declarations() {
             execution.begin(stage.name).unwrap(),
             &sink,
             &model,
-            &nothing(),
+            &nothing(&budget),
             &budget,
             TransferLimits::default(),
         )
@@ -512,6 +512,7 @@ fn provider_identity_covers_the_lockfile_the_pyrefly_patch_and_the_sources() {
         cpg_extract::pyrefly_stage::pyrefly_provider().build_digest,
         build_digest(&[
             include_str!("../src/pyrefly_stage.rs"),
+            include_str!("../src/native_context.rs"),
             include_str!("../src/typed_syntax.rs"),
             include_str!("../src/syntax_records.rs"),
             include_str!("../src/lexical.rs"),
