@@ -1007,6 +1007,7 @@ rule and cross-consumer vector-winner invariant were also clarified during assem
 
 | Task receipt | Outcome, 2026-09-30 |
 |---|---|
+| B1 expected lower contracts | passed, 2026-10-01: `python3 scripts/build_environment.py -- cargo test -p lctx-model --release --lib domain::analysis::expected::tests` (4), `/tmp/phase4-base-expected-tests.log`. Base Execution/Completion require Python Syntax, Signatures, Lexical and Flow plus normalized Symbols/Callables; catalog requests remain NotRequested. Missing native dependencies and foreign method/capability pairs refuse. No speculative FlowLinks/Calls/Bindings requirement or producer-selector activation. |
 | B1 integrated base evaluation/completion records | passed, 2026-10-01: `python3 scripts/build_environment.py -- cargo test -p lctx-model -p cpg-extract --release --test execution_channels --test execution_outcomes --test domain_analysis_owners` (5 native + 3 outcome + 9 ownership controls), `/tmp/phase4-b1-integrated-tests.log`. Frozen `96eef881` integrated with current C1/E1/C2 contracts. Opaque exact expression and ordered completion proofs retain native/entry premises, pending return/raise/finalizer behavior and allocation ownership; replay refuses value/status/disposal/order and coupled membership forgeries. Configured parameter/semantic-version binding, source-call/default/body/frame-release evidence, actual producers and scheduled publication remain pending; this is no B1 exit. |
 | Independent document/source target review | Accept scoped; review above records evidence, exclusions and required future controls |
 | R0 model publication controls | passed: wrapped `cargo test -p lctx-model --release --test vocabulary_epochs --quiet` (4); profile-filtered writers, per-epoch uniqueness and inherited-prefix receipts |
@@ -1052,6 +1053,6 @@ rule and cross-consumer vector-winner invariant were also clarified during assem
 | Integrated functional gate, actual-library pilots and performance experiments | not_run; full functional scope and X0 retirement are not complete; previously excluded measurements remain outside scope |
 | ADR index/lint, docs publication and other automatic hygiene | not_run by this agent; current repository instructions assign them to the end-of-turn hook; no future result is presumed |
 
-The next implementation boundary is the recorded R0/R1 foundation judgment and integrated N1
-checks, followed by B0/G0 and the parallel C0 stream in §10.3. Acceptance of the design is distinct from
+The next implementation boundary is actual B0/B1 production and B2/B3 composition, with
+C2 and A0/A1 progressing independently over their completed lower owners. Acceptance of the design is distinct from
 implementation, semantic qualification, pilot measurements and serving/product acceptance.

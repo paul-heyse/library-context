@@ -30,6 +30,9 @@ pub(crate) fn contract(method: AnalysisMethod,capability: AnalysisCapability)->R
     let (scopes,behavioral):(&'static [ScopeContract],bool)=match (method,capability) {
         (AnalysisMethod::LocalTransfers,AnalysisCapability::Transfers)=>(
             &[ScopeContract {grain:Artifact(PythonSource),native:&[FactFamily::Flow],normalized:&[Capability::FlowLinks,Capability::FlowEvents,Capability::Bindings]}],true),
+        (AnalysisMethod::Execution,AnalysisCapability::Execution)
+        | (AnalysisMethod::Completion,AnalysisCapability::Completion)=>(
+            &[ScopeContract {grain:Artifact(PythonSource),native:&[FactFamily::Syntax,FactFamily::Signatures,FactFamily::Lexical,FactFamily::Flow],normalized:&[Capability::Symbols,Capability::Callables]}],true),
         (AnalysisMethod::Catalog,AnalysisCapability::Catalog)=>(
             &[ScopeContract {grain:Artifact(PythonSource),native:&[],normalized:&[Capability::PublicExposure,Capability::Symbols,Capability::Ancestry,Capability::Types,Capability::Callables]}],false),
         (AnalysisMethod::CatalogEvidence,AnalysisCapability::CatalogEvidence)=>(
@@ -50,6 +53,8 @@ pub(crate) fn contract(method: AnalysisMethod,capability: AnalysisCapability)->R
 pub(crate) fn method_contract(method:AnalysisMethod)->Result<Contract,ModelError> {
     let capability=match method {
         AnalysisMethod::LocalTransfers=>AnalysisCapability::Transfers,
+        AnalysisMethod::Execution=>AnalysisCapability::Execution,
+        AnalysisMethod::Completion=>AnalysisCapability::Completion,
         AnalysisMethod::Catalog=>AnalysisCapability::Catalog,
         AnalysisMethod::CatalogEvidence=>AnalysisCapability::CatalogEvidence,
         AnalysisMethod::CatalogSelection=>AnalysisCapability::CatalogSelection,
@@ -373,8 +378,9 @@ mod tests {
     use crate::domain::{attribution::{Provider,ProviderRun,CoverageStatus},input::{ManifestEntry,SourceRole},normalized::coverage::EvidenceAvailability,embedding::text::TextDefinition};
     struct Fixture {index:FrontierIndex,input:Id<InputRevision>,context:Id<AnalysisContext>,python:Id<CoverageScope>,document:Id<CoverageScope>,root:Id<CoverageScope>,budget:resources::ResourceBudget}
     fn visit<R:Record>(index:&mut FrontierIndex,rows:&[R]) {assert!(index.visit(R::NAME,&R::encode(rows).unwrap()).unwrap());}
-    fn fixture()->Fixture {
-        let budget=resources::ResourceBudget::fixed(1<<24).unwrap();let mut index=FrontierIndex::new(Profile::Catalog,&budget);
+    fn fixture()->Fixture {fixture_profile(Profile::Catalog)}
+    fn fixture_profile(profile:Profile)->Fixture {
+        let budget=resources::ResourceBudget::fixed(1<<24).unwrap();let mut index=FrontierIndex::new(profile,&budget);
         let input=InputRevision::from_entries([("api.py",b"x=1\n".as_slice()),("guide.md",b"# Guide\n".as_slice()),("pyproject.toml",b"[project]\n".as_slice())].into_iter().map(|(path,bytes)|ManifestEntry {path:path.into(),content:ContentHash::of(bytes),byte_len:bytes.len() as i64}).collect()).unwrap();
         let context=AnalysisContext {python_version:"3.14.7".into(),python_platform:"linux".into(),search_path:vec![],site_package_path:vec![],config_digest:ContentHash::of(b"finite-grain-control"),environment_digest:input.manifest,lock_digest:None};
         let provider=Provider {tool:"contract-fixture".into(),revision:"1".into(),build_digest:ContentHash::of(b"contract")};
@@ -385,10 +391,70 @@ mod tests {
         let python=CoverageScope::Artifact {artifact:artifacts[0].0.id()}.id();let document=CoverageScope::Artifact {artifact:artifacts[1].0.id()}.id();let root=CoverageScope::Input {input:input.id()};visit(&mut index,std::slice::from_ref(&root));
         for (scope,family) in [(python,FactFamily::Syntax),(python,FactFamily::Signatures),(document,FactFamily::Docs),(root.id(),FactFamily::Deployment)] {visit(&mut index,&[ProviderCoverage {scope,provider:Some(provider.id()),context:context.id(),family,run:Some(run.id()),status:CoverageStatus::CompleteUnderStatedModel,reason:None,diagnostic:None}]);}
         for (scope,capability) in [(python,Capability::Symbols),(python,Capability::References),(python,Capability::Callables),(python,Capability::Calls),(python,Capability::Bindings),(document,Capability::Mentions)] {
-            let computation=NormalizationComputation {capability,policy:ContentHash::of(b"normalization-contract"),producer:"contract".into(),declaration:ContentHash::of(b"normalization-contract"),profile:Profile::Catalog.name().into(),availability:EvidenceAvailability::Complete};
+            let computation=NormalizationComputation {capability,policy:ContentHash::of(b"normalization-contract"),producer:"contract".into(),declaration:ContentHash::of(b"normalization-contract"),profile:profile.name().into(),availability:EvidenceAvailability::Complete};
             visit(&mut index,std::slice::from_ref(&computation));visit(&mut index,&[NormalizationCoverage {computation:computation.id(),scope,context:context.id(),availability:EvidenceAvailability::Complete}]);
         }
         Fixture {index,input:input.id(),context:context.id(),python,document,root:root.id(),budget}
+    }
+    #[test]
+    fn base_execution_requires_exact_native_families_and_retains_catalog_not_requested() {
+        for profile in [Profile::Catalog, Profile::Behavioral] {
+            let mut f = fixture_profile(profile);
+            for method in [AnalysisMethod::Execution, AnalysisMethod::Completion] {
+                assert!(
+                    f.index
+                        .domain(f.input, f.context, method_contract(method).unwrap())
+                        .is_err()
+                );
+            }
+            let template = f
+                .index
+                .native
+                .values()
+                .find(|r| r.scope == f.python && r.family == FactFamily::Syntax)
+                .unwrap()
+                .clone();
+            for family in [FactFamily::Lexical, FactFamily::Flow] {
+                let mut coverage = ProviderCoverage {
+                    family,
+                    ..template.clone()
+                };
+                if family == FactFamily::Flow && profile == Profile::Catalog {
+                    coverage.status = CoverageStatus::NotRequested;
+                    coverage.run = None;
+                    coverage.provider = None;
+                }
+                visit(&mut f.index, &[coverage]);
+            }
+            for method in [AnalysisMethod::Execution, AnalysisMethod::Completion] {
+                let domain = f
+                    .index
+                    .domain(f.input, f.context, method_contract(method).unwrap())
+                    .unwrap();
+                assert_eq!(domain.scopes.len(), 1);
+                let scope = &domain.scopes[0];
+                assert_eq!(scope.scope, f.python);
+                assert_eq!(scope.requested, profile == Profile::Behavioral);
+                assert_eq!(scope.native.len(), 4);
+                assert_eq!(scope.normalized.len(), 2);
+                assert!(scope.normalized.iter().all(|r| matches!(
+                    f.index.computations.get(&r.computation).unwrap().capability,
+                    Capability::Symbols | Capability::Callables
+                )));
+                let flow = scope
+                    .native
+                    .iter()
+                    .find(|r| r.family == FactFamily::Flow)
+                    .unwrap();
+                assert_eq!(
+                    flow.status == CoverageStatus::NotRequested,
+                    profile == Profile::Catalog
+                );
+                assert!(contract(method, AnalysisCapability::Catalog).is_err());
+            }
+            drop(f.index);
+            assert_eq!(f.budget.reserved(), 0);
+        }
     }
     #[test]
     fn catalog_evidence_uses_document_and_input_grains_without_fabricated_python_receipts() {
