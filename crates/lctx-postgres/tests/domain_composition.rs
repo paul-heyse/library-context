@@ -1,7 +1,10 @@
+#[path = "fixtures/analysis_support.rs"]
+mod stored_analysis;
 #[path = "../../lctx-model/tests/fixtures/composition.rs"]
 mod fixture;
 use fixture::{Fixture, Mutation};
 use lctx_model::domain::{
+    analysis::{self, local::*},
     artifact::*,
     assertion::*,
     attribution::*,
@@ -27,15 +30,7 @@ async fn composed_transfers_round_trip_and_mismatched_steps_refuse() {
     let db = DisposableDatabase::start().await;
     let writer = db.writer.clone();
     let reader = db.reader.clone();
-    let model = Arc::new(
-        ValidatedModel::validate(
-            facts_relations()
-                .into_iter()
-                .chain(analysis_relations())
-                .collect(),
-        )
-        .unwrap(),
-    );
+    let model = Arc::new(stored_analysis::model());
     let store = GenerationStore::install(db.owner.clone(), model.clone())
         .await
         .unwrap();
@@ -65,8 +60,9 @@ async fn composed_transfers_round_trip_and_mismatched_steps_refuse() {
         .await
         .unwrap();
         let generation = generation_h.generation();
+        let mut native_inventory = analysis::native::NativeInventory::new(&budget());
         macro_rules! copy { ($($ty:ty),+ $(,)?) => { $(
-            generation_h.copy(&Batch::new(&model, fixture.rows::<$ty>(), &budget()).unwrap(), &budget()).await.unwrap();
+            stored_analysis::copy(&generation_h, &model, fixture.rows::<$ty>(), &mut native_inventory, &budget()).await.unwrap();
         )+ }; }
         copy!(
             InputRevision,
@@ -97,6 +93,8 @@ async fn composed_transfers_round_trip_and_mismatched_steps_refuse() {
             Predicate,
             EvaluationAtom,
             FlowUse,
+            FlowValueObservation,
+            FlowValueSupport,
             FlowDefinition,
             ReachingDefinition,
             FlowDefinitionObservation,
@@ -129,8 +127,17 @@ async fn composed_transfers_round_trip_and_mismatched_steps_refuse() {
             ControlInfluence,
             ControlSupport,
             Selection,
-            CallCompositionStep
+            CallCompositionStep,
+            analysis::AnalysisDefinition,
+            analysis::MethodParameters,
+            Invocation,
+            ObligationSubject,
+            Proposition,
+            Derivation,
+            AnalysisDerivationPremise,
+            SupportSource
         );
+        stored_analysis::finish(&generation_h, &model, native_inventory, &budget()).await.unwrap();
         generation_h.seal().await.unwrap();
         if let Some(mutation) = mutation {
             let error = generation_h.validate(&budget()).await.unwrap_err();

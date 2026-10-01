@@ -36,6 +36,8 @@ impl DisposableDatabase {
         let container = Postgres::default()
             .with_name(image)
             .with_tag(tag)
+            // Generation retirement locks the full relation closure atomically.
+            .with_cmd(["postgres", "-c", "max_locks_per_transaction=256"])
             .start()
             .await
             .expect("Docker and the pinned PostgreSQL 18 image are required");

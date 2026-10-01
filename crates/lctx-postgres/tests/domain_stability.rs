@@ -1,7 +1,10 @@
+#[path = "fixtures/analysis_support.rs"]
+mod stored_analysis;
 #[path = "../../lctx-model/tests/fixtures/stability.rs"]
 mod fixture;
 use fixture::Fixture;
 use lctx_model::domain::{
+    analysis::{self, local::*},
     artifact::*,
     assertion::*,
     attribution::*,
@@ -24,15 +27,7 @@ async fn witnessed_substitutions_round_trip_and_unsubstituted_bound_guards_refus
     let db = DisposableDatabase::start().await;
     let writer = db.writer.clone();
     let reader = db.reader.clone();
-    let model = Arc::new(
-        ValidatedModel::validate(
-            facts_relations()
-                .into_iter()
-                .chain(analysis_relations())
-                .collect(),
-        )
-        .unwrap(),
-    );
+    let model = Arc::new(stored_analysis::model());
     let store = GenerationStore::install(db.owner.clone(), model.clone())
         .await
         .unwrap();
@@ -50,8 +45,9 @@ async fn witnessed_substitutions_round_trip_and_unsubstituted_bound_guards_refus
         .await
         .unwrap();
         let generation = generation_h.generation();
+        let mut native_inventory = analysis::native::NativeInventory::new(&budget());
         macro_rules! copy { ($($ty:ty),+ $(,)?) => { $(
-            generation_h.copy(&Batch::new(&model, fixture.rows::<$ty>(), &budget()).unwrap(), &budget()).await.unwrap();
+            stored_analysis::copy(&generation_h, &model, fixture.rows::<$ty>(), &mut native_inventory, &budget()).await.unwrap();
         )+ }; }
         copy!(
             InputRevision,
@@ -90,6 +86,7 @@ async fn witnessed_substitutions_round_trip_and_unsubstituted_bound_guards_refus
             StabilityWitness,
             GuardSubstitution
         );
+        stored_analysis::finish(&generation_h, &model, native_inventory, &budget()).await.unwrap();
         generation_h.seal().await.unwrap();
         if unsubstituted {
             assert!(matches!(

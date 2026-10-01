@@ -1,4 +1,8 @@
 //! Model contract fixtures, not a qualified behavioral producer.
+#[path = "../../lctx-model/tests/fixtures/analysis_support.rs"]
+mod analysis_fixture;
+#[path = "fixtures/analysis_support.rs"]
+mod stored_analysis;
 use lctx_model::domain::{
     artifact::*, assertion::*, attribution::*, calls::*, conditions::*, input::*, source::*,
     transfer::*, value::*, *,
@@ -13,15 +17,7 @@ async fn transfer_control_selection_survive_postgres_and_cross_scope_call_site_r
     let db = DisposableDatabase::start().await;
     let writer = db.writer.clone();
     let reader = db.reader.clone();
-    let model = Arc::new(
-        ValidatedModel::validate(
-            facts_relations()
-                .into_iter()
-                .chain(analysis_relations())
-                .collect(),
-        )
-        .unwrap(),
-    );
+    let model = Arc::new(stored_analysis::model());
     let store = GenerationStore::install(db.owner.clone(), model.clone())
         .await
         .unwrap();
@@ -159,14 +155,11 @@ async fn transfer_control_selection_survive_postgres_and_cross_scope_call_site_r
         let influence_evidence = Evidence::Occurrence {
             occurrence: atom.evaluation,
         };
+        let foundation = analysis_fixture::SupportFixture::new(input.id(), run.id(), surface.id(), evidence.id(), &qualification, &diagram, occurrences[0].id(), places[0].id());
+        let control_foundation = analysis_fixture::SupportFixture::new(input.id(), run.id(), surface.id(), influence_evidence.id(), &qualification, &diagram, atom.evaluation, influence.input);
         let control_support = ControlSupport {
             assertion: influence.id(),
-            run: run.id(),
-            surface: surface.id(),
-            evidence: influence_evidence.id(),
-            origin: Origin::DerivedAnalysis,
-            mode: ExtractionMode::GraphAnalysis,
-            fidelity: Fidelity::NormalizedStructural,
+            source: control_foundation.derived.id(),
         };
         let key = TransferKey {
             owner: symbol.id(),
@@ -193,12 +186,7 @@ async fn transfer_control_selection_survive_postgres_and_cross_scope_call_site_r
             .unwrap();
         let support = TransferSupport {
             assertion: alternative.id(),
-            run: run.id(),
-            surface: surface.id(),
-            evidence: evidence.id(),
-            origin: Origin::DerivedAnalysis,
-            mode: ExtractionMode::GraphAnalysis,
-            fidelity: Fidelity::NormalizedStructural,
+            source: foundation.derived.id(),
         };
         let mut g_h = Harness::begin(
             &store,
@@ -209,7 +197,8 @@ async fn transfer_control_selection_survive_postgres_and_cross_scope_call_site_r
         .await
         .unwrap();
         let g = g_h.generation();
-        macro_rules! copy { ($($row:expr),+ $(,)?) => { $(g_h.copy(&Batch::new(&model,vec![$row.clone()], &budget()).unwrap(), &budget()).await.unwrap();)+ }; }
+        let mut native_inventory = lctx_model::domain::analysis::native::NativeInventory::new(&budget());
+        macro_rules! copy { ($($row:expr),+ $(,)?) => { $(stored_analysis::copy(&g_h, &model, vec![$row.clone()], &mut native_inventory, &budget()).await.unwrap();)+ }; }
         copy!(
             input,
             origin,
@@ -240,7 +229,18 @@ async fn transfer_control_selection_survive_postgres_and_cross_scope_call_site_r
             other_root,
             other_place
         );
-        macro_rules! copies { ($($rows:expr),+ $(,)?) => { $(g_h.copy(&Batch::new(&model,$rows.clone(), &budget()).unwrap(), &budget()).await.unwrap();)+ }; }
+        macro_rules! copies { ($($rows:expr),+ $(,)?) => { $(stored_analysis::copy(&g_h, &model, $rows.clone(), &mut native_inventory, &budget()).await.unwrap();)+ }; }
+        copy!(foundation.parameters, foundation.definition, foundation.invocation);
+        copies!(
+            vec![foundation.use_.clone(), control_foundation.use_.clone()],
+            vec![foundation.observation.clone(), control_foundation.observation.clone()],
+            vec![foundation.support.clone(), control_foundation.support.clone()],
+            vec![foundation.subject.clone(), control_foundation.subject.clone()],
+            vec![foundation.proposition.clone(), control_foundation.proposition.clone()],
+            vec![foundation.derivation.clone(), control_foundation.derivation.clone()],
+            vec![foundation.native.clone(), foundation.derived.clone(), control_foundation.native.clone(), control_foundation.derived.clone()],
+            foundation.members.iter().chain(&control_foundation.members).cloned().collect::<Vec<_>>()
+        );
         copies!(families, occurrences, roots, places, nodes);
         g_h.copy(
             &Batch::new(
@@ -264,6 +264,7 @@ async fn transfer_control_selection_survive_postgres_and_cross_scope_call_site_r
         )
         .await
         .unwrap();
+        stored_analysis::finish(&g_h, &model, native_inventory, &budget()).await.unwrap();
         g_h.seal().await.unwrap();
         if boundary != 0 {
             let error = g_h.validate(&budget()).await.unwrap_err();
@@ -300,8 +301,8 @@ async fn transfer_control_selection_survive_postgres_and_cross_scope_call_site_r
             );
             let derivation: (String, String, Vec<u8>) =
                 sqlx::query_as(sqlx::AssertSqlSafe(format!(
-                    "SELECT rule,conclusion_relation,conclusion_id FROM {}.derivations",
-                    g.schema()
+                    "SELECT rule,conclusion_relation,conclusion_id FROM {}.derivations WHERE source_relation='{}'",
+                    g.schema(), Selection::NAME
                 )))
                 .fetch_one(&reader)
                 .await
@@ -315,7 +316,7 @@ async fn transfer_control_selection_survive_postgres_and_cross_scope_call_site_r
                 )
             );
             let premises: Vec<(String,String,Vec<u8>)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-                "SELECT role,premise_relation,premise_id FROM {}.derivation_premises ORDER BY role",g.schema()))).fetch_all(&reader).await.unwrap();
+                "SELECT role,premise_relation,premise_id FROM {}.derivation_premises WHERE source_relation='{}' ORDER BY role",g.schema(),Selection::NAME))).fetch_all(&reader).await.unwrap();
             assert_eq!(
                 premises,
                 vec![
