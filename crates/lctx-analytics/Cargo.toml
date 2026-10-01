@@ -1,26 +1,19 @@
 [package]
 name = "lctx-analytics"
-description = "Projections to graphs and the analysis kernels (DESIGN §5, §9; ADR-0019): Arrow in, Arrow out, no DataFusion or Delta."
+description = "Model-owned native graph and numerical kernel routes over typed admitted inputs (DESIGN §15)."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
-cpg-schema = { path = "../cpg-schema" }
 lctx-model = { path = "../lctx-model" }
-arrow-array.workspace = true
-petgraph.workspace = true
-fixedbitset.workspace = true
-leiden-rs.workspace = true
-serde.workspace = true
-serde_json.workspace = true
-toml.workspace = true
-thiserror.workspace = true
 
 [dev-dependencies]
+serde_json.workspace = true
 fcars.workspace = true
 bitvec.workspace = true
+leiden-rs.workspace = true
 
 [lints]
 workspace = true

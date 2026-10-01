@@ -1,54 +1,29 @@
-//! Typed facts orchestration and generation-bound DataFusion reads. Downstream analysis,
-//! catalog and serving modules remain dormant until cutover phases 4–5 (DESIGN §15).
+//! Typed generation-bound facts, analysis and catalog orchestration (DESIGN §15).
+//! Serving remains the Phase 5 recovery boundary.
 
 pub mod analysis_graphs;
 pub mod analysis_prepare;
 pub mod analysis_report;
 pub mod analytic_embedding;
 pub mod analytic_text;
-pub mod analyze;
-pub mod arrow_types;
-pub mod behavior;
 // src/bundle.rs remains uncompiled Phase 5 recovery source (P4 plan §11).
 pub mod analytic;
-pub mod catalog;
 pub mod catalog_core;
 pub mod catalog_evidence;
 pub mod catalog_selection;
-pub mod embed;
 pub mod embedding_realization;
 pub mod embedding_service;
-pub mod entry_links;
-pub mod evidence;
 pub mod facts;
 pub mod final_coverage;
-pub mod flow_model;
 pub mod generation_read;
 pub mod model_runtime;
 pub mod postgres;
-pub mod producer;
 pub mod retrieval_preparation;
-pub mod session;
 pub mod sql;
 pub mod stage_runtime;
 pub mod structural;
-pub mod summaries;
-pub mod synth;
 pub mod synthesis;
 pub mod synthesis_preparation;
-pub mod udf;
-pub mod usage;
-pub mod validate;
-
-use validate::Violation;
-
-fn summary(violations: &[Violation]) -> String {
-    violations
-        .iter()
-        .map(|v| format!("{} ({} rows)", v.rule, v.rows))
-        .collect::<Vec<_>>()
-        .join(", ")
-}
 
 #[derive(Debug, thiserror::Error)]
 pub enum CoreError {
@@ -72,13 +47,9 @@ pub enum CoreError {
     EmbeddingService(String),
     #[error("bundle: {0}")]
     Bundle(String),
-    #[error("validation failed, nothing published: {}", summary(.0))]
-    Invalid(Vec<Violation>),
 }
 
-pub mod surface;
 
-pub mod catalog_domains;
 
 pub mod retrieval;
 

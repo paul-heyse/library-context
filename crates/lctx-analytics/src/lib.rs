@@ -1,74 +1,12 @@
-//! Projections to graphs and the analysis kernels (DESIGN §5, §9; ADR-0019).
-//!
-//! Arrow batches in, typed rows out. Nothing here reads Delta or runs SQL: `cpg-core` runs the
-//! projection queries on the attempt's session, hands the batches over, and writes the rows back
-//! through the attempt's write path. So every kernel is tested on small fixtures without a store.
+//! Native graph/numerical kernels over typed, admitted Phase 4 inputs (DESIGN §15).
 
-pub mod communities;
-pub mod concepts;
-pub mod config;
-pub mod graph;
 pub mod native_concepts;
 pub mod native_neighbours;
 pub mod native_ranking;
 pub mod native_schedule;
 pub use lctx_model::domain::analysis::delegation as native_delegation;
-pub mod neighbours;
-pub mod pass_a;
-pub mod pass_b;
-pub mod pass_c;
-pub mod ranking;
-pub mod selection;
-pub mod summaries;
 
-/// What an analysis refuses.
-#[derive(Debug, thiserror::Error)]
-pub enum AnalyticsError {
-    #[error("analytics config: {0}")]
-    Config(String),
-    #[error("projection column {0} is missing or has the wrong type")]
-    Column(String),
-    #[error("projection {0} are not in canonical order")]
-    Order(String),
-    #[error("an arc or seed names {0}, which is not a vertex of the projection")]
-    UnknownVertex(String),
-    #[error("graph: {0}")]
-    Graph(String),
-}
-
-/// `name version` of each library the analyses run, `; `-separated, read from `Cargo.lock` at
-/// build time: each invocation records them (guidelines §8) and the compiler digest includes
-/// them.
-pub const LIBRARIES: &str = env!("LCTX_ANALYTICS_LIBRARIES");
-
-/// [`LIBRARIES`] as a list.
-pub fn libraries() -> Vec<String> {
-    LIBRARIES.split("; ").map(str::to_owned).collect()
-}
-
-/// Bounded evaluation of closed source expressions.
-pub mod evaluation;
-
-/// Bounded statement completion and ordered pending-return frames.
-pub mod completion;
-
-/// Source binding and definition-time default availability/stability.
-pub mod call_binding;
-
-mod lexical_identity;
-pub mod modeled_identity;
-/// Source proofs of immutable bare-parameter return reads.
-pub mod parameter_identity;
-
-pub mod context_protocol;
-pub mod context_value;
-
-pub mod actions;
-
-pub mod execution;
-pub mod source_call;
-
-/// Typed normalized snapshots for new analysis consumers; legacy graph consumers remain in P4.
+/// Borrowed normalized snapshots preserve their topology and reservation owner.
 pub mod program_projection {
     pub use lctx_model::domain::projection::snapshot::{
         MaterializedGraph, SelectedEntities, hydrate,

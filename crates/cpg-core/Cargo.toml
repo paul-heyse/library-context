@@ -11,41 +11,26 @@ sqlx.workspace = true
 lctx-model = { path = "../lctx-model" }
 lctx-postgres = { path = "../lctx-postgres" }
 cpg-extract = { path = "../cpg-extract" }
-cpg-schema = { path = "../cpg-schema" }
 lctx-analytics = { path = "../lctx-analytics" }
 arrow-array.workspace = true
-arrow-cast.workspace = true
-arrow-ipc.workspace = true
 arrow-schema.workspace = true
-arrow-select.workspace = true
 datafusion.workspace = true
 async-trait.workspace = true
 datafusion-table-providers-postgres.workspace = true
 tokio-postgres.workspace = true
-fs-err.workspace = true
 futures.workspace = true
-ruff_python_ast.workspace = true
-ruff_text_size.workspace = true
-ruff_python_parser.workspace = true
-ruff_python_stdlib.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
-unicode-segmentation.workspace = true
 url.workspace = true
 
 [dev-dependencies]
 lctx-postgres = { path = "../lctx-postgres", features = ["testing"] }
-insta.workspace = true
-petgraph.workspace = true
 tempfile.workspace = true
 testcontainers-modules.workspace = true
-
-[build-dependencies]
-blake3.workspace = true
 
 [lints]
 workspace = true

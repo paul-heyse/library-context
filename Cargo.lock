@@ -1260,27 +1260,15 @@ name = "cpg-core"
 version = "0.1.0"
 dependencies = [
  "arrow-array",
- "arrow-cast",
- "arrow-ipc",
  "arrow-schema",
- "arrow-select",
  "async-trait",
- "blake3",
  "cpg-extract",
- "cpg-schema",
  "datafusion",
  "datafusion-table-providers-postgres",
- "fs-err",
  "futures 0.3.34",
- "insta",
  "lctx-analytics",
  "lctx-model",
  "lctx-postgres",
- "petgraph",
- "ruff_python_ast 0.0.11",
- "ruff_python_parser 0.0.11",
- "ruff_python_stdlib 0.0.11",
- "ruff_text_size 0.0.11",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -1291,7 +1279,6 @@ dependencies = [
  "tokio",
  "tokio-postgres",
  "tracing",
- "unicode-segmentation",
  "url",
 ]
 
@@ -4060,18 +4047,11 @@ dependencies = [
 name = "lctx-analytics"
 version = "0.1.0"
 dependencies = [
- "arrow-array",
  "bitvec",
- "cpg-schema",
  "fcars",
- "fixedbitset",
  "lctx-model",
  "leiden-rs",
- "petgraph",
- "serde",
  "serde_json",
- "thiserror 2.0.20",
- "toml",
 ]
 
 [[package]]
@@ -6452,16 +6432,6 @@ dependencies = [
 
 [[package]]
 name = "ruff_python_stdlib"
-version = "0.0.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4017556e2d9d027714a1ecb9c682d1f2eb87518b208f031bf04b271c428f6b81"
-dependencies = [
- "bitflags 2.13.2",
- "unicode-ident",
-]
-
-[[package]]
-name = "ruff_python_stdlib"
 version = "0.0.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ea8c1e6e69f7570e1f24c7a26ef93f6fd1475e2d76aa9ca4a78093c1f80523cb"
@@ -8224,7 +8194,7 @@ dependencies = [
  "ruff_db",
  "ruff_memory_usage",
  "ruff_python_ast 0.0.14",
- "ruff_python_stdlib 0.0.14",
+ "ruff_python_stdlib",
  "rustc-hash",
  "salsa",
  "strum",

@@ -1,2 +1,2 @@
-//! Delta import orchestration plus the shared PostgreSQL service API.
+//! Typed generation store and retained PostgreSQL cache/operation services.
 pub use lctx_postgres::*;
