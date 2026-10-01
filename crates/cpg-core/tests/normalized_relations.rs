@@ -28,13 +28,22 @@ struct PolicyProbe {
 }
 #[derive(Debug, Clone, PartialEq, Eq, lctx_model::Domain)]
 #[model(name = "graph_preparation_probes", semantic_source = include_bytes!("normalized_relations.rs"))]
-struct GraphPrepared { #[model(key)] name: String }
+struct GraphPrepared {
+    #[model(key)]
+    name: String,
+}
 #[derive(Debug, Clone, PartialEq, Eq, lctx_model::Domain)]
 #[model(name = "graph_borrow_probes", semantic_source = include_bytes!("normalized_relations.rs"))]
-struct GraphBorrowed { #[model(key)] name: String }
+struct GraphBorrowed {
+    #[model(key)]
+    name: String,
+}
 #[derive(Debug, Clone, PartialEq, Eq, lctx_model::Domain)]
 #[model(name = "graph_denied_probes", semantic_source = include_bytes!("normalized_relations.rs"))]
-struct GraphDenied { #[model(key)] name: String }
+struct GraphDenied {
+    #[model(key)]
+    name: String,
+}
 async fn run(profile: Profile) {
     let runtime = AttemptRuntime::new(RuntimeOptions {
         memory_bytes: 1 << 30,
@@ -56,27 +65,37 @@ async fn run(profile: Profile) {
     };
     // This control qualifies the normalized boundary; later analysis owners have not run.
     let mut relations = normalized_relations();
-    relations.extend([Relation::of::<PolicyProbe>(),Relation::of::<GraphPrepared>(),Relation::of::<GraphBorrowed>(),Relation::of::<GraphDenied>()]);
+    relations.extend(embedding::text::relations());
+    relations.extend([
+        Relation::of::<PolicyProbe>(),
+        Relation::of::<GraphPrepared>(),
+        Relation::of::<GraphBorrowed>(),
+        Relation::of::<GraphDenied>(),
+    ]);
     let model = Arc::new(ValidatedModel::validate(relations).unwrap());
     let store = GenerationStore::install(db.owner.clone(), model.clone())
         .await
         .unwrap();
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../fixtures/python/normalized_relations");
-    let captured = Arc::new(CapturedInputs::new(vec![AcquiredInput::tree(
-        CapturedInput::capture(
-            &root,
-            &[
-                "relations.py".into(),
-                "dual.py".into(),
-                "dual.pyi".into(),
-                "guide.md".into(),
-            ],
-            budget,
-        )
-        .unwrap(),
-        "entities",
-    )], cpg_extract::native_context::NativeContextConfig::committed(profile, budget).unwrap()));
+    let captured = Arc::new(CapturedInputs::new(
+        vec![AcquiredInput::tree(
+            CapturedInput::capture(
+                &root,
+                &[
+                    "relations.py".into(),
+                    "dual.py".into(),
+                    "dual.pyi".into(),
+                    "guide.md".into(),
+                    "analytic_text.py".into(),
+                ],
+                budget,
+            )
+            .unwrap(),
+            "entities",
+        )],
+        cpg_extract::native_context::NativeContextConfig::committed(profile, budget).unwrap(),
+    ));
     let captured_bytes = budget.reserved();
     let mut providers = cpg_core::facts::providers(ContentHash::of(b"normalized entities fixture"));
     let mut declarations: Vec<_> = providers.iter().map(|p| p.declaration(profile)).collect();
@@ -87,6 +106,11 @@ async fn run(profile: Profile) {
     declarations.push(event_normalization::stage(profile));
     declarations.push(binding_normalization::stage(profile));
     declarations.push(projection::normalization::stage(profile));
+    let text_definition = embedding::text::TextDefinition {
+        requested: true,
+        ..embedding::text::TextDefinition::builtin()
+    };
+    declarations.push(embedding::text::stage(profile, &text_definition).unwrap());
     let mut probe_inputs = event_normalization::stage(profile).inputs;
     macro_rules! probe_input { ($($field:ident: $ty:ty,)*) => { $(probe_inputs.push(RelationUse::stored::<$ty>());)* }; }
     lctx_model::normalized_event_outputs!(probe_input);
@@ -102,22 +126,53 @@ async fn run(profile: Profile) {
         code: ContentHash::of(include_bytes!("normalized_relations.rs")),
         configuration: ContentHash::of(b"policy views"),
     });
-    let mut graph_inputs=projection::normalization::stage(profile).inputs;
-    graph_inputs.extend(projection::relations().iter().map(|r|RelationUse::of_relation(r).completed_store()));
-    graph_inputs.sort_by_key(|r|r.name());graph_inputs.dedup_by_key(|r|r.name());
-    let mut graph_stage=Stage {name:"prepare_analysis_graphs",inputs:graph_inputs,outputs:vec![RelationUse::of::<GraphPrepared>()],
-        contributes:vec![],coverage:vec![],provider:None,profiles:vec![profile],effect:Effect::Pure,
-        code:ContentHash::of(include_bytes!("normalized_relations.rs")),configuration:ContentHash::of(b"graph preparation")};
+    let mut graph_inputs = projection::normalization::stage(profile).inputs;
+    graph_inputs.extend(
+        projection::relations()
+            .iter()
+            .map(|r| RelationUse::of_relation(r).completed_store()),
+    );
+    graph_inputs.sort_by_key(|r| r.name());
+    graph_inputs.dedup_by_key(|r| r.name());
+    let mut graph_stage = Stage {
+        name: "prepare_analysis_graphs",
+        inputs: graph_inputs,
+        outputs: vec![RelationUse::of::<GraphPrepared>()],
+        contributes: vec![],
+        coverage: vec![],
+        provider: None,
+        profiles: vec![profile],
+        effect: Effect::Pure,
+        code: ContentHash::of(include_bytes!("normalized_relations.rs")),
+        configuration: ContentHash::of(b"graph preparation"),
+    };
     declarations.push(graph_stage.clone());
-    graph_stage.name="reuse_analysis_graphs";
-    graph_stage.inputs.push(RelationUse::stored::<GraphPrepared>());
-    graph_stage.outputs=vec![RelationUse::of::<GraphBorrowed>()];
+    graph_stage.name = "reuse_analysis_graphs";
+    graph_stage
+        .inputs
+        .push(RelationUse::stored::<GraphPrepared>());
+    graph_stage.outputs = vec![RelationUse::of::<GraphBorrowed>()];
     declarations.push(graph_stage.clone());
-    graph_stage.name="refuse_unpermitted_graphs";
-    graph_stage.inputs=vec![RelationUse::stored::<GraphPrepared>()];
-    graph_stage.outputs=vec![RelationUse::of::<GraphDenied>()];
+    graph_stage.name = "refuse_unpermitted_graphs";
+    graph_stage.inputs = vec![RelationUse::stored::<GraphPrepared>()];
+    graph_stage.outputs = vec![RelationUse::of::<GraphDenied>()];
     declarations.push(graph_stage);
-    let schedule = Schedule::build(&model, declarations, &[], profile).unwrap();
+    let facts_group = declarations
+        .iter()
+        .filter(|s| s.outputs.iter().any(|r| is_vocabulary(r.name())))
+        .map(|s| s.name)
+        .collect();
+    let schedule = Schedule::build_with_publications(
+        &model,
+        declarations,
+        &[],
+        profile,
+        vec![
+            PublicationGroup::new(PublicationBoundary::Facts, facts_group),
+            PublicationGroup::new(PublicationBoundary::Dispatch, vec!["normalize_events"]),
+        ],
+    )
+    .unwrap();
     let facts = FrontierContract::facts(&model, profile).unwrap();
     let mut execution = schedule.execute();
     let attempt = store
@@ -125,9 +180,9 @@ async fn run(profile: Profile) {
         .await
         .unwrap();
     let id = attempt.generation();
-    let mut prepared:Option<cpg_core::analysis_graphs::PreparedGraphs>=None;
-    let mut graph_addresses=std::collections::BTreeMap::new();
-    let mut schedules=std::collections::BTreeMap::new();
+    let mut prepared: Option<cpg_core::analysis_graphs::PreparedGraphs> = None;
+    let mut graph_addresses = std::collections::BTreeMap::new();
+    let mut schedules = std::collections::BTreeMap::new();
     for declaration in schedule.stages() {
         if declaration.name == "normalize_entities" {
             attempt.checkpoint(&execution, &facts).await.unwrap();
@@ -138,6 +193,17 @@ async fn run(profile: Profile) {
                     cpg_core::normalize::entities(access, &attempt, &config, &runtime, &model).await
                 },
                 &mut |_| {},
+            )
+            .await
+            .unwrap();
+        } else if declaration.name == "analytic_text" {
+            cpg_core::analytic_text::publish(
+                execution.begin(declaration.name).unwrap(),
+                &attempt,
+                &config,
+                &runtime,
+                &model,
+                text_definition.clone(),
             )
             .await
             .unwrap();
@@ -170,7 +236,8 @@ async fn run(profile: Profile) {
                 &mut execution,
                 declaration,
                 async |access| {
-                    cpg_core::normalize::receivers(access, &attempt, &config, &runtime, &model).await
+                    cpg_core::normalize::receivers(access, &attempt, &config, &runtime, &model)
+                        .await
                 },
                 &mut |_| {},
             )
@@ -231,39 +298,84 @@ async fn run(profile: Profile) {
                 let mut output = StageOutput::new(access, &attempt, &model, budget.clone(), Default::default())?;
                 output.declare::<PolicyProbe>()?; output.finish(ProviderOutcome::Complete).await
             }, &mut |_| {}).await.unwrap();
-        } else if declaration.name=="refuse_unpermitted_graphs" {
-            let access=execution.begin(declaration.name).unwrap();
-            let key=*graph_addresses.keys().next().unwrap();
-            assert!(prepared.as_ref().unwrap().graph(&access,budget,key).is_err(),"retention does not grant a later consumer undeclared reads");
-            let mut output=StageOutput::new(access,&attempt,&model,budget.clone(),Default::default()).unwrap();
-            output.declare::<GraphDenied>().unwrap();output.finish(ProviderOutcome::Complete).await.unwrap();
-        } else if declaration.name=="prepare_analysis_graphs" || declaration.name=="reuse_analysis_graphs" {
-            let access=execution.begin(declaration.name).unwrap();
-            if declaration.name=="prepare_analysis_graphs" {
-                prepared=Some(cpg_core::analysis_graphs::PreparedGraphs::load(&access,&attempt,&config,&runtime,&model,
-                    &projection::ProjectionName::ALL.into_iter().collect()).await.unwrap());
+        } else if declaration.name == "refuse_unpermitted_graphs" {
+            let access = execution.begin(declaration.name).unwrap();
+            let key = *graph_addresses.keys().next().unwrap();
+            assert!(
+                prepared
+                    .as_ref()
+                    .unwrap()
+                    .graph(&access, budget, key)
+                    .is_err(),
+                "retention does not grant a later consumer undeclared reads"
+            );
+            let mut output =
+                StageOutput::new(access, &attempt, &model, budget.clone(), Default::default())
+                    .unwrap();
+            output.declare::<GraphDenied>().unwrap();
+            output.finish(ProviderOutcome::Complete).await.unwrap();
+        } else if declaration.name == "prepare_analysis_graphs"
+            || declaration.name == "reuse_analysis_graphs"
+        {
+            let access = execution.begin(declaration.name).unwrap();
+            if declaration.name == "prepare_analysis_graphs" {
+                prepared = Some(
+                    cpg_core::analysis_graphs::PreparedGraphs::load(
+                        &access,
+                        &attempt,
+                        &config,
+                        &runtime,
+                        &model,
+                        &projection::ProjectionName::ALL.into_iter().collect(),
+                    )
+                    .await
+                    .unwrap(),
+                );
             }
-            let graphs=prepared.as_ref().unwrap();
-            let keys=graphs.keys(&access,budget).unwrap().collect::<Vec<_>>();
-            assert_eq!(keys.len(),4);
+            let graphs = prepared.as_ref().unwrap();
+            let keys = graphs.keys(&access, budget).unwrap().collect::<Vec<_>>();
+            assert_eq!(keys.len(), 4);
             for key in keys {
-                let graph=graphs.graph(&access,budget,key).unwrap();
-                let address=std::ptr::from_ref(graph) as usize;
-                let assessment=graphs.assessment(&access,budget,key).unwrap();
-                assert_eq!(assessment.vertices as usize,graph.vertex_count());
-                assert_eq!(assessment.arcs as usize,graph.arc_count());
-                assert!(graphs.graph(&access,&resources::ResourceBudget::fixed(1<<20).unwrap(),key).is_err());
-                if declaration.name=="prepare_analysis_graphs" {graph_addresses.insert(key,address);}
-                else {assert_eq!(graph_addresses[&key],address,"later consumer borrows the same hydrated graph");}
-                if key.name==projection::ProjectionName::CallableInvocation {
-                    let scc=lctx_analytics::native_schedule::invocation_sccs(graph,budget).unwrap();
-                    if declaration.name=="prepare_analysis_graphs" {schedules.insert(key,scc.components().to_vec());}
-                    else {assert_eq!(&schedules[&key],scc.components());}
+                let graph = graphs.graph(&access, budget, key).unwrap();
+                let address = std::ptr::from_ref(graph) as usize;
+                let assessment = graphs.assessment(&access, budget, key).unwrap();
+                assert_eq!(assessment.vertices as usize, graph.vertex_count());
+                assert_eq!(assessment.arcs as usize, graph.arc_count());
+                assert!(
+                    graphs
+                        .graph(
+                            &access,
+                            &resources::ResourceBudget::fixed(1 << 20).unwrap(),
+                            key
+                        )
+                        .is_err()
+                );
+                if declaration.name == "prepare_analysis_graphs" {
+                    graph_addresses.insert(key, address);
+                } else {
+                    assert_eq!(
+                        graph_addresses[&key], address,
+                        "later consumer borrows the same hydrated graph"
+                    );
+                }
+                if key.name == projection::ProjectionName::CallableInvocation {
+                    let scc =
+                        lctx_analytics::native_schedule::invocation_sccs(graph, budget).unwrap();
+                    if declaration.name == "prepare_analysis_graphs" {
+                        schedules.insert(key, scc.components().to_vec());
+                    } else {
+                        assert_eq!(&schedules[&key], scc.components());
+                    }
                 }
             }
-            let mut output=StageOutput::new(access,&attempt,&model,budget.clone(),Default::default()).unwrap();
-            if declaration.name=="prepare_analysis_graphs" {output.declare::<GraphPrepared>().unwrap();}
-            else {output.declare::<GraphBorrowed>().unwrap();}
+            let mut output =
+                StageOutput::new(access, &attempt, &model, budget.clone(), Default::default())
+                    .unwrap();
+            if declaration.name == "prepare_analysis_graphs" {
+                output.declare::<GraphPrepared>().unwrap();
+            } else {
+                output.declare::<GraphBorrowed>().unwrap();
+            }
             output.finish(ProviderOutcome::Complete).await.unwrap();
         } else {
             let position = providers
@@ -314,6 +426,27 @@ async fn run(profile: Profile) {
     assert_eq!(snapshot_counts.0, 4);
     assert_eq!(snapshot_counts.1, 4);
     assert!(snapshot_counts.2 >= 4);
+    let text_bytes: Vec<Vec<u8>> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+        "SELECT text FROM {}.analytic_text_windows",
+        id.schema()
+    )))
+    .fetch_all(db.owner.pool())
+    .await
+    .unwrap();
+    let texts = text_bytes
+        .into_iter()
+        .map(|bytes| String::from_utf8(bytes).unwrap())
+        .collect::<Vec<_>>();
+    assert!(texts.iter().any(|text|text=="analytic_text.Container.méthode(self, value: int, /, *items, option=None, **options)\nKeep the original parameter and documentation evidence."),"original source parameter spans and Unicode survive normalization: {texts:?}");
+    assert!(texts.iter().any(
+        |text| text == "analytic_text.factory.nested(value=\"αβ\")\nNested source declaration."
+    ));
+    assert!(
+        texts
+            .iter()
+            .any(|text| text.contains("Use `relations.Box`")),
+        "original document passages are independent of catalog/retrieval"
+    );
     validated.abort().await.unwrap();
     drop(prepared);
     assert_eq!(

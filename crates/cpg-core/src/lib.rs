@@ -1,16 +1,17 @@
 //! Typed facts orchestration and generation-bound DataFusion reads. Downstream analysis,
 //! catalog and serving modules remain dormant until cutover phases 4–5 (DESIGN §15).
 
-pub mod analyze;
-pub mod analysis_prepare;
 pub mod analysis_graphs;
+pub mod analysis_prepare;
+pub mod analytic_text;
+pub mod analyze;
 pub mod arrow_types;
 pub mod behavior;
 pub mod bundle;
 pub mod catalog;
 pub mod embed;
-pub mod embedding_service;
 pub mod embedding_realization;
+pub mod embedding_service;
 pub mod entry_links;
 pub mod evidence;
 pub mod facts;
