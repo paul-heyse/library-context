@@ -12,7 +12,7 @@ use lctx_model::domain::{
 };
 use typed_driver::{files, rows};
 inspector!(Facts, CallTarget);
-async fn fixture() -> (BindingData, BindingOutput, ResourceBudget) {
+async fn fixture_tables() -> (BindingData, BindingOutput, ResourceBudget,typed_driver::Tables) {
     let tables = typed_driver::Tables::default();
     typed_driver::run_behavioral(&files("normalized_bindings"), Facts(tables.clone()))
         .await
@@ -36,8 +36,9 @@ async fn fixture() -> (BindingData, BindingOutput, ResourceBudget) {
     rebuild_callables(&mut data, &budget);
     rebuild_events(&mut data, &budget);
     let output = normalize(&data, &budget).unwrap();
-    (data, output, budget)
+    (data, output, budget,tables)
 }
+async fn fixture()->(BindingData,BindingOutput,ResourceBudget){let(data,output,budget,_)=fixture_tables().await;(data,output,budget)}
 fn rebuild_events(data: &mut BindingData, budget: &ResourceBudget) {
     let mut receivers=lctx_model::domain::normalized::receiver::ReceiverData::new(budget);
     macro_rules! receiver_inputs {($($field:ident: $ty:ty,)*)=>{$(receivers.visit(<$ty>::NAME,&<$ty as Record>::encode(&data.$field.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap();)*};}
@@ -270,6 +271,28 @@ async fn a_bound_source_plus_unknown_variant_or_missing_coverage_never_becomes_u
         }
         rebuild_callables(&mut data, &budget);
         let output = normalize(&data, &budget).unwrap();
+        // A new native variant must also replace the exact qualified enumeration. Keeping
+        // the old header is invalid before any callable/binding authority can be admitted.
+        assert!(verify(&data, &output, &budget).is_err());
+        let previous = data.signature_enumerations.iter().find(|e| e.symbol == raw.symbol
+            && e.qualification == raw.qualification).unwrap().clone();
+        let mut variants = data.signatures.iter().filter(|s| s.symbol == raw.symbol
+            && s.qualification == raw.qualification).collect::<Vec<_>>();
+        variants.sort_by_key(|s| s.variant);
+        let (enumeration, members) = SignatureEnumerationObservation::new(
+            data.qualifications.get(raw.qualification).unwrap(), raw.symbol,
+            variants.iter().copied(), previous.complete).unwrap();
+        let retained = data.signature_enumerations.iter().filter(|e| e.id() != previous.id()).cloned().collect::<Vec<_>>();
+        data.signature_enumerations = Rows::new(&budget);
+        for row in retained { data.signature_enumerations.insert(row).unwrap(); }
+        data.signature_enumerations.insert(enumeration.clone()).unwrap();
+        let retained = data.signature_enumeration_members.iter().filter(|m| m.enumeration != previous.id()).cloned().collect::<Vec<_>>();
+        data.signature_enumeration_members = Rows::new(&budget);
+        for row in retained.into_iter().chain(members) { data.signature_enumeration_members.insert(row).unwrap(); }
+        let supports = data.signature_enumeration_supports.iter().cloned().collect::<Vec<_>>();
+        data.signature_enumeration_supports = Rows::new(&budget);
+        for mut row in supports { if row.assertion == previous.id() { row.assertion = enumeration.id(); }
+            data.signature_enumeration_supports.insert(row).unwrap(); }
         let verified = verify(&data, &output, &budget).unwrap();
         assert_eq!(
             output.attempts.iter().filter(|a| a.event == event).count(),
@@ -618,4 +641,45 @@ async fn dispatch_replay_refuses_forged_members_and_retains_incomplete_ancestry_
     forged_input.dispatch_members=Rows::new(&budget);for row in stored.dispatch_members.iter(){let mut row=row.clone();if row.id()==member.id(){row.entity=other;}forged_input.dispatch_members.insert(row).unwrap();}
     assert!(normalize(&forged_input,&budget).is_err(),"stored membership cannot mint signature applicability");
     assert!(verify(&forged_input,&output,&budget).is_err());
+}
+
+#[tokio::test]
+async fn authored_runtime_contract_requires_complete_shape_and_keeps_normal_defaults_separate(){
+ use lctx_model::domain::execution::model_application::*;
+ use lctx_model::domain::attribution::AnalysisContext;
+ let(data,output,budget,tables)=fixture_tables().await;
+ let verified=verify(&data,&output,&budget).unwrap();
+ let attempt=output.attempts.iter().find(|a|text(&data,a)=="cast(int, value)").expect("native cast attempt");
+ assert_eq!(attempt.authority,BindingAuthority::SourceInspection);
+ assert!(verified.effective_invocation(attempt.id()).is_none());
+ let shape=verified.shape(attempt.id()).unwrap_or_else(||panic!("external cast shape absent: attempt={attempt:?}; sets={:?}; event={:?}; alternatives={:?}",output.sets.iter().filter(|s|s.event==attempt.event).collect::<Vec<_>>(),data.event_assessments.iter().filter(|s|s.event==attempt.event).collect::<Vec<_>>(),data.event_alternatives.iter().filter(|s|s.event==attempt.event).collect::<Vec<_>>()));
+ let bound=verified.bound(attempt.id()).unwrap();assert!(shape.admits(bound));
+ let mut model_data=ModelApplicationData::new(&budget);model_data.bindings=data;
+ for context in rows::<AnalysisContext>(&tables){model_data.contexts.insert(context).unwrap();}
+ let mut inventory=analysis::native::NativeInventory::new(&budget);
+ for input in analysis::native::NativeInventory::inputs(){if let Some(batch)=tables.lock().unwrap().get(input.name()){inventory.visit(input.name(),batch).unwrap();}}
+ let native=inventory.collect().unwrap();model_data.native=native.qualifications;model_data.premises=native.premises;
+ let catalog=models::Catalog::committed().unwrap();
+ let checked=CheckedModelApplication::derive(&catalog,&model_data,bound,shape,None,&budget).unwrap().unwrap_or_else(|r|panic!("cast applicability {r:?}"));
+ assert_eq!(checked.compiled().model().target.key(),"stdlib:3.14.7:typing.cast");
+ let enumeration=shape.enumeration().expect("private shape pins exact captured enumeration");
+ assert_eq!(model_data.bindings.signature_enumeration_members.iter().filter(|m|m.enumeration==enumeration).count(),3);
+ assert!(checked.premises().iter().any(|p|matches!(p,analysis::native::NativeAssertionPremise::SignatureEnumerationObservation{assertion,..} if *assertion==enumeration)));
+ assert!(model_data.bindings.coverage.iter().any(|c|c.family==attribution::FactFamily::Signatures&&c.status==attribution::CoverageStatus::Partial));
+
+ assert!(checked.normal_parameter().is_some());assert!(!checked.call_defaults_available());
+ assert_eq!(checked.bound().bound().bindings().len(),2,"type argument is retained independently of returned value");
+ let changed=models::Catalog::parse("external.toml",&include_str!("../../lctx-model/models/external.toml").replace("3.14.7","3.14.8")).unwrap();
+ assert!(CheckedModelApplication::derive(&changed,&model_data,bound,shape,None,&budget).unwrap().is_err());
+ assert!(CheckedModelApplication::derive(&catalog,&model_data,bound,shape,None,&ResourceBudget::fixed(1).unwrap()).is_err());
+ // Equivalent type-only overloads preserve every source member; deleting one or all refuses.
+ for erase_all in [false,true]{
+  let mut changed=BindingData::new(&budget);
+  macro_rules! copy{($($field:ident:$ty:ty,)*)=>{$(for row in model_data.bindings.$field.iter(){if <$ty>::NAME!=SignatureEnumerationMember::NAME{changed.$field.insert(row.clone()).unwrap();}})*};}lctx_model::normalized_binding_inputs!(copy);
+  if !erase_all{for member in model_data.bindings.signature_enumeration_members.iter().filter(|m|m.enumeration!=enumeration||m.ordinal!=0){changed.signature_enumeration_members.insert(member.clone()).unwrap();}}
+  assert!(verify(&changed,&output,&budget).is_err(),"erased enumeration members all={erase_all}");
+ }
+ let divergent=output.attempts.iter().filter(|a|text(&model_data.bindings,a)=="divergent(1)").collect::<Vec<_>>();
+ assert!(divergent.len()>=2);assert!(divergent.iter().all(|a|verified.shape(a.id()).is_none()),"different formal shapes cannot become arbitrary first overload");
+
 }

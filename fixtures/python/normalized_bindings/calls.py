@@ -1,4 +1,4 @@
-from typing import Callable, TypeVar, overload
+from typing import Callable, TypeVar, cast, overload
 
 T = TypeVar("T")
 
@@ -75,3 +75,19 @@ def receiver_twins(obj: ReceiverOwner, open_obj: OpenReceiverOwner) -> None:
     obj.instance_call(1)
     obj.static_call(1)
     open_obj.class_call(1)
+
+
+def modeled(value: int) -> int:
+    return cast(int, value)
+
+
+@overload
+def divergent(x: int) -> int: ...
+@overload
+def divergent(y: str) -> str: ...
+def divergent(value):
+    return value
+
+
+def divergent_use() -> None:
+    divergent(1)

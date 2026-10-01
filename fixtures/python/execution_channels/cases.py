@@ -71,3 +71,16 @@ def fresh_source():
     def fresh():
         return None
     return fresh()
+
+
+def builtin_positive():
+    return int
+
+
+def builtin_shadowed(int):
+    return int
+
+
+def builtin_rebound():
+    int = 1
+    return int

@@ -2,6 +2,9 @@
 #[macro_export]
 macro_rules! normalized_binding_inputs {
     ($apply:ident) => { $apply! {
+        signature_enumerations: $crate::domain::calls::SignatureEnumerationObservation,
+        signature_enumeration_members: $crate::domain::calls::SignatureEnumerationMember,
+        signature_enumeration_supports: $crate::domain::calls::SignatureEnumerationSupport,
         trait_supports: $crate::domain::symbols::FunctionTraitSupport,
         ancestry_supports: $crate::domain::symbols::ClassAncestrySupport,
         sequences: $crate::domain::symbols::SymbolSequence,

@@ -24,3 +24,15 @@ fn handler_cleanup_is_a_separate_required_premise_even_after_return() {
     assert_eq!(after_handler(Ok(returning),Err(ObligationKind::HandlerNameCleanup)),Err(ObligationKind::HandlerNameCleanup));
     assert_eq!(after_handler(Ok(returning),Ok(())),Ok(returning));
 }
+
+#[test]
+fn summary_and_enriched_factories_bind_nominal_catalog_and_independent_limits() {
+    use lctx_model::domain::{execution::configuration::*,models::ModelCatalog};
+    let catalog=ModelCatalog{source_name:"rules.toml".into(),format:1,content:ContentHash::of(b"models = []\n"),source:"models = []\n".into()};
+    let limits=SummaryLimits::default();let(parameters,definition)=summaries(catalog.id(),limits).unwrap();
+    assert_eq!(parameters.model_catalog,Some(catalog.id()));assert_eq!(parameters.depth,Some(8));assert_eq!(parameters.proof_steps,Some(64));assert_eq!(definition.parameters,parameters.id());
+    let mut alternate=catalog.clone();alternate.source_name="other.toml".into();assert_ne!(summaries(alternate.id(),limits).unwrap().1.id(),definition.id());
+    assert_ne!(summaries(catalog.id(),SummaryLimits{depth:0,..limits}).unwrap().1.id(),definition.id());
+    assert!(summaries(catalog.id(),SummaryLimits{work:0,..limits}).is_err());assert!(summaries(catalog.id(),SummaryLimits{members:0,..limits}).is_err());assert!(summaries(catalog.id(),SummaryLimits{proof_steps:0,..limits}).is_err());
+    let(p,d)=enriched_execution(catalog.id());assert_eq!(p.model_catalog,Some(catalog.id()));assert!(enriched_kernel(&d));assert_ne!(enriched_execution(alternate.id()).1.id(),d.id());
+}

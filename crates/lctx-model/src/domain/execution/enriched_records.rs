@@ -15,6 +15,8 @@ pub enum ExecutionSource{
  #[model(code=1)]BaseEvaluation{#[model(premise)]evaluation:Id<super::records::ExpressionEvaluation>},
  #[model(code=2)]SourceInvocation{#[model(premise)]invocation:Id<super::source_call_records::SourceInvocation>},
  #[model(code=3)]FreshHeader{#[model(premise)]header:Id<super::source_call_records::SourceCallHeader>},
+ #[model(code=4)]ModeledCall{#[model(premise)]call:Id<super::modeled_call::ModeledCallEvaluation>},
+ #[model(code=5)]FreshSource{#[model(premise)]call:Id<SourceExecutionInvocation>},
 }
 #[derive(Debug,Clone,PartialEq,Eq,Domain)]
 #[model(name="statement_executions",rule="ordered_statement_execution",invariants=super::enriched_production::statement_invariants)]
@@ -31,10 +33,10 @@ impl analysis::support::sealed::DerivedEvidence for StatementExecution{}
 impl analysis::support::DerivedEvidence for StatementExecution{fn source_facts(&self)->analysis::support::SourceFacts{analysis::support::SourceFacts{qualification:self.qualification,status:self.status,heuristic:false}}}
 pub struct StatementRecords{pub execution:StatementExecution,pub outcome:ExecutionOutcome,pub sources:Vec<ExecutionSource>,pub members:Vec<ExecutionMember>,pub entered:Vec<EnteredStatement>,_charge:Box<dyn resources::Reservation>}
 pub(crate) fn emit_statement(frame:&EnrichedFrame<'_>,proof:&CheckedCompletion,invocation:&publication::AnalysisInvocation,definition:&analysis::AnalysisDefinition,budget:&ResourceBudget)->Result<StatementRecords,ModelError>{
- let request=proof.request();if invocation.definition!=definition.id()||*definition!=super::configuration::enriched_execution().1||invocation.subject.is_some()||(invocation.input,invocation.context)!=(request.input,request.context){return Err(ModelError::Invalid("enriched statement changes admitted method/frame".into()));}
+ let request=proof.request();if invocation.definition!=definition.id()||!super::configuration::enriched_kernel(definition)||invocation.subject.is_some()||(invocation.input,invocation.context)!=(request.input,request.context){return Err(ModelError::Invalid("enriched statement changes admitted method/frame".into()));}
  let count=proof.native_premises().len().checked_add(proof.evaluation_facts().len()).and_then(|n|n.checked_add(proof.header_premises().len())).ok_or_else(||ModelError::Invalid("enriched proof count overflow".into()))?;
  let bytes=count.checked_mul((size_of::<ExecutionSource>()+size_of::<ExecutionMember>()+size_of::<EvaluationPremise>())*2).and_then(|n|n.checked_add(proof.entered_statements().len()*size_of::<EnteredStatement>()*2)).ok_or_else(||ModelError::Invalid("enriched output allowance overflow".into()))?;let charge=budget.reserve("enriched_statement_records",bytes)?;
- let evaluations=frame.evaluation_premises(proof)?;let mut sources=Vec::with_capacity(count);sources.extend(proof.native_premises().iter().map(|id|ExecutionSource::Native{premise:*id}));sources.extend(evaluations.iter().map(|source|match source{EvaluationPremise::Base(id)=>ExecutionSource::BaseEvaluation{evaluation:*id},EvaluationPremise::Source(id)=>ExecutionSource::SourceInvocation{invocation:*id}}));sources.extend(proof.header_premises().iter().map(|id|ExecutionSource::FreshHeader{header:*id}));
+ let evaluations=frame.evaluation_premises(proof)?;let mut sources=Vec::with_capacity(count);sources.extend(proof.native_premises().iter().map(|id|ExecutionSource::Native{premise:*id}));sources.extend(evaluations.iter().map(|source|match source{EvaluationPremise::Base(id)=>ExecutionSource::BaseEvaluation{evaluation:*id},EvaluationPremise::Source(id)=>ExecutionSource::SourceInvocation{invocation:*id},EvaluationPremise::Modeled(id)=>ExecutionSource::ModeledCall{call:*id},EvaluationPremise::Fresh(id)=>ExecutionSource::FreshSource{call:*id}}));sources.extend(proof.header_premises().iter().map(|id|ExecutionSource::FreshHeader{header:*id}));
  let outcome=ExecutionOutcome::from(proof.outcome());let execution=StatementExecution{invocation:invocation.id(),statement:request.statement,owner:request.owner,qualification:proof.qualification(),outcome:outcome.id(),status:proof.status(),sources:ordered_digest("execution-sources",sources.iter().map(Record::id)),entered:ordered_digest("execution-entered",proof.entered_statements().iter().copied())};
  let members=sources.iter().enumerate().map(|(ordinal,row)|ExecutionMember{execution:execution.id(),ordinal:ordinal as i64,source:row.id()}).collect();let entered=proof.entered_statements().iter().enumerate().map(|(ordinal,id)|EnteredStatement{execution:execution.id(),ordinal:ordinal as i64,statement:*id}).collect();Ok(StatementRecords{execution,outcome,sources,members,entered,_charge:charge})
 }
@@ -60,4 +62,14 @@ pub(crate) fn emit_body(proof:&CheckedSourceBody,invocation:&publication::Analys
  let mut digest=KeySink::new("execution-body-releases");for(site,safety)in proof.release_inputs(){site.encode(&mut digest);safety.encode(&mut digest);}
  let outcome=ExecutionOutcome::from(proof.outcome());let body=BodyExecution{invocation:invocation.id(),owner:request.callee,declaration:proof.declaration(),qualification:proof.qualification(),outcome:outcome.id(),status:proof.status(),sources:ordered_digest("execution-body-sources",sources.iter().map(Record::id)),releases:digest.finish()};let members=sources.iter().enumerate().map(|(ordinal,row)|BodyMember{body:body.id(),ordinal:ordinal as i64,source:row.id()}).collect();let releases=proof.release_inputs().iter().enumerate().map(|(ordinal,(site,safety))|BodyReleaseInput{body:body.id(),ordinal:ordinal as i64,expression:*site,safety:*safety}).collect();Ok(BodyRecords{body,outcome,sources,members,releases,_charge:charge})
 }
-pub fn relations()->Vec<Relation>{vec![Relation::of::<ExecutionOutcome>(),Relation::of::<ExecutionSource>(),Relation::of::<StatementExecution>(),Relation::of::<ExecutionMember>(),Relation::of::<EnteredStatement>(),Relation::of::<BodySource>(),Relation::of::<BodyExecution>(),Relation::of::<BodyMember>(),Relation::of::<BodyReleaseInput>()]}
+pub fn relations()->Vec<Relation>{vec![Relation::of::<ExecutionOutcome>(),Relation::of::<ExecutionSource>(),Relation::of::<StatementExecution>(),Relation::of::<ExecutionMember>(),Relation::of::<EnteredStatement>(),Relation::of::<BodySource>(),Relation::of::<BodyExecution>(),Relation::of::<BodyMember>(),Relation::of::<BodyReleaseInput>(),Relation::of::<SourceExecutionInvocation>()]}
+
+/// A fresh-source call enters only after an independently completed Enriched body and
+/// the shared frame release operation; this record never appends SourceCall output tables.
+#[derive(Debug,Clone,PartialEq,Eq,Domain)]
+#[model(name="source_execution_invocations",rule="source_execution_invocation")]
+pub struct SourceExecutionInvocation{
+ #[model(key,premise)]pub invocation:Id<publication::AnalysisInvocation>,#[model(key,premise)]pub header:Id<super::source_call_records::SourceCallHeader>,#[model(premise)]pub body:Id<BodyExecution>,pub event:Id<normalized::events::NormalizedCallEvent>,pub qualification:Id<assertion::AssertionQualification>,pub outcome:Id<ExecutionOutcome>,pub status:EvidenceStatus,
+}
+impl analysis::support::sealed::DerivedEvidence for SourceExecutionInvocation{}
+impl analysis::support::DerivedEvidence for SourceExecutionInvocation{fn source_facts(&self)->analysis::support::SourceFacts{analysis::support::SourceFacts{qualification:self.qualification,status:self.status,heuristic:false}}}

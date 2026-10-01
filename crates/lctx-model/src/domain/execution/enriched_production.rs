@@ -1,7 +1,7 @@
 //! One finite enriched owner, with independently replayed SourceCall predecessors.
 use crate::domain::{*,analysis::{self,enriched_execution as publication},normalized::Rows,resources::ResourceBudget,source::{Occurrence,SourceArtifact},input::ArtifactUse};
 use crate::Domain;
-use super::{enriched_records::*,source_call_records::{self,SourceCallData}};
+use super::{modeled_call::*,enriched_records::*,source_call_records::{self,SourceCallData}};
 #[derive(Debug,Clone,PartialEq,Eq,Domain)]
 #[model(name="execution_boundaries")]
 pub struct ExecutionBoundary{#[model(key)]pub invocation:Id<publication::AnalysisInvocation>,#[model(key)]pub statement:Id<Occurrence>,pub owner:Option<Id<normalized::entities::EntityRef>>,pub reason:obligation::ObligationKind}
@@ -12,6 +12,8 @@ pub struct BodyBoundary{#[model(key)]pub invocation:Id<publication::AnalysisInvo
 #[model(name="execution_runs",invariants=run_invariants,publication_checks=profile_checks)]
 pub struct ExecutionRun{#[model(key)]pub invocation:Id<publication::AnalysisInvocation>,pub requested:bool,pub executed:i64,pub refused:i64,pub bodied:i64,pub body_refused:i64}
 macro_rules! source_inputs{($apply:ident)=>{$apply!{
+ parameters:analysis::MethodParameters,
+ catalogs:models::ModelCatalog,
  source_invocations:analysis::source_call::AnalysisInvocation,
  source_runs:source_call_records::SourceCallRun,
  source_headers:source_call_records::SourceCallHeader,
@@ -24,11 +26,11 @@ macro_rules! source_inputs{($apply:ident)=>{$apply!{
  source_invocation_boundaries:source_call_records::InvocationBoundary,
 }};}
 macro_rules! data{($($field:ident:$ty:ty,)*)=>{
- pub struct EnrichedData{pub source:SourceCallData,$(pub $field:Rows<$ty>,)*}
+ pub struct EnrichedData{pub source:SourceCallData,pub application:super::model_application::ModelApplicationData,$(pub $field:Rows<$ty>,)*}
  impl EnrichedData{
-  pub fn new(budget:&ResourceBudget)->Self{Self{source:SourceCallData::new(budget),$($field:Rows::new(budget),)*}}
-  pub fn visit(&mut self,name:&str,batch:&arrow_array::RecordBatch)->Result<(),ModelError>{self.source.visit(name,batch)?;$(if name==<$ty>::NAME{self.$field.decode(batch)?;})*Ok(())}
-  pub fn inputs()->Vec<ValidationInput>{let mut inputs=SourceCallData::inputs();inputs.extend(vec![$(ValidationInput::of::<$ty>(&["id"]),)*]);inputs.sort_by_key(|i|(i.name(),i.prefix()));inputs.dedup_by_key(|i|(i.name(),i.prefix()));inputs}
+  pub fn new(budget:&ResourceBudget)->Self{Self{source:SourceCallData::new(budget),application:super::model_application::ModelApplicationData::new(budget),$($field:Rows::new(budget),)*}}
+  pub fn visit(&mut self,name:&str,batch:&arrow_array::RecordBatch)->Result<(),ModelError>{self.source.visit(name,batch)?;self.application.visit(name,batch)?;$(if name==<$ty>::NAME{self.$field.decode(batch)?;})*Ok(())}
+  pub fn inputs()->Vec<ValidationInput>{let mut inputs=SourceCallData::inputs();inputs.extend(super::model_application::ModelApplicationData::validation_inputs());inputs.extend(vec![$(ValidationInput::of::<$ty>(&["id"]),)*]);inputs.sort_by_key(|i|(i.name(),i.prefix()));inputs.dedup_by_key(|i|(i.name(),i.prefix()));inputs}
  }
 };}
 source_inputs!(data);
@@ -43,6 +45,7 @@ impl EnrichedData{
 }
 macro_rules! outputs{($apply:ident)=>{$apply!{
  executions:StatementExecution,outcomes:ExecutionOutcome,sources:ExecutionSource,members:ExecutionMember,entered:EnteredStatement,boundaries:ExecutionBoundary,
+ modeled_calls:ModeledCallEvaluation,modeled_arguments:ModeledCallArgument,modeled_native:ModeledCallNative,fresh_calls:SourceExecutionInvocation,
  bodies:BodyExecution,body_sources:BodySource,body_members:BodyMember,releases:BodyReleaseInput,body_boundaries:BodyBoundary,
 }};}
 macro_rules! records{($($field:ident:$ty:ty,)*)=>{
@@ -52,14 +55,38 @@ macro_rules! records{($($field:ident:$ty:ty,)*)=>{
 outputs!(records);
 pub fn enrich_all(data:&EnrichedData,invocation:&publication::AnalysisInvocation,definition:&analysis::AnalysisDefinition,profile:stages::Profile,budget:&ResourceBudget)->Result<ExecutionRecords,ModelError>{
  let invalid=|message:&str|ModelError::Invalid(message.into());
- if *definition!=super::configuration::enriched_execution().1||invocation.definition!=definition.id()||invocation.subject.is_some(){return Err(invalid("enriched execution requires its whole-frame definition"));}
+ if !super::configuration::enriched_kernel(definition)||invocation.definition!=definition.id()||invocation.subject.is_some(){return Err(invalid("enriched execution requires its whole-frame definition"));}
+ let parameters=data.parameters.get(definition.parameters).ok_or_else(||invalid("enriched parameters absent"))?;let catalog=parameters.model_catalog.and_then(|id|data.catalogs.get(id)).ok_or_else(||invalid("enriched selected catalog absent"))?;if super::configuration::enriched_execution(catalog.id())!=(parameters.clone(),definition.clone()){return Err(invalid("enriched selected configuration differs from canonical factory"));}
  let mut output=ExecutionRecords::new(invocation.id(),budget);if profile!=stages::Profile::Behavioral{output.outcome.status=analysis::AnalysisStatus::NotRequested;output.outcome.reason=Some(obligation::ObligationKind::NotRequested);return Ok(output);}output.run.requested=true;
  let mut parents=data.source_invocations.iter().filter(|row|(row.input,row.context)==(invocation.input,invocation.context));let source=parents.next().ok_or_else(||invalid("enriched SourceCall frame absent"))?;if parents.next().is_some(){return Err(invalid("enriched SourceCall frame ambiguous"));}let source_definition=data.source.definitions.get(source.definition).ok_or_else(||invalid("enriched SourceCall definition absent"))?;
  let facts=&data.source.evaluation;
  let bytes=facts.artifacts.iter().try_fold(0usize,|n,row|n.checked_add(size_of::<SourceArtifact>()+row.heap_bytes()+128)).and_then(|n|n.checked_add(facts.uses.len().checked_mul(size_of::<ArtifactUse>())?)).and_then(|n|n.checked_mul(2)).ok_or_else(||invalid("enriched root allowance overflow"))?;let _roots=budget.reserve("enriched_source_roots",bytes)?;
  let roots=admission::analysis_roots(&facts.artifacts.iter().cloned().collect::<Vec<_>>(),&facts.uses.iter().cloned().collect::<Vec<_>>())?;
  let selected=|source|roots.contains(&source)&&facts.artifacts.get(source).is_some_and(|artifact|artifact.input==invocation.input&&admission::ArtifactClass::of(&artifact.path)==Some(admission::ArtifactClass::PythonSource));
+ let _parse=budget.reserve("enriched_selected_catalog",catalog.source.len().checked_mul(32).and_then(|n|n.checked_add(65536)).ok_or_else(||invalid("enriched catalog allowance overflow"))?)?;let catalog=models::Catalog::parse(&catalog.source_name,&catalog.source).map_err(ModelError::Invalid)?;
  let(_,expected)=super::enriched::with_frame(&data.source,source,source_definition,budget,|frame|{
+  let verified=normalized::binding_normalization::verify(&data.application.bindings,&data.source.output,budget)?;
+  for attempt in data.source.output.attempts.iter(){let Some(shape)=verified.shape(attempt.id())else{continue};if (shape.input(),shape.context())!=(invocation.input,invocation.context){continue;}let Some(bound)=verified.bound(attempt.id())else{continue};if !selected(facts.occurrences.get(bound.bound().site()).ok_or_else(||invalid("modeled call site absent"))?.source){continue;}
+   let application=super::model_application::CheckedModelApplication::derive(&catalog,&data.application,bound,shape,verified.effective_invocation(attempt.id()),budget)?;let Ok(application)=application else{continue};
+   if frame.has_call(shape.event()){continue;}let checked=CheckedModeledEvaluation::derive(facts,&application,&data.source.completed,invocation,definition,budget)?;let Ok(checked)=checked else{continue};
+   output.modeled_calls.insert(checked.record().clone())?;for row in checked.arguments().iter(){output.modeled_arguments.insert(row.clone())?;}for row in checked.native().iter(){output.modeled_native.insert(row.clone())?;}frame.push_modeled(checked)?;
+  }
+  // Fresh source bodies form finite immutable proof occurrences. Only successful prior
+  // occurrences may become call premises; recursive/self-captured bodies remain refused.
+  for _ in 0..frame.headers().len(){let mut progress=false;
+   for index in 0..frame.headers().len(){let(header,header_row)=frame.headers()[index];if frame.has_call(header_row.event){continue;}
+    let mut proofs=Vec::new();let mut charge=charged::StateCharge::new(budget,"enriched_fresh_body_completions");
+    for occurrence in facts.occurrences.iter().filter(|row|super::completion_production::is_statement(row.syntax_kind)&&facts.owners.iter().any(|owner|owner.occurrence==row.id()&&owner.entity==header.callee())){
+     if let Ok(proof)=frame.complete(super::completion::CompletionRequest{input:invocation.input,context:invocation.context,owner:header.callee(),statement:occurrence.id()})?{charge.grow(size_of::<super::completion::CheckedCompletion>()*2)?;proofs.push(proof);}
+    }
+    let _refs=budget.reserve("enriched_fresh_statement_refs",proofs.len()*size_of::<&super::completion::CheckedCompletion>()*2)?;let refs=proofs.iter().collect::<Vec<_>>();let body=super::body::complete_body(facts,super::body::SourceBodyRequest{input:invocation.input,context:invocation.context,callee:header.callee()},&refs,budget)?;let Ok(body)=body else{continue};let call=super::source_invocation::CheckedSourceInvocation::derive(facts,header,&body,budget)?;let Ok(call)=call else{continue};
+    for proof in &proofs{insert_statement(&mut output,emit_statement(frame,proof,invocation,definition,budget)?)?;}
+    let body_records=emit_body(&body,invocation,&output.executions,budget)?;let body_id=body_records.body.id();insert_body(&mut output,body_records)?;
+    let outcome=match call.outcome(){super::source_invocation::InvocationOutcome::Normal=>ExecutionOutcome::Normal,super::source_invocation::InvocationOutcome::Raised{site,exception}=>ExecutionOutcome::Raise{site,exception}};output.outcomes.insert(outcome.clone())?;
+    let row=SourceExecutionInvocation{invocation:invocation.id(),header:header_row.id(),body:body_id,event:call.event(),qualification:call.qualification(),outcome:outcome.id(),status:call.status()};frame.push_fresh(&call,&row)?;output.fresh_calls.insert(row)?;progress=true;
+   }
+   if !progress{break;}
+  }
   let mut statements=Vec::new();let mut charge=charged::StateCharge::new(budget,"enriched_retained_completions");
   for row in facts.occurrences.iter().filter(|row|super::completion_production::is_statement(row.syntax_kind)&&selected(row.source)){
    let mut owners=facts.owners.iter().filter(|owner|owner.occurrence==row.id());let first=owners.next();let owner=if owners.next().is_none(){first.map(|owner|owner.entity)}else{None};
@@ -82,6 +109,7 @@ pub fn enrich_all(data:&EnrichedData,invocation:&publication::AnalysisInvocation
 pub fn relations()->Vec<Relation>{vec![Relation::of::<ExecutionRun>(),Relation::of::<ExecutionBoundary>(),Relation::of::<BodyBoundary>()]}
 fn invariant_inputs()->Vec<ValidationInput>{let mut inputs=EnrichedData::inputs();inputs.extend([ValidationInput::of::<publication::AnalysisInvocation>(&["id"]),ValidationInput::of::<ExecutionRun>(&["id"]),ValidationInput::of::<publication::AnalysisOutcome>(&["id"])]);macro_rules! append{($($field:ident:$ty:ty,)*)=>{$(inputs.push(ValidationInput::of::<$ty>(&["id"]));)*};}outputs!(append);inputs.sort_by_key(|i|(i.name(),i.prefix()));inputs.dedup_by_key(|i|(i.name(),i.prefix()));inputs}
 fn run_invariants()->Vec<Invariant>{vec![Invariant{name:"enriched_execution_inventory",inputs:invariant_inputs(),create:std::sync::Arc::new(|budget|Box::new(ExecutionCheck::new(budget)))}]}
+pub(crate) fn modeled_invariants()->Vec<Invariant>{vec![Invariant{name:"enriched_modeled_call_replay",inputs:invariant_inputs(),create:std::sync::Arc::new(|budget|Box::new(ExecutionCheck::new(budget)))}]}
 pub(crate) fn statement_invariants()->Vec<Invariant>{vec![Invariant{name:"enriched_statement_replay",inputs:invariant_inputs(),create:std::sync::Arc::new(|budget|Box::new(ExecutionCheck::new(budget)))}]}
 macro_rules! checker{($($field:ident:$ty:ty,)*)=>{
  struct ExecutionCheck{data:EnrichedData,invocations:Rows<publication::AnalysisInvocation>,runs:Rows<ExecutionRun>,results:Rows<publication::AnalysisOutcome>,$($field:Rows<$ty>,)*budget:ResourceBudget}
@@ -108,10 +136,10 @@ impl PublicationCheck for ProfileCheck{
 }
 
 pub fn stage(profile:stages::Profile,definition:&analysis::AnalysisDefinition,model:&ValidatedModel)->Result<stages::Stage,ModelError>{
- use stages::*;if *definition!=super::configuration::enriched_execution().1{return Err(ModelError::Invalid("enriched execution stage definition is unbound".into()));}
- let mut outputs=vec![Relation::of::<publication::AnalysisInvocation>(),Relation::of::<publication::AnalysisInput>(),Relation::of::<publication::SourceReceipt>(),Relation::of::<publication::ProjectionInput>(),Relation::of::<publication::InvocationSource>(),Relation::of::<publication::AnalysisOutcome>()];outputs.extend(publication::coverage::relations());outputs.extend(super::enriched_records::relations());outputs.extend(relations());outputs.sort_by_key(Relation::name);outputs.dedup_by_key(|r|r.name());
+ use stages::*;if !super::configuration::enriched_kernel(definition){return Err(ModelError::Invalid("enriched execution stage definition is unbound".into()));}
+ let mut outputs=vec![Relation::of::<publication::AnalysisInvocation>(),Relation::of::<publication::AnalysisInput>(),Relation::of::<publication::SourceReceipt>(),Relation::of::<publication::ProjectionInput>(),Relation::of::<publication::InvocationSource>(),Relation::of::<publication::AnalysisOutcome>()];outputs.extend(publication::coverage::relations());outputs.extend(super::enriched_records::relations());outputs.extend(super::modeled_call::relations());outputs.extend(relations());outputs.sort_by_key(Relation::name);outputs.dedup_by_key(|r|r.name());
  let own=outputs.iter().map(Relation::name).collect::<std::collections::BTreeSet<_>>();let facts=crate::domain::facts_relations().iter().map(Relation::name).collect::<std::collections::BTreeSet<_>>();let mut inputs=std::collections::BTreeMap::new();
- let mut initial=if profile==Profile::Behavioral{invariant_inputs()}else{vec![ValidationInput::of::<analysis::source_call::AnalysisInvocation>(&["id"]),ValidationInput::of::<analysis::AnalysisDefinition>(&["id"])]};
+ let mut initial=if profile==Profile::Behavioral{invariant_inputs()}else{vec![ValidationInput::of::<analysis::source_call::AnalysisInvocation>(&["id"]),ValidationInput::of::<analysis::AnalysisDefinition>(&["id"]),ValidationInput::of::<analysis::MethodParameters>(&["id"]),ValidationInput::of::<models::ModelCatalog>(&["id"])]};
  for relation in &outputs{for check in relation.publication_checks(){initial.extend(check.inputs.iter().cloned());}}
  let mut pending=Vec::new();for input in initial{if own.contains(input.name())||inputs.contains_key(input.name()){continue;}let relation=model.relations().iter().find(|r|r.name()==input.name()).ok_or_else(||ModelError::Invalid(format!("enriched execution input missing {}",input.name())))?;inputs.insert(input.name(),RelationUse::of_relation(relation).completed_store());pending.push(input.name());}
  while let Some(name)=pending.pop(){let relation=model.relations().iter().find(|r|r.name()==name).ok_or_else(||ModelError::Invalid(format!("enriched execution closure missing {name}")))?;let references=relation.fields().iter().filter_map(|f|f.target().map(|(_,n)|n));let checks=relation.invariants().iter().flat_map(|i|i.inputs.iter()).map(ValidationInput::name);
@@ -120,3 +148,6 @@ pub fn stage(profile:stages::Profile,definition:&analysis::AnalysisDefinition,mo
  let inputs=normalized::facts_stage_inputs(inputs.into_values().collect());let mut key=KeySink::new("enriched-execution-definition");definition.id().encode(&mut key);
  Ok(Stage{name:"enrich_execution",inputs,outputs:outputs.iter().map(RelationUse::of_relation).collect(),contributes:vec![],coverage:vec![],provider:None,profiles:vec![profile],effect:Effect::Pure,code:ContentHash::of(include_bytes!("enriched_production.rs")),configuration:key.finish()})
 }
+
+fn insert_statement(output:&mut ExecutionRecords,records:StatementRecords)->Result<(),ModelError>{output.executions.insert(records.execution)?;output.outcomes.insert(records.outcome)?;for row in records.sources{output.sources.insert(row)?;}for row in records.members{output.members.insert(row)?;}for row in records.entered{output.entered.insert(row)?;}Ok(())}
+fn insert_body(output:&mut ExecutionRecords,records:BodyRecords)->Result<(),ModelError>{output.bodies.insert(records.body)?;output.outcomes.insert(records.outcome)?;for row in records.sources{output.body_sources.insert(row)?;}for row in records.members{output.body_members.insert(row)?;}for row in records.releases{output.releases.insert(row)?;}Ok(())}

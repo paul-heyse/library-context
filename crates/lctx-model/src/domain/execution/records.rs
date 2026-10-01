@@ -77,7 +77,7 @@ impl CheckedEvaluation {
 
 #[derive(Debug,Clone,Copy,PartialEq,Eq)]
 pub(crate) struct EvaluationFacts {
-    request:ExpressionRequest, qualification:Id<AssertionQualification>, boolean_value:Option<bool>, release:ReleaseSafety, status:EvidenceStatus, sources:ContentHash, operands:ContentHash, call:Option<Id<super::source_call_records::SourceInvocation>>,
+    request:ExpressionRequest, qualification:Id<AssertionQualification>, boolean_value:Option<bool>, release:ReleaseSafety, status:EvidenceStatus, sources:ContentHash, operands:ContentHash, call:Option<super::evaluation::CallOrigin>,
 }
 impl EvaluationFacts {
     pub(crate) fn of(checked:&CheckedEvaluation)->Self {

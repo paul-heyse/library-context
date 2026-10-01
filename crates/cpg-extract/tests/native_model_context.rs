@@ -106,3 +106,20 @@ async fn required_classes_keep_incomplete_and_cyclic_native_mro_evidence() {
     assert!(typed_driver::rows::<ProviderCoverage>(&tables).iter().any(|c|c.family==FactFamily::Signatures && c.status==CoverageStatus::Partial));
 }
 }
+
+#[tokio::test]
+async fn checked_protocol_and_exception_hierarchy_require_exact_pinned_native_definitions(){
+ use lctx_model::domain::execution::{model_application::ModelApplicationData,model_context::{CheckedExactClass,CheckedContextProtocol}};
+ let(tables,context)=extract(SOURCE,Profile::Behavioral).await;let resources=budget();let mut data=ModelApplicationData::new(&resources);
+ macro_rules! raw{($($field:ident:$ty:ty,)*)=>{$(for row in typed_driver::rows::<$ty>(&tables){data.bindings.$field.insert(row).unwrap();})*};}lctx_model::normalized_binding_inputs!(raw);
+ macro_rules! pins{($($field:ident:$ty:ty,)*)=>{$(for row in typed_driver::rows::<$ty>(&tables){data.$field.insert(row).unwrap();})*};}lctx_model::model_pin_inputs!(pins);
+ let mut inventory=analysis::native::NativeInventory::new(&resources);for input in analysis::native::NativeInventory::inputs(){if let Some(batch)=tables.lock().unwrap().get(input.name()){inventory.visit(input.name(),batch).unwrap();}}let native=inventory.collect().unwrap();data.premises=native.premises;data.native=native.qualifications;
+ let child=data.bindings.symbols.iter().find(|s|s.name=="Child"&&s.kind==SymbolKind::Class).unwrap();let base=data.bindings.symbols.iter().find(|s|s.name=="Base"&&s.kind==SymbolKind::Class).unwrap();let root=data.bindings.symbols.iter().find(|s|s.name=="Root"&&s.kind==SymbolKind::Class).unwrap();
+ let child_checked=CheckedExactClass::derive(&data,child.id(),context,&resources).unwrap().unwrap();let base_checked=CheckedExactClass::derive(&data,base.id(),context,&resources).unwrap().unwrap();let root_checked=CheckedExactClass::derive(&data,root.id(),context,&resources).unwrap().unwrap();
+ assert!(child_checked.matches(&base_checked).unwrap());assert!(child_checked.matches(&root_checked).unwrap());assert!(!base_checked.matches(&child_checked).unwrap());
+ let input=typed_driver::rows::<input::InputRevision>(&tables)[0].id();let catalog=models::Catalog::parse("model-context.toml",SOURCE).unwrap();
+ let protocol=CheckedContextProtocol::derive(&catalog,&data,child.id(),input,context,&resources).unwrap().unwrap_or_else(|r|panic!("protocol {r:?}"));
+ assert!(protocol.preserves());assert_ne!(protocol.allocation(),protocol.initialization());assert_ne!(protocol.entry(),protocol.exit());
+ let changed=models::Catalog::parse("model-context.toml",&SOURCE.replace("version=\"1.0\"","version=\"2.0\"")).unwrap();assert!(CheckedContextProtocol::derive(&changed,&data,child.id(),input,context,&resources).unwrap().is_err());
+ assert!(CheckedExactClass::derive(&data,child.id(),context,&ResourceBudget::fixed(1).unwrap()).is_err());
+}

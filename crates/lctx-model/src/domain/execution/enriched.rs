@@ -4,9 +4,17 @@ use crate::domain::{*,analysis,resources::ResourceBudget,obligation::ObligationK
 use super::{source_call_records::{SourceCallData,SourceCallHeader,SourceInvocation},source_call::CheckedSourceBinding,evaluation::{CheckedEvaluation,ExpressionRequest},completion::{CheckedCompletion,CompletionRequest}};
 
 #[derive(Debug,Clone,Copy,PartialEq,Eq)]
-pub enum EvaluationPremise {Base(Id<super::records::ExpressionEvaluation>),Source(Id<SourceInvocation>)}
+pub enum EvaluationPremise {Base(Id<super::records::ExpressionEvaluation>),Source(Id<SourceInvocation>),Modeled(Id<super::modeled_call::ModeledCallEvaluation>),Fresh(Id<super::enriched_records::SourceExecutionInvocation>)}
 pub struct EnrichedFrame<'a>{data:&'a SourceCallData,input:Id<input::InputRevision>,context:Id<attribution::AnalysisContext>,evaluations:Vec<(CheckedEvaluation,EvaluationPremise)>,headers:Vec<(&'a CheckedSourceBinding,&'a SourceCallHeader)>,budget:&'a ResourceBudget,_charge:charged::StateCharge}
 impl EnrichedFrame<'_>{
+ pub(crate) fn headers(&self)->&[(&CheckedSourceBinding,&SourceCallHeader)]{&self.headers}
+ pub(crate) fn has_call(&self,event:Id<normalized::events::NormalizedCallEvent>)->bool{self.data.bindings.event_events.get(event).is_some_and(|row|self.evaluations.iter().any(|(proof,_)|proof.request().expression==row.site&&proof.call_source().is_some()))}
+ pub(crate) fn push_modeled(&mut self,proof:super::modeled_call::CheckedModeledEvaluation)->Result<(),ModelError>{let id=proof.record().id();self._charge.grow(size_of::<(CheckedEvaluation,EvaluationPremise)>()*2)?;self.evaluations.push((proof.into_evaluation(),EvaluationPremise::Modeled(id)));Ok(())}
+ pub(crate) fn push_fresh(&mut self,proof:&super::source_invocation::CheckedSourceInvocation,row:&super::enriched_records::SourceExecutionInvocation)->Result<(),ModelError>{
+  let event=self.data.bindings.event_events.get(proof.event()).ok_or_else(||ModelError::Invalid("enriched fresh event absent".into()))?;let mut matching=self.headers.iter().filter(|(_,header)|header.event==proof.event());let(_,header)=matching.next().ok_or_else(||ModelError::Invalid("enriched fresh header absent".into()))?;if matching.next().is_some(){return Err(ModelError::Invalid("enriched fresh header ambiguous".into()));}
+  let request=ExpressionRequest{input:self.input,context:self.context,owner:header.owner,expression:event.site};let checked=super::evaluation::fresh_call_evaluation(&self.data.evaluation,request,proof,row.id(),self.budget)?.map_err(|_|ModelError::Invalid("enriched fresh call evaluation refused".into()))?;
+  self._charge.grow(size_of::<(CheckedEvaluation,EvaluationPremise)>()*2)?;self.evaluations.push((checked,EvaluationPremise::Fresh(row.id())));Ok(())
+ }
  pub fn complete(&self,request:CompletionRequest)->Result<Result<CheckedCompletion,ObligationKind>,ModelError>{
   if(request.input,request.context)!=(self.input,self.context){return Ok(Err(ObligationKind::IncompatibleContexts));}
   let _scratch=self.budget.reserve("enriched_completion_operands",self.evaluations.len().checked_mul(size_of::<&CheckedEvaluation>()*2).ok_or_else(||ModelError::Invalid("enriched operand allowance overflow".into()))?)?;
@@ -22,7 +30,7 @@ impl EnrichedFrame<'_>{
 /// A callback over one independently replayed frame avoids a second trusted record route.
 /// Persisted SourceInvocation inputs are compared by the publishing owner against the rows
 /// produced by this exact replay; source snapshot authority remains the publication check.
-pub fn with_frame<T>(data:&SourceCallData,invocation:&analysis::source_call::AnalysisInvocation,definition:&analysis::AnalysisDefinition,budget:&ResourceBudget,visit:impl FnOnce(&EnrichedFrame<'_>)->Result<T,ModelError>)->Result<(T,super::source_call_records::SourceCallRecords),ModelError>{
+pub fn with_frame<T>(data:&SourceCallData,invocation:&analysis::source_call::AnalysisInvocation,definition:&analysis::AnalysisDefinition,budget:&ResourceBudget,visit:impl FnOnce(&mut EnrichedFrame<'_>)->Result<T,ModelError>)->Result<(T,super::source_call_records::SourceCallRecords),ModelError>{
  let mut visit=Some(visit);let mut result=None;
  let records=super::source_call_records::prepare_all_with(data,invocation,definition,stages::Profile::Behavioral,budget,&mut|headers,calls|{
   let mut frame=EnrichedFrame{data,input:invocation.input,context:invocation.context,evaluations:Vec::new(),headers:Vec::new(),budget,_charge:charged::StateCharge::new(budget,"enriched_private_evidence")};
@@ -35,7 +43,7 @@ pub fn with_frame<T>(data:&SourceCallData,invocation:&analysis::source_call::Ana
    let evaluation=super::evaluation::source_call_evaluation(&data.evaluation,request,proof,row.id(),budget)?.map_err(|_|ModelError::Invalid("enriched source evaluation refused".into()))?;
    frame._charge.grow(size_of::<(CheckedEvaluation,EvaluationPremise)>()*2)?;frame.evaluations.push((evaluation,EvaluationPremise::Source(row.id())));
   }
-  result=Some(visit.take().ok_or_else(||ModelError::Invalid("enriched frame callback repeated".into()))?(&frame)?);Ok(())
+  result=Some(visit.take().ok_or_else(||ModelError::Invalid("enriched frame callback repeated".into()))?(&mut frame)?);Ok(())
  })?;
  Ok((result.ok_or_else(||ModelError::Invalid("enriched frame callback absent".into()))?,records))
 }

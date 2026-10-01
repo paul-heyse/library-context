@@ -30,6 +30,12 @@ macro_rules! execution_evaluation_inputs {($apply:ident)=>{$apply! {
     refs:$crate::domain::normalized::entities::EntityRef,
     callables:$crate::domain::normalized::entities::CallableEntity,
     runs:$crate::domain::attribution::ProviderRun,
+    references:$crate::domain::lexical::ReferenceObservation,
+    reference_supports:$crate::domain::lexical::ReferenceSupport,
+    lexical_resolutions:$crate::domain::lexical::LexicalResolution,
+    lexical_resolution_supports:$crate::domain::lexical::LexicalResolutionSupport,
+    lexical_targets:$crate::domain::lexical::LexicalTarget,
+    lexical_scopes:$crate::domain::lexical::LexicalScope,
     premises:$crate::domain::analysis::native::NativeAssertionPremise,
     native:$crate::domain::analysis::native::NativeQualification,
 }};}
@@ -57,9 +63,11 @@ impl Value {
 
 /// Only the shared evaluator constructs this token. Records/replay must preserve the request
 /// and exact ordered evidence; consumers cannot declare arbitrary operands normal.
+#[derive(Debug,Clone,Copy,PartialEq,Eq)]
+pub(crate) enum CallOrigin{Source(Id<super::source_call_records::SourceInvocation>),Modeled(Id<super::modeled_call::ModeledCallEvaluation>),Fresh(Id<super::enriched_records::SourceExecutionInvocation>)}
 pub struct CheckedEvaluation {
     request:ExpressionRequest, value:Value, release:ReleaseSafety,
-    call_source:Option<Id<super::source_call_records::SourceInvocation>>, exception:Option<(Id<Occurrence>,super::ExactRuntimeException)>,
+    call_source:Option<CallOrigin>, exception:Option<(Id<Occurrence>,super::ExactRuntimeException)>,
     native:Vec<Id<NativeAssertionPremise>>, operands:Vec<Id<Occurrence>>,
     entries:Vec<Id<conditions::entry::EntryValueWitness>>, _entry_charges:Vec<std::sync::Arc<charged::StateCharge>>,
     qualification:Id<AssertionQualification>, status:analysis::policy::EvidenceStatus,
@@ -74,7 +82,7 @@ impl CheckedEvaluation {
     pub fn entry_premises(&self)->&[Id<conditions::entry::EntryValueWitness>] {&self.entries}
     pub fn qualification(&self)->Id<AssertionQualification> {self.qualification}
     pub fn status(&self)->analysis::policy::EvidenceStatus {self.status}
-    pub(crate) fn call_source(&self)->Option<Id<super::source_call_records::SourceInvocation>>{self.call_source}
+    pub(crate) fn call_source(&self)->Option<CallOrigin>{self.call_source}
     pub(crate) fn exception(&self)->Option<(Id<Occurrence>,super::ExactRuntimeException)>{self.exception}
 }
 
@@ -219,7 +227,10 @@ impl Evaluator<'_> {
             SyntaxKind::ExprName if children.is_empty()=>{
                 self.tick(self.available_entries.len()).map_err(boundary)?;
                 let mut entries=self.available_entries.iter().filter(|entry|entry.witness().access==id);
-                let entry=*entries.next().ok_or_else(||boundary(UNSUPPORTED))?;
+                let Some(entry)=entries.next().copied()else{
+                    let request=ExpressionRequest{expression:id,..self.request};let proof=super::builtin_read::CheckedBuiltinRead::derive(self.data,request,self.charge.budget().ok_or_else(||EvaluationError::Model(ModelError::Invalid("builtin evaluation has no attempt budget".into())))?).map_err(EvaluationError::Model)?.map_err(boundary)?;
+                    self.charge.grow(proof.native_premises().len()*size_of::<Id<NativeAssertionPremise>>()*2)?;for id in proof.native_premises(){if !self.native.contains(id){self.native.push(*id);}}self.status=analysis::support::inferred_status(analysis::Interpretation::Structural,[self.status,proof.status()]);self.charge.grow(size_of::<Id<Occurrence>>()*2)?;self.operands.push(id);return Ok(Value::Retained);
+                };
                 if entries.next().is_some() {return Err(boundary(ObligationKind::MissingEvidence));}
                 if !matches!(entry.source(),conditions::entry::EntryAccessSource::Use{..}) {return Err(boundary(ObligationKind::EntryValueUnknown));}
                 analysis::policy::behavioral_support(entry.evidence_status(),false).map_err(|_|boundary(ObligationKind::MissingEvidence))?;
@@ -312,7 +323,9 @@ fn evaluate_prepared(prepared:&PreparedExecution<'_>,request:ExpressionRequest,e
 
 /// Only the actual SourceCall replay callback invokes this lowering. A normal callee outcome
 /// proves completion of the call under entry; it gives no truth, returned shape or caller reach.
-pub(crate) fn source_call_evaluation(data:&EvaluationData,request:ExpressionRequest,proof:&super::source_invocation::CheckedSourceInvocation,source:Id<super::source_call_records::SourceInvocation>,budget:&ResourceBudget)->Result<Result<CheckedEvaluation,ObligationKind>,ModelError>{
+pub(crate) fn source_call_evaluation(data:&EvaluationData,request:ExpressionRequest,proof:&super::source_invocation::CheckedSourceInvocation,source:Id<super::source_call_records::SourceInvocation>,budget:&ResourceBudget)->Result<Result<CheckedEvaluation,ObligationKind>,ModelError>{call_evaluation(data,request,proof,CallOrigin::Source(source),budget)}
+pub(crate) fn fresh_call_evaluation(data:&EvaluationData,request:ExpressionRequest,proof:&super::source_invocation::CheckedSourceInvocation,source:Id<super::enriched_records::SourceExecutionInvocation>,budget:&ResourceBudget)->Result<Result<CheckedEvaluation,ObligationKind>,ModelError>{call_evaluation(data,request,proof,CallOrigin::Fresh(source),budget)}
+fn call_evaluation(data:&EvaluationData,request:ExpressionRequest,proof:&super::source_invocation::CheckedSourceInvocation,origin:CallOrigin,budget:&ResourceBudget)->Result<Result<CheckedEvaluation,ObligationKind>,ModelError>{
  with_completion_syntax(data,request,budget,|syntax|{
   syntax.observe(request.expression)?;
   if data.occurrences.get(request.expression).is_none_or(|row|row.syntax_kind!=SyntaxKind::ExprCall){return Err(boundary(ObligationKind::MissingEvidence));}
@@ -321,6 +334,18 @@ pub(crate) fn source_call_evaluation(data:&EvaluationData,request:ExpressionRequ
   let exception=match proof.outcome(){super::source_invocation::InvocationOutcome::Normal=>None,super::source_invocation::InvocationOutcome::Raised{site,exception}=>Some((site,exception))};
   let status=analysis::support::inferred_status(analysis::Interpretation::Structural,[syntax.status(),proof.status()]);
   let(native,charge)=syntax.take_admission();
-  Ok(CheckedEvaluation{request,value:Value::OpaqueClosed,release:ReleaseSafety::Closed,call_source:Some(source),exception,native,operands:Vec::new(),entries:Vec::new(),_entry_charges:Vec::new(),qualification,status,_charge:charge})
+  Ok(CheckedEvaluation{request,value:Value::OpaqueClosed,release:ReleaseSafety::Closed,call_source:Some(origin),exception,native,operands:Vec::new(),entries:Vec::new(),_entry_charges:Vec::new(),qualification,status,_charge:charge})
  })
 }
+
+pub(crate) fn modeled_call_evaluation(data:&EvaluationData,request:ExpressionRequest,returned:&CheckedEvaluation,status:analysis::policy::EvidenceStatus,budget:&ResourceBudget)->Result<Result<CheckedEvaluation,ObligationKind>,ModelError>{
+ with_completion_syntax(data,request,budget,|syntax|{
+  syntax.observe(request.expression)?;
+  if data.occurrences.get(request.expression).is_none_or(|row|row.syntax_kind!=SyntaxKind::ExprCall)||returned.exception().is_some(){return Err(boundary(ObligationKind::MissingEvidence));}
+  let qualification=syntax.qualification(request.expression).map_err(boundary)?;
+  if (returned.request.input,returned.request.context,returned.request.owner)!=(request.input,request.context,request.owner)||data.qualifications.get(qualification)!=data.qualifications.get(returned.qualification){return Err(boundary(ObligationKind::IncompatibleContexts));}
+  let status=analysis::support::inferred_status(analysis::Interpretation::Structural,[syntax.status(),status]);let(native,mut charge)=syntax.take_admission();charge.grow(returned._entry_charges.len()*size_of::<std::sync::Arc<charged::StateCharge>>()*2)?;
+  Ok(CheckedEvaluation{request,value:returned.value,release:returned.release,call_source:None,exception:None,native,operands:Vec::new(),entries:Vec::new(),_entry_charges:returned._entry_charges.clone(),qualification,status,_charge:charge})
+ })
+}
+pub(crate) fn mark_modeled(proof:&mut CheckedEvaluation,source:Id<super::modeled_call::ModeledCallEvaluation>){proof.call_source=Some(CallOrigin::Modeled(source));}

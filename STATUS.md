@@ -43,7 +43,7 @@ _Updated 2026-10-01 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
   C1/C2 declaration selection passed 29 pure + 1 native/PG control; exact domains preserve four
   outcomes and unresolved evidence. Runtime field/state links remain pending Local/B1.
 - **passed, 2026-10-01:** nominal report reads passed actual PG profiles; `generation show` CLI compiled.
-  Source invocation/frame passed 6 actual PG + 1 native controls; A1 passed 5 actual PG + 14 pure/model controls. Source-only enriched execution and exact documentary setup closure now pass 9 actual PG + 2 native controls; modeled execution, full synthesis and upper-frontier assembly remain open.
+  Source invocation/frame passed 6 actual PG + 1 native controls; A1 passed 5 actual PG + 14 pure/model controls. Source-only enriched execution and exact documentary setup closure passed 9 actual PG + 2 native controls. Authored runtime applicability, builtin reads and early modeled execution now pass a composite 8 actual PG + 31 native + 4 pure controls; full model transfers/context lifecycle, synthesis and upper-frontier assembly remain open.
 - New P4 acceptance is **not_run** pending implementation. Compile checks and focused controls
   precede scheduled review; integrated acceptance waits for all functional packages and retirement.
 ## Phase 3 implementation and qualification

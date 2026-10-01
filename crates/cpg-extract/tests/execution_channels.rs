@@ -32,6 +32,30 @@ fn request(data:&EvaluationData,text:&str)->ExpressionRequest {
     let context=data.placements.iter().find(|row|row.occurrence==occurrence.id()).map(|row|data.qualifications.get(row.qualification).unwrap().context).unwrap();
     ExpressionRequest {input:data.artifacts.get(occurrence.source).unwrap().input,context,owner:owner.entity,expression:occurrence.id()}
 }
+fn builtin_request(data:&EvaluationData,function:&str)->ExpressionRequest {
+    use lctx_model::domain::normalized::entities::*;
+    let source_files=files("execution_channels");
+    let callable=data.callables.iter().find(|row|matches!(row,CallableEntity::Source{declaration,..} if {let o=data.occurrences.get(*declaration).unwrap();let source=data.artifacts.get(o.source).unwrap();source_files[&source.path][o.start as usize..o.end as usize].starts_with(format!("def {function}(").as_bytes())})).unwrap();
+    let owner=EntityRef::Callable{callable:callable.id()}.id();
+    let expression=data.occurrences.iter().find(|row|row.syntax_kind==SyntaxKind::ExprName&&row.role==OccurrenceRole::Read&&data.owners.iter().any(|o|o.occurrence==row.id()&&o.entity==owner)&&data.spellings.iter().any(|s|s.occurrence==row.id()&&s.spelling=="int")).unwrap();
+    let qualification=data.spellings.iter().find(|s|s.occurrence==expression.id()).unwrap().qualification;
+    ExpressionRequest{input:data.artifacts.get(expression.source).unwrap().input,context:data.qualifications.get(qualification).unwrap().context,owner,expression:expression.id()}
+}
+#[tokio::test]
+async fn native_builtin_read_is_structural_and_refuses_shadowing_frame_and_forged_support() {
+    use lctx_model::domain::{execution::builtin_read::CheckedBuiltinRead,analysis::{native::NativeAssertionPremise,policy::EvidenceStatus},normalized::Rows};
+    let (mut data,_,budget)=data().await;
+    let request=builtin_request(&data,"builtin_positive");
+    let proof=CheckedBuiltinRead::derive(&data,request,&budget).unwrap().unwrap();
+    assert_eq!(proof.release(),ReleaseSafety::CallerRetained);assert_eq!(proof.status(),EvidenceStatus::StructurallyObserved);
+    let evaluated=evaluate(&data,request,&budget).unwrap().unwrap();assert_eq!(evaluated.release(),ReleaseSafety::CallerRetained);assert!(evaluated.entry_premises().is_empty());
+    for name in ["builtin_shadowed","builtin_rebound"]{assert!(CheckedBuiltinRead::derive(&data,builtin_request(&data,name),&budget).unwrap().is_err(),"{name}");}
+    let mut foreign=request;foreign.owner=builtin_request(&data,"builtin_shadowed").owner;assert!(CheckedBuiltinRead::derive(&data,foreign,&budget).unwrap().is_err());
+    let context=attribution::AnalysisContext{python_version:"3.14.7".into(),python_platform:"foreign".into(),search_path:vec![],site_package_path:vec![],config_digest:ContentHash::of(b"foreign"),environment_digest:ContentHash::of(b"foreign"),lock_digest:None};foreign=request;foreign.context=context.id();assert!(CheckedBuiltinRead::derive(&data,foreign,&budget).unwrap().is_err());
+    let selected=proof.native_premises()[2];let mut kept=Rows::new(&budget);for row in data.premises.iter().filter(|row|row.id()!=selected){kept.insert(row.clone()).unwrap();}data.premises=kept;
+    assert!(matches!(proof.native_premises().len(),3));assert!(!matches!(CheckedBuiltinRead::derive(&data,request,&budget),Ok(Ok(_))));
+    assert!(data.premises.iter().any(|row|matches!(row,NativeAssertionPremise::LexicalResolution{..})));
+}
 #[tokio::test]
 async fn native_closed_expressions_skip_unentered_operands_and_preserve_limits() {
     let (data,_,budget)=data().await;

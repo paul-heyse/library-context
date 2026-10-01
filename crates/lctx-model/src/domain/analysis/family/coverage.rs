@@ -345,6 +345,7 @@ pub fn admit(invocation:&AnalysisInvocation,definition:&AnalysisDefinition,capab
 fn bound_methods()->&'static [AnalysisMethod] {match AnalysisCoverage::NAME {
 "source_call_analysis_coverage"=>&[AnalysisMethod::SourceCalls],
 "enriched_execution_analysis_coverage"=>&[AnalysisMethod::EnrichedExecution],
+"model_analysis_coverage"=>&[AnalysisMethod::Models],
 "base_completion_analysis_coverage"=>&[AnalysisMethod::Completion],
 "base_evaluation_analysis_coverage"=>&[AnalysisMethod::Execution],
 "local_analysis_coverage"=>&[AnalysisMethod::LocalTransfers],
