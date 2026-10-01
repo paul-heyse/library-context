@@ -1,5 +1,5 @@
 """Two structural call clusters and an excluded community isolate."""
-__all__ = ['alpha', 'beta', 'gamma', 'delta', 'epsilon', 'zeta', 'isolate', 'LeftValue', 'RightValue']
+__all__ = ['alpha', 'beta', 'gamma', 'delta', 'epsilon', 'zeta', 'identity', 'isolate', 'LeftValue', 'RightValue']
 class LeftValue:
     pass
 class RightValue:
@@ -34,6 +34,9 @@ def zeta(value: RightValue) -> str:
     delta(value)
     epsilon(value)
     return 'c'
+
+def identity(value: int) -> int:
+    return value
 
 def isolate(value: int) -> int:
     return value

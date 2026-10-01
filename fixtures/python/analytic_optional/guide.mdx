@@ -5,9 +5,9 @@
 `api.delta` and `api.epsilon` share the right family.
 
 ```python
-from api import alpha, beta, isolate, LeftValue
+from api import alpha, beta, identity, LeftValue
 
 alpha(LeftValue())
 beta(LeftValue())
-isolate(alpha(LeftValue()))
+identity(alpha(LeftValue()))
 ```
