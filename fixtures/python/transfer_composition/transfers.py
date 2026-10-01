@@ -48,3 +48,27 @@ def receivers(seed, instance: ReceiverCase):
     ReceiverCase.update(instance, seed)
     ReceiverCase.update_class(seed)
     defaulted(seed)
+
+
+def fresh_source():
+    def fresh():
+        return None
+    return fresh()
+
+
+def fresh_unproven_body():
+    def fresh_effect():
+        return object()
+    return fresh_effect()
+
+
+def fresh_default_header():
+    def fresh_default(value=None):
+        return value
+    return fresh_default()
+
+
+def fresh_async_header():
+    async def fresh_async():
+        return None
+    return fresh_async()

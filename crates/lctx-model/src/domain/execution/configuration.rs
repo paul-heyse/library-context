@@ -9,3 +9,7 @@ pub fn base_completion()->(MethodParameters,AnalysisDefinition) {
     let parameters=parameters();let mut key=KeySink::new("base-completion-rule-set");ContentHash::of(include_bytes!("completion.rs")).encode(&mut key);ContentHash::of(include_bytes!("completion_production.rs")).encode(&mut key);ContentHash::of(include_bytes!("outcome.rs")).encode(&mut key);ContentHash::of(include_bytes!("body.rs")).encode(&mut key);ContentHash::of(include_bytes!("body_records.rs")).encode(&mut key);
     let definition=AnalysisDefinition{method:AnalysisMethod::Completion,semantic_version:key.finish(),parameters:parameters.id(),interpretation:Interpretation::Structural};(parameters,definition)
 }
+
+
+
+pub fn source_calls()->(MethodParameters,AnalysisDefinition){let parameters=parameters();let mut key=KeySink::new("fresh-source-call-rule-set");ContentHash::of(include_bytes!("source_call.rs")).encode(&mut key);ContentHash::of(include_bytes!("source_call_records.rs")).encode(&mut key);let definition=AnalysisDefinition{method:AnalysisMethod::SourceCalls,semantic_version:key.finish(),parameters:parameters.id(),interpretation:Interpretation::Structural};(parameters,definition)}

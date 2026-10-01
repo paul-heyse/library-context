@@ -65,3 +65,9 @@ async def async_body():
 def generator_body():
     return 1
     yield 2
+
+
+def fresh_source():
+    def fresh():
+        return None
+    return fresh()
