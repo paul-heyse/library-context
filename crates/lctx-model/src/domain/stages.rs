@@ -1638,6 +1638,7 @@ impl StageAccess<'_, '_> {
             outputs: self.stage.outputs.iter().map(|r| r.name).collect(),
             prefix,
             sources,
+            profile: self.profile(),
         };
         if let Some(epoch) = self.execution.schedule.epoch_for(self.stage.name) {
             let computed = sink.compute(completion).await?;
@@ -1839,6 +1840,7 @@ pub struct RelationReceipt {
 /// Only a completed StageAccess constructs a completion request.
 #[derive(Debug, Clone)]
 pub struct StageCompletion {
+    profile: Profile,
     prefix: Option<PrefixOrdinal>,
     sources: Vec<CompletedRelation>,
     identity: StageIdentity,
@@ -1848,6 +1850,7 @@ pub struct StageCompletion {
     outputs: BTreeSet<&'static str>,
 }
 impl StageCompletion {
+    pub fn profile(&self) -> Profile { self.profile }
     /// Vocabulary bound inherited from declared completed inputs, never global close state.
     pub fn prefix_ordinal(&self) -> Option<PrefixOrdinal> {
         self.prefix

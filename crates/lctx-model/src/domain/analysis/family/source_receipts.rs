@@ -49,7 +49,7 @@ impl PublicationCheck for SourcePublicationCheck {
         if relation==SourceReceipt::NAME {for row in SourceReceipt::decode(batch)? {let source=row.snapshot();let mut duplicate=false;self.sources.update(&mut self.charge,row.invocation,|sources|{duplicate=sources.insert(source.relation.clone(),source).is_some();})?;if duplicate {return Err(invalid("duplicate persisted source receipt"));}}return Ok(());}
         Err(invalid("undeclared source publication input"))
     }
-    fn finish(self:Box<Self>,actual:&[stages::CompletedRelation])->Result<(),ModelError> {
+    fn finish(self:Box<Self>,actual:&[stages::CompletedRelation],_profile:stages::Profile)->Result<(),ModelError> {
         let empty=std::collections::BTreeMap::new();let budget=self.charge.budget().ok_or_else(||invalid("source publication budget absent"))?;
         for (id,invocation) in self.invocations.iter() {let sources=self.sources.get(id).unwrap_or(&empty);if crate::domain::analysis::sources::digest(sources)!=invocation.sources {return Err(invalid("source receipt membership differs from invocation identity"));}crate::domain::analysis::sources::verify(sources,actual,budget)?;}
         for (id,_) in self.sources.iter() {if !self.invocations.contains_key(id) {return Err(invalid("source receipt has no owned invocation"));}}

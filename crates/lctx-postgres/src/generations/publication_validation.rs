@@ -2,7 +2,7 @@
 use super::{Error, GenerationId, GenerationStore, visit_named};
 use lctx_model::domain::{
     resources::ResourceBudget,
-    stages::{CompletedRelation, PrefixOrdinal},
+    stages::{CompletedRelation, PrefixOrdinal, Profile},
 };
 use sqlx::PgConnection;
 use std::collections::{BTreeMap, BTreeSet};
@@ -21,6 +21,11 @@ impl GenerationStore {
             .filter(|relation| outputs.contains(relation.name()))
             .flat_map(|relation| relation.publication_checks()).collect();
         if checks.is_empty() { return Ok(()); }
+        // The registry captured this profile when the execution schedule was registered.
+        // Test harnesses also register an explicit profile; neither path trusts output metadata.
+        let profile: String = sqlx::query_scalar("SELECT profile FROM lctx_model_store.generations WHERE id=$1")
+            .bind(generation.0.to_vec()).fetch_one(&mut *tx).await?;
+        let profile = Profile::ALL.into_iter().find(|candidate|candidate.name()==profile).ok_or(Error::Contract)?;
         let order = super::vocabulary::publication_order(tx, generation).await?;
         let mut inputs = BTreeMap::new();
         for source in sources {
@@ -62,7 +67,7 @@ impl GenerationStore {
                     Ok(())
                 }).await?;
             }
-            check.finish(sources)?;
+            check.finish(sources, profile)?;
         }
         Ok(())
     }

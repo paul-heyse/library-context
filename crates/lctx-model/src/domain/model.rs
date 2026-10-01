@@ -567,5 +567,5 @@ impl std::fmt::Debug for PublicationInvariant {
 }
 pub trait PublicationCheck:Send+Sync {
     fn visit(&mut self,relation:&str,batch:&arrow_array::RecordBatch)->Result<(),ModelError>;
-    fn finish(self:Box<Self>,sources:&[super::stages::CompletedRelation])->Result<(),ModelError>;
+    fn finish(self:Box<Self>,sources:&[super::stages::CompletedRelation],profile:super::stages::Profile)->Result<(),ModelError>;
 }
