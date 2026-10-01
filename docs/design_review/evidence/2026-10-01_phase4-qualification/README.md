@@ -51,7 +51,7 @@ immediately, with no clean or cache/path changes. The passing rerun used the exi
 The non-model scoped diagnostic (`cargo clippy --release --workspace --exclude lctx-model --all-targets --no-deps --quiet -- -D warnings`) **passed**, but does not replace full Clippy.
 Eleven clean, fully integrated task worktrees were removed under the current cleanup instruction after ancestry/cherry-pick/patch checks. Four dirty and three unproven-integration task worktrees remain preserved, together with external spike worktrees and caches.
 
-The coherent `NEXTEST_TEST_THREADS=8 just test-all` retry is running on3ebad979. Store-check remains not_run; both must pass before Phase 4 exit is claimed.
+The coherent `NEXTEST_TEST_THREADS=8 just test-all` retry on3ebad979 [full2](raw/phase4-q0-test-all2.log) **failed** during release compilation: all sixteen active compiler jobs terminated with SIGTERM, without a preceding Rust diagnostic. Nextest execution, pytest, the separate PG gate and doctests were **not_run**. Cause is unconfirmed; compiled work remains for another retry. Store-check remains not_run; both must pass before Phase 4 exit is claimed.
 
 Independent focused design advice (static, 2026-10-01) accepts checked-false direct bare-name
 identity sources backed by actual native uses, and complete native reaching retention only for
