@@ -683,3 +683,29 @@ async fn authored_runtime_contract_requires_complete_shape_and_keeps_normal_defa
  assert!(divergent.len()>=2);assert!(divergent.iter().all(|a|verified.shape(a.id()).is_none()),"different formal shapes cannot become arbitrary first overload");
 
 }
+
+#[tokio::test]
+async fn protocol_construction_uses_allocated_receiver_and_retains_every_native_variant(){
+ use execution::{model_application::ModelApplicationData,model_context::{CheckedContextProtocol,ContextValue},model_construction::CheckedContextConstruction};
+ let(data,_,budget,tables)=fixture_tables().await;let mut model=ModelApplicationData::new(&budget);model.bindings=data;
+ macro_rules! pins{($($field:ident:$ty:ty,)*)=>{$(for row in rows::<$ty>(&tables){model.$field.insert(row).unwrap();})*};}lctx_model::model_pin_inputs!(pins);
+ let mut inventory=analysis::native::NativeInventory::new(&budget);for input in analysis::native::NativeInventory::inputs(){if let Some(batch)=tables.lock().unwrap().get(input.name()){inventory.visit(input.name(),batch).unwrap();}}let native=inventory.collect().unwrap();model.native=native.qualifications;model.premises=native.premises;
+ let catalog=models::Catalog::committed().unwrap();let input=rows::<input::InputRevision>(&tables)[0].id();let context=rows::<attribution::AnalysisContext>(&tables)[0].id();let source=files("normalized_bindings");
+ for(expected,class_name,none,variants)in[("nullcontext()","nullcontext",true,2),("nullcontext(7)","nullcontext",false,2),("suppress(TypeError)","suppress",true,1)]{
+  let b=&model.bindings;let site=b.occurrences.iter().find(|o|o.syntax_kind==source::SyntaxKind::ExprCall&&&source["calls.py"][o.start as usize..o.end as usize]==expected.as_bytes()).unwrap();let owner=b.owners.iter().find(|o|o.occurrence==site.id()).unwrap().entity;
+  let class=b.symbols.iter().find(|s|s.name==class_name&&s.kind==SymbolKind::Class&&matches!(b.provider_modules.get(s.module),Some(ProviderModule::Bundled{name,..})if name=="contextlib")).unwrap();
+  let protocol=CheckedContextProtocol::derive(&catalog,&model,class.id(),input,context,&budget).unwrap().unwrap_or_else(|r|panic!("protocol {expected}: {r:?}"));
+  if class_name=="suppress"{assert!(protocol.entry_declaration().is_none(),"unavailable local native entry declaration does not change authored lifecycle semantics");}
+  let construction=CheckedContextConstruction::derive(&protocol,&model,site.id(),owner,input,context,&budget).unwrap().unwrap_or_else(|r|panic!("construction {expected}: {r:?}"));
+  assert_eq!(construction.outcomes().len(),variants);assert_eq!(construction.outcomes().iter().filter(|o|o.outcome.is_ok()).count(),1);assert_eq!(matches!(construction.entry_value(),ContextValue::None),none);assert!(construction.premises().len()>0);assert_eq!(construction.resource().class,class.id());
+  assert!(CheckedContextConstruction::derive(&protocol,&model,site.id(),owner,input,context,&ResourceBudget::fixed(1).unwrap()).is_err());
+  let mut missing=ModelApplicationData::new(&budget);macro_rules! copy{($($field:ident:$ty:ty,)*)=>{$(for row in model.bindings.$field.iter(){if <$ty>::NAME!=symbols::FunctionTraitObservation::NAME{missing.bindings.$field.insert(row.clone()).unwrap();}})*};}lctx_model::normalized_binding_inputs!(copy);macro_rules! pins_copy{($($field:ident:$ty:ty,)*)=>{$(for row in model.$field.iter(){missing.$field.insert(row.clone()).unwrap();})*};}lctx_model::model_pin_inputs!(pins_copy);
+  assert!(CheckedContextConstruction::derive(&protocol,&missing,site.id(),owner,input,context,&budget).unwrap().is_err());
+  let subclass=b.occurrences.iter().find(|o|o.syntax_kind==source::SyntaxKind::ExprCall&&&source["calls.py"][o.start as usize..o.end as usize]==b"ChangedNull()").unwrap();let subclass_owner=b.owners.iter().find(|o|o.occurrence==subclass.id()).unwrap().entity;
+  assert!(CheckedContextConstruction::derive(&protocol,&model,subclass.id(),subclass_owner,input,context,&budget).unwrap().is_err(),"subclass may override protocol methods");
+  let other_class=b.symbols.iter().find(|s|s.name==if class_name=="suppress"{"nullcontext"}else{"suppress"}&&s.kind==SymbolKind::Class&&matches!(b.provider_modules.get(s.module),Some(ProviderModule::Bundled{name,..})if name=="contextlib")).unwrap();
+  let wrong_protocol=CheckedContextProtocol::derive(&catalog,&model,other_class.id(),input,context,&budget).unwrap().unwrap();assert!(CheckedContextConstruction::derive(&wrong_protocol,&model,site.id(),owner,input,context,&budget).unwrap().is_err(),"different authored protocol class cannot admit this callee");
+  for omit_class in [false,true]{let mut missing=ModelApplicationData::new(&budget);macro_rules! copy_required{($($field:ident:$ty:ty,)*)=>{$(for row in model.bindings.$field.iter(){if !((omit_class&&<$ty>::NAME==ProviderSymbol::NAME&&derivation::RowRef::of(row.id())==derivation::RowRef::of(class.id()))||(!omit_class&&<$ty>::NAME==CallTarget::NAME&&derivation::RowRef::of(row.id())==derivation::RowRef::of(construction.initialization()))){missing.bindings.$field.insert(row.clone()).unwrap();}})*};}lctx_model::normalized_binding_inputs!(copy_required);macro_rules! copy_pins{($($field:ident:$ty:ty,)*)=>{$(for row in model.$field.iter(){missing.$field.insert(row.clone()).unwrap();})*};}lctx_model::model_pin_inputs!(copy_pins);assert!(CheckedContextConstruction::derive(&protocol,&missing,site.id(),owner,input,context,&budget).unwrap().is_err(),"required class or initializer evidence omitted");}
+  let changed=models::Catalog::parse("changed-allocator.toml",&models::Catalog::committed_source().replace("object.__new__","object.__init__")).unwrap();if let Ok(changed_protocol)=CheckedContextProtocol::derive(&changed,&model,class.id(),input,context,&budget).unwrap(){assert!(CheckedContextConstruction::derive(&changed_protocol,&model,site.id(),owner,input,context,&budget).unwrap().is_err());}
+ }
+}

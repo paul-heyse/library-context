@@ -91,3 +91,23 @@ def divergent(value):
 
 def divergent_use() -> None:
     divergent(1)
+
+from contextlib import nullcontext, suppress
+
+
+def protocol_constructors():
+    nullcontext()
+    nullcontext(7)
+    suppress(TypeError)
+
+
+class ChangedNull(nullcontext):
+    def __enter__(self):
+        return 99
+
+    def __exit__(self, exc_type, exc, traceback):
+        return True
+
+
+def changed_protocol():
+    ChangedNull()

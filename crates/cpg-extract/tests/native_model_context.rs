@@ -119,7 +119,7 @@ async fn checked_protocol_and_exception_hierarchy_require_exact_pinned_native_de
  assert!(child_checked.matches(&base_checked).unwrap());assert!(child_checked.matches(&root_checked).unwrap());assert!(!base_checked.matches(&child_checked).unwrap());
  let input=typed_driver::rows::<input::InputRevision>(&tables)[0].id();let catalog=models::Catalog::parse("model-context.toml",SOURCE).unwrap();
  let protocol=CheckedContextProtocol::derive(&catalog,&data,child.id(),input,context,&resources).unwrap().unwrap_or_else(|r|panic!("protocol {r:?}"));
- assert!(protocol.preserves());assert_ne!(protocol.allocation(),protocol.initialization());assert_ne!(protocol.entry(),protocol.exit());
+ assert!(protocol.preserves());assert_ne!(protocol.allocation(),protocol.initialization());assert_ne!(protocol.entry_declaration(),protocol.exit_declaration());
  let changed=models::Catalog::parse("model-context.toml",&SOURCE.replace("version=\"1.0\"","version=\"2.0\"")).unwrap();assert!(CheckedContextProtocol::derive(&changed,&data,child.id(),input,context,&resources).unwrap().is_err());
  assert!(CheckedExactClass::derive(&data,child.id(),context,&ResourceBudget::fixed(1).unwrap()).is_err());
 }

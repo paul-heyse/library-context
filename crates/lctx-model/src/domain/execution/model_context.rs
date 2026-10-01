@@ -28,16 +28,20 @@ impl<'a> CheckedExactClass<'a>{
  match evidence{Err(RuntimeEvidenceError::Boundary(reason))=>Ok(Err(reason)),Err(RuntimeEvidenceError::Model(error))=>Err(error),Ok(())=>Ok(Ok(Self{symbol,mro,ancestors,premises,status,_charge:charge}))}}}
  }
 }
-/// Protocol selection pins one native class plus allocation/initialization and entry/exit definitions.
-/// It does not assert that source evaluation, entry or exit has happened.
-pub struct CheckedContextProtocol<'a>{compiled:&'a CompiledContextProtocol,class:CheckedExactClass<'a>,allocation:Id<ProviderSymbol>,initialization:Id<ProviderSymbol>,entry:Id<ProviderSymbol>,exit:Id<ProviderSymbol>,_charge:charged::StateCharge}
+/// Protocol selection pins one native class and explicit allocation/initialization targets.
+/// Entry/exit are authored source lifecycle actions. Optional local native declarations are
+/// supporting inspection evidence, never runtime body identity or a claim of member absence.
+pub struct CheckedContextProtocol<'a>{compiled:&'a CompiledContextProtocol,class:CheckedExactClass<'a>,allocation:Id<ProviderSymbol>,initialization:Id<ProviderSymbol>,entry:Option<Id<ProviderSymbol>>,exit:Option<Id<ProviderSymbol>>,premises:Rows<analysis::native::NativeAssertionPremise>,status:analysis::policy::EvidenceStatus,_charge:charged::StateCharge}
 impl<'a> CheckedContextProtocol<'a>{
+ pub fn premises(&self)->&Rows<analysis::native::NativeAssertionPremise>{&self.premises}
+ pub fn status(&self)->analysis::policy::EvidenceStatus{self.status}
  pub fn compiled(&self)->&CompiledContextProtocol{self.compiled}
  pub fn class(&self)->&CheckedExactClass<'a>{&self.class}
  pub fn allocation(&self)->Id<ProviderSymbol>{self.allocation}
  pub fn initialization(&self)->Id<ProviderSymbol>{self.initialization}
- pub fn entry(&self)->Id<ProviderSymbol>{self.entry}
- pub fn exit(&self)->Id<ProviderSymbol>{self.exit}
+ /// Optional local native declarations support inspection only; unavailable does not mean absent.
+ pub fn entry_declaration(&self)->Option<Id<ProviderSymbol>>{self.entry}
+ pub fn exit_declaration(&self)->Option<Id<ProviderSymbol>>{self.exit}
  pub fn derive(catalog:&'a Catalog,data:&'a ModelApplicationData,class:Id<ProviderSymbol>,input:Id<input::InputRevision>,context:Id<AnalysisContext>,budget:&ResourceBudget)->Result<Result<Self,ObligationKind>,ModelError>{
   let mut charge=charged::StateCharge::new(budget,"model-context-protocol");charge.grow(size_of::<Self>())?;
   let symbol=match need(&data.bindings.symbols,class){Ok(s)=>s,Err(r)=>return Ok(Err(r))};
@@ -49,43 +53,13 @@ impl<'a> CheckedContextProtocol<'a>{
   let result=(||{
    let allocation=find(&compiled.model().allocation)?;let initialization=find(&compiled.model().initialization)?;
    let member=|suffix:&str|{let mut target=compiled.model().target.clone();match &mut target{models::Target::Stdlib{callable,..}|models::Target::Dependency{callable,..}|models::Target::Release{callable,..}=>{callable.push('.');callable.push_str(suffix)}}find(&target)};
-   let entry=member("__enter__")?;let exit=member("__exit__")?;
-   Ok(Self{compiled,class,allocation,initialization,entry,exit,_charge:charge})
-  })();Ok(result)
- }
- /// A checked initializer supplies exact formal identities. Variadic elements preserve their
- /// original projection and cannot masquerade as a whole source expression.
- pub fn entry_value(&self,application:&CheckedProtocolInitialization<'_>,data:&ModelApplicationData)->Result<ContextValue,ObligationKind>{
-  let signature=need(&data.bindings.signatures,application.bound().bound().signature())?;
-  if signature.symbol!=self.initialization || application.shape().phase()!=calls::CallPhase::Init{return Err(ObligationKind::IncompatibleContexts)}
-  match &self.compiled.model().entry{
-   ContextEntry::NoneValue=>Ok(ContextValue::None),
-   ContextEntry::ArgumentOrNone{formal}=>{
-    let formal=super::model_application::formal(&data.bindings,signature,Some(formal))?.ok_or(ObligationKind::MissingEvidence)?;
-    let binding=one(application.bound().bound().bindings().iter().filter(|b|b.formal==formal))?;
-    match (&binding.source,&binding.projection){(calls::BindingSource::Actual{occurrence},calls::BindingProjection::Whole)=>Ok(ContextValue::Actual(*occurrence)),(calls::BindingSource::Default,calls::BindingProjection::Whole)=>Ok(ContextValue::None),_=>Err(ObligationKind::UnsupportedUnpacking)}
-   }
-  }
+   let optional=|result:Result<_,ObligationKind>|match result{Ok(id)=>Ok(Some(id)),Err(ObligationKind::MissingEvidence)=>Ok(None),Err(reason)=>Err(reason)};let entry=optional(member("__enter__"))?;let exit=optional(member("__exit__"))?;
+   Ok(Self{compiled,class,allocation,initialization,entry,exit,premises:Rows::new(budget),status:analysis::policy::EvidenceStatus::StructurallyObserved,_charge:charge})
+  })();let mut protocol=match result{Ok(p)=>p,Err(r)=>return Ok(Err(r))};protocol.status=protocol.class.status();for premise in protocol.class.premises().iter(){protocol.premises.insert(premise.clone())?;}
+  let evidence=(||->Result<(),RuntimeEvidenceError>{let b=&data.bindings;for method in [protocol.allocation,protocol.initialization].into_iter().chain(protocol.entry).chain(protocol.exit){let traits=one(b.traits.iter().filter(|t|t.symbol==method))?;append_native_evidence(data,derivation::RowRef::of(traits.id()),traits.qualification,context,&mut protocol.premises,&mut protocol.status)?;let mut current=need(&b.symbols,method)?;let mut remaining=b.symbols.len()+1;loop{if remaining==0{return Err(ObligationKind::MissingEvidence.into())}remaining-=1;let observation=one(b.symbol_observations.iter().filter(|o|o.symbol==current.id()&&b.qualifications.get(o.qualification).is_some_and(|q|q.context==context)))?;append_native_evidence(data,derivation::RowRef::of(observation.id()),observation.qualification,context,&mut protocol.premises,&mut protocol.status)?;match observation.parent{Some(parent)=>current=need(&b.symbols,parent)?,None=>break}}}Ok(())})();match evidence{Err(RuntimeEvidenceError::Boundary(r))=>Ok(Err(r)),Err(RuntimeEvidenceError::Model(e))=>Err(e),Ok(())=>Ok(Ok(protocol))}
  }
  pub fn preserves(&self)->bool{matches!(self.compiled.model().exit,ContextExit::Preserve)}
 }
 #[derive(Debug,Clone,Copy,PartialEq,Eq)]
 pub enum ContextValue{None,Actual(Id<source::Occurrence>)}
 
-/// Exact protocol constructor applicability consumes the same sole normalized binder. A
-/// protocol has its own authored initializer target; it does not require an invented ordinary
-/// behavior model for that initializer.
-pub struct CheckedProtocolInitialization<'a>{protocol:&'a CheckedContextProtocol<'a>,bound:&'a normalized::binding_normalization::ValidatedBoundCall,shape:&'a normalized::binding_normalization::BindingShapeAdmission,_charge:charged::StateCharge}
-impl<'a> CheckedProtocolInitialization<'a>{
- pub fn protocol(&self)->&CheckedContextProtocol<'a>{self.protocol}
- pub fn bound(&self)->&normalized::binding_normalization::ValidatedBoundCall{self.bound}
- pub fn shape(&self)->&normalized::binding_normalization::BindingShapeAdmission{self.shape}
- pub fn derive(protocol:&'a CheckedContextProtocol<'a>,data:&ModelApplicationData,bound:&'a normalized::binding_normalization::ValidatedBoundCall,shape:&'a normalized::binding_normalization::BindingShapeAdmission,effective:Option<&normalized::binding_normalization::EffectiveInvocationAdmission>,budget:&ResourceBudget)->Result<Result<Self,ObligationKind>,ModelError>{
-  let mut charge=charged::StateCharge::new(budget,"checked-protocol-initializer");charge.grow(size_of::<Self>())?;
-  let result=(||{if !shape.admits(bound)||shape.phase()!=calls::CallPhase::Init||shape.context()!=protocol.class.symbol.context{return Err(ObligationKind::IncompatibleContexts)}
-   let signature=need(&data.bindings.signatures,bound.bound().signature())?;if signature.symbol!=protocol.initialization{return Err(ObligationKind::MissingEvidence)}
-   super::model_application::runtime_identity(data,bound,shape,effective)?;
-   Ok(Self{protocol,bound,shape,_charge:charge})
-  })();Ok(result)
- }
-}

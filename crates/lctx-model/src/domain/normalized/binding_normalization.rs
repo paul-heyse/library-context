@@ -890,7 +890,7 @@ pub fn verify(
     }
     Ok(result)
 }
-fn verify_enumerations(data:&BindingData,budget:&ResourceBudget)->Result<(),ModelError>{
+pub(crate) fn verify_enumerations(data:&BindingData,budget:&ResourceBudget)->Result<(),ModelError>{
  let relation=Relation::of::<SignatureEnumerationObservation>();let mut check=(relation.invariants()[0].create)(budget);
  macro_rules! feed{($field:ident,$ty:ty)=>{{let bytes=data.$field.iter().try_fold(0usize,|n,row|n.checked_add(size_of::<$ty>()).and_then(|n|n.checked_add(row.heap_bytes()))).ok_or_else(||invalid("enumeration replay lowering overflow"))?;let _scratch=budget.reserve("enumeration-replay-lowering",bytes.saturating_mul(8).saturating_add(65536))?;let rows=data.$field.iter().cloned().collect::<Vec<_>>();check.visit(<$ty>::NAME,&<$ty>::encode(&rows)?)?;}};}
  feed!(qualifications,crate::domain::assertion::AssertionQualification);feed!(symbols,ProviderSymbol);feed!(signatures,Signature);feed!(signature_enumerations,SignatureEnumerationObservation);
