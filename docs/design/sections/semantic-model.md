@@ -462,6 +462,13 @@ a bare-name evaluation. Binding identity never establishes mutable object-state 
 The direct Local producer publishes attributed transfer/control assessments and explicit unsupported
 boundaries; catalog compilation publishes NotRequested without requesting Flow. Its broader
 behavioral domain retains explicit Partial refusals; later execution and Summary owners do not retroactively strengthen Local coverage.
+**Implemented / focused-Tested, 2026-10-01:** native checked-false direct identity candidates retain
+their actual use and complete exact-false reaching set, including Unbound alternatives, with no
+loop-header expansion. Live/approximate sets keep their existing pruning. Entry still refuses
+missing, multiple or unbound origins. Exact finite negatives keep the same qualified source,
+proof and complete-coverage requirements through Summary/S0; silence is not a negative.
+
+> Decision: ADR-0111
 The canonical Local definition includes finite scalar type theory, conservative nominal class
 reasoning and exact field-location witnesses. An open runtime class domain cannot prove a negative;
 a field location does not establish allocation, alias or mutation stability. **Focused-Tested,

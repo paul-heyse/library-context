@@ -179,14 +179,17 @@ with exact invocation, qualification and coverage-member digest. Unknown, proof=
 coverage do not acquire finding authority. S0 consumes the nominal Summary derivation and keeps
 that negative as BehavioralRefutation rather than an applicable-case positive.
 
-**Implemented, qualification pending, 2026-10-01:** the native provider retains a direct bare-name
+**Implemented / focused-Tested, 2026-10-01:** the native provider retains a direct bare-name
 identity value candidate when its declared expression-selection condition is checked false.
-The actual native use, sink and unchanged reaching-definition inventory still govern Entry/Local
-admission. Missing formal origins remain unresolved; computed values and call crossings stay
+The actual native use and sink govern Entry/Local admission. A nonempty, wholly exact-false
+native reaching inventory without loop headers retains every Defined/Unbound alternative;
+live/approximate inventories keep the prior pruning. Missing or multiple formal origins remain unresolved; computed values and call crossings stay
 refused. This supports a negative about that exact qualified finite alternative, not an inference
 from an empty table or a closed claim that a parameter can never reach any return. Resolved
 `TYPE_CHECKING` supplies the existing runtime-false control. Native mapping source participates
 in the provider build digest; no guard evaluations are identified or coverage strengthened.
+
+> Decision: ADR-0111
 
 Symbolic constructor→field→reader associations have a separate uncertainty domain. The normalized
 association is available in both profiles; Local adds Entry/Flow premises where admitted. Summary

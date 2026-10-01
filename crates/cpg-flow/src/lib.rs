@@ -247,8 +247,8 @@ pub struct ModuleFlow {
     /// other family's do.
     pub syntax_errors: usize,
     pub error: Option<String>,
-    /// Checked-false branches excluded from positive flow. A direct identity name may retain
-    /// its actual native value candidate for a qualified negative question.
+    /// Counted discarded branches. Checked-false native candidates retained for an explicit
+    /// negative question are not discarded branches.
     pub skips: SkipCounts,
 }
 
@@ -825,12 +825,24 @@ impl<'db> Walk<'_, 'db> {
             .bindings_at_use(use_id)
             .map(|b| (b.binding, b.reachability_constraint))
             .collect();
-        for (state, reach) in bindings {
-            let condition = self.condition(fid, reach);
+        let lowered = bindings.into_iter().map(|(state, reach)| {
+            (state, reach, self.condition(fid, reach))
+        }).collect::<Vec<_>>();
+        // A false-only native inventory can supply an explicit negative candidate. Preserve
+        // every state, including Unbound; choosing one definition could fabricate uniqueness.
+        // Live/approximate sets keep the existing pruning. Loop headers can expand to no rows,
+        // so they stay outside this bounded lane rather than silently dropping a competitor.
+        let retain_false_only = !lowered.is_empty() && lowered.iter().all(|(state, _, c)| {
+            c.is_never() && !c.approximated() && !matches!(state,
+                DefinitionState::Defined(d) if matches!(d.kind(self.db), DefinitionKind::LoopHeader(_)))
+        });
+        for (state, reach, condition) in lowered {
             if condition.is_never() {
-                let cause = self.skip_cause(fid, reach);
-                self.flow.skips.reach(cause);
-                continue;
+                if !retain_false_only {
+                    let cause = self.skip_cause(fid, reach);
+                    self.flow.skips.reach(cause);
+                    continue;
+                }
             }
             match state {
                 DefinitionState::Defined(d) => {
@@ -942,14 +954,12 @@ impl<'db> Walk<'_, 'db> {
         call_path: &[CallFrame],
     ) {
         if cond.is_never() {
-            self.flow
-                .skips
-                .value(false_cause.unwrap_or(SkipCause::Stable));
             // Preserve an explicit source candidate with its checked-false condition. Its
             // actual native use and reaching evidence still govern Entry/Local admission;
             // neither a missing use nor a missing formal origin is reconstructed here.
             // Computed values and call crossings retain the existing refusal boundary.
             if !identity || !call_path.is_empty() || !matches!(e, Expr::Name(_)) {
+                self.flow.skips.value(false_cause.unwrap_or(SkipCause::Stable));
                 return;
             }
         }

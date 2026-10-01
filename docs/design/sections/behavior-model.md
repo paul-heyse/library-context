@@ -47,6 +47,17 @@ reachability is a stated abstraction: exceptional paths follow ty's exception mo
 arbitrary ambient exceptions. A provider panic fails extraction. Version/platform and captured
 modules come from the pinned run context; the operator's environment is not an input.
 
+**Implemented / focused-Tested, 2026-10-01:** direct bare-name identity candidates retain their
+actual native use and checked-false selection condition. A false-only reaching set is retained
+only when nonempty, wholly exact false and free of loop headers; every Defined/Unbound state
+survives. Live or approximate sets keep their existing pruning. Entry still requires its complete
+supported inventory and one exact unchanged formal origin; missing, multiple or unbound origins
+remain unresolved. These candidates support a negative about one qualified finite alternative,
+not a conclusion from silence or a whole-function transfer-absence claim. Retained candidates
+are not discarded skip counts, and mapping source is included in provider build identity.
+
+> Decision: ADR-0111
+
 ## The runtime view
 
 The runtime-view extraction treats resolved `typing.TYPE_CHECKING` as false while preserving
