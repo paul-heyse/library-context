@@ -15,8 +15,7 @@ legacy identity maps, old-store flags, or dual writers.
 
 **Current scope, 2026-10-01:** phases 0–3 are implemented with the distinct qualification boundaries
 recorded below and in the Phase 3 plan. Phase 4 has integrated producer prerequisites and an
-implemented cumulative analysis/catalog driver; actual upper-frontier acceptance, retained semantic
-restoration and legacy retirement remain incomplete. All active worker checkpoints are on main.
+implemented cumulative analysis/catalog driver and retained symbolic source/Local/Summary/C1/S0 contracts; actual upper-frontier acceptance and legacy retirement remain incomplete. All active worker checkpoints are on main.
 The [Phase 4 restart checkpoint](semantic-model-phase4-detailed-plan_2026-09-30.md#133-restart-checkpoint-and-remaining-work)
 owns the exact resume order and receipts. Phase 5 MCP remains unavailable. Lower-frontier generations cannot answer
 higher-layer requests with empty tables. Product work stays paused. The forward plan retains
@@ -158,8 +157,7 @@ receiver corrections, finite composition/proof design, library choices, analysis
 retrieval contracts, dependency-ordered packages, legacy retirement and independent acceptance
 controls. ADR-0105/0106/0108 are accepted. R0/R1 have integrated focused controls and an independent
 [Accept scoped foundation review, 2026-10-01](../design_review/reviews/design_review_phase4-foundation_2026-09-30.md).
-N0/N1, G0, downstream producer prerequisites and the cumulative driver are integrated; symbolic
-field restoration, final synthesis, actual assembled qualification, retirement and Q0 remain open
+N0/N1, G0, downstream producers, symbolic source/Local/Summary/C1/S0 and registered documentary templates are integrated; actual final qualification, corrective reinspection, retirement and Q0 remain open
 in detailed plan §13.3. The latest merged compile passed; it is not a Phase 4 exit. This parent retains cross-phase finding disposition;
 document completion does not close implementation findings or activate Phase 5 serving.
 
@@ -1387,7 +1385,7 @@ without corresponding evidence.
 | [phase4-plan F01](../design_review/reviews/design_review_phase4-plan_2026-09-30.md#F01) | addressed in the G0 adapter; enclosing consumer qualification pending | Invariant generative graph brands and callback-bounded tokens are implemented. Wrong-view and token-escape compile-fail controls passed in the isolated graph checkout; detailed P4 plan §13.2 owns the dated receipt. Analysis preparation and actual downstream borrowed consumers remain G0 obligations. |
 | [phase4-foundation O1](../design_review/reviews/design_review_phase4-foundation_2026-09-30.md#o1) | activation prerequisite retained | Each downstream producing owner must bind its actual expected-domain selector and completed inputs before nonempty publication. Producer selectors and cumulative schedules are integrated with focused receipts; actual complete F0 publication remains unqualified. Detailed P4 §13.2–§13.3 own implementation and remaining controls. |
 | [phase4-foundation O2](../design_review/reviews/design_review_phase4-foundation_2026-09-30.md#o2) | closed scoped, 2026-10-01 | Early preparation test installs its actual facts/configuration/native schema and retains every ordinary/sealed invariant. Combined model and both-profile PG controls passed after test-scope/format corrections; the detailed plan retains composite provenance. No F0 assembly claim follows. |
-| [P4B3-F01](../design_review/reviews/design_review_phase4-behavior_2026-10-01.md#P4B3-F01) | open; partial prerequisite integrated, 2026-10-01 | Normalized callable metadata owns one source association; Local, Summary and C1/S0 integration, native/PG controls and corrective reinspection remain. Current conservative gate admits no supported-record association. Detailed Phase 4 §13.3 owns the resume contract; the review remains Revise. |
+| [P4B3-F01](../design_review/reviews/design_review_phase4-behavior_2026-10-01.md#P4B3-F01) | in progress; consumers integrated, 2026-10-01 | Normalized callable metadata owns one supported source association; Local adds exact native Entry/Flow premises, Summary preserves Unknown/proof=None reader alternatives, and C1/S0 consume that owner directly. Both-profile C1 PG and pure S0 controls passed; corrected native/Summary rerun and independent reinspection remain pending. Detailed Phase 4 §13.3 owns the resume contract; the review remains Revise. |
 
 | Source finding | Current disposition | Owner and closure evidence |
 |---|---|---|
