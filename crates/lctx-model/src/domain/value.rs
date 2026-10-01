@@ -66,6 +66,9 @@ pub enum PlaceRoot {
     /// `Receiver`) denote the caller's value, so only they are ports of a call summary.
     #[model(code = 9)]
     Entry { declaration: Id<Occurrence> },
+    /// The runtime class value of the exact actual expression, distinct from that instance.
+    #[model(code = 10)]
+    ClassOf { actual: Id<Occurrence> },
 }
 fn validate_root(row: &PlaceRoot) -> Result<(), ModelError> {
     match row {

@@ -138,6 +138,7 @@ impl Fixture {
                 places: &empty_places,
                 roots: &empty_roots,
             },
+            &lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap(),
         )
         .unwrap();
         let diagram = rebased.condition;

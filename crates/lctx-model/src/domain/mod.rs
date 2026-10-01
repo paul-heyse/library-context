@@ -210,16 +210,22 @@ pub fn model() -> Result<ValidatedModel, ModelError> {
 pub fn analysis_relations() -> Vec<Relation> {
     use transfer::*;
     let mut relations = vec![
-        Relation::of::<TransferKey>(),
-        Relation::of::<TransferAlternative>(),
-        Relation::of::<TransferSupport>(),
-        Relation::of::<ControlInfluence>(),
-        Relation::of::<ControlSupport>(),
-        Relation::of::<Selection>(),
+        Relation::of::<transfer::local::ControlInfluence>(),
+        Relation::of::<transfer::local::ControlSupport>(),
+        Relation::of::<transfer::local::Selection>(),
+        Relation::of::<conditions::entry::EntryValueWitness>(),
         Relation::of::<conditions::stability::StabilityWitness>(),
         Relation::of::<conditions::stability::GuardSubstitution>(),
-        Relation::of::<composition::CallCompositionStep>(),
+        Relation::of::<transfer::summary::ControlInfluence>(),
+        Relation::of::<transfer::summary::ControlSupport>(),
+        Relation::of::<transfer::summary::Selection>(),
+        Relation::of::<transfer::summary::SummaryPremise>(),
+        Relation::of::<transfer::summary::SummaryWitness>(),
+        Relation::of::<transfer::summary::SummaryContribution>(),
     ];
+    relations.extend(transfer::local::relations());
+    relations.extend(transfer::model::relations());
+    relations.extend(transfer::summary::relations());
     relations.extend(analysis::relations());
     relations.extend(catalog::relations());
     relations.extend(embedding::relations());

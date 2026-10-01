@@ -3,7 +3,7 @@
 use lctx_model::domain::{
     admission::*, attribution::*, calls::*, declarations::*, deployment::*, documents::*, flow::*,
     input::*, lexical::*, resources::ResourceBudget, source::*, stages::*, symbols::*, syntax::*,
-    transfer::TransferKey, types::*, *,
+    transfer::local::TransferKey, types::*, *,
 };
 use std::{
     collections::BTreeMap,

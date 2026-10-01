@@ -1,264 +1,57 @@
-#[path = "fixtures/stability.rs"]
-mod fixture;
+//! Shared entry-value producer and stored replay retain unsupported cases as obligations.
+#[path="fixtures/stability.rs"] mod fixture;
 use fixture::Fixture;
-use lctx_model::domain::{
-    attribution::*,
-    conditions::{rebase::RootBinding, stability::*, *},
-    flow::*,
-    lexical::BindingEventKind,
-    value::*,
-    *,
-};
-use std::collections::BTreeMap;
-
-fn refused(fixture: &Fixture, expected: &str) {
-    let error = fixture.validate().unwrap_err().to_string();
-    assert!(
-        error.contains(expected),
-        "expected `{expected}`, got `{error}`"
-    );
-}
-
+use lctx_model::domain::{*,conditions::{*,entry::*,stability::*},flow::*,lexical::BindingEventKind,assertion::*,attribution::*,normalized::Rows,value::*};
+fn replace_reaching(f:&mut Fixture,row:FlowReachingObservation){let mut support=f.data.reaching_supports.iter().next().unwrap().clone();support.assertion=row.id();f.data.reaching=Rows::new(&f.budget);f.data.reaching.insert(row).unwrap();f.data.reaching_supports=Rows::new(&f.budget);f.data.reaching_supports.insert(support).unwrap();}
 #[test]
-fn a_witnessed_formal_guard_is_restated_over_the_bound_actual() {
-    let f = Fixture::new();
-    f.validate().unwrap();
-    let witnesses = BTreeMap::from([(f.guard.id(), f.witness.clone())]);
-    let bound = BTreeMap::from([(f.formal.id(), RootBinding::Actual(f.arguments[0].clone()))]);
-    // A compound callee condition keeps its shape: the formal guard becomes a BoundGuard, a
-    // callee-local guard an opaque InvokedGuard, and nothing becomes unconditional.
-    let local = EvaluationAtom {
-        evaluation: f.evaluation.id(),
-        context: f.context.id(),
-        predicate: Predicate::Opaque {
-            text: "local_flag".into(),
-        }
-        .id(),
-        operand: None,
-    };
-    let mut g = Fixture::new();
-    let mut atoms = g.rows::<EvaluationAtom>();
-    atoms.push(local.clone());
-    g.put(atoms);
-    let mut predicates = g.rows::<Predicate>();
-    predicates.push(Predicate::Opaque {
-        text: "local_flag".into(),
-    });
-    g.put(predicates);
-    let source = Diagram::from_atom(f.guard.id())
-        .and(&Diagram::from_atom(local.id()).not().unwrap())
-        .unwrap();
-    let rebased = g.substitute(Some(&witnesses), &bound, &source).unwrap();
-    let by = |bound: bool| {
-        rebased
-            .atoms
-            .iter()
-            .find(|a| {
-                rebased.predicates.iter().any(|p| {
-                    p.id() == a.predicate && matches!(p, Predicate::BoundGuard { .. }) == bound
-                })
-            })
-            .unwrap()
-    };
-    let (bound_guard, invoked) = (by(true), by(false));
-    assert_eq!(
-        rebased.condition.id(),
-        Diagram::from_atom(bound_guard.id())
-            .and(&Diagram::from_atom(invoked.id()).not().unwrap())
-            .unwrap()
-            .id()
-    );
-    assert_eq!(rebased.substitutions.len(), 1);
-    assert_eq!(
-        bound_guard.operand,
-        Some(
-            Place {
-                root: PlaceRoot::Occurrence {
-                    occurrence: f.actual.id()
-                }
-                .id(),
-                path: AccessPath::empty().id()
-            }
-            .id()
-        )
-    );
-    let guard = Diagram::from_atom(f.guard.id());
-    assert_eq!(
-        f.substitute(Some(&BTreeMap::new()), &bound, &guard)
-            .unwrap_err(),
-        ObligationKind::ConditionTransferUnsupported,
-        "no witness: refused, never true"
-    );
-    assert_eq!(
-        f.substitute(None, &bound, &guard).unwrap_err(),
-        ObligationKind::NotRequested
-    );
-    let defaulted = BTreeMap::from([(f.formal.id(), RootBinding::Default)]);
-    assert_eq!(
-        f.substitute(Some(&witnesses), &defaulted, &guard)
-            .unwrap_err(),
-        ObligationKind::DefaultStabilityUnknown
-    );
-    let mut truthy = Fixture::new();
-    truthy.predicate = Predicate::Truthy;
-    truthy.guard.predicate = truthy.predicate.id();
-    let witnesses_t = BTreeMap::from([(truthy.guard.id(), truthy.witness.clone())]);
-    assert_eq!(
-        truthy
-            .substitute(
-                Some(&witnesses_t),
-                &bound,
-                &Diagram::from_atom(truthy.guard.id())
-            )
-            .unwrap_err(),
-        ObligationKind::ConditionTransferUnsupported
-    );
-    let mut attribute = Fixture::new();
-    let segment = PathSegment::Attribute {
-        name: "value".into(),
-    };
-    attribute.place = Place {
-        root: attribute.formal.id(),
-        path: AccessPath {
-            first: Some(segment.id()),
-            second: None,
-            unknown_suffix: false,
-        }
-        .id(),
-    };
-    attribute.guard.operand = Some(attribute.place.id());
-    let witnesses_a = BTreeMap::from([(attribute.guard.id(), attribute.witness.clone())]);
-    assert_eq!(
-        attribute
-            .substitute(
-                Some(&witnesses_a),
-                &bound,
-                &Diagram::from_atom(attribute.guard.id())
-            )
-            .unwrap_err(),
-        ObligationKind::ConditionTransferUnsupported
-    );
+fn entry_value_and_guard_stability_share_one_replayed_access(){
+ let f=Fixture::new();let entry=f.derive().unwrap();f.validate(entry.witness()).unwrap();
+ assert!(matches!(entry.root(),PlaceRoot::Entry{..}));let proof=StabilityWitness::derive(&f.data,f.guard.id(),&entry).unwrap();assert_eq!(proof.witness().entry,entry.witness().id());
+ let inputs=stability_invariants().remove(0).inputs;assert!(!inputs.iter().any(|i|i.name()==GuardSubstitution::NAME || i.name().contains("control_influence")),"Local stability must not depend on Summary outputs");
 }
-
 #[test]
-fn stored_witnesses_and_substitutions_refuse_what_they_cannot_justify() {
-    let mut f = Fixture::new();
-    f.put::<GuardSubstitution>(vec![]);
-    refused(&f, "a bound guard needs a witnessed substitution");
-    let mut f = Fixture::new();
-    let other = FlowReachingObservation {
-        target: ReachingDefinition::Unbound.id(),
-        ..f.reaching.clone()
-    };
-    let mut targets = f.rows::<ReachingDefinition>();
-    targets.push(ReachingDefinition::Unbound);
-    f.put(targets);
-    let mut observed = f.rows::<FlowReachingObservation>();
-    observed.push(other.clone());
-    f.put(observed);
-    let mut supports = f.rows::<FlowReachingSupport>();
-    supports.push(FlowReachingSupport {
-        assertion: other.id(),
-        ..supports[0].clone()
-    });
-    f.put(supports);
-    refused(&f, "more than one reaching definition");
-    // `def reset(): nonlocal timeout; timeout = None` then `reset(); if timeout is None`: the nested
-    // scope's binding reaches the read beside the parameter, or alone; neither is a witness.
-    let mut f = Fixture::new();
-    let nested = FlowReachingObservation {
-        target: ReachingDefinition::Nested.id(),
-        ..f.reaching.clone()
-    };
-    let mut targets = f.rows::<ReachingDefinition>();
-    targets.push(ReachingDefinition::Nested);
-    f.put(targets);
-    let mut observed = f.rows::<FlowReachingObservation>();
-    observed.push(nested.clone());
-    f.put(observed);
-    let mut supports = f.rows::<FlowReachingSupport>();
-    supports.push(FlowReachingSupport {
-        assertion: nested.id(),
-        ..supports[0].clone()
-    });
-    f.put(supports);
-    refused(&f, "more than one reaching definition");
-    let mut f = Fixture::new();
-    f.target = ReachingDefinition::Nested;
-    f.reaching.target = f.target.id();
-    f.store_flow();
-    f.store_substitution();
-    refused(&f, "unbound or from a nested scope");
-    let mut f = Fixture::new();
-    f.coverage = ProviderCoverage {
-        status: CoverageStatus::Partial,
-        reason: Some(ObligationKind::OutsideProviderModel),
-        ..f.coverage.clone()
-    };
-    f.store_flow();
-    f.store_substitution();
-    refused(&f, "complete flow coverage");
-    let mut f = Fixture::new();
-    f.definition_observation.kind = BindingEventKind::Assignment;
-    f.store_flow();
-    f.store_substitution();
-    refused(&f, "not the formal's parameter definition");
-    let mut f = Fixture::new();
-    let mut atoms = f.rows::<EvaluationAtom>();
-    let bound = atoms
-        .iter()
-        .position(|a| a.evaluation == f.site.id())
-        .unwrap();
-    let wrong = Place {
-        root: PlaceRoot::Occurrence {
-            occurrence: f.callee_name.id(),
-        }
-        .id(),
-        path: AccessPath::empty().id(),
-    };
-    atoms[bound].operand = Some(wrong.id());
-    let mut substitutions = f.rows::<GuardSubstitution>();
-    substitutions[0].atom = atoms[bound].id();
-    f.put(atoms);
-    f.put(substitutions);
-    let mut roots = f.rows::<PlaceRoot>();
-    roots.push(PlaceRoot::Occurrence {
-        occurrence: f.callee_name.id(),
-    });
-    f.put(roots);
-    let mut places = f.rows::<Place>();
-    places.push(wrong);
-    f.put(places);
-    refused(&f, "must test the argument's value at its call");
+fn assignment_nested_unbound_and_loop_reaches_never_prove_entry_identity(){
+ for mutation in 0..5 {
+  let mut f=Fixture::new();let stored=f.derive().unwrap().witness().clone();
+  match mutation {
+   0=>{let mut row=f.definition.clone();row.kind=BindingEventKind::Assignment;let mut s=f.data.definition_supports.iter().next().unwrap().clone();s.assertion=row.id();f.data.definition_observations=Rows::new(&f.budget);f.data.definition_observations.insert(row).unwrap();f.data.definition_supports=Rows::new(&f.budget);f.data.definition_supports.insert(s).unwrap();},
+   1|2=>{let target=if mutation==1{ReachingDefinition::Nested}else{ReachingDefinition::Unbound};f.data.targets.insert(target.clone()).unwrap();let row=FlowReachingObservation{target:target.id(),..f.reaching.clone()};replace_reaching(&mut f,row);},
+   3=>{let row=FlowReachingObservation{loop_carried:true,..f.reaching.clone()};replace_reaching(&mut f,row);},
+   _=>{let target=ReachingDefinition::Unbound;f.data.targets.insert(target.clone()).unwrap();let row=FlowReachingObservation{target:target.id(),..f.reaching.clone()};let mut support=f.data.reaching_supports.iter().next().unwrap().clone();support.assertion=row.id();f.data.reaching.insert(row).unwrap();f.data.reaching_supports.insert(support).unwrap();}
+  }
+  assert!(matches!(f.derive(),Err(ObligationKind::EntryValueUnknown)),"mutation {mutation}");assert!(f.validate(&stored).is_err());
+ }
 }
-
 #[test]
-fn only_a_bound_guard_may_stand_between_an_instantiation_and_a_formal() {
-    for through_bound in [true, false] {
-        let mut f = Fixture::new();
-        let mut atoms = f.rows::<EvaluationAtom>();
-        let bound = atoms
-            .iter()
-            .find(|a| a.evaluation == f.site.id())
-            .unwrap()
-            .id();
-        let predicate = Predicate::InvokedGuard {
-            source: if through_bound { bound } else { f.guard.id() },
-        };
-        atoms.push(EvaluationAtom {
-            evaluation: f.site.id(),
-            context: f.context.id(),
-            predicate: predicate.id(),
-            operand: None,
-        });
-        let mut predicates = f.rows::<Predicate>();
-        predicates.push(predicate);
-        f.put(atoms);
-        f.put(predicates);
-        if through_bound {
-            f.validate().unwrap();
-        } else {
-            refused(&f, "needs binding and stability evidence");
-        }
-    }
+fn provider_context_support_and_coverage_are_selected_together(){
+ for mutation in 0..7 {
+  let mut f=Fixture::new();let stored=f.derive().unwrap().witness().clone();
+  match mutation {
+   0=>{f.data.use_supports=Rows::new(&f.budget);},
+   1=>{let mut c=f.coverage.clone();c.status=CoverageStatus::Partial;c.reason=Some(ObligationKind::MissingEvidence);f.data.coverage=Rows::new(&f.budget);f.data.coverage.insert(c).unwrap();},
+   2=>{let mut q=f.q.clone();let mut context=AnalysisContext{python_version:"3.14.7".into(),python_platform:"foreign".into(),search_path:vec![],site_package_path:vec![],config_digest:ContentHash::of(b"foreign"),environment_digest:ContentHash::of(b"foreign"),lock_digest:None};q.context=context.id();context.python_platform="foreign".into();f.data.qualifications.insert(q.clone()).unwrap();let row=FlowReachingObservation{qualification:q.id(),..f.reaching.clone()};replace_reaching(&mut f,row);},
+   3=>{let mut s=f.data.reaching_supports.iter().next().unwrap().clone();s.fidelity=Fidelity::ReportProjection;f.data.reaching_supports=Rows::new(&f.budget);f.data.reaching_supports.insert(s).unwrap();},
+   4=>{f.data.declaration_supports=Rows::new(&f.budget);},
+   5=>{let mut c=f.coverage.clone();c.provider=Some(Provider{tool:"foreign".into(),revision:"1".into(),build_digest:ContentHash::of(b"foreign")}.id());f.data.coverage=Rows::new(&f.budget);f.data.coverage.insert(c).unwrap();},
+   _=>{let mut q=f.q.clone();q.modality=Modality::Candidate;f.data.qualifications.insert(q.clone()).unwrap();let row=FlowReachingObservation{qualification:q.id(),..f.reaching.clone()};replace_reaching(&mut f,row);}
+  }
+  assert!(f.derive().is_err(),"mutation {mutation}");assert!(f.validate(&stored).is_err());
+ }
+}
+#[test]
+fn binding_identity_never_becomes_mutable_predicate_stability(){
+ let mut f=Fixture::new();let entry=f.derive().unwrap();
+ for predicate in [Predicate::Truthy,Predicate::Equals{value:Literal::None.id()},Predicate::Opaque{text:"field changed".into()}] {
+  f.data.predicates.insert(predicate.clone()).unwrap();let atom=EvaluationAtom{predicate:predicate.id(),..f.guard.clone()};f.data.atoms.insert(atom.clone()).unwrap();assert_eq!(StabilityWitness::derive(&f.data,atom.id(),&entry).unwrap_err(),ObligationKind::ConditionTransferUnsupported);
+ }
+ assert!(StabilityBasis::ParameterOnlyReaching.eligible(&Predicate::IsValue{value:Literal::None.id()}));
+ assert!(!StabilityBasis::ParameterOnlyReaching.eligible(&Predicate::Equals{value:Literal::None.id()}));
+}
+#[test]
+fn stored_witness_cannot_choose_a_different_existing_coverage_premise(){
+ let mut f=Fixture::new();let artifact=f.data.artifacts.iter().next().unwrap().id();let scope=lctx_model::domain::source::CoverageScope::Artifact{artifact};f.data.scopes.insert(scope.clone()).unwrap();let other=ProviderCoverage{scope:scope.id(),..f.coverage.clone()};f.data.coverage.insert(other.clone()).unwrap();let proof=f.derive().unwrap();f.validate(proof.witness()).unwrap();let mut forged=proof.witness().clone();forged.coverage=if forged.coverage==other.id(){f.coverage.id()}else{other.id()};assert!(f.validate(&forged).is_err());
+}
+#[test]
+fn entry_allowance_follows_the_checked_guard_until_its_last_consumer_drops(){
+ let f=Fixture::new();let before=f.budget.reserved();let entry=f.derive().unwrap();let proof=StabilityWitness::derive(&f.data,f.guard.id(),&entry).unwrap();let retained=f.budget.reserved();assert!(retained>before);let clone=proof.clone();drop(entry);drop(proof);assert_eq!(f.budget.reserved(),retained);drop(clone);assert_eq!(f.budget.reserved(),before);
 }

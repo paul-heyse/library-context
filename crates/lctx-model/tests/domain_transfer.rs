@@ -2,7 +2,7 @@
 mod analysis_fixture;
 use lctx_model::domain::{
     assertion::*, attribution::*, calls::*, conditions::*, input::*, source::*, transfer::*,
-    value::*, *,
+    value::*, normalized::entities::EntityRef, transfer::local::*, *,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -17,6 +17,8 @@ struct Fixture {
     families: Vec<RunFamily>,
     surface: ProviderSurface,
     symbol: ProviderSymbol,
+    module:Module,
+    entity:EntityRef,
     occurrences: Vec<Occurrence>,
     roots: Vec<PlaceRoot>,
     path: AccessPath,
@@ -112,8 +114,10 @@ impl Fixture {
             modality: Modality::Definite,
             approximation: Approximation::Exact,
         };
+        let module=Module {source:source.id(),qualified_name:"x".into()};
+        let entity=EntityRef::Module {module:module.id()};
         let key = TransferKey {
-            owner: symbol.id(),
+            owner: entity.id(),
             input: places[0].id(),
             output: places[2].id(),
             context: context.id(),
@@ -134,7 +138,7 @@ impl Fixture {
             run,
             families,
             surface,
-            symbol,
+            symbol,module,entity,
             occurrences,
             roots,
             path,
@@ -150,7 +154,7 @@ impl Fixture {
             self.key.clone(),
             self.qualification.clone(),
             self.diagram.clone(),
-        )
+         &budget())
         .unwrap()
     }
 }
@@ -166,17 +170,17 @@ fn widening_conditions_keeps_stable_transfer_and_each_original_alternative() {
             ..f.qualification.clone()
         },
         no_diagram,
-    )
+     &budget())
     .unwrap();
     let ids = BTreeSet::from([yes.alternative().id(), no.alternative().id()]);
-    let one = merge([yes.clone()]).unwrap();
-    let merged = merge([yes.clone(), no.clone()]).unwrap();
+    let one = merge([yes.clone()], &budget()).unwrap();
+    let merged = merge([yes.clone(), no.clone()], &budget()).unwrap();
     assert_eq!(one[0].key.id(), merged[0].key.id());
     assert_eq!(merged[0].key.id(), f.key.id());
     assert!(merged[0].condition.is_true());
     assert_eq!(merged[0].alternatives, ids);
     assert!(!one[0].condition.is_true());
-    assert_eq!(merge([no, yes]).unwrap()[0].alternatives, ids);
+    assert_eq!(merge([no, yes], &budget()).unwrap()[0].alternatives, ids);
     let mut approximate_key = f.key.clone();
     approximate_key.approximation = Approximation::Over;
     let approximate = TransferBranch::new(
@@ -186,15 +190,15 @@ fn widening_conditions_keeps_stable_transfer_and_each_original_alternative() {
             ..f.qualification.clone()
         },
         f.diagram.clone(),
-    )
+     &budget())
     .unwrap();
     assert_eq!(
-        merge([f.branch(), approximate]).unwrap().len(),
+        merge([f.branch(), approximate], &budget()).unwrap().len(),
         2,
         "approximation cannot silently strengthen exact flow"
     );
     assert!(
-        TransferBranch::new(f.key.clone(), f.qualification.clone(), Diagram::always()).is_err()
+        TransferBranch::new(f.key.clone(), f.qualification.clone(), Diagram::always(), &budget()).is_err()
     );
     assert_eq!(
         compose_kinds(TransferKind::Identity, TransferKind::Identity),
@@ -235,7 +239,7 @@ fn influence_selects_a_guarded_alternative_without_becoming_a_value_transfer() {
             ..f.qualification.clone()
         },
         Diagram::always(),
-    )
+     &budget())
     .unwrap();
     assert!(
         unconditional
@@ -284,11 +288,27 @@ fn check(
     check.finish()
 }
 
-fn store_foundation(f:&Fixture,data:&mut BTreeMap<&'static str,arrow_array::RecordBatch>,rows:&analysis_fixture::SupportFixture) {
+fn store_foundation(
+    f: &Fixture,
+    data: &mut BTreeMap<&'static str, arrow_array::RecordBatch>,
+    rows: &analysis_fixture::SupportFixture,
+) {
     macro_rules! one { ($($row:expr),*) => { $(insert(f,data,vec![$row.clone()]);)* }; }
-    one!(rows.parameters,rows.definition,rows.invocation,rows.use_,rows.observation,rows.support,rows.premise,rows.native_qualification,rows.subject,rows.proposition,rows.derivation);
-    insert(f,data,vec![rows.native.clone(),rows.derived.clone()]);
-    insert(f,data,rows.members.clone());
+    one!(
+        rows.parameters,
+        rows.definition,
+        rows.invocation,
+        rows.use_,
+        rows.observation,
+        rows.support,
+        rows.premise,
+        rows.native_qualification,
+        rows.subject,
+        rows.proposition,
+        rows.derivation
+    );
+    insert(f, data, vec![rows.native.clone(), rows.derived.clone()]);
+    insert(f, data, rows.members.clone());
 }
 fn records(f: &Fixture) -> BTreeMap<&'static str, arrow_array::RecordBatch> {
     let mut data = BTreeMap::new();
@@ -301,7 +321,7 @@ fn records(f: &Fixture) -> BTreeMap<&'static str, arrow_array::RecordBatch> {
         f.provider,
         f.run,
         f.surface,
-        f.symbol,
+        f.symbol,f.module,f.entity,
         f.path,
         f.atom,
         f.qualification,
@@ -319,9 +339,21 @@ fn records(f: &Fixture) -> BTreeMap<&'static str, arrow_array::RecordBatch> {
     let evidence = Evidence::Occurrence {
         occurrence: f.occurrences[0].id(),
     };
-    let foundation=analysis_fixture::SupportFixture::new(f.input.id(),f.run.id(),f.surface.id(),evidence.id(),&f.qualification,&f.diagram,f.occurrences[0].id(),f.places[0].id());
-    store_foundation(f,&mut data,&foundation);
-    let support=TransferSupport {assertion:alternative.id(),source:foundation.derived.id()};
+    let foundation = analysis_fixture::SupportFixture::new(
+        f.input.id(),
+        f.run.id(),
+        f.surface.id(),
+        evidence.id(),
+        &f.qualification,
+        &f.diagram,
+        f.occurrences[0].id(),
+        f.places[0].id(),
+    );
+    store_foundation(f, &mut data, &foundation);
+    let support = TransferSupport {
+        assertion: alternative.id(),
+        source: foundation.derived.id(),
+    };
     one!(alternative, evidence, support);
     data
 }
@@ -373,14 +405,26 @@ fn transfer_support_validates_both_place_sources_and_keeps_ordinary_subject_inpu
             }
         };
         let branch =
-            TransferBranch::new(key.clone(), f.qualification.clone(), f.diagram.clone()).unwrap();
+            TransferBranch::new(key.clone(), f.qualification.clone(), f.diagram.clone(), &budget()).unwrap();
         let alternative = branch.alternative();
         let evidence = Evidence::Occurrence {
             occurrence: f.occurrences[0].id(),
         };
-        let foundation = analysis_fixture::SupportFixture::new(f.input.id(),f.run.id(),f.surface.id(),evidence.id(),&f.qualification,&f.diagram,f.occurrences[0].id(),f.places[0].id());
-        store_foundation(&f,&mut data,&foundation);
-        let support = TransferSupport { assertion:alternative.id(),source:foundation.derived.id() };
+        let foundation = analysis_fixture::SupportFixture::new(
+            f.input.id(),
+            f.run.id(),
+            f.surface.id(),
+            evidence.id(),
+            &f.qualification,
+            &f.diagram,
+            f.occurrences[0].id(),
+            f.places[0].id(),
+        );
+        store_foundation(&f, &mut data, &foundation);
+        let support = TransferSupport {
+            assertion: alternative.id(),
+            source: foundation.derived.id(),
+        };
         insert(&f, &mut data, vec![f.source.clone(), foreign.clone()]);
         let mut occurrences = f.occurrences.clone();
         occurrences.push(occurrence);
@@ -417,7 +461,7 @@ fn stored_selection_checks_typed_premises_guard_membership_and_qualification() {
         .unwrap();
     insert(&f, &mut base, vec![influence]);
     insert(&f, &mut base, vec![selection.clone()]);
-    check(TransferKey::invariants().remove(0), &base).unwrap();
+    check(Selection::invariants().remove(0), &base).unwrap();
     let wrong_atom = EvaluationAtom {
         evaluation: f.occurrences[2].id(),
         ..f.atom.clone()
@@ -438,7 +482,7 @@ fn stored_selection_checks_typed_premises_guard_membership_and_qualification() {
     ] {
         let mut data = base.clone();
         insert(&f, &mut data, vec![wrong]);
-        assert!(check(TransferKey::invariants().remove(0), &data).is_err());
+        assert!(check(Selection::invariants().remove(0), &data).is_err());
     }
 }
 
@@ -485,15 +529,27 @@ fn transfer_call_site_must_belong_to_both_scope_and_acquired_inputs() {
             ..f.key.clone()
         };
         let alternative =
-            TransferBranch::new(key.clone(), qualification.clone(), f.diagram.clone())
+            TransferBranch::new(key.clone(), qualification.clone(), f.diagram.clone(), &budget())
                 .unwrap()
                 .alternative();
         let evidence = Evidence::Occurrence {
             occurrence: f.occurrences[0].id(),
         };
-        let foundation = analysis_fixture::SupportFixture::new(f.input.id(),f.run.id(),f.surface.id(),evidence.id(),&qualification,&f.diagram,f.occurrences[0].id(),f.places[0].id());
-        store_foundation(&f,&mut data,&foundation);
-        let support = TransferSupport { assertion:alternative.id(),source:foundation.derived.id() };
+        let foundation = analysis_fixture::SupportFixture::new(
+            f.input.id(),
+            f.run.id(),
+            f.surface.id(),
+            evidence.id(),
+            &qualification,
+            &f.diagram,
+            f.occurrences[0].id(),
+            f.places[0].id(),
+        );
+        store_foundation(&f, &mut data, &foundation);
+        let support = TransferSupport {
+            assertion: alternative.id(),
+            source: foundation.derived.id(),
+        };
         insert(&f, &mut data, vec![f.source.clone(), foreign.clone()]);
         let mut occurrences = f.occurrences.clone();
         occurrences.push(foreign_site.clone());
@@ -669,16 +725,78 @@ fn transfer_identity_is_the_semantic_key() {
         condition: Diagram::always().id(),
         ..f.qualification.clone()
     };
-    let other = TransferBranch::new(base.clone(), widened, Diagram::always()).unwrap();
+    let other = TransferBranch::new(base.clone(), widened, Diagram::always(), &budget()).unwrap();
     assert_eq!(other.key().id(), f.branch().key().id());
     assert_ne!(other.alternative().id(), f.branch().alternative().id());
 }
 #[test]
 fn shared_derived_flow_support_refuses_prose_and_heuristic_lineage() {
-    use lctx_model::domain::analysis::{local::Derivation,policy::EvidenceStatus};
-    let fixture=Fixture::new();let base=records(&fixture);check(TransferSupport::invariants().remove(0),&base).unwrap();let derivation=Derivation::decode(&base[Derivation::NAME]).unwrap().remove(0);
-    for (status,heuristic) in [(EvidenceStatus::Documented,false),(EvidenceStatus::StatisticallyDerived,true),(EvidenceStatus::StructurallyObserved,true)] {let mut changed=base.clone();insert(&fixture,&mut changed,vec![Derivation {status,heuristic,..derivation.clone()}]);assert!(check(TransferSupport::invariants().remove(0),&changed).is_err());}
+    use lctx_model::domain::analysis::{local::Derivation, policy::EvidenceStatus};
+    let fixture = Fixture::new();
+    let base = records(&fixture);
+    check(TransferSupport::invariants().remove(0), &base).unwrap();
+    let derivation = Derivation::decode(&base[Derivation::NAME])
+        .unwrap()
+        .remove(0);
+    for (status, heuristic) in [
+        (EvidenceStatus::Documented, false),
+        (EvidenceStatus::StatisticallyDerived, true),
+        (EvidenceStatus::StructurallyObserved, true),
+    ] {
+        let mut changed = base.clone();
+        insert(
+            &fixture,
+            &mut changed,
+            vec![Derivation {
+                status,
+                heuristic,
+                ..derivation.clone()
+            }],
+        );
+        assert!(check(TransferSupport::invariants().remove(0), &changed).is_err());
+    }
     // Qualification still carries candidate/partial uncertainty; evidence interpretation does not
     // turn an alternative into a proved behavior.
-    lctx_model::domain::analysis::policy::behavioral_support(EvidenceStatus::StructurallyObserved,false).unwrap();
+    lctx_model::domain::analysis::policy::behavioral_support(
+        EvidenceStatus::StructurallyObserved,
+        false,
+    )
+    .unwrap();
+}
+
+#[test]
+fn admitted_branch_and_merge_keep_reservations_until_output_drop() {
+    let f=Fixture::new();
+    let resources=lctx_model::domain::resources::ResourceBudget::fixed(16<<20).unwrap();
+    let branch=TransferBranch::new(f.key.clone(),f.qualification.clone(),f.diagram.clone(),&resources).unwrap();
+    let original=resources.reserved();
+    assert!(original>0);
+    let clone=branch.clone();
+    assert_eq!(resources.reserved(),original,"Arc branch clones share the owned diagram");
+    let result=merge([branch,clone],&resources).unwrap();
+    assert_eq!(result[0].alternatives.len(),1);
+    assert!(resources.reserved()>0,"retained merge output owns its reservations");
+    drop(result);
+    assert_eq!(resources.reserved(),0);
+    let tiny=lctx_model::domain::resources::ResourceBudget::fixed(1).unwrap();
+    assert!(matches!(TransferBranch::new(f.key.clone(),f.qualification.clone(),f.diagram.clone(),&tiny),Err(ModelError::Resource {..})));
+    assert_eq!(tiny.reserved(),0);
+    assert!(matches!(merge([f.branch()],&tiny),Err(TransferError::Resource(ModelError::Resource {..}))));
+    assert_eq!(tiny.reserved(),0);
+}
+
+#[test]
+fn owner_instances_preserve_nominal_identity_and_early_local_closure() {
+    let f=Fixture::new();
+    let model_key=transfer::model::TransferKey::from_descriptor(f.key.descriptor());
+    let summary_key=transfer::summary::TransferKey::from_descriptor(f.key.descriptor());
+    assert_eq!(model_key.descriptor(),f.key.descriptor());
+    assert_eq!(summary_key.descriptor(),f.key.descriptor());
+    assert_ne!(derivation::RowRef::of(f.key.id()),derivation::RowRef::of(model_key.id()));
+    assert_ne!(derivation::RowRef::of(model_key.id()),derivation::RowRef::of(summary_key.id()));
+    for input in TransferSupport::invariants()[0].inputs.iter().chain(TransferKey::invariants()[0].inputs.iter()) {
+        assert!(!input.name().starts_with("model_") && !input.name().starts_with("summary_"),"local closure pulled {}",input.name());
+    }
+    assert!(analysis::summary::SupportSource::fields().iter().any(|field|field.target().is_some_and(|(_,name)|name==transfer::summary::SummaryWitness::NAME)));
+    assert!(!analysis::local::SupportSource::fields().iter().any(|field|field.target().is_some_and(|(_,name)|name==transfer::summary::SummaryWitness::NAME)));
 }

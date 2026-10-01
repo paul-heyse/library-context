@@ -9,7 +9,7 @@ use super::kernel::{Diagram, KernelBoundary, MAX_ATOMS, MAX_NODES, MAX_PAIR_WORK
 use crate::domain::Id;
 type AtomId = Id<EvaluationAtom>;
 
-const MAX_RETAINED_NODES: usize = 1_000_000;
+pub(super) const MAX_RETAINED_NODES: usize = 1_000_000;
 
 struct Budget {
     work: usize,

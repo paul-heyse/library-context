@@ -6,7 +6,6 @@ _Updated 2026-10-01 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
 
 - **Implemented (ADR-0109):** [shared roles](.agents/roles/README.md) and skills use selective delegation, task-specific context, explicit escalation and the agreed stronger review defaults.
 - **passed:** `python3 /home/paul/.cache/coordination-acceptance-20260930.py`: native settings across four targets; instruction budgets, Codex config/read and execution-skill discovery in three live repositories.
-- **passed:** independent static integration review and template render/update checks; project-owned files preserved and managed READMEs updated after closing TPL-F01. Product tests **not_run** (process-only scope); hygiene remains hook-owned. Workflow quality/resource gains are unmeasured; no calibration or new cap.
 
 ## Phase 4 execution (2026-10-01)
 - The [detailed design and execution plan](docs/plans/semantic-model-phase4-detailed-plan_2026-09-30.md)
@@ -24,8 +23,9 @@ _Updated 2026-10-01 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
   (two model controls and one real PG test across both profiles), composite after fixture/boundary fixes.
   Integrated N1/G0 PG controls also passed both profiles after correcting the test's frontier scope;
   graph reuse, permit/budget refusal and lifetime controls passed. E1 spec/codec/cache/realization
-  foundation controls passed, including real PG configuration; no live embedding claim. B0 and
-  E1 vector consumption remain in progress (plan §13.2 receipts).
+  foundation controls passed, including real PG configuration; no live embedding claim.
+  B0 entry/transfer prerequisites passed model, native and real PG controls; Local production
+  and E1 vector consumption remain in progress (plan §13.2 receipts).
 - **passed, 2026-10-01:** R0 declared validation-view controls in memory and real PostgreSQL:
   earlier/current vocabulary routing, no widening beyond acknowledged grants, malformed-frame
   refusal and reservation release. B0 exposed and motivated the fix; its Summary publication
@@ -39,9 +39,6 @@ _Updated 2026-10-01 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
   precede foundation review; integrated acceptance waits for all functional packages and retirement.
   ADR/docs hygiene belongs to the automatic end-of-turn hook; no result is claimed before it runs.
 - Concurrent hook/tooling/instruction changes remain outside this design's edits and qualification.
-
-Shared `main` remains the development branch; preserved archive refs and worktrees retain prior
-experiments. Product checks do not qualify unrelated Git/tooling changes.
 
 ## Phase 3 implementation and qualification
 
@@ -110,15 +107,13 @@ Reset initially refused absent old-installation control tables; its regression a
 - The legacy `cpg-schema` crate and dormant consumers remain only for named P4/P5 obligations
   in detailed plan §9.1. Meaningful P3 source/stub, Unicode/re-export, synthetic and conditional
   declaration expectations have moved to native normalized tests.
-- The formerly concurrent agent/settings, instructions and automatic after-turn hooks were
-  committed in `57a75d8` and preserved by consolidation. Unrelated generic skill-validator
-  metadata failures were not changed or tested.
+- Agent/settings and hook changes from `57a75d8` remain preserved and separately qualified.
 
 ## Next
 
 Continue ordinary work directly on `main`. Existing after-turn hooks own formatting and catalog
 refresh; do not run or validate them manually. Additional pilot-scale qualification runs only if
 reactivated; detailed plan §11 retains its unmeasured scope.
-Continue P4 with B0 entry/transfer integration, C1 contextual evidence and E1 vector consumption.
+Continue P4 with actual Local/B1 execution, C1 contextual evidence and E1 vector consumption.
 Downstream producers, assembly, legacy retirement and Q0 remain open. Follow the dependency graph
 and scheduled review boundaries. P5 owns serving/product qualification; PR6 remains paused.

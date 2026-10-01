@@ -21,7 +21,6 @@ use super::{
     conditions::*,
     input::*,
     source::*,
-    transfer::TransferKey,
     value::{Place, PlaceRoot, Predicate},
     *,
 };
@@ -115,7 +114,7 @@ pub enum Subject {
     Module(Id<Module>),
     Scope(Id<CoverageScope>),
     Place(Id<Place>),
-    Transfer(Id<TransferKey>),
+    Transfer(derivation::RowRef),
     LexicalScope(Id<super::lexical::LexicalScope>),
     BindingEvent(Id<super::lexical::BindingEvent>),
     LexicalTarget(Id<super::lexical::LexicalTarget>),
@@ -153,11 +152,6 @@ impl From<Id<CoverageScope>> for Subject {
 impl From<Id<Place>> for Subject {
     fn from(value: Id<Place>) -> Self {
         Self::Place(value)
-    }
-}
-impl From<Id<TransferKey>> for Subject {
-    fn from(value: Id<TransferKey>) -> Self {
-        Self::Transfer(value)
     }
 }
 impl From<Id<super::lexical::LexicalScope>> for Subject {
@@ -302,16 +296,6 @@ impl SubjectValue for Id<Place> {
         subjects.push((*self).into());
     }
 }
-impl SubjectValue for Id<TransferKey> {
-    fn append_subjects(&self, subjects: &mut Vec<Subject>) {
-        subjects.push((*self).into());
-    }
-    fn inputs() -> Vec<ValidationInput> {
-        let mut inputs = <Id<Place> as SubjectValue>::inputs();
-        inputs.push(ValidationInput::of::<TransferKey>(&["id"]));
-        inputs
-    }
-}
 impl SubjectValue for Id<super::lexical::LexicalScope> {
     fn inputs() -> Vec<ValidationInput> {
         vec![ValidationInput::of::<super::lexical::LexicalScope>(&["id"])]
@@ -420,31 +404,50 @@ pub struct SupportAttribution {
 pub trait Support: Record {
     const DERIVED: bool = false;
     type Assertion: Assertion;
-    type Source:DerivedSupportSource;
+    type Source: DerivedSupportSource;
     fn assertion(&self) -> Id<Self::Assertion>;
     fn attribution(&self) -> Option<SupportAttribution>;
-    fn source(&self) -> Option<Id<Self::Source>> { None }
+    fn source(&self) -> Option<Id<Self::Source>> {
+        None
+    }
 }
 
 /// A generated companion has exactly one nominal owner source and its immutable input frame.
-pub struct DerivedSupportFrame {pub input:Id<super::input::InputRevision>,pub context:Id<super::attribution::AnalysisContext>,pub qualification:Id<AssertionQualification>,pub evidence:super::analysis::support::SourceFacts}
-pub trait DerivedSupportSource:Sized+Send+Sync+'static {
-    fn inputs()->Vec<ValidationInput>;
-    fn index(budget:&super::resources::ResourceBudget)->Box<dyn DerivedSupportIndex<Self>>;
+pub struct DerivedSupportFrame {
+    pub input: Id<super::input::InputRevision>,
+    pub context: Id<super::attribution::AnalysisContext>,
+    pub qualification: Id<AssertionQualification>,
+    pub evidence: super::analysis::support::SourceFacts,
 }
-pub trait DerivedSupportIndex<S>:Send+Sync {
-    fn visit(&mut self,relation:&str,batch:&arrow_array::RecordBatch)->Result<bool,ModelError>;
-    fn frame(&self,source:Id<S>)->Result<DerivedSupportFrame,ModelError>;
+pub trait DerivedSupportSource: Sized + Send + Sync + 'static {
+    fn inputs() -> Vec<ValidationInput>;
+    fn index(budget: &super::resources::ResourceBudget) -> Box<dyn DerivedSupportIndex<Self>>;
+}
+pub trait DerivedSupportIndex<S>: Send + Sync {
+    fn visit(
+        &mut self,
+        relation: &str,
+        batch: &arrow_array::RecordBatch,
+    ) -> Result<bool, ModelError>;
+    fn frame(&self, source: Id<S>) -> Result<DerivedSupportFrame, ModelError>;
 }
 pub enum NoDerivedSource {}
 struct NoDerivedIndex;
 impl DerivedSupportSource for NoDerivedSource {
-    fn inputs()->Vec<ValidationInput> {Vec::new()}
-    fn index(_: &super::resources::ResourceBudget)->Box<dyn DerivedSupportIndex<Self>> {Box::new(NoDerivedIndex)}
+    fn inputs() -> Vec<ValidationInput> {
+        Vec::new()
+    }
+    fn index(_: &super::resources::ResourceBudget) -> Box<dyn DerivedSupportIndex<Self>> {
+        Box::new(NoDerivedIndex)
+    }
 }
 impl DerivedSupportIndex<NoDerivedSource> for NoDerivedIndex {
-    fn visit(&mut self,_:&str,_:&arrow_array::RecordBatch)->Result<bool,ModelError> {Ok(false)}
-    fn frame(&self,_:Id<NoDerivedSource>)->Result<DerivedSupportFrame,ModelError> {Err(invalid("native companion cannot name a derived source"))}
+    fn visit(&mut self, _: &str, _: &arrow_array::RecordBatch) -> Result<bool, ModelError> {
+        Ok(false)
+    }
+    fn frame(&self, _: Id<NoDerivedSource>) -> Result<DerivedSupportFrame, ModelError> {
+        Err(invalid("native companion cannot name a derived source"))
+    }
 }
 
 fn qualification_invariants() -> Vec<Invariant> {
@@ -629,7 +632,7 @@ struct SupportCheck<A: Assertion, S: Support<Assertion = A>> {
     ownership: super::ownership::ScopeIndex,
     places: ChargedMap<Id<Place>, Place>,
     roots: ChargedMap<Id<PlaceRoot>, PlaceRoot>,
-    transfers: ChargedMap<Id<TransferKey>, TransferKey>,
+    transfers: ChargedMap<derivation::RowRef, transfer::TransferDescriptor>,
     occurrences: ChargedMap<Id<Occurrence>, Id<SourceArtifact>>,
     guards: super::conditions::rebase::GuardIndex,
     nodes: ChargedMap<Id<ConditionNode>, ConditionNode>,
@@ -641,7 +644,7 @@ struct SupportCheck<A: Assertion, S: Support<Assertion = A>> {
     evidence: ChargedMap<Id<Evidence>, Evidence>,
     assertions: ChargedMap<Id<A>, A>,
     supported: ChargedSet<Id<A>>,
-    derived:Box<dyn DerivedSupportIndex<S::Source>>,
+    derived: Box<dyn DerivedSupportIndex<S::Source>>,
     marker: PhantomData<S>,
 }
 impl<A: Assertion, S: Support<Assertion = A>> SupportCheck<A, S> {
@@ -676,7 +679,7 @@ impl<A: Assertion, S: Support<Assertion = A>> SupportCheck<A, S> {
             evidence: Default::default(),
             assertions: Default::default(),
             supported: Default::default(),
-            derived:S::Source::index(budget),
+            derived: S::Source::index(budget),
             marker: PhantomData,
         }
     }
@@ -792,6 +795,7 @@ impl<A: Assertion, S: Support<Assertion = A>> SupportCheck<A, S> {
                     PlaceRoot::Field { class, .. } => Subject::Occurrence(*class),
                     PlaceRoot::Global { module, .. } => Subject::Module(*module),
                     PlaceRoot::Occurrence { occurrence }
+                    | PlaceRoot::ClassOf { actual: occurrence }
                     | PlaceRoot::Local {
                         scope: occurrence, ..
                     } => Subject::Occurrence(*occurrence),
@@ -902,27 +906,60 @@ impl<A: Assertion, S: Support<Assertion = A>> SupportCheck<A, S> {
             .ok_or_else(|| invalid("assertion qualification missing"))?;
         let scope = self.ownership.scope(q.scope)?;
         if let Some(source) = support.source() {
-            let frame=self.derived.frame(source)?;
-            if A::FAMILY==FactFamily::Flow {super::analysis::policy::behavioral_support(frame.evidence.status,frame.evidence.heuristic)?;}
-            if frame.qualification != assertion.qualification() || frame.context != q.context || !self.ownership.owns_scope(frame.input,scope)? {
-                return Err(invalid("derived support changes qualification, scope or context"));
+            let frame = self.derived.frame(source)?;
+            if A::FAMILY == FactFamily::Flow {
+                super::analysis::policy::behavioral_support(
+                    frame.evidence.status,
+                    frame.evidence.heuristic,
+                )?;
             }
-            for source in self.conditions.get(&q.condition).ok_or_else(||invalid("assertion condition missing"))? {
-                if !self.ownership.acquired(frame.input,*source)? || !self.ownership.within(*source,scope)? { return Err(invalid("derived condition crosses scope/input")); }
+            if frame.qualification != assertion.qualification()
+                || frame.context != q.context
+                || !self.ownership.owns_scope(frame.input, scope)?
+            {
+                return Err(invalid(
+                    "derived support changes qualification, scope or context",
+                ));
+            }
+            for source in self
+                .conditions
+                .get(&q.condition)
+                .ok_or_else(|| invalid("assertion condition missing"))?
+            {
+                if !self.ownership.acquired(frame.input, *source)?
+                    || !self.ownership.within(*source, scope)?
+                {
+                    return Err(invalid("derived condition crosses scope/input"));
+                }
             }
             for subject in assertion.subjects() {
-                if let Subject::Scope(id) = subject { if id != q.scope { return Err(invalid("derived assertion scope differs")); } }
+                if let Subject::Scope(id) = subject
+                    && id != q.scope
+                {
+                    return Err(invalid("derived assertion scope differs"));
+                }
                 for source in self.subject_sources(subject)? {
-                    if !self.ownership.acquired(frame.input,source)? || !self.ownership.within(source,scope)? { return Err(invalid("derived assertion crosses scope/input")); }
+                    if !self.ownership.acquired(frame.input, source)?
+                        || !self.ownership.within(source, scope)?
+                    {
+                        return Err(invalid("derived assertion crosses scope/input"));
+                    }
                 }
             }
             for subject in assertion.referents() {
-                for source in self.subject_sources(subject)? { if !self.ownership.acquired(frame.input,source)? { return Err(invalid("derived referent crosses invocation input")); } }
+                for source in self.subject_sources(subject)? {
+                    if !self.ownership.acquired(frame.input, source)? {
+                        return Err(invalid("derived referent crosses invocation input"));
+                    }
+                }
             }
-            self.supported.insert(&mut self.charge,support.assertion())?;
+            self.supported
+                .insert(&mut self.charge, support.assertion())?;
             return Ok(());
         }
-        let provenance = support.attribution().ok_or_else(|| invalid("support has no attributed source"))?;
+        let provenance = support
+            .attribution()
+            .ok_or_else(|| invalid("support has no attributed source"))?;
         let run = self
             .runs
             .get(&provenance.run)
@@ -1107,7 +1144,9 @@ impl<A: Assertion, S: Support<Assertion = A>> InvariantCheck for SupportCheck<A,
         relation: &str,
         batch: &arrow_array::RecordBatch,
     ) -> Result<(), ModelError> {
-        if self.derived.visit(relation,batch)? {return Ok(());}
+        if self.derived.visit(relation, batch)? {
+            return Ok(());
+        }
 
         if self.ownership.visit(relation, batch)?
             || self.types.visit_input(relation, batch)?
@@ -1177,10 +1216,9 @@ impl<A: Assertion, S: Support<Assertion = A>> InvariantCheck for SupportCheck<A,
             for r in Place::decode(batch)? {
                 self.places.insert(&mut self.charge, r.id(), r)?;
             }
-        } else if relation == TransferKey::NAME {
-            for r in TransferKey::decode(batch)? {
-                self.transfers.insert(&mut self.charge, r.id(), r)?;
-            }
+        } else if A::subject_inputs().iter().any(|input|input.name()==relation)
+            && let Some(rows)=transfer::subject_rows(relation,batch)? {
+            for (id,descriptor) in rows {self.transfers.insert(&mut self.charge,id,descriptor)?;}
         } else if relation == super::flow::FlowValueObservation::NAME && relation != A::NAME {
             for r in super::flow::FlowValueObservation::decode(batch)? {
                 self.flow_values.insert(&mut self.charge, r.id(), r)?;

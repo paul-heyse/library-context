@@ -544,9 +544,13 @@ fn assess_set(
 /// A whole successful shape replay. No constructor accepts stored binding members.
 pub struct ValidatedBoundCall {
     attempt: Id<CallBindingAttempt>,
+    event: Id<NormalizedCallEvent>,
+    context: Id<AnalysisContext>,
     bound: BoundCall,
 }
 impl ValidatedBoundCall {
+    pub fn event(&self) -> Id<NormalizedCallEvent> { self.event }
+    pub fn context(&self) -> Id<AnalysisContext> { self.context }
     pub fn attempt(&self) -> Id<CallBindingAttempt> {
         self.attempt
     }
@@ -569,6 +573,8 @@ pub struct CompositionAdmission {
     event_members: ContentHash,
     summary: Id<CallPolicyAssessment>,
     owner: Id<OccurrenceOwnership>,
+    owner_entity:Id<EntityRef>,
+    owner_declaration:Id<Occurrence>,
     callee: Id<EntityRef>,
     effective: Id<EffectiveCallableAssessment>,
     target: Id<CallTarget>,
@@ -596,6 +602,8 @@ impl CompositionAdmission {
     pub fn owner(&self) -> Id<OccurrenceOwnership> {
         self.owner
     }
+    pub fn owner_entity(&self)->Id<EntityRef> {self.owner_entity}
+    pub fn owner_declaration(&self)->Id<Occurrence> {self.owner_declaration}
     pub fn callee(&self) -> Id<EntityRef> {
         self.callee
     }
@@ -677,6 +685,8 @@ pub fn verify(
             row.id(),
             ValidatedBoundCall {
                 attempt: row.id(),
+                event: row.event,
+                context: need(&data.event_events, row.event)?.context,
                 bound,
             },
         )?;
@@ -726,6 +736,8 @@ pub fn verify(
                 event_members: complete.members(),
                 summary: summary.id(),
                 owner: owner.id(),
+                owner_entity:owner.entity,
+                owner_declaration:owner.owner,
                 callee: alternative
                     .entity
                     .ok_or_else(|| invalid("admitted target has no entity"))?,

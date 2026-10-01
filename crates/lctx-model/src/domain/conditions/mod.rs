@@ -5,6 +5,7 @@ mod substitution;
 pub use graph::{CondGraph, CondNode, GraphCondition};
 pub mod rebase;
 pub mod stability;
+pub mod entry;
 use super::charged::{ChargedMap, ChargedSet, StateCharge};
 use super::{Id, ModelError, Record};
 use super::{
@@ -13,7 +14,10 @@ use super::{
     value::{Place, Predicate},
 };
 use crate::{Domain, DomainSum};
-pub use kernel::{AdmittedDiagram, BooleanOperation, CondExpr, Diagram, DiagramAdmissionError, FactorResult, KernelBoundary, RenderedCondition};
+pub use kernel::{
+    AdmittedDiagram, BooleanOperation, CondExpr, Diagram, DiagramAdmissionError, FactorResult,
+    KernelBoundary, RenderedCondition,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name = "evaluation_atoms", invariants = rebase::guard_invariants)]

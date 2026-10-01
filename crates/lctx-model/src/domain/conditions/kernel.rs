@@ -1,6 +1,9 @@
 //! Bounded biodivine operations over nominal evaluation atoms and typed persisted nodes.
 use super::{Condition, ConditionNode, EvaluationAtom};
-use crate::domain::{Id, ModelError, Record, resources::{ResourceBudget,Reservation}};
+use crate::domain::{
+    Id, ModelError, Record,
+    resources::{Reservation, ResourceBudget},
+};
 use biodivine_lib_bdd::{Bdd, BddNode, BddPointer, BddVariable, BddVariableSet, op_function};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 type AtomId = Id<EvaluationAtom>;
@@ -25,28 +28,51 @@ pub struct Diagram {
 /// Library allocation admission is separate from semantic BDD work/node limits. The allowance
 /// covers bounded vectors, memo tables, variable names and canonical-record lowering; it does
 /// not claim process RSS or allocator-internal accounting.
-#[derive(Debug,Clone,Copy,PartialEq,Eq)]
-pub enum BooleanOperation { Conjunction, Disjunction }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BooleanOperation {
+    Conjunction,
+    Disjunction,
+}
 #[derive(Debug)]
-pub enum DiagramAdmissionError { Boundary(KernelBoundary), Resource(ModelError) }
+pub enum DiagramAdmissionError {
+    Boundary(KernelBoundary),
+    Resource(ModelError),
+}
 impl std::fmt::Display for DiagramAdmissionError {
-    fn fmt(&self,f:&mut std::fmt::Formatter<'_>)->std::fmt::Result {match self {Self::Boundary(boundary)=>write!(f,"condition boundary: {boundary:?}"),Self::Resource(error)=>error.fmt(f)}}
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Boundary(boundary) => write!(f, "condition boundary: {boundary:?}"),
+            Self::Resource(error) => error.fmt(f),
+        }
+    }
 }
 impl std::error::Error for DiagramAdmissionError {}
 /// The reservation follows the returned diagram. Consumers may borrow it or explicitly transfer
 /// both parts into their charged output owner; dropping the value releases its allowance.
 #[derive(Debug)]
-pub struct AdmittedDiagram { diagram:Diagram, reservation:Box<dyn Reservation> }
-impl std::ops::Deref for AdmittedDiagram {type Target=Diagram;fn deref(&self)->&Diagram {&self.diagram}}
+pub struct AdmittedDiagram {
+    diagram: Diagram,
+    reservation: Box<dyn Reservation>,
+}
+impl std::ops::Deref for AdmittedDiagram {
+    type Target = Diagram;
+    fn deref(&self) -> &Diagram {
+        &self.diagram
+    }
+}
 impl AdmittedDiagram {
-    pub fn reserved_bytes(&self)->usize {self.reservation.size()}
-    pub fn into_parts(self)->(Diagram,Box<dyn Reservation>) {(self.diagram,self.reservation)}
+    pub fn reserved_bytes(&self) -> usize {
+        self.reservation.size()
+    }
+    pub fn into_parts(self) -> (Diagram, Box<dyn Reservation>) {
+        (self.diagram, self.reservation)
+    }
 }
 // Hash/vector allowances include spare capacity and bucket headers. The pinned engine's apply
 // retains one task memo and DFS stack per node pair, and one unique-node map/result vector.
-const PAIR_ALLOCATION_ALLOWANCE:usize=128;
-const NODE_ALLOCATION_ALLOWANCE:usize=512;
-const ATOM_ALLOCATION_ALLOWANCE:usize=1024;
+const PAIR_ALLOCATION_ALLOWANCE: usize = 128;
+const NODE_ALLOCATION_ALLOWANCE: usize = 512;
+const ATOM_ALLOCATION_ALLOWANCE: usize = 1024;
 impl std::fmt::Debug for Diagram {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Diagram")
@@ -254,41 +280,101 @@ impl Diagram {
 
     /// Retained diagram plus its canonical-ID lowering scratch. Consumers that copy or lower a
     /// borrowed diagram reserve this amount before materializing that copy.
-    pub fn allocation_allowance(&self)->usize {
-        self.node_count().saturating_mul(NODE_ALLOCATION_ALLOWANCE)
+    pub fn allocation_allowance(&self) -> usize {
+        self.node_count()
+            .saturating_mul(NODE_ALLOCATION_ALLOWANCE)
             .saturating_add(self.support.len().saturating_mul(ATOM_ALLOCATION_ALLOWANCE))
             .saturating_add(size_of::<Self>())
     }
     /// Deterministic preflight for the exact shared apply operation. Union cardinality is counted
     /// without allocating. Pair work bounds the task cache even when the reduced result is tiny;
     /// the output limit counts terminals and a refused apply may create one excess node first.
-    pub fn binary_allocation_allowance(&self,other:&Self)->Result<usize,KernelBoundary> {
-        let mut left=self.support.iter().peekable();let mut right=other.support.iter().peekable();let mut atoms=0usize;
+    pub fn binary_allocation_allowance(&self, other: &Self) -> Result<usize, KernelBoundary> {
+        let mut left = self.support.iter().peekable();
+        let mut right = other.support.iter().peekable();
+        let mut atoms = 0usize;
         while left.peek().is_some() || right.peek().is_some() {
-            match (left.peek(),right.peek()) {
-                (Some(a),Some(b))=>match a.cmp(b) {std::cmp::Ordering::Less=>{left.next();},std::cmp::Ordering::Greater=>{right.next();},std::cmp::Ordering::Equal=>{left.next();right.next();}},
-                (Some(_),None)=>{left.next();},(None,Some(_))=>{right.next();},(None,None)=>break,
+            match (left.peek(), right.peek()) {
+                (Some(a), Some(b)) => match a.cmp(b) {
+                    std::cmp::Ordering::Less => {
+                        left.next();
+                    }
+                    std::cmp::Ordering::Greater => {
+                        right.next();
+                    }
+                    std::cmp::Ordering::Equal => {
+                        left.next();
+                        right.next();
+                    }
+                },
+                (Some(_), None) => {
+                    left.next();
+                }
+                (None, Some(_)) => {
+                    right.next();
+                }
+                (None, None) => break,
             }
-            atoms+=1;
+            atoms += 1;
         }
-        if atoms>MAX_ATOMS {return Err(KernelBoundary::AtomLimit);}
-        let pairs=self.node_count().checked_mul(other.node_count()).ok_or(KernelBoundary::WorkPreflight)?;
-        if pairs>MAX_PAIR_WORK || self.node_count().checked_mul(atoms).is_none_or(|n|n>MAX_PAIR_WORK) || other.node_count().checked_mul(atoms).is_none_or(|n|n>MAX_PAIR_WORK) {return Err(KernelBoundary::WorkPreflight);}
-        let output=pairs.saturating_add(2).min(MAX_NODES+1);
-        pairs.checked_mul(PAIR_ALLOCATION_ALLOWANCE)
-            .and_then(|n|n.checked_add((self.node_count()+other.node_count()+output).checked_mul(NODE_ALLOCATION_ALLOWANCE)?))
-            .and_then(|n|n.checked_add(atoms.checked_mul(ATOM_ALLOCATION_ALLOWANCE)?))
-            .and_then(|n|n.checked_add(size_of::<Self>()*4))
+        if atoms > MAX_ATOMS {
+            return Err(KernelBoundary::AtomLimit);
+        }
+        let pairs = self
+            .node_count()
+            .checked_mul(other.node_count())
+            .ok_or(KernelBoundary::WorkPreflight)?;
+        if pairs > MAX_PAIR_WORK
+            || self
+                .node_count()
+                .checked_mul(atoms)
+                .is_none_or(|n| n > MAX_PAIR_WORK)
+            || other
+                .node_count()
+                .checked_mul(atoms)
+                .is_none_or(|n| n > MAX_PAIR_WORK)
+        {
+            return Err(KernelBoundary::WorkPreflight);
+        }
+        let output = pairs.saturating_add(2).min(MAX_NODES + 1);
+        pairs
+            .checked_mul(PAIR_ALLOCATION_ALLOWANCE)
+            .and_then(|n| {
+                n.checked_add(
+                    (self.node_count() + other.node_count() + output)
+                        .checked_mul(NODE_ALLOCATION_ALLOWANCE)?,
+                )
+            })
+            .and_then(|n| n.checked_add(atoms.checked_mul(ATOM_ALLOCATION_ALLOWANCE)?))
+            .and_then(|n| n.checked_add(size_of::<Self>() * 4))
             .ok_or(KernelBoundary::WorkPreflight)
     }
-    pub fn admitted_binary(&self,other:&Self,operation:BooleanOperation,budget:&ResourceBudget)->Result<AdmittedDiagram,DiagramAdmissionError> {
-        let bytes=self.binary_allocation_allowance(other).map_err(DiagramAdmissionError::Boundary)?;
-        let mut reservation=budget.reserve("condition_binary",bytes).map_err(DiagramAdmissionError::Resource)?;
-        let diagram=match operation {BooleanOperation::Conjunction=>self.and(other),BooleanOperation::Disjunction=>self.or(other)}.map_err(DiagramAdmissionError::Boundary)?;
+    pub fn admitted_binary(
+        &self,
+        other: &Self,
+        operation: BooleanOperation,
+        budget: &ResourceBudget,
+    ) -> Result<AdmittedDiagram, DiagramAdmissionError> {
+        let bytes = self
+            .binary_allocation_allowance(other)
+            .map_err(DiagramAdmissionError::Boundary)?;
+        let mut reservation = budget
+            .reserve("condition_binary", bytes)
+            .map_err(DiagramAdmissionError::Resource)?;
+        let diagram = match operation {
+            BooleanOperation::Conjunction => self.and(other),
+            BooleanOperation::Disjunction => self.or(other),
+        }
+        .map_err(DiagramAdmissionError::Boundary)?;
         // Apply's task tables have been dropped. Keep the result and its canonical lowering
         // admitted for as long as the consumer owns the diagram.
-        reservation.try_resize(diagram.allocation_allowance()).map_err(DiagramAdmissionError::Resource)?;
-        Ok(AdmittedDiagram {diagram,reservation})
+        reservation
+            .try_resize(diagram.allocation_allowance())
+            .map_err(DiagramAdmissionError::Resource)?;
+        Ok(AdmittedDiagram {
+            diagram,
+            reservation,
+        })
     }
 
     /// The atoms the condition depends on, in id order.
@@ -517,6 +603,20 @@ impl Diagram {
         replacements: &[(AtomId, &Self)],
     ) -> Result<Self, KernelBoundary> {
         super::substitution::compose(self, replacements)
+    }
+    /// Admit all bounded memoized subdiagrams and apply scratch before substitution starts.
+    pub fn admitted_substitution(&self,replacements:&[(AtomId,&Self)],budget:&ResourceBudget)->Result<AdmittedDiagram,DiagramAdmissionError> {
+        let retained=super::substitution::MAX_RETAINED_NODES;
+        let bytes=MAX_PAIR_WORK.checked_mul(PAIR_ALLOCATION_ALLOWANCE)
+            .and_then(|n|n.checked_add(retained.checked_mul(size_of::<BddNode>().saturating_mul(4))?))
+            .and_then(|n|n.checked_add(MAX_NODES.checked_mul(NODE_ALLOCATION_ALLOWANCE)?))
+            .and_then(|n|n.checked_add(self.allocation_allowance()))
+            .and_then(|n|replacements.iter().try_fold(n,|n,(_,d)|n.checked_add(d.allocation_allowance())))
+            .ok_or(DiagramAdmissionError::Boundary(KernelBoundary::WorkPreflight))?;
+        let mut reservation=budget.reserve("condition_substitution",bytes).map_err(DiagramAdmissionError::Resource)?;
+        let diagram=self.substitute_atoms(replacements).map_err(DiagramAdmissionError::Boundary)?;
+        reservation.try_resize(diagram.allocation_allowance()).map_err(DiagramAdmissionError::Resource)?;
+        Ok(AdmittedDiagram{diagram,reservation})
     }
 
     /// Existentially eliminate explicitly selected `atoms`: the

@@ -1,381 +1,122 @@
-//! Stability witnesses and witnessed guard substitution (DESIGN §15.6, core review C06).
-//!
-//! A callee guard such as `timeout is None` on a formal may be restated at a call only when the
-//! guard's read of the formal is reached by the parameter's own definition alone, under complete
-//! flow coverage. The witness is a derivation over those flow facts; a substitution names the
-//! caller-side `BoundGuard` atom, its witness and the call argument whose value it tests.
-use super::super::charged::{ChargedMap, ChargedSet, StateCharge};
-use super::super::{
-    assertion::AssertionQualification,
-    attribution::{CoverageStatus, FactFamily, ProviderCoverage},
-    calls::{CallArgument, CallSyntax},
-    flow::{
-        FlowDefinition, FlowDefinitionObservation, FlowReachingObservation, FlowUse,
-        ReachingDefinition,
-    },
-    lexical::BindingEventKind,
-    ownership::ScopeIndex,
-    source::Occurrence,
-    value::{AccessPath, Place, PlaceRoot, Predicate},
-    *,
-};
-use super::EvaluationAtom;
-use crate::{Domain, DomainCode};
+//! Entry-value stability and substitution through a replayed whole normalized binding.
+use super::{EvaluationAtom,entry::*};
+use crate::domain::{*, assertion::AssertionQualification, attribution::ObligationKind, calls::{BindingSource,BindingProjection}, normalized::{Rows,entities::*,bindings::*,callables::SignatureSlot,events::NormalizedCallEvent,binding_normalization::{BindingData,BindingOutput,ValidatedBoundCall}}, value::*};
+use crate::{Domain,DomainCode};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
+#[derive(Debug,Clone,Copy,PartialEq,Eq,Hash,DomainCode)]
 #[repr(i16)]
-pub enum StabilityBasis {
-    ParameterOnlyReaching = 0,
+pub enum StabilityBasis {ParameterOnlyReaching=0}
+impl StabilityBasis {
+    /// Binding identity supports only the retained identity predicates, not mutable state.
+    pub fn eligible(self,predicate:&Predicate)->bool {match self {Self::ParameterOnlyReaching=>matches!(predicate,Predicate::IsNone|Predicate::IsValue{..})}}
 }
-
-/// The guard's read of its formal is reached only by the parameter definition, not loop-carried,
-/// under complete flow coverage of the read. Any other reach refuses: an assignment, an unbound
-/// path, a binding from a nested scope (`nonlocal`), or a second reaching observation. Writes
-/// through frame objects (`sys._getframe().f_locals`, PEP 667) are `DynamicAccess`, outside the
-/// stated model.
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "stability_witnesses", rule = "parameter_only_reaching", conclusion = atom, invariants = stability_invariants)]
+pub fn substitutable(predicate:&Predicate)->bool {StabilityBasis::ParameterOnlyReaching.eligible(predicate)}
+#[derive(Debug,Clone,PartialEq,Eq,Domain)]
+#[model(name="stability_witnesses",rule="parameter_only_reaching",conclusion=atom,invariants=stability_invariants)]
 pub struct StabilityWitness {
-    #[model(key)]
-    pub atom: Id<EvaluationAtom>,
-    #[model(key, premise)]
-    pub reaching: Id<FlowReachingObservation>,
-    #[model(key, premise)]
-    pub definition: Id<FlowDefinitionObservation>,
-    #[model(key, premise)]
-    pub coverage: Id<ProviderCoverage>,
-    #[model(key)]
-    pub basis: StabilityBasis,
+    #[model(key)] pub atom:Id<EvaluationAtom>,
+    #[model(key,premise)] pub entry:Id<EntryValueWitness>,
+    #[model(key)] pub basis:StabilityBasis,
 }
-/// The caller-side `BoundGuard` atom, justified by a witness and the argument it tests.
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "guard_substitutions", rule = "witnessed_guard_substitution", conclusion = atom)]
+/// Only the shared entry operation can create this guard-specific proof.
+/// ```compile_fail
+/// use lctx_model::domain::conditions::stability::CheckedStability;
+/// fn forge(mut proof:CheckedStability) {proof.parameter=todo!();}
+/// ```
+#[derive(Debug,Clone)]
+pub struct CheckedStability {witness:StabilityWitness,parameter:Id<crate::domain::calls::SignatureParameter>,root:Id<PlaceRoot>,context:Id<crate::domain::attribution::AnalysisContext>,_entry_allowance:std::sync::Arc<charged::StateCharge>}
+impl CheckedStability {pub fn witness(&self)->&StabilityWitness{&self.witness} pub(crate) fn root(&self)->Id<PlaceRoot>{self.root}}
+impl StabilityWitness {
+    pub fn derive(data:&EntryData,atom:Id<EvaluationAtom>,entry:&DerivedEntryValue)->Result<CheckedStability,ObligationKind> {
+        let guard=data.atoms.get(atom).ok_or(ObligationKind::MissingEvidence)?;
+        let predicate=data.predicates.get(guard.predicate).ok_or(ObligationKind::MissingEvidence)?;
+        let basis=StabilityBasis::ParameterOnlyReaching;if !basis.eligible(predicate){return Err(ObligationKind::ConditionTransferUnsupported);}
+        let ParameterEntity::Source{declaration}=data.formals.get(entry.witness().formal).ok_or(ObligationKind::MissingEvidence)? else{return Err(ObligationKind::EntryValueUnknown)};
+        let root=PlaceRoot::Formal{declaration:*declaration};let place=Place{root:root.id(),path:AccessPath::empty().id()};
+        let read=data.occurrences.get(entry.witness().access).ok_or(ObligationKind::MissingEvidence)?;let evaluation=data.occurrences.get(guard.evaluation).ok_or(ObligationKind::MissingEvidence)?;
+        if guard.context!=entry.witness().context || guard.operand!=Some(place.id()) || read.source!=evaluation.source || !read.structural_path.starts_with(&evaluation.structural_path) || read.structural_path.len()<=evaluation.structural_path.len() || read.start<evaluation.start || read.end>evaluation.end{return Err(ObligationKind::EntryValueUnknown);}
+        Ok(CheckedStability{witness:Self{atom,entry:entry.witness().id(),basis},parameter:entry.parameter(),root:root.id(),context:guard.context,_entry_allowance:entry.allowance()})
+    }
+}
+/// A retained exact member of an independently replayed complete binding shape.
+/// ```compile_fail
+/// use lctx_model::domain::conditions::stability::CheckedGuardBinding;
+/// fn forge(mut proof:CheckedGuardBinding) {proof.binding=todo!();}
+/// ```
+#[derive(Debug,Clone)]
+pub struct CheckedGuardBinding {binding:Id<CallBinding>,source:BindingSource,event:Id<NormalizedCallEvent>,site:Id<crate::domain::source::Occurrence>,context:Id<crate::domain::attribution::AnalysisContext>,parameter:Id<crate::domain::calls::SignatureParameter>}
+impl CheckedGuardBinding {
+    pub fn derive(checked:&ValidatedBoundCall,row:&CallBinding,slot:&SignatureSlot,source:&BindingSource,projection:&BindingProjection,attempt:&CallBindingAttempt,event:&NormalizedCallEvent)->Result<Self,ObligationKind> {
+        let raw=checked.bound();let member=usize::try_from(row.ordinal).ok().and_then(|i|raw.bindings().get(i)).ok_or(ObligationKind::MissingEvidence)?;
+        if checked.attempt()!=row.attempt || checked.event()!=event.id() || checked.context()!=event.context || attempt.id()!=row.attempt || attempt.event!=event.id() || attempt.signature!=Some(raw.signature()) || event.site!=raw.site() || row.slot!=slot.id() || attempt.variant!=Some(slot.variant) || slot.parameter!=member.formal || row.source!=source.id() || row.kind!=member.kind || row.projection!=projection.id() || member.source!=*source || member.projection!=*projection{return Err(ObligationKind::MissingEvidence);}
+        if *projection!=BindingProjection::Whole{return Err(ObligationKind::ConditionTransferUnsupported);}
+        if !matches!(source,BindingSource::Actual{..}|BindingSource::ClassOf{..}) {return Err(if matches!(source,BindingSource::Default){ObligationKind::DefaultStabilityUnknown}else{ObligationKind::ConditionTransferUnsupported});}
+        Ok(Self{binding:row.id(),source:source.clone(),event:event.id(),site:event.site,context:event.context,parameter:member.formal})
+    }
+    pub fn binding(&self)->Id<CallBinding>{self.binding}
+    pub fn event(&self)->Id<NormalizedCallEvent>{self.event}
+    pub(crate) fn root(&self)->PlaceRoot {match self.source{BindingSource::Actual{occurrence}=>PlaceRoot::Occurrence{occurrence},BindingSource::ClassOf{actual}=>PlaceRoot::ClassOf{actual},_=>unreachable!("checked whole actual source")}}
+    pub(crate) fn agrees(&self,proof:&CheckedStability,site:Id<crate::domain::source::Occurrence>,context:Id<crate::domain::attribution::AnalysisContext>)->bool {self.parameter==proof.parameter && self.site==site && self.context==context && proof.context==context}
+    pub(crate) fn source(&self)->Id<BindingSource>{self.source.id()}
+}
+#[derive(Debug,Clone,PartialEq,Eq,Domain)]
+#[model(name="guard_substitutions",rule="witnessed_guard_substitution",conclusion=atom,invariants=guard_substitution_invariants)]
 pub struct GuardSubstitution {
-    #[model(key)]
-    pub atom: Id<EvaluationAtom>,
-    #[model(key, premise)]
-    pub witness: Id<StabilityWitness>,
-    #[model(key, premise)]
-    pub argument: Id<CallArgument>,
+    #[model(key)] pub atom:Id<EvaluationAtom>,
+    #[model(key,premise)] pub witness:Id<StabilityWitness>,
+    #[model(key,premise)] pub binding:Id<CallBinding>,
+    #[model(key)] pub source:Id<BindingSource>,
+    #[model(key)] pub event:Id<NormalizedCallEvent>,
+    #[model(key)] pub source_atom:Id<EvaluationAtom>,
+    #[model(key)] pub actual_place:Id<Place>,
+    #[model(key)] pub qualification:Id<AssertionQualification>,
 }
-/// Guards whose truth depends only on the tested value's identity with `None` or a literal.
-pub fn substitutable(predicate: &Predicate) -> bool {
-    matches!(predicate, Predicate::IsNone | Predicate::IsValue { .. })
+pub fn stability_invariants()->Vec<Invariant> {
+    let mut inputs=EntryData::validation_inputs();inputs.extend([ValidationInput::of::<EntryValueWitness>(&["id"]),ValidationInput::of::<StabilityWitness>(&["id"])]);
+    vec![Invariant{name:"entry_guard_stability_replay",inputs,create:std::sync::Arc::new(|budget|Box::new(EntryStabilityCheck{data:EntryData::new(budget),entries:Rows::new(budget),witnesses:Rows::new(budget),budget:budget.clone()}))}]
 }
-fn invalid(message: &str) -> ModelError {
-    ModelError::Invalid(message.into())
+struct EntryStabilityCheck {data:EntryData,entries:Rows<EntryValueWitness>,witnesses:Rows<StabilityWitness>,budget:resources::ResourceBudget}
+fn check_stability(data:&EntryData,entries:&Rows<EntryValueWitness>,witnesses:&Rows<StabilityWitness>,budget:&resources::ResourceBudget)->Result<(),ModelError>{
+    for row in witnesses.iter(){let stored=entries.get(row.entry).ok_or_else(||invalid("stability entry absent"))?;let entry=EntryValueWitness::derive(data,stored.request(),budget)?.map_err(|_|invalid("stability entry refused"))?;if entry.witness()!=stored{return Err(invalid("stored entry witness differs from replay"));}let proof=StabilityWitness::derive(data,row.atom,&entry).map_err(|_|invalid("stability predicate or access refused"))?;if proof.witness()!=row{return Err(invalid("stored stability witness differs from replay"));}}Ok(())
 }
-
-fn stability_invariants() -> Vec<Invariant> {
-    let mut inputs = ScopeIndex::inputs();
-    inputs.extend([
-        ValidationInput::of::<Occurrence>(&["id"]),
-        ValidationInput::of::<AssertionQualification>(&["id"]),
-        ValidationInput::of::<Predicate>(&["id"]),
-        ValidationInput::of::<PlaceRoot>(&["id"]),
-        ValidationInput::of::<AccessPath>(&["id"]),
-        ValidationInput::of::<Place>(&["id"]),
-        ValidationInput::of::<EvaluationAtom>(&["id"]),
-        ValidationInput::of::<FlowUse>(&["id"]),
-        ValidationInput::of::<FlowDefinition>(&["id"]),
-        ValidationInput::of::<ReachingDefinition>(&["id"]),
-        ValidationInput::of::<FlowDefinitionObservation>(&["id"]),
-        ValidationInput::of::<FlowReachingObservation>(&["id"]),
-        ValidationInput::of::<ProviderCoverage>(&["id"]),
-        ValidationInput::of::<CallSyntax>(&["id"]),
-        ValidationInput::of::<CallArgument>(&["id"]),
-        ValidationInput::of::<StabilityWitness>(&["id"]),
-        ValidationInput::of::<GuardSubstitution>(&["id"]),
-    ]);
-    vec![Invariant {
-        name: "witnessed_guard_substitution",
-        inputs,
-        create: std::sync::Arc::new(|budget| {
-            Box::new(StabilityCheck {
-                charge: StateCharge::new(budget, "witnessed_guard_substitution"),
-                scopes: ScopeIndex::new(budget, "witnessed_guard_substitution"),
-                ..Default::default()
-            })
-        }),
-    }]
+impl InvariantCheck for EntryStabilityCheck {
+    fn visit(&mut self,name:&str,batch:&arrow_array::RecordBatch)->Result<(),ModelError>{if self.data.visit(name,batch)?{Ok(())}else if name==EntryValueWitness::NAME{self.entries.decode(batch)}else if name==StabilityWitness::NAME{self.witnesses.decode(batch)}else{Err(invalid("undeclared entry stability input"))}}
+    fn finish(self:Box<Self>)->Result<(),ModelError>{check_stability(&self.data,&self.entries,&self.witnesses,&self.budget)}
 }
-#[derive(Default)]
-struct StabilityCheck {
-    charge: StateCharge,
-    scopes: ScopeIndex,
-    occurrences: ChargedMap<Id<Occurrence>, Occurrence>,
-    contexts:
-        ChargedMap<Id<AssertionQualification>, Id<super::super::attribution::AnalysisContext>>,
-    predicates: ChargedMap<Id<Predicate>, Predicate>,
-    roots: ChargedMap<Id<PlaceRoot>, PlaceRoot>,
-    empty_paths: ChargedSet<Id<AccessPath>>,
-    places: ChargedMap<Id<Place>, Place>,
-    atoms: ChargedMap<Id<EvaluationAtom>, EvaluationAtom>,
-    uses: ChargedMap<Id<FlowUse>, FlowUse>,
-    definitions: ChargedMap<Id<FlowDefinition>, FlowDefinition>,
-    targets: ChargedMap<Id<ReachingDefinition>, ReachingDefinition>,
-    definition_observations: ChargedMap<Id<FlowDefinitionObservation>, FlowDefinitionObservation>,
-    reaching: ChargedMap<Id<FlowReachingObservation>, FlowReachingObservation>,
-    /// Reaching observations per (use, analysis context).
-    reaching_count: ChargedMap<(Id<FlowUse>, Id<super::super::attribution::AnalysisContext>), i64>,
-    coverage: ChargedMap<Id<ProviderCoverage>, ProviderCoverage>,
-    calls: ChargedMap<Id<CallSyntax>, Id<Occurrence>>,
-    arguments: ChargedMap<Id<CallArgument>, CallArgument>,
-    witnesses: ChargedMap<Id<StabilityWitness>, Id<EvaluationAtom>>,
-    substituted: ChargedSet<Id<EvaluationAtom>>,
+pub fn guard_substitution_invariants()->Vec<Invariant> {
+    let mut inputs=EntryData::validation_inputs();inputs.extend(BindingData::validation_inputs());inputs.extend(BindingOutput::validation_inputs());inputs.extend([ValidationInput::of::<EntryValueWitness>(&["id"]),ValidationInput::of::<StabilityWitness>(&["id"]),ValidationInput::of::<GuardSubstitution>(&["id"]),ValidationInput::of::<crate::domain::transfer::summary::ControlInfluence>(&["id"])]);
+    inputs.sort_by_key(|i|(i.name(),i.prefix().map(|p|p.code())));inputs.dedup_by_key(|i|(i.name(),i.prefix().map(|p|p.code())));
+    vec![Invariant{name:"guard_substitution_replay",inputs,create:std::sync::Arc::new(|budget|Box::new(StabilityCheck{entry:EntryData::new(budget),bindings:BindingData::new(budget),bound:BindingOutput::new(budget),entries:Rows::new(budget),witnesses:Rows::new(budget),substitutions:Rows::new(budget),influences:Rows::new(budget),budget:budget.clone()}))}]
 }
-impl StabilityCheck {
-    fn get<'a, K: Ord, V>(
-        map: &'a ChargedMap<K, V>,
-        key: &K,
-        what: &str,
-    ) -> Result<&'a V, ModelError> {
-        map.get(key).ok_or_else(|| invalid(what))
-    }
-    fn inside(&self, child: Id<Occurrence>, parent: Id<Occurrence>) -> Result<bool, ModelError> {
-        let (child, parent) = (
-            Self::get(&self.occurrences, &child, "witness occurrence absent")?,
-            Self::get(&self.occurrences, &parent, "witness occurrence absent")?,
-        );
-        Ok(child.source == parent.source
-            && child.structural_path.len() > parent.structural_path.len()
-            && child.structural_path.starts_with(&parent.structural_path))
-    }
-    /// The atom's operand, as (root, empty path?).
-    fn operand(&self, atom: &EvaluationAtom) -> Result<(Id<Place>, &PlaceRoot, bool), ModelError> {
-        let place_id = atom
-            .operand
-            .ok_or_else(|| invalid("witnessed guard has no operand"))?;
-        let place = Self::get(&self.places, &place_id, "witness place absent")?;
-        Ok((
-            place_id,
-            Self::get(&self.roots, &place.root, "witness place root absent")?,
-            self.empty_paths.contains(&place.path),
-        ))
-    }
-    fn witness(&self, row: &StabilityWitness) -> Result<(), ModelError> {
-        let atom = Self::get(&self.atoms, &row.atom, "witnessed atom absent")?;
-        if !substitutable(Self::get(
-            &self.predicates,
-            &atom.predicate,
-            "witnessed predicate absent",
-        )?) {
-            return Err(invalid("guard predicate is not substitutable"));
-        }
-        let (place, root, empty) = self.operand(atom)?;
-        let PlaceRoot::Formal { declaration } = root else {
-            return Err(invalid("witnessed operand is not a formal"));
-        };
-        if !empty {
-            return Err(invalid("witnessed operand must be the whole formal"));
-        }
-        let reaching = Self::get(
-            &self.reaching,
-            &row.reaching,
-            "witness reaching observation absent",
-        )?;
-        if reaching.loop_carried
-            || Self::get(
-                &self.contexts,
-                &reaching.qualification,
-                "reaching qualification absent",
-            )? != &atom.context
-        {
-            return Err(invalid(
-                "witness reaching is loop-carried or in another context",
-            ));
-        }
-        let read = Self::get(&self.uses, &reaching.use_, "witness use absent")?;
-        if read.place != place || !self.inside(read.occurrence, atom.evaluation)? {
-            return Err(invalid(
-                "witness read is not the guard's read of its formal",
-            ));
-        }
-        if self.reaching_count.get(&(reaching.use_, atom.context)) != Some(&1) {
-            return Err(invalid(
-                "the formal read has more than one reaching definition",
-            ));
-        }
-        let ReachingDefinition::Bound { definition } = Self::get(
-            &self.targets,
-            &reaching.target,
-            "witness reaching target absent",
-        )?
-        else {
-            return Err(invalid(
-                "witness reaching target is unbound or from a nested scope",
-            ));
-        };
-        let observed = Self::get(
-            &self.definition_observations,
-            &row.definition,
-            "witness definition observation absent",
-        )?;
-        let reached = Self::get(&self.definitions, definition, "witness definition absent")?;
-        if observed.definition != *definition
-            || observed.kind != BindingEventKind::Parameter
-            || reached.occurrence != *declaration
-            || reached.place != place
-        {
-            return Err(invalid(
-                "the reaching definition is not the formal's parameter definition",
-            ));
-        }
-        let coverage = Self::get(&self.coverage, &row.coverage, "witness coverage absent")?;
-        let source = Self::get(&self.occurrences, &read.occurrence, "witness read absent")?.source;
-        if coverage.family != FactFamily::Flow
-            || coverage.status != CoverageStatus::CompleteUnderStatedModel
-            || coverage.context != atom.context
-            || !self
-                .scopes
-                .within(source, self.scopes.scope(coverage.scope)?)?
-        {
-            return Err(invalid("witness needs complete flow coverage of the read"));
-        }
-        Ok(())
-    }
-    fn substitution(&self, row: &GuardSubstitution) -> Result<(), ModelError> {
-        let bound = Self::get(&self.atoms, &row.atom, "substituted atom absent")?;
-        let witnessed = Self::get(&self.witnesses, &row.witness, "substitution witness absent")?;
-        let Predicate::BoundGuard { source } = Self::get(
-            &self.predicates,
-            &bound.predicate,
-            "substituted predicate absent",
-        )?
-        else {
-            return Err(invalid("a substitution names a bound guard"));
-        };
-        if source != witnessed
-            || Self::get(&self.atoms, source, "bound guard source absent")?.context != bound.context
-        {
-            return Err(invalid(
-                "bound guard and witness name different guards or contexts",
-            ));
-        }
-        let argument = Self::get(
-            &self.arguments,
-            &row.argument,
-            "substituted argument absent",
-        )?;
-        let site = Self::get(&self.calls, &argument.call, "substituted call absent")?;
-        let (_, root, empty) = self.operand(bound)?;
-        if bound.evaluation != *site
-            || !empty
-            || *root
-                != (PlaceRoot::Occurrence {
-                    occurrence: argument.value,
-                })
-        {
-            return Err(invalid(
-                "bound guard must test the argument's value at its call",
-            ));
-        }
-        Ok(())
-    }
-}
+struct StabilityCheck {entry:EntryData,bindings:BindingData,bound:BindingOutput,entries:Rows<EntryValueWitness>,witnesses:Rows<StabilityWitness>,substitutions:Rows<GuardSubstitution>,influences:Rows<crate::domain::transfer::summary::ControlInfluence>,budget:resources::ResourceBudget}
+fn invalid(message:&str)->ModelError{ModelError::Invalid(message.into())}
 impl InvariantCheck for StabilityCheck {
-    fn visit(
-        &mut self,
-        relation: &str,
-        batch: &arrow_array::RecordBatch,
-    ) -> Result<(), ModelError> {
-        if self.scopes.visit(relation, batch)? {
-            return Ok(());
-        }
-        let c = &mut self.charge;
-        if relation == Occurrence::NAME {
-            for r in Occurrence::decode(batch)? {
-                self.occurrences.insert(c, r.id(), r)?;
-            }
-        } else if relation == AssertionQualification::NAME {
-            for r in AssertionQualification::decode(batch)? {
-                self.contexts.insert(c, r.id(), r.context)?;
-            }
-        } else if relation == Predicate::NAME {
-            for r in Predicate::decode(batch)? {
-                self.predicates.insert(c, r.id(), r)?;
-            }
-        } else if relation == PlaceRoot::NAME {
-            for r in PlaceRoot::decode(batch)? {
-                self.roots.insert(c, r.id(), r)?;
-            }
-        } else if relation == AccessPath::NAME {
-            for r in AccessPath::decode(batch)? {
-                if r.first.is_none() && !r.unknown_suffix {
-                    self.empty_paths.insert(c, r.id())?;
-                }
-            }
-        } else if relation == Place::NAME {
-            for r in Place::decode(batch)? {
-                self.places.insert(c, r.id(), r)?;
-            }
-        } else if relation == EvaluationAtom::NAME {
-            for r in EvaluationAtom::decode(batch)? {
-                self.atoms.insert(c, r.id(), r)?;
-            }
-        } else if relation == FlowUse::NAME {
-            for r in FlowUse::decode(batch)? {
-                self.uses.insert(c, r.id(), r)?;
-            }
-        } else if relation == FlowDefinition::NAME {
-            for r in FlowDefinition::decode(batch)? {
-                self.definitions.insert(c, r.id(), r)?;
-            }
-        } else if relation == ReachingDefinition::NAME {
-            for r in ReachingDefinition::decode(batch)? {
-                self.targets.insert(c, r.id(), r)?;
-            }
-        } else if relation == FlowDefinitionObservation::NAME {
-            for r in FlowDefinitionObservation::decode(batch)? {
-                self.definition_observations.insert(c, r.id(), r)?;
-            }
-        } else if relation == FlowReachingObservation::NAME {
-            for r in FlowReachingObservation::decode(batch)? {
-                let context = *self
-                    .contexts
-                    .get(&r.qualification)
-                    .ok_or_else(|| invalid("reaching qualification absent"))?;
-                self.reaching_count
-                    .update(c, (r.use_, context), |count| *count += 1)?;
-                self.reaching.insert(c, r.id(), r)?;
-            }
-        } else if relation == ProviderCoverage::NAME {
-            for r in ProviderCoverage::decode(batch)? {
-                self.coverage.insert(c, r.id(), r)?;
-            }
-        } else if relation == CallSyntax::NAME {
-            for r in CallSyntax::decode(batch)? {
-                self.calls.insert(c, r.id(), r.site)?;
-            }
-        } else if relation == CallArgument::NAME {
-            for r in CallArgument::decode(batch)? {
-                self.arguments.insert(c, r.id(), r)?;
-            }
-        } else if relation == StabilityWitness::NAME {
-            for r in StabilityWitness::decode(batch)? {
-                self.witness(&r)?;
-                self.witnesses.insert(&mut self.charge, r.id(), r.atom)?;
-            }
-        } else if relation == GuardSubstitution::NAME {
-            for r in GuardSubstitution::decode(batch)? {
-                self.substitution(&r)?;
-                self.substituted.insert(&mut self.charge, r.atom)?;
-            }
-        } else {
-            return Err(invalid("undeclared guard substitution input"));
-        }
-        Ok(())
+    fn visit(&mut self,name:&str,batch:&arrow_array::RecordBatch)->Result<(),ModelError>{
+        let mut found=self.entry.visit(name,batch)?;if !stages::is_vocabulary(name){found|=self.bindings.visit(name,batch)?;}found|=self.bound.visit(name,batch)?;
+        macro_rules! rows {($field:ident,$ty:ty)=>{if name==<$ty>::NAME{self.$field.decode(batch)?;found=true;}};}
+        rows!(entries,EntryValueWitness);rows!(witnesses,StabilityWitness);rows!(substitutions,GuardSubstitution);rows!(influences,crate::domain::transfer::summary::ControlInfluence);
+        if found{Ok(())}else{Err(invalid("undeclared stability input"))}
     }
-    fn finish(self: Box<Self>) -> Result<(), ModelError> {
-        for atom in self.atoms.values() {
-            if matches!(
-                self.predicates.get(&atom.predicate),
-                Some(Predicate::BoundGuard { .. })
-            ) && !self.substituted.contains(&atom.id())
-            {
-                return Err(invalid("a bound guard needs a witnessed substitution"));
-            }
+    fn visit_input(&mut self,input:&ValidationInput,batch:&arrow_array::RecordBatch)->Result<(),ModelError>{
+        match input.prefix(){
+            Some(stages::PublicationBoundary::Facts)=>{if self.bindings.visit(input.name(),batch)?{Ok(())}else{Err(invalid("undeclared Facts binding input"))}},
+            Some(_)=>Err(invalid("guard binding replay requires Facts vocabulary")),
+            None=>self.visit(input.name(),batch),
         }
+    }
+    fn finish(self:Box<Self>)->Result<(),ModelError>{
+        check_stability(&self.entry,&self.entries,&self.witnesses,&self.budget)?;
+        let verified=if self.substitutions.is_empty(){None}else{Some(crate::domain::normalized::binding_normalization::verify(&self.bindings,&self.bound,&self.budget)?)};
+        for row in self.substitutions.iter(){
+            let witness=self.witnesses.get(row.witness).ok_or_else(||invalid("substitution witness absent"))?;let stored=self.entries.get(witness.entry).ok_or_else(||invalid("stability entry absent"))?;let entry=EntryValueWitness::derive(&self.entry,stored.request(),&self.budget)?.map_err(|_|invalid("stability entry refused"))?;let stability=StabilityWitness::derive(&self.entry,witness.atom,&entry).map_err(|_|invalid("stability refused"))?;
+            let binding=self.bound.bindings.get(row.binding).ok_or_else(||invalid("substitution binding absent"))?;let attempt=self.bound.attempts.get(binding.attempt).ok_or_else(||invalid("substitution attempt absent"))?;let checked=verified.as_ref().and_then(|v|v.bound(binding.attempt)).ok_or_else(||invalid("substitution binding is not replayed"))?;
+            let slot=self.bindings.callable_slots.get(binding.slot).ok_or_else(||invalid("binding slot absent"))?;let source=self.bound.sources.get(binding.source).ok_or_else(||invalid("binding source absent"))?;let projection=self.bound.projections.get(binding.projection).ok_or_else(||invalid("binding projection absent"))?;let event=self.bindings.event_events.get(attempt.event).ok_or_else(||invalid("binding event absent"))?;
+            let binding=CheckedGuardBinding::derive(checked,binding,slot,source,projection,attempt,event).map_err(|_|invalid("guard binding refused"))?;
+            let atom=self.entry.atoms.get(row.atom).ok_or_else(||invalid("substitution atom absent"))?;let predicate=self.entry.predicates.get(atom.predicate).ok_or_else(||invalid("substitution predicate absent"))?;let place=Place{root:binding.root().id(),path:AccessPath::empty().id()};
+            if !binding.agrees(&stability,atom.evaluation,atom.context) || row.event!=binding.event() || row.source!=binding.source() || row.source_atom!=witness.atom || atom.operand!=Some(place.id()) || row.actual_place!=place.id() || *predicate!= (Predicate::BoundGuard{source:witness.atom}) || self.entry.places.get(place.id())!=Some(&place) || self.entry.roots.get(place.root)!=Some(&binding.root()){return Err(invalid("guard substitution differs from replay"));}
+            if !self.influences.iter().any(|i|i.atom==atom.id() && i.input==place.id() && i.evaluation==event.site && i.qualification==row.qualification && self.entry.qualifications.get(i.qualification).is_some_and(|q|q.context==event.context)){return Err(invalid("guard substitution needs qualified actual-place influence"));}
+        }
+        for atom in self.entry.atoms.iter(){if matches!(self.entry.predicates.get(atom.predicate),Some(Predicate::BoundGuard{..})) && !self.substitutions.iter().any(|s|s.atom==atom.id()){return Err(invalid("a bound guard needs a witnessed substitution"));}}
         Ok(())
     }
 }

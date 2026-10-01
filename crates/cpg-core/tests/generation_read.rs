@@ -13,7 +13,7 @@ use datafusion::{
 use datafusion_table_providers_postgres::{bounded::ChunkLimits, pool::PoolHealth};
 use futures::StreamExt;
 use lctx_model::domain::{
-    artifact::*, attribution::*, input::*, source::*, stages::*, transfer::TransferKey, *,
+    artifact::*, attribution::*, input::*, source::*, stages::*, transfer::local::TransferKey, *,
 };
 use lctx_postgres::generations::{
     CleanupOutcome, Error as StoreError, GenerationCatalog, GenerationId, GenerationStore,

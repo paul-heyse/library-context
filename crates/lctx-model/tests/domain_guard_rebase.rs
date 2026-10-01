@@ -37,7 +37,7 @@ fn call_site_rebasing_preserves_truth_tables_and_nested_guard_origins() {
             places: &places,
             roots: &roots,
         },
-    )
+     &lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap())
     .unwrap();
     assert_ne!(second.atoms[0].id(), f.diagram.support()[0]);
     for value in [false, true] {
@@ -67,7 +67,7 @@ fn call_site_rebasing_preserves_truth_tables_and_nested_guard_origins() {
             places: &places,
             roots: &roots,
         },
-    )
+     &lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap())
     .unwrap();
     assert_ne!(
         nested.atoms[0].id(),
@@ -114,7 +114,7 @@ fn local_rebasing_refuses_formal_operands_forged_records_and_missing_origins() {
             places: &places,
             roots: &roots,
         },
-    );
+     &lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap());
     assert!(matches!(
         result,
         Err(ObligationKind::ConditionTransferUnsupported)
@@ -131,7 +131,7 @@ fn local_rebasing_refuses_formal_operands_forged_records_and_missing_origins() {
                 places: &places,
                 roots: &roots
             }
-        )
+        , &lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap())
         .is_err()
     );
     let mut missing = Fixture::new(false);
@@ -210,7 +210,7 @@ fn bounded_nested_guards_refuse_without_erasing_a_condition() {
                 places: &places,
                 roots: &roots,
             },
-        )
+         &lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap())
         .unwrap();
         assert!(!rebased.condition.is_true());
         condition = rebased.condition;
@@ -232,7 +232,7 @@ fn bounded_nested_guards_refuse_without_erasing_a_condition() {
                 places: &places,
                 roots: &roots
             }
-        ),
+        , &lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap()),
         Err(ObligationKind::SummaryDepthLimit)
     ));
     let implicit = Occurrence {
@@ -252,7 +252,7 @@ fn bounded_nested_guards_refuse_without_erasing_a_condition() {
                 places: &places,
                 roots: &roots
             }
-        )
+        , &lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap())
         .is_ok()
     );
 }

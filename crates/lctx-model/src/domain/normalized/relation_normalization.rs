@@ -774,6 +774,8 @@ fn places(data: &RelationData, output: &mut RelationOutput) -> Result<(), ModelE
                 }
                 .id(),
             ),
+            // A runtime class value is not the identity of its source expression.
+            PlaceRoot::ClassOf { .. } => None,
         };
         if let Some(id) = entity {
             need(&data.entities.refs, id)?;

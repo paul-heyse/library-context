@@ -1,7 +1,7 @@
 //! The attempt-owned lifecycle against a disposable real PostgreSQL 18 (cutover plan P1.7, T10;
 //! review focus #4; P0 exit F02 and F07). Every control states its answer before it runs.
 use lctx_model::domain::{
-    admission::*, attribution::*, input::*, stages::*, transfer::TransferKey, *,
+    admission::*, attribution::*, input::*, stages::*, transfer::local::TransferKey, *,
 };
 use lctx_postgres::generations::{CleanupOutcome, Error, GenerationStore};
 use lctx_postgres::testing::DisposableDatabase;

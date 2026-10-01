@@ -101,6 +101,8 @@ pub enum ObligationKind {
     AttachmentAmbiguous = 52,
     /// A provider event matched no occurrence exactly: none, or only a containing one.
     AttachmentUnmatched = 53,
+    /// A composed output refers to a captured cell without an admitted state mapping.
+    CapturedStateUnavailable = 54,
 }
 
 /// The class of an obligation, which orders it before its code.
@@ -165,7 +167,8 @@ impl ObligationKind {
             | K::ActionTriggerUnavailable
             | K::ResourceIdentityUnavailable
             | K::FrameExitCleanup
-            | K::Approximation => C::Model,
+            | K::Approximation
+            | K::CapturedStateUnavailable => C::Model,
             K::MissingEvidence
             | K::SyntaxError
             | K::UndecodableSource

@@ -5,7 +5,7 @@ mod analysis_fixture;
 mod stored_analysis;
 use lctx_model::domain::{
     artifact::*, assertion::*, attribution::*, calls::*, conditions::*, input::*, source::*,
-    transfer::*, value::*, *,
+    transfer::{*,local::*}, normalized::entities::EntityRef, value::*, *,
 };
 use lctx_postgres::generations::{Error, GenerationStore};
 use lctx_postgres::testing::DisposableDatabase;
@@ -17,7 +17,7 @@ async fn transfer_control_selection_survive_postgres_and_cross_scope_call_site_r
     let db = DisposableDatabase::start().await;
     let writer = db.writer.clone();
     let reader = db.reader.clone();
-    let model = Arc::new(stored_analysis::model());
+    let model = Arc::new(transfer_model());
     let store = GenerationStore::install(db.owner.clone(), model.clone())
         .await
         .unwrap();
@@ -87,6 +87,8 @@ async fn transfer_control_selection_survive_postgres_and_cross_scope_call_site_r
         name: "f".into(),
         kind: SymbolKind::Function,
     };
+    let source_module=Module {source:source.id(),qualified_name:"x".into()};
+    let entity=EntityRef::Module {module:source_module.id()};
     let occurrences: Vec<_> = (0..3)
         .map(|i| Occurrence {
             source: source.id(),
@@ -155,14 +157,32 @@ async fn transfer_control_selection_survive_postgres_and_cross_scope_call_site_r
         let influence_evidence = Evidence::Occurrence {
             occurrence: atom.evaluation,
         };
-        let foundation = analysis_fixture::SupportFixture::new(input.id(), run.id(), surface.id(), evidence.id(), &qualification, &diagram, occurrences[0].id(), places[0].id());
-        let control_foundation = analysis_fixture::SupportFixture::new(input.id(), run.id(), surface.id(), influence_evidence.id(), &qualification, &diagram, atom.evaluation, influence.input);
+        let foundation = analysis_fixture::SupportFixture::new(
+            input.id(),
+            run.id(),
+            surface.id(),
+            evidence.id(),
+            &qualification,
+            &diagram,
+            occurrences[0].id(),
+            places[0].id(),
+        );
+        let control_foundation = analysis_fixture::SupportFixture::new(
+            input.id(),
+            run.id(),
+            surface.id(),
+            influence_evidence.id(),
+            &qualification,
+            &diagram,
+            atom.evaluation,
+            influence.input,
+        );
         let control_support = ControlSupport {
             assertion: influence.id(),
             source: control_foundation.derived.id(),
         };
         let key = TransferKey {
-            owner: symbol.id(),
+            owner: entity.id(),
             input: places[0].id(),
             output: places[2].id(),
             context: context.id(),
@@ -178,7 +198,7 @@ async fn transfer_control_selection_survive_postgres_and_cross_scope_call_site_r
             provenance: ProvenanceClass::FlowLocal,
         };
         let branch =
-            TransferBranch::new(key.clone(), qualification.clone(), diagram.clone()).unwrap();
+            TransferBranch::new(key.clone(), qualification.clone(), diagram.clone(), &budget()).unwrap();
         let alternative = branch.alternative();
         let selection = branch
             .selection(&influence, &qualification)
@@ -197,7 +217,8 @@ async fn transfer_control_selection_survive_postgres_and_cross_scope_call_site_r
         .await
         .unwrap();
         let g = g_h.generation();
-        let mut native_inventory = lctx_model::domain::analysis::native::NativeInventory::new(&budget());
+        let mut native_inventory =
+            lctx_model::domain::analysis::native::NativeInventory::new(&budget());
         macro_rules! copy { ($($row:expr),+ $(,)?) => { $(stored_analysis::copy(&g_h, &model, vec![$row.clone()], &mut native_inventory, &budget()).await.unwrap();)+ }; }
         copy!(
             input,
@@ -211,6 +232,8 @@ async fn transfer_control_selection_survive_postgres_and_cross_scope_call_site_r
             run,
             surface,
             module,
+            source_module,
+            entity,
             symbol,
             path,
             predicate,
@@ -230,16 +253,45 @@ async fn transfer_control_selection_survive_postgres_and_cross_scope_call_site_r
             other_place
         );
         macro_rules! copies { ($($rows:expr),+ $(,)?) => { $(stored_analysis::copy(&g_h, &model, $rows.clone(), &mut native_inventory, &budget()).await.unwrap();)+ }; }
-        copy!(foundation.parameters, foundation.definition, foundation.invocation);
+        copy!(
+            foundation.parameters,
+            foundation.definition,
+            foundation.invocation
+        );
         copies!(
             vec![foundation.use_.clone(), control_foundation.use_.clone()],
-            vec![foundation.observation.clone(), control_foundation.observation.clone()],
-            vec![foundation.support.clone(), control_foundation.support.clone()],
-            vec![foundation.subject.clone(), control_foundation.subject.clone()],
-            vec![foundation.proposition.clone(), control_foundation.proposition.clone()],
-            vec![foundation.derivation.clone(), control_foundation.derivation.clone()],
-            vec![foundation.native.clone(), foundation.derived.clone(), control_foundation.native.clone(), control_foundation.derived.clone()],
-            foundation.members.iter().chain(&control_foundation.members).cloned().collect::<Vec<_>>()
+            vec![
+                foundation.observation.clone(),
+                control_foundation.observation.clone()
+            ],
+            vec![
+                foundation.support.clone(),
+                control_foundation.support.clone()
+            ],
+            vec![
+                foundation.subject.clone(),
+                control_foundation.subject.clone()
+            ],
+            vec![
+                foundation.proposition.clone(),
+                control_foundation.proposition.clone()
+            ],
+            vec![
+                foundation.derivation.clone(),
+                control_foundation.derivation.clone()
+            ],
+            vec![
+                foundation.native.clone(),
+                foundation.derived.clone(),
+                control_foundation.native.clone(),
+                control_foundation.derived.clone()
+            ],
+            foundation
+                .members
+                .iter()
+                .chain(&control_foundation.members)
+                .cloned()
+                .collect::<Vec<_>>()
         );
         copies!(families, occurrences, roots, places, nodes);
         g_h.copy(
@@ -264,7 +316,9 @@ async fn transfer_control_selection_survive_postgres_and_cross_scope_call_site_r
         )
         .await
         .unwrap();
-        stored_analysis::finish(&g_h, &model, native_inventory, &budget()).await.unwrap();
+        stored_analysis::finish(&g_h, &model, native_inventory, &budget())
+            .await
+            .unwrap();
         g_h.seal().await.unwrap();
         if boundary != 0 {
             let error = g_h.validate(&budget()).await.unwrap_err();
@@ -342,4 +396,10 @@ fn budget() -> lctx_model::domain::resources::ResourceBudget {
         lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
     )
     .unwrap()
+}
+
+/// This conformance control owns only Local transfer/control contracts, not later composition or
+/// entry replay. Keep its nominal declaration closure independent of future publication owners.
+fn transfer_model()->ValidatedModel {
+ let mut relations=facts_relations();relations.extend(analysis::early_relations());relations.extend(analysis::dispatch::relations());relations.extend(analysis::local::relations());relations.extend(transfer::local::relations());relations.extend([Relation::of::<ControlInfluence>(),Relation::of::<ControlSupport>(),Relation::of::<Selection>()]);relations.extend(normalized::coverage::relations());relations.extend([Relation::of::<normalized::entities::CallableEntity>(),Relation::of::<normalized::entities::ClassEntity>(),Relation::of::<normalized::entities::ParameterEntity>(),Relation::of::<normalized::entities::FieldEntity>(),Relation::of::<EntityRef>()]);ValidatedModel::validate(relations).unwrap()
 }
