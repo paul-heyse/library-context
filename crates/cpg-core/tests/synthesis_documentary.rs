@@ -318,19 +318,30 @@ async fn documentary_preparation_preserves_native_literal_spans_and_candidates()
                     )
                     .await.map_err(|e| ModelError::Invalid(format!("documentary setup inputs: {e}")))?;
                     let mut mapped = 0;
+                    let mut python_fences = 0;
+                    let mut mdx_boundaries = 0;
                     for block in blocks.iter() {
                         let context = data
                             .qualifications
                             .get(block.qualification)
                             .unwrap()
                             .context;
-                        let mapping =
-                            synthesis::source_code::admit_fence(&data, block, context, budget)?
-                                .map_err(|reason| {
-                                    ModelError::Invalid(format!(
-                                        "actual simple fence refused: {reason:?}"
-                                    ))
-                                })?;
+                        let admitted = synthesis::source_code::admit_fence(&data, block, context, budget)?;
+                        let mapping = match block.language.as_deref() {
+                            Some("python") => {
+                                python_fences += 1;
+                                assert!(block.materialized.is_some(), "fixture Python fence must be natively materialized");
+                                admitted.map_err(|reason| ModelError::Invalid(format!("actual simple Python fence refused: {reason:?}")))?
+                            }
+                            Some("mdx") => {
+                                assert!(block.materialized.is_none() && block.module_path.is_none(), "authored MDX code is not Python materialization");
+                                assert!(matches!(admitted, Err(synthesis::source_code::MappingBoundary::MissingMaterialization)), "unmaterialized MDX fence retains its exact mapping boundary");
+                                assert!(block.code.contains("<Warning>Fenced caution") && block.code.contains("<ParamField body=\"timeout\">Fenced parameter"));
+                                mdx_boundaries += 1;
+                                continue;
+                            }
+                            language => return Err(ModelError::Invalid(format!("unexpected documentary fixture fence: {language:?}"))),
+                        };
                         assert_eq!(mapping.block(), block.id());
                         assert_eq!(mapping.materialized(), block.materialized.unwrap());
                         for occurrence in data.occurrences.iter().filter(|o| {
@@ -376,6 +387,12 @@ async fn documentary_preparation_preserves_native_literal_spans_and_candidates()
                             ));
                             setup.imports = imports;
                             let original = mapping.occurrence(&data, occurrence, budget)?;
+                            let statement = "connection = connect()";
+                            let authored = include_str!("../../../fixtures/python/synthesis_sources/guide.mdx");
+                            let start = authored.find(statement).unwrap() as i64;
+                            assert_eq!((original.start, original.end), (start, start + statement.len() as i64), "materialized assignment retains exact original byte coordinates");
+                            assert_eq!(&block.code[occurrence.start as usize..occurrence.end as usize], statement);
+                            assert_eq!(&authored[original.start as usize..original.end as usize], statement);
                             assert!(
                                 data.artifacts
                                     .get(original.artifact)
@@ -397,6 +414,8 @@ async fn documentary_preparation_preserves_native_literal_spans_and_candidates()
                             mapped += 1;
                         }
                     }
+                    assert_eq!(python_fences, 1, "the supported native fence is independently exercised");
+                    assert_eq!(mdx_boundaries, 1, "the unsupported MDX fence is independently exercised");
                     assert!(
                         mapped > 0,
                         "actual native Python statements map to original document spans"
