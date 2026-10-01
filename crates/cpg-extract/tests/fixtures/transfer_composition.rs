@@ -6,18 +6,19 @@ use lctx_model::domain::{calls::*,normalized::{Rows,binding_normalization::*,bin
 use typed_driver::{files,rows};
 pub struct Facts(pub typed_driver::Tables);
 impl typed_driver::Inspector for Facts {fn tables(&self)->typed_driver::Tables {self.0.clone()}}
-pub struct NativeFixture {pub tables:typed_driver::Tables,pub data:BindingData,pub output:BindingOutput,pub verified:VerifiedBindings,pub budget:ResourceBudget}
+pub struct NativeFixture {pub fixture:&'static str,pub tables:typed_driver::Tables,pub data:BindingData,pub output:BindingOutput,pub verified:VerifiedBindings,pub budget:ResourceBudget}
 impl NativeFixture {
  pub fn rows<R:Record>(&self)->Vec<R> {rows::<R>(&self.tables)}
- pub fn attempts_at(&self,text:&str)->Vec<&CallBindingAttempt> {self.output.attempts.iter().filter(|attempt| {let event=self.data.event_events.get(attempt.event).unwrap();let o=self.data.occurrences.get(event.site).unwrap();let source=self.data.artifacts.get(o.source).unwrap();files("transfer_composition")[&source.path.to_string()][o.start as usize..o.end as usize]==*text.as_bytes()}).collect()}
+ pub fn attempts_at(&self,text:&str)->Vec<&CallBindingAttempt> {self.output.attempts.iter().filter(|attempt| {let event=self.data.event_events.get(attempt.event).unwrap();let o=self.data.occurrences.get(event.site).unwrap();let source=self.data.artifacts.get(o.source).unwrap();files(self.fixture)[&source.path.to_string()][o.start as usize..o.end as usize]==*text.as_bytes()}).collect()}
  pub fn attempt(&self,text:&str)->Id<CallBindingAttempt> {self.output.attempts.iter().find(|attempt| {
  let event=self.data.event_events.get(attempt.event).unwrap();let occurrence=self.data.occurrences.get(event.site).unwrap();let artifact=self.data.artifacts.get(occurrence.source).unwrap();
- let content=files("transfer_composition");content.get(&artifact.path).is_some_and(|bytes|bytes[occurrence.start as usize..occurrence.end as usize]==*text.as_bytes()) && self.verified.composition(attempt.id()).is_some()
- }).unwrap_or_else(|| {for a in self.output.attempts.iter() {let e=self.data.event_events.get(a.event).unwrap();let o=self.data.occurrences.get(e.site).unwrap();let source=self.data.artifacts.get(o.source).unwrap();if files("transfer_composition")[&source.path.to_string()][o.start as usize..o.end as usize]==*text.as_bytes() {eprintln!("unadmitted: {a:?}");}}panic!("no replayed composition admission for {text}")}).id()}
+ let content=files(self.fixture);content.get(&artifact.path).is_some_and(|bytes|bytes[occurrence.start as usize..occurrence.end as usize]==*text.as_bytes()) && self.verified.composition(attempt.id()).is_some()
+ }).unwrap_or_else(|| {for a in self.output.attempts.iter() {let e=self.data.event_events.get(a.event).unwrap();let o=self.data.occurrences.get(e.site).unwrap();let source=self.data.artifacts.get(o.source).unwrap();if files(self.fixture)[&source.path.to_string()][o.start as usize..o.end as usize]==*text.as_bytes() {eprintln!("unadmitted: {a:?}");}}panic!("no replayed composition admission for {text}")}).id()}
 }
-pub async fn native() -> NativeFixture {
+pub async fn native() -> NativeFixture {native_from("transfer_composition").await}
+pub async fn native_from(fixture: &'static str) -> NativeFixture {
     let tables = typed_driver::Tables::default();
-    typed_driver::run_behavioral(&files("transfer_composition"), Facts(tables.clone()))
+    typed_driver::run_behavioral(&files(fixture), Facts(tables.clone()))
         .await
         .unwrap();
     let budget = ResourceBudget::fixed(256 << 20).unwrap();
@@ -40,7 +41,7 @@ pub async fn native() -> NativeFixture {
     rebuild_events(&mut data, &budget);
     let output = normalize(&data, &budget).unwrap();
     let verified=verify(&data,&output,&budget).unwrap();
-    NativeFixture {tables,data,output,verified,budget}
+    NativeFixture {fixture,tables,data,output,verified,budget}
 }
 fn rebuild_events(data: &mut BindingData, budget: &ResourceBudget) {
     let mut receivers=lctx_model::domain::normalized::receiver::ReceiverData::new(budget);

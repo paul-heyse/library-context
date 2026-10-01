@@ -28,6 +28,7 @@ pub enum AnalysisMethod {
     CatalogEvidence = 20,
     CatalogSelection = 21,
     SourceCalls = 22,
+    EnrichedExecution = 23,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
 #[repr(i16)]

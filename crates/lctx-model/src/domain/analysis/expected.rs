@@ -57,7 +57,7 @@ pub(crate) fn contract(
             }],
             true,
         ),
-(AnalysisMethod::SourceCalls, AnalysisCapability::Execution) => (&[ScopeContract {grain:Artifact(PythonSource),native:&[FactFamily::Syntax,FactFamily::Signatures,FactFamily::Lexical,FactFamily::Flow],normalized:&[Capability::Symbols,Capability::Callables,Capability::Calls,Capability::Bindings,Capability::FlowEvents]}],true),
+(AnalysisMethod::SourceCalls,AnalysisCapability::Execution) | (AnalysisMethod::EnrichedExecution,AnalysisCapability::Execution) => (&[ScopeContract {grain:Artifact(PythonSource),native:&[FactFamily::Syntax,FactFamily::Signatures,FactFamily::Lexical,FactFamily::Flow],normalized:&[Capability::Symbols,Capability::Callables,Capability::Calls,Capability::Bindings,Capability::FlowEvents]}],true),
         (AnalysisMethod::Delegation, AnalysisCapability::Delegation) => (
             &[ScopeContract {grain:Artifact(PythonSource),native:&[],normalized:&[Capability::Symbols,Capability::PublicExposure,Capability::Callables]},ScopeContract {grain:Input,native:&[],normalized:&[Capability::InvocationProjection,Capability::DefinitionProjection]}],false,
         ),
@@ -174,7 +174,7 @@ pub(crate) fn method_contract(method: AnalysisMethod) -> Result<Contract, ModelE
     let capability = match method {
         AnalysisMethod::LocalTransfers => AnalysisCapability::Transfers,
         AnalysisMethod::Execution => AnalysisCapability::Execution,
-AnalysisMethod::SourceCalls=>AnalysisCapability::Execution,
+AnalysisMethod::SourceCalls | AnalysisMethod::EnrichedExecution=>AnalysisCapability::Execution,
         AnalysisMethod::Completion => AnalysisCapability::Completion,
         AnalysisMethod::Catalog => AnalysisCapability::Catalog,
         AnalysisMethod::Delegation => AnalysisCapability::Delegation,

@@ -48,9 +48,9 @@ pub struct ExpressionRequest {
 pub enum ReleaseSafety { Closed=0, CallerRetained=1, Unknown=2 }
 
 #[derive(Debug,Clone,Copy)]
-enum Value { None, Bool(bool), Int(i64), Float(f64), Literal, Tuple{nonempty:bool,retained:bool}, Retained }
+enum Value { None, Bool(bool), Int(i64), Float(f64), Literal, Tuple{nonempty:bool,retained:bool}, Retained, OpaqueClosed }
 impl Value {
-    fn truth(self)->Option<bool> {match self {Self::None=>Some(false),Self::Bool(b)=>Some(b),Self::Int(i)=>Some(i!=0),Self::Float(f)=>Some(f!=0.0),Self::Tuple{nonempty,..}=>Some(nonempty),Self::Literal|Self::Retained=>None}}
+    fn truth(self)->Option<bool> {match self {Self::None=>Some(false),Self::Bool(b)=>Some(b),Self::Int(i)=>Some(i!=0),Self::Float(f)=>Some(f!=0.0),Self::Tuple{nonempty,..}=>Some(nonempty),Self::Literal|Self::Retained|Self::OpaqueClosed=>None}}
     fn number(self)->Option<Self> {match self {Self::Bool(b)=>Some(Self::Int(i64::from(b))),Self::Int(_)|Self::Float(_)=>Some(self),_=>None}}
     fn release(self)->ReleaseSafety {if matches!(self,Self::Retained|Self::Tuple{retained:true,..}){ReleaseSafety::CallerRetained}else{ReleaseSafety::Closed}}
 }
@@ -59,6 +59,7 @@ impl Value {
 /// and exact ordered evidence; consumers cannot declare arbitrary operands normal.
 pub struct CheckedEvaluation {
     request:ExpressionRequest, value:Value, release:ReleaseSafety,
+    call_source:Option<Id<super::source_call_records::SourceInvocation>>, exception:Option<(Id<Occurrence>,super::ExactRuntimeException)>,
     native:Vec<Id<NativeAssertionPremise>>, operands:Vec<Id<Occurrence>>,
     entries:Vec<Id<conditions::entry::EntryValueWitness>>, _entry_charges:Vec<std::sync::Arc<charged::StateCharge>>,
     qualification:Id<AssertionQualification>, status:analysis::policy::EvidenceStatus,
@@ -73,6 +74,8 @@ impl CheckedEvaluation {
     pub fn entry_premises(&self)->&[Id<conditions::entry::EntryValueWitness>] {&self.entries}
     pub fn qualification(&self)->Id<AssertionQualification> {self.qualification}
     pub fn status(&self)->analysis::policy::EvidenceStatus {self.status}
+    pub(crate) fn call_source(&self)->Option<Id<super::source_call_records::SourceInvocation>>{self.call_source}
+    pub(crate) fn exception(&self)->Option<(Id<Occurrence>,super::ExactRuntimeException)>{self.exception}
 }
 
 pub const EXPRESSION_DEPTH_LIMIT:usize=64;
@@ -300,9 +303,24 @@ fn evaluate_prepared(prepared:&PreparedExecution<'_>,request:ExpressionRequest,e
         Ok(value)=>{
             let placement=data.placements.get(*prepared.index.placements.get(&request.expression).expect("evaluated placement")).expect("indexed placement");
             let status=evaluator.status;
-            Ok(Ok(CheckedEvaluation {request,value,release:value.release(),qualification:placement.qualification,status,native:evaluator.native,operands:evaluator.operands,entries:evaluator.entries,_entry_charges:evaluator.entry_charges,_charge:evaluator.charge}))
+            Ok(Ok(CheckedEvaluation {request,value,release:value.release(),call_source:None,exception:None,qualification:placement.qualification,status,native:evaluator.native,operands:evaluator.operands,entries:evaluator.entries,_entry_charges:evaluator.entry_charges,_charge:evaluator.charge}))
         },
         Err(EvaluationError::Boundary(reason))=>Ok(Err(reason)),
         Err(EvaluationError::Model(error))=>Err(error),
     }
+}
+
+/// Only the actual SourceCall replay callback invokes this lowering. A normal callee outcome
+/// proves completion of the call under entry; it gives no truth, returned shape or caller reach.
+pub(crate) fn source_call_evaluation(data:&EvaluationData,request:ExpressionRequest,proof:&super::source_invocation::CheckedSourceInvocation,source:Id<super::source_call_records::SourceInvocation>,budget:&ResourceBudget)->Result<Result<CheckedEvaluation,ObligationKind>,ModelError>{
+ with_completion_syntax(data,request,budget,|syntax|{
+  syntax.observe(request.expression)?;
+  if data.occurrences.get(request.expression).is_none_or(|row|row.syntax_kind!=SyntaxKind::ExprCall){return Err(boundary(ObligationKind::MissingEvidence));}
+  let qualification=syntax.qualification(request.expression).map_err(boundary)?;
+  if data.qualifications.get(qualification)!=data.qualifications.get(proof.qualification()){return Err(boundary(ObligationKind::IncompatibleContexts));}
+  let exception=match proof.outcome(){super::source_invocation::InvocationOutcome::Normal=>None,super::source_invocation::InvocationOutcome::Raised{site,exception}=>Some((site,exception))};
+  let status=analysis::support::inferred_status(analysis::Interpretation::Structural,[syntax.status(),proof.status()]);
+  let(native,charge)=syntax.take_admission();
+  Ok(CheckedEvaluation{request,value:Value::OpaqueClosed,release:ReleaseSafety::Closed,call_source:Some(source),exception,native,operands:Vec::new(),entries:Vec::new(),_entry_charges:Vec::new(),qualification,status,_charge:charge})
+ })
 }

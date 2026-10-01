@@ -61,6 +61,7 @@ pub(crate) fn ordered_digest<R:Record>(name:&str,rows:impl IntoIterator<Item=Id<
 impl CheckedEvaluation {
     pub fn emit_base(&self,invocation:&AnalysisInvocation,definition:&AnalysisDefinition,budget:&ResourceBudget)->Result<BaseEvaluationRecords,ModelError> {
         let request=self.request();
+        if self.call_source().is_some() {return Err(ModelError::Invalid("base emission refuses enriched call proof".into()));}
         if invocation.input!=request.input || invocation.context!=request.context || invocation.subject.is_some_and(|owner|owner!=request.owner) || invocation.definition!=definition.id() || *definition!=super::configuration::base_evaluation().1 {return Err(ModelError::Invalid("base evaluation invocation changes admitted frame or method".into()));}
         let source_count=self.native_premises().len().checked_add(self.entry_premises().len()).ok_or_else(||ModelError::Invalid("base evaluation source count overflow".into()))?;
         let allowance=source_count.checked_mul(size_of::<EvaluationSource>()+size_of::<EvaluationMember>()).and_then(|n|n.checked_add(self.evaluated_operands().len().checked_mul(size_of::<EvaluationOperand>())?)).and_then(|n|n.checked_mul(2)).and_then(|n|n.checked_add(size_of::<BaseEvaluationRecords>())).ok_or_else(||ModelError::Invalid("base evaluation output allowance overflow".into()))?;
@@ -74,17 +75,18 @@ impl CheckedEvaluation {
     }
 }
 
-#[derive(Debug,Clone,Copy)]
+#[derive(Debug,Clone,Copy,PartialEq,Eq)]
 pub(crate) struct EvaluationFacts {
-    request:ExpressionRequest, qualification:Id<AssertionQualification>, boolean_value:Option<bool>, release:ReleaseSafety, status:EvidenceStatus, sources:ContentHash, operands:ContentHash,
+    request:ExpressionRequest, qualification:Id<AssertionQualification>, boolean_value:Option<bool>, release:ReleaseSafety, status:EvidenceStatus, sources:ContentHash, operands:ContentHash, call:Option<Id<super::source_call_records::SourceInvocation>>,
 }
 impl EvaluationFacts {
     pub(crate) fn of(checked:&CheckedEvaluation)->Self {
         let sources=checked.native_premises().iter().map(|id|EvaluationSource::Native{premise:*id}.id()).chain(checked.entry_premises().iter().map(|id|EvaluationSource::Entry{witness:*id}.id()));
-        Self {request:checked.request(),qualification:checked.qualification(),boolean_value:checked.truth(),release:checked.release(),status:checked.status(),sources:ordered_digest("base-evaluation-sources",sources),operands:ordered_digest("base-evaluation-operands",checked.evaluated_operands().iter().copied())}
+        Self {call:checked.call_source(),request:checked.request(),qualification:checked.qualification(),boolean_value:checked.truth(),release:checked.release(),status:checked.status(),sources:ordered_digest("base-evaluation-sources",sources),operands:ordered_digest("base-evaluation-operands",checked.evaluated_operands().iter().copied())}
     }
+    pub(crate) fn is_base(&self)->bool{self.call.is_none()}
     pub(crate) fn matches(&self,row:&ExpressionEvaluation,invocation:&AnalysisInvocation)->bool {
-        invocation.input==self.request.input && invocation.context==self.request.context && invocation.subject.is_none_or(|owner|owner==self.request.owner) && row.invocation==invocation.id() && row.expression==self.request.expression && row.owner==self.request.owner && row.qualification==self.qualification && row.boolean_value==self.boolean_value && row.release==self.release && row.status==self.status && row.sources==self.sources && row.operands==self.operands
+        self.call.is_none() && invocation.input==self.request.input && invocation.context==self.request.context && invocation.subject.is_none_or(|owner|owner==self.request.owner) && row.invocation==invocation.id() && row.expression==self.request.expression && row.owner==self.request.owner && row.qualification==self.qualification && row.boolean_value==self.boolean_value && row.release==self.release && row.status==self.status && row.sources==self.sources && row.operands==self.operands
     }
 }
 

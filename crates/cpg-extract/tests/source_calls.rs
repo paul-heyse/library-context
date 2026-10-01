@@ -1,5 +1,7 @@
 #[path="fixtures/transfer_composition.rs"]
 mod fixture;
+#[path="fixtures/source_execution.rs"]
+mod source_fixture;
 use lctx_model::domain::{*,execution::{source_call::*,evaluation::EvaluationData},conditions::entry::EntryData,analysis::native::NativeInventory,source::*,obligation::ObligationKind};
 #[tokio::test]
 async fn fresh_binding_is_independent_of_body_and_exact_to_admitted_event(){
@@ -52,4 +54,34 @@ async fn fresh_binding_is_independent_of_body_and_exact_to_admitted_event(){
   put!(execution::source_call_records::SourceCallRun,vec![run]);put!(execution::source_call_records::SourceCallHeader,headers);put!(execution::source_call_records::HeaderMember,members);let result=check.finish();assert_eq!(result.is_ok(),mutation==0,"mutation={mutation}: {result:?}");
  }
 
+}
+
+#[tokio::test]
+async fn retained_source_shapes_preserve_invocation_and_frame_boundaries(){
+ let f=fixture::native_from("source_body_shapes").await;let mut data=source_fixture::data(&f);
+ let input=f.rows::<input::InputRevision>()[0].id();let context=f.data.event_events.iter().next().unwrap().context;
+ let base=source_fixture::base(&mut data,input,context,&f.budget);
+ let(_,definition)=execution::configuration::source_calls();let parent=analysis::source_call::InvocationSource::BaseCompletion{invocation:base.id()};let(invocation,_)=analysis::source_call::AnalysisInvocation::new(input,context,definition.id(),None,[parent.id()]);
+ let records=execution::source_call_records::prepare_all(&data,&invocation,&definition,stages::Profile::Behavioral,&f.budget).unwrap();
+ let name=|owner:Id<normalized::entities::EntityRef>|{let normalized::entities::EntityRef::Callable{callable}=data.bindings.refs.get(owner).unwrap()else{panic!("source caller")};let normalized::entities::CallableEntity::Source{declaration,..}=data.bindings.callables.get(*callable).unwrap()else{panic!("source caller")};let name=data.bindings.declarations.iter().find(|row|row.declaration==*declaration).unwrap().name;data.evaluation.spellings.iter().find(|row|row.occurrence==name).unwrap().spelling.clone()};
+ for caller in ["call_literal","call_fallthrough","call_return_finally"]{
+  let headers=records.headers.iter().filter(|row|name(row.owner)==caller).collect::<Vec<_>>();assert_eq!(headers.len(),1,"{caller}: fresh header");
+  let release=records.releases.iter().find(|row|row.header==headers[0].id()).unwrap_or_else(||panic!("{caller}: frame unavailable"));let call=records.invocations.iter().find(|row|row.release==release.id()).unwrap();assert_eq!(records.call_outcomes.get(call.outcome),Some(&execution::source_call_records::SourceCallOutcome::Normal),"{caller}");
+ }
+ let raised=records.headers.iter().find(|row|name(row.owner)=="call_raises").unwrap();let release=records.releases.iter().find(|row|row.header==raised.id()).unwrap();let call=records.invocations.iter().find(|row|row.release==release.id()).unwrap();assert!(matches!(records.call_outcomes.get(call.outcome),Some(execution::source_call_records::SourceCallOutcome::Raised{exception:execution::ExactRuntimeException::TypeError,..})));
+ for caller in ["call_local_read","call_default","call_captured","call_intervening","call_alias","call_failed_header","call_unknown_body","call_generator","call_unreachable_yield"]{
+  assert!(!records.invocations.iter().any(|row|records.call_outcomes.get(row.outcome)==Some(&execution::source_call_records::SourceCallOutcome::Normal)&&records.releases.get(row.release).and_then(|release|records.headers.get(release.header)).is_some_and(|header|name(header.owner)==caller)),"{caller}: fabricated normal invocation");
+ }
+ let(_,replayed)=execution::enriched::with_frame(&data,&invocation,&definition,&f.budget,|frame|{
+  for caller in ["call_literal","call_fallthrough","call_return_finally","call_raises"]{
+   let header=records.headers.iter().find(|row|name(row.owner)==caller).unwrap();let event=data.bindings.event_events.get(header.event).unwrap();
+   let mut current=event.site;let statement=loop{let placement=data.evaluation.placements.iter().find(|row|row.occurrence==current).unwrap();if data.evaluation.occurrences.get(current).unwrap().syntax_kind==source::SyntaxKind::StmtExpr{break current;}current=placement.parent.unwrap();};
+   let result=frame.complete(execution::completion::CompletionRequest{input,context,owner:header.owner,statement})?.unwrap();
+   if caller=="call_raises"{assert!(matches!(result.outcome(),execution::outcome::PendingOutcome::Raise{exception:execution::ExactRuntimeException::TypeError,..}));}else{assert_eq!(result.outcome(),execution::outcome::PendingOutcome::Normal);}
+   assert!(result.emit_base(&base,&execution::configuration::base_completion().1,&[],&f.budget).is_err(),"enriched evidence laundered into Base");
+  }
+  Ok(())
+ }).unwrap();assert!(records.invocations.same(&replayed.invocations));
+ // Authored call_modeled needs the earlier applicability operation, separate from source-only
+ // invocation. Caller reach and Summary witnesses are qualified by downstream controls.
 }
