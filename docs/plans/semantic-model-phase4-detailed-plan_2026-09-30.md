@@ -217,6 +217,8 @@ For a class method accessed on an object, a derived receiver assessment supplies
 Add a typed binding-source/value representation anchored to that actual expression. It is not
 identity from the instance and does not prove a concrete runtime class. Raw Receiver::Unknown
 evidence is preserved. A concrete class-dependent conclusion requires its own class evidence.
+The existing qualified SyntaxPlacement facts retain Attribute.value; derive the exact source
+receiver from those stored premises rather than creating a duplicate raw receiver fact.
 
 P3's normalized-only route receives these corrected semantics after the preparatory packages pass.
 Update the projection/version contracts and rebuild on the next full collection. Facts-only
@@ -908,6 +910,8 @@ D0 adopts ADR-0105/0106 and preserves the independently reviewed target and §11
 The implementation baseline is clean main `24e86d5`; production sources and dependency manifests
 were unchanged from the inspected design baseline at execution start. R0 is implemented with focused
 pure, real-store and source-bound provider controls; enclosing foundation acceptance remains pending.
+ADR-0108's additional close boundaries require separating named publication identity from the
+schedule's contiguous physical prefix ordinal; that bounded R0 integration refinement is in progress.
 R1 is in progress in an isolated worktree. Its finite-metric
 lowering was integrated as `a44e3f8`; analysis invocation/support/coverage contracts remain under
 implementation. Focused foundation advice exposed a shared ordinary-result writer cycle; ADR-0108
@@ -942,7 +946,8 @@ rule and cross-consumer vector-winner invariant were also clarified during assem
 | Finite metric independent implementation review | no material findings against isolated commit `882f86a`, whose patch is integrated as `a44e3f8`; this is a bounded review, not R1 acceptance |
 | Preparatory G0 graph controls | passed in the isolated graph checkout with `python3 scripts/build_environment.py -- cargo --config 'build.build-dir="/home/paul/.cache/library-context-phase4-graph/build"'`: `build --release -p lctx-model`; `test --release -p lctx-model --doc with_native_graph` (one positive and two compile-fail controls); `test --release -p lctx-model --lib native_borrow` (1); `test --release -p lctx-analytics --lib native_schedule` (3). Includes hydrated native topology, parallel arcs, isolates, canonical SCC ordering and reservation ownership. The public-entrypoint control initially lacked its test-owned scope, corrected before the passing rerun. An earlier shared-worktree build loaded divergent macro artifacts; isolated build directories resolved that collision without cleaning the shared cache. |
 | Preparatory G0 independent implementation review | no material findings on the six-file adapter/kernel slice; its identified direct-entrypoint coverage gap is covered by the added public scheduler control. N1 dispatch-induced topology and generation preparation lifetime remain pending. |
-| Preparatory N0 model controls | passed in the isolated authored-model checkout: `python3 scripts/build_environment.py -- cargo --config 'build.build-dir="/home/paul/.cache/library-context-phase4-models/build"' test --release -p lctx-model --lib domain::models` (11). Retained parser/channel/phase/identity controls, explicit pinned dependency and protocol/exception requirements, and shared stored-declaration refusal. This is not native model-context qualification or N0 completion. |
+| Preparatory N0 model controls | passed in the isolated authored-model checkout: `python3 scripts/build_environment.py -- cargo --config 'build.build-dir="/home/paul/.cache/library-context-phase4-models/build"' test --release -p lctx-model --lib domain::models` (12), and the same wrapped Cargo `test --release -p lctx-model --doc domain::models::Catalog` (one positive, two compile-fail). Retained parser/channel/phase/identity controls, complete typed path dependencies, immutable source/meaning binding, explicit pins and protocol/exception requirements, and shared stored-declaration refusal. This is not native model-context qualification or N0 completion. |
+| Preparatory N0 independent review | N0-F01 found mutable parsed meaning could retain old source identity; private validated catalog/entry fields and borrowed getters correct it. N0-F02 found omitted global/raised-class path requirements; shared typed traversal and independently enumerated missing-package requirements correct it. Both reinspected closed at Interface-checked strength against `bee3e19`; native resolution and retained runtime parser accounting remain pending. |
 | Integrated functional gate, actual-library pilots and performance experiments | not_run; full functional scope and X0 retirement are not complete; previously excluded measurements remain outside scope |
 | ADR index/lint, docs publication and other automatic hygiene | not_run by this agent; current repository instructions assign them to the end-of-turn hook; no future result is presumed |
 
