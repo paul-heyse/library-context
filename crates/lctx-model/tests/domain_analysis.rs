@@ -154,3 +154,46 @@ fn emitter_preserves_partial_coverage_and_refuses_statistical_control_and_forged
     let coverage=AnalysisCoverage {invocation:inv.id(),..coverage};
     assert!(findings::emit(inv.id(),F::Forwarding,native.subject.id(),&[],&coverage,&[native_evidence,statistical],&budget()).is_err());
 }
+#[test]
+fn stored_derivation_refuses_strengthening_and_a_native_support_for_another_assertion() {
+    let inv=invocation();let condition=Diagram::always();
+    let q=AssertionQualification {context:inv.context,scope:CoverageScope::Input {input:inv.input}.id(),condition:condition.id(),modality:Modality::Candidate,approximation:Approximation::Over};
+    let native=support_fixture::SupportFixture::new(inv.input,nominal(1),nominal(2),nominal(3),&q,&condition,nominal(4),nominal(5));
+    let rows=vec![frame(&[native.invocation.clone()]),frame(&[q.clone()]),frame(&[condition.records().0]),frame(&condition.records().1),frame(&[native.observation.clone()]),frame(&[native.support.clone()]),frame(&[native.premise.clone()]),frame(&[native.native.clone()]),frame(&[native.proposition.clone()]),frame(&[native.derivation.clone()]),frame(&native.members)];
+    invariant::<AnalysisDerivation>(rows.clone()).unwrap();
+    let stronger=AssertionQualification {modality:Modality::Definite,approximation:Approximation::Exact,..q.clone()};
+    let proposition=AnalysisProposition {qualification:stronger.id(),..native.proposition.clone()};
+    let derivation=AnalysisDerivation {qualification:stronger.id(),proposition:proposition.id(),..native.derivation.clone()};
+    let members=native.members.iter().cloned().map(|r|AnalysisDerivationPremise {derivation:derivation.id(),..r}).collect::<Vec<_>>();
+    let mut forged=rows.clone();
+    forged.iter_mut().find(|(name,_)|*name==AssertionQualification::NAME).unwrap().1=AssertionQualification::encode(&[q,stronger]).unwrap();
+    forged.iter_mut().find(|(name,_)|*name==AnalysisProposition::NAME).unwrap().1=AnalysisProposition::encode(&[proposition]).unwrap();
+    forged.iter_mut().find(|(name,_)|*name==AnalysisDerivation::NAME).unwrap().1=AnalysisDerivation::encode(&[derivation]).unwrap();
+    forged.iter_mut().find(|(name,_)|*name==AnalysisDerivationPremise::NAME).unwrap().1=AnalysisDerivationPremise::encode(&members).unwrap();
+    assert!(invariant::<AnalysisDerivation>(forged).unwrap_err().to_string().contains("strengthens"));
+    let wrong=flow::FlowValueSupport {assertion:nominal(99),..native.support};
+    let premise=NativeAssertionPremise::Value {assertion:native.observation.id(),support:wrong.id()};
+    let source=SupportSource::NativeAssertion {premise:premise.id()};
+    let mut mismatched=rows.into_iter().filter(|(name,_)|![AnalysisProposition::NAME,AnalysisDerivation::NAME,AnalysisDerivationPremise::NAME,flow::FlowValueSupport::NAME,NativeAssertionPremise::NAME,SupportSource::NAME].contains(name)).collect::<Vec<_>>();
+    mismatched.extend([frame(&[wrong]),frame(&[premise]),frame(&[source])]);
+    assert!(invariant::<AnalysisDerivation>(mismatched).unwrap_err().to_string().contains("another assertion"));
+}
+#[test]
+fn admitted_bdd_apply_refuses_before_allocation_and_reservation_follows_the_result() {
+    let left=Diagram::from_atom(nominal(1));let right=Diagram::from_atom(nominal(2));
+    let allowance=left.binary_allocation_allowance(&right).unwrap();
+    let refused=resources::ResourceBudget::fixed(allowance-1).unwrap();
+    assert!(matches!(left.admitted_binary(&right,BooleanOperation::Conjunction,&refused),Err(DiagramAdmissionError::Resource(_))));
+    assert_eq!(refused.reserved(),0);
+    let budget=resources::ResourceBudget::fixed(allowance).unwrap();
+    let result=left.admitted_binary(&right,BooleanOperation::Conjunction,&budget).unwrap();
+    assert_eq!(result.id(),left.and(&right).unwrap().id());
+    assert!(budget.peak().unwrap()>=allowance);
+    assert_eq!(budget.reserved(),result.reserved_bytes());
+    assert!(budget.reserved()>0);
+    let (diagram,reservation)=result.into_parts();
+    assert!(budget.reserved()>0);assert_eq!(diagram.id(),left.and(&right).unwrap().id());
+    drop(diagram);drop(reservation);assert_eq!(budget.reserved(),0);
+    let union=left.admitted_binary(&left.not().unwrap(),BooleanOperation::Disjunction,&budget).unwrap();
+    assert!(union.is_true());drop(union);assert_eq!(budget.reserved(),0);
+}

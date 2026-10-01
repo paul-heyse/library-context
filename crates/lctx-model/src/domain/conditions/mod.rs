@@ -13,7 +13,7 @@ use super::{
     value::{Place, Predicate},
 };
 use crate::{Domain, DomainSum};
-pub use kernel::{CondExpr, Diagram, FactorResult, KernelBoundary, RenderedCondition};
+pub use kernel::{AdmittedDiagram, BooleanOperation, CondExpr, Diagram, DiagramAdmissionError, FactorResult, KernelBoundary, RenderedCondition};
 
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name = "evaluation_atoms", invariants = rebase::guard_invariants)]
