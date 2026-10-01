@@ -46,7 +46,6 @@ _Updated 2026-10-01 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
   Source invocation/frame, full analytics/synthesis producers and upper-frontier assembly remain open.
 - New P4 acceptance is **not_run** pending implementation. Compile checks and focused controls
   precede scheduled review; integrated acceptance waits for all functional packages and retirement.
-
 ## Phase 3 implementation and qualification
 - **Implemented / focused-Tested:** R1–R3 and N1–N7/X in the
   [detailed execution plan](docs/plans/semantic-model-phase3-detailed-plan_2026-09-30.md).
