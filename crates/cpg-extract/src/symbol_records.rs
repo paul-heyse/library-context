@@ -176,6 +176,8 @@ pub struct SymbolRecords {
     pub sequences: Vec<(SymbolSequence, Vec<SymbolSequenceMember>)>,
     pub shapes: Vec<ParameterShape>,
     pub signatures: Vec<(Signature, Vec<SignatureParameter>)>,
+    pub enumerations: Vec<(SignatureEnumerationObservation, Vec<SignatureEnumerationMember>)>,
+    enumeration_charge: lctx_model::domain::charged::StateCharge,
     pub annotations: Vec<ParameterAnnotationObservation>,
     pub declarations: Vec<SymbolDeclaration>,
     pub parameter_declarations: Vec<ParameterDeclaration>,
@@ -262,9 +264,13 @@ pub fn records(
     origins: &HashMap<String, FunctionOrigin>,
     linking: Option<Linking<'_>>,
     keep: Option<&BTreeSet<String>>,
+    budget: &lctx_model::domain::resources::ResourceBudget,
 ) -> Result<SymbolRecords, ModelError> {
     let q = qualification.id();
-    let mut out = SymbolRecords::default();
+    let mut out = SymbolRecords {
+        enumeration_charge: lctx_model::domain::charged::StateCharge::new(budget, "native-signature-enumerations"),
+        ..Default::default()
+    };
     // Which definitions are stated: all, or the kept ones and every definition enclosing them.
     let mut parents: HashMap<String, Option<String>> = HashMap::new();
     for (id, class) in &definitions.class_definitions {
@@ -516,6 +522,13 @@ pub fn records(
         } else {
             None
         };
+        let enumeration_start = out.signatures.len();
+        let count = function.undecorated_signatures.len();
+        if count > MAX_SIGNATURE_VARIANTS {
+            return Err(invalid("native signature enumeration work limit".into()));
+        }
+        // Reserve new header/member storage before allocation; keep it through emission.
+        out.enumeration_charge.grow(512 + count * (2 * size_of::<SignatureEnumerationMember>() + 32))?;
         for (variant, signature) in function.undecorated_signatures.iter().enumerate() {
             let (form, formals) = formals(&signature.parameters);
             let shapes: Vec<ParameterShape> = formals.iter().map(|f| f.shape.clone()).collect();
@@ -591,6 +604,9 @@ pub fn records(
             out.shapes.extend(shapes);
             out.signatures.push((row, members));
         }
+        out.enumerations.push(SignatureEnumerationObservation::new(
+            qualification, symbol, out.signatures[enumeration_start..].iter().map(|(signature, _)| signature), true,
+        )?);
     }
     Ok(out)
 }

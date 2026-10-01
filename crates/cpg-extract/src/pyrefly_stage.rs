@@ -147,6 +147,9 @@ fn outputs() -> Vec<RelationUse> {
         Signature,
         SignatureSupport,
         SignatureParameter,
+        SignatureEnumerationObservation,
+        SignatureEnumerationMember,
+        SignatureEnumerationSupport,
         SymbolDeclaration,
         SymbolDeclarationSupport,
         ParameterDeclaration,
@@ -282,6 +285,9 @@ impl<S: StageSink + 'static> ProviderStage<S> for Pyrefly {
             Signature,
             SignatureSupport,
             SignatureParameter,
+        SignatureEnumerationObservation,
+        SignatureEnumerationMember,
+        SignatureEnumerationSupport,
             SymbolDeclaration,
             SymbolDeclarationSupport,
             ParameterDeclaration,
@@ -777,6 +783,7 @@ fn session<S: StageSink + 'static>(
                     None,
                     tap,
                     false,
+                    context.budget(),
                 )?;
                 unattached = write_symbols(
                     context,
@@ -1095,7 +1102,7 @@ fn session<S: StageSink + 'static>(
             for (module,handle) in dependencies {
                 visited.insert(module);
                 let (keys,names)=&keep[&module];
-                let records=definitions(&transaction,&handle,&input_qualification,&mut natives,None,Some((keys,names)),None,requirements.is_some())?;
+                let records=definitions(&transaction,&handle,&input_qualification,&mut natives,None,Some((keys,names)),None,requirements.is_some(),context.budget())?;
                 // A class's complete native MRO remains structural evidence. Retain every ancestor
                 // module's class declarations too, each module once in this same dependency pass.
                 if requirements.is_some() {
@@ -1220,6 +1227,7 @@ fn definitions(
     keep: Option<(&std::collections::BTreeSet<String>, &[String])>,
     tap: Option<&PysaTap>,
     expand_mro: bool,
+    budget: &lctx_model::domain::resources::ResourceBudget,
 ) -> Result<symbol_records::SymbolRecords, ModelError> {
     let module_name = handle.module().to_string();
     let module_name = module_name.as_str();
@@ -1338,6 +1346,7 @@ fn definitions(
         &origins,
         linking,
         kept.as_ref(),
+        budget,
     )
 }
 
@@ -1430,6 +1439,12 @@ fn write_symbols<S: StageSink + 'static>(
             invocation.id(),
             Fidelity::ReportProjection
         );
+        for member in members {
+            context.emit(member)?;
+        }
+    }
+    for (enumeration, members) in records.enumerations {
+        pysa!(SignatureEnumerationSupport, enumeration, invocation.id(), Fidelity::ReportProjection);
         for member in members {
             context.emit(member)?;
         }

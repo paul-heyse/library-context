@@ -5,6 +5,9 @@ use super::{assertion::*, attribution::*, source::*, *};
 use crate::{Assertion, Domain, DomainCode, DomainSum};
 use std::collections::{BTreeMap, BTreeSet};
 
+mod signature_enumeration;
+pub use signature_enumeration::*;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
 #[repr(i16)]
 /// Codes 6–8 are reserved legacy allocations. Current implicit callables use ProviderCallable.
