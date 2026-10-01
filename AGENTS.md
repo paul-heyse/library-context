@@ -19,8 +19,7 @@ the single relational store, and DataFusion as in-process compute (DESIGN §15).
 5. serving.
 
 Legacy code is removed at the ownership boundary; no compatibility adapters, legacy IDs or dual stores.
-Phases 0–2 reconstruct model/store/facts; downstream capabilities remain unavailable until phases 3–5. Product work (PR6, new features)
-pauses until phase 5. The pieces below describe the implemented pipeline until each layer cuts over.
+Phases 0–3 are implemented within their recorded qualification boundaries. Phase 4 typed analysis/catalog and cumulative compilation are implemented; qualification and legacy retirement are in progress. Phase 5 serving remains unavailable. Product work (PR6, new features) pauses until phase 5. STATUS and the current Phase 4 plan own acceptance, not an implementation label alone.
 
 The pieces:
 - **Extraction:** Pyrefly (a pinned, minimally patched fork) and Ruff 0.0.11 crates, both linked
@@ -30,7 +29,7 @@ The pieces:
   `--profile behavioral` explicitly requests the flow provider and retained behavioral enrichment.
 - **Facts:** the typed model (`lctx-model::domain`) is the contract and PostgreSQL generations
   store it (ADR-0086); `lctx-postgres` owns the generation store and the retained
-  cache/operation services. The Delta store was removed in cutover phase 1 (P1.3/P1.4). Facts publication is implemented through `lctx compile --through facts`; qualification
+  cache/operation services. The Delta store was removed in cutover phase 1 (P1.3/P1.4). Compilation is implemented through `lctx compile --through facts|normalized|analysis|catalog`, without selecting the generation; qualification
   receipts and remaining work are in the cutover plan.
 - **Behavior:** conditions are bounded BDDs over evaluation atoms (biodivine-lib-bdd), with
   pinned models and finite summaries composed over petgraph SCCs; five verdicts, never a null.
@@ -85,7 +84,7 @@ remain sealed until increment 5. Add ast-grep rules only from design-review find
 |---|---|
 | During a design/implementation phase | Compile checks (`cargo check`/`cargo build` on the touched crates) and targeted tests or probes for the scope just implemented. No integrated gate after a slice or commit. |
 | After all functional scope in the plan is implemented | `just test-all`: release-profile nextest, pytest (including the oracles), real PostgreSQL and compile-fail doc tests. Then `just hygiene`, every non-functional check, once; fix what fails and re-run a single check with `just <id>`. Qualification cites both passing for the same tree |
-| The real library, end to end | `lctx compile fastmcp --through facts --profile catalog|behavioral`; reports a facts generation without selecting it. Analysis and serving remain unavailable. |
+| The real library, end to end | `lctx compile fastmcp --through facts --profile catalog|behavioral`; reports a facts generation without selecting it. Upper-frontier fixture qualification is separate and in progress; serving remains unavailable. |
 | The store and its generations | `lctx store install\|check\|reset`, `lctx generation list\|show\|select\|retire\|abort`, `lctx query --generation <id> "SQL"` (read-only); runbook: `docs/postgresql.md` |
 | Add or upgrade a library | `lctx library init <name> --requirement '<req>'`; upgrade with `uv lock --project libraries/<name> --upgrade-package <dist>` (`libraries/README.md`) |
 | Dependency policy | `just deps`, a `hygiene` check: one version each of Arrow/DataFusion/object_store/ruff/pyrefly/blake3, cargo-deny, and the Pyrefly fork check (tag + patch, classified env reads) |
