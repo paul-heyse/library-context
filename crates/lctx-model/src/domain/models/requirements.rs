@@ -46,8 +46,8 @@ impl HeapSize for RequiredDefinition {
 /// An exact expected domain. Failed/mismatched resolutions remain required entries; consumers
 /// cannot derive this domain from the definitions that happened to be observed.
 pub struct ModelContextRequirements {
-    pub catalog: Id<ModelCatalog>,
-    pub catalog_digest: ContentHash,
+    catalog: Id<ModelCatalog>,
+    catalog_digest: ContentHash,
     entries: ChargedSet<RequiredDefinition>,
     _charge: StateCharge,
 }
@@ -60,9 +60,14 @@ impl ModelContextRequirements {
             let owner = RequiredBy::Model(model.declaration.id());
             add_target(&model.model.target, owner, false, &mut add)?;
             for rule in &model.model.rules {
-                for class in rule.context_classes() {
-                    add_class(class, owner, python, &mut add)?;
-                }
+                rule.visit_context_references(&mut |reference| match reference {
+                    ContextReference::Class(class) => add_class(class, owner, python, &mut add),
+                    ContextReference::Global { module, name } => add(RequiredDefinition {
+                        owner, pin: if module == "builtins" { RequirementPin::Python(python.into()) }
+                            else { RequirementPin::CapturedEnvironment },
+                        module: module.into(), qualified_name: name.into(), require_mro: false,
+                    }),
+                })?;
             }
         }
         for protocol in &catalog.context_protocols {
@@ -90,6 +95,8 @@ impl ModelContextRequirements {
             entries, _charge: charge })
     }
     pub fn entries(&self) -> impl Iterator<Item=&RequiredDefinition> { self.entries.iter() }
+    pub fn catalog(&self) -> Id<ModelCatalog> { self.catalog }
+    pub fn catalog_digest(&self) -> ContentHash { self.catalog_digest }
 }
 fn target_requirement(target: &Target, owner: RequiredBy, require_mro: bool) -> RequiredDefinition {
     let (pin, module, name) = match target {
@@ -120,6 +127,79 @@ fn add_class(class: &str, owner: RequiredBy, python: &str,
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn every_authored_reference_remains_required_without_resolution_evidence() {
+        let source = r#"
+version = 7
+[[models]]
+phase = "call"
+revision = 1
+target = { scope = "release", module = "pkg", callable = "run" }
+coverage = { transfers = "partial", effects = "partial", callbacks = "partial", resources = "partial", exceptions = "partial" }
+[[models.rules]]
+kind = "transfer"
+from = { kind = "global", module = "missingpkg", name = "source" }
+to = { kind = "global", module = "missingpkg", name = "target" }
+transfer = "identity"
+modality = "potential"
+[[models.rules]]
+kind = "transfer"
+from = { kind = "parameter", name = "value" }
+to = { kind = "raise", class = "missingpkg.Raised" }
+transfer = "transform"
+modality = "potential"
+[[models.rules]]
+kind = "effect"
+effect = { kind = "validate", schema = { kind = "runtime_value", source = { kind = "global", module = "missingpkg", name = "schema" } } }
+subject = { kind = "global", module = "missingpkg", name = "subject" }
+exit = "invocation"
+modality = "potential"
+[[models.rules]]
+kind = "effect"
+effect = { kind = "validate", schema = { kind = "static_class", class = "missingpkg.Schema" } }
+exit = "normal"
+modality = "potential"
+[[models.rules]]
+kind = "callback"
+callback = { kind = "global", module = "missingpkg", name = "callback" }
+action = "invoked"
+exit = "invocation"
+modality = "potential"
+[[models.rules]]
+kind = "resource"
+resource = { role = "input", path = { kind = "global", module = "missingpkg", name = "resource_in" } }
+action = "release"
+exit = "normal"
+modality = "potential"
+[[models.rules]]
+kind = "resource"
+resource = { role = "output", path = { kind = "global", module = "missingpkg", name = "resource_out" } }
+action = "acquire"
+exit = "normal"
+modality = "potential"
+[[models.rules]]
+kind = "exception"
+class = "missingpkg.OldError"
+to_class = "missingpkg.NewError"
+action = "convert"
+modality = "potential"
+"#;
+        let catalog = Catalog::parse("requirements.toml", source).unwrap();
+        let budget = ResourceBudget::fixed(1024 * 1024).unwrap();
+        let required = ModelContextRequirements::derive(&catalog, "3.14.7", &budget).unwrap();
+        let actual = required.entries().filter(|entry| entry.module == "missingpkg")
+            .map(|entry| {
+                assert_eq!(entry.pin, RequirementPin::CapturedEnvironment);
+                (entry.qualified_name.as_str(), entry.require_mro)
+            }).collect::<BTreeSet<_>>();
+        let expected = [("source",false),("target",false),("Raised",true),("schema",false),
+            ("subject",false),("Schema",true),("callback",false),("resource_in",false),
+            ("resource_out",false),("OldError",true),("NewError",true)].into_iter().collect();
+        assert_eq!(actual, expected);
+        // No observed definitions or resolver input participates in this expected domain.
+        assert_eq!(required.catalog(), catalog.declaration().id());
+        assert_eq!(required.catalog_digest(), catalog.digest());
+    }
     #[test]
     fn requests_include_pins_protocol_members_and_exact_exception_hierarchies() {
         let catalog = Catalog::committed().unwrap();

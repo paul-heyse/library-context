@@ -81,8 +81,12 @@ pub enum ContextExit {
 }
 
 pub struct CompiledContextProtocol {
-    pub declaration: AuthoredContextProtocol,
-    pub model: ContextProtocolModel,
+    declaration: AuthoredContextProtocol,
+    model: ContextProtocolModel,
+}
+impl CompiledContextProtocol {
+    pub fn declaration(&self) -> &AuthoredContextProtocol { &self.declaration }
+    pub fn model(&self) -> &ContextProtocolModel { &self.model }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -229,6 +233,14 @@ pub enum InputPath {
 
 impl InputPath {
 
+    pub fn visit_context_references<'a, E>(&'a self,
+        visit: &mut impl FnMut(ContextReference<'a>) -> Result<(), E>) -> Result<(), E> {
+        match self {
+            Self::Global { module, name } => visit(ContextReference::Global { module, name }),
+            Self::Parameter { .. } | Self::ReceiverField { .. } => Ok(()),
+        }
+    }
+
     pub fn formal(&self) -> Option<&str> {
         match self {
             Self::Parameter { name } => Some(name),
@@ -267,6 +279,15 @@ pub enum OutputPath {
 }
 
 impl OutputPath {
+
+    pub fn visit_context_references<'a, E>(&'a self,
+        visit: &mut impl FnMut(ContextReference<'a>) -> Result<(), E>) -> Result<(), E> {
+        match self {
+            Self::Global { module, name } => visit(ContextReference::Global { module, name }),
+            Self::Raise { class } => visit(ContextReference::Class(class)),
+            Self::ReturnValue | Self::Parameter { .. } | Self::ReceiverField { .. } => Ok(()),
+        }
+    }
 
     pub fn formal(&self) -> Option<&str> {
         match self {
@@ -334,24 +355,39 @@ pub enum Rule {
     },
 }
 
+/// Exact definition references in the authored language. A class also requires its ancestry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContextReference<'a> {
+    Global { module: &'a str, name: &'a str },
+    Class(&'a str),
+}
 impl Rule {
-    /// Context class identities needed by authored rules. Extraction and compilation consume
-    /// the same typed variants; no rendered effect/path string is interpreted.
-    pub fn context_classes(&self) -> Vec<&str> {
+    /// Traverse every typed reference-bearing path without interpreting rendered labels.
+    pub fn visit_context_references<'a, E>(&'a self,
+        visit: &mut impl FnMut(ContextReference<'a>) -> Result<(), E>) -> Result<(), E> {
         match self {
-            Self::Exception {
-                class, to_class, ..
-            } => std::iter::once(class.as_str())
-                .chain(to_class.as_deref())
-                .collect(),
-            Self::Effect {
-                effect:
-                    Effect::Validate {
-                        schema: ValidationSchema::StaticClass { class },
-                    },
-                ..
-            } => vec![class],
-            _ => Vec::new(),
+            Self::Transfer { from, to, .. } => {
+                from.visit_context_references(visit)?;
+                to.visit_context_references(visit)
+            }
+            Self::Effect { effect, subject, .. } => {
+                if let Some(subject) = subject { subject.visit_context_references(visit)?; }
+                match effect.schema() {
+                    Some(ValidationSchema::StaticClass { class }) => visit(ContextReference::Class(class)),
+                    Some(ValidationSchema::RuntimeValue { source }) => source.visit_context_references(visit),
+                    Some(ValidationSchema::Unresolved {}) | None => Ok(()),
+                }
+            }
+            Self::Callback { callback, .. } => callback.visit_context_references(visit),
+            Self::Resource { resource, .. } => match resource {
+                ResourcePath::Input { path } => path.visit_context_references(visit),
+                ResourcePath::Output { path } => path.visit_context_references(visit),
+            },
+            Self::Exception { class, to_class, .. } => {
+                visit(ContextReference::Class(class))?;
+                if let Some(class) = to_class { visit(ContextReference::Class(class))?; }
+                Ok(())
+            }
         }
     }
 
@@ -650,15 +686,42 @@ pub struct AuthoredContextProtocol {
     pub initialization: Id<AuthoredTarget>,
 }
 pub struct CompiledModel {
-    pub declaration: AuthoredModel,
-    pub model: Model,
+    declaration: AuthoredModel,
+    model: Model,
 }
+impl CompiledModel {
+    pub fn declaration(&self) -> &AuthoredModel { &self.declaration }
+    pub fn model(&self) -> &Model { &self.model }
+}
+/// Validated authored meaning and its source identity cannot be mutated independently.
+///
+/// ```
+/// use lctx_model::domain::models::Catalog;
+/// let catalog = Catalog::committed().unwrap();
+/// assert!(!catalog.models().is_empty());
+/// let mut detached = catalog.models()[0].model().clone();
+/// detached.rules.clear();
+/// assert!(!catalog.models()[0].model().rules.is_empty());
+/// ```
+/// ```compile_fail
+/// use lctx_model::domain::models::Catalog;
+/// let mut catalog = Catalog::committed().unwrap();
+/// catalog.models[0].model.rules.clear();
+/// ```
+/// ```compile_fail
+/// use lctx_model::domain::models::Catalog;
+/// let catalog = Catalog::committed().unwrap();
+/// catalog.models()[0].model().rules.clear();
+/// ```
 pub struct Catalog {
-    pub declaration: ModelCatalog,
-    pub models: Vec<CompiledModel>,
-    pub context_protocols: Vec<CompiledContextProtocol>,
+    declaration: ModelCatalog,
+    models: Vec<CompiledModel>,
+    context_protocols: Vec<CompiledContextProtocol>,
 }
 impl Catalog {
+    pub fn declaration(&self) -> &ModelCatalog { &self.declaration }
+    pub fn models(&self) -> &[CompiledModel] { &self.models }
+    pub fn context_protocols(&self) -> &[CompiledContextProtocol] { &self.context_protocols }
     pub fn parse(source_name: &str, source: &str) -> Result<Self, String> {
         if source_name.is_empty() { return Err("model catalog needs a source name".into()); }
         let parsed: CatalogFile =
@@ -762,7 +825,11 @@ impl Catalog {
 
     /// Embedded committed bytes, independent of the operator's ambient filesystem.
     pub fn committed() -> Result<Self, String> {
-        Self::parse("external.toml", include_str!("../../models/external.toml"))
+        Self::parse("external.toml", Self::committed_source())
+    }
+    /// Allows a runtime caller to reserve parse/retained-data capacity before allocation.
+    pub fn committed_source() -> &'static str {
+        include_str!("../../models/external.toml")
     }
 
     pub fn committed_digest() -> ContentHash {
