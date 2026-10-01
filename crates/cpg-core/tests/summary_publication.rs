@@ -550,7 +550,7 @@ async fn run(profile: Profile) {
         assert_eq!(alternatives.len(),3,"one supported source field retains all three reader paths");
         assert!(alternatives.iter().all(|(c,r,d,reason)|c!=r&&*d==2&&*reason==obligation::ObligationKind::ScopeBoundary as i16));
         let conclusions:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-            "SELECT count(*) FROM {}.summary_behavioral_conclusions c JOIN {}.summary_symbolic_field_alternatives a ON a.reader_qualification=c.qualification WHERE c.verdict=3 AND c.proof IS NULL AND c.reason=a.reason",id.schema(),id.schema())))
+            "SELECT count(*) FROM {0}.summary_behavioral_conclusions c JOIN {0}.summary_obligation_subjects s ON s.id=c.subject JOIN {0}.summary_claims q ON q.id=s.summaryclaim_transfer JOIN {0}.summary_symbolic_field_alternatives a ON a.id=q.symbolicfieldassociation_alternative WHERE c.verdict=3 AND c.proof IS NULL AND c.qualification=a.reader_qualification AND c.reason=a.reason",id.schema())))
             .fetch_one(db.owner.pool()).await.unwrap();
         assert_eq!(conclusions,3);
     } else {

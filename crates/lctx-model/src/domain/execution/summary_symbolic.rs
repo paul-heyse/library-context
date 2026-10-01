@@ -22,6 +22,8 @@ pub struct SymbolicFieldAlternative {
     pub kind: FlowSinkKind,
     pub transfer: TransferKind,
     pub through_call: bool,
+    /// The two source links constructor→field→reader. This is association depth, independent
+    /// of the finite call-path proof limit: this row carries Unknown and no transfer proof.
     pub depth: i64,
     pub reason: ObligationKind,
 }

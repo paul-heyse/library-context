@@ -487,12 +487,14 @@ including finalizer replacement order and profile-bound NotRequested results (**
 2026-10-01**, 4 actual PG + 9 native + 3 outcome controls). Exact attribute evaluation retains the
 explicit heap-state prerequisite. The detailed plan owns these receipts; assembled acceptance remains open.
 
-**Symbolic source associations (Proposed correction; partial prerequisite implemented,
-2026-10-01).** The existing normalized callable-metadata stage owns source class/store/reader
-associations for both profiles. The partial `normalized::symbolic_fields` implementation currently
-refuses supported-record admission pending exact decorator/default/signature and membership checks.
-Local will add exact Entry/Flow premises; Summary will retain separate uncertain reader alternatives,
-Unknown with no finite-proof authority; C1 will consume the same normalized source association.
+**Symbolic source associations (Implemented; qualification in progress,
+2026-10-01).** The normalized callable-metadata stage owns source class/store/reader
+associations for both profiles. `normalized::symbolic_fields` admits the bounded standard-record
+subset through exact decorator/options, defaults, generated signatures and source membership.
+Local adds exact Entry/Flow store premises. Summary retains separate uncertain reader alternatives:
+Unknown, proof=None, with the actual refusal. C1 consumes the same normalized association directly.
+The symbolic depth-two marker counts the source route constructor→field→reader; it is independent
+of the finite call-path proof limit and never denotes a proved runtime transfer.
 Constructor and reader owners and reader conditions stay explicit even when their Artifact scopes
 coincide. This does not establish temporal heap identity. The [restart checkpoint](../../plans/semantic-model-phase4-detailed-plan_2026-09-30.md#133-restart-checkpoint-and-remaining-work)
 owns integration, native/store controls and corrective reinspection of P4B3-F01.

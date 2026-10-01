@@ -431,8 +431,8 @@ pub fn text(d: &Data, facet: &SummaryFacet, b: &ResourceBudget) -> Result<String
     let _charge = b.reserve("s0-summary-facet-render", 1024)?;
     let question = match facet.claim.map(|c| need(&d.claims, c)).transpose()? {
         Some(SummaryClaim::SymbolicFieldAssociation{alternative,..}) => {
-            let a=need(&d.symbolic_alternatives,*alternative)?;
-            format!("Symbolic source field association from constructor {} to reader {} at depth {}; temporal value identity remains unresolved",a.constructor.hex(),a.reader.hex(),a.depth)
+            let _association=need(&d.symbolic_alternatives,*alternative)?;
+            "Source associates a constructor parameter with a field read; whether a later read returns the stored value remains unresolved".into()
         },
         Some(SummaryClaim::FiniteAlternative {
             transfer,

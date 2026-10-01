@@ -58,7 +58,7 @@ async fn native_exact_record_links_and_plain_stores() {
         let native=uses.iter().filter(|u|u.occurrence==reader.access).collect::<Vec<_>>();
         assert_eq!(native.len(),1,"native reader retains ExprAttribute site");
         assert!(f.rows::<FlowValueObservation>().iter().any(|v|v.use_==native[0].id()));
-        eprintln!("SOURCE READER {} NATIVE USE {:?}",reader.access,native[0]);
+        eprintln!("SOURCE READER {:?} NATIVE USE {:?}",reader.access,native[0]);
     }
     for name in ["RecordHolder","Holder","ConditionalHolder"] {
         let c=class(&f,&out,name);

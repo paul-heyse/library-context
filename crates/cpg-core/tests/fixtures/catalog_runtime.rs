@@ -158,6 +158,31 @@ pub async fn replay_controls(
     let b = runtime.budget();
     let original = c1::build::build(&d.source, b)?;
     d.evidence.matches(&original)?;
+    let source_link=d.evidence.source_field_links.iter().next()
+        .expect("admitted native record yields actual C1 source links").clone();
+    let _source_charge=b.reserve("catalog-source-link-corruption-control",
+        d.evidence.source_field_links.len()*std::mem::size_of::<c1::SourceFieldLink>())?;
+    let source_rows=d.evidence.source_field_links.iter().cloned().collect::<Vec<_>>();
+    let sibling=d.evidence.source_field_links.iter().find(|r|r.field_option!=source_link.field_option)
+        .expect("independent sibling field provides nonleakage twin").parameter_option;
+    for corruption in 0..3 {
+        d.evidence.source_field_links=Rows::new(b);
+        for row in &source_rows {
+            let mut changed=row.clone();
+            if row.id()==source_link.id() {
+                match corruption {
+                    0=>continue,
+                    1=>changed.runtime_value=normalized::callables::Knowledge::Known,
+                    _=>changed.parameter_option=sibling,
+                }
+            }
+            d.evidence.source_field_links.insert(changed)?;
+        }
+        assert!(d.evidence.matches(&original).is_err(),"C1 source association corruption {corruption} must refuse");
+    }
+    d.evidence.source_field_links=Rows::new(b);
+    for row in source_rows{d.evidence.source_field_links.insert(row)?;}
+    d.evidence.matches(&original)?;
     if profile == Profile::Behavioral {
         let link = d
             .evidence
