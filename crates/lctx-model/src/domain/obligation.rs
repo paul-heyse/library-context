@@ -103,6 +103,9 @@ pub enum ObligationKind {
     AttachmentUnmatched = 53,
     /// A composed output refers to a captured cell without an admitted state mapping.
     CapturedStateUnavailable = 54,
+    EmbeddingServiceUnavailable = 55,
+    EmbeddingTokenLimit = 56,
+    AnalyticTextUnavailable = 57,
 }
 
 /// The class of an obligation, which orders it before its code.
@@ -142,7 +145,8 @@ impl ObligationKind {
             | K::SummaryProofLimit
             | K::InvocationArgumentLimit
             | K::TheoryAssignmentLimit
-            | K::ResponseBudget => C::Budget,
+            | K::ResponseBudget
+            | K::EmbeddingTokenLimit => C::Budget,
             K::UnresolvedTarget
             | K::AmbiguousBinding
             | K::UnsupportedUnpacking
@@ -168,14 +172,16 @@ impl ObligationKind {
             | K::ResourceIdentityUnavailable
             | K::FrameExitCleanup
             | K::Approximation
-            | K::CapturedStateUnavailable => C::Model,
+            | K::CapturedStateUnavailable
+            | K::EmbeddingServiceUnavailable => C::Model,
             K::MissingEvidence
             | K::SyntaxError
             | K::UndecodableSource
             | K::DefaultUnavailable
             | K::DefaultStabilityUnknown
             | K::EntryValueUnknown
-            | K::IncompleteCoverage => C::Evidence,
+            | K::IncompleteCoverage
+            | K::AnalyticTextUnavailable => C::Evidence,
             K::NoApplicableDomain
             | K::IncompleteDomain
             | K::ComparableConflict

@@ -25,20 +25,21 @@ _Updated 2026-10-01 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
   graph reuse, permit/budget refusal and lifetime controls passed. E1 spec/codec/cache/realization
   foundation controls passed, including real PG configuration; no live embedding claim.
   B0 entry/transfer prerequisites passed model, native and real PG controls; Local production
-  and E1 vector consumption remain in progress (plan §13.2 receipts).
+  remain in progress (plan §13.2 receipts).
 - **passed, 2026-10-01:** R0 declared validation-view controls in memory and real PostgreSQL:
   earlier/current vocabulary routing, no widening beyond acknowledged grants, malformed-frame
   refusal and reservation release. B0 exposed and motivated the fix; its Summary publication
   still needs B3's producer capability contract. Plan §13.2 owns the composite receipt.
 - **passed, 2026-10-01:** E1 original analytic text (five pure controls) and both native PostgreSQL
-  profiles, including complete seal/model validation. Vector consumption is still pending.
+  profiles, including complete seal/model validation. E1 consumption then passed five pure and
+  three actual PG controls across four availability cases; external effects used a contract fixture,
+  so live-service behavior is not_run. E0 and cross-consumer integration remain open.
 - **passed, 2026-10-01:** integrated C0 catalog (20 pure controls; native catalog plus both
   normalized PG profiles). C1/E1 per-grain coverage contracts passed two pure controls;
-  their execution selectors remain unbound. Plan §13.2 owns receipts and boundaries.
+  C1 execution remains in progress; E1 selection is bound. Plan §13.2 owns receipts and boundaries.
 - New P4 acceptance is **not_run** pending implementation. Compile checks and focused controls
   precede foundation review; integrated acceptance waits for all functional packages and retirement.
   ADR/docs hygiene belongs to the automatic end-of-turn hook; no result is claimed before it runs.
-- Concurrent hook/tooling/instruction changes remain outside this design's edits and qualification.
 
 ## Phase 3 implementation and qualification
 
@@ -114,6 +115,6 @@ Reset initially refused absent old-installation control tables; its regression a
 Continue ordinary work directly on `main`. Existing after-turn hooks own formatting and catalog
 refresh; do not run or validate them manually. Additional pilot-scale qualification runs only if
 reactivated; detailed plan §11 retains its unmeasured scope.
-Continue P4 with actual Local/B1 execution, C1 contextual evidence and E1 vector consumption.
+Continue P4 with actual Local/B1 execution, C1 contextual evidence and downstream analytics.
 Downstream producers, assembly, legacy retirement and Q0 remain open. Follow the dependency graph
 and scheduled review boundaries. P5 owns serving/product qualification; PR6 remains paused.

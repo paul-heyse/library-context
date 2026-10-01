@@ -4,6 +4,7 @@
 pub mod analysis_graphs;
 pub mod analysis_prepare;
 pub mod analytic_text;
+pub mod analytic_embedding;
 pub mod analyze;
 pub mod arrow_types;
 pub mod behavior;

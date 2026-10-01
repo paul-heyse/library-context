@@ -43,10 +43,14 @@ is an **Accepted target, 2026-09-30**. It specifies analysis/catalog reconstruct
 corrections and the immutable vocabulary mechanism below; it does not establish P4 implementation.
 R0/R1 are **Implemented / focused-Tested**, with an independent
 [Accept scoped foundation review, 2026-10-01](../../design_review/reviews/design_review_phase4-foundation_2026-09-30.md).
-The E1 shared specification, exact value codec, early stored configuration and declared realization
-effect are **Implemented / focused-Tested, 2026-10-01**. The retained cache and HTTP client consume
-that model owner. Analytic/retrieval consumption records, downstream producers, assembled acceptance
-and retirement remain open in plan §13.2.
+The E1 shared specification, exact value codec, early stored configuration, original analytic text
+and nominal analytic consumption are **Implemented / focused-Tested, 2026-10-01**. One declared
+realization effect admits token counts and immutable cache winners; the retained cache and HTTP
+client consume that model owner. Exact source-derived invocation/window membership, selected
+specification, availability and bytes replay without the service. Real PostgreSQL controls used
+an external-effect fixture; live-service quality remains unqualified. Retrieval consumption,
+cross-consumer validation, downstream producers, assembled acceptance and retirement remain open
+in plan §13.2.
 
 **Where the requirement came from.** The
 [semantic data model target review](../../design_review/reviews/design_review_semantic-data-model_2026-09-29.md)
@@ -669,15 +673,14 @@ with pushdown. `lctx query` runs DataFusion SQL over a pinned generation.
 **Artifacts.** Arrow IPC artifacts are only derived, content-addressed caches for bulk consumers, such
 as native executor inputs, with their manifests in PostgreSQL. They are never canonical.
 
-**The stage table (Implemented one-shot baseline; accepted epoch extension not implemented).** A typed **stage table** is the sole writer authority and names each stage's input relations, output relations,
+**The stage table (Implemented / focused-Tested, 2026-10-01).** A typed **stage table** is the sole writer authority and names each stage's input relations, output relations,
 contributions, effect class and code identity. From it:
 - the scheduler is derived;
-- every ordinary output has exactly one writer; the accepted vocabulary target names one assembly
-  owner and one writer per declared immutable epoch;
+- every ordinary output has exactly one writer; vocabulary has one assembly owner and one writer
+  per declared immutable epoch;
 - a read before its writer runs is an error;
-- the current one-shot vocabulary writer runs after its contributors; the accepted epoch target
-  instead closes declared private deltas and ordinary results atomically, with no read authority
-  before group acknowledgement (§15.11).
+- publication groups close declared private vocabulary deltas and ordinary results atomically,
+  with no read authority before group acknowledgement (§15.11).
 
 A stage that reports coverage names its provider; the provider is part of the schedule digest.
 

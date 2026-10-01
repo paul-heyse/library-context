@@ -1,5 +1,7 @@
 //! Shared embedding specification and exact value contracts. Consumption has distinct owners.
 pub mod configuration;
+pub mod consumption;
+pub mod analytic;
 mod spec;
 pub mod text;
 pub mod value;
@@ -148,5 +150,6 @@ pub fn configuration_relations() -> Vec<Relation> {
 pub fn relations() -> Vec<Relation> {
     let mut rows = configuration_relations();
     rows.extend(text::relations());
+    rows.extend(analytic::relations());
     rows
 }
