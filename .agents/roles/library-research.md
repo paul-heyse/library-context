@@ -12,3 +12,6 @@ exhaustively. The coordinator decides adoption and architecture.
 
 Do not edit repository files. Use existing probes as evidence with their original scope; propose
 a focused experiment when a material uncertainty needs execution beyond this research assignment.
+
+For consequential absence claims, report the search coverage and unresolved alternatives. Surface
+conflicting evidence or unsupported version transfers to the coordinator before relying on them.

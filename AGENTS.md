@@ -48,6 +48,11 @@ real consumer.
 
 ## Start of session
 
+Use instructions already in context; read this file if absent. Root agents follow the task-relevant
+routes below. Delegated workers start from their brief, shared role and relevant authorities instead
+of repeating the root's general orientation. Follow discovered dependencies as needed; all permission,
+preservation and testing rules still apply.
+
 1. Read `STATUS.md`: where we are and what's next.
 2. For the cutover, read the [cutover plan](docs/plans/semantic-model-cutover-plan_2026-09-29.md)
    (phases, work packages, qualification, §8 finding disposition) and DESIGN §15.
@@ -67,27 +72,12 @@ real consumer.
 5. Retired plans, reviews, evidence and ADRs are not reading context; recover one from Git only
    when a current owner is insufficient (`docs/README.md`, Historical recovery).
 
-## Where things are
+## Repository navigation
 
-| Path | What |
-|---|---|
-| `docs/design/DESIGN.md`, `docs/design/sections/` | Architectural collection; stable § IDs. DESIGN §2 holds §B1–§B14 |
-| `docs/README.md`, `docs/publishing.md` | Task routes and isolated documentation commands; site navigation/search is derived |
-| `docs/plans/` | The semantic model cutover plan (current execution) and the product/research forward plan; finished or superseded plans are removed once their obligations move |
-| `docs/adr/` | Current decision records (accepted and open proposals), a generated index, and `TEMPLATE.md` |
-| `docs/design_review/design_principles/` | The layered design standard, declared in `standard.toml`: six foundations (FP-01–06), independent architectural judgments A1–A3, supporting rules DP-01–24 and gates G1–G8, the CI profile, and the repository binding (ADR-0040/0093) |
-| `docs/design_review/reviews/` | Review outputs: evidence, never authority; kept while a finding they supply is open |
-| `docs/design_review/evidence/` | Optional probes, spikes and investigations behind decisions. When created, use one `YYYY-MM-DD_<topic>/` folder with a README; raw outputs and binaries through Git LFS; never venvs or `target/`. This location convention does not require a review to create or run probes |
-| `docs/pins.md` | Every pin, with dated verification |
-| `docs/library-utilization.md`, `.jsonl` | Potentially valuable context on library capabilities and integration patterns already used in the codebase; optional focused lookups can inform design alternatives |
-| `crates/` | The single Rust workspace. `cpg-schema` holds the authoritative Arrow contracts, derivations, rules and the graph registry (`graph.rs`: the `nodes`/`edges` catalogs, ADR-0086; the cutover replaces this crate with `lctx-model`); `cpg-extract` (Stage A in `library.rs`, extraction, the dependency context in `context.rs`), `cpg-core` (the stage runtime helpers, generation-bound provider sessions in `generation_read.rs`, the session and legacy `lctx_id` UDF, and the dormant analysis, catalog and serving code), `cpg-flow` (ty flow facts), `lctx-analytics` (passes, FCA/RCA, communities, summaries; Arrow in/out, no store), `lctx-embed` (compile-time embedding client), `lctx-postgres` (the generation store in `generations/`, the service baseline, role pools, the `testing` feature's disposable database and harness, and the dormant serving code) and `lctx` (the CLI). Further crates are added as increments need them (ADR-0046) |
-| `python/` | `lctx_mcp` (the FastMCP server over one pinned generation) , `lctx_semantics` (the pure PyO3 native executor) and `lctx_storage` (explicit asynchronous PostgreSQL service lifetime) |
-| `eval/` | `behavior/` pre-registered question sets, `gold/` evaluation-only gold extract and freeze, `heldout/` sealed until increment 5 |
-| `libraries/` | One committed uv project per analyzed library (`pyproject.toml` with `[tool.lctx] release`, `.python-version`, `uv.lock`); `libraries/README.md` has the add/upgrade procedure (ADR-0046). Environments go to `build/envs/` (gitignored) |
-| `fixtures/python/` | Tiny Python packages to analyze. Input data: never executed or linted |
-| `third_party/` | `pyrefly-<ver>.patch`: the one commit our Pyrefly fork adds to the upstream tag (ADR-0046, `docs/pins.md`) |
-| `scripts/` | `adr.py`, `design_sections.py` and `docs.py` (documentation), `check_family.py`, `check_agents.py`, and gold/eval scripts |
-| `rules/`, `rule-tests/` | ast-grep rules. They grow only from design-review findings |
+The [documentation task routes and repository map](docs/README.md) identify owners and paths.
+Fixtures under `fixtures/python/` are input data, never executed or linted. Evaluation heldout data
+remain sealed until increment 5. Add ast-grep rules only from design-review findings. Optional review evidence uses one dated topic folder under
+`docs/design_review/evidence/`; raw outputs and binaries use Git LFS, never venvs or `target/`.
 
 ## Commands
 
@@ -246,9 +236,10 @@ without a named current consumer. Quiesce project readers before replacing their
 
 ## Agent coordination
 
-Use subagents for review, planning and execution. Use concurrency as you see fit; strive for
-parallel execution. Follow the
-[shared roles and coordination contract](.agents/roles/README.md) (ADR-0107), including its explicit
+Use subagents when independent coverage, context isolation, distinct capabilities or independent
+judgment justify handoff and integration cost. Keep small or tightly coupled tasks with the root
+when appropriate. Follow the
+[shared roles and coordination contract](.agents/roles/README.md) (ADR-0109), including its explicit
 model/effort routing. The root agent owns design, integration and acceptance; choose the roles
 and decomposition that serve the task.
 

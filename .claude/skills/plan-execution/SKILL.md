@@ -24,8 +24,8 @@ These are optional lenses, not a required pipeline or another plan template. Use
 [shared agent roles](../../../.agents/roles/README.md) when bounded delegation would help:
 `code-mapper`, `library-research`, `design-reviewer`, `executor`,
 `implementation-reviewer` and `test-agent`. Choose only the roles that serve the work; the root
-coordinator retains design decisions, integration and acceptance. Use concurrency as you see fit;
-strive for parallel execution. Identify edit ownership and
+coordinator retains design decisions, integration and acceptance. Delegate when independent work, context isolation, distinct capabilities or independent judgment
+justify handoff and integration cost; small or tightly coupled tasks may stay with the root. Identify edit ownership and
 dependencies before proposing parallel implementation.
 
 Follow the repository binding's

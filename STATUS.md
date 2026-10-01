@@ -4,11 +4,9 @@ _Updated 2026-09-30 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
 
 ## Agent workflows (2026-09-30)
 
-- **Implemented:** [paired skills](.claude/skills/README.md) cover review, plan creation and execution;
-  [shared roles](.agents/roles/README.md) serve Codex and Claude (ADR-0107). Strive for parallel execution.
-- **passed:** `codex app-server --strict-config --stdio` config/read and skills/list requests loaded
-  project defaults and both execution skills. Independent static integration review found no material issues.
-- Product tests **not_run** (process-only scope); hygiene remains hook-owned. No new hook or worker cap.
+- **Implemented (ADR-0109):** [shared roles](.agents/roles/README.md) and skills use selective delegation, task-specific context, explicit escalation and the agreed stronger review defaults.
+- **passed:** `python3 /home/paul/.cache/coordination-acceptance-20260930.py`: native settings across four targets; instruction budgets, Codex config/read and execution-skill discovery in three live repositories.
+- **passed:** independent static integration review and template render/update checks; project-owned files preserved and managed READMEs updated after closing TPL-F01. Product tests **not_run** (process-only scope); hygiene remains hook-owned. Workflow quality/resource gains are unmeasured; no calibration or new cap.
 
 ## Phase 4 execution (2026-09-30)
 

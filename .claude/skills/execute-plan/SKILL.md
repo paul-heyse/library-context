@@ -12,7 +12,8 @@ concurrent work. Resolve material ambiguity without making routine implementatio
 new approval steps. A proposed decision or unimplemented target is not an established baseline.
 
 The root agent coordinates the work and retains design decisions, integration and acceptance.
-Use concurrency as you see fit; strive for parallel execution.
+Delegate when independent work, context isolation, distinct capabilities or independent judgment
+justify handoff and integration cost; small or tightly coupled tasks may stay with the root.
 The [shared roles](../../../.agents/roles/README.md) offer bounded code mapping,
 library research, design review, execution, implementation review and testing through
 `code-mapper`, `library-research`, `design-reviewer`, `executor`,
