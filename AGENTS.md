@@ -242,7 +242,9 @@ judgment justify handoff and integration cost. Keep small or tightly coupled tas
 when appropriate. Follow the
 [shared roles and coordination contract](.agents/roles/README.md) (ADR-0109), including its explicit
 model/effort routing. The root agent owns design, integration and acceptance; choose the roles
-and decomposition that serve the task.
+and decomposition that serve the task. `library-research` may write new dated folders under
+`docs/design_review/evidence/` (adding their Index row) and the shared library skill its brief
+assigns; [its contract](.agents/roles/library-research.md) bounds those writes (ADR-0112).
 
 ## Git
 

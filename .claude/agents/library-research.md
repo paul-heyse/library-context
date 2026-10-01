@@ -1,7 +1,7 @@
 ---
 name: library-research
 description: "Resolve library capabilities and versioned contracts from skills, documentation and source."
-tools: Read, Grep, Glob, Bash, Skill, ToolSearch, WebFetch, WebSearch, mcp__context7__resolve-library-id, mcp__context7__query-docs
+tools: Read, Grep, Glob, Bash, Write, Edit, Skill, ToolSearch, WebFetch, WebSearch, mcp__context7__resolve-library-id, mcp__context7__query-docs
 model: sonnet
 effort: medium
 ---

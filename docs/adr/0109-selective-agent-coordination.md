@@ -91,3 +91,9 @@ is introduced. This replaces the previous parallelism preference and runtime all
 retaining the role boundaries, paired skills, review cadence and acceptance ownership.
 Native read-only defaults do not override a parent's live permission settings; the role's task
 contract continues to bound allowed effects.
+
+## Amendments
+
+- 2026-10-01: Codex ignores sandbox settings in custom agent files (codex-cli 0.149 and later), so
+  `.codex/agents/` no longer carries them and every role inherits the session's sandbox; the role
+  contracts bound allowed effects. library-research's write scope is ADR-0112.

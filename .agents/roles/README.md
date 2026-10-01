@@ -29,8 +29,10 @@ Prefer the named native role. If the available delegation tool has no role selec
 shared contract paths and choose the table's model and effort explicitly. With Codex's collaboration
 tool, use a focused brief with `fork_turns="none"` when selecting a different model; a full-history
 fork inherits the parent. If the runtime cannot select a model, disclose the fallback. Do not assume
-editing configuration changes agents already running. Native sandbox defaults supplement the task
-contract; live parent permission overrides can take precedence.
+editing configuration changes agents already running. Codex custom roles inherit the session's
+sandbox and approval settings (their files carry none: Codex ignores sandbox keys there), and
+Claude roles differ only in their tool lists. The shared contracts define each role's permitted
+effects; live parent permission overrides take precedence.
 
 ## Coordinate the work
 
@@ -59,7 +61,8 @@ handle it directly or route stronger work. These are reassessment triggers, not 
 
 Codex custom roles pin their model and effort, overriding spawn-time choices. For stronger evidence
 work, use the built-in `default` role with `gpt-6.1-sol` / `high`, `fork_turns="none"`, and a focused
-brief supplying the common and relevant evidence-role contracts, sources and read-only effects.
+brief supplying the common and relevant evidence-role contracts, sources and the evidence role's
+permitted effects.
 Use the built-in `worker` only for authorized edits with explicit ownership. Do not create duplicate
 higher-tier roles or assume an override changes a named custom role.
 
