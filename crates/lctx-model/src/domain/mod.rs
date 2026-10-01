@@ -23,6 +23,8 @@ mod identity;
 pub mod input;
 pub mod lexical;
 pub mod local_semantics;
+pub mod local_theory;
+pub mod local_fields;
 pub mod memory;
 mod model;
 pub mod models;
@@ -239,7 +241,7 @@ pub fn analysis_relations() -> Vec<Relation> {
     relations.extend(structural::relations());
     relations.extend(embedding::relations());
     relations.extend(execution::relations());
-    relations.extend(local_semantics::relations());
+    relations.extend(local_semantics::relations());relations.extend(local_theory::relations());relations.extend(local_fields::relations());
     relations
 }
 /// The relations a facts generation publishes: inputs, attribution and coverage, provider

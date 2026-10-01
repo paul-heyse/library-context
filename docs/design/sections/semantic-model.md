@@ -471,7 +471,15 @@ A narrower Use proof cannot establish guard stability, and a Value/Guard proof c
 a bare-name evaluation. Binding identity never establishes mutable object-state stability.
 The direct Local producer publishes attributed transfer/control assessments and explicit unsupported
 boundaries; catalog compilation publishes NotRequested without requesting Flow. Its broader
-behavioral domain remains Partial pending the remaining B0–B3 operators.
+behavioral domain remains Partial pending the remaining B1–B3 operators.
+The canonical Local definition includes finite scalar type theory, conservative nominal class
+reasoning and exact field-location witnesses. An open runtime class domain cannot prove a negative;
+a field location does not establish allocation, alias or mutation stability. **Focused-Tested,
+2026-10-01:** BaseEvaluation publishes a complete recomputed expression/refusal inventory from
+completed Local/native frames, reuses a charged syntax index, and checks the actual profile before
+acknowledgment. Catalog produces NotRequested; behavioral refusals remain explicit. Completion,
+source-call certification and enriched execution are separate later owners. The detailed plan owns
+the 70-check combined receipt; this is not assembled Phase 4 acceptance.
 
 **Open calls and alternatives**
 - **A value crossing an unresolved or unsummarized call** is not a transfer kind. It is an obligation

@@ -18,7 +18,7 @@ async fn structural_candidates_paths_and_usage_publish_in_both_profiles() {
     relations.extend(analysis::catalog_evidence::relations());
     relations.extend(analysis::selection::relations());
     relations.extend(selection::relations());
-    relations.extend(analysis::local::relations());relations.extend(transfer::local::relations());relations.extend(local_semantics::relations());
+    relations.extend(analysis::local::relations());relations.extend(transfer::local::relations());relations.extend(local_semantics::relations());relations.extend(local_theory::relations());relations.extend(local_fields::relations());
     macro_rules! declared {($($field:ident:$ty:ty,)*)=>{$(relations.push(Relation::of::<$ty>());)*};}lctx_model::local_semantic_outputs!(declared);
     relations.extend(analysis::structural::relations());relations.extend(structural::relations());
     relations.sort_by_key(Relation::name);relations.dedup_by_key(|r|r.name());
@@ -26,8 +26,7 @@ async fn structural_candidates_paths_and_usage_publish_in_both_profiles() {
     let root=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/python/catalog_context");
     let captured=Arc::new(CapturedInputs::new(vec![AcquiredInput::tree(CapturedInput::capture_derived(&root,&["api.py".into(),"guide.mdx".into()],budget,&["guide.mdx".into()],cpg_extract::acquisition::derive_blocks).unwrap(),"C0") ],cpg_extract::native_context::NativeContextConfig::committed(profile,budget).unwrap()));
     let settings=analysis::settings::AnalyticsConfiguration{module_prefixes:vec!["api".into()],public_roots:vec!["api".into()],configured_seeds:vec!["api.Client".into(),"api.missing".into()],depth:2,vertices:512,arcs:2048,witnesses:3,brief_budget:8,communities:false,pagerank:false,fca:false,rca:false,knn:false,type_layer:false,mention_layer:false,knn_layer:false};
-    let parameters=analysis::MethodParameters{depth:None,proof_steps:None,work:None,members:None,seed:None,iterations:None,threshold:None,resolution:None,damping:None,model_catalog:None};
-    let local=analysis::AnalysisDefinition{method:analysis::AnalysisMethod::LocalTransfers,parameters:parameters.id(),semantic_version:ContentHash::of(b"Local direct v1"),interpretation:analysis::Interpretation::ExactUnderContext};
+    let (parameters,local)=lctx_model::domain::local_semantics::definition();
     let configuration=analysis::preparation::Configuration::new(captured.config().catalog(),[build::definition(),catalog::evidence::build::definition(),selection::build::definition(),(parameters,local.clone()),structural::build::definition(&settings,analysis::AnalysisMethod::Delegation).unwrap(),structural::build::definition(&settings,analysis::AnalysisMethod::DirectUsage).unwrap()],budget).unwrap().with_analytics(settings.clone()).unwrap();
     let mut providers=cpg_core::facts::providers(ContentHash::of(b"C0-native-fixture"));
     let mut declarations:Vec<_>=providers.iter().map(|p|p.declaration(profile)).collect();

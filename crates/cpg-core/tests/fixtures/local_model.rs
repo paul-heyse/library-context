@@ -6,7 +6,7 @@ pub fn model()->ValidatedModel {
     relations.extend(analysis::dispatch::relations());
     relations.extend(analysis::local::relations());
     relations.extend(transfer::local::relations());
-    relations.extend(local_semantics::relations());
+    relations.extend(local_semantics::relations());relations.extend(local_theory::relations());relations.extend(local_fields::relations());
     macro_rules! declared {($($field:ident:$ty:ty,)*)=>{$(relations.push(Relation::of::<$ty>());)*};}
     lctx_model::local_semantic_outputs!(declared);
     relations.sort_by_key(Relation::name);relations.dedup_by_key(|r|r.name());

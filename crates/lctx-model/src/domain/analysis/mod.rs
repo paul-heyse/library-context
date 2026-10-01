@@ -18,7 +18,7 @@ pub use config::*;
 use family::analysis_family;
 analysis_family!(dispatch,"dispatch",[],[],[],[]);
 // Local consumes normalized dispatch evidence; unused analysis predecessor code4 stays reserved.
-analysis_family!(local,"local",[],[crate::domain::transfer::local::TransferKey],[crate::domain::normalized::coverage::NormalizationCoverage],[LocalWitness:8=>crate::domain::local_semantics::LocalContribution,LocalGuard:9=>crate::domain::local_semantics::LocalGuardContribution]);
+analysis_family!(local,"local",[],[crate::domain::transfer::local::TransferKey],[crate::domain::normalized::coverage::NormalizationCoverage],[LocalWitness:8=>crate::domain::local_semantics::LocalContribution,LocalGuard:9=>crate::domain::local_semantics::LocalGuardContribution,TheoryWitness:10=>crate::domain::local_theory::TheoryWitness]);
 analysis_family!(base_evaluation,"base_evaluation",[Local:4=>local],[crate::domain::transfer::local::TransferKey],[crate::domain::normalized::coverage::NormalizationCoverage],[BaseExpression:8=>crate::domain::execution::records::ExpressionEvaluation]);
 analysis_family!(base_completion,"base_completion",[BaseEvaluation:4=>base_evaluation,Local:5=>local],[crate::domain::transfer::local::TransferKey],[crate::domain::normalized::coverage::NormalizationCoverage],[BaseStatement:8=>crate::domain::execution::completion_records::StatementCompletion]);
 analysis_family!(source_call,"source_call",[BaseCompletion:4=>base_completion,BaseEvaluation:5=>base_evaluation,Local:6=>local],[crate::domain::transfer::local::TransferKey],[crate::domain::normalized::coverage::NormalizationCoverage],[]);

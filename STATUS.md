@@ -22,7 +22,8 @@ _Updated 2026-10-01 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
   foundation controls passed, including real PG configuration; no live embedding claim.
   Actual Local publication and Use/Value/Guard entry domains passed 4 PG, 13 native and 22 model
   controls; behavioral stays Partial, catalog NotRequested. B1 canonical/base/body proofs passed 6 native
-  and 12 model controls; source-call producers remain pending. Selected analytics settings passed
+  and 12 model controls; Local finite theory/fields and actual BaseEvaluation now passed 70 combined
+  model/native/PG controls (plan receipt). Source-call producers remain pending. Selected settings passed
   4 pure + 1 PG control across both profiles; production activation remains open.
 - **passed, 2026-10-01:** R0 declared validation-view controls in memory and real PostgreSQL:
   earlier/current vocabulary routing, no widening beyond acknowledged grants, malformed-frame
@@ -33,8 +34,7 @@ _Updated 2026-10-01 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
   three actual PG controls across four availability cases; external effects used a contract fixture,
   so live-service behavior is not_run. A0 usage and A1 neighbour/rank/concept kernels passed; nominal
   publication remains open. E0 rendering/consumed-value replay passed 12 pure + 2 PG controls; final
-  S0/E0 publication remains open. Delegation and projection-v3
-  source definitions passed 5 native + 9 model controls; A0 structural publication passed both
+  S0/E0 publication remains open. Delegation and projection-v3 source definitions passed 5 native + 9 model controls; A0 structural publication passed both
   PG profiles + 2 pure and 12 regression controls. Sealed source conclusions passed 12 model controls;
   Pass B/C remain open.
 - **passed, 2026-10-01:** integrated C0 catalog (20 pure controls; native catalog plus both

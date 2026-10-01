@@ -221,3 +221,33 @@ async fn source_body_is_under_entry_and_preserves_required_frame_cleanup() {
         let tiny=ResourceBudget::fixed(1).unwrap();assert!(matches!(complete_body(&data,request,&[&statement],&tiny),Err(ModelError::Resource{..})));
     }
 }
+
+
+
+#[tokio::test]
+async fn base_producer_reconciles_the_entire_root_inventory_and_actual_request_profile() {
+ use lctx_model::domain::{execution::{production::*,records::*},analysis::{self,base_evaluation as publication},conditions::entry::{EntryAccessSource,EntryValueWitness},normalized::Rows,stages::Profile};
+ let (data,entry,budget)=data().await;let req=request(&data,"1 + 2");let (_,definition)=lctx_model::domain::execution::configuration::base_evaluation();let mut local_definition=definition.clone();local_definition.method=analysis::AnalysisMethod::LocalTransfers;let (local,_)=analysis::local::AnalysisInvocation::new(req.input,req.context,local_definition.id(),None,[]);let parent=publication::InvocationSource::Local{invocation:local.id()};let (invocation,_)=publication::AnalysisInvocation::new(req.input,req.context,definition.id(),None,[parent.id()]);
+ let entries=Rows::<EntryValueWitness>::new(&budget);let sources=Rows::<EntryAccessSource>::new(&budget);
+ let output=evaluate_all(&data,&entry,&entries,&sources,&invocation,&definition,Profile::Behavioral,&budget).unwrap();
+ assert!(output.run.evaluated>0 && output.run.refused>0);assert_eq!(output.outcome.status,analysis::AnalysisStatus::Partial);assert!(output.evaluations.iter().any(|row|row.expression==req.expression));
+ let invariant=Relation::of::<EvaluationRun>().invariants().iter().find(|check|check.name=="base_evaluation_inventory").unwrap().clone();
+ let check=|shrink:bool,forge_outcome:bool,omit_frame:bool| {
+  let mut checker=(invariant.create)(&budget);
+  macro_rules! put {($ty:ty,$values:expr)=>{checker.visit(<$ty>::NAME,&<$ty as Record>::encode(&$values).unwrap()).unwrap();};}
+  macro_rules! inputs {($($field:ident:$ty:ty,)*)=>{$(put!($ty,data.$field.iter().cloned().collect::<Vec<_>>());)*};}lctx_model::execution_evaluation_inputs!(inputs);
+  macro_rules! entry_inputs {($($field:ident:$ty:ty,)*)=>{$(put!($ty,entry.$field.iter().cloned().collect::<Vec<_>>());)*};}lctx_model::entry_value_inputs!(entry_inputs);
+  put!(analysis::local::AnalysisInvocation,vec![local.clone()]);put!(publication::AnalysisInvocation,if omit_frame{vec![]}else{vec![invocation.clone()]});put!(analysis::AnalysisDefinition,vec![definition.clone()]);
+  let mut run=output.run.clone();let mut boundaries=output.boundaries.iter().cloned().collect::<Vec<_>>();if shrink{boundaries.pop();run.refused-=1;}
+  let mut outcome=output.outcome.clone();if forge_outcome{outcome.status=analysis::AnalysisStatus::Completed;outcome.reason=None;}
+  put!(EvaluationRun,if omit_frame{vec![]}else{vec![run]});put!(EvaluationBoundary,if omit_frame{vec![]}else{boundaries});put!(publication::AnalysisOutcome,if omit_frame{vec![]}else{vec![outcome]});
+  put!(ExpressionEvaluation,if omit_frame{vec![]}else{output.evaluations.iter().cloned().collect::<Vec<_>>()});put!(EvaluationSource,if omit_frame{vec![]}else{output.sources.iter().cloned().collect::<Vec<_>>()});put!(EvaluationMember,if omit_frame{vec![]}else{output.members.iter().cloned().collect::<Vec<_>>()});put!(EvaluationOperand,if omit_frame{vec![]}else{output.operands.iter().cloned().collect::<Vec<_>>()});
+  checker.finish()
+ };
+ check(false,false,false).unwrap();assert!(check(true,false,false).is_err());assert!(check(false,true,false).is_err());assert!(check(false,false,true).is_err());
+ let unrequested=evaluate_all(&data,&entry,&entries,&sources,&invocation,&definition,Profile::Catalog,&budget).unwrap();assert!(!unrequested.run.requested);assert!(unrequested.evaluations.is_empty()&&unrequested.boundaries.is_empty());assert_eq!(unrequested.outcome.status,analysis::AnalysisStatus::NotRequested);
+ let profile_check=Relation::of::<EvaluationRun>().publication_checks()[0].clone();
+ let verify_profile=|profile| {let mut check=(profile_check.create)(&budget);check.visit(EvaluationRun::NAME,&<EvaluationRun as Record>::encode(&[unrequested.run.clone()]).unwrap()).unwrap();check.visit(publication::AnalysisInvocation::NAME,&<publication::AnalysisInvocation as Record>::encode(&[invocation.clone()]).unwrap()).unwrap();check.finish(&[],profile)};
+ verify_profile(Profile::Catalog).unwrap();assert!(verify_profile(Profile::Behavioral).is_err());
+ let tiny=ResourceBudget::fixed(1).unwrap();assert!(matches!(evaluate_all(&data,&entry,&entries,&sources,&invocation,&definition,Profile::Behavioral,&tiny),Err(ModelError::Resource{..})));
+}

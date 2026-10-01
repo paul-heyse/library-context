@@ -343,6 +343,7 @@ pub fn admit(invocation:&AnalysisInvocation,definition:&AnalysisDefinition,capab
     let scopes=domain.scopes.iter().map(|scope|admitted_scope(invocation.id(),capability,scope)).collect::<Result<Vec<_>,_>>()?;Ok(AdmittedCoverage {scopes,_reservation:reservation})
 }
 fn bound_methods()->&'static [AnalysisMethod] {match AnalysisCoverage::NAME {
+"base_evaluation_analysis_coverage"=>&[AnalysisMethod::Execution],
 "local_analysis_coverage"=>&[AnalysisMethod::LocalTransfers],
 "catalog_core_analysis_coverage"=>&[AnalysisMethod::Catalog],
 "catalog_evidence_analysis_coverage"=>&[AnalysisMethod::CatalogEvidence],

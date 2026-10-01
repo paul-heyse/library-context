@@ -16,6 +16,7 @@ macro_rules! inputs {($($field:ident:$ty:ty,)*)=>{
 macro_rules! execution_evaluation_inputs {($apply:ident)=>{$apply! {
     occurrences:$crate::domain::source::Occurrence,
     artifacts:$crate::domain::source::SourceArtifact,
+    uses:$crate::domain::input::ArtifactUse,
     modules:$crate::domain::source::Module,
     scopes:$crate::domain::source::CoverageScope,
     qualifications:$crate::domain::assertion::AssertionQualification,
@@ -256,20 +257,8 @@ pub(crate) fn boundary(reason:ObligationKind)->EvaluationError {EvaluationError:
 pub fn evaluate(data:&EvaluationData,request:ExpressionRequest,budget:&ResourceBudget)->Result<Result<CheckedEvaluation,ObligationKind>,ModelError> {
     evaluate_with_entries(data,request,&[],budget)
 }
-/// Source name reads require the exact shared, privately derived entry proof. Merely naming a
-/// parameter or observing a value transfer does not establish availability or harmless disposal.
 pub fn evaluate_with_entries(data:&EvaluationData,request:ExpressionRequest,entries:&[&conditions::entry::DerivedEntryValue],budget:&ResourceBudget)->Result<Result<CheckedEvaluation,ObligationKind>,ModelError> {
-    let index=PreparedSyntax::new(data,request.context,budget)?;
-    let mut evaluator=Evaluator {index:&index,data,request,remaining:EXPRESSION_WORK_LIMIT,native:Vec::new(),operands:Vec::new(),available_entries:entries,entries:Vec::new(),entry_charges:Vec::new(),charge:charged::StateCharge::new(budget,"closed-expression"),work_reason:ObligationKind::ExpressionWorkLimit,status:analysis::policy::EvidenceStatus::StructurallyObserved};
-    match evaluator.eval(request.expression,0) {
-        Ok(value)=>{
-            let placement=data.placements.get(*index.placements.get(&request.expression).expect("evaluated placement")).expect("indexed placement");
-            let status=evaluator.status;
-            Ok(Ok(CheckedEvaluation {request,value,release:value.release(),qualification:placement.qualification,status,native:evaluator.native,operands:evaluator.operands,entries:evaluator.entries,_entry_charges:evaluator.entry_charges,_charge:evaluator.charge}))
-        },
-        Err(EvaluationError::Boundary(reason))=>Ok(Err(reason)),
-        Err(EvaluationError::Model(error))=>Err(error),
-    }
+    let prepared=PreparedExecution::new(data,request.input,request.context,budget)?;prepared.evaluate(request,entries)
 }
 
 pub(crate) fn with_completion_syntax<T>(data:&EvaluationData,request:ExpressionRequest,budget:&ResourceBudget,visit:impl FnOnce(&mut Evaluator<'_>)->Result<T,EvaluationError>)->Result<Result<T,ObligationKind>,ModelError> {
@@ -280,3 +269,30 @@ pub(crate) fn with_completion_syntax<T>(data:&EvaluationData,request:ExpressionR
 
 
 
+
+
+/// Source name reads require the exact shared, privately derived entry proof. Merely naming a
+/// parameter or observing a value transfer does not establish availability or harmless disposal.
+/// Reuse the admitted syntax index for one captured frame. Result tokens retain their own
+/// charged proof state; the preparation keeps its index charged for the full producer lifetime.
+pub struct PreparedExecution<'a> {data:&'a EvaluationData,input:Id<input::InputRevision>,context:Id<AnalysisContext>,index:PreparedSyntax,budget:ResourceBudget}
+impl<'a> PreparedExecution<'a> {
+    pub fn new(data:&'a EvaluationData,input:Id<input::InputRevision>,context:Id<AnalysisContext>,budget:&ResourceBudget)->Result<Self,ModelError> {Ok(Self{data,input,context,index:PreparedSyntax::new(data,context,budget)?,budget:budget.clone()})}
+    pub fn evaluate(&self,request:ExpressionRequest,entries:&[&conditions::entry::DerivedEntryValue])->Result<Result<CheckedEvaluation,ObligationKind>,ModelError> {
+        if (request.input,request.context)!=(self.input,self.context){return Ok(Err(ObligationKind::IncompatibleContexts));}
+        evaluate_prepared(self,request,entries)
+    }
+}
+fn evaluate_prepared(prepared:&PreparedExecution<'_>,request:ExpressionRequest,entries:&[&conditions::entry::DerivedEntryValue])->Result<Result<CheckedEvaluation,ObligationKind>,ModelError> {
+    let data=prepared.data;let budget=&prepared.budget;
+    let mut evaluator=Evaluator {index:&prepared.index,data,request,remaining:EXPRESSION_WORK_LIMIT,native:Vec::new(),operands:Vec::new(),available_entries:entries,entries:Vec::new(),entry_charges:Vec::new(),charge:charged::StateCharge::new(budget,"closed-expression"),work_reason:ObligationKind::ExpressionWorkLimit,status:analysis::policy::EvidenceStatus::StructurallyObserved};
+    match evaluator.eval(request.expression,0) {
+        Ok(value)=>{
+            let placement=data.placements.get(*prepared.index.placements.get(&request.expression).expect("evaluated placement")).expect("indexed placement");
+            let status=evaluator.status;
+            Ok(Ok(CheckedEvaluation {request,value,release:value.release(),qualification:placement.qualification,status,native:evaluator.native,operands:evaluator.operands,entries:evaluator.entries,_entry_charges:evaluator.entry_charges,_charge:evaluator.charge}))
+        },
+        Err(EvaluationError::Boundary(reason))=>Ok(Err(reason)),
+        Err(EvaluationError::Model(error))=>Err(error),
+    }
+}
