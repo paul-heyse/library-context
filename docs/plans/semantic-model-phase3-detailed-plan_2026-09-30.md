@@ -4,8 +4,10 @@
 [cutover plan](semantic-model-cutover-plan_2026-09-29.md). The parent owns phase sequencing,
 the completed P0–P2 receipts and cross-phase finding dispositions; §11 below owns the newly
 scheduled P3 packages and their implementation status. [DESIGN §15](../design/sections/semantic-model.md)
-owns the architecture. Accepted decisions: [ADR-0101](../adr/0101-cumulative-normalized-generations.md)
-and [ADR-0103](../adr/0103-normalized-graph-materialization.md).
+owns the architecture. Current decision owners are [ADR-0105](../adr/0105-analysis-vocabulary-epochs.md)
+for retained cumulative-generation decisions (superseding ADR-0101), and
+[ADR-0103](../adr/0103-normalized-graph-materialization.md) for stored graphs. ADR-0105's Phase 4
+epoch extension is an accepted target, not part of these Phase 3 receipts.
 
 **Evidence boundary.** Source and pinned interfaces were inspected against `e4ab3ea` on
 2026-09-30. The [investigation receipt](../design_review/evidence/2026-09-30_phase3-design/README.md)

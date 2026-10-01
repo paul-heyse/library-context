@@ -10,18 +10,20 @@ _Updated 2026-09-30 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
   project defaults and both execution skills. Independent static integration review found no material issues.
 - Product tests **not_run** (process-only scope); hygiene remains hook-owned. No new hook or worker cap.
 
-## Phase 4 detailed design (2026-09-30)
+## Phase 4 execution (2026-09-30)
 
 - The [detailed design and execution plan](docs/plans/semantic-model-phase4-detailed-plan_2026-09-30.md)
   documents contracts, library choices, ordered packages, migration and independent controls.
-  ADR-0105/0106 and the new architecture text are **Proposed**; P4 production work has not begun.
+  ADR-0105/0106 are **Accepted target**. Full D0–Q0 execution is authorized, including conditional
+  operator review of explicitly unreviewed grounded briefs. R0 foundation implementation is in progress.
 - The design preserves once-built stored graphs and resolves shared-vocabulary publication,
   bounded recursive witnesses/residuals, catalog ownership and the Phase 5 serving boundary.
 - The [independent assembled review](docs/design_review/reviews/design_review_phase4-plan_2026-09-30.md)
   is **Accept scoped** at Proposed design level; plan §13.2 owns the receipt. Parent §8 routes
   graph-token F01: design addressed, G0 implementation controls pending.
-- Product tests/pilots are **not_run** for this documentation task. ADR/docs hygiene belongs to
-  the automatic end-of-turn hook; no result is claimed before it runs.
+- New P4 acceptance is **not_run** pending implementation. Compile checks and focused controls
+  precede foundation review; integrated acceptance waits for all functional packages and retirement.
+  ADR/docs hygiene belongs to the automatic end-of-turn hook; no result is claimed before it runs.
 - Concurrent hook/tooling/instruction changes remain outside this design's edits and qualification.
 
 ## Main consolidation (2026-09-30)
@@ -45,7 +47,7 @@ _Updated 2026-09-30 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
   [detailed execution plan](docs/plans/semantic-model-phase3-detailed-plan_2026-09-30.md).
   Its §11 owns package receipts and finding disposition; the
   [parent cutover plan](docs/plans/semantic-model-cutover-plan_2026-09-29.md) owns cross-phase obligations.
-- Accepted decisions: [ADR-0101](docs/adr/0101-cumulative-normalized-generations.md) and
+- Accepted decisions: cumulative-generation contracts now retained by [ADR-0105](docs/adr/0105-analysis-vocabulary-epochs.md) and
   [ADR-0103](docs/adr/0103-normalized-graph-materialization.md), which supersedes ADR-0102.
   Every new normalized collection builds native petgraph graphs once after facts collection and
   stores versioned Postcard snapshots in generation-owned BYTEA chunks. Canonical rows remain
@@ -115,6 +117,6 @@ Reset initially refused absent old-installation control tables; its regression a
 Continue ordinary work directly on `main`. Existing after-turn hooks own formatting and catalog
 refresh; do not run or validate them manually. Additional pilot-scale qualification runs only if
 reactivated; detailed plan §11 retains its unmeasured scope.
-When P4 implementation is requested, begin detailed plan D0 (decision adoption), then R0/R1
-(immutable vocabulary publication and derived-result foundation). Follow its dependency graph
+Continue P4 at R0/R1 (immutable vocabulary publication and derived-result foundation), following D0 adoption.
+Follow its dependency graph
 and scheduled review boundaries. P5 owns serving/product qualification; PR6 remains paused.

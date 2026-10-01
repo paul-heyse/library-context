@@ -1,11 +1,11 @@
 ---
 id: ADR-0106
 title: Build analysis and catalog results from finite typed evidence
-status: proposed
+status: accepted
 date: 2026-09-30
-supersedes: []
+supersedes: [ADR-0005]
 superseded-by: null
-design: [§9, §9.9, §10, §11.1, §15.6, §15.9, §15.10]
+design: [§B10, §B11, §9, §9.9, §10, §11.1, §15.6, §15.9, §15.10]
 evidence: Proposed
 ---
 
@@ -36,7 +36,7 @@ Stage 3–5 backlog, PR6, full-library comparisons or performance campaigns.
 
 ## Decision
 
-**Proposed:** choose option 3.
+**Accepted target, 2026-09-30:** choose option 3.
 
 - `lctx-model` owns analysis invocation/coverage, qualification, transfer/composition,
   obligation/discharge, catalog/selection, synthesis and retrieval meaning. `lctx-analytics`
@@ -74,9 +74,58 @@ Stage 3–5 backlog, PR6, full-library comparisons or performance campaigns.
   for service-free replay. Early analytic inputs do not depend on later briefs/retrieval.
   Vector failure can leave explicit lexical-only availability when optional.
 - Keep programmatic synthesis, grounded evidence, no generative model in compile/query paths,
-  and heuristic exclusion from behavioral proof. Propose conditional operator review when the
+  and heuristic exclusion from behavioral proof. Use conditional operator review when the
   forward plan's named operator-workflow trigger is activated. Unreviewed briefs remain explicitly
   unreviewed; Phase 4 adds no mandatory manual queue.
+
+### Retained synthesis and technique policy
+
+This record consolidates the surviving decisions and amendments of ADR-0005. Synthesis uses
+deterministic templates from typed findings and verbatim source sentences, with reproducible
+content identity. No generative model runs in compilation or the query path. A future compile-time
+local generation model requires a new ADR and mechanical grounding, only after unresolved-slot
+counts by brief section expose a gap templates/extractive selection cannot fill, confirmed by the
+independent held-out evaluation. This remains a conditional research trigger; Phase 4 activates
+neither that evaluation nor a generation service. The query-path prohibition survives permanently.
+
+Outcome selection remains docstring summary, then an explicit document mention, then unresolved.
+An embedding-nearest passage is a document link only and cannot fill the gap metric's Outcome
+slot. No admissible Outcome means omit the optional brief with an explicit reason; it never
+removes a mandatory public catalog member. Status derives from support: unresolved dominates;
+statistical supporting or scope-defining evidence makes the value statistically derived where
+its kind permits that status. One model-owned per-kind/section policy enforces the floor and ceiling.
+
+Statistical output may nominate titles, grouping, seeds, ordering and document links; it never
+states controls, limits or behavioral claims. Definitions decide semantic membership. Every
+sentence traces to a template field or a verbatim source span. Grounding validates same-generation
+symbols, parameters, findings, witnesses and exact source spans, snippet parsing/name binding and
+status against evidence. Warnings, limits and unresolved conditions survive rendering budgets.
+Repository text remains untrusted data, never compiler instructions. Mechanical grounding does
+not establish that extracted prose is true of a particular entry point or imply manual approval.
+
+Every technique requires a named consumer in the served model (a tool output or brief), fixed-input
+reproducibility, declared method/parameters/universe/diagnostics and a mechanical ablation of
+published output. The current product keep criterion in §9.8 supersedes the historical brief-only
+metric: a new default needs independent product-task benefit against the existing default and
+unstructured-evidence baseline, with no incorrect/misleading claim or displacement regression.
+Parameter freezes and current off-by-default variants stay unchanged; no upfront ablation campaign
+or automatic deletion is activated by this cutover. Retain optional kernels/tests until a selected
+consumer or measured cost/removal case warrants an ADR. The historical brief-default ablation
+and its held-out/second-library reconsideration triggers remain dated evidence in ADR-0020,
+not a second current keep rule.
+
+Text embeddings and rebuildable search projections remain allowed. Graph databases, generic
+workflow engines, general composition planners/constraint solvers, neural reranking and graph
+embeddings remain excluded under §B10; the bounded condition kernel is not such a solver. Existing
+conditional solver adoption needs its separately registered consumer and decision.
+
+Conditional operator review replaces only the unconditional manual pass before every brief.
+Until the forward plan's [F1 workflow trigger](../plans/behavioral-model-forward-plan_2026-09-24.md#postgresql-adoption)
+selects an operator-facing review consumer, grounding may publish explicitly unreviewed briefs.
+When selected, append exact-subject-revision review events with provenance/idempotency and
+optimistic conflicts, freeze the selected revision into canonical compiler inputs, and qualify
+backup/restore and replay. Never patch a published brief, infer approval from absent events, or
+claim unreviewed prose was checked. No mandatory manual queue is added by Phase 4.
 
 ## Consequences
 
@@ -84,11 +133,12 @@ The plan chooses finite exact witnesses plus honest residuals instead of an unbo
 fixpoint. This addresses the open SCC decision in §15.6; it does not claim recursive completeness.
 Detailed proof, residual and all-alternative controls are required before acceptance as implemented.
 
-The manual-review policy is a proposed replacement for ADR-0005's unconditional review clause,
-aligned with the forward plan's conditional workflow adoption. Acceptance must supersede that
-record through the ADR lifecycle while preserving programmatic synthesis, evidence grounding,
-statistical limitations and the remaining current Outcome policy at its owning sections.
-Until that acceptance, this proposal does not change the accepted review requirement.
+ADR-0005 is superseded and retired after carrying its surviving decisions into this record and
+the current owners. Its unconditional per-brief manual-review target is rejected in favor of the
+conditional operator workflow above; its no-model, grounding, Outcome and heuristic restrictions
+survive. Adoption is authorized under the unchanged independently reviewed
+[Phase 4 design](../design_review/reviews/design_review_phase4-plan_2026-09-30.md), and establishes
+no implemented review workflow.
 
 Implementation packages R1–E0 and their prerequisites own the migration. Independent dormant
 expectations move before legacy producer deletion. P5 recovery assets remain explicitly inventoried;
@@ -99,6 +149,6 @@ Revisit when a concrete product claim requires recursion beyond the bounded evid
 richer closure/effect stability, a new model channel, or a measured algorithm limitation. Such work
 must identify its consumer and qualification, not silently weaken an existing verdict.
 
-This is **Proposed**, supported by source/interface inspection on 2026-09-30. No new kernel,
+This is an **Accepted target** with evidence labeled **Proposed**, supported by source/interface inspection on 2026-09-30. No new kernel,
 publication path, embedding service execution or retrieval-quality result is claimed Tested or
 Measured. The detailed plan and parent cutover findings own implementation status.

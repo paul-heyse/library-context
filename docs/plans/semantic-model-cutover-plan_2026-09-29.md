@@ -14,8 +14,8 @@ DataFusion is compute, not another schema authority. There are no compatibility 
 legacy identity maps, old-store flags, or dual writers.
 
 **Current scope, 2026-09-30:** phases 0–3 are implemented with the distinct qualification boundaries
-recorded below and in the Phase 3 plan. The Phase 4 detailed design is Proposed and independently reviewed; its
-production implementation has not begun. Analysis, catalog and MCP remain unavailable until the
+recorded below and in the Phase 3 plan. The Phase 4 detailed design is accepted and independently reviewed;
+D0 adopted ADR-0105/0106 and R0 foundation implementation is in progress. Analysis, catalog and MCP remain unavailable until the
 corresponding phases implement them on the same model. Lower-frontier generations cannot answer
 higher-layer requests with empty tables. Product work stays paused. The forward plan retains
 product context and unrelated findings.

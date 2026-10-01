@@ -26,7 +26,7 @@ This review does not certify Phase 3, normalized compilation, or any P4/P5 capab
 | Dirty-tree limitation | The primary implementer continued corrective edits during review. Findings identify the initially observed defect and separately identify inspected corrections. Unrelated AGENTS/settings/agent changes were neither edited nor assessed. |
 
 The review follows [DESIGN §15](../../design/sections/semantic-model.md),
-[ADR-0101](../../adr/0101-cumulative-normalized-generations.md), and the
+ADR-0101 (historical reviewed authority; [recover from Git](../../README.md#historical-recovery)), and the
 [detailed plan §6](../../plans/semantic-model-phase3-detailed-plan_2026-09-30.md#6-cumulative-frontiers-and-private-stage-reads).
 Those decisions are accepted targets; acceptance is not implementation evidence.
 

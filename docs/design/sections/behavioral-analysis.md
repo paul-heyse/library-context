@@ -2,9 +2,9 @@
 
 # §9.9 Summaries, models and the capability registry
 
-**Target, 2026-09-30.** [§15](semantic-model.md) (ADR-0085/0083/0084) is the accepted target, and the [cutover plan](../../plans/semantic-model-cutover-plan_2026-09-29.md) delivers it layer by layer. The [Phase 4 detailed plan](../../plans/semantic-model-phase4-detailed-plan_2026-09-30.md) is Proposed: it restores retained summaries, models and discharge through transfers, obligations and derivations (§15.6–§15.9), with finite exact witnesses and explicit recursive residuals. No upfront ablation or additional research capability is required. Until that phase exits, the rest of this page describes the dormant legacy pipeline and its recovery obligations.
+**Target, 2026-09-30.** [§15](semantic-model.md) (ADR-0085/0083/0084) is the accepted target, and the [cutover plan](../../plans/semantic-model-cutover-plan_2026-09-29.md) delivers it layer by layer. The [Phase 4 detailed plan](../../plans/semantic-model-phase4-detailed-plan_2026-09-30.md) is an **Accepted target, not implemented**: it restores retained summaries, models and discharge through transfers, obligations and derivations (§15.6–§15.9), with finite exact witnesses and explicit recursive residuals. No upfront ablation or additional research capability is required. Until that phase exits, the rest of this page describes the dormant legacy pipeline and its recovery obligations.
 
-> Decision: proposed ADR-0106
+> Decision: ADR-0106
 
 This page owns how behavior propagates beyond one expression: the **models catalog** (L4) that
 gives meaning to stdlib, dependency and framework callables, **model application** at source

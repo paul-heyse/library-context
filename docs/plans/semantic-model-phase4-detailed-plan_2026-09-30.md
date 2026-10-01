@@ -1,12 +1,12 @@
 # Phase 4: analysis and catalog — detailed design and execution plan
 
-**Proposed, 2026-09-30.** This document specifies cutover Phase 4, including the upstream
-prerequisites its consumers expose. It does not report Phase 4 implementation or qualification.
+**Accepted execution target, 2026-09-30.** This document specifies cutover Phase 4, including the upstream
+prerequisites its consumers expose. Package receipts below distinguish implementation and qualification.
 The [parent cutover plan](semantic-model-cutover-plan_2026-09-29.md) owns cross-phase sequence and
 finding disposition; this document owns Phase 4 contracts, packages and acceptance controls.
 [DESIGN §15](../design/sections/semantic-model.md) remains the accepted semantic authority.
 [ADR-0105](../adr/0105-analysis-vocabulary-epochs.md) and
-[ADR-0106](../adr/0106-typed-analysis-and-catalog.md) record the proposed decisions and alternatives.
+[ADR-0106](../adr/0106-typed-analysis-and-catalog.md) record the accepted decisions and alternatives.
 
 **Inspected baseline:** main at 73187700fff553a0ca74abecdcfb7e8429c06617, 2026-09-30.
 Concurrent after-turn tooling/instruction changes are outside this design.
@@ -560,10 +560,10 @@ Validate every cited finding, witness, member, parameter and original span in th
 Brief text is a reproducible rendering, not an alternative semantic store.
 
 The old mandatory manual-review target conflicts with the absence of a review consumer/workflow.
-ADR-0106 proposes conditional operator review under the existing forward-plan F1 trigger:
+ADR-0106 adopts conditional operator review under the existing forward-plan F1 trigger:
 automated grounding admits explicitly unreviewed briefs; it does not certify extracted prose as
-manually checked. No review queue is introduced. Acceptance of that proposed policy change is part
-of D0 before implementation; the existing accepted record is not silently rewritten.
+manually checked. No review queue is introduced. D0 accepted that policy and superseded ADR-0005,
+carrying its surviving synthesis and evidence contracts into ADR-0106.
 
 ### 8.6 Retrieval inputs and embedding realization
 
@@ -869,7 +869,13 @@ its open obligations to packages and closure evidence; it does not close them by
 
 ### 13.2 Current design status
 
-All implementation packages are **not started** by this document.
+Full D0–Q0 execution was authorized on 2026-09-30, including ADR-0106's conditional operator-review policy.
+D0 adopts ADR-0105/0106 and preserves the independently reviewed target and §11 migration inventory.
+The implementation baseline is clean main `24e86d5`; production sources and dependency manifests
+are unchanged from the inspected design baseline. R0 is in progress. An isolated finite-metric
+subtask prepares R1's scalar lowering; this does not establish R1 or foundation acceptance.
+All later packages remain not started. Existing descriptions marked Proposed specify accepted
+targets whose behavior is not yet implemented or tested; they are not runtime claims.
 The [independent assembled review](../design_review/reviews/design_review_phase4-plan_2026-09-30.md)
 is **Accept scoped, 2026-09-30**, at Proposed design level. A1–A3 and the document-target gates are
 satisfied in the stated envelope; this is a static design judgment, not runtime qualification.
@@ -886,5 +892,6 @@ rule and cross-consumer vector-winner invariant were also clarified during assem
 | Production tests, probes, pilots, store mutation and performance experiments | not_run; no command issued for this design-document scope |
 | ADR index/lint, docs publication and other automatic hygiene | not_run by this agent; current repository instructions assign them to the end-of-turn hook; no future result is presumed |
 
-The next implementation action is D0 adoption, then R0/R1. Acceptance of the design is distinct
-from implementation, semantic qualification, pilot measurements and serving/product acceptance.
+The next implementation boundary is R0/R1 foundation acceptance, followed by N0/N1 and the
+dependency-ordered parallel streams in §10.3. Acceptance of the design is distinct from
+implementation, semantic qualification, pilot measurements and serving/product acceptance.

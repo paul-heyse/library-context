@@ -2,13 +2,13 @@
 
 **Target, 2026-09-29.** [§15](semantic-model.md) (ADR-0085/0083/0084) is the accepted target, and the [cutover plan](../../plans/semantic-model-cutover-plan_2026-09-29.md) delivers it layer by layer. Phase 4 moves the passes onto call-policy views, the projection runtime and one findings emitter (§15.5, §15.9–§15.10). Until that phase exits, this page describes the implemented legacy pipeline.
 
-**Proposed, 2026-09-30:** the [Phase 4 detailed plan §7](../../plans/semantic-model-phase4-detailed-plan_2026-09-30.md#7-topology-and-concept-analytics)
+**Accepted Phase 4 target, not implemented, 2026-09-30:** the [Phase 4 detailed plan §7](../../plans/semantic-model-phase4-detailed-plan_2026-09-30.md#7-topology-and-concept-analytics)
 specifies borrowed access to persisted petgraph materializations, weighted rank, explicit Leiden
 conversion and bounded FCA/RCA. One-step relational scaling and optional technique defaults remain;
 universe, weighting, partiality and heuristic meaning are explicit. Early analytic vector consumption
 is independent of later retrieval/synthesis, under one embedding specification/value contract.
 
-> Decision: proposed ADR-0106
+> Decision: ADR-0106
 
 This owner covers the analyses that run over published facts and derived projections to produce
 typed **findings** (ADR-0086): the three structural passes behind briefs (Pass A delegation,
@@ -29,7 +29,7 @@ kernels live in `crates/lctx-analytics/src/` (`pass_a`, `pass_b`, `pass_c`, `com
 
 ## §9 Analytics
 
-**Label.** The technique rules and algorithm ownership are accepted (ADR-0005, ADR-0071,
+**Label.** The technique rules and algorithm ownership are accepted (ADR-0106, ADR-0071,
 ADR-0044). The default analytics (Passes A–C, the behavior scan, direct usage and selection) are
 **Implemented** and **Tested** (2026-09-23/24; tests named per section). The optional techniques
 are **Implemented** and **Tested** as off-by-default variants (§9.8).
@@ -50,9 +50,11 @@ and FCA (NextClosure) are our own code, with independent oracles (`leiden_rs::co
 ([ADR-0052](../../adr/0052-iterative-scc-schedule.md)). A 30,000-edge chain and real
 component-order control passed in focused tests (2026-09-26); pilot cost remains open
 ([plan W13](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
-The engine for recursive summary composition (bounded native worklist, Ascent or datafrog) is an
-**open comparison** at plan order 6, not an adopted dependency
-([plan W12](../../plans/behavioral-model-forward-plan_2026-09-24.md#6-findings-disposition)).
+**Accepted Phase 4 target, not implemented:** recursive summary composition uses the bounded
+native worklist with invocation-distinct finite witnesses and explicit residuals (ADR-0106;
+[Phase 4 plan §6](../../plans/semantic-model-phase4-detailed-plan_2026-09-30.md#6-behavioral-evidence-and-finite-composition)).
+Ascent/datafrog do not replace its typed proof and coverage contract; broader research remains
+behind its named consumer trigger.
 
 **Recursive relational walks.** The type-term walks behind the type layer (§9.4) and FCA's
 type attributes (§9.6) are DataFusion recursive CTEs over `type_term_args`. They use `UNION`
@@ -124,7 +126,7 @@ beside the config's. The config file and these parameters are frozen; a paramete
   subsystem callees only, and briefs state that stop as a limit, so a seed's brief and its
   behavior rows can differ past the subsystem edge.
 
-> Decision: ADR-0005, ADR-0086, ADR-0071, ADR-0044, ADR-0045; proposed ADR-0106
+> Decision: ADR-0106, ADR-0086, ADR-0071, ADR-0044, ADR-0045
 
 
 ### §9.1 Pass A — public entry point and delegation

@@ -493,7 +493,7 @@ lowering cannot express (forward plan §5). ADR-0045 accepts the persisted, vali
 condition catalog and the BDD predecessor-compatibility screen. ADR-0085 accepts the general allowance,
 with occurrence-keyed atoms and a rendering-only DNF.
 
-> Decision: ADR-0005, ADR-0045, ADR-0085
+> Decision: ADR-0106, ADR-0045, ADR-0085
 
 <a id="section-b11"></a>
 
@@ -508,7 +508,7 @@ with occurrence-keyed atoms and a rendering-only DNF.
   under mechanical grounding) needs an ADR triggered by the §12 gap metric.
 - **No generative model ever runs in the query path.**
 
-> Decision: ADR-0005
+> Decision: ADR-0106
 
 <a id="section-b12"></a>
 
