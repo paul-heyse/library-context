@@ -707,7 +707,7 @@ impl InvariantCheck for EntityCheck {
 pub fn stage() -> stages::Stage {
     stages::Stage {
         name: "normalize_entities",
-        inputs: EntityData::stage_inputs(),
+        inputs: super::facts_stage_inputs(EntityData::stage_inputs()),
         outputs: super::entities::relations()
             .iter()
             .map(stages::RelationUse::of_relation)
@@ -721,3 +721,5 @@ pub fn stage() -> stages::Stage {
         configuration: ContentHash::of(b"entities/v1"),
     }
 }
+
+

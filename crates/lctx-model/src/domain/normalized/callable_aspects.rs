@@ -270,9 +270,26 @@ pub fn relations()->Vec<Relation> {macro_rules! declare {($($f:ident:$ty:ty,)*)=
 pub fn invariants()->Vec<Invariant> {let mut inputs=AspectData::inputs();inputs.extend(AspectOutput::inputs());vec![Invariant {name:"normalized_callable_aspects",inputs,create:std::sync::Arc::new(|budget|Box::new(Check {data:AspectData::new(budget),out:AspectOutput::new(budget),budget:budget.clone()}))}]}
 struct Check {data:AspectData,out:AspectOutput,budget:ResourceBudget}
 impl InvariantCheck for Check {fn visit(&mut self,name:&str,batch:&arrow_array::RecordBatch)->Result<(),ModelError> {if !self.data.visit(name,batch)? && !self.out.visit(name,batch)? {return Err(invalid("undeclared aspect validation input"));}Ok(())}fn finish(self:Box<Self>)->Result<(),ModelError> {self.out.matches(&normalize(&self.data,&self.budget)?)} }
-pub fn stage(profile:stages::Profile)->stages::Stage {
-    let mut inputs=super::event_normalization::stage(profile).inputs;inputs.extend(AspectData::stage_inputs());
-    macro_rules! previous {($($f:ident:$ty:ty,)*)=>{$(inputs.push(stages::RelationUse::stored::<$ty>());)*};}crate::normalized_callable_outputs!(previous);
-    inputs.sort_by_key(|r|r.name());inputs.dedup_by_key(|r|r.name());
-    stages::Stage {name:"normalize_callable_aspects",inputs,outputs:relations().iter().map(stages::RelationUse::of_relation).collect(),contributes:vec![],coverage:vec![],provider:None,profiles:vec![profile],effect:stages::Effect::Pure,code:ContentHash::of(include_bytes!("callable_aspects.rs")),configuration:ContentHash::of(b"metadata-only/v1")}
+pub fn stage(profile: stages::Profile) -> stages::Stage {
+    let mut inputs = super::event_normalization::stage(profile).inputs;
+    inputs.extend(AspectData::stage_inputs());
+    macro_rules! previous {($($f:ident:$ty:ty,)*)=>{$(inputs.push(stages::RelationUse::stored::<$ty>());)*};}
+    crate::normalized_callable_outputs!(previous);
+    inputs.sort_by_key(|r| r.name());
+    inputs.dedup_by_key(|r| r.name());
+    stages::Stage {
+        name: "normalize_callable_aspects",
+        inputs: crate::domain::normalized::facts_stage_inputs(inputs),
+        outputs: relations()
+            .iter()
+            .map(stages::RelationUse::of_relation)
+            .collect(),
+        contributes: vec![],
+        coverage: vec![],
+        provider: None,
+        profiles: vec![profile],
+        effect: stages::Effect::Pure,
+        code: ContentHash::of(include_bytes!("callable_aspects.rs")),
+        configuration: ContentHash::of(b"metadata-only/v1"),
+    }
 }

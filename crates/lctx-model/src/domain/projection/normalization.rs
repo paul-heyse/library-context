@@ -806,7 +806,7 @@ pub fn stage(profile: stages::Profile) -> stages::Stage {
     inputs.dedup_by_key(|r| r.name());
     stages::Stage {
         name: "normalize_projections",
-        inputs,
+        inputs: crate::domain::normalized::facts_stage_inputs(inputs),
         outputs: super::relations()
             .iter()
             .map(stages::RelationUse::of_relation)
@@ -1148,3 +1148,5 @@ mod tests {
         assert_eq!(budget.reserved(), 0);
     }
 }
+
+

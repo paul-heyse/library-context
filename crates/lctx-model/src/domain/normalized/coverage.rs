@@ -511,7 +511,7 @@ pub fn stage(profile: Profile) -> Stage {
     inputs.dedup_by_key(|r| r.name());
     Stage {
         name: "normalize_coverage",
-        inputs,
+        inputs: super::facts_stage_inputs(inputs),
         outputs: relations().iter().map(RelationUse::of_relation).collect(),
         contributes: vec![],
         coverage: vec![],
@@ -522,3 +522,5 @@ pub fn stage(profile: Profile) -> Stage {
         configuration: ContentHash::of(b"normalization-coverage/v1"),
     }
 }
+
+

@@ -46,3 +46,10 @@ pub fn relations() -> Vec<Relation> {
     relations.extend(coverage::relations());
     relations
 }
+
+
+
+/// Every facts-derived normalization declaration pins vocabulary after its entire input assembly.
+pub fn facts_stage_inputs(inputs:Vec<stages::RelationUse>)->Vec<stages::RelationUse>{
+ let mut inputs=inputs.into_iter().map(|input|if stages::is_vocabulary(input.name()){input.at_epoch(stages::PublicationBoundary::Facts)}else{input}).collect::<Vec<_>>();inputs.sort_by_key(|input|input.name());inputs.dedup_by_key(|input|input.name());inputs
+}

@@ -28,9 +28,11 @@ pub struct CheckedStability {witness:StabilityWitness,parameter:Id<crate::domain
 impl CheckedStability {pub fn witness(&self)->&StabilityWitness{&self.witness} pub(crate) fn root(&self)->Id<PlaceRoot>{self.root}}
 impl StabilityWitness {
     pub fn derive(data:&EntryData,atom:Id<EvaluationAtom>,entry:&DerivedEntryValue)->Result<CheckedStability,ObligationKind> {
+
         let guard=data.atoms.get(atom).ok_or(ObligationKind::MissingEvidence)?;
         let predicate=data.predicates.get(guard.predicate).ok_or(ObligationKind::MissingEvidence)?;
         let basis=StabilityBasis::ParameterOnlyReaching;if !basis.eligible(predicate){return Err(ObligationKind::ConditionTransferUnsupported);}
+        match entry.source(){EntryAccessSource::Value{..}=>return Err(ObligationKind::EntryValueUnknown),EntryAccessSource::Guard{observation,..}=>{let leaf=data.leaves.get(*observation).ok_or(ObligationKind::MissingEvidence)?;if leaf.atom!=atom{return Err(ObligationKind::EntryValueUnknown);}},EntryAccessSource::Use{..}=>return Err(ObligationKind::EntryValueUnknown)}
         let ParameterEntity::Source{declaration}=data.formals.get(entry.witness().formal).ok_or(ObligationKind::MissingEvidence)? else{return Err(ObligationKind::EntryValueUnknown)};
         let root=PlaceRoot::Formal{declaration:*declaration};let place=Place{root:root.id(),path:AccessPath::empty().id()};
         let read=data.occurrences.get(entry.witness().access).ok_or(ObligationKind::MissingEvidence)?;let evaluation=data.occurrences.get(guard.evaluation).ok_or(ObligationKind::MissingEvidence)?;
@@ -72,29 +74,29 @@ pub struct GuardSubstitution {
     #[model(key)] pub qualification:Id<AssertionQualification>,
 }
 pub fn stability_invariants()->Vec<Invariant> {
-    let mut inputs=EntryData::validation_inputs();inputs.extend([ValidationInput::of::<EntryValueWitness>(&["id"]),ValidationInput::of::<StabilityWitness>(&["id"])]);
-    vec![Invariant{name:"entry_guard_stability_replay",inputs,create:std::sync::Arc::new(|budget|Box::new(EntryStabilityCheck{data:EntryData::new(budget),entries:Rows::new(budget),witnesses:Rows::new(budget),budget:budget.clone()}))}]
+    let mut inputs=EntryData::validation_inputs();inputs.extend([ValidationInput::of::<EntryValueWitness>(&["id"]),ValidationInput::of::<EntryAccessSource>(&["id"]),ValidationInput::of::<StabilityWitness>(&["id"])]);
+    vec![Invariant{name:"entry_guard_stability_replay",inputs,create:std::sync::Arc::new(|budget|Box::new(EntryStabilityCheck{data:EntryData::new(budget),entries:Rows::new(budget),sources:Rows::new(budget),witnesses:Rows::new(budget),budget:budget.clone()}))}]
 }
-struct EntryStabilityCheck {data:EntryData,entries:Rows<EntryValueWitness>,witnesses:Rows<StabilityWitness>,budget:resources::ResourceBudget}
-fn check_stability(data:&EntryData,entries:&Rows<EntryValueWitness>,witnesses:&Rows<StabilityWitness>,budget:&resources::ResourceBudget)->Result<(),ModelError>{
-    for row in witnesses.iter(){let stored=entries.get(row.entry).ok_or_else(||invalid("stability entry absent"))?;let entry=EntryValueWitness::derive(data,stored.request(),budget)?.map_err(|_|invalid("stability entry refused"))?;if entry.witness()!=stored{return Err(invalid("stored entry witness differs from replay"));}let proof=StabilityWitness::derive(data,row.atom,&entry).map_err(|_|invalid("stability predicate or access refused"))?;if proof.witness()!=row{return Err(invalid("stored stability witness differs from replay"));}}Ok(())
+struct EntryStabilityCheck {data:EntryData,entries:Rows<EntryValueWitness>,sources:Rows<EntryAccessSource>,witnesses:Rows<StabilityWitness>,budget:resources::ResourceBudget}
+fn check_stability(data:&EntryData,entries:&Rows<EntryValueWitness>,sources:&Rows<EntryAccessSource>,witnesses:&Rows<StabilityWitness>,budget:&resources::ResourceBudget)->Result<(),ModelError>{
+    for row in witnesses.iter(){let stored=entries.get(row.entry).ok_or_else(||invalid("stability entry absent"))?;let entry=EntryValueWitness::derive_for(data,stored.request(),sources.get(stored.access_source).ok_or_else(||invalid("entry source absent"))?,budget)?.map_err(|_|invalid("stability entry refused"))?;if entry.witness()!=stored{return Err(invalid("stored entry witness differs from replay"));}let proof=StabilityWitness::derive(data,row.atom,&entry).map_err(|_|invalid("stability predicate or access refused"))?;if proof.witness()!=row{return Err(invalid("stored stability witness differs from replay"));}}Ok(())
 }
 impl InvariantCheck for EntryStabilityCheck {
-    fn visit(&mut self,name:&str,batch:&arrow_array::RecordBatch)->Result<(),ModelError>{if self.data.visit(name,batch)?{Ok(())}else if name==EntryValueWitness::NAME{self.entries.decode(batch)}else if name==StabilityWitness::NAME{self.witnesses.decode(batch)}else{Err(invalid("undeclared entry stability input"))}}
-    fn finish(self:Box<Self>)->Result<(),ModelError>{check_stability(&self.data,&self.entries,&self.witnesses,&self.budget)}
+    fn visit(&mut self,name:&str,batch:&arrow_array::RecordBatch)->Result<(),ModelError>{if self.data.visit(name,batch)?{Ok(())}else if name==EntryValueWitness::NAME{self.entries.decode(batch)}else if name==EntryAccessSource::NAME{self.sources.decode(batch)}else if name==StabilityWitness::NAME{self.witnesses.decode(batch)}else{Err(invalid("undeclared entry stability input"))}}
+    fn finish(self:Box<Self>)->Result<(),ModelError>{check_stability(&self.data,&self.entries,&self.sources,&self.witnesses,&self.budget)}
 }
 pub fn guard_substitution_invariants()->Vec<Invariant> {
-    let mut inputs=EntryData::validation_inputs();inputs.extend(BindingData::validation_inputs());inputs.extend(BindingOutput::validation_inputs());inputs.extend([ValidationInput::of::<EntryValueWitness>(&["id"]),ValidationInput::of::<StabilityWitness>(&["id"]),ValidationInput::of::<GuardSubstitution>(&["id"]),ValidationInput::of::<crate::domain::transfer::summary::ControlInfluence>(&["id"])]);
+    let mut inputs=EntryData::validation_inputs();inputs.extend(BindingData::validation_inputs());inputs.extend(BindingOutput::validation_inputs());inputs.extend([ValidationInput::of::<EntryValueWitness>(&["id"]),ValidationInput::of::<EntryAccessSource>(&["id"]),ValidationInput::of::<StabilityWitness>(&["id"]),ValidationInput::of::<GuardSubstitution>(&["id"]),ValidationInput::of::<crate::domain::transfer::summary::ControlInfluence>(&["id"])]);
     inputs.sort_by_key(|i|(i.name(),i.prefix().map(|p|p.code())));inputs.dedup_by_key(|i|(i.name(),i.prefix().map(|p|p.code())));
-    vec![Invariant{name:"guard_substitution_replay",inputs,create:std::sync::Arc::new(|budget|Box::new(StabilityCheck{entry:EntryData::new(budget),bindings:BindingData::new(budget),bound:BindingOutput::new(budget),entries:Rows::new(budget),witnesses:Rows::new(budget),substitutions:Rows::new(budget),influences:Rows::new(budget),budget:budget.clone()}))}]
+    vec![Invariant{name:"guard_substitution_replay",inputs,create:std::sync::Arc::new(|budget|Box::new(StabilityCheck{entry:EntryData::new(budget),bindings:BindingData::new(budget),bound:BindingOutput::new(budget),entries:Rows::new(budget),sources:Rows::new(budget),witnesses:Rows::new(budget),substitutions:Rows::new(budget),influences:Rows::new(budget),budget:budget.clone()}))}]
 }
-struct StabilityCheck {entry:EntryData,bindings:BindingData,bound:BindingOutput,entries:Rows<EntryValueWitness>,witnesses:Rows<StabilityWitness>,substitutions:Rows<GuardSubstitution>,influences:Rows<crate::domain::transfer::summary::ControlInfluence>,budget:resources::ResourceBudget}
+struct StabilityCheck {entry:EntryData,bindings:BindingData,bound:BindingOutput,entries:Rows<EntryValueWitness>,sources:Rows<EntryAccessSource>,witnesses:Rows<StabilityWitness>,substitutions:Rows<GuardSubstitution>,influences:Rows<crate::domain::transfer::summary::ControlInfluence>,budget:resources::ResourceBudget}
 fn invalid(message:&str)->ModelError{ModelError::Invalid(message.into())}
 impl InvariantCheck for StabilityCheck {
     fn visit(&mut self,name:&str,batch:&arrow_array::RecordBatch)->Result<(),ModelError>{
         let mut found=self.entry.visit(name,batch)?;if !stages::is_vocabulary(name){found|=self.bindings.visit(name,batch)?;}found|=self.bound.visit(name,batch)?;
         macro_rules! rows {($field:ident,$ty:ty)=>{if name==<$ty>::NAME{self.$field.decode(batch)?;found=true;}};}
-        rows!(entries,EntryValueWitness);rows!(witnesses,StabilityWitness);rows!(substitutions,GuardSubstitution);rows!(influences,crate::domain::transfer::summary::ControlInfluence);
+        rows!(entries,EntryValueWitness);rows!(sources,EntryAccessSource);rows!(witnesses,StabilityWitness);rows!(substitutions,GuardSubstitution);rows!(influences,crate::domain::transfer::summary::ControlInfluence);
         if found{Ok(())}else{Err(invalid("undeclared stability input"))}
     }
     fn visit_input(&mut self,input:&ValidationInput,batch:&arrow_array::RecordBatch)->Result<(),ModelError>{
@@ -105,10 +107,10 @@ impl InvariantCheck for StabilityCheck {
         }
     }
     fn finish(self:Box<Self>)->Result<(),ModelError>{
-        check_stability(&self.entry,&self.entries,&self.witnesses,&self.budget)?;
+        check_stability(&self.entry,&self.entries,&self.sources,&self.witnesses,&self.budget)?;
         let verified=if self.substitutions.is_empty(){None}else{Some(crate::domain::normalized::binding_normalization::verify(&self.bindings,&self.bound,&self.budget)?)};
         for row in self.substitutions.iter(){
-            let witness=self.witnesses.get(row.witness).ok_or_else(||invalid("substitution witness absent"))?;let stored=self.entries.get(witness.entry).ok_or_else(||invalid("stability entry absent"))?;let entry=EntryValueWitness::derive(&self.entry,stored.request(),&self.budget)?.map_err(|_|invalid("stability entry refused"))?;let stability=StabilityWitness::derive(&self.entry,witness.atom,&entry).map_err(|_|invalid("stability refused"))?;
+            let witness=self.witnesses.get(row.witness).ok_or_else(||invalid("substitution witness absent"))?;let stored=self.entries.get(witness.entry).ok_or_else(||invalid("stability entry absent"))?;let entry=EntryValueWitness::derive_for(&self.entry,stored.request(),self.sources.get(stored.access_source).ok_or_else(||invalid("entry source absent"))?,&self.budget)?.map_err(|_|invalid("stability entry refused"))?;let stability=StabilityWitness::derive(&self.entry,witness.atom,&entry).map_err(|_|invalid("stability refused"))?;
             let binding=self.bound.bindings.get(row.binding).ok_or_else(||invalid("substitution binding absent"))?;let attempt=self.bound.attempts.get(binding.attempt).ok_or_else(||invalid("substitution attempt absent"))?;let checked=verified.as_ref().and_then(|v|v.bound(binding.attempt)).ok_or_else(||invalid("substitution binding is not replayed"))?;
             let slot=self.bindings.callable_slots.get(binding.slot).ok_or_else(||invalid("binding slot absent"))?;let source=self.bound.sources.get(binding.source).ok_or_else(||invalid("binding source absent"))?;let projection=self.bound.projections.get(binding.projection).ok_or_else(||invalid("binding projection absent"))?;let event=self.bindings.event_events.get(attempt.event).ok_or_else(||invalid("binding event absent"))?;
             let binding=CheckedGuardBinding::derive(checked,binding,slot,source,projection,attempt,event).map_err(|_|invalid("guard binding refused"))?;
@@ -120,3 +122,5 @@ impl InvariantCheck for StabilityCheck {
         Ok(())
     }
 }
+
+

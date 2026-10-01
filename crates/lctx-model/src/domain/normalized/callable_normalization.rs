@@ -791,7 +791,7 @@ pub fn stage(profile: stages::Profile) -> stages::Stage {
     inputs.dedup_by_key(|r| r.name());
     stages::Stage {
         name: "normalize_callables",
-        inputs,
+        inputs: super::facts_stage_inputs(inputs),
         outputs: super::callables::relations()
             .iter()
             .map(stages::RelationUse::of_relation)
@@ -805,3 +805,5 @@ pub fn stage(profile: stages::Profile) -> stages::Stage {
         configuration: ContentHash::of(b"callables/v1"),
     }
 }
+
+

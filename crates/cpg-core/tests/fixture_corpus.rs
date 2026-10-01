@@ -11,6 +11,7 @@ const CASES: &[&str] = &[
     "dictionary_keys",
     "direct_usage",
     "execution_channels",
+    "local_semantics",
     "string_values",
     "_invalid",
     "action_shapes",

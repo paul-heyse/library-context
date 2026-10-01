@@ -16,7 +16,7 @@ use crate::domain::*;
 pub use config::*;
 use family::analysis_family;
 analysis_family!(dispatch,"dispatch",[],[],[],[]);
-analysis_family!(local,"local",[Dispatch:4=>dispatch],[crate::domain::transfer::local::TransferKey],[crate::domain::normalized::coverage::NormalizationCoverage],[]);
+analysis_family!(local,"local",[Dispatch:4=>dispatch],[crate::domain::transfer::local::TransferKey],[crate::domain::normalized::coverage::NormalizationCoverage],[LocalWitness:8=>crate::domain::local_semantics::LocalContribution,LocalGuard:9=>crate::domain::local_semantics::LocalGuardContribution]);
 analysis_family!(base_evaluation,"base_evaluation",[Local:4=>local],[crate::domain::transfer::local::TransferKey],[crate::domain::normalized::coverage::NormalizationCoverage],[BaseExpression:8=>crate::domain::execution::records::ExpressionEvaluation]);
 analysis_family!(base_completion,"base_completion",[BaseEvaluation:4=>base_evaluation,Local:5=>local],[crate::domain::transfer::local::TransferKey],[crate::domain::normalized::coverage::NormalizationCoverage],[BaseStatement:8=>crate::domain::execution::completion_records::StatementCompletion]);
 analysis_family!(source_call,"source_call",[BaseCompletion:4=>base_completion,BaseEvaluation:5=>base_evaluation,Local:6=>local],[crate::domain::transfer::local::TransferKey],[crate::domain::normalized::coverage::NormalizationCoverage],[]);

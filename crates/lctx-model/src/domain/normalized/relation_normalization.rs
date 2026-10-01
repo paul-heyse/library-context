@@ -925,7 +925,7 @@ pub fn stage(profile: stages::Profile) -> stages::Stage {
     }
     stages::Stage {
         name: "normalize_relations",
-        inputs,
+        inputs: super::facts_stage_inputs(inputs),
         outputs: super::links::relations()
             .iter()
             .map(stages::RelationUse::of_relation)
@@ -939,3 +939,5 @@ pub fn stage(profile: stages::Profile) -> stages::Stage {
         configuration: ContentHash::of(b"relations/v1"),
     }
 }
+
+

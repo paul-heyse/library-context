@@ -22,6 +22,7 @@ pub mod flow;
 mod identity;
 pub mod input;
 pub mod lexical;
+pub mod local_semantics;
 pub mod memory;
 mod model;
 pub mod models;
@@ -214,6 +215,7 @@ pub fn analysis_relations() -> Vec<Relation> {
         Relation::of::<transfer::local::ControlSupport>(),
         Relation::of::<transfer::local::Selection>(),
         Relation::of::<conditions::entry::EntryValueWitness>(),
+        Relation::of::<conditions::entry::EntryAccessSource>(),
         Relation::of::<conditions::stability::StabilityWitness>(),
         Relation::of::<conditions::stability::GuardSubstitution>(),
         Relation::of::<transfer::summary::ControlInfluence>(),
@@ -230,6 +232,7 @@ pub fn analysis_relations() -> Vec<Relation> {
     relations.extend(catalog::relations());
     relations.extend(embedding::relations());
     relations.extend(execution::relations());
+    relations.extend(local_semantics::relations());
     relations
 }
 /// The relations a facts generation publishes: inputs, attribution and coverage, provider

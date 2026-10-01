@@ -22,8 +22,8 @@ _Updated 2026-10-01 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
   Integrated N1/G0 PG controls also passed both profiles after correcting the test's frontier scope;
   graph reuse, permit/budget refusal and lifetime controls passed. E1 spec/codec/cache/realization
   foundation controls passed, including real PG configuration; no live embedding claim.
-  B0 entry/transfer prerequisites passed model, native and real PG controls; Local production
-  remains in progress (plan §13.2 receipts). B1 base evaluation/completion records passed 5 native
+  Actual Local publication and Use/Value/Guard entry domains passed 4 PG, 13 native and 22 model
+  controls; behavioral stays Partial, catalog NotRequested. B1 base records passed 5 native
   and 12 model controls; source-call evidence and producers remain pending.
 - **passed, 2026-10-01:** R0 declared validation-view controls in memory and real PostgreSQL:
   earlier/current vocabulary routing, no widening beyond acknowledged grants, malformed-frame

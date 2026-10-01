@@ -461,6 +461,16 @@ Sequential composition is an explicit table in one module, never an order over c
   It does not compose sequentially with value transfers. An influence on an atom guarding a
   transfer yields a first-class **Selection** relationship.
 
+**Implemented, 2026-10-01.** Entry-value witnesses name a typed native execution-domain source.
+Use reads, Value transfers and Guard identity each replay their own exact observation/support pair;
+Value and Guard additionally retain the same-owner statement region. Guard identity must hold
+before both truth arms, while the derived control proposition retains the leaf truth condition.
+A narrower Use proof cannot establish guard stability, and a Value/Guard proof cannot stand in for
+a bare-name evaluation. Binding identity never establishes mutable object-state stability.
+The direct Local producer publishes attributed transfer/control assessments and explicit unsupported
+boundaries; catalog compilation publishes NotRequested without requesting Flow. Its broader
+behavioral domain remains Partial pending the remaining B0–B3 operators.
+
 **Open calls and alternatives**
 - **A value crossing an unresolved or unsummarized call** is not a transfer kind. It is an obligation
   (§15.8), so nothing is inferred through an unknown callee.

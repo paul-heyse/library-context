@@ -48,22 +48,81 @@ async fn native_closed_expressions_skip_unentered_operands_and_preserve_limits()
 #[tokio::test]
 async fn name_evaluation_needs_the_exact_private_entry_proof_and_retains_its_allowance() {
     use lctx_model::domain::{conditions::entry::*, normalized::entities::*};
-    let (data,entries,budget)=data().await;
-    let read=data.occurrences.iter().find(|o|o.syntax_kind==SyntaxKind::ExprName && o.role==OccurrenceRole::Read && {
-        let source=data.artifacts.get(o.source).unwrap();files("execution_channels")[&source.path][o.start as usize..o.end as usize]==*b"value"
-    }).unwrap();
-    let owner=entries.owners.iter().find(|o|o.occurrence==read.id()).unwrap();
+    let (data, entries, budget) = data().await;
+    let read = data
+        .occurrences
+        .iter()
+        .find(|o| {
+            o.syntax_kind == SyntaxKind::ExprName && o.role == OccurrenceRole::Read && {
+                let source = data.artifacts.get(o.source).unwrap();
+                files("execution_channels")[&source.path][o.start as usize..o.end as usize]
+                    == *b"value"
+            }
+        })
+        .unwrap();
+    let owner = entries
+        .owners
+        .iter()
+        .find(|o| o.occurrence == read.id())
+        .unwrap();
     let formal=entries.formals.iter().find(|formal|matches!(formal,ParameterEntity::Source{declaration} if entries.occurrences.get(*declaration).is_some_and(|o|o.structural_path.starts_with(&entries.occurrences.get(owner.owner).unwrap().structural_path)))).unwrap();
-    let use_=entries.uses.iter().find(|u|u.occurrence==read.id()).unwrap();
-    let observation=entries.use_observations.iter().find(|o|o.use_==use_.id()).unwrap();
-    let run=entries.use_supports.iter().find(|s|s.assertion==observation.id()).unwrap().run;
-    let context=entries.runs.get(run).unwrap().context;
-    let request=ExpressionRequest {input:data.artifacts.get(read.source).unwrap().input,context,owner:owner.entity,expression:read.id()};
-    assert!(evaluate(&data,request,&budget).unwrap().is_err());
-    let entry=EntryValueWitness::derive(&entries,EntryRequest{owner:owner.entity,formal:formal.id(),access:read.id(),context,run},&budget).unwrap().unwrap();
-    let result=evaluate_with_entries(&data,request,&[&entry],&budget).unwrap().unwrap();
-    assert_eq!(result.release(),ReleaseSafety::CallerRetained);assert_eq!(result.entry_premises(),&[entry.witness().id()]);
-    let reservation=budget.reserved();drop(entry);assert_eq!(budget.reserved(),reservation);drop(result);assert!(budget.reserved()<reservation);
+    let use_ = entries
+        .uses
+        .iter()
+        .find(|u| u.occurrence == read.id())
+        .unwrap();
+    let observation = entries
+        .use_observations
+        .iter()
+        .find(|o| o.use_ == use_.id())
+        .unwrap();
+    let run = entries
+        .use_supports
+        .iter()
+        .find(|s| s.assertion == observation.id())
+        .unwrap()
+        .run;
+    let context = entries.runs.get(run).unwrap().context;
+    let request = ExpressionRequest {
+        input: data.artifacts.get(read.source).unwrap().input,
+        context,
+        owner: owner.entity,
+        expression: read.id(),
+    };
+    assert!(evaluate(&data, request, &budget).unwrap().is_err());
+    let entry = EntryValueWitness::derive(
+        &entries,
+        EntryRequest {
+            owner: owner.entity,
+            formal: formal.id(),
+            access: read.id(),
+            context,
+            run,
+        },
+        &budget,
+    )
+    .unwrap()
+    .unwrap();
+    // A valid value-domain witness cannot substitute for an exact Use-domain proof.
+    let value = entries.values.iter().find(|value| value.use_ == use_.id()).unwrap();
+    let value_support = entries.value_supports.iter().find(|s| s.assertion == value.id()).unwrap();
+    let entry_request = EntryRequest {
+        owner: owner.entity, formal: formal.id(), access: read.id(), context, run,
+    };
+    let value_source = EntryAccessSource::value(&entries, entry_request, value.id(), value_support.id()).unwrap();
+    let value_entry = EntryValueWitness::derive_for(&entries, entry_request, &value_source, &budget).unwrap().unwrap();
+    assert!(evaluate_with_entries(&data, request, &[&value_entry], &budget).unwrap().is_err());
+    drop(value_entry);
+    let result = evaluate_with_entries(&data, request, &[&entry], &budget)
+        .unwrap()
+        .unwrap();
+    assert_eq!(result.release(), ReleaseSafety::CallerRetained);
+    assert_eq!(result.entry_premises(), &[entry.witness().id()]);
+    let reservation = budget.reserved();
+    drop(entry);
+    assert_eq!(budget.reserved(), reservation);
+    drop(result);
+    assert!(budget.reserved() < reservation);
 }
 
 #[tokio::test]
@@ -185,3 +244,4 @@ async fn base_completion_stored_replay_rejects_pending_order_and_coupled_proof_f
         let result=check.finish();if mutation==0 {result.unwrap();}else{assert!(result.is_err(),"mutation {mutation}");}
     }
 }
+

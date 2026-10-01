@@ -61,7 +61,7 @@ fn replay_substitution(entry:&EntryData,data:&BindingData,output:&BindingOutput,
  macro_rules! visit_entry {($($field:ident:$ty:ty,)*)=>{$(check.visit(<$ty>::NAME,&<$ty as Record>::encode(&entry.$field.iter().cloned().collect::<Vec<_>>())?)?;)*};}lctx_model::entry_value_inputs!(visit_entry);
  macro_rules! visit_binding {($($field:ident:$ty:ty,)*)=>{$(let input=ValidationInput::of::<$ty>(&["id"]);let input=if stages::is_vocabulary(input.name()){input.at_epoch(stages::PublicationBoundary::Facts)}else{input};check.visit_input(&input,&<$ty as Record>::encode(&data.$field.iter().cloned().collect::<Vec<_>>())?)?;)*};}lctx_model::normalized_binding_inputs!(visit_binding);
  macro_rules! visit_output {($($field:ident:$ty:ty,)*)=>{$(check.visit(<$ty>::NAME,&<$ty as Record>::encode(&output.$field.iter().cloned().collect::<Vec<_>>())?)?;)*};}lctx_model::normalized_binding_outputs!(visit_output);
- check.visit(EntryValueWitness::NAME,&EntryValueWitness::encode(&[derived.witness().clone()])?)?;check.visit(StabilityWitness::NAME,&StabilityWitness::encode(&[stability.witness().clone()])?)?;
+ check.visit(EntryAccessSource::NAME,&<EntryAccessSource as Record>::encode(&[derived.source().clone()])?)?;check.visit(EntryValueWitness::NAME,&EntryValueWitness::encode(&[derived.witness().clone()])?)?;check.visit(StabilityWitness::NAME,&StabilityWitness::encode(&[stability.witness().clone()])?)?;
  check.visit(EvaluationAtom::NAME,&EvaluationAtom::encode(&rebased.atoms)?)?;check.visit(value::Predicate::NAME,&<value::Predicate as Record>::encode(&rebased.predicates)?)?;check.visit(value::PlaceRoot::NAME,&<value::PlaceRoot as Record>::encode(&rebased.roots)?)?;check.visit(value::Place::NAME,&value::Place::encode(&rebased.places)?)?;check.visit(assertion::AssertionQualification::NAME,&assertion::AssertionQualification::encode(&rebased.qualifications)?)?;
  if mutation==4{let input=ValidationInput::of::<value::Place>(&["id"]).at_epoch(stages::PublicationBoundary::Facts);check.visit_input(&input,&value::Place::encode(&rebased.places)?)?;}
  let mut substitutions=rebased.substitutions.clone();if mutation==1{substitutions[0].binding=output.bindings.iter().find(|b|b.id()!=substitutions[0].binding).unwrap().id();}if mutation==2{substitutions[0].source_atom=entry.atoms.iter().find(|a|a.id()!=substitutions[0].source_atom).unwrap().id();}check.visit(GuardSubstitution::NAME,&GuardSubstitution::encode(&substitutions)?)?;
@@ -75,7 +75,7 @@ async fn guard_controls(stored:bool){
  use lctx_model::domain::{value::*,normalized::bindings::CallBinding};
  let (entry_data,data,output,budget)=fixture().await;let verified=binding_normalization::verify(&data,&output,&budget).unwrap();
  for (function,call,class_of) in [("parameter","parameter(None)",false),("method","obj.method()",false),("class_method","obj.class_method()",true)] {
-  let entry=EntryValueWitness::derive(&entry_data,request(&entry_data,function),&budget).unwrap().unwrap();let atom=guard(&entry_data,&entry);let proof=StabilityWitness::derive(&entry_data,atom,&entry).unwrap();
+  let entry=EntryValueWitness::derive(&entry_data,request(&entry_data,function),&budget).unwrap().unwrap();let atom=guard(&entry_data,&entry);let leaf=entry_data.leaves.iter().find(|leaf|leaf.atom==atom).unwrap();let support=entry_data.leaf_supports.iter().find(|support|support.assertion==leaf.id()).unwrap();let source=EntryAccessSource::guard(&entry_data,entry.witness().request(),leaf.id(),support.id()).unwrap();let entry=EntryValueWitness::derive_for(&entry_data,entry.witness().request(),&source,&budget).unwrap().unwrap();let proof=StabilityWitness::derive(&entry_data,atom,&entry).unwrap();
   let row=output.bindings.iter().find(|b|data.callable_slots.get(b.slot).unwrap().parameter==entry.parameter() && text(&entry_data,data.event_events.get(output.attempts.get(b.attempt).unwrap().event).unwrap().site)==call).unwrap();
   let attempt=output.attempts.get(row.attempt).unwrap();let event=data.event_events.get(attempt.event).unwrap();let checked=verified.bound(row.attempt).unwrap();let slot=data.callable_slots.get(row.slot).unwrap();let source=output.sources.get(row.source).unwrap();let projection=output.projections.get(row.projection).unwrap();
   let binding=CheckedGuardBinding::derive(checked,row,slot,source,projection,attempt,event).unwrap();
@@ -104,3 +104,5 @@ async fn native_parameter_bridge_requires_the_exact_first_identifier_and_native_
   assert!(EntryValueWitness::derive(&data,req,&budget).unwrap().is_err(),"bridge mutation {mutation}");
  }
 }
+
+

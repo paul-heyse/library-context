@@ -802,7 +802,7 @@ pub fn stage(profile: stages::Profile) -> stages::Stage {
     }
     stages::Stage {
         name: "normalize_bindings",
-        inputs,
+        inputs: super::facts_stage_inputs(inputs),
         outputs: super::bindings::relations()
             .iter()
             .map(stages::RelationUse::of_relation)
@@ -863,3 +863,5 @@ fn verify_upstream(
     crate::normalized_event_outputs!(event_outputs);
     super::event_normalization::verify(&event_data, &event_output, budget)
 }
+
+

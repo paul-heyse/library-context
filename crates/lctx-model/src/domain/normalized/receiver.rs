@@ -646,7 +646,7 @@ pub fn stage(profile: stages::Profile) -> stages::Stage {
     }
     stages::Stage {
         name: "normalize_receivers",
-        inputs,
+        inputs: super::facts_stage_inputs(inputs),
         outputs: relations()
             .iter()
             .map(stages::RelationUse::of_relation)
@@ -957,3 +957,5 @@ mod tests {
         }
     }
 }
+
+
