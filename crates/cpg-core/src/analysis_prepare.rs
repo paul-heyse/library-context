@@ -23,6 +23,7 @@ pub async fn configuration(access: StageAccess<'_, '_>, attempt: &GenerationAtte
     write!(AnalysisDefinition,configuration.definitions());
     write!(ProjectionDefinition,configuration.projections());
     write!(settings::AnalyticsConfiguration,configuration.analytics());
+    write!(lctx_model::domain::retrieval::RetrievalDefinition,configuration.retrieval());
     output.finish(ProviderOutcome::Complete).await
 }
 

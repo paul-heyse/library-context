@@ -9,6 +9,7 @@ pub struct Configuration {
     definitions: Rows<AnalysisDefinition>,
     projections: Rows<ProjectionDefinition>,
     analytics: Rows<super::settings::AnalyticsConfiguration>,
+    retrieval: Rows<crate::domain::retrieval::RetrievalDefinition>,
 }
 impl Configuration {
     pub fn check_budget(&self,budget:&resources::ResourceBudget)->Result<(),ModelError> {
@@ -23,9 +24,11 @@ impl Configuration {
         if !self.analytics.is_empty() {return Err(ModelError::Invalid("analytics configuration already selected".into()));}
         self.analytics.insert(settings)?;Ok(self)
     }
+    pub fn retrieval(&self)->&Rows<crate::domain::retrieval::RetrievalDefinition> {&self.retrieval}
+    pub fn with_retrieval(mut self,definition:crate::domain::retrieval::RetrievalDefinition)->Result<Self,ModelError> {definition.validate()?;if !self.retrieval.is_empty() {return Err(ModelError::Invalid("retrieval configuration already selected".into()));}self.retrieval.insert(definition)?;Ok(self)}
     pub fn projections(&self)->&Rows<ProjectionDefinition> {&self.projections}
     pub fn new(catalog: &Catalog, definitions: impl IntoIterator<Item=(MethodParameters,AnalysisDefinition)>, budget: &resources::ResourceBudget) -> Result<Self,ModelError> {
-        let mut rows=Self {budget:budget.clone(),catalogs:CatalogRecords::new(budget),parameters:Rows::new(budget),definitions:Rows::new(budget),projections:Rows::new(budget),analytics:Rows::new(budget)};
+        let mut rows=Self {budget:budget.clone(),catalogs:CatalogRecords::new(budget),parameters:Rows::new(budget),definitions:Rows::new(budget),projections:Rows::new(budget),analytics:Rows::new(budget),retrieval:Rows::new(budget)};
         rows.catalogs.insert_borrowed(catalog)?;
         for (parameters,definition) in definitions {
             parameters.validate()?; definition.validate()?;
@@ -43,6 +46,7 @@ impl Configuration {
         for row in self.definitions.iter() {row.id().encode(&mut key);}
         for row in self.projections.iter() {row.id().encode(&mut key);}
         for row in self.analytics.iter() {row.id().encode(&mut key);}
+        for row in self.retrieval.iter() {row.id().encode(&mut key);}
         Stage {name:"analysis_configuration",inputs:vec![],outputs:configuration_relations().iter().map(RelationUse::of_relation).collect(),
             contributes:vec![],coverage:vec![],provider:None,profiles:Profile::ALL.to_vec(),effect:Effect::Pure,
             code:ContentHash::of(include_bytes!("preparation.rs")),configuration:key.finish()}
@@ -50,7 +54,7 @@ impl Configuration {
 }
 pub fn configuration_relations()->Vec<Relation> {
     let mut rows=models::records::relations();
-    rows.extend([Relation::of::<MethodParameters>(),Relation::of::<AnalysisDefinition>(),Relation::of::<ProjectionDefinition>(),Relation::of::<super::settings::AnalyticsConfiguration>()]);rows
+    rows.extend([Relation::of::<MethodParameters>(),Relation::of::<AnalysisDefinition>(),Relation::of::<ProjectionDefinition>(),Relation::of::<super::settings::AnalyticsConfiguration>(),Relation::of::<crate::domain::retrieval::RetrievalDefinition>()]);rows
 }
 /// Native attribution validation and its nominal reference closure are facts-owned. Bind every
 /// vocabulary read to the facts prefix even when later consumers add further vocabulary.

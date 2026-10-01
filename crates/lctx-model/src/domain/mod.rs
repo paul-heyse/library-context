@@ -34,6 +34,7 @@ pub mod place_composition;
 pub mod projection;
 mod record;
 pub mod resources;
+pub mod retrieval;
 pub mod selection;
 pub mod structural;
 pub mod synthesis;
@@ -234,6 +235,7 @@ pub fn analysis_relations() -> Vec<Relation> {
     relations.extend(analysis::relations());
     relations.extend(catalog::relations());
     relations.extend(selection::relations());
+    relations.extend(retrieval::relations());
     relations.extend(structural::relations());
     relations.extend(embedding::relations());
     relations.extend(execution::relations());

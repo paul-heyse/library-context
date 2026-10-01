@@ -3,7 +3,6 @@
 _Updated 2026-10-01 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
 ## Agent workflows (2026-09-30)
-
 - **Implemented (ADR-0109):** [shared roles](.agents/roles/README.md) and skills use selective delegation, task-specific context, explicit escalation and the agreed stronger review defaults.
 
 ## Phase 4 execution (2026-10-01)
@@ -33,9 +32,11 @@ _Updated 2026-10-01 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
   profiles, including complete seal/model validation. E1 consumption then passed five pure and
   three actual PG controls across four availability cases; external effects used a contract fixture,
   so live-service behavior is not_run. A0 usage and A1 neighbour/rank/concept kernels passed; nominal
-  publication, E0 and cross-consumer integration remain open. Delegation and projection-v3
+  publication remains open. E0 rendering/consumed-value replay passed 12 pure + 2 PG controls; final
+  S0/E0 publication remains open. Delegation and projection-v3
   source definitions passed 5 native + 9 model controls; A0 structural publication passed both
-  PG profiles + 2 pure and 12 regression controls. Pass B/C and synthesis conclusions remain open.
+  PG profiles + 2 pure and 12 regression controls. Sealed source conclusions passed 12 model controls;
+  Pass B/C remain open.
 - **passed, 2026-10-01:** integrated C0 catalog (20 pure controls; native catalog plus both
   normalized PG profiles). C1/E1 per-grain coverage contracts passed two pure controls;
   C1 source/document/deployment evidence passed 10 pure, 2 integrated PG and 1 native control;
@@ -74,7 +75,6 @@ _Updated 2026-10-01 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
   collections; no streaming-join, absolute RSS cap or speedup claim is made.
 
 ## Current checks (2026-09-30)
-
 Cargo commands use `python3 scripts/build_environment.py --`. Functional work is committed as `820f548`. Exact commands and raw logs are in
 [Phase 3 qualification evidence](docs/design_review/evidence/2026-09-30_phase3-qualification/README.md).
 
