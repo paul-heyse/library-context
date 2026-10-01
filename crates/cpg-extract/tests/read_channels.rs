@@ -1,6 +1,6 @@
 #[path = "fixtures/transfer_composition.rs"]
 mod fixture;
-#[path = "fixtures/source_execution.rs"]
+#[path = "fixtures/source_data.rs"]
 mod source_fixture;
 use lctx_model::domain::{
     analysis,
@@ -177,23 +177,23 @@ async fn actual_read_inventory_and_complete_negative_are_replayed() {
         macro_rules! put {
             ($ty:ty,$rows:expr) => {
                 check
-                    .visit(<$ty>::NAME, &<$ty as Record>::encode(&$rows).unwrap())
+                    .visit(<$ty>::NAME, &<$ty as Record>::encode(($rows).as_ref()).unwrap())
                     .unwrap()
             };
         }
-        put!(analysis::local::AnalysisInvocation, vec![local.clone()]);
+        put!(analysis::local::AnalysisInvocation, std::slice::from_ref(&local));
         put!(
             analysis::base_evaluation::AnalysisInvocation,
-            vec![invocation.clone()]
+            std::slice::from_ref(&invocation)
         );
-        put!(analysis::AnalysisDefinition, vec![definition.clone()]);
+        put!(analysis::AnalysisDefinition, std::slice::from_ref(&definition));
         put!(
             execution::production::EvaluationRun,
-            vec![records.run.clone()]
+            std::slice::from_ref(&records.run)
         );
         put!(
             analysis::base_evaluation::AnalysisOutcome,
-            vec![records.outcome.clone()]
+            std::slice::from_ref(&records.outcome)
         );
         put!(
             execution::records::ExpressionEvaluation,

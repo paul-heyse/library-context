@@ -529,13 +529,13 @@ async fn base_evaluation_shared_replay_refuses_value_disposal_status_and_coupled
         check
             .visit(
                 AnalysisInvocation::NAME,
-                &AnalysisInvocation::encode(&[invocation.clone()]).unwrap(),
+                &AnalysisInvocation::encode(std::slice::from_ref(&invocation)).unwrap(),
             )
             .unwrap();
         check
             .visit(
                 AnalysisDefinition::NAME,
-                &AnalysisDefinition::encode(&[definition.clone()]).unwrap(),
+                &AnalysisDefinition::encode(std::slice::from_ref(&definition)).unwrap(),
             )
             .unwrap();
         check
@@ -603,18 +603,6 @@ async fn base_completion_stored_replay_rejects_pending_order_and_coupled_proof_f
         .map(|p| data.qualifications.get(p.qualification).unwrap().context)
         .unwrap();
     let input = data.artifacts.get(statement.source).unwrap().input;
-    let parameters = MethodParameters {
-        depth: None,
-        proof_steps: None,
-        work: None,
-        members: None,
-        seed: None,
-        iterations: None,
-        threshold: None,
-        resolution: None,
-        damping: None,
-        model_catalog: None,
-    };
     let (_, definition) = lctx_model::domain::execution::configuration::base_evaluation();
     let (_, completion_definition) =
         lctx_model::domain::execution::configuration::base_completion();
@@ -758,14 +746,14 @@ async fn base_completion_stored_replay_rejects_pending_order_and_coupled_proof_f
         check
             .visit(
                 analysis::base_evaluation::AnalysisInvocation::NAME,
-                &analysis::base_evaluation::AnalysisInvocation::encode(&[eval_invocation.clone()])
+                &analysis::base_evaluation::AnalysisInvocation::encode(std::slice::from_ref(&eval_invocation))
                     .unwrap(),
             )
             .unwrap();
         check
             .visit(
                 analysis::base_completion::AnalysisInvocation::NAME,
-                &analysis::base_completion::AnalysisInvocation::encode(&[invocation.clone()])
+                &analysis::base_completion::AnalysisInvocation::encode(std::slice::from_ref(&invocation))
                     .unwrap(),
             )
             .unwrap();
@@ -773,7 +761,7 @@ async fn base_completion_stored_replay_rejects_pending_order_and_coupled_proof_f
             check
                 .visit(
                     ExpressionEvaluation::NAME,
-                    &ExpressionEvaluation::encode(&[rows.evaluation.clone()]).unwrap(),
+                    &ExpressionEvaluation::encode(std::slice::from_ref(&rows.evaluation)).unwrap(),
                 )
                 .unwrap();
             check
@@ -1000,7 +988,7 @@ async fn base_producer_reconciles_the_entire_root_inventory_and_actual_request_p
         macro_rules! put {
             ($ty:ty,$values:expr) => {
                 checker
-                    .visit(<$ty>::NAME, &<$ty as Record>::encode(&$values).unwrap())
+                    .visit(<$ty>::NAME, &<$ty as Record>::encode(($values).as_ref()).unwrap())
                     .unwrap();
             };
         }
@@ -1008,7 +996,7 @@ async fn base_producer_reconciles_the_entire_root_inventory_and_actual_request_p
         lctx_model::execution_evaluation_inputs!(inputs);
         macro_rules! entry_inputs {($($field:ident:$ty:ty,)*)=>{$(put!($ty,entry.$field.iter().cloned().collect::<Vec<_>>());)*};}
         lctx_model::entry_value_inputs!(entry_inputs);
-        put!(analysis::local::AnalysisInvocation, vec![local.clone()]);
+        put!(analysis::local::AnalysisInvocation, std::slice::from_ref(&local));
         put!(
             publication::AnalysisInvocation,
             if omit_frame {
@@ -1017,7 +1005,7 @@ async fn base_producer_reconciles_the_entire_root_inventory_and_actual_request_p
                 vec![invocation.clone()]
             }
         );
-        put!(analysis::AnalysisDefinition, vec![definition.clone()]);
+        put!(analysis::AnalysisDefinition, std::slice::from_ref(&definition));
         let mut run = output.run.clone();
         let mut boundaries = output.boundaries.iter().cloned().collect::<Vec<_>>();
         if shrink {
@@ -1119,13 +1107,13 @@ async fn base_producer_reconciles_the_entire_root_inventory_and_actual_request_p
         check
             .visit(
                 EvaluationRun::NAME,
-                &<EvaluationRun as Record>::encode(&[unrequested.run.clone()]).unwrap(),
+                &<EvaluationRun as Record>::encode(std::slice::from_ref(&unrequested.run)).unwrap(),
             )
             .unwrap();
         check
             .visit(
                 publication::AnalysisInvocation::NAME,
-                &<publication::AnalysisInvocation as Record>::encode(&[invocation.clone()])
+                &<publication::AnalysisInvocation as Record>::encode(std::slice::from_ref(&invocation))
                     .unwrap(),
             )
             .unwrap();
@@ -1192,7 +1180,7 @@ async fn completion_producer_reconciles_statement_inventory_and_finalizer_order(
     macro_rules! put_captured {
         ($ty:ty,$rows:expr) => {
             captured
-                .visit(<$ty>::NAME, &<$ty as Record>::encode(&$rows).unwrap())
+                .visit(<$ty>::NAME, &<$ty as Record>::encode(($rows).as_ref()).unwrap())
                 .unwrap();
         };
     }
@@ -1202,9 +1190,9 @@ async fn completion_producer_reconciles_statement_inventory_and_finalizer_order(
     lctx_model::entry_value_inputs!(entry_facts);
     put_captured!(
         analysis::AnalysisDefinition,
-        vec![eval_definition.clone(), definition.clone()]
+        [eval_definition.clone(), definition.clone()]
     );
-    put_captured!(earlier::AnalysisInvocation, vec![base.clone()]);
+    put_captured!(earlier::AnalysisInvocation, std::slice::from_ref(&base));
     put_captured!(
         ExpressionEvaluation,
         evaluations.evaluations.iter().cloned().collect::<Vec<_>>()
@@ -1275,7 +1263,7 @@ async fn completion_producer_reconciles_statement_inventory_and_finalizer_order(
         macro_rules! put {
             ($ty:ty,$rows:expr) => {
                 check
-                    .visit(<$ty>::NAME, &<$ty as Record>::encode(&$rows).unwrap())
+                    .visit(<$ty>::NAME, &<$ty as Record>::encode(($rows).as_ref()).unwrap())
                     .unwrap();
             };
         }
@@ -1285,9 +1273,9 @@ async fn completion_producer_reconciles_statement_inventory_and_finalizer_order(
         lctx_model::entry_value_inputs!(entry_facts);
         put!(
             analysis::AnalysisDefinition,
-            vec![eval_definition.clone(), definition.clone()]
+            [eval_definition.clone(), definition.clone()]
         );
-        put!(earlier::AnalysisInvocation, vec![base.clone()]);
+        put!(earlier::AnalysisInvocation, std::slice::from_ref(&base));
         put!(
             publication::AnalysisInvocation,
             if omit_frame {
@@ -1383,13 +1371,13 @@ async fn completion_producer_reconciles_statement_inventory_and_finalizer_order(
         check
             .visit(
                 CompletionRun::NAME,
-                &CompletionRun::encode(&[unrequested.run.clone()]).unwrap(),
+                &CompletionRun::encode(std::slice::from_ref(&unrequested.run)).unwrap(),
             )
             .unwrap();
         check
             .visit(
                 publication::AnalysisInvocation::NAME,
-                &publication::AnalysisInvocation::encode(&[invocation.clone()]).unwrap(),
+                &publication::AnalysisInvocation::encode(std::slice::from_ref(&invocation)).unwrap(),
             )
             .unwrap();
         check.finish(&[], profile)

@@ -1358,7 +1358,7 @@ async fn protocol_construction_uses_allocated_receiver_and_retains_every_native_
             matches!(construction.entry_value(), ContextValue::None),
             none
         );
-        assert!(construction.premises().len() > 0);
+        assert!(!construction.premises().is_empty());
         assert_eq!(construction.resource().class, class.id());
         assert!(
             CheckedContextConstruction::derive(

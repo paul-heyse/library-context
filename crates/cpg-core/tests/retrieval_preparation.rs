@@ -1,6 +1,8 @@
 //! Scoped E0 mandatory helper qualification with actual native owners and disposable PG18.
 #[path = "fixtures/catalog_runtime.rs"]
 mod catalog_runtime;
+#[path = "fixtures/catalog_schedule.rs"]
+mod catalog_schedule;
 use cpg_core::model_runtime::{AttemptRuntime, RuntimeOptions};
 use cpg_extract::{
     acquisition::AcquiredInput,
@@ -122,7 +124,7 @@ async fn mandatory_four_family_preparation_uses_completed_native_catalog_sources
         },
     ]);
     declarations.extend(catalog_runtime::stages(profile, &model));
-    let schedule = catalog_runtime::schedule(&model, declarations, profile);
+    let schedule = catalog_schedule::schedule(&model, declarations, profile);
     assert!(
         !schedule
             .stages()

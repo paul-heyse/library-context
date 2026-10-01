@@ -4,7 +4,6 @@ mod typed_driver;
 use lctx_model::domain::{
     analysis::{self, local, native::*},
     assertion::*,
-    flow::*,
     local_semantics::*,
     normalized::entity_normalization,
     obligation::ObligationKind,
@@ -66,7 +65,7 @@ async fn fixture() -> (
     for row in inventory.qualifications.iter() {
         data.native.insert(row.clone()).unwrap();
     }
-    let (parameters, definition) = lctx_model::domain::local_semantics::definition();
+    let (_, definition) = lctx_model::domain::local_semantics::definition();
     let run = data
         .entry
         .runs
@@ -166,7 +165,7 @@ fn replay(
     lctx_model::local_semantic_inputs!(input);
     check.visit(
         local::AnalysisInvocation::NAME,
-        &local::AnalysisInvocation::encode(&[invocation.clone()])?,
+        &local::AnalysisInvocation::encode(std::slice::from_ref(invocation))?,
     )?;
     let mut contributions = rows.contributions.iter().cloned().collect::<Vec<_>>();
     let mut guards = rows.guards.iter().cloned().collect::<Vec<_>>();
@@ -287,11 +286,11 @@ fn entry_replay(
     lctx_model::entry_value_inputs!(input);
     check.visit(
         conditions::entry::EntryAccessSource::NAME,
-        &<conditions::entry::EntryAccessSource as Record>::encode(&[source.clone()])?,
+        &<conditions::entry::EntryAccessSource as Record>::encode(std::slice::from_ref(source))?,
     )?;
     check.visit(
         conditions::entry::EntryValueWitness::NAME,
-        &conditions::entry::EntryValueWitness::encode(&[witness.clone()])?,
+        &conditions::entry::EntryValueWitness::encode(std::slice::from_ref(witness))?,
     )?;
     check.finish()
 }
@@ -644,7 +643,7 @@ fn replay_theory(
     lctx_model::local_theory_inputs!(inventory);
     check.visit(
         local::AnalysisInvocation::NAME,
-        &local::AnalysisInvocation::encode(&[invocation.clone()])?,
+        &local::AnalysisInvocation::encode(std::slice::from_ref(invocation))?,
     )?;
     macro_rules! output{($($field:ident:$ty:ty,)*)=>{$({let mut rows=records.$field.iter().cloned().collect::<Vec<_>>();if <$ty>::NAME==TypeDomain::NAME&&mutation==1{let mut typed=TypeDomain::decode(&<$ty as Record>::encode(&rows)?)?;let open=typed.iter_mut().find(|d|d.completeness==DomainCompleteness::OpenClasses).unwrap();open.completeness=DomainCompleteness::FiniteUnderTypingModel;check.visit(<$ty>::NAME,&TypeDomain::encode(&typed)?)?;}else if <$ty>::NAME==TheoryWitness::NAME&&mutation==2{let mut typed=TheoryWitness::decode(&<$ty as Record>::encode(&rows)?)?;let row=typed.iter_mut().find(|row|row.result==PredicateResult::AlwaysFalseUnderTypingModel).unwrap();row.result=PredicateResult::AlwaysTrueUnderTypingModel;check.visit(<$ty>::NAME,&TheoryWitness::encode(&typed)?)?;}else if (<$ty>::NAME==ClassDomainMember::NAME&&mutation==3)||(<$ty>::NAME==BuiltinOperandWitness::NAME&&mutation==4){rows.clear();check.visit(<$ty>::NAME,&<$ty as Record>::encode(&rows)?)?;}else{check.visit(<$ty>::NAME,&<$ty as Record>::encode(&rows)?)?;}})*};}
     lctx_model::local_theory_outputs!(output);
@@ -990,7 +989,7 @@ fn replay_fields(
     lctx_model::local_field_inputs!(fields);
     check.visit(
         local::AnalysisInvocation::NAME,
-        &local::AnalysisInvocation::encode(&[invocation.clone()])?,
+        &local::AnalysisInvocation::encode(std::slice::from_ref(invocation))?,
     )?;
     check.visit(
         conditions::entry::EntryValueWitness::NAME,

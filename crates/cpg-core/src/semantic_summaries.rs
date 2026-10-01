@@ -12,7 +12,7 @@ use lctx_model::domain::{
     *,
 };
 use lctx_postgres::{generations::GenerationAttempt, roles::RoleConfig};
-use std::{collections::BTreeSet, sync::Arc};
+use std::sync::Arc;
 async fn load<R: Record>(
     access: &StageAccess<'_, '_>,
     reader: &AttemptSession,

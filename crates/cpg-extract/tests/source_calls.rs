@@ -7,7 +7,6 @@ use lctx_model::domain::{
     conditions::entry::EntryData,
     execution::{evaluation::EvaluationData, source_call::*},
     obligation::ObligationKind,
-    source::*,
     *,
 };
 #[tokio::test]
@@ -180,15 +179,15 @@ async fn fresh_binding_is_independent_of_body_and_exact_to_admitted_event() {
     macro_rules! earlier {
         ($ty:ty,$rows:expr) => {
             source_data
-                .visit(<$ty>::NAME, &<$ty as Record>::encode(&$rows).unwrap())
+                .visit(<$ty>::NAME, &<$ty as Record>::encode(($rows).as_ref()).unwrap())
                 .unwrap()
         };
     }
     earlier!(
         analysis::base_evaluation::AnalysisInvocation,
-        vec![evaluation_invocation]
+        [evaluation_invocation]
     );
-    earlier!(analysis::AnalysisDefinition, vec![evaluation_definition]);
+    earlier!(analysis::AnalysisDefinition, [evaluation_definition]);
     earlier!(
         execution::records::ExpressionEvaluation,
         evaluations.evaluations.iter().cloned().collect::<Vec<_>>()
@@ -223,9 +222,9 @@ async fn fresh_binding_is_independent_of_body_and_exact_to_admitted_event() {
     .unwrap();
     earlier!(
         analysis::base_completion::AnalysisInvocation,
-        vec![base.clone()]
+        std::slice::from_ref(&base)
     );
-    earlier!(analysis::AnalysisDefinition, vec![base_definition.clone()]);
+    earlier!(analysis::AnalysisDefinition, std::slice::from_ref(&base_definition));
     earlier!(
         execution::body_records::SourceBodyCompletion,
         bodies.bodies.iter().cloned().collect::<Vec<_>>()
@@ -271,22 +270,22 @@ async fn fresh_binding_is_independent_of_body_and_exact_to_admitted_event() {
         macro_rules! put {
             ($ty:ty,$rows:expr) => {
                 check
-                    .visit(<$ty>::NAME, &<$ty as Record>::encode(&$rows).unwrap())
+                    .visit(<$ty>::NAME, &<$ty as Record>::encode(($rows).as_ref()).unwrap())
                     .unwrap()
             };
         }
         put!(
             analysis::source_call::AnalysisInvocation,
-            vec![invocation.clone()]
+            std::slice::from_ref(&invocation)
         );
         put!(
             analysis::base_completion::AnalysisInvocation,
-            vec![base.clone()]
+            std::slice::from_ref(&base)
         );
-        put!(analysis::AnalysisDefinition, vec![definition.clone()]);
+        put!(analysis::AnalysisDefinition, std::slice::from_ref(&definition));
         put!(
             analysis::source_call::AnalysisOutcome,
-            vec![records.outcome.clone()]
+            std::slice::from_ref(&records.outcome)
         );
         put!(
             execution::source_call_records::SourceCallBoundary,
@@ -326,7 +325,7 @@ async fn fresh_binding_is_independent_of_body_and_exact_to_admitted_event() {
             analysis::base_evaluation::AnalysisInvocation,
             vec![evaluations.run.invocation]
                 .into_iter()
-                .map(|id| analysis::base_evaluation::AnalysisInvocation::new(
+                .map(|_| analysis::base_evaluation::AnalysisInvocation::new(
                     request.input,
                     request.context,
                     execution::configuration::base_evaluation().1.id(),
@@ -338,7 +337,7 @@ async fn fresh_binding_is_independent_of_body_and_exact_to_admitted_event() {
         );
         put!(
             analysis::AnalysisDefinition,
-            vec![
+            [
                 execution::configuration::base_evaluation().1,
                 base_definition.clone()
             ]
@@ -381,7 +380,7 @@ async fn fresh_binding_is_independent_of_body_and_exact_to_admitted_event() {
             members.retain(|m| m.header != removed.id());
             run.bound -= 1;
         }
-        put!(execution::source_call_records::SourceCallRun, vec![run]);
+        put!(execution::source_call_records::SourceCallRun, [run]);
         put!(execution::source_call_records::SourceCallHeader, headers);
         put!(execution::source_call_records::HeaderMember, members);
         let result = check.finish();
@@ -399,7 +398,10 @@ async fn retained_source_shapes_preserve_invocation_and_frame_boundaries() {
     let mut data = source_fixture::data(&f);
     let input = f.rows::<input::InputRevision>()[0].id();
     let context = f.data.event_events.iter().next().unwrap().context;
-    let base = source_fixture::base(&mut data, input, context, &f.budget);
+    let base = source_fixture::base_rows_with_entries(
+        &mut data, input, context, &f.budget,
+        &normalized::Rows::new(&f.budget), &normalized::Rows::new(&f.budget),
+    ).0;
     let (_, definition) = execution::configuration::source_calls();
     let parent = analysis::source_call::InvocationSource::BaseCompletion {
         invocation: base.id(),
@@ -924,7 +926,7 @@ async fn modeled_return_replays_every_actual_and_then_releases_the_exact_fresh_s
         macro_rules! put {
             ($ty:ty,$rows:expr) => {
                 check
-                    .visit(<$ty>::NAME, &<$ty as Record>::encode(&$rows).unwrap())
+                    .visit(<$ty>::NAME, &<$ty as Record>::encode(($rows).as_ref()).unwrap())
                     .unwrap()
             };
         }
@@ -951,11 +953,11 @@ async fn modeled_return_replays_every_actual_and_then_releases_the_exact_fresh_s
         );
         put!(
             analysis::enriched_execution::AnalysisInvocation,
-            vec![invocation.clone()]
+            std::slice::from_ref(&invocation)
         );
         put!(
             analysis::enriched_execution::InvocationSource,
-            vec![parent.clone()]
+            std::slice::from_ref(&parent)
         );
         macro_rules! earlier{($($field:ident:$ty:ty,)*)=>{$(put!($ty,data.$field.iter().cloned().collect::<Vec<_>>());)*};}
         earlier! {source_runs:execution::source_call_records::SourceCallRun,source_headers:execution::source_call_records::SourceCallHeader,source_members:execution::source_call_records::HeaderMember,source_boundaries:execution::source_call_records::SourceCallBoundary,source_results:analysis::source_call::AnalysisOutcome,source_calls:execution::source_call_records::SourceInvocation,source_releases:execution::source_call_records::SourceFrameRelease,source_arguments:execution::source_call_records::SourceFrameArgument,source_outcomes:execution::source_call_records::SourceCallOutcome,source_invocation_boundaries:execution::source_call_records::InvocationBoundary,}
@@ -1011,10 +1013,10 @@ async fn modeled_return_replays_every_actual_and_then_releases_the_exact_fresh_s
             run.bodied = 0;
             run.body_refused = 0;
         }
-        put!(execution::enriched_production::ExecutionRun, vec![run]);
+        put!(execution::enriched_production::ExecutionRun, [run]);
         put!(
             analysis::enriched_execution::AnalysisOutcome,
-            vec![output.outcome.clone()]
+            std::slice::from_ref(&output.outcome)
         );
         let result = check.finish();
         assert_eq!(
@@ -1235,26 +1237,26 @@ async fn source_frame_releases_only_exact_bound_externally_held_actuals() {
         macro_rules! put {
             ($ty:ty,$rows:expr) => {
                 check
-                    .visit(<$ty>::NAME, &<$ty as Record>::encode(&$rows).unwrap())
+                    .visit(<$ty>::NAME, &<$ty as Record>::encode(($rows).as_ref()).unwrap())
                     .unwrap()
             };
         }
-        put!(analysis::AnalysisDefinition, vec![definition.clone()]);
+        put!(analysis::AnalysisDefinition, std::slice::from_ref(&definition));
         put!(
             analysis::source_call::AnalysisInvocation,
-            vec![invocation.clone()]
+            std::slice::from_ref(&invocation)
         );
         put!(
             analysis::source_call::InvocationSource,
-            vec![parent.clone()]
+            std::slice::from_ref(&parent)
         );
         put!(
             execution::source_call_records::SourceCallRun,
-            vec![records.run.clone()]
+            std::slice::from_ref(&records.run)
         );
         put!(
             analysis::source_call::AnalysisOutcome,
-            vec![records.outcome.clone()]
+            std::slice::from_ref(&records.outcome)
         );
         macro_rules! outputs{($($field:ident:$ty:ty,)*)=>{$(put!($ty,records.$field.iter().cloned().collect::<Vec<_>>());)*};}
         outputs! {headers:execution::source_call_records::SourceCallHeader,members:execution::source_call_records::HeaderMember,boundaries:execution::source_call_records::SourceCallBoundary,invocations:execution::source_call_records::SourceInvocation,releases:execution::source_call_records::SourceFrameRelease,call_outcomes:execution::source_call_records::SourceCallOutcome,invocation_boundaries:execution::source_call_records::InvocationBoundary,}
@@ -1586,7 +1588,7 @@ async fn ordered_context_execution_replays_actual_entry_body_reverse_exit_and_su
         macro_rules! put {
             ($ty:ty,$rows:expr) => {
                 check
-                    .visit(<$ty>::NAME, &<$ty as Record>::encode(&$rows).unwrap())
+                    .visit(<$ty>::NAME, &<$ty as Record>::encode(($rows).as_ref()).unwrap())
                     .unwrap()
             };
         }
@@ -1613,11 +1615,11 @@ async fn ordered_context_execution_replays_actual_entry_body_reverse_exit_and_su
         );
         put!(
             analysis::enriched_execution::AnalysisInvocation,
-            vec![invocation.clone()]
+            std::slice::from_ref(&invocation)
         );
         put!(
             analysis::enriched_execution::InvocationSource,
-            vec![parent.clone()]
+            std::slice::from_ref(&parent)
         );
         macro_rules! earlier{($($field:ident:$ty:ty,)*)=>{$(put!($ty,data.$field.iter().cloned().collect::<Vec<_>>());)*};}
         earlier! {source_runs:execution::source_call_records::SourceCallRun,source_headers:execution::source_call_records::SourceCallHeader,source_members:execution::source_call_records::HeaderMember,source_boundaries:execution::source_call_records::SourceCallBoundary,source_results:analysis::source_call::AnalysisOutcome,source_calls:execution::source_call_records::SourceInvocation,source_releases:execution::source_call_records::SourceFrameRelease,source_arguments:execution::source_call_records::SourceFrameArgument,source_outcomes:execution::source_call_records::SourceCallOutcome,source_invocation_boundaries:execution::source_call_records::InvocationBoundary,}
@@ -1668,10 +1670,10 @@ async fn ordered_context_execution_replays_actual_entry_body_reverse_exit_and_su
             run.bodied = 0;
             run.body_refused = 0;
         }
-        put!(execution::enriched_production::ExecutionRun, vec![run]);
+        put!(execution::enriched_production::ExecutionRun, [run]);
         put!(
             analysis::enriched_execution::AnalysisOutcome,
-            vec![output.outcome.clone()]
+            std::slice::from_ref(&output.outcome)
         );
         let result = check.finish();
         assert_eq!(

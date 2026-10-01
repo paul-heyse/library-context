@@ -1,6 +1,10 @@
 //! Actual C0/C1/C2 declaration producer qualification through disposable PG18.
 #[path = "fixtures/catalog_runtime.rs"]
 mod catalog_runtime;
+#[path = "fixtures/catalog_schedule.rs"]
+mod catalog_schedule;
+#[path = "fixtures/catalog_selection_controls.rs"]
+mod catalog_selection_controls;
 use cpg_core::model_runtime::{AttemptRuntime, RuntimeOptions};
 use cpg_extract::{
     acquisition::AcquiredInput,
@@ -109,7 +113,7 @@ async fn run(profile: Profile) {
         selection::build::stage(profile, &model).unwrap(),
     ]);
     declarations.extend(catalog_runtime::stages(profile, &model));
-    let schedule = catalog_runtime::schedule(&model, declarations, profile);
+    let schedule = catalog_schedule::schedule(&model, declarations, profile);
     assert!(
         !schedule
             .stages()
@@ -276,7 +280,7 @@ async fn run(profile: Profile) {
                 &mut execution,
                 declaration,
                 async |access| {
-                    catalog_runtime::replay_controls(
+                    catalog_selection_controls::replay_controls(
                         &access, &attempt, &config, &runtime, &model, profile,
                     )
                     .await?;

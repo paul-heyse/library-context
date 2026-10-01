@@ -262,7 +262,7 @@ pub async fn apply(
         )?;
         let records = apply_all(&data, &invocation, definition, profile, budget)?;
         macro_rules! write{($($field:ident,)*)=>{$(for row in records.$field.iter(){output.push(row.clone()).await?;})*};}
-        write! {applications,application_premises,boundaries,targets,rules,channels,operations,resources,paths,action_assessments,action_sources,postconditions,context_transfers,context_resources,context_values,context_postconditions,transfer_witnesses,transfer_keys,transfer_alternatives,transfer_supports,transfer_roots,transfer_places,qualifications,conditions,condition_nodes,subjects,support_sources,derivations,propositions,derivation_premises,}
+        write!(applications,application_premises,boundaries,targets,rules,channels,operations,resources,paths,action_assessments,action_sources,postconditions,context_transfers,context_resources,context_values,context_postconditions,transfer_witnesses,transfer_keys,transfer_alternatives,transfer_supports,transfer_roots,transfer_places,qualifications,conditions,condition_nodes,subjects,support_sources,derivations,propositions,derivation_premises,);
         for scope in coverage.scopes() {
             let (requirement, required) = scope.expectation().records()?;
             output.push(requirement).await?;

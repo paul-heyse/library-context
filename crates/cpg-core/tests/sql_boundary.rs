@@ -24,7 +24,7 @@ async fn quoted_and_injection_shaped_values_are_bound_and_empty_id_lists_select_
         let batches = cpg_core::sql::query(&ctx, "SELECT * FROM typed_names WHERE name = $name").await.unwrap()
             .with_param_values(vec![("name", ScalarValue::Utf8(Some(row.name.clone()))) ]).unwrap().collect().await.unwrap();
         let actual = batches.iter().flat_map(|b| Item::decode(b).unwrap()).collect::<Vec<_>>();
-        assert_eq!(actual, [row.clone()]);
+        assert_eq!(actual.as_slice(), std::slice::from_ref(row));
     }
     for selected in [vec![ScalarValue::FixedSizeBinary(16, Some(rows[1].id().bytes().to_vec()))], vec![]] {
         let expected = if selected.is_empty() { vec![] } else { vec![rows[1].clone()] };

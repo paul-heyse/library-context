@@ -198,14 +198,14 @@ fn guard(data: &EntryData, entry: &DerivedEntryValue) -> Id<EvaluationAtom> {
 }
 fn replay_substitution(
     entry: &EntryData,
-    data: &BindingData,
-    output: &BindingOutput,
+    binding: (&BindingData, &BindingOutput),
     derived: &DerivedEntryValue,
     stability: &CheckedStability,
     rebased: &RebasedGuards,
     mutation: u8,
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
+    let (data, output) = binding;
     let invariant = guard_substitution_invariants().remove(0);
     let mut check = (invariant.create)(budget);
     macro_rules! visit_entry {($($field:ident:$ty:ty,)*)=>{$(check.visit(<$ty>::NAME,&<$ty as Record>::encode(&entry.$field.iter().cloned().collect::<Vec<_>>())?)?;)*};}
@@ -463,8 +463,7 @@ async fn guard_controls(stored: bool) {
         if stored {
             replay_substitution(
                 &entry_data,
-                &data,
-                &output,
+                (&data, &output),
                 &entry,
                 &proof,
                 &rebased,
@@ -476,8 +475,7 @@ async fn guard_controls(stored: bool) {
                 assert!(
                     replay_substitution(
                         &entry_data,
-                        &data,
-                        &output,
+                        (&data, &output),
                         &entry,
                         &proof,
                         &rebased,

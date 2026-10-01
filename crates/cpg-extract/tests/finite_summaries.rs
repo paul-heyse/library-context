@@ -4,7 +4,6 @@ mod fixture;
 use lctx_model::domain::{
     analysis,
     execution::{self, summary_production::*},
-    normalized::Rows,
     projection::{
         self,
         normalization::{ProjectionData, ProjectionKey},
@@ -35,7 +34,7 @@ async fn native_call_paths_reach_caller_returns_and_keep_recursive_boundaries() 
     }
     macro_rules! load {
         ($ty:ty,$rows:expr) => {{
-            let batch = <$ty as Record>::encode(&$rows).unwrap();
+            let batch = <$ty as Record>::encode(($rows).as_ref()).unwrap();
             local.visit(<$ty>::NAME, &batch).unwrap();
             projection.visit(<$ty>::NAME, &batch).unwrap();
             let i = ValidationInput::of::<$ty>(&["id"]);
@@ -74,13 +73,13 @@ async fn native_call_paths_reach_caller_returns_and_keep_recursive_boundaries() 
         analysis::local::AnalysisInvocation::new(input, context, definition.id(), None, []);
     load!(
         analysis::local::AnalysisInvocation,
-        vec![invocation.clone()]
+        std::slice::from_ref(&invocation)
     );
-    load!(analysis::AnalysisDefinition, vec![definition.clone()]);
+    load!(analysis::AnalysisDefinition, std::slice::from_ref(&definition));
     let output = local_semantics::produce(&local, &invocation, &definition, budget).unwrap();
     load!(
         analysis::local::AnalysisOutcome,
-        vec![analysis::local::AnalysisOutcome {
+        [analysis::local::AnalysisOutcome {
             invocation: invocation.id(),
             status: analysis::AnalysisStatus::Partial,
             reason: Some(obligation::ObligationKind::IncompleteDomain)
@@ -323,7 +322,7 @@ async fn native_call_paths_reach_caller_returns_and_keep_recursive_boundaries() 
             macro_rules! emit {
                 ($t:ty,$rows:expr) => {
                     check
-                        .visit(<$t>::NAME, &<$t as Record>::encode(&$rows).unwrap())
+                        .visit(<$t>::NAME, &<$t as Record>::encode(($rows).as_ref()).unwrap())
                         .unwrap();
                 };
             }
@@ -346,9 +345,9 @@ async fn native_call_paths_reach_caller_returns_and_keep_recursive_boundaries() 
             );
             emit!(
                 analysis::summary::AnalysisInvocation,
-                vec![invocation.clone()]
+                std::slice::from_ref(&invocation)
             );
-            emit!(analysis::AnalysisDefinition, vec![d.clone()]);
+            emit!(analysis::AnalysisDefinition, std::slice::from_ref(&d));
             emit!(
                 analysis::MethodParameters,
                 summary.parameters.iter().cloned().collect::<Vec<_>>()

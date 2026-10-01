@@ -837,12 +837,10 @@ impl<'db> Walk<'_, 'db> {
                 DefinitionState::Defined(d) if matches!(d.kind(self.db), DefinitionKind::LoopHeader(_)))
         });
         for (state, reach, condition) in lowered {
-            if condition.is_never() {
-                if !retain_false_only {
-                    let cause = self.skip_cause(fid, reach);
-                    self.flow.skips.reach(cause);
-                    continue;
-                }
+            if condition.is_never() && !retain_false_only {
+                let cause = self.skip_cause(fid, reach);
+                self.flow.skips.reach(cause);
+                continue;
             }
             match state {
                 DefinitionState::Defined(d) => {

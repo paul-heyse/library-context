@@ -46,7 +46,6 @@ deranged = { version = "0.5.8", features = ["serde"] }
 digest-93f6ce9d446188ac = { package = "digest", version = "0.10.7", features = ["std"] }
 digest-a6292c17cd707f01 = { package = "digest", version = "0.11.3", features = ["alloc", "mac", "oid"] }
 either = { version = "1.18.0", features = ["serde", "use_std"] }
-fixedbitset = { version = "0.5.7" }
 foldhash = { version = "0.2.0" }
 form_urlencoded = { version = "1.2.2" }
 futures-channel = { version = "0.3.34", features = ["sink"] }
@@ -73,10 +72,8 @@ once_cell = { version = "1.21.4", features = ["critical-section"] }
 ordermap = { version = "1.2.2" }
 portable-atomic = { version = "1.15.0" }
 postgres-types = { version = "0.2.14", default-features = false, features = ["with-chrono-0_4", "with-geo-types-0_7", "with-serde_json-1", "with-uuid-1"] }
-rand-274715c4dabd11b0 = { package = "rand", version = "0.9.5" }
 rand-93f6ce9d446188ac = { package = "rand", version = "0.10.3" }
 rand-c38e5c1d305a1b54 = { package = "rand", version = "0.8.8" }
-rand_chacha = { version = "0.9.0", default-features = false, features = ["std"] }
 regex-automata = { version = "0.4.18", default-features = false, features = ["dfa-build", "dfa-onepass", "hybrid", "meta", "nfa", "perf", "std", "unicode"] }
 regex-syntax = { version = "0.8.11" }
 rust_decimal = { version = "1.43.0", features = ["db-postgres"] }

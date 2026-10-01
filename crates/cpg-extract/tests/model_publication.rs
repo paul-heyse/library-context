@@ -2,7 +2,7 @@
 mod fixture;
 #[path = "fixtures/source_execution.rs"]
 mod source_fixture;
-use lctx_model::domain::{analysis, execution, normalized::Rows, *};
+use lctx_model::domain::{analysis, execution, *};
 #[tokio::test]
 async fn model_inventory_replays_actual_calls_transfers_and_coupled_erasure() {
     let f = fixture::native_from("phase4_models").await;
@@ -147,7 +147,7 @@ async fn model_inventory_replays_actual_calls_transfers_and_coupled_erasure() {
         .collect::<Vec<_>>();
     macro_rules! put {
         ($ty:ty,$rows:expr) => {
-            batches.push((<$ty>::NAME, <$ty as Record>::encode(&$rows).unwrap()));
+            batches.push((<$ty>::NAME, <$ty as Record>::encode(($rows).as_ref()).unwrap()));
         };
     }
     macro_rules! raw{($($field:ident:$ty:ty,)*)=>{$(put!($ty,f.data.$field.iter().cloned().collect::<Vec<_>>());)*};}
@@ -207,7 +207,7 @@ async fn model_inventory_replays_actual_calls_transfers_and_coupled_erasure() {
     );
     put!(
         analysis::enriched_execution::AnalysisInvocation,
-        vec![invocation.clone()]
+        std::slice::from_ref(&invocation)
     );
     put!(
         execution::modeled_call::ModeledCallEvaluation,
@@ -266,7 +266,7 @@ async fn model_inventory_replays_actual_calls_transfers_and_coupled_erasure() {
     );
     put!(
         analysis::model::AnalysisInvocation,
-        vec![model_invocation.clone()]
+        std::slice::from_ref(&model_invocation)
     );
     let mut model_data = execution::model_production::ModelData::new(&f.budget);
     for (name, batch) in &batches {
@@ -280,14 +280,14 @@ async fn model_inventory_replays_actual_calls_transfers_and_coupled_erasure() {
         &f.budget,
     )
     .unwrap();
-    assert!(output.applications.len() > 0);
+    assert!(!output.applications.is_empty());
     assert!(
-        output.transfer_witnesses.len() > 0,
+        !output.transfer_witnesses.is_empty(),
         "exact actual entry to callsite proof"
     );
     assert_eq!(output.outcome.status, analysis::AnalysisStatus::Partial);
     assert!(
-        output.context_resources.len() > 0,
+        !output.context_resources.is_empty(),
         "source-owned lifecycle admits actual resources"
     );
     assert!(
@@ -301,7 +301,7 @@ async fn model_inventory_replays_actual_calls_transfers_and_coupled_erasure() {
                 .any(|p| p.phase == execution::model_rules::ActionPhase::Finally)
     );
     assert!(
-        output.context_transfers.len() > 0,
+        !output.context_transfers.is_empty(),
         "actual Local Entry to checked WithTarget"
     );
     for witness in output.context_transfers.iter() {
@@ -484,7 +484,7 @@ async fn model_inventory_replays_actual_calls_transfers_and_coupled_erasure() {
                 check
                     .visit_input(
                         &ValidationInput::of::<$ty>(&["id"]),
-                        &<$ty as Record>::encode(&$rows).unwrap(),
+                        &<$ty as Record>::encode(($rows).as_ref()).unwrap(),
                     )
                     .unwrap();
             };
@@ -504,7 +504,7 @@ async fn model_inventory_replays_actual_calls_transfers_and_coupled_erasure() {
             outcome.status = analysis::AnalysisStatus::Completed;
             outcome.reason = None;
         }
-        emit!(analysis::model::AnalysisOutcome, vec![outcome]);
+        emit!(analysis::model::AnalysisOutcome, [outcome]);
         macro_rules! outputs{($($field:ident:$ty:ty,)*)=>{$(emit!($ty,if erase{vec![]}else{let mut rows=output.$field.iter().cloned().collect::<Vec<_>>();if mutation==4{rows.reverse();}rows});)*};}
         outputs! {context_resources:execution::model_protocol::ContextResource,context_values:execution::model_protocol::ContextEntryValue,applications:execution::model_production::ModelApplication,application_premises:execution::model_production::ApplicationPremise,boundaries:execution::model_production::ApplicationBoundary,targets:execution::model_production::TargetAssessment,rules:execution::model_rules::AppliedRule,channels:execution::model_rules::ChannelAssessment,operations:execution::model_rules::ModeledOperation,resources:execution::model_rules::ResourceIdentity,paths:execution::model_rules::ModelValuePath,action_assessments:execution::model_production::ActionAssessment,action_sources:execution::model_production::ActionSource,
         transfer_keys:transfer::model::TransferKey,transfer_alternatives:transfer::model::TransferAlternative,transfer_supports:transfer::model::TransferSupport,

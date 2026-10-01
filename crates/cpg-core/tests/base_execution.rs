@@ -1,23 +1,17 @@
 //! Native facts and confirmed entity sources publish Local entry/stability through the real store.
 #[path = "fixtures/local_model.rs"]
 mod local_model;
-use cpg_core::{
-    generation_read::{AttemptSession, ProviderOptions},
-    model_runtime::{AttemptRuntime, RuntimeOptions},
-};
+use cpg_core::model_runtime::{AttemptRuntime, RuntimeOptions};
 use cpg_extract::{
     acquisition::AcquiredInput,
     bundle::{CapturedInputs, run_stage},
     capture::CapturedInput,
 };
-use futures::TryStreamExt;
 use lctx_model::domain::{
     admission::FrontierContract,
     local_semantics,
-    normalized::{entities::*, entity_normalization},
-    source::*,
+    normalized::entity_normalization,
     stages::*,
-    value::*,
     *,
 };
 use lctx_postgres::{
@@ -98,7 +92,6 @@ async fn run_fixture(
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../fixtures/python")
         .join(fixture);
-    let bytes = std::fs::read(root.join(file)).unwrap();
     let captured = Arc::new(CapturedInputs::new(
         vec![AcquiredInput::tree(
             CapturedInput::capture(&root, &[file.into()], budget).unwrap(),
@@ -106,7 +99,6 @@ async fn run_fixture(
         )],
         cpg_extract::native_context::NativeContextConfig::committed(profile, budget).unwrap(),
     ));
-    let retained = budget.reserved();
     let mut providers = cpg_core::facts::providers(ContentHash::of(b"native entry publication"));
     let mut stages: Vec<_> = providers.iter().map(|p| p.declaration(profile)).collect();
     stages.extend([

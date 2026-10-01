@@ -224,10 +224,10 @@ pub async fn produce(
     )?;
     synthesis_preparation::publish_documentary(&mut output, &docs).await?;
     macro_rules! write{($($ty:ty=>$rows:expr),*)=>{$(output.declare::<$ty>()?;for row in $rows.iter(){output.push(row.clone()).await?;})*};}
-    write! {synthesis::summary::SummaryFacet=>facets,synthesis::frames::Frame=>frames,InvocationSource=>sources,AnalysisInput=>inputs,SourceReceipt=>receipts,
+    write!(synthesis::summary::SummaryFacet=>facets,synthesis::frames::Frame=>frames,InvocationSource=>sources,AnalysisInput=>inputs,SourceReceipt=>receipts,
     synthesis::seeds::SeedPlan=>seeds.plans,synthesis::automatic::Decision=>seeds.automatic,synthesis::seeds::ConfiguredSeedDecision=>seeds.decisions,synthesis::seeds::ConfiguredSeedCandidate=>seeds.candidates,synthesis::seeds::SelectedSeedSource=>seeds.sources,synthesis::seeds::SelectedSeed=>seeds.selected,
     synthesis::assertions::ProgrammaticAssertion=>assertions.assertions,synthesis::assertions::AssertionTemplate=>assertions.templates,synthesis::assertions::AssertionSource=>assertions.sources,synthesis::assertions::ProgrammaticAssertionSupport=>assertions.supports,
-    synthesis::briefs::Brief=>briefs.briefs,synthesis::briefs::BriefAssertion=>briefs.assertions,synthesis::briefs::BriefSource=>briefs.sources,synthesis::briefs::BriefSummary=>briefs.summary,synthesis::briefs::BriefCodeBoundary=>briefs.code_boundaries,synthesis::briefs::BriefDocument=>briefs.documents,synthesis::briefs::BriefOmission=>briefs.omissions}
+    synthesis::briefs::Brief=>briefs.briefs,synthesis::briefs::BriefAssertion=>briefs.assertions,synthesis::briefs::BriefSource=>briefs.sources,synthesis::briefs::BriefSummary=>briefs.summary,synthesis::briefs::BriefCodeBoundary=>briefs.code_boundaries,synthesis::briefs::BriefDocument=>briefs.documents,synthesis::briefs::BriefOmission=>briefs.omissions);
     macro_rules! patterns_write{($($f:ident:$t:ty,)*)=>{$(if <$t>::NAME!=assertion::AssertionQualification::NAME{output.declare::<$t>()?;}for row in patterns.$f.iter(){output.push(row.clone()).await?;})*};}
     lctx_model::synthesis_pattern_outputs!(patterns_write);
     macro_rules! observation_write{($($f:ident:$t:ty,)*)=>{$(if ![assertion::AssertionQualification::NAME].contains(&<$t>::NAME){output.declare::<$t>()?;}for row in observations.$f.iter(){output.push(row.clone()).await?;})*};}

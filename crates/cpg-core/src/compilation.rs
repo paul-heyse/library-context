@@ -226,6 +226,7 @@ impl PreparedCompilation {
 }
 
 /// A single attempt owns every collection and lease. Lower checkpoints never publish or select it.
+#[expect(clippy::too_many_arguments, reason = "Publication receives explicit independent store, native-input, runtime, profile, prepared configuration and embedding effect capabilities")]
 pub async fn publish(
     store: &GenerationStore,
     roles: &RoleConfig,

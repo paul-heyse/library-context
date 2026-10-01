@@ -1,6 +1,8 @@
 //! Native C1 producer through disposable PG18; deliberately no flow, brief, seed or vector stage.
 #[path = "fixtures/catalog_runtime.rs"]
 mod catalog_runtime;
+#[path = "fixtures/catalog_schedule.rs"]
+mod catalog_schedule;
 use cpg_core::model_runtime::{AttemptRuntime, RuntimeOptions};
 use cpg_extract::{
     acquisition::AcquiredInput,
@@ -104,7 +106,7 @@ async fn run(profile: Profile) {
         catalog::evidence::build::stage(profile, &model).unwrap(),
     ]);
     declarations.extend(catalog_runtime::stages(profile, &model));
-    let schedule = catalog_runtime::schedule(&model, declarations, profile);
+    let schedule = catalog_schedule::schedule(&model, declarations, profile);
     assert!(
         !schedule
             .stages()

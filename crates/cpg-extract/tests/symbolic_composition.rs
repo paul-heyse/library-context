@@ -29,7 +29,7 @@ async fn native_store_and_readers(compose:bool){
     let aspects=aspects(&f);
     let mut local=local_semantics::LocalData::new(&f.budget);
     let mut summary=SummaryData::new(&f.budget);
-    macro_rules! feed{($ty:ty,$rows:expr)=>{{let b=<$ty as Record>::encode(&$rows).unwrap();local.visit(<$ty>::NAME,&b).unwrap();summary.visit(<$ty>::NAME,&b).unwrap();}};}
+    macro_rules! feed{($ty:ty,$rows:expr)=>{{let b=<$ty as Record>::encode(($rows).as_ref()).unwrap();local.visit(<$ty>::NAME,&b).unwrap();summary.visit(<$ty>::NAME,&b).unwrap();}};}
     for (name,batch) in f.tables.lock().unwrap().iter(){local.visit(name,batch).unwrap();summary.visit(name,batch).unwrap();}
     macro_rules! normalized{($($field:ident:$ty:ty,)*)=>{$(feed!($ty,f.data.$field.iter().cloned().collect::<Vec<_>>());)*};}
     lctx_model::normalized_binding_inputs!(normalized);
@@ -45,7 +45,7 @@ async fn native_store_and_readers(compose:bool){
     let context=f.data.event_events.iter().next().unwrap().context;
     let (_,definition)=local_semantics::definition();
     let (invocation,_)=analysis::local::AnalysisInvocation::new(input,context,definition.id(),None,[]);
-    feed!(analysis::local::AnalysisInvocation,vec![invocation.clone()]);
+    feed!(analysis::local::AnalysisInvocation,std::slice::from_ref(&invocation));
     let rows=local_semantics::produce(&local,&invocation,&definition,&f.budget).unwrap();
     let record=aspects.symbolic_classes.iter().find(|c|f.rows::<symbols::ClassTraitObservation>().iter()
         .any(|t|t.id()==c.traits&&f.data.symbols.get(t.symbol).is_some_and(|s|s.name=="RecordHolder"))).unwrap();
