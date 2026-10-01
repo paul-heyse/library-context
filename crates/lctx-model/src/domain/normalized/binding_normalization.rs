@@ -547,6 +547,7 @@ pub struct ValidatedBoundCall {
     event: Id<NormalizedCallEvent>,
     context: Id<AnalysisContext>,
     bound: BoundCall,
+    bindings: ContentHash,
 }
 impl ValidatedBoundCall {
     pub fn event(&self) -> Id<NormalizedCallEvent> { self.event }
@@ -562,6 +563,56 @@ impl HeapSize for ValidatedBoundCall {
     fn heap_bytes(&self) -> usize {
         self.bound.heap_bytes()
     }
+}
+/// A complete, uniquely bound effective invocation. Source-body admission and the Summary
+/// policy are separate capabilities: external authored models may consume this narrower token.
+/// Only full upstream and stored-binding replay in `verify` can construct it.
+pub struct EffectiveInvocationAdmission {
+    attempt: Id<CallBindingAttempt>,
+    set: Id<BindingSetAssessment>,
+    set_members: ContentHash,
+    alternative: Id<NormalizedCallAlternative>,
+    event: Id<NormalizedCallEvent>,
+    context: Id<AnalysisContext>,
+    input: Id<input::InputRevision>,
+    complete: Id<EventAssessment>,
+    event_members: ContentHash,
+    owner: Id<OccurrenceOwnership>,
+    owner_entity: Id<EntityRef>,
+    owner_declaration: Id<Occurrence>,
+    callee: Id<EntityRef>,
+    effective: Id<EffectiveCallableAssessment>,
+    target: Id<CallTarget>,
+    phase: CallPhase,
+    bindings: ContentHash,
+}
+impl EffectiveInvocationAdmission {
+    pub fn attempt(&self) -> Id<CallBindingAttempt> { self.attempt }
+    pub fn set(&self) -> Id<BindingSetAssessment> { self.set }
+    pub fn set_members(&self) -> ContentHash { self.set_members }
+    pub fn alternative(&self) -> Id<NormalizedCallAlternative> { self.alternative }
+    pub fn event(&self) -> Id<NormalizedCallEvent> { self.event }
+    pub fn context(&self) -> Id<AnalysisContext> { self.context }
+    pub fn input(&self) -> Id<input::InputRevision> { self.input }
+    pub fn complete(&self) -> Id<EventAssessment> { self.complete }
+    pub fn event_members(&self) -> ContentHash { self.event_members }
+    pub fn owner(&self) -> Id<OccurrenceOwnership> { self.owner }
+    pub fn owner_entity(&self) -> Id<EntityRef> { self.owner_entity }
+    pub fn owner_declaration(&self) -> Id<Occurrence> { self.owner_declaration }
+    pub fn callee(&self) -> Id<EntityRef> { self.callee }
+    pub fn effective(&self) -> Id<EffectiveCallableAssessment> { self.effective }
+    pub fn target(&self) -> Id<CallTarget> { self.target }
+    pub fn phase(&self) -> CallPhase { self.phase }
+    pub fn bindings(&self) -> ContentHash { self.bindings }
+    /// Both receipts must pin the same replayed binding payload, not merely the attempt key.
+    pub fn admits(&self, bound: &ValidatedBoundCall) -> bool {
+        self.attempt == bound.attempt && self.event == bound.event
+            && self.context == bound.context && self.target == bound.bound.target()
+            && self.bindings == bound.bindings
+    }
+}
+impl HeapSize for EffectiveInvocationAdmission {
+    fn heap_bytes(&self) -> usize { 0 }
 }
 /// P3's complete admission receipt. P4 must explicitly migrate its owner and transfer contracts
 /// before using this token; the retained provider-ID composer is not activated here.
@@ -624,12 +675,16 @@ impl HeapSize for CompositionAdmission {
 }
 pub struct VerifiedBindings {
     bound: ChargedMap<Id<CallBindingAttempt>, ValidatedBoundCall>,
+    effective: ChargedMap<Id<CallBindingAttempt>, EffectiveInvocationAdmission>,
     composition: ChargedMap<Id<CallBindingAttempt>, CompositionAdmission>,
     _charge: StateCharge,
 }
 impl VerifiedBindings {
     pub fn bound(&self, attempt: Id<CallBindingAttempt>) -> Option<&ValidatedBoundCall> {
         self.bound.get(&attempt)
+    }
+    pub fn effective_invocation(&self, attempt: Id<CallBindingAttempt>) -> Option<&EffectiveInvocationAdmission> {
+        self.effective.get(&attempt)
     }
     pub fn composition(&self, attempt: Id<CallBindingAttempt>) -> Option<&CompositionAdmission> {
         self.composition.get(&attempt)
@@ -646,6 +701,7 @@ pub fn verify(
     let index = Index::new(data, budget)?;
     let mut result = VerifiedBindings {
         bound: Default::default(),
+        effective: Default::default(),
         composition: Default::default(),
         _charge: StateCharge::new(budget, "validated-bindings"),
     };
@@ -688,6 +744,7 @@ pub fn verify(
                 event: row.event,
                 context: need(&data.event_events, row.event)?.context,
                 bound,
+                bindings: row.bindings,
             },
         )?;
         if row.authority != BindingAuthority::EffectiveInvocation {
@@ -704,13 +761,24 @@ pub fn verify(
             row.effective
                 .ok_or_else(|| invalid("effective attempt has no assessment"))?,
         )?;
-        if effective.body != Knowledge::Known || !effective.body_admitted {
-            continue;
-        }
         let event = need(&data.event_events, row.event)?;
         let owner = need(&data.owners, event.owner)?;
         if owner.occurrence != event.site {
             return Err(invalid("composition owner differs from event site"));
+        }
+        let target = original_target(data, alternative)?;
+        result.effective.insert(&mut result._charge, row.id(), EffectiveInvocationAdmission {
+            attempt: row.id(), set: set.id(), set_members: set.members,
+            alternative: alternative.id(), event: row.event, context: event.context,
+            input: application.input(), complete: complete.assessment(),
+            event_members: complete.members(), owner: owner.id(), owner_entity: owner.entity,
+            owner_declaration: owner.owner,
+            callee: alternative.entity.ok_or_else(|| invalid("effective target has no entity"))?,
+            effective: effective.id(), target: target.id(), phase: target.phase,
+            bindings: row.bindings,
+        })?;
+        if effective.body != Knowledge::Known || !effective.body_admitted {
+            continue;
         }
         let summary = data
             .event_policy_assessments

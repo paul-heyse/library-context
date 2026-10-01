@@ -110,6 +110,10 @@ async fn native_binding_defaults_refusals_and_source_authority() {
         "the original native target is retained"
     );
     assert!(verified.bound(a.id()).is_some());
+    let effective = verified.effective_invocation(a.id()).expect("effective invocation survives independently of source-body admission");
+    assert!(effective.admits(verified.bound(a.id()).unwrap()));
+    assert_eq!((effective.attempt(),effective.event(),effective.context(),effective.target()),
+        (a.id(),a.event,verified.bound(a.id()).unwrap().context(),verified.bound(a.id()).unwrap().bound().target()));
     assert!(
         verified.composition(a.id()).is_some(),
         "{:#?}",
@@ -139,6 +143,7 @@ async fn native_binding_defaults_refusals_and_source_authority() {
     for a in wrapped {
         assert_eq!(a.authority, BindingAuthority::SourceInspection);
         assert!(verified.composition(a.id()).is_none());
+        assert!(verified.effective_invocation(a.id()).is_none());
     }
     let variants = at("variant(1)");
     assert_eq!(variants.len(), 2);
@@ -279,6 +284,7 @@ async fn a_bound_source_plus_unknown_variant_or_missing_coverage_never_becomes_u
         }
         for a in output.attempts.iter().filter(|a| a.event == event) {
             assert!(verified.composition(a.id()).is_none());
+            assert!(verified.effective_invocation(a.id()).is_none());
         }
         // Recomputing N5 from an omitted stored variant cannot mint tokens: upstream replay
         // still sees the complete raw signature set and rejects the forged N3 projection.
@@ -325,6 +331,7 @@ async fn a_bound_source_plus_unknown_variant_or_missing_coverage_never_becomes_u
     {
         assert_eq!(a.outcome, BindingOutcome::Bound);
         assert!(verified.composition(a.id()).is_none());
+        assert!(verified.effective_invocation(a.id()).is_none());
     }
 }
 
@@ -372,6 +379,10 @@ async fn bound_effective_invocation_still_requires_positive_body_admission() {
     assert_eq!(a.outcome, BindingOutcome::Bound);
     assert_eq!(a.authority, BindingAuthority::EffectiveInvocation);
     assert!(verified.bound(a.id()).is_some());
+    let effective = verified.effective_invocation(a.id()).expect("effective invocation survives independently of source-body admission");
+    assert!(effective.admits(verified.bound(a.id()).unwrap()));
+    assert_eq!((effective.attempt(),effective.event(),effective.context(),effective.target()),
+        (a.id(),a.event,verified.bound(a.id()).unwrap().context(),verified.bound(a.id()).unwrap().bound().target()));
     assert!(verified.composition(a.id()).is_none());
 }
 
