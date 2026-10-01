@@ -715,6 +715,34 @@ pub fn produce(
         });
         let coverage = coverages.next().filter(|_| coverages.next().is_none());
         let mut digest = KeySink::new("formal-native-read-universe");
+        // The normalized callable owner decides which source body may support a negative.
+        // Native reads stay observations even when an override or unknown wrapper owns behavior.
+        work.scan(data.callable_assessments.len())?;
+        let mut body = None;
+        let mut ambiguous_body = false;
+        for assessment in data.callable_assessments.iter().filter(|a| {
+            a.callable == *callable && a.context == invocation.context
+        }) {
+            assessment.id().encode(&mut digest);
+            if body.replace(assessment).is_some() {
+                ambiguous_body = true;
+            }
+        }
+        let body_refusal = if ambiguous_body {
+            Some(obligation::ObligationKind::ComparableConflict)
+        } else {
+            body.filter(|a| !a.body_admitted).map(|a| {
+                use crate::domain::normalized::callables::CallableReason;
+                match a.body_reason {
+                    CallableReason::BodyExcluded => obligation::ObligationKind::AbstractBody,
+                    CallableReason::ConflictingEvidence => obligation::ObligationKind::ComparableConflict,
+                    CallableReason::MissingBodyEvidence | CallableReason::MissingTraits
+                        | CallableReason::IncompleteSyntax | CallableReason::MissingSignature
+                        | CallableReason::IncompleteSignature => obligation::ObligationKind::MissingEvidence,
+                    _ => obligation::ObligationKind::ScopeBoundary,
+                }
+            }).or_else(|| body.is_none().then_some(obligation::ObligationKind::MissingEvidence))
+        };
         let mut seen = false;
         let mut unresolved = out.dynamic.iter().any(|d| {
             matches!(
@@ -784,6 +812,8 @@ pub fn produce(
                 ReadAssessment::Unknown,
                 Some(obligation::ObligationKind::IncompleteCoverage),
             )
+        } else if let Some(reason) = body_refusal {
+            (ReadAssessment::Unknown, Some(reason))
         } else {
             (ReadAssessment::CompleteNoReadUnderModel, None)
         };

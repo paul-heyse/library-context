@@ -374,6 +374,40 @@ impl Inspect<'_> {
             matches!(self.data.lexical_targets.get(target),Some(LexicalTarget::Builtin{name:actual,..})if actual==name),
         )
     }
+    /// A supported, sole local lambda assignment is a source function, not a builtin selected
+    /// by its variable's spelling. Parameters, imported aliases and rebinding remain uncertain.
+    fn local_lambda(&mut self, site: Id<Occurrence>) -> Result<bool, ModelError> {
+        let Some(target) = self.lexical_target(site)? else {
+            return Ok(false);
+        };
+        let Some(LexicalTarget::Binding { event }) = self.data.lexical_targets.get(target) else {
+            return Ok(false);
+        };
+        let Some(event) = self.data.binding_events.get(*event) else {
+            return Ok(false);
+        };
+        self.work.scan(self.data.bindings.len())?;
+        let mut bindings = self.data.bindings.iter().filter(|b| b.event == event.id() && self.always(b.qualification));
+        let Some(binding) = bindings.next() else { return Ok(false) };
+        if bindings.next().is_some() || binding.kind != BindingEventKind::Assignment
+            || binding.static_branch.is_some()
+            || self.entry.lexical_scopes.get(binding.scope).is_none_or(|s| s.kind != LexicalScopeKind::Function)
+        {
+            return Ok(false);
+        }
+        self.work.scan(self.data.bindings.len() + self.data.callables.len())?;
+        if self.data.bindings.iter().filter(|b| b.scope == binding.scope
+            && self.entry.qualifications.get(b.qualification).is_some_and(|q| q.context == self.invocation.context)
+            && self.data.binding_events.get(b.event).is_some_and(|e| e.name == event.name)).count() != 1
+        {
+            return Ok(false);
+        }
+        let Some(value) = binding.value else { return Ok(false) };
+        if !self.data.callables.iter().any(|c| matches!(c, CallableEntity::Source { declaration, kind: CallableKind::Lambda } if *declaration == value)) {
+            return Ok(false);
+        }
+        self.observe(&self.data.binding_supports, binding.id(), binding.qualification, event.site)
+    }
     fn global(
         &mut self,
         site: Id<Occurrence>,
@@ -839,6 +873,9 @@ pub(super) fn produce(
             call.site,
         )?;
         let lexical_builtin = inspect.builtin(call.callee, name)?;
+        if native_target.is_none() && !lexical_builtin && inspect.local_lambda(call.callee)? {
+            continue;
+        }
         let builtin = lexical_builtin || native_target.is_some_and(|t| t.2);
         if let Some((_, id, _)) = native_target {
             let t = data.call_targets.get(id).unwrap();

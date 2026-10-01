@@ -44,6 +44,7 @@ macro_rules! execution_evaluation_inputs {
             owners:$crate::domain::normalized::entities::OccurrenceOwnership,
             refs:$crate::domain::normalized::entities::EntityRef,
             callables:$crate::domain::normalized::entities::CallableEntity,
+            callable_assessments:$crate::domain::normalized::callables::EffectiveCallableAssessment,
             runs:$crate::domain::attribution::ProviderRun,
             references:$crate::domain::lexical::ReferenceObservation,
             reference_supports:$crate::domain::lexical::ReferenceSupport,

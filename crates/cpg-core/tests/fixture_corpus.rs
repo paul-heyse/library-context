@@ -8,6 +8,10 @@ use cpg_extract::{
 use lctx_model::domain::{ContentHash, resources::ResourceBudget, stages::Profile};
 use std::{collections::BTreeSet, path::Path, sync::Arc};
 const CASES: &[&str] = &[
+    "symbolic_fields",
+    "retired_read_expectations",
+    "retired_attribute_expectations",
+    "retired_shadow_boundaries",
     "field_dynamic_all",
     "field_read_screen",
     "analytic_optional",
