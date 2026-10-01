@@ -58,6 +58,9 @@ pub(crate) fn contract(
             true,
         ),
 (AnalysisMethod::Models,AnalysisCapability::Models) | (AnalysisMethod::SourceCalls,AnalysisCapability::Execution) | (AnalysisMethod::EnrichedExecution,AnalysisCapability::Execution) => (&[ScopeContract {grain:Artifact(PythonSource),native:&[FactFamily::Syntax,FactFamily::Signatures,FactFamily::Lexical,FactFamily::Flow],normalized:&[Capability::Symbols,Capability::Callables,Capability::Calls,Capability::Bindings,Capability::FlowEvents]}],true),
+        (AnalysisMethod::Summaries, AnalysisCapability::Summaries) => (
+            &[ScopeContract {grain:Artifact(PythonSource),native:&[FactFamily::Syntax,FactFamily::Signatures,FactFamily::Lexical,FactFamily::Flow],normalized:&[Capability::Symbols,Capability::Callables,Capability::Calls,Capability::Bindings,Capability::FlowLinks,Capability::FlowEvents]},ScopeContract {grain:Input,native:&[],normalized:&[Capability::InvocationProjection]}],true,
+        ),
         (AnalysisMethod::Delegation, AnalysisCapability::Delegation) => (
             &[ScopeContract {grain:Artifact(PythonSource),native:&[],normalized:&[Capability::Symbols,Capability::PublicExposure,Capability::Callables]},ScopeContract {grain:Input,native:&[],normalized:&[Capability::InvocationProjection,Capability::DefinitionProjection]}],false,
         ),
@@ -179,6 +182,7 @@ pub(crate) fn method_contract(method: AnalysisMethod) -> Result<Contract, ModelE
 AnalysisMethod::SourceCalls | AnalysisMethod::EnrichedExecution=>AnalysisCapability::Execution,
         AnalysisMethod::Completion => AnalysisCapability::Completion,
         AnalysisMethod::Models => AnalysisCapability::Models,
+        AnalysisMethod::Summaries => AnalysisCapability::Summaries,
         AnalysisMethod::Catalog => AnalysisCapability::Catalog,
         AnalysisMethod::Delegation => AnalysisCapability::Delegation,
         AnalysisMethod::DirectUsage => AnalysisCapability::DirectUsage,
