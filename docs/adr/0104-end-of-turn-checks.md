@@ -77,3 +77,11 @@ clean end-of-turn report for the same tree. `LCTX_AFTER_TURN_FIXER=off` disables
   `AFTER_TURN_ROLE`, `AFTER_TURN_CHECKS` and `AFTER_TURN_FIXER`. Hooks and the fixer's check command
   run it on a pinned interpreter, `uv run --no-project --python 3.14 python`, not a bare `python3`.
   Root ruff excludes `libraries/` and `services/`, which are separate uv projects.
+- 2026-09-30: UserPromptSubmit holds only the next turn of the session whose Stop started the
+  job, through per-session marks in `.git/after-turn/sessions/`. A prompt from another session, such
+  as a new Codex thread, starts at once; a payload without a session id waits for any job. Codex
+  fires Stop only when the agent ends its turn: four user interrupts that day fired none. Steps run
+  without `BASH_ENV` and with `SHLVL` of at least 1, because recipe shells under Codex Desktop's
+  hooks read `/etc/bash.bashrc`. That file fails under `set -u` (no `PS1`), so recipe comment lines
+  failed `fmt` and `deps`. Verified 2026-09-30: `tests/scripts/test_after_turn.py`, 17 passed; its
+  comment-line test fails against the previous script.

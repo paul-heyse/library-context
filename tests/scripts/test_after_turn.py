@@ -7,6 +7,7 @@ import importlib.util
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -222,6 +223,92 @@ class PromptTests(unittest.TestCase):
             with contextlib.redirect_stdout(fixer):
                 after_turn.cmd_prompt("codex")
             self.assertEqual(fixer.getvalue(), "")
+
+    def test_a_session_waits_only_for_its_own_checks(self) -> None:
+        state = Path(tempfile.mkdtemp()) / "after-turn"
+        (state / "sessions").mkdir(parents=True)
+        after_turn.session_mark(state, "stopped").touch()
+        env = {k: v for k, v in os.environ.items() if k != after_turn.ROLE_ENV}
+
+        def prompt(payload: dict[str, str]) -> str:
+            out = io.StringIO()
+            patches = (
+                mock.patch.dict(os.environ, env, clear=True),
+                mock.patch.object(after_turn, "repo_root", return_value=state),
+                mock.patch.object(after_turn, "state_dir", return_value=state),
+                mock.patch.object(after_turn, "read_payload", return_value=payload),
+                mock.patch.object(after_turn, "job_busy", return_value=True),
+                mock.patch.object(after_turn, "PROMPT_WAIT", 0),
+                contextlib.redirect_stdout(out),
+            )
+            with contextlib.ExitStack() as stack:
+                for patch in patches:
+                    stack.enter_context(patch)
+                after_turn.cmd_prompt("codex")
+            return out.getvalue()
+
+        # The job is busy throughout; only the session whose stop requested it is held.
+        self.assertIn("still running", prompt({"session_id": "stopped"}))
+        self.assertEqual(prompt({"session_id": "new-thread"}), "")
+        self.assertIn("still running", prompt({}))  # no session id: wait for any job
+
+
+class JobTests(unittest.TestCase):
+    def test_a_run_releases_only_the_sessions_it_covered(self) -> None:
+        state = Path(tempfile.mkdtemp()) / "after-turn"
+        (state / "sessions").mkdir(parents=True)
+        covered, stopped_again, stopped_later = (
+            after_turn.session_mark(state, name) for name in ("a", "b", "c")
+        )
+        covered.touch()
+        stopped_again.touch()
+        (state / "job-pending").touch()
+
+        def run_once(*_args: object) -> None:
+            # Mid-run, session b stops again and session c stops for the first time.
+            later = stopped_again.stat().st_mtime_ns + 1_000_000_000
+            os.utime(stopped_again, ns=(later, later))
+            stopped_later.touch()
+
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(mock.patch.object(after_turn, "repo_root", return_value=state))
+            stack.enter_context(mock.patch.object(after_turn, "state_dir", return_value=state))
+            stack.enter_context(
+                mock.patch.object(after_turn, "load_config", return_value=after_turn.Config())
+            )
+            stack.enter_context(mock.patch.object(after_turn, "run_job_once", side_effect=run_once))
+            self.assertEqual(after_turn.cmd_job("codex", ""), 0)
+        self.assertFalse(covered.exists())
+        self.assertTrue(stopped_again.exists())
+        self.assertTrue(stopped_later.exists())
+
+
+class StepEnvTests(unittest.TestCase):
+    def test_step_env_drops_bash_env_and_keeps_a_shell_level(self) -> None:
+        bare = {k: v for k, v in os.environ.items() if k not in {"BASH_ENV", "SHLVL"}}
+        with mock.patch.dict(os.environ, {**bare, "BASH_ENV": "/x"}, clear=True):
+            env = after_turn.step_env()
+        self.assertNotIn("BASH_ENV", env)
+        self.assertEqual(env["SHLVL"], "1")
+        with mock.patch.dict(os.environ, {**bare, "SHLVL": "3"}, clear=True):
+            self.assertEqual(after_turn.step_env()["SHLVL"], "3")
+
+    @unittest.skipUnless(shutil.which("just") and shutil.which("bash"), "needs just and bash")
+    def test_a_comment_line_passes_when_a_startup_file_fails(self) -> None:
+        shell = 'set shell := ["bash", "-euo", "pipefail", "-c"]\n'
+        repo = committed_repo({"justfile": shell + "\nlint:\n    # a comment\n    true\n"})
+        startup = repo / "startup.sh"
+        startup.write_text(': "$AFTER_TURN_TEST_UNSET"\n')  # fails under set -u, like PS1
+        env = {k: v for k, v in os.environ.items() if k != "AFTER_TURN_TEST_UNSET"}
+        env["BASH_ENV"] = str(startup)
+        # Control: the bare recipe fails on its comment line.
+        bare = subprocess.run(["just", "lint"], cwd=repo, env=env, capture_output=True, text=True)
+        self.assertNotEqual(bare.returncode, 0, bare.stderr)
+        state = repo / "after-turn"
+        (state / "checks").mkdir(parents=True)
+        with mock.patch.dict(os.environ, env, clear=True):
+            result = after_turn.run_check("lint", repo, state, after_turn.Config())
+        self.assertEqual(result["status"], "passed", Path(result["log"]).read_text())
 
 
 if __name__ == "__main__":

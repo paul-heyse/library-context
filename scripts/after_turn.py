@@ -6,8 +6,9 @@ Everything that is not functional testing happens when the main agent stops, in 
 - ``stop`` (Stop hook) runs the ``sync`` recipes (generators and formatting), then starts the job;
 - the job runs the ``ready`` recipes and every dependency of ``just hygiene``, lets a fixer agent
   repair what it can, re-runs those checks, then runs the ``after`` recipes without waiting on them;
-- ``prompt`` (UserPromptSubmit hook) holds the next turn until the job is done and shows findings
-  the fixer left to the operator only;
+- ``prompt`` (UserPromptSubmit hook) holds a session's next turn until the job has checked what
+  that session's stop left (another session starts at once) and shows findings the fixer left to
+  the operator only;
 - ``check <id>...`` re-runs named steps; ``guard`` (PreToolUse hook) confines a fixer's shell to
   exactly those.
 
@@ -51,7 +52,7 @@ FIXER_TOOLS = ("Read", "Edit", "Write", "Grep", "Glob")
 CLAUDE_EFFORTS = ("low", "medium", "high", "xhigh", "max")
 
 PENDING_GRACE = 30
-# The next prompt waits at most this long; the hook's own timeout (1800 s) stays above it.
+# A session's next prompt waits at most this long; the hook's own timeout (1800 s) stays above it.
 PROMPT_WAIT = 25 * 60
 
 
@@ -132,7 +133,8 @@ def state_dir(root: Path) -> Path:
         check=True,
     )
     path = Path(out.stdout.strip()) / "after-turn"
-    (path / "checks").mkdir(parents=True, exist_ok=True)
+    for sub in ("checks", "sessions"):
+        (path / sub).mkdir(parents=True, exist_ok=True)
     return path
 
 
@@ -184,7 +186,47 @@ def job_busy(state: Path) -> bool:
     return False
 
 
+def session_of(payload: Payload) -> str | None:
+    session = payload.get("session_id")
+    return session if isinstance(session, str) and session else None
+
+
+def session_mark(state: Path, session: str) -> Path:
+    """The mark a session's stop leaves until a job has checked the tree that stop left."""
+    return state / "sessions" / re.sub(r"[^A-Za-z0-9._-]", "_", session)
+
+
+def session_marks(state: Path) -> dict[Path, int]:
+    marks: dict[Path, int] = {}
+    for mark in (state / "sessions").iterdir():
+        with contextlib.suppress(OSError):
+            marks[mark] = mark.stat().st_mtime_ns
+    return marks
+
+
+def release_sessions(marks: dict[Path, int]) -> None:
+    """Drop the marks a finished run covered; a mark touched again since belongs to a later run."""
+    for mark, mtime in marks.items():
+        with contextlib.suppress(OSError):
+            if mark.stat().st_mtime_ns == mtime:
+                mark.unlink()
+
+
 # --- running steps -----------------------------------------------------------------------------
+
+
+def step_env() -> dict[str, str]:
+    """The environment for steps, in which a recipe's shell reads no startup file.
+
+    Bash reads ``BASH_ENV`` in every non-interactive shell, and Debian's bash reads the system
+    bashrc in a top-level ``bash -c`` (``SHLVL`` unset) that looks remote: ``SSH_CLIENT`` set or
+    a socket on stdin. Recipe shells under Codex Desktop's hooks read it; under ``set -u`` it fails
+    on ``PS1``, and a recipe's comment line then exits 1.
+    """
+    env = {k: v for k, v in os.environ.items() if k != "BASH_ENV"}
+    if not env.get("SHLVL", "").isdigit() or int(env["SHLVL"]) < 1:
+        env["SHLVL"] = "1"
+    return env
 
 
 def run_logged(
@@ -242,7 +284,7 @@ def run_check(check: str, root: Path, state: Path, config: Config) -> dict[str, 
     log = state / "checks" / f"{check}.log"
     started = time.monotonic()
     try:
-        rc = run_logged(["just", check], root, log, timeout=config.check_timeout)
+        rc = run_logged(["just", check], root, log, env=step_env(), timeout=config.check_timeout)
     except Exception as exc:  # a step that cannot start is a failed step
         log.write_text(f"$ just {check}\nerror: could not run the step: {exc!r}\n")
         rc = 127
@@ -491,6 +533,7 @@ def cmd_stop(harness: str) -> int:
     if is_fixer():
         return 0
     payload = read_payload()
+    session = session_of(payload)
     root = repo_root()
     state = state_dir(root)
     config = load_config(root)
@@ -498,7 +541,14 @@ def cmd_stop(harness: str) -> int:
     effort = (
         effort_field.get("level") if isinstance(effort_field, dict) else None
     ) or os.environ.get("CLAUDE_EFFORT", "")
-    append_log(state, "stop.log", f"{harness} payload={sorted(payload)} effort={effort or '-'}")
+    # What decides whether a recipe's bash reads startup files (see step_env).
+    shell = " ".join(f"{k}={os.environ.get(k, '-')}" for k in ("SHLVL", "BASH_ENV", "SSH_CLIENT"))
+    append_log(
+        state,
+        "stop.log",
+        f"{harness} session={session or '-'} payload={sorted(payload)} effort={effort or '-'} "
+        + shell,
+    )
     results: dict[str, Any] = {}
     for step in config.sync:
         when = config.sync_when.get(step)
@@ -506,6 +556,8 @@ def cmd_stop(harness: str) -> int:
             continue
         results[step] = run_check(step, root, state, config)
     (state / "sync.json").write_text(json.dumps(results, indent=2) + "\n")
+    if session:
+        session_mark(state, session).touch()
     (state / "job-pending").touch()
     subprocess.Popen(
         [
@@ -537,7 +589,11 @@ def cmd_job(harness: str, effort: str) -> int:
                 return 0  # the running job re-checks the pending mark after releasing its lock
             while pending.exists():
                 pending.unlink(missing_ok=True)
-                run_job_once(harness, effort, root, state, config)
+                requested = session_marks(state)
+                try:
+                    run_job_once(harness, effort, root, state, config)
+                finally:
+                    release_sessions(requested)
     run_after(root, state, config)
     return 0
 
@@ -578,20 +634,27 @@ def run_after(root: Path, state: Path, config: Config) -> None:
         while (state / "after-pending").exists():
             (state / "after-pending").unlink(missing_ok=True)
             for step in config.after:
-                run_logged(["just", step], root, state / f"{step}.log")
+                run_logged(["just", step], root, state / f"{step}.log", env=step_env())
 
 
 def cmd_prompt(harness: str) -> int:
     if is_fixer():
         return 0
-    read_payload()
+    session = session_of(read_payload())
     root = repo_root()
     state = state_dir(root)
     logs = logs_label(root, state)
+
+    def waiting() -> bool:
+        # A session waits only for checks its own stop requested; a new session starts at once.
+        if session is not None and not session_mark(state, session).exists():
+            return False
+        return job_busy(state)
+
     deadline = time.monotonic() + PROMPT_WAIT
-    while job_busy(state) and time.monotonic() < deadline:
+    while waiting() and time.monotonic() < deadline:
         time.sleep(1)
-    if job_busy(state):
+    if waiting():
         message: str | None = (
             f"End-of-turn checks still running after {PROMPT_WAIT // 60} min; "
             f"this turn started without waiting (logs: {logs})"

@@ -63,7 +63,7 @@
             "type": "command",
             "command": "uv run --no-project --python 3.14 python \"$CLAUDE_PROJECT_DIR\"/scripts/after_turn.py prompt --harness claude",
             "timeout": 1800,
-            "statusMessage": "End-of-turn checks"
+            "statusMessage": "Waiting for this session's end-of-turn checks"
           }
         ]
       }
