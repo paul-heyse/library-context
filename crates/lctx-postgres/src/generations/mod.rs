@@ -8,6 +8,7 @@ mod lease;
 mod lifecycle;
 pub(crate) mod locks;
 mod receipts;
+mod publication_validation;
 mod stage_validation;
 mod verify;
 mod vocabulary;

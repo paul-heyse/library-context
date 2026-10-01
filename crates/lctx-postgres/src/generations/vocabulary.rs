@@ -350,6 +350,7 @@ impl GenerationStore {
         for stage in group.stages() {
             let completion = stage.completion();
             super::check_schedule(tx, g, completion.schedule()).await?;
+            self.check_publication_outputs(tx, g, completion.outputs(), completion.sources(), Some(group.prefix()), budget).await?;
             let mut receipts = BTreeMap::new();
             for name in completion.outputs() {
                 let relation = self

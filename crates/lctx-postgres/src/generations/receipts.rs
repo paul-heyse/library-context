@@ -72,6 +72,7 @@ impl GenerationStore {
             self.check_completed_output_references(tx, g, completion)
                 .await?;
         }
+        self.check_publication_outputs(tx, g, outputs, completion.map_or(&[], StageCompletion::sources), None, budget).await?;
         let mut receipts = BTreeMap::new();
         for name in outputs {
             execute(tx, ddl::completed_output(&g.schema(), name).to_vec()).await?;
