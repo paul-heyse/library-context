@@ -70,7 +70,8 @@ fn resolution<'a>(data:&'a EventData,symbol:Id<ProviderSymbol>,q:&AssertionQuali
     if rows.next().is_some() || row.status!=ResolutionStatus::Resolved || row.entity.is_none() {return Err(DispatchReason::MissingCorrespondence);}
     premises.push(DispatchPremise::Correspondence{resolution:row.id()});Ok(row)
 }
-fn support(data:&EventData,s:SupportAttribution,q:&AssertionQualification,family:FactFamily,provider:Id<Provider>,premises:&mut Vec<DispatchPremise>)->Result<Id<ProviderRun>,DispatchReason> {
+fn support(data:&EventData,s:Option<SupportAttribution>,q:&AssertionQualification,family:FactFamily,provider:Id<Provider>,premises:&mut Vec<DispatchPremise>)->Result<Id<ProviderRun>,DispatchReason> {
+    let s=s.ok_or(DispatchReason::SupportDisagreement)?;
     let run=data.runs.get(s.run).ok_or(DispatchReason::MissingSupport)?;let surface=data.surfaces.get(s.surface).ok_or(DispatchReason::MissingSupport)?;
     if run.context!=q.context || Some(run.input)!=scope(data,q) || run.provider!=provider || surface.provider!=provider || surface.family!=family || !(s.fidelity==Fidelity::NativeStructural || family==FactFamily::Signatures && s.fidelity==Fidelity::ReportProjection) {return Err(DispatchReason::SupportDisagreement);}
     match data.native_evidence.get(s.evidence) {Some(Evidence::Invocation{run}) if *run==s.run=>{},Some(Evidence::SourceSpan{source,..}) if data.artifacts.get(*source).is_some_and(|a|a.input==run.input)=>{},Some(Evidence::Occurrence{occurrence}) if data.occurrences.get(*occurrence).and_then(|o|data.artifacts.get(o.source)).is_some_and(|a|a.input==run.input)=>{},_=>return Err(DispatchReason::SupportDisagreement)}

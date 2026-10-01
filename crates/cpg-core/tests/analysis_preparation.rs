@@ -12,7 +12,11 @@ async fn both_profiles_store_selected_catalog_and_exact_native_inventory() {
         let budget=runtime.budget();let db=DisposableDatabase::start().await;db.migrate().await;
         let config=RoleConfig {format:1,role:Role::Importer,url:db.url("lctx_importer"),max_connections:6,provider_connections:4,
             acquire_timeout_seconds:5,statement_timeout_seconds:60,lock_timeout_seconds:10};
-        let model=Arc::new(model().unwrap());let store=GenerationStore::install(db.owner.clone(),model.clone()).await.unwrap();
+        // Qualify the early production boundary before normalized/analysis owners run. Their
+        // whole-model validators require their own producers and belong to assembled controls.
+        let model=Arc::new(ValidatedModel::validate(facts_relations().into_iter()
+            .chain(preparation::configuration_relations()).chain(native::relations()).collect()).unwrap());
+        let store=GenerationStore::install(db.owner.clone(),model.clone()).await.unwrap();
         let root=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/python/normalized_relations");
         let captured=Arc::new(CapturedInputs::new(vec![AcquiredInput::tree(CapturedInput::capture(&root,&["relations.py".into(),"dual.py".into(),"dual.pyi".into(),"guide.md".into()],budget).unwrap(),"analysis preparation")],
             cpg_extract::native_context::NativeContextConfig::committed(profile,budget).unwrap()));
