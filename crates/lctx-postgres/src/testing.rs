@@ -169,9 +169,10 @@ pub async fn step_in_flight(pool: &sqlx::PgPool) -> sqlx::Transaction<'static, s
 /// A harness attempt driven one step at a time (feature `testing`). Every step keeps attempt
 /// semantics: the generation is lock-owned, and a refused step records it `failed` and ends the
 /// harness, after which every later step refuses with `State`.
-/// This unscheduled harness qualifies schema and ordinary model invariants, not stage admission
-/// or source-sensitive publication. Use `GenerationStore::begin_conformance` with a real
-/// `Schedule` to exercise those publication contracts and acknowledged input receipts.
+/// `begin` is unscheduled and qualifies schema and ordinary model invariants, not stage admission
+/// or source-sensitive publication. `begin_empty_conformance` uses a real schedule and empty
+/// vocabulary receipts for full-model lifecycle controls; it does not qualify source producers.
+/// Use `GenerationStore::begin_conformance` with actual source stages for those contracts.
 pub struct Harness {
     store: crate::generations::GenerationStore,
     generation: crate::generations::GenerationId,
@@ -183,10 +184,120 @@ pub struct Harness {
 )]
 enum HarnessState {
     Staging(crate::generations::GenerationAttempt),
+    ScheduledStaging(
+        crate::generations::GenerationAttempt,
+        lctx_model::domain::stages::ExecutionReceipt,
+    ),
     Sealed(crate::generations::SealedAttempt),
     Validated(crate::generations::ValidatedAttempt),
 }
 impl Harness {
+    /// Full-model lifecycle control with real, empty immutable vocabulary receipts.
+    /// This fixture has no source frames, analysis results or embedding service effects.
+    pub async fn begin_empty_conformance(
+        store: &crate::generations::GenerationStore,
+        writer: sqlx::PgPool,
+        profile: lctx_model::domain::stages::Profile,
+        budget: lctx_model::domain::resources::ResourceBudget,
+        packages: Vec<lctx_model::domain::input::Package>,
+    ) -> Result<Self, crate::generations::Error> {
+        use lctx_model::domain::{stages::*, *};
+        macro_rules! vocabulary {
+            ($apply:ident) => {
+                $apply!(value::Literal, value::LiteralSet, value::LiteralSetMember,
+                    value::PlaceRoot, value::PathSegment, value::AccessPath, value::Place,
+                    value::Predicate, conditions::EvaluationAtom, conditions::ConditionNode,
+                    conditions::Condition, assertion::AssertionQualification)
+            };
+        }
+        macro_rules! uses {
+            ($($ty:ty),*) => { vec![$(RelationUse::of::<$ty>()),*] };
+        }
+        let mut required: std::collections::BTreeSet<_> = store.model().invariants().iter()
+            .flat_map(|check| &check.inputs)
+            .filter_map(ValidationInput::prefix)
+            .collect();
+        required.extend(store.model().publication_checks().iter()
+            .flat_map(|check| &check.inputs)
+            .filter_map(ValidationInput::prefix));
+        required.insert(PublicationBoundary::Facts);
+        let names = [
+            "empty_facts", "empty_dispatch", "empty_base_semantic", "empty_execution_model",
+            "empty_summary", "empty_catalog_synthesis", "empty_local", "empty_base_evaluation",
+            "empty_base_completion", "empty_source_call", "empty_enriched_execution",
+            "empty_model", "empty_structural", "empty_analytic", "empty_catalog_core",
+            "empty_catalog_evidence", "empty_selection", "empty_synthesis", "empty_retrieval",
+            "empty_analytic_embedding",
+        ];
+        // ALL is deterministic fixture ordering only: every prefix is empty, so no semantic
+        // cross-boundary data exists. Domain codes do not order production execution.
+        let groups: Vec<_> = PublicationBoundary::ALL.into_iter().zip(names)
+            .filter(|(boundary, _)| required.contains(boundary))
+            .collect();
+        let stage = |name, inputs, outputs| Stage {
+            name, inputs, outputs, contributes: vec![], coverage: vec![], provider: None,
+            profiles: vec![profile], effect: Effect::Pure,
+            code: ContentHash::of(b"empty-full-model-conformance/v1"),
+            configuration: ContentHash::of(b"inactive-canonical-text-and-retrieval"),
+        };
+        let selected = empty_conformance_configuration(&budget)?;
+        let mut stages = Vec::new();
+        let mut previous = None;
+        for (boundary, name) in &groups {
+            let inputs = previous.map_or_else(Vec::new, |prefix| {
+                vocabulary!(uses).into_iter().map(|r| r.completed_store().at_epoch(prefix)).collect()
+            });
+            stages.push(stage(*name, inputs, vocabulary!(uses)));
+            previous = Some(*boundary);
+        }
+        let mut configured_outputs: Vec<_> = analysis::preparation::configuration_relations().iter()
+            .map(RelationUse::of_relation).collect();
+        configured_outputs.extend([
+            RelationUse::of::<input::Package>(),
+            RelationUse::of::<embedding::text::TextDefinition>(),
+        ]);
+        stages.push(stage("empty_configuration", vec![], configured_outputs));
+        let schedule = Schedule::build_with_publications(store.model(), stages, &[], profile,
+            groups.iter().map(|(boundary, name)| PublicationGroup::new(*boundary, vec![*name])).collect())?;
+        let mut execution = schedule.execute();
+        let attempt = store.begin_conformance(writer, &mut execution, budget.clone()).await?;
+        for (_, name) in &groups {
+            let mut output = StageOutput::new(execution.begin(name)?, &attempt, store.model(),
+                budget.clone(), Default::default())?;
+            macro_rules! declare {
+                ($($ty:ty),*) => { $(output.declare::<$ty>()?;)* };
+            }
+            vocabulary!(declare);
+            output.finish(ProviderOutcome::Complete).await?;
+        }
+        let mut output = StageOutput::new(execution.begin("empty_configuration")?, &attempt,
+            store.model(), budget.clone(), Default::default())?;
+        output.declare::<input::Package>()?;
+        output.declare::<embedding::text::TextDefinition>()?;
+        for package in packages { output.push(package).await?; }
+        output.push(embedding::text::TextDefinition::builtin()).await?;
+        macro_rules! configuration {
+            ($ty:ty, $rows:expr) => {
+                output.declare::<$ty>()?;
+                for row in $rows.iter() { output.push(row.clone()).await?; }
+            };
+        }
+        configuration!(models::ModelCatalog, selected.catalogs().catalogs);
+        configuration!(models::AuthoredTarget, selected.catalogs().targets);
+        configuration!(models::AuthoredModel, selected.catalogs().models);
+        configuration!(models::AuthoredContextProtocol, selected.catalogs().protocols);
+        configuration!(analysis::MethodParameters, selected.parameters());
+        configuration!(analysis::AnalysisDefinition, selected.definitions());
+        configuration!(analysis::ProjectionDefinition, selected.projections());
+        configuration!(analysis::settings::AnalyticsConfiguration, selected.analytics());
+        configuration!(retrieval::Definition, selected.retrieval());
+        output.finish(ProviderOutcome::Complete).await?;
+        let receipt = execution.finish()?;
+        Ok(Self {
+            store: store.clone(), generation: attempt.generation(),
+            state: Some(HarnessState::ScheduledStaging(attempt, receipt)),
+        })
+    }
     pub async fn begin(
         store: &crate::generations::GenerationStore,
         writer: sqlx::PgPool,
@@ -215,6 +326,10 @@ impl Harness {
     }
     pub async fn seal(&mut self) -> Result<(), crate::generations::Error> {
         match self.state.take() {
+            Some(HarnessState::ScheduledStaging(attempt, receipt)) => {
+                self.state = Some(HarnessState::Sealed(attempt.seal(receipt).await?));
+                Ok(())
+            }
             Some(HarnessState::Staging(attempt)) => {
                 self.state = Some(HarnessState::Sealed(attempt.seal_harness().await?));
                 Ok(())
@@ -258,7 +373,7 @@ impl Harness {
         cause: &lctx_model::domain::ModelError,
     ) -> Result<(), crate::generations::Error> {
         match self.state.take() {
-            Some(HarnessState::Staging(a)) => a.fail(cause).await.map(drop),
+            Some(HarnessState::Staging(a) | HarnessState::ScheduledStaging(a, _)) => a.fail(cause).await.map(drop),
             Some(HarnessState::Sealed(s)) => s.fail(cause).await.map(drop),
             Some(HarnessState::Validated(v)) => v.fail(cause).await.map(drop),
             None => Err(crate::generations::Error::State),
@@ -271,12 +386,32 @@ impl Harness {
     ) -> Result<crate::generations::CleanupOutcome, crate::generations::Error> {
         use crate::generations::CleanupOutcome::Removed;
         match self.state.take() {
-            Some(HarnessState::Staging(a)) => a.abort().await.map(|_| Removed),
+            Some(HarnessState::Staging(a) | HarnessState::ScheduledStaging(a, _)) => a.abort().await.map(|_| Removed),
             Some(HarnessState::Sealed(s)) => s.abort().await.map(|_| Removed),
             Some(HarnessState::Validated(v)) => v.abort().await.map(|_| Removed),
             None => self.store.abort(self.generation).await,
         }
     }
+}
+
+fn empty_conformance_configuration(
+    budget: &lctx_model::domain::resources::ResourceBudget,
+) -> Result<lctx_model::domain::analysis::preparation::Configuration, lctx_model::domain::ModelError> {
+    use lctx_model::domain::*;
+    let catalog = models::Catalog::parse("empty-conformance", "version = 7\nmodels = []\n")
+        .map_err(ModelError::Invalid)?;
+    let settings = analysis::settings::AnalyticsConfiguration::parse(
+        "version = 1\n[subsystem]\nmodule_prefixes = ['fixture']\npublic_roots = ['fixture']\n\
+         [seeds]\nprimary = []\ndistractors = []\n\
+         [pass_a]\nmax_depth = 1\nmax_vertices = 1\nmax_edges = 0\nmax_witnesses = 1\n\
+         [briefs]\nbudget = 0\n",
+        analysis::settings::Techniques::default(),
+    )?;
+    analysis::preparation::Configuration::new(&catalog, [
+        catalog::build::definition(), catalog::evidence::build::definition(),
+        selection::build::definition(), synthesis::build::definition(),
+        execution::configuration::summaries(catalog.declaration().id(), Default::default())?,
+    ], budget)?.with_analytics(settings)?.with_retrieval(retrieval::Definition::builtin(false))
 }
 
 /// Shared lifecycle fixtures for tests of this and dependent crates: a two-relation model for

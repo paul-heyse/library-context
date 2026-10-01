@@ -51,7 +51,67 @@ immediately, with no clean or cache/path changes. The passing rerun used the exi
 The non-model scoped diagnostic (`cargo clippy --release --workspace --exclude lctx-model --all-targets --no-deps --quiet -- -D warnings`) **passed**, but does not replace full Clippy.
 Eleven clean, fully integrated task worktrees were removed under the current cleanup instruction after ancestry/cherry-pick/patch checks. Four dirty and three unproven-integration task worktrees remain preserved, together with external spike worktrees and caches.
 
-The coherent `NEXTEST_TEST_THREADS=8 just test-all` retry on3ebad979 [full2](raw/phase4-q0-test-all2.log) **failed** during release compilation: all sixteen active compiler jobs terminated with SIGTERM, without a preceding Rust diagnostic. Nextest execution, pytest, the separate PG gate and doctests were **not_run**. Cause is unconfirmed; compiled work remains for another retry. Store-check remains not_run; both must pass before Phase 4 exit is claimed.
+The coherent `NEXTEST_TEST_THREADS=8 just test-all` retry on3ebad979 [full2](raw/phase4-q0-test-all2.log) **failed** during release compilation: all sixteen active compiler jobs terminated with SIGTERM, without a preceding Rust diagnostic. Nextest execution, pytest, the separate PG gate and doctests were **not_run**. Cause is unconfirmed; the operator states their cleanup was long before this interruption and should not explain it. Compiled work remains for another retry. Store-check remains not_run; both must pass before Phase 4 exit is claimed.
+
+
+The further `NEXTEST_TEST_THREADS=8 just test-all` retry [full3](raw/phase4-q0-test-all3.log)
+**failed** after a successful 19m39s release build: 993 tests ran, 964 passed, 28 failed,
+one exceeded the generic 300s timeout, and 12 were skipped. This is a fixture-repair receipt,
+not full qualification. Python, the separate PostgreSQL gate and doctests were **not_run**.
+Failures identified stale generic transfer names, incomplete model-reference closure, missing
+explicit inactive embedding/retrieval definitions in full-model conformance fixtures, native
+inventory/publication-boundary and resource-pool fixture errors, a pre-cutover unsupported-frontier
+control, and the unrefreshed model snapshot. The four-compilation upper CLI control receives the
+same 900s allowance already applied to the six-compilation control; neither is a performance claim.
+The model `.snap.new` was inspected before `cargo insta accept`: 262→784 declared relations,
+102→196 invariants, seven generic authority relations replaced by nominal owners, 14 retained
+relations changed, and all 281 existing codebooks retained as unchanged prefixes. This is the
+Phase 4 schema migration; no compatibility reader was added. Current runtime reruns are pending.
+
+
+Focused model reruns are a **composite passed** for the repaired scope: the first compiler
+rerun [model1](raw/phase4-q0-model-fixtures1.log) failed two test-only imports; [model2](raw/phase4-q0-model-fixtures2.log)
+then passed90 unit/6 inventory tests but exposed full-model prefix requirements in lower fixtures.
+[model3](raw/phase4-q0-model-fixtures3.log) passed90 unit,3 memory,10 stage and6 inventory controls;
+its input model still omitted two declared invariant inputs. After adding those nominal targets,
+`cargo test --release -p lctx-model --test domain_input` [model4](raw/phase4-q0-model-fixtures4.log)
+**passed**, all6 input controls. Assertions and codebooks remain intact. The
+[accepted snapshot rerun](raw/phase4-q0-model-snapshot2.log) **passed** using the previously compiled
+model-description binary; its enclosing full current-tree rerun remains pending.
+
+
+`cargo test --release -p lctx-postgres --test domain_transfer --test native_inventory
+--test installation --test generation_catalog --test unicode_values --no-fail-fast`
+[PG fixtures1](raw/phase4-q0-pg-fixtures1.log) **failed**, three targets. Native inventory's actual
+Facts-prefix/omission/forged-status controls and Unicode transport **passed**. Transfer reached
+control-stage completion then refused its incomplete publication transport. Complete-model
+installation/catalog lifecycle controls now close real scheduled vocabulary prefixes, but final
+validation exposed missing canonical synthesis settings. Both fixture corrections require rerun.
+
+
+The full-model [PG fixtures2](raw/phase4-q0-pg-fixtures2.log) rerun **failed** one target:
+generation catalog2 and installation8 controls passed, including the drift matrix, busy/reset,
+lease, inventory and model-reinstall controls. Installation's clean-state control exposed an
+actual inspector discrepancy: reconstructed non-staging vocabulary views had NULL ACL, while
+real views retain explicit owner-only ACL after sealed-phase revocation. The correction replays
+the shared sealed lowering phase after reconstructing prefix views and retains exact ACL/grant
+comparison; current production rerun remains pending.
+
+
+`cargo test --release -p lctx-postgres --test installation --test domain_transfer --no-fail-fast`
+[PG fixtures3](raw/phase4-q0-pg-fixtures3.log) **passed**: transfer1 (15.67s) and installation9
+(147.20s), including exact clean ACLs across every state, a sealed-prefix unauthorized-grant/refusal
+and revocation/clean twin, and the complete existing drift matrix. Transfer now has actual Facts
+and completed source grants with honest incomplete conformance coverage; the original roundtrip,
+derivation/provenance, scope mutations and failed-state assertions remain. This is a model-contract
+fixture, not qualification of a behavioral provider.
+
+The direct fresh-CLI [live check](raw/phase4-q0-live-store1.log) **failed** on the earlier model's
+installation. Read-only inventory found zero readers and one unselected published facts generation.
+The [reset dry run](raw/phase4-q0-store-reset-plan.log) refused pending confirmation as expected;
+`target/release/lctx store reset --confirm lctx` [reset](raw/phase4-q0-store-reset1.log) **passed**,
+dropping that obsolete generation and reinstalling the current model. This authorized regenerable
+state pivot does not replace the pending named `just store-check` or disposable-generation tests.
 
 Independent focused design advice (static, 2026-10-01) accepts checked-false direct bare-name
 identity sources backed by actual native uses, and complete native reaching retention only for

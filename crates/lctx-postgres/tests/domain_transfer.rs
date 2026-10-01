@@ -1,24 +1,24 @@
 //! Model contract fixtures, not a qualified behavioral producer.
 #[path = "../../lctx-model/tests/fixtures/analysis_support.rs"]
 mod analysis_fixture;
-#[path = "fixtures/analysis_support.rs"]
-mod stored_analysis;
 use lctx_model::domain::{
+    analysis::{expected::CoverageAdmission, local, sources::CapturedSources},
     artifact::*,
     assertion::*,
     attribution::*,
     calls::*,
     conditions::*,
+    flow::{FlowUse, FlowValueObservation, FlowValueSupport},
     input::*,
-    normalized::entities::EntityRef,
+    normalized::{coverage::{Capability, EvidenceAvailability, NormalizationComputation, NormalizationCoverage}, entities::EntityRef},
     source::*,
+    stages::*,
     transfer::{local::*, *},
     value::*,
     *,
 };
-use lctx_postgres::generations::{Error, GenerationStore};
+use lctx_postgres::generations::{Error, GenerationAttempt, GenerationId, GenerationStore, SealedAttempt, ValidatedAttempt};
 use lctx_postgres::testing::DisposableDatabase;
-use lctx_postgres::testing::Harness;
 use std::sync::Arc;
 
 #[tokio::test]
@@ -30,6 +30,7 @@ async fn transfer_control_selection_survive_postgres_and_cross_scope_call_site_r
     let store = GenerationStore::install(db.owner.clone(), model.clone())
         .await
         .unwrap();
+    let schedule = transfer_schedule(&model);
     let bytes = b"x y";
     let input = InputRevision::from_entries(vec![
         ManifestEntry {
@@ -139,6 +140,22 @@ async fn transfer_control_selection_survive_postgres_and_cross_scope_call_site_r
         root: other_root.id(),
         path: path.id(),
     };
+    // These nominal control fixtures exercise proofs without claiming a completed behavioral
+    // producer. Their admitted domain records the unavailable normalization explicitly.
+    let artifact_use = ArtifactUse { artifact: source.id(), input: input.id(), role: SourceRole::Release };
+    let provider_coverage = ProviderCoverage {
+        scope: scope.id(), provider: Some(provider.id()), context: context.id(), family: FactFamily::Flow,
+        run: Some(run.id()), status: CoverageStatus::Partial,
+        reason: Some(obligation::ObligationKind::IncompleteCoverage), diagnostic: Some("nominal flow contract fixture".into()),
+    };
+    let computations: Vec<_> = [Capability::FlowLinks, Capability::FlowEvents, Capability::Bindings].into_iter().map(|capability| NormalizationComputation {
+        capability, policy: ContentHash::of(b"nominal fixture"), producer: "fixture_facts".into(),
+        declaration: ContentHash::of(b"unavailable normalization"), profile: Profile::Behavioral.name().into(),
+        availability: EvidenceAvailability::Unavailable,
+    }).collect();
+    let normalized_coverage: Vec<_> = computations.iter().map(|computation| NormalizationCoverage {
+        computation: computation.id(), scope: scope.id(), context: context.id(), availability: EvidenceAvailability::Unavailable,
+    }).collect();
     for boundary in 0..3 {
         let atom = EvaluationAtom {
             evaluation: occurrences[1].id(),
@@ -171,7 +188,7 @@ async fn transfer_control_selection_survive_postgres_and_cross_scope_call_site_r
         let influence_evidence = Evidence::Occurrence {
             occurrence: atom.evaluation,
         };
-        let foundation = analysis_fixture::SupportFixture::new(
+        let mut foundation = analysis_fixture::SupportFixture::new(
             input.id(),
             run.id(),
             surface.id(),
@@ -181,7 +198,7 @@ async fn transfer_control_selection_survive_postgres_and_cross_scope_call_site_r
             occurrences[0].id(),
             places[0].id(),
         );
-        let control_foundation = analysis_fixture::SupportFixture::new(
+        let mut control_foundation = analysis_fixture::SupportFixture::new(
             input.id(),
             run.id(),
             surface.id(),
@@ -191,10 +208,6 @@ async fn transfer_control_selection_survive_postgres_and_cross_scope_call_site_r
             atom.evaluation,
             influence.input,
         );
-        let control_support = ControlSupport {
-            assertion: influence.id(),
-            source: control_foundation.derived.id(),
-        };
         let key = TransferKey {
             owner: entity.id(),
             input: places[0].id(),
@@ -223,122 +236,85 @@ async fn transfer_control_selection_survive_postgres_and_cross_scope_call_site_r
             .selection(&influence, &qualification)
             .unwrap()
             .unwrap();
-        let support = TransferSupport {
-            assertion: alternative.id(),
-            source: foundation.derived.id(),
-        };
-        let mut g_h = Harness::begin(
-            &store,
-            writer.clone(),
-            lctx_model::domain::stages::Profile::Behavioral,
-            budget(),
-        )
-        .await
-        .unwrap();
-        let g = g_h.generation();
-        let mut native_inventory =
-            lctx_model::domain::analysis::native::NativeInventory::new(&budget());
-        macro_rules! copy { ($($row:expr),+ $(,)?) => { $(stored_analysis::copy(&g_h, &model, vec![$row.clone()], &mut native_inventory, &budget()).await.unwrap();)+ }; }
-        copy!(
-            input,
-            origin,
-            acquisition,
-            source,
-            other,
-            scope,
-            context,
-            provider,
-            run,
-            surface,
-            module,
-            source_module,
-            entity,
-            symbol,
-            path,
-            predicate,
-            atom,
-            condition,
-            qualification,
-            influence,
-            evidence,
-            influence_evidence,
-            control_support,
-            key,
-            alternative,
-            selection,
-            support,
-            other_site,
-            other_root,
-            other_place
-        );
-        macro_rules! copies { ($($rows:expr),+ $(,)?) => { $(stored_analysis::copy(&g_h, &model, $rows.clone(), &mut native_inventory, &budget()).await.unwrap();)+ }; }
-        copy!(
-            foundation.parameters,
-            foundation.definition,
-            foundation.invocation
-        );
+        let mut execution = schedule.execute();
+        let attempt = store.begin_conformance(writer.clone(), &mut execution, budget()).await.unwrap();
+        let g = attempt.generation();
+        let mut native_inventory = analysis::native::NativeInventory::new(&budget());
+        let mut access = execution.begin("fixture_facts").unwrap();
+        macro_rules! copy { ($($row:expr),+ $(,)?) => { $(copy_rows(&mut access, &attempt, &model, vec![$row.clone()], &mut native_inventory).await.unwrap();)+ }; }
+        macro_rules! copies { ($($rows:expr),+ $(,)?) => { $(copy_rows(&mut access, &attempt, &model, $rows.clone(), &mut native_inventory).await.unwrap();)+ }; }
+        copy!(input,origin,acquisition,source,other,scope,context,provider,run,surface,module,source_module,entity,symbol,path,predicate,atom,condition,qualification,evidence,influence_evidence,other_site,other_root,other_place);
+        copy!(foundation.parameters,foundation.definition,artifact_use,provider_coverage);
+        copies!(computations,normalized_coverage);
         copies!(
             vec![foundation.use_.clone(), control_foundation.use_.clone()],
-            vec![
-                foundation.observation.clone(),
-                control_foundation.observation.clone()
-            ],
-            vec![
-                foundation.support.clone(),
-                control_foundation.support.clone()
-            ],
-            vec![
-                foundation.subject.clone(),
-                control_foundation.subject.clone()
-            ],
-            vec![
-                foundation.proposition.clone(),
-                control_foundation.proposition.clone()
-            ],
-            vec![
-                foundation.derivation.clone(),
-                control_foundation.derivation.clone()
-            ],
-            vec![
-                foundation.native.clone(),
-                foundation.derived.clone(),
-                control_foundation.native.clone(),
-                control_foundation.derived.clone()
-            ],
-            foundation
-                .members
-                .iter()
-                .chain(&control_foundation.members)
-                .cloned()
-                .collect::<Vec<_>>()
+            vec![foundation.observation.clone(), control_foundation.observation.clone()],
+            vec![foundation.support.clone(), control_foundation.support.clone()],
+            families, occurrences, roots, places, nodes
         );
-        copies!(families, occurrences, roots, places, nodes);
-        g_h.copy(
-            &Batch::new(
-                &model,
-                ArtifactChunk::split(&source, bytes).unwrap().collect(),
-                &budget(),
-            )
-            .unwrap(),
-            &budget(),
-        )
-        .await
-        .unwrap();
-        g_h.copy(
-            &Batch::new(
-                &model,
-                ArtifactChunk::split(&other, b"z").unwrap().collect(),
-                &budget(),
-            )
-            .unwrap(),
-            &budget(),
-        )
-        .await
-        .unwrap();
-        stored_analysis::finish(&g_h, &model, native_inventory, &budget())
-            .await
-            .unwrap();
-        g_h.seal().await.unwrap();
+        copies!(ArtifactChunk::split(&source, bytes).unwrap().collect::<Vec<_>>(),ArtifactChunk::split(&other, b"z").unwrap().collect::<Vec<_>>());
+        let projected = native_inventory.collect().unwrap();
+        let batch = Batch::new(&model, projected.premises.iter().cloned().collect(), &budget()).unwrap();
+        access.write::<analysis::native::NativeAssertionPremise, _>(async |permit| attempt.copy(permit, &batch).await).await.unwrap();
+        let batch = Batch::new(&model, projected.qualifications.iter().cloned().collect(), &budget()).unwrap();
+        access.write::<analysis::native::NativeQualification, _>(async |permit| attempt.copy(permit, &batch).await).await.unwrap();
+        access.complete(&attempt, ProviderOutcome::Complete).await.unwrap();
+        let mut access = execution.begin("fixture_controls").unwrap();
+        let admission_budget = budget();
+        let captured = CapturedSources::capture(&access, &admission_budget).unwrap();
+        let mut admission = CoverageAdmission::new(&captured, &admission_budget).unwrap();
+        macro_rules! visit { ($ty:ty, $rows:expr) => {
+            admission.visit(&access.read::<$ty>().unwrap(), &<$ty as Record>::encode($rows).unwrap()).unwrap();
+        }; }
+        visit!(InputRevision, std::slice::from_ref(&input));
+        visit!(SourceArtifact, &[source.clone(), other.clone()]);
+        visit!(ArtifactUse, std::slice::from_ref(&artifact_use));
+        visit!(CoverageScope, std::slice::from_ref(&scope));
+        visit!(ProviderCoverage, std::slice::from_ref(&provider_coverage));
+        visit!(NormalizationComputation, &computations);
+        visit!(NormalizationCoverage, &normalized_coverage);
+        let (invocation, parents, source_receipts, projections) = local::Invocation::admitted(
+            input.id(), context.id(), foundation.definition.id(), None, [], &captured, [], &admission_budget,
+        ).unwrap();
+        let admitted = local::coverage::admit(&invocation, &foundation.definition, analysis::AnalysisCapability::Transfers, &admission, &admission_budget).unwrap();
+        let status = analysis::AnalysisStatus::Partial;
+        let reason = Some(obligation::ObligationKind::IncompleteCoverage);
+        let outcome = local::Outcome { invocation: invocation.id(), status, reason };
+        let mut requirements = Vec::new();
+        let mut required = Vec::new();
+        let mut coverage = Vec::new();
+        let mut coverage_premises = Vec::new();
+        let mut coverage_sources = Vec::new();
+        for domain in admitted.scopes() {
+            let (requirement, members) = domain.expectation().records().unwrap();
+            requirements.push(requirement);
+            required.extend(members);
+            let (row, premises) = local::coverage::assess(domain.expectation(), domain.observations(), status, reason, &admission_budget).unwrap();
+            coverage.push(row);
+            coverage_premises.extend(premises);
+            coverage_sources.extend(domain.observations().iter().map(|observation| observation.source().clone()));
+        }
+        bind_support(&mut foundation, &invocation, &qualification, &diagram);
+        bind_support(&mut control_foundation, &invocation, &qualification, &diagram);
+        let control_support = ControlSupport { assertion: influence.id(), source: control_foundation.derived.id() };
+        let support = TransferSupport { assertion: alternative.id(), source: foundation.derived.id() };
+        let mut ignored_native = analysis::native::NativeInventory::new(&budget());
+        // The control rows are nominal contract fixtures, not outputs of a behavioral producer.
+        macro_rules! copy { ($($row:expr),+ $(,)?) => { $(copy_rows(&mut access, &attempt, &model, vec![$row.clone()], &mut ignored_native).await.unwrap();)+ }; }
+        macro_rules! copies { ($($rows:expr),+ $(,)?) => { $(copy_rows(&mut access, &attempt, &model, $rows.clone(), &mut ignored_native).await.unwrap();)+ }; }
+        copy!(foundation.invocation,influence,control_support,key,alternative,selection,support,outcome);
+        copies!(parents,source_receipts,projections,requirements,required,coverage,coverage_premises,coverage_sources);
+        copy_rows::<local::InvocationSource>(&mut access, &attempt, &model, vec![], &mut ignored_native).await.unwrap();
+        copies!(
+            vec![foundation.subject.clone(), control_foundation.subject.clone()],
+            vec![foundation.proposition.clone(), control_foundation.proposition.clone()],
+            vec![foundation.derivation.clone(), control_foundation.derivation.clone()],
+            vec![foundation.native.clone(), foundation.derived.clone(), control_foundation.native.clone(), control_foundation.derived.clone()],
+            foundation.members.iter().chain(&control_foundation.members).cloned().collect::<Vec<_>>()
+        );
+        access.complete(&attempt, ProviderOutcome::Complete).await.unwrap();
+        let sealed = attempt.seal(execution.finish().unwrap()).await.unwrap();
+        let mut g_h = FixturePublication { store: store.clone(), generation: g, sealed: Some(sealed), validated: None };
         if boundary != 0 {
             let error = g_h.validate(&budget()).await.unwrap_err();
             assert!(
@@ -418,7 +394,8 @@ fn budget() -> lctx_model::domain::resources::ResourceBudget {
 }
 
 /// This conformance control owns only Local transfer/control contracts, not later composition or
-/// entry replay. Keep its nominal declaration closure independent of future publication owners.
+/// producer entry replay. Its empty witness targets retain the complete nominal FK and invariant
+/// declarations of the Local support alternatives, without activating their producers.
 fn transfer_model() -> ValidatedModel {
     let mut relations = facts_relations();
     relations.extend(analysis::early_relations());
@@ -428,6 +405,18 @@ fn transfer_model() -> ValidatedModel {
         Relation::of::<ControlInfluence>(),
         Relation::of::<ControlSupport>(),
         Relation::of::<Selection>(),
+        Relation::of::<local_semantics::LocalContribution>(),
+        Relation::of::<local_semantics::LocalGuardContribution>(),
+        Relation::of::<local_theory::TheoryWitness>(),
+        Relation::of::<conditions::entry::EntryValueWitness>(),
+        Relation::of::<conditions::entry::EntryAccessSource>(),
+        Relation::of::<conditions::stability::StabilityWitness>(),
+        Relation::of::<normalized::entities::ParameterEntityLink>(),
+        Relation::of::<normalized::entities::OccurrenceOwnership>(),
+        Relation::of::<normalized::links::TestOperandTypeAssessment>(),
+        Relation::of::<normalized::links::TestOperandTypeLink>(),
+        Relation::of::<local_theory::TypeDomain>(),
+        Relation::of::<local_theory::BuiltinOperandWitness>(),
     ]);
     relations.extend(normalized::coverage::relations());
     relations.extend([
@@ -438,4 +427,70 @@ fn transfer_model() -> ValidatedModel {
         Relation::of::<EntityRef>(),
     ]);
     ValidatedModel::validate(relations).unwrap()
+}
+
+
+// Preserve the existing lifecycle checks while delegating every transition to real store capabilities.
+struct FixturePublication {
+    store: GenerationStore,
+    generation: GenerationId,
+    sealed: Option<SealedAttempt>,
+    validated: Option<ValidatedAttempt>,
+}
+impl FixturePublication {
+    async fn validate(&mut self, budget: &resources::ResourceBudget) -> Result<ContentHash, Error> {
+        let validated = self.sealed.take().ok_or(Error::State)?.validate_with(budget).await?;
+        let content = validated.content();
+        self.validated = Some(validated);
+        Ok(content)
+    }
+    async fn publish(&mut self) -> Result<(), Error> {
+        self.validated.take().ok_or(Error::State)?.publish().await.map(drop)
+    }
+    async fn abort(&mut self) -> Result<(), Error> {
+        if let Some(validated) = self.validated.take() {
+            validated.abort().await.map(drop)
+        } else if let Some(sealed) = self.sealed.take() {
+            sealed.abort().await.map(drop)
+        } else {
+            self.store.abort(self.generation).await.map(drop)
+        }
+    }
+}
+async fn copy_rows<R: Record>(
+    access: &mut StageAccess<'_, '_>,
+    attempt: &GenerationAttempt,
+    model: &ValidatedModel,
+    rows: Vec<R>,
+    native: &mut analysis::native::NativeInventory,
+) -> Result<(), ModelError> {
+    let batch = Batch::new(model, rows, &budget())?;
+    if analysis::native::NativeInventory::inputs().iter().any(|i| i.name() == R::NAME) {
+        native.visit(R::NAME, batch.arrow())?;
+    }
+    access.write::<R, _>(async |permit| attempt.copy(permit, &batch).await).await
+}
+fn transfer_schedule(model: &ValidatedModel) -> Schedule {
+    use analysis::local::{support::SupportSource, AnalysisInvocation, AnalysisProposition, AnalysisDerivation, AnalysisDerivationPremise, ObligationSubject};
+    macro_rules! outputs { ($($ty:ty),+ $(,)?) => { vec![$(RelationUse::of::<$ty>()),+] }; }
+    let facts = outputs!(InputRevision,InputOrigin,InputAcquisition,SourceArtifact,CoverageScope,AnalysisContext,Provider,ProviderRun,ProviderSurface,ProviderModule,Module,EntityRef,ProviderSymbol,AccessPath,Predicate,EvaluationAtom,Condition,AssertionQualification,Evidence,Occurrence,PlaceRoot,Place,RunFamily,ConditionNode,ArtifactChunk,FlowUse,FlowValueObservation,FlowValueSupport,analysis::native::NativeAssertionPremise,analysis::native::NativeQualification,analysis::MethodParameters,analysis::AnalysisDefinition,ArtifactUse,ProviderCoverage,NormalizationComputation,NormalizationCoverage);
+    let controls = outputs!(AnalysisInvocation,ControlInfluence,ControlSupport,TransferKey,TransferAlternative,Selection,TransferSupport,ObligationSubject,AnalysisProposition,AnalysisDerivation,SupportSource,AnalysisDerivationPremise,local::SourceReceipt,local::AnalysisInput,local::ProjectionInput,local::InvocationSource,local::Outcome,local::CoverageRequirement,local::CoverageRequiredSource,local::Coverage,local::AnalysisCoveragePremise,local::CoverageSource);
+    let stage = |name, inputs, outputs| Stage { name, inputs, outputs, contributes: vec![], coverage: vec![], provider: None, profiles: vec![Profile::Behavioral], effect: Effect::Extraction, code: ContentHash::of(b"Local transfer conformance fixture"), configuration: ContentHash::of(b"fixture") };
+    let inputs = outputs!(InputRevision,SourceArtifact,ArtifactUse,CoverageScope,ProviderCoverage,NormalizationComputation,NormalizationCoverage,analysis::AnalysisDefinition).into_iter().map(RelationUse::completed_store).collect();
+    Schedule::build_with_publications(model, vec![stage("fixture_facts", vec![], facts),stage("fixture_controls", inputs, controls)], &[], Profile::Behavioral, vec![PublicationGroup::new(PublicationBoundary::Facts, vec!["fixture_facts"])]).unwrap()
+}
+
+// Re-emit the same native premises after binding the proof to actual completed source receipts.
+fn bind_support(fixture: &mut analysis_fixture::SupportFixture, invocation: &local::Invocation, qualification: &AssertionQualification, diagram: &Diagram) {
+    use local::support::{AnalysisDerivation, EvidencePremise, QualificationOperation, SupportSource};
+    let (derivation, proposition, members, _) = AnalysisDerivation::emit(
+        invocation, &fixture.definition, fixture.subject.id(), fixture.proposition.channel,
+        fixture.proposition.phase, QualificationOperation::Conjunction,
+        &[EvidencePremise::native(&fixture.native, &fixture.native_qualification, qualification, diagram).unwrap()], &budget(),
+    ).unwrap();
+    fixture.invocation = invocation.clone();
+    fixture.derivation = derivation;
+    fixture.proposition = proposition;
+    fixture.members = members;
+    fixture.derived = SupportSource::AnalysisDerivation { derivation: fixture.derivation.id() };
 }

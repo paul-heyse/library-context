@@ -12,13 +12,13 @@ use lctx_model::domain::{
     conditions::*,
     input::*,
     source::*,
-    stages::Profile,
+    stages::*,
     syntax::*,
     value::*,
     *,
 };
 use lctx_postgres::generations::{Error, GenerationStore};
-use lctx_postgres::testing::{DisposableDatabase, Harness, fixtures::budget};
+use lctx_postgres::testing::{DisposableDatabase, fixtures::budget};
 use std::sync::Arc;
 
 #[tokio::test]
@@ -36,22 +36,49 @@ async fn native_inventory_roundtrips_and_refuses_omission_and_forged_status() {
     let store = GenerationStore::install(db.owner.clone(), model.clone())
         .await
         .unwrap();
+    macro_rules! outputs { ($($ty:ty),+) => { vec![
+        $(RelationUse::of::<$ty>(),)+
+        RelationUse::of::<NativeAssertionPremise>(),
+        RelationUse::of::<NativeQualification>(),
+    ] }; }
+    let schedule = Schedule::build_with_publications(
+        &model,
+        vec![Stage {
+            name: "native_fixture",
+            inputs: vec![],
+            outputs: syntax_relations!(outputs),
+            contributes: vec![],
+            coverage: vec![],
+            provider: None,
+            profiles: vec![Profile::Catalog],
+            effect: Effect::Extraction,
+            code: ContentHash::of(b"native inventory fixture"),
+            configuration: ContentHash::of(b"native syntax fixture"),
+        }],
+        &[],
+        Profile::Catalog,
+        vec![PublicationGroup::new(PublicationBoundary::Facts, vec!["native_fixture"])],
+    )
+    .unwrap();
     for mutation in ["none", "omit", "status"] {
         let fixture = Fixture::new();
         let budget = budget();
         let mut native = NativeInventory::new(&budget);
         let input_names = NativeInventory::inputs();
-        let mut attempt =
-            Harness::begin(&store, db.writer.clone(), Profile::Catalog, budget.clone())
+        let mut execution = schedule.execute();
+        let attempt =
+            store.begin_conformance(db.writer.clone(), &mut execution, budget.clone())
                 .await
                 .unwrap();
         let generation = attempt.generation();
+        let mut access = execution.begin("native_fixture").unwrap();
         macro_rules! copy { ($($ty:ty),+) => { $(
             let batch = Batch::new(&model, fixture.rows::<$ty>(), &budget).unwrap();
             if input_names.iter().any(|input| input.name() == <$ty>::NAME) {
                 native.visit(<$ty>::NAME, batch.arrow()).unwrap();
             }
-            attempt.copy(&batch, &budget).await.unwrap();
+            access.write::<$ty, _>(async |permit| attempt.copy(permit, &batch).await)
+                .await.unwrap();
         )+ }; }
         syntax_relations!(copy);
         let output = native.collect().unwrap();
@@ -68,30 +95,29 @@ async fn native_inventory_roundtrips_and_refuses_omission_and_forged_status() {
             );
             qualifications[0].status = EvidenceStatus::FixtureChecked;
         }
-        attempt
-            .copy(&Batch::new(&model, premises, &budget).unwrap(), &budget)
+        let batch = Batch::new(&model, premises, &budget).unwrap();
+        access
+            .write::<NativeAssertionPremise, _>(async |permit| attempt.copy(permit, &batch).await)
             .await
             .unwrap();
-        attempt
-            .copy(
-                &Batch::new(&model, qualifications.clone(), &budget).unwrap(),
-                &budget,
-            )
+        let batch = Batch::new(&model, qualifications.clone(), &budget).unwrap();
+        access
+            .write::<NativeQualification, _>(async |permit| attempt.copy(permit, &batch).await)
             .await
             .unwrap();
-        attempt.seal().await.unwrap();
+        access.complete(&attempt, ProviderOutcome::Complete).await.unwrap();
+        let sealed = attempt.seal(execution.finish().unwrap()).await.unwrap();
         if mutation != "none" {
-            let refused = attempt.validate(&budget).await;
+            let refused = sealed.validate_with(&budget).await;
             assert!(
                 matches!(&refused, Err(Error::Model(ModelError::Invalid(message)))
                 if message.contains("native inventory differs")),
                 "{mutation}: {refused:?}"
             );
-            attempt.abort().await.unwrap();
+            store.abort(generation).await.unwrap();
             continue;
         }
-        attempt.validate(&budget).await.unwrap();
-        attempt.publish().await.unwrap();
+        sealed.validate_with(&budget).await.unwrap().publish().await.unwrap();
         let mut lease = store
             .pin(&db.reader, generation, budget.clone())
             .await

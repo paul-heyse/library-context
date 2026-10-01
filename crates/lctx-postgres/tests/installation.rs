@@ -53,7 +53,7 @@ async fn run(pool: &sqlx::PgPool, sql: &str) {
         .unwrap();
 }
 async fn harness(store: &GenerationStore, db: &DisposableDatabase) -> Harness {
-    Harness::begin(store, db.writer.clone(), Profile::Catalog, budget())
+    Harness::begin_empty_conformance(store, db.writer.clone(), Profile::Catalog, budget(), vec![])
         .await
         .unwrap()
 }
@@ -155,7 +155,7 @@ async fn check_clean_in_every_state() {
         .await
         .unwrap();
     let mut staging = harness(&store, &db).await;
-    let mut sealed = Harness::begin(&store, db.writer.clone(), Profile::Behavioral, budget())
+    let mut sealed = Harness::begin_empty_conformance(&store, db.writer.clone(), Profile::Behavioral, budget(), vec![])
         .await
         .unwrap();
     sealed.seal().await.unwrap();
@@ -173,6 +173,16 @@ async fn check_clean_in_every_state() {
     let report = GenerationStore::check(&db.owner, &model).await.unwrap();
     assert!(report.clean(), "{:#?}", report.findings);
     assert_eq!(report.generations, 5);
+    // Prefix reconstruction must match owner-only sealed ACLs and still detect extra grants.
+    let prefix: String = sqlx::query_scalar("SELECT c.relname::text FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname=$1 AND c.relkind='v' AND c.relname ~ '^__v[0-9]+_' ORDER BY c.relname LIMIT 1")
+        .bind(sealed.generation().schema()).fetch_one(db.owner.pool()).await.unwrap();
+    let prefix_relation = format!("{}.{}", sealed.generation().schema(), prefix);
+    run(db.owner.pool(), &format!("GRANT SELECT ON {prefix_relation} TO lctx_app")).await;
+    let granted = GenerationStore::check(&db.owner, &model).await.unwrap();
+    assert!(granted.findings.iter().any(|finding| finding.kind == FindingKind::Differs
+        && finding.subject == format!("{} relation {prefix}", sealed.generation().schema())));
+    run(db.owner.pool(), &format!("REVOKE SELECT ON {prefix_relation} FROM lctx_app")).await;
+    assert!(GenerationStore::check(&db.owner, &model).await.unwrap().clean());
     assert!(
         !schemas(&db.superuser)
             .await

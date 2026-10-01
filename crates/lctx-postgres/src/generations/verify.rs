@@ -299,6 +299,16 @@ async fn inspect(tx: &mut PgConnection, model: &ValidatedModel) -> Result<CheckR
                         .await?;
                     }
                 }
+                // Prefix views existed before the live seal revoked importer privileges.
+                // Replay that transition after reconstructing them too, including the
+                // explicit owner ACL PostgreSQL retains after the revocation.
+                if state != "staging" {
+                    for sql in lowering.phase("sealed") {
+                        sqlx::query(sqlx::AssertSqlSafe(sql))
+                            .execute(&mut *tx)
+                            .await?;
+                    }
+                }
                 if state == "published" {
                     for sql in lowering.phase("published") {
                         sqlx::query(sqlx::AssertSqlSafe(sql))

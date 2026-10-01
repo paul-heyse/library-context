@@ -2,6 +2,11 @@
 
 _Updated 2026-10-01 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
+**Implemented, 2026-10-01:** Shared [planning](.claude/skills/create-plan/SKILL.md) and
+[review](.claude/skills/design-review/SKILL.md) guidance updated (uncommitted). `just lint-agents`
+and focused metadata, link/alias and shared-text consistency checks passed; product checks
+`not_run` for this documentation-only work.
+
 ## Phase 4 — functional scope integrated; Q0 active
 
 The operator authorized implementation of the remaining
@@ -34,13 +39,13 @@ Cargo commands use `python3 scripts/build_environment.py --`.
 | `cargo test --release -p cpg-core --test synthesis_refutation -- --nocapture` within native2 | **passed**, actual native/PG proof-backed kind18 assertion and selected brief with coverage/proof refusals |
 | `cargo test --release -p cpg-flow --test flow_shapes -- --nocapture`, false-origin2 | **passed**, 33 native controls, including all-state false inventory, live read and computed-false refusal |
 | `cargo check -p cpg-core -p lctx-analytics -p lctx --tests`, X0 check2 | **passed**, complete post-retirement rerun after restoring the independent ranking oracle's dev dependency |
-| `NEXTEST_TEST_THREADS=8 just test-all` | First run **failed**, older fixtures then missing binaries after operator-confirmed concurrent cargo clean. Repaired-tree retry on3ebad979 **failed** before tests: all16 active compiler jobs received SIGTERM; cause unconfirmed, retry pending |
+| `NEXTEST_TEST_THREADS=8 just test-all` | First run **failed**, older fixtures then missing binaries after operator-confirmed concurrent cargo clean. Retry on3ebad979 **failed** before tests: all16 compiler jobs received SIGTERM, cause unconfirmed. Further retry **failed** after successful build: 964 passed, 28 failed, one timed out, 12 skipped; current fixture/schema repairs require rerun |
 | `just hygiene` | Initial run **failed** at ADR lint. Individual fixture/gold/rule/Ruff/type and repaired ADR/docs/dependency/full Clippy checks **passed**; store-check not_run |
 | Live embedding, upper real-library pilots, comparisons and measurements | **not_run**, excluded scope |
 
 ## Remaining execution
 
-Finish the full functional retry and live store check, repair failures and rerun the affected checks;
+Finish focused verification of the current fixture/schema repairs, then rerun the full functional gate and named live store check. The earlier installation was reset after confirming zero readers and one unselected obsolete facts generation;
 then publish coherent Q0 receipts and reconcile final owner documentation, Phase 4 disposition
 and this checkpoint. Production/provider digest changes require a coherent full-gate rerun.
 
