@@ -342,7 +342,7 @@ pub fn admit(invocation:&AnalysisInvocation,definition:&AnalysisDefinition,capab
     let reservation=budget.reserve("admitted_analysis_coverage",bytes)?;
     let scopes=domain.scopes.iter().map(|scope|admitted_scope(invocation.id(),capability,scope)).collect::<Result<Vec<_>,_>>()?;Ok(AdmittedCoverage {scopes,_reservation:reservation})
 }
-fn bound_method()->Option<AnalysisMethod> {match AnalysisCoverage::NAME {"local_analysis_coverage"=>Some(AnalysisMethod::LocalTransfers),"catalog_core_analysis_coverage"=>Some(AnalysisMethod::Catalog),"catalog_evidence_analysis_coverage"=>Some(AnalysisMethod::CatalogEvidence),"analytic_embedding_analysis_coverage"=>Some(AnalysisMethod::AnalyticEmbedding),_=>None}}
+fn bound_method()->Option<AnalysisMethod> {match AnalysisCoverage::NAME {"local_analysis_coverage"=>Some(AnalysisMethod::LocalTransfers),"catalog_core_analysis_coverage"=>Some(AnalysisMethod::Catalog),"catalog_evidence_analysis_coverage"=>Some(AnalysisMethod::CatalogEvidence),"analytic_embedding_analysis_coverage"=>Some(AnalysisMethod::AnalyticEmbedding),"selection_analysis_coverage"=>Some(AnalysisMethod::CatalogSelection),_=>None}}
 pub(super) fn publication_checks()->Vec<PublicationInvariant> {
     let mut inputs=vec![ValidationInput::of::<AnalysisInvocation>(&["id"]),ValidationInput::of::<AnalysisDefinition>(&["id"]),ValidationInput::of::<super::AnalysisOutcome>(&["id"]),ValidationInput::of::<CoverageRequirement>(&["id"]),ValidationInput::of::<CoverageRequiredSource>(&["id"]),ValidationInput::of::<AnalysisCoverage>(&["id"]),ValidationInput::of::<AnalysisCoveragePremise>(&["id"]),ValidationInput::of::<CoverageSource>(&["id"])];
     if let Some(method)=bound_method() {inputs.extend(crate::domain::analysis::expected::inputs(method));}
