@@ -10,6 +10,96 @@ use sqlx::PgConnection;
 use std::collections::{BTreeMap, BTreeSet};
 
 impl GenerationStore {
+    /// Freeze-time vocabulary admission for ordinary outputs. This runs under the completion
+    /// transaction's output locks, before a receipt or read grant can escape. Native outputs
+    /// preceding the Facts close retain their existing checkpoint/group validation boundary.
+    pub(super) async fn check_completed_output_references(
+        &self,
+        tx: &mut PgConnection,
+        g: GenerationId,
+        completion: &lctx_model::domain::stages::StageCompletion,
+    ) -> Result<(), Error> {
+        let order = super::vocabulary::publication_order(tx, g).await?;
+        let explicit = completion.prefix_ordinal();
+        let Some(prefix) = explicit.or_else(|| {
+            order
+                .resolve(lctx_model::domain::stages::PublicationBoundary::Facts)
+                .ok()
+        }) else {
+            return Ok(());
+        };
+        order.validate(prefix)?;
+        let closed: bool = sqlx::query_scalar("SELECT closed FROM lctx_model_store.publication_groups WHERE generation_id=$1 AND epoch=$2")
+            .bind(g.0.to_vec()).bind(i16::try_from(prefix.ordinal()).map_err(|_| Error::Contract)?)
+            .fetch_one(&mut *tx).await?;
+        if !closed {
+            return if explicit.is_none() {
+                Ok(())
+            } else {
+                Err(Error::Contract)
+            };
+        }
+        let sources: BTreeMap<_, _> = completion
+            .sources()
+            .iter()
+            .map(|s| (s.relation(), s))
+            .collect();
+        for source in sources.values() {
+            if source.schedule() != completion.schedule()
+                || source.identity().attempt() != completion.identity().attempt()
+            {
+                return Err(Error::Contract);
+            }
+            if let Some(bound) = source.prefix_ordinal() {
+                order.validate(bound)?;
+            }
+        }
+        for relation in self
+            .model
+            .relations()
+            .iter()
+            .filter(|r| completion.outputs().contains(r.name()))
+        {
+            for field in relation.fields() {
+                let Some((_, target)) = field.target() else {
+                    continue;
+                };
+                // Ordinary nominal targets retain the existing checkpoint/final validation
+                // contract, including handoffs and inactive nullable sum arms. This additional
+                // check enforces only the immutable vocabulary visibility bound.
+                if !lctx_model::domain::stages::is_vocabulary(target) {
+                    continue;
+                }
+                let bound = sources
+                    .get(target)
+                    .and_then(|s| s.prefix_ordinal())
+                    .unwrap_or(prefix)
+                    .earlier(prefix)?;
+                let target_source = super::vocabulary::physical(target, bound);
+                let subtype = if let Some(code) = field.subtype() {
+                    let tag = self
+                        .model
+                        .relations()
+                        .iter()
+                        .find(|r| r.name() == target)
+                        .and_then(|r| r.sum())
+                        .ok_or(Error::Contract)?
+                        .tag;
+                    format!(" AND b.\"{tag}\"={code}")
+                } else {
+                    String::new()
+                };
+                let invalid: bool = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+                    "SELECT EXISTS(SELECT 1 FROM {} a WHERE a.\"{}\" IS NOT NULL AND NOT EXISTS(SELECT 1 FROM {} b WHERE b.id=a.\"{}\"{subtype}))",
+                    qualified(g, relation.name()), field.name(), qualified(g, &target_source), field.name()
+                ))).fetch_one(&mut *tx).await?;
+                if invalid {
+                    return Err(Error::Contract);
+                }
+            }
+        }
+        Ok(())
+    }
     #[allow(
         clippy::too_many_arguments,
         reason = "Input validation explicitly carries transaction, generation, stage, frozen sources and budget"
@@ -42,15 +132,22 @@ impl GenerationStore {
             digest.part(b"checkpoint-coverage", &c.coverage().0);
         }
         let order = super::vocabulary::publication_order(tx, g).await?;
-        let facts = order.resolve(lctx_model::domain::stages::PublicationBoundary::Facts).ok();
+        let facts = order
+            .resolve(lctx_model::domain::stages::PublicationBoundary::Facts)
+            .ok();
         for source in sources {
-            if let Some(prefix) = source.prefix_ordinal() { order.validate(prefix)?; }
+            if let Some(prefix) = source.prefix_ordinal() {
+                order.validate(prefix)?;
+            }
         }
         let ordered: BTreeMap<_, _> = sources.iter().map(|s| (s.relation(), s)).collect();
         let input_physical = |name: &str| {
             ordered.get(name).map_or_else(
                 || {
-                    facts.map_or_else(|| name.to_owned(), |prefix| super::vocabulary::physical(name, prefix))
+                    facts.map_or_else(
+                        || name.to_owned(),
+                        |prefix| super::vocabulary::physical(name, prefix),
+                    )
                 },
                 |s| s.physical_relation(),
             )
@@ -130,9 +227,19 @@ impl GenerationStore {
                         field.name(),
                         qualified(g, &{
                             if lctx_model::domain::stages::is_vocabulary(target) {
-                                let target_prefix = ordered.get(target).and_then(|s| s.prefix_ordinal()).or(facts).ok_or(Error::Contract)?;
-                                let source_prefix = ordered[relation.name()].prefix_ordinal().or(facts).ok_or(Error::Contract)?;
-                                super::vocabulary::physical(target, target_prefix.earlier(source_prefix)?)
+                                let target_prefix = ordered
+                                    .get(target)
+                                    .and_then(|s| s.prefix_ordinal())
+                                    .or(facts)
+                                    .ok_or(Error::Contract)?;
+                                let source_prefix = ordered[relation.name()]
+                                    .prefix_ordinal()
+                                    .or(facts)
+                                    .ok_or(Error::Contract)?;
+                                super::vocabulary::physical(
+                                    target,
+                                    target_prefix.earlier(source_prefix)?,
+                                )
                             } else {
                                 input_physical(target)
                             }

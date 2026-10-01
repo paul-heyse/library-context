@@ -713,7 +713,7 @@ capacity before any scan starts. One attempt budget covers acquisition through p
 The [detailed protocol](../../plans/semantic-model-phase3-detailed-plan_2026-09-30.md#6-cumulative-frontiers-and-private-stage-reads)
 owns the implementation sequence and controls; none of this is included in P0–P2 qualification.
 
-**Accepted P4 target (ADR-0105), not implemented.** Analysis creates vocabulary already closed at the
+**P4 vocabulary publication (Implemented / focused-Tested, 2026-09-30; ADR-0105/0108).** Analysis creates vocabulary already closed at the
 facts checkpoint. Private typed deltas plus one atomic publication group close a declared new
 prefix together with ordinary results referencing it. Computed-stage receipts grant no reads;
 group closure drains writers, revokes delta grants, merges and validates stored contents, then
@@ -721,8 +721,12 @@ issues completed receipts atomically. Existing rows never change. Lower readers 
 security-barrier views with literal prefix bounds, never a growing canonical table. Old receipts
 verify their original prefix. Failed/unconfirmed closes poison the attempt; final seal requires
 every group closed. [Plan §3](../../plans/semantic-model-phase4-detailed-plan_2026-09-30.md#3-prerequisite-immutable-shared-vocabulary)
-owns the finite whitelist, schedule and migration. Current Phase 3 runtime completion remains
-one-shot until this accepted target is implemented; prior receipts establish no prefix guarantee.
+owns the finite whitelist, schedule and migration. Named publication boundaries map to contiguous,
+schedule-bound physical prefix ordinals; their append-only domain codes do not determine execution
+order. Ordinary outputs inherit the maximum prefix of their declared acknowledged inputs, including
+completed handoffs. Completion validates vocabulary references against that bound and any narrower
+explicit input prefix before granting reads. An unrelated later close cannot widen this authority.
+The enclosing R0/R1 foundation review and Phase 4 acceptance remain pending.
 
 **Accepted ownership refinement (ADR-0108), not implemented.** The finite owner graph follows
 actual stored-read dependencies, including execution sub-stages and catalog core → evidence →

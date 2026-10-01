@@ -278,55 +278,296 @@ fn later_groups_issue_inherited_prefix_sources_without_changing_the_producer() {
 
 #[test]
 fn named_boundary_codes_are_not_publication_positions() {
-    let model = ValidatedModel::validate(vec![Relation::of::<Literal>(), Relation::of::<Package>()]).unwrap();
-    let boundaries = [PublicationBoundary::Facts, PublicationBoundary::BaseEvaluation,
-        PublicationBoundary::BaseCompletion, PublicationBoundary::SourceCall,
-        PublicationBoundary::EnrichedExecution, PublicationBoundary::ExecutionModel,
-        PublicationBoundary::Summary];
-    let names = ["facts", "evaluation", "completion", "source_call", "enriched", "execution", "summary"];
-    let mut stages: Vec<_> = names.iter().enumerate().map(|(i, name)| stage(name,
-        if i == 0 { vec![] } else { vec![RelationUse::stored::<Literal>().at_epoch(boundaries[i-1])] },
-        vec![RelationUse::of::<Literal>()])).collect();
-    stages.push(stage("old_reader", vec![RelationUse::stored::<Literal>().at_epoch(PublicationBoundary::BaseEvaluation)], vec![RelationUse::of::<Package>()]));
-    let groups = boundaries.iter().zip(names).map(|(b,n)| PublicationGroup::new(*b,vec![n])).collect();
-    let schedule = Schedule::build_with_publications(&model,stages,&[],Profile::Catalog,groups).unwrap();
-    assert_eq!(PublicationBoundary::ExecutionModel.code(),3);
-    assert_eq!(schedule.prefix_for(PublicationBoundary::ExecutionModel).unwrap().ordinal(),5);
-    assert_eq!(schedule.prefix_for(PublicationBoundary::Summary).unwrap().ordinal(),6);
-    assert!(schedule.prefix_for(PublicationBoundary::CatalogCore).is_err());
-    let mut execution = schedule.execute(); let budget = budget();
-    let sink = MemoryGeneration::bind(&model,&budget,&mut execution).unwrap();
+    let model =
+        ValidatedModel::validate(vec![Relation::of::<Literal>(), Relation::of::<Package>()])
+            .unwrap();
+    let boundaries = [
+        PublicationBoundary::Facts,
+        PublicationBoundary::BaseEvaluation,
+        PublicationBoundary::BaseCompletion,
+        PublicationBoundary::SourceCall,
+        PublicationBoundary::EnrichedExecution,
+        PublicationBoundary::ExecutionModel,
+        PublicationBoundary::Summary,
+    ];
+    let names = [
+        "facts",
+        "evaluation",
+        "completion",
+        "source_call",
+        "enriched",
+        "execution",
+        "summary",
+    ];
+    let mut stages: Vec<_> = names
+        .iter()
+        .enumerate()
+        .map(|(i, name)| {
+            stage(
+                name,
+                if i == 0 {
+                    vec![]
+                } else {
+                    vec![RelationUse::stored::<Literal>().at_epoch(boundaries[i - 1])]
+                },
+                vec![RelationUse::of::<Literal>()],
+            )
+        })
+        .collect();
+    stages.push(stage(
+        "old_reader",
+        vec![RelationUse::stored::<Literal>().at_epoch(PublicationBoundary::BaseEvaluation)],
+        vec![RelationUse::of::<Package>()],
+    ));
+    let groups = boundaries
+        .iter()
+        .zip(names)
+        .map(|(b, n)| PublicationGroup::new(*b, vec![n]))
+        .collect();
+    let schedule =
+        Schedule::build_with_publications(&model, stages, &[], Profile::Catalog, groups).unwrap();
+    assert_eq!(PublicationBoundary::ExecutionModel.code(), 3);
+    assert_eq!(
+        schedule
+            .prefix_for(PublicationBoundary::ExecutionModel)
+            .unwrap()
+            .ordinal(),
+        5
+    );
+    assert_eq!(
+        schedule
+            .prefix_for(PublicationBoundary::Summary)
+            .unwrap()
+            .ordinal(),
+        6
+    );
+    assert!(
+        schedule
+            .prefix_for(PublicationBoundary::CatalogCore)
+            .is_err()
+    );
+    let mut execution = schedule.execute();
+    let budget = budget();
+    let sink = MemoryGeneration::bind(&model, &budget, &mut execution).unwrap();
     let mut old = None;
-    for (i,name) in names.into_iter().enumerate() {
-        let rows = Batch::new(&model, vec![Literal::Integer {decimal:i.to_string()}], &budget).unwrap();
+    for (i, name) in names.into_iter().enumerate() {
+        let rows = Batch::new(
+            &model,
+            vec![Literal::Integer {
+                decimal: i.to_string(),
+            }],
+            &budget,
+        )
+        .unwrap();
         let mut access = execution.begin(name).unwrap();
-        if i == 2 { old = access.read::<Literal>().unwrap().source().cloned(); }
-        ready(access.write::<Literal,_>(async |p| sink.copy(p,&rows).await)).unwrap();
-        ready(access.complete(&sink,ProviderOutcome::Complete)).unwrap();
+        if i == 2 {
+            old = access.read::<Literal>().unwrap().source().cloned();
+        }
+        ready(access.write::<Literal, _>(async |p| sink.copy(p, &rows).await)).unwrap();
+        ready(access.complete(&sink, ProviderOutcome::Complete)).unwrap();
     }
     let mut reader = execution.begin("old_reader").unwrap();
     let source = reader.read::<Literal>().unwrap().source().cloned().unwrap();
-    assert_eq!(Some(&source),old.as_ref());
-    assert_eq!(source.receipt().rows,2);
-    assert_eq!(source.physical_relation(),schedule.prefix_for(PublicationBoundary::BaseEvaluation).unwrap().view(Literal::NAME));
-    let empty = Batch::<Package>::new(&model,vec![],&budget).unwrap();
-    ready(reader.write::<Package,_>(async |p|sink.copy(p,&empty).await)).unwrap();
-    ready(reader.complete(&sink,ProviderOutcome::Complete)).unwrap();
+    assert_eq!(Some(&source), old.as_ref());
+    assert_eq!(source.receipt().rows, 2);
+    assert_eq!(
+        source.physical_relation(),
+        schedule
+            .prefix_for(PublicationBoundary::BaseEvaluation)
+            .unwrap()
+            .view(Literal::NAME)
+    );
+    let empty = Batch::<Package>::new(&model, vec![], &budget).unwrap();
+    ready(reader.write::<Package, _>(async |p| sink.copy(p, &empty).await)).unwrap();
+    ready(reader.complete(&sink, ProviderOutcome::Complete)).unwrap();
     execution.finish().unwrap();
 }
 #[test]
 fn registered_order_refuses_duplicates_gaps_unknown_and_foreign_prefixes() {
     let digest = ContentHash::of(b"order");
-    let entries = [(0,PublicationBoundary::Facts),(1,PublicationBoundary::BaseCompletion),(2,PublicationBoundary::Summary)];
-    let order = PublicationOrder::registered(digest,&entries).unwrap();
-    assert!(PublicationOrder::registered(digest,&[(0,PublicationBoundary::Facts),(1,PublicationBoundary::Facts)]).is_err());
-    assert!(PublicationOrder::registered(digest,&[(0,PublicationBoundary::Facts),(2,PublicationBoundary::Summary)]).is_err());
-    assert!(PublicationOrder::registered(digest,&[(0,PublicationBoundary::Summary)]).is_err());
+    let entries = [
+        (0, PublicationBoundary::Facts),
+        (1, PublicationBoundary::BaseCompletion),
+        (2, PublicationBoundary::Summary),
+    ];
+    let order = PublicationOrder::registered(digest, &entries).unwrap();
+    assert!(
+        PublicationOrder::registered(
+            digest,
+            &[
+                (0, PublicationBoundary::Facts),
+                (1, PublicationBoundary::Facts)
+            ]
+        )
+        .is_err()
+    );
+    assert!(
+        PublicationOrder::registered(
+            digest,
+            &[
+                (0, PublicationBoundary::Facts),
+                (2, PublicationBoundary::Summary)
+            ]
+        )
+        .is_err()
+    );
+    assert!(PublicationOrder::registered(digest, &[(0, PublicationBoundary::Summary)]).is_err());
     assert!(order.decode(3).is_err());
-    let foreign = PublicationOrder::registered(ContentHash::of(b"foreign"),&entries).unwrap().decode(1).unwrap();
+    let foreign = PublicationOrder::registered(ContentHash::of(b"foreign"), &entries)
+        .unwrap()
+        .decode(1)
+        .unwrap();
     assert!(order.validate(foreign).is_err());
     assert!(order.decode(1).unwrap().earlier(foreign).is_err());
     let model = ValidatedModel::validate(vec![Relation::of::<Literal>()]).unwrap();
-    let stages = vec![stage("a",vec![],vec![RelationUse::of::<Literal>()]),stage("b",vec![],vec![RelationUse::of::<Literal>()])];
-    assert!(Schedule::build_with_publications(&model,stages,&[],Profile::Catalog,vec![PublicationGroup::new(PublicationBoundary::Facts,vec!["a"]),PublicationGroup::new(PublicationBoundary::Facts,vec!["b"])]).is_err());
+    let stages = vec![
+        stage("a", vec![], vec![RelationUse::of::<Literal>()]),
+        stage("b", vec![], vec![RelationUse::of::<Literal>()]),
+    ];
+    assert!(
+        Schedule::build_with_publications(
+            &model,
+            stages,
+            &[],
+            Profile::Catalog,
+            vec![
+                PublicationGroup::new(PublicationBoundary::Facts, vec!["a"]),
+                PublicationGroup::new(PublicationBoundary::Facts, vec!["b"])
+            ]
+        )
+        .is_err()
+    );
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[model(name="epoch_marker", semantic_source=include_bytes!("vocabulary_epochs.rs"))]
+struct MarkerRow {
+    #[model(key)]
+    value: i64,
+}
+fn ordinary_schedule(
+    model: &ValidatedModel,
+    handoff: bool,
+    narrow: bool,
+    no_inputs: bool,
+) -> Schedule {
+    let mut result_inputs = if no_inputs {
+        vec![]
+    } else {
+        vec![if handoff {
+            RelationUse::of::<MarkerRow>()
+        } else {
+            RelationUse::stored::<MarkerRow>()
+        }]
+    };
+    if narrow {
+        result_inputs.push(RelationUse::stored::<Literal>().at_epoch(PublicationBoundary::Facts));
+    }
+    Schedule::build_with_publications(
+        model,
+        vec![
+            stage("v0", vec![], vec![RelationUse::of::<Literal>()]),
+            stage("v1", vec![], vec![RelationUse::of::<Literal>()]),
+            stage("v2", vec![], vec![RelationUse::of::<Literal>()]),
+            stage(
+                "marker",
+                vec![RelationUse::stored::<Literal>().at_epoch(PublicationBoundary::Dispatch)],
+                vec![RelationUse::of::<MarkerRow>()],
+            ),
+            stage(
+                "result",
+                result_inputs,
+                vec![RelationUse::of::<ResultRow>()],
+            ),
+            stage(
+                "reader",
+                vec![
+                    RelationUse::stored::<ResultRow>(),
+                    RelationUse::stored::<Literal>().at_epoch(PublicationBoundary::Dispatch),
+                ],
+                vec![RelationUse::of::<Package>()],
+            ),
+        ],
+        &[],
+        Profile::Catalog,
+        vec![
+            PublicationGroup::new(PublicationBoundary::Facts, vec!["v0"]),
+            PublicationGroup::new(PublicationBoundary::Dispatch, vec!["v1"]),
+            PublicationGroup::new(PublicationBoundary::BaseCompletion, vec!["v2"]),
+        ],
+    )
+    .unwrap()
+}
+
+#[test]
+fn ordinary_outputs_inherit_transitive_declared_prefix_not_latest_close() {
+    for handoff in [false, true] {
+        let model = ValidatedModel::validate(vec![
+            Relation::of::<Literal>(),
+            Relation::of::<MarkerRow>(),
+            Relation::of::<ResultRow>(),
+            Relation::of::<Package>(),
+        ])
+        .unwrap();
+        let schedule = ordinary_schedule(&model, handoff, false, false);
+        let mut execution = schedule.execute();
+        let budget = budget();
+        let sink = MemoryGeneration::bind(&model, &budget, &mut execution).unwrap();
+        for (ordinal, name) in ["v0", "v1", "v2"].into_iter().enumerate() {
+            let batch = Batch::new(
+                &model,
+                vec![Literal::Integer {
+                    decimal: ordinal.to_string(),
+                }],
+                &budget,
+            )
+            .unwrap();
+            let mut access = execution.begin(name).unwrap();
+            ready(access.write::<Literal, _>(async |p| sink.copy(p, &batch).await)).unwrap();
+            ready(access.complete(&sink, ProviderOutcome::Complete)).unwrap();
+        }
+        let mut marker = execution.begin("marker").unwrap();
+        let batch = Batch::new(&model, vec![MarkerRow { value: 1 }], &budget).unwrap();
+        ready(marker.write::<MarkerRow, _>(async |p| sink.copy(p, &batch).await)).unwrap();
+        if handoff {
+            marker.retain(std::sync::Arc::new(batch)).unwrap();
+        }
+        ready(marker.complete(&sink, ProviderOutcome::Complete)).unwrap();
+        let mut result = execution.begin("result").unwrap();
+        assert_eq!(
+            result
+                .read::<MarkerRow>()
+                .unwrap()
+                .source()
+                .unwrap()
+                .prefix(),
+            Some(PublicationBoundary::Dispatch)
+        );
+        let batch = Batch::new(
+            &model,
+            vec![ResultRow {
+                value: Literal::Integer {
+                    decimal: "1".into(),
+                }
+                .id(),
+            }],
+            &budget,
+        )
+        .unwrap();
+        ready(result.write::<ResultRow, _>(async |p| sink.copy(p, &batch).await)).unwrap();
+        ready(result.complete(&sink, ProviderOutcome::Complete)).unwrap();
+        let mut reader = execution.begin("reader").unwrap();
+        let source = reader
+            .read::<ResultRow>()
+            .unwrap()
+            .source()
+            .unwrap()
+            .clone();
+        assert_eq!(source.prefix(), Some(PublicationBoundary::Dispatch));
+        assert_eq!(source.prefix_ordinal().unwrap().ordinal(), 1);
+        let batch = Batch::<Package>::new(&model, vec![], &budget).unwrap();
+        ready(reader.write::<Package, _>(async |p| sink.copy(p, &batch).await)).unwrap();
+        ready(reader.complete(&sink, ProviderOutcome::Complete)).unwrap();
+        execution.finish().unwrap();
+    }
 }

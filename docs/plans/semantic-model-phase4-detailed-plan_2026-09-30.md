@@ -179,6 +179,14 @@ consumer needs newly produced vocabulary. An ordinary output needing no new voca
 against the existing prefix. Neither a global future-owner reference sum nor one final retained
 handoff substitutes for these boundaries.
 
+Implemented boundary identity and visibility are separate: `PublicationBoundary` has append-only
+named codes, while `PublicationOrder` assigns a private schedule-bound `PrefixOrdinal` to each
+scheduled close. Stored view bounds and ordering use the ordinal. Ordinary completion inherits the
+maximum prefix of declared acknowledged inputs, including completed handoffs; unfinished private
+group handoffs cannot mint completed receipts. A vocabulary foreign key must fit this inherited
+bound and any explicitly narrower input. No-input ordinary outputs remain at the Facts prefix once
+it is closed. Completion checks this before publishing any output receipt or grant.
+
 ### 3.3 Metadata and profiles
 
 AnalysisInvocation is a new derived-analysis relation; it is not a fake ProviderRun reporting
@@ -913,7 +921,9 @@ The implementation baseline is clean main `24e86d5`; production sources and depe
 were unchanged from the inspected design baseline at execution start. R0 is implemented with focused
 pure, real-store and source-bound provider controls; enclosing foundation acceptance remains pending.
 ADR-0108's additional close boundaries require separating named publication identity from the
-schedule's contiguous physical prefix ordinal; that bounded R0 integration refinement is in progress.
+schedule's contiguous physical prefix ordinal; that refinement is integrated as `5262be0`.
+Ordinary outputs now preserve that authority transitively through acknowledged declared inputs,
+and publication refuses vocabulary references outside the inherited or narrower explicit prefix.
 R1 is in progress in an isolated worktree. Its finite-metric
 lowering was integrated as `a44e3f8`; analysis invocation/support/coverage contracts remain under
 implementation. Focused foundation advice exposed a shared ordinary-result writer cycle; ADR-0108
@@ -923,7 +933,8 @@ the final production model. Preparatory G0 graph-view work is integrated and doe
 or foundation acceptance. N0's independent authored catalog/parser, nominal declarations, required
 dependency domain and shared declaration validator are prepared in isolated branch
 `phase4-authored-models`; extraction/context activation and legacy retirement remain pending.
-All other packages remain not started. Existing descriptions marked Proposed specify accepted
+N0 native activation and N1 receiver corrections are in progress in isolated worktrees.
+The other downstream packages remain not started. Existing descriptions marked Proposed specify accepted
 targets whose behavior is not yet implemented or tested; they are not runtime claims.
 The [independent assembled review](../design_review/reviews/design_review_phase4-plan_2026-09-30.md)
 is **Accept scoped, 2026-09-30**, at Proposed design level. A1–A3 and the document-target gates are
@@ -952,6 +963,11 @@ rule and cross-consumer vector-winner invariant were also clarified during assem
 | Preparatory G0 independent implementation review | no material findings on the six-file adapter/kernel slice; its identified direct-entrypoint coverage gap is covered by the added public scheduler control. N1 dispatch-induced topology and generation preparation lifetime remain pending. |
 | Preparatory N0 model controls | passed in the isolated authored-model checkout: `python3 scripts/build_environment.py -- cargo --config 'build.build-dir="/home/paul/.cache/library-context-phase4-models/build"' test --release -p lctx-model --lib domain::models` (12), and the same wrapped Cargo `test --release -p lctx-model --doc domain::models::Catalog` (one positive, two compile-fail). Retained parser/channel/phase/identity controls, complete typed path dependencies, immutable source/meaning binding, explicit pins and protocol/exception requirements, and shared stored-declaration refusal. This is not native model-context qualification or N0 completion. |
 | Preparatory N0 independent review | N0-F01 found mutable parsed meaning could retain old source identity; private validated catalog/entry fields and borrowed getters correct it. N0-F02 found omitted global/raised-class path requirements; shared typed traversal and independently enumerated missing-package requirements correct it. Both reinspected closed at Interface-checked strength against `bee3e19`; native resolution and retained runtime parser accounting remain pending. |
+| R0 named boundaries and ordinary-prefix integration | composite passed on main: `python3 scripts/build_environment.py -- cargo test --release -p lctx-model -p lctx-postgres --features lctx-postgres/testing --test vocabulary_epochs` (7 model, 12 real PG18); the same wrapper `test --release -p cpg-core --test vocabulary_read --test normalized_generation --test stage_checkpoint` (2+4+1). Includes physical order independent of named codes, transitive stored/handoff inheritance, explicit narrow input, no-input Facts bound, future-reference refusal without a consumer, rollback and zero invalid receipts. An initial overbroad non-vocabulary completion check failed two normalized controls; restricting this new check to vocabulary references restored all focused tests. |
+| R1 immutable-owner model migration | passed in isolated derived checkout at `01a05e8`: wrapped Cargo with its stable private build directory, `test --release -p lctx-model --test domain_analysis_owners --test native_inventory` (7+6) and `--test domain_analysis --test domain_findings --test domain_assertions --test domain_derivation` (4+3+3+3). At `6cb94f4`, `--test domain_transfer --test domain_composition --test domain_stability` (7+11+3) passed. Concrete finite owner families and shared proof policy are implemented; acknowledged input receipts, expected-domain admission and cross-owner discharge remain in progress. |
+| R1 behavior store migration | composite passed in isolated PG-derived checkout: `python3 scripts/build_environment.py -- cargo --config 'build.build-dir="/home/paul/.cache/library-context-phase4-pg-derived/build"' test --release -p lctx-postgres --features testing --test domain_transfer --test domain_composition --test domain_stability` (1+1+1 real PG18). Fixtures use actual native inventories and Local derivation/support families. Initial full-schema retirement exhausted default PostgreSQL lock capacity; disposable servers now start with `max_locks_per_transaction=256`, and all three reran successfully. The production cluster remains at 64; F0 must configure adequate capacity during quiesced maintenance before qualifying the full model. |
+| N0 native context and independent review | passed in isolated native-context checkout at `7d82034`: wrapped Cargo with its stable private build directory, `check -p cpg-extract -p cpg-core --all-targets`, CLI check, `test --release -p cpg-extract --test native_model_context --test bundle --test producer_fingerprint` (6+6+1), core facts admission (2), extraction short-budget control (1) and retained typed-call control (1). Independent bounded review found no material issue; early catalog publication and retirement remain integration obligations. |
+| N0 additional native controls | passed: isolated wrapped Cargo `test --release -p cpg-extract --test native_model_context` (8), adding wrong distribution ownership and inconsistent/cyclic MRO controls. An initial test assumed an Any base makes Pyrefly MRO incomplete; replaced with actual conflicting C3 and cycle fixtures before the passing rerun. |
 | Integrated functional gate, actual-library pilots and performance experiments | not_run; full functional scope and X0 retirement are not complete; previously excluded measurements remain outside scope |
 | ADR index/lint, docs publication and other automatic hygiene | not_run by this agent; current repository instructions assign them to the end-of-turn hook; no future result is presumed |
 

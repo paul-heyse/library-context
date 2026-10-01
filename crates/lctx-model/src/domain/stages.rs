@@ -301,15 +301,34 @@ pub enum PublicationBoundary {
 }
 impl PublicationBoundary {
     pub const ALL: [Self; 20] = [
-        Self::Facts, Self::Dispatch, Self::BaseSemantic, Self::ExecutionModel,
-        Self::Summary, Self::CatalogSynthesis, Self::Local, Self::BaseEvaluation,
-        Self::BaseCompletion, Self::SourceCall, Self::EnrichedExecution, Self::Model,
-        Self::Structural, Self::Analytic, Self::CatalogCore, Self::CatalogEvidence,
-        Self::Selection, Self::Synthesis, Self::Retrieval, Self::AnalyticEmbedding,
+        Self::Facts,
+        Self::Dispatch,
+        Self::BaseSemantic,
+        Self::ExecutionModel,
+        Self::Summary,
+        Self::CatalogSynthesis,
+        Self::Local,
+        Self::BaseEvaluation,
+        Self::BaseCompletion,
+        Self::SourceCall,
+        Self::EnrichedExecution,
+        Self::Model,
+        Self::Structural,
+        Self::Analytic,
+        Self::CatalogCore,
+        Self::CatalogEvidence,
+        Self::Selection,
+        Self::Synthesis,
+        Self::Retrieval,
+        Self::AnalyticEmbedding,
     ];
-    pub fn code(self) -> u8 { self as u8 }
+    pub fn code(self) -> u8 {
+        self as u8
+    }
     pub fn from_code(code: u8) -> Option<Self> {
-        Self::ALL.into_iter().find(|boundary| boundary.code() == code)
+        Self::ALL
+            .into_iter()
+            .find(|boundary| boundary.code() == code)
     }
 }
 /// Contiguous position in one registered schedule. Only the model's mapping constructs it.
@@ -321,16 +340,28 @@ pub struct PrefixOrdinal {
 }
 impl Ord for PrefixOrdinal {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        (self.schedule.0, self.ordinal, self.boundary).cmp(&(other.schedule.0, other.ordinal, other.boundary))
+        (self.schedule.0, self.ordinal, self.boundary).cmp(&(
+            other.schedule.0,
+            other.ordinal,
+            other.boundary,
+        ))
     }
 }
 impl PartialOrd for PrefixOrdinal {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> { Some(self.cmp(other)) }
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
 }
 impl PrefixOrdinal {
-    pub fn ordinal(self) -> u16 { self.ordinal }
-    pub fn boundary(self) -> PublicationBoundary { self.boundary }
-    pub fn schedule(self) -> ContentHash { self.schedule }
+    pub fn ordinal(self) -> u16 {
+        self.ordinal
+    }
+    pub fn boundary(self) -> PublicationBoundary {
+        self.boundary
+    }
+    pub fn schedule(self) -> ContentHash {
+        self.schedule
+    }
     pub fn view(self, relation: &str) -> String {
         format!("__v{}_{}", self.ordinal, relation)
     }
@@ -338,7 +369,11 @@ impl PrefixOrdinal {
         if self.schedule != other.schedule {
             return Err(ModelError::Invalid("foreign publication prefix".into()));
         }
-        Ok(if self.ordinal <= other.ordinal { self } else { other })
+        Ok(if self.ordinal <= other.ordinal {
+            self
+        } else {
+            other
+        })
     }
 }
 /// Checked persisted boundary-to-order mapping, bound to the registered schedule digest.
@@ -355,21 +390,37 @@ impl PublicationOrder {
     ) -> Result<Self, ModelError> {
         let mut seen = BTreeSet::new();
         for (index, (ordinal, boundary)) in entries.iter().enumerate() {
-            if usize::from(*ordinal) != index || !seen.insert(*boundary)
+            if usize::from(*ordinal) != index
+                || !seen.insert(*boundary)
                 || (index == 0 && *boundary != PublicationBoundary::Facts)
             {
-                return Err(ModelError::Invalid("publication mapping must be contiguous with unique boundaries and facts first".into()));
+                return Err(ModelError::Invalid(
+                    "publication mapping must be contiguous with unique boundaries and facts first"
+                        .into(),
+                ));
             }
         }
-        Ok(Self { schedule, boundaries: entries.iter().map(|(_, b)| *b).collect() })
+        Ok(Self {
+            schedule,
+            boundaries: entries.iter().map(|(_, b)| *b).collect(),
+        })
     }
     pub fn decode(&self, ordinal: u16) -> Result<PrefixOrdinal, ModelError> {
-        let boundary = *self.boundaries.get(usize::from(ordinal))
+        let boundary = *self
+            .boundaries
+            .get(usize::from(ordinal))
             .ok_or_else(|| ModelError::Invalid("unregistered publication ordinal".into()))?;
-        Ok(PrefixOrdinal { ordinal, boundary, schedule: self.schedule })
+        Ok(PrefixOrdinal {
+            ordinal,
+            boundary,
+            schedule: self.schedule,
+        })
     }
     pub fn resolve(&self, boundary: PublicationBoundary) -> Result<PrefixOrdinal, ModelError> {
-        let ordinal = self.boundaries.iter().position(|b| *b == boundary)
+        let ordinal = self
+            .boundaries
+            .iter()
+            .position(|b| *b == boundary)
             .ok_or_else(|| ModelError::Invalid("undeclared publication boundary".into()))?;
         self.decode(u16::try_from(ordinal).expect("finite boundary set"))
     }
@@ -424,7 +475,9 @@ pub struct ScheduledPublication {
     prefix: PrefixOrdinal,
 }
 impl ScheduledPublication {
-    pub fn prefix(&self) -> PrefixOrdinal { self.prefix }
+    pub fn prefix(&self) -> PrefixOrdinal {
+        self.prefix
+    }
 }
 #[derive(Debug)]
 pub struct Schedule {
@@ -470,8 +523,13 @@ impl Schedule {
         for group in &mut groups {
             group.stages.sort_unstable();
         }
-        let entries: Vec<_> = groups.iter().enumerate().map(|(i, g)| (i as u16, g.epoch)).collect();
-        let raw_order = PublicationOrder::registered(ContentHash::of(b"unbound publication order"), &entries)?;
+        let entries: Vec<_> = groups
+            .iter()
+            .enumerate()
+            .map(|(i, g)| (i as u16, g.epoch))
+            .collect();
+        let raw_order =
+            PublicationOrder::registered(ContentHash::of(b"unbound publication order"), &entries)?;
         let mut grouped = BTreeMap::new();
         for (index, group) in groups.iter().enumerate() {
             if group.stages.is_empty() {
@@ -697,8 +755,12 @@ impl Schedule {
                         .iter()
                         .enumerate()
                         .filter(|(_, s)| {
-                            grouped.get(s.name).is_some_and(|e| *e <= raw_order.resolve(epoch).expect("resolved input boundary").ordinal())
-                                && s.outputs.iter().any(|o| o.type_id == r.type_id)
+                            grouped.get(s.name).is_some_and(|e| {
+                                *e <= raw_order
+                                    .resolve(epoch)
+                                    .expect("resolved input boundary")
+                                    .ordinal()
+                            }) && s.outputs.iter().any(|o| o.type_id == r.type_id)
                         })
                         .max_by_key(|(_, s)| grouped[s.name])
                         .map(|(i, _)| i)
@@ -803,11 +865,14 @@ impl Schedule {
         }
         let digest = digest.finish();
         let publication_order = PublicationOrder::registered(digest, &entries)?;
-        let groups = groups.into_iter().map(|g| ScheduledPublication {
-            epoch: g.epoch,
-            prefix: publication_order.resolve(g.epoch).expect("checked mapping"),
-            stages: g.stages,
-        }).collect();
+        let groups = groups
+            .into_iter()
+            .map(|g| ScheduledPublication {
+                epoch: g.epoch,
+                prefix: publication_order.resolve(g.epoch).expect("checked mapping"),
+                stages: g.stages,
+            })
+            .collect();
         Ok(Self {
             groups,
             publication_order,
@@ -829,7 +894,9 @@ impl Schedule {
             .find(|g| g.stages.contains(&stage))
             .map(|g| g.epoch)
     }
-    pub fn publication_order(&self) -> &PublicationOrder { &self.publication_order }
+    pub fn publication_order(&self) -> &PublicationOrder {
+        &self.publication_order
+    }
     pub fn prefix_for(&self, boundary: PublicationBoundary) -> Result<PrefixOrdinal, ModelError> {
         self.publication_order.resolve(boundary)
     }
@@ -1286,6 +1353,34 @@ impl StageAccess<'_, '_> {
             })
             .collect()
     }
+    /// Declared inputs with an acknowledged immutable publication receipt.
+    /// Unfinished publication-group handoffs have no receipt and are excluded.
+    pub fn completed_sources(&self) -> Result<Vec<CompletedRelation>, ModelError> {
+        let mut sources = self.stored_sources()?;
+        // A pure handoff may come from an already acknowledged ordinary predecessor.
+        // Preserve that authority too; unfinished group handoffs have no completed source.
+        for input in self
+            .stage
+            .inputs
+            .iter()
+            .filter(|r| r.transport == InputTransport::Handoff)
+        {
+            let bound = self.execution.schedule.input_epoch(input);
+            let source = bound
+                .and_then(|p| self.execution.prefixes.get(&(p, input.name)))
+                .or_else(|| {
+                    if bound.is_none() {
+                        self.execution.sources.get(input.name)
+                    } else {
+                        None
+                    }
+                });
+            if let Some(source) = source {
+                sources.push(source.clone());
+            }
+        }
+        Ok(sources)
+    }
     /// Every declared input's handed-off batches.
     pub fn handoffs(&self) -> Result<Handoffs, ModelError> {
         if self.execution.failed {
@@ -1519,12 +1614,30 @@ impl StageAccess<'_, '_> {
     ) -> Result<(), ModelError> {
         self.check_finish(outcome)?;
         self.execution.failed = true;
+        let sources = self.completed_sources()?;
+        // Ordinary outputs inherit only the vocabulary authority of declared completed
+        // inputs. An unrelated later close must never widen this stage's references.
+        // Include ordinary predecessors so this bound survives transitive handoffs.
+        let mut prefix: Option<PrefixOrdinal> = None;
+        for source in &sources {
+            if let Some(candidate) = source.prefix_ordinal() {
+                self.execution
+                    .schedule
+                    .publication_order()
+                    .validate(candidate)?;
+                if prefix.is_none_or(|current| current.ordinal() < candidate.ordinal()) {
+                    prefix = Some(candidate);
+                }
+            }
+        }
         let completion = StageCompletion {
             identity: self.identity(),
             model: self.execution.schedule.model,
             schedule: self.execution.schedule.digest,
             outcome,
             outputs: self.stage.outputs.iter().map(|r| r.name).collect(),
+            prefix,
+            sources,
         };
         if let Some(epoch) = self.execution.schedule.epoch_for(self.stage.name) {
             let computed = sink.compute(completion).await?;
@@ -1573,7 +1686,7 @@ impl StageAccess<'_, '_> {
                     schedule: completed.schedule,
                     relation: name,
                     receipt,
-                    prefix: None,
+                    prefix,
                 },
             );
         }
@@ -1674,8 +1787,12 @@ pub struct GroupCompletion {
     stages: Vec<ComputedStage>,
 }
 impl GroupCompletion {
-    pub fn epoch(&self) -> PublicationBoundary { self.prefix.boundary() }
-    pub fn prefix(&self) -> PrefixOrdinal { self.prefix }
+    pub fn epoch(&self) -> PublicationBoundary {
+        self.prefix.boundary()
+    }
+    pub fn prefix(&self) -> PrefixOrdinal {
+        self.prefix
+    }
     pub fn stages(&self) -> &[ComputedStage] {
         &self.stages
     }
@@ -1722,6 +1839,8 @@ pub struct RelationReceipt {
 /// Only a completed StageAccess constructs a completion request.
 #[derive(Debug, Clone)]
 pub struct StageCompletion {
+    prefix: Option<PrefixOrdinal>,
+    sources: Vec<CompletedRelation>,
     identity: StageIdentity,
     model: ContentHash,
     schedule: ContentHash,
@@ -1729,6 +1848,13 @@ pub struct StageCompletion {
     outputs: BTreeSet<&'static str>,
 }
 impl StageCompletion {
+    /// Vocabulary bound inherited from declared completed inputs, never global close state.
+    pub fn prefix_ordinal(&self) -> Option<PrefixOrdinal> {
+        self.prefix
+    }
+    pub fn sources(&self) -> &[CompletedRelation] {
+        &self.sources
+    }
     pub fn seal(
         self,
         deltas: BTreeMap<&'static str, RelationReceipt>,
@@ -1800,8 +1926,12 @@ pub struct CompletedRelation {
     receipt: RelationReceipt,
 }
 impl CompletedRelation {
-    pub fn prefix(&self) -> Option<PublicationBoundary> { self.prefix.map(PrefixOrdinal::boundary) }
-    pub fn prefix_ordinal(&self) -> Option<PrefixOrdinal> { self.prefix }
+    pub fn prefix(&self) -> Option<PublicationBoundary> {
+        self.prefix.map(PrefixOrdinal::boundary)
+    }
+    pub fn prefix_ordinal(&self) -> Option<PrefixOrdinal> {
+        self.prefix
+    }
     pub fn physical_relation(&self) -> String {
         if is_vocabulary(self.relation) {
             self.prefix

@@ -601,6 +601,7 @@ impl StageSink for GenerationAttempt {
                     completion.stage(),
                     completion.outputs(),
                     completion.outcome(),
+                    Some(&completion),
                     &self.budget,
                 )
                 .await
@@ -860,6 +861,7 @@ mod harness {
                                 "harness",
                                 &written.iter().map(|(_, r)| *r).collect(),
                                 lctx_model::domain::stages::ProviderOutcome::Complete,
+                                None,
                                 &budget,
                             )
                             .await?;

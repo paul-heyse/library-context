@@ -4,8 +4,8 @@ use lctx_model::domain::{
     Record, Relation,
     resources::ResourceBudget,
     stages::{
-        GroupCompletion, ScheduledPublication, RelationReceipt, Stage, StageCompletion,
-        PublicationBoundary, PublicationOrder, PrefixOrdinal, is_vocabulary,
+        GroupCompletion, PrefixOrdinal, PublicationBoundary, PublicationOrder, RelationReceipt,
+        ScheduledPublication, Stage, StageCompletion, is_vocabulary,
     },
 };
 use sqlx::PgConnection;
@@ -24,8 +24,17 @@ impl GenerationStore {
             sqlx::query("INSERT INTO lctx_model_store.publication_groups(generation_id,epoch,boundary,schedule_digest) VALUES($1,$2,$3,$4)").bind(g.0.to_vec()).bind(i16::try_from(group.prefix().ordinal()).map_err(|_| Error::Contract)?).bind(i16::from(group.epoch.code())).bind(group.prefix().schedule().0.to_vec()).execute(&mut *tx).await?;
             let frontier = self.registered(tx, g).await?.frontier;
             let scope = self.scope(frontier)?;
-            for relation in self.model.relations().iter().filter(|r| scope.relations.contains(r.name()) && is_vocabulary(r.name())) {
-                execute(tx, vec![ddl::prefix_view(&g.schema(), relation, group.prefix())]).await?;
+            for relation in self
+                .model
+                .relations()
+                .iter()
+                .filter(|r| scope.relations.contains(r.name()) && is_vocabulary(r.name()))
+            {
+                execute(
+                    tx,
+                    vec![ddl::prefix_view(&g.schema(), relation, group.prefix())],
+                )
+                .await?;
             }
             for stage in stages.iter().filter(|s| group.stages.contains(&s.name)) {
                 for output in &stage.outputs {
@@ -54,8 +63,21 @@ impl GenerationStore {
         if !groups.is_empty() {
             let frontier = self.registered(tx, g).await?.frontier;
             let scope = self.scope(frontier)?;
-            for relation in self.model.relations().iter().filter(|r| scope.relations.contains(r.name()) && is_vocabulary(r.name())) {
-                execute(tx, vec![ddl::introduction_reference(&g.schema(), relation, ddl::CONTROL)]).await?;
+            for relation in self
+                .model
+                .relations()
+                .iter()
+                .filter(|r| scope.relations.contains(r.name()) && is_vocabulary(r.name()))
+            {
+                execute(
+                    tx,
+                    vec![ddl::introduction_reference(
+                        &g.schema(),
+                        relation,
+                        ddl::CONTROL,
+                    )],
+                )
+                .await?;
             }
         }
         Ok(())
@@ -426,13 +448,32 @@ pub(super) async fn receipt(
 }
 
 /// Decode only the generation's registered finite mapping, never a boundary code as order.
-pub(super) async fn publication_order(tx: &mut PgConnection, g: GenerationId) -> Result<PublicationOrder, Error> {
-    let schedule: Vec<u8> = sqlx::query_scalar("SELECT schedule_digest FROM lctx_model_store.generations WHERE id=$1").bind(g.0.to_vec()).fetch_one(&mut *tx).await?;
-    let schedule = lctx_model::domain::ContentHash(schedule.try_into().map_err(|_| Error::Contract)?);
+pub(super) async fn publication_order(
+    tx: &mut PgConnection,
+    g: GenerationId,
+) -> Result<PublicationOrder, Error> {
+    let schedule: Vec<u8> =
+        sqlx::query_scalar("SELECT schedule_digest FROM lctx_model_store.generations WHERE id=$1")
+            .bind(g.0.to_vec())
+            .fetch_one(&mut *tx)
+            .await?;
+    let schedule =
+        lctx_model::domain::ContentHash(schedule.try_into().map_err(|_| Error::Contract)?);
     let rows: Vec<(i16,i16,Vec<u8>)> = sqlx::query_as("SELECT epoch,boundary,schedule_digest FROM lctx_model_store.publication_groups WHERE generation_id=$1 ORDER BY epoch").bind(g.0.to_vec()).fetch_all(&mut *tx).await?;
-    let entries = rows.into_iter().map(|(ordinal,boundary,stored)| {
-        if stored != schedule.0 { return Err(Error::Contract); }
-        Ok((u16::try_from(ordinal).map_err(|_| Error::Contract)?, PublicationBoundary::from_code(u8::try_from(boundary).map_err(|_| Error::Contract)?).ok_or(Error::Contract)?))
-    }).collect::<Result<Vec<_>, Error>>()?;
+    let entries = rows
+        .into_iter()
+        .map(|(ordinal, boundary, stored)| {
+            if stored != schedule.0 {
+                return Err(Error::Contract);
+            }
+            Ok((
+                u16::try_from(ordinal).map_err(|_| Error::Contract)?,
+                PublicationBoundary::from_code(
+                    u8::try_from(boundary).map_err(|_| Error::Contract)?,
+                )
+                .ok_or(Error::Contract)?,
+            ))
+        })
+        .collect::<Result<Vec<_>, Error>>()?;
     Ok(PublicationOrder::registered(schedule, &entries)?)
 }

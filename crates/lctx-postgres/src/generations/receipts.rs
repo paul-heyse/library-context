@@ -10,7 +10,7 @@ use lctx_model::domain::resources::ResourceBudget;
 use lctx_model::domain::{
     Codebook, ContentHash, KeySink,
     admission::{AdmissionCheck, Frontier, FrontierAdmission, Preflight},
-    stages::{ExecutionReceipt, ProviderOutcome, RelationReceipt},
+    stages::{ExecutionReceipt, ProviderOutcome, RelationReceipt, StageCompletion},
 };
 use sqlx::{PgConnection, Row};
 use std::collections::{BTreeMap, BTreeSet};
@@ -36,6 +36,7 @@ impl GenerationStore {
         stage: &str,
         outputs: &BTreeSet<&'static str>,
         outcome: ProviderOutcome,
+        completion: Option<&StageCompletion>,
         budget: &ResourceBudget,
     ) -> Result<BTreeMap<&'static str, RelationReceipt>, Error> {
         self.lock_installation(tx).await?;
@@ -66,6 +67,10 @@ impl GenerationStore {
             )))
             .execute(&mut *tx)
             .await?;
+        }
+        if let Some(completion) = completion {
+            self.check_completed_output_references(tx, g, completion)
+                .await?;
         }
         let mut receipts = BTreeMap::new();
         for name in outputs {

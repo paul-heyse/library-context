@@ -105,7 +105,10 @@ async fn closed_epochs_isolate_private_deltas_deduplicate_and_publish_results_at
     let view = format!(
         "{}.{}",
         g.schema(),
-        schedule.prefix_for(PublicationBoundary::Facts).unwrap().view(Literal::NAME)
+        schedule
+            .prefix_for(PublicationBoundary::Facts)
+            .unwrap()
+            .view(Literal::NAME)
     );
     let count: i64 =
         sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {view}")))
@@ -135,7 +138,10 @@ async fn closed_epochs_isolate_private_deltas_deduplicate_and_publish_results_at
         format!(
             "SELECT id FROM {}.{}",
             g.schema(),
-            schedule.prefix_for(PublicationBoundary::Dispatch).unwrap().view(Literal::NAME)
+            schedule
+                .prefix_for(PublicationBoundary::Dispatch)
+                .unwrap()
+                .view(Literal::NAME)
         ),
     ] {
         assert!(
@@ -160,7 +166,10 @@ async fn closed_epochs_isolate_private_deltas_deduplicate_and_publish_results_at
     let count: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "SELECT count(*) FROM {}.{}",
         g.schema(),
-        schedule.prefix_for(PublicationBoundary::Dispatch).unwrap().view(Literal::NAME)
+        schedule
+            .prefix_for(PublicationBoundary::Dispatch)
+            .unwrap()
+            .view(Literal::NAME)
     )))
     .fetch_one(&db.writer)
     .await
@@ -382,16 +391,27 @@ async fn physically_present_future_rows_do_not_satisfy_candidate_prefix_referenc
     let store = GenerationStore::install(db.owner.clone(), model.clone())
         .await
         .unwrap();
-    let schedule = Schedule::build_with_publications(&model, vec![
-        stage("v0", vec![], vec![RelationUse::of::<Literal>()]),
-        stage("v1", vec![RelationUse::stored::<Literal>().at_epoch(PublicationBoundary::Facts)], vec![RelationUse::of::<Literal>()]),
-        stage("result", vec![], vec![RelationUse::of::<ResultRow>()]),
-        stage("future", vec![], vec![RelationUse::of::<Package>()]),
-    ], &[], Profile::Catalog, vec![
-        PublicationGroup::new(PublicationBoundary::Facts, vec!["v0"]),
-        PublicationGroup::new(PublicationBoundary::Dispatch, vec!["v1", "result"]),
-        PublicationGroup::new(PublicationBoundary::BaseCompletion, vec!["future"]),
-    ]).unwrap();
+    let schedule = Schedule::build_with_publications(
+        &model,
+        vec![
+            stage("v0", vec![], vec![RelationUse::of::<Literal>()]),
+            stage(
+                "v1",
+                vec![RelationUse::stored::<Literal>().at_epoch(PublicationBoundary::Facts)],
+                vec![RelationUse::of::<Literal>()],
+            ),
+            stage("result", vec![], vec![RelationUse::of::<ResultRow>()]),
+            stage("future", vec![], vec![RelationUse::of::<Package>()]),
+        ],
+        &[],
+        Profile::Catalog,
+        vec![
+            PublicationGroup::new(PublicationBoundary::Facts, vec!["v0"]),
+            PublicationGroup::new(PublicationBoundary::Dispatch, vec!["v1", "result"]),
+            PublicationGroup::new(PublicationBoundary::BaseCompletion, vec!["future"]),
+        ],
+    )
+    .unwrap();
     let mut execution = schedule.execute();
     let budget = budget();
     let attempt = store
@@ -454,7 +474,10 @@ async fn physically_present_future_rows_do_not_satisfy_candidate_prefix_referenc
     let count: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "SELECT count(*) FROM {}.{}",
         g.schema(),
-        schedule.prefix_for(PublicationBoundary::Facts).unwrap().view(Literal::NAME)
+        schedule
+            .prefix_for(PublicationBoundary::Facts)
+            .unwrap()
+            .view(Literal::NAME)
     )))
     .fetch_one(&db.writer)
     .await
@@ -490,7 +513,11 @@ async fn a_later_result_cannot_be_verified_using_an_earlier_vocabulary_target() 
         declarations,
         &[],
         Profile::Catalog,
-        baseline.publication_groups().iter().map(|g|PublicationGroup::new(g.epoch,g.stages.clone())).collect(),
+        baseline
+            .publication_groups()
+            .iter()
+            .map(|g| PublicationGroup::new(g.epoch, g.stages.clone()))
+            .collect(),
     )
     .unwrap();
     let mut execution = schedule.execute();
@@ -952,58 +979,396 @@ async fn a_closed_literal_set_cannot_gain_members_in_a_later_epoch() {
 async fn inserted_closes_use_registered_order_and_preserve_old_prefix_receipts() {
     let db = DisposableDatabase::start().await;
     db.migrate().await;
-    let model = Arc::new(ValidatedModel::validate(vec![Relation::of::<Literal>(),Relation::of::<Package>()]).unwrap());
-    let store = GenerationStore::install(db.owner.clone(),model.clone()).await.unwrap();
-    let boundaries = [PublicationBoundary::Facts,PublicationBoundary::BaseEvaluation,PublicationBoundary::BaseCompletion,
-        PublicationBoundary::SourceCall,PublicationBoundary::EnrichedExecution,PublicationBoundary::ExecutionModel,PublicationBoundary::Summary];
-    let names = ["facts","evaluation","completion","source_call","enriched","execution","summary"];
-    let mut stages:Vec<_> = names.iter().enumerate().map(|(i,n)| stage(n,if i==0 {vec![]}else{vec![RelationUse::stored::<Literal>().at_epoch(boundaries[i-1])]},vec![RelationUse::of::<Literal>()])).collect();
-    stages.push(stage("old_reader",vec![RelationUse::stored::<Literal>().at_epoch(PublicationBoundary::BaseEvaluation)],vec![RelationUse::of::<Package>()]));
-    let groups = boundaries.iter().zip(names).map(|(b,n)|PublicationGroup::new(*b,vec![n])).collect();
-    let schedule = Schedule::build_with_publications(&model,stages,&[],Profile::Catalog,groups).unwrap();
-    let budget=budget();let mut execution=schedule.execute();
-    let attempt=store.begin_conformance(db.writer.clone(),&mut execution,budget.clone()).await.unwrap();let g=attempt.generation();
+    let model = Arc::new(
+        ValidatedModel::validate(vec![Relation::of::<Literal>(), Relation::of::<Package>()])
+            .unwrap(),
+    );
+    let store = GenerationStore::install(db.owner.clone(), model.clone())
+        .await
+        .unwrap();
+    let boundaries = [
+        PublicationBoundary::Facts,
+        PublicationBoundary::BaseEvaluation,
+        PublicationBoundary::BaseCompletion,
+        PublicationBoundary::SourceCall,
+        PublicationBoundary::EnrichedExecution,
+        PublicationBoundary::ExecutionModel,
+        PublicationBoundary::Summary,
+    ];
+    let names = [
+        "facts",
+        "evaluation",
+        "completion",
+        "source_call",
+        "enriched",
+        "execution",
+        "summary",
+    ];
+    let mut stages: Vec<_> = names
+        .iter()
+        .enumerate()
+        .map(|(i, n)| {
+            stage(
+                n,
+                if i == 0 {
+                    vec![]
+                } else {
+                    vec![RelationUse::stored::<Literal>().at_epoch(boundaries[i - 1])]
+                },
+                vec![RelationUse::of::<Literal>()],
+            )
+        })
+        .collect();
+    stages.push(stage(
+        "old_reader",
+        vec![RelationUse::stored::<Literal>().at_epoch(PublicationBoundary::BaseEvaluation)],
+        vec![RelationUse::of::<Package>()],
+    ));
+    let groups = boundaries
+        .iter()
+        .zip(names)
+        .map(|(b, n)| PublicationGroup::new(*b, vec![n]))
+        .collect();
+    let schedule =
+        Schedule::build_with_publications(&model, stages, &[], Profile::Catalog, groups).unwrap();
+    let budget = budget();
+    let mut execution = schedule.execute();
+    let attempt = store
+        .begin_conformance(db.writer.clone(), &mut execution, budget.clone())
+        .await
+        .unwrap();
+    let g = attempt.generation();
     let registered:Vec<(i16,i16)> = sqlx::query_as("SELECT epoch,boundary FROM lctx_model_store.publication_groups WHERE generation_id=decode($1,'hex') ORDER BY epoch").bind(g.hex()).fetch_all(&db.superuser).await.unwrap();
-    assert_eq!(registered,boundaries.iter().enumerate().map(|(i,b)|(i as i16,i16::from(b.code()))).collect::<Vec<_>>());
-    let mut old=None;
-    for(i,name)in names.into_iter().enumerate(){
-        let rows=Batch::new(&model,vec![Literal::Integer{decimal:i.to_string()}],&budget).unwrap();
-        let mut access=execution.begin(name).unwrap();
-        if i==2{old=access.read::<Literal>().unwrap().source().cloned();}
-        access.write::<Literal,_>(async|p|attempt.copy(p,&rows).await).await.unwrap();
-        access.complete(&attempt,ProviderOutcome::Complete).await.unwrap();
+    assert_eq!(
+        registered,
+        boundaries
+            .iter()
+            .enumerate()
+            .map(|(i, b)| (i as i16, i16::from(b.code())))
+            .collect::<Vec<_>>()
+    );
+    let mut old = None;
+    for (i, name) in names.into_iter().enumerate() {
+        let rows = Batch::new(
+            &model,
+            vec![Literal::Integer {
+                decimal: i.to_string(),
+            }],
+            &budget,
+        )
+        .unwrap();
+        let mut access = execution.begin(name).unwrap();
+        if i == 2 {
+            old = access.read::<Literal>().unwrap().source().cloned();
+        }
+        access
+            .write::<Literal, _>(async |p| attempt.copy(p, &rows).await)
+            .await
+            .unwrap();
+        access
+            .complete(&attempt, ProviderOutcome::Complete)
+            .await
+            .unwrap();
     }
-    let old=old.unwrap();assert_eq!(old.receipt().rows,2);assert_eq!(old.prefix_ordinal().unwrap().ordinal(),1);
-    let count:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {}.{}",g.schema(),old.physical_relation()))).fetch_one(&db.writer).await.unwrap();assert_eq!(count,2);
-    let prefix=schedule.prefix_for(PublicationBoundary::Summary).unwrap();assert_eq!(prefix.ordinal(),6);assert_eq!(prefix.boundary().code(),4);
-    let count:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {}.{}",g.schema(),prefix.view(Literal::NAME)))).fetch_one(&db.writer).await.unwrap();assert_eq!(count,7);
+    let old = old.unwrap();
+    assert_eq!(old.receipt().rows, 2);
+    assert_eq!(old.prefix_ordinal().unwrap().ordinal(), 1);
+    let count: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+        "SELECT count(*) FROM {}.{}",
+        g.schema(),
+        old.physical_relation()
+    )))
+    .fetch_one(&db.writer)
+    .await
+    .unwrap();
+    assert_eq!(count, 2);
+    let prefix = schedule.prefix_for(PublicationBoundary::Summary).unwrap();
+    assert_eq!(prefix.ordinal(), 6);
+    assert_eq!(prefix.boundary().code(), 4);
+    let count: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+        "SELECT count(*) FROM {}.{}",
+        g.schema(),
+        prefix.view(Literal::NAME)
+    )))
+    .fetch_one(&db.writer)
+    .await
+    .unwrap();
+    assert_eq!(count, 7);
     // A producer cannot choose introduction metadata; even privileged tampering cannot insert an unregistered prefix.
-    assert!(sqlx::query(sqlx::AssertSqlSafe(format!("UPDATE {}.{} SET introduced_epoch=100",g.schema(),Literal::NAME))).execute(&db.superuser).await.is_err());
-    let mut reader=execution.begin("old_reader").unwrap();assert_eq!(reader.read::<Literal>().unwrap().source(),Some(&old));
-    let contract=attempt.read_contract(&reader).await.unwrap();assert_eq!(contract.sources()[Literal::NAME].receipt().rows,2);
-    let empty=Batch::<Package>::new(&model,vec![],&budget).unwrap();reader.write::<Package,_>(async|p|attempt.copy(p,&empty).await).await.unwrap();reader.complete(&attempt,ProviderOutcome::Complete).await.unwrap();
-    attempt.seal(execution.finish().unwrap()).await.unwrap().validate().await.unwrap().publish().await.unwrap();
-    let report=GenerationStore::check(&db.owner,&model).await.unwrap();assert!(report.findings.is_empty(),"{:?}",report.findings);
+    assert!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "UPDATE {}.{} SET introduced_epoch=100",
+            g.schema(),
+            Literal::NAME
+        )))
+        .execute(&db.superuser)
+        .await
+        .is_err()
+    );
+    let mut reader = execution.begin("old_reader").unwrap();
+    assert_eq!(reader.read::<Literal>().unwrap().source(), Some(&old));
+    let contract = attempt.read_contract(&reader).await.unwrap();
+    assert_eq!(contract.sources()[Literal::NAME].receipt().rows, 2);
+    let empty = Batch::<Package>::new(&model, vec![], &budget).unwrap();
+    reader
+        .write::<Package, _>(async |p| attempt.copy(p, &empty).await)
+        .await
+        .unwrap();
+    reader
+        .complete(&attempt, ProviderOutcome::Complete)
+        .await
+        .unwrap();
+    attempt
+        .seal(execution.finish().unwrap())
+        .await
+        .unwrap()
+        .validate()
+        .await
+        .unwrap()
+        .publish()
+        .await
+        .unwrap();
+    let report = GenerationStore::check(&db.owner, &model).await.unwrap();
+    assert!(report.findings.is_empty(), "{:?}", report.findings);
 }
 
 #[tokio::test]
 async fn registered_mapping_refuses_duplicate_unknown_gap_and_foreign_schedule_metadata() {
-    for foreign in [false,true] {
-        let db=DisposableDatabase::start().await;
-        let model=Arc::new(ValidatedModel::validate(vec![Relation::of::<Literal>(),Relation::of::<ResultRow>(),Relation::of::<Package>()]).unwrap());
-        let store=GenerationStore::install(db.owner.clone(),model.clone()).await.unwrap();
-        let schedule=schedule(&model);let mut execution=schedule.execute();let budget=budget();
-        let attempt=store.begin_conformance(db.writer.clone(),&mut execution,budget.clone()).await.unwrap();let g=attempt.generation();
-        for boundary in [i16::from(PublicationBoundary::Facts.code()),32767] {
+    for foreign in [false, true] {
+        let db = DisposableDatabase::start().await;
+        let model = Arc::new(
+            ValidatedModel::validate(vec![
+                Relation::of::<Literal>(),
+                Relation::of::<ResultRow>(),
+                Relation::of::<Package>(),
+            ])
+            .unwrap(),
+        );
+        let store = GenerationStore::install(db.owner.clone(), model.clone())
+            .await
+            .unwrap();
+        let schedule = schedule(&model);
+        let mut execution = schedule.execute();
+        let budget = budget();
+        let attempt = store
+            .begin_conformance(db.writer.clone(), &mut execution, budget.clone())
+            .await
+            .unwrap();
+        let g = attempt.generation();
+        for boundary in [i16::from(PublicationBoundary::Facts.code()), 32767] {
             assert!(sqlx::query("INSERT INTO lctx_model_store.publication_groups(generation_id,epoch,boundary,schedule_digest) VALUES(decode($1,'hex'),2,$2,$3)").bind(g.hex()).bind(boundary).bind(schedule.digest().0.to_vec()).execute(&db.superuser).await.is_err());
         }
-        let rows=Batch::new(&model,vec![Literal::None],&budget).unwrap();let mut v0=execution.begin("v0").unwrap();v0.write::<Literal,_>(async|p|attempt.copy(p,&rows).await).await.unwrap();v0.complete(&attempt,ProviderOutcome::Complete).await.unwrap();
-        let reader=execution.begin("reader").unwrap();attempt.read_contract(&reader).await.unwrap();
+        let rows = Batch::new(&model, vec![Literal::None], &budget).unwrap();
+        let mut v0 = execution.begin("v0").unwrap();
+        v0.write::<Literal, _>(async |p| attempt.copy(p, &rows).await)
+            .await
+            .unwrap();
+        v0.complete(&attempt, ProviderOutcome::Complete)
+            .await
+            .unwrap();
+        let reader = execution.begin("reader").unwrap();
+        attempt.read_contract(&reader).await.unwrap();
         if foreign {
             sqlx::query("UPDATE lctx_model_store.publication_groups SET schedule_digest=$2 WHERE generation_id=decode($1,'hex') AND epoch=0").bind(g.hex()).bind(ContentHash::of(b"foreign schedule").0.to_vec()).execute(&db.superuser).await.unwrap();
         } else {
             sqlx::query("INSERT INTO lctx_model_store.publication_groups(generation_id,epoch,boundary,schedule_digest) VALUES(decode($1,'hex'),3,$2,$3)").bind(g.hex()).bind(i16::from(PublicationBoundary::Summary.code())).bind(schedule.digest().0.to_vec()).execute(&db.superuser).await.unwrap();
         }
-        assert!(attempt.read_contract(&reader).await.is_err());drop(reader);attempt.abort().await.unwrap();
+        assert!(attempt.read_contract(&reader).await.is_err());
+        drop(reader);
+        attempt.abort().await.unwrap();
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[model(name="epoch_marker", semantic_source=include_bytes!("vocabulary_epochs.rs"))]
+struct MarkerRow {
+    #[model(key)]
+    value: i64,
+}
+fn ordinary_schedule(
+    model: &ValidatedModel,
+    handoff: bool,
+    narrow: bool,
+    no_inputs: bool,
+) -> Schedule {
+    let mut result_inputs = if no_inputs {
+        vec![]
+    } else {
+        vec![if handoff {
+            RelationUse::of::<MarkerRow>()
+        } else {
+            RelationUse::stored::<MarkerRow>()
+        }]
+    };
+    if narrow {
+        result_inputs.push(RelationUse::stored::<Literal>().at_epoch(PublicationBoundary::Facts));
+    }
+    Schedule::build_with_publications(
+        model,
+        vec![
+            stage("v0", vec![], vec![RelationUse::of::<Literal>()]),
+            stage("v1", vec![], vec![RelationUse::of::<Literal>()]),
+            stage("v2", vec![], vec![RelationUse::of::<Literal>()]),
+            stage(
+                "marker",
+                vec![RelationUse::stored::<Literal>().at_epoch(PublicationBoundary::Dispatch)],
+                vec![RelationUse::of::<MarkerRow>()],
+            ),
+            stage(
+                "result",
+                result_inputs,
+                vec![RelationUse::of::<ResultRow>()],
+            ),
+            stage(
+                "reader",
+                vec![
+                    RelationUse::stored::<ResultRow>(),
+                    RelationUse::stored::<Literal>().at_epoch(PublicationBoundary::Dispatch),
+                ],
+                vec![RelationUse::of::<Package>()],
+            ),
+        ],
+        &[],
+        Profile::Catalog,
+        vec![
+            PublicationGroup::new(PublicationBoundary::Facts, vec!["v0"]),
+            PublicationGroup::new(PublicationBoundary::Dispatch, vec!["v1"]),
+            PublicationGroup::new(PublicationBoundary::BaseCompletion, vec!["v2"]),
+        ],
+    )
+    .unwrap()
+}
+
+#[tokio::test]
+async fn ordinary_outputs_preserve_transitive_prefix_and_refuse_future_refs_without_a_reader() {
+    for (future, handoff, narrow, no_inputs) in [
+        (false, false, false, false),
+        (true, false, false, false),
+        (false, false, true, false),
+        (false, true, false, false),
+        (true, false, false, true),
+    ] {
+        let db = DisposableDatabase::start().await;
+        db.migrate().await;
+        let model = Arc::new(
+            ValidatedModel::validate(vec![
+                Relation::of::<Literal>(),
+                Relation::of::<MarkerRow>(),
+                Relation::of::<ResultRow>(),
+                Relation::of::<Package>(),
+            ])
+            .unwrap(),
+        );
+        let schedule = ordinary_schedule(&model, handoff, narrow, no_inputs);
+        let store = GenerationStore::install(db.owner.clone(), model.clone())
+            .await
+            .unwrap();
+        let budget = budget();
+        let mut execution = schedule.execute();
+        let attempt = store
+            .begin_conformance(db.writer.clone(), &mut execution, budget.clone())
+            .await
+            .unwrap();
+        let generation = attempt.generation();
+        for (ordinal, name) in ["v0", "v1", "v2"].into_iter().enumerate() {
+            let batch = Batch::new(
+                &model,
+                vec![Literal::Integer {
+                    decimal: ordinal.to_string(),
+                }],
+                &budget,
+            )
+            .unwrap();
+            let mut access = execution.begin(name).unwrap();
+            access
+                .write::<Literal, _>(async |p| attempt.copy(p, &batch).await)
+                .await
+                .unwrap();
+            access
+                .complete(&attempt, ProviderOutcome::Complete)
+                .await
+                .unwrap();
+        }
+        let mut marker = execution.begin("marker").unwrap();
+        attempt.read_contract(&marker).await.unwrap();
+        let batch = Batch::new(&model, vec![MarkerRow { value: 1 }], &budget).unwrap();
+        marker
+            .write::<MarkerRow, _>(async |p| attempt.copy(p, &batch).await)
+            .await
+            .unwrap();
+        if handoff {
+            marker.retain(Arc::new(batch)).unwrap();
+        }
+        marker
+            .complete(&attempt, ProviderOutcome::Complete)
+            .await
+            .unwrap();
+        let mut result = execution.begin("result").unwrap();
+        let contract = attempt.read_contract(&result).await.unwrap();
+        if !handoff && !no_inputs {
+            assert_eq!(
+                contract.sources()[MarkerRow::NAME].prefix(),
+                Some(PublicationBoundary::Dispatch)
+            );
+        }
+        if handoff {
+            assert_eq!(
+                result
+                    .read::<MarkerRow>()
+                    .unwrap()
+                    .source()
+                    .unwrap()
+                    .prefix(),
+                Some(PublicationBoundary::Dispatch)
+            );
+        }
+        let value = Literal::Integer {
+            decimal: if future { "2" } else { "1" }.into(),
+        };
+        let batch = Batch::new(&model, vec![ResultRow { value: value.id() }], &budget).unwrap();
+        result
+            .write::<ResultRow, _>(async |p| attempt.copy(p, &batch).await)
+            .await
+            .unwrap();
+        let completed = result.complete(&attempt, ProviderOutcome::Complete).await;
+        if future || narrow {
+            assert!(
+                completed.is_err(),
+                "a physically present future row must fail before any downstream read"
+            );
+            let receipts: i64 = sqlx::query_scalar("SELECT count(*) FROM lctx_model_store.stage_receipts WHERE generation_id=decode($1,'hex') AND stage_name='result'")
+                .bind(generation.hex()).fetch_one(&db.superuser).await.unwrap();
+            assert_eq!(receipts, 0);
+            assert!(execution.finish().is_err());
+            attempt.abort().await.unwrap();
+        } else {
+            completed.unwrap();
+            let mut reader = execution.begin("reader").unwrap();
+            let contract = attempt.read_contract(&reader).await.unwrap();
+            assert_eq!(
+                contract.sources()[ResultRow::NAME].prefix(),
+                Some(PublicationBoundary::Dispatch)
+            );
+            let batch = Batch::<Package>::new(&model, vec![], &budget).unwrap();
+            reader
+                .write::<Package, _>(async |p| attempt.copy(p, &batch).await)
+                .await
+                .unwrap();
+            reader
+                .complete(&attempt, ProviderOutcome::Complete)
+                .await
+                .unwrap();
+            attempt
+                .seal(execution.finish().unwrap())
+                .await
+                .unwrap()
+                .validate()
+                .await
+                .unwrap()
+                .publish()
+                .await
+                .unwrap();
+            store.retire(generation).await.unwrap();
+        }
     }
 }
