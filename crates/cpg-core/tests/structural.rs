@@ -1,4 +1,5 @@
 //! Actual structural publication over native C0/Local and borrowed normalized graphs.
+#[path="fixtures/catalog_runtime.rs"] mod catalog_runtime;
 use cpg_core::model_runtime::{AttemptRuntime,RuntimeOptions};
 use cpg_extract::{acquisition::AcquiredInput,bundle::{CapturedInputs,run_stage},capture::CapturedInput};
 use lctx_model::domain::{*,admission::FrontierContract,stages::*,catalog::build,normalized::{entity_normalization,relation_normalization,callable_normalization,binding_normalization,event_normalization}};
@@ -11,7 +12,7 @@ async fn structural_candidates_paths_and_usage_publish_in_both_profiles() {
     let db=DisposableDatabase::start().await;db.migrate().await;
     let config=RoleConfig {format:1,role:Role::Importer,url:db.url("lctx_importer"),max_connections:6,provider_connections:4,acquire_timeout_seconds:5,statement_timeout_seconds:60,lock_timeout_seconds:10};
     let mut relations=normalized_relations();
-    relations.extend(analysis::early_relations());
+    relations.extend(analysis::early_relations());relations.extend(catalog_runtime::relations());
     relations.extend(analysis::catalog_core::relations());
     relations.extend(catalog::relations());
     relations.extend(analysis::catalog_evidence::relations());
@@ -25,12 +26,11 @@ async fn structural_candidates_paths_and_usage_publish_in_both_profiles() {
     let root=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/python/structural_usage");
     let captured=Arc::new(CapturedInputs::new(vec![AcquiredInput::tree(CapturedInput::capture_derived(&root,&["api.py".into(),"guide.mdx".into()],budget,&["guide.mdx".into()],cpg_extract::acquisition::derive_blocks).unwrap(),"C0") ],cpg_extract::native_context::NativeContextConfig::committed(profile,budget).unwrap()));
     let settings=analysis::settings::AnalyticsConfiguration{module_prefixes:vec!["api".into()],public_roots:vec!["api".into()],configured_seeds:vec!["api.Client".into(),"api.missing".into()],depth:2,vertices:512,arcs:2048,witnesses:3,brief_budget:8,communities:false,pagerank:false,fca:false,rca:false,knn:false,type_layer:false,mention_layer:false,knn_layer:false};
-    let (parameters,local)=lctx_model::domain::local_semantics::definition();
-    let configuration=analysis::preparation::Configuration::new(captured.config().catalog(),[build::definition(),catalog::evidence::build::definition(),selection::build::definition(),(parameters,local.clone()),structural::build::definition(&settings,analysis::AnalysisMethod::Delegation).unwrap(),structural::build::definition(&settings,analysis::AnalysisMethod::DirectUsage).unwrap(),structural::build::definition(&settings,analysis::AnalysisMethod::Handoffs).unwrap(),structural::build::definition(&settings,analysis::AnalysisMethod::Controls).unwrap()],budget).unwrap().with_analytics(settings.clone()).unwrap();
+    let configuration=analysis::preparation::Configuration::new(captured.config().catalog(),catalog_runtime::definitions().into_iter().chain([build::definition(),catalog::evidence::build::definition(),selection::build::definition(),structural::build::definition(&settings,analysis::AnalysisMethod::Delegation).unwrap(),structural::build::definition(&settings,analysis::AnalysisMethod::DirectUsage).unwrap(),structural::build::definition(&settings,analysis::AnalysisMethod::Handoffs).unwrap(),structural::build::definition(&settings,analysis::AnalysisMethod::Controls).unwrap()]),budget).unwrap().with_analytics(settings.clone()).unwrap();
     let mut providers=cpg_core::facts::providers(ContentHash::of(b"C0-native-fixture"));
     let mut declarations:Vec<_>=providers.iter().map(|p|p.declaration(profile)).collect();
-    declarations.extend([entity_normalization::stage(),relation_normalization::stage(profile),callable_normalization::stage(profile),normalized::receiver::stage(profile),event_normalization::stage(profile),binding_normalization::stage(profile),projection::normalization::stage(profile),normalized::coverage::stage(profile),configuration.declaration(),analysis::preparation::native_stage(profile),normalized::callable_aspects::stage(profile),build::stage(profile),catalog::evidence::build::stage(profile),selection::build::stage(profile)]);
-    declarations.extend([local_semantics::stage(profile,&local,&model),structural::build::stage(profile,&settings,&model).unwrap()]);
+    declarations.extend([entity_normalization::stage(),relation_normalization::stage(profile),callable_normalization::stage(profile),normalized::receiver::stage(profile),event_normalization::stage(profile),binding_normalization::stage(profile),projection::normalization::stage(profile),normalized::coverage::stage(profile),configuration.declaration(),analysis::preparation::native_stage(profile),normalized::callable_aspects::stage(profile),build::stage(profile),catalog::evidence::build::stage(profile,&model).unwrap(),selection::build::stage(profile,&model).unwrap()]);
+    declarations.extend(catalog_runtime::stages(profile,&model));declarations.push(structural::build::stage(profile,&settings,&model).unwrap());
     let facts_members=declarations.iter().filter(|s|s.name!="analyze_local"&&s.name!="analyze_structural"&&s.outputs.iter().any(|r|is_vocabulary(r.name()))).map(|s|s.name).collect();
     let schedule=Schedule::build_with_publications(&model,declarations,&[],profile,vec![PublicationGroup::new(PublicationBoundary::Facts,facts_members),PublicationGroup::new(PublicationBoundary::Local,vec!["analyze_local"]),PublicationGroup::new(PublicationBoundary::Structural,vec!["analyze_structural"])]).unwrap();
     assert!(!schedule.stages().iter().any(|s|s.name.contains("synth") || s.name.contains("embed")));
@@ -56,8 +56,8 @@ async fn structural_candidates_paths_and_usage_publish_in_both_profiles() {
             cpg_core::analysis_prepare::native_inventory(execution.begin(declaration.name).unwrap(),&attempt,&config,&runtime,&model).await.unwrap_or_else(|e|panic!("stage {} failed: {e}",declaration.name));
         } else if declaration.name=="normalize_callable_aspects" {
             cpg_core::stage_runtime::run_declared_stage(&mut execution,declaration,async |access|cpg_core::catalog_core::aspects(access,&attempt,&config,&runtime,&model).await,&mut |_|{}).await.unwrap();
-        } else if declaration.name=="analyze_local" {
-            cpg_core::stage_runtime::run_declared_stage(&mut execution,declaration,async |access|cpg_core::local_semantics::run(access,&attempt,&config,&runtime,&model,&local).await,&mut |_|{}).await.unwrap();
+        } else if matches!(declaration.name,"analyze_local"|"evaluate_base"|"complete_base"|"prepare_source_calls") {
+            cpg_core::stage_runtime::run_declared_stage(&mut execution,declaration,async |access|catalog_runtime::run(declaration.name,access,&attempt,&config,&runtime,&model).await,&mut |_|{}).await.unwrap();
         } else if declaration.name=="analyze_structural" {
             cpg_core::stage_runtime::run_declared_stage(&mut execution,declaration,async |access|{
                 let graphs=cpg_core::analysis_graphs::PreparedGraphs::load(&access,&attempt,&config,&runtime,&model,&[projection::ProjectionName::CallableInvocation,projection::ProjectionName::DefinitionContainment].into_iter().collect()).await?;
