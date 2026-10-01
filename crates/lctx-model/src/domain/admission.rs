@@ -435,15 +435,20 @@ impl FrontierContract {
         let mut stages = BTreeMap::new();
         let mut written = BTreeSet::new();
         for stage in schedule.stages() {
-            if checkpoint
-                && schedule
-                    .epoch_for(stage.name)
-                    .is_some_and(|e| e != super::stages::PublicationBoundary::Facts)
-            {
-                continue;
-            }
-            if checkpoint && stage.outputs.iter().all(|r| !self.contains(r.name())) {
-                continue;
+            if checkpoint {
+                // Shared vocabulary exists at every frontier. Ordinary outputs decide whether
+                // a producer belongs to this checkpoint; later vocabulary closes must not hide
+                // Local/Model/Summary/Analytic writers from the Analysis checkpoint.
+                let mut ordinary = stage.outputs.iter().filter(|r| !super::stages::is_vocabulary(r.name()));
+                if let Some(first) = ordinary.next() {
+                    if !self.contains(first.name()) && ordinary.all(|r| !self.contains(r.name())) {
+                        continue;
+                    }
+                } else if schedule.epoch_for(stage.name).is_some_and(|e| e != super::stages::PublicationBoundary::Facts)
+                    || stage.outputs.iter().all(|r| !self.contains(r.name()))
+                {
+                    continue;
+                }
             }
             for relation in stage
                 .inputs
@@ -530,7 +535,7 @@ impl FrontierContract {
             for relation in self.relations.difference(&lower) {
                 if !written.contains(relation) {
                     return Err(refuse(format!(
-                        "no scheduled stage writes normalized relation {relation}"
+                        "no scheduled stage writes {} relation {relation}", self.frontier.name()
                     )));
                 }
             }
