@@ -252,7 +252,7 @@ continuations or resource refusal; they do not silently shorten a signature. Cur
 generation, canonical request, section/group, policy and representation. Python lexical fusion
 and Markdown presentation cannot change requirement outcome or evidence status.
 
-> Decision: ADR-0025, ADR-0049, ADR-0071, ADR-0073, ADR-0077, ADR-0078, ADR-0081, ADR-0086
+> Decision: ADR-0025, ADR-0049, ADR-0071, ADR-0073, ADR-0077, ADR-0078, ADR-0081, ADR-0086, ADR-0057, ADR-0058, ADR-0059, ADR-0062, ADR-0063
 
 <a id="section-11-4"></a>
 

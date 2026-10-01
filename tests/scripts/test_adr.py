@@ -63,6 +63,37 @@ def test_unresolved_design_ref_is_reported(root: Path) -> None:
     assert any("§9.9 does not resolve" in p for p in problems)
 
 
+@pytest.mark.parametrize("ref", ["§4.2", "4.2", "'4.2'", '"4.2"', "'§4.2'"])
+def test_design_reference_scalar_forms_keep_owner_and_decision_checks(root: Path, ref: str) -> None:
+    path = new(root, "scalar-section", f"[{ref}]", decide=False)
+    design = root / "docs/design/DESIGN.md"
+    design.write_text(design.read_text().replace(
+        "### §4.2 Identity\n",
+        "### §4.2 Identity\n<!-- relocated-section -->\n[owner](sections/identity.md)\n",
+    ))
+    owner = root / "docs/design/sections/identity.md"
+    owner.parent.mkdir()
+    owner.write_text("# §4.2 Identity\n> Decision: ADR-0001\n")
+    raw = path.read_text()
+    record = adr.parse(path)
+    assert record.refs("design") == ["§4.2"]
+    assert adr.section_links(root, record) == "[§4.2](../design/sections/identity.md#section-4-2)"
+    run(root, "index")
+    assert adr.lint(root, check_git=False) == []
+    assert path.read_text() == raw
+
+    owner.write_text(owner.read_text().replace("> Decision: ADR-0001\n", ""))
+    assert any("§4.2: no `> Decision:`" in p for p in adr.lint(root, check_git=False))
+    owner.unlink()
+    assert any("§4.2 does not resolve" in p for p in adr.lint(root, check_git=False))
+
+
+@pytest.mark.parametrize("ref", ["'4.2", "4.2suffix", "4..2", "'4.2 title'", "§ 4.2"])
+def test_invalid_design_reference_is_not_normalized(root: Path, ref: str) -> None:
+    new(root, "invalid-section", f"[{ref}]", decide=False)
+    assert any("does not resolve" in p for p in adr.lint(root, check_git=False))
+
+
 def test_supersede_links_both_sides(root: Path) -> None:
     new(root, "original")
     assert run(root, "supersede", "ADR-0001", "replacement") == 0

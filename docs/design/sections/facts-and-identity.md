@@ -44,7 +44,7 @@ links point to their native declaration occurrences; synthesized callables remai
 source bodies. Documentation and extracted examples retain original byte anchors and parent
 context. Materialized code is linked to its original block, never substituted for its evidence.
 
-> Decision: ADR-0046, ADR-0086, ADR-0089, ADR-0092
+> Decision: ADR-0046, ADR-0086, ADR-0089, ADR-0092, ADR-0015, ADR-0045
 
 ### §3.3 Physical profiles
 
@@ -65,6 +65,8 @@ provider identity, original source range and the record's declared key fields go
 Content digests also cover payload. Two rows with one identity and different payload refuse;
 identical duplicates deduplicate. A generation's lifecycle identifier is not a semantic entity ID.
 
+> Decision: ADR-0046, ADR-0073, ADR-0086
+
 ### §3.4.1 ID derivation
 
 Model derives generate key encoding, references, lowerings and codecs. Native symbols/modules
@@ -73,7 +75,7 @@ modules, provider-bundled stubs and namespace packages have distinct identities.
 canonical Merkle identities rather than library-local BDD indexes. Later derivations name the
 exact original premises and invocation; rendering never supplies semantic identity.
 
-> Decision: ADR-0085, ADR-0086, ADR-0089
+> Decision: ADR-0085, ADR-0086, ADR-0089, ADR-0045, ADR-0046
 
 ### §3.5 Vocabularies and codebooks
 
@@ -86,7 +88,7 @@ adds qualification/condition vocabulary. [§15.11](semantic-model.md#section-15-
 Codes are append-only: retired allocations remain reserved. Producers and validators use the same
 model declarations, never test-only replicas. No legacy ID bridge or compatibility vocabulary exists.
 
-> Decision: ADR-0086, ADR-0105, ADR-0108
+> Decision: ADR-0086, ADR-0105, ADR-0108, ADR-0015, ADR-0046
 
 ### §3.5.1 Type observations and class order
 
@@ -102,6 +104,8 @@ Targets, signature variants, dispatch alternatives and lexical bindings retain t
 membership. Completeness requires its own evidence. One supported alternative does not discharge
 an unresolved sibling, and an empty observed set is not a negative. Normalized policy and call-shape
 binding are owned by [§15.5](semantic-model.md#section-15-5); consumers do not infer a second policy.
+
+> Decision: ADR-0046
 
 ### §3.7 Coverage and boundaries
 
@@ -125,4 +129,4 @@ shrinks the graph universe. [§15.10](semantic-model.md#section-15-10) and [§5]
 own graph hydration and borrowed algorithm access. Serving wire/graph projections remain Phase 5
 reconstruction work; retained `cpg-schema` contracts are not current fact authority.
 
-> Decision: ADR-0086, ADR-0100, ADR-0103
+> Decision: ADR-0086, ADR-0100, ADR-0103, ADR-0085

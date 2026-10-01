@@ -38,6 +38,8 @@ Defaults keep communities, PageRank, FCA/RCA, analytic kNN and extra community l
 requires FCA; extra community layers require communities. Technique recovery does not establish
 product benefit or activate performance/ablation campaigns.
 
+> Decision: ADR-0044, ADR-0045, ADR-0071, ADR-0086, ADR-0106
+
 <a id="section-9-1"></a>
 
 ### §9.1 Public entry point and delegation

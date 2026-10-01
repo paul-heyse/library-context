@@ -20,7 +20,7 @@ permits, foreign budgets, incomplete source receipts and invalid endpoints refus
 and their shared semantic contracts are in [§15.10](semantic-model.md#section-15-10) and
 [§9](analytics.md#section-9). No hydration-cost, pilot-scale or total-RSS measurement is claimed.
 
-> Decision: ADR-0086, ADR-0103
+> Decision: ADR-0086, ADR-0103, ADR-0044, ADR-0085
 
 ## §6 Persistence and publication
 
@@ -28,6 +28,8 @@ and their shared semantic contracts are in [§15.10](semantic-model.md#section-1
 DataFusion provider/runtime adapter. Pure model operations perform no I/O and are the same
 validators used by tests and publication. [§15.11](semantic-model.md#section-15-11) specifies the
 closed-epoch protocol; [the runbook](../../postgresql.md) owns operator commands.
+
+> Decision: ADR-0086
 
 ### §6.1 Canonical tables and publication
 
@@ -67,7 +69,7 @@ are append-only. Recollect changed pinned input into a fresh generation: no old-
 legacy-ID bridge, compatibility adapter, dual store or incremental semantic repair is retained.
 Named current readers are quiesced before replacing their state.
 
-> Decision: ADR-0086, ADR-0087
+> Decision: ADR-0086, ADR-0087, ADR-0048
 
 ### §6.4 Serving generations
 
@@ -78,7 +80,7 @@ retained reconstruction expectations. Derived artifact caches must preserve exac
 cannot supply semantic authority. [§15.12](semantic-model.md#section-15-12) and
 [§11.3](synthesis-and-serving.md#section-11-3) own the remaining serving contract.
 
-> Decision: ADR-0086, ADR-0087
+> Decision: ADR-0086, ADR-0087, ADR-0049, ADR-0071, ADR-0077, ADR-0078
 
 <a id="section-6-5"></a>
 

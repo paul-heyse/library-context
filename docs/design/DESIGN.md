@@ -364,7 +364,7 @@ General heap/alias completeness, arbitrary async/generator lifecycle and recursi
 closure remain outside the restored finite envelope. Named obligations preserve those gaps;
 no compatibility engine or parallel verdict policy closes them by inference.
 
-> Decision: ADR-0045, ADR-0054, ADR-0055, ADR-0056, ADR-0057, ADR-0058, ADR-0059, ADR-0063, ADR-0085, ADR-0106, ADR-0108
+> Decision: ADR-0045, ADR-0054, ADR-0055, ADR-0056, ADR-0057, ADR-0058, ADR-0059, ADR-0063, ADR-0085, ADR-0106, ADR-0108, ADR-0028
 
 <a id="section-b6"></a>
 

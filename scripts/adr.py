@@ -14,6 +14,7 @@ Records live in docs/adr/NNNN-slug.md with a small frontmatter block:
     revisit: $ just deps          # optional; a leading "$ " makes it runnable
     ---
 
+Stable design IDs may be quoted scalars, with an optional prose § marker.
 The architectural collection is current truth; an ADR is the why (ADR-0042 lifecycle).
 `lint` checks that every `design:` ref resolves to a stable section owner, that governing
 references and retained supersession links resolve, that accepted records have not been edited
@@ -75,7 +76,22 @@ class Adr:
         value = self.meta.get(key)
         if value is None:
             return []
-        return value if isinstance(value, list) else [value]
+        refs = value if isinstance(value, list) else [value]
+        if key == "design":
+            return [design_reference(ref) for ref in refs]
+        return refs
+
+
+def design_reference(ref: str) -> str:
+    """Normalize section-ID presentation without changing the accepted record's bytes.
+
+    Frontmatter can use quoted scalar IDs and omit the prose section marker. Only the exact
+    stable-ID grammar is admitted; existence and governing decisions remain lint obligations.
+    """
+    if len(ref) >= 2 and ref[0] == ref[-1] and ref[0] in {"'", '"'}:
+        ref = ref[1:-1]
+    match = re.fullmatch(r"§?([A-Z]?\d+(?:\.\d+)*)", ref)
+    return f"§{match[1]}" if match else ref
 
 
 def adr_dir(root: Path) -> Path:
@@ -256,7 +272,7 @@ def lint(root: Path, *, check_git: bool = True) -> list[str]:
             err(a, f"evidence {evidence!r} is not a principles §D label")
         for ref in a.refs("design"):
             if not ref.startswith("§") or ref[1:] not in ids:
-                err(a, f"design ref {ref} does not resolve to a DESIGN.md heading")
+                err(a, f"design ref {ref} does not resolve to an architectural section owner")
         superseded_by = a.refs("superseded-by")
         if (a.status == "superseded") != bool(superseded_by):
             err(a, "status `superseded` and `superseded-by` must be set together")

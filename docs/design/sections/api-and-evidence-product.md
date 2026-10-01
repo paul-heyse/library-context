@@ -28,7 +28,7 @@ retained product sequence and product findings. New product behavior remains **P
 its owning implementation and qualification are explicitly identified. Logical domain contracts
 below lower from `lctx-model`; they are not independent SQL or Python schema authorities.
 
-> Decision: ADR-0071, ADR-0085, ADR-0083, ADR-0084
+> Decision: ADR-0071, ADR-0085, ADR-0086, ADR-0087
 
 <a id="section-14-1"></a>
 
@@ -86,7 +86,7 @@ comparison serve the same product contract rather than expanding general analysi
 
 ## §14.3 Responsibilities and representation flow
 
-> Decision: ADR-0071, ADR-0073, ADR-0074, ADR-0085
+> Decision: ADR-0071, ADR-0073, ADR-0074, ADR-0085, ADR-0078
 
 The flow is pinned sources and metadata → attributed facts → normalized relations → typed Phase 4
 analysis/catalog owners → validated PostgreSQL generations. Phase 5 will consume those generations

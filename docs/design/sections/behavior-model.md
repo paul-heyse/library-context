@@ -211,4 +211,4 @@ supply an earlier proof to itself. `cpg-core::compilation` orchestrates those de
 Analytic, catalog and S0 consumers preserve the earlier qualification and uncertainty. Phase 5
 will read the same generation without introducing a second behavioral authority.
 
-> Decision: ADR-0045, ADR-0051, ADR-0085, ADR-0106, ADR-0108
+> Decision: ADR-0045, ADR-0051, ADR-0085, ADR-0106, ADR-0108, ADR-0028, ADR-0064, ADR-0074

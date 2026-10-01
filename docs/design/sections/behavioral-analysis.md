@@ -16,7 +16,7 @@ qualification, coverage and replay. An invocation names actual completed parents
 success for an unavailable analysis. Shared derivation DAG validation covers typed premises across
 owners. [§15.6–§15.9](semantic-model.md#section-15-6) are the governing relation contracts.
 
-> Decision: ADR-0085, ADR-0106, ADR-0108
+> Decision: ADR-0085, ADR-0106, ADR-0108, ADR-0045, ADR-0054
 
 ## Action triggers
 
