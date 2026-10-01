@@ -2,6 +2,7 @@
 //! catalog and serving modules remain dormant until cutover phases 4–5 (DESIGN §15).
 
 pub mod analyze;
+pub mod analysis_prepare;
 pub mod arrow_types;
 pub mod behavior;
 pub mod bundle;

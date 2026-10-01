@@ -59,7 +59,7 @@ pub struct MethodParameters {
     #[model(key)]
     pub damping: Option<FiniteF64>,
     #[model(key)]
-    pub model_catalog: Option<ContentHash>,
+    pub model_catalog: Option<Id<crate::domain::models::ModelCatalog>>,
 }
 fn validate_parameters(row: &MethodParameters) -> Result<(), ModelError> {
     if [

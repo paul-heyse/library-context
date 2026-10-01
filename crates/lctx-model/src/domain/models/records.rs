@@ -15,17 +15,21 @@ impl CatalogRecords {
             models: Rows::new(budget), protocols: Rows::new(budget) }
     }
     pub fn insert(&mut self, catalog: Catalog) -> Result<(),ModelError> {
-        for model in catalog.models {
+        self.insert_borrowed(&catalog)
+    }
+    /// Lower the admitted immutable selection without cloning its parsed declaration tree.
+    pub fn insert_borrowed(&mut self, catalog: &Catalog) -> Result<(),ModelError> {
+        for model in &catalog.models {
             self.targets.insert(model.model.target.declaration())?;
-            self.models.insert(model.declaration)?;
+            self.models.insert(model.declaration.clone())?;
         }
-        for protocol in catalog.context_protocols {
+        for protocol in &catalog.context_protocols {
             for target in [&protocol.model.target, &protocol.model.allocation, &protocol.model.initialization] {
                 self.targets.insert(target.declaration())?;
             }
-            self.protocols.insert(protocol.declaration)?;
+            self.protocols.insert(protocol.declaration.clone())?;
         }
-        self.catalogs.insert(catalog.declaration)?;
+        self.catalogs.insert(catalog.declaration.clone())?;
         Ok(())
     }
 }

@@ -126,59 +126,64 @@ macro_rules! native_pairs {
         }
     };
 }
-native_pairs! {
-    0: Use => FlowUseObservation, FlowUseSupport;
-    1: Definition => FlowDefinitionObservation, FlowDefinitionSupport;
-    2: Reaching => FlowReachingObservation, FlowReachingSupport;
-    3: Value => FlowValueObservation, FlowValueSupport;
-    4: Region => FlowRegionObservation, FlowRegionSupport;
-    5: Test => FlowTestObservation, FlowTestSupport;
-    6: Leaf => FlowTestLeafObservation, FlowTestLeafSupport;
-    7: Signature => Signature, SignatureSupport;
-    8: CallTarget => CallTarget, CallTargetSupport;
-    9: ProviderCallSite => ProviderCallSite, ProviderCallSiteSupport;
-    10: CallSyntax => CallSyntax, CallSyntaxSupport;
-    11: CallResolution => CallResolution, CallResolutionSupport;
-    12: SymbolDeclaration => SymbolDeclaration, SymbolDeclarationSupport;
-    13: ParameterDeclaration => ParameterDeclaration, ParameterDeclarationSupport;
-    14: TaskReportObservation => TaskReportObservation, TaskReportSupport;
-    15: DeploymentObservation => DeploymentObservation, DeploymentSupport;
-    16: DocumentObservation => DocumentObservation, DocumentSupport;
-    17: PassageObservation => PassageObservation, PassageSupport;
-    18: CodeBlockObservation => CodeBlockObservation, CodeBlockSupport;
-    19: DocumentLinkObservation => DocumentLinkObservation, DocumentLinkSupport;
-    20: DocumentMentionObservation => DocumentMentionObservation, DocumentMentionSupport;
-    21: DocumentComponentObservation => DocumentComponentObservation, DocumentComponentSupport;
-    22: DocumentAttributeObservation => DocumentAttributeObservation, DocumentAttributeSupport;
-    23: FlowAttributeLoadObservation => FlowAttributeLoadObservation, FlowAttributeLoadSupport;
-    24: FlowValuePathObservation => FlowValuePathObservation, FlowValuePathSupport;
-    25: LexicalScopeObservation => LexicalScopeObservation, LexicalScopeSupport;
-    26: BindingObservation => BindingObservation, BindingSupport;
-    27: ReferenceObservation => ReferenceObservation, ReferenceSupport;
-    28: LexicalResolution => LexicalResolution, LexicalResolutionSupport;
-    29: SyntaxObservation => SyntaxObservation, SyntaxSupport;
-    30: SymbolObservation => SymbolObservation, SymbolSupport;
-    31: FunctionTraitObservation => FunctionTraitObservation, FunctionTraitSupport;
-    32: ClassTraitObservation => ClassTraitObservation, ClassTraitSupport;
-    33: ClassAncestryObservation => ClassAncestryObservation, ClassAncestrySupport;
-    34: ParameterAnnotationObservation => ParameterAnnotationObservation, ParameterAnnotationSupport;
-    35: PublicNameObservation => PublicNameObservation, PublicNameSupport;
-    36: ParameterDocObservation => ParameterDocObservation, ParameterDocSupport;
-    37: DependencyModuleObservation => DependencyModuleObservation, DependencyModuleSupport;
-    38: SyntaxPlacement => SyntaxPlacement, SyntaxPlacementSupport;
-    39: SyntaxDetailObservation => SyntaxDetailObservation, SyntaxDetailSupport;
-    40: DeclarationObservation => DeclarationObservation, DeclarationSupport;
-    41: DeclarationDecorator => DeclarationDecorator, DeclarationDecoratorSupport;
-    42: ImportAliasObservation => ImportAliasObservation, ImportAliasSupport;
-    43: DunderAllObservation => DunderAllObservation, DunderAllSupport;
-    44: ParameterSyntaxObservation => ParameterSyntaxObservation, ParameterSyntaxSupport;
-    45: ClassFieldSyntaxObservation => ClassFieldSyntaxObservation, ClassFieldSyntaxSupport;
-    46: TypeObservation => TypeObservation, TypeSupport;
-    47: TypePresentation => TypePresentation, TypePresentationSupport;
-    48: TypeVariableRestriction => TypeVariableRestriction, TypeRestrictionSupport;
-    49: FunctionBodyObservation => FunctionBodyObservation, FunctionBodySupport;
-    50: RecordFieldObservation => RecordFieldObservation, RecordFieldSupport;
+/// The finite native assertion/support inventory, shared with typed producer adapters.
+#[macro_export]
+macro_rules! native_analysis_pairs {
+    ($callback:ident) => { $callback! {
+        0: Use => $crate::domain::flow::FlowUseObservation, $crate::domain::flow::FlowUseSupport;
+        1: Definition => $crate::domain::flow::FlowDefinitionObservation, $crate::domain::flow::FlowDefinitionSupport;
+        2: Reaching => $crate::domain::flow::FlowReachingObservation, $crate::domain::flow::FlowReachingSupport;
+        3: Value => $crate::domain::flow::FlowValueObservation, $crate::domain::flow::FlowValueSupport;
+        4: Region => $crate::domain::flow::FlowRegionObservation, $crate::domain::flow::FlowRegionSupport;
+        5: Test => $crate::domain::flow::FlowTestObservation, $crate::domain::flow::FlowTestSupport;
+        6: Leaf => $crate::domain::flow::FlowTestLeafObservation, $crate::domain::flow::FlowTestLeafSupport;
+        7: Signature => $crate::domain::calls::Signature, $crate::domain::calls::SignatureSupport;
+        8: CallTarget => $crate::domain::calls::CallTarget, $crate::domain::calls::CallTargetSupport;
+        9: ProviderCallSite => $crate::domain::calls::ProviderCallSite, $crate::domain::calls::ProviderCallSiteSupport;
+        10: CallSyntax => $crate::domain::calls::CallSyntax, $crate::domain::calls::CallSyntaxSupport;
+        11: CallResolution => $crate::domain::calls::CallResolution, $crate::domain::calls::CallResolutionSupport;
+        12: SymbolDeclaration => $crate::domain::declarations::SymbolDeclaration, $crate::domain::declarations::SymbolDeclarationSupport;
+        13: ParameterDeclaration => $crate::domain::declarations::ParameterDeclaration, $crate::domain::declarations::ParameterDeclarationSupport;
+        14: TaskReportObservation => $crate::domain::deployment::TaskReportObservation, $crate::domain::deployment::TaskReportSupport;
+        15: DeploymentObservation => $crate::domain::deployment::DeploymentObservation, $crate::domain::deployment::DeploymentSupport;
+        16: DocumentObservation => $crate::domain::documents::DocumentObservation, $crate::domain::documents::DocumentSupport;
+        17: PassageObservation => $crate::domain::documents::PassageObservation, $crate::domain::documents::PassageSupport;
+        18: CodeBlockObservation => $crate::domain::documents::CodeBlockObservation, $crate::domain::documents::CodeBlockSupport;
+        19: DocumentLinkObservation => $crate::domain::documents::DocumentLinkObservation, $crate::domain::documents::DocumentLinkSupport;
+        20: DocumentMentionObservation => $crate::domain::documents::DocumentMentionObservation, $crate::domain::documents::DocumentMentionSupport;
+        21: DocumentComponentObservation => $crate::domain::documents::DocumentComponentObservation, $crate::domain::documents::DocumentComponentSupport;
+        22: DocumentAttributeObservation => $crate::domain::documents::DocumentAttributeObservation, $crate::domain::documents::DocumentAttributeSupport;
+        23: FlowAttributeLoadObservation => $crate::domain::flow::FlowAttributeLoadObservation, $crate::domain::flow::FlowAttributeLoadSupport;
+        24: FlowValuePathObservation => $crate::domain::flow::FlowValuePathObservation, $crate::domain::flow::FlowValuePathSupport;
+        25: LexicalScopeObservation => $crate::domain::lexical::LexicalScopeObservation, $crate::domain::lexical::LexicalScopeSupport;
+        26: BindingObservation => $crate::domain::lexical::BindingObservation, $crate::domain::lexical::BindingSupport;
+        27: ReferenceObservation => $crate::domain::lexical::ReferenceObservation, $crate::domain::lexical::ReferenceSupport;
+        28: LexicalResolution => $crate::domain::lexical::LexicalResolution, $crate::domain::lexical::LexicalResolutionSupport;
+        29: SyntaxObservation => $crate::domain::source::SyntaxObservation, $crate::domain::source::SyntaxSupport;
+        30: SymbolObservation => $crate::domain::symbols::SymbolObservation, $crate::domain::symbols::SymbolSupport;
+        31: FunctionTraitObservation => $crate::domain::symbols::FunctionTraitObservation, $crate::domain::symbols::FunctionTraitSupport;
+        32: ClassTraitObservation => $crate::domain::symbols::ClassTraitObservation, $crate::domain::symbols::ClassTraitSupport;
+        33: ClassAncestryObservation => $crate::domain::symbols::ClassAncestryObservation, $crate::domain::symbols::ClassAncestrySupport;
+        34: ParameterAnnotationObservation => $crate::domain::symbols::ParameterAnnotationObservation, $crate::domain::symbols::ParameterAnnotationSupport;
+        35: PublicNameObservation => $crate::domain::symbols::PublicNameObservation, $crate::domain::symbols::PublicNameSupport;
+        36: ParameterDocObservation => $crate::domain::symbols::ParameterDocObservation, $crate::domain::symbols::ParameterDocSupport;
+        37: DependencyModuleObservation => $crate::domain::symbols::DependencyModuleObservation, $crate::domain::symbols::DependencyModuleSupport;
+        38: SyntaxPlacement => $crate::domain::syntax::SyntaxPlacement, $crate::domain::syntax::SyntaxPlacementSupport;
+        39: SyntaxDetailObservation => $crate::domain::syntax::SyntaxDetailObservation, $crate::domain::syntax::SyntaxDetailSupport;
+        40: DeclarationObservation => $crate::domain::syntax::DeclarationObservation, $crate::domain::syntax::DeclarationSupport;
+        41: DeclarationDecorator => $crate::domain::syntax::DeclarationDecorator, $crate::domain::syntax::DeclarationDecoratorSupport;
+        42: ImportAliasObservation => $crate::domain::syntax::ImportAliasObservation, $crate::domain::syntax::ImportAliasSupport;
+        43: DunderAllObservation => $crate::domain::syntax::DunderAllObservation, $crate::domain::syntax::DunderAllSupport;
+        44: ParameterSyntaxObservation => $crate::domain::syntax::ParameterSyntaxObservation, $crate::domain::syntax::ParameterSyntaxSupport;
+        45: ClassFieldSyntaxObservation => $crate::domain::syntax::ClassFieldSyntaxObservation, $crate::domain::syntax::ClassFieldSyntaxSupport;
+        46: TypeObservation => $crate::domain::types::TypeObservation, $crate::domain::types::TypeSupport;
+        47: TypePresentation => $crate::domain::types::TypePresentation, $crate::domain::types::TypePresentationSupport;
+        48: TypeVariableRestriction => $crate::domain::types::TypeVariableRestriction, $crate::domain::types::TypeRestrictionSupport;
+        49: FunctionBodyObservation => $crate::domain::types::FunctionBodyObservation, $crate::domain::types::FunctionBodySupport;
+        50: RecordFieldObservation => $crate::domain::types::RecordFieldObservation, $crate::domain::types::RecordFieldSupport;
+    } };
 }
+crate::native_analysis_pairs!(native_pairs);
 
 /// One-shot typed projection of an actual native pair. Every payload is recomputed from
 /// the paired assertion/support; it does not select a new attribution or claim.
