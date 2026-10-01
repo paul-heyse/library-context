@@ -188,6 +188,7 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
     let mut conclusion: Option<syn::Ident> = None;
     let mut validator: Option<syn::Path> = None;
     let mut invariants: Option<syn::Path> = None;
+    let mut publication_checks:Option<syn::Path>=None;
     let mut projection_roles: Option<syn::Path> = None;
     let mut semantic_source: Option<syn::Expr> = None;
     let mut required_support: Option<syn::Ident> = None;
@@ -219,6 +220,8 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
                     validator = Some(meta.value()?.parse()?);
                 } else if meta.path.is_ident("invariants") {
                     invariants = Some(meta.value()?.parse()?);
+                } else if meta.path.is_ident("publication_checks") {
+                    publication_checks=Some(meta.value()?.parse()?);
                 } else if meta.path.is_ident("projection_roles") {
                     projection_roles = Some(meta.value()?.parse()?);
                 } else if meta.path.is_ident("semantic_source") {
@@ -364,6 +367,7 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
     let invariants = invariants
         .map(|v| quote! { #v() })
         .unwrap_or_else(|| quote! { Vec::new() });
+    let publication_checks=publication_checks.map(|v|quote! {#v()}).unwrap_or_else(||quote! {Vec::new()});
     let required_support = required_support.map(|support| quote! {
         vec![(::std::any::TypeId::of::<#support>(), <#support as ::lctx_model::domain::Record>::NAME)]
     }).unwrap_or_else(|| quote! { Vec::new() });
@@ -405,6 +409,7 @@ fn expand(input: DeriveInput) -> syn::Result<impl quote::ToTokens> {
             }
             fn fields() -> Vec<::lctx_model::domain::Field> { vec![#(#descriptors,)*] }
             fn invariants() -> Vec<::lctx_model::domain::Invariant> { #invariants }
+            fn publication_checks()->Vec<::lctx_model::domain::PublicationInvariant> {#publication_checks}
             fn required_relations() -> Vec<(::std::any::TypeId, &'static str)> { #required_support }
             #family_fn
             #projection_roles_fn

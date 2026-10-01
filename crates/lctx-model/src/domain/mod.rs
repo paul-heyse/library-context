@@ -39,7 +39,7 @@ pub mod value;
 pub use finite::FiniteF64;
 pub use identity::{ArmId, ContentHash, ContentHasher, EvidenceBytes, Id, Key, KeySink, Utf8Text};
 pub use model::{
-    Invariant, InvariantCheck, Relation, RelationContent, ValidatedModel, ValidationInput,
+    Invariant, InvariantCheck, PublicationInvariant, PublicationCheck, Relation, RelationContent, ValidatedModel, ValidationInput,
 };
 pub use record::{
     Arm, ArmField, Batch, Codebook, Field, FieldValue, FlatValue, HeapSize, Record, Scalar, Sum,

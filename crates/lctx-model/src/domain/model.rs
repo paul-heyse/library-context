@@ -8,6 +8,7 @@ pub struct Relation {
     name: &'static str,
     fields: Vec<Field>,
     invariants: Vec<Invariant>,
+    publication_checks:Vec<PublicationInvariant>,
     required: Vec<(TypeId, &'static str)>,
     sum: Option<super::Sum>,
     derivation: Option<super::derivation::Derivation>,
@@ -28,6 +29,7 @@ impl Relation {
             name: R::NAME,
             fields: R::fields(),
             invariants: R::invariants(),
+            publication_checks:R::publication_checks(),
             required: R::required_relations(),
             sum: R::sum(),
             derivation: R::derivation(),
@@ -57,6 +59,7 @@ impl Relation {
     pub fn invariants(&self) -> &[Invariant] {
         &self.invariants
     }
+    pub fn publication_checks(&self)->&[PublicationInvariant] {&self.publication_checks}
     pub fn sum(&self) -> Option<&super::Sum> {
         self.sum.as_ref()
     }
@@ -106,6 +109,7 @@ impl Relation {
 pub struct ValidatedModel {
     relations: Vec<Relation>,
     invariants: Vec<Invariant>,
+    publication_checks:Vec<PublicationInvariant>,
     digest: ContentHash,
 }
 impl ValidatedModel {
@@ -342,6 +346,23 @@ impl ValidatedModel {
                 invariants.push(invariant.clone());
             }
         }
+        let mut publication_checks=Vec::new();
+        let mut publication_names=HashSet::new();
+        for relation in &relations {
+            for check in &relation.publication_checks {
+                if !identifier(check.name) || !publication_names.insert(check.name) || check.inputs.is_empty() {return Err(ModelError::Invalid("invalid or duplicate publication check".into()));}
+                digest.part(b"publication-check",check.name.as_bytes());
+                let mut input_types=HashSet::new();
+                for input in &check.inputs {
+                    if input.order.is_empty() || !input_types.insert(input.type_id) {return Err(ModelError::Invalid("publication check needs distinct ordered inputs".into()));}
+                    let target=relations.iter().find(|r|r.type_id==input.type_id).ok_or_else(||ModelError::Invalid("publication check input absent from model".into()))?;
+                    digest.part(b"publication-input",target.name.as_bytes());
+                    for order in &input.order {if *order!="id" && !target.fields.iter().any(|f|f.name()==*order) {return Err(ModelError::Invalid("publication check order field absent".into()));}digest.part(b"publication-order",order.as_bytes());}
+                }
+                publication_checks.push(check.clone());
+            }
+        }
+        publication_checks.sort_by_key(|v|v.name);
         if types.contains(&TypeId::of::<super::projection::ProjectionSourceAssessment>()) {
             for name in super::projection::ProjectionName::ALL {
                 for role in super::projection::ProjectionSpec::builtin(name).roles() {
@@ -391,6 +412,7 @@ impl ValidatedModel {
         Ok(Self {
             relations,
             invariants,
+            publication_checks,
             digest: digest.finish(),
         })
     }
@@ -400,6 +422,7 @@ impl ValidatedModel {
     pub fn invariants(&self) -> &[Invariant] {
         &self.invariants
     }
+    pub fn publication_checks(&self)->&[PublicationInvariant] {&self.publication_checks}
     pub fn digest(&self) -> ContentHash {
         self.digest
     }
@@ -530,3 +553,19 @@ fn proofs<R: Record>(
 type InvariantFactory = std::sync::Arc<
     dyn Fn(&super::resources::ResourceBudget) -> Box<dyn InvariantCheck> + Send + Sync,
 >;
+
+/// Checks ordinary output consistency against the effect owner's actual sealed input grants.
+/// Receipt snapshots are metadata; only these acknowledged R0 sources supply read authority.
+#[derive(Clone)]
+pub struct PublicationInvariant {
+    pub name:&'static str,
+    pub inputs:Vec<ValidationInput>,
+    pub create:std::sync::Arc<dyn Fn(&super::resources::ResourceBudget)->Box<dyn PublicationCheck>+Send+Sync>,
+}
+impl std::fmt::Debug for PublicationInvariant {
+    fn fmt(&self,f:&mut std::fmt::Formatter<'_>)->std::fmt::Result {f.debug_struct("PublicationInvariant").field("name",&self.name).field("inputs",&self.inputs).finish_non_exhaustive()}
+}
+pub trait PublicationCheck:Send+Sync {
+    fn visit(&mut self,relation:&str,batch:&arrow_array::RecordBatch)->Result<(),ModelError>;
+    fn finish(self:Box<Self>,sources:&[super::stages::CompletedRelation])->Result<(),ModelError>;
+}
