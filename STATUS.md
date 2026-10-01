@@ -9,7 +9,7 @@ The operator authorized implementation of the remaining
 All functional packages and X0 retirement are integrated. The
 [qualification receipt](docs/design_review/evidence/2026-10-01_phase4-qualification/README.md)
 retains failed commands, corrections and current bounded passes. Preserve unrelated dirty
-agent configuration/catalog edits, existing worktrees, caches and protected assets.
+agent configuration/instruction/catalog edits, dirty or unproven-integration worktrees, caches and protected assets. Eleven clean integrated task worktrees were removed under the current cleanup instruction.
 
 **Implemented / focused-Tested, 2026-10-01:** cumulative typed Analysis/Catalog publication in both
 profiles; exact supported standard-record source association shared by Local, uncertain Summary,
@@ -34,13 +34,13 @@ Cargo commands use `python3 scripts/build_environment.py --`.
 | `cargo test --release -p cpg-core --test synthesis_refutation -- --nocapture` within native2 | **passed**, actual native/PG proof-backed kind18 assertion and selected brief with coverage/proof refusals |
 | `cargo test --release -p cpg-flow --test flow_shapes -- --nocapture`, false-origin2 | **passed**, 33 native controls, including all-state false inventory, live read and computed-false refusal |
 | `cargo check -p cpg-core -p lctx-analytics -p lctx --tests`, X0 check2 | **passed**, complete post-retirement rerun after restoring the independent ranking oracle's dev dependency |
-| `NEXTEST_TEST_THREADS=8 just test-all` | **failed**, older fixtures then missing binaries after operator-confirmed concurrent cargo clean; repairs integrated, coherent rerun pending |
-| `just hygiene` | **failed**, ADR ownership/section/index defects; individual fixture/gold/rule/Ruff/type checks passed. Docs/dependency/Clippy repairs active |
+| `NEXTEST_TEST_THREADS=8 just test-all` | First run **failed**, older fixtures then missing binaries after operator-confirmed concurrent cargo clean. Coherent retry running on3ebad979 after repairs |
+| `just hygiene` | Initial run **failed** at ADR lint. Individual fixture/gold/rule/Ruff/type and repaired ADR/docs/dependency/full Clippy checks **passed**; store-check not_run |
 | Live embedding, upper real-library pilots, comparisons and measurements | **not_run**, excluded scope |
 
 ## Remaining execution
 
-Finish the full functional gate and hygiene, repair failures and rerun the affected checks;
+Finish the full functional retry and live store check, repair failures and rerun the affected checks;
 then publish coherent Q0 receipts and reconcile final owner documentation, Phase 4 disposition
 and this checkpoint. Production/provider digest changes require a coherent full-gate rerun.
 

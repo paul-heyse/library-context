@@ -33,8 +33,25 @@ is **Accept scoped**, 2026-10-01, at72ba0413. Full Q0 remains incomplete.
 | Individual unfinished hygiene ids `just fixtures-check`, `just gold`, `just rules-scan`, `just rules-test`, `just ruff`, `just types` | **passed**, 2026-10-01. `just docs-check` failed the same ADR lint defects; it requires rerun. |
 | `just deps`, [deps1](raw/phase4-q0-deps1.log) | **failed** after family, cargo-deny and Pyrefly fork checks passed: core's test-only analytics dependency was misplaced and its direct testcontainers dev dependency unused. Corrected ownership/removed unused dependency; named unlinked P5 recovery sources remain preserved. Remaining Hakari checks await the repaired rerun. |
 
-Clippy and final repairs are active. The current source tree must receive a coherent full
-functional rerun plus passing hygiene receipts before Phase 4 exit is claimed.
+The ADR owner/reference repair passed49 focused documentation tests in its isolated checkout
+(`uv run --project /home/paul/library-context --no-sync pytest -q tests/scripts/test_adr.py tests/scripts/test_design_sections.py tests/scripts/test_docs.py`),
+then integrated as eb6f98e8. Accepted ADR bytes and all lint obligations remain unchanged; current
+ADR lint now **passed** after the operator explicitly authorized `just adr index`; the generated index includes current governing records. An initial worker `uv run pytest`
+unintentionally began a project sync/maturin build; the worker stopped its owned processes
+immediately, with no clean or cache/path changes. The passing rerun used the existing root environment.
+
+| Q0 repair command | Current outcome |
+|---|---|
+| `just adr index`, `just build-features`, [index](raw/phase4-q0-adr-index1.log), [features](raw/phase4-q0-build-features1.log) | **passed**, explicit operator-authorized exception to hook-only generator timing. Removed three obsolete Hakari entries; no formatter was run. |
+| `just adr-lint`, [ADR rerun](raw/phase4-q0-adr-lint3.log) | **passed**, all 61 records. |
+| `just deps`, [deps2](raw/phase4-q0-deps2.log), [deps3](raw/phase4-q0-deps3.log) | **composite passed**. Deps2 refused stale Hakari entries; after the approved refresh, full deps3 passed including both Hakari checks. Named unlinked P5 sources remain preserved. |
+| `just docs-check`, [docs2](raw/phase4-q0-docs-check2.log), [docs3](raw/phase4-q0-docs-check3.log) | **composite passed**, 254 canonical pages and zero link errors. Nine retained reviews now identify 21 retired source citations as historical paths within their original inspection scopes; no review judgment, evidence strength or publisher check was changed. |
+| `just clippy`, [clippy1](raw/phase4-q0-clippy1.log), [clippy2](raw/phase4-q0-clippy2.log), [clippy3](raw/phase4-q0-clippy3.log), [clippy4](raw/phase4-q0-clippy4.log) | **composite passed**, complete [clippy7](raw/phase4-q0-clippy7.log) rerun after model/core/extraction lint repairs. Earlier compiler-exposed macro syntax, private-name collision, test-only imports and required non-Copy clone were corrected. Integration-test warnings and signature-enumeration type paths were repaired in [clippy5](raw/phase4-q0-clippy5.log)/[clippy6](raw/phase4-q0-clippy6.log). Public typed contracts, assertions, resource reservations and failure/proof ordering remain intact. |
+
+The non-model scoped diagnostic (`cargo clippy --release --workspace --exclude lctx-model --all-targets --no-deps --quiet -- -D warnings`) **passed**, but does not replace full Clippy.
+Eleven clean, fully integrated task worktrees were removed under the current cleanup instruction after ancestry/cherry-pick/patch checks. Four dirty and three unproven-integration task worktrees remain preserved, together with external spike worktrees and caches.
+
+The coherent `NEXTEST_TEST_THREADS=8 just test-all` retry is running on3ebad979. Store-check remains not_run; both must pass before Phase 4 exit is claimed.
 
 Independent focused design advice (static, 2026-10-01) accepts checked-false direct bare-name
 identity sources backed by actual native uses, and complete native reaching retention only for
