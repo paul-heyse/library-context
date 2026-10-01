@@ -23,7 +23,9 @@ Commands use `python3 scripts/build_environment.py --` before Cargo.
 | [X0 expectation migration map](raw/x0-expectation-map.md), [original candidate inventory](raw/x0-exact-deletions.txt), [dormant expectation partition](raw/x0-dormant-expectation-map.md), [applied paths](raw/x0-applied-paths.json) | Applied mapped retirement: 92 deleted source/snapshot paths, 11 bounded consumer/manifest modifications, one recovered P5 native-serving owner. Independent typed/native expectations qualified before removal; named P5 sources, services, fixtures and evaluation assets survive. Cargo.lock reflects manifest changes. |
 | `cargo check -p cpg-core -p lctx-analytics -p lctx --tests`, [X0 check1](raw/phase4-x0-final-check1.log), [X0 check2](raw/phase4-x0-final-check2.log) | **composite passed**. Initial check **failed** because dependency trimming omitted leiden-rs needed by the retained independent native ranking oracle. Restored it as a dev dependency; complete rerun **passed**, 41.30s. No oracle was removed. |
 
-Full `just test-all` and `just hygiene` are **not_run** until all functional scope, retirement and assembled review are complete.
+All functional scope and retirement are integrated. The [assembled Design/Target review](../../reviews/design_review_phase4-assembled_2026-10-01.md)
+is **Accept scoped**, 2026-10-01, at72ba0413. `NEXTEST_TEST_THREADS=8 just test-all` is running;
+`just hygiene` is next. Their receipts remain pending; no full Phase 4 gate is yet claimed.
 
 Independent focused design advice (static, 2026-10-01) accepts checked-false direct bare-name
 identity sources backed by actual native uses, and complete native reaching retention only for
