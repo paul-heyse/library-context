@@ -7,6 +7,8 @@ finding disposition; this document owns Phase 4 contracts, packages and acceptan
 [DESIGN §15](../design/sections/semantic-model.md) remains the accepted semantic authority.
 [ADR-0105](../adr/0105-analysis-vocabulary-epochs.md) and
 [ADR-0106](../adr/0106-typed-analysis-and-catalog.md) record the accepted decisions and alternatives.
+[ADR-0108](../adr/0108-immutable-analysis-owners.md) refines their ordinary result ownership at
+actual publication boundaries; implementation remains subject to the foundation review.
 
 **Inspected baseline:** main at 73187700fff553a0ca74abecdcfb7e8429c06617, 2026-09-30.
 Concurrent after-turn tooling/instruction changes are outside this design.
@@ -170,6 +172,13 @@ vocabulary. Split a close only where an actual stage needs another stage's new v
 No stage reads its own unfinished group. Within one group, pure kernels can share charged immutable
 inputs/outputs without pretending those results are already published.
 
+ADR-0108 keeps this whitelist unchanged. Ordinary invocation/support/coverage families are finite
+nominal instances at producing owners, not shared writable tables. The six closes above are an
+initial outline: execution and catalog sub-stages add model-declared closes only when a stored
+consumer needs newly produced vocabulary. An ordinary output needing no new vocabulary completes
+against the existing prefix. Neither a global future-owner reference sum nor one final retained
+handoff substitutes for these boundaries.
+
 ### 3.3 Metadata and profiles
 
 AnalysisInvocation is a new derived-analysis relation; it is not a fake ProviderRun reporting
@@ -254,7 +263,8 @@ all borrowing kernels finish. Do not deserialize a graph separately for every se
 ### 5.1 Invocation, result and coverage vocabulary
 
 The following proposed relation groups enter domain::analysis_relations(); names are concrete
-design names, with all structural fields derived from their Rust declarations during implementation.
+design names for semantic families, with all structural fields derived from their Rust declarations
+during implementation. ADR-0108 distinguishes that shared meaning from concrete producing owners.
 
 | Group | Identity, contents and governing operation |
 |---|---|
@@ -278,6 +288,30 @@ AnalysisDerivation premises. The latter cites AnalysisInvocation, qualified prop
 nominal evidence. One shared qualification/emission operation derives modality, approximation,
 condition and coverage for both paths; native provider attribution remains intact. Migrate the
 existing analysis foundation records through this operation rather than duplicating their policy.
+
+**Immutable producing owners (Accepted target, ADR-0108; implementation pending).** Definitions,
+parameters, authored catalogs/policies and embedding specifications have early one-shot writers.
+Late invocation/input/outcome/coverage/proposition/derivation/support/obligation records are concrete
+nominal owner instances generated from common declarations, with common semantic operations.
+The initial owner set is Dispatch, Local, BaseEvaluation, BaseCompletion, SourceCall,
+EnrichedExecution, Model, Summary, Structural, Analytic, CatalogCore, CatalogEvidence, Selection,
+Synthesis and Retrieval. Each has a narrow predecessor set and invariant inputs; no earlier owner
+references a later owner. Native assertion/support pairs may have one early immutable inventory
+derived entirely from facts. Result-dependent subjects and source receipts cannot be predeclared.
+
+The actual stored-read order is facts → normalized preparation → Dispatch → normalized checkpoint;
+Local → BaseEvaluation → BaseCompletion → SourceCall → EnrichedExecution → Model → Summary;
+Local → Structural → optional Analytic; and CatalogCore → CatalogEvidence → Selection → Synthesis
+→ Retrieval. CatalogCore depends on the normalized checkpoint, independently of behavior. Analytic
+depends on E1 only when vectors are selected. Synthesis also consumes Structural, Summary outcomes
+and selected Analytic conclusions; Retrieval consumes C1/Synthesis plus E1's shared foundation.
+Split Model or Analytic further only for a concrete internal stored-read dependency; bounded pure
+handoffs remain permitted. Later discharge records reference earlier immutable obligations.
+Final coverage has a separate writer checking the expected frontier; it never appends to prior sets.
+
+Finding/Member/Support remain S0's single-writer family. Earlier stages produce qualified conclusions
+for its common emitter. The global generated derivation index checks the combined nominal DAG;
+a final read-only union may simplify consumers but is not another canonical write authority.
 
 A completed computation can have Partial evidence. Refused required execution aborts publication;
 a supported analysis boundary produces an explicit partial/unavailable outcome only where that
@@ -711,13 +745,13 @@ frontier's complete scheduled envelope.
 | B1 — execution/completion | Base then enriched evaluation, default/body/frame-exit evidence, handlers/finalizers and source-call preparation | B0; retained independent evaluation/completion/frame controls; no circular premise |
 | B2 — models and protocols | Context values, modeled identities, actions/phase postconditions, exact exception applicability | N0/B1; invocation-vs-normal and resource-identity controls |
 | B3 — summary/discharge | Typed complete alternative outcomes, finite witness DAG, SCC worklist/residuals, coverage and final verdicts | G0/B2; recursion, cap, sibling, proof-cycle and shuffle controls |
-| A0 — structural analytics | Pass A–C meanings, direct usage, public paths, findings and evidence through current contracts | G0/B0; independent graph/source controls, no heuristic promotion |
+| A0 — structural analytics | Pass A–C meanings, direct usage, public paths, qualified conclusions and evidence for S0's emitter | G0/B0; independent graph/source controls, no heuristic promotion |
 | E1 — embedding foundation and analytic realization | One spec/codec/service contract, normalized analytic text and early AnalysisEmbeddingUse; no catalog/brief input | R1/N1; token/spec/shape, immutable winner and service-free replay controls |
 | A1 — optional analytics | Communities, weighted rank, FCA/RCA and retained kNN/layers with explicit selection and consumers | A0; E1 only when vectors requested; oracle/shape/determinism/limit controls; defaults stay off |
 | C0 — mandatory catalog | Public slots/contracts/constructors/options; consume normalized authority without flow | N1/R1; no-flow/no-brief/no-seed and signature/constructor/default controls |
 | C1 — contextual evidence | Exact field associations, original scenarios/deployment/checks and complete evidence roots | C0; two-field, original-byte, intent/check and outside-seed controls |
 | C2 — selection | Finite domain/witness vocabulary, closure and pure classify/joint operations | C1; overload/context/empty/missing-domain/whole-conjunction controls |
-| S0 — synthesis | Shared finding/assertion policy, per-value outcomes, optional grounded briefs and source patterns | A0/B3/C2; condition, evidence, status and warning/limit retention controls |
+| S0 — synthesis | Shared finding/assertion policy, per-value outcomes, optional grounded briefs and source patterns | A0/B3/C2 and A1 where selected analytics affect output; condition, evidence, status and warning/limit retention controls |
 | E0 — retrieval realization | Typed units/fragments/rendering, optional RetrievalEmbeddingUse, canonical exact consumed-value replay | C1/S0 and E1 shared foundation, never its optional analytic output; dedup/anchors/spec/cold-replay/corruption controls |
 | F0 — assembly and CLI | Analysis/catalog FrontierDescriptors, profile/technique preflight, capabilities and generation diagnostics | All selected capability producers; both profiles through real PG, lower-frontier refusal controls |
 | X0 — ownership retirement | Remove migrated legacy authority and move independent dormant expectations; inventory P5 survivors | F0; active-path dependency/search audit, no compatibility routes |
@@ -872,12 +906,18 @@ its open obligations to packages and closure evidence; it does not close them by
 Full D0–Q0 execution was authorized on 2026-09-30, including ADR-0106's conditional operator-review policy.
 D0 adopts ADR-0105/0106 and preserves the independently reviewed target and §11 migration inventory.
 The implementation baseline is clean main `24e86d5`; production sources and dependency manifests
-were unchanged from the inspected design baseline at execution start. R0 is in progress: private
-delta publication and immutable prefix reads have focused pure and real-store controls, with
-additional lifecycle controls pending. R1 is in progress in an isolated worktree. Its finite-metric
+were unchanged from the inspected design baseline at execution start. R0 is implemented with focused
+pure, real-store and source-bound provider controls; enclosing foundation acceptance remains pending.
+R1 is in progress in an isolated worktree. Its finite-metric
 lowering was integrated as `a44e3f8`; analysis invocation/support/coverage contracts remain under
-implementation. Preparatory G0 graph-view work is integrated and does not establish G0's N1 dependency
-or foundation acceptance. All other packages remain not started. Existing descriptions marked Proposed specify accepted
+implementation. Focused foundation advice exposed a shared ordinary-result writer cycle; ADR-0108
+selects nominal immutable producing-owner instances with shared semantic operations. The isolated
+R1 semantic slice passed focused controls before this ownership correction; it is not accepted as
+the final production model. Preparatory G0 graph-view work is integrated and does not establish G0's N1 dependency
+or foundation acceptance. N0's independent authored catalog/parser, nominal declarations, required
+dependency domain and shared declaration validator are prepared in isolated branch
+`phase4-authored-models`; extraction/context activation and legacy retirement remain pending.
+All other packages remain not started. Existing descriptions marked Proposed specify accepted
 targets whose behavior is not yet implemented or tested; they are not runtime claims.
 The [independent assembled review](../design_review/reviews/design_review_phase4-plan_2026-09-30.md)
 is **Accept scoped, 2026-09-30**, at Proposed design level. A1–A3 and the document-target gates are
@@ -892,11 +932,17 @@ rule and cross-consumer vector-winner invariant were also clarified during assem
 | Task receipt | Outcome, 2026-09-30 |
 |---|---|
 | Independent document/source target review | Accept scoped; review above records evidence, exclusions and required future controls |
+| R0 model publication controls | passed: wrapped `cargo test -p lctx-model --release --test vocabulary_epochs --quiet` (4); profile-filtered writers, per-epoch uniqueness and inherited-prefix receipts |
+| R0 PostgreSQL publication controls | passed: wrapped `cargo test -p lctx-postgres --features testing --release --test vocabulary_epochs --quiet` (9); immutable views/grants, mixed/future-prefix refusal, atomic rollback, cancellation, unconfirmed acknowledgement and frozen-content controls |
+| R0 source-bound provider and normalized regression controls | composite passed: wrapped `cargo test -p cpg-core --release --test vocabulary_read --test normalized_generation --test stage_checkpoint --quiet` passed normalized (4), checkpoint (1) and old-prefix read; its new canonical-condition fixture initially expected zero native True nodes incorrectly. Corrected fixture and wrapped `cargo test -p cpg-core --release --test vocabulary_read --quiet` passed (2), including shared orphan-node refusal. |
+| R0 independent implementation review and wrapper correction | Original three findings corrected and reinspected: inherited receipts, same-epoch writer uniqueness and inactive-profile filtering. Follow-up found an existing extraction test sink lacked new group forwarding; corrected and wrapped `cargo test -p cpg-extract --release --test typed_calls variants_keep_channels_phases_and_native_owners --quiet` passed (1). Foundation acceptance still awaits R1. |
+| Initial R1 semantic slice | passed in isolated derived checkout at `7b04bcf`: wrapped Cargo with `--config 'build.build-dir="/home/paul/.cache/library-context-phase4-derived/build"' test -p lctx-model --release --test domain_analysis --test domain_assertions --test domain_derivation --test domain_transfer --test domain_composition` (8+3+3+7+11). Composite after fixture/condition/diagnostic corrections; producer ownership and bounded BDD allocation corrections remain pending. |
 | Finite metric model controls | passed: `python3 scripts/build_environment.py -- cargo test --release -p lctx-model --test finite_metrics` (2 tests); canonical signed zero, finite extremes, Arrow refusal and normalization |
 | Finite metric store controls | passed: `python3 scripts/build_environment.py -- cargo test --release -p lctx-postgres --features testing --test finite_metrics` (1 real PG18 test); roundtrip and raw invalid-value refusal |
 | Finite metric independent implementation review | no material findings against isolated commit `882f86a`, whose patch is integrated as `a44e3f8`; this is a bounded review, not R1 acceptance |
 | Preparatory G0 graph controls | passed in the isolated graph checkout with `python3 scripts/build_environment.py -- cargo --config 'build.build-dir="/home/paul/.cache/library-context-phase4-graph/build"'`: `build --release -p lctx-model`; `test --release -p lctx-model --doc with_native_graph` (one positive and two compile-fail controls); `test --release -p lctx-model --lib native_borrow` (1); `test --release -p lctx-analytics --lib native_schedule` (3). Includes hydrated native topology, parallel arcs, isolates, canonical SCC ordering and reservation ownership. The public-entrypoint control initially lacked its test-owned scope, corrected before the passing rerun. An earlier shared-worktree build loaded divergent macro artifacts; isolated build directories resolved that collision without cleaning the shared cache. |
 | Preparatory G0 independent implementation review | no material findings on the six-file adapter/kernel slice; its identified direct-entrypoint coverage gap is covered by the added public scheduler control. N1 dispatch-induced topology and generation preparation lifetime remain pending. |
+| Preparatory N0 model controls | passed in the isolated authored-model checkout: `python3 scripts/build_environment.py -- cargo --config 'build.build-dir="/home/paul/.cache/library-context-phase4-models/build"' test --release -p lctx-model --lib domain::models` (11). Retained parser/channel/phase/identity controls, explicit pinned dependency and protocol/exception requirements, and shared stored-declaration refusal. This is not native model-context qualification or N0 completion. |
 | Integrated functional gate, actual-library pilots and performance experiments | not_run; full functional scope and X0 retirement are not complete; previously excluded measurements remain outside scope |
 | ADR index/lint, docs publication and other automatic hygiene | not_run by this agent; current repository instructions assign them to the end-of-turn hook; no future result is presumed |
 

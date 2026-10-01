@@ -63,6 +63,12 @@ have exactly one producing stage. **Accepted P4 target (ADR-0105), not implement
 one writer per declared immutable epoch. Ordinary relations retain one producing stage;
 §15.11 specifies the publication/read boundary.
 
+**Accepted P4 target (ADR-0108), not implemented:** shared analysis contracts have finite nominal
+instances at immutable producing owners. Preflight-known definitions remain early one-shot rows;
+late invocation, support, coverage and proof records belong to their actual publication boundary.
+Mechanical declarations share semantic operations. Their reference sums and invariant inputs name
+only native evidence, completed predecessors and their own finite proof occurrences.
+
 | Layer | Holds | Producer |
 |---|---|---|
 | **L0 observations** | Source artifacts and occurrences; attributed provider assertions, provider conditions and coverage: syntax, declarations, Pysa call facts, ty flow facts, types, documents, package metadata and invocation context | `cpg-extract`, `cpg-flow` |
@@ -97,7 +103,7 @@ closure, coverage, checkpoints and admission. Fresh normalized compilation runs 
 schedule without intermediate publication or selection. P4/P5 extend the declared closure;
 external linked generations are not a P3 input mechanism.
 
-> Decision: ADR-0085, ADR-0086, ADR-0105
+> Decision: ADR-0085, ADR-0086, ADR-0105, ADR-0108
 
 <a id="section-15-2"></a>
 
@@ -572,10 +578,17 @@ witnesses cite earlier witnesses and source evidence; completed summary aggregat
 after SCC closure and never serve as their own proof premises. Coverage membership is retained
 independently of witness deduplication.
 
+**Accepted ownership refinement (ADR-0108), not implemented.** Invocation/support/coverage and
+proof families are nominal per producing owner, with one qualification and coverage policy.
+The generated index validates their combined DAG. Later discharge references earlier obligations
+without extending completed membership. S0 alone writes the shared finding family; earlier stages
+publish qualified conclusions for its emitter. A final read-only union does not become another
+writable authority or grant access to unfinished owners.
+
 **Witnesses** are selected at serve time from derivations, under response budgets. A smaller budget
 never removes an established conclusion.
 
-> Decision: ADR-0085, ADR-0106
+> Decision: ADR-0085, ADR-0106, ADR-0108
 
 <a id="section-15-10"></a>
 
@@ -711,7 +724,15 @@ every group closed. [Plan §3](../../plans/semantic-model-phase4-detailed-plan_2
 owns the finite whitelist, schedule and migration. Current Phase 3 runtime completion remains
 one-shot until this accepted target is implemented; prior receipts establish no prefix guarantee.
 
-> Decision: ADR-0105
+**Accepted ownership refinement (ADR-0108), not implemented.** The finite owner graph follows
+actual stored-read dependencies, including execution sub-stages and catalog core → evidence →
+selection → synthesis → retrieval. New vocabulary closes occur only where those consumers need
+new predecessor vocabulary; ordinary results can complete against the existing prefix. No global
+proof reference sum may pull future owners into an earlier stage's invariant dependencies. Final
+frontier coverage has a separate one-shot writer and checks the independently declared expected
+owners/outcomes. Catalog construction remains independent of optional analysis success.
+
+> Decision: ADR-0105, ADR-0108
 
 **Normalized availability (Implemented; qualification in progress, 2026-09-30).** A final writer
 records capability/scope/context outcomes independently of successful computation. Model-owned
