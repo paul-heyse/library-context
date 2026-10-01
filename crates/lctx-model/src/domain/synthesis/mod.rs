@@ -2,6 +2,7 @@
 pub mod build;
 
 pub mod documentary;
+pub mod source_code;
 pub mod assertions;
 pub mod seeds;
 pub mod briefs;

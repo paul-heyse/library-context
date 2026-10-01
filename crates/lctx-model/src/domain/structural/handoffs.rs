@@ -64,7 +64,7 @@ fn native(d:&Data,premise:NativeAssertionPremise,q:Id<AssertionQualification>)->
 fn exact(d:&Data,q:Id<AssertionQualification>,context:Id<attribution::AnalysisContext>)->Result<bool,ModelError>{let q=need(&d.entry.qualifications,q)?;Ok(q.context==context&&q.modality==Modality::Definite&&q.approximation==Approximation::Exact)}
 /// One reaching definition under the read condition, in the same provider invocation and scope.
 /// Rebinding selects its actual new definition; unions, loops, foreign supports and captured state refuse.
-pub(super) fn named_definition(d:&Data,value:&Occurrence,context:Id<attribution::AnalysisContext>,budget:&resources::ResourceBudget)->Result<Option<(Id<Occurrence>,ValueSource)>,ModelError>{
+pub fn named_definition(d:&Data,value:&Occurrence,context:Id<attribution::AnalysisContext>,budget:&resources::ResourceBudget)->Result<Option<(Id<Occurrence>,ValueSource)>,ModelError>{
  let mut uses=d.entry.uses.iter().filter(|u|d.entry.occurrences.get(u.occurrence).is_some_and(|r|same(r,value)));let Some(use_)=uses.next()else{return Ok(None)};if uses.next().is_some(){return Ok(None)}
  let mut observations=d.entry.use_observations.iter().filter(|o|o.use_==use_.id()&&d.entry.qualifications.get(o.qualification).is_some_and(|q|q.context==context));let Some(observation)=observations.next()else{return Ok(None)};if observations.next().is_some()||observation.annotation||!exact(d,observation.qualification,context)?{return Ok(None)}
  let mut reaches=d.entry.reaching.iter().filter(|r|r.use_==use_.id()&&d.entry.qualifications.get(r.qualification).is_some_and(|q|q.context==context));let Some(reaching)=reaches.next()else{return Ok(None)};if reaches.next().is_some()||reaching.loop_carried||!exact(d,reaching.qualification,context)?{return Ok(None)}
