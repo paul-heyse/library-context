@@ -52,6 +52,10 @@ fn options() -> ProviderOptions {
         ..ProviderOptions::default()
     }
 }
+/// The rich transport fixture contains facts; later analysis owners have not run.
+fn facts_model() -> Arc<ValidatedModel> {
+    Arc::new(ValidatedModel::validate(facts_relations()).unwrap())
+}
 async fn collect(table: Arc<dyn TableProvider>) -> datafusion::error::Result<Vec<RecordBatch>> {
     SessionContext::new().read_table(table)?.collect().await
 }
@@ -111,7 +115,7 @@ struct Rich {
     locks: [ContentHash; 2],
 }
 async fn rich(db: &DisposableDatabase) -> Rich {
-    let model = Arc::new(model().unwrap());
+    let model = facts_model();
     let store = GenerationStore::install(db.owner.clone(), model.clone())
         .await
         .unwrap();
@@ -205,7 +209,7 @@ async fn provider_reads_equal_typed_readback() {
     let fixture = rich(&db).await;
     let session = GenerationSession::open(
         &serving(&db),
-        Arc::new(model().unwrap()),
+        facts_model(),
         fixture.generation,
         options(),
     )
@@ -270,7 +274,7 @@ async fn closed_filter_pushdown() {
     let fixture = rich(&db).await;
     let session = GenerationSession::open(
         &serving(&db),
-        Arc::new(model().unwrap()),
+        facts_model(),
         fixture.generation,
         options(),
     )
@@ -449,7 +453,7 @@ async fn closed_filter_pushdown() {
 async fn digest_and_column_mismatch_rejected_before_scan() {
     let db = DisposableDatabase::start().await;
     let fixture = rich(&db).await;
-    let model = Arc::new(model().unwrap());
+    let model = facts_model();
     let unpublished_h = Harness::begin(
         &fixture.store,
         db.writer.clone(),
@@ -594,7 +598,7 @@ async fn lease_blocks_retire_close_releases() {
     let fixture = rich(&db).await;
     let session = GenerationSession::open(
         &serving(&db),
-        Arc::new(model().unwrap()),
+        facts_model(),
         fixture.generation,
         options(),
     )
@@ -629,7 +633,7 @@ async fn byte_bounded_batches_and_reservation_refusal() {
     };
     let session = GenerationSession::open(
         &serving(&db),
-        Arc::new(model().unwrap()),
+        facts_model(),
         fixture.generation,
         narrow,
     )
@@ -653,7 +657,7 @@ async fn byte_bounded_batches_and_reservation_refusal() {
         session.close().await.unwrap();
         GenerationSession::open(
             &serving(&db),
-            Arc::new(model().unwrap()),
+            facts_model(),
             fixture.generation,
             options(),
         )
@@ -709,7 +713,7 @@ async fn cancellation_mid_stream_drains_and_returns() {
     let fixture = rich(&db).await;
     let session = GenerationSession::open(
         &serving(&db),
-        Arc::new(model().unwrap()),
+        facts_model(),
         fixture.generation,
         options(),
     )
@@ -779,7 +783,7 @@ async fn transport_loss_is_terminal() {
     let fixture = rich(&db).await;
     let session = GenerationSession::open(
         &serving(&db),
-        Arc::new(model().unwrap()),
+        facts_model(),
         fixture.generation,
         options(),
     )
@@ -980,7 +984,7 @@ async fn inspection_memory_is_bounded() {
     };
     let session = GenerationSession::open(
         &serving(&db),
-        Arc::new(model().unwrap()),
+        facts_model(),
         fixture.generation,
         small,
     )
@@ -1044,7 +1048,7 @@ async fn a_lease_lock_timeout_is_contention() {
     };
     let refused = GenerationSession::open(
         &impatient,
-        Arc::new(model().unwrap()),
+        facts_model(),
         fixture.generation,
         options(),
     )
@@ -1062,7 +1066,7 @@ async fn a_lease_lock_timeout_is_contention() {
     drop(holder);
     GenerationSession::open(
         &impatient,
-        Arc::new(model().unwrap()),
+        facts_model(),
         fixture.generation,
         options(),
     )

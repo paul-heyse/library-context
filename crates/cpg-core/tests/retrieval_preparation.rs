@@ -51,6 +51,12 @@ async fn mandatory_four_family_preparation_uses_completed_native_catalog_sources
     relations.extend(catalog::relations());
     relations.extend(analysis::catalog_evidence::relations());
     relations.extend(retrieval::rendering_relations());
+    // Mandatory units do not produce briefs, but their shared anchor sum still declares
+    // the canonical prose reference targets. These relations remain empty here.
+    relations.extend([
+        Relation::of::<synthesis::documentary::ProseSource>(),
+        Relation::of::<synthesis::documentary::ProseSlice>(),
+    ]);
     relations.sort_by_key(Relation::name);
     relations.dedup_by_key(|r| r.name());
     let model = Arc::new(ValidatedModel::validate(relations).unwrap());

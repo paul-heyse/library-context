@@ -229,11 +229,23 @@ async fn native_closed_expressions_skip_unentered_operands_and_preserve_limits()
 async fn name_evaluation_needs_the_exact_private_entry_proof_and_retains_its_allowance() {
     use lctx_model::domain::{conditions::entry::*, normalized::entities::*};
     let (data, entries, budget) = data().await;
+    let source_files = files("execution_channels");
+    let callable = data.callables.iter().find(|row| matches!(row,
+        CallableEntity::Source { declaration, .. } if {
+            let occurrence = data.occurrences.get(*declaration).unwrap();
+            let source = data.artifacts.get(occurrence.source).unwrap();
+            source_files[&source.path][occurrence.start as usize..occurrence.end as usize]
+                .starts_with(b"def read(")
+        }
+    )).unwrap();
+    let expected_owner = EntityRef::Callable { callable: callable.id() }.id();
     let read = data
         .occurrences
         .iter()
         .find(|o| {
-            o.syntax_kind == SyntaxKind::ExprName && o.role == OccurrenceRole::Read && {
+            o.syntax_kind == SyntaxKind::ExprName && o.role == OccurrenceRole::Read
+                && data.owners.iter().any(|owner| owner.occurrence == o.id() && owner.entity == expected_owner)
+                && {
                 let source = data.artifacts.get(o.source).unwrap();
                 files("execution_channels")[&source.path][o.start as usize..o.end as usize]
                     == *b"value"
@@ -245,7 +257,13 @@ async fn name_evaluation_needs_the_exact_private_entry_proof_and_retains_its_all
         .iter()
         .find(|o| o.occurrence == read.id())
         .unwrap();
-    let formal=entries.formals.iter().find(|formal|matches!(formal,ParameterEntity::Source{declaration} if entries.occurrences.get(*declaration).is_some_and(|o|o.structural_path.starts_with(&entries.occurrences.get(owner.owner).unwrap().structural_path)))).unwrap();
+    let formal = entries.formals.iter().find(|formal| matches!(formal,
+        ParameterEntity::Source { declaration } if entries.occurrences.get(*declaration).is_some_and(|o| {
+            let source = entries.artifacts.get(o.source).unwrap();
+            o.structural_path.starts_with(&entries.occurrences.get(owner.owner).unwrap().structural_path)
+                && source_files[&source.path][o.start as usize..o.end as usize] == *b"value"
+        })
+    )).unwrap();
     let use_ = entries
         .uses
         .iter()
@@ -924,7 +942,7 @@ async fn base_producer_reconciles_the_entire_root_inventory_and_actual_request_p
     use lctx_model::domain::{
         analysis::{self, base_evaluation as publication},
         conditions::entry::{EntryAccessSource, EntryValueWitness},
-        execution::{production::*, records::*},
+        execution::{production::*, read_channels::*, read_dynamic::*, read_fields::*, records::*},
         normalized::Rows,
         stages::Profile,
     };
@@ -1052,6 +1070,26 @@ async fn base_producer_reconciles_the_entire_root_inventory_and_actual_request_p
                 output.operands.iter().cloned().collect::<Vec<_>>()
             }
         );
+        macro_rules! read_outputs {($($field:ident:$ty:ty,)*)=>{$(put!($ty,
+            if omit_frame { vec![] } else { output.reads.$field.iter().cloned().collect::<Vec<_>>() }
+        );)*};}
+        read_outputs! {
+            reads:ReadObservation,
+            dependencies:ReadDependency,
+            attributes:AttributeRead,
+            formals:FormalReadAssessment,
+            dynamic:DynamicAccessObservation,
+            dynamic_premises:DynamicAccessPremise,
+        }
+        macro_rules! field_outputs {($($field:ident:$ty:ty,)*)=>{$(put!($ty,
+            if omit_frame { vec![] } else { output.reads.fields.$field.iter().cloned().collect::<Vec<_>>() }
+        );)*};}
+        field_outputs! {
+            locations:FieldLocationObservation,
+            assessments:FieldReadAssessment,
+            globals:GlobalClassInspection,
+            global_assessments:GlobalFieldReadAssessment,
+        }
         checker.finish()
     };
     check(false, false, false).unwrap();

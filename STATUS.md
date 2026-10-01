@@ -34,8 +34,8 @@ Cargo commands use `python3 scripts/build_environment.py --`.
 | `cargo test --release -p cpg-core --test synthesis_refutation -- --nocapture` within native2 | **passed**, actual native/PG proof-backed kind18 assertion and selected brief with coverage/proof refusals |
 | `cargo test --release -p cpg-flow --test flow_shapes -- --nocapture`, false-origin2 | **passed**, 33 native controls, including all-state false inventory, live read and computed-false refusal |
 | `cargo check -p cpg-core -p lctx-analytics -p lctx --tests`, X0 check2 | **passed**, complete post-retirement rerun after restoring the independent ranking oracle's dev dependency |
-| `NEXTEST_TEST_THREADS=8 just test-all` | Running; outcome pending |
-| `just hygiene` | **not_run**, next after the functional gate |
+| `NEXTEST_TEST_THREADS=8 just test-all` | **failed**, older fixtures then missing binaries after operator-confirmed concurrent cargo clean; repairs integrated, coherent rerun pending |
+| `just hygiene` | **failed**, ADR ownership/section/index defects; individual fixture/gold/rule/Ruff/type checks passed. Docs/dependency/Clippy repairs active |
 | Live embedding, upper real-library pilots, comparisons and measurements | **not_run**, excluded scope |
 
 ## Remaining execution

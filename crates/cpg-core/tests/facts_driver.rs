@@ -125,7 +125,7 @@ async fn run(
 
 #[tokio::test]
 async fn fixture_corpus_skeleton_runs_every_registered_case_through_memory() {
-    let model = Arc::new(model().unwrap());
+    let model = Arc::new(ValidatedModel::validate(facts_relations()).unwrap());
     let ran = Arc::new(AtomicUsize::new(0));
     for (case, files) in CASES {
         for profile in Profile::ALL {
@@ -159,7 +159,7 @@ async fn fixture_corpus_skeleton_runs_every_registered_case_through_memory() {
 
 #[tokio::test]
 async fn the_providers_must_be_exactly_the_scheduled_stages() {
-    let model = Arc::new(model().unwrap());
+    let model = Arc::new(ValidatedModel::validate(facts_relations()).unwrap());
     let (case, files) = CASES[0];
     let ran = Arc::new(AtomicUsize::new(0));
     // A provider outside the schedule's profile is not offered; the catalog schedule runs without it.

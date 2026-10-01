@@ -889,7 +889,7 @@ mod tests {
                 .find(|r| r.scope == f.python && r.family == FactFamily::Syntax)
                 .unwrap()
                 .clone();
-            for family in [FactFamily::Lexical, FactFamily::Flow] {
+            for family in [FactFamily::Lexical, FactFamily::Calls, FactFamily::Flow] {
                 let mut coverage = ProviderCoverage {
                     family,
                     ..template.clone()
@@ -910,7 +910,7 @@ mod tests {
                 let scope = &domain.scopes[0];
                 assert_eq!(scope.scope, f.python);
                 assert_eq!(scope.requested, profile == Profile::Behavioral);
-                assert_eq!(scope.native.len(), 4);
+                assert_eq!(scope.native.len(), 5);
                 assert_eq!(scope.normalized.len(), 2);
                 assert!(scope.normalized.iter().all(|r| matches!(
                     f.index.computations.get(&r.computation).unwrap().capability,

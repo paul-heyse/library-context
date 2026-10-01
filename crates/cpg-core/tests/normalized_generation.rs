@@ -66,8 +66,12 @@ async fn normalized_is_self_contained_repeatable_and_never_selects() {
         .unwrap();
         assert_eq!(
             published.measurements.len(),
-            if profile == Profile::Catalog { 12 } else { 13 }
+            if profile == Profile::Catalog { 14 } else { 15 }
         );
+        for producer in ["normalize_receivers", "normalize_callable_aspects"] {
+            assert_eq!(published.measurements.iter().filter(|m|m.stage==producer).count(),1,
+                "the added normalized producer must execute exactly once: {producer}");
+        }
         let detail = catalog.show(published.generation).await.unwrap().unwrap();
         assert!(!detail.summary.selected);
         assert_eq!(detail.summary.frontier, Frontier::Normalized);

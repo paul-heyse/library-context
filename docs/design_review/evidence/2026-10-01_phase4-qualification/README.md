@@ -24,8 +24,17 @@ Commands use `python3 scripts/build_environment.py --` before Cargo.
 | `cargo check -p cpg-core -p lctx-analytics -p lctx --tests`, [X0 check1](raw/phase4-x0-final-check1.log), [X0 check2](raw/phase4-x0-final-check2.log) | **composite passed**. Initial check **failed** because dependency trimming omitted leiden-rs needed by the retained independent native ranking oracle. Restored it as a dev dependency; complete rerun **passed**, 41.30s. No oracle was removed. |
 
 All functional scope and retirement are integrated. The [assembled Design/Target review](../../reviews/design_review_phase4-assembled_2026-10-01.md)
-is **Accept scoped**, 2026-10-01, at72ba0413. `NEXTEST_TEST_THREADS=8 just test-all` is running;
-`just hygiene` is next. Their receipts remain pending; no full Phase 4 gate is yet claimed.
+is **Accept scoped**, 2026-10-01, at72ba0413. Full Q0 remains incomplete.
+
+| Assembled command | Outcome and correction boundary |
+|---|---|
+| `NEXTEST_TEST_THREADS=8 just test-all`, [full1](raw/phase4-q0-test-all1.log) | **failed**. Release build passed (29m38s); Nextest discovered993 tests/199 binaries. Genuine older fixture failures were captured before the operator's confirmed concurrent `cargo clean` removed compiled binaries and produced many `double-spawn` errors. No passing full functional gate follows; pytest, separate PG gate and doctests were not_run. Facts-only memory/read fixtures, signature-enumeration writer inventory, two new normalized stage counts, shared prose FK targets, complete derived-read checker input and native exact Entry selection are corrected for rerun. |
+| `just hygiene`, [hygiene1](raw/phase4-q0-hygiene1.log) | **failed** at ADR lint after lint-agents passed. Actual governing-decision citations/section references and stale index require correction; no check is waived. |
+| Individual unfinished hygiene ids `just fixtures-check`, `just gold`, `just rules-scan`, `just rules-test`, `just ruff`, `just types` | **passed**, 2026-10-01. `just docs-check` failed the same ADR lint defects; it requires rerun. |
+| `just deps`, [deps1](raw/phase4-q0-deps1.log) | **failed** after family, cargo-deny and Pyrefly fork checks passed: core's test-only analytics dependency was misplaced and its direct testcontainers dev dependency unused. Corrected ownership/removed unused dependency; named unlinked P5 recovery sources remain preserved. Remaining Hakari checks await the repaired rerun. |
+
+Clippy and final repairs are active. The current source tree must receive a coherent full
+functional rerun plus passing hygiene receipts before Phase 4 exit is claimed.
 
 Independent focused design advice (static, 2026-10-01) accepts checked-false direct bare-name
 identity sources backed by actual native uses, and complete native reaching retention only for

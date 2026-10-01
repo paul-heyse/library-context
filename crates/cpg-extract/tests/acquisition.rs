@@ -257,7 +257,7 @@ async fn acquire(f: &Fixture) -> Result<Rows, String> {
         )
         .map_err(|e| e.to_string())?,
     );
-    let model = Arc::new(model().unwrap());
+    let model = Arc::new(ValidatedModel::validate(facts_relations()).unwrap());
     let stage = Acquire::of(&inventory).declaration(Profile::Catalog);
     let schedule =
         Schedule::build(&model, vec![stage, inspect_stage()], &[], Profile::Catalog).unwrap();

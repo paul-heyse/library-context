@@ -11,7 +11,6 @@ sqlx.workspace = true
 lctx-model = { path = "../lctx-model" }
 lctx-postgres = { path = "../lctx-postgres" }
 cpg-extract = { path = "../cpg-extract" }
-lctx-analytics = { path = "../lctx-analytics" }
 arrow-array.workspace = true
 arrow-schema.workspace = true
 datafusion.workspace = true
@@ -28,9 +27,9 @@ tracing.workspace = true
 url.workspace = true
 
 [dev-dependencies]
+lctx-analytics = { path = "../lctx-analytics" }
 lctx-postgres = { path = "../lctx-postgres", features = ["testing"] }
 tempfile.workspace = true
-testcontainers-modules.workspace = true
 
 [lints]
 workspace = true
