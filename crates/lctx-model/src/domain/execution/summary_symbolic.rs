@@ -43,15 +43,16 @@ pub fn derive(data:&SummaryData,invocation:&owner::AnalysisInvocation,
         if cq.context!=invocation.context || cq.modality!=Modality::Definite || cq.approximation!=Approximation::Exact || cq.condition!=conditions::Diagram::always().id(){continue}
         let parameter=e.parameters.get(association.parameter).ok_or_else(||invalid("symbolic formal missing"))?;
         let signature=e.signatures.get(parameter.signature).ok_or_else(||invalid("symbolic signature missing"))?;
-        let constructor=e.symbol_declarations.iter().filter(|d|d.symbol==signature.symbol).find_map(|d|
-            e.owners.iter().find(|o|crate::domain::local_symbolic::same(e,o.occurrence,d.declaration)).map(|o|o.entity));
-        let constructor=constructor.or_else(||e.callables.iter().find_map(|c|match c {
-            CallableEntity::Synthetic{symbol} if *symbol==signature.symbol => {
-                let entity=EntityRef::Callable{callable:c.id()};
-                (e.refs.get(entity.id())==Some(&entity)).then_some(entity.id())
-            },_=>None,
-        }));
-        let Some(constructor)=constructor else{continue};
+        // Declaration evaluation belongs to the enclosing class; the initializer body owns
+        // the store. Resolve its existing callable identity, never the header's evaluator.
+        let mut constructors=e.callables.iter().filter(|c|match c {
+            CallableEntity::Source{declaration,..}=>e.symbol_declarations.iter().any(|d|
+                d.symbol==signature.symbol&&crate::domain::local_symbolic::same(e,*declaration,d.declaration)),
+            CallableEntity::Synthetic{symbol}=>*symbol==signature.symbol,
+            _=>false,
+        }).map(|c|EntityRef::Callable{callable:c.id()}.id()).filter(|id|e.refs.get(*id).is_some());
+        let Some(constructor)=constructors.next() else{continue};
+        if constructors.next().is_some(){return Err(invalid("symbolic constructor body owner is ambiguous"))}
         let mut reader_owners=e.owners.iter().filter(|o|crate::domain::local_symbolic::same(e,o.occurrence,reader.access));
         let reader_owner=reader_owners.next().ok_or_else(||invalid("symbolic reader owner missing"))?;
         if reader_owners.any(|o|o.entity!=reader_owner.entity){return Err(invalid("symbolic reader owner ambiguous"))}
