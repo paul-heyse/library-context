@@ -51,7 +51,9 @@ impl Data {
         rows.extend(documentary::Data::validation_inputs());
         rows.extend(automatic::Data::inputs());
         rows.extend(super::observations::Data::inputs());
-        rows.extend(super::assertions::ControlData::inputs());
+        rows.extend(super::assertions::ControlData::inputs().into_iter().filter(|input| {
+            profile == Profile::Behavioral || ![flow::FlowTestLeafObservation::NAME, flow::FlowRegionObservation::NAME].contains(&input.name())
+        }));
         rows.extend(super::summary::Data::inputs());
         rows.extend(super::patterns::Data::inputs(profile));
         rows.push(ValidationInput::of::<structural::PublicCandidate>(&["id"]));

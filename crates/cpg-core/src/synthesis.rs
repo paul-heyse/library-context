@@ -61,12 +61,13 @@ pub async fn produce(
     lctx_model::synthesis_documentary_inputs!(read);
     lctx_model::synthesis_automatic_inputs!(read);
     lctx_model::synthesis_observation_inputs!(read);
-    lctx_model::synthesis_control_text_inputs!(read);
+
     lctx_model::synthesis_summary_inputs!(read);
     lctx_model::synthesis_pattern_inputs!(read);
     lctx_model::synthesis_setup_inputs!(read);
     macro_rules! named_read{($($f:ident:$ty:ty,)*)=>{$(if access.stage().inputs.iter().any(|r|r.name()==<$ty>::NAME){read!{$f:$ty,}})*};}
     lctx_model::synthesis_pattern_named_inputs!(named_read);
+    lctx_model::synthesis_control_text_inputs!(named_read);
     read! {public:structural::PublicCandidate,inputs:input::InputRevision,uses:input::ArtifactUse,scopes:source::CoverageScope,coverage:attribution::ProviderCoverage,computations:normalized::coverage::NormalizationComputation,normalized_coverage:normalized::coverage::NormalizationCoverage,}
     drop(session);
     reader.close().await.map_err(ModelError::codec)?;
