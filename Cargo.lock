@@ -1308,6 +1308,7 @@ dependencies = [
  "fs-err",
  "globset",
  "insta",
+ "lctx-analytics",
  "lctx-model",
  "lctx-postgres",
  "mailparse",

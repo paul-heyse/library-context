@@ -29,6 +29,7 @@ pub enum AuthorityReason {
     ObjectToClassUnsupported = 7,
     QualifiedUncertainty = 8,
     AnnotationSyntax = 9,
+    DispatchOpen = 10,
 }
 
 pub struct ScopeCatalog<'a> {
@@ -57,6 +58,7 @@ pub struct Application<'a> {
     pub channel: &'a CallChannel,
     pub receiver: &'a Receiver,
     pub receiver_proof: Option<&'a super::receiver::ApplicableReceiver>,
+    pub dispatch_proof: Option<&'a super::dispatch::ApplicableDispatch>,
     pub signature: &'a Signature,
     pub signature_qualification: &'a AssertionQualification,
     pub call: &'a CallSyntax,
@@ -118,8 +120,10 @@ pub fn establish(
 ) -> Result<ApplicableSignature<'_>, attribution::ObligationKind> {
     use attribution::ObligationKind::MissingEvidence;
     let a = application;
-    let CallDestination::Resolved { symbol } = a.destination else {
-        return Err(attribution::ObligationKind::CallTransfer);
+    let symbol=match a.destination {
+        CallDestination::Resolved{symbol} if a.dispatch_proof.is_none()=>*symbol,
+        CallDestination::Overrides{..}=>a.dispatch_proof.ok_or(attribution::ObligationKind::CallTransfer)?.symbol(),
+        _=>return Err(attribution::ObligationKind::CallTransfer),
     };
     let EntityRef::Callable { callable } = a.entity else {
         return Err(MissingEvidence);
@@ -141,7 +145,7 @@ pub fn establish(
         || a.call_qualification.context != context
         || a.scopes.input(a.signature.scope) != Some(input)
         || a.scopes.input(a.call_qualification.scope) != Some(input)
-        || a.target_resolution.symbol != *symbol
+        || a.target_resolution.symbol != symbol
         || a.signature_resolution.symbol != a.signature.symbol
         || *callable != a.callable.id()
         || a.variant.signature != a.signature.id()
@@ -170,7 +174,7 @@ pub fn establish(
     } else if a.variant.assessment.is_some() {
         return Err(MissingEvidence);
     }
-    if *symbol != a.signature.symbol
+    if symbol != a.signature.symbol
         && (!matches!(a.callable, CallableEntity::Source { .. })
             || [a.target_resolution, a.signature_resolution]
                 .iter()
@@ -178,8 +182,9 @@ pub fn establish(
     {
         return Err(MissingEvidence);
     }
-    if a.receiver_proof.is_some_and(|proof| !proof.matches(a.target,a.call,a.variant,input,context)) { return Err(MissingEvidence); }
-    let reason = authority(&a);
+    if a.dispatch_proof.is_some_and(|proof|!proof.matches(a.target,a.target_resolution,a.entity.id(),context)){return Err(MissingEvidence);}
+    if a.receiver_proof.is_some_and(|proof| !proof.matches(a.target,a.call,a.variant,input,context) && !(a.dispatch_proof.is_some() && proof.matches_operation(a.target,a.call,input,context))) { return Err(MissingEvidence); }
+    let reason = if a.dispatch_proof.is_some() {AuthorityReason::DispatchOpen}else{authority(&a)};
     Ok(ApplicableSignature {
         raw: RawBinding {
             class_of: if a.variant.adjustment == SignatureAdjustment::BindClassReceiver && a.effective.is_some_and(|e|e.identity==Knowledge::Known && e.descriptor==Knowledge::Known && e.descriptor_kind==Some(DescriptorKind::ClassMethod)) && a.target.class_method==Some(true) && a.target.static_method!=Some(true) && a.target.passing==Some(ReceiverPassing::Object) { a.receiver_proof.map(|p|p.actual()) } else {None},

@@ -51,6 +51,11 @@ fn rebuild_events(data: &mut BindingData, budget: &ResourceBudget) {
     macro_rules! event_inputs { ($($field:ident: $ty:ty,)*) => { $(events.visit(<$ty>::NAME, &<$ty as Record>::encode(&data.$field.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap();)* }; }
     lctx_model::normalized_binding_inputs!(event_inputs);
     let events = event_normalization::normalize(&events, budget).unwrap();
+    let mut retained = BindingData::new(budget);
+    let event_relations = event_normalization::EventOutput::validation_inputs();
+    macro_rules! retain_inputs { ($($field:ident: $ty:ty,)*) => { $(if !event_relations.iter().any(|input|input.name()==<$ty>::NAME) { retained.$field.decode(&<$ty as Record>::encode(&data.$field.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap(); })* }; }
+    lctx_model::normalized_binding_inputs!(retain_inputs);
+    *data = retained;
     macro_rules! event_outputs { ($($field:ident: $ty:ty,)*) => { $(data.visit(<$ty>::NAME, &<$ty as Record>::encode(&events.$field.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap();)* }; }
     lctx_model::normalized_event_outputs!(event_outputs);
 }
@@ -97,7 +102,7 @@ async fn native_binding_defaults_refusals_and_source_authority() {
     assert_eq!(a.authority, BindingAuthority::EffectiveInvocation);
     let target = data
         .targets
-        .get(data.event_alternatives.get(a.alternative).unwrap().target)
+        .get(data.event_alternative_sources.get(data.event_alternatives.get(a.alternative).unwrap().source).unwrap().target())
         .unwrap();
     assert_eq!(
         verified.bound(a.id()).unwrap().bound().target(),
@@ -310,6 +315,7 @@ async fn a_bound_source_plus_unknown_variant_or_missing_coverage_never_becomes_u
     for row in retained {
         data.coverage.insert(row).unwrap();
     }
+    rebuild_events(&mut data, &budget);
     let output = normalize(&data, &budget).unwrap();
     let verified = verify(&data, &output, &budget).unwrap();
     for a in output
@@ -473,10 +479,10 @@ async fn class_of_receiver_twins_preserve_raw_unknown_and_target_uncertainty() {
     let (data,output,budget)=fixture().await;
     let find=|name:&str| output.attempts.iter().find(|a|text(&data,a)==name).unwrap();
     let class=find("ReceiverOwner.class_call(1)");let object=find("obj.class_call(1)");
-    let target=data.targets.get(data.event_alternatives.get(object.alternative).unwrap().target).unwrap();
+    let target=data.targets.get(data.event_alternative_sources.get(data.event_alternatives.get(object.alternative).unwrap().source).unwrap().target()).unwrap();
     assert!(matches!(data.receivers.get(target.receiver),Some(Receiver::Unknown{..})),"raw receiver must stay unknown");
     assert_eq!(class.outcome,BindingOutcome::Bound);assert_eq!(class.authority,BindingAuthority::EffectiveInvocation);
-    assert_eq!(object.outcome,BindingOutcome::Undetermined,"open dispatch remains unproved");
+    assert_eq!(object.outcome,BindingOutcome::Bound,"captured named shape binds while dispatch remains open");
     assert_eq!(object.authority,BindingAuthority::SourceInspection);
     assert_eq!(data.qualifications.get(target.qualification).unwrap().modality,attribution::Modality::Candidate);
     let assessment=data.receiver_assessments.iter().find(|a|a.target()==target.id()).unwrap();
@@ -487,7 +493,7 @@ async fn class_of_receiver_twins_preserve_raw_unknown_and_target_uncertainty() {
     assert!(data.event_assessments.iter().any(|a|a.event==object.event && a.known_receivers && !a.exact));
     assert!(!data.event_admissions.iter().any(|a|a.alternative==object.alternative && data.event_policy_assessments.get(a.assessment).unwrap().policy==lctx_model::domain::normalized::events::CallPolicy::Summary));
     let verified=verify(&data,&output,&budget).unwrap();assert!(verified.bound(class.id()).is_some());assert!(verified.composition(object.id()).is_none());
-    assert!(!output.bindings.iter().any(|b|b.attempt==object.id() && b.kind==BindingKind::Receiver));
+    assert!(output.bindings.iter().filter(|b|b.attempt==object.id() && b.kind==BindingKind::Receiver).all(|b|matches!(output.sources.get(b.source),Some(BindingSource::ClassOf{..}))));
 
 }
 
@@ -502,7 +508,7 @@ async fn class_of_replay_refuses_missing_ambiguous_foreign_and_contradictory_pre
     use lctx_model::domain::syntax::SyntaxPlacement;
     let(data,output,budget)=fixture().await;
     let attempt=output.attempts.iter().find(|a|text(&data,a)=="obj.class_call(1)").unwrap();
-    let target=data.targets.get(data.event_alternatives.get(attempt.alternative).unwrap().target).unwrap();
+    let target=data.targets.get(data.event_alternative_sources.get(data.event_alternatives.get(attempt.alternative).unwrap().source).unwrap().target()).unwrap();
     let baseline=receiver_input(&data,&budget);let stored=receiver::normalize(&baseline,&budget).unwrap();
     assert!(receiver::verify(&baseline,&stored,&budget).unwrap().has_class_of(target.id()));
     let assessment=stored.receiver_assessments.iter().find(|a|a.target()==target.id()).unwrap();
@@ -533,4 +539,72 @@ async fn class_of_replay_refuses_missing_ambiguous_foreign_and_contradictory_pre
     for row in stored.receiver_assessments.iter(){let mut row=row.clone();if let ReceiverAssessment::ClassOf{actual,..}=&mut row{*actual=target.site;}forged.receiver_assessments.insert(row).unwrap();}
     assert!(receiver::verify(&baseline,&forged,&budget).is_err());
     let mut forged=receiver::normalize(&baseline,&budget).unwrap();forged.receiver_evidence=Rows::new(&budget);assert!(receiver::verify(&baseline,&forged,&budget).is_err());
+}
+
+#[tokio::test]
+async fn captured_dispatch_diamond_retains_named_and_known_overriders_without_summary() {
+    use lctx_model::domain::normalized::{dispatch::DispatchReason,events::{CallAlternativeSource,CallPolicy}};
+    let (data,output,budget)=fixture().await;
+    let original=output.attempts.iter().find(|a|text(&data,a)=="obj.class_call(1)").unwrap();
+    let assessment=data.dispatch_assessments.iter().find(|a|a.event==original.event).unwrap();
+    assert!(assessment.open);
+    assert_eq!(assessment.reason,DispatchReason::OpenRuntimeSubclasses,"{assessment:?}");
+    let members:Vec<_>=data.dispatch_members.iter().filter(|m|m.assessment==assessment.id()).collect();
+    assert_eq!(members.len(),4,"{members:?}");
+    assert_eq!(members.iter().filter(|m|m.named).count(),1);
+    let alternatives:Vec<_>=data.event_alternatives.iter().filter(|a|a.event==original.event).collect();
+    assert_eq!(alternatives.len(),4);
+    assert_eq!(alternatives.iter().filter(|a|matches!(data.event_alternative_sources.get(a.source),Some(CallAlternativeSource::Native{..}))).count(),1);
+    let verified=verify(&data,&output,&budget).unwrap();
+    for alternative in alternatives {
+        let attempts:Vec<_>=output.attempts.iter().filter(|a|a.alternative==alternative.id()).collect();assert!(!attempts.is_empty());
+        for attempt in attempts {
+            assert_eq!(attempt.outcome,BindingOutcome::Bound,"{attempt:?}");assert_eq!(attempt.authority,BindingAuthority::SourceInspection);
+            assert!(attempt.dispatch_member.is_some());assert!(verified.bound(attempt.id()).is_some());assert!(verified.composition(attempt.id()).is_none());
+            assert!(output.bindings.iter().filter(|b|b.attempt==attempt.id() && b.kind==BindingKind::Receiver).all(|b|matches!(output.sources.get(b.source),Some(BindingSource::ClassOf{..}))));
+        }
+        assert!(!data.event_admissions.iter().any(|a|a.alternative==alternative.id() && data.event_policy_assessments.get(a.assessment).unwrap().policy==CallPolicy::Summary));
+    }
+}
+
+fn event_input(data:&BindingData,budget:&ResourceBudget)->event_normalization::EventData {
+    let mut input=event_normalization::EventData::new(budget);
+    macro_rules! collect {($($field:ident: $ty:ty,)*)=>{$(input.visit(<$ty>::NAME,&<$ty as Record>::encode(&data.$field.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap();)*};}
+    lctx_model::normalized_binding_inputs!(collect);input
+}
+#[tokio::test]
+async fn dispatch_replay_refuses_forged_members_and_retains_incomplete_ancestry_open() {
+    use lctx_model::domain::{symbols::*,normalized::{dispatch::DispatchReason,events::CallAlternativeSource}};
+    let (data,output,budget)=fixture().await;
+    let original=output.attempts.iter().find(|a|text(&data,a)=="obj.class_call(1)").unwrap();
+    let input=event_input(&data,&budget);let stored=event_normalization::normalize(&input,&budget).unwrap();
+    let member=stored.dispatch_members.iter().find(|m|!m.named && input.symbols.get(m.defining_class).unwrap().name=="ReceiverLeft").unwrap();
+    let native_target=stored.dispatch_assessments.get(member.assessment).unwrap().target;
+    for mutation in 0..4 {
+        let mut changed=event_input(&data,&budget);
+        match mutation {
+            0=>{let trait_=changed.traits.iter().find(|t|t.symbol==member.symbol).unwrap().id();changed.trait_supports=Rows::new(&budget);for s in input.trait_supports.iter().filter(|s|s.assertion!=trait_){changed.trait_supports.insert(s.clone()).unwrap();}},
+            1=>{let class=changed.targets.get(native_target).unwrap().receiver_class.unwrap();changed.ancestry=Rows::new(&budget);for a in input.ancestry.iter(){let mut a=a.clone();if a.class==class && a.relation==AncestryRelation::Mro{a.linearization=Some(Linearization::Prefix);}changed.ancestry.insert(a).unwrap();}},
+            2=>{let ancestry=changed.ancestry.iter().find(|a|a.class==member.defining_class && a.relation==AncestryRelation::Mro).unwrap();let omitted=changed.sequence_members.iter().find(|m|m.sequence==ancestry.ancestors).unwrap().id();changed.sequence_members=Rows::new(&budget);for m in input.sequence_members.iter().filter(|m|m.id()!=omitted){changed.sequence_members.insert(m.clone()).unwrap();}},
+            _=>{let trait_=changed.traits.iter().find(|t|t.symbol==member.symbol).unwrap();let mut q=changed.qualifications.get(trait_.qualification).unwrap().clone();q.context=attribution::AnalysisContext{python_version:"3.14.7".into(),python_platform:"foreign".into(),search_path:vec![],site_package_path:vec![],config_digest:ContentHash::of(b"foreign"),environment_digest:ContentHash::of(b"foreign"),lock_digest:None}.id();changed.qualifications.insert(q.clone()).unwrap();changed.traits=Rows::new(&budget);for t in input.traits.iter(){let mut t=t.clone();if t.symbol==member.symbol{t.qualification=q.id();}changed.traits.insert(t).unwrap();}},
+        }
+        assert!(event_normalization::validate(&changed,&stored,&budget).is_err(),"old dispatch cannot survive mutation {mutation}");
+        if let Ok(rebuilt)=event_normalization::normalize(&changed,&budget) {
+            assert!(!rebuilt.dispatch_members.iter().any(|m|m.symbol==member.symbol));
+            assert!(rebuilt.dispatch_assessments.iter().filter(|a|a.event==original.event).all(|a|a.open));
+            assert!(rebuilt.alternatives.iter().any(|a|a.event==original.event && matches!(rebuilt.alternative_sources.get(a.source),Some(CallAlternativeSource::Native{..}))));
+            if mutation==1 {assert!(rebuilt.dispatch_assessments.iter().any(|a|a.event==original.event && a.reason==DispatchReason::IncompleteAncestry));}
+        }
+    }
+    let mut forged=event_normalization::normalize(&input,&budget).unwrap();forged.dispatch_members=Rows::new(&budget);
+    let other=stored.dispatch_members.iter().find(|m|m.entity!=member.entity).unwrap().entity;
+    for row in stored.dispatch_members.iter(){let mut row=row.clone();if row.id()==member.id(){row.entity=other;}forged.dispatch_members.insert(row).unwrap();}
+    assert!(event_normalization::validate(&input,&forged,&budget).is_err());
+    let mut forged=event_normalization::normalize(&input,&budget).unwrap();forged.dispatch_evidence=Rows::new(&budget);assert!(event_normalization::validate(&input,&forged,&budget).is_err());
+    let mut forged_input=BindingData::new(&budget);
+    macro_rules! copy {($($field:ident: $ty:ty,)*)=>{$(forged_input.$field.decode(&<$ty as Record>::encode(&data.$field.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap();)*};}
+    lctx_model::normalized_binding_inputs!(copy);
+    forged_input.dispatch_members=Rows::new(&budget);for row in stored.dispatch_members.iter(){let mut row=row.clone();if row.id()==member.id(){row.entity=other;}forged_input.dispatch_members.insert(row).unwrap();}
+    assert!(normalize(&forged_input,&budget).is_err(),"stored membership cannot mint signature applicability");
+    assert!(verify(&forged_input,&output,&budget).is_err());
 }

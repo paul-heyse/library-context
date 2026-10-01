@@ -280,3 +280,30 @@ async fn known_invocation_edges_retain_whole_event_open_remainder() {
         "wholly outside-policy evidence does not taint invocation availability"
     );
 }
+
+#[tokio::test]
+async fn captured_overrider_adds_a_stored_scc_edge_and_keeps_dispatch_open() {
+    use lctx_model::domain::normalized::events::CallAlternativeSource;
+    let (data,budget)=fixture().await;
+    let member=data.dispatch_members.iter().find(|m|data.symbols.get(m.defining_class).unwrap().name=="DispatchLeft").unwrap();
+    let alternative=data.alternatives.iter().find(|a|matches!(data.alternative_sources.get(a.source),Some(CallAlternativeSource::DerivedDispatch{member:observed,..}) if *observed==member.id())).unwrap();
+    let event=data.events.get(alternative.event).unwrap();let owner=data.owners.get(event.owner).unwrap().entity;
+    assert_ne!(owner,member.entity);
+    let output=normalize(&data,&budget).unwrap();validate(&data,&output,&budget).unwrap();
+    let assessment=output.assessments.iter().find(|a|a.projection==ProjectionName::CallableInvocation).unwrap();
+    assert_eq!(assessment.version,2);assert_eq!(assessment.availability,ProjectionAvailability::Partial);
+    let header=output.snapshots.iter().find(|s|s.assessment==assessment.id()).unwrap();let graph=hydrate(header,assessment,&output.chunks,&budget).unwrap();
+    assert!(graph.arcs().any(|a|a.id==ArcId::Invocation(alternative.id()) && a.source==owner && a.target==member.entity));
+    let schedule=lctx_analytics::native_schedule::invocation_sccs(&graph,&budget).unwrap();let component=schedule.components().iter().find(|ids|ids.contains(&owner)).unwrap();
+    assert!(component.contains(&member.entity),"override member must join the relay SCC: {component:?}");
+    assert!(output.gaps.iter().any(|g|g.subject==ProjectionGapSubject::Alternative{alternative:alternative.id()}.id() && g.reason==ProjectionGapReason::OverrideDispatch));
+    // Native named evidence alone has no reverse edge from the relay to DispatchLeft.
+    let mut native=ProjectionData::new(&budget);
+    macro_rules! copy {($($field:ident: $ty:ty,)*)=>{$(native.$field.decode(&<$ty as Record>::encode(&data.$field.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap();)*};}
+    lctx_model::projection_inputs!(copy);
+    native.alternatives=Rows::new(&budget);for row in data.alternatives.iter().filter(|a|!matches!(data.alternative_sources.get(a.source),Some(CallAlternativeSource::DerivedDispatch{..}))){native.alternatives.insert(row.clone()).unwrap();}
+    native.admissions=Rows::new(&budget);for row in data.admissions.iter().filter(|a|native.alternatives.get(a.alternative).is_some()){native.admissions.insert(row.clone()).unwrap();}
+    let native_output=normalize(&native,&budget).unwrap();let source=native_output.assessments.iter().find(|a|a.projection==ProjectionName::CallableInvocation).unwrap();let header=native_output.snapshots.iter().find(|s|s.assessment==source.id()).unwrap();let graph=hydrate(header,source,&native_output.chunks,&budget).unwrap();
+    let schedule=lctx_analytics::native_schedule::invocation_sccs(&graph,&budget).unwrap();let component=schedule.components().iter().find(|ids|ids.contains(&owner)).unwrap();
+    assert!(!component.contains(&member.entity));
+}

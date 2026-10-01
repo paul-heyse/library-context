@@ -2,6 +2,12 @@
 macro_rules! normalized_event_inputs {
     ($apply:ident) => {
         $apply! {
+            classes: $crate::domain::normalized::entities::ClassEntity,
+            trait_supports: $crate::domain::symbols::FunctionTraitSupport,
+            ancestry: $crate::domain::symbols::ClassAncestryObservation,
+            ancestry_supports: $crate::domain::symbols::ClassAncestrySupport,
+            sequences: $crate::domain::symbols::SymbolSequence,
+            sequence_members: $crate::domain::symbols::SymbolSequenceMember,
 
         occurrences: $crate::domain::source::Occurrence,
         coverage: $crate::domain::attribution::ProviderCoverage,
@@ -66,6 +72,11 @@ macro_rules! normalized_event_inputs {
 macro_rules! normalized_event_outputs {
     ($apply:ident) => {
         $apply! {
+            alternative_sources: $crate::domain::normalized::events::CallAlternativeSource,
+            dispatch_assessments: $crate::domain::normalized::dispatch::DispatchAssessment,
+            dispatch_members: $crate::domain::normalized::dispatch::DispatchMember,
+            dispatch_premises: $crate::domain::normalized::dispatch::DispatchPremise,
+            dispatch_evidence: $crate::domain::normalized::dispatch::DispatchEvidence,
             events: $crate::domain::normalized::events::NormalizedCallEvent,
             sources: $crate::domain::normalized::events::CallEventSource,
             source_evidence: $crate::domain::normalized::events::CallEventSourceEvidence,

@@ -123,7 +123,7 @@ impl Evaluated {
                     .policy
                     == policy
             })
-            .map(|a| self.output.alternatives.get(a.alternative).unwrap().target)
+            .map(|a| self.output.alternative_sources.get(self.output.alternatives.get(a.alternative).unwrap().source).unwrap().target())
             .collect();
         targets.sort();
         targets

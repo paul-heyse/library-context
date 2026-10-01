@@ -83,7 +83,7 @@ pub struct ProjectionSpec {
     name: ProjectionName,
 }
 impl ProjectionSpec {
-    pub const VERSION: i32 = 1;
+    pub const VERSION: i32 = 2;
     pub fn builtin(name: ProjectionName) -> Self {
         Self { name }
     }
@@ -204,6 +204,7 @@ pub enum ProjectionGapReason {
     NoAlternative = 7,
     Builtin = 8,
     EventUncertainty = 9,
+    OverrideDispatch = 10,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name = "projection_source_assessments", invariants = normalization::invariants)]

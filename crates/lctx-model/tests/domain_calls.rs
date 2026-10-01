@@ -1901,6 +1901,7 @@ fn applicability_uses_supported_entities_without_relabeling_provider_symbols() {
             channel: &f.channel,
             receiver: &f.receiver,
             receiver_proof: None,
+        dispatch_proof: None,
             signature: &signature,
             signature_qualification: &q,
             call: &call,

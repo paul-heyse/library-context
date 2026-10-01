@@ -51,6 +51,24 @@ class OpenReceiverOwner:
         return x
 
 
+class ReceiverLeft(ReceiverOwner):
+    @classmethod
+    def class_call(cls, x: int) -> int:
+        return x
+
+
+class ReceiverRight(ReceiverOwner):
+    @classmethod
+    def class_call(cls, x: int) -> int:
+        return x
+
+
+class ReceiverDiamond(ReceiverLeft, ReceiverRight):
+    @classmethod
+    def class_call(cls, x: int) -> int:
+        return x
+
+
 def receiver_twins(obj: ReceiverOwner, open_obj: OpenReceiverOwner) -> None:
     ReceiverOwner.class_call(1)
     obj.class_call(1)

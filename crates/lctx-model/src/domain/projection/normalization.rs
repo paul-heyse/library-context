@@ -493,10 +493,13 @@ fn describe_indexed(
                 )?;
             }
             for row in alternatives {
-                let target = need(&data.targets, row.target)?;
+                let target = need(&data.targets, need(&data.alternative_sources,row.source)?.target())?;
                 let subject = ProjectionGapSubject::Alternative {
                     alternative: row.id(),
                 };
+                if key.name == ProjectionName::CallableInvocation && data.dispatch_assessments.iter().any(|a|a.event==event.id() && a.target==target.id() && a.open) {
+                    out.gap(subject.clone(),ProjectionGapReason::OverrideDispatch)?;
+                }
                 let selected = if key.name == ProjectionName::CallableInvocation {
                     index.invocations.contains(&row.id())
                 } else {

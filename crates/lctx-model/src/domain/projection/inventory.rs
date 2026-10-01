@@ -2,6 +2,11 @@
 macro_rules! projection_inputs {
     ($apply:ident) => {
         $apply! {
+            alternative_sources: $crate::domain::normalized::events::CallAlternativeSource,
+            dispatch_assessments: $crate::domain::normalized::dispatch::DispatchAssessment,
+            dispatch_members: $crate::domain::normalized::dispatch::DispatchMember,
+            dispatch_premises: $crate::domain::normalized::dispatch::DispatchPremise,
+            dispatch_evidence: $crate::domain::normalized::dispatch::DispatchEvidence,
             refs: $crate::domain::normalized::entities::EntityRef,
             callables: $crate::domain::normalized::entities::CallableEntity,
             classes: $crate::domain::normalized::entities::ClassEntity,

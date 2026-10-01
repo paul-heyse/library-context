@@ -30,3 +30,27 @@ def recursive():
 
 def unresolved(callback):
     callback()
+
+
+class DispatchBase:
+    def invoke(self, value):
+        return value
+
+
+class DispatchLeft(DispatchBase):
+    def invoke(self, value):
+        return dispatch_relay(self, value)
+
+
+class DispatchRight(DispatchBase):
+    def invoke(self, value):
+        return value
+
+
+class DispatchDiamond(DispatchLeft, DispatchRight):
+    def invoke(self, value):
+        return value
+
+
+def dispatch_relay(obj: DispatchBase, value):
+    return obj.invoke(value)

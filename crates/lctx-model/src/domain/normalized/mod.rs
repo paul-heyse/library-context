@@ -17,6 +17,7 @@ mod relation_inventory;
 pub mod relation_normalization;
 mod receiver_inventory;
 pub mod receiver;
+pub mod dispatch;
 mod rows;
 pub mod signature_applicability;
 use super::*;
@@ -24,7 +25,7 @@ pub use rows::Rows;
 
 /// Revision of semantic normalization, included in every assessment key and stage declaration.
 pub fn policy_revision() -> ContentHash {
-    ContentHash::of(b"lctx-normalization/phase4/class-of/v2")
+    ContentHash::of(b"lctx-normalization/phase4/dispatch-class-of/v3")
 }
 pub fn relations() -> Vec<Relation> {
     let mut relations = entities::relations();

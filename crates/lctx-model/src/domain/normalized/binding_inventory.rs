@@ -2,6 +2,14 @@
 #[macro_export]
 macro_rules! normalized_binding_inputs {
     ($apply:ident) => { $apply! {
+        trait_supports: $crate::domain::symbols::FunctionTraitSupport,
+        ancestry_supports: $crate::domain::symbols::ClassAncestrySupport,
+        sequences: $crate::domain::symbols::SymbolSequence,
+        event_alternative_sources: $crate::domain::normalized::events::CallAlternativeSource,
+        dispatch_assessments: $crate::domain::normalized::dispatch::DispatchAssessment,
+        dispatch_members: $crate::domain::normalized::dispatch::DispatchMember,
+        dispatch_premises: $crate::domain::normalized::dispatch::DispatchPremise,
+        dispatch_evidence: $crate::domain::normalized::dispatch::DispatchEvidence,
         syntax_supports: $crate::domain::calls::CallSyntaxSupport,
         placement_supports: $crate::domain::syntax::SyntaxPlacementSupport,
         surfaces: $crate::domain::assertion::ProviderSurface,

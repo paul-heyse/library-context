@@ -53,6 +53,14 @@ fn receiver_proofs(data:&BindingData,budget:&ResourceBudget)->Result<super::rece
     crate::normalized_receiver_inputs!(input);crate::normalized_receiver_outputs!(output);
     super::receiver::verify(&inputs,&outputs,budget)
 }
+fn event_proofs(data:&BindingData,budget:&ResourceBudget)->Result<super::event_normalization::VerifiedEvents,ModelError> {
+    let mut inputs=super::event_normalization::EventData::new(budget);let mut outputs=super::event_normalization::EventOutput::new(budget);
+    macro_rules! input {($($field:ident: $ty:ty,)*)=>{$(for row in <BindingData as Source<$ty>>::rows(data).iter(){inputs.$field.insert(row.clone())?;})*};}
+    macro_rules! output {($($field:ident: $ty:ty,)*)=>{$(for row in <BindingData as Source<$ty>>::rows(data).iter(){outputs.$field.insert(row.clone())?;})*};}
+    crate::normalized_event_inputs!(input);crate::normalized_event_outputs!(output);
+    super::event_normalization::verify(&inputs,&outputs,budget)
+}
+fn original_target<'a>(data:&'a BindingData,alternative:&NormalizedCallAlternative)->Result<&'a CallTarget,ModelError> {need(&data.targets,need(&data.event_alternative_sources,alternative.source)?.target())}
 fn invalid(message: impl Into<String>) -> ModelError {
     ModelError::Invalid(message.into())
 }
@@ -148,9 +156,10 @@ fn application<'a>(
     variant: &'a SignatureVariant,
     call: &'a CallSyntax,
     receivers: &'a super::receiver::VerifiedReceivers,
+    events: &'a super::event_normalization::VerifiedEvents,
 ) -> Result<ApplicableSignature<'a>, ObligationKind> {
     let missing = ObligationKind::MissingEvidence;
-    let target = data.targets.get(alternative.target).ok_or(missing)?;
+    let target = original_target(data,alternative).map_err(|_|missing)?;
     let signature = data.signatures.get(variant.signature).ok_or(missing)?;
     let callable = data
         .callables
@@ -166,6 +175,7 @@ fn application<'a>(
         channel: data.channels.get(target.channel).ok_or(missing)?,
         receiver: data.receivers.get(target.receiver).ok_or(missing)?,
         receiver_proof: receivers.get(target.id()),
+        dispatch_proof: events.dispatch(alternative.id()),
         signature,
         signature_qualification: data
             .qualifications
@@ -233,10 +243,11 @@ fn attempt(
     syntax: Option<&CallSyntax>,
     output: &mut BindingOutput,
     receivers: &super::receiver::VerifiedReceivers,
+    events: &super::event_normalization::VerifiedEvents,
     budget: &ResourceBudget,
 ) -> Result<Id<CallBindingAttempt>, ModelError> {
     let mut work = StateCharge::new(budget, "binding-work");
-    let target = need(&data.targets, alternative.target)?;
+    let target = original_target(data,alternative)?;
     let mut row = CallBindingAttempt {
         alternative: alternative.id(),
         variant: variant.map(Record::id),
@@ -247,6 +258,7 @@ fn attempt(
         arguments: syntax.map(|s| s.arguments),
         receiver: target.receiver,
         receiver_assessment: receivers.get(target.id()).map(|p|p.assessment()),
+        dispatch_member: events.dispatch(alternative.id()).map(|p|p.member()),
         effective: variant.and_then(|v| v.assessment),
         adjustment: variant.map_or(SignatureAdjustment::Unknown, |v| v.adjustment),
         authority: BindingAuthority::SourceInspection,
@@ -264,7 +276,7 @@ fn attempt(
             if target.origin != CallOrigin::explicit() {
                 row.reason = BindingReason::ImplicitEvent;
             } else {
-                match application(data, alternative, variant, syntax, receivers) {
+                match application(data, alternative, variant, syntax, receivers, events) {
                     Err(reason) => {
                         row.reason = BindingReason::UnprovedApplicability;
                         row.refusal = Some(reason);
@@ -328,13 +340,14 @@ fn attempt(
 }
 pub fn normalize(data: &BindingData, budget: &ResourceBudget) -> Result<BindingOutput, ModelError> {
     let receivers = receiver_proofs(data,budget)?;
+    let events = event_proofs(data,budget)?;
     let index = Index::new(data, budget)?;
     let mut output = BindingOutput::new(budget);
     let mut charge = StateCharge::new(budget, "binding-set-index");
     let mut sets: ChargedMap<SetKey, Vec<Id<CallBindingAttempt>>> = Default::default();
     for alternative in data.event_alternatives.iter() {
         let event = need(&data.event_events, alternative.event)?;
-        let target = need(&data.targets, alternative.target)?;
+        let target = original_target(data,alternative)?;
         let variants = match alternative.entity.and_then(|id| data.refs.get(id)) {
             Some(EntityRef::Callable { callable }) => {
                 index.variants.get(&(*callable, event.context))
@@ -355,6 +368,7 @@ pub fn normalize(data: &BindingData, budget: &ResourceBudget) -> Result<BindingO
                     syntax.and_then(|ss| ss.get(s).copied()),
                     &mut output,
                     &receivers,
+                    &events,
                     budget,
                 )?;
                 sets.update(&mut charge, key, |ids| ids.push(id))?;
@@ -400,6 +414,7 @@ fn assess_set(
             row.arguments.encode(&mut members);
             row.receiver.encode(&mut members);
             row.receiver_assessment.encode(&mut members);
+            row.dispatch_member.encode(&mut members);
             row.effective.encode(&mut members);
             row.adjustment.encode(&mut members);
             row.reason.encode(&mut members);
@@ -630,7 +645,7 @@ pub fn verify(
             row.syntax
                 .ok_or_else(|| invalid("bound attempt has no syntax"))?,
         )?;
-        let application = application(data, alternative, variant, syntax, &receivers)
+        let application = application(data, alternative, variant, syntax, &receivers, &events)
             .map_err(|_| invalid("stored binding applicability changed"))?;
         let mut work = StateCharge::new(budget, "binding-replay-work");
         let bound = bind_application(data, &index, &application, &mut work)?
@@ -677,7 +692,7 @@ pub fn verify(
         {
             continue;
         }
-        let target = need(&data.targets, alternative.target)?;
+        let target = original_target(data,alternative)?;
         result.composition.insert(
             &mut result._charge,
             row.id(),

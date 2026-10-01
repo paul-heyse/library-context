@@ -178,9 +178,11 @@ impl HeapSize for CompleteEvent {
 }
 pub(super) struct VerifiedEvents {
     complete: ChargedMap<Id<NormalizedCallEvent>, CompleteEvent>,
+    dispatch: ChargedMap<Id<NormalizedCallAlternative>,super::dispatch::ApplicableDispatch>,
     _charge: StateCharge,
 }
 impl VerifiedEvents {
+    pub(super) fn dispatch(&self,alternative:Id<NormalizedCallAlternative>)->Option<&super::dispatch::ApplicableDispatch> {self.dispatch.get(&alternative)}
     pub fn get(&self, event: Id<NormalizedCallEvent>) -> Option<&CompleteEvent> {
         self.complete.get(&event)
     }
@@ -288,6 +290,8 @@ fn alternative(
     event: Id<NormalizedCallEvent>,
     target: &CallTarget,
     resolution: Option<Id<CallResolution>>,
+    alternatives: &mut Rows<NormalizedCallAlternative>,
+    budget: &ResourceBudget,
 ) -> Result<NormalizedCallAlternative, ModelError> {
     let (correspondence, entity, status, reason) =
         correspondence(data, index, need(&data.destinations, target.destination)?)?;
@@ -301,7 +305,7 @@ fn alternative(
     }
     let row = NormalizedCallAlternative {
         event,
-        target: target.id(),
+        source: output.alternative_sources.insert(CallAlternativeSource::Native{target:target.id()})?,
         resolution,
         correspondence,
         entity,
@@ -322,6 +326,12 @@ fn alternative(
                 support: support.id(),
             })?;
     }
+    let dispatch=super::dispatch::assess(data,event,target,output,budget)?;
+    for member in dispatch.members.iter().filter(|m|!m.named) {
+        let derived=NormalizedCallAlternative{event,source:output.alternative_sources.insert(CallAlternativeSource::DerivedDispatch{target:target.id(),member:member.id()})?,resolution,correspondence:Some(member.correspondence),entity:Some(member.entity),status:ResolutionStatus::Resolved,reason:LinkReason::ExplicitIdentity};
+        output.alternatives.insert(derived.clone())?;alternatives.insert(derived.clone())?;
+        for support in supports {output.alternative_evidence.insert(CallAlternativeEvidence{alternative:derived.id(),support:support.id()})?;}
+    }
     Ok(row)
 }
 fn evaluate(
@@ -333,6 +343,7 @@ fn evaluate(
     let mut output = EventOutput::new(budget);
     let mut tokens = VerifiedEvents {
         complete: Default::default(),
+        dispatch: Default::default(),
         _charge: StateCharge::new(budget, "complete-event-tokens"),
     };
     for &(site, origin, ctx) in index.universe.iter() {
@@ -461,6 +472,8 @@ fn evaluate(
                     event,
                     target,
                     Some(resolution.id()),
+                    &mut alternatives,
+                    budget,
                 )?;
                 if direct {
                     certain &= exact(qualification(data, target.qualification)?);
@@ -499,19 +512,26 @@ fn evaluate(
                 orphan = true;
                 complete = false;
             }
-            alternatives.insert(alternative(data, &index, &mut output, event, target, None)?)?;
+            let native=alternative(data, &index, &mut output, event, target, None,&mut alternatives,budget)?;alternatives.insert(native)?;
         }
         for alternative in alternatives.iter() {
+            let source=need(&output.alternative_sources,alternative.source)?;
+            let member=match source {
+                CallAlternativeSource::DerivedDispatch{member,..}=>output.dispatch_members.get(*member),
+                CallAlternativeSource::Native{target}=>output.dispatch_members.iter().find(|m|m.named && output.dispatch_assessments.get(m.assessment).is_some_and(|a|a.event==event && a.target==*target)),
+            };
+            if let Some(member)=member {let assessment=need(&output.dispatch_assessments,member.assessment)?;tokens.dispatch.insert(&mut tokens._charge,alternative.id(),super::dispatch::ApplicableDispatch::from_member(member,assessment,ctx))?;}
             alternative.id().encode(&mut digest);
             for support in index
                 .supports
-                .get(&alternative.target)
+                .get(&need(&output.alternative_sources,alternative.source)?.target())
                 .into_iter()
                 .flatten()
             {
                 support.id().encode(&mut digest);
             }
         }
+        for assessment in output.dispatch_assessments.iter().filter(|a|a.event==event) {assessment.id().encode(&mut digest);assessment.members.encode(&mut digest);}
         complete &= direct_count > 0 && declared_runs.iter().all(|run| resolved_runs.contains(run));
         let disagreement = phases.values().any(|values| values.len() != 1);
         let unique = !phases.is_empty()
@@ -583,7 +603,7 @@ fn evaluate(
         for policy in super::events::CallPolicy::ALL {
             let mut admitted: ChargedSet<Id<NormalizedCallAlternative>> = Default::default();
             for alternative in alternatives.iter() {
-                if admits(policy, data, &index, alternative, tokens.get(event))? {
+                if admits(policy, data, &index, alternative, tokens.get(event),&output)? {
                     admitted.insert(&mut held, alternative.id())?;
                 }
             }
@@ -629,9 +649,10 @@ fn admits(
     index: &Index<'_>,
     alternative: &NormalizedCallAlternative,
     complete: Option<&CompleteEvent>,
+    output: &EventOutput,
 ) -> Result<bool, ModelError> {
     use super::events::CallPolicy as Policy;
-    let target = need(&data.targets, alternative.target)?;
+    let target = need(&data.targets, need(&output.alternative_sources,alternative.source)?.target())?;
     let q = qualification(data, target.qualification)?;
     let destination = need(&data.destinations, target.destination)?;
     let direct = matches!(need(&data.channels, target.channel)?, CallChannel::Direct);

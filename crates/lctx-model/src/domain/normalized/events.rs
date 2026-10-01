@@ -5,7 +5,7 @@ use crate::domain::{
     normalized::{entities::*, links::LinkReason},
     *,
 };
-use crate::{Domain, DomainCode};
+use crate::{Domain, DomainCode, DomainSum};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, DomainCode)]
 #[repr(i16)]
 pub enum PhaseGroup {
@@ -146,13 +146,25 @@ pub struct NormalizedCallAlternative {
     #[model(key)]
     pub event: Id<NormalizedCallEvent>,
     #[model(key)]
-    pub target: Id<CallTarget>,
+    pub source: Id<CallAlternativeSource>,
     #[model(key)]
     pub resolution: Option<Id<CallResolution>>,
     pub correspondence: Option<Id<SymbolEntityResolution>>,
     pub entity: Option<Id<EntityRef>>,
     pub status: ResolutionStatus,
     pub reason: LinkReason,
+}
+/// A derived member retains its original native premise; it never impersonates a raw target.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
+#[model(name = "normalized_call_alternative_sources")]
+pub enum CallAlternativeSource {
+    #[model(code = 0)]
+    Native { target: Id<CallTarget> },
+    #[model(code = 1)]
+    DerivedDispatch { target: Id<CallTarget>, member: Id<super::dispatch::DispatchMember> },
+}
+impl CallAlternativeSource {
+    pub fn target(&self) -> Id<CallTarget> { match self { Self::Native { target } | Self::DerivedDispatch { target, .. } => *target } }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name = "normalized_call_alternative_evidence")]

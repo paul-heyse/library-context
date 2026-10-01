@@ -41,6 +41,7 @@ tokio = { workspace = true, features = ["sync"] }
 blake3.workspace = true
 
 [dev-dependencies]
+lctx-analytics = { path = "../lctx-analytics" }
 # producer_fingerprint includes the same external shared build source.
 blake3.workspace = true
 arrow-array.workspace = true
