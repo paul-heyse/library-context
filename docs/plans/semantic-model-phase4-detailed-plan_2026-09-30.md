@@ -851,7 +851,7 @@ Dormant test migration:
 
 Schema/model/producer/projection revisions change during implementation. Rebuild only project-owned
 generations after inspecting state and quiescing readers; preserve retained services, evaluation
-assets and benchmark captures. No store mutation is part of this design-document task.
+assets and benchmark captures. Actual store controls use disposable PostgreSQL; excluded operator pilots do not become qualification by implication.
 
 ## 12. Verification and acceptance
 
@@ -882,19 +882,17 @@ During production implementation, use the build-environment wrapper with cargo c
 crates and focused release-profile tests. Add real-store cases through the existing disposable
 PostgreSQL harness. Review changed schema snapshots before accepting them.
 
-After all functional packages and retirement are complete, run the repository's integrated
-functional acceptance and required checks under its then-current command/after-turn ownership.
+After all functional packages and retirement are complete, run `just test-all` and `just hygiene` once on the assembled tree under the current AGENTS/ADR-0110 rules.
 Do not run formats/lints/full gates after each package. Fix failed checks and report composite
 receipts honestly. The assembled design review evaluates source and exercised contracts;
 documentation link success is not semantic acceptance.
 
-For **this design-document task**, documentation publication and ADR metadata/index checks belong
-to the automatic end-of-turn hook under the current repository instructions; do not run or inspect
-those checks manually. Record only receipts actually available, without anticipating hook success.
-No production code gate, actual FastMCP compile, embedding campaign, store reset, full-library output
-comparison or benchmark is required. The user-stopped Phase 3 pilot/RSS/hydration measurements remain
-not_run until explicitly reactivated. Future Phase 4 real-library smoke/measurements must be separately
-identified in qualification; their omission cannot support a performance or product-quality claim.
+The operator authorized implementation of D0–Q0 on 2026-09-30 and resumed the remaining scope
+on 2026-10-01. Scope-end hygiene includes documentation publication and the named policy/lint checks;
+the automatic hook owns formatting and generators only. Keep focused functional, complete gate and
+measurement receipts distinct. Live embedding, actual FastMCP upper-frontier pilots, full-library
+comparisons and performance/hydration/total-RSS campaigns remain not_run unless separately activated.
+Their omission cannot support a performance or product-quality claim. Phase 5 serving/PR6 remain open.
 
 ### 12.3 Phase 4 exit
 
