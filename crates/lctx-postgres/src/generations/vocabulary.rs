@@ -292,10 +292,19 @@ impl GenerationStore {
         {
             for field in relation.fields() {
                 if let Some((_, target)) = field.target() {
-                    if !available.contains(target) {
-                        return Err(Error::Contract);
-                    }
                     let source = physical(relation.name(), group.prefix());
+                    if !available.contains(target) {
+                        // An inactive nullable sum arm is not a reference to future evidence.
+                        // Refuse every actual reference before consulting an unavailable target.
+                        let references:bool=sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+                            "SELECT EXISTS(SELECT 1 FROM {} WHERE {} IS NOT NULL)",
+                            qualified(g,&source),quoted(field.name())
+                        ))).fetch_one(&mut *tx).await?;
+                        if references {return Err(Error::Model(lctx_model::domain::ModelError::Invalid(format!(
+                            "publication {}.{} references unavailable {}",relation.name(),field.name(),target
+                        ))));}
+                        continue;
+                    }
                     let target_relation = self
                         .model
                         .relations()

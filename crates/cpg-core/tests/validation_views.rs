@@ -40,3 +40,22 @@ async fn real_publication_and_final_replay_route_facts_and_current_views_indepen
     let mut output=StageOutput::new(access,&attempt,&model,budget.clone(),Default::default()).unwrap();output.declare::<ReadProbe>().unwrap();output.push(ReadProbe {marker:true}).await.unwrap();output.finish(ProviderOutcome::Complete).await.unwrap();
     let generation=attempt.seal(execution.finish().unwrap()).await.unwrap().validate().await.unwrap();generation.abort().await.unwrap();assert_eq!(budget.reserved(),0);
 }
+
+#[derive(Debug,Clone,PartialEq,Eq,lctx_model::Domain)]
+#[model(name="validation_optional_probes",semantic_source=include_bytes!("validation_views.rs"))]
+struct OptionalProbe {#[model(key)] marker:bool,target:Option<Id<ReadProbe>>}
+#[tokio::test]
+async fn inactive_nullable_target_is_allowed_but_a_physical_future_target_is_not_authority() {
+    for actual_reference in [false,true] {
+        let model=Arc::new(ValidatedModel::validate(vec![Relation::of::<Literal>(),Relation::of::<OptionalProbe>(),Relation::of::<ReadProbe>()]).unwrap());
+        let schedule=Schedule::build_with_publications(&model,vec![stage("first",vec![],vec![RelationUse::of::<Literal>(),RelationUse::of::<OptionalProbe>()]),stage("future",vec![],vec![RelationUse::of::<ReadProbe>()])],&[],Profile::Catalog,vec![PublicationGroup::new(PublicationBoundary::Facts,vec!["first"]),PublicationGroup::new(PublicationBoundary::Dispatch,vec!["future"])]).unwrap();
+        let db=DisposableDatabase::start().await;let store=GenerationStore::install(db.owner.clone(),model.clone()).await.unwrap();let runtime=AttemptRuntime::new(RuntimeOptions {memory_bytes:1<<24,partitions:1}).unwrap();let budget=runtime.budget();let mut execution=schedule.execute();let attempt=store.begin_conformance(db.writer.clone(),&mut execution,budget.clone()).await.unwrap();
+        let g=attempt.generation();let target=ReadProbe {marker:true};
+        // An operator-injected future row satisfies the physical FK, but has no completed receipt.
+        sqlx::query(sqlx::AssertSqlSafe(format!("INSERT INTO {}.{}(generation_id,id,marker) VALUES(decode($1,'hex'),$2,true)",g.schema(),ReadProbe::NAME))).bind(g.hex()).bind(target.id().bytes().to_vec()).execute(&db.superuser).await.unwrap();
+        let mut output=StageOutput::new(execution.begin("first").unwrap(),&attempt,&model,budget.clone(),Default::default()).unwrap();output.declare::<Literal>().unwrap();output.declare::<OptionalProbe>().unwrap();output.push(Literal::None).await.unwrap();output.push(OptionalProbe {marker:true,target:actual_reference.then(||target.id())}).await.unwrap();
+        let result=output.finish(ProviderOutcome::Complete).await;
+        if actual_reference {assert!(result.is_err(),"a future ordinary row cannot satisfy an acknowledged group reference");} else {result.unwrap();}
+        attempt.abort().await.unwrap();assert_eq!(budget.reserved(),0);
+    }
+}
