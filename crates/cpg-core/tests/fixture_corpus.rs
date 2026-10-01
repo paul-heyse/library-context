@@ -10,6 +10,7 @@ use std::{collections::BTreeSet, path::Path, sync::Arc};
 const CASES: &[&str] = &[
     "dictionary_keys",
     "direct_usage",
+    "execution_channels",
     "string_values",
     "_invalid",
     "action_shapes",

@@ -1,5 +1,12 @@
 //! Exact outcomes of the retained, bounded Python execution rules.
 use crate::DomainCode;
+pub mod outcome;
+pub mod evaluation;
+pub mod completion;
+pub mod records;
+pub mod completion_records;
+
+pub fn relations()->Vec<crate::domain::Relation> {let mut relations=records::relations();relations.extend(completion_records::relations());relations}
 
 /// Adding an exact runtime exception also declares its required native hierarchy evidence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, DomainCode)]

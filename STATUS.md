@@ -24,7 +24,8 @@ _Updated 2026-10-01 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
   graph reuse, permit/budget refusal and lifetime controls passed. E1 spec/codec/cache/realization
   foundation controls passed, including real PG configuration; no live embedding claim.
   B0 entry/transfer prerequisites passed model, native and real PG controls; Local production
-  remains in progress (plan §13.2 receipts).
+  remains in progress (plan §13.2 receipts). B1 base evaluation/completion records passed 5 native
+  and 12 model controls; source-call evidence and actual producers remain pending.
 - **passed, 2026-10-01:** R0 declared validation-view controls in memory and real PostgreSQL:
   earlier/current vocabulary routing, no widening beyond acknowledged grants, malformed-frame
   refusal and reservation release. B0 exposed and motivated the fix; its Summary publication

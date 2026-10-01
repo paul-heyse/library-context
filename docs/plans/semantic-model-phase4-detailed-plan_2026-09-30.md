@@ -1007,6 +1007,7 @@ rule and cross-consumer vector-winner invariant were also clarified during assem
 
 | Task receipt | Outcome, 2026-09-30 |
 |---|---|
+| B1 integrated base evaluation/completion records | passed, 2026-10-01: `python3 scripts/build_environment.py -- cargo test -p lctx-model -p cpg-extract --release --test execution_channels --test execution_outcomes --test domain_analysis_owners` (5 native + 3 outcome + 9 ownership controls), `/tmp/phase4-b1-integrated-tests.log`. Frozen `96eef881` integrated with current C1/E1/C2 contracts. Opaque exact expression and ordered completion proofs retain native/entry premises, pending return/raise/finalizer behavior and allocation ownership; replay refuses value/status/disposal/order and coupled membership forgeries. Configured parameter/semantic-version binding, source-call/default/body/frame-release evidence, actual producers and scheduled publication remain pending; this is no B1 exit. |
 | Independent document/source target review | Accept scoped; review above records evidence, exclusions and required future controls |
 | R0 model publication controls | passed: wrapped `cargo test -p lctx-model --release --test vocabulary_epochs --quiet` (4); profile-filtered writers, per-epoch uniqueness and inherited-prefix receipts |
 | R0 PostgreSQL publication controls | passed: wrapped `cargo test -p lctx-postgres --features testing --release --test vocabulary_epochs --quiet` (9); immutable views/grants, mixed/future-prefix refusal, atomic rollback, cancellation, unconfirmed acknowledgement and frozen-content controls |

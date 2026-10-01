@@ -229,6 +229,7 @@ pub fn analysis_relations() -> Vec<Relation> {
     relations.extend(analysis::relations());
     relations.extend(catalog::relations());
     relations.extend(embedding::relations());
+    relations.extend(execution::relations());
     relations
 }
 /// The relations a facts generation publishes: inputs, attribution and coverage, provider
