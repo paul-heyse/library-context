@@ -39,6 +39,8 @@ pub struct LocalContribution {
  #[model(key,premise)] pub value:Id<FlowValueObservation>,
  #[model(key,premise)] pub support:Id<FlowValueSupport>,
  #[model(key,premise)] pub entry:Id<EntryValueWitness>,
+ #[model(key,premise)] pub definition:Option<Id<FlowDefinitionObservation>>,
+ #[model(key,premise)] pub definition_support:Option<Id<FlowDefinitionSupport>>,
  #[model(key)] pub transfer:Id<TransferKey>,
  #[model(key)] pub qualification:Id<AssertionQualification>,
  status:EvidenceStatus,
@@ -79,11 +81,23 @@ impl LocalContribution {
  let formal=ParameterEntity::Source{declaration:*declaration};
  let request=EntryRequest{owner:owner.entity,formal:formal.id(),access:use_.occurrence,context:run.context,run:run.id()};
  let root=match value.kind {FlowSinkKind::Return=>PlaceRoot::Return{callable:*callee},FlowSinkKind::Yield=>PlaceRoot::Yield{callable:*callee},FlowSinkKind::Raise=>PlaceRoot::Raise{callable:*callee},FlowSinkKind::Argument=>PlaceRoot::Occurrence{occurrence:value.sink},FlowSinkKind::Definition=>{
- let mut rows=data.entry.definitions.iter().filter(|d|d.occurrence==value.sink);let row=rows.next().ok_or(ObligationKind::MissingEvidence)?;if rows.next().is_some(){return Err(ObligationKind::MissingEvidence);}let output=need(&data.entry.places,row.place)?;let root=need(&data.entry.roots,output.root)?;if matches!(root,PlaceRoot::Field{..}|PlaceRoot::Global{..}){return Err(ObligationKind::CapturedStateUnavailable);}return Ok((request,q.clone(),root.clone(),Some(output.clone())));
+ let mut selected=None;
+ for observation in data.entry.definition_observations.iter().filter(|d|d.value==Some(value.sink)) {
+  if !matches!(observation.kind,crate::domain::lexical::BindingEventKind::Assignment|crate::domain::lexical::BindingEventKind::Walrus){continue}
+  let dq=need(&data.entry.qualifications,observation.qualification)?;if (dq.context,dq.scope,dq.modality,dq.approximation,dq.condition)!=(q.context,q.scope,Modality::Definite,Approximation::Exact,Diagram::always().id()){continue}
+  let row=need(&data.entry.definitions,observation.definition)?;let target=need(&data.entry.occurrences,row.occurrence)?;let rhs=need(&data.entry.occurrences,value.sink)?;
+  if target.source!=rhs.source||!data.entry.owners.iter().any(|o|o.occurrence==target.id()&&o.entity==owner.entity){continue}
+  if !data.entry.use_observations.iter().any(|u|u.use_==use_.id()&&u.scope==observation.scope&&data.entry.qualifications.get(u.qualification).is_some_and(|uq|uq.context==q.context)){continue}
+  for ds in data.entry.definition_supports.iter().filter(|s|s.assertion==observation.id()&&s.attribution().is_some_and(|a|a.run==run.id())) {
+   let premise=NativeAssertionPremise::Definition{assertion:observation.id(),support:ds.id()};let Some(native)=data.native.iter().find(|n|n.premise==premise.id()&&n.qualification==dq.id()&&n.family==FactFamily::Flow&&n.fidelity==Fidelity::NativeStructural)else{continue};
+   if selected.is_some(){return Err(ObligationKind::MissingEvidence)}selected=Some((row,observation.id(),ds.id(),native.status));
+  }
+ }
+ let(row,definition,definition_support,status)=selected.ok_or(ObligationKind::MissingEvidence)?;let output=need(&data.entry.places,row.place)?;let root=need(&data.entry.roots,output.root)?;if matches!(root,PlaceRoot::Field{..}|PlaceRoot::Global{..}){return Err(ObligationKind::CapturedStateUnavailable);}return Ok((request,q.clone(),root.clone(),Some(output.clone()),Some((definition,definition_support,status))));
  }};
- Ok((request,q.clone(),root,None))
+ Ok((request,q.clone(),root,None,None))
  })();
- let (request,mut q,root,existing)=match setup {Ok(rows)=>rows,Err(reason)=>return Ok(Err(reason))};
+ let (request,mut q,root,existing,definition)=match setup {Ok(rows)=>rows,Err(reason)=>return Ok(Err(reason))};
  let source=match EntryAccessSource::value(&data.entry,request,value.id(),support.id()){Ok(source)=>source,Err(reason)=>return Ok(Err(reason))};let entry=match EntryValueWitness::derive_for(&data.entry,request,&source,budget)? {Ok(proof)=>proof,Err(reason)=>return Ok(Err(reason))};
  let premise=NativeAssertionPremise::Value {assertion:value.id(),support:support.id()};
  let Some(native)=data.native.iter().find(|row|row.premise==premise.id()&&row.qualification==q.id()&&row.family==FactFamily::Flow&&row.fidelity==Fidelity::NativeStructural) else{return Ok(Err(ObligationKind::MissingEvidence));};
@@ -92,7 +106,7 @@ impl LocalContribution {
  q=entry.qualification().clone();let _clone_allowance=budget.reserve("local_entry_condition_clone",entry.condition().allocation_allowance())?;let condition=entry.condition().clone();
  let output=existing.unwrap_or(Place{root:root.id(),path:AccessPath::empty().id()});
  let key=TransferKey::from_descriptor(TransferDescriptor {owner:request.owner,input:entry.place().id(),output:output.id(),context:q.context,scope:q.scope,modality:q.modality,approximation:q.approximation,kind:value.transfer,call_site:None,provenance:ProvenanceClass::FlowLocal});
- let contribution=LocalContribution{invocation:invocation.id(),value:value.id(),support:support.id(),entry:entry.witness().id(),transfer:key.id(),qualification:q.id(),status:analysis::policy::derive_status(&[(analysis::policy::SupportRole::Support,native.status),(analysis::policy::SupportRole::Support,region_native.status),(analysis::policy::SupportRole::Support,entry.evidence_status())])};
+ let contribution=LocalContribution{invocation:invocation.id(),value:value.id(),support:support.id(),entry:entry.witness().id(),definition:definition.map(|d|d.0),definition_support:definition.map(|d|d.1),transfer:key.id(),qualification:q.id(),status:analysis::policy::derive_status(&[(analysis::policy::SupportRole::Support,native.status),(analysis::policy::SupportRole::Support,region_native.status),(analysis::policy::SupportRole::Support,entry.evidence_status()),(analysis::policy::SupportRole::Support,definition.map_or(native.status,|d|d.2))])};
  Ok(Ok(LocalEmission{contribution,entry,branch:TransferBranch::new(key,q,condition,budget)?,output_root:root,output_place:output}))
  }
 }

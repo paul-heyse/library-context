@@ -167,3 +167,14 @@ def open_mixed(value: Diamond | Unrelated):
     if isinstance(value, Root):
         return value
     return None
+
+
+def alias_assignment(value):
+    alias = value
+    return alias
+
+
+def rebound_assignment(value):
+    value = 1
+    alias = value
+    return alias
