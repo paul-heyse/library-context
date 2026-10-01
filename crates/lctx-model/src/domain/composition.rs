@@ -840,6 +840,7 @@ pub(crate) fn composition_invariants() -> Vec<Invariant> {
             ValidationInput::of::<super::transfer::summary::TransferAlternative>(&["id"]),
             ValidationInput::of::<SummaryPremise>(&["id"]),
             ValidationInput::of::<SummaryWitness>(&["id"]),
+            ValidationInput::of::<super::execution::summary_path::SummaryPathWitness>(&["id"]),
             ValidationInput::of::<SummaryContribution>(&["id"]),
             ValidationInput::of::<super::transfer::local::TransferSupport>(&["id"]),
             ValidationInput::of::<super::transfer::model::TransferSupport>(&["id"]),
@@ -878,6 +879,7 @@ struct CompositionCheck {
     alternatives:ChargedMap<RowRef,(RowRef,Id<AssertionQualification>)>,
     premises:ChargedMap<Id<SummaryPremise>,SummaryPremise>,
     witnesses:ChargedMap<Id<SummaryWitness>,SummaryWitness>,
+    path_witnesses:ChargedMap<Id<super::execution::summary_path::SummaryPathWitness>,super::execution::summary_path::SummaryPathWitness>,
     contributions:super::charged::ChargedVec<SummaryContribution>,
     binding_data:BindingData,
     binding_output:BindingOutput,
@@ -893,11 +895,12 @@ struct CompositionCheck {
     ownership:super::ownership::ScopeIndex,
 }
 impl CompositionCheck {
- fn new(budget:&ResourceBudget)->Self {Self {charge:StateCharge::new(budget,"call_composition_frames"),qualifications:Default::default(),predicates:Default::default(),restatements:Default::default(),nodes:Default::default(),conditions:Default::default(),roots:Default::default(),paths:Default::default(),segments:Default::default(),literals:Default::default(),places:Default::default(),syntax:Default::default(),actuals:Default::default(),receivers:Default::default(),destinations:Default::default(),targets:Default::default(),signatures:Default::default(),declarations:Default::default(),keys:Default::default(),alternatives:Default::default(),premises:Default::default(),witnesses:Default::default(),contributions:Default::default(),binding_data:BindingData::new(budget),binding_output:BindingOutput::new(budget),budget:budget.clone(),local_evidence:super::analysis::local::support::EvidenceIndex::new(budget),local_frames:<super::analysis::local::SupportSource as assertion::DerivedSupportSource>::index(budget),model_frames:<super::analysis::model::SupportSource as assertion::DerivedSupportSource>::index(budget),model_evidence:super::analysis::model::support::EvidenceIndex::new(budget),local_supports:Default::default(),model_supports:Default::default(),invocations:Default::default(),definitions:Default::default(),ownership:super::ownership::ScopeIndex::new(budget,"summary_witness_scope")}}
+ fn new(budget:&ResourceBudget)->Self {Self {charge:StateCharge::new(budget,"call_composition_frames"),qualifications:Default::default(),predicates:Default::default(),restatements:Default::default(),nodes:Default::default(),conditions:Default::default(),roots:Default::default(),paths:Default::default(),segments:Default::default(),literals:Default::default(),places:Default::default(),syntax:Default::default(),actuals:Default::default(),receivers:Default::default(),destinations:Default::default(),targets:Default::default(),signatures:Default::default(),declarations:Default::default(),keys:Default::default(),alternatives:Default::default(),premises:Default::default(),witnesses:Default::default(),path_witnesses:Default::default(),contributions:Default::default(),binding_data:BindingData::new(budget),binding_output:BindingOutput::new(budget),budget:budget.clone(),local_evidence:super::analysis::local::support::EvidenceIndex::new(budget),local_frames:<super::analysis::local::SupportSource as assertion::DerivedSupportSource>::index(budget),model_frames:<super::analysis::model::SupportSource as assertion::DerivedSupportSource>::index(budget),model_evidence:super::analysis::model::support::EvidenceIndex::new(budget),local_supports:Default::default(),model_supports:Default::default(),invocations:Default::default(),definitions:Default::default(),ownership:super::ownership::ScopeIndex::new(budget,"summary_witness_scope")}}
  fn premise_facts(&self,id:Id<SummaryPremise>,invocation:&super::analysis::summary::AnalysisInvocation)->Result<Vec<super::analysis::support::SourceFacts>,ModelError> {
  match Self::get(&self.premises,&id,"summary premise absent")? {
  SummaryPremise::Local {alternative}=>Self::get(&self.local_supports,alternative,"summary local premise has no support")?.iter().map(|source|{let frame=self.local_frames.frame(*source)?;if frame.input!=invocation.input || frame.context!=invocation.context {return Err(invalid("summary local premise crosses invocation input/context"));}self.local_evidence.get(*source).map(|(_,facts)|facts)}).collect(),
  SummaryPremise::Model {alternative}=>Self::get(&self.model_supports,alternative,"summary model premise has no support")?.iter().map(|source|{let frame=self.model_frames.frame(*source)?;if frame.input!=invocation.input || frame.context!=invocation.context {return Err(invalid("summary model premise crosses invocation input/context"));}self.model_evidence.get(*source).map(|(_,facts)|facts)}).collect(),
+ SummaryPremise::Path {witness}=>{let row=Self::get(&self.path_witnesses,witness,"earlier summary path witness absent")?;let previous=Self::get(&self.invocations,&row.invocation,"earlier summary invocation absent")?;if (previous.input,previous.context)!=(invocation.input,invocation.context){return Err(invalid("summary path premise crosses invocation frame"));}Ok(vec![super::analysis::support::DerivedEvidence::source_facts(row)])},
  SummaryPremise::Witness {witness}=>{let row=Self::get(&self.witnesses,witness,"earlier summary witness absent")?;let previous=Self::get(&self.invocations,&row.invocation,"earlier summary invocation absent")?;if (previous.input,previous.context)!=(invocation.input,invocation.context) {return Err(invalid("earlier summary witness crosses invocation input/context"));}Ok(vec![super::analysis::support::DerivedEvidence::source_facts(row)])},
  }
  }
@@ -905,6 +908,7 @@ impl CompositionCheck {
  fn premise(&self,id:Id<SummaryPremise>)->Result<(&TransferDescriptor,&AssertionQualification),ModelError> {
  let source=Self::get(&self.premises,&id,"summary premise absent")?;
  if let SummaryPremise::Witness {witness}=source {return self.witness_frame(Self::get(&self.witnesses,witness,"earlier summary witness absent")?);}
+ if let SummaryPremise::Path {witness}=source {let row=Self::get(&self.path_witnesses,witness,"earlier path proof absent")?;return Ok((Self::get(&self.keys,&RowRef::of(row.transfer),"path proof transfer absent")?,Self::get(&self.qualifications,&row.qualification,"path proof qualification absent")?));}
  self.alternative(source.reference())
  }
 
@@ -1251,6 +1255,7 @@ impl InvariantCheck for CompositionCheck {
         else if relation==super::analysis::AnalysisDefinition::NAME {for row in super::analysis::AnalysisDefinition::decode(batch)? {self.definitions.insert(c,row.id(),row)?;}}
         else if relation==SummaryPremise::NAME {for row in SummaryPremise::decode(batch)? {self.premises.insert(c,row.id(),row)?;}}
         else if relation==SummaryWitness::NAME {for row in SummaryWitness::decode(batch)? {self.witnesses.insert(c,row.id(),row)?;}}
+        else if relation==super::execution::summary_path::SummaryPathWitness::NAME {for row in super::execution::summary_path::SummaryPathWitness::decode(batch)? {self.path_witnesses.insert(c,row.id(),row)?;}}
         else if relation==SummaryContribution::NAME {for row in SummaryContribution::decode(batch)? {self.contributions.push(c,row)?;}}
         else if !accepted {return Err(invalid("undeclared composition validation input"));}
         Ok(())
@@ -1259,7 +1264,32 @@ impl InvariantCheck for CompositionCheck {
         if self.witnesses.is_empty() && self.contributions.is_empty() {return Ok(());}
         let verified=super::normalized::binding_normalization::verify(&self.binding_data,&self.binding_output,&self.budget)?;
         for row in self.witnesses.values() {self.step(row,&verified)?;}
-        for row in self.contributions.iter() {let witness=Self::get(&self.witnesses,&row.witness,"summary contribution witness absent")?;let (key,q)=self.alternative(RowRef::of(row.alternative))?;let (wk,wq)=self.witness_frame(witness)?;if key!=wk || q!=wq {return Err(invalid("summary contribution does not preserve its witness qualification"));}}
+        for row in self.contributions.iter() {let witness=Self::get(&self.witnesses,&row.witness,"summary contribution witness absent")?;let (key,q)=self.alternative(RowRef::of(row.alternative))?;let (wk,wq)=self.witness_frame(witness)?;if key != wk {
+                return Err(invalid("summary contribution changes its witness transfer"));
+            }
+            key.check(q)?;
+            wk.check(wq)?;
+            // A finite member contributes to an OR aggregate; its condition need not equal
+            // that aggregate. The shared derivation validator and whole Summary replay
+            // separately check the exact union and its complete witness membership.
+            let _condition_memory = self.budget.reserve(
+                "summary-contribution-condition",
+                self.nodes.len().saturating_mul(192).saturating_add(4096),
+            )?;
+            let member = self.diagram(wq.condition)?;
+            let aggregate = self.diagram(q.condition)?;
+            let union = member.admitted_binary(
+                &aggregate,
+                super::conditions::kernel::BooleanOperation::Disjunction,
+                &self.budget,
+            ).map_err(|error| match error {
+                super::conditions::DiagramAdmissionError::Resource(error) => error,
+                super::conditions::DiagramAdmissionError::Boundary(reason) =>
+                    invalid(&format!("summary contribution implication boundary: {reason:?}")),
+            })?;
+            if union.id() != aggregate.id() {
+                return Err(invalid("summary contribution condition is outside its aggregate"));
+            }}
         Ok(())
     }
 }

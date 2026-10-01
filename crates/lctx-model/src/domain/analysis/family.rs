@@ -1,7 +1,9 @@
 //! One canonical record/validator template, instantiated for finite publication owners.
 //! The predecessor list is static schema, never a producer-selected publication tag.
 macro_rules! analysis_family {
-    ($owner:ident,$prefix:literal,[$($variant:ident:$code:literal=>$predecessor:ident),* $(,)?],[$($transfer:ty)? $(;$transfer_variant:ident:$transfer_code:literal=>$transfer_type:ty)*],[$($normalized:ty)?],[$($proof_variant:ident:$proof_code:literal=>$proof_type:ty),* $(,)?]) => {
+    ($owner:ident,$prefix:literal,[$($variant:ident:$code:literal=>$predecessor:ident),* $(,)?],[$($transfer:ty)? $(;$transfer_variant:ident:$transfer_code:literal=>$transfer_type:ty)*],[$($normalized:ty)?],[$($proof_variant:ident:$proof_code:literal=>$proof_type:ty),* $(,)?]) => { analysis_family!(@impl $owner,$prefix,[$($variant:$code=>$predecessor),*],[$($transfer)? $(;$transfer_variant:$transfer_code=>$transfer_type)*],[$($normalized)?],[$($proof_variant:$proof_code=>$proof_type),*],[$($variant:$code=>$predecessor),*],[$($variant:$code=>$predecessor),*]); };
+    ($owner:ident,$prefix:literal,[$($variant:ident:$code:literal=>$predecessor:ident),* $(,)?],[$($transfer:ty)? $(;$transfer_variant:ident:$transfer_code:literal=>$transfer_type:ty)*],[$($normalized:ty)?],[$($proof_variant:ident:$proof_code:literal=>$proof_type:ty),* $(,)?],support[$($support_variant:ident:$support_code:literal=>$support_predecessor:ident),* $(,)?],obligations[$($obligation_variant:ident:$obligation_code:literal=>$obligation_predecessor:ident),* $(,)?]) => { analysis_family!(@impl $owner,$prefix,[$($variant:$code=>$predecessor),*],[$($transfer)? $(;$transfer_variant:$transfer_code=>$transfer_type)*],[$($normalized)?],[$($proof_variant:$proof_code=>$proof_type),*],[$($support_variant:$support_code=>$support_predecessor),*],[$($obligation_variant:$obligation_code=>$obligation_predecessor),*]); };
+        (@impl $owner:ident,$prefix:literal,[$($variant:ident:$code:literal=>$predecessor:ident),* $(,)?],[$($transfer:ty)? $(;$transfer_variant:ident:$transfer_code:literal=>$transfer_type:ty)*],[$($normalized:ty)?],[$($proof_variant:ident:$proof_code:literal=>$proof_type:ty),* $(,)?],[$($support_variant:ident:$support_code:literal=>$support_predecessor:ident),* $(,)?],[$($obligation_variant:ident:$obligation_code:literal=>$obligation_predecessor:ident),* $(,)?]) => {
         pub mod $owner {
             use super::{invalid,AnalysisDefinition,ProjectionDefinition,AnalysisMethod,AnalysisStatus,AnalysisCapability,AnalysisChannel,Interpretation};
             use crate::domain::{*,assertion::AssertionQualification,attribution::{AnalysisContext,ProviderCoverage,CoverageStatus},source::{CoverageScope,Occurrence},input::InputRevision,normalized::{entities::EntityRef,coverage::{EvidenceAvailability,NormalizationCoverage}},calls::CallPhase,obligation::ObligationKind};
@@ -23,11 +25,11 @@ macro_rules! analysis_family {
             pub enum SupportSource {
                 #[model(code=0)] NativeAssertion {#[model(premise)] premise:Id<super::native::NativeAssertionPremise>},
                 #[model(code=1)] AnalysisDerivation {#[model(premise)] derivation:Id<AnalysisDerivation>},
-                $(#[model(code=$code)] $variant {#[model(premise)] derivation:Id<super::$predecessor::AnalysisDerivation>},)*
+                $(#[model(code=$support_code)] $support_variant {#[model(premise)] derivation:Id<super::$support_predecessor::AnalysisDerivation>},)*
                 $(#[model(code=$proof_code)] $proof_variant {#[model(premise)] witness:Id<$proof_type>},)*
             }
             impl SupportSource {
-                pub fn reference(&self)->derivation::RowRef {match self {Self::NativeAssertion {premise}=>derivation::RowRef::of(*premise),Self::AnalysisDerivation {derivation}=>derivation::RowRef::of(*derivation),$(Self::$variant {derivation}=>derivation::RowRef::of(*derivation),)*$(Self::$proof_variant {witness}=>derivation::RowRef::of(*witness),)*}}
+                pub fn reference(&self)->derivation::RowRef {match self {Self::NativeAssertion {premise}=>derivation::RowRef::of(*premise),Self::AnalysisDerivation {derivation}=>derivation::RowRef::of(*derivation),$(Self::$support_variant {derivation}=>derivation::RowRef::of(*derivation),)*$(Self::$proof_variant {witness}=>derivation::RowRef::of(*witness),)*}}
             }
             #[derive(Debug,Clone,PartialEq,Eq,Hash,DomainSum)]
             #[model(name=owner_table!("coverage_sources"),rule="analysis_coverage_source")]
@@ -69,15 +71,15 @@ macro_rules! analysis_family {
             #[model(name=owner_table!("obligation_sources"),rule="analysis_obligation_source")]
             pub enum ObligationSource {
                 #[model(code=0)] Current {#[model(premise)] obligation:Id<AnalysisObligation>},
-                $(#[model(code=$code)] $variant {#[model(premise)] obligation:Id<super::$predecessor::AnalysisObligation>},)*
+                $(#[model(code=$obligation_code)] $obligation_variant {#[model(premise)] obligation:Id<super::$obligation_predecessor::AnalysisObligation>},)*
             }
             impl ObligationSource {pub fn reference(&self)->derivation::RowRef {match self {
                 Self::Current {obligation}=>derivation::RowRef::of(*obligation),
-                $(Self::$variant {obligation}=>derivation::RowRef::of(*obligation),)*
+                $(Self::$obligation_variant {obligation}=>derivation::RowRef::of(*obligation),)*
             }}}
             fn predecessor_obligation_inputs(inputs:&mut Vec<ValidationInput>) {
-                $(inputs.push(ValidationInput::of::<super::$predecessor::AnalysisObligation>(&["id"]));
-                  inputs.push(ValidationInput::of::<super::$predecessor::ObligationSubject>(&["id"]));)*
+                $(inputs.push(ValidationInput::of::<super::$obligation_predecessor::AnalysisObligation>(&["id"]));
+                  inputs.push(ValidationInput::of::<super::$obligation_predecessor::ObligationSubject>(&["id"]));)*
                 predecessor_invocation_inputs(inputs);
             }
             #[allow(unused_variables,unused_imports,reason="Owners without predecessors instantiate an empty repetition")]
@@ -88,13 +90,13 @@ macro_rules! analysis_family {
                 charge:&mut charged::StateCharge,
             )->Result<bool,ModelError> {
                 use super::obligation_support::ObligationQuestion;
-                $(if relation==super::$predecessor::AnalysisObligation::NAME {
-                    for row in super::$predecessor::AnalysisObligation::decode(batch)? {
+                $(if relation==super::$obligation_predecessor::AnalysisObligation::NAME {
+                    for row in super::$obligation_predecessor::AnalysisObligation::decode(batch)? {
                         questions.insert(charge,derivation::RowRef::of(row.id()),row.question())?;
                     } return Ok(true);
                 }
-                if relation==super::$predecessor::ObligationSubject::NAME {
-                    for row in super::$predecessor::ObligationSubject::decode(batch)? {
+                if relation==super::$obligation_predecessor::ObligationSubject::NAME {
+                    for row in super::$obligation_predecessor::ObligationSubject::decode(batch)? {
                         subjects.insert(charge,derivation::RowRef::of(row.id()),row.reference())?;
                     } return Ok(true);
                 })* Ok(false)
@@ -108,9 +110,9 @@ macro_rules! analysis_family {
             #[allow(unused_variables,reason="Owners without predecessors instantiate an empty repetition")]
             fn visit_predecessor_coverage(relation:&str,batch:&arrow_array::RecordBatch,rows:&mut charged::ChargedMap<derivation::RowRef,(Id<CoverageScope>,Id<AnalysisContext>,EvidenceAvailability)>,charge:&mut charged::StateCharge)->Result<bool,ModelError> {$(if relation==super::$predecessor::AnalysisCoverage::NAME {for row in super::$predecessor::AnalysisCoverage::decode(batch)? {rows.insert(charge,derivation::RowRef::of(row.id()),(row.scope,row.context,row.availability))?;}return Ok(true);})* Ok(false)}
             #[allow(unused_variables,clippy::ptr_arg,reason="Owners without predecessors instantiate an empty repetition")]
-            fn predecessor_support_inputs(inputs:&mut Vec<ValidationInput>) {$(inputs.push(ValidationInput::of::<$proof_type>(&["id"]));)*$(inputs.push(ValidationInput::of::<super::$predecessor::AnalysisDerivation>(&["id"]));)*}
+            fn predecessor_support_inputs(inputs:&mut Vec<ValidationInput>) {$(inputs.push(ValidationInput::of::<$proof_type>(&["id"]));)*$(inputs.push(ValidationInput::of::<super::$support_predecessor::AnalysisDerivation>(&["id"]));)*}
             #[allow(unused_variables,reason="Owners without predecessors instantiate an empty repetition")]
-            fn visit_predecessor_support(relation:&str,batch:&arrow_array::RecordBatch,rows:&mut charged::ChargedMap<derivation::RowRef,super::support::SourceFacts>,charge:&mut charged::StateCharge)->Result<bool,ModelError> {$(if relation==<$proof_type>::NAME {for row in <$proof_type>::decode(batch)? {rows.insert(charge,derivation::RowRef::of(row.id()),super::support::DerivedEvidence::source_facts(&row))?;}return Ok(true);})*$(if relation==super::$predecessor::AnalysisDerivation::NAME {for row in super::$predecessor::AnalysisDerivation::decode(batch)? {rows.insert(charge,derivation::RowRef::of(row.id()),row.facts())?;}return Ok(true);})* Ok(false)}
+            fn visit_predecessor_support(relation:&str,batch:&arrow_array::RecordBatch,rows:&mut charged::ChargedMap<derivation::RowRef,super::support::SourceFacts>,charge:&mut charged::StateCharge)->Result<bool,ModelError> {$(if relation==<$proof_type>::NAME {for row in <$proof_type>::decode(batch)? {rows.insert(charge,derivation::RowRef::of(row.id()),super::support::DerivedEvidence::source_facts(&row))?;}return Ok(true);})*$(if relation==super::$support_predecessor::AnalysisDerivation::NAME {for row in super::$support_predecessor::AnalysisDerivation::decode(batch)? {rows.insert(charge,derivation::RowRef::of(row.id()),row.facts())?;}return Ok(true);})* Ok(false)}
             mod invocation {include!("family/invocation.rs");}
             pub use invocation::*;
             pub mod coverage {include!("family/coverage.rs");}
@@ -126,6 +128,8 @@ macro_rules! analysis_family {
             pub type Proposition=AnalysisProposition;
             pub type Derivation=AnalysisDerivation;
             pub type Obligation=AnalysisObligation;
+            /// The invocation and coverage publication shared by every actual analysis owner.
+            pub fn publication_relations()->Vec<Relation> {let mut rows=vec![Relation::of::<AnalysisInvocation>(),Relation::of::<AnalysisInput>(),Relation::of::<SourceReceipt>(),Relation::of::<ProjectionInput>(),Relation::of::<AnalysisOutcome>(),Relation::of::<InvocationSource>()];rows.extend(coverage::relations());rows}
             pub fn relations()->Vec<Relation> {let mut rows=vec![Relation::of::<AnalysisInvocation>(),Relation::of::<AnalysisInput>(),Relation::of::<SourceReceipt>(),Relation::of::<ProjectionInput>(),Relation::of::<AnalysisOutcome>(),Relation::of::<AnalysisDiagnostic>(),Relation::of::<InvocationSource>(),Relation::of::<ObligationSubject>(),Relation::of::<ObligationSource>()];rows.extend(coverage::relations());rows.extend(support::relations());rows.extend(obligations::relations());rows}
         }
     };

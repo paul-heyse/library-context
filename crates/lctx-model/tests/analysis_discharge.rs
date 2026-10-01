@@ -203,7 +203,6 @@ fn predecessor_questions_keep_nominal_owner_and_discharge_is_its_own_conclusion(
         assert!(fixture.check(true).is_err());
     }
     for relation in [
-        Relation::of::<dispatch::ObligationSubject>(),
         Relation::of::<catalog_core::ObligationSubject>(),
         Relation::of::<catalog_evidence::ObligationSubject>(),
         Relation::of::<analytic_embedding::ObligationSubject>(),

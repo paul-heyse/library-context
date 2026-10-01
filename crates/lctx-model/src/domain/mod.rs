@@ -256,10 +256,7 @@ fn pre_catalog_analysis_relations() -> Vec<Relation> {
 /// All upper relations for the complete declared model and conformance consumers.
 pub fn analysis_relations() -> Vec<Relation> {
     let mut relations = pre_catalog_analysis_relations();
-    relations.extend(analysis::selection::relations());
-    relations.extend(analysis::synthesis::relations());
-    relations.extend(analysis::retrieval::relations());
-    relations.extend(analysis::findings::relations());
+    relations.extend(analysis::catalog_publication_relations());
     relations.extend(selection::relations());
     relations.extend(synthesis::relations());
     relations.extend(retrieval::relations());

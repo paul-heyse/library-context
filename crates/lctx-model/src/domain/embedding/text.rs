@@ -174,7 +174,7 @@ pub fn relations() -> Vec<Relation> {
     ]
 }
 
-/// This owner needs only the earlier facts/normalized closure. Vocabulary is frozen at Dispatch;
+/// This owner needs only the earlier facts/normalized closure. Vocabulary is frozen at Facts;
 /// no catalog, summary or retrieval publication can become an accidental text premise.
 pub fn stage(
     profile: stages::Profile,
@@ -214,7 +214,7 @@ pub fn stage(
         .map(|name| {
             let input = RelationUse::of_relation(&earlier[name]).completed_store();
             if is_vocabulary(name) {
-                input.at_epoch(PublicationBoundary::Dispatch)
+                input.at_epoch(PublicationBoundary::Facts)
             } else {
                 input
             }

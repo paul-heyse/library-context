@@ -8,8 +8,9 @@ pub enum SummaryPremise {
  #[model(code=0)] Local {#[model(premise)] alternative:Id<local::TransferAlternative>},
  #[model(code=1)] Model {#[model(premise)] alternative:Id<model::TransferAlternative>},
  #[model(code=2)] Witness {#[model(premise)] witness:Id<SummaryWitness>},
+ #[model(code=3)] Path {#[model(premise)] witness:Id<crate::domain::execution::summary_path::SummaryPathWitness>},
 }
-impl SummaryPremise {pub fn reference(&self)->RowRef {match self {Self::Local {alternative}=>RowRef::of(*alternative),Self::Model {alternative}=>RowRef::of(*alternative),Self::Witness {witness}=>RowRef::of(*witness)}}}
+impl SummaryPremise {pub fn reference(&self)->RowRef {match self {Self::Local {alternative}=>RowRef::of(*alternative),Self::Model {alternative}=>RowRef::of(*alternative),Self::Witness {witness}=>RowRef::of(*witness),Self::Path {witness}=>RowRef::of(*witness)}}}
 #[derive(Debug,Clone,PartialEq,Eq,Domain)]
 #[model(name="summary_transfer_witnesses",rule="compose_through_call",invariants=crate::domain::composition::composition_invariants)]
 pub struct SummaryWitness {
@@ -64,5 +65,6 @@ impl TransferEvidence {
  let charge=budget.reserve("transfer_witness_evidence",supports.len().checked_mul(size_of::<crate::domain::analysis::support::SourceFacts>()+64).and_then(|n|n.checked_add(size_of::<Self>())).ok_or_else(||invalid("witness evidence allowance overflow"))?)?;
  let mut facts=Vec::new();for support in supports {if support.assertion!=alternative.id() {return Err(invalid("witness evidence changes model alternative"));}let (_,source)=index.get(support.source)?;if source.qualification!=alternative.qualification {return Err(invalid("witness source qualification differs from alternative"));}facts.push(source);}if facts.is_empty() {return Err(invalid("witness premise has no support"));}Ok(Self {premise:SummaryPremise::Model {alternative:alternative.id()},facts,_charge:charge})
  }
+ pub fn path(row:&crate::domain::execution::summary_path::SummaryPathWitness,budget:&ResourceBudget)->Result<Self,ModelError>{let charge=budget.reserve("transfer_witness_evidence",size_of::<Self>()+size_of::<crate::domain::analysis::support::SourceFacts>())?;Ok(Self {premise:SummaryPremise::Path{witness:row.id()},facts:vec![crate::domain::analysis::support::DerivedEvidence::source_facts(row)],_charge:charge})}
  pub fn witness(row:&SummaryWitness,budget:&ResourceBudget)->Result<Self,ModelError> {let charge=budget.reserve("transfer_witness_evidence",size_of::<Self>()+size_of::<crate::domain::analysis::support::SourceFacts>())?;Ok(Self {premise:SummaryPremise::Witness {witness:row.id()},facts:vec![crate::domain::analysis::support::DerivedEvidence::source_facts(row)],_charge:charge})}
 }

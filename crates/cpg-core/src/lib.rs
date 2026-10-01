@@ -90,3 +90,5 @@ pub mod local_semantics;
 pub mod semantic_execution;
 
 pub mod semantic_models;
+
+pub mod semantic_summaries;
