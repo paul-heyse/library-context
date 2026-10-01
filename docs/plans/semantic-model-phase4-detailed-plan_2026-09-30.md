@@ -298,6 +298,15 @@ AnalysisDerivation premises. The latter cites AnalysisInvocation, qualified prop
 nominal evidence. One shared qualification/emission operation derives modality, approximation,
 condition and coverage for both paths; native provider attribution remains intact. Migrate the
 existing analysis foundation records through this operation rather than duplicating their policy.
+A domain operation that changes the semantic frame must first supply its own validated finite
+proof conclusion. For Summary composition, exact binding/substitution replay validates a
+SummaryWitness in its nominal Summary invocation and caller frame. A Summary-only support-source
+arm admits that conclusion to the ordinary AnalysisDerivation operation; shared source policy
+recomputes its status and heuristic lineage from the actual lower supports. Generic conjunction
+never substitutes atoms, and no rebased qualification is disguised as a native observation.
+The witness cites Local/Model alternatives or earlier witnesses, never final Summary aggregates;
+its source adapter adds no Summary dependency to earlier producing owners. This clarification is
+**Accepted target, 2026-10-01**; B0 implementation and the scheduled B3 review qualify it.
 
 **Immutable producing owners (Accepted target, ADR-0108; implementation pending).** Definitions,
 parameters, authored catalogs/policies and embedding specifications have early one-shot writers.
