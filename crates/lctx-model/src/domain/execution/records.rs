@@ -101,14 +101,15 @@ pub(crate) struct BaseCheck {pub(crate) data:EvaluationData,entry:EntryData,pub(
 impl BaseCheck {
     /// The exact current caller formal slot remains an outside holder during an entered call.
     /// This does not prove disposal at the caller's own frame exit or guard stability.
-    pub(crate) fn caller_holds_argument(&self,row:&ExpressionEvaluation)->Result<bool,ModelError>{
+    pub(crate) fn held_formal(&self,row:&ExpressionEvaluation)->Result<Option<Id<calls::SignatureParameter>>,ModelError>{
         let checked=self.replay(row)?;let request=checked.request();
-        if checked.release()!=ReleaseSafety::CallerRetained||self.data.occurrences.get(request.expression).is_none_or(|o|o.syntax_kind!=source::SyntaxKind::ExprName)||checked.entry_premises().len()!=1{return Ok(false);}
+        if checked.release()!=ReleaseSafety::CallerRetained||self.data.occurrences.get(request.expression).is_none_or(|o|o.syntax_kind!=source::SyntaxKind::ExprName)||checked.entry_premises().len()!=1{return Ok(None);}
         let witness=self.entries.get(checked.entry_premises()[0]).ok_or_else(||ModelError::Invalid("caller argument holder missing".into()))?;let access_source=self.entry_sources.get(witness.access_source).ok_or_else(||ModelError::Invalid("caller argument holder source missing".into()))?;
-        if !matches!(access_source,EntryAccessSource::Use{..})||witness.owner!=request.owner||witness.context!=request.context||witness.access!=request.expression||self.entry.runs.get(witness.run).is_none_or(|run|run.input!=request.input){return Ok(false);}
+        if !matches!(access_source,EntryAccessSource::Use{..})||witness.owner!=request.owner||witness.context!=request.context||witness.access!=request.expression||self.entry.runs.get(witness.run).is_none_or(|run|run.input!=request.input){return Ok(None);}
         let proof=EntryValueWitness::derive_for(&self.entry,witness.request(),access_source,&self.budget)?.map_err(|_|ModelError::Invalid("caller argument holder replay refused".into()))?;
-        Ok(proof.witness()==witness&&proof.qualification().id()==row.qualification)
+        Ok((proof.witness()==witness&&proof.qualification().id()==row.qualification).then_some(proof.parameter()))
     }
+    pub(crate) fn caller_holds_argument(&self,row:&ExpressionEvaluation)->Result<bool,ModelError>{Ok(self.held_formal(row)?.is_some())}
     pub(crate) fn new(budget:&ResourceBudget)->Self {Self{data:EvaluationData::new(budget),entry:EntryData::new(budget),invocations:Rows::new(budget),definitions:Rows::new(budget),evaluations:Rows::new(budget),sources:Rows::new(budget),members:Rows::new(budget),operands:Rows::new(budget),entries:Rows::new(budget),entry_sources:Rows::new(budget),budget:budget.clone()}}
 }
 impl InvariantCheck for BaseCheck {

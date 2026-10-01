@@ -122,4 +122,7 @@ async fn checked_protocol_and_exception_hierarchy_require_exact_pinned_native_de
  assert!(protocol.preserves());assert_ne!(protocol.allocation(),protocol.initialization());assert_ne!(protocol.entry_declaration(),protocol.exit_declaration());
  let changed=models::Catalog::parse("model-context.toml",&SOURCE.replace("version=\"1.0\"","version=\"2.0\"")).unwrap();assert!(CheckedContextProtocol::derive(&changed,&data,child.id(),input,context,&resources).unwrap().is_err());
  assert!(CheckedExactClass::derive(&data,child.id(),context,&ResourceBudget::fixed(1).unwrap()).is_err());
+ let child_id=child.id();let ancestry=child_checked.ancestry();let sequence=data.bindings.ancestry.get(ancestry).unwrap().ancestors;
+ for erase_all in [false,true]{let mut missing=ModelApplicationData::new(&resources);macro_rules! copy{($($field:ident:$ty:ty,)*)=>{$(for row in data.bindings.$field.iter(){if <$ty>::NAME!=SymbolSequenceMember::NAME{missing.bindings.$field.insert(row.clone()).unwrap();}})*};}lctx_model::normalized_binding_inputs!(copy);for row in data.bindings.sequence_members.iter().filter(|m|m.sequence!=sequence||(!erase_all&&m.ordinal!=0)){missing.bindings.sequence_members.insert(row.clone()).unwrap();}macro_rules! copy_pins{($($field:ident:$ty:ty,)*)=>{$(for row in data.$field.iter(){missing.$field.insert(row.clone()).unwrap();})*};}lctx_model::model_pin_inputs!(copy_pins);assert!(CheckedExactClass::derive(&missing,child_id,context,&resources).unwrap().is_err(),"complete ancestry requires exact retained ordered membership all={erase_all}");}
+
 }

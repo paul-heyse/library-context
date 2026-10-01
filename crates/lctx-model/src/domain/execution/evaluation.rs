@@ -159,7 +159,7 @@ impl Evaluator<'_> {
         let covered=match need(&self.data.scopes,q.scope)? {CoverageScope::Input{input}=>*input==self.request.input,CoverageScope::Artifact{artifact}=>*artifact==source,CoverageScope::Module{module}=>need(&self.data.modules,*module)?.source==source,_=>false};
         if !covered {return Err(ObligationKind::MissingEvidence);}Ok(())
     }
-    fn support<R:Record>(&mut self,row:&R,q:Id<AssertionQualification>,occurrence:Id<Occurrence>)->Result<(),EvaluationError> {
+    pub(crate) fn support<R:Record>(&mut self,row:&R,q:Id<AssertionQualification>,occurrence:Id<Occurrence>)->Result<(),EvaluationError> {
         self.frame(q,occurrence).map_err(boundary)?;
         let mut any=false;
         self.tick(self.index.native.get(&derivation::RowRef::of(row.id())).map_or(0,Vec::len)).map_err(boundary)?;
@@ -334,7 +334,7 @@ fn call_evaluation(data:&EvaluationData,request:ExpressionRequest,proof:&super::
   let exception=match proof.outcome(){super::source_invocation::InvocationOutcome::Normal=>None,super::source_invocation::InvocationOutcome::Raised{site,exception}=>Some((site,exception))};
   let status=analysis::support::inferred_status(analysis::Interpretation::Structural,[syntax.status(),proof.status()]);
   let(native,charge)=syntax.take_admission();
-  Ok(CheckedEvaluation{request,value:Value::OpaqueClosed,release:ReleaseSafety::Closed,call_source:Some(origin),exception,native,operands:Vec::new(),entries:Vec::new(),_entry_charges:Vec::new(),qualification,status,_charge:charge})
+  Ok(CheckedEvaluation{request,value:if proof.release()==ReleaseSafety::CallerRetained{Value::Retained}else{Value::OpaqueClosed},release:proof.release(),call_source:Some(origin),exception,native,operands:Vec::new(),entries:Vec::new(),_entry_charges:Vec::new(),qualification,status,_charge:charge})
  })
 }
 

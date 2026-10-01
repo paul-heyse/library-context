@@ -22,7 +22,12 @@ impl<'a> CheckedExactClass<'a>{
    let sequence=need(&b.sequences,mro.ancestors)?;let _=sequence;
    for member in b.sequence_members.iter().filter(|m|m.sequence==mro.ancestors){let ancestor=need(&b.symbols,member.symbol)?;if ancestor.kind!=calls::SymbolKind::Class||ancestor.context!=context||ancestor.provider!=symbol.provider{return Err(ObligationKind::IncompatibleContexts)}}
    Ok((symbol,mro))})();
-  match result{Err(r)=>Ok(Err(r)),Ok((symbol,mro))=>{for member in data.bindings.sequence_members.iter().filter(|m|m.sequence==mro.ancestors){ancestors.insert(&mut charge,member.symbol)?;}let mut premises=Rows::new(budget);let mut status=analysis::policy::EvidenceStatus::StructurallyObserved;
+  match result{Err(r)=>Ok(Err(r)),Ok((symbol,mro))=>{
+ let count=data.bindings.sequence_members.iter().filter(|m|m.sequence==mro.ancestors).count();if count>symbols::MAX_SEQUENCE_SYMBOLS{return Ok(Err(ObligationKind::IncompleteCoverage))}
+ let _sequence=budget.reserve("model-exact-class-sequence",count.saturating_mul(size_of::<symbols::SymbolSequenceMember>()*3+size_of::<Id<ProviderSymbol>>() ).saturating_add(1024))?;
+ let mut members=data.bindings.sequence_members.iter().filter(|m|m.sequence==mro.ancestors).collect::<Vec<_>>();members.sort_by_key(|m|m.ordinal);if members.iter().enumerate().any(|(ordinal,m)|m.ordinal!=ordinal as i64){return Ok(Err(ObligationKind::MissingEvidence))}
+ let ids=members.iter().map(|m|m.symbol).collect::<Vec<_>>();let(expected,_)=symbols::SymbolSequence::new(&ids)?;if data.bindings.sequences.get(mro.ancestors)!=Some(&expected){return Ok(Err(ObligationKind::MissingEvidence))}
+ for member in data.bindings.sequence_members.iter().filter(|m|m.sequence==mro.ancestors){ancestors.insert(&mut charge,member.symbol)?;}let mut premises=Rows::new(budget);let mut status=analysis::policy::EvidenceStatus::StructurallyObserved;
  let evidence=(||->Result<(),RuntimeEvidenceError>{append_native_evidence(data,derivation::RowRef::of(mro.id()),mro.qualification,context,&mut premises,&mut status)?;
  for id in std::iter::once(symbol.id()).chain(ancestors.iter().copied()) {let observation=one(data.bindings.symbol_observations.iter().filter(|o|o.symbol==id&&data.bindings.qualifications.get(o.qualification).is_some_and(|q|q.context==context)))?;append_native_evidence(data,derivation::RowRef::of(observation.id()),observation.qualification,context,&mut premises,&mut status)?;}Ok(())})();
  match evidence{Err(RuntimeEvidenceError::Boundary(reason))=>Ok(Err(reason)),Err(RuntimeEvidenceError::Model(error))=>Err(error),Ok(())=>Ok(Ok(Self{symbol,mro,ancestors,premises,status,_charge:charge}))}}}

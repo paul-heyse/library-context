@@ -6,7 +6,7 @@ pub mod completion;
 pub mod records;
 pub mod completion_records;
 
-pub fn relations()->Vec<crate::domain::Relation> {let mut relations=records::relations();relations.extend(completion_records::relations());relations.extend(production::relations());relations.extend(completion_production::relations());relations.extend(body_records::relations());relations.extend(source_call_records::relations());relations.extend(enriched_records::relations());relations.extend(enriched_production::relations());relations.extend(modeled_call::relations());relations.extend(model_production::relations());relations}
+pub fn relations()->Vec<crate::domain::Relation> {let mut relations=records::relations();relations.extend(completion_records::relations());relations.extend(production::relations());relations.extend(completion_production::relations());relations.extend(body_records::relations());relations.extend(source_call_records::relations());relations.extend(enriched_records::relations());relations.extend(enriched_production::relations());relations.extend(modeled_call::relations());relations.extend(model_production::relations());relations.extend(definition::relations());relations}
 
 /// Adding an exact runtime exception also declares its required native hierarchy evidence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, DomainCode)]
@@ -45,3 +45,7 @@ pub mod builtin_read;
 pub mod modeled_call;
 
 pub mod model_construction;
+
+pub mod model_transfer;
+
+pub mod definition;

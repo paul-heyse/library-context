@@ -93,3 +93,23 @@ def fresh_modeled_source():
         return cast(int, 10)
 
     return fresh()
+
+
+def fresh_literal_argument():
+    def fresh(item):
+        return item
+    fresh(7)
+    return 1
+
+
+def fresh_held_argument(value):
+    def fresh(item):
+        return item
+    fresh(value)
+    return value
+
+
+def default_header(value):
+    def fresh(enabled=True):
+        return missing_body_name()
+    return value

@@ -11,7 +11,7 @@ pub struct CheckedCompletion {
     request:CompletionRequest, outcome:PendingOutcome,
     native:Vec<Id<NativeAssertionPremise>>, statements:Vec<Id<Occurrence>>,
     expressions:Vec<Id<Occurrence>>, releases:Vec<(Id<Occurrence>,ReleaseSafety)>,
-    facts:Vec<super::records::EvaluationFacts>, headers:Vec<Id<super::source_call_records::SourceCallHeader>>,qualification:Id<assertion::AssertionQualification>, status:analysis::policy::EvidenceStatus,
+    facts:Vec<super::records::EvaluationFacts>, headers:Vec<Id<super::source_call_records::SourceCallHeader>>,definitions:Vec<Id<super::definition::DefinitionEvaluation>>,qualification:Id<assertion::AssertionQualification>, status:analysis::policy::EvidenceStatus,
     _charge:charged::StateCharge, _results_charge:charged::StateCharge,
 }
 impl CheckedCompletion {
@@ -23,10 +23,11 @@ impl CheckedCompletion {
     pub fn release_inputs(&self)->&[(Id<Occurrence>,ReleaseSafety)] {&self.releases}
     pub fn qualification(&self)->Id<assertion::AssertionQualification> {self.qualification}
     pub fn status(&self)->analysis::policy::EvidenceStatus {self.status}
+    pub(crate) fn definition_premises(&self)->&[Id<super::definition::DefinitionEvaluation>]{&self.definitions}
     pub(crate) fn header_premises(&self)->&[Id<super::source_call_records::SourceCallHeader>]{&self.headers}
     pub(crate) fn evaluation_facts(&self)->&[super::records::EvaluationFacts] {&self.facts}
 }
-struct Kernel<'a,'b,'c> {data:&'a EvaluationData,request:CompletionRequest,evaluations:&'a [&'a CheckedEvaluation],available_headers:&'a [(&'a super::source_call::CheckedSourceBinding,&'a super::source_call_records::SourceCallHeader)],headers:Vec<Id<super::source_call_records::SourceCallHeader>>,syntax:&'b mut Evaluator<'c>,statements:Vec<Id<Occurrence>>,expressions:Vec<Id<Occurrence>>,releases:Vec<(Id<Occurrence>,ReleaseSafety)>,facts:Vec<super::records::EvaluationFacts>,status:analysis::policy::EvidenceStatus,charge:charged::StateCharge,active:Option<ExactRuntimeException>}
+struct Kernel<'a,'b,'c> {data:&'a EvaluationData,request:CompletionRequest,evaluations:&'a [&'a CheckedEvaluation],available_headers:&'a [(&'a super::source_call::CheckedSourceBinding,&'a super::source_call_records::SourceCallHeader)],headers:Vec<Id<super::source_call_records::SourceCallHeader>>,available_definitions:&'a [super::definition::CheckedDefinition],definitions:Vec<Id<super::definition::DefinitionEvaluation>>,syntax:&'b mut Evaluator<'c>,statements:Vec<Id<Occurrence>>,expressions:Vec<Id<Occurrence>>,releases:Vec<(Id<Occurrence>,ReleaseSafety)>,facts:Vec<super::records::EvaluationFacts>,status:analysis::policy::EvidenceStatus,charge:charged::StateCharge,active:Option<ExactRuntimeException>}
 type Result<T>=std::result::Result<T,EvaluationError>;
 fn one(nodes:&[SyntaxPlacement],field:F)->Result<Id<Occurrence>> {let mut rows=nodes.iter().filter(|row|row.field==field);let row=rows.next().ok_or_else(||boundary(ObligationKind::UnsupportedControlFlow))?;if rows.next().is_some(){return Err(boundary(ObligationKind::MissingEvidence));}Ok(row.occurrence)}
 impl Kernel<'_,'_,'_> {
@@ -55,9 +56,10 @@ impl Kernel<'_,'_,'_> {
         let outcome=match kind {
             S::StmtPass if children.is_empty()=>PendingOutcome::Normal,
             S::StmtFunctionDef=>{
+                if let Some(proof)=self.available_definitions.iter().find(|proof|proof.record().statement==site&&proof.record().owner==self.request.owner){self.charge.grow(size_of::<Id<super::definition::DefinitionEvaluation>>()*2)?;self.definitions.push(proof.record().id());for default in proof.defaults(){self.expression(*default)?;}self.status=analysis::support::inferred_status(analysis::Interpretation::Structural,[self.status,proof.record().status]);PendingOutcome::Normal}else{
                 let mut admitted=self.available_headers.iter().filter(|(proof,_)|proof.declaration()==site&&proof.caller()==self.request.owner&&proof.request().input==self.request.input&&proof.request().context==self.request.context);
                 let(proof,row)=admitted.next().ok_or_else(||boundary(ObligationKind::MissingEvidence))?;if admitted.next().is_some(){return Err(boundary(ObligationKind::AmbiguousBinding));}
-                self.charge.grow(size_of::<Id<super::source_call_records::SourceCallHeader>>()*2)?;self.headers.push(row.id());self.status=analysis::support::inferred_status(analysis::Interpretation::Structural,[self.status,proof.status()]);PendingOutcome::Normal
+                self.charge.grow(size_of::<Id<super::source_call_records::SourceCallHeader>>()*2)?;self.headers.push(row.id());self.status=analysis::support::inferred_status(analysis::Interpretation::Structural,[self.status,proof.status()]);PendingOutcome::Normal}
             },
             S::StmtExpr if children.len()==1=>{match self.expression(one(&children,F::Value)?)?.exception(){Some((site,exception))=>PendingOutcome::Raise{site,exception},None=>PendingOutcome::Normal}},
             S::StmtReturn=>{let exception=if !children.is_empty(){if children.len()!=1{return Err(boundary(ObligationKind::UnsupportedControlFlow));}self.expression(one(&children,F::Value)?)?.exception()}else{None};match exception{Some((site,exception))=>PendingOutcome::Raise{site,exception},None=>PendingOutcome::Return{site}}},
@@ -115,13 +117,16 @@ pub fn complete(data:&EvaluationData,request:CompletionRequest,evaluations:&[&Ch
     complete_with_headers(data,request,evaluations,&[],budget)
 }
 pub(crate) fn complete_with_headers(data:&EvaluationData,request:CompletionRequest,evaluations:&[&CheckedEvaluation],headers:&[(&super::source_call::CheckedSourceBinding,&super::source_call_records::SourceCallHeader)],budget:&ResourceBudget)->std::result::Result<std::result::Result<CheckedCompletion,ObligationKind>,ModelError>{
+    complete_with_definitions(data,request,evaluations,headers,&[],budget)
+}
+pub(crate) fn complete_with_definitions(data:&EvaluationData,request:CompletionRequest,evaluations:&[&CheckedEvaluation],headers:&[(&super::source_call::CheckedSourceBinding,&super::source_call_records::SourceCallHeader)],definitions:&[super::definition::CheckedDefinition],budget:&ResourceBudget)->std::result::Result<std::result::Result<CheckedCompletion,ObligationKind>,ModelError>{
     let expression_request=ExpressionRequest{input:request.input,context:request.context,owner:request.owner,expression:request.statement};
     with_completion_syntax(data,expression_request,budget,|syntax| {
-        let mut kernel=Kernel{data,request,evaluations,available_headers:headers,headers:Vec::new(),syntax,statements:Vec::new(),expressions:Vec::new(),releases:Vec::new(),facts:Vec::new(),status:analysis::policy::EvidenceStatus::StructurallyObserved,charge:charged::StateCharge::new(budget,"base-completion-results"),active:None};
+        let mut kernel=Kernel{data,request,evaluations,available_headers:headers,headers:Vec::new(),available_definitions:definitions,definitions:Vec::new(),syntax,statements:Vec::new(),expressions:Vec::new(),releases:Vec::new(),facts:Vec::new(),status:analysis::policy::EvidenceStatus::StructurallyObserved,charge:charged::StateCharge::new(budget,"base-completion-results"),active:None};
         let outcome=kernel.statement(request.statement,0)?;
         let qualification=kernel.syntax.qualification(request.statement).map_err(boundary)?;
         let status=analysis::support::inferred_status(analysis::Interpretation::Structural,[kernel.syntax.status(),kernel.status]);
         let (native,native_charge)=kernel.syntax.take_admission();
-        Ok(CheckedCompletion {request,outcome,native,statements:kernel.statements,expressions:kernel.expressions,releases:kernel.releases,facts:kernel.facts,headers:kernel.headers,qualification,status,_charge:native_charge,_results_charge:kernel.charge})
+        Ok(CheckedCompletion {request,outcome,native,statements:kernel.statements,expressions:kernel.expressions,releases:kernel.releases,facts:kernel.facts,headers:kernel.headers,definitions:kernel.definitions,qualification,status,_charge:native_charge,_results_charge:kernel.charge})
     })
 }

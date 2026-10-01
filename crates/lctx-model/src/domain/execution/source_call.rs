@@ -1,13 +1,14 @@
 //! Fresh source binding is independent of body completion. The first finite contract accepts
-//! a synchronous zero-slot nested definition read through its sole native reaching definition.
+//! a synchronous nondefault nested definition read through its sole native reaching definition.
 //! Defaults, caller-held arguments and imported/global callable availability have separate owners.
 use crate::domain::{*,analysis::{native::{NativeAssertionPremise,NativeQualification},policy::EvidenceStatus},assertion::{AssertionQualification,Approximation},attribution::{Modality,FactFamily},conditions::entry::EntryData,normalized::{Rows,binding_normalization::{BindingData,ValidatedBoundCall,CompositionAdmission},entities::{EntityRef,CallableEntity,CallableKind}},resources::ResourceBudget,source::*,syntax::{DeclarationKind},flow::*,lexical::{BindingEventKind,LexicalScopeKind}};
 use super::evaluation::EvaluationData;
 #[derive(Debug,Clone,Copy,PartialEq,Eq)]
 pub struct SourceCallRequest {pub input:Id<input::InputRevision>,pub context:Id<attribution::AnalysisContext>,pub event:Id<normalized::events::NormalizedCallEvent>}
 /// This receipt proves fresh binding only, not normal invocation, body outcome or frame release.
-pub struct CheckedSourceBinding {request:SourceCallRequest,attempt:Id<normalized::bindings::CallBindingAttempt>,caller:Id<EntityRef>,callee:Id<EntityRef>,declaration:Id<Occurrence>,qualification:Id<AssertionQualification>,status:EvidenceStatus,premises:Rows<NativeAssertionPremise>,_charge:charged::StateCharge}
+pub struct CheckedSourceBinding {request:SourceCallRequest,attempt:Id<normalized::bindings::CallBindingAttempt>,caller:Id<EntityRef>,callee:Id<EntityRef>,declaration:Id<Occurrence>,qualification:Id<AssertionQualification>,status:EvidenceStatus,premises:Rows<NativeAssertionPremise>,arguments:Vec<(Id<calls::SignatureParameter>,Id<Occurrence>)>,_charge:charged::StateCharge}
 impl CheckedSourceBinding {
+ pub fn arguments(&self)->&[(Id<calls::SignatureParameter>,Id<Occurrence>)]{&self.arguments}
  pub fn request(&self)->SourceCallRequest{self.request}pub fn attempt(&self)->Id<normalized::bindings::CallBindingAttempt>{self.attempt}pub fn caller(&self)->Id<EntityRef>{self.caller}pub fn callee(&self)->Id<EntityRef>{self.callee}pub fn declaration(&self)->Id<Occurrence>{self.declaration}pub fn qualification(&self)->Id<AssertionQualification>{self.qualification}pub fn status(&self)->EvidenceStatus{self.status}pub fn premises(&self)->&Rows<NativeAssertionPremise>{&self.premises}
 }
 fn need<R:Record>(rows:&Rows<R>,id:Id<R>)->Result<&R,obligation::ObligationKind>{rows.get(id).ok_or(obligation::ObligationKind::MissingEvidence)}
@@ -44,14 +45,20 @@ impl CheckedSourceBinding {
   let site=need(&bindings.occurrences,event.site)?;let declared=need(&bindings.occurrences,declaration)?;if site.source!=declared.source||need(&bindings.artifacts,site.source)?.input!=request.input{return Err(K::IncompatibleContexts.into())}
   let native_declaration=unique(bindings.declarations.iter().filter(|d|d.declaration==declaration&&bindings.qualifications.get(d.qualification).is_some_and(|q|q.context==request.context)))?;
   if native_declaration.kind!=DeclarationKind::Function||native_declaration.parent!=Some(caller){return Err(K::NoSourceDeclaration.into())}
-  if !checked.bound().bindings().is_empty()||bindings.parameters.iter().any(|p|p.signature==checked.bound().signature()){return Err(K::DefaultUnavailable.into())}
-  let syntax=need(&bindings.syntax,attempt.syntax.ok_or(K::MissingEvidence)?)?;if syntax.site!=event.site||syntax.in_annotation||bindings.arguments.iter().any(|a|a.call==syntax.id()){return Err(K::UnsupportedUnpacking.into())}
+  // Retain the complete checked mapping; default/projection/receiver availability is separate.
+  let mut arguments=Vec::new();charge.grow(checked.bound().bindings().len()*size_of::<(Id<calls::SignatureParameter>,Id<Occurrence>)>()*2)?;
+  for binding in checked.bound().bindings(){match (&binding.source,&binding.projection){(calls::BindingSource::Actual{occurrence},calls::BindingProjection::Whole)=>arguments.push((binding.formal,*occurrence)),(calls::BindingSource::EmptyVarargs|calls::BindingSource::EmptyKwargs,_)=>{},_=>return Err(K::DefaultUnavailable.into())}}
+  for parameter in bindings.parameters.iter().filter(|p|p.signature==checked.bound().signature()){let shape=need(&bindings.shapes,parameter.shape)?;if !shape.required||matches!(shape.kind,calls::ParameterKind::VarPositional|calls::ParameterKind::VarKeyword){return Err(K::DefaultUnavailable.into())}}
+  let syntax=need(&bindings.syntax,attempt.syntax.ok_or(K::MissingEvidence)?)?;if syntax.site!=event.site||syntax.in_annotation{return Err(K::UnsupportedUnpacking.into())}
   if bindings.decorators.iter().any(|d|d.declaration==declaration){return Err(K::DefaultUnavailable.into())}
   // Header children are independently checked; body children cannot prove header availability.
   for placement in bindings.placements.iter().filter(|p|p.parent==Some(declaration)){
    let child=need(&bindings.occurrences,placement.occurrence)?;if placement.field!=SyntaxField::Body&&!matches!(child.syntax_kind,SyntaxKind::Identifier|SyntaxKind::Parameters){return Err(K::DefaultUnavailable.into())}
-   if child.syntax_kind==SyntaxKind::Parameters&&bindings.placements.iter().any(|p|p.parent==Some(child.id())){return Err(K::DefaultUnavailable.into())}
+   if child.syntax_kind==SyntaxKind::Parameters{for p in bindings.placements.iter().filter(|p|p.parent==Some(child.id())){let parameter=need(&bindings.occurrences,p.occurrence)?;if parameter.syntax_kind!=SyntaxKind::ParameterWithDefault{return Err(K::DefaultUnavailable.into())}for part in bindings.placements.iter().filter(|part|part.parent==Some(parameter.id())){let value=need(&bindings.occurrences,part.occurrence)?;if !matches!(value.syntax_kind,SyntaxKind::Parameter|SyntaxKind::Identifier){return Err(K::DefaultUnavailable.into())}}}}
   }
+  let mut actuals=bindings.arguments.iter().filter(|a|a.call==syntax.id()).collect::<Vec<_>>();charge.grow(actuals.len()*size_of::<&calls::CallArgument>()*2)?;actuals.sort_by_key(|a|a.ordinal);
+  if actuals.len()!=arguments.len()||actuals.iter().enumerate().any(|(i,a)|a.ordinal!=i as i64||!matches!(a.kind,calls::ArgumentKind::Positional|calls::ArgumentKind::Keyword)||arguments.iter().filter(|(_,site)|*site==a.value).count()!=1){return Err(K::UnsupportedUnpacking.into())}
+  arguments.sort_by_key(|(_,site)|actuals.iter().position(|a|a.value==*site));
   let mut evidence=Evidence{data,request,source:site.source,rows:Rows::new(budget),status:EvidenceStatus::StructurallyObserved};
   evidence.include(native_declaration,native_declaration.qualification,None)?;evidence.include(syntax,syntax.qualification,None)?;
   // Direct adjacent suite statements ensure no intervening action can replace the fresh binding.
@@ -88,7 +95,7 @@ impl CheckedSourceBinding {
   if definition_observation.kind!=BindingEventKind::FunctionDef{return Err(K::EntryValueUnknown.into())}let support=supported(&flow.definition_supports,definition_observation.id(),run.id())?;evidence.include(definition_observation,definition_observation.qualification,Some(&NativeAssertionPremise::Definition{assertion:definition_observation.id(),support:support.id()}))?;
   let mut complete=false;for c in flow.coverage.iter().filter(|c|c.run==Some(run.id())&&c.provider==Some(run.provider)&&c.context==request.context&&c.family==FactFamily::Flow){let relevant=match need(&flow.scopes,c.scope)?{CoverageScope::Input{input}=>*input==request.input,CoverageScope::Artifact{artifact}=>*artifact==site.source,CoverageScope::Module{module}=>need(&flow.modules,*module)?.source==site.source,_=>false};if relevant{if c.status!=attribution::CoverageStatus::CompleteUnderStatedModel{return Err(K::IncompleteCoverage.into())}complete=true;}}
   if !complete{return Err(K::IncompleteCoverage.into())}
-  Ok(Self{request,attempt:checked.attempt(),caller:admission.owner_entity(),callee:admission.callee(),declaration,qualification:syntax.qualification,status:evidence.status,premises:evidence.rows,_charge:charge})
+  Ok(Self{request,attempt:checked.attempt(),caller:admission.owner_entity(),callee:admission.callee(),declaration,qualification:syntax.qualification,status:evidence.status,premises:evidence.rows,arguments,_charge:charge})
  })();match result{Ok(v)=>Ok(Ok(v)),Err(HeaderError::Boundary(r))=>Ok(Err(r)),Err(HeaderError::Model(e))=>Err(e)}
  }
 }
