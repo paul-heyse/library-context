@@ -62,6 +62,7 @@ const CASES: &[&str] = &[
     "semantic_symbols",
     "semantic_syntax",
     "source_body_shapes",
+    "structural_usage",
     "summary_caps",
     "syntax_shapes",
     "transfer_alternatives",

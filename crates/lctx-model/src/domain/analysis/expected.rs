@@ -60,6 +60,12 @@ pub(crate) fn contract(
         (AnalysisMethod::Delegation, AnalysisCapability::Delegation) => (
             &[ScopeContract {grain:Artifact(PythonSource),native:&[],normalized:&[Capability::Symbols,Capability::PublicExposure,Capability::Callables]},ScopeContract {grain:Input,native:&[],normalized:&[Capability::InvocationProjection,Capability::DefinitionProjection]}],false,
         ),
+        (AnalysisMethod::Controls, AnalysisCapability::Controls) => (
+            &[ScopeContract {grain:Artifact(PythonSource),native:&[FactFamily::Syntax,FactFamily::Flow],normalized:&[Capability::Calls,Capability::Bindings,Capability::Callables,Capability::FlowEvents]}],true,
+        ),
+        (AnalysisMethod::Handoffs, AnalysisCapability::Handoffs) => (
+            &[ScopeContract {grain:Artifact(PythonSource),native:&[FactFamily::Syntax],normalized:&[Capability::Calls,Capability::Bindings,Capability::Callables,Capability::PublicExposure]}],false,
+        ),
         (AnalysisMethod::DirectUsage, AnalysisCapability::DirectUsage) => (
             &[ScopeContract {grain:Artifact(PythonSource),native:&[],normalized:&[Capability::Calls,Capability::Callables,Capability::PublicExposure]}],false,
         ),
@@ -164,6 +170,8 @@ pub(crate) fn method_contract(method: AnalysisMethod) -> Result<Contract, ModelE
         AnalysisMethod::Catalog => AnalysisCapability::Catalog,
         AnalysisMethod::Delegation => AnalysisCapability::Delegation,
         AnalysisMethod::DirectUsage => AnalysisCapability::DirectUsage,
+        AnalysisMethod::Handoffs => AnalysisCapability::Handoffs,
+        AnalysisMethod::Controls => AnalysisCapability::Controls,
         AnalysisMethod::CatalogEvidence => AnalysisCapability::CatalogEvidence,
         AnalysisMethod::CatalogSelection => AnalysisCapability::CatalogSelection,
         AnalysisMethod::AnalyticEmbedding => AnalysisCapability::AnalyticEmbedding,

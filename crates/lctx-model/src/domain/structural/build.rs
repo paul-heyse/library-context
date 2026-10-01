@@ -4,7 +4,7 @@ use crate::domain::{analysis::{delegation,usage,structural as publication,settin
 pub(super) fn invalid(s:impl Into<String>)->ModelError{ModelError::Invalid(s.into())}
 pub(super) fn need<R:Record>(rows:&Rows<R>,id:Id<R>)->Result<&R,ModelError>{rows.get(id).ok_or_else(||invalid(format!("structural predecessor absent: {}",R::NAME)))}
 pub struct Data {
- pub projection:ProjectionData,pub events:EventOutput,
+ pub projection:ProjectionData,pub events:EventOutput,pub handoffs:super::handoffs::Data,pub controls:super::controls::Data,
  pub uses:Rows<input::ArtifactUse>,
  pub members:Rows<catalog::CatalogMember>,pub callables:Rows<catalog::CatalogCallable>,
  pub core_links:Rows<catalog::CatalogMemberInvocation>,
@@ -12,11 +12,11 @@ pub struct Data {
  pub assessments:Rows<normalized::callables::EffectiveCallableAssessment>,
 }
 impl Data {
- pub fn new(b:&ResourceBudget)->Self{Self {projection:ProjectionData::new(b),events:EventOutput::new(b),uses:Rows::new(b),members:Rows::new(b),callables:Rows::new(b),core_links:Rows::new(b),core_invocations:Rows::new(b),assessments:Rows::new(b)}}
+ pub fn new(b:&ResourceBudget)->Self{Self {handoffs:super::handoffs::Data::new(b),controls:super::controls::Data::new(b),projection:ProjectionData::new(b),events:EventOutput::new(b),uses:Rows::new(b),members:Rows::new(b),callables:Rows::new(b),core_links:Rows::new(b),core_invocations:Rows::new(b),assessments:Rows::new(b)}}
  pub fn visit(&mut self,name:&str,batch:&arrow_array::RecordBatch)->Result<bool,ModelError>{
-  let a=self.projection.visit(name,batch)?;let b=self.events.visit(name,batch)?;
+  let a=self.projection.visit(name,batch)?;let b=self.events.visit(name,batch)?;let c=self.handoffs.visit(name,batch)?;let d=self.controls.visit(name,batch)?;
   macro_rules! rows {($($field:ident:$ty:ty,)*)=>{$(if name==<$ty>::NAME{self.$field.decode(batch)?;return Ok(true);})*};}
-  rows!{uses:input::ArtifactUse,members:catalog::CatalogMember,callables:catalog::CatalogCallable,core_links:catalog::CatalogMemberInvocation,core_invocations:analysis::catalog_core::AnalysisInvocation,assessments:EffectiveCallableAssessment,}Ok(a||b)
+  rows!{uses:input::ArtifactUse,members:catalog::CatalogMember,callables:catalog::CatalogCallable,core_links:catalog::CatalogMemberInvocation,core_invocations:analysis::catalog_core::AnalysisInvocation,assessments:EffectiveCallableAssessment,}Ok(a||b||c||d)
  }
 }
 fn in_roots(settings:&AnalyticsConfiguration,path:&str)->bool{settings.public_roots.iter().any(|root|path==root||path.starts_with(&format!("{root}.")))}
@@ -63,21 +63,24 @@ pub fn produce(data:&Data,frame:&StructuralFrame,invocation:&publication::Analys
   for unresolved in result.unresolved(){let row=UnresolvedEvent{traversal:traversal.id(),event:unresolved.event,assessment:unresolved.assessment,site:unresolved.site,depth:unresolved.depth as i64};for (ordinal,step) in unresolved.caller_path.iter().enumerate(){let (arc,evidence)=step_records(&mut output,step)?;output.unresolved_steps.insert(UnresolvedStep{event:row.id(),ordinal:ordinal as i64,arc,source:step.source,target:step.target,evidence})?;}output.unresolved.insert(row)?;}
   output.traversals.insert(traversal)?;
  }
+ if frame.controls_requested{super::controls::produce(&data.controls,data,frame,invocation,settings,&mut output,budget)?;}
+ super::handoffs::produce(&data.handoffs,data,frame,invocation,settings,&mut output,budget)?;
  super::conclusions::produce(&mut output,invocation,frame,data,budget)?;
  Ok(output)
 }
 fn step_records(out:&mut Output,step:&delegation::Step)->Result<(Id<ArcSource>,Id<StepEvidence>),ModelError>{let arc=match step.arc{projection::ArcId::Invocation(alternative)=>ArcSource::Invocation{alternative},projection::ArcId::Definition(alternative)=>ArcSource::Definition{alternative},projection::ArcId::SourceDefinition(ownership)=>ArcSource::SourceDefinition{ownership},_=>return Err(invalid("structural path has an inadmissible arc role"))};let evidence=match step.evidence{delegation::StepEvidence::Call{event,site,phase,qualification,modality,derived_dispatch}=>StepEvidence::Call{event,site,phase,qualification,modality,derived_dispatch},delegation::StepEvidence::Declaration{owner,declaration,callable}=>StepEvidence::Declaration{owner,declaration,callable}};Ok((out.arcs.insert(arc)?,out.evidence.insert(evidence)?))}
 impl Data {
  pub fn validation_inputs()->Vec<ValidationInput>{
-  let mut inputs=ProjectionData::validation_inputs();inputs.extend(EventOutput::validation_inputs());
+  let mut inputs=ProjectionData::validation_inputs();inputs.extend(EventOutput::validation_inputs());inputs.extend(super::handoffs::Data::inputs());inputs.extend(super::controls::Data::inputs());
   inputs.extend([ValidationInput::of::<input::ArtifactUse>(&["id"]),ValidationInput::of::<catalog::CatalogMember>(&["id"]),ValidationInput::of::<catalog::CatalogCallable>(&["id"]),ValidationInput::of::<catalog::CatalogMemberInvocation>(&["id"]),ValidationInput::of::<analysis::catalog_core::AnalysisInvocation>(&["id"]),ValidationInput::of::<EffectiveCallableAssessment>(&["id"])]);
+  for input in &mut inputs{if stages::is_vocabulary(input.name()){*input=input.clone().at_epoch(stages::PublicationBoundary::Local);}}
   inputs.sort_by_key(|i|(i.name(),i.prefix()));inputs.dedup_by_key(|i|(i.name(),i.prefix()));inputs
  }
 }
 pub fn definition(settings:&AnalyticsConfiguration,method:analysis::AnalysisMethod)->Result<(analysis::MethodParameters,analysis::AnalysisDefinition),ModelError>{
- settings.validate()?;if !matches!(method,analysis::AnalysisMethod::Delegation|analysis::AnalysisMethod::DirectUsage){return Err(invalid("unimplemented structural method"));}
- let bounded=method==analysis::AnalysisMethod::Delegation;let parameters=analysis::MethodParameters{depth:bounded.then_some(settings.depth),proof_steps:bounded.then_some(settings.witnesses),work:bounded.then_some(settings.arcs),members:bounded.then_some(settings.vertices),seed:None,iterations:None,threshold:None,resolution:None,damping:None,model_catalog:None};
- let mut hash=KeySink::new("structural-conversion-v1");settings.id().encode(&mut hash);method.encode(&mut hash);ContentHash::of(include_bytes!("build.rs")).encode(&mut hash);ContentHash::of(include_bytes!("conclusions.rs")).encode(&mut hash);ContentHash::of(include_bytes!("../analysis/delegation.rs")).encode(&mut hash);ContentHash::of(include_bytes!("../analysis/usage.rs")).encode(&mut hash);
+ settings.validate()?;if !matches!(method,analysis::AnalysisMethod::Delegation|analysis::AnalysisMethod::DirectUsage|analysis::AnalysisMethod::Handoffs|analysis::AnalysisMethod::Controls){return Err(invalid("unimplemented structural method"));}
+ let bounded=method!=analysis::AnalysisMethod::DirectUsage;let parameters=analysis::MethodParameters{depth:bounded.then_some(settings.depth),proof_steps:bounded.then_some(settings.witnesses),work:bounded.then_some(settings.arcs),members:bounded.then_some(settings.vertices),seed:None,iterations:None,threshold:None,resolution:None,damping:None,model_catalog:None};
+ let mut hash=KeySink::new("structural-conversion-v1");settings.id().encode(&mut hash);method.encode(&mut hash);ContentHash::of(include_bytes!("build.rs")).encode(&mut hash);ContentHash::of(include_bytes!("controls.rs")).encode(&mut hash);ContentHash::of(include_bytes!("handoffs.rs")).encode(&mut hash);ContentHash::of(include_bytes!("conclusions.rs")).encode(&mut hash);ContentHash::of(include_bytes!("../analysis/delegation.rs")).encode(&mut hash);ContentHash::of(include_bytes!("../analysis/usage.rs")).encode(&mut hash);
  let row=analysis::AnalysisDefinition{method,parameters:parameters.id(),semantic_version:hash.finish(),interpretation:analysis::Interpretation::Structural};Ok((parameters,row))
 }
 // One graph per frame is hydrated in stored replay. The runtime borrows its collection's graph.
@@ -94,12 +97,16 @@ pub fn stage(profile:stages::Profile,settings:&AnalyticsConfiguration,model:&Val
  macro_rules! output {($($ty:ty),*)=>{$(outputs.push(RelationUse::of::<$ty>());)*};}
  output!(assertion::AssertionQualification,conditions::Condition,conditions::ConditionNode,publication::Invocation,publication::InvocationSource,publication::AnalysisInput,publication::ProjectionInput,publication::SourceReceipt,publication::AnalysisOutcome,publication::AnalysisCoverage,publication::CoverageSource,publication::AnalysisCoveragePremise,publication::CoverageRequirement,publication::CoverageRequiredSource);
  let own=outputs.iter().filter(|r|!is_vocabulary(r.name())).map(|r|r.name()).collect::<std::collections::BTreeSet<_>>();
- let mut requested=Data::validation_inputs();requested.extend(super::frames::Context::validation_inputs());requested.extend(analysis::expected::inputs(analysis::AnalysisMethod::Delegation));requested.extend(analysis::expected::inputs(analysis::AnalysisMethod::DirectUsage));requested.push(ValidationInput::of::<analysis::ProjectionDefinition>(&["id"]));
+ let mut requested=Data::validation_inputs();requested.extend(super::frames::Context::validation_inputs());requested.extend(analysis::expected::inputs(analysis::AnalysisMethod::Delegation));requested.extend(analysis::expected::inputs(analysis::AnalysisMethod::DirectUsage));requested.extend(analysis::expected::inputs(analysis::AnalysisMethod::Handoffs));requested.extend(analysis::expected::inputs(analysis::AnalysisMethod::Controls));
+ if profile==Profile::Catalog {let inherited=ProjectionData::validation_inputs().iter().map(ValidationInput::name).collect::<std::collections::BTreeSet<_>>();let mut entry=conditions::entry::EntryData::validation_inputs();entry.extend(super::controls::Data::inputs());requested.retain(|input|inherited.contains(input.name())||!entry.iter().any(|e|e.name()==input.name()));}
+requested.push(ValidationInput::of::<analysis::ProjectionDefinition>(&["id"]));
  let relation=|name|model.relations().iter().find(|r|r.name()==name).ok_or_else(||invalid(format!("structural relation absent: {name}")));
  let mut inputs=Vec::new();for input in requested {if own.contains(input.name()){continue;}let mut use_=RelationUse::of_relation(relation(input.name())?).completed_store();if let Some(epoch)=input.prefix(){use_=use_.at_epoch(epoch);}inputs.push(use_);}
  let facts=facts_relations().iter().map(Relation::name).collect::<std::collections::BTreeSet<_>>();
  let mut pending=inputs.iter().map(|r|r.name()).collect::<Vec<_>>();
  while let Some(name)=pending.pop(){let row=relation(name)?;let refs=row.fields().iter().filter_map(|f|f.target().map(|(_,name)|name));let checks=row.invariants().iter().flat_map(|i|i.inputs.iter().map(ValidationInput::name));for required in refs.chain(checks){if own.contains(required){return Err(invalid(format!("structural predecessor reads own output: {required}")));}if !facts.contains(required)&&!inputs.iter().any(|r|r.name()==required){inputs.push(RelationUse::of_relation(relation(required)?).completed_store());pending.push(required);}}}
- let mut key=KeySink::new("structural-stage");settings.id().encode(&mut key);for method in [analysis::AnalysisMethod::Delegation,analysis::AnalysisMethod::DirectUsage]{definition(settings,method)?.1.id().encode(&mut key);}
- Ok(Stage{name:"analyze_structural",inputs:normalized::facts_stage_inputs(inputs),outputs,contributes:vec![],coverage:vec![],provider:None,profiles:vec![profile],effect:Effect::Pure,code:ContentHash::of(include_bytes!("build.rs")),configuration:key.finish()})
+ let mut key=KeySink::new("structural-stage");settings.id().encode(&mut key);for method in methods(){definition(settings,method)?.1.id().encode(&mut key);}
+ Ok(Stage{name:"analyze_structural",inputs:{for input in &mut inputs{if is_vocabulary(input.name()){*input=input.clone().at_epoch(PublicationBoundary::Local);}}inputs.sort_by_key(|i|i.name());inputs.dedup_by_key(|i|i.name());inputs},outputs,contributes:vec![],coverage:vec![],provider:None,profiles:vec![profile],effect:Effect::Pure,code:ContentHash::of(include_bytes!("build.rs")),configuration:key.finish()})
 }
+
+pub fn methods()->[analysis::AnalysisMethod;4]{[analysis::AnalysisMethod::Delegation,analysis::AnalysisMethod::DirectUsage,analysis::AnalysisMethod::Handoffs,analysis::AnalysisMethod::Controls]}

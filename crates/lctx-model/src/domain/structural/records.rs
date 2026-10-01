@@ -3,10 +3,13 @@
 use crate::domain::{*,analysis::{structural as publication,settings::AnalyticsConfiguration},catalog::*,normalized::{entities::*,events::*},source::*,projection::*,assertion::AssertionQualification,attribution::Modality,calls::CallPhase};
 use crate::{Domain,DomainCode,DomainSum};
 #[derive(Debug,Clone,PartialEq,Eq,Domain)]
-#[model(name="structural_frames",invariants=super::build::invariants)]
+#[model(name="structural_frames",invariants=super::build::invariants,publication_checks=super::frames::profile_checks)]
 pub struct StructuralFrame {
  #[model(key)] pub invocation:Id<publication::AnalysisInvocation>,
  #[model(key)] pub usage_invocation:Id<publication::AnalysisInvocation>,
+ #[model(key)] pub handoff_invocation:Id<publication::AnalysisInvocation>,
+ #[model(key)] pub control_invocation:Id<publication::AnalysisInvocation>,
+ pub controls_requested:bool,
  #[model(key)] pub configuration:Id<AnalyticsConfiguration>,
  #[model(key)] pub invocation_graph:Id<ProjectionSourceAssessment>,
  #[model(key)] pub definition_graph:Id<ProjectionSourceAssessment>,

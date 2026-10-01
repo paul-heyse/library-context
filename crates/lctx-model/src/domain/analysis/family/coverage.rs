@@ -350,7 +350,7 @@ fn bound_methods()->&'static [AnalysisMethod] {match AnalysisCoverage::NAME {
 "catalog_evidence_analysis_coverage"=>&[AnalysisMethod::CatalogEvidence],
 "analytic_embedding_analysis_coverage"=>&[AnalysisMethod::AnalyticEmbedding],
 "selection_analysis_coverage"=>&[AnalysisMethod::CatalogSelection],
-"structural_analysis_coverage"=>&[AnalysisMethod::Delegation,AnalysisMethod::DirectUsage],
+"structural_analysis_coverage"=>&[AnalysisMethod::Delegation,AnalysisMethod::DirectUsage,AnalysisMethod::Handoffs,AnalysisMethod::Controls],
 _=>&[]}}
 
 pub(super) fn publication_checks()->Vec<PublicationInvariant> {

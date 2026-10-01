@@ -1,6 +1,8 @@
 //! Structural observations retain exact normalized/catalog lineage for synthesis and analytics.
 pub mod build;
 pub mod frames;
+pub mod handoffs;
+pub mod controls;
 pub mod conclusions;
 pub use conclusions::{Conclusion,ConclusionSource};
 mod records;
@@ -8,6 +10,19 @@ pub use records::*;
 use crate::domain::{*,normalized::Rows,resources::ResourceBudget};
 #[macro_export]
 macro_rules! structural_outputs {($apply:ident)=>{$apply!{
+ argument_flows:$crate::domain::structural::controls::ArgumentFlow,
+ literal_arguments:$crate::domain::structural::controls::LiteralArgument,
+ unfollowed_arguments:$crate::domain::structural::controls::UnfollowedArgument,
+ control_traversals:$crate::domain::structural::controls::ControlTraversal,
+ control_steps:$crate::domain::structural::controls::ControlStep,
+ control_paths:$crate::domain::structural::controls::ControlPath,
+ conditional_raises:$crate::domain::structural::controls::ConditionalRaise,
+ unfollowed_paths:$crate::domain::structural::controls::UnfollowedPath,
+ handoff_values:$crate::domain::structural::handoffs::ValueSource,
+ handoff_assessments:$crate::domain::structural::handoffs::Assessment,
+ handoffs:$crate::domain::structural::handoffs::Handoff,
+ handoff_groups:$crate::domain::structural::handoffs::Group,
+ handoff_members:$crate::domain::structural::handoffs::Member,
  conclusions:$crate::domain::structural::Conclusion,
  conclusion_sources:$crate::domain::structural::ConclusionSource,
  frames:$crate::domain::structural::StructuralFrame,

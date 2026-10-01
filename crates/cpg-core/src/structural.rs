@@ -15,16 +15,16 @@ pub async fn produce(access:StageAccess<'_, '_>,attempt:&GenerationAttempt,confi
  let reader=AttemptSession::open(config,attempt,&access,model.clone(),ProviderOptions::default()).await.map_err(ModelError::codec)?;let session=runtime.session(&access);let mut data=build::Data::new(runtime.budget());let mut context=frames::Context::new(runtime.budget());let mut seen=BTreeSet::new();
  macro_rules! read {($($ty:ty),*)=>{$(load::<$ty>(&access,&reader,&session,&mut data,&mut context,&mut admission,&mut seen).await?;)*};}
  macro_rules! inventory {($($f:ident:$ty:ty,)*)=>{read!($($ty),*);};}
- lctx_model::projection_inputs!(inventory);lctx_model::normalized_event_outputs!(inventory);
+ lctx_model::projection_inputs!(inventory);lctx_model::structural_handoff_inputs!(inventory);if access.profile()==Profile::Behavioral{lctx_model::entry_value_inputs!(inventory);lctx_model::structural_control_inputs!(inventory);}lctx_model::normalized_event_outputs!(inventory);
  // The runtime graph owner retains snapshots; this context needs assessment IDs only.
- read!(projection::ProjectionSourceAssessment,input::ArtifactUse,catalog::CatalogMember,catalog::CatalogCallable,catalog::CatalogMemberInvocation,analysis::catalog_core::Invocation,normalized::callables::EffectiveCallableAssessment,analysis::settings::AnalyticsConfiguration,analysis::AnalysisDefinition,analysis::MethodParameters,analysis::local::Invocation,input::InputRevision,normalized::coverage::NormalizationComputation,normalized::coverage::NormalizationCoverage);
+ read!(projection::ProjectionSourceAssessment,input::ArtifactUse,catalog::CatalogMember,catalog::CatalogCallable,catalog::CatalogMemberInvocation,analysis::catalog_core::Invocation,normalized::callables::EffectiveCallableAssessment,analysis::settings::AnalyticsConfiguration,analysis::AnalysisDefinition,analysis::MethodParameters,analysis::local::Invocation,analysis::local::AnalysisOutcome,input::InputRevision,normalized::coverage::NormalizationComputation,normalized::coverage::NormalizationCoverage);
  drop(session);reader.close().await.map_err(ModelError::codec)?;
  let settings=context.configuration()?.clone();let declaration=build::stage(access.profile(),&settings,model)?;
  if declaration.configuration!=access.stage().configuration||declaration.code!=access.stage().code||declaration.name!=access.stage().name{return Err(ModelError::Invalid("structural stage differs from selected settings/rules".into()));}
  let parents=frames::parents(&data,runtime.budget())?;let mut results=semantic::Output::new(runtime.budget());let mut receipts=normalized::Rows::new(runtime.budget());let mut projections=normalized::Rows::new(runtime.budget());
  for core in parents.iter(){
   let local=context.local_parent(core)?.id();
-  for method in [analysis::AnalysisMethod::Delegation,analysis::AnalysisMethod::DirectUsage]{
+  for method in build::methods(){
    let (parameters,definition)=build::definition(&settings,method)?;
    if context.definitions.get(definition.id())!=Some(&definition)||context.parameters.get(parameters.id())!=Some(&parameters){return Err(ModelError::Invalid("structural canonical definition absent".into()));}
    let parents=[owner::InvocationSource::Local{invocation:local},owner::InvocationSource::CatalogCore{invocation:core.id()}];
@@ -37,15 +37,16 @@ pub async fn produce(access:StageAccess<'_, '_>,attempt:&GenerationAttempt,confi
   let call=graphs.graph(&access,runtime.budget(),key(projection::ProjectionName::CallableInvocation))?;let definition=graphs.graph(&access,runtime.budget(),key(projection::ProjectionName::DefinitionContainment))?;
   results.extend(build::produce(&data,&frame,context.invocations.get(frame.invocation).unwrap(),&settings,call,definition,runtime.budget())?)?;
  }
- let mut output=StageOutput::new(access,attempt,model,runtime.budget().clone(),Default::default())?;
+ let access_profile=access.profile();let mut output=StageOutput::new(access,attempt,model,runtime.budget().clone(),Default::default())?;
  macro_rules! write {($ty:ty,$rows:expr)=>{{output.declare::<$ty>()?;for row in $rows.iter(){output.push(row.clone()).await?;}}};}
  macro_rules! result {($($f:ident:$ty:ty,)*)=>{$(write!($ty,results.$f);)*};}lctx_model::structural_outputs!(result);
  write!(assertion::AssertionQualification,results.conclusion_qualifications);output.declare::<conditions::Condition>()?;output.declare::<conditions::ConditionNode>()?;let (condition,nodes)=conditions::Diagram::always().records();output.push(condition).await?;for node in nodes{output.push(node).await?;}
  write!(owner::Invocation,context.invocations);write!(owner::InvocationSource,context.sources);write!(owner::AnalysisInput,context.inputs);write!(owner::SourceReceipt,receipts);write!(owner::ProjectionInput,projections);
  macro_rules! declare {($($ty:ty),*)=>{$(output.declare::<$ty>()?;)*};}declare!(owner::AnalysisOutcome,owner::AnalysisCoverage,owner::CoverageSource,owner::AnalysisCoveragePremise,owner::CoverageRequirement,owner::CoverageRequiredSource);
- for invocation in context.invocations.iter(){let definition=context.definitions.get(invocation.definition).unwrap();let capability=if definition.method==analysis::AnalysisMethod::Delegation{analysis::AnalysisCapability::Delegation}else{analysis::AnalysisCapability::DirectUsage};
-  let bounded=definition.method==analysis::AnalysisMethod::Delegation&&results.frames.iter().filter(|f|f.invocation==invocation.id()).any(|f|results.traversals.iter().any(|t|t.frame==f.id()&&t.stop.is_some()));
-  let status=if bounded{analysis::AnalysisStatus::Partial}else{analysis::AnalysisStatus::Completed};let reason=bounded.then_some(obligation::ObligationKind::BudgetReached);
+ for invocation in context.invocations.iter(){let definition=context.definitions.get(invocation.definition).unwrap();let capability=match definition.method{analysis::AnalysisMethod::Delegation=>analysis::AnalysisCapability::Delegation,analysis::AnalysisMethod::DirectUsage=>analysis::AnalysisCapability::DirectUsage,analysis::AnalysisMethod::Handoffs=>analysis::AnalysisCapability::Handoffs,analysis::AnalysisMethod::Controls=>analysis::AnalysisCapability::Controls,_=>unreachable!()};
+  let bounded=definition.method==analysis::AnalysisMethod::Delegation&&results.frames.iter().filter(|f|f.invocation==invocation.id()).any(|f|results.traversals.iter().any(|t|t.frame==f.id()&&t.stop.is_some()))||definition.method==analysis::AnalysisMethod::Controls&&results.frames.iter().filter(|f|f.control_invocation==invocation.id()).any(|f|results.control_traversals.iter().any(|t|t.frame==f.id()&&t.stop.is_some()));
+  let controls=definition.method==analysis::AnalysisMethod::Controls;
+  let (status,reason)=if controls&&access_profile==Profile::Catalog{(analysis::AnalysisStatus::NotRequested,Some(obligation::ObligationKind::NotRequested))}else if bounded{(analysis::AnalysisStatus::Partial,Some(obligation::ObligationKind::BudgetReached))}else if controls{(analysis::AnalysisStatus::Partial,Some(obligation::ObligationKind::IncompleteDomain))}else{(analysis::AnalysisStatus::Completed,None)};
   let domain=owner::coverage::admit(invocation,definition,capability,&admission,runtime.budget())?;
   for scope in domain.scopes(){let (row,members)=scope.expectation().records()?;output.push(row).await?;for row in members{output.push(row).await?;}for row in scope.observations(){output.push(row.source().clone()).await?;}let (row,members)=owner::coverage::assess(scope.expectation(),scope.observations(),status,reason,runtime.budget())?;output.push(row).await?;for row in members{output.push(row).await?;}}
   output.push(owner::AnalysisOutcome{invocation:invocation.id(),status,reason}).await?;

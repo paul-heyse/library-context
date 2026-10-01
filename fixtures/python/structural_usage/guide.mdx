@@ -1,0 +1,13 @@
+# Original usage
+
+Producer results can be passed directly or through one local binding.
+
+```python
+from api import produce, consume, spare
+consume(produce())
+value = produce()
+consume(value)
+value = 3
+consume(value)
+spare(0)
+```
