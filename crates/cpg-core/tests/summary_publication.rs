@@ -547,12 +547,20 @@ async fn run(profile: Profile) {
         let alternatives:Vec<(Vec<u8>,Vec<u8>,i64,i16)>=sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "SELECT constructor_qualification,reader_qualification,depth,reason FROM {}.summary_symbolic_field_alternatives",id.schema())))
             .fetch_all(db.owner.pool()).await.unwrap();
-        assert_eq!(alternatives.len(),3,"one supported source field retains all three reader paths");
+        assert_eq!(alternatives.len(),4,"three readers retain the call argument and its separate returned-value qualification");
         assert!(alternatives.iter().all(|(c,r,d,reason)|c!=r&&*d==2&&*reason==obligation::ObligationKind::ScopeBoundary as i16));
+        let matrix:Vec<(i16,i16,bool,i64)>=sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "SELECT kind,transfer,through_call,count(*) FROM {}.summary_symbolic_field_alternatives GROUP BY 1,2,3 ORDER BY 1,2,3",id.schema())))
+            .fetch_all(db.owner.pool()).await.unwrap();
+        assert_eq!(matrix,vec![(1,0,false,1),(2,0,false,1),(2,1,false,1),(2,1,true,1)]);
+        let readers:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+            "SELECT count(DISTINCT link) FROM {}.summary_symbolic_field_alternatives",id.schema())))
+            .fetch_one(db.owner.pool()).await.unwrap();
+        assert_eq!(readers,3);
         let conclusions:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
             "SELECT count(*) FROM {0}.summary_behavioral_conclusions c JOIN {0}.summary_obligation_subjects s ON s.id=c.subject JOIN {0}.summary_claims q ON q.id=s.summaryclaim_transfer JOIN {0}.summary_symbolic_field_alternatives a ON a.id=q.symbolicfieldassociation_alternative WHERE c.verdict=3 AND c.proof IS NULL AND c.qualification=a.reader_qualification AND c.reason=a.reason",id.schema())))
             .fetch_one(db.owner.pool()).await.unwrap();
-        assert_eq!(conclusions,3);
+        assert_eq!(conclusions,4);
     } else {
         assert_eq!(proofs, 0);
         assert!(statuses.iter().all(|s| *s == 3));

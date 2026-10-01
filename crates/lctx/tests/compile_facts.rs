@@ -443,7 +443,11 @@ class RecordHolder:
             let facets:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
                 "SELECT count(*) FROM {}.synthesis_summary_facets f JOIN {}.summary_claims c ON c.id=f.claim JOIN {}.summary_symbolic_field_alternatives a ON a.id=c.symbolicfieldassociation_alternative WHERE f.verdict=3 AND f.source IS NULL AND f.qualification=a.reader_qualification",generation.id.schema(),generation.id.schema(),generation.id.schema())))
                 .fetch_one(db.owner.pool()).await.unwrap();
-            assert_eq!(facets,3,"source associations retain guarded Unknown facets without finding authority");
+            assert_eq!(facets,4,"three source readers retain four guarded sink outcomes without finding authority");
+            let readers:i64=sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+                "SELECT count(DISTINCT link) FROM {}.summary_symbolic_field_alternatives",generation.id.schema())))
+                .fetch_one(db.owner.pool()).await.unwrap();
+            assert_eq!(readers,3);
         }
         for name in [
             embedding::analytic::AnalysisEmbeddingUse::NAME,
