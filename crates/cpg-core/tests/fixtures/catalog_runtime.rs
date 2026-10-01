@@ -163,7 +163,7 @@ pub async fn replay_controls(
     let _source_charge=b.reserve("catalog-source-link-corruption-control",
         d.evidence.source_field_links.len()*std::mem::size_of::<c1::SourceFieldLink>())?;
     let source_rows=d.evidence.source_field_links.iter().cloned().collect::<Vec<_>>();
-    let sibling=d.evidence.source_field_links.iter().find(|r|r.field_option!=source_link.field_option)
+    let sibling=d.evidence.source_field_links.iter().find(|r|r.parameter_option!=source_link.parameter_option)
         .expect("independent sibling field provides nonleakage twin").parameter_option;
     for corruption in 0..3 {
         d.evidence.source_field_links=Rows::new(b);

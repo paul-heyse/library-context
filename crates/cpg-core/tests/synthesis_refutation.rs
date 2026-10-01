@@ -36,7 +36,7 @@ async fn native_false_composition_persists_exact_negative_s0_authority() {
     let db = DisposableDatabase::start().await;
     db.migrate().await;
     let importer = RoleConfig { format: 1, role: Role::Importer, url: db.url("lctx_importer"), max_connections: 6, provider_connections: 4, acquire_timeout_seconds: 5, statement_timeout_seconds: 60, lock_timeout_seconds: 10 };
-    let serving = RoleConfig { role: Role::Serving, url: db.url("lctx_serving"), ..importer.clone() };
+    let serving = RoleConfig { role: Role::Serving, url: db.url("lctx_serving"), max_connections: 6, provider_connections: 2, ..importer.clone() };
     let model = Arc::new(model().unwrap());
     let store = GenerationStore::install(db.owner.clone(), model.clone()).await.unwrap();
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/python/synthesis_refutation");
