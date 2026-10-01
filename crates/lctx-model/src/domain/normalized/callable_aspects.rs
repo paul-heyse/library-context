@@ -871,7 +871,7 @@ pub fn relations() -> Vec<Relation> {
     crate::callable_aspect_outputs!(declare)
 }
 pub fn invariants() -> Vec<Invariant> {
-    let mut inputs = AspectData::inputs();
+    let mut inputs = super::facts_inputs(AspectData::inputs());
     inputs.extend(AspectOutput::inputs());
     vec![Invariant {
         name: "normalized_callable_aspects",
