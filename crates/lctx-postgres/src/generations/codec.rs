@@ -2,7 +2,7 @@
 use super::Error;
 use arrow_array::{
     ArrayRef, BooleanArray, FixedSizeBinaryArray, Int16Array, Int32Array, Int64Array, RecordBatch,
-    StringArray,
+    StringArray, Float64Array,
 };
 use lctx_model::domain::Relation;
 use sqlx::{Row, postgres::PgRow};
@@ -28,6 +28,7 @@ pub(super) fn decode(relation: &Relation, rows: &[PgRow]) -> Result<RecordBatch,
             DataType::Int16 => scalar!(i16, Int16Array),
             DataType::Int32 => scalar!(i32, Int32Array),
             DataType::Int64 => scalar!(i64, Int64Array),
+            DataType::Float64 => scalar!(f64, Float64Array),
             DataType::Binary => {
                 let values = rows
                     .iter()

@@ -77,6 +77,7 @@ fn column_signature(model: &ValidatedModel, relations: &BTreeSet<&str>) -> Strin
                 Scalar::Int16 => "smallint",
                 Scalar::Int32 => "integer",
                 Scalar::Int64 => "bigint",
+                Scalar::FiniteF64 => "double precision",
                 Scalar::Id | Scalar::Digest | Scalar::Binary => "bytea",
             };
             parts.push(format!(
@@ -230,6 +231,7 @@ pub(super) fn lower(
                 Scalar::Int16 => ColumnType::SmallInteger,
                 Scalar::Int32 => ColumnType::Integer,
                 Scalar::Int64 => ColumnType::BigInteger,
+                Scalar::FiniteF64 => ColumnType::Double,
                 Scalar::Id | Scalar::Digest | Scalar::Binary => ColumnType::Binary(32),
             };
             let mut column = if field.list() {
@@ -248,7 +250,7 @@ pub(super) fn lower(
                 Scalar::Bool => 1,
                 Scalar::Int16 => 2,
                 Scalar::Int32 => 4,
-                Scalar::Int64 => 8,
+                Scalar::Int64 | Scalar::FiniteF64 => 8,
                 Scalar::Id => 16,
                 Scalar::Digest => 32,
                 Scalar::Text | Scalar::Binary => 0,
@@ -269,6 +271,13 @@ pub(super) fn lower(
                 scalar_width.to_string()
             };
             wire_sizes.push(format!("4::bigint + ({size})"));
+            if field.scalar() == Scalar::FiniteF64 {
+                // PostgreSQL orders NaN above Infinity. The strict finite interval rejects
+                // both; the wire check also excludes noncanonical negative zero.
+                table.check(Expr::cust(format!(
+                    "{column_name} > '-Infinity'::double precision AND {column_name} < 'Infinity'::double precision AND float8send({column_name}) <> decode('8000000000000000','hex')"
+                )));
+            }
             if !field.codes().is_empty() {
                 let values = field
                     .codes()

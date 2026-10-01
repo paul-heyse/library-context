@@ -14,6 +14,7 @@ pub enum Scalar {
     Id,
     Digest,
     Binary,
+    FiniteF64,
 }
 impl Scalar {
     fn arrow(self) -> DataType {
@@ -26,6 +27,7 @@ impl Scalar {
             Self::Id => DataType::FixedSizeBinary(16),
             Self::Digest => DataType::FixedSizeBinary(32),
             Self::Binary => DataType::Binary,
+            Self::FiniteF64 => DataType::Float64,
         }
     }
 }
@@ -334,7 +336,7 @@ pub(crate) fn fixed_width<R: Record>() -> usize {
             Scalar::Text | Scalar::Binary | Scalar::Int32 => 4,
             Scalar::Bool => 1,
             Scalar::Int16 => 2,
-            Scalar::Int64 => 8,
+            Scalar::Int64 | Scalar::FiniteF64 => 8,
             Scalar::Id => 16,
             Scalar::Digest => 32,
         };
@@ -434,7 +436,13 @@ impl<R: Record> Batch<R> {
         let mut reservation = budget.reserve(R::NAME, encoded.saturating_add(decoded))?;
         let rows = R::decode(arrow)?;
         let held = rows_bytes(&rows, rows.capacity())?;
-        if rows.windows(2).all(|pair| pair[0].id() < pair[1].id()) {
+        let canonical_metrics = R::fields().iter().all(|field| {
+            field.scalar() != Scalar::FiniteF64
+                || arrow.column_by_name(field.name())
+                    .and_then(|array| array.as_any().downcast_ref::<arrow_array::Float64Array>())
+                    .is_some_and(|values| values.iter().flatten().all(|value| value.to_bits() != (-0.0f64).to_bits()))
+        });
+        if canonical_metrics && rows.windows(2).all(|pair| pair[0].id() < pair[1].id()) {
             // A canonical stored batch already has the correct physical representation.
             // Share its Arrow buffers instead of constructing another encoded copy.
             reservation.try_resize(held.saturating_add(encoded))?;

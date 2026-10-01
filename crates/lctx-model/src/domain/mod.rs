@@ -14,6 +14,7 @@ pub mod deployment;
 pub mod derivation;
 pub mod documents;
 pub mod flow;
+mod finite;
 mod identity;
 pub mod input;
 pub mod lexical;
@@ -36,6 +37,7 @@ pub mod types;
 pub mod value;
 
 pub use identity::{ArmId, ContentHash, ContentHasher, EvidenceBytes, Id, Key, KeySink, Utf8Text};
+pub use finite::FiniteF64;
 pub use model::{
     Invariant, InvariantCheck, Relation, RelationContent, ValidatedModel, ValidationInput,
 };
