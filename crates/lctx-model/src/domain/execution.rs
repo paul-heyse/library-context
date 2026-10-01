@@ -28,6 +28,7 @@ pub mod body;
 pub mod body_records;
 pub mod source_call;
 pub mod source_call_records;
+pub mod source_invocation;
 pub mod configuration;
 pub mod production;
 pub mod completion_production;

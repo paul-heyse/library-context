@@ -59,7 +59,20 @@ impl CheckedSourceBinding {
   evidence.include(definition_placement,definition_placement.qualification,None)?;
   let mut current=event.site;let mut remaining=bindings.placements.len()+1;
   let call_statement=loop{if remaining==0{return Err(K::ExpressionDepthLimit.into())}remaining-=1;let placement=unique(bindings.placements.iter().filter(|p|p.occurrence==current))?;evidence.include(placement,placement.qualification,None)?;if placement.parent==Some(caller)&&placement.field==SyntaxField::Body{break placement}current=placement.parent.ok_or(K::ScopeBoundary)?;};
-  if definition_placement.ordinal!=0||call_statement.ordinal!=definition_placement.ordinal+1{return Err(K::EntryValueUnknown.into())}
+  if call_statement.ordinal!=definition_placement.ordinal+1{return Err(K::EntryValueUnknown.into())}
+  if definition_placement.ordinal!=0{
+   if definition_placement.ordinal!=1{return Err(K::EntryValueUnknown.into())}
+   let caller_declaration=unique(bindings.declarations.iter().filter(|d|d.declaration==caller&&bindings.qualifications.get(d.qualification).is_some_and(|q|q.context==request.context)))?;
+   let docstring=need(&bindings.occurrences,caller_declaration.docstring.ok_or(K::EntryValueUnknown)?)?;
+   let prefix=unique(bindings.placements.iter().filter(|p|p.parent==Some(caller)&&p.field==SyntaxField::Body&&p.ordinal==0))?;let statement=need(&bindings.occurrences,prefix.occurrence)?;if statement.syntax_kind!=SyntaxKind::StmtExpr{return Err(K::EntryValueUnknown.into())}
+   let value=unique(bindings.placements.iter().filter(|p|p.parent==Some(statement.id())&&p.field==SyntaxField::Value))?;let literal=need(&bindings.occurrences,value.occurrence)?;
+   if literal.syntax_kind!=SyntaxKind::ExprStringLiteral||literal.source!=docstring.source||literal.start>docstring.start||literal.end<docstring.end{return Err(K::EntryValueUnknown.into())}
+   evidence.include(caller_declaration,caller_declaration.qualification,None)?;evidence.include(prefix,prefix.qualification,None)?;evidence.include(value,value.qualification,None)?;
+  }
+  // Even an unentered free read captures a cell when the function object is allocated.
+  for resolution in bindings.lexical_resolutions.iter().filter(|r|r.captured&&bindings.qualifications.get(r.qualification).is_some_and(|q|q.context==request.context)){
+   let read=need(&bindings.occurrences,resolution.read)?;if read.source==declared.source&&read.start>=declared.start&&read.end<=declared.end&&read.structural_path.starts_with(&declared.structural_path){return Err(K::CapturedStateUnavailable.into())}
+  }
   let callee=need(&bindings.occurrences,syntax.callee)?;
   let use_=unique(flow.uses.iter().filter(|u|flow.occurrences.get(u.occurrence).is_some_and(|o|same(o,callee))))?;
   let use_observation=unique(flow.use_observations.iter().filter(|o|o.use_==use_.id()&&!o.annotation&&flow.qualifications.get(o.qualification).is_some_and(|q|q.context==request.context)))?;

@@ -72,3 +72,25 @@ def fresh_async_header():
     async def fresh_async():
         return None
     return fresh_async()
+
+
+def fresh_with_metadata():
+    """Definition metadata precedes allocation; no executable header action."""
+    def metadata_inner():
+        return (1, "closed")
+    return metadata_inner()
+
+
+def fresh_captured(value):
+    def captured_inner():
+        if False:
+            return value
+        return 7
+    return captured_inner()
+
+
+def fresh_intervening():
+    def intervening_inner():
+        return 8
+    pass
+    return intervening_inner()
