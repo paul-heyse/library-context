@@ -4,6 +4,7 @@ pub mod policy;
 pub mod support;
 pub mod coverage;
 pub mod findings;
+pub mod sources;
 mod config;
 mod family;
 pub use config::*;
@@ -26,6 +27,6 @@ analysis_family!(selection,"selection",[CatalogEvidence:4=>catalog_evidence,Stru
 analysis_family!(synthesis,"synthesis",[Selection:4=>selection,CatalogEvidence:5=>catalog_evidence,CatalogCore:6=>catalog_core,Structural:7=>structural,Analytic:8=>analytic,Summary:9=>summary]);
 analysis_family!(retrieval,"retrieval",[Synthesis:4=>synthesis,CatalogEvidence:5=>catalog_evidence,AnalyticEmbedding:6=>analytic_embedding]);
 /// One-shot configuration and native inventory. No future result family is pulled into preflight.
-pub fn early_relations()->Vec<Relation> {let mut rows=vec![Relation::of::<AnalysisDefinition>(),Relation::of::<MethodParameters>()];rows.extend(native::relations());rows}
+pub fn early_relations()->Vec<Relation> {let mut rows=vec![Relation::of::<AnalysisDefinition>(),Relation::of::<MethodParameters>(),Relation::of::<ProjectionDefinition>()];rows.extend(native::relations());rows}
 pub fn relations()->Vec<Relation> {let mut rows=early_relations();rows.extend(dispatch::relations());rows.extend(local::relations());rows.extend(base_evaluation::relations());rows.extend(base_completion::relations());rows.extend(source_call::relations());rows.extend(enriched_execution::relations());rows.extend(model::relations());rows.extend(summary::relations());rows.extend(structural::relations());rows.extend(analytic_embedding::relations());rows.extend(analytic::relations());rows.extend(catalog_core::relations());rows.extend(catalog_evidence::relations());rows.extend(selection::relations());rows.extend(synthesis::relations());rows.extend(retrieval::relations());rows.extend(findings::relations());rows}
 fn invalid(message:&str)->ModelError {ModelError::Invalid(message.into())}

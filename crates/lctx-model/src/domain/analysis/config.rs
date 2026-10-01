@@ -139,3 +139,16 @@ pub enum AnalysisChannel {
     Completion = 5,
     Catalog = 6,
 }
+/// Early immutable reference to the existing projection owner's finite meaning. This contains no
+/// late assessment or snapshot target, so Dispatch can use it before the normalized checkpoint.
+#[derive(Debug,Clone,PartialEq,Eq,Domain)]
+#[model(name="analysis_projection_definitions",validate=validate_projection_definition)]
+pub struct ProjectionDefinition {
+    #[model(key)] pub name:projection::ProjectionName,
+    #[model(key)] pub version:i32,
+    #[model(key)] pub policy:ContentHash,
+}
+impl ProjectionDefinition {
+    pub fn builtin(name:projection::ProjectionName)->Self {let spec=projection::ProjectionSpec::builtin(name);let mut sink=KeySink::new("analysis-projection-definition");name.encode(&mut sink);projection::ProjectionSpec::VERSION.encode(&mut sink);format!("{:?}",spec.universe()).encode(&mut sink);format!("{:?}",spec.multiplicity()).encode(&mut sink);format!("{:?}",spec.availability()).encode(&mut sink);format!("{:?}",spec.roles()).encode(&mut sink);format!("{:?}",spec.call_policy()).encode(&mut sink);Self {name,version:projection::ProjectionSpec::VERSION,policy:sink.finish()}}
+}
+fn validate_projection_definition(row:&ProjectionDefinition)->Result<(),ModelError> {if *row!=ProjectionDefinition::builtin(row.name) {return Err(invalid("analysis projection differs from its authoritative built-in meaning"));}Ok(())}

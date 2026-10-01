@@ -3,7 +3,7 @@
 macro_rules! analysis_family {
     ($owner:ident,$prefix:literal,[$($variant:ident:$code:literal=>$predecessor:ident),* $(,)?]) => {
         pub mod $owner {
-            use super::{invalid,AnalysisDefinition,AnalysisMethod,AnalysisStatus,AnalysisCapability,AnalysisChannel,Interpretation};
+            use super::{invalid,AnalysisDefinition,ProjectionDefinition,AnalysisMethod,AnalysisStatus,AnalysisCapability,AnalysisChannel,Interpretation};
             use crate::domain::{*,assertion::AssertionQualification,attribution::{AnalysisContext,ProviderCoverage,CoverageStatus},source::{CoverageScope,Occurrence},input::InputRevision,normalized::{entities::EntityRef,coverage::{EvidenceAvailability,NormalizationCoverage}},calls::CallPhase,obligation::ObligationKind,transfer::TransferKey};
             use crate::{Domain,DomainSum};
             macro_rules! owner_table {($suffix:literal)=>{concat!($prefix,"_",$suffix)}}
@@ -66,7 +66,7 @@ macro_rules! analysis_family {
             pub type Proposition=AnalysisProposition;
             pub type Derivation=AnalysisDerivation;
             pub type Obligation=AnalysisObligation;
-            pub fn relations()->Vec<Relation> {let mut rows=vec![Relation::of::<AnalysisInvocation>(),Relation::of::<AnalysisInput>(),Relation::of::<AnalysisOutcome>(),Relation::of::<AnalysisDiagnostic>(),Relation::of::<InvocationSource>(),Relation::of::<ObligationSubject>()];rows.extend(coverage::relations());rows.extend(support::relations());rows.extend(obligations::relations());rows}
+            pub fn relations()->Vec<Relation> {let mut rows=vec![Relation::of::<AnalysisInvocation>(),Relation::of::<AnalysisInput>(),Relation::of::<SourceReceipt>(),Relation::of::<ProjectionInput>(),Relation::of::<AnalysisOutcome>(),Relation::of::<AnalysisDiagnostic>(),Relation::of::<InvocationSource>(),Relation::of::<ObligationSubject>()];rows.extend(coverage::relations());rows.extend(support::relations());rows.extend(obligations::relations());rows}
         }
     };
 }

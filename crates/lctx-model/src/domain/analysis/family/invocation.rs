@@ -1,6 +1,6 @@
 use super::*;
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = owner_table!("analysis_invocations"), invariants = invocation_invariants)]
+#[model(name = owner_table!("analysis_invocations"), invariants = invocation_invariants, publication_checks=source_publication_checks)]
 pub struct AnalysisInvocation {
     #[model(key)]
     pub input: Id<InputRevision>,
@@ -13,6 +13,8 @@ pub struct AnalysisInvocation {
     /// Exact typed parent membership is validated; its digest participates in invocation identity.
     #[model(key)]
     pub inputs: ContentHash,
+    #[model(key)] pub sources:ContentHash,
+    #[model(key)] pub projections:ContentHash,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Domain)]
 #[model(name = owner_table!("analysis_inputs"), rule = "analysis_input", conclusion = invocation)]
@@ -39,6 +41,8 @@ impl AnalysisInvocation {
             definition,
             subject,
             inputs: parent_digest(&parents),
+            sources:crate::domain::analysis::sources::empty_digest(),
+            projections:projection_digest(&std::collections::BTreeSet::new()),
         };
         let inputs = parents
             .into_iter()
@@ -108,13 +112,16 @@ fn invocation_invariants() -> Vec<Invariant> {
                 charge: charged::StateCharge::new(budget, "analysis_invocation_inputs"),
                 rows: Default::default(),
                 edges: Default::default(),
+                snapshots:Default::default(),projections:Default::default(),
                 sources: Default::default(),frames:Default::default(),
             })
         }),
     }]
 }
-fn invocation_inputs()->Vec<ValidationInput> { let mut inputs=vec![ValidationInput::of::<AnalysisInvocation>(&["id"]),ValidationInput::of::<AnalysisInput>(&["id"]),ValidationInput::of::<InvocationSource>(&["id"])]; predecessor_invocation_inputs(&mut inputs); inputs }
+fn invocation_inputs()->Vec<ValidationInput> { let mut inputs=vec![ValidationInput::of::<SourceReceipt>(&["id"]),ValidationInput::of::<ProjectionInput>(&["id"]),ValidationInput::of::<AnalysisInvocation>(&["id"]),ValidationInput::of::<AnalysisInput>(&["id"]),ValidationInput::of::<InvocationSource>(&["id"])]; predecessor_invocation_inputs(&mut inputs); inputs }
 struct InvocationCheck {
+    snapshots:charged::ChargedMap<Id<AnalysisInvocation>,std::collections::BTreeMap<String,crate::domain::analysis::sources::SourceSnapshot>>,
+    projections:charged::ChargedMap<Id<AnalysisInvocation>,std::collections::BTreeSet<Id<ProjectionDefinition>>>,
     sources:charged::ChargedMap<Id<InvocationSource>,InvocationSource>,
     frames:charged::ChargedMap<derivation::RowRef,(Id<input::InputRevision>,Id<attribution::AnalysisContext>)>,
     charge: charged::StateCharge,
@@ -147,7 +154,9 @@ impl InvariantCheck for InvocationCheck {
                     return Err(invalid("duplicate analysis parent"));
                 }
             }
-        } else if relation==InvocationSource::NAME { for row in InvocationSource::decode(batch)? { self.sources.insert(&mut self.charge,row.id(),row)?; }
+        } else if relation==SourceReceipt::NAME {for row in SourceReceipt::decode(batch)? {let snapshot=row.snapshot();let mut duplicate=false;self.snapshots.update(&mut self.charge,row.invocation,|sources|{duplicate=sources.insert(snapshot.relation.clone(),snapshot).is_some();})?;if duplicate {return Err(invalid("duplicate invocation source receipt"));}}
+        } else if relation==ProjectionInput::NAME {for row in ProjectionInput::decode(batch)? {if !self.projections.update(&mut self.charge,row.invocation,|p|p.insert(row.projection))? {return Err(invalid("duplicate invocation projection"));}}}
+        else if relation==InvocationSource::NAME { for row in InvocationSource::decode(batch)? { self.sources.insert(&mut self.charge,row.id(),row)?; }
         } else if !visit_predecessor_invocation(relation,batch,&mut self.frames,&mut self.charge)? {
             return Err(invalid("undeclared analysis invocation input"));
         }
@@ -156,14 +165,21 @@ impl InvariantCheck for InvocationCheck {
     fn finish(self: Box<Self>) -> Result<(), ModelError> {
         let empty = std::collections::BTreeSet::new();
         for (id,edges) in self.edges.iter() { let invocation=self.rows.get(id).ok_or_else(||invalid("analysis input invocation absent"))?; for parent in edges {let source=self.sources.get(parent).ok_or_else(||invalid("analysis parent source absent"))?; let reference=source.reference(); let frame=if reference.relation()==AnalysisInvocation::NAME {let row=self.rows.get(&source.current().ok_or_else(||invalid("parent is not current"))?).ok_or_else(||invalid("analysis parent absent"))?; (row.input,row.context)} else {*self.frames.get(&reference).ok_or_else(||invalid("predecessor invocation absent"))?}; if reference==derivation::RowRef::of(*id) || frame!=(invocation.input,invocation.context) {return Err(invalid("analysis parent crosses input/context or self"));} } }
+        let no_sources=std::collections::BTreeMap::new();
+        let no_projections=std::collections::BTreeSet::new();
         for (id, row) in self.rows.iter() {
+            if crate::domain::analysis::sources::digest(self.snapshots.get(id).unwrap_or(&no_sources))!=row.sources || projection_digest(self.projections.get(id).unwrap_or(&no_projections))!=row.projections {return Err(invalid("invocation source or projection membership differs"));}
             if parent_digest(self.edges.get(id).unwrap_or(&empty)) != row.inputs {
                 return Err(invalid(
                     "analysis input membership differs from invocation identity",
                 ));
             }
         }
+        for (id,_) in self.snapshots.iter() {if !self.rows.contains_key(id) {return Err(invalid("orphan invocation source receipt"));}}
+        for (id,_) in self.projections.iter() {if !self.rows.contains_key(id) {return Err(invalid("orphan invocation projection"));}}
         // Global declared derivation validation owns cross-relation cycle checking.
         Ok(())
     }
 }
+
+include!("source_receipts.rs");
